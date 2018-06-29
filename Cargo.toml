@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "clp",
+    "clp-sys",
+    "egraph-c-api",
+    "egraph-force-directed",
+    "egraph-layered",
+]

@@ -1,0 +1,6 @@
+[submodule "clp-sys/vendor/CoinUtils"]
+	path = clp-sys/vendor/CoinUtils
+	url = https://github.com/coin-or/CoinUtils
+[submodule "clp-sys/vendor/Clp"]
+	path = clp-sys/vendor/Clp
+	url = https://github.com/coin-or/Clp
