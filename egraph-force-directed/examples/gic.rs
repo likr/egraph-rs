@@ -1,16 +1,16 @@
 #[macro_use]
 extern crate serde_derive;
 
+extern crate fd_layout;
 extern crate getopts;
 extern crate serde;
 extern crate serde_json;
-extern crate fd_layout;
 
-use fd_layout::force::{Point, Link, Force};
-use fd_layout::link_force::LinkForce;
-use fd_layout::group_force::{Group, GroupForce};
-use fd_layout::simulation::start_simulation;
 use fd_layout::edge_bundling::edge_bundling;
+use fd_layout::force::{Force, Link, Point};
+use fd_layout::group_force::{Group, GroupForce};
+use fd_layout::link_force::LinkForce;
+use fd_layout::simulation::start_simulation;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
@@ -137,18 +137,17 @@ fn main() {
             (width as f32).min(height as f32) / circle.r / 2.,
             -circle.x,
             -circle.y,
-            );
+        );
     }
     for group in graph.groups {
         println!(
             "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"black\" />",
-            group.x,
-            group.y,
-            group.r
+            group.x, group.y, group.r
         );
     }
     for line in lines.iter() {
-        let d = line.points
+        let d = line
+            .points
             .iter()
             .map(|p| format!("{} {}", p.x, p.y))
             .collect::<Vec<_>>()
@@ -161,9 +160,7 @@ fn main() {
     for (point, node) in points.iter().zip(graph.nodes.iter()) {
         println!(
             "<circle cx=\"{}\" cy=\"{}\" r=\"10\" fill=\"{}\" />",
-            point.x,
-            point.y,
-            group_colors[node.group],
+            point.x, point.y, group_colors[node.group],
         );
     }
     println!("</g>\n</svg>");

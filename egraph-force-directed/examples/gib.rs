@@ -153,7 +153,8 @@ fn main() {
         );
     }
     for line in lines.iter() {
-        let d = line.points
+        let d = line
+            .points
             .iter()
             .map(|p| format!("{} {}", p.x, p.y))
             .collect::<Vec<_>>()

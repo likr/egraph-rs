@@ -1,5 +1,5 @@
-use force::{Point, Force};
-use quadtree::{Quadtree, Rect, NodeId, Element};
+use force::{Force, Point};
+use quadtree::{Element, NodeId, Quadtree, Rect};
 
 #[derive(Copy, Clone, Debug)]
 struct Body {

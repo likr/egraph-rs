@@ -1,4 +1,4 @@
-use force::{Point, Link, Force};
+use force::{Force, Link, Point};
 
 pub struct LineSegment {
     source: usize,
@@ -59,12 +59,12 @@ fn compatibility(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
     };
     let c_v = {
         let vp = {
-            let i0r = ((p1.y - q1.y) * (p1.y - p2.y) - (p1.x - q1.x) * (p2.x - p1.x)) / p_norm /
-                p_norm;
+            let i0r =
+                ((p1.y - q1.y) * (p1.y - p2.y) - (p1.x - q1.x) * (p2.x - p1.x)) / p_norm / p_norm;
             let i0x = p1.x + i0r * (p2.x - p1.x);
             let i0y = p1.y + i0r * (p2.y - p1.y);
-            let i1r = ((p1.y - q2.y) * (p1.y - p2.y) - (p1.x - q2.x) * (p2.x - p1.x)) / p_norm /
-                p_norm;
+            let i1r =
+                ((p1.y - q2.y) * (p1.y - p2.y) - (p1.x - q2.x) * (p2.x - p1.x)) / p_norm / p_norm;
             let i1x = p1.x + i1r * (p2.x - p1.x);
             let i1y = p1.y + i1r * (p2.y - p1.y);
             let imx = (i0x + i1x) / 2.;
@@ -72,12 +72,12 @@ fn compatibility(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
             (1. - 2. * distance(pmx, pmy, imx, imy) / distance(i0x, i0y, i1x, i1y)).max(0.0)
         };
         let vq = {
-            let i0r = ((q1.y - p1.y) * (q1.y - q2.y) - (q1.x - p1.x) * (q2.x - q1.x)) / q_norm /
-                q_norm;
+            let i0r =
+                ((q1.y - p1.y) * (q1.y - q2.y) - (q1.x - p1.x) * (q2.x - q1.x)) / q_norm / q_norm;
             let i0x = q1.x + i0r * (q2.x - q1.x);
             let i0y = q1.y + i0r * (q2.y - q1.y);
-            let i1r = ((q1.y - p2.y) * (q1.y - q2.y) - (q1.x - p2.x) * (q2.x - q1.x)) / q_norm /
-                q_norm;
+            let i1r =
+                ((q1.y - p2.y) * (q1.y - q2.y) - (q1.x - p2.x) * (q2.x - q1.x)) / q_norm / q_norm;
             let i1x = q1.x + i1r * (q2.x - q1.x);
             let i1y = q1.y + i1r * (q2.y - q1.y);
             let imx = (i0x + i1x) / 2.;
@@ -135,10 +135,9 @@ pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
                     mid_points[segment.point_indices[(j * 2) as usize]]
                 };
                 mid_points.push(Point::new((p0.x + p1.x) / 2., (p0.y + p1.y) / 2.));
-                segment.point_indices.insert(
-                    (j * 2) as usize,
-                    mid_points.len() - 1,
-                );
+                segment
+                    .point_indices
+                    .insert((j * 2) as usize, mid_points.len() - 1);
             }
         }
 

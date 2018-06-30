@@ -1,13 +1,13 @@
-extern crate xml;
 extern crate petgraph;
 extern crate petgraph_sugiyama_layout;
+extern crate xml;
 
+use petgraph::Graph;
+use petgraph_sugiyama_layout::graph::{Edge, Node};
+use petgraph_sugiyama_layout::sugiyama_layout::SugiyamaLayout;
 use std::fs::File;
 use std::io::Write;
-use petgraph::Graph;
-use petgraph_sugiyama_layout::sugiyama_layout::SugiyamaLayout;
-use petgraph_sugiyama_layout::graph::{Node, Edge};
-use xml::writer::{EventWriter, EmitterConfig, XmlEvent};
+use xml::writer::{EmitterConfig, EventWriter, XmlEvent};
 
 // fn example_graph() -> Graph<(), ()> {
 //     let mut graph = Graph::new();
@@ -109,9 +109,9 @@ fn write<'a, W: Write, E: Into<XmlEvent<'a>>>(w: &mut EventWriter<W>, event: E) 
 
 fn write_to_svg(layout: &Graph<Node, Edge>) {
     let mut file = File::create("output.svg").unwrap();
-    let mut writer = EmitterConfig::new().perform_indent(true).create_writer(
-        &mut file,
-    );
+    let mut writer = EmitterConfig::new()
+        .perform_indent(true)
+        .create_writer(&mut file);
 
     let svg = XmlEvent::start_element("svg").attr("xmlns", "http://www.w3.org/2000/svg");
     write(&mut writer, svg);

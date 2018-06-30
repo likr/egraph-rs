@@ -1,4 +1,4 @@
-use force::{Point, Force};
+use force::{Force, Point};
 
 pub struct CenterForce {}
 

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use petgraph::Graph;
+use super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
-use super::graph::{Node, Edge};
+use petgraph::Graph;
+use std::collections::HashMap;
 
 mod longest_path;
 

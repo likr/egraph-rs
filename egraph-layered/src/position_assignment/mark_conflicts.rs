@@ -1,6 +1,6 @@
-use petgraph::{Graph, Directed};
+use super::super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
-use super::super::graph::{Node, Edge};
+use petgraph::{Directed, Graph};
 
 fn segment(
     graph: &Graph<Node, Edge, Directed>,
@@ -41,9 +41,9 @@ pub fn mark_conflicts(graph: &mut Graph<Node, Edge, Directed>, layers: &Vec<Vec<
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
+    use super::super::super::graph::{Edge, Node};
     use super::*;
-    use super::super::super::graph::{Node, Edge};
+    use petgraph::Graph;
 
     #[test]
     fn test_mark_conflicts() {

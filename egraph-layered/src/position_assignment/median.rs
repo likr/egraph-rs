@@ -1,7 +1,7 @@
-use std::iter::FromIterator;
-use petgraph::{Graph, Directed, EdgeDirection};
+use super::super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
-use super::super::graph::{Node, Edge};
+use petgraph::{Directed, EdgeDirection, Graph};
+use std::iter::FromIterator;
 
 pub fn median(
     graph: &Graph<Node, Edge, Directed>,
@@ -24,9 +24,9 @@ pub fn median(
 
 #[cfg(test)]
 mod tests {
-    use petgraph::{Graph, EdgeDirection};
+    use super::super::super::graph::{Edge, Node};
     use super::*;
-    use super::super::super::graph::{Node, Edge};
+    use petgraph::{EdgeDirection, Graph};
 
     #[test]
     fn test_median_outgoing() {

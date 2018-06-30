@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use petgraph::Graph;
+use super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
-use super::graph::{Node, Edge};
+use petgraph::Graph;
+use std::collections::HashMap;
 
 pub fn normalize(graph: &mut Graph<Node, Edge>, layers_map: &mut HashMap<NodeIndex, usize>) {
     for e in graph.edge_indices() {
@@ -27,8 +27,8 @@ pub fn normalize(graph: &mut Graph<Node, Edge>, layers_map: &mut HashMap<NodeInd
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
     use super::*;
+    use petgraph::Graph;
 
     #[test]
     fn it_works() {

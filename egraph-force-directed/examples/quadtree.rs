@@ -1,8 +1,8 @@
-extern crate rand;
 extern crate fd_layout;
+extern crate rand;
 
-use fd_layout::quadtree::{Quadtree, NodeId, Element, Rect};
-use rand::distributions::{Range, IndependentSample};
+use fd_layout::quadtree::{Element, NodeId, Quadtree, Rect};
+use rand::distributions::{IndependentSample, Range};
 
 fn print_rect(rect: Rect, color: &str) {
     println!(

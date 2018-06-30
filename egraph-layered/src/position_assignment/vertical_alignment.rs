@@ -1,7 +1,7 @@
-use petgraph::{Graph, Directed, EdgeDirection};
-use petgraph::graph::NodeIndex;
-use super::super::graph::{Node, Edge};
+use super::super::graph::{Edge, Node};
 use super::median::median;
+use petgraph::graph::NodeIndex;
+use petgraph::{Directed, EdgeDirection, Graph};
 
 fn iter_layer<'a, I: Iterator<Item = &'a NodeIndex>>(
     graph: &mut Graph<Node, Edge, Directed>,
@@ -88,9 +88,9 @@ pub fn vertical_alignment(
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
+    use super::super::super::graph::{Edge, Node};
     use super::*;
-    use super::super::super::graph::{Node, Edge};
+    use petgraph::Graph;
 
     #[test]
     fn test_vertical_alignment_lt() {

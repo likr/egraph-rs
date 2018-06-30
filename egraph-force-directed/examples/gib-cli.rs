@@ -6,11 +6,11 @@ extern crate getopts;
 extern crate serde;
 extern crate serde_json;
 
-use std::str::FromStr;
 use fd_layout::force::{Force, Link, Point};
-use fd_layout::link_force::LinkForce;
 use fd_layout::group_force::{Group, GroupForce};
+use fd_layout::link_force::LinkForce;
 use fd_layout::simulation::start_simulation;
+use std::str::FromStr;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {

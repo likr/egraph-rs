@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use petgraph::{Graph, Directed};
+use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::GetAdjacencyMatrix;
-use fixedbitset::FixedBitSet;
+use petgraph::{Directed, Graph};
+use std::collections::HashMap;
 
 fn bary_center<N, E>(
     graph: &Graph<N, E, Directed>,
@@ -41,9 +41,9 @@ pub fn crossing_reduction<N, E>(
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
-    use petgraph::visit::GetAdjacencyMatrix;
     use super::*;
+    use petgraph::visit::GetAdjacencyMatrix;
+    use petgraph::Graph;
 
     #[test]
     fn it_works() {

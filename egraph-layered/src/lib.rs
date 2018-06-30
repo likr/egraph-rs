@@ -1,11 +1,11 @@
-extern crate petgraph;
 extern crate fixedbitset;
+extern crate petgraph;
 
-pub mod graph;
 pub mod cross;
 pub mod crossing_reduction;
 pub mod cycle_removal;
-pub mod ranking;
-pub mod position_assignment;
-pub mod sugiyama_layout;
+pub mod graph;
 pub mod normalize;
+pub mod position_assignment;
+pub mod ranking;
+pub mod sugiyama_layout;

@@ -1,12 +1,12 @@
-use std::cmp;
-use petgraph::{Graph, Directed};
-use petgraph::visit::GetAdjacencyMatrix;
-use super::graph::{Node, Edge};
-use super::cycle_removal::remove_cycle;
-use super::ranking::{RankingModule, LongetPathRanking};
 use super::crossing_reduction::crossing_reduction;
-use super::position_assignment::brandes::brandes;
+use super::cycle_removal::remove_cycle;
+use super::graph::{Edge, Node};
 use super::normalize::normalize;
+use super::position_assignment::brandes::brandes;
+use super::ranking::{LongetPathRanking, RankingModule};
+use petgraph::visit::GetAdjacencyMatrix;
+use petgraph::{Directed, Graph};
+use std::cmp;
 
 pub trait Setting {
     fn node_width<N>(&self, node: N) -> usize;
@@ -23,7 +23,9 @@ where
 
 impl SugiyamaLayout {
     pub fn new() -> SugiyamaLayout<LongetPathRanking> {
-        SugiyamaLayout { ranking_module: LongetPathRanking::new() }
+        SugiyamaLayout {
+            ranking_module: LongetPathRanking::new(),
+        }
     }
 }
 
@@ -33,10 +35,9 @@ impl<R: RankingModule> SugiyamaLayout<R> {
         remove_cycle(&mut graph);
         let mut layers_map = self.ranking_module.call(&graph);
         normalize(&mut graph, &mut layers_map);
-        let height = 1 +
-            graph.node_indices().fold(0, |max, u| {
-                cmp::max(max, *layers_map.get(&u).unwrap())
-            });
+        let height = 1 + graph
+            .node_indices()
+            .fold(0, |max, u| cmp::max(max, *layers_map.get(&u).unwrap()));
         let mut layers: Vec<_> = (0..height).map(|_| vec![]).collect();
         for u in graph.node_indices() {
             let layer = layers_map.get(&u).unwrap();
@@ -65,8 +66,8 @@ impl<R: RankingModule> SugiyamaLayout<R> {
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
     use super::*;
+    use petgraph::Graph;
 
     struct MySetting;
 

@@ -1,6 +1,6 @@
-use petgraph::{Graph, Directed};
+use super::super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
-use super::super::graph::{Node, Edge};
+use petgraph::{Directed, Graph};
 
 fn place_block(
     graph: &mut Graph<Node, Edge, Directed>,
@@ -79,10 +79,10 @@ pub fn horizontal_compaction(
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
-    use super::*;
-    use super::super::super::graph::{Node, Edge};
+    use super::super::super::graph::{Edge, Node};
     use super::super::vertical_alignment::vertical_alignment;
+    use super::*;
+    use petgraph::Graph;
 
     #[test]
     fn test_vertical_alignment_lt() {

@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use petgraph::{Graph, Directed};
+use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{VisitMap, Visitable};
-use fixedbitset::FixedBitSet;
+use petgraph::{Directed, Graph};
+use std::collections::HashSet;
 
 fn dfs<N, E>(
     graph: &Graph<N, E, Directed>,
@@ -46,8 +46,8 @@ pub fn remove_cycle<N, E>(graph: &mut Graph<N, E, Directed>) {
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
     use super::*;
+    use petgraph::Graph;
 
     #[test]
     fn it_works() {

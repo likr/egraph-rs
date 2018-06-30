@@ -1,17 +1,17 @@
 #[macro_use]
 extern crate serde_derive;
 
+extern crate fd_layout;
 extern crate getopts;
 extern crate serde;
 extern crate serde_json;
-extern crate fd_layout;
 
-use fd_layout::force::{Point, Link};
-use fd_layout::many_body_force::ManyBodyForce;
-use fd_layout::link_force::LinkForce;
 use fd_layout::center_force::CenterForce;
-use fd_layout::simulation::Simulation;
 use fd_layout::edge_bundling::edge_bundling;
+use fd_layout::force::{Link, Point};
+use fd_layout::link_force::LinkForce;
+use fd_layout::many_body_force::ManyBodyForce;
+use fd_layout::simulation::Simulation;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
@@ -88,7 +88,8 @@ fn main() {
         height / 2. + margin,
     );
     for line in lines.iter() {
-        let d = line.points
+        let d = line
+            .points
             .iter()
             .map(|p| format!("{} {}", p.x, p.y))
             .collect::<Vec<_>>()
@@ -101,8 +102,7 @@ fn main() {
     for point in points.iter() {
         println!(
             "<circle cx=\"{}\" cy=\"{}\" r=\"5\" fill=\"green\" />",
-            point.x,
-            point.y
+            point.x, point.y
         );
     }
     println!("</g>\n</svg>");

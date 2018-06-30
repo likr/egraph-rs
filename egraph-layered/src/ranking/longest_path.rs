@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use petgraph::{Graph, Directed, EdgeDirection};
 use petgraph::graph::NodeIndex;
+use petgraph::{Directed, EdgeDirection, Graph};
+use std::collections::HashMap;
 
 fn dfs<N, E>(
     graph: &Graph<N, E, Directed>,
@@ -32,8 +32,8 @@ pub fn longest_path<N, E>(graph: &Graph<N, E, Directed>) -> HashMap<NodeIndex, u
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
     use super::*;
+    use petgraph::Graph;
 
     #[test]
     fn test_longest_path() {

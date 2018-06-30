@@ -1,10 +1,10 @@
-use std::iter::FromIterator;
-use petgraph::{Graph, Directed};
-use petgraph::graph::NodeIndex;
-use super::super::graph::{Node, Edge};
+use super::super::graph::{Edge, Node};
+use super::horizontal_compaction::horizontal_compaction;
 use super::mark_conflicts::mark_conflicts;
 use super::vertical_alignment::vertical_alignment;
-use super::horizontal_compaction::horizontal_compaction;
+use petgraph::graph::NodeIndex;
+use petgraph::{Directed, Graph};
+use std::iter::FromIterator;
 
 fn set_y(graph: &mut Graph<Node, Edge>, layers: &Vec<Vec<NodeIndex>>) {
     let mut y_offset = 0;
@@ -81,9 +81,9 @@ pub fn brandes(graph: &mut Graph<Node, Edge, Directed>, layers: &Vec<Vec<NodeInd
 
 #[cfg(test)]
 mod tests {
-    use petgraph::Graph;
+    use super::super::super::graph::{Edge, Node};
     use super::*;
-    use super::super::super::graph::{Node, Edge};
+    use petgraph::Graph;
 
     #[test]
     fn test_brandes() {
