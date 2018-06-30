@@ -1,17 +1,17 @@
 #[macro_use]
 extern crate serde_derive;
 
-extern crate fd_layout;
+extern crate egraph_force_directed;
 extern crate getopts;
 extern crate serde;
 extern crate serde_json;
 
-use fd_layout::center_force::CenterForce;
-use fd_layout::edge_bundling::edge_bundling;
-use fd_layout::force::{Link, Point};
-use fd_layout::link_force::LinkForce;
-use fd_layout::many_body_force::ManyBodyForce;
-use fd_layout::simulation::Simulation;
+use egraph_force_directed::center_force::CenterForce;
+use egraph_force_directed::edge_bundling::edge_bundling;
+use egraph_force_directed::force::{Force, Link, Point};
+use egraph_force_directed::link_force::LinkForce;
+use egraph_force_directed::many_body_force::ManyBodyForce;
+use egraph_force_directed::simulation::start_simulation;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
@@ -64,7 +64,7 @@ fn main() {
 
     eprintln!("start");
     let forces = {
-        let mut forces = Vec::new();
+        let mut forces: Vec<Box<Force>> = Vec::new();
         forces.push(Box::new(ManyBodyForce::new()));
         forces.push(Box::new(LinkForce::new(&links)));
         forces.push(Box::new(CenterForce::new()));

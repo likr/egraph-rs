@@ -1,16 +1,16 @@
 #[macro_use]
 extern crate serde_derive;
 
-extern crate fd_layout;
+extern crate egraph_force_directed;
 extern crate getopts;
 extern crate serde;
 extern crate serde_json;
 
-use fd_layout::edge_bundling::edge_bundling;
-use fd_layout::force::{Force, Link, Point};
-use fd_layout::group_force::{Group, GroupForce};
-use fd_layout::link_force::LinkForce;
-use fd_layout::simulation::start_simulation;
+use egraph_force_directed::edge_bundling::edge_bundling;
+use egraph_force_directed::force::{Force, Link, Point};
+use egraph_force_directed::group_force::{Group, GroupForce};
+use egraph_force_directed::link_force::LinkForce;
+use egraph_force_directed::simulation::start_simulation;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
