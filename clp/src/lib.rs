@@ -32,15 +32,57 @@ impl Model {
         }
     }
 
-    pub fn add_rows(&mut self, number: usize, row_lower: Vec<f64>, row_upper: Vec<f64>, row_starts: Vec<usize>, columns: Vec<usize>, elements: Vec<f64>) {
+    pub fn add_rows(&mut self, number: usize, row_lower: Vec<f64>, row_upper: Vec<f64>, row_starts: Vec<u32>, columns: Vec<u32>, elements: Vec<f64>) {
         unsafe {
             clp_sys::Clp_addRows(self.p_model, number as i32, row_lower.as_ptr(), row_upper.as_ptr(), row_starts.as_ptr() as *const i32, columns.as_ptr() as *const i32, elements.as_ptr());
         }
     }
 
-    pub fn delete_rows(&mut self, number: usize, which: Vec<usize>) {
+    pub fn delete_rows(&mut self, number: usize, which: Vec<u32>) {
         unsafe {
             clp_sys::Clp_deleteRows(self.p_model, number as i32, which.as_ptr() as *const i32);
+        }
+    }
+
+    pub fn add_columns(&mut self, number: usize, column_lower: Vec<f64>, column_upper: Vec<f64>, objective: Vec<f64>, column_starts: Vec<u32>, rows: Vec<u32>, elements: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_addColumns(self.p_model, number as i32, column_lower.as_ptr(), column_upper.as_ptr(), objective.as_ptr(), column_starts.as_ptr() as *const i32, rows.as_ptr() as *const i32, elements.as_ptr());
+        }
+    }
+
+    pub fn delete_columns(&mut self, number: usize, which: Vec<u32>) {
+        unsafe {
+            clp_sys::Clp_deleteColumns(self.p_model, number as i32, which.as_ptr() as *const i32);
+        }
+    }
+
+    pub fn change_row_lower(&mut self, row_lower: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_chgRowLower(self.p_model, row_lower.as_ptr());
+        }
+    }
+
+    pub fn change_row_upper(&mut self, row_upper: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_chgRowUpper(self.p_model, row_upper.as_ptr());
+        }
+    }
+
+    pub fn change_column_lower(&mut self, column_lower: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_chgColumnLower(self.p_model, column_lower.as_ptr());
+        }
+    }
+
+    pub fn change_column_upper(&mut self, column_upper: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_chgColumnUpper(self.p_model, column_upper.as_ptr());
+        }
+    }
+
+    pub fn change_objective_coefficients(&mut self, obj_in: Vec<f64>) {
+        unsafe {
+            clp_sys::Clp_chgObjCoefficients(self.p_model, obj_in.as_ptr());
         }
     }
 
@@ -242,6 +284,18 @@ impl Model {
     pub fn primal(&mut self) -> i32 {
         unsafe {
             clp_sys::Clp_primal(self.p_model, 0)
+        }
+    }
+
+    pub fn log_level(&self) -> usize {
+        unsafe {
+            clp_sys::Clp_logLevel(self.p_model) as usize
+        }
+    }
+
+    pub fn set_log_level(&mut self, value: usize) {
+        unsafe {
+            clp_sys::Clp_setLogLevel(self.p_model, value as i32);
         }
     }
 }
