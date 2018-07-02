@@ -1,3 +1,4 @@
 target
 Cargo.lock
 clp-sys/vendor
+node_modules
