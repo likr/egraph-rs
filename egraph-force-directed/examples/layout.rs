@@ -15,7 +15,6 @@ use egraph_force_directed::simulation::start_simulation;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
-    id: usize,
 }
 
 #[derive(Serialize, Deserialize)]

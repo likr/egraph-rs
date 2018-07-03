@@ -3,12 +3,14 @@ use std::collections::HashMap;
 
 pub struct LinkForce {
     links: Vec<Link>,
+    vs: f32,
 }
 
 impl LinkForce {
     pub fn new(links: &Vec<Link>) -> LinkForce {
         LinkForce {
             links: links.clone().to_vec(),
+            vs: 1.,
         }
     }
 }
@@ -46,11 +48,9 @@ impl Force for LinkForce {
             let target = points[link.target];
             let source_count = count.get(&link.source).unwrap();
             let target_count = count.get(&link.target).unwrap();
-            // let dx = (target.x + target.vx) - (source.x + source.vx);
-            // let dy = (target.y + target.vy) - (source.y + source.vy);
-            let dx = (target.x - source.x).max(1e-6);
-            let dy = (target.y - source.y).max(1e-6);
-            let l = (dx * dx + dy * dy).sqrt();
+            let dx = (target.x + self.vs * target.vx) - (source.x + self.vs * source.vx);
+            let dy = (target.y + self.vs * target.vy) - (source.y + self.vs * source.vy);
+            let l = (dx * dx + dy * dy).sqrt().max(1e-6);
             let strength = link.strength / *source_count.min(target_count) as f32;
             let w = (l - link.length) / l * alpha * strength;
             {
@@ -74,19 +74,20 @@ fn test_link() {
     links.push(Link::new(1, 3));
     links.push(Link::new(3, 2));
     links.push(Link::new(2, 0));
-    let force = LinkForce::new(&links);
+    let mut force = LinkForce::new(&links);
+    force.vs = 0.0;
     let mut points = Vec::new();
     points.push(Point::new(10., 10.));
     points.push(Point::new(10., -10.));
     points.push(Point::new(-10., 10.));
     points.push(Point::new(-10., -10.));
     force.apply(&mut points, 1.);
-    assert!(points[0].vx == 2.5);
-    assert!(points[0].vy == 2.5);
-    assert!(points[1].vx == 2.5);
-    assert!(points[1].vy == -2.5);
-    assert!(points[2].vx == -2.5);
-    assert!(points[2].vy == 2.5);
-    assert!(points[3].vx == -2.5);
-    assert!(points[3].vy == -2.5);
+    assert_eq!(points[0].vx, 2.5);
+    assert_eq!(points[0].vy, 2.5);
+    assert_eq!(points[1].vx, 2.5);
+    assert_eq!(points[1].vy, -2.5);
+    assert_eq!(points[2].vx, -2.5);
+    assert_eq!(points[2].vy, 2.5);
+    assert_eq!(points[3].vx, -2.5);
+    assert_eq!(points[3].vy, -2.5);
 }
