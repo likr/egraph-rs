@@ -4,7 +4,9 @@
   "description": "",
   "main": "egraph.js",
   "scripts": {
-    "build": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS='[\"_force_directed\"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1"
+    "build:lib": "cargo build -p egraph-c-api --release --target=wasm32-unknown-emscripten",
+    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS='[\"_force_directed\"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1",
+    "build": "npm run build:lib && npm run build:wasm"
   },
   "keywords": [],
   "author": "Yosuke Onoue <onoue@likr-lab.com>",

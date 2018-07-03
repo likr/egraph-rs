@@ -3,9 +3,32 @@
 <head>
 <meta charset="utf-8"/>
 <title>Force Directed | Egraph Examples</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-polyfill/6.23.0/polyfill.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fetch/2.0.3/fetch.min.js"></script>
+<script>
+if (!window.customElements) {
+  window.customElements = {}
+}
+window.customElements.forcePolyfill = true
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/custom-elements/1.0.0/custom-elements.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.10.0/d3.min.js"></script>
+<script src="https://likr.github.io/eg-renderer-canvas/eg-renderer.js"></script>
 </head>
 <body>
-  <div id="content"></div>
+  <eg-renderer
+    width="960"
+    height="600"
+    default-node-width="10"
+    default-node-height="10"
+    default-node-stroke-color="#fff"
+    default-node-stroke-width="1.5"
+    default-node-type="circle"
+    default-link-stroke-color="#999"
+    default-link-stroke-opacity="0.6"
+    node-label-property="name"
+    no-auto-centering
+  >
   <script src="bundle.js"></script>
 </body>
 </html>

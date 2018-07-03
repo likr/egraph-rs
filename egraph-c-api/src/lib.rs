@@ -49,9 +49,10 @@ pub fn force_directed(
         forces
     };
     start_simulation(&mut points, &forces);
-    let mut result = unsafe { Vec::from_raw_parts(result, num_vertices * 2, num_vertices * 2) };
+    let offset = 4; // XXX monkey patch. this value should be larger than 3(?)
+    let mut result = unsafe { Vec::from_raw_parts(result, offset + num_vertices * 2, offset + num_vertices * 2) };
     for (i, point) in points.iter().enumerate() {
-        result[2 * i] = point.x as f64;
-        result[2 * i + 1] = point.y as f64;
+        result[offset + 2 * i] = point.x as f64;
+        result[offset + 2 * i + 1] = point.y as f64;
     }
 }
