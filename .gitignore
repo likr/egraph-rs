@@ -2,3 +2,5 @@ target
 Cargo.lock
 clp-sys/vendor
 node_modules
+egraph-js/egraph.js
+egraph-js/egraph.wasm
