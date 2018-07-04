@@ -27,7 +27,7 @@ pub fn force_directed(
     let edges = unsafe { Vec::from_raw_parts(edges, num_edges * 2, num_edges * 2) };
     let mut points = (0..num_vertices)
         .map(|i| {
-            let r = (i as usize as f32).sqrt();
+            let r = 10. * (i as usize as f32).sqrt();
             let theta = std::f32::consts::PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
             let x = r * theta.cos();
             let y = r * theta.sin();
