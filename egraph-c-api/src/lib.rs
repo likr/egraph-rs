@@ -1,12 +1,22 @@
 extern crate clp;
 extern crate egraph_force_directed;
+extern crate petgraph;
 
+use std::os::raw::{c_double, c_uint};
+use petgraph::graph::NodeIndex;
 use egraph_force_directed::center_force::CenterForce;
 use egraph_force_directed::force::{Force, Link, Point};
 use egraph_force_directed::link_force::LinkForce;
 use egraph_force_directed::many_body_force::ManyBodyForce;
 use egraph_force_directed::simulation::start_simulation;
-use std::os::raw::{c_double, c_uint};
+
+#[derive(Default)]
+pub struct Node {
+    x: c_double,
+    y: c_double,
+}
+
+type Graph = petgraph::Graph<Node, (), petgraph::Undirected>;
 
 #[no_mangle]
 pub fn hoge() {
@@ -16,17 +26,12 @@ pub fn hoge() {
 }
 
 #[no_mangle]
-pub fn force_directed(
-    num_vertices: c_uint,
-    num_edges: c_uint,
-    edges: *mut c_uint,
-    result: *mut c_double,
+pub unsafe fn force_directed(
+    p_graph: *mut Graph
 ) {
-    let num_vertices = num_vertices as usize;
-    let num_edges = num_edges as usize;
-    let edges = unsafe { Vec::from_raw_parts(edges, num_edges * 2, num_edges * 2) };
-    let mut points = (0..num_vertices)
-        .map(|i| {
+    let mut points = (*p_graph).node_indices()
+        .map(|node| {
+            let i = node.index();
             let r = 10. * (i as usize as f32).sqrt();
             let theta = std::f32::consts::PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
             let x = r * theta.cos();
@@ -34,11 +39,10 @@ pub fn force_directed(
             Point::new(x, y)
         })
         .collect::<Vec<_>>();
-    let links = (0..num_edges)
-        .map(|i| {
-            let source = edges[2 * i] as usize;
-            let target = edges[2 * i + 1] as usize;
-            Link::new(source, target)
+    let links = (*p_graph).edge_indices()
+        .map(|edge| {
+            let (source, target) = (*p_graph).edge_endpoints(edge).unwrap();
+            Link::new(source.index(), target.index())
         })
         .collect::<Vec<_>>();
     let forces = {
@@ -49,10 +53,45 @@ pub fn force_directed(
         forces
     };
     start_simulation(&mut points, &forces);
-    let offset = 4; // XXX monkey patch. this value should be larger than 3(?)
-    let mut result = unsafe { Vec::from_raw_parts(result, offset + num_vertices * 2, offset + num_vertices * 2) };
-    for (i, point) in points.iter().enumerate() {
-        result[offset + 2 * i] = point.x as f64;
-        result[offset + 2 * i + 1] = point.y as f64;
+    for (node, point) in (*p_graph).node_indices().zip(points) {
+        let mut node = (*p_graph).node_weight_mut(node).unwrap();
+        node.x = point.x as f64;
+        node.y = point.y as f64;
     }
+}
+
+#[no_mangle]
+pub fn graph_new(num_nodes: c_uint, num_edges: c_uint) -> *mut Graph {
+    let graph = Box::new(Graph::with_capacity(num_nodes as usize, num_edges as usize));
+    Box::into_raw(graph)
+}
+
+#[no_mangle]
+pub unsafe fn graph_add_node(p_graph: *mut Graph) -> c_uint {
+    (*p_graph).add_node(Node::default()).index() as u32
+}
+
+#[no_mangle]
+pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uint {
+    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), ()).index() as u32
+}
+
+#[no_mangle]
+pub unsafe fn graph_node_count(p_graph: *mut Graph) -> c_uint {
+    (*p_graph).node_count() as u32
+}
+
+#[no_mangle]
+pub unsafe fn graph_edge_count(p_graph: *mut Graph) -> c_uint {
+    (*p_graph).edge_count() as u32
+}
+
+#[no_mangle]
+pub unsafe fn graph_get_x(p_graph: *mut Graph, u: c_uint) -> c_double {
+    (*p_graph).raw_nodes()[u as usize].weight.x
+}
+
+#[no_mangle]
+pub unsafe fn graph_get_y(p_graph: *mut Graph, u: c_uint) -> c_double {
+    (*p_graph).raw_nodes()[u as usize].weight.y
 }
