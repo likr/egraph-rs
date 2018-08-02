@@ -8,5 +8,6 @@ crate-type = ["staticlib"]
 
 [dependencies]
 clp = { path = "../clp" }
+egraph = { path = "../egraph" }
 egraph-force-directed = { path = "../egraph-force-directed" }
 petgraph = "0.4"

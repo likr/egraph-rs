@@ -1,4 +1,5 @@
 extern crate clp;
+extern crate egraph;
 extern crate egraph_force_directed;
 extern crate petgraph;
 
@@ -61,29 +62,29 @@ pub unsafe fn force_directed(
 }
 
 #[no_mangle]
-pub fn graph_new(num_nodes: c_uint, num_edges: c_uint) -> *mut Graph {
-    let graph = Box::new(Graph::with_capacity(num_nodes as usize, num_edges as usize));
+pub fn graph_new() -> *mut Graph {
+    let graph = Box::new(Graph::new_undirected());
     Box::into_raw(graph)
 }
 
 #[no_mangle]
 pub unsafe fn graph_add_node(p_graph: *mut Graph) -> c_uint {
-    (*p_graph).add_node(Node::default()).index() as u32
+    (*p_graph).add_node(Node::default()).index() as c_uint
 }
 
 #[no_mangle]
 pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uint {
-    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), ()).index() as u32
+    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), ()).index() as c_uint
 }
 
 #[no_mangle]
 pub unsafe fn graph_node_count(p_graph: *mut Graph) -> c_uint {
-    (*p_graph).node_count() as u32
+    (*p_graph).node_count() as c_uint
 }
 
 #[no_mangle]
 pub unsafe fn graph_edge_count(p_graph: *mut Graph) -> c_uint {
-    (*p_graph).edge_count() as u32
+    (*p_graph).edge_count() as c_uint
 }
 
 #[no_mangle]
@@ -94,4 +95,18 @@ pub unsafe fn graph_get_x(p_graph: *mut Graph, u: c_uint) -> c_double {
 #[no_mangle]
 pub unsafe fn graph_get_y(p_graph: *mut Graph, u: c_uint) -> c_double {
     (*p_graph).raw_nodes()[u as usize].weight.y
+}
+
+#[no_mangle]
+pub unsafe fn connected_components(p_graph: *mut Graph) -> *mut c_uint {
+    egraph::algorithms::connected_components(&*p_graph)
+        .iter()
+        .map(|&c| c as c_uint)
+        .collect::<Vec<_>>()
+        .as_mut_ptr()
+}
+
+#[no_mangle]
+pub unsafe fn rust_free(pointer: *mut c_uint) {
+    let _b = Box::from_raw(pointer);
 }

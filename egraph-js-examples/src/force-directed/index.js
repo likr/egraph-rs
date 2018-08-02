@@ -1,9 +1,9 @@
 import egraph from 'egraph'
 
 class Graph {
-  constructor (Module, numNodes, numEdges) {
+  constructor (Module) {
     this.module = {
-      graphNew: Module.cwrap('graph_new', 'number', ['number', 'number']),
+      graphNew: Module.cwrap('graph_new', 'number', []),
       graphAddNode: Module.cwrap('graph_add_node', 'number', ['number']),
       graphAddEdge: Module.cwrap('graph_add_edge', 'number', ['number', 'number', 'number']),
       graphNodeCount: Module.cwrap('graph_node_count', 'number', ['number']),
@@ -11,7 +11,7 @@ class Graph {
       graphGetX: Module.cwrap('graph_get_x', 'number', ['number', 'number']),
       graphGetY: Module.cwrap('graph_get_y', 'number', ['number', 'number'])
     }
-    this.pointer = this.module.graphNew(numNodes, numEdges)
+    this.pointer = this.module.graphNew()
   }
 
   addNode () {
@@ -41,6 +41,8 @@ class Graph {
 
 const layout = (Module, graph, data) => {
   const forceDirected = Module.cwrap('force_directed', 'void', ['number'])
+  const connectedComponents = Module.cwrap('connected_components', 'number', ['number'])
+
   const start = Date.now()
   forceDirected(graph.pointer)
   const stop = Date.now()
@@ -48,6 +50,11 @@ const layout = (Module, graph, data) => {
   data.nodes.forEach((node, i) => {
     node.x = graph.getX(i)
     node.y = graph.getY(i)
+  })
+
+  const components = connectedComponents(graph.pointer)
+  data.nodes.forEach((node, i) => {
+    node.component = Module.HEAPU32[components / 4 + i]
   })
 }
 
@@ -72,7 +79,7 @@ window.fetch('../egraph.wasm')
         window.fetch('miserables.json')
           .then((response) => response.json())
           .then((data) => {
-            const graph = new Graph(Module, data.nodes.length, data.links.length)
+            const graph = new Graph(Module)
             data.nodes.forEach(() => {
               graph.addNode()
             })
