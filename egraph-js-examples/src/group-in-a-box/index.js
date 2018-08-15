@@ -1,12 +1,27 @@
 import {egraph} from 'egraph/loader'
+import {Allocator} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
 
 const layout = (Module, graph, data) => {
+  const allocator = new Allocator(Module)
+  const groupAssignTreemap = Module.cwrap('group_assign_treemap', 'number', ['number', 'number', 'number', 'number', 'number'])
+
+  const groupSet = new Set()
+  for (const node of data.nodes) {
+    groupSet.add(node.group)
+  }
+  const groupMap = new Map(Array.from(groupSet).map((g, i) => [g, i]))
+
+  const nodeGroups = allocator.alloc(4 * graph.nodeCount())
+  data.nodes.forEach((node, i) => {
+    Module.HEAPU32[nodeGroups / 4 + i] = groupMap.get(node.group)
+  })
+
+  const groups = groupAssignTreemap(960, 600, groupSet.size, nodeGroups, graph.nodeCount())
+
   const simulation = new Simulation(Module)
-  simulation.addManyBodyForce()
-  simulation.addLinkForce(graph)
-  simulation.addCenterForce()
+  simulation.addGroupForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
   simulation.start(graph)
 
   data.nodes.forEach((node, i) => {

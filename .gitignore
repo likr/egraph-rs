@@ -4,3 +4,5 @@ clp-sys/vendor
 node_modules
 egraph-js/egraph.js
 egraph-js/egraph.wasm
+egraph-js-examples/public/egraph.wasm
+egraph-js-examples/public/*/bundle.js

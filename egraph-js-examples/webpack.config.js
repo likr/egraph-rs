@@ -21,7 +21,8 @@ const options = {
     ]
   },
   entry: {
-    'force-directed': './src/force-directed/index'
+    'force-directed': './src/force-directed/index',
+    'group-in-a-box': './src/group-in-a-box/index'
   },
   output: {
     path: path.resolve(__dirname, 'public'),
