@@ -26,7 +26,7 @@ pub unsafe fn connected_components(p_graph: *mut Graph) -> *mut c_uint {
 
 #[no_mangle]
 pub unsafe fn rust_alloc(bytes: c_uint) -> *mut c_uchar {
-    let mut v = vec![0; bytes as usize];
+    let mut v = vec![0 as c_uchar; bytes as usize];
     let ptr = v.as_mut_ptr();
     std::mem::forget(v);
     ptr

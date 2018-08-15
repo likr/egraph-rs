@@ -1,102 +1,30 @@
 import egraph from 'egraph'
-
-export class Graph {
-  constructor (Module) {
-    this.module = {
-      graphNew: Module.cwrap('graph_new', 'number', []),
-      graphAddNode: Module.cwrap('graph_add_node', 'number', ['number']),
-      graphAddEdge: Module.cwrap('graph_add_edge', 'number', ['number', 'number', 'number']),
-      graphNodeCount: Module.cwrap('graph_node_count', 'number', ['number']),
-      graphEdgeCount: Module.cwrap('graph_edge_count', 'number', ['number']),
-      graphGetX: Module.cwrap('graph_get_x', 'number', ['number', 'number']),
-      graphGetY: Module.cwrap('graph_get_y', 'number', ['number', 'number'])
-    }
-    this.pointer = this.module.graphNew()
-  }
-
-  addNode () {
-    return this.module.graphAddNode(this.pointer)
-  }
-
-  addEdge (u, v) {
-    return this.module.graphAddEdge(this.pointer, u, v)
-  }
-
-  nodeCount () {
-    return this.module.graphNodeCount(this.pointer)
-  }
-
-  edgeCount () {
-    return this.module.graphEdgeCount(this.pointer)
-  }
-
-  getX (u) {
-    return this.module.graphGetX(this.pointer, u)
-  }
-
-  getY (u) {
-    return this.module.graphGetY(this.pointer, u)
-  }
-}
-
-export class Simulation {
-  constructor (Module) {
-    this.module = {
-      simulationNew: Module.cwrap('simulation_new', 'number', []),
-      simulationAddCenterForce: Module.cwrap('simulation_add_center_force', 'void', ['number']),
-      simulationAddGroupForce: Module.cwrap('simulation_add_group_force', 'void', ['number', 'number', 'number', 'number', 'number']),
-      simulationAddLinkForce: Module.cwrap('simulation_add_link_force', 'void', ['number', 'number']),
-      simulationAddManyBodyForce: Module.cwrap('simulation_add_many_body_force', 'void', ['number']),
-      simulationStart: Module.cwrap('simulation_start', 'void', ['number', 'number'])
-    }
-    this.pointer = this.module.simulationNew()
-  }
-
-  addCenterForce () {
-    this.module.simulationAddCenterForce(this.pointer)
-  }
-
-  addGroupForce () {
-  }
-
-  addLinkForce (graph) {
-    this.module.simulationAddLinkForce(this.pointer, graph.pointer)
-  }
-
-  addManyBodyForce () {
-    this.module.simulationAddManyBodyForce(this.pointer)
-  }
-
-  start (graph) {
-    const start = Date.now()
-    this.module.simulationStart(this.pointer, graph.pointer)
-    const stop = Date.now()
-    console.log(stop - start)
-  }
-}
-
-export class Allocator {
-  constructor (Module) {
-    this.module = {
-      alloc: Module.cwrap('rust_alloc', 'number', ['number']),
-      free: Module.cwrap('rust_free', 'void', ['number'])
-    }
-  }
-
-  alloc (bytes) {
-    return this.module.alloc(bytes)
-  }
-
-  free (pointer) {
-    this.module.free(pointer)
-  }
-}
+import {Graph} from 'egraph/graph'
+import {Simulation} from 'egraph/layout/force-directed'
+import {Allocator} from 'egraph/allocator'
 
 const layout = (Module, graph, data) => {
+  const allocator = new Allocator(Module)
+  const groupAssignTreemap = Module.cwrap('group_assign_treemap', 'number', ['number', 'number', 'number', 'number', 'number'])
+
+  const groupSet = new Set()
+  for (const node of data.nodes) {
+    groupSet.add(node.group)
+  }
+  const groupMap = new Map(Array.from(groupSet).map((g, i) => [g, i]))
+
+  const nodeGroups = allocator.alloc(4 * graph.nodeCount())
+  data.nodes.forEach((node, i) => {
+    Module.HEAPU32[nodeGroups / 4 + i] = groupMap.get(node.group)
+  })
+
+  const groups = groupAssignTreemap(960, 600, groupSet.size, nodeGroups, graph.nodeCount())
+
   const simulation = new Simulation(Module)
-  simulation.addManyBodyForce()
-  simulation.addLinkForce(graph)
-  simulation.addCenterForce()
+  // simulation.addManyBodyForce()
+  // simulation.addLinkForce(graph)
+  simulation.addGroupForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
+  // simulation.addCenterForce()
   simulation.start(graph)
 
   data.nodes.forEach((node, i) => {

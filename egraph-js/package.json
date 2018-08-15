@@ -5,7 +5,7 @@
   "main": "egraph.js",
   "scripts": {
     "build:lib": "cargo build -p egraph-c-api --release --target=wasm32-unknown-emscripten",
-    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS='[\"_graph_new\", \"_graph_add_node\", \"_graph_add_edge\", \"_graph_node_count\", \"_graph_edge_count\", \"_graph_get_x\", \"_graph_get_y\", \"_connected_components\", \"_simulation_new\", \"_simulation_add_center_force\", \"_simulation_add_group_force\", \"_simulation_add_link_force\", \"_simulation_add_many_body_force\", \"_simulation_start\"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1",
+    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS='[\"_graph_new\", \"_graph_add_node\", \"_graph_add_edge\", \"_graph_node_count\", \"_graph_edge_count\", \"_graph_get_x\", \"_graph_get_y\", \"_connected_components\", \"_simulation_new\", \"_simulation_add_center_force\", \"_simulation_add_group_force\", \"_simulation_add_link_force\", \"_simulation_add_many_body_force\", \"_simulation_start\", \"_group_assign_treemap\", \"_rust_alloc\", \"_rust_free\"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1",
     "build": "npm run build:lib && npm run build:wasm"
   },
   "keywords": [],

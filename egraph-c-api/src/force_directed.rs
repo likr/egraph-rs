@@ -1,16 +1,13 @@
 use std::f32::consts::PI;
-use std::os::raw::c_double;
-use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, Group as EGroup, GroupForce, LinkForce, ManyBodyForce};
+use std::mem::forget;
+use std::os::raw::{c_uint};
+use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, Group, GroupForce, LinkForce, ManyBodyForce};
 use egraph::layout::force_directed::simulation::start_simulation;
+use egraph::layout::force_directed::group::treemap;
 use graph::Graph;
 
 pub struct Simulation {
     forces: Vec<Box<Force>>,
-}
-
-pub struct Group {
-    pub x: c_double,
-    pub y: c_double,
 }
 
 impl Simulation {
@@ -33,12 +30,12 @@ pub unsafe fn simulation_add_center_force(p_simulation: *mut Simulation) {
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_force(p_simulation: *mut Simulation, num_groups: usize, p_groups: *mut Group, num_nodes: usize, p_node_groups: *mut usize) {
-    let groups = Vec::from_raw_parts(p_groups, num_groups, num_groups);
-    let groups = groups.iter()
-        .map(|group| EGroup::new(group.x as f32, group.y as f32))
+pub unsafe fn simulation_add_group_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) {
+    let groups = Vec::from_raw_parts(p_groups, num_groups as usize, num_groups as usize);
+    let node_groups = Vec::from_raw_parts(p_node_groups, num_nodes as usize, num_nodes as usize);
+    let node_groups = node_groups.iter()
+        .map(|&g| g as usize)
         .collect::<Vec<_>>();
-    let node_groups = Vec::from_raw_parts(p_node_groups, num_nodes, num_nodes);
     (*p_simulation).forces.push(Box::new(GroupForce::new(groups, node_groups)));
 }
 
@@ -76,4 +73,17 @@ pub unsafe fn simulation_start(p_simulation: *mut Simulation, p_graph: *mut Grap
         node.x = point.x as f64;
         node.y = point.y as f64;
     }
+}
+
+#[no_mangle]
+pub unsafe fn group_assign_treemap(width: c_uint, height: c_uint, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) -> *mut Group {
+    let node_groups = Vec::from_raw_parts(p_node_groups, num_nodes as usize, num_nodes as usize);
+    let node_groups2 = node_groups.iter()
+        .map(|&g| g as usize)
+        .collect::<Vec<_>>();
+    let mut groups = treemap::assign(width as usize, height as usize, num_groups as usize, &node_groups2);
+    let pointer = groups.as_mut_ptr();
+    forget(groups);
+    forget(node_groups);
+    pointer
 }

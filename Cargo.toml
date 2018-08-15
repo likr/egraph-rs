@@ -4,6 +4,5 @@ members = [
     "clp-sys",
     "egraph",
     "egraph-c-api",
-    "egraph-force-directed",
     "egraph-layered",
 ]
