@@ -1,6 +1,6 @@
 import egraph from 'egraph'
 
-class Graph {
+export class Graph {
   constructor (Module) {
     this.module = {
       graphNew: Module.cwrap('graph_new', 'number', []),
@@ -39,19 +39,72 @@ class Graph {
   }
 }
 
-const layout = (Module, graph, data) => {
-  const forceDirected = Module.cwrap('force_directed', 'void', ['number'])
-  const connectedComponents = Module.cwrap('connected_components', 'number', ['number'])
+export class Simulation {
+  constructor (Module) {
+    this.module = {
+      simulationNew: Module.cwrap('simulation_new', 'number', []),
+      simulationAddCenterForce: Module.cwrap('simulation_add_center_force', 'void', ['number']),
+      simulationAddGroupForce: Module.cwrap('simulation_add_group_force', 'void', ['number', 'number', 'number', 'number', 'number']),
+      simulationAddLinkForce: Module.cwrap('simulation_add_link_force', 'void', ['number', 'number']),
+      simulationAddManyBodyForce: Module.cwrap('simulation_add_many_body_force', 'void', ['number']),
+      simulationStart: Module.cwrap('simulation_start', 'void', ['number', 'number'])
+    }
+    this.pointer = this.module.simulationNew()
+  }
 
-  const start = Date.now()
-  forceDirected(graph.pointer)
-  const stop = Date.now()
-  console.log(stop - start)
+  addCenterForce () {
+    this.module.simulationAddCenterForce(this.pointer)
+  }
+
+  addGroupForce () {
+  }
+
+  addLinkForce (graph) {
+    this.module.simulationAddLinkForce(this.pointer, graph.pointer)
+  }
+
+  addManyBodyForce () {
+    this.module.simulationAddManyBodyForce(this.pointer)
+  }
+
+  start (graph) {
+    const start = Date.now()
+    this.module.simulationStart(this.pointer, graph.pointer)
+    const stop = Date.now()
+    console.log(stop - start)
+  }
+}
+
+export class Allocator {
+  constructor (Module) {
+    this.module = {
+      alloc: Module.cwrap('rust_alloc', 'number', ['number']),
+      free: Module.cwrap('rust_free', 'void', ['number'])
+    }
+  }
+
+  alloc (bytes) {
+    return this.module.alloc(bytes)
+  }
+
+  free (pointer) {
+    this.module.free(pointer)
+  }
+}
+
+const layout = (Module, graph, data) => {
+  const simulation = new Simulation(Module)
+  simulation.addManyBodyForce()
+  simulation.addLinkForce(graph)
+  simulation.addCenterForce()
+  simulation.start(graph)
+
   data.nodes.forEach((node, i) => {
     node.x = graph.getX(i)
     node.y = graph.getY(i)
   })
 
+  const connectedComponents = Module.cwrap('connected_components', 'number', ['number'])
   const components = connectedComponents(graph.pointer)
   data.nodes.forEach((node, i) => {
     node.component = Module.HEAPU32[components / 4 + i]
