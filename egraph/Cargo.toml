@@ -1,9 +1,10 @@
 [package]
 name = "egraph"
 version = "0.1.0"
-authors = ["Yosuke ONOUE <onoue@likr-lab.com>"]
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 
 [dependencies]
+rand = "0.3"
 petgraph = "0.4"
 
 [dev-dependencies]
