@@ -1,5 +1,5 @@
-use force::{Force, Link, Point};
 use std::collections::HashMap;
+use super::force::{Force, Link, Point};
 
 pub struct LinkForce {
     links: Vec<Link>,

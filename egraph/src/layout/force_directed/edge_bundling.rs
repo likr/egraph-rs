@@ -1,4 +1,4 @@
-use force::{Force, Link, Point};
+use super::force::{Force, Link, Point};
 
 pub struct LineSegment {
     source: usize,

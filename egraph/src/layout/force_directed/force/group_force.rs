@@ -1,5 +1,5 @@
-use force::{Force, Point};
-use many_body_force::ManyBodyForce;
+use super::force::{Force, Point};
+use super::many_body_force::ManyBodyForce;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Group {

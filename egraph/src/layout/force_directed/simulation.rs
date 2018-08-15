@@ -1,4 +1,4 @@
-use force::{Force, Point};
+use super::force::{Force, Point};
 
 pub fn start_simulation(points: &mut Vec<Point>, forces: &Vec<Box<Force>>) {
     let mut alpha = 1.;

@@ -1,13 +1,7 @@
-extern crate egraph_force_directed;
-
 use std::f32::consts::PI;
 use std::os::raw::c_double;
-use egraph_force_directed::center_force::CenterForce;
-use egraph_force_directed::force::{Force, Link, Point};
-use egraph_force_directed::group_force::{GroupForce};
-use egraph_force_directed::link_force::LinkForce;
-use egraph_force_directed::many_body_force::ManyBodyForce;
-use egraph_force_directed::simulation::start_simulation;
+use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, Group as EGroup, GroupForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::simulation::start_simulation;
 use graph::Graph;
 
 pub struct Simulation {
@@ -42,7 +36,7 @@ pub unsafe fn simulation_add_center_force(p_simulation: *mut Simulation) {
 pub unsafe fn simulation_add_group_force(p_simulation: *mut Simulation, num_groups: usize, p_groups: *mut Group, num_nodes: usize, p_node_groups: *mut usize) {
     let groups = Vec::from_raw_parts(p_groups, num_groups, num_groups);
     let groups = groups.iter()
-        .map(|group| egraph_force_directed::group_force::Group::new(group.x as f32, group.y as f32))
+        .map(|group| EGroup::new(group.x as f32, group.y as f32))
         .collect::<Vec<_>>();
     let node_groups = Vec::from_raw_parts(p_node_groups, num_nodes, num_nodes);
     (*p_simulation).forces.push(Box::new(GroupForce::new(groups, node_groups)));

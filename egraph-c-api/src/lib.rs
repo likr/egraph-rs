@@ -1,6 +1,5 @@
 extern crate clp;
 extern crate egraph;
-extern crate egraph_force_directed;
 extern crate petgraph;
 
 pub mod graph;
