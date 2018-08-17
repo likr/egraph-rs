@@ -22,6 +22,7 @@ const layout = (Module, graph, data) => {
 
   const simulation = new Simulation(Module)
   simulation.addGroupForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
+  simulation.addGroupLinkForce(graph, nodeGroups)
   simulation.start(graph)
 
   data.nodes.forEach((node, i) => {
