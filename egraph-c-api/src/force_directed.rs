@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 use std::mem::forget;
 use std::os::raw::{c_uint};
-use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, Group, GroupForce, GroupLinkForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupForce, GroupLinkForce, LinkForce, ManyBodyForce};
 use egraph::layout::force_directed::simulation::start_simulation;
 use egraph::layout::force_directed::group::treemap;
 use graph::Graph;
@@ -52,13 +52,7 @@ pub unsafe fn simulation_add_group_link_force(p_simulation: *mut Simulation, p_g
 
 #[no_mangle]
 pub unsafe fn simulation_add_link_force(p_simulation: *mut Simulation, p_graph: *mut Graph) {
-    let links = (*p_graph).edge_indices()
-        .map(|edge| {
-            let (source, target) = (*p_graph).edge_endpoints(edge).unwrap();
-            Link::new(source.index(), target.index())
-        })
-        .collect::<Vec<_>>();
-    (*p_simulation).forces.push(Box::new(LinkForce::new(&links)));
+    (*p_simulation).forces.push(Box::new(LinkForce::new(&(*p_graph))));
 }
 
 #[no_mangle]

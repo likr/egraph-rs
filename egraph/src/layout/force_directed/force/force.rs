@@ -23,6 +23,7 @@ pub struct Link {
     pub target: usize,
     pub length: f32,
     pub strength: f32,
+    pub bias: f32,
 }
 
 impl Link {
@@ -32,6 +33,7 @@ impl Link {
             target: target,
             length: 30.,
             strength: 1.,
+            bias: 0.5,
         }
     }
 }
