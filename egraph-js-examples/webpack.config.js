@@ -34,6 +34,8 @@ const options = {
     ])
   ],
   node: {
+    'crypto': 'empty',
+    'path': 'empty',
     'fs': 'empty'
   },
   devServer: {
