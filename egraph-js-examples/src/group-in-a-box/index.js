@@ -21,8 +21,9 @@ const layout = (Module, graph, data) => {
   const groups = groupAssignTreemap(960, 600, groupSet.size, nodeGroups, graph.nodeCount())
 
   const simulation = new Simulation(Module)
-  simulation.addGroupForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
+  simulation.addGroupManyBodyForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
   simulation.addGroupLinkForce(graph, nodeGroups)
+  simulation.addGroupCenterForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
   simulation.start(graph)
 
   data.nodes.forEach((node, i) => {

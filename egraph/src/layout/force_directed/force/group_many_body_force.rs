@@ -1,43 +1,26 @@
-use super::force::{Force, Point};
+use super::force::{Force, Point, Group};
 use super::many_body_force::ManyBodyForce;
 
-#[derive(Copy, Clone, Debug)]
-pub struct Group {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Group {
-    pub fn new(x: f32, y: f32) -> Group {
-        Group { x: x, y: y }
-    }
-}
-
-pub struct GroupForce {
+pub struct GroupManyBodyForce {
     pub groups: Vec<Group>,
     pub node_groups: Vec<usize>,
     pub strength: f32,
 }
 
-impl GroupForce {
-    pub fn new(groups: Vec<Group>, node_groups: Vec<usize>) -> GroupForce {
-        GroupForce {
-            groups,
-            node_groups,
+impl GroupManyBodyForce {
+    pub fn new(groups: &Vec<Group>, node_groups: &Vec<usize>) -> GroupManyBodyForce {
+        GroupManyBodyForce {
+            groups: groups.clone().to_vec(),
+            node_groups: node_groups.clone().to_vec(),
             strength: 0.1,
         }
     }
 }
 
-impl Force for GroupForce {
+impl Force for GroupManyBodyForce {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
         let groups = &self.groups;
         let node_groups = &self.node_groups;
-        let k = self.strength * alpha;
-        for (point, &g) in points.iter_mut().zip(node_groups) {
-            point.vx += (groups[g].x - point.x) * k;
-            point.vy += (groups[g].y - point.y) * k;
-        }
 
         let many_body = ManyBodyForce::new();
         for g in 0..groups.len() {

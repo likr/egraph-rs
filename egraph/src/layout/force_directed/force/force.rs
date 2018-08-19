@@ -38,6 +38,18 @@ impl Link {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct Group {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Group {
+    pub fn new(x: f32, y: f32) -> Group {
+        Group { x: x, y: y }
+    }
+}
+
 pub trait Force {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32);
 }

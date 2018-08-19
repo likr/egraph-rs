@@ -3,8 +3,9 @@ export class Simulation {
     this.module = {
       simulationNew: Module.cwrap('simulation_new', 'number', []),
       simulationAddCenterForce: Module.cwrap('simulation_add_center_force', 'void', ['number']),
-      simulationAddGroupForce: Module.cwrap('simulation_add_group_force', 'void', ['number', 'number', 'number', 'number', 'number']),
+      simulationAddGroupCenterForce: Module.cwrap('simulation_add_group_center_force', 'void', ['number', 'number', 'number', 'number', 'number']),
       simulationAddGroupLinkForce: Module.cwrap('simulation_add_group_link_force', 'void', ['number', 'number', 'number']),
+      simulationAddGroupManyBodyForce: Module.cwrap('simulation_add_group_many_body_force', 'void', ['number', 'number', 'number', 'number', 'number']),
       simulationAddLinkForce: Module.cwrap('simulation_add_link_force', 'void', ['number', 'number']),
       simulationAddManyBodyForce: Module.cwrap('simulation_add_many_body_force', 'void', ['number']),
       simulationStart: Module.cwrap('simulation_start', 'void', ['number', 'number'])
@@ -16,12 +17,16 @@ export class Simulation {
     this.module.simulationAddCenterForce(this.pointer)
   }
 
-  addGroupForce (groups, numGroups, nodeGroups, numNodes) {
-    this.module.simulationAddGroupForce(this.pointer, groups, numGroups, nodeGroups, numNodes)
+  addGroupCenterForce (groups, numGroups, nodeGroups, numNodes) {
+    this.module.simulationAddGroupCenterForce(this.pointer, groups, numGroups, nodeGroups, numNodes)
   }
 
   addGroupLinkForce (graph, nodeGroups) {
     this.module.simulationAddGroupLinkForce(this.pointer, graph.pointer, nodeGroups)
+  }
+
+  addGroupManyBodyForce (groups, numGroups, nodeGroups, numNodes) {
+    this.module.simulationAddGroupManyBodyForce(this.pointer, groups, numGroups, nodeGroups, numNodes)
   }
 
   addLinkForce (graph) {

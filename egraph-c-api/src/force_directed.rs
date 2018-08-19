@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 use std::mem::forget;
 use std::os::raw::{c_uint};
-use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupForce, GroupLinkForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
 use egraph::layout::force_directed::simulation::start_simulation;
 use egraph::layout::force_directed::group::treemap;
 use graph::Graph;
@@ -37,10 +37,11 @@ pub unsafe fn simulation_add_center_force(p_simulation: *mut Simulation) {
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) {
+pub unsafe fn simulation_add_group_center_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) {
     let groups = Vec::from_raw_parts(p_groups, num_groups as usize, num_groups as usize);
     let node_groups = copy_to_vec(p_node_groups, num_nodes as usize);
-    (*p_simulation).forces.push(Box::new(GroupForce::new(groups, node_groups)));
+    (*p_simulation).forces.push(Box::new(GroupCenterForce::new(&groups, &node_groups)));
+    forget(groups);
 }
 
 #[no_mangle]
@@ -48,6 +49,14 @@ pub unsafe fn simulation_add_group_link_force(p_simulation: *mut Simulation, p_g
     let node_groups = copy_to_vec(p_node_groups, (*p_graph).node_count());
     let force = GroupLinkForce::new(&(*p_graph), &node_groups);
     (*p_simulation).forces.push(Box::new(force));
+}
+
+#[no_mangle]
+pub unsafe fn simulation_add_group_many_body_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) {
+    let groups = Vec::from_raw_parts(p_groups, num_groups as usize, num_groups as usize);
+    let node_groups = copy_to_vec(p_node_groups, num_nodes as usize);
+    (*p_simulation).forces.push(Box::new(GroupManyBodyForce::new(&groups, &node_groups)));
+    forget(groups);
 }
 
 #[no_mangle]
