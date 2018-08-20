@@ -83,4 +83,12 @@ impl Force for GroupLinkForce {
             }
         }
     }
+
+    fn get_strength(&self) -> f32 {
+        self.strength
+    }
+
+    fn set_strength(&mut self, strength: f32) {
+        self.strength = strength;
+    }
 }

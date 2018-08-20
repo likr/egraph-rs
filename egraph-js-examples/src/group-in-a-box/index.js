@@ -42,9 +42,12 @@ const layout = (Module, graph, data) => {
   })
 
   const simulation = new Simulation(Module)
-  simulation.addGroupManyBodyForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
-  simulation.addGroupLinkForce(graph, nodeGroupsPointer)
-  simulation.addGroupCenterForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
+  const f1 = simulation.addGroupManyBodyForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
+  const f2 = simulation.addGroupLinkForce(graph, nodeGroupsPointer)
+  const f3 = simulation.addGroupCenterForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
+  simulation.setStrength(f1, 0.2)
+  simulation.setStrength(f2, 0.1)
+  simulation.setStrength(f3, 0.2)
   simulation.start(graph)
 
   tiles.forEach((tile, i) => {

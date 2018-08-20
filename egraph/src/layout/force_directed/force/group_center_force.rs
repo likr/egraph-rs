@@ -26,4 +26,12 @@ impl Force for GroupCenterForce {
             point.vy += (groups[g].y - point.y) * k;
         }
     }
+
+    fn get_strength(&self) -> f32 {
+        self.strength
+    }
+
+    fn set_strength(&mut self, strength: f32) {
+        self.strength = strength;
+    }
 }

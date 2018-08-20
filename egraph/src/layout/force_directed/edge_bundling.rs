@@ -22,16 +22,28 @@ impl LineSegment {
     }
 }
 
-pub struct EdgeBundlingForce {}
+pub struct EdgeBundlingForce {
+    strength: f32,
+}
 
 impl EdgeBundlingForce {
     pub fn new() -> EdgeBundlingForce {
-        EdgeBundlingForce {}
+        EdgeBundlingForce {
+            strength: 1.0,
+        }
     }
 }
 
 impl Force for EdgeBundlingForce {
     fn apply(&self, _points: &mut Vec<Point>, _alpha: f32) {}
+
+    fn get_strength(&self) -> f32 {
+        self.strength
+    }
+
+    fn set_strength(&mut self, strength: f32) {
+        self.strength = strength;
+    }
 }
 
 fn distance(p1x: f32, p1y: f32, p2x: f32, p2y: f32) -> f32 {

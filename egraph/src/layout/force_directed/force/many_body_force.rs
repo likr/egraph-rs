@@ -96,11 +96,15 @@ fn apply_many_body(
     }
 }
 
-pub struct ManyBodyForce {}
+pub struct ManyBodyForce {
+    strength: f32,
+}
 
 impl ManyBodyForce {
     pub fn new() -> ManyBodyForce {
-        ManyBodyForce {}
+        ManyBodyForce {
+            strength: 1.0,
+        }
     }
 }
 
@@ -126,6 +130,14 @@ impl Force for ManyBodyForce {
         for mut point in points.iter_mut() {
             apply_many_body(&mut point, &tree, root, alpha, 0.81);
         }
+    }
+
+    fn get_strength(&self) -> f32 {
+        self.strength
+    }
+
+    fn set_strength(&mut self, strength: f32) {
+        self.strength = strength;
     }
 }
 

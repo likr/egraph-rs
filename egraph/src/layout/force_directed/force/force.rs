@@ -55,4 +55,8 @@ impl Group {
 
 pub trait Force {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32);
+
+    fn get_strength(&self) -> f32;
+
+    fn set_strength(&mut self, strength: f32);
 }
