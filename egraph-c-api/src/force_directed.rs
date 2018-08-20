@@ -1,7 +1,8 @@
 use std::f32::consts::PI;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::force::{Force, Point, Link, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::edge_bundling;
 use egraph::layout::force_directed::simulation::start_simulation;
 use graph::Graph;
 
@@ -102,4 +103,52 @@ pub unsafe fn simulation_get_strength(p_simulation: *mut Simulation, i: c_uint) 
 #[no_mangle]
 pub unsafe fn simulation_set_strength(p_simulation: *mut Simulation, i: c_uint, strength: c_double) {
     (*p_simulation).forces[i as usize].set_strength(strength as f32);
+}
+
+#[no_mangle]
+pub unsafe fn edge_bundling(p_graph: *mut Graph) -> *mut edge_bundling::Line {
+    let points = (*(*p_graph).raw_nodes())
+        .iter()
+        .map(|node| Point::new(node.weight.x as f32, node.weight.y as f32))
+        .collect::<Vec<_>>();
+    let links = (*p_graph).edge_indices()
+        .map(|edge| {
+            let (source, target) = (*p_graph).edge_endpoints(edge).unwrap();
+            Link::new(source.index(), target.index())
+        })
+        .collect::<Vec<_>>();
+    let mut lines = edge_bundling::edge_bundling(&points, &links);
+    let pointer = lines.as_mut_ptr();
+    forget(lines);
+    pointer
+}
+
+#[no_mangle]
+pub unsafe fn lines_at(line: *mut edge_bundling::Line, i: c_uint) -> *mut edge_bundling::Line {
+    line.add(i as usize)
+}
+
+#[no_mangle]
+pub unsafe fn line_points(line: *mut edge_bundling::Line) -> *mut Point {
+    (*line).points.as_mut_ptr()
+}
+
+#[no_mangle]
+pub unsafe fn line_points_at(line: *mut edge_bundling::Line, i: c_uint) -> *mut Point {
+    line_points(line).add(i as usize)
+}
+
+#[no_mangle]
+pub unsafe fn line_points_length(line: *mut edge_bundling::Line) -> c_uint {
+    (*line).points.len() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn point_x(point: *mut Point) -> c_double {
+    (*point).x as c_double
+}
+
+#[no_mangle]
+pub unsafe fn point_y(point: *mut Point) -> c_double {
+    (*point).y as c_double
 }

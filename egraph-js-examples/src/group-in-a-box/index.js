@@ -3,6 +3,7 @@ import {Algorithms} from 'egraph/algorithms'
 import {Allocator} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
+import {EdgeBundling} from 'egraph/edge-bundling'
 
 const countGroups = (nodes) => {
   const groupCount = new Map()
@@ -22,6 +23,7 @@ const layout = (Module, graph, data) => {
   const height = 600
   const allocator = new Allocator(Module)
   const algorithms = new Algorithms(Module)
+  const edgeBundling = new EdgeBundling(Module)
 
   const groups = countGroups(data.nodes)
   const values = groups.map(({count}) => count)
@@ -50,6 +52,8 @@ const layout = (Module, graph, data) => {
   simulation.setStrength(f3, 0.2)
   simulation.start(graph)
 
+  const lines = edgeBundling.call(graph)
+
   tiles.forEach((tile, i) => {
     tile.name = groups[i].name
     tile.x += tile.width / 2
@@ -60,6 +64,10 @@ const layout = (Module, graph, data) => {
   data.nodes.forEach((node, i) => {
     node.x = graph.getX(i)
     node.y = graph.getY(i)
+  })
+
+  data.links.forEach((link, i) => {
+    link.bends = lines[i].map(({x, y}) => [x, y])
   })
 }
 
