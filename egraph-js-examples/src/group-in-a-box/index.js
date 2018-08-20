@@ -1,30 +1,58 @@
 import {egraph} from 'egraph/loader'
+import {Algorithms} from 'egraph/algorithms'
 import {Allocator} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
 
-const layout = (Module, graph, data) => {
-  const allocator = new Allocator(Module)
-  const groupAssignTreemap = Module.cwrap('group_assign_treemap', 'number', ['number', 'number', 'number', 'number', 'number'])
-
-  const groupSet = new Set()
-  for (const node of data.nodes) {
-    groupSet.add(node.group)
+const countGroups = (nodes) => {
+  const groupCount = new Map()
+  for (const node of nodes) {
+    if (!groupCount.has(node.group)) {
+      groupCount.set(node.group, 0)
+    }
+    groupCount.set(node.group, groupCount.get(node.group) + 1)
   }
-  const groupMap = new Map(Array.from(groupSet).map((g, i) => [g, i]))
+  const groups = Array.from(groupCount.entries()).map(([name, count]) => ({name, count}))
+  groups.sort((a, b) => b.count - a.count)
+  return groups
+}
 
-  const nodeGroups = allocator.alloc(4 * graph.nodeCount())
-  data.nodes.forEach((node, i) => {
-    Module.HEAPU32[nodeGroups / 4 + i] = groupMap.get(node.group)
+const layout = (Module, graph, data) => {
+  const width = 800
+  const height = 600
+  const allocator = new Allocator(Module)
+  const algorithms = new Algorithms(Module)
+
+  const groups = countGroups(data.nodes)
+  const values = groups.map(({count}) => count)
+  const sumValues = values.reduce((a, b) => a + b)
+  const normalizedValues = values.map((v) => v / sumValues * width * height)
+  const tiles = algorithms.squarifiedTreemap(width, height, normalizedValues)
+
+  const groupsPointer = allocator.alloc(16 * groups.length)
+  tiles.forEach((tile, i) => {
+    Module.HEAPF32[groupsPointer / 4 + 2 * i] = tile.x + tile.width / 2
+    Module.HEAPF32[groupsPointer / 4 + 2 * i + 1] = tile.y + tile.height / 2
   })
 
-  const groups = groupAssignTreemap(960, 600, groupSet.size, nodeGroups, graph.nodeCount())
+  const groupMap = new Map(groups.map(({name}, i) => [name, i]))
+  const nodeGroupsPointer = allocator.alloc(4 * graph.nodeCount())
+  data.nodes.forEach((node, i) => {
+    Module.HEAPU32[nodeGroupsPointer / 4 + i] = groupMap.get(node.group)
+  })
 
   const simulation = new Simulation(Module)
-  simulation.addGroupManyBodyForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
-  simulation.addGroupLinkForce(graph, nodeGroups)
-  simulation.addGroupCenterForce(groups, groupSet.size, nodeGroups, graph.nodeCount())
+  simulation.addGroupManyBodyForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
+  simulation.addGroupLinkForce(graph, nodeGroupsPointer)
+  simulation.addGroupCenterForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
   simulation.start(graph)
+
+  tiles.forEach((tile, i) => {
+    tile.name = groups[i].name
+    tile.x += tile.width / 2
+    tile.y += tile.height / 2
+  })
+  data.groups = tiles
 
   data.nodes.forEach((node, i) => {
     node.x = graph.getX(i)

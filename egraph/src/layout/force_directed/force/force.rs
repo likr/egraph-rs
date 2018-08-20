@@ -1,3 +1,4 @@
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Point {
     pub x: f32,
@@ -17,6 +18,7 @@ impl Point {
     }
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Link {
     pub source: usize,
@@ -38,6 +40,7 @@ impl Link {
     }
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Group {
     pub x: f32,

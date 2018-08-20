@@ -3,7 +3,6 @@ use std::mem::forget;
 use std::os::raw::{c_uint};
 use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
 use egraph::layout::force_directed::simulation::start_simulation;
-use egraph::layout::force_directed::group::treemap;
 use graph::Graph;
 
 unsafe fn copy_to_vec(pointer: *mut c_uint, size: usize) -> Vec<usize> {
@@ -87,13 +86,4 @@ pub unsafe fn simulation_start(p_simulation: *mut Simulation, p_graph: *mut Grap
         node.x = point.x as f64;
         node.y = point.y as f64;
     }
-}
-
-#[no_mangle]
-pub unsafe fn group_assign_treemap(width: c_uint, height: c_uint, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) -> *mut Group {
-    let node_groups = copy_to_vec(p_node_groups, num_nodes as usize);
-    let mut groups = treemap::assign(width as usize, height as usize, num_groups as usize, &node_groups);
-    let pointer = groups.as_mut_ptr();
-    forget(groups);
-    pointer
 }
