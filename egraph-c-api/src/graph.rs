@@ -12,7 +12,7 @@ pub struct Node {
 pub type Graph = petgraph::Graph<Node, (), petgraph::Undirected>;
 
 #[no_mangle]
-pub fn graph_new() -> *mut Graph {
+pub unsafe fn graph_new() -> *mut Graph {
     let graph = Box::new(Graph::new_undirected());
     Box::into_raw(graph)
 }

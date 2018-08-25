@@ -5,7 +5,7 @@
   "main": "egraph.js",
   "scripts": {
     "build:lib": "cargo build -p egraph-c-api --release --target=wasm32-unknown-emscripten",
-    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS='[\"_graph_new\", \"_graph_add_node\", \"_graph_add_edge\", \"_graph_node_count\", \"_graph_edge_count\", \"_graph_get_x\", \"_graph_get_y\", \"_connected_components\", \"_simulation_new\", \"_simulation_add_center_force\", \"_simulation_add_group_center_force\", \"_simulation_add_group_link_force\", \"_simulation_add_group_many_body_force\", \"_simulation_add_link_force\", \"_simulation_add_many_body_force\", \"_simulation_start\", \"_simulation_get_strength\", \"_simulation_set_strength\", \"_squarified_treemap\", \"_edge_bundling\", \"_lines_at\", \"_line_points\", \"_line_points_at\", \"_line_points_length\", \"_point_x\", \"_point_y\", \"_rust_alloc\", \"_rust_free\"]' -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1 -s TOTAL_MEMORY=268435456",
+    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS=@exported_functions.json -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1 -s TOTAL_MEMORY=268435456",
     "build": "npm run build:lib && npm run build:wasm"
   },
   "keywords": [],

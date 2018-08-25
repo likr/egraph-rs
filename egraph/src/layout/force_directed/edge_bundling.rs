@@ -1,4 +1,5 @@
-use super::force::{Force, Link, Point};
+use std::f32;
+use super::force::{Link, Point};
 
 pub struct LineSegment {
     source: usize,
@@ -22,34 +23,35 @@ impl LineSegment {
     }
 }
 
-pub struct EdgeBundlingForce {
-    strength: f32,
+struct EdgePair {
+    p: usize,
+    q: usize,
+    compatibility: f32,
+    theta: f32,
 }
 
-impl EdgeBundlingForce {
-    pub fn new() -> EdgeBundlingForce {
-        EdgeBundlingForce {
-            strength: 1.0,
+impl EdgePair {
+    fn new(p: usize, q: usize, compatibility: f32, theta: f32) -> EdgePair {
+        EdgePair {
+            p,
+            q,
+            compatibility,
+            theta,
         }
-    }
-}
-
-impl Force for EdgeBundlingForce {
-    fn apply(&self, _points: &mut Vec<Point>, _alpha: f32) {}
-
-    fn get_strength(&self) -> f32 {
-        self.strength
-    }
-
-    fn set_strength(&mut self, strength: f32) {
-        self.strength = strength;
     }
 }
 
 fn distance(p1x: f32, p1y: f32, p2x: f32, p2y: f32) -> f32 {
     let dx = p2x - p1x;
     let dy = p2y - p1y;
-    (dx * dx + dy * dy).sqrt()
+    (dx * dx + dy * dy).sqrt().max(1e-6)
+}
+
+fn angle(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
+    let p_norm = distance(p1.x, p1.y, p2.x, p2.y);
+    let q_norm = distance(q1.x, q1.y, q2.x, q2.y);
+    let pq = (p2.x - p1.x) * (q2.x - q1.x) + (p2.y - p1.y) * (q2.y - q1.y);
+    (pq / p_norm / q_norm).acos()
 }
 
 fn compatibility(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
@@ -101,15 +103,84 @@ fn compatibility(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
     c_a * c_s * c_p * c_v
 }
 
-pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
+fn apply_spring_force(mid_points: &mut Vec<Point>, segments: &Vec<LineSegment>, points: &Vec<Point>, num_p: usize, k: f32) {
+    for segment in segments.iter() {
+        let d = distance(
+            points[segment.source].x,
+            points[segment.source].y,
+            points[segment.target].x,
+            points[segment.target].y,
+            );
+        let kp = k / (num_p as usize as f32) / d;
+        let n = segment.point_indices.len();
+        for i in 0..n {
+            let p0 = if i == 0 {
+                points[segment.source]
+            } else {
+                mid_points[segment.point_indices[i - 1]]
+            };
+            let p2 = if i == n - 1 {
+                points[segment.target]
+            } else {
+                mid_points[segment.point_indices[i + 1]]
+            };
+            let ref mut p1 = mid_points[segment.point_indices[i]];
+            p1.vx += kp * (p0.x - p1.x + p2.x - p1.x);
+            p1.vy += kp * (p0.y - p1.y + p2.y - p1.y);
+        }
+    }
+}
+
+fn apply_electrostatic_force(mid_points: &mut Vec<Point>, segments: &Vec<LineSegment>, edge_pairs: &Vec<EdgePair>, num_p: usize) {
+    for pair in edge_pairs {
+        let EdgePair {p, q, theta, compatibility: c_e} = pair;
+        let segment_p = &segments[*p];
+        let segment_q = &segments[*q];
+        for i in 0..num_p {
+            let j = if *theta < f32::consts::PI / 2.0 {
+                i
+            } else {
+                num_p - i - 1
+            };
+            let pi = mid_points[segment_p.point_indices[i as usize]];
+            let qi = mid_points[segment_q.point_indices[j as usize]];
+            let dx = qi.x - pi.x;
+            let dy = qi.y - pi.y;
+            if dx.abs() > 1e-6 || dy.abs() > 1e-6 {
+                let w = c_e / (dx * dx + dy * dy).sqrt();
+                {
+                    let ref mut qi = mid_points[segment_q.point_indices[i as usize]];
+                    qi.vx -= dx * w;
+                    qi.vy -= dy * w;
+                }
+                {
+                    let ref mut pi = mid_points[segment_p.point_indices[i as usize]];
+                    pi.vx += dx * w;
+                    pi.vy += dy * w;
+                }
+            }
+        }
+    }
+}
+
+pub struct EdgeBundlingOptions {
+    cycles: usize,
+    s0: f32,
+    i0: usize,
+    s_step: f32,
+    i_step: f32,
+}
+
+pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>, options: &EdgeBundlingOptions) -> Vec<Line> {
+    let EdgeBundlingOptions {cycles, s0, i0, s_step, i_step} = options;
     let mut mid_points = Vec::new();
     let mut segments: Vec<LineSegment> = links
         .iter()
         .map(|link| LineSegment::new(link.source, link.target))
         .collect();
 
-    let mut num_iter = 90;
-    let mut alpha = 0.1;
+    let mut num_iter = *i0;
+    let mut alpha = *s0;
 
     let edge_pairs = {
         let mut edge_pairs = Vec::new();
@@ -125,15 +196,21 @@ pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
                     points[segment_q.target],
                 );
                 if c_e >= 0.6 {
-                    edge_pairs.push((p, q));
+                    let theta = angle(
+                        points[segment_p.source],
+                        points[segment_p.target],
+                        points[segment_q.source],
+                        points[segment_q.target],
+                    );
+                    edge_pairs.push(EdgePair::new(p, q, c_e, theta));
                 }
             }
         }
         edge_pairs
     };
 
-    for cycle in 0..6 {
-        let dp = (2 as i32).pow(cycle);
+    for cycle in 0..*cycles {
+        let dp = (2 as i32).pow(cycle as u32);
         for segment in segments.iter_mut() {
             for j in 0..dp {
                 let p0 = if j == 0 {
@@ -153,71 +230,24 @@ pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
             }
         }
 
-        let num_p = dp * 2 - 1;
+        let num_p = (dp * 2 - 1) as usize;
         for _ in 0..num_iter {
             for point in mid_points.iter_mut() {
                 point.vx = 0.;
                 point.vy = 0.;
             }
 
-            for segment in segments.iter() {
-                let d = distance(
-                    points[segment.source].x,
-                    points[segment.source].y,
-                    points[segment.target].x,
-                    points[segment.target].y,
-                );
-                let kp = 0.1 / (num_p as usize as f32) / d;
-                let n = segment.point_indices.len();
-                for i in 0..n {
-                    let p0 = if i == 0 {
-                        points[segment.source]
-                    } else {
-                        mid_points[segment.point_indices[i - 1]]
-                    };
-                    let p2 = if i == n - 1 {
-                        points[segment.target]
-                    } else {
-                        mid_points[segment.point_indices[i + 1]]
-                    };
-                    let ref mut p1 = mid_points[segment.point_indices[i]];
-                    p1.vx += alpha * kp * (p0.x - p1.x + p2.x - p1.x);
-                    p1.vy += alpha * kp * (p0.y - p1.y + p2.y - p1.y);
-                }
-            }
-
-            for &(p, q) in edge_pairs.iter() {
-                let segment_p = &segments[p];
-                let segment_q = &segments[q];
-                for i in 0..num_p {
-                    let pi = mid_points[segment_p.point_indices[i as usize]];
-                    let qi = mid_points[segment_q.point_indices[i as usize]];
-                    let dx = qi.x - pi.x;
-                    let dy = qi.y - pi.y;
-                    if dx.abs() > 1e-6 && dy.abs() > 1e-6 {
-                        let w = alpha / (dx * dx + dy * dy).sqrt();
-                        {
-                            let ref mut qi = mid_points[segment_q.point_indices[i as usize]];
-                            qi.vx -= dx * w;
-                            qi.vy -= dy * w;
-                        }
-                        {
-                            let ref mut pi = mid_points[segment_p.point_indices[i as usize]];
-                            pi.vx += dx * w;
-                            pi.vy += dy * w;
-                        }
-                    }
-                }
-            }
+            apply_spring_force(&mut mid_points, &segments, &points, num_p, 0.1);
+            apply_electrostatic_force(&mut mid_points, &segments, &edge_pairs, num_p);
 
             for point in mid_points.iter_mut() {
-                point.x += point.vx;
-                point.y += point.vy;
+                point.x += alpha * point.vx;
+                point.y += alpha * point.vy;
             }
         }
 
-        alpha /= 2.;
-        num_iter = num_iter * 2 / 3;
+        alpha *= s_step;
+        num_iter = (num_iter as f32 * i_step) as usize;
     }
 
     segments
@@ -237,4 +267,40 @@ pub fn edge_bundling(points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
             }
         })
         .collect()
+}
+
+
+pub struct EdgeBundling {
+    pub cycles: usize,
+    pub s0: f32,
+    pub i0: usize,
+    pub s_step: f32,
+    pub i_step: f32,
+}
+
+impl EdgeBundling {
+    pub fn new() -> EdgeBundling {
+        EdgeBundling {
+            cycles: 6,
+            s0: 0.1,
+            i0: 90,
+            s_step: 0.5,
+            i_step: 2. / 3.,
+        }
+    }
+
+    pub fn call(&self, points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
+        let options = self.options();
+        edge_bundling(&points, &links, &options)
+    }
+
+    fn options(&self) -> EdgeBundlingOptions {
+        EdgeBundlingOptions {
+            cycles: self.cycles,
+            s0: self.s0,
+            i0: self.i0,
+            s_step: self.s_step,
+            i_step: self.i_step,
+        }
+    }
 }

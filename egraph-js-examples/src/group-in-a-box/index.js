@@ -23,7 +23,6 @@ const layout = (Module, graph, data) => {
   const height = 600
   const allocator = new Allocator(Module)
   const algorithms = new Algorithms(Module)
-  const edgeBundling = new EdgeBundling(Module)
 
   const groups = countGroups(data.nodes)
   const values = groups.map(({count}) => count)
@@ -52,6 +51,7 @@ const layout = (Module, graph, data) => {
   simulation.setStrength(f3, 0.2)
   simulation.start(graph)
 
+  const edgeBundling = new EdgeBundling(Module)
   const lines = edgeBundling.call(graph)
 
   tiles.forEach((tile, i) => {
