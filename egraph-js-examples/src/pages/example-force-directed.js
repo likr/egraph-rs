@@ -3,6 +3,7 @@ import * as d3 from 'd3'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
 import {loadModule} from '../module'
+import {Wrapper} from '../wrapper'
 
 const layout = (Module, graph, data) => {
   const simulation = new Simulation(Module)
@@ -49,19 +50,26 @@ export class ExampleForceDirected extends React.Component {
   }
 
   render () {
-    return <eg-renderer
-      ref='renderer'
-      width='960'
-      height='600'
-      default-node-width='10'
-      default-node-height='10'
-      default-node-stroke-color='#fff'
-      default-node-stroke-width='1.5'
-      default-node-type='circle'
-      default-link-stroke-color='#999'
-      default-link-stroke-opacity='0.6'
-      node-label-property='name'
-      no-auto-centering
-    />
+    return <Wrapper onResize={this.handleResize.bind(this)}>
+      <eg-renderer
+        ref='renderer'
+        width='960'
+        height='600'
+        default-node-width='10'
+        default-node-height='10'
+        default-node-stroke-color='#fff'
+        default-node-stroke-width='1.5'
+        default-node-type='circle'
+        default-link-stroke-color='#999'
+        default-link-stroke-opacity='0.6'
+        node-label-property='name'
+        no-auto-centering
+      />
+    </Wrapper>
+  }
+
+  handleResize (width, height) {
+    this.refs.renderer.width = width
+    this.refs.renderer.height = height
   }
 }
