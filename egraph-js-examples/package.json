@@ -12,12 +12,21 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "egraph": "file:../egraph-js"
+    "@webcomponents/custom-elements": "^1.2.0",
+    "bulma": "^0.7.1",
+    "d3": "^5.7.0",
+    "eg-renderer": "^1.0.0",
+    "egraph": "file:../egraph-js",
+    "react": "^16.4.2",
+    "react-dom": "^16.4.2",
+    "react-router": "^4.3.1",
+    "react-router-dom": "^4.3.1"
   },
   "devDependencies": {
     "babel-core": "^6.26.3",
     "babel-loader": "^7.1.4",
     "babel-preset-env": "^1.7.0",
+    "babel-preset-react": "^6.24.1",
     "copy-webpack-plugin": "^4.5.2",
     "gh-pages": "^1.2.0",
     "webpack": "^4.14.0",

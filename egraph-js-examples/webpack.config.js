@@ -13,7 +13,7 @@ const options = {
           {
             loader: 'babel-loader',
             options: {
-              presets: ['env']
+              presets: ['env', 'react']
             }
           }
         ]
@@ -21,16 +21,22 @@ const options = {
     ]
   },
   entry: {
-    'force-directed': './src/force-directed/index',
-    'group-in-a-box': './src/group-in-a-box/index'
+    'bundle': './src/index.js'
   },
   output: {
     path: path.resolve(__dirname, 'public'),
-    filename: '[name]/bundle.js'
+    filename: '[name].js'
   },
   plugins: [
     new CopyWebpackPlugin([
-      'node_modules/egraph/egraph.wasm'
+      {
+        from: 'node_modules/egraph/egraph.wasm',
+        to: '.'
+      },
+      {
+        from: 'node_modules/bulma/css/bulma.min.css',
+        to: 'vendor'
+      }
     ])
   ],
   node: {
