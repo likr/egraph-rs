@@ -5,4 +5,5 @@ node_modules
 egraph-js/egraph.js
 egraph-js/egraph.wasm
 egraph-js-examples/public/egraph.wasm
-egraph-js-examples/public/*/bundle.js
+egraph-js-examples/public/bundle.js
+egraph-js-examples/public/vendor

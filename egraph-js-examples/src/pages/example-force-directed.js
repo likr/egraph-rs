@@ -53,8 +53,6 @@ export class ExampleForceDirected extends React.Component {
     return <Wrapper onResize={this.handleResize.bind(this)}>
       <eg-renderer
         ref='renderer'
-        width='960'
-        height='600'
         default-node-width='10'
         default-node-height='10'
         default-node-stroke-color='#fff'

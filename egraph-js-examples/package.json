@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "webpack --mode=production",
-    "deploy": "npm run build && gh-pages -d public",
+    "deploy": "npm run build && netlify deploy",
     "start": "webpack-dev-server --mode=development"
   },
   "keywords": [],
@@ -28,7 +28,7 @@
     "babel-preset-env": "^1.7.0",
     "babel-preset-react": "^6.24.1",
     "copy-webpack-plugin": "^4.5.2",
-    "gh-pages": "^1.2.0",
+    "netlify-cli": "^1.2.3",
     "webpack": "^4.14.0",
     "webpack-cli": "^3.0.8",
     "webpack-dev-server": "^3.1.4"
