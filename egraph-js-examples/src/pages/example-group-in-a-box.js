@@ -21,17 +21,50 @@ const countGroups = (nodes) => {
   return groups
 }
 
+const rectGroups = (groups, width, height, Module) => {
+  const algorithms = new Algorithms(Module)
+  const values = groups.map(({count}) => count)
+  const sumValues = values.reduce((a, b) => a + b)
+  const normalizedValues = values.map((v) => v / sumValues * width * height)
+  return algorithms.squarifiedTreemap(width, height, normalizedValues)
+}
+
+const circleGroups = (groups, width, height) => {
+  const tree = {
+    name: '',
+    children: groups.map(({name, count}) => {
+      return {
+        name,
+        size: count
+      }
+    })
+  }
+  const root = d3.hierarchy(tree)
+    .sum((d) => d.size)
+    .sort((a, b) => b.value - a.value)
+  const pack = d3.pack().size([width, height])
+  const tiles = pack(root).descendants()
+    .map((node) => {
+      return {
+        x: node.x - node.r,
+        y: node.y - node.r,
+        width: node.r * 2,
+        height: node.r * 2
+      }
+    })
+  tiles.shift(0)
+  return tiles
+}
+
 const layout = (Module, graph, data, options) => {
   const width = 800
   const height = 600
   const allocator = new Allocator(Module)
-  const algorithms = new Algorithms(Module)
 
   const groups = countGroups(data.nodes)
-  const values = groups.map(({count}) => count)
-  const sumValues = values.reduce((a, b) => a + b)
-  const normalizedValues = values.map((v) => v / sumValues * width * height)
-  const tiles = algorithms.squarifiedTreemap(width, height, normalizedValues)
+  const tiles = options.type === 'circle'
+    ? circleGroups(groups, width, height)
+    : rectGroups(groups, width, height, Module)
 
   const groupsPointer = allocator.alloc(16 * groups.length)
   tiles.forEach((tile, i) => {
@@ -51,7 +84,7 @@ const layout = (Module, graph, data, options) => {
   const f3 = simulation.addGroupCenterForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
   simulation.setStrength(f1, 0.2)
   simulation.setStrength(f2, 0.1)
-  simulation.setStrength(f3, 0.2)
+  simulation.setStrength(f3, 0.3)
   simulation.start(graph)
 
   const edgeBundling = new EdgeBundling(Module)
@@ -63,7 +96,8 @@ const layout = (Module, graph, data, options) => {
   const lines = edgeBundling.call(graph)
 
   tiles.forEach((tile, i) => {
-    tile.name = groups[i].name
+    tile.type = options.type
+    tile.label = groups[i].name.toString()
     tile.x += tile.width / 2
     tile.y += tile.height / 2
   })
@@ -105,6 +139,7 @@ export class ExampleGroupInABox extends React.Component {
         <Wrapper onResize={this.handleResize.bind(this)}>
           <eg-renderer
             ref='renderer'
+            transition-duration='1000'
             default-node-width='10'
             default-node-height='10'
             default-node-stroke-color='#fff'
@@ -118,8 +153,20 @@ export class ExampleGroupInABox extends React.Component {
         </Wrapper>
       </div>
       <div>
-        <h3 className='title'>Edge Bundling Options</h3>
-        <form onSubmit={this.handleSubmitEdgeBundlingOptions.bind(this)}>
+        <form onSubmit={this.handleSubmitOptionsForm.bind(this)}>
+          <h3 className='title'>Group-In-a-Box Options</h3>
+          <div className='field'>
+            <label className='label'>Type</label>
+            <div className='control'>
+              <div className='select is-fullwidth'>
+                <select ref='type' defaultValue='rect'>
+                  <option value='rect'>Rect</option>
+                  <option value='circle'>Circle</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <h3 className='title'>Edge Bundling Options</h3>
           <div className='field'>
             <label className='label'>Cycle</label>
             <div className='control'>
@@ -165,7 +212,7 @@ export class ExampleGroupInABox extends React.Component {
     this.refs.renderer.height = height
   }
 
-  handleSubmitEdgeBundlingOptions (event) {
+  handleSubmitOptionsForm (event) {
     event.preventDefault()
     this.layout()
   }
@@ -181,6 +228,7 @@ export class ExampleGroupInABox extends React.Component {
       }
 
       layout(Module, graph, this.data, {
+        type: this.refs.type.value,
         cycles: +this.refs.cycles.value,
         s0: +this.refs.s0.value,
         i0: +this.refs.i0.value,
