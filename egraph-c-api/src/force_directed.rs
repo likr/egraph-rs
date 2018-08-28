@@ -78,6 +78,11 @@ pub unsafe fn simulation_add_many_body_force(p_simulation: *mut Simulation) -> c
 pub unsafe fn simulation_start(p_simulation: *mut Simulation, p_graph: *mut Graph) {
     let mut points = (*p_graph).node_indices()
         .map(|node| {
+            let weight = (*p_graph).node_weight(node).unwrap();
+            if weight.x != 0. && weight.y != 0. {
+                return Point::new(weight.x as f32, weight.y as f32)
+            }
+
             let i = node.index();
             let r = 10. * (i as usize as f32).sqrt();
             let theta = PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);

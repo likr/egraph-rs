@@ -6,6 +6,8 @@
   "_graph_edge_count",
   "_graph_get_x",
   "_graph_get_y",
+  "_graph_set_x",
+  "_graph_set_y",
   "_connected_components",
   "_simulation_new",
   "_simulation_add_center_force",

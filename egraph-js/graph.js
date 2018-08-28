@@ -7,7 +7,9 @@ export class Graph {
       graphNodeCount: Module.cwrap('graph_node_count', 'number', ['number']),
       graphEdgeCount: Module.cwrap('graph_edge_count', 'number', ['number']),
       graphGetX: Module.cwrap('graph_get_x', 'number', ['number', 'number']),
-      graphGetY: Module.cwrap('graph_get_y', 'number', ['number', 'number'])
+      graphGetY: Module.cwrap('graph_get_y', 'number', ['number', 'number']),
+      graphSetX: Module.cwrap('graph_set_x', 'void', ['number', 'number', 'number']),
+      graphSetY: Module.cwrap('graph_set_y', 'void', ['number', 'number', 'number'])
     }
     this.pointer = this.module.graphNew()
   }
@@ -34,5 +36,13 @@ export class Graph {
 
   getY (u) {
     return this.module.graphGetY(this.pointer, u)
+  }
+
+  setX (u, value) {
+    return this.module.graphSetX(this.pointer, u, value)
+  }
+
+  setY (u, value) {
+    return this.module.graphSetY(this.pointer, u, value)
   }
 }

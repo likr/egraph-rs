@@ -46,3 +46,15 @@ pub unsafe fn graph_get_x(p_graph: *mut Graph, u: c_uint) -> c_double {
 pub unsafe fn graph_get_y(p_graph: *mut Graph, u: c_uint) -> c_double {
     (*p_graph).raw_nodes()[u as usize].weight.y
 }
+
+#[no_mangle]
+pub unsafe fn graph_set_x(p_graph: *mut Graph, u: c_uint, value: c_double) {
+    let weight = (*p_graph).node_weight_mut(NodeIndex::new(u as usize)).unwrap();
+    weight.x = value;
+}
+
+#[no_mangle]
+pub unsafe fn graph_set_y(p_graph: *mut Graph, u: c_uint, value: c_double) {
+    let weight = (*p_graph).node_weight_mut(NodeIndex::new(u as usize)).unwrap();
+    weight.y = value;
+}
