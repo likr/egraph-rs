@@ -31,10 +31,10 @@ export class EdgeBundling {
     for (let i = 0; i < n; ++i) {
       const linePointer = this.module.linesAt(linesPointer, i)
       const len = this.module.linePointsLength(linePointer)
-      lines[i] = new Array(len)
-      for (let j = 0; j < len; ++j) {
+      lines[i] = new Array(len - 2)
+      for (let j = 1; j < len - 1; ++j) {
         const pointPointer = this.module.linePointsAt(linePointer, j)
-        lines[i][j] = {
+        lines[i][j - 1] = {
           x: this.module.pointX(pointPointer),
           y: this.module.pointY(pointPointer)
         }

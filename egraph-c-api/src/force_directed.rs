@@ -46,9 +46,9 @@ pub unsafe fn simulation_add_group_center_force(p_simulation: *mut Simulation, p
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_link_force(p_simulation: *mut Simulation, p_graph: *mut Graph, p_node_groups: *mut c_uint) -> c_uint {
+pub unsafe fn simulation_add_group_link_force(p_simulation: *mut Simulation, p_graph: *mut Graph, p_node_groups: *mut c_uint, intra_group: c_double, inter_group: c_double) -> c_uint {
     let node_groups = copy_to_vec(p_node_groups, (*p_graph).node_count());
-    let force = GroupLinkForce::new(&(*p_graph), &node_groups);
+    let force = GroupLinkForce::new_with_strength(&(*p_graph), &node_groups, intra_group as f32, inter_group as f32);
     (*p_simulation).forces.push(Box::new(force));
     ((*p_simulation).forces.len() - 1) as c_uint
 }

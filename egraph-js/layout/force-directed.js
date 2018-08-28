@@ -4,7 +4,7 @@ export class Simulation {
       simulationNew: Module.cwrap('simulation_new', 'number', []),
       simulationAddCenterForce: Module.cwrap('simulation_add_center_force', 'number', ['number']),
       simulationAddGroupCenterForce: Module.cwrap('simulation_add_group_center_force', 'number', ['number', 'number', 'number', 'number', 'number']),
-      simulationAddGroupLinkForce: Module.cwrap('simulation_add_group_link_force', 'number', ['number', 'number', 'number']),
+      simulationAddGroupLinkForce: Module.cwrap('simulation_add_group_link_force', 'number', ['number', 'number', 'number', 'number', 'number']),
       simulationAddGroupManyBodyForce: Module.cwrap('simulation_add_group_many_body_force', 'number', ['number', 'number', 'number', 'number', 'number']),
       simulationAddLinkForce: Module.cwrap('simulation_add_link_force', 'number', ['number', 'number']),
       simulationAddManyBodyForce: Module.cwrap('simulation_add_many_body_force', 'number', ['number']),
@@ -23,8 +23,8 @@ export class Simulation {
     return this.module.simulationAddGroupCenterForce(this.pointer, groups, numGroups, nodeGroups, numNodes)
   }
 
-  addGroupLinkForce (graph, nodeGroups) {
-    return this.module.simulationAddGroupLinkForce(this.pointer, graph.pointer, nodeGroups)
+  addGroupLinkForce (graph, nodeGroups, intraGroup = 0.5, interGroup = 0.01) {
+    return this.module.simulationAddGroupLinkForce(this.pointer, graph.pointer, nodeGroups, intraGroup, interGroup)
   }
 
   addGroupManyBodyForce (groups, numGroups, nodeGroups, numNodes) {

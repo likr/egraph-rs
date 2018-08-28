@@ -13,14 +13,18 @@ pub struct GroupLinkForce {
 
 impl GroupLinkForce {
     pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>, node_groups: &Vec<usize>) -> GroupLinkForce {
+        GroupLinkForce::new_with_strength(&graph, &node_groups, 0.5, 0.01)
+    }
+
+    pub fn new_with_strength<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>, node_groups: &Vec<usize>, intra_group: f32, inter_group: f32) -> GroupLinkForce {
         let links = graph.edge_indices()
             .map(|edge| {
                 let (source, target) = graph.edge_endpoints(edge).unwrap();
                 let mut link = Link::new(source.index(), target.index());
                 if node_groups[link.source] == node_groups[link.target] {
-                    link.strength = 0.5;
+                    link.strength = intra_group;
                 } else {
-                    link.strength = 0.01;
+                    link.strength = inter_group;
                 }
                 link
             })
