@@ -47,13 +47,14 @@ pub fn force_directed_grouping(width: f64, height: f64, values: &Vec<f64>, links
     let horizontal_scale = width / layout_width;
     let vertical_scale = height / layout_height;
     let scale = horizontal_scale.min(vertical_scale);
+    let total_value = values.iter().fold(0.0, |s, v| s + v);
 
     values.iter()
         .zip(points)
         .map(|(&value, point)| {
             let x = scale * (point.x as f64 - left);
             let y = scale * (point.y as f64 - top);
-            let size = scale * value.sqrt() * 5.0;
+            let size = (width * height * value / total_value / 2.).sqrt();
             Group::new(x, y, size, size)
         })
         .collect()
