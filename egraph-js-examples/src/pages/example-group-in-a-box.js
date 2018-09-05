@@ -4,6 +4,7 @@ import {Algorithms} from 'egraph/algorithms'
 import {Allocator} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
+import {ForceDirectedGrouping} from 'egraph/grouping'
 import {EdgeBundling} from 'egraph/edge-bundling'
 import {loadModule} from '../module'
 import {Wrapper} from '../wrapper'
@@ -53,7 +54,50 @@ const circleGroups = (groups, width, height) => {
       }
     })
   tiles.shift(0)
+  for (const tile of tiles) {
+    tile.type = 'circle'
+  }
   return tiles
+}
+
+const forceDirectedGroups = (groups, width, height, Module, data) => {
+  const groupGraph = new Graph(Module)
+  const nodeGroups = new Map(data.nodes.map((node, i) => [i, node.group]))
+  const n = groups.length
+  groups.forEach(() => {
+    groupGraph.addNode()
+  })
+  for (let i = 0; i < n; ++i) {
+    const g1 = groups[i]
+    for (let j = i + 1; j < n; ++j) {
+      const g2 = groups[j]
+      const interGroupLinks = data.links.filter(({source, target}) => {
+        return (nodeGroups.get(source) === g1.name && nodeGroups.get(target) === g2.name) || (nodeGroups.get(source) === g2.name && nodeGroups.get(target) === g1.name)
+      })
+      if (interGroupLinks.length > 0) {
+        groupGraph.addEdge(i, j)
+      }
+    }
+  }
+  const grouping = new ForceDirectedGrouping(Module, groupGraph)
+  const values = groups.map(({count}) => count)
+  const tiles = grouping.call(width, height, values)
+  for (const tile of tiles) {
+    tile.type = 'circle'
+  }
+  return tiles
+}
+
+const layoutGroups = (type, groups, width, height, Module, data) => {
+  switch (type) {
+    case 'circle':
+      return circleGroups(groups, width, height)
+    case 'force-directed':
+      return forceDirectedGroups(groups, width, height, Module, data)
+    case 'rect':
+      return rectGroups(groups, width, height, Module)
+  }
+  throw new Error(`Unsupported layout type: ${type}`)
 }
 
 const layout = (Module, graph, data, options) => {
@@ -62,9 +106,7 @@ const layout = (Module, graph, data, options) => {
   const allocator = new Allocator(Module)
 
   const groups = countGroups(data.nodes)
-  const tiles = options.type === 'circle'
-    ? circleGroups(groups, width, height)
-    : rectGroups(groups, width, height, Module)
+  const tiles = layoutGroups(options.type, groups, width, height, Module, data)
 
   const groupsPointer = allocator.alloc(16 * groups.length)
   tiles.forEach((tile, i) => {
@@ -96,7 +138,6 @@ const layout = (Module, graph, data, options) => {
   const lines = edgeBundling.call(graph)
 
   tiles.forEach((tile, i) => {
-    tile.type = options.type
     tile.label = groups[i].name.toString()
     tile.x += tile.width / 2
     tile.y += tile.height / 2
@@ -160,8 +201,9 @@ export class ExampleGroupInABox extends React.Component {
             <div className='control'>
               <div className='select is-fullwidth'>
                 <select ref='type' defaultValue='rect'>
-                  <option value='rect'>Rect</option>
-                  <option value='circle'>Circle</option>
+                  <option value='rect'>Treemap</option>
+                  <option value='circle'>Circle Packing</option>
+                  <option value='force-directed'>Force-directed</option>
                 </select>
               </div>
             </div>

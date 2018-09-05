@@ -51,9 +51,10 @@ pub fn force_directed_grouping(width: f64, height: f64, values: &Vec<f64>, links
     values.iter()
         .zip(points)
         .map(|(&value, point)| {
-            let x = scale * point.x as f64;
-            let y = scale * point.y as f64;
-            Group::new(x, y, value, value)
+            let x = scale * (point.x as f64 - left);
+            let y = scale * (point.y as f64 - top);
+            let size = scale * value.sqrt() * 5.0;
+            Group::new(x, y, size, size)
         })
         .collect()
 }
