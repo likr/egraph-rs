@@ -1,3 +1,4 @@
+use std::f64::consts::PI;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::IndexType;
 use ::layout::force_directed::{initial_placement, initial_links};
@@ -54,7 +55,7 @@ pub fn force_directed_grouping(width: f64, height: f64, values: &Vec<f64>, links
         .map(|(&value, point)| {
             let x = scale * (point.x as f64 - left);
             let y = scale * (point.y as f64 - top);
-            let size = (width * height * value / total_value / 2.).sqrt();
+            let size = (width * height * value / total_value / PI).sqrt() * 2.;
             Group::new(x, y, size, size)
         })
         .collect()

@@ -1,10 +1,13 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {Algorithms} from 'egraph/algorithms'
 import {Allocator} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
-import {ForceDirectedGrouping} from 'egraph/grouping'
+import {
+  ForceDirectedGrouping,
+  RadialGrouping,
+  TreemapGrouping
+} from 'egraph/grouping'
 import {EdgeBundling} from 'egraph/edge-bundling'
 import {loadModule} from '../module'
 import {Wrapper} from '../wrapper'
@@ -22,15 +25,7 @@ const countGroups = (nodes) => {
   return groups
 }
 
-const rectGroups = (groups, width, height, Module) => {
-  const algorithms = new Algorithms(Module)
-  const values = groups.map(({count}) => count)
-  const sumValues = values.reduce((a, b) => a + b)
-  const normalizedValues = values.map((v) => v / sumValues * width * height)
-  return algorithms.squarifiedTreemap(width, height, normalizedValues)
-}
-
-const circleGroups = (groups, width, height) => {
+const circleGrouping = (groups, width, height) => {
   const tree = {
     name: '',
     children: groups.map(({name, count}) => {
@@ -47,8 +42,8 @@ const circleGroups = (groups, width, height) => {
   const tiles = pack(root).descendants()
     .map((node) => {
       return {
-        x: node.x - node.r,
-        y: node.y - node.r,
+        x: node.x,
+        y: node.y,
         width: node.r * 2,
         height: node.r * 2
       }
@@ -60,7 +55,7 @@ const circleGroups = (groups, width, height) => {
   return tiles
 }
 
-const forceDirectedGroups = (groups, width, height, Module, data) => {
+const forceDirectedGrouping = (groups, width, height, Module, data) => {
   const groupGraph = new Graph(Module)
   const nodeGroups = new Map(data.nodes.map((node, i) => [i, node.group]))
   const n = groups.length
@@ -88,14 +83,36 @@ const forceDirectedGroups = (groups, width, height, Module, data) => {
   return tiles
 }
 
+const radialGrouping = (groups, width, height, Module) => {
+  const grouping = new RadialGrouping(Module)
+  const values = groups.map(({count}) => count)
+  const tiles = grouping.call(width, height, values)
+  for (const tile of tiles) {
+    tile.type = 'circle'
+  }
+  return tiles
+}
+
+const treemapGrouping = (groups, width, height, Module) => {
+  const grouping = new TreemapGrouping(Module)
+  const values = groups.map(({count}) => count)
+  const tiles = grouping.call(width, height, values)
+  for (const tile of tiles) {
+    tile.type = 'rect'
+  }
+  return tiles
+}
+
 const layoutGroups = (type, groups, width, height, Module, data) => {
   switch (type) {
     case 'circle':
-      return circleGroups(groups, width, height)
+      return circleGrouping(groups, width, height)
     case 'force-directed':
-      return forceDirectedGroups(groups, width, height, Module, data)
+      return forceDirectedGrouping(groups, width, height, Module, data)
+    case 'radial':
+      return radialGrouping(groups, width, height, Module)
     case 'rect':
-      return rectGroups(groups, width, height, Module)
+      return treemapGrouping(groups, width, height, Module)
   }
   throw new Error(`Unsupported layout type: ${type}`)
 }
@@ -110,8 +127,8 @@ const layout = (Module, graph, data, options) => {
 
   const groupsPointer = allocator.alloc(16 * groups.length)
   tiles.forEach((tile, i) => {
-    Module.HEAPF32[groupsPointer / 4 + 2 * i] = tile.x + tile.width / 2
-    Module.HEAPF32[groupsPointer / 4 + 2 * i + 1] = tile.y + tile.height / 2
+    Module.HEAPF32[groupsPointer / 4 + 2 * i] = tile.x
+    Module.HEAPF32[groupsPointer / 4 + 2 * i + 1] = tile.y
   })
 
   const groupMap = new Map(groups.map(({name}, i) => [name, i]))
@@ -139,8 +156,6 @@ const layout = (Module, graph, data, options) => {
 
   tiles.forEach((tile, i) => {
     tile.label = groups[i].name.toString()
-    tile.x += tile.width / 2
-    tile.y += tile.height / 2
   })
   data.groups = tiles
 
@@ -204,6 +219,7 @@ export class ExampleGroupInABox extends React.Component {
                   <option value='rect'>Treemap</option>
                   <option value='circle'>Circle Packing</option>
                   <option value='force-directed'>Force-directed</option>
+                  <option value='radial'>Radial</option>
                 </select>
               </div>
             </div>
