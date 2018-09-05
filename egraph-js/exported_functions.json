@@ -38,6 +38,12 @@
   "_line_points_length",
   "_point_x",
   "_point_y",
+  "_radial_grouping_new",
+  "_radial_grouping_call",
+  "_group_x",
+  "_group_y",
+  "_group_width",
+  "_group_height",
   "_rust_alloc",
   "_rust_free",
   ""
