@@ -46,6 +46,13 @@ impl LinkForce {
             strength: 1.,
         }
     }
+
+    pub fn new_with_links(links: Vec<Link>) -> LinkForce {
+        LinkForce {
+            links,
+            strength: 1.,
+        }
+    }
 }
 
 impl Force for LinkForce {

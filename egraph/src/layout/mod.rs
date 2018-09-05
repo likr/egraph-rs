@@ -1,3 +1,3 @@
 pub mod force_directed;
 pub mod fm3;
-pub mod groups;
+pub mod grouping;

@@ -53,6 +53,21 @@ const applyGrouping = (Module, f, p, width, height, values) => {
   return result
 }
 
+export class ForceDirectedGrouping {
+  constructor (Module, graph) {
+    this.Module = Module
+    this.module = {
+      force_directedGroupingNew: Module.cwrap('force_directed_grouping_new', 'number', ['number']),
+      force_directedGroupingCall: Module.cwrap('force_directed_grouping_call', 'number', ['number', 'number', 'number', 'number'])
+    }
+    this.pointer = this.module.force_directedGroupingNew(graph.pointer)
+  }
+
+  call (width, height, values) {
+    return applyGrouping(this.Module, this.module.force_directedGroupingCall, this.pointer, width, height, values)
+  }
+}
+
 export class RadialGrouping {
   constructor (Module) {
     this.Module = Module

@@ -38,6 +38,8 @@
   "_line_points_length",
   "_point_x",
   "_point_y",
+  "_force_directed_grouping_new",
+  "_force_directed_grouping_call",
   "_radial_grouping_new",
   "_radial_grouping_call",
   "_treemap_grouping_new",

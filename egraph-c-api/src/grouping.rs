@@ -1,6 +1,29 @@
 use std::os::raw::{c_double, c_uint};
 use std::mem::forget;
-use egraph::layout::groups::{Group, Grouping, RadialGrouping, TreemapGrouping};
+use egraph::layout::grouping::{
+    Group,
+    Grouping,
+    ForceDirectedGrouping,
+    RadialGrouping,
+    TreemapGrouping,
+};
+use graph::Graph;
+
+#[no_mangle]
+pub unsafe fn force_directed_grouping_new(p_graph: *mut Graph) -> *mut ForceDirectedGrouping {
+    let force_directed_grouping = Box::new(ForceDirectedGrouping::new(&(*p_graph)));
+    Box::into_raw(force_directed_grouping)
+}
+
+#[no_mangle]
+pub unsafe fn force_directed_grouping_call(p_force_directed_grouping: *mut ForceDirectedGrouping, width: c_double, height: c_double, p_values: *mut c_double, num_values: c_uint) -> *mut Group {
+    let values = Vec::from_raw_parts(p_values, num_values as usize, num_values as usize);
+    let mut groups = (*p_force_directed_grouping).call(width, height, &values);
+    forget(values);
+    let pointer = groups.as_mut_ptr();
+    forget(groups);
+    pointer
+}
 
 #[no_mangle]
 pub unsafe fn radial_grouping_new() -> *mut RadialGrouping {

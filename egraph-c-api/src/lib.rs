@@ -5,7 +5,7 @@ extern crate petgraph;
 pub mod graph;
 pub mod force_directed;
 pub mod edge_bundling;
-pub mod groups;
+pub mod grouping;
 
 use std::os::raw::{c_double, c_uchar, c_uint};
 use std::mem::forget;

@@ -1,3 +1,4 @@
+pub mod force_directed;
 pub mod radial;
 pub mod treemap;
 
@@ -25,5 +26,6 @@ pub trait Grouping {
     fn call(&self, width: f64, height: f64, values: &Vec<f64>) -> Vec<Group>;
 }
 
+pub use self::force_directed::ForceDirectedGrouping;
 pub use self::radial::RadialGrouping;
 pub use self::treemap::TreemapGrouping;
