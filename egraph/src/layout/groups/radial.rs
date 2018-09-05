@@ -1,21 +1,23 @@
 use std::f64;
-use super::Group;
+use super::{Group, Grouping};
 
-pub struct RadialLayout {
+pub struct RadialGrouping {
 }
 
-impl RadialLayout {
-    pub fn new() -> RadialLayout {
-        RadialLayout {
+impl RadialGrouping {
+    pub fn new() -> RadialGrouping {
+        RadialGrouping {
         }
     }
+}
 
-    pub fn call(&self, width: f64, height: f64, values: &Vec<f64>) -> Vec<Group> {
-        radial_layout(width, height, values)
+impl Grouping for RadialGrouping {
+    fn call(&self, width: f64, height: f64, values: &Vec<f64>) -> Vec<Group> {
+        radial_grouping(width, height, values)
     }
 }
 
-pub fn radial_layout(width: f64, height: f64, values: &Vec<f64>) -> Vec<Group> {
+pub fn radial_grouping(width: f64, height: f64, values: &Vec<f64>) -> Vec<Group> {
     let mut offset : f64 = 0.;
     let d_theta = f64::consts::PI * 2. / values.len() as f64;
     let r = width.min(height) / 2.;
