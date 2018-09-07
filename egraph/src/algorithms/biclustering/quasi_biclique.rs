@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
-use super::{Bicluster, maximal_biclusters, filter_by_size};
+use super::{Bicluster, Biclustering, maximal_biclusters, filter_by_size};
 
 fn hash_key(vertices: &Vec<usize>) -> String {
     vertices.iter()
@@ -73,8 +73,10 @@ impl QuasiBiclique {
             min_size: 4,
         }
     }
+}
 
-    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+impl Biclustering for QuasiBiclique {
+    fn call<N, E, Ty: EdgeType, Ix: IndexType>(
         &self,
         graph: &Graph<N, E, Ty, Ix>,
         source: &HashSet<usize>,

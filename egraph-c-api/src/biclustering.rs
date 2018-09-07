@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::algorithms::biclustering::{Bicluster, QuasiBiclique};
+use egraph::algorithms::biclustering::{Bicluster, Biclustering, QuasiBiclique};
 use graph::Graph;
 
 pub type Biclusters = Vec<Bicluster>;

@@ -19,6 +19,15 @@ impl Bicluster {
     }
 }
 
+pub trait Biclustering {
+    fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+        &self,
+        graph: &Graph<N, E, Ty, Ix>,
+        source: &HashSet<usize>,
+        target: &HashSet<usize>,
+    ) -> Vec<Bicluster>;
+}
+
 pub fn maximal_biclusters(
     biclusters: &Vec<Bicluster>,
 ) -> Vec<Bicluster> {
