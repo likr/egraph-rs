@@ -1,7 +1,3 @@
-pub mod quasi_bicliques;
-
-pub use self::quasi_bicliques::QuasiBicliqueEdgeConcentration;
-
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 use ::algorithms::biclustering::{Bicluster};

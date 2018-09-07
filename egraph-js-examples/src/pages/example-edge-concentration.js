@@ -1,6 +1,7 @@
 import React from 'react'
 import {Simulation} from 'egraph/layout/force-directed'
-import {EdgeConcentration, QuasiBicliqueEdgeConcentration} from 'egraph/edge-concentration'
+import {QuasiBiclique} from 'egraph/biclustering'
+import {EdgeConcentration} from 'egraph/edge-concentration'
 import {Graph} from 'egraph/graph'
 import {loadModule} from '../module'
 import {Wrapper} from '../wrapper'
@@ -49,7 +50,8 @@ export class ExampleEdgeConcentration extends React.Component {
       graph.addEdge(source[2], target[3])
       graph.addEdge(source[2], target[4])
 
-      const biclustering = new QuasiBicliqueEdgeConcentration(Module)
+      const biclustering = new QuasiBiclique(Module)
+      biclustering.mu = 1
       biclustering.minSize = 0
       const biclusters = biclustering.call(graph, source, target)
 
@@ -81,8 +83,7 @@ export class ExampleEdgeConcentration extends React.Component {
         default-node-width='10'
         default-node-height='10'
         default-node-fill-color='#000'
-        default-node-stroke-color='#fff'
-        default-node-stroke-width='1.5'
+        default-node-stroke-width='0'
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'

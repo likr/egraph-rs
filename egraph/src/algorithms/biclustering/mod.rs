@@ -1,4 +1,4 @@
-pub mod quasi_bicliques;
+pub mod quasi_biclique;
 
 use std::collections::HashSet;
 use petgraph::{Graph, EdgeType};
@@ -53,3 +53,5 @@ pub fn filter_by_size<N, E, Ty: EdgeType, Ix: IndexType>(
         .map(|bicluster| bicluster.clone())
         .collect::<Vec<_>>()
 }
+
+pub use self::quasi_biclique::QuasiBiclique;
