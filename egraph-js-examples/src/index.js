@@ -6,6 +6,7 @@ import {BrowserRouter as Router, Route, Link} from 'react-router-dom'
 import {Home} from './pages/home'
 import {ExampleForceDirected} from './pages/example-force-directed'
 import {ExampleGroupInABox} from './pages/example-group-in-a-box'
+import {ExampleEdgeConcentration} from './pages/example-edge-concentration'
 
 render(<Router>
   <div>
@@ -25,6 +26,7 @@ render(<Router>
         <Route path='/' component={Home} exact />
         <Route path='/force-directed' component={ExampleForceDirected} />
         <Route path='/group-in-a-box' component={ExampleGroupInABox} />
+        <Route path='/edge-concentration' component={ExampleEdgeConcentration} />
       </div>
     </section>
   </div>

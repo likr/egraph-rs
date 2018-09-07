@@ -1,4 +1,5 @@
 import {Allocator} from './allocator'
+import {Graph} from './graph'
 
 export class Biclusters {
   constructor (Module, pointer) {
@@ -14,7 +15,7 @@ export class Biclusters {
   }
 
   source (i) {
-    const allocator = new Allocator(this)
+    const allocator = new Allocator(this.Module)
     const n = this.module.biclusterSourceLength(this.pointer, i)
     const sourcePointer = this.module.biclusterSource(this.pointer, i)
     const result = new Array(n)
@@ -26,9 +27,9 @@ export class Biclusters {
   }
 
   target (i) {
-    const allocator = new Allocator(this)
+    const allocator = new Allocator(this.Module)
     const n = this.module.biclusterSourceLength(this.pointer, i)
-    const targetPointer = this.module.biclusterSource(this.pointer, i)
+    const targetPointer = this.module.biclusterTarget(this.pointer, i)
     const result = new Array(n)
     for (let i = 0; i < n; ++i) {
       result[i] = this.Module.HEAPU32[targetPointer / 4 + i]
@@ -47,37 +48,29 @@ export class QuasiBicliqueEdgeConcentration {
     this.Module = Module
     this.module = {
       quasiBicliqueEdgeConcentrationNew: Module.cwrap('quasi_biclique_edge_concentration_new', 'number', []),
-      quasiBicliqueEdgeConcentrationCall: Module.cwrap('quasi_biclique_edge_concentration_call', 'number', ['number']),
+      quasiBicliqueEdgeConcentrationCall: Module.cwrap('quasi_biclique_edge_concentration_call', 'number', ['number', 'number', 'number', 'number', 'number', 'number']),
       quasiBicliqueEdgeConcentrationGetMu: Module.cwrap('quasi_biclique_edge_concentration_get_mu', 'number', ['number']),
       quasiBicliqueEdgeConcentrationSetMu: Module.cwrap('quasi_biclique_edge_concentration_set_mu', 'void', ['number', 'number']),
       quasiBicliqueEdgeConcentrationGetMinSize: Module.cwrap('quasi_biclique_edge_concentration_get_min_size', 'number', ['number']),
       quasiBicliqueEdgeConcentrationSetMinSize: Module.cwrap('quasi_biclique_edge_concentration_set_min_size', 'void', ['number', 'number'])
     }
-    this.pointer = this.module.quasiBicliqueEdgeConcentration()
+    this.pointer = this.module.quasiBicliqueEdgeConcentrationNew()
   }
 
   call (graph, source, target) {
     const allocator = new Allocator(this.Module)
     const sourcePointer = allocator.alloc(4 * source.length)
-    source.map((source, i) => {
-      this.Module.HEAPU32[sourcePointer / 4 + i] = source
+    source.map((u, i) => {
+      this.Module.HEAPU32[sourcePointer / 4 + i] = u
     })
     const targetPointer = allocator.alloc(4 * target.length)
-    target.map((target, i) => {
-      this.Module.HEAPU32[targetPointer / 4 + i] = target
+    target.map((v, i) => {
+      this.Module.HEAPU32[targetPointer / 4 + i] = v
     })
-    const biclusters = new Biclusters(this.Module, this.module.quasiBicliqueEdgeConcentrationCall(this.pointer, graph.pointer, sourcePointer, targetPointer))
-    const n = biclusters.length
-    const result = new Array(n)
-    for (let i = 0; i < n; ++i) {
-      result[i] = {
-        source: biclusters.source(i),
-        target: biclusters.target(i)
-      }
-    }
+    const biclusters = new Biclusters(this.Module, this.module.quasiBicliqueEdgeConcentrationCall(this.pointer, graph.pointer, sourcePointer, source.length, targetPointer, target.length))
     allocator.free(sourcePointer)
     allocator.free(targetPointer)
-    return result
+    return biclusters
   }
 
   get mu () {
@@ -94,5 +87,18 @@ export class QuasiBicliqueEdgeConcentration {
 
   set minSize (value) {
     this.module.quasiBicliqueEdgeConcentrationSetMinSize(this.pointer, value)
+  }
+}
+
+export class EdgeConcentration {
+  constructor (Module) {
+    this.Module = Module
+    this.module = {
+      edgeConcentration: Module.cwrap('edge_concentration', 'number', ['number', 'number'])
+    }
+  }
+
+  call (graph, biclusters) {
+    return new Graph(this.Module, this.module.edgeConcentration(graph.pointer, biclusters.pointer))
   }
 }

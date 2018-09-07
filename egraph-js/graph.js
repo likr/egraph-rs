@@ -1,5 +1,5 @@
 export class Graph {
-  constructor (Module) {
+  constructor (Module, pointer) {
     this.module = {
       graphNew: Module.cwrap('graph_new', 'number', []),
       graphAddNode: Module.cwrap('graph_add_node', 'number', ['number']),
@@ -9,9 +9,11 @@ export class Graph {
       graphGetX: Module.cwrap('graph_get_x', 'number', ['number', 'number']),
       graphGetY: Module.cwrap('graph_get_y', 'number', ['number', 'number']),
       graphSetX: Module.cwrap('graph_set_x', 'void', ['number', 'number', 'number']),
-      graphSetY: Module.cwrap('graph_set_y', 'void', ['number', 'number', 'number'])
+      graphSetY: Module.cwrap('graph_set_y', 'void', ['number', 'number', 'number']),
+      graphSource: Module.cwrap('graph_source', 'number', ['number', 'number']),
+      graphTarget: Module.cwrap('graph_target', 'number', ['number', 'number'])
     }
-    this.pointer = this.module.graphNew()
+    this.pointer = pointer || this.module.graphNew()
   }
 
   addNode () {
@@ -44,5 +46,13 @@ export class Graph {
 
   setY (u, value) {
     return this.module.graphSetY(this.pointer, u, value)
+  }
+
+  source (i) {
+    return this.module.graphSource(this.pointer, i)
+  }
+
+  target (i) {
+    return this.module.graphTarget(this.pointer, i)
   }
 }

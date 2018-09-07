@@ -209,13 +209,13 @@ export class ExampleGroupInABox extends React.Component {
         </Wrapper>
       </div>
       <div>
-        <form onSubmit={this.handleSubmitOptionsForm.bind(this)}>
+        <form ref='form' onSubmit={this.handleSubmitOptionsForm.bind(this)}>
           <h3 className='title'>Group-In-a-Box Options</h3>
           <div className='field'>
             <label className='label'>Type</label>
             <div className='control'>
               <div className='select is-fullwidth'>
-                <select ref='type' defaultValue='rect'>
+                <select ref='type' defaultValue='rect' onChange={this.handleChangeValue.bind(this)}>
                   <option value='rect'>Treemap</option>
                   <option value='circle'>Circle Packing</option>
                   <option value='force-directed'>Force-directed</option>
@@ -272,6 +272,10 @@ export class ExampleGroupInABox extends React.Component {
 
   handleSubmitOptionsForm (event) {
     event.preventDefault()
+    this.layout()
+  }
+
+  handleChangeValue (event) {
     this.layout()
   }
 

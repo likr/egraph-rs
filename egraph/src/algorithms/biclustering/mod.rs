@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Bicluster {
     pub source: HashSet<usize>,
     pub target: HashSet<usize>,
@@ -23,18 +23,13 @@ pub fn maximal_biclusters(
     biclusters: &Vec<Bicluster>,
 ) -> Vec<Bicluster> {
     biclusters.iter()
-        .filter(|bicluster1| {
-            biclusters.iter().all(|bicluster2| {
-                if bicluster1.source.iter().any(|u| !bicluster2.source.contains(u)) {
-                    return true
-                }
-                if bicluster1.target.iter().any(|v| !bicluster2.target.contains(v)) {
-                    return true
-                }
-                false
+        .enumerate()
+        .filter(|(i, bicluster1)| {
+            !biclusters.iter().enumerate().any(|(j, bicluster2)| {
+                return *i != j && bicluster2.source.is_superset(&bicluster1.source) && bicluster2.target.is_superset(&bicluster1.target)
             })
         })
-        .map(|bicluster| bicluster.clone())
+        .map(|(_, bicluster)| bicluster.clone())
         .collect::<Vec<_>>()
 }
 

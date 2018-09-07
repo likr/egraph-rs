@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
+use egraph;
 use egraph::algorithms::biclustering::Bicluster;
 use egraph::edge_concentration::QuasiBicliqueEdgeConcentration;
-use graph::Graph;
+use graph::{Graph, Node};
 
 pub type Biclusters = Vec<Bicluster>;
 
@@ -81,4 +82,13 @@ pub unsafe fn bicluster_target(p_biclusters: *mut Biclusters, i: c_uint) -> *mut
 #[no_mangle]
 pub unsafe fn bicluster_target_length(p_biclusters: *mut Biclusters, i: c_uint) -> c_uint {
     (*p_biclusters)[i as usize].target.len() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn edge_concentration(p_graph: *mut Graph, p_biclusters: *mut Biclusters) -> *mut Graph {
+    let transformed = Box::new(egraph::edge_concentration::edge_concentration(&*p_graph, &*p_biclusters,
+                                                                              |_u| Node::empty(),
+                                                                              |_u| (),
+                                                                              |_bicluster| Node::empty()));
+    Box::into_raw(transformed)
 }

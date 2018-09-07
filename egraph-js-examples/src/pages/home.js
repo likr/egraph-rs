@@ -7,6 +7,7 @@ export class Home extends React.Component {
       <ul>
         <li><Link to='/force-directed'>force-directed</Link></li>
         <li><Link to='/group-in-a-box'>group-in-a-box</Link></li>
+        <li><Link to='/edge-concentration'>edge-concentration</Link></li>
       </ul>
     </div>
   }

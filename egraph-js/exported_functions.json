@@ -8,6 +8,8 @@
   "_graph_get_y",
   "_graph_set_x",
   "_graph_set_y",
+  "_graph_source",
+  "_graph_target",
   "_connected_components",
   "_simulation_new",
   "_simulation_add_center_force",
@@ -59,6 +61,7 @@
   "_bicluster_source_length",
   "_bicluster_target",
   "_bicluster_target_length",
+  "_edge_concentration",
   "_rust_alloc",
   "_rust_free",
   ""
