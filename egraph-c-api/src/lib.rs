@@ -14,6 +14,13 @@ use std::mem::forget;
 use egraph::utils::treemap::{squarify, Tile};
 use self::graph::Graph;
 
+unsafe fn copy_to_vec(pointer: *mut c_uint, size: usize) -> Vec<usize> {
+    let vec1 = Vec::from_raw_parts(pointer, size, size);
+    let vec2 = vec1.iter().map(|&item| item as usize).collect::<Vec<_>>();
+    forget(vec1);
+    vec2
+}
+
 #[no_mangle]
 pub fn hoge() {
     let mut model = clp::Model::new();

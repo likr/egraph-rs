@@ -4,13 +4,7 @@ use std::os::raw::{c_double, c_uint};
 use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
 use egraph::layout::force_directed::simulation::start_simulation;
 use graph::Graph;
-
-unsafe fn copy_to_vec(pointer: *mut c_uint, size: usize) -> Vec<usize> {
-    let vec1 = Vec::from_raw_parts(pointer, size, size);
-    let vec2 = vec1.iter().map(|&item| item as usize).collect::<Vec<_>>();
-    forget(vec1);
-    vec2
-}
+use super::copy_to_vec;
 
 pub struct Simulation {
     forces: Vec<Box<Force>>,
