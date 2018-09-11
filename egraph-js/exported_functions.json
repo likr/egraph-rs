@@ -62,7 +62,7 @@
   "_bicluster_target",
   "_bicluster_target_length",
   "_edge_concentration",
-  "_inter_group_edge_concentration",
+  "_inter_group_edge_concentration_with_quasi_biclique",
   "_rust_alloc",
   "_rust_free",
   ""

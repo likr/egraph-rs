@@ -1,6 +1,7 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {Allocator} from 'egraph/allocator'
+import {getModule} from 'egraph'
+import {alloc} from 'egraph/allocator'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
 import {
@@ -9,7 +10,6 @@ import {
   TreemapGrouping
 } from 'egraph/grouping'
 import {EdgeBundling} from 'egraph/edge-bundling'
-import {loadModule} from '../module'
 import {Wrapper} from '../wrapper'
 
 const countGroups = (nodes) => {
@@ -55,8 +55,8 @@ const circleGrouping = (groups, width, height) => {
   return tiles
 }
 
-const forceDirectedGrouping = (groups, width, height, Module, data) => {
-  const groupGraph = new Graph(Module)
+const forceDirectedGrouping = (groups, width, height, data) => {
+  const groupGraph = new Graph()
   const nodeGroups = new Map(data.nodes.map((node, i) => [i, node.group]))
   const n = groups.length
   groups.forEach(() => {
@@ -74,7 +74,7 @@ const forceDirectedGrouping = (groups, width, height, Module, data) => {
       }
     }
   }
-  const grouping = new ForceDirectedGrouping(Module, groupGraph)
+  const grouping = new ForceDirectedGrouping(groupGraph)
   const values = groups.map(({count}) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
@@ -83,8 +83,8 @@ const forceDirectedGrouping = (groups, width, height, Module, data) => {
   return tiles
 }
 
-const radialGrouping = (groups, width, height, Module) => {
-  const grouping = new RadialGrouping(Module)
+const radialGrouping = (groups, width, height) => {
+  const grouping = new RadialGrouping()
   const values = groups.map(({count}) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
@@ -93,8 +93,8 @@ const radialGrouping = (groups, width, height, Module) => {
   return tiles
 }
 
-const treemapGrouping = (groups, width, height, Module) => {
-  const grouping = new TreemapGrouping(Module)
+const treemapGrouping = (groups, width, height) => {
+  const grouping = new TreemapGrouping()
   const values = groups.map(({count}) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
@@ -103,41 +103,41 @@ const treemapGrouping = (groups, width, height, Module) => {
   return tiles
 }
 
-const layoutGroups = (type, groups, width, height, Module, data) => {
+const layoutGroups = (type, groups, width, height, data) => {
   switch (type) {
     case 'circle':
       return circleGrouping(groups, width, height)
     case 'force-directed':
-      return forceDirectedGrouping(groups, width, height, Module, data)
+      return forceDirectedGrouping(groups, width, height, data)
     case 'radial':
-      return radialGrouping(groups, width, height, Module)
+      return radialGrouping(groups, width, height)
     case 'rect':
-      return treemapGrouping(groups, width, height, Module)
+      return treemapGrouping(groups, width, height)
   }
   throw new Error(`Unsupported layout type: ${type}`)
 }
 
-const layout = (Module, graph, data, options) => {
+const layout = (graph, data, options) => {
+  const {Module} = getModule()
   const width = 800
   const height = 600
-  const allocator = new Allocator(Module)
 
   const groups = countGroups(data.nodes)
-  const tiles = layoutGroups(options.type, groups, width, height, Module, data)
+  const tiles = layoutGroups(options.type, groups, width, height, data)
 
-  const groupsPointer = allocator.alloc(16 * groups.length)
+  const groupsPointer = alloc(16 * groups.length)
   tiles.forEach((tile, i) => {
     Module.HEAPF32[groupsPointer / 4 + 2 * i] = tile.x
     Module.HEAPF32[groupsPointer / 4 + 2 * i + 1] = tile.y
   })
 
   const groupMap = new Map(groups.map(({name}, i) => [name, i]))
-  const nodeGroupsPointer = allocator.alloc(4 * graph.nodeCount())
+  const nodeGroupsPointer = alloc(4 * graph.nodeCount())
   data.nodes.forEach((node, i) => {
     Module.HEAPU32[nodeGroupsPointer / 4 + i] = groupMap.get(node.group)
   })
 
-  const simulation = new Simulation(Module)
+  const simulation = new Simulation()
   const f1 = simulation.addGroupManyBodyForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
   const f2 = simulation.addGroupLinkForce(graph, nodeGroupsPointer)
   const f3 = simulation.addGroupCenterForce(groupsPointer, groups.length, nodeGroupsPointer, graph.nodeCount())
@@ -146,7 +146,7 @@ const layout = (Module, graph, data, options) => {
   simulation.setStrength(f3, 0.3)
   simulation.start(graph)
 
-  const edgeBundling = new EdgeBundling(Module)
+  const edgeBundling = new EdgeBundling()
   edgeBundling.cycles = options.cycles
   edgeBundling.s0 = options.s0
   edgeBundling.i0 = options.i0
@@ -183,9 +183,8 @@ export class ExampleGroupInABox extends React.Component {
         }
 
         this.data = data
-        this.layout().then(() => {
-          this.refs.renderer.center()
-        })
+        this.layout()
+        this.refs.renderer.center()
       })
   }
 
@@ -280,25 +279,23 @@ export class ExampleGroupInABox extends React.Component {
   }
 
   layout () {
-    return loadModule().then(({Module}) => {
-      const graph = new Graph(Module)
-      this.data.nodes.forEach(() => {
-        graph.addNode()
-      })
-      for (const {source, target} of this.data.links) {
-        graph.addEdge(source, target)
-      }
-
-      layout(Module, graph, this.data, {
-        type: this.refs.type.value,
-        cycles: +this.refs.cycles.value,
-        s0: +this.refs.s0.value,
-        i0: +this.refs.i0.value,
-        sStep: +this.refs.sStep.value,
-        iStep: +this.refs.iStep.value
-      })
-
-      this.refs.renderer.load(this.data)
+    const graph = new Graph()
+    this.data.nodes.forEach(() => {
+      graph.addNode()
     })
+    for (const {source, target} of this.data.links) {
+      graph.addEdge(source, target)
+    }
+
+    layout(graph, this.data, {
+      type: this.refs.type.value,
+      cycles: +this.refs.cycles.value,
+      s0: +this.refs.s0.value,
+      i0: +this.refs.i0.value,
+      sStep: +this.refs.sStep.value,
+      iStep: +this.refs.iStep.value
+    })
+
+    this.refs.renderer.load(this.data)
   }
 }

@@ -2,11 +2,10 @@ import React from 'react'
 import * as d3 from 'd3'
 import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
-import {loadModule} from '../module'
 import {Wrapper} from '../wrapper'
 
-const layout = (Module, graph, data) => {
-  const simulation = new Simulation(Module)
+const layout = (graph, data) => {
+  const simulation = new Simulation()
   simulation.addManyBodyForce()
   simulation.addLinkForce(graph)
   simulation.addCenterForce()
@@ -32,21 +31,19 @@ const draw = (renderer, data) => {
 
 export class ExampleForceDirected extends React.Component {
   componentDidMount () {
-    loadModule().then(({Module}) => {
-      window.fetch('/data/miserables.json')
-        .then((response) => response.json())
-        .then((data) => {
-          const graph = new Graph(Module)
-          data.nodes.forEach(() => {
-            graph.addNode()
-          })
-          for (const {source, target} of data.links) {
-            graph.addEdge(source, target)
-          }
-          layout(Module, graph, data)
-          draw(this.refs.renderer, data)
+    window.fetch('/data/miserables.json')
+      .then((response) => response.json())
+      .then((data) => {
+        const graph = new Graph()
+        data.nodes.forEach(() => {
+          graph.addNode()
         })
-    })
+        for (const {source, target} of data.links) {
+          graph.addEdge(source, target)
+        }
+        layout(graph, data)
+        draw(this.refs.renderer, data)
+      })
   }
 
   render () {

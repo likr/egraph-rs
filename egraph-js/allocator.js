@@ -1,16 +1,11 @@
-export class Allocator {
-  constructor (Module) {
-    this.module = {
-      alloc: Module.cwrap('rust_alloc', 'number', ['number']),
-      free: Module.cwrap('rust_free', 'void', ['number'])
-    }
-  }
+import {getModule} from '.'
 
-  alloc (bytes) {
-    return this.module.alloc(bytes)
-  }
+export const alloc = (bytes) => {
+  const {functions} = getModule()
+  return functions.alloc(bytes)
+}
 
-  free (pointer) {
-    this.module.free(pointer)
-  }
+export const free = (pointer) => {
+  const {functions} = getModule()
+  return functions.free(pointer)
 }

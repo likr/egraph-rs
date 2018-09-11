@@ -1,90 +1,77 @@
-import {Allocator} from './allocator'
+import {getModule} from '.'
+import {alloc, free} from './allocator'
 
 export class Biclusters {
-  constructor (Module, pointer) {
+  constructor (pointer) {
+    const {Module, functions} = getModule()
     this.Module = Module
-    this.module = {
-      biclusterLength: Module.cwrap('bicluster_length', 'number', ['number']),
-      biclusterSource: Module.cwrap('bicluster_source', 'number', ['number', 'number']),
-      biclusterSourceLength: Module.cwrap('bicluster_source_length', 'number', ['number', 'number']),
-      biclusterTarget: Module.cwrap('bicluster_target', 'number', ['number', 'number']),
-      biclusterTargetLength: Module.cwrap('bicluster_target_length', 'number', ['number', 'number'])
-    }
+    this.functions = functions
     this.pointer = pointer
   }
 
   source (i) {
-    const allocator = new Allocator(this.Module)
-    const n = this.module.biclusterSourceLength(this.pointer, i)
-    const sourcePointer = this.module.biclusterSource(this.pointer, i)
+    const n = this.functions.biclusterSourceLength(this.pointer, i)
+    const sourcePointer = this.functions.biclusterSource(this.pointer, i)
     const result = new Array(n)
     for (let i = 0; i < n; ++i) {
       result[i] = this.Module.HEAPU32[sourcePointer / 4 + i]
     }
-    allocator.free(sourcePointer)
+    free(sourcePointer)
     return result
   }
 
   target (i) {
-    const allocator = new Allocator(this.Module)
-    const n = this.module.biclusterSourceLength(this.pointer, i)
-    const targetPointer = this.module.biclusterTarget(this.pointer, i)
+    const n = this.functions.biclusterSourceLength(this.pointer, i)
+    const targetPointer = this.functions.biclusterTarget(this.pointer, i)
     const result = new Array(n)
     for (let i = 0; i < n; ++i) {
       result[i] = this.Module.HEAPU32[targetPointer / 4 + i]
     }
-    allocator.free(targetPointer)
+    free(targetPointer)
     return result
   }
 
   get length () {
-    return this.module.biclusterLength(this.pointer)
+    return this.functions.biclusterLength(this.pointer)
   }
 }
 
 export class QuasiBiclique {
-  constructor (Module) {
+  constructor () {
+    const {Module, functions} = getModule()
     this.Module = Module
-    this.module = {
-      quasiBicliqueNew: Module.cwrap('quasi_biclique_new', 'number', []),
-      quasiBicliqueCall: Module.cwrap('quasi_biclique_call', 'number', ['number', 'number', 'number', 'number', 'number', 'number']),
-      quasiBicliqueGetMu: Module.cwrap('quasi_biclique_get_mu', 'number', ['number']),
-      quasiBicliqueSetMu: Module.cwrap('quasi_biclique_set_mu', 'void', ['number', 'number']),
-      quasiBicliqueGetMinSize: Module.cwrap('quasi_biclique_get_min_size', 'number', ['number']),
-      quasiBicliqueSetMinSize: Module.cwrap('quasi_biclique_set_min_size', 'void', ['number', 'number'])
-    }
-    this.pointer = this.module.quasiBicliqueNew()
+    this.functions = functions
+    this.pointer = this.functions.quasiBicliqueNew()
   }
 
   call (graph, source, target) {
-    const allocator = new Allocator(this.Module)
-    const sourcePointer = allocator.alloc(4 * source.length)
+    const sourcePointer = alloc(4 * source.length)
     source.map((u, i) => {
       this.Module.HEAPU32[sourcePointer / 4 + i] = u
     })
-    const targetPointer = allocator.alloc(4 * target.length)
+    const targetPointer = alloc(4 * target.length)
     target.map((v, i) => {
       this.Module.HEAPU32[targetPointer / 4 + i] = v
     })
-    const biclusters = new Biclusters(this.Module, this.module.quasiBicliqueCall(this.pointer, graph.pointer, sourcePointer, source.length, targetPointer, target.length))
-    allocator.free(sourcePointer)
-    allocator.free(targetPointer)
+    const biclusters = new Biclusters(this.functions.quasiBicliqueCall(this.pointer, graph.pointer, sourcePointer, source.length, targetPointer, target.length))
+    free(sourcePointer)
+    free(targetPointer)
     return biclusters
   }
 
   get mu () {
-    return this.module.quasiBicliqueGetMu(this.pointer)
+    return this.functions.quasiBicliqueGetMu(this.pointer)
   }
 
   set mu (value) {
-    this.module.quasiBicliqueSetMu(this.pointer, value)
+    this.functions.quasiBicliqueSetMu(this.pointer, value)
   }
 
   get minSize () {
-    return this.module.quasiBicliqueGetMinSize(this.pointer)
+    return this.functions.quasiBicliqueGetMinSize(this.pointer)
   }
 
   set minSize (value) {
-    this.module.quasiBicliqueSetMinSize(this.pointer, value)
+    this.functions.quasiBicliqueSetMinSize(this.pointer, value)
   }
 }
