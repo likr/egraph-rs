@@ -8,7 +8,12 @@ export class EdgeConcentration {
   }
 
   call (graph, biclusters) {
-    return new Graph(this.functions.edgeConcentration(graph.pointer, biclusters.pointer))
+    const result = this.functions.edgeConcentration(graph.pointer, biclusters.pointer)
+    const transformed = new Graph(result)
+    for (let i = 0; i < graph.nodeCount(); ++i) {
+      transformed.nodeProperties.set(i, graph.nodeProperties.get(i))
+    }
+    return transformed
   }
 }
 

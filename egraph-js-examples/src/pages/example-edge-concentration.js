@@ -11,16 +11,10 @@ const layout = (graph, data) => {
   simulation.addLinkForce(graph)
   simulation.addCenterForce()
   simulation.start(graph)
-
-  data.nodes.forEach((node, i) => {
-    const {x, y} = graph.nodeAt(i)
-    node.x = x
-    node.y = y
-  })
 }
 
-const draw = (renderer, data) => {
-  renderer.load(data)
+const draw = (renderer, graph) => {
+  renderer.load(graph)
   renderer.center()
 }
 
@@ -29,11 +23,11 @@ export class ExampleEdgeConcentration extends React.Component {
     const graph = new Graph()
     const source = new Array(3)
     for (let i = 0; i < 3; ++i) {
-      source[i] = graph.addNode()
+      source[i] = graph.addNode({fillColor: 'green'})
     }
     const target = new Array(5)
     for (let i = 0; i < 5; ++i) {
-      target[i] = graph.addNode()
+      target[i] = graph.addNode({fillColor: 'orange'})
     }
     graph.addEdge(source[0], target[0])
     graph.addEdge(source[0], target[1])
@@ -57,22 +51,8 @@ export class ExampleEdgeConcentration extends React.Component {
     const edgeConcentration = new EdgeConcentration()
     const transformed = edgeConcentration.call(graph, biclusters)
 
-    const nodes = new Array(transformed.nodeCount())
-    for (let i = 0; i < transformed.nodeCount(); ++i) {
-      nodes[i] = {}
-    }
-    const links = new Array(transformed.edgeCount())
-    for (let i = 0; i < transformed.edgeCount(); ++i) {
-      const {source, target} = transformed.edgeAt(i)
-      links[i] = {
-        source,
-        target
-      }
-    }
-    const data = {nodes, links}
-
-    layout(transformed, data)
-    draw(this.refs.renderer, data)
+    layout(transformed)
+    draw(this.refs.renderer, transformed)
   }
 
   render () {
@@ -86,6 +66,8 @@ export class ExampleEdgeConcentration extends React.Component {
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'
+        graph-links-property='edges'
+        node-fill-color-property='properties.fillColor'
         no-auto-centering
       />
     </Wrapper>
