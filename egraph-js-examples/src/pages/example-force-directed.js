@@ -4,28 +4,23 @@ import {Simulation} from 'egraph/layout/force-directed'
 import {Graph} from 'egraph/graph'
 import {Wrapper} from '../wrapper'
 
-const layout = (graph, data) => {
+const layout = (graph) => {
   const simulation = new Simulation()
   simulation.addManyBodyForce()
   simulation.addLinkForce(graph)
   simulation.addCenterForce()
   simulation.start(graph)
-
-  data.nodes.forEach((node, i) => {
-    node.x = graph.getX(i)
-    node.y = graph.getY(i)
-  })
 }
 
-const draw = (renderer, data) => {
+const draw = (renderer, graph) => {
   const color = d3.scaleOrdinal(d3.schemeCategory10)
-  for (const node of data.nodes) {
-    node.fillColor = color(node.group)
+  for (const node of graph.nodes) {
+    node.properties.fillColor = color(node.properties.group)
   }
-  for (const link of data.links) {
-    link.strokeWidth = Math.sqrt(link.value)
+  for (const link of graph.edges) {
+    link.properties.strokeWidth = Math.sqrt(link.properties.value)
   }
-  renderer.load(data)
+  renderer.load(graph)
   renderer.center()
 }
 
@@ -35,14 +30,15 @@ export class ExampleForceDirected extends React.Component {
       .then((response) => response.json())
       .then((data) => {
         const graph = new Graph()
-        data.nodes.forEach(() => {
-          graph.addNode()
+        data.nodes.forEach((node) => {
+          graph.addNode(node)
         })
-        for (const {source, target} of data.links) {
-          graph.addEdge(source, target)
+        for (const link of data.links) {
+          const {source, target} = link
+          graph.addEdge(source, target, link)
         }
-        layout(graph, data)
-        draw(this.refs.renderer, data)
+        layout(graph)
+        draw(this.refs.renderer, graph)
       })
   }
 
@@ -57,7 +53,10 @@ export class ExampleForceDirected extends React.Component {
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'
-        node-label-property='name'
+        graph-links-property='edges'
+        node-fill-color-property='properties.fillColor'
+        node-label-property='properties.name'
+        link-stroke-width-property='properties.strokeWidth'
         no-auto-centering
       />
     </Wrapper>

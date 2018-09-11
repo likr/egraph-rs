@@ -160,8 +160,9 @@ const layout = (graph, data, options) => {
   data.groups = tiles
 
   data.nodes.forEach((node, i) => {
-    node.x = graph.getX(i)
-    node.y = graph.getY(i)
+    const {x, y} = graph.nodeAt(i)
+    node.x = x
+    node.y = y
   })
 
   data.links.forEach((link, i) => {

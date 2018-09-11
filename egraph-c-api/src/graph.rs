@@ -25,7 +25,17 @@ impl Node {
     }
 }
 
-pub type Graph = petgraph::Graph<Node, (), petgraph::Undirected>;
+#[derive(Default)]
+pub struct Edge {
+}
+
+impl Edge {
+    pub fn new() -> Edge {
+        Edge {}
+    }
+}
+
+pub type Graph = petgraph::Graph<Node, Edge, petgraph::Undirected>;
 
 #[no_mangle]
 pub unsafe fn graph_new() -> *mut Graph {
@@ -40,7 +50,7 @@ pub unsafe fn graph_add_node(p_graph: *mut Graph) -> c_uint {
 
 #[no_mangle]
 pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uint {
-    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), ()).index() as c_uint
+    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), Edge::new()).index() as c_uint
 }
 
 #[no_mangle]
@@ -51,6 +61,16 @@ pub unsafe fn graph_node_count(p_graph: *mut Graph) -> c_uint {
 #[no_mangle]
 pub unsafe fn graph_edge_count(p_graph: *mut Graph) -> c_uint {
     (*p_graph).edge_count() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn graph_node_at(p_graph: *mut Graph, i: c_uint) -> *const petgraph::graph::Node<Node> {
+    &(*p_graph).raw_nodes()[i as usize]
+}
+
+#[no_mangle]
+pub unsafe fn graph_edge_at(p_graph: *mut Graph, i: c_uint) -> *const petgraph::graph::Edge<Edge> {
+    &(*p_graph).raw_edges()[i as usize]
 }
 
 #[no_mangle]
@@ -83,4 +103,34 @@ pub unsafe fn graph_source(p_graph: *mut Graph, i: c_uint) -> c_uint {
 #[no_mangle]
 pub unsafe fn graph_target(p_graph: *mut Graph, i: c_uint) -> c_uint {
     (*p_graph).raw_edges()[i as usize].target().index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn node_get_x(p_node: *mut petgraph::graph::Node<Node>) -> c_double {
+    (*p_node).weight.x
+}
+
+#[no_mangle]
+pub unsafe fn node_get_y(p_node: *mut petgraph::graph::Node<Node>) -> c_double {
+    (*p_node).weight.y
+}
+
+#[no_mangle]
+pub unsafe fn node_set_x(p_node: *mut petgraph::graph::Node<Node>, value: c_double) {
+    (*p_node).weight.x = value;
+}
+
+#[no_mangle]
+pub unsafe fn node_set_y(p_node: *mut petgraph::graph::Node<Node>, value: c_double) {
+    (*p_node).weight.y = value;
+}
+
+#[no_mangle]
+pub unsafe fn edge_source(p_edge: *mut petgraph::graph::Edge<Edge>) -> c_uint {
+    (*p_edge).source().index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn edge_target(p_edge: *mut petgraph::graph::Edge<Edge>) -> c_uint {
+    (*p_edge).target().index() as c_uint
 }

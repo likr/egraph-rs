@@ -1,17 +1,63 @@
 import {getModule} from '.'
 
+class Node {
+  constructor (pointer, properties = null) {
+    this.functions = getModule().functions
+    this.pointer = pointer
+    this.properties = properties || {}
+  }
+
+  get x () {
+    return this.functions.nodeGetX(this.pointer)
+  }
+
+  set x (value) {
+    this.functions.nodeSetX(this.pointer, value)
+  }
+
+  get y () {
+    return this.functions.nodeGetY(this.pointer)
+  }
+
+  set y (value) {
+    this.functions.nodeSetY(this.pointer, value)
+  }
+}
+
+class Edge {
+  constructor (pointer, properties = null) {
+    this.functions = getModule().functions
+    this.pointer = pointer
+    this.properties = properties || {}
+  }
+
+  get source () {
+    return this.functions.edgeSource(this.pointer)
+  }
+
+  get target () {
+    return this.functions.edgeTarget(this.pointer)
+  }
+}
+
 export class Graph {
   constructor (pointer) {
     this.functions = getModule().functions
     this.pointer = pointer || this.functions.graphNew()
+    this.nodeProperties = new Map()
+    this.edgeProperties = new Map()
   }
 
-  addNode () {
-    return this.functions.graphAddNode(this.pointer)
+  addNode (properties = null) {
+    const index = this.functions.graphAddNode(this.pointer)
+    this.nodeProperties.set(index, properties)
+    return index
   }
 
-  addEdge (u, v) {
-    return this.functions.graphAddEdge(this.pointer, u, v)
+  addEdge (u, v, properties = null) {
+    const index = this.functions.graphAddEdge(this.pointer, u, v)
+    this.edgeProperties.set(index, properties)
+    return index
   }
 
   nodeCount () {
@@ -22,27 +68,59 @@ export class Graph {
     return this.functions.graphEdgeCount(this.pointer)
   }
 
-  getX (u) {
-    return this.functions.graphGetX(this.pointer, u)
+  nodeAt (i) {
+    const pointer = this.functions.graphNodeAt(this.pointer, i)
+    return new Node(pointer, this.nodeProperties.get(i))
   }
 
-  getY (u) {
-    return this.functions.graphGetY(this.pointer, u)
+  edgeAt (i) {
+    const pointer = this.functions.graphEdgeAt(this.pointer, i)
+    return new Edge(pointer, this.edgeProperties.get(i))
   }
 
-  setX (u, value) {
-    return this.functions.graphSetX(this.pointer, u, value)
+  get nodes () {
+    const graph = this
+    const n = this.nodeCount()
+    let nextIndex = 0
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            if (nextIndex < n) {
+              return {
+                value: graph.nodeAt(nextIndex++),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
   }
 
-  setY (u, value) {
-    return this.functions.graphSetY(this.pointer, u, value)
-  }
-
-  source (i) {
-    return this.functions.graphSource(this.pointer, i)
-  }
-
-  target (i) {
-    return this.functions.graphTarget(this.pointer, i)
+  get edges () {
+    const graph = this
+    const n = this.edgeCount()
+    let nextIndex = 0
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            if (nextIndex < n) {
+              return {
+                value: graph.edgeAt(nextIndex++),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
   }
 }

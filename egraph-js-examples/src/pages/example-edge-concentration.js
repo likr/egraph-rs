@@ -13,8 +13,9 @@ const layout = (graph, data) => {
   simulation.start(graph)
 
   data.nodes.forEach((node, i) => {
-    node.x = graph.getX(i)
-    node.y = graph.getY(i)
+    const {x, y} = graph.nodeAt(i)
+    node.x = x
+    node.y = y
   })
 }
 
@@ -62,9 +63,10 @@ export class ExampleEdgeConcentration extends React.Component {
     }
     const links = new Array(transformed.edgeCount())
     for (let i = 0; i < transformed.edgeCount(); ++i) {
+      const {source, target} = transformed.edgeAt(i)
       links[i] = {
-        source: transformed.source(i),
-        target: transformed.target(i)
+        source,
+        target
       }
     }
     const data = {nodes, links}
