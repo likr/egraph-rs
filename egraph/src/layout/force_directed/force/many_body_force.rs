@@ -64,6 +64,7 @@ fn apply_many_body(
     node_id: NodeId,
     alpha: f32,
     theta2: f32,
+    global_strength: f32,
 ) {
     for &(ref e, _) in tree.elements(node_id).iter() {
         match **e {
@@ -75,10 +76,10 @@ fn apply_many_body(
                 let w = rect.width;
                 let l = dx * dx + dy * dy;
                 if w * w / theta2 < l {
-                    point.vx += dx * data.strength * alpha / l;
-                    point.vy += dy * data.strength * alpha / l;
+                    point.vx += global_strength * dx * data.strength * alpha / l;
+                    point.vy += global_strength * dy * data.strength * alpha / l;
                 } else {
-                    apply_many_body(point, tree, node_id, alpha, theta2);
+                    apply_many_body(point, tree, node_id, alpha, theta2, global_strength);
                 }
             }
             Element::Leaf { x, y, n } => {
@@ -87,8 +88,8 @@ fn apply_many_body(
                     let dx = x - point.x;
                     let dy = y - point.y;
                     let l = dx * dx + dy * dy;
-                    point.vx += dx * strength * alpha / l;
-                    point.vy += dy * strength * alpha / l;
+                    point.vx += global_strength * dx * strength * alpha / l;
+                    point.vy += global_strength * dy * strength * alpha / l;
                 }
             }
             Element::Empty => {}
@@ -128,7 +129,7 @@ impl Force for ManyBodyForce {
         }
         accumulate(&mut tree, root);
         for mut point in points.iter_mut() {
-            apply_many_body(&mut point, &tree, root, alpha, 0.81);
+            apply_many_body(&mut point, &tree, root, alpha, 0.81, self.strength);
         }
     }
 

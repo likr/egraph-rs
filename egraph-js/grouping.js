@@ -51,11 +51,43 @@ export class ForceDirectedGrouping {
     const {Module, functions} = getModule()
     this.Module = Module
     this.functions = functions
-    this.pointer = this.functions.force_directedGroupingNew(graph.pointer)
+    this.pointer = this.functions.forceDirectedGroupingNew(graph.pointer)
   }
 
   call (width, height, values) {
-    return applyGrouping(this.Module, this.functions.force_directedGroupingCall, this.pointer, width, height, values)
+    return applyGrouping(this.Module, this.functions.forceDirectedGroupingCall, this.pointer, width, height, values)
+  }
+
+  get linkLength () {
+    return this.functions.forceDirectedGroupingGetLinkLength(this.pointer)
+  }
+
+  set linkLength (value) {
+    this.functions.forceDirectedGroupingSetLinkLength(this.pointer, value)
+  }
+
+  get manyBodyForceStrength () {
+    return this.functions.forceDirectedGroupingGetManyBodyForceStrength(this.pointer)
+  }
+
+  set manyBodyForceStrength (value) {
+    this.functions.forceDirectedGroupingSetManyBodyForceStrength(this.pointer, value)
+  }
+
+  get linkForceStrength () {
+    return this.functions.forceDirectedGroupingGetLinkForceStrength(this.pointer)
+  }
+
+  set linkForceStrength (value) {
+    this.functions.forceDirectedGroupingSetLinkForceStrength(this.pointer, value)
+  }
+
+  get centerForceStrength () {
+    return this.functions.forceDirectedGroupingGetCenterForceStrength(this.pointer)
+  }
+
+  set centerForceStrength (value) {
+    this.functions.forceDirectedGroupingSetCenterForceStrength(this.pointer, value)
   }
 }
 
