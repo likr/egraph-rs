@@ -4,7 +4,7 @@ extern crate petgraph;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 use ::layout::force_directed::{initial_placement, initial_links};
-use ::layout::force_directed::force::{Force, CenterForce, LinkForce, ManyBodyForce};
+use ::layout::force_directed::force::{Force, Point, CenterForce, LinkForce, ManyBodyForce};
 use ::layout::force_directed::simulation::start_simulation;
 
 fn shuffled_nodes<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> Vec<NodeIndex<Ix>> {
@@ -18,8 +18,6 @@ fn shuffled_nodes<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>
 }
 
 pub struct Node {
-    pub x: f64,
-    pub y: f64,
     pub radius: f64,
     pub group: usize,
     pub parent: usize,
@@ -29,8 +27,6 @@ pub struct Node {
 impl Node {
     fn new() -> Node {
         Node {
-            x: 0.,
-            y: 0.,
             radius: 0.,
             group: 0,
             parent: 0,
@@ -171,7 +167,8 @@ fn collapse(graph: &mut Graph<Node, Edge>) -> Graph<Node, Edge> {
     shrinked_graph
 }
 
-fn expand(graph0: &mut Graph<Node, Edge>, graph1: &Graph<Node, Edge>) {
+fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points: &Vec<Point>) -> Vec<Point> {
+    let mut points = Vec::new();
     for u in graph0.node_indices() {
         let mut x = 0.;
         let mut y = 0.;
@@ -182,21 +179,25 @@ fn expand(graph0: &mut Graph<Node, Edge>, graph1: &Graph<Node, Edge>) {
             }
             let s1 = NodeIndex::new(graph0[u].group);
             let t1 = NodeIndex::new(graph0[v].group);
-            let s1_x = graph1[s1].x;
-            let s1_y = graph1[s1].y;
-            let t1_x = graph1[t1].x;
-            let t1_y = graph1[t1].y;
+            let s1_x = graph1_points[s1.index()].x as f64;
+            let s1_y = graph1_points[s1.index()].y as f64;
+            let t1_x = graph1_points[t1.index()].x as f64;
+            let t1_y = graph1_points[t1.index()].y as f64;
             let scale = graph0[u].radius / edge_length(graph1, s1, t1);
             x += (t1_x - s1_x) * scale + s1_x;
             y += (t1_y - s1_y) * scale + s1_y;
             count += 1;
         }
-        graph0[u].x = x / count as f64;
-        graph0[u].y = y / count as f64;
+        if count > 0 {
+            points.push(Point::new(x as f32 / count as f32, y as f32 / count as f32));
+        } else {
+            points.push(Point::new(0., 0.));
+        }
     }
+    points
 }
 
-fn layout(graph: &mut Graph<Node, Edge>) {
+fn layout(graph: &mut Graph<Node, Edge>) -> Vec<Point> {
     let links = initial_links(graph);
     let mut forces : Vec<Box<Force>> = Vec::new();
     forces.push(Box::new(ManyBodyForce::new()));
@@ -204,28 +205,16 @@ fn layout(graph: &mut Graph<Node, Edge>) {
     forces.push(Box::new(CenterForce::new()));
     let mut points = initial_placement(graph.node_count());
     start_simulation(&mut points, &forces);
-    for (u, point) in graph.node_indices().zip(points) {
-        graph[u].x = point.x as f64;
-        graph[u].y = point.y as f64;
-    }
+    points
 }
 
-fn layout_with_initial_placement(graph: &mut Graph<Node, Edge>) {
+fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Point>) {
     let links = initial_links(graph);
     let mut forces : Vec<Box<Force>> = Vec::new();
     forces.push(Box::new(ManyBodyForce::new()));
     forces.push(Box::new(LinkForce::new_with_links(links)));
     forces.push(Box::new(CenterForce::new()));
-    let mut points = initial_placement(graph.node_count());
-    for (u, point) in graph.node_indices().zip(points.iter_mut()) {
-        point.x = graph[u].x as f32;
-        point.y = graph[u].y as f32;
-    }
-    start_simulation(&mut points, &forces);
-    for (u, point) in graph.node_indices().zip(points) {
-        graph[u].x = point.x as f64;
-        graph[u].y = point.y as f64;
-    }
+    start_simulation(points, &forces);
 }
 
 pub fn fm3(graph: Graph<Node, Edge>) {
@@ -240,12 +229,13 @@ pub fn fm3(graph: Graph<Node, Edge>) {
     }
     let mut gk = g0;
     println!("{} {}", gk.node_count(), gk.edge_count());
-    layout(&mut gk);
+    let mut g1_points = layout(&mut gk);
     for i in 1..shrinked_graphs.len() {
-        // let mut g0 = &mut shrinked_graphs[i - 1];
-        // let g1 = &shrinked_graphs[i];
-        // expand(&mut g0, &g1);
-        // layout_with_initial_placement(&mut g0);
+        let g0 = &shrinked_graphs[i - 1];
+        let g1 = &shrinked_graphs[i];
+        let mut g0_points = expand(&g0, &g1, &g1_points);
+        layout_with_initial_placement(&g0, &mut g0_points);
+        g1_points = g0_points;
     }
 
 }
