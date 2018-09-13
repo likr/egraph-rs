@@ -1,6 +1,7 @@
 extern crate rand;
 extern crate petgraph;
 
+use std::f32::consts::PI;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 use ::layout::force_directed::{initial_placement, initial_links};
@@ -173,14 +174,14 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
         let mut x = 0.;
         let mut y = 0.;
         let mut count = 0;
+        let s1 = NodeIndex::new(graph0[u].group);
+        let s1_x = graph1_points[s1.index()].x as f64;
+        let s1_y = graph1_points[s1.index()].y as f64;
         for v in graph0.neighbors_undirected(u) {
             if graph0[u].group == graph0[v].group {
                 continue;
             }
-            let s1 = NodeIndex::new(graph0[u].group);
             let t1 = NodeIndex::new(graph0[v].group);
-            let s1_x = graph1_points[s1.index()].x as f64;
-            let s1_y = graph1_points[s1.index()].y as f64;
             let t1_x = graph1_points[t1.index()].x as f64;
             let t1_y = graph1_points[t1.index()].y as f64;
             let scale = graph0[u].radius / edge_length(graph1, s1, t1);
@@ -191,7 +192,11 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
         if count > 0 {
             points.push(Point::new(x as f32 / count as f32, y as f32 / count as f32));
         } else {
-            points.push(Point::new(0., 0.));
+            let theta = rand::random::<f32>() * 2. * PI;
+            let r = graph0[u].radius as f32;
+            let x = r * theta.cos() + s1_x as f32;
+            let y = r * theta.sin() + s1_y as f32;
+            points.push(Point::new(x, y));
         }
     }
     points
