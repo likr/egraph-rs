@@ -124,21 +124,66 @@ pub unsafe fn treemap_grouping_call(p_treemap_grouping: *mut TreemapGrouping, wi
 }
 
 #[no_mangle]
-pub unsafe fn group_x(p_group: *mut Group, i: c_uint) -> c_double {
+pub unsafe fn group_x(p_group: *const Group, i: c_uint) -> c_double {
     (*p_group.add(i as usize)).x
 }
 
 #[no_mangle]
-pub unsafe fn group_y(p_group: *mut Group, i: c_uint) -> c_double {
+pub unsafe fn group_y(p_group: *const Group, i: c_uint) -> c_double {
     (*p_group.add(i as usize)).y
 }
 
 #[no_mangle]
-pub unsafe fn group_width(p_group: *mut Group, i: c_uint) -> c_double {
+pub unsafe fn group_width(p_group: *const Group, i: c_uint) -> c_double {
     (*p_group.add(i as usize)).width
 }
 
 #[no_mangle]
-pub unsafe fn group_height(p_group: *mut Group, i: c_uint) -> c_double {
+pub unsafe fn group_height(p_group: *const Group, i: c_uint) -> c_double {
     (*p_group.add(i as usize)).height
+}
+
+#[no_mangle]
+pub unsafe fn groups_at(p_group: *mut Group, i: c_uint) -> *mut Group {
+    p_group.add(i)
+}
+
+#[no_mangle]
+pub unsafe fn group_get_x(p_group: *const Group) -> c_double {
+    (*p_group).x
+}
+
+#[no_mangle]
+pub unsafe fn group_get_y(p_group: *const Group) -> c_double {
+    (*p_group).y
+}
+
+#[no_mangle]
+pub unsafe fn group_get_width(p_group: *const Group) -> c_double {
+    (*p_group).width
+}
+
+#[no_mangle]
+pub unsafe fn group_get_height(p_group: *const Group) -> c_double {
+    (*p_group).height
+}
+
+#[no_mangle]
+pub unsafe fn group_set_x(p_group: *mut Group, value: c_double) {
+    (*p_group).x = value;
+}
+
+#[no_mangle]
+pub unsafe fn group_set_y(p_group: *mut Group, value: c_double) {
+    (*p_group). = value;y
+}
+
+#[no_mangle]
+pub unsafe fn group_set_width(p_group: *mut Group, value: c_double) {
+    (*p_group).width = value;
+}
+
+#[no_mangle]
+pub unsafe fn group_set_height(p_group: *mut Group, value: c_double) {
+    (*p_group).height = value;
 }
