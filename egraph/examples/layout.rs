@@ -1,17 +1,14 @@
 #[macro_use]
 extern crate serde_derive;
 
-extern crate egraph_force_directed;
+extern crate egraph;
 extern crate getopts;
 extern crate serde;
 extern crate serde_json;
 
-use egraph_force_directed::center_force::CenterForce;
-use egraph_force_directed::edge_bundling::edge_bundling;
-use egraph_force_directed::force::{Force, Link, Point};
-use egraph_force_directed::link_force::LinkForce;
-use egraph_force_directed::many_body_force::ManyBodyForce;
-use egraph_force_directed::simulation::start_simulation;
+use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::simulation::start_simulation;
+use egraph::layout::force_directed::edge_bundling::EdgeBundling;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
@@ -65,13 +62,15 @@ fn main() {
     let forces = {
         let mut forces: Vec<Box<Force>> = Vec::new();
         forces.push(Box::new(ManyBodyForce::new()));
-        forces.push(Box::new(LinkForce::new(&links)));
+        forces.push(Box::new(LinkForce::new_with_links(links.to_vec())));
         forces.push(Box::new(CenterForce::new()));
         forces
     };
     start_simulation(&mut points, &forces);
+
     eprintln!("bundling edges");
-    let lines = edge_bundling(&points, &links);
+    let edge_bundling = EdgeBundling::new();
+    let lines = edge_bundling.call(&points, &links);
 
     eprintln!("writing result");
     let width = 800.;

@@ -1,7 +1,7 @@
-extern crate egraph_force_directed;
+extern crate egraph;
 extern crate rand;
 
-use egraph_force_directed::quadtree::{Element, NodeId, Quadtree, Rect};
+use egraph::utils::quadtree::{Element, NodeId, Quadtree, Rect};
 use rand::distributions::{IndependentSample, Range};
 
 fn print_rect(rect: Rect, color: &str) {

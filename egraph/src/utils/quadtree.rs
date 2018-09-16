@@ -93,6 +93,14 @@ pub struct NodeId {
     index: usize,
 }
 
+impl NodeId {
+    pub fn new(index: usize) -> NodeId {
+        NodeId {
+            index,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum Element {
     Empty,

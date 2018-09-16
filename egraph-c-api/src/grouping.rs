@@ -145,7 +145,7 @@ pub unsafe fn group_height(p_group: *const Group, i: c_uint) -> c_double {
 
 #[no_mangle]
 pub unsafe fn groups_at(p_group: *mut Group, i: c_uint) -> *mut Group {
-    p_group.add(i)
+    p_group.add(i as usize)
 }
 
 #[no_mangle]
@@ -175,7 +175,7 @@ pub unsafe fn group_set_x(p_group: *mut Group, value: c_double) {
 
 #[no_mangle]
 pub unsafe fn group_set_y(p_group: *mut Group, value: c_double) {
-    (*p_group). = value;y
+    (*p_group).y = value;
 }
 
 #[no_mangle]

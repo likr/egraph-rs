@@ -94,7 +94,7 @@ fn test_link() {
     links.push(Link::new(1, 3));
     links.push(Link::new(3, 2));
     links.push(Link::new(2, 0));
-    let mut force = LinkForce::new(&links);
+    let mut force = LinkForce::new_with_links(links);
     force.strength = 0.0;
     let mut points = Vec::new();
     points.push(Point::new(10., 10.));
