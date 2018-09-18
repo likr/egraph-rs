@@ -14,6 +14,7 @@
   "_graph_target",
   "_graph_node_at",
   "_graph_edge_at",
+  "_graph_degree",
   "_node_get_x",
   "_node_get_y",
   "_node_set_x",

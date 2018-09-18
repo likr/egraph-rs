@@ -31,6 +31,7 @@ const initializeFunctions = (Module) => {
     graphTarget: Module.cwrap('graph_target', 'number', ['number', 'number']),
     graphNodeAt: Module.cwrap('graph_node_at', 'number', ['number', 'number']),
     graphEdgeAt: Module.cwrap('graph_edge_at', 'number', ['number', 'number']),
+    graphDegree: Module.cwrap('graph_degree', 'number', ['number', 'number']),
     nodeGetX: Module.cwrap('node_get_x', 'number', ['number']),
     nodeGetY: Module.cwrap('node_get_y', 'number', ['number']),
     nodeSetX: Module.cwrap('node_set_x', 'void', ['number', 'number']),

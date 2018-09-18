@@ -78,6 +78,10 @@ export class Graph {
     return new Edge(pointer, this.edgeProperties.get(i))
   }
 
+  degree (u) {
+    return this.functions.graphDegree(this.pointer, u)
+  }
+
   get nodes () {
     const graph = this
     const n = this.nodeCount()

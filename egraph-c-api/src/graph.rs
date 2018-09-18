@@ -96,6 +96,11 @@ pub unsafe fn graph_set_y(p_graph: *mut Graph, u: c_uint, value: c_double) {
 }
 
 #[no_mangle]
+pub unsafe fn graph_degree(p_graph: *const Graph, u: c_uint) -> c_uint {
+    (*p_graph).neighbors(NodeIndex::new(u as usize)).count() as c_uint
+}
+
+#[no_mangle]
 pub unsafe fn graph_source(p_graph: *mut Graph, i: c_uint) -> c_uint {
     (*p_graph).raw_edges()[i as usize].source().index() as c_uint
 }
