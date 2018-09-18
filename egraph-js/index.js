@@ -99,6 +99,10 @@ const initializeFunctions = (Module) => {
     radialGroupingCall: Module.cwrap('radial_grouping_call', 'number', ['number', 'number', 'number', 'number']),
     treemapGroupingNew: Module.cwrap('treemap_grouping_new', 'number', []),
     treemapGroupingCall: Module.cwrap('treemap_grouping_call', 'number', ['number', 'number', 'number', 'number']),
+    layoutFM3New: Module.cwrap('layout_fm3_new', 'number', []),
+    layoutFM3GetMinSize: Module.cwrap('layout_fm3_get_min_size', 'number', ['number']),
+    layoutFM3SetMinSize: Module.cwrap('layout_fm3_set_min_size', 'void', ['number', 'number']),
+    layoutFM3Call: Module.cwrap('layout_fm3_call', 'void', ['number', 'number']),
     alloc: Module.cwrap('rust_alloc', 'number', ['number']),
     free: Module.cwrap('rust_free', 'void', ['number'])
   }

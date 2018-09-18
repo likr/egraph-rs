@@ -8,6 +8,7 @@ pub mod edge_concentration;
 pub mod force_directed;
 pub mod graph;
 pub mod grouping;
+pub mod layout;
 
 use std::os::raw::{c_double, c_uchar, c_uint};
 use std::mem::forget;

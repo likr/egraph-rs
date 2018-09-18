@@ -44,12 +44,13 @@ pub struct Edge {
 impl Edge {
     fn new() -> Edge {
         Edge {
-            length: 0.,
+            length: 30.,
             count: 0,
         }
     }
 }
 
+#[derive(Debug)]
 pub enum NodeType {
     SunNode,
     PlanetNode,
@@ -163,7 +164,9 @@ fn collapse(graph: &mut Graph<Node, Edge>) -> Graph<Node, Edge> {
     }
     for e in shrinked_graph.edge_indices() {
         let edge = shrinked_graph.edge_weight_mut(e).unwrap();
-        edge.length /= edge.count as f64;
+        if edge.count > 0 {
+            edge.length /= edge.count as f64;
+        }
     }
     shrinked_graph
 }
@@ -202,7 +205,7 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
     points
 }
 
-fn layout(graph: &mut Graph<Node, Edge>) -> Vec<Point> {
+fn layout(graph: &Graph<Node, Edge>) -> Vec<Point> {
     let links = initial_links(graph);
     let mut forces : Vec<Box<Force>> = Vec::new();
     forces.push(Box::new(ManyBodyForce::new()));
@@ -222,44 +225,64 @@ fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Poi
     start_simulation(points, &forces);
 }
 
-pub fn fm3(graph: Graph<Node, Edge>) {
-    let mut shrinked_graphs = Vec::new();
-    let mut g0 = graph;
-    while g0.node_count() > 100 {
-        println!("{} {}", g0.node_count(), g0.edge_count());
-        solar_system_partition(&mut g0);
-        let g1 = collapse(&mut g0);
-        shrinked_graphs.push(g0);
-        g0 = g1;
-    }
-    let mut gk = g0;
-    println!("{} {}", gk.node_count(), gk.edge_count());
-    let mut g1_points = layout(&mut gk);
-    for i in 1..shrinked_graphs.len() {
-        let g0 = &shrinked_graphs[i - 1];
-        let g1 = &shrinked_graphs[i];
-        let mut g0_points = expand(&g0, &g1, &g1_points);
-        layout_with_initial_placement(&g0, &mut g0_points);
-        g1_points = g0_points;
+pub struct FM3 {
+    pub min_size: usize,
+}
+
+impl FM3 {
+    pub fn new() -> FM3 {
+        FM3 {
+            min_size: 100,
+        }
     }
 
+    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(&self, graph: &Graph<N, E, Ty, Ix>) -> Vec<Point> {
+        let mut shrinked_graphs = Vec::new();
+        let mut g0 = Graph::new();
+        for _node in graph.node_indices() {
+            g0.add_node(Node::new());
+        }
+        for edge in graph.raw_edges() {
+            g0.add_edge(NodeIndex::new(edge.source().index()), NodeIndex::new(edge.target().index()), Edge::new());
+        }
+        while g0.node_count() > self.min_size {
+            solar_system_partition(&mut g0);
+            let g1 = collapse(&mut g0);
+            shrinked_graphs.push(g0);
+            g0 = g1;
+        }
+        let mut gk = g0;
+        let mut g1_points = layout(&mut gk);
+        while !shrinked_graphs.is_empty() {
+            let g0 = shrinked_graphs.pop().unwrap();
+            let mut g0_points = expand(&g0, &gk, &g1_points);
+            layout_with_initial_placement(&g0, &mut g0_points);
+            g1_points = g0_points;
+            gk = g0;
+        }
+        g1_points
+    }
 }
 
 #[test]
 fn test_fm3() {
-    let rows = 100;
-    let cols = 100;
+    let rows = 10;
+    let cols = 10;
     let mut graph = Graph::new();
-    let nodes = (0..rows * cols).map(|_| graph.add_node(Node::new())).collect::<Vec<_>>();
+    let nodes = (0..rows * cols).map(|_| graph.add_node(())).collect::<Vec<_>>();
     for i in 0..rows {
         for j in 0..cols {
             if i != rows - 1 {
-                graph.add_edge(nodes[i * cols + j], nodes[(i + 1) * cols + j], Edge::new());
+                graph.add_edge(nodes[i * cols + j], nodes[(i + 1) * cols + j], ());
             }
             if j != cols - 1 {
-                graph.add_edge(nodes[i * cols + j], nodes[i * cols + j + 1], Edge::new());
+                graph.add_edge(nodes[i * cols + j], nodes[i * cols + j + 1], ());
             }
         }
     }
-    fm3(graph);
+    let fm3 = FM3::new();
+    let points = fm3.call(&graph);
+    for point in points {
+        println!("{:?}", point);
+    }
 }
