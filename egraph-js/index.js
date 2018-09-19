@@ -102,6 +102,10 @@ const initializeFunctions = (Module) => {
     layoutFM3New: Module.cwrap('layout_fm3_new', 'number', []),
     layoutFM3GetMinSize: Module.cwrap('layout_fm3_get_min_size', 'number', ['number']),
     layoutFM3SetMinSize: Module.cwrap('layout_fm3_set_min_size', 'void', ['number', 'number']),
+    layoutFM3GetStepIteration: Module.cwrap('layout_fm3_get_step_iteration', 'number', ['number']),
+    layoutFM3SetStepIteration: Module.cwrap('layout_fm3_set_step_iteration', 'void', ['number', 'number']),
+    layoutFM3GetUnitEdgeLength: Module.cwrap('layout_fm3_get_unit_edge_length', 'number', ['number']),
+    layoutFM3SetUnitEdgeLength: Module.cwrap('layout_fm3_set_unit_edge_length', 'void', ['number', 'number']),
     layoutFM3Call: Module.cwrap('layout_fm3_call', 'void', ['number', 'number']),
     alloc: Module.cwrap('rust_alloc', 'number', ['number']),
     free: Module.cwrap('rust_free', 'void', ['number'])

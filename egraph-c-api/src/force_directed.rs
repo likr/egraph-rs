@@ -1,22 +1,10 @@
 use std::f32::consts::PI;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::layout::force_directed::force::{Force, Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
-use egraph::layout::force_directed::simulation::start_simulation;
+use egraph::layout::force_directed::force::{Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::simulation::Simulation;
 use graph::Graph;
 use super::copy_to_vec;
-
-pub struct Simulation {
-    forces: Vec<Box<Force>>,
-}
-
-impl Simulation {
-    fn new() -> Simulation {
-        Simulation {
-            forces: Vec::new(),
-        }
-    }
-}
 
 #[no_mangle]
 pub unsafe fn simulation_new() -> *mut Simulation {
@@ -85,7 +73,7 @@ pub unsafe fn simulation_start(p_simulation: *mut Simulation, p_graph: *mut Grap
             Point::new(x, y)
         })
         .collect::<Vec<_>>();
-    start_simulation(&mut points, &(*p_simulation).forces);
+    (*p_simulation).start(&mut points);
     for (node, point) in (*p_graph).node_indices().zip(points) {
         let mut node = (*p_graph).node_weight_mut(node).unwrap();
         node.x = point.x as f64;
@@ -101,6 +89,46 @@ pub unsafe fn simulation_get_strength(p_simulation: *mut Simulation, i: c_uint) 
 #[no_mangle]
 pub unsafe fn simulation_set_strength(p_simulation: *mut Simulation, i: c_uint, strength: c_double) {
     (*p_simulation).forces[i as usize].set_strength(strength as f32);
+}
+
+#[no_mangle]
+pub unsafe fn simulation_get_alpha(p_simulation: *mut Simulation) -> c_double {
+    (*p_simulation).alpha as c_double
+}
+
+#[no_mangle]
+pub unsafe fn simulation_set_alpha(p_simulation: *mut Simulation, value: c_double) {
+    (*p_simulation).alpha = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn simulation_get_alpha_min(p_simulation: *mut Simulation) -> c_double {
+    (*p_simulation).alpha_min as c_double
+}
+
+#[no_mangle]
+pub unsafe fn simulation_set_alpha_min(p_simulation: *mut Simulation, value: c_double) {
+    (*p_simulation).alpha_min = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn simulation_get_alpha_target(p_simulation: *mut Simulation) -> c_double {
+    (*p_simulation).alpha_target as c_double
+}
+
+#[no_mangle]
+pub unsafe fn simulation_set_alpha_target(p_simulation: *mut Simulation, value: c_double) {
+    (*p_simulation).alpha_target = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn simulation_get_velocity_decay(p_simulation: *mut Simulation) -> c_double {
+    (*p_simulation).velocity_decay as c_double
+}
+
+#[no_mangle]
+pub unsafe fn simulation_set_velocity_decay(p_simulation: *mut Simulation, value: c_double) {
+    (*p_simulation).velocity_decay = value as f32;
 }
 
 #[no_mangle]

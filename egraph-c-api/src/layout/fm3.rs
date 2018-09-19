@@ -1,4 +1,4 @@
-use std::os::raw::{c_uint};
+use std::os::raw::{c_double, c_uint};
 use egraph::layout::fm3::FM3;
 use ::graph::Graph;
 
@@ -16,6 +16,26 @@ pub unsafe fn layout_fm3_get_min_size(p_fm3: *mut FM3) -> c_uint {
 #[no_mangle]
 pub unsafe fn layout_fm3_set_min_size(p_fm3: *mut FM3, value: c_uint) {
     (*p_fm3).min_size = value as usize;
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_get_step_iteration(p_fm3: *mut FM3) -> c_uint {
+    (*p_fm3).step_iteration as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_set_step_iteration(p_fm3: *mut FM3, value: c_uint) {
+    (*p_fm3).step_iteration = value as usize;
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_get_unit_edge_length(p_fm3: *mut FM3) -> c_double {
+    (*p_fm3).unit_edge_length as c_double
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_set_unit_edge_length(p_fm3: *mut FM3, value: c_double) {
+    (*p_fm3).unit_edge_length = value as f32;
 }
 
 #[no_mangle]

@@ -2,10 +2,9 @@ use std::f64::consts::PI;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::IndexType;
 use ::layout::force_directed::{initial_placement, initial_links};
-use ::layout::force_directed::simulation::start_simulation;
+use ::layout::force_directed::simulation::Simulation;
 use ::layout::force_directed::force::{
     Link,
-    Force,
     CenterForce,
     LinkForce,
     ManyBodyForce,
@@ -46,15 +45,15 @@ impl Grouping for ForceDirectedGrouping {
                 }
             })
             .collect();
-        let mut forces : Vec<Box<Force>> = Vec::new();
-        forces.push(Box::new(ManyBodyForce::new()));
-        forces.push(Box::new(LinkForce::new_with_links(links)));
-        forces.push(Box::new(CenterForce::new()));
-        forces[0].set_strength(self.many_body_force_strength as f32);
-        forces[1].set_strength(self.link_force_strength as f32);
-        forces[2].set_strength(self.center_force_strength as f32);
+        let mut simulation = Simulation::new();
+        simulation.forces.push(Box::new(ManyBodyForce::new()));
+        simulation.forces.push(Box::new(LinkForce::new_with_links(links)));
+        simulation.forces.push(Box::new(CenterForce::new()));
+        simulation.forces[0].set_strength(self.many_body_force_strength as f32);
+        simulation.forces[1].set_strength(self.link_force_strength as f32);
+        simulation.forces[2].set_strength(self.center_force_strength as f32);
         let mut points = initial_placement(values.len());
-        start_simulation(&mut points, &forces);
+        simulation.start(&mut points);
 
         let total_value = values.iter().fold(0.0, |s, v| s + v);
 

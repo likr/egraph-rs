@@ -20,4 +20,20 @@ export class FM3 {
   set minSize (value) {
     this.functions.layoutFM3SetMinSize(this.pointer, value)
   }
+
+  get stepIteration () {
+    return this.functions.layoutFM3GetStepIteration(this.pointer)
+  }
+
+  set stepIteration (value) {
+    this.functions.layoutFM3SetStepIteration(this.pointer, value)
+  }
+
+  get unitEdgeLength () {
+    return this.functions.layoutFM3GetUnitEdgeLength(this.pointer)
+  }
+
+  set unitEdgeLength (value) {
+    this.functions.layoutFM3SetUnitEdgeLength(this.pointer, value)
+  }
 }

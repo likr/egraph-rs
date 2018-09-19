@@ -1,24 +1,44 @@
 use super::force::{Force, Point};
 
-pub fn start_simulation(points: &mut Vec<Point>, forces: &Vec<Box<Force>>) {
-    let mut alpha = 1.;
-    let alpha_min = 0.001;
-    let alpha_decay = 1. - (alpha_min as f32).powf(1. / 300.);
-    let alpha_target = 0.;
-    let velocity_decay = 0.6;
-    loop {
-        alpha += (alpha_target - alpha) * alpha_decay;
-        for force in forces.iter() {
-            force.apply(points, alpha);
+pub struct Simulation {
+    pub forces: Vec<Box<Force>>,
+    pub alpha: f32,
+    pub alpha_min: f32,
+    pub alpha_target: f32,
+    pub velocity_decay: f32,
+}
+
+impl Simulation {
+    pub fn new() -> Simulation {
+        Simulation {
+            forces: Vec::new(),
+            alpha: 1.,
+            alpha_min: 0.001,
+            alpha_target: 0.,
+            velocity_decay: 0.6,
+        }
+    }
+
+    pub fn start(&mut self, points: &mut Vec<Point>) {
+        let alpha_decay = 1. - (self.alpha_min as f32).powf(1. / 300.);
+        loop {
+            self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
+            self.step(points);
+            if self.alpha < self.alpha_min {
+                break;
+            }
+        }
+    }
+
+    pub fn step(&mut self, points: &mut Vec<Point>) {
+        for force in self.forces.iter() {
+            force.apply(points, self.alpha);
         }
         for point in points.iter_mut() {
-            point.vx *= velocity_decay;
+            point.vx *= self.velocity_decay;
             point.x += point.vx;
-            point.vy *= velocity_decay;
+            point.vy *= self.velocity_decay;
             point.y += point.vy;
-        }
-        if alpha < alpha_min {
-            break;
         }
     }
 }
