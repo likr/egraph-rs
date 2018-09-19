@@ -1,9 +1,11 @@
 extern crate rand;
 extern crate petgraph;
 
+use std::collections::HashSet;
 use std::f32::consts::PI;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
+use ::algorithms::connected_components;
 use ::layout::force_directed::{initial_placement, initial_links};
 use ::layout::force_directed::force::{Force, Point, CenterForce, LinkForce, ManyBodyForce};
 use ::layout::force_directed::simulation::start_simulation;
@@ -227,6 +229,7 @@ impl FM3 {
     }
 
     pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(&self, graph: &Graph<N, E, Ty, Ix>) -> Vec<Point> {
+        let num_components = connected_components(graph).iter().collect::<HashSet<_>>().len();
         let mut shrinked_graphs = Vec::new();
         let mut g0 = Graph::new();
         for _node in graph.node_indices() {
@@ -235,7 +238,7 @@ impl FM3 {
         for edge in graph.raw_edges() {
             g0.add_edge(NodeIndex::new(edge.source().index()), NodeIndex::new(edge.target().index()), Edge::new());
         }
-        while g0.node_count() > self.min_size {
+        while g0.node_count() > self.min_size + num_components - 1 {
             solar_system_partition(&mut g0);
             let g1 = collapse(&mut g0);
             shrinked_graphs.push(g0);

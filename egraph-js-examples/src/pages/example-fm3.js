@@ -6,7 +6,7 @@ import {Wrapper} from '../wrapper'
 
 const layout = (graph) => {
   const fm3 = new FM3()
-  fm3.minSize = 10
+  fm3.minSize = 1
   fm3.call(graph)
 }
 
@@ -25,7 +25,7 @@ const draw = (renderer, graph) => {
 export class ExampleFM3 extends React.Component {
   componentDidMount () {
     setTimeout(() => {
-      const components = 5
+      const components = 10
       const size = 10
       const rows = size
       const cols = size
