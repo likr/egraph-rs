@@ -73,9 +73,8 @@ fn apply_many_body(
                 let rect = tree.rect(node_id);
                 let dx = rect.cx - point.x;
                 let dy = rect.cy - point.y;
-                let w = rect.width;
-                let l = dx * dx + dy * dy;
-                if w * w / theta2 < l {
+                let l = (dx * dx + dy * dy).max(1e-6);
+                if rect.width * rect.height / theta2 < l {
                     point.vx += global_strength * dx * data.strength * alpha / l;
                     point.vy += global_strength * dy * data.strength * alpha / l;
                 } else {
@@ -87,7 +86,7 @@ fn apply_many_body(
                     let strength = -30. * n as f32;
                     let dx = x - point.x;
                     let dy = y - point.y;
-                    let l = dx * dx + dy * dy;
+                    let l = (dx * dx + dy * dy).max(1e-6);
                     point.vx += global_strength * dx * strength * alpha / l;
                     point.vy += global_strength * dy * strength * alpha / l;
                 }
@@ -117,11 +116,12 @@ impl Force for ManyBodyForce {
         let min_y = points.iter().fold(0.0 / 0.0, |m, v| v.y.min(m));
         let width = max_x - min_x;
         let height = max_y - min_y;
+        let size = width.max(height);
         let mut tree = Quadtree::new(Rect {
-            cx: min_x + width / 2.,
-            cy: min_y + height / 2.,
-            width: width,
-            height: height,
+            cx: (min_x + max_x) / 2.,
+            cy: (min_y + max_y) / 2.,
+            width: size,
+            height: size,
         });
         let root = tree.root();
         for point in points.iter() {

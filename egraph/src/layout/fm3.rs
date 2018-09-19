@@ -10,7 +10,7 @@ use ::layout::force_directed::simulation::start_simulation;
 
 fn shuffled_nodes<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> Vec<NodeIndex<Ix>> {
     let mut nodes = graph.node_indices().collect::<Vec<_>>();
-    for _ in 0..1000 {
+    for _ in 0..nodes.len() {
         let i = rand::random::<usize>() % nodes.len();
         let j = rand::random::<usize>() % nodes.len();
         nodes.swap(i, j);
@@ -19,7 +19,6 @@ fn shuffled_nodes<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>
 }
 
 pub struct Node {
-    pub radius: f64,
     pub group: usize,
     pub parent: usize,
     pub node_type: Option<NodeType>,
@@ -28,7 +27,6 @@ pub struct Node {
 impl Node {
     fn new() -> Node {
         Node {
-            radius: 0.,
             group: 0,
             parent: 0,
             node_type: None,
@@ -108,7 +106,22 @@ fn edge_length(graph: &Graph<Node, Edge>, u: NodeIndex, v: NodeIndex) -> f64 {
     graph.edge_weight(e).unwrap().length
 }
 
-fn collapse(graph: &mut Graph<Node, Edge>) -> Graph<Node, Edge> {
+fn path_length(graph: &Graph<Node, Edge>, u: NodeIndex) -> f64 {
+    match &graph[u].node_type {
+        Some(NodeType::PlanetNode) => {
+            let s = NodeIndex::new(graph.node_weight(u).unwrap().parent);
+            edge_length(graph, u, s)
+        },
+        Some(NodeType::MoonNode) => {
+            let p = NodeIndex::new(graph.node_weight(u).unwrap().parent);
+            let s = NodeIndex::new(graph.node_weight(p).unwrap().parent);
+            edge_length(graph, u, p) + edge_length(graph, p, s)
+        },
+        _ => 0.,
+    }
+}
+
+fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
     let mut shrinked_graph : Graph<Node, Edge> = Graph::new();
     let num_groups = graph.raw_nodes().iter().map(|node| node.weight.group).max().unwrap() + 1;
     for _ in 0..num_groups {
@@ -119,32 +132,8 @@ fn collapse(graph: &mut Graph<Node, Edge>) -> Graph<Node, Edge> {
         if graph[u0].group == graph[v0].group {
             continue;
         }
-        let e_u_length = match &graph[u0].node_type {
-            Some(NodeType::PlanetNode) => {
-                let s0 = NodeIndex::new(graph.node_weight(u0).unwrap().parent);
-                edge_length(graph, u0, s0)
-            },
-            Some(NodeType::MoonNode) => {
-                let p0 = NodeIndex::new(graph.node_weight(u0).unwrap().parent);
-                let s0 = NodeIndex::new(graph.node_weight(p0).unwrap().parent);
-                edge_length(graph, u0, p0) + edge_length(graph, p0, s0)
-            },
-            _ => 0.,
-        };
-        let e_v_length = match &graph[v0].node_type {
-            Some(NodeType::PlanetNode) => {
-                let t0 = NodeIndex::new(graph.node_weight(v0).unwrap().parent);
-                edge_length(graph, v0, t0)
-            },
-            Some(NodeType::MoonNode) => {
-                let q0 = NodeIndex::new(graph.node_weight(v0).unwrap().parent);
-                let t0 = NodeIndex::new(graph.node_weight(q0).unwrap().parent);
-                edge_length(graph, v0, q0) + edge_length(graph, q0, t0)
-            },
-            _ => 0.,
-        };
-        graph[u0].radius = e_u_length;
-        graph[v0].radius = e_v_length;
+        let e_u_length = path_length(graph, u0);
+        let e_v_length = path_length(graph, v0);
         let e_length = edge_length(graph, u0, v0);
         let p_length = e_u_length + e_length + e_v_length;
         let u1 = NodeIndex::new(graph.node_weight(u0).unwrap().group);
@@ -158,6 +147,7 @@ fn collapse(graph: &mut Graph<Node, Edge>) -> Graph<Node, Edge> {
             None => {
                 let mut edge = Edge::new();
                 edge.length = p_length;
+                edge.count = 1;
                 shrinked_graph.add_edge(u1, v1, edge);
             }
         }
@@ -187,7 +177,7 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
             let t1 = NodeIndex::new(graph0[v].group);
             let t1_x = graph1_points[t1.index()].x as f64;
             let t1_y = graph1_points[t1.index()].y as f64;
-            let scale = graph0[u].radius / edge_length(graph1, s1, t1);
+            let scale = path_length(graph0, u) / edge_length(graph1, s1, t1);
             x += (t1_x - s1_x) * scale + s1_x;
             y += (t1_y - s1_y) * scale + s1_y;
             count += 1;
@@ -196,7 +186,7 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
             points.push(Point::new(x as f32 / count as f32, y as f32 / count as f32));
         } else {
             let theta = rand::random::<f32>() * 2. * PI;
-            let r = graph0[u].radius as f32;
+            let r = path_length(graph0, u) as f32;
             let x = r * theta.cos() + s1_x as f32;
             let y = r * theta.sin() + s1_y as f32;
             points.push(Point::new(x, y));

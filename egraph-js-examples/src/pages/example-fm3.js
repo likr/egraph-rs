@@ -24,25 +24,27 @@ const draw = (renderer, graph) => {
 
 export class ExampleFM3 extends React.Component {
   componentDidMount () {
-    const size = 15
-    const rows = size
-    const cols = size
-    const graph = new Graph()
-    for (let i = 0; i < rows * cols; ++i) {
-      graph.addNode()
-    }
-    for (let i = 0; i < rows; ++i) {
-      for (let j = 0; j < cols; ++j) {
-        if (i !== rows - 1) {
-          graph.addEdge(i * cols + j, (i + 1) * cols + j)
-        }
-        if (j !== cols - 1) {
-          graph.addEdge(i * cols + j, i * cols + j + 1)
+    setTimeout(() => {
+      const size = 15
+      const rows = size
+      const cols = size
+      const graph = new Graph()
+      for (let i = 0; i < rows * cols; ++i) {
+        graph.addNode()
+      }
+      for (let i = 0; i < rows; ++i) {
+        for (let j = 0; j < cols; ++j) {
+          if (i !== rows - 1) {
+            graph.addEdge(i * cols + j, (i + 1) * cols + j)
+          }
+          if (j !== cols - 1) {
+            graph.addEdge(i * cols + j, i * cols + j + 1)
+          }
         }
       }
-    }
-    layout(graph)
-    draw(this.refs.renderer, graph)
+      layout(graph)
+      draw(this.refs.renderer, graph)
+    }, 0)
   }
 
   render () {
