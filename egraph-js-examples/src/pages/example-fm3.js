@@ -7,7 +7,7 @@ import {Wrapper} from '../wrapper'
 const layout = (graph) => {
   const fm3 = new FM3()
   fm3.minSize = 10
-  fm3.stepIteration = 200
+  fm3.stepIteration = 250
   fm3.unitEdgeLength = 15
   fm3.call(graph)
 }

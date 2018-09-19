@@ -5,7 +5,7 @@ use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 use ::algorithms::connected_components;
 use ::layout::force_directed::{initial_placement, initial_links};
-use ::layout::force_directed::force::{Point, CenterForce, LinkForce, ManyBodyForce};
+use ::layout::force_directed::force::{Point, CenterForce, LinkForce, ManyBodyForce, PositionForce};
 use ::layout::force_directed::simulation::Simulation;
 
 pub struct Node {
@@ -189,26 +189,27 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
     points
 }
 
-fn layout(graph: &Graph<Node, Edge>, iteration: usize) -> Vec<Point> {
+fn layout(graph: &Graph<Node, Edge>, iteration: usize, alpha: &mut f32, decay: f32) -> Vec<Point> {
     let mut points = initial_placement(graph.node_count());
-    layout_with_initial_placement(graph, &mut points, iteration);
+    layout_with_initial_placement(graph, &mut points, iteration, alpha, decay);
     points
 }
 
-fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Point>, iteration: usize) {
+fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Point>, iteration: usize, alpha: &mut f32, decay: f32) {
     let mut links = initial_links(graph);
     for (e, link) in graph.edge_indices().zip(links.iter_mut()) {
         link.length = graph[e].length as f32;
     }
+
     let mut simulation = Simulation::new();
     simulation.forces.push(Box::new(ManyBodyForce::new()));
     simulation.forces.push(Box::new(LinkForce::new_with_links(links)));
     simulation.forces.push(Box::new(CenterForce::new()));
-    simulation.alpha = 1.0;
-    let decay = 1. - (simulation.alpha_min as f32).powf(1. / iteration as f32);
+    simulation.forces.push(Box::new(PositionForce::new(0., 0.)));
+    simulation.forces[3].set_strength(0.01);
     for _i in 0..iteration {
-        simulation.alpha += (simulation.alpha_target - simulation.alpha) * decay;
         simulation.step(points);
+        *alpha += -(*alpha) * decay;
     }
 }
 
@@ -223,7 +224,7 @@ impl FM3 {
         FM3 {
             min_size: 100,
             step_iteration: 100,
-            unit_edge_length: 30.
+            unit_edge_length: 30.,
         }
     }
 
@@ -242,18 +243,26 @@ impl FM3 {
             e.length = self.unit_edge_length as f64;
             g0.add_edge(NodeIndex::new(edge.source().index()), NodeIndex::new(edge.target().index()), e);
         }
+
         while g0.node_count() > self.min_size + num_components - 1 {
             solar_system_partition(&mut g0, &mut rng);
             let g1 = collapse(&mut g0);
             shrinked_graphs.push(g0);
             g0 = g1;
         }
+
+        let total_iteration = self.step_iteration * (shrinked_graphs.len() + 1);
+        let alpha_min = 0.001;
+        let mut alpha = 1.;
+        let decay = 1. - (alpha_min as f32).powf(1. / total_iteration as f32);
+
         let mut gk = g0;
-        let mut g1_points = layout(&mut gk, self.step_iteration);
+        let mut g1_points = layout(&mut gk, self.step_iteration, &mut alpha, decay);
+
         while !shrinked_graphs.is_empty() {
             let g0 = shrinked_graphs.pop().unwrap();
             let mut g0_points = expand(&g0, &gk, &g1_points, &mut rng);
-            layout_with_initial_placement(&g0, &mut g0_points, self.step_iteration);
+            layout_with_initial_placement(&g0, &mut g0_points, self.step_iteration, &mut alpha, decay);
             g1_points = g0_points;
             gk = g0;
         }
