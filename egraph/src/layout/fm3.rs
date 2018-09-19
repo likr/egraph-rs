@@ -1,24 +1,12 @@
-extern crate rand;
-extern crate petgraph;
-
 use std::collections::HashSet;
 use std::f32::consts::PI;
+use rand::prelude::*;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
 use ::algorithms::connected_components;
 use ::layout::force_directed::{initial_placement, initial_links};
 use ::layout::force_directed::force::{Force, Point, CenterForce, LinkForce, ManyBodyForce};
 use ::layout::force_directed::simulation::start_simulation;
-
-fn shuffled_nodes<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> Vec<NodeIndex<Ix>> {
-    let mut nodes = graph.node_indices().collect::<Vec<_>>();
-    for _ in 0..nodes.len() {
-        let i = rand::random::<usize>() % nodes.len();
-        let j = rand::random::<usize>() % nodes.len();
-        nodes.swap(i, j);
-    }
-    nodes
-}
 
 pub struct Node {
     pub group: usize,
@@ -57,8 +45,12 @@ pub enum NodeType {
     MoonNode,
 }
 
-fn solar_system_partition(graph: &mut Graph<Node, Edge>) {
-    let nodes = shuffled_nodes(graph);
+fn solar_system_partition(graph: &mut Graph<Node, Edge>, rng: &mut StdRng) {
+    let nodes = {
+        let mut nodes = graph.node_indices().collect::<Vec<_>>();
+        rng.shuffle(&mut nodes);
+        nodes
+    };
     let mut visited = graph.node_indices()
         .map(|_| false)
         .collect::<Vec<_>>();
@@ -163,7 +155,7 @@ fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
     shrinked_graph
 }
 
-fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points: &Vec<Point>) -> Vec<Point> {
+fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points: &Vec<Point>, rng: &mut StdRng) -> Vec<Point> {
     let mut points = Vec::new();
     for u in graph0.node_indices() {
         let mut x = 0.;
@@ -187,7 +179,7 @@ fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points:
         if count > 0 {
             points.push(Point::new(x as f32 / count as f32, y as f32 / count as f32));
         } else {
-            let theta = rand::random::<f32>() * 2. * PI;
+            let theta = rng.gen::<f32>() * 2. * PI;
             let r = path_length(graph0, u) as f32;
             let x = r * theta.cos() + s1_x as f32;
             let y = r * theta.sin() + s1_y as f32;
@@ -229,6 +221,9 @@ impl FM3 {
     }
 
     pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(&self, graph: &Graph<N, E, Ty, Ix>) -> Vec<Point> {
+        let seed = [0; 32];
+        let mut rng : StdRng = SeedableRng::from_seed(seed);
+
         let num_components = connected_components(graph).iter().collect::<HashSet<_>>().len();
         let mut shrinked_graphs = Vec::new();
         let mut g0 = Graph::new();
@@ -239,7 +234,7 @@ impl FM3 {
             g0.add_edge(NodeIndex::new(edge.source().index()), NodeIndex::new(edge.target().index()), Edge::new());
         }
         while g0.node_count() > self.min_size + num_components - 1 {
-            solar_system_partition(&mut g0);
+            solar_system_partition(&mut g0, &mut rng);
             let g1 = collapse(&mut g0);
             shrinked_graphs.push(g0);
             g0 = g1;
@@ -248,7 +243,7 @@ impl FM3 {
         let mut g1_points = layout(&mut gk);
         while !shrinked_graphs.is_empty() {
             let g0 = shrinked_graphs.pop().unwrap();
-            let mut g0_points = expand(&g0, &gk, &g1_points);
+            let mut g0_points = expand(&g0, &gk, &g1_points, &mut rng);
             layout_with_initial_placement(&g0, &mut g0_points);
             g1_points = g0_points;
             gk = g0;

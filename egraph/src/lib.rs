@@ -1,3 +1,4 @@
+extern crate rand;
 extern crate petgraph;
 
 pub mod algorithms;

@@ -4,11 +4,10 @@ version = "0.1.0"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 
 [dependencies]
-rand = "0.3"
+rand = "0.5"
 petgraph = "0.4"
 
 [dev-dependencies]
-rand = "0.3"
 getopts = "0.2"
 serde = "1.0"
 serde_json = "1.0"
