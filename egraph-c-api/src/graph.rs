@@ -1,7 +1,7 @@
 extern crate petgraph;
 
+use petgraph::prelude::*;
 use std::os::raw::{c_double, c_uint};
-use petgraph::graph::NodeIndex;
 
 #[derive(Default)]
 pub struct Node {
@@ -11,23 +11,16 @@ pub struct Node {
 
 impl Node {
     pub fn new(x: c_double, y: c_double) -> Node {
-        Node {
-            x,
-            y,
-        }
+        Node { x, y }
     }
 
     pub fn empty() -> Node {
-        Node {
-            x: 0.,
-            y: 0.,
-        }
+        Node { x: 0., y: 0. }
     }
 }
 
 #[derive(Default)]
-pub struct Edge {
-}
+pub struct Edge {}
 
 impl Edge {
     pub fn new() -> Edge {
@@ -35,7 +28,7 @@ impl Edge {
     }
 }
 
-pub type Graph = petgraph::Graph<Node, Edge, petgraph::Undirected>;
+pub type Graph = petgraph::Graph<Node, Edge, Undirected>;
 
 #[no_mangle]
 pub unsafe fn graph_new() -> *mut Graph {
@@ -50,7 +43,23 @@ pub unsafe fn graph_add_node(p_graph: *mut Graph) -> c_uint {
 
 #[no_mangle]
 pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uint {
-    (*p_graph).add_edge(NodeIndex::new(u as usize), NodeIndex::new(v as usize), Edge::new()).index() as c_uint
+    (*p_graph)
+        .add_edge(
+            NodeIndex::new(u as usize),
+            NodeIndex::new(v as usize),
+            Edge::new(),
+        )
+        .index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn graph_remove_node(p_graph: *mut Graph, index: c_uint) {
+    (*p_graph).remove_node(NodeIndex::new(index as usize));
+}
+
+#[no_mangle]
+pub unsafe fn graph_remove_edge(p_graph: *mut Graph, index: c_uint) {
+    (*p_graph).remove_edge(EdgeIndex::new(index as usize));
 }
 
 #[no_mangle]
@@ -85,13 +94,17 @@ pub unsafe fn graph_get_y(p_graph: *mut Graph, u: c_uint) -> c_double {
 
 #[no_mangle]
 pub unsafe fn graph_set_x(p_graph: *mut Graph, u: c_uint, value: c_double) {
-    let weight = (*p_graph).node_weight_mut(NodeIndex::new(u as usize)).unwrap();
+    let weight = (*p_graph)
+        .node_weight_mut(NodeIndex::new(u as usize))
+        .unwrap();
     weight.x = value;
 }
 
 #[no_mangle]
 pub unsafe fn graph_set_y(p_graph: *mut Graph, u: c_uint, value: c_double) {
-    let weight = (*p_graph).node_weight_mut(NodeIndex::new(u as usize)).unwrap();
+    let weight = (*p_graph)
+        .node_weight_mut(NodeIndex::new(u as usize))
+        .unwrap();
     weight.y = value;
 }
 

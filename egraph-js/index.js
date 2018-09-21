@@ -21,6 +21,8 @@ const initializeFunctions = (Module) => {
     graphNew: Module.cwrap('graph_new', 'number', []),
     graphAddNode: Module.cwrap('graph_add_node', 'number', ['number']),
     graphAddEdge: Module.cwrap('graph_add_edge', 'number', ['number', 'number', 'number']),
+    graphRemoveNode: Module.cwrap('graph_remove_node', 'void', ['number', 'number']),
+    graphRemoveEdge: Module.cwrap('graph_remove_edge', 'void', ['number', 'number']),
     graphNodeCount: Module.cwrap('graph_node_count', 'number', ['number']),
     graphEdgeCount: Module.cwrap('graph_edge_count', 'number', ['number']),
     graphGetX: Module.cwrap('graph_get_x', 'number', ['number', 'number']),

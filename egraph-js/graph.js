@@ -60,6 +60,14 @@ export class Graph {
     return index
   }
 
+  removeNode (index) {
+    this.functions.graphRemoveNode(this.pointer, index)
+  }
+
+  removeEdge (index) {
+    this.functions.graphRemoveEdge(this.pointer, index)
+  }
+
   nodeCount () {
     return this.functions.graphNodeCount(this.pointer)
   }
