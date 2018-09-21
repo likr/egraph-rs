@@ -1,9 +1,9 @@
 extern crate petgraph;
 
 use petgraph::prelude::*;
-use std::os::raw::{c_double, c_uint};
+use std::os::raw::{c_double, c_int, c_uint};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Node {
     pub x: c_double,
     pub y: c_double,
@@ -19,7 +19,7 @@ impl Node {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Edge {}
 
 impl Edge {
@@ -48,8 +48,7 @@ pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uin
             NodeIndex::new(u as usize),
             NodeIndex::new(v as usize),
             Edge::new(),
-        )
-        .index() as c_uint
+        ).index() as c_uint
 }
 
 #[no_mangle]
@@ -121,6 +120,31 @@ pub unsafe fn graph_source(p_graph: *mut Graph, i: c_uint) -> c_uint {
 #[no_mangle]
 pub unsafe fn graph_target(p_graph: *mut Graph, i: c_uint) -> c_uint {
     (*p_graph).raw_edges()[i as usize].target().index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn graph_filter(
+    p_graph: *const Graph,
+    node_map: extern "C" fn(c_uint) -> c_int,
+    edge_map: extern "C" fn(c_uint) -> c_int,
+) -> *mut Graph {
+    let graph = Box::new((*p_graph).filter_map(
+        |index, node| {
+            if node_map(index.index() as c_uint) == 0 {
+                None
+            } else {
+                Some(node.clone())
+            }
+        },
+        |index, edge| {
+            if edge_map(index.index() as c_uint) == 0 {
+                None
+            } else {
+                Some(edge.clone())
+            }
+        },
+    ));
+    Box::into_raw(graph)
 }
 
 #[no_mangle]

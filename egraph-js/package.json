@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build:lib": "cargo build -p egraph-c-api --release --target=wasm32-unknown-emscripten",
-    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS=@exported_functions.json -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s MODULARIZE=1 -s TOTAL_MEMORY=268435456",
+    "build:wasm": "emcc -Oz ../target/wasm32-unknown-emscripten/release/libegraph_c_api.a -o egraph.js -s WASM=1 -s EXPORTED_FUNCTIONS=@exported_functions.json -s EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\", \"addFunction\", \"removeFunction\"]' -s MODULARIZE=1 -s TOTAL_MEMORY=268435456 -s RESERVED_FUNCTION_POINTERS=10",
     "build": "npm run build:lib && npm run build:wasm"
   },
   "keywords": [],
