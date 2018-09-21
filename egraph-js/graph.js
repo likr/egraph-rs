@@ -98,14 +98,14 @@ export class Graph {
     const nodeIndices = new Set()
     const edgeIndices = new Set()
     const nodeMapPointer = this.Module.addFunction((index) => {
-      const result = nodeMap(index)
+      const result = nodeMap(index, this)
       if (result) {
         nodeIndices.add(index)
       }
       return !!result
     }, 'ii')
     const edgeMapPointer = this.Module.addFunction((index) => {
-      const result = edgeMap(index)
+      const result = edgeMap(index, this)
       if (result) {
         edgeIndices.add(index)
       }
@@ -164,5 +164,9 @@ export class Graph {
         }
       }
     }
+  }
+
+  get links () {
+    return this.edges
   }
 }
