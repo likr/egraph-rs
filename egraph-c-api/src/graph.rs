@@ -2,6 +2,7 @@ extern crate petgraph;
 
 use petgraph::prelude::*;
 use std::os::raw::{c_double, c_int, c_uint};
+use std::ptr;
 
 #[derive(Default, Clone)]
 pub struct Node {
@@ -28,7 +29,8 @@ impl Edge {
     }
 }
 
-pub type Graph = petgraph::Graph<Node, Edge, Undirected>;
+pub type Ix = c_uint;
+pub type Graph = petgraph::Graph<Node, Edge, Undirected, Ix>;
 
 #[no_mangle]
 pub unsafe fn graph_new() -> *mut Graph {
@@ -48,7 +50,8 @@ pub unsafe fn graph_add_edge(p_graph: *mut Graph, u: c_uint, v: c_uint) -> c_uin
             NodeIndex::new(u as usize),
             NodeIndex::new(v as usize),
             Edge::new(),
-        ).index() as c_uint
+        )
+        .index() as c_uint
 }
 
 #[no_mangle]
@@ -79,6 +82,27 @@ pub unsafe fn graph_node_at(p_graph: *mut Graph, i: c_uint) -> *const petgraph::
 #[no_mangle]
 pub unsafe fn graph_edge_at(p_graph: *mut Graph, i: c_uint) -> *const petgraph::graph::Edge<Edge> {
     &(*p_graph).raw_edges()[i as usize]
+}
+
+#[no_mangle]
+pub unsafe fn graph_node_indices(p_graph: *const Graph) -> *const petgraph::graph::NodeIndices<Ix> {
+    let indices = Box::new((*p_graph).node_indices());
+    Box::into_raw(indices)
+}
+
+#[no_mangle]
+pub unsafe fn graph_edge_indices(p_graph: *const Graph) -> *const petgraph::graph::EdgeIndices<Ix> {
+    let indices = Box::new((*p_graph).edge_indices());
+    Box::into_raw(indices)
+}
+
+#[no_mangle]
+pub unsafe fn graph_neighbors(
+    p_graph: *mut Graph,
+    u: c_uint,
+) -> *mut petgraph::graph::WalkNeighbors<Ix> {
+    let neighbors = Box::new((*p_graph).neighbors(NodeIndex::new(u as usize)).detach());
+    Box::into_raw(neighbors)
 }
 
 #[no_mangle]
@@ -175,4 +199,56 @@ pub unsafe fn edge_source(p_edge: *mut petgraph::graph::Edge<Edge>) -> c_uint {
 #[no_mangle]
 pub unsafe fn edge_target(p_edge: *mut petgraph::graph::Edge<Edge>) -> c_uint {
     (*p_edge).target().index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn node_indices_next(
+    p_node_indices: *mut petgraph::graph::NodeIndices<Ix>,
+) -> *mut NodeIndex<Ix> {
+    match (*p_node_indices).next() {
+        Some(index) => Box::into_raw(Box::new(index)),
+        None => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe fn edge_indices_next(
+    p_edge_indices: *mut petgraph::graph::EdgeIndices<Ix>,
+) -> *mut EdgeIndex<Ix> {
+    match (*p_edge_indices).next() {
+        Some(index) => Box::into_raw(Box::new(index)),
+        None => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe fn neighbors_next_node(
+    p_neighbors: *mut petgraph::graph::WalkNeighbors<Ix>,
+    p_graph: *const Graph,
+) -> *mut NodeIndex<Ix> {
+    match (*p_neighbors).next_node(&*p_graph) {
+        Some(index) => Box::into_raw(Box::new(index)),
+        None => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe fn neighbors_next_edge(
+    p_neighbors: *mut petgraph::graph::WalkNeighbors<Ix>,
+    p_graph: *const Graph,
+) -> *mut EdgeIndex<Ix> {
+    match (*p_neighbors).next_edge(&*p_graph) {
+        Some(index) => Box::into_raw(Box::new(index)),
+        None => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe fn node_index_index(p_node_index: *const NodeIndex<Ix>) -> c_uint {
+    (*p_node_index).index() as c_uint
+}
+
+#[no_mangle]
+pub unsafe fn edge_index_index(p_edge_index: *const EdgeIndex<Ix>) -> c_uint {
+    (*p_edge_index).index() as c_uint
 }

@@ -90,6 +90,100 @@ export class Graph {
     return new Edge(pointer, this.edgeProperties[i])
   }
 
+  nodeIndices () {
+    const functions = this.functions
+    const indices = functions.graphNodeIndices(this.pointer)
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            const pointer = functions.nodeIndicesNext(indices)
+            if (pointer) {
+              return {
+                value: functions.nodeIndexIndex(pointer),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  edgeIndices () {
+    const functions = this.functions
+    const indices = functions.graphEdgeIndices(this.pointer)
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            const pointer = functions.edgeIndicesNext(indices)
+            if (pointer) {
+              return {
+                value: functions.edgeIndexIndex(pointer),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  neighbors (u) {
+    const graph = this
+    const functions = this.functions
+    const neighbors = functions.graphNeighbors(this.pointer, u)
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            const pointer = functions.neighborsNextNode(neighbors, graph.pointer)
+            if (pointer) {
+              return {
+                value: functions.nodeIndexIndex(pointer),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  neighborEdges (u) {
+    const graph = this
+    const functions = this.functions
+    const neighbors = functions.graphNeighbors(this.pointer, u)
+    return {
+      [Symbol.iterator] () {
+        return {
+          next () {
+            const pointer = functions.neighborsNextEdge(neighbors, graph.pointer)
+            if (pointer) {
+              return {
+                value: functions.edgeIndexIndex(pointer),
+                done: false
+              }
+            }
+            return {
+              done: true
+            }
+          }
+        }
+      }
+    }
+  }
+
   degree (u) {
     return this.functions.graphDegree(this.pointer, u)
   }
@@ -118,6 +212,14 @@ export class Graph {
     this.Module.removeFunction(nodeMapPointer)
     this.Module.removeFunction(edgeMapPointer)
     return graph
+  }
+
+  filterNodes (nodeMap) {
+    return this.filter(nodeMap, () => true)
+  }
+
+  filterEdges (edgeMap) {
+    return this.filter(() => true, edgeMap)
   }
 
   get nodes () {

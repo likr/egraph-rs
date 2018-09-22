@@ -1,12 +1,12 @@
+use algorithms::connected_components;
+use layout::force_directed::force::{CenterForce, LinkForce, ManyBodyForce, Point, PositionForce};
+use layout::force_directed::simulation::Simulation;
+use layout::force_directed::{initial_links, initial_placement};
+use petgraph::graph::{IndexType, NodeIndex};
+use petgraph::{EdgeType, Graph};
+use rand::prelude::*;
 use std::collections::HashSet;
 use std::f32::consts::PI;
-use rand::prelude::*;
-use petgraph::{Graph, EdgeType};
-use petgraph::graph::{IndexType, NodeIndex};
-use ::algorithms::connected_components;
-use ::layout::force_directed::{initial_placement, initial_links};
-use ::layout::force_directed::force::{Point, CenterForce, LinkForce, ManyBodyForce, PositionForce};
-use ::layout::force_directed::simulation::Simulation;
 
 pub struct Node {
     pub group: usize,
@@ -51,9 +51,7 @@ fn solar_system_partition(graph: &mut Graph<Node, Edge>, rng: &mut StdRng) {
         rng.shuffle(&mut nodes);
         nodes
     };
-    let mut visited = graph.node_indices()
-        .map(|_| false)
-        .collect::<Vec<_>>();
+    let mut visited = graph.node_indices().map(|_| false).collect::<Vec<_>>();
     let mut i = 0;
     for s in nodes {
         if visited[s.index()] {
@@ -105,19 +103,24 @@ fn path_length(graph: &Graph<Node, Edge>, u: NodeIndex) -> f64 {
         Some(NodeType::PlanetNode) => {
             let s = NodeIndex::new(graph.node_weight(u).unwrap().parent);
             edge_length(graph, u, s)
-        },
+        }
         Some(NodeType::MoonNode) => {
             let p = NodeIndex::new(graph.node_weight(u).unwrap().parent);
             let s = NodeIndex::new(graph.node_weight(p).unwrap().parent);
             edge_length(graph, u, p) + edge_length(graph, p, s)
-        },
+        }
         _ => 0.,
     }
 }
 
 fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
-    let mut shrinked_graph : Graph<Node, Edge> = Graph::new();
-    let num_groups = graph.raw_nodes().iter().map(|node| node.weight.group).max().unwrap() + 1;
+    let mut shrinked_graph: Graph<Node, Edge> = Graph::new();
+    let num_groups = graph
+        .raw_nodes()
+        .iter()
+        .map(|node| node.weight.group)
+        .max()
+        .unwrap() + 1;
     for _ in 0..num_groups {
         shrinked_graph.add_node(Node::new());
     }
@@ -155,7 +158,12 @@ fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
     shrinked_graph
 }
 
-fn expand(graph0: &Graph<Node, Edge>, graph1: &Graph<Node, Edge>, graph1_points: &Vec<Point>, rng: &mut StdRng) -> Vec<Point> {
+fn expand(
+    graph0: &Graph<Node, Edge>,
+    graph1: &Graph<Node, Edge>,
+    graph1_points: &Vec<Point>,
+    rng: &mut StdRng,
+) -> Vec<Point> {
     let mut points = Vec::new();
     for u in graph0.node_indices() {
         let mut x = 0.;
@@ -195,7 +203,13 @@ fn layout(graph: &Graph<Node, Edge>, iteration: usize, alpha: &mut f32, decay: f
     points
 }
 
-fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Point>, iteration: usize, alpha: &mut f32, decay: f32) {
+fn layout_with_initial_placement(
+    graph: &Graph<Node, Edge>,
+    points: &mut Vec<Point>,
+    iteration: usize,
+    alpha: &mut f32,
+    decay: f32,
+) {
     let mut links = initial_links(graph);
     for (e, link) in graph.edge_indices().zip(links.iter_mut()) {
         link.length = graph[e].length as f32;
@@ -203,7 +217,9 @@ fn layout_with_initial_placement(graph: &Graph<Node, Edge>, points: &mut Vec<Poi
 
     let mut simulation = Simulation::new();
     simulation.forces.push(Box::new(ManyBodyForce::new()));
-    simulation.forces.push(Box::new(LinkForce::new_with_links(links)));
+    simulation
+        .forces
+        .push(Box::new(LinkForce::new_with_links(links)));
     simulation.forces.push(Box::new(CenterForce::new()));
     simulation.forces.push(Box::new(PositionForce::new(0., 0.)));
     simulation.forces[3].set_strength(0.01);
@@ -228,11 +244,17 @@ impl FM3 {
         }
     }
 
-    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(&self, graph: &Graph<N, E, Ty, Ix>) -> Vec<Point> {
+    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+        &self,
+        graph: &Graph<N, E, Ty, Ix>,
+    ) -> Vec<Point> {
         let seed = [0; 32];
-        let mut rng : StdRng = SeedableRng::from_seed(seed);
+        let mut rng: StdRng = SeedableRng::from_seed(seed);
 
-        let num_components = connected_components(graph).iter().collect::<HashSet<_>>().len();
+        let num_components = connected_components(graph)
+            .iter()
+            .collect::<HashSet<_>>()
+            .len();
         let mut shrinked_graphs = Vec::new();
         let mut g0 = Graph::new();
         for _node in graph.node_indices() {
@@ -241,7 +263,11 @@ impl FM3 {
         for edge in graph.raw_edges() {
             let mut e = Edge::new();
             e.length = self.unit_edge_length as f64;
-            g0.add_edge(NodeIndex::new(edge.source().index()), NodeIndex::new(edge.target().index()), e);
+            g0.add_edge(
+                NodeIndex::new(edge.source().index()),
+                NodeIndex::new(edge.target().index()),
+                e,
+            );
         }
 
         while g0.node_count() > self.min_size + num_components - 1 {
@@ -262,7 +288,13 @@ impl FM3 {
         while !shrinked_graphs.is_empty() {
             let g0 = shrinked_graphs.pop().unwrap();
             let mut g0_points = expand(&g0, &gk, &g1_points, &mut rng);
-            layout_with_initial_placement(&g0, &mut g0_points, self.step_iteration, &mut alpha, decay);
+            layout_with_initial_placement(
+                &g0,
+                &mut g0_points,
+                self.step_iteration,
+                &mut alpha,
+                decay,
+            );
             g1_points = g0_points;
             gk = g0;
         }
@@ -275,7 +307,9 @@ fn test_fm3() {
     let rows = 10;
     let cols = 10;
     let mut graph = Graph::new();
-    let nodes = (0..rows * cols).map(|_| graph.add_node(())).collect::<Vec<_>>();
+    let nodes = (0..rows * cols)
+        .map(|_| graph.add_node(()))
+        .collect::<Vec<_>>();
     for i in 0..rows {
         for j in 0..cols {
             if i != rows - 1 {
