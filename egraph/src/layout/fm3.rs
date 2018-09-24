@@ -120,7 +120,8 @@ fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
         .iter()
         .map(|node| node.weight.group)
         .max()
-        .unwrap() + 1;
+        .unwrap()
+        + 1;
     for _ in 0..num_groups {
         shrinked_graph.add_node(Node::new());
     }
@@ -197,9 +198,26 @@ fn expand(
     points
 }
 
-fn layout(graph: &Graph<Node, Edge>, iteration: usize, alpha: &mut f32, decay: f32) -> Vec<Point> {
+fn layout(
+    graph: &Graph<Node, Edge>,
+    iteration: usize,
+    alpha: &mut f32,
+    decay: f32,
+    many_body_strength: f32,
+    link_strength: f32,
+    position_strength: f32,
+) -> Vec<Point> {
     let mut points = initial_placement(graph.node_count());
-    layout_with_initial_placement(graph, &mut points, iteration, alpha, decay);
+    layout_with_initial_placement(
+        graph,
+        &mut points,
+        iteration,
+        alpha,
+        decay,
+        many_body_strength,
+        link_strength,
+        position_strength,
+    );
     points
 }
 
@@ -209,6 +227,9 @@ fn layout_with_initial_placement(
     iteration: usize,
     alpha: &mut f32,
     decay: f32,
+    many_body_strength: f32,
+    link_strength: f32,
+    position_strength: f32,
 ) {
     let mut links = initial_links(graph);
     for (e, link) in graph.edge_indices().zip(links.iter_mut()) {
@@ -222,7 +243,10 @@ fn layout_with_initial_placement(
         .push(Box::new(LinkForce::new_with_links(links)));
     simulation.forces.push(Box::new(CenterForce::new()));
     simulation.forces.push(Box::new(PositionForce::new(0., 0.)));
-    simulation.forces[3].set_strength(0.01);
+
+    simulation.forces[0].set_strength(many_body_strength);
+    simulation.forces[1].set_strength(link_strength);
+    simulation.forces[3].set_strength(position_strength);
     for _i in 0..iteration {
         simulation.step(points);
         *alpha += -(*alpha) * decay;
@@ -233,6 +257,9 @@ pub struct FM3 {
     pub min_size: usize,
     pub step_iteration: usize,
     pub unit_edge_length: f32,
+    pub many_body_strength: f32,
+    pub link_strength: f32,
+    pub position_strength: f32,
 }
 
 impl FM3 {
@@ -241,6 +268,9 @@ impl FM3 {
             min_size: 100,
             step_iteration: 100,
             unit_edge_length: 30.,
+            many_body_strength: 1.0,
+            link_strength: 1.0,
+            position_strength: 1.0,
         }
     }
 
@@ -283,7 +313,15 @@ impl FM3 {
         let decay = 1. - (alpha_min as f32).powf(1. / total_iteration as f32);
 
         let mut gk = g0;
-        let mut g1_points = layout(&mut gk, self.step_iteration, &mut alpha, decay);
+        let mut g1_points = layout(
+            &mut gk,
+            self.step_iteration,
+            &mut alpha,
+            decay,
+            self.many_body_strength,
+            self.link_strength,
+            self.position_strength,
+        );
 
         while !shrinked_graphs.is_empty() {
             let g0 = shrinked_graphs.pop().unwrap();
@@ -294,6 +332,9 @@ impl FM3 {
                 self.step_iteration,
                 &mut alpha,
                 decay,
+                self.many_body_strength,
+                self.link_strength,
+                self.position_strength,
             );
             g1_points = g0_points;
             gk = g0;
