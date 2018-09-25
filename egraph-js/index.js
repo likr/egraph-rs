@@ -118,6 +118,12 @@ const initializeFunctions = (Module) => {
     layoutFM3SetStepIteration: Module.cwrap('layout_fm3_set_step_iteration', 'void', ['number', 'number']),
     layoutFM3GetUnitEdgeLength: Module.cwrap('layout_fm3_get_unit_edge_length', 'number', ['number']),
     layoutFM3SetUnitEdgeLength: Module.cwrap('layout_fm3_set_unit_edge_length', 'void', ['number', 'number']),
+    layoutFM3GetManyBodyForceStrength: Module.cwrap('layout_fm3_get_many_body_force_strength', 'number', ['number']),
+    layoutFM3SetManyBodyForceStrength: Module.cwrap('layout_fm3_set_many_body_force_strength', 'void', ['number', 'number']),
+    layoutFM3GetLinkForceStrength: Module.cwrap('layout_fm3_get_link_force_strength', 'number', ['number']),
+    layoutFM3SetLinkForceStrength: Module.cwrap('layout_fm3_set_link_force_strength', 'void', ['number', 'number']),
+    layoutFM3GetPositionForceStrength: Module.cwrap('layout_fm3_get_position_force_strength', 'number', ['number']),
+    layoutFM3SetPositionForceStrength: Module.cwrap('layout_fm3_set_position_force_strength', 'void', ['number', 'number']),
     layoutFM3Call: Module.cwrap('layout_fm3_call', 'void', ['number', 'number']),
     alloc: Module.cwrap('rust_alloc', 'number', ['number']),
     free: Module.cwrap('rust_free', 'void', ['number'])

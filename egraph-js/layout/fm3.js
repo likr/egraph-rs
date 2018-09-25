@@ -36,4 +36,28 @@ export class FM3 {
   set unitEdgeLength (value) {
     this.functions.layoutFM3SetUnitEdgeLength(this.pointer, value)
   }
+
+  get manyBodyForceStrength () {
+    return this.functions.layoutFM3GetManyBodyForceStrength(this.pointer)
+  }
+
+  set manyBodyForceStrength (value) {
+    this.functions.layoutFM3SetManyBodyForceStrength(this.pointer, value)
+  }
+
+  get linkForceStrength () {
+    return this.functions.layoutFM3GetLinkForceStrength(this.pointer)
+  }
+
+  set linkForceStrength (value) {
+    this.functions.layoutFM3SetLinkForceStrength(this.pointer, value)
+  }
+
+  get positionForceStrength () {
+    return this.functions.layoutFM3GetPositionForceStrength(this.pointer)
+  }
+
+  set positionForceStrength (value) {
+    this.functions.layoutFM3SetPositionForceStrength(this.pointer, value)
+  }
 }

@@ -1,6 +1,6 @@
-use std::os::raw::{c_double, c_uint};
 use egraph::layout::fm3::FM3;
-use ::graph::Graph;
+use graph::Graph;
+use std::os::raw::{c_double, c_uint};
 
 #[no_mangle]
 pub unsafe fn layout_fm3_new() -> *mut FM3 {
@@ -36,6 +36,36 @@ pub unsafe fn layout_fm3_get_unit_edge_length(p_fm3: *mut FM3) -> c_double {
 #[no_mangle]
 pub unsafe fn layout_fm3_set_unit_edge_length(p_fm3: *mut FM3, value: c_double) {
     (*p_fm3).unit_edge_length = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_get_many_body_force_strength(p_fm3: *mut FM3) -> c_double {
+    (*p_fm3).many_body_force_strength as c_double
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_set_many_body_force_strength(p_fm3: *mut FM3, value: c_double) {
+    (*p_fm3).many_body_force_strength = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_get_link_force_strength(p_fm3: *mut FM3) -> c_double {
+    (*p_fm3).link_force_strength as c_double
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_set_link_force_strength(p_fm3: *mut FM3, value: c_double) {
+    (*p_fm3).link_force_strength = value as f32;
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_get_position_force_strength(p_fm3: *mut FM3) -> c_double {
+    (*p_fm3).position_force_strength as c_double
+}
+
+#[no_mangle]
+pub unsafe fn layout_fm3_set_position_force_strength(p_fm3: *mut FM3, value: c_double) {
+    (*p_fm3).position_force_strength = value as f32;
 }
 
 #[no_mangle]

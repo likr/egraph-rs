@@ -9,6 +9,7 @@ const layout = (graph) => {
   fm3.minSize = 10
   fm3.stepIteration = 250
   fm3.unitEdgeLength = 15
+  fm3.positionForceStrength = 0.01
   fm3.call(graph)
 }
 
