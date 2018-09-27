@@ -3,6 +3,7 @@ Cargo.lock
 clp-sys/vendor
 node_modules
 egraph-c-examples/example
+egraph-cpp-examples/example
 egraph-js/egraph.js
 egraph-js/egraph.wasm
 egraph-js-examples/public/egraph.wasm

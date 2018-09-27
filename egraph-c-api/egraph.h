@@ -11,6 +11,10 @@ typedef struct {} Line;
 typedef struct {} Point;
 typedef struct {} Group;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 Graph* graph_new();
 unsigned graph_add_node(Graph*);
 unsigned graph_add_edge(Graph*, unsigned, unsigned);
@@ -77,5 +81,9 @@ void group_set_x(Group*, double);
 void group_set_y(Group*, double);
 void group_set_width(Group*, double);
 void group_set_height(Group*, double);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

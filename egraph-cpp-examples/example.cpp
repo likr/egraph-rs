@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <iostream>
 #include "../egraph-c-api/egraph.h"
 
 int main(void) {
@@ -25,17 +25,17 @@ int main(void) {
   Line* bundling_result = edge_bundling_call(edge_bundling, graph);
 
   for (int i = 0, n = graph_node_count(graph); i < n; ++i) {
-    printf("node[%d] = {x: %f, y: %f}\n", i, graph_get_x(graph, i), graph_get_y(graph, i));
+    std::cout << "node[" << i << "] = {x: " << graph_get_x(graph, i) << ", y: " << graph_get_y(graph, i) << "}" << std::endl;
   }
 
 
   for (int i = 0, n = graph_edge_count(graph); i < n; ++i) {
-    printf("edge[%d] = [\n", i);
+    std::cout << "edge[" << i << "] = [" << std::endl;
     Line* line = lines_at(bundling_result, i);
     for (int j = 0, length = line_points_length(line); j < length; ++j) {
       Point* point = line_points_at(line, j);
-      printf("  [%f, %f],\n", point_x(point), point_y(point));
+      std::cout << "  [" << point_x(point) << ", " << point_y(point) << "]," << std::endl;
     }
-    printf("]\n");
+    std::cout << "]" << std::endl;
   }
 }
