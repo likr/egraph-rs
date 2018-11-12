@@ -5,4 +5,5 @@ members = [
     "egraph",
     "egraph-c-api",
     "egraph-layered",
+    "egraph-py",
 ]
