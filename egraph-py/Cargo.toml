@@ -4,12 +4,11 @@ version = "0.1.0"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 
 [dependencies]
-clp = { path = "../clp" }
 egraph = { path = "../egraph" }
 petgraph = "0.4"
 
 [dependencies.pyo3]
-version = "0.4"
+version = "0.5"
 features = ["extension-module"]
 
 [lib]
