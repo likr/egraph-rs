@@ -1,0 +1,15 @@
+{
+  "name": "egraph-wasm",
+  "collaborators": [
+    "Yosuke Onoue <onoue@likr-lab.com>"
+  ],
+  "version": "0.1.0",
+  "files": [
+    "egraph_wasm_bg.wasm",
+    "egraph_wasm.js",
+    "egraph_wasm.d.ts"
+  ],
+  "module": "egraph_wasm.js",
+  "types": "egraph_wasm.d.ts",
+  "sideEffects": "false"
+}

@@ -1,0 +1,19 @@
+[package]
+name = "egraph-wasm"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+edition = "2018"
+
+[dependencies]
+egraph = { path = "../egraph" }
+js-sys = "0.3.5"
+petgraph = "0.4.13"
+serde = "1.0"
+serde_derive = "1.0"
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+features = ["nightly"]
+
+[lib]
+crate-type = ["cdylib"]
