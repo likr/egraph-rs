@@ -1,7 +1,3 @@
-#[macro_use]
-extern crate serde_derive;
-
-extern crate serde;
 extern crate js_sys;
 extern crate petgraph;
 extern crate wasm_bindgen;
@@ -12,12 +8,6 @@ use petgraph::prelude::*;
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-
-#[derive(Serialize, Deserialize)]
-struct Point {
-    x: f64,
-    y: f64,
-}
 
 type GraphType = petgraph::Graph<(), (), Directed, usize>;
 
