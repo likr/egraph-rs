@@ -1,13 +1,9 @@
-use std::os::raw::{c_double, c_uint};
-use std::mem::forget;
 use egraph::layout::grouping::{
-    Group,
-    Grouping,
-    ForceDirectedGrouping,
-    RadialGrouping,
-    TreemapGrouping,
+    ForceDirectedGrouping, Group, Grouping, RadialGrouping, TreemapGrouping,
 };
 use graph::Graph;
+use std::mem::forget;
+use std::os::raw::{c_double, c_uint};
 
 #[no_mangle]
 pub unsafe fn force_directed_grouping_new(p_graph: *mut Graph) -> *mut ForceDirectedGrouping {
@@ -21,7 +17,7 @@ pub unsafe fn force_directed_grouping_call(
     width: c_double,
     height: c_double,
     p_values: *mut c_double,
-    num_values: c_uint
+    num_values: c_uint,
 ) -> *mut Group {
     let values = Vec::from_raw_parts(p_values, num_values as usize, num_values as usize);
     let mut groups = (*p_force_directed_grouping).call(width, height, &values);
@@ -98,7 +94,13 @@ pub unsafe fn radial_grouping_new() -> *mut RadialGrouping {
 }
 
 #[no_mangle]
-pub unsafe fn radial_grouping_call(p_radial_grouping: *mut RadialGrouping, width: c_double, height: c_double, p_values: *mut c_double, num_values: c_uint) -> *mut Group {
+pub unsafe fn radial_grouping_call(
+    p_radial_grouping: *mut RadialGrouping,
+    width: c_double,
+    height: c_double,
+    p_values: *mut c_double,
+    num_values: c_uint,
+) -> *mut Group {
     let values = Vec::from_raw_parts(p_values, num_values as usize, num_values as usize);
     let mut groups = (*p_radial_grouping).call(width, height, &values);
     forget(values);
@@ -114,7 +116,13 @@ pub unsafe fn treemap_grouping_new() -> *mut TreemapGrouping {
 }
 
 #[no_mangle]
-pub unsafe fn treemap_grouping_call(p_treemap_grouping: *mut TreemapGrouping, width: c_double, height: c_double, p_values: *mut c_double, num_values: c_uint) -> *mut Group {
+pub unsafe fn treemap_grouping_call(
+    p_treemap_grouping: *mut TreemapGrouping,
+    width: c_double,
+    height: c_double,
+    p_values: *mut c_double,
+    num_values: c_uint,
+) -> *mut Group {
     let values = Vec::from_raw_parts(p_values, num_values as usize, num_values as usize);
     let mut groups = (*p_treemap_grouping).call(width, height, &values);
     forget(values);

@@ -1,8 +1,8 @@
+use egraph::algorithms::biclustering::{Bicluster, Biclustering, QuasiBiclique};
+use graph::Graph;
 use std::collections::HashSet;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::algorithms::biclustering::{Bicluster, Biclustering, QuasiBiclique};
-use graph::Graph;
 
 pub type Biclusters = Vec<Bicluster>;
 
@@ -58,7 +58,11 @@ pub unsafe fn bicluster_length(p_biclusters: *mut Biclusters) -> c_uint {
 
 #[no_mangle]
 pub unsafe fn bicluster_source(p_biclusters: *mut Biclusters, i: c_uint) -> *mut c_uint {
-    let mut vertices = (*p_biclusters)[i as usize].source.iter().map(|&index| index as c_uint).collect::<Vec<_>>();
+    let mut vertices = (*p_biclusters)[i as usize]
+        .source
+        .iter()
+        .map(|&index| index as c_uint)
+        .collect::<Vec<_>>();
     let pointer = vertices.as_mut_ptr();
     forget(vertices);
     pointer
@@ -71,7 +75,11 @@ pub unsafe fn bicluster_source_length(p_biclusters: *mut Biclusters, i: c_uint) 
 
 #[no_mangle]
 pub unsafe fn bicluster_target(p_biclusters: *mut Biclusters, i: c_uint) -> *mut c_uint {
-    let mut vertices = (*p_biclusters)[i as usize].target.iter().map(|&index| index as c_uint).collect::<Vec<_>>();
+    let mut vertices = (*p_biclusters)[i as usize]
+        .target
+        .iter()
+        .map(|&index| index as c_uint)
+        .collect::<Vec<_>>();
     let pointer = vertices.as_mut_ptr();
     forget(vertices);
     pointer

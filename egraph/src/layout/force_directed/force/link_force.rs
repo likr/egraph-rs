@@ -1,9 +1,9 @@
 extern crate petgraph;
 
-use std::collections::HashMap;
-use petgraph::{Graph, EdgeType};
-use petgraph::graph::IndexType;
 use super::force::{Force, Link, Point};
+use petgraph::graph::IndexType;
+use petgraph::{EdgeType, Graph};
+use std::collections::HashMap;
 
 pub struct LinkForce {
     links: Vec<Link>,
@@ -12,7 +12,8 @@ pub struct LinkForce {
 
 impl LinkForce {
     pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> LinkForce {
-        let mut links = graph.edge_indices()
+        let mut links = graph
+            .edge_indices()
             .map(|edge| {
                 let (source, target) = graph.edge_endpoints(edge).unwrap();
                 Link::new(source.index(), target.index())
@@ -61,8 +62,10 @@ impl Force for LinkForce {
         for link in links {
             let source = points[link.source];
             let target = points[link.target];
-            let dx = (target.x + self.strength * target.vx) - (source.x + self.strength * source.vx);
-            let dy = (target.y + self.strength * target.vy) - (source.y + self.strength * source.vy);
+            let dx =
+                (target.x + self.strength * target.vx) - (source.x + self.strength * source.vx);
+            let dy =
+                (target.y + self.strength * target.vy) - (source.y + self.strength * source.vy);
             let l = (dx * dx + dy * dy).sqrt().max(1e-6);
             let w = (l - link.length) / l * alpha * link.strength;
             {

@@ -1,15 +1,10 @@
-use std::f64::consts::PI;
-use petgraph::{Graph, EdgeType};
-use petgraph::graph::IndexType;
-use ::layout::force_directed::{initial_placement, initial_links};
-use ::layout::force_directed::simulation::Simulation;
-use ::layout::force_directed::force::{
-    Link,
-    CenterForce,
-    LinkForce,
-    ManyBodyForce,
-};
 use super::{Group, Grouping};
+use layout::force_directed::force::{CenterForce, Link, LinkForce, ManyBodyForce};
+use layout::force_directed::simulation::Simulation;
+use layout::force_directed::{initial_links, initial_placement};
+use petgraph::graph::IndexType;
+use petgraph::{EdgeType, Graph};
+use std::f64::consts::PI;
 
 pub struct ForceDirectedGrouping {
     links: Vec<Link>,
@@ -20,7 +15,9 @@ pub struct ForceDirectedGrouping {
 }
 
 impl ForceDirectedGrouping {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> ForceDirectedGrouping {
+    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
+        graph: &Graph<N, E, Ty, Ix>,
+    ) -> ForceDirectedGrouping {
         let links = initial_links(&graph);
         ForceDirectedGrouping {
             links,
@@ -34,20 +31,22 @@ impl ForceDirectedGrouping {
 
 impl Grouping for ForceDirectedGrouping {
     fn call(&self, width: f64, height: f64, values: &Vec<f64>) -> Vec<Group> {
-        let links = self.links.iter()
-            .map(|link| {
-                Link {
-                    source: link.source,
-                    target: link.target,
-                    length: self.link_length as f32,
-                    strength: link.strength,
-                    bias: link.bias
-                }
+        let links = self
+            .links
+            .iter()
+            .map(|link| Link {
+                source: link.source,
+                target: link.target,
+                length: self.link_length as f32,
+                strength: link.strength,
+                bias: link.bias,
             })
             .collect();
         let mut simulation = Simulation::new();
         simulation.forces.push(Box::new(ManyBodyForce::new()));
-        simulation.forces.push(Box::new(LinkForce::new_with_links(links)));
+        simulation
+            .forces
+            .push(Box::new(LinkForce::new_with_links(links)));
         simulation.forces.push(Box::new(CenterForce::new()));
         simulation.forces[0].set_strength(self.many_body_force_strength as f32);
         simulation.forces[1].set_strength(self.link_force_strength as f32);
@@ -57,7 +56,8 @@ impl Grouping for ForceDirectedGrouping {
 
         let total_value = values.iter().fold(0.0, |s, v| s + v);
 
-        values.iter()
+        values
+            .iter()
             .zip(points)
             .map(|(&value, point)| {
                 let x = point.x as f64;
@@ -65,6 +65,6 @@ impl Grouping for ForceDirectedGrouping {
                 let size = (width * height * value / total_value / PI).sqrt() * 2.;
                 Group::new(x, y, size, size)
             })
-        .collect()
+            .collect()
     }
 }

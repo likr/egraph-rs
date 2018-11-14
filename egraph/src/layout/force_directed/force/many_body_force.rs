@@ -1,5 +1,5 @@
 use super::force::{Force, Point};
-use ::utils::quadtree::{Element, NodeId, Quadtree, Rect};
+use utils::quadtree::{Element, NodeId, Quadtree, Rect};
 
 #[derive(Copy, Clone, Debug)]
 struct Body {
@@ -102,9 +102,7 @@ pub struct ManyBodyForce {
 
 impl ManyBodyForce {
     pub fn new() -> ManyBodyForce {
-        ManyBodyForce {
-            strength: 1.0,
-        }
+        ManyBodyForce { strength: 1.0 }
     }
 }
 

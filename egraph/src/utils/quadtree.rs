@@ -95,9 +95,7 @@ pub struct NodeId {
 
 impl NodeId {
     pub fn new(index: usize) -> NodeId {
-        NodeId {
-            index,
-        }
+        NodeId { index }
     }
 }
 

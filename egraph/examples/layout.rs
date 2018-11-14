@@ -6,13 +6,14 @@ extern crate getopts;
 extern crate serde;
 extern crate serde_json;
 
-use egraph::layout::force_directed::force::{Force, Link, Point, CenterForce, LinkForce, ManyBodyForce};
-use egraph::layout::force_directed::simulation::start_simulation;
 use egraph::layout::force_directed::edge_bundling::EdgeBundling;
+use egraph::layout::force_directed::force::{
+    CenterForce, Force, Link, LinkForce, ManyBodyForce, Point,
+};
+use egraph::layout::force_directed::simulation::start_simulation;
 
 #[derive(Serialize, Deserialize)]
-struct NodeData {
-}
+struct NodeData {}
 
 #[derive(Serialize, Deserialize)]
 struct LinkData {

@@ -2,11 +2,11 @@ pub mod edge_bundling;
 pub mod force;
 pub mod simulation;
 
-use std::f32;
-use std::collections::HashMap;
-use petgraph::{Graph, EdgeType};
+pub use self::force::{Link, Point};
 use petgraph::graph::IndexType;
-pub use self::force::{Point, Link};
+use petgraph::{EdgeType, Graph};
+use std::collections::HashMap;
+use std::f32;
 
 pub fn initial_placement(n: usize) -> Vec<Point> {
     (0..n)
@@ -21,12 +21,13 @@ pub fn initial_placement(n: usize) -> Vec<Point> {
 }
 
 pub fn initial_links<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> Vec<Link> {
-    let mut links = graph.edge_indices()
+    let mut links = graph
+        .edge_indices()
         .map(|edge| {
             let (source, target) = graph.edge_endpoints(edge).unwrap();
             Link::new(source.index(), target.index())
         })
-    .collect::<Vec<_>>();
+        .collect::<Vec<_>>();
     let mut count: HashMap<usize, usize> = HashMap::new();
     for link in &links {
         if !count.contains_key(&link.source) {

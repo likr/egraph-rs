@@ -16,7 +16,7 @@ fn improve(row: &Vec<f64>, w: f64, item: f64) -> bool {
     let r_plus = row.first().unwrap();
     let r_minus0 = row.last().unwrap();
     let r_minus1 = item;
-    let s0 : f64 = row.iter().sum();
+    let s0: f64 = row.iter().sum();
     let s1 = s0 + item;
     let w2 = w * w;
     let v0 = s0 * s0 / w2;
@@ -45,7 +45,7 @@ pub fn squarify(width: f64, height: f64, values: &Vec<f64>) -> Vec<Tile> {
             row.push(*value);
             continue;
         }
-        let s : f64 = row.iter().sum();
+        let s: f64 = row.iter().sum();
         let d = match direction {
             Direction::Vertical => s / w,
             Direction::Horizontal => s / h,
@@ -54,21 +54,17 @@ pub fn squarify(width: f64, height: f64, values: &Vec<f64>) -> Vec<Tile> {
         for z in &row {
             let inc = z / d;
             result.push(match direction {
-                Direction::Vertical => {
-                    Tile {
-                        x: x + offset,
-                        y: y,
-                        dx: inc,
-                        dy: d,
-                    }
+                Direction::Vertical => Tile {
+                    x: x + offset,
+                    y: y,
+                    dx: inc,
+                    dy: d,
                 },
-                Direction::Horizontal => {
-                    Tile {
-                        x: x,
-                        y: y + offset,
-                        dx: d,
-                        dy: inc,
-                    }
+                Direction::Horizontal => Tile {
+                    x: x,
+                    y: y + offset,
+                    dx: d,
+                    dy: inc,
                 },
             });
             offset += inc;
@@ -79,11 +75,11 @@ pub fn squarify(width: f64, height: f64, values: &Vec<f64>) -> Vec<Tile> {
             Direction::Vertical => {
                 y += d;
                 h -= d;
-            },
+            }
             Direction::Horizontal => {
                 x += d;
                 w -= d;
-            },
+            }
         }
         direction = if w > h {
             Direction::Horizontal
@@ -92,7 +88,7 @@ pub fn squarify(width: f64, height: f64, values: &Vec<f64>) -> Vec<Tile> {
         };
     }
     if !row.is_empty() {
-        let s : f64 = row.iter().sum();
+        let s: f64 = row.iter().sum();
         let d = match direction {
             Direction::Vertical => s / w,
             Direction::Horizontal => s / h,
@@ -101,21 +97,17 @@ pub fn squarify(width: f64, height: f64, values: &Vec<f64>) -> Vec<Tile> {
         for z in &row {
             let inc = z / d;
             result.push(match direction {
-                Direction::Vertical => {
-                    Tile {
-                        x: x + offset,
-                        y: y,
-                        dx: inc,
-                        dy: d,
-                    }
+                Direction::Vertical => Tile {
+                    x: x + offset,
+                    y: y,
+                    dx: inc,
+                    dy: d,
                 },
-                Direction::Horizontal => {
-                    Tile {
-                        x: x,
-                        y: y + offset,
-                        dx: d,
-                        dy: inc,
-                    }
+                Direction::Horizontal => Tile {
+                    x: x,
+                    y: y + offset,
+                    dx: d,
+                    dy: inc,
                 },
             });
             offset += inc;

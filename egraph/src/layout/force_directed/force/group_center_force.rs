@@ -1,4 +1,4 @@
-use super::force::{Force, Point, Group};
+use super::force::{Force, Group, Point};
 
 pub struct GroupCenterForce {
     pub groups: Vec<Group>,

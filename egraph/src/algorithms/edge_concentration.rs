@@ -1,9 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use petgraph::{Graph, EdgeType};
+use algorithms::biclustering::{Bicluster, Biclustering};
 use petgraph::graph::{IndexType, NodeIndex};
-use ::algorithms::biclustering::{Bicluster, Biclustering};
+use petgraph::{EdgeType, Graph};
+use std::collections::{HashMap, HashSet};
 
-pub fn edge_concentration<N, E, Ty: EdgeType, Ix: IndexType, NF: Fn(usize) -> N, EF: Fn(usize) -> E, DF: Fn(&Bicluster) -> N>(
+pub fn edge_concentration<
+    N,
+    E,
+    Ty: EdgeType,
+    Ix: IndexType,
+    NF: Fn(usize) -> N,
+    EF: Fn(usize) -> E,
+    DF: Fn(&Bicluster) -> N,
+>(
     graph: &Graph<N, E, Ty, Ix>,
     biclusters: &Vec<Bicluster>,
     new_node: NF,
@@ -27,7 +35,11 @@ pub fn edge_concentration<N, E, Ty: EdgeType, Ix: IndexType, NF: Fn(usize) -> N,
 }
 
 pub fn inter_group_edge_concentration<
-    N, E, Ty: EdgeType, Ix: IndexType, BC: Biclustering,
+    N,
+    E,
+    Ty: EdgeType,
+    Ix: IndexType,
+    BC: Biclustering,
     NF: Fn(usize) -> N,
     EF1: Fn(usize, usize) -> E,
     EF2: Fn(usize) -> E,

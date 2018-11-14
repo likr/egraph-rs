@@ -1,10 +1,11 @@
-use std::collections::{HashMap, HashSet};
-use petgraph::{Graph, EdgeType};
+use super::{filter_by_size, maximal_biclusters, Bicluster, Biclustering};
 use petgraph::graph::{IndexType, NodeIndex};
-use super::{Bicluster, Biclustering, maximal_biclusters, filter_by_size};
+use petgraph::{EdgeType, Graph};
+use std::collections::{HashMap, HashSet};
 
 fn hash_key(vertices: &Vec<usize>) -> String {
-    vertices.iter()
+    vertices
+        .iter()
         .map(|u| format!("{}", u.index()))
         .collect::<Vec<_>>()
         .join(",")
@@ -14,12 +15,13 @@ pub fn find_quasi_bicliques<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     source: &HashSet<usize>,
     target: &HashSet<usize>,
-    mu: f64
+    mu: f64,
 ) -> Vec<Bicluster> {
     let mut biclusters = Vec::new();
     let mut keys = HashSet::new();
     for &u in source {
-        let mut u_neighbors = graph.neighbors(NodeIndex::new(u))
+        let mut u_neighbors = graph
+            .neighbors(NodeIndex::new(u))
             .filter(|v| target.contains(&v.index()))
             .map(|v| v.index())
             .collect::<Vec<_>>();

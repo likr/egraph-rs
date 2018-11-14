@@ -1,10 +1,13 @@
+use super::copy_to_vec;
+use egraph::layout::force_directed::force::{
+    CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce,
+    ManyBodyForce, Point,
+};
+use egraph::layout::force_directed::simulation::Simulation;
+use graph::Graph;
 use std::f32::consts::PI;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::layout::force_directed::force::{Point, CenterForce, Group, GroupCenterForce, GroupLinkForce, GroupManyBodyForce, LinkForce, ManyBodyForce};
-use egraph::layout::force_directed::simulation::Simulation;
-use graph::Graph;
-use super::copy_to_vec;
 
 #[no_mangle]
 pub unsafe fn simulation_new() -> *mut Simulation {
@@ -19,34 +22,66 @@ pub unsafe fn simulation_add_center_force(p_simulation: *mut Simulation) -> c_ui
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_center_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) -> c_uint {
+pub unsafe fn simulation_add_group_center_force(
+    p_simulation: *mut Simulation,
+    p_groups: *mut Group,
+    num_groups: c_uint,
+    p_node_groups: *mut c_uint,
+    num_nodes: c_uint,
+) -> c_uint {
     let groups = Vec::from_raw_parts(p_groups, num_groups as usize, num_groups as usize);
     let node_groups = copy_to_vec(p_node_groups, num_nodes as usize);
-    (*p_simulation).forces.push(Box::new(GroupCenterForce::new(&groups, &node_groups)));
+    (*p_simulation)
+        .forces
+        .push(Box::new(GroupCenterForce::new(&groups, &node_groups)));
     forget(groups);
     ((*p_simulation).forces.len() - 1) as c_uint
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_link_force(p_simulation: *mut Simulation, p_graph: *mut Graph, p_node_groups: *mut c_uint, intra_group: c_double, inter_group: c_double) -> c_uint {
+pub unsafe fn simulation_add_group_link_force(
+    p_simulation: *mut Simulation,
+    p_graph: *mut Graph,
+    p_node_groups: *mut c_uint,
+    intra_group: c_double,
+    inter_group: c_double,
+) -> c_uint {
     let node_groups = copy_to_vec(p_node_groups, (*p_graph).node_count());
-    let force = GroupLinkForce::new_with_strength(&(*p_graph), &node_groups, intra_group as f32, inter_group as f32);
+    let force = GroupLinkForce::new_with_strength(
+        &(*p_graph),
+        &node_groups,
+        intra_group as f32,
+        inter_group as f32,
+    );
     (*p_simulation).forces.push(Box::new(force));
     ((*p_simulation).forces.len() - 1) as c_uint
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_group_many_body_force(p_simulation: *mut Simulation, p_groups: *mut Group, num_groups: c_uint, p_node_groups: *mut c_uint, num_nodes: c_uint) -> c_uint {
+pub unsafe fn simulation_add_group_many_body_force(
+    p_simulation: *mut Simulation,
+    p_groups: *mut Group,
+    num_groups: c_uint,
+    p_node_groups: *mut c_uint,
+    num_nodes: c_uint,
+) -> c_uint {
     let groups = Vec::from_raw_parts(p_groups, num_groups as usize, num_groups as usize);
     let node_groups = copy_to_vec(p_node_groups, num_nodes as usize);
-    (*p_simulation).forces.push(Box::new(GroupManyBodyForce::new(&groups, &node_groups)));
+    (*p_simulation)
+        .forces
+        .push(Box::new(GroupManyBodyForce::new(&groups, &node_groups)));
     forget(groups);
     ((*p_simulation).forces.len() - 1) as c_uint
 }
 
 #[no_mangle]
-pub unsafe fn simulation_add_link_force(p_simulation: *mut Simulation, p_graph: *mut Graph) -> c_uint {
-    (*p_simulation).forces.push(Box::new(LinkForce::new(&(*p_graph))));
+pub unsafe fn simulation_add_link_force(
+    p_simulation: *mut Simulation,
+    p_graph: *mut Graph,
+) -> c_uint {
+    (*p_simulation)
+        .forces
+        .push(Box::new(LinkForce::new(&(*p_graph))));
     ((*p_simulation).forces.len() - 1) as c_uint
 }
 
@@ -58,11 +93,12 @@ pub unsafe fn simulation_add_many_body_force(p_simulation: *mut Simulation) -> c
 
 #[no_mangle]
 pub unsafe fn simulation_start(p_simulation: *mut Simulation, p_graph: *mut Graph) {
-    let mut points = (*p_graph).node_indices()
+    let mut points = (*p_graph)
+        .node_indices()
         .map(|node| {
             let weight = (*p_graph).node_weight(node).unwrap();
             if weight.x != 0. && weight.y != 0. {
-                return Point::new(weight.x as f32, weight.y as f32)
+                return Point::new(weight.x as f32, weight.y as f32);
             }
 
             let i = node.index();
@@ -87,7 +123,11 @@ pub unsafe fn simulation_get_strength(p_simulation: *mut Simulation, i: c_uint) 
 }
 
 #[no_mangle]
-pub unsafe fn simulation_set_strength(p_simulation: *mut Simulation, i: c_uint, strength: c_double) {
+pub unsafe fn simulation_set_strength(
+    p_simulation: *mut Simulation,
+    i: c_uint,
+    strength: c_double,
+) {
     (*p_simulation).forces[i as usize].set_strength(strength as f32);
 }
 

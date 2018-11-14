@@ -1,16 +1,14 @@
 extern crate petgraph;
 
-use std::collections::VecDeque;
-use petgraph::{Graph, EdgeType};
 use petgraph::graph::IndexType;
+use petgraph::{EdgeType, Graph};
+use std::collections::VecDeque;
 
-pub fn connected_components<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> Vec<usize> {
-    let mut components = graph.node_indices()
-        .map(|u| u.index())
-        .collect::<Vec<_>>();
-    let mut visited = graph.node_indices()
-        .map(|_| false)
-        .collect::<Vec<_>>();
+pub fn connected_components<N, E, Ty: EdgeType, Ix: IndexType>(
+    graph: &Graph<N, E, Ty, Ix>,
+) -> Vec<usize> {
+    let mut components = graph.node_indices().map(|u| u.index()).collect::<Vec<_>>();
+    let mut visited = graph.node_indices().map(|_| false).collect::<Vec<_>>();
     let mut queue = VecDeque::new();
     for u in graph.node_indices() {
         if visited[u.index()] {

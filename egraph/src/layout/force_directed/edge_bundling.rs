@@ -291,7 +291,8 @@ pub fn edge_bundling(
                 target: segment.target,
                 points: ps,
             }
-        }).collect()
+        })
+        .collect()
 }
 
 pub struct EdgeBundling {

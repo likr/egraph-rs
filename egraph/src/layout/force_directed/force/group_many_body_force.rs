@@ -1,4 +1,4 @@
-use super::force::{Force, Point, Group};
+use super::force::{Force, Group, Point};
 use super::many_body_force::ManyBodyForce;
 
 pub struct GroupManyBodyForce {

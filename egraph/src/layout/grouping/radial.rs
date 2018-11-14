@@ -1,13 +1,11 @@
-use std::f64::consts::PI;
 use super::{Group, Grouping};
+use std::f64::consts::PI;
 
-pub struct RadialGrouping {
-}
+pub struct RadialGrouping {}
 
 impl RadialGrouping {
     pub fn new() -> RadialGrouping {
-        RadialGrouping {
-        }
+        RadialGrouping {}
     }
 }
 
@@ -24,7 +22,8 @@ pub fn radial_grouping(width: f64, height: f64, values: &Vec<f64>) -> Vec<Group>
     let total_value = values.iter().fold(0., |s, v| s + v);
     let max_value = values.iter().fold(0. / 0., |m, v| v.max(m));
     let large_r = (width * height * max_value / total_value / PI).sqrt() / (PI / n).sin();
-    values.iter()
+    values
+        .iter()
         .map(|value| {
             let r = (width * height * value / total_value / PI).sqrt();
             let x = large_r * offset.cos();

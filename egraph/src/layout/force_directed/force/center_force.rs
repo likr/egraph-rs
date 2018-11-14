@@ -6,9 +6,7 @@ pub struct CenterForce {
 
 impl CenterForce {
     pub fn new() -> CenterForce {
-        CenterForce {
-            strength: 1.0,
-        }
+        CenterForce { strength: 1.0 }
     }
 }
 

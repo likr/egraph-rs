@@ -14,19 +14,24 @@ type GraphType = petgraph::Graph<(), (), Directed, usize>;
 fn next(value: Option<JsValue>) -> JsValue {
     let obj = Object::new();
     if let Some(v) = value {
-        Reflect::set(&obj, &"done".into(), &false.into()).ok().unwrap();
+        Reflect::set(&obj, &"done".into(), &false.into())
+            .ok()
+            .unwrap();
         Reflect::set(&obj, &"value".into(), &v).ok().unwrap();
     } else {
-        Reflect::set(&obj, &"done".into(), &true.into()).ok().unwrap();
+        Reflect::set(&obj, &"done".into(), &true.into())
+            .ok()
+            .unwrap();
     }
     obj.into()
 }
 
-fn iterable(f: Box<Fn() -> JsValue>) -> JsValue
-{
+fn iterable(f: Box<Fn() -> JsValue>) -> JsValue {
     let obj = Object::new();
     let closure = Closure::wrap(f);
-    Reflect::set(&obj, &Symbol::iterator(), closure.as_ref()).ok().unwrap();
+    Reflect::set(&obj, &Symbol::iterator(), closure.as_ref())
+        .ok()
+        .unwrap();
     closure.forget(); // XXX ?
     obj.into()
 }
@@ -40,10 +45,11 @@ struct Neighbors {
 #[wasm_bindgen]
 impl Neighbors {
     pub fn next(&mut self) -> JsValue {
-        next(self
-            .iter
-            .next_node(&self.graph.borrow())
-            .map(|index| (index.index() as u32).into()))
+        next(
+            self.iter
+                .next_node(&self.graph.borrow())
+                .map(|index| (index.index() as u32).into()),
+        )
     }
 }
 
@@ -55,10 +61,7 @@ pub struct NodeIndices {
 #[wasm_bindgen]
 impl NodeIndices {
     pub fn next(&mut self) -> JsValue {
-        next(self
-            .iter
-            .next()
-            .map(|index| (index.index() as u32).into()))
+        next(self.iter.next().map(|index| (index.index() as u32).into()))
     }
 }
 
@@ -70,10 +73,7 @@ pub struct EdgeIndices {
 #[wasm_bindgen]
 impl EdgeIndices {
     pub fn next(&mut self) -> JsValue {
-        next(self
-            .iter
-            .next()
-            .map(|index| (index.index() as u32).into()))
+        next(self.iter.next().map(|index| (index.index() as u32).into()))
     }
 }
 
@@ -140,7 +140,8 @@ impl Graph {
             (Neighbors {
                 iter: graph.borrow().neighbors(node_index(a)).detach(),
                 graph: graph.clone(),
-            }).into()
+            })
+            .into()
         }) as Box<Fn() -> JsValue>)
     }
 
@@ -150,7 +151,8 @@ impl Graph {
         iterable(Box::new(move || {
             (NodeIndices {
                 iter: graph.borrow().node_indices(),
-            }).into()
+            })
+            .into()
         }))
     }
 
@@ -160,7 +162,8 @@ impl Graph {
         iterable(Box::new(move || {
             (EdgeIndices {
                 iter: graph.borrow().edge_indices(),
-            }).into()
+            })
+            .into()
         }))
     }
 }
@@ -184,8 +187,12 @@ impl FM3 {
         let points = self.fm3.call(&graph.graph());
         for point in points.iter() {
             let obj = Object::new();
-            Reflect::set(&obj, &"x".into(), &point.x.into()).ok().unwrap();
-            Reflect::set(&obj, &"y".into(), &point.y.into()).ok().unwrap();
+            Reflect::set(&obj, &"x".into(), &point.x.into())
+                .ok()
+                .unwrap();
+            Reflect::set(&obj, &"y".into(), &point.y.into())
+                .ok()
+                .unwrap();
             array.push(&obj);
         }
         array.into()

@@ -10,10 +10,10 @@ pub mod graph;
 pub mod grouping;
 pub mod layout;
 
-use std::os::raw::{c_double, c_uchar, c_uint};
-use std::mem::forget;
-use egraph::utils::treemap::{squarify, Tile};
 use self::graph::Graph;
+use egraph::utils::treemap::{squarify, Tile};
+use std::mem::forget;
+use std::os::raw::{c_double, c_uchar, c_uint};
 
 unsafe fn copy_to_vec(pointer: *mut c_uint, size: usize) -> Vec<usize> {
     let vec1 = Vec::from_raw_parts(pointer, size, size);
@@ -39,7 +39,12 @@ pub unsafe fn connected_components(p_graph: *mut Graph) -> *mut c_uint {
 }
 
 #[no_mangle]
-pub unsafe fn squarified_treemap(width: c_double, height: c_double, p_values: *mut c_double, num_values: c_uint) -> *mut Tile {
+pub unsafe fn squarified_treemap(
+    width: c_double,
+    height: c_double,
+    p_values: *mut c_double,
+    num_values: c_uint,
+) -> *mut Tile {
     let values = Vec::from_raw_parts(p_values, num_values as usize, num_values as usize);
     let mut tiles = squarify(width, height, &values);
     forget(values);

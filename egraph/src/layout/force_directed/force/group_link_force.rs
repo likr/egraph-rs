@@ -1,9 +1,9 @@
 extern crate petgraph;
 
-use std::collections::HashMap;
-use petgraph::{Graph, EdgeType};
-use petgraph::graph::IndexType;
 use super::force::{Force, Link, Point};
+use petgraph::graph::IndexType;
+use petgraph::{EdgeType, Graph};
+use std::collections::HashMap;
 
 pub struct GroupLinkForce {
     pub links: Vec<Link>,
@@ -12,12 +12,21 @@ pub struct GroupLinkForce {
 }
 
 impl GroupLinkForce {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>, node_groups: &Vec<usize>) -> GroupLinkForce {
+    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
+        graph: &Graph<N, E, Ty, Ix>,
+        node_groups: &Vec<usize>,
+    ) -> GroupLinkForce {
         GroupLinkForce::new_with_strength(&graph, &node_groups, 0.5, 0.01)
     }
 
-    pub fn new_with_strength<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>, node_groups: &Vec<usize>, intra_group: f32, inter_group: f32) -> GroupLinkForce {
-        let links = graph.edge_indices()
+    pub fn new_with_strength<N, E, Ty: EdgeType, Ix: IndexType>(
+        graph: &Graph<N, E, Ty, Ix>,
+        node_groups: &Vec<usize>,
+        intra_group: f32,
+        inter_group: f32,
+    ) -> GroupLinkForce {
+        let links = graph
+            .edge_indices()
             .map(|edge| {
                 let (source, target) = graph.edge_endpoints(edge).unwrap();
                 let mut link = Link::new(source.index(), target.index());
@@ -70,8 +79,10 @@ impl Force for GroupLinkForce {
             let target = points[link.target];
             let source_count = count.get(&link.source).unwrap();
             let target_count = count.get(&link.target).unwrap();
-            let dx = (target.x + self.strength * target.vx) - (source.x + self.strength * source.vx);
-            let dy = (target.y + self.strength * target.vy) - (source.y + self.strength * source.vy);
+            let dx =
+                (target.x + self.strength * target.vx) - (source.x + self.strength * source.vx);
+            let dy =
+                (target.y + self.strength * target.vy) - (source.y + self.strength * source.vy);
             let l = (dx * dx + dy * dy).sqrt().max(1e-6);
             let strength = link.strength / *source_count.min(target_count) as f32;
             let w = (l - link.length) / l * alpha * strength;

@@ -1,8 +1,8 @@
 pub mod quasi_biclique;
 
-use std::collections::HashSet;
-use petgraph::{Graph, EdgeType};
 use petgraph::graph::{IndexType, NodeIndex};
+use petgraph::{EdgeType, Graph};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
 pub struct Bicluster {
@@ -28,14 +28,15 @@ pub trait Biclustering {
     ) -> Vec<Bicluster>;
 }
 
-pub fn maximal_biclusters(
-    biclusters: &Vec<Bicluster>,
-) -> Vec<Bicluster> {
-    biclusters.iter()
+pub fn maximal_biclusters(biclusters: &Vec<Bicluster>) -> Vec<Bicluster> {
+    biclusters
+        .iter()
         .enumerate()
         .filter(|(i, bicluster1)| {
             !biclusters.iter().enumerate().any(|(j, bicluster2)| {
-                return *i != j && bicluster2.source.is_superset(&bicluster1.source) && bicluster2.target.is_superset(&bicluster1.target)
+                return *i != j
+                    && bicluster2.source.is_superset(&bicluster1.source)
+                    && bicluster2.target.is_superset(&bicluster1.target);
             })
         })
         .map(|(_, bicluster)| bicluster.clone())
@@ -47,7 +48,8 @@ pub fn filter_by_size<N, E, Ty: EdgeType, Ix: IndexType>(
     biclusters: &Vec<Bicluster>,
     min_size: usize,
 ) -> Vec<Bicluster> {
-    biclusters.iter()
+    biclusters
+        .iter()
         .filter(|bicluster| {
             let mut size = 0;
             for &u in bicluster.source.iter() {

@@ -120,7 +120,8 @@ fn collapse(graph: &Graph<Node, Edge>) -> Graph<Node, Edge> {
         .iter()
         .map(|node| node.weight.group)
         .max()
-        .unwrap() + 1;
+        .unwrap()
+        + 1;
     for _ in 0..num_groups {
         shrinked_graph.add_node(Node::new());
     }

@@ -1,8 +1,8 @@
+use egraph::layout::force_directed::edge_bundling::{EdgeBundling, Line};
+use egraph::layout::force_directed::force::{Link, Point};
+use graph::Graph;
 use std::mem::forget;
 use std::os::raw::{c_double, c_uint};
-use egraph::layout::force_directed::force::{Point, Link};
-use egraph::layout::force_directed::edge_bundling::{EdgeBundling, Line};
-use graph::Graph;
 
 #[no_mangle]
 pub unsafe fn edge_bundling_new() -> *mut EdgeBundling {
@@ -61,12 +61,16 @@ pub unsafe fn edge_bundling_set_i_step(p_edge_bundling: *mut EdgeBundling, i_ste
 }
 
 #[no_mangle]
-pub unsafe fn edge_bundling_call(p_edge_bundling: *mut EdgeBundling, p_graph: *mut Graph) -> *mut Line {
+pub unsafe fn edge_bundling_call(
+    p_edge_bundling: *mut EdgeBundling,
+    p_graph: *mut Graph,
+) -> *mut Line {
     let points = (*(*p_graph).raw_nodes())
         .iter()
         .map(|node| Point::new(node.weight.x as f32, node.weight.y as f32))
         .collect::<Vec<_>>();
-    let links = (*p_graph).edge_indices()
+    let links = (*p_graph)
+        .edge_indices()
         .map(|edge| {
             let (source, target) = (*p_graph).edge_endpoints(edge).unwrap();
             Link::new(source.index(), target.index())
@@ -97,4 +101,3 @@ pub unsafe fn line_points_at(line: *mut Line, i: c_uint) -> *mut Point {
 pub unsafe fn line_points_length(line: *mut Line) -> c_uint {
     (*line).points.len() as c_uint
 }
-
