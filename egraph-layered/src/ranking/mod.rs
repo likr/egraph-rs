@@ -1,13 +1,12 @@
-use super::graph::{Edge, Node};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::HashMap;
 
 mod longest_path;
+pub mod min_width;
+mod ranking;
 
-pub trait RankingModule {
-    fn call(&self, graph: &Graph<Node, Edge>) -> HashMap<NodeIndex, usize>;
-}
+pub use self::ranking::RankingModule;
 
 pub struct LongetPathRanking {}
 
@@ -17,8 +16,8 @@ impl LongetPathRanking {
     }
 }
 
-impl RankingModule for LongetPathRanking {
-    fn call(&self, graph: &Graph<Node, Edge>) -> HashMap<NodeIndex, usize> {
+impl<N, E> RankingModule<N, E> for LongetPathRanking {
+    fn call(&self, graph: &Graph<N, E>) -> HashMap<NodeIndex, usize> {
         longest_path::longest_path(&graph)
     }
 }

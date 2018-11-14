@@ -14,22 +14,19 @@ pub trait Setting {
     fn node_height<N>(&self, node: N) -> usize;
 }
 
-pub struct SugiyamaLayout<R = LongetPathRanking>
-where
-    R: RankingModule,
-{
-    ranking_module: R,
+pub struct SugiyamaLayout {
+    ranking_module: Box<RankingModule<Node, Edge>>,
 }
 
 impl SugiyamaLayout {
-    pub fn new() -> SugiyamaLayout<LongetPathRanking> {
+    pub fn new() -> SugiyamaLayout {
         SugiyamaLayout {
-            ranking_module: LongetPathRanking::new(),
+            ranking_module: Box::new(LongetPathRanking::new()),
         }
     }
 }
 
-impl<R: RankingModule> SugiyamaLayout<R> {
+impl SugiyamaLayout {
     pub fn call<N, E>(&self, input: &Graph<N, E, Directed>) -> Graph<Node, Edge> {
         let mut graph = input.map(|_, _| Node::new(), |_, _| Edge::new());
         remove_cycle(&mut graph);
@@ -68,18 +65,6 @@ impl<R: RankingModule> SugiyamaLayout<R> {
 mod tests {
     use super::*;
     use petgraph::Graph;
-
-    struct MySetting;
-
-    impl Setting for MySetting {
-        fn node_width<N>(&self, node: N) -> usize {
-            10
-        }
-
-        fn node_height<N>(&self, node: N) -> usize {
-            10
-        }
-    }
 
     #[test]
     fn test_sugiyama_layout() {
