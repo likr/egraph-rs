@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 egraph = { path = "../egraph" }
+egraph-layered = { path = "../egraph-layered" }
 js-sys = "0.3.5"
 petgraph = "0.4.13"
 wasm-bindgen = "0.2"
