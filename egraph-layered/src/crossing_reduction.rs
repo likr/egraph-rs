@@ -1,15 +1,15 @@
 use fixedbitset::FixedBitSet;
-use petgraph::graph::NodeIndex;
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
 use petgraph::visit::GetAdjacencyMatrix;
-use petgraph::{Directed, Graph};
 use std::collections::HashMap;
 
-fn bary_center<N, E>(
-    graph: &Graph<N, E, Directed>,
+fn bary_center<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
     matrix: &FixedBitSet,
-    h1: &Vec<NodeIndex>,
-    h2: &Vec<NodeIndex>,
-) -> HashMap<NodeIndex, f64> {
+    h1: &Vec<NodeIndex<Ix>>,
+    h2: &Vec<NodeIndex<Ix>>,
+) -> HashMap<NodeIndex<Ix>, f64> {
     let mut result = HashMap::new();
     for v in h2 {
         let mut sum = 0;
@@ -25,11 +25,11 @@ fn bary_center<N, E>(
     result
 }
 
-pub fn crossing_reduction<N, E>(
-    graph: &Graph<N, E, Directed>,
+pub fn crossing_reduction<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
     matrix: &FixedBitSet,
-    h1: &Vec<NodeIndex>,
-    h2: &mut Vec<NodeIndex>,
+    h1: &Vec<NodeIndex<Ix>>,
+    h2: &mut Vec<NodeIndex<Ix>>,
 ) {
     let values = bary_center(graph, matrix, h1, h2);
     h2.sort_by(|u, v| {

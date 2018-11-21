@@ -1,11 +1,11 @@
 use super::super::graph::{Edge, Node};
-use petgraph::graph::NodeIndex;
-use petgraph::{Directed, Graph};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
 
-fn place_block(
-    graph: &mut Graph<Node, Edge, Directed>,
-    layers: &Vec<Vec<NodeIndex>>,
-    v: NodeIndex,
+fn place_block<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
+    v: NodeIndex<Ix>,
     rtol: bool,
 ) {
     if graph[v].x > 0 {
@@ -51,9 +51,9 @@ fn place_block(
     }
 }
 
-pub fn horizontal_compaction(
-    graph: &mut Graph<Node, Edge, Directed>,
-    layers: &Vec<Vec<NodeIndex>>,
+pub fn horizontal_compaction<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
     rtol: bool,
 ) {
     for u in graph.node_indices() {

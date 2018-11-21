@@ -2,11 +2,14 @@ use super::super::graph::{Edge, Node};
 use super::horizontal_compaction::horizontal_compaction;
 use super::mark_conflicts::mark_conflicts;
 use super::vertical_alignment::vertical_alignment;
-use petgraph::graph::NodeIndex;
-use petgraph::{Directed, Graph};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
 use std::iter::FromIterator;
 
-fn set_y(graph: &mut Graph<Node, Edge>, layers: &Vec<Vec<NodeIndex>>) {
+fn set_y<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
+) {
     let mut y_offset = 0;
     for layer in layers {
         let max_height = layer.iter().map(|u| graph[*u].height).max().unwrap() as i32;
@@ -18,7 +21,7 @@ fn set_y(graph: &mut Graph<Node, Edge>, layers: &Vec<Vec<NodeIndex>>) {
     }
 }
 
-fn normalize(graph: &mut Graph<Node, Edge>) {
+fn normalize<Ix: IndexType>(graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>) {
     let x_min = graph
         .node_indices()
         .map(|u| graph[u].x - graph[u].orig_width as i32 / 2)
@@ -35,7 +38,10 @@ fn normalize(graph: &mut Graph<Node, Edge>) {
     }
 }
 
-pub fn brandes(graph: &mut Graph<Node, Edge, Directed>, layers: &Vec<Vec<NodeIndex>>) {
+pub fn brandes<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
+) {
     mark_conflicts(graph, layers);
     let directions = vec![(false, false), (true, false), (false, true), (true, true)];
     let mut xs = Vec::from_iter(graph.node_indices().map(|_| [0; 4]));

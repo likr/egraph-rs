@@ -1,11 +1,14 @@
 use super::super::graph::{Edge, Node};
-use petgraph::graph::NodeIndex;
-use petgraph::{Directed, Graph};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
 
-fn segment(
-    graph: &Graph<Node, Edge, Directed>,
-    h1: &Vec<NodeIndex>,
-) -> (Vec<(NodeIndex, NodeIndex)>, Vec<(NodeIndex, NodeIndex)>) {
+fn segment<Ix: IndexType>(
+    graph: &Graph<Node<Ix>, Edge, Directed, Ix>,
+    h1: &Vec<NodeIndex<Ix>>,
+) -> (
+    Vec<(NodeIndex<Ix>, NodeIndex<Ix>)>,
+    Vec<(NodeIndex<Ix>, NodeIndex<Ix>)>,
+) {
     let mut inner = vec![];
     let mut outer = vec![];
     for u in h1 {
@@ -20,7 +23,10 @@ fn segment(
     (inner, outer)
 }
 
-pub fn mark_conflicts(graph: &mut Graph<Node, Edge, Directed>, layers: &Vec<Vec<NodeIndex>>) {
+pub fn mark_conflicts<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
+) {
     for i in 1..(layers.len() - 1) {
         let h1 = layers.get(i).unwrap();
         let (inner, outer) = segment(graph, &h1);

@@ -1,10 +1,11 @@
 use super::super::graph::{Edge, Node};
 use super::median::median;
-use petgraph::graph::NodeIndex;
-use petgraph::{Directed, EdgeDirection, Graph};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeDirection;
 
-fn iter_layer<'a, I: Iterator<Item = &'a NodeIndex>>(
-    graph: &mut Graph<Node, Edge, Directed>,
+fn iter_layer<'a, Ix: IndexType, I: Iterator<Item = &'a NodeIndex<Ix>>>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
     rtol: bool,
     btot: bool,
     layer: I,
@@ -54,8 +55,8 @@ fn iter_layer<'a, I: Iterator<Item = &'a NodeIndex>>(
     }
 }
 
-fn iter_layers<'a, I: Iterator<Item = &'a Vec<NodeIndex>>>(
-    graph: &mut Graph<Node, Edge, Directed>,
+fn iter_layers<'a, Ix: IndexType, I: Iterator<Item = &'a Vec<NodeIndex<Ix>>>>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
     rtol: bool,
     btot: bool,
     layers: I,
@@ -69,9 +70,9 @@ fn iter_layers<'a, I: Iterator<Item = &'a Vec<NodeIndex>>>(
     }
 }
 
-pub fn vertical_alignment(
-    graph: &mut Graph<Node, Edge, Directed>,
-    layers: &Vec<Vec<NodeIndex>>,
+pub fn vertical_alignment<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers: &Vec<Vec<NodeIndex<Ix>>>,
     rtol: bool,
     btot: bool,
 ) {

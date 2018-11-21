@@ -1,7 +1,7 @@
-use petgraph::graph::NodeIndex;
+use petgraph::graph::{EdgeIndex, IndexType, NodeIndex};
 
 #[derive(Clone)]
-pub struct Node {
+pub struct Node<Ix: IndexType> {
     pub layer: usize,
     pub order: usize,
     pub width: usize,
@@ -11,14 +11,15 @@ pub struct Node {
     pub x: i32,
     pub y: i32,
     pub dummy: bool,
-    pub align: Option<NodeIndex>,
-    pub root: Option<NodeIndex>,
-    pub sink: Option<NodeIndex>,
+    pub edge_index: Option<EdgeIndex<Ix>>,
+    pub align: Option<NodeIndex<Ix>>,
+    pub root: Option<NodeIndex<Ix>>,
+    pub sink: Option<NodeIndex<Ix>>,
     pub shift: i32,
 }
 
-impl Node {
-    pub fn new() -> Node {
+impl<Ix: IndexType> Node<Ix> {
+    pub fn new() -> Node<Ix> {
         Node {
             layer: 0,
             order: 0,
@@ -29,6 +30,7 @@ impl Node {
             x: 0,
             y: 0,
             dummy: false,
+            edge_index: None,
             align: None,
             root: None,
             sink: None,
@@ -36,9 +38,10 @@ impl Node {
         }
     }
 
-    pub fn new_dummy() -> Node {
+    pub fn new_dummy(e: EdgeIndex<Ix>) -> Node<Ix> {
         let mut node = Node::new();
         node.dummy = true;
+        node.edge_index = Some(e);
         node
     }
 }

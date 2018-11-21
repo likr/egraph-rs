@@ -4,30 +4,73 @@ use super::graph::{Edge, Node};
 use super::normalize::normalize;
 use super::position_assignment::brandes::brandes;
 use super::ranking::{LongetPathRanking, RankingModule};
+use petgraph::graph::IndexType;
 use petgraph::visit::GetAdjacencyMatrix;
 use petgraph::{Directed, Graph};
 use std::cmp;
 
-pub trait Setting {
-    fn node_width<N>(&self, node: N) -> usize;
-
-    fn node_height<N>(&self, node: N) -> usize;
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
 }
 
-pub struct SugiyamaLayout {
-    ranking_module: Box<RankingModule<Node, Edge>>,
+pub struct NodeCoordinate {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
-impl SugiyamaLayout {
-    pub fn new() -> SugiyamaLayout {
+pub struct EdgeCoordinate {
+    pub bends: Vec<Point>,
+}
+
+pub struct Layout {
+    pub nodes: Vec<NodeCoordinate>,
+    pub edges: Vec<EdgeCoordinate>,
+}
+
+fn build_result<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
+    layout: &Graph<Node<Ix>, Edge, Directed, Ix>,
+) -> Layout {
+    let mut nodes = Vec::new();
+    for u in graph.node_indices() {
+        nodes.push(NodeCoordinate {
+            x: layout[u].x as f64,
+            y: layout[u].y as f64,
+            width: layout[u].width as f64,
+            height: layout[u].height as f64,
+        })
+    }
+    let mut edges = Vec::new();
+    for _e in graph.edge_indices() {
+        edges.push(EdgeCoordinate { bends: Vec::new() })
+    }
+    for u in layout.node_indices() {
+        if layout[u].dummy {
+            let e = layout[u].edge_index.unwrap();
+            edges[e.index()].bends.push(Point {
+                x: layout[u].x as f64,
+                y: layout[u].y as f64,
+            });
+        }
+    }
+    Layout { nodes, edges }
+}
+
+pub struct SugiyamaLayout<Ix: IndexType> {
+    pub ranking_module: Box<RankingModule<Node<Ix>, Edge, Ix>>,
+}
+
+impl<Ix: IndexType> SugiyamaLayout<Ix> {
+    pub fn new() -> SugiyamaLayout<Ix> {
         SugiyamaLayout {
             ranking_module: Box::new(LongetPathRanking::new()),
         }
     }
-}
 
-impl SugiyamaLayout {
-    pub fn call<N, E>(&self, input: &Graph<N, E, Directed>) -> Graph<Node, Edge> {
+    pub fn call<N, E>(&self, input: &Graph<N, E, Directed, Ix>) -> Layout {
         let mut graph = input.map(|_, _| Node::new(), |_, _| Edge::new());
         remove_cycle(&mut graph);
         let mut layers_map = self.ranking_module.call(&graph);
@@ -57,7 +100,7 @@ impl SugiyamaLayout {
             }
         }
         brandes(&mut graph, &layers);
-        graph
+        build_result(input, &graph)
     }
 }
 

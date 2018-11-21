@@ -1,15 +1,15 @@
 use fixedbitset::FixedBitSet;
-use petgraph::graph::NodeIndex;
+use petgraph::graph::{IndexType, NodeIndex};
 use petgraph::visit::{VisitMap, Visitable};
 use petgraph::{Directed, Graph};
 use std::collections::HashSet;
 
-fn dfs<N, E>(
-    graph: &Graph<N, E, Directed>,
+fn dfs<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
     map: &mut FixedBitSet,
-    ancestors: &mut HashSet<NodeIndex>,
-    result: &mut Vec<(NodeIndex, NodeIndex)>,
-    u: NodeIndex,
+    ancestors: &mut HashSet<NodeIndex<Ix>>,
+    result: &mut Vec<(NodeIndex<Ix>, NodeIndex<Ix>)>,
+    u: NodeIndex<Ix>,
 ) {
     if map.is_visited(&u) {
         return;
@@ -26,7 +26,9 @@ fn dfs<N, E>(
     ancestors.remove(&u);
 }
 
-pub fn cycle_edges<N, E>(graph: &Graph<N, E, Directed>) -> Vec<(NodeIndex, NodeIndex)> {
+pub fn cycle_edges<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
+) -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>)> {
     let mut map = graph.visit_map();
     let mut ancestors = HashSet::new();
     let mut result = vec![];
@@ -36,7 +38,7 @@ pub fn cycle_edges<N, E>(graph: &Graph<N, E, Directed>) -> Vec<(NodeIndex, NodeI
     result
 }
 
-pub fn remove_cycle<N, E>(graph: &mut Graph<N, E, Directed>) {
+pub fn remove_cycle<N, E, Ix: IndexType>(graph: &mut Graph<N, E, Directed, Ix>) {
     for (u, v) in cycle_edges(graph) {
         let index = graph.find_edge(u, v).unwrap();
         let weight = graph.remove_edge(index).unwrap();

@@ -1,13 +1,14 @@
 use super::super::graph::{Edge, Node};
-use petgraph::graph::NodeIndex;
-use petgraph::{Directed, EdgeDirection, Graph};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeDirection;
 use std::iter::FromIterator;
 
-pub fn median(
-    graph: &Graph<Node, Edge, Directed>,
-    u: NodeIndex,
+pub fn median<Ix: IndexType>(
+    graph: &Graph<Node<Ix>, Edge, Directed, Ix>,
+    u: NodeIndex<Ix>,
     direction: EdgeDirection,
-) -> Option<(NodeIndex, NodeIndex)> {
+) -> Option<(NodeIndex<Ix>, NodeIndex<Ix>)> {
     let mut vertices = Vec::from_iter(graph.neighbors_directed(u, direction));
     if vertices.len() == 0 {
         None

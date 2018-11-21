@@ -1,9 +1,12 @@
 use super::graph::{Edge, Node};
-use petgraph::graph::NodeIndex;
-use petgraph::Graph;
+use petgraph::graph::{IndexType, NodeIndex};
+use petgraph::prelude::*;
 use std::collections::HashMap;
 
-pub fn normalize(graph: &mut Graph<Node, Edge>, layers_map: &mut HashMap<NodeIndex, usize>) {
+pub fn normalize<Ix: IndexType>(
+    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
+    layers_map: &mut HashMap<NodeIndex<Ix>, usize>,
+) {
     for e in graph.edge_indices() {
         let edge = graph[e].clone();
         let (u, v) = graph.edge_endpoints(e).unwrap();
@@ -15,7 +18,7 @@ pub fn normalize(graph: &mut Graph<Node, Edge>, layers_map: &mut HashMap<NodeInd
         }
         let mut w0 = u;
         for i in h_u + 1..h_v {
-            let w1 = graph.add_node(Node::new_dummy());
+            let w1 = graph.add_node(Node::new_dummy(e));
             layers_map.insert(w1, i);
             graph.add_edge(w0, w1, Edge::new_split(&edge));
             w0 = w1;

@@ -1,11 +1,12 @@
-use petgraph::graph::NodeIndex;
+use super::ranking::RankingModule;
+use petgraph::graph::{IndexType, NodeIndex};
 use petgraph::{Directed, EdgeDirection, Graph};
 use std::collections::HashMap;
 
-fn dfs<N, E>(
-    graph: &Graph<N, E, Directed>,
-    layers: &mut HashMap<NodeIndex, usize>,
-    u: NodeIndex,
+fn dfs<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
+    layers: &mut HashMap<NodeIndex<Ix>, usize>,
+    u: NodeIndex<Ix>,
     depth: usize,
 ) {
     for v in graph.neighbors(u) {
@@ -21,13 +22,29 @@ fn dfs<N, E>(
     }
 }
 
-pub fn longest_path<N, E>(graph: &Graph<N, E, Directed>) -> HashMap<NodeIndex, usize> {
+pub fn longest_path<N, E, Ix: IndexType>(
+    graph: &Graph<N, E, Directed, Ix>,
+) -> HashMap<NodeIndex<Ix>, usize> {
     let mut result = HashMap::new();
     for u in graph.externals(EdgeDirection::Incoming) {
         result.insert(u, 0);
         dfs(graph, &mut result, u, 0);
     }
     result
+}
+
+pub struct LongetPathRanking {}
+
+impl LongetPathRanking {
+    pub fn new() -> LongetPathRanking {
+        LongetPathRanking {}
+    }
+}
+
+impl<N, E, Ix: IndexType> RankingModule<N, E, Ix> for LongetPathRanking {
+    fn call(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize> {
+        longest_path(&graph)
+    }
 }
 
 #[cfg(test)]
