@@ -1,7 +1,9 @@
 use super::force::{Force, Point};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub struct Simulation {
-    pub forces: Vec<Box<Force>>,
+    forces: Vec<Rc<RefCell<Force>>>,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -32,7 +34,7 @@ impl Simulation {
 
     pub fn step(&mut self, points: &mut Vec<Point>) {
         for force in self.forces.iter() {
-            force.apply(points, self.alpha);
+            force.borrow().apply(points, self.alpha);
         }
         for point in points.iter_mut() {
             point.vx *= self.velocity_decay;
@@ -40,5 +42,13 @@ impl Simulation {
             point.vy *= self.velocity_decay;
             point.y += point.vy;
         }
+    }
+
+    pub fn add(&mut self, force: Rc<RefCell<Force>>) {
+        self.forces.push(force);
+    }
+
+    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force>>> {
+        self.forces.get(index).map(|f| f.clone())
     }
 }

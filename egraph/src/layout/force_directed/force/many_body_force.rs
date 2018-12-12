@@ -97,7 +97,7 @@ fn apply_many_body(
 }
 
 pub struct ManyBodyForce {
-    strength: f32,
+    pub strength: f32,
 }
 
 impl ManyBodyForce {

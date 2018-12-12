@@ -1,12 +1,15 @@
 use algorithms::connected_components;
 use layout::force_directed::force::{CenterForce, LinkForce, ManyBodyForce, Point, PositionForce};
 use layout::force_directed::simulation::Simulation;
+use layout::force_directed::Force;
 use layout::force_directed::{initial_links, initial_placement};
 use petgraph::graph::{IndexType, NodeIndex};
 use petgraph::{EdgeType, Graph};
 use rand::prelude::*;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::f32::consts::PI;
+use std::rc::Rc;
 
 pub struct Node {
     pub group: usize,
@@ -236,17 +239,36 @@ fn layout_with_initial_placement(
         link.length = graph[e].length as f32;
     }
 
+    let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
+    let link_force = Rc::new(RefCell::new(LinkForce::new_with_links(links)));
+    let center_force = Rc::new(RefCell::new(CenterForce::new()));
+    let position_force = Rc::new(RefCell::new(PositionForce::new(0., 0.)));
     let mut simulation = Simulation::new();
-    simulation.forces.push(Box::new(ManyBodyForce::new()));
-    simulation
-        .forces
-        .push(Box::new(LinkForce::new_with_links(links)));
-    simulation.forces.push(Box::new(CenterForce::new()));
-    simulation.forces.push(Box::new(PositionForce::new(0., 0.)));
+    simulation.add(many_body_force.clone());
+    simulation.add(link_force.clone());
+    simulation.add(center_force.clone());
+    simulation.add(position_force.clone());
 
-    simulation.forces[0].set_strength(many_body_force_strength);
-    simulation.forces[1].set_strength(link_force_strength);
-    simulation.forces[3].set_strength(position_force_strength);
+    many_body_force
+        .borrow_mut()
+        .set_strength(many_body_force_strength);
+
+    link_force.borrow_mut().set_strength(link_force_strength);
+
+    position_force
+        .borrow_mut()
+        .set_strength(position_force_strength);
+
+    // simulation.forces.push(Box::new(ManyBodyForce::new()));
+    // simulation
+    //     .forces
+    //     .push(Box::new(LinkForce::new_with_links(links)));
+    // simulation.forces.push(Box::new(CenterForce::new()));
+    // simulation.forces.push(Box::new(PositionForce::new(0., 0.)));
+
+    // simulation.forces[0].set_strength(many_body_force_strength);
+    // simulation.forces[1].set_strength(link_force_strength);
+    // simulation.forces[3].set_strength(position_force_strength);
     for _i in 0..iteration {
         simulation.step(points);
         *alpha += -(*alpha) * decay;

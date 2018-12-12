@@ -1,5 +1,5 @@
 use js_sys::{Object, Reflect, Symbol};
-use petgraph::graph::node_index;
+use petgraph::graph::{edge_index, node_index};
 use petgraph::prelude::*;
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
@@ -161,5 +161,21 @@ impl Graph {
             })
             .into()
         }))
+    }
+
+    pub fn source(&self, e: usize) -> usize {
+        self.graph()
+            .edge_endpoints(edge_index(e))
+            .unwrap()
+            .0
+            .index()
+    }
+
+    pub fn target(&self, e: usize) -> usize {
+        self.graph()
+            .edge_endpoints(edge_index(e))
+            .unwrap()
+            .1
+            .index()
     }
 }

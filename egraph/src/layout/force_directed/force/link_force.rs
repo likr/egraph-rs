@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 pub struct LinkForce {
     links: Vec<Link>,
-    strength: f32,
+    pub strength: f32,
 }
 
 impl LinkForce {

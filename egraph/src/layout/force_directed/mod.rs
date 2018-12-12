@@ -2,7 +2,8 @@ pub mod edge_bundling;
 pub mod force;
 pub mod simulation;
 
-pub use self::force::{Link, Point};
+pub use self::force::{Force, Link, Point};
+pub use self::simulation::Simulation;
 use petgraph::graph::IndexType;
 use petgraph::{EdgeType, Graph};
 use std::collections::HashMap;

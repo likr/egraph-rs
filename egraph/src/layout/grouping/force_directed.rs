@@ -1,10 +1,13 @@
 use super::{Group, Grouping};
 use layout::force_directed::force::{CenterForce, Link, LinkForce, ManyBodyForce};
 use layout::force_directed::simulation::Simulation;
+use layout::force_directed::Force;
 use layout::force_directed::{initial_links, initial_placement};
 use petgraph::graph::IndexType;
 use petgraph::{EdgeType, Graph};
+use std::cell::RefCell;
 use std::f64::consts::PI;
+use std::rc::Rc;
 
 pub struct ForceDirectedGrouping {
     links: Vec<Link>,
@@ -42,15 +45,22 @@ impl Grouping for ForceDirectedGrouping {
                 bias: link.bias,
             })
             .collect();
+        let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
+        many_body_force
+            .borrow_mut()
+            .set_strength(self.many_body_force_strength as f32);
+        let link_force = Rc::new(RefCell::new(LinkForce::new_with_links(links)));
+        link_force
+            .borrow_mut()
+            .set_strength(self.link_force_strength as f32);
+        let center_force = Rc::new(RefCell::new(CenterForce::new()));
+        center_force
+            .borrow_mut()
+            .set_strength(self.center_force_strength as f32);
         let mut simulation = Simulation::new();
-        simulation.forces.push(Box::new(ManyBodyForce::new()));
-        simulation
-            .forces
-            .push(Box::new(LinkForce::new_with_links(links)));
-        simulation.forces.push(Box::new(CenterForce::new()));
-        simulation.forces[0].set_strength(self.many_body_force_strength as f32);
-        simulation.forces[1].set_strength(self.link_force_strength as f32);
-        simulation.forces[2].set_strength(self.center_force_strength as f32);
+        simulation.add(many_body_force);
+        simulation.add(link_force);
+        simulation.add(center_force);
         let mut points = initial_placement(values.len());
         simulation.start(&mut points);
 
