@@ -1,14 +1,14 @@
 import '@webcomponents/custom-elements'
 import 'eg-renderer'
 import React from 'react'
-import {render} from 'react-dom'
-import {load} from 'egraph'
-import {BrowserRouter as Router, Route, Link} from 'react-router-dom'
-import {Home} from './pages/home'
-import {ExampleForceDirected} from './pages/example-force-directed'
-import {ExampleFM3} from './pages/example-fm3'
-import {ExampleGroupInABox} from './pages/example-group-in-a-box'
-import {ExampleEdgeConcentration} from './pages/example-edge-concentration'
+import { render } from 'react-dom'
+import { load } from 'egraph'
+import { BrowserRouter as Router, Route, Link } from 'react-router-dom'
+import { Home } from './pages/home'
+import { ExampleForceDirected } from './pages/example-force-directed'
+import { ExampleFM3 } from './pages/example-fm3'
+import { ExampleGroupInABox } from './pages/example-group-in-a-box'
+import { ExampleEdgeConcentration } from './pages/example-edge-concentration'
 
 load('/egraph.wasm').then(() => {
   render(<Router>

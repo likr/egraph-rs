@@ -1,8 +1,8 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {FM3} from 'egraph/layout/fm3'
-import {Graph} from 'egraph/graph'
-import {Wrapper} from '../wrapper'
+import { FM3 } from 'egraph/layout/fm3'
+import { Graph } from 'egraph/graph'
+import { Wrapper } from '../wrapper'
 
 const layout = (graph) => {
   const fm3 = new FM3()

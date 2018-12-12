@@ -1,8 +1,8 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {Simulation} from 'egraph/layout/force-directed'
-import {Graph} from 'egraph/graph'
-import {Wrapper} from '../wrapper'
+import { Simulation } from 'egraph/layout/force-directed'
+import { Graph } from 'egraph/graph'
+import { Wrapper } from '../wrapper'
 
 const layout = (graph) => {
   const simulation = new Simulation()
@@ -34,7 +34,7 @@ export class ExampleForceDirected extends React.Component {
           graph.addNode(node)
         })
         for (const link of data.links) {
-          const {source, target} = link
+          const { source, target } = link
           graph.addEdge(source, target, link)
         }
         layout(graph)

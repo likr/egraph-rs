@@ -1,16 +1,16 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {getModule} from 'egraph'
-import {alloc} from 'egraph/allocator'
-import {Simulation} from 'egraph/layout/force-directed'
-import {Graph} from 'egraph/graph'
+import { getModule } from 'egraph'
+import { alloc } from 'egraph/allocator'
+import { Simulation } from 'egraph/layout/force-directed'
+import { Graph } from 'egraph/graph'
 import {
   ForceDirectedGrouping,
   RadialGrouping,
   TreemapGrouping
 } from 'egraph/grouping'
-import {EdgeBundling} from 'egraph/edge-bundling'
-import {Wrapper} from '../wrapper'
+import { EdgeBundling } from 'egraph/edge-bundling'
+import { Wrapper } from '../wrapper'
 
 const countGroups = (nodes) => {
   const groupCount = new Map()
@@ -20,7 +20,7 @@ const countGroups = (nodes) => {
     }
     groupCount.set(node.group, groupCount.get(node.group) + 1)
   }
-  const groups = Array.from(groupCount.entries()).map(([name, count]) => ({name, count}))
+  const groups = Array.from(groupCount.entries()).map(([name, count]) => ({ name, count }))
   groups.sort((a, b) => b.count - a.count)
   return groups
 }
@@ -28,7 +28,7 @@ const countGroups = (nodes) => {
 const circleGrouping = (groups, width, height) => {
   const tree = {
     name: '',
-    children: groups.map(({name, count}) => {
+    children: groups.map(({ name, count }) => {
       return {
         name,
         size: count
@@ -66,7 +66,7 @@ const forceDirectedGrouping = (groups, width, height, data) => {
     const g1 = groups[i]
     for (let j = i + 1; j < n; ++j) {
       const g2 = groups[j]
-      const interGroupLinks = data.links.filter(({source, target}) => {
+      const interGroupLinks = data.links.filter(({ source, target }) => {
         return (nodeGroups.get(source) === g1.name && nodeGroups.get(target) === g2.name) || (nodeGroups.get(source) === g2.name && nodeGroups.get(target) === g1.name)
       })
       if (interGroupLinks.length > 0) {
@@ -75,7 +75,7 @@ const forceDirectedGrouping = (groups, width, height, data) => {
     }
   }
   const grouping = new ForceDirectedGrouping(groupGraph)
-  const values = groups.map(({count}) => count)
+  const values = groups.map(({ count }) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
     tile.type = 'circle'
@@ -85,7 +85,7 @@ const forceDirectedGrouping = (groups, width, height, data) => {
 
 const radialGrouping = (groups, width, height) => {
   const grouping = new RadialGrouping()
-  const values = groups.map(({count}) => count)
+  const values = groups.map(({ count }) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
     tile.type = 'circle'
@@ -95,7 +95,7 @@ const radialGrouping = (groups, width, height) => {
 
 const treemapGrouping = (groups, width, height) => {
   const grouping = new TreemapGrouping()
-  const values = groups.map(({count}) => count)
+  const values = groups.map(({ count }) => count)
   const tiles = grouping.call(width, height, values)
   for (const tile of tiles) {
     tile.type = 'rect'
@@ -118,7 +118,7 @@ const layoutGroups = (type, groups, width, height, data) => {
 }
 
 const layout = (graph, data, options) => {
-  const {Module} = getModule()
+  const { Module } = getModule()
   const width = 800
   const height = 600
 
@@ -131,7 +131,7 @@ const layout = (graph, data, options) => {
     Module.HEAPF32[groupsPointer / 4 + 2 * i + 1] = tile.y
   })
 
-  const groupMap = new Map(groups.map(({name}, i) => [name, i]))
+  const groupMap = new Map(groups.map(({ name }, i) => [name, i]))
   const nodeGroupsPointer = alloc(4 * graph.nodeCount())
   data.nodes.forEach((node, i) => {
     Module.HEAPU32[nodeGroupsPointer / 4 + i] = groupMap.get(node.group)
@@ -160,13 +160,13 @@ const layout = (graph, data, options) => {
   data.groups = tiles
 
   data.nodes.forEach((node, i) => {
-    const {x, y} = graph.nodeAt(i)
+    const { x, y } = graph.nodeAt(i)
     node.x = x
     node.y = y
   })
 
   data.links.forEach((link, i) => {
-    link.bends = lines[i].map(({x, y}) => [x, y])
+    link.bends = lines[i].map(({ x, y }) => [x, y])
   })
 }
 
@@ -284,7 +284,7 @@ export class ExampleGroupInABox extends React.Component {
     this.data.nodes.forEach(() => {
       graph.addNode()
     })
-    for (const {source, target} of this.data.links) {
+    for (const { source, target } of this.data.links) {
       graph.addEdge(source, target)
     }
 

@@ -1,9 +1,9 @@
 import React from 'react'
-import {Simulation} from 'egraph/layout/force-directed'
-import {QuasiBiclique} from 'egraph/biclustering'
-import {EdgeConcentration} from 'egraph/edge-concentration'
-import {Graph} from 'egraph/graph'
-import {Wrapper} from '../wrapper'
+import { Simulation } from 'egraph/layout/force-directed'
+import { QuasiBiclique } from 'egraph/biclustering'
+import { EdgeConcentration } from 'egraph/edge-concentration'
+import { Graph } from 'egraph/graph'
+import { Wrapper } from '../wrapper'
 
 const layout = (graph, data) => {
   const simulation = new Simulation()
@@ -23,11 +23,11 @@ export class ExampleEdgeConcentration extends React.Component {
     const graph = new Graph()
     const source = new Array(3)
     for (let i = 0; i < 3; ++i) {
-      source[i] = graph.addNode({fillColor: 'green'})
+      source[i] = graph.addNode({ fillColor: 'green' })
     }
     const target = new Array(5)
     for (let i = 0; i < 5; ++i) {
-      target[i] = graph.addNode({fillColor: 'orange'})
+      target[i] = graph.addNode({ fillColor: 'orange' })
     }
     graph.addEdge(source[0], target[0])
     graph.addEdge(source[0], target[1])

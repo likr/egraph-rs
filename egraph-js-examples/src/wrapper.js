@@ -18,15 +18,15 @@ export class Wrapper extends React.Component {
   }
 
   render () {
-    return <figure ref='wrapper' className='image is-3by2' style={{boxShadow: '0 0 1em', margin: '1rem'}}>
+    return <figure ref='wrapper' className='image is-3by2' style={{ boxShadow: '0 0 1em', margin: '1rem' }}>
       {this.props.children}
     </figure>
   }
 
   resize () {
-    const {onResize} = this.props
+    const { onResize } = this.props
     if (onResize) {
-      const {clientWidth, clientHeight} = this.refs.wrapper
+      const { clientWidth, clientHeight } = this.refs.wrapper
       onResize(clientWidth, clientHeight)
     }
   }
