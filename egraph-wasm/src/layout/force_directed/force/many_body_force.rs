@@ -29,7 +29,7 @@ impl ManyBodyForce {
     }
 
     pub fn strength(&self, f: &js_sys::Function) {
-        let f = f.to_owned();
+        let f = f.clone();
         self.force.borrow_mut().strength = Box::new(move |_, a| {
             let this = JsValue::NULL;
             let index = JsValue::from_f64(a.index() as f64);
