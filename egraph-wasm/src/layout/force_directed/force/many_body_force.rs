@@ -1,3 +1,4 @@
+use super::super::super::super::graph::{Edge, EdgeType, IndexType, Node};
 use super::force::Force;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -5,7 +6,11 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct ManyBodyForce {
-    force: Rc<RefCell<egraph::layout::force_directed::force::ManyBodyForce>>,
+    force: Rc<
+        RefCell<
+            egraph::layout::force_directed::force::ManyBodyForce<Node, Edge, EdgeType, IndexType>,
+        >,
+    >,
 }
 
 #[wasm_bindgen]
@@ -23,13 +28,12 @@ impl ManyBodyForce {
         Force::new(self.force.clone())
     }
 
-    #[wasm_bindgen(js_name = getStrength)]
-    pub fn get_strength(&self) -> f64 {
-        self.force.borrow().strength as f64
-    }
-
-    #[wasm_bindgen(js_name = setStrength)]
-    pub fn set_strength(&self, value: f64) {
-        self.force.borrow_mut().strength = value as f32;
+    pub fn strength(&self, f: &js_sys::Function) {
+        let f = f.to_owned();
+        self.force.borrow_mut().strength = Box::new(move |_, a| {
+            let this = JsValue::NULL;
+            let index = JsValue::from_f64(a.index() as f64);
+            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+        });
     }
 }

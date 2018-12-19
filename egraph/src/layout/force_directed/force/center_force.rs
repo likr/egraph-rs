@@ -1,30 +1,37 @@
-use super::force::{Force, Point};
+use super::force::{Force, ForceContext, Point};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
 
-pub struct CenterForce {
-    strength: f32,
-}
+pub struct CenterForceContext {}
 
-impl CenterForce {
-    pub fn new() -> CenterForce {
-        CenterForce { strength: 1.0 }
+impl CenterForceContext {
+    fn new() -> CenterForceContext {
+        CenterForceContext {}
     }
 }
 
-impl Force for CenterForce {
+impl ForceContext for CenterForceContext {
     fn apply(&self, points: &mut Vec<Point>, _alpha: f32) {
         let cx = points.iter().map(|p| p.x).sum::<f32>() / points.len() as f32;
         let cy = points.iter().map(|p| p.y).sum::<f32>() / points.len() as f32;
         for point in points.iter_mut() {
-            point.x -= cx * self.strength;
-            point.y -= cy * self.strength;
+            point.x -= cx;
+            point.y -= cy;
         }
     }
+}
 
-    fn get_strength(&self) -> f32 {
-        self.strength
+pub struct CenterForce {}
+
+impl CenterForce {
+    pub fn new() -> CenterForce {
+        CenterForce {}
     }
+}
 
-    fn set_strength(&mut self, strength: f32) {
-        self.strength = strength;
+impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for CenterForce {
+    fn build(&self, _graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+        Box::new(CenterForceContext::new())
     }
 }

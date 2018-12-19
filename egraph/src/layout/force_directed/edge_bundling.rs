@@ -1,4 +1,7 @@
-use super::force::{Link, Point};
+use super::force::Point;
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
 use std::f32;
 
 pub struct LineSegment {
@@ -187,9 +190,9 @@ pub struct EdgeBundlingOptions {
     i_step: f32,
 }
 
-pub fn edge_bundling(
+pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
+    graph: &Graph<N, E, Ty, Ix>,
     points: &Vec<Point>,
-    links: &Vec<Link>,
     options: &EdgeBundlingOptions,
 ) -> Vec<Line> {
     let EdgeBundlingOptions {
@@ -200,9 +203,12 @@ pub fn edge_bundling(
         i_step,
     } = options;
     let mut mid_points = Vec::new();
-    let mut segments: Vec<LineSegment> = links
-        .iter()
-        .map(|link| LineSegment::new(link.source, link.target))
+    let mut segments: Vec<LineSegment> = graph
+        .edge_indices()
+        .map(|e| {
+            let (source, target) = graph.edge_endpoints(e).unwrap();
+            LineSegment::new(source.index(), target.index())
+        })
         .collect();
 
     let mut num_iter = *i0;
@@ -314,9 +320,13 @@ impl EdgeBundling {
         }
     }
 
-    pub fn call(&self, points: &Vec<Point>, links: &Vec<Link>) -> Vec<Line> {
+    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+        &self,
+        graph: &Graph<N, E, Ty, Ix>,
+        points: &Vec<Point>,
+    ) -> Vec<Line> {
         let options = self.options();
-        edge_bundling(&points, &links, &options)
+        edge_bundling(&graph, &points, &options)
     }
 
     fn options(&self) -> EdgeBundlingOptions {

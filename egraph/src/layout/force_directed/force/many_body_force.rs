@@ -1,4 +1,7 @@
-use super::force::{Force, Point};
+use super::force::{Force, ForceContext, Point};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
 use utils::quadtree::{Element, NodeId, Quadtree, Rect};
 
 #[derive(Copy, Clone, Debug)]
@@ -10,11 +13,7 @@ struct Body {
 
 impl Body {
     fn new(x: f32, y: f32, strength: f32) -> Body {
-        Body {
-            x: x,
-            y: y,
-            strength: strength,
-        }
+        Body { x, y, strength }
     }
 }
 
@@ -31,8 +30,8 @@ fn accumulate(tree: &mut Quadtree<Body>, node_id: NodeId) {
     let mut sum_y = 0.;
     for &(ref e, _) in tree.elements(node_id).iter() {
         match **e {
-            Element::Leaf { x, y, n } => {
-                let strength = -30. * n as f32;
+            Element::Leaf { x, y, n, value } => {
+                let strength = value * n as f32;
                 let weight = strength.abs();
                 sum_strength += strength;
                 sum_weight += weight;
@@ -64,7 +63,6 @@ fn apply_many_body(
     node_id: NodeId,
     alpha: f32,
     theta2: f32,
-    global_strength: f32,
 ) {
     for &(ref e, _) in tree.elements(node_id).iter() {
         match **e {
@@ -75,20 +73,20 @@ fn apply_many_body(
                 let dy = rect.cy - point.y;
                 let l = (dx * dx + dy * dy).max(1e-6);
                 if rect.width * rect.height / theta2 < l {
-                    point.vx += global_strength * dx * data.strength * alpha / l;
-                    point.vy += global_strength * dy * data.strength * alpha / l;
+                    point.vx += dx * data.strength * alpha / l;
+                    point.vy += dy * data.strength * alpha / l;
                 } else {
-                    apply_many_body(point, tree, node_id, alpha, theta2, global_strength);
+                    apply_many_body(point, tree, node_id, alpha, theta2);
                 }
             }
-            Element::Leaf { x, y, n } => {
+            Element::Leaf { x, y, n, value } => {
                 if x != point.x || y != point.y {
-                    let strength = -30. * n as f32;
+                    let strength = value * n as f32;
                     let dx = x - point.x;
                     let dy = y - point.y;
                     let l = (dx * dx + dy * dy).max(1e-6);
-                    point.vx += global_strength * dx * strength * alpha / l;
-                    point.vy += global_strength * dy * strength * alpha / l;
+                    point.vx += dx * strength * alpha / l;
+                    point.vy += dy * strength * alpha / l;
                 }
             }
             Element::Empty => {}
@@ -96,17 +94,17 @@ fn apply_many_body(
     }
 }
 
-pub struct ManyBodyForce {
-    pub strength: f32,
+pub struct ManyBodyForceContext {
+    strength: Vec<f32>,
 }
 
-impl ManyBodyForce {
-    pub fn new() -> ManyBodyForce {
-        ManyBodyForce { strength: 1.0 }
+impl ManyBodyForceContext {
+    pub fn new(strength: Vec<f32>) -> ManyBodyForceContext {
+        ManyBodyForceContext { strength }
     }
 }
 
-impl Force for ManyBodyForce {
+impl ForceContext for ManyBodyForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
         let max_x = points.iter().fold(0.0 / 0.0, |m, v| v.x.max(m));
         let min_x = points.iter().fold(0.0 / 0.0, |m, v| v.x.min(m));
@@ -115,28 +113,43 @@ impl Force for ManyBodyForce {
         let width = max_x - min_x;
         let height = max_y - min_y;
         let size = width.max(height);
-        let mut tree = Quadtree::new(Rect {
+        let mut tree: Quadtree<Body> = Quadtree::new(Rect {
             cx: (min_x + max_x) / 2.,
             cy: (min_y + max_y) / 2.,
             width: size,
             height: size,
         });
         let root = tree.root();
-        for point in points.iter() {
-            tree.insert(root, point.x, point.y);
+        for (point, &strength) in points.iter().zip(&self.strength) {
+            tree.insert(root, point.x, point.y, strength);
         }
         accumulate(&mut tree, root);
         for mut point in points.iter_mut() {
-            apply_many_body(&mut point, &tree, root, alpha, 0.81, self.strength);
+            apply_many_body(&mut point, &tree, root, alpha, 0.81);
         }
     }
+}
 
-    fn get_strength(&self) -> f32 {
-        self.strength
+pub struct ManyBodyForce<N, E, Ty: EdgeType, Ix: IndexType> {
+    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> ManyBodyForce<N, E, Ty, Ix> {
+    pub fn new() -> ManyBodyForce<N, E, Ty, Ix> {
+        ManyBodyForce {
+            strength: Box::new(|_, _| -30.),
+        }
     }
+}
 
-    fn set_strength(&mut self, strength: f32) {
-        self.strength = strength;
+impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for ManyBodyForce<N, E, Ty, Ix> {
+    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+        let strength_accessor = &self.strength;
+        let strength = graph
+            .node_indices()
+            .map(|a| strength_accessor(graph, a))
+            .collect();
+        Box::new(ManyBodyForceContext::new(strength))
     }
 }
 

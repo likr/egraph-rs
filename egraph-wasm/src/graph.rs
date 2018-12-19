@@ -5,6 +5,10 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
+pub type Node = ();
+pub type Edge = ();
+pub type EdgeType = Directed;
+pub type IndexType = usize;
 type GraphType = petgraph::Graph<(), (), Directed, usize>;
 
 fn next(value: Option<JsValue>) -> JsValue {

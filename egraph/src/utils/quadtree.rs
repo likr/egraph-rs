@@ -102,8 +102,15 @@ impl NodeId {
 #[derive(Copy, Clone, Debug)]
 pub enum Element {
     Empty,
-    Leaf { x: f32, y: f32, n: usize },
-    Node { node_id: NodeId },
+    Leaf {
+        x: f32,
+        y: f32,
+        n: usize,
+        value: f32,
+    },
+    Node {
+        node_id: NodeId,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -191,15 +198,20 @@ impl<T: Default> Quadtree<T> {
         }
     }
 
-    pub fn insert(&mut self, u: NodeId, x: f32, y: f32) -> (NodeId, Region) {
+    pub fn insert(&mut self, u: NodeId, x: f32, y: f32, value: f32) -> (NodeId, Region) {
         let (v, region) = self.find(u, x, y);
         match self.nodes[v.index].child(region) {
-            Element::Empty => self.insert_to_empty(v, region, x, y),
-            Element::Leaf { x: x0, y: y0, n } => {
+            Element::Empty => self.insert_to_empty(v, region, x, y, value),
+            Element::Leaf {
+                x: x0,
+                y: y0,
+                n,
+                value,
+            } => {
                 if x == x && y == y0 {
-                    self.increment_leaf(v, region, x, y, n)
+                    self.increment_leaf(v, region, x, y, n, value)
                 } else {
-                    self.insert_to_leaf(v, region, x, y, x0, y0, n)
+                    self.insert_to_leaf(v, region, x, y, x0, y0, n, value)
                 }
             }
             _ => {
@@ -208,9 +220,24 @@ impl<T: Default> Quadtree<T> {
         }
     }
 
-    fn insert_to_empty(&mut self, u: NodeId, region: Region, x: f32, y: f32) -> (NodeId, Region) {
+    fn insert_to_empty(
+        &mut self,
+        u: NodeId,
+        region: Region,
+        x: f32,
+        y: f32,
+        value: f32,
+    ) -> (NodeId, Region) {
         let node = self.nodes.get_mut(u.index).unwrap();
-        node.insert(region, Element::Leaf { x: x, y: y, n: 1 });
+        node.insert(
+            region,
+            Element::Leaf {
+                x: x,
+                y: y,
+                n: 1,
+                value,
+            },
+        );
         (u, region)
     }
 
@@ -223,6 +250,7 @@ impl<T: Default> Quadtree<T> {
         x0: f32,
         y0: f32,
         n: usize,
+        value: f32,
     ) -> (NodeId, Region) {
         let index = self.nodes.len();
         let rect = self.nodes[u.index].rect.sub_rect(region);
@@ -230,8 +258,16 @@ impl<T: Default> Quadtree<T> {
         let new_node = NodeId { index: index };
         self.nodes[u.index].insert(region, Element::Node { node_id: new_node });
         let region = self.nodes[new_node.index].rect.quad(x0, y0);
-        self.nodes[new_node.index].insert(region, Element::Leaf { x: x0, y: y0, n: n });
-        self.insert(new_node, x, y)
+        self.nodes[new_node.index].insert(
+            region,
+            Element::Leaf {
+                x: x0,
+                y: y0,
+                n: n,
+                value,
+            },
+        );
+        self.insert(new_node, x, y, value)
     }
 
     fn increment_leaf(
@@ -241,6 +277,7 @@ impl<T: Default> Quadtree<T> {
         x: f32,
         y: f32,
         n: usize,
+        value: f32,
     ) -> (NodeId, Region) {
         self.nodes[u.index].insert(
             region,
@@ -248,6 +285,7 @@ impl<T: Default> Quadtree<T> {
                 x: x,
                 y: y,
                 n: n + 1,
+                value: value,
             },
         );
         (u, region)

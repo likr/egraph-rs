@@ -1,48 +1,76 @@
-use super::force::{Force, Group, Point};
-use super::many_body_force::ManyBodyForce;
+use super::force::{Force, ForceContext, Point};
+use super::many_body_force::ManyBodyForceContext;
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
+use std::collections::HashMap;
 
-pub struct GroupManyBodyForce {
-    pub groups: Vec<Group>,
-    pub node_groups: Vec<usize>,
-    pub strength: f32,
+pub struct GroupManyBodyForceContext {
+    groups: HashMap<usize, Vec<usize>>,
+    contexts: HashMap<usize, ManyBodyForceContext>,
 }
 
-impl GroupManyBodyForce {
-    pub fn new(groups: &Vec<Group>, node_groups: &Vec<usize>) -> GroupManyBodyForce {
-        GroupManyBodyForce {
-            groups: groups.clone().to_vec(),
-            node_groups: node_groups.clone().to_vec(),
-            strength: 0.1,
-        }
+impl GroupManyBodyForceContext {
+    pub fn new(
+        groups: HashMap<usize, Vec<usize>>,
+        contexts: HashMap<usize, ManyBodyForceContext>,
+    ) -> GroupManyBodyForceContext {
+        GroupManyBodyForceContext { groups, contexts }
     }
 }
 
-impl Force for GroupManyBodyForce {
+impl ForceContext for GroupManyBodyForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
-        let groups = &self.groups;
-        let node_groups = &self.node_groups;
-
-        let many_body = ManyBodyForce::new();
-        for g in 0..groups.len() {
-            let group_point_indices = (0..points.len())
-                .filter(|&i| node_groups[i] == g)
-                .collect::<Vec<_>>();
-            let mut group_points = group_point_indices
-                .iter()
-                .map(|&i| points[i])
-                .collect::<Vec<_>>();
-            many_body.apply(&mut group_points, alpha * 5.0);
-            for (&i, &point) in group_point_indices.iter().zip(group_points.iter()) {
-                points[i] = point
-            }
+        for k in self.groups.keys() {
+            let group = self.groups.get(k).unwrap();
+            let mut group_points = group.iter().map(|&i| points[i]).collect();
+            let context = self.contexts.get(k).unwrap();
+            context.apply(&mut group_points, alpha);
         }
     }
+}
 
-    fn get_strength(&self) -> f32 {
-        self.strength
+pub struct GroupManyBodyForce<N, E, Ty: EdgeType, Ix: IndexType> {
+    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
+    pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> GroupManyBodyForce<N, E, Ty, Ix> {
+    pub fn new() -> GroupManyBodyForce<N, E, Ty, Ix> {
+        GroupManyBodyForce {
+            strength: Box::new(|_, _| -30.),
+            group: Box::new(|_, _| 0),
+        }
     }
+}
 
-    fn set_strength(&mut self, strength: f32) {
-        self.strength = strength;
+impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for GroupManyBodyForce<N, E, Ty, Ix> {
+    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+        let strength_accessor = &self.strength;
+        let strength = graph
+            .node_indices()
+            .map(|a| strength_accessor(graph, a))
+            .collect::<Vec<_>>();
+
+        let group_accessor = &self.group;
+        let mut groups = HashMap::new();
+        for a in graph.node_indices() {
+            let g = group_accessor(graph, a);
+            if !groups.contains_key(&g) {
+                groups.insert(g, Vec::new());
+            }
+            let ids = groups.get_mut(&g).unwrap();
+            ids.push(a.index());
+        }
+
+        let mut contexts = HashMap::new();
+        for (&g, ids) in &groups {
+            contexts.insert(
+                g,
+                ManyBodyForceContext::new(ids.iter().map(|&i| strength[i]).collect()),
+            );
+        }
+
+        Box::new(GroupManyBodyForceContext::new(groups, contexts))
     }
 }

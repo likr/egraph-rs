@@ -1,73 +1,48 @@
-extern crate petgraph;
-
-use super::force::{Force, Link, Point};
+use super::force::{Force, ForceContext, Point};
 use petgraph::graph::IndexType;
-use petgraph::{EdgeType, Graph};
-use std::collections::HashMap;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
 
-pub struct LinkForce {
-    links: Vec<Link>,
+pub struct Link {
+    pub source: usize,
+    pub target: usize,
+    pub distance: f32,
     pub strength: f32,
+    pub bias: f32,
 }
 
-impl LinkForce {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> LinkForce {
-        let mut links = graph
-            .edge_indices()
-            .map(|edge| {
-                let (source, target) = graph.edge_endpoints(edge).unwrap();
-                Link::new(source.index(), target.index())
-            })
-            .collect::<Vec<_>>();
-        let mut count: HashMap<usize, usize> = HashMap::new();
-        for link in &links {
-            if !count.contains_key(&link.source) {
-                count.insert(link.source, 0);
-            }
-            if !count.contains_key(&link.target) {
-                count.insert(link.target, 0);
-            }
-            {
-                let v = count.get_mut(&link.source).unwrap();
-                *v += 1;
-            }
-            {
-                let v = count.get_mut(&link.target).unwrap();
-                *v += 1;
-            }
-        }
-        for mut link in &mut links {
-            let source_count = *count.get(&link.source).unwrap();
-            let target_count = *count.get(&link.target).unwrap();
-            link.strength = 1. / source_count.min(target_count) as f32;
-            link.bias = source_count as f32 / (source_count + target_count) as f32
-        }
-        LinkForce {
-            links: links,
-            strength: 1.,
-        }
-    }
-
-    pub fn new_with_links(links: Vec<Link>) -> LinkForce {
-        LinkForce {
-            links,
-            strength: 1.,
+impl Link {
+    pub fn new(source: usize, target: usize, distance: f32, strength: f32, bias: f32) -> Link {
+        Link {
+            source,
+            target,
+            distance,
+            strength,
+            bias,
         }
     }
 }
 
-impl Force for LinkForce {
+pub struct LinkForceContext {
+    links: Vec<Link>,
+}
+
+impl LinkForceContext {
+    pub fn new(links: Vec<Link>) -> LinkForceContext {
+        LinkForceContext { links }
+    }
+}
+
+impl ForceContext for LinkForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
         let links = &self.links;
         for link in links {
             let source = points[link.source];
             let target = points[link.target];
-            let dx =
-                (target.x + self.strength * target.vx) - (source.x + self.strength * source.vx);
-            let dy =
-                (target.y + self.strength * target.vy) - (source.y + self.strength * source.vy);
+            let dx = (target.x + target.vx) - (source.x + source.vx);
+            let dy = (target.y + target.vy) - (source.y + source.vy);
             let l = (dx * dx + dy * dy).sqrt().max(1e-6);
-            let w = (l - link.length) / l * alpha * link.strength;
+            let w = (l - link.distance) / l * alpha * link.strength;
             {
                 let ref mut target = points[link.target];
                 target.vx -= dx * w * link.bias;
@@ -80,13 +55,44 @@ impl Force for LinkForce {
             }
         }
     }
+}
 
-    fn get_strength(&self) -> f32 {
-        self.strength
+pub struct LinkForce<N, E, Ty: EdgeType, Ix: IndexType> {
+    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
+    pub distance: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> LinkForce<N, E, Ty, Ix> {
+    pub fn new() -> LinkForce<N, E, Ty, Ix> {
+        LinkForce {
+            strength: Box::new(|graph, e| {
+                let (source, target) = graph.edge_endpoints(e).unwrap();
+                let source_degree = graph.neighbors_undirected(source).count();
+                let target_degree = graph.neighbors_undirected(target).count();
+                1. / (source_degree.min(target_degree)) as f32
+            }),
+            distance: Box::new(|_, _| 30.0),
+        }
     }
+}
 
-    fn set_strength(&mut self, strength: f32) {
-        self.strength = strength;
+impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for LinkForce<N, E, Ty, Ix> {
+    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+        let distance_accessor = &self.distance;
+        let strength_accessor = &self.strength;
+        let links = graph
+            .edge_indices()
+            .map(|e| {
+                let (source, target) = graph.edge_endpoints(e).unwrap();
+                let distance = distance_accessor(graph, e);
+                let strength = strength_accessor(graph, e);
+                let source_degree = graph.neighbors_undirected(source).count() as f32;
+                let target_degree = graph.neighbors_undirected(target).count() as f32;
+                let bias = source_degree / (source_degree + target_degree);
+                Link::new(source.index(), target.index(), distance, strength, bias)
+            })
+            .collect();
+        Box::new(LinkForceContext::new(links))
     }
 }
 

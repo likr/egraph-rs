@@ -1,19 +1,22 @@
-use super::force::{Force, Point};
+use super::force::{Force, ForceContext, Point};
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub struct Simulation {
-    forces: Vec<Rc<RefCell<Force>>>,
+pub struct SimulationContext {
+    forces: Vec<Box<ForceContext>>,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
     pub velocity_decay: f32,
 }
 
-impl Simulation {
-    pub fn new() -> Simulation {
-        Simulation {
-            forces: Vec::new(),
+impl SimulationContext {
+    fn new(forces: Vec<Box<ForceContext>>) -> SimulationContext {
+        SimulationContext {
+            forces,
             alpha: 1.,
             alpha_min: 0.001,
             alpha_target: 0.,
@@ -34,7 +37,7 @@ impl Simulation {
 
     pub fn step(&mut self, points: &mut Vec<Point>) {
         for force in self.forces.iter() {
-            force.borrow().apply(points, self.alpha);
+            force.apply(points, self.alpha);
         }
         for point in points.iter_mut() {
             point.vx *= self.velocity_decay;
@@ -43,12 +46,33 @@ impl Simulation {
             point.y += point.vy;
         }
     }
+}
 
-    pub fn add(&mut self, force: Rc<RefCell<Force>>) {
-        self.forces.push(force);
+pub struct Simulation<N, E, Ty: EdgeType, Ix: IndexType> {
+    builders: Vec<Rc<RefCell<Force<N, E, Ty, Ix>>>>,
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
+    pub fn new() -> Simulation<N, E, Ty, Ix> {
+        Simulation {
+            builders: Vec::new(),
+        }
     }
 
-    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force>>> {
-        self.forces.get(index).map(|f| f.clone())
+    pub fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> SimulationContext {
+        let forces = self
+            .builders
+            .iter()
+            .map(|builder| builder.borrow().build(graph))
+            .collect();
+        SimulationContext::new(forces)
+    }
+
+    pub fn add(&mut self, force: Rc<RefCell<Force<N, E, Ty, Ix>>>) {
+        self.builders.push(force);
+    }
+
+    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force<N, E, Ty, Ix>>>> {
+        self.builders.get(index).map(|f| f.clone())
     }
 }

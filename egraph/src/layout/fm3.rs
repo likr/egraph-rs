@@ -1,8 +1,7 @@
 use algorithms::connected_components;
 use layout::force_directed::force::{CenterForce, LinkForce, ManyBodyForce, Point, PositionForce};
+use layout::force_directed::initial_placement;
 use layout::force_directed::simulation::Simulation;
-use layout::force_directed::Force;
-use layout::force_directed::{initial_links, initial_placement};
 use petgraph::graph::{IndexType, NodeIndex};
 use petgraph::{EdgeType, Graph};
 use rand::prelude::*;
@@ -206,9 +205,9 @@ fn layout(
     iteration: usize,
     alpha: &mut f32,
     decay: f32,
-    many_body_force_strength: f32,
-    link_force_strength: f32,
-    position_force_strength: f32,
+    // many_body_force_strength: f32,
+    // link_force_strength: f32,
+    // position_force_strength: f32,
 ) -> Vec<Point> {
     let mut points = initial_placement(graph.node_count());
     layout_with_initial_placement(
@@ -217,9 +216,9 @@ fn layout(
         iteration,
         alpha,
         decay,
-        many_body_force_strength,
-        link_force_strength,
-        position_force_strength,
+        // many_body_force_strength,
+        // link_force_strength,
+        // position_force_strength,
     );
     points
 }
@@ -230,34 +229,28 @@ fn layout_with_initial_placement(
     iteration: usize,
     alpha: &mut f32,
     decay: f32,
-    many_body_force_strength: f32,
-    link_force_strength: f32,
-    position_force_strength: f32,
+    // many_body_force_strength: f32,
+    // link_force_strength: f32,
+    // position_force_strength: f32,
 ) {
-    let mut links = initial_links(graph);
-    for (e, link) in graph.edge_indices().zip(links.iter_mut()) {
-        link.length = graph[e].length as f32;
-    }
+    // let mut links = initial_links(graph);
+    // for (e, link) in graph.edge_indices().zip(links.iter_mut()) {
+    //     link.length = graph[e].length as f32;
+    // }
 
     let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
-    let link_force = Rc::new(RefCell::new(LinkForce::new_with_links(links)));
+    let link_force = Rc::new(RefCell::new(LinkForce::new()));
     let center_force = Rc::new(RefCell::new(CenterForce::new()));
-    let position_force = Rc::new(RefCell::new(PositionForce::new(0., 0.)));
+    let position_force = Rc::new(RefCell::new(PositionForce::new()));
     let mut simulation = Simulation::new();
     simulation.add(many_body_force.clone());
     simulation.add(link_force.clone());
     simulation.add(center_force.clone());
     simulation.add(position_force.clone());
 
-    many_body_force
-        .borrow_mut()
-        .set_strength(many_body_force_strength);
-
-    link_force.borrow_mut().set_strength(link_force_strength);
-
-    position_force
-        .borrow_mut()
-        .set_strength(position_force_strength);
+    // many_body_force.borrow_mut().strength = many_body_force_strength;
+    // link_force.borrow_mut().strength = link_force_strength;
+    // position_force.borrow_mut().strength = position_force_strength;
 
     // simulation.forces.push(Box::new(ManyBodyForce::new()));
     // simulation
@@ -269,8 +262,9 @@ fn layout_with_initial_placement(
     // simulation.forces[0].set_strength(many_body_force_strength);
     // simulation.forces[1].set_strength(link_force_strength);
     // simulation.forces[3].set_strength(position_force_strength);
+    let mut context = simulation.build(&graph);
     for _i in 0..iteration {
-        simulation.step(points);
+        context.step(points);
         *alpha += -(*alpha) * decay;
     }
 }
@@ -340,9 +334,9 @@ impl FM3 {
             self.step_iteration,
             &mut alpha,
             decay,
-            self.many_body_force_strength,
-            self.link_force_strength,
-            self.position_force_strength,
+            // self.many_body_force_strength,
+            // self.link_force_strength,
+            // self.position_force_strength,
         );
 
         while !shrinked_graphs.is_empty() {
@@ -354,9 +348,9 @@ impl FM3 {
                 self.step_iteration,
                 &mut alpha,
                 decay,
-                self.many_body_force_strength,
-                self.link_force_strength,
-                self.position_force_strength,
+                // self.many_body_force_strength,
+                // self.link_force_strength,
+                // self.position_force_strength,
             );
             g1_points = g0_points;
             gk = g0;

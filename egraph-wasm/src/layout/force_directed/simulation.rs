@@ -1,11 +1,11 @@
-use super::super::super::graph::Graph;
+use super::super::super::graph::{Edge, EdgeType, Graph, IndexType, Node};
 use super::force::force::Force;
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct Simulation {
-    simulation: egraph::layout::force_directed::Simulation,
+    simulation: egraph::layout::force_directed::Simulation<Node, Edge, EdgeType, IndexType>,
 }
 
 #[wasm_bindgen]
@@ -24,7 +24,8 @@ impl Simulation {
     pub fn start(&mut self, graph: &Graph) -> JsValue {
         let mut points =
             egraph::layout::force_directed::initial_placement(graph.graph().node_count());
-        self.simulation.start(&mut points);
+        let mut context = self.simulation.build(&graph.graph());
+        context.start(&mut points);
         let array = Array::new();
         for point in points.iter() {
             let obj = Object::new();

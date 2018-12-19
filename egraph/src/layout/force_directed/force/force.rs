@@ -1,3 +1,7 @@
+use petgraph::graph::IndexType;
+use petgraph::prelude::*;
+use petgraph::EdgeType;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Point {
@@ -20,28 +24,6 @@ impl Point {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct Link {
-    pub source: usize,
-    pub target: usize,
-    pub length: f32,
-    pub strength: f32,
-    pub bias: f32,
-}
-
-impl Link {
-    pub fn new(source: usize, target: usize) -> Link {
-        Link {
-            source: source,
-            target: target,
-            length: 30.,
-            strength: 1.,
-            bias: 0.5,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
 pub struct Group {
     pub x: f32,
     pub y: f32,
@@ -53,10 +35,10 @@ impl Group {
     }
 }
 
-pub trait Force {
+pub trait ForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32);
+}
 
-    fn get_strength(&self) -> f32;
-
-    fn set_strength(&mut self, strength: f32);
+pub trait Force<N, E, Ty: EdgeType, Ix: IndexType> {
+    fn build(&self, &Graph<N, E, Ty, Ix>) -> Box<ForceContext>;
 }
