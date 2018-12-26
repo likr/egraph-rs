@@ -5,11 +5,16 @@ import { Graph } from 'egraph/graph'
 import { Wrapper } from '../wrapper'
 
 const layout = (graph) => {
-  const simulation = new Simulation()
-  simulation.addManyBodyForce()
-  simulation.addLinkForce(graph)
-  simulation.addCenterForce()
-  simulation.start(graph)
+  const start = window.performance.now()
+  for (let i = 0; i < 100; ++i) {
+    const simulation = new Simulation()
+    simulation.addManyBodyForce()
+    simulation.addLinkForce(graph)
+    simulation.addCenterForce()
+    simulation.start(graph)
+  }
+  const stop = window.performance.now()
+  console.log((stop - start) / 100)
 }
 
 const draw = (renderer, graph) => {

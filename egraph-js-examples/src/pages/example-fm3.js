@@ -4,30 +4,9 @@ import { FM3 } from 'egraph/layout/fm3'
 import { Graph } from 'egraph/graph'
 import { Wrapper } from '../wrapper'
 
-const layout = (graph) => {
-  const fm3 = new FM3()
-  fm3.minSize = 10
-  fm3.stepIteration = 250
-  fm3.unitEdgeLength = 15
-  fm3.positionForceStrength = 0.01
-  fm3.call(graph)
-}
-
-const draw = (renderer, graph) => {
-  const color = d3.scaleOrdinal(d3.schemeCategory10)
-  for (const node of graph.nodes) {
-    node.properties.fillColor = color(node.properties.group)
-  }
-  for (const link of graph.edges) {
-    link.properties.strokeWidth = Math.sqrt(link.properties.value)
-  }
-  renderer.load(graph)
-  renderer.center()
-}
-
 export class ExampleFM3 extends React.Component {
   componentDidMount () {
-    setTimeout(() => {
+    import('egraph-wasm').then(({ Graph, FM3 }) => {
       const components = 10
       const size = 10
       const rows = size
@@ -49,9 +28,28 @@ export class ExampleFM3 extends React.Component {
           }
         }
       }
-      layout(graph)
-      draw(this.refs.renderer, graph)
-    }, 0)
+
+      const fm3 = new FM3()
+      fm3.min_size = 10
+      fm3.step_iteration = 250
+      fm3.unit_edge_length = 15
+      fm3.position_force_strength = 0.01
+      const layout = fm3.call(graph)
+
+      const data = {}
+      data.nodes = Array.from(graph.nodeIndices()).map((u, i) => {
+        const { x, y } = layout[i]
+        return { x, y }
+      })
+      data.links = Array.from(graph.edgeIndices()).map((e, i) => {
+        const source = graph.source(e)
+        const target = graph.target(e)
+        return { source, target }
+      })
+
+      this.refs.renderer.load(data)
+      this.refs.renderer.center()
+    })
   }
 
   render () {
@@ -66,7 +64,6 @@ export class ExampleFM3 extends React.Component {
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'
-        graph-links-property='edges'
         no-auto-centering
       />
     </Wrapper>
