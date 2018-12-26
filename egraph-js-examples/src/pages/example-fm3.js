@@ -1,12 +1,10 @@
 import React from 'react'
-import * as d3 from 'd3'
-import { FM3 } from 'egraph/layout/fm3'
-import { Graph } from 'egraph/graph'
+import { egraph } from '../egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleFM3 extends React.Component {
   componentDidMount () {
-    import('egraph-wasm').then(({ Graph, FM3 }) => {
+    egraph().then(({ Graph, FM3 }) => {
       const components = 10
       const size = 10
       const rows = size

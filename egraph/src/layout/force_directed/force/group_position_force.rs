@@ -4,34 +4,6 @@ use petgraph::graph::IndexType;
 use petgraph::prelude::*;
 use petgraph::EdgeType;
 
-// pub struct GroupPositionForceContext {
-//     groups: Vec<Group>,
-//     node_groups: Vec<usize>,
-//     strength: f32,
-// }
-//
-// impl GroupPositionForceContext {
-//     pub fn new(strength: f32) -> GroupPositionForceContext {
-//         GroupPositionForceContext {
-//             groups: Vec::new(),
-//             node_groups: Vec::new(),
-//             strength,
-//         }
-//     }
-// }
-//
-// impl ForceContext for GroupPositionForceContext {
-//     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
-//         let groups = &self.groups;
-//         let node_groups = &self.node_groups;
-//         let k = self.strength * alpha;
-//         for (point, &g) in points.iter_mut().zip(node_groups) {
-//             point.vx += (groups[g].x - point.x) * k;
-//             point.vy += (groups[g].y - point.y) * k;
-//         }
-//     }
-// }
-
 pub struct GroupPositionForce<N, E, Ty: EdgeType, Ix: IndexType> {
     pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
     pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,

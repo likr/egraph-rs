@@ -31,10 +31,6 @@ const options = {
   plugins: [
     new CopyWebpackPlugin([
       {
-        from: 'node_modules/egraph/egraph.wasm',
-        to: '.'
-      },
-      {
         from: 'node_modules/bulma/css/bulma.min.css',
         to: 'vendor'
       }
