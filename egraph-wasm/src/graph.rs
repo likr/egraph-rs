@@ -5,11 +5,11 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-pub type Node = ();
-pub type Edge = ();
+pub type Node = Object;
+pub type Edge = Object;
 pub type EdgeType = Directed;
 pub type IndexType = usize;
-type GraphType = petgraph::Graph<(), (), Directed, usize>;
+type GraphType = petgraph::Graph<Node, Edge, EdgeType, IndexType>;
 
 fn next(value: Option<JsValue>) -> JsValue {
     let obj = Object::new();
@@ -103,14 +103,14 @@ impl Graph {
 
     #[wasm_bindgen(js_name = addNode)]
     pub fn add_node(&mut self) -> usize {
-        self.graph_mut().add_node(()).index()
+        self.graph_mut().add_node(Object::new()).index()
     }
 
     #[wasm_bindgen(js_name = addEdge)]
     pub fn add_edge(&mut self, u: usize, v: usize) -> usize {
         let u = node_index(u);
         let v = node_index(v);
-        self.graph_mut().add_edge(u, v, ()).index()
+        self.graph_mut().add_edge(u, v, Object::new()).index()
     }
 
     #[wasm_bindgen(js_name = removeNode)]
