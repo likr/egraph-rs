@@ -1,4 +1,5 @@
 pub mod center_force;
+pub mod collide_force;
 pub mod force;
 pub mod group_link_force;
 pub mod group_many_body_force;
@@ -8,6 +9,7 @@ pub mod many_body_force;
 pub mod position_force;
 
 pub use self::center_force::CenterForce;
+pub use self::collide_force::CollideForce;
 pub use self::force::{Force, ForceContext, Group, Point};
 pub use self::group_link_force::GroupLinkForce;
 pub use self::group_many_body_force::GroupManyBodyForce;

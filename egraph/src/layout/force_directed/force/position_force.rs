@@ -23,12 +23,12 @@ impl ForceContext for PositionForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
         for i in 0..points.len() {
             let strength = self.strength[i];
-            let mut point = points[i];
+            let point = points.get_mut(i).unwrap();
             if let Some(xi) = self.x[i] {
-                point.vx -= (point.x + point.vx - xi) * alpha * strength;
+                point.vx += (xi - point.x) * alpha * strength;
             }
             if let Some(yi) = self.y[i] {
-                point.vy -= (point.y + point.vy - yi) * alpha * strength;
+                point.vy += (yi - point.y) * alpha * strength;
             }
         }
     }
