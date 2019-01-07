@@ -10,8 +10,5 @@ egraph-js-examples/public/egraph.wasm
 egraph-js-examples/public/bundle.js
 egraph-js-examples/public/vendor
 egraph-wasm/bin
-egraph-wasm/pkg/egraph_wasm_bg.d.ts
-egraph-wasm/pkg/egraph_wasm_bg.wasm
-egraph-wasm/pkg/egraph_wasm.d.ts
-egraph-wasm/pkg/egraph_wasm.js
+egraph-wasm/pkg
 wasm-pack.log
