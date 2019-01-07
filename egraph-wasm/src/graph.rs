@@ -71,6 +71,40 @@ pub struct EdgeIndices {
 }
 
 #[wasm_bindgen]
+pub struct Nodes {
+    iter: petgraph::graph::NodeIndices<usize>,
+    graph: Rc<RefCell<GraphType>>,
+}
+
+#[wasm_bindgen]
+impl Nodes {
+    pub fn next(&mut self) -> JsValue {
+        next(
+            self.iter
+                .next()
+                .map(|index| self.graph.borrow()[index].clone().into()),
+        )
+    }
+}
+
+#[wasm_bindgen]
+pub struct Edges {
+    iter: petgraph::graph::EdgeIndices<usize>,
+    graph: Rc<RefCell<GraphType>>,
+}
+
+#[wasm_bindgen]
+impl Edges {
+    pub fn next(&mut self) -> JsValue {
+        next(
+            self.iter
+                .next()
+                .map(|index| self.graph.borrow()[index].clone().into()),
+        )
+    }
+}
+
+#[wasm_bindgen]
 impl EdgeIndices {
     pub fn next(&mut self) -> JsValue {
         next(self.iter.next().map(|index| (index.index() as u32).into()))
@@ -102,15 +136,25 @@ impl Graph {
     }
 
     #[wasm_bindgen(js_name = addNode)]
-    pub fn add_node(&mut self) -> usize {
-        self.graph_mut().add_node(Object::new()).index()
+    pub fn add_node(&mut self, value: JsValue) -> usize {
+        let value = if value.is_null() || value.is_undefined() {
+            Object::new().into()
+        } else {
+            value
+        };
+        self.graph_mut().add_node(value.into()).index()
     }
 
     #[wasm_bindgen(js_name = addEdge)]
-    pub fn add_edge(&mut self, u: usize, v: usize) -> usize {
+    pub fn add_edge(&mut self, u: usize, v: usize, value: JsValue) -> usize {
+        let value = if value.is_null() || value.is_undefined() {
+            Object::new().into()
+        } else {
+            value
+        };
         let u = node_index(u);
         let v = node_index(v);
-        self.graph_mut().add_edge(u, v, Object::new()).index()
+        self.graph_mut().add_edge(u, v, value.into()).index()
     }
 
     #[wasm_bindgen(js_name = removeNode)]
@@ -173,6 +217,28 @@ impl Graph {
 
     pub fn edge(&self, e: usize) -> Object {
         self.graph()[edge_index(e)].clone()
+    }
+
+    pub fn nodes(&self) -> JsValue {
+        let graph = self.graph.clone();
+        iterable(Box::new(move || {
+            (Nodes {
+                iter: graph.borrow().node_indices(),
+                graph: graph.clone(),
+            })
+            .into()
+        }))
+    }
+
+    pub fn edges(&self) -> JsValue {
+        let graph = self.graph.clone();
+        iterable(Box::new(move || {
+            (Edges {
+                iter: graph.borrow().edge_indices(),
+                graph: graph.clone(),
+            })
+            .into()
+        }))
     }
 
     pub fn source(&self, e: usize) -> usize {
