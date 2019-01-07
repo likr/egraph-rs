@@ -237,7 +237,6 @@ fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
 }
 
 pub struct FM3<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub simulation: Simulation<N, E, Ty, Ix>,
     pub min_size: usize,
     pub step_iteration: usize,
     pub shrink_node: Box<Fn(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N>,
@@ -247,13 +246,11 @@ pub struct FM3<N, E, Ty: EdgeType, Ix: IndexType> {
 
 impl<N, E, Ty: EdgeType, Ix: IndexType> FM3<N, E, Ty, Ix> {
     pub fn new(
-        simulation: Simulation<N, E, Ty, Ix>,
         shrink_node: Box<Fn(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N>,
         shrink_edge: Box<Fn(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>, f32) -> E>,
         link_distance_accessor: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
     ) -> FM3<N, E, Ty, Ix> {
         FM3 {
-            simulation,
             min_size: 100,
             step_iteration: 100,
             shrink_node,
@@ -262,7 +259,11 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> FM3<N, E, Ty, Ix> {
         }
     }
 
-    pub fn call(&self, graph: &Graph<N, E, Ty, Ix>) -> Vec<Point> {
+    pub fn call(
+        &self,
+        graph: &Graph<N, E, Ty, Ix>,
+        simulation: &Simulation<N, E, Ty, Ix>,
+    ) -> Vec<Point> {
         let seed = [0; 32];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
 
@@ -297,13 +298,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> FM3<N, E, Ty, Ix> {
         let decay = 1. - (alpha_min as f32).powf(1. / total_iteration as f32);
 
         let mut gk = g0;
-        let mut g1_points = layout(
-            &mut gk,
-            &self.simulation,
-            self.step_iteration,
-            &mut alpha,
-            decay,
-        );
+        let mut g1_points = layout(&mut gk, simulation, self.step_iteration, &mut alpha, decay);
 
         while !shrinked_graphs.is_empty() {
             let (g0, groups, parents, types) = shrinked_graphs.pop().unwrap();
@@ -320,7 +315,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> FM3<N, E, Ty, Ix> {
             layout_with_initial_placement(
                 &g0,
                 &mut g0_points,
-                &self.simulation,
+                simulation,
                 self.step_iteration,
                 &mut alpha,
                 decay,

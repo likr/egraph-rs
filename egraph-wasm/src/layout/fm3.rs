@@ -1,47 +1,92 @@
-// use super::super::graph::Graph;
-// use super::force_directed::simulation::Simulation;
-// use js_sys::{Array, Object, Reflect};
-// use wasm_bindgen::prelude::*;
-//
-// #[wasm_bindgen]
-// pub struct FM3 {
-//     #[wasm_bindgen(js_name = minSize)]
-//     pub min_size: usize,
-//     #[wasm_bindgen(js_name = stepIteration)]
-//     pub step_iteration: usize,
-// }
-//
-// #[wasm_bindgen]
-// impl FM3 {
-//     #[wasm_bindgen(constructor)]
-//     pub fn new(simulation: Simulation) -> FM3 {
-//         let fm3 = egraph::layout::fm3::FM3::new(simulation.simulation, Box::new(||));
-//         FM3 {
-//             min_size: fm3.min_size,
-//             step_iteration: fm3.step_iteration,
-//             unit_edge_length: fm3.unit_edge_length as f64,
-//             position_force_strength: fm3.position_force_strength as f64,
-//         }
-//     }
-//
-//     pub fn call(&self, graph: &Graph) -> JsValue {
-//         let array = Array::new();
-//         let mut fm3 = egraph::layout::fm3::FM3::new();
-//         fm3.min_size = self.min_size;
-//         fm3.step_iteration = self.step_iteration;
-//         fm3.unit_edge_length = self.unit_edge_length as f32;
-//         fm3.position_force_strength = self.position_force_strength as f32;
-//         let points = fm3.call(&graph.graph());
-//         for point in points.iter() {
-//             let obj = Object::new();
-//             Reflect::set(&obj, &"x".into(), &point.x.into())
-//                 .ok()
-//                 .unwrap();
-//             Reflect::set(&obj, &"y".into(), &point.y.into())
-//                 .ok()
-//                 .unwrap();
-//             array.push(&obj);
-//         }
-//         array.into()
-//     }
-// }
+use super::super::graph::{Edge, EdgeType, Graph, IndexType, Node};
+use super::force_directed::simulation::Simulation;
+use js_sys::{Array, Object, Reflect};
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub struct FM3 {
+    fm3: egraph::layout::fm3::FM3<Node, Edge, EdgeType, IndexType>,
+}
+
+#[wasm_bindgen]
+impl FM3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> FM3 {
+        FM3 {
+            fm3: egraph::layout::fm3::FM3::new(
+                Box::new(|_, _| Object::new()),
+                Box::new(|_, _, distance| {
+                    let edge = Object::new();
+                    Reflect::set(&edge, &"distance".into(), &distance.into())
+                        .ok()
+                        .unwrap();
+                    edge
+                }),
+                Box::new(|graph, e| {
+                    if Reflect::has(&graph[e], &"distance".into()).ok().unwrap() {
+                        Reflect::get(&graph[e], &"distance".into())
+                            .ok()
+                            .unwrap()
+                            .as_f64()
+                            .unwrap() as f32
+                    } else {
+                        30.
+                    }
+                }),
+            ),
+        }
+    }
+
+    pub fn call(&self, graph: &Graph, simulation: &Simulation) -> JsValue {
+        let points = self.fm3.call(&graph.graph(), simulation.simulation());
+        let array = Array::new();
+        for point in points.iter() {
+            let obj = Object::new();
+            Reflect::set(&obj, &"x".into(), &point.x.into())
+                .ok()
+                .unwrap();
+            Reflect::set(&obj, &"y".into(), &point.y.into())
+                .ok()
+                .unwrap();
+            array.push(&obj);
+        }
+        array.into()
+    }
+
+    #[wasm_bindgen(js_name = minSize)]
+    pub fn min_size(&mut self, value: usize) {
+        self.fm3.min_size = value;
+    }
+
+    #[wasm_bindgen(js_name = stepIteration)]
+    pub fn step_iteration(&mut self, value: usize) {
+        self.fm3.step_iteration = value;
+    }
+
+    #[wasm_bindgen(js_name = shrinkNode)]
+    pub fn shrink_node(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.fm3.shrink_node = Box::new(move |_, _| {
+            let this = JsValue::NULL;
+            f.call0(&this).ok().unwrap().into()
+        });
+    }
+
+    #[wasm_bindgen(js_name = shrinkEdge)]
+    pub fn shrink_edge(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.fm3.shrink_edge = Box::new(move |_, _, _| {
+            let this = JsValue::NULL;
+            f.call0(&this).ok().unwrap().into()
+        });
+    }
+
+    #[wasm_bindgen(js_name = linkDistance)]
+    pub fn link_distance(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.fm3.link_distance_accessor = Box::new(move |_, _| {
+            let this = JsValue::NULL;
+            f.call0(&this).ok().unwrap().as_f64().unwrap() as f32
+        });
+    }
+}

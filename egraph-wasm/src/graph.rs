@@ -115,12 +115,12 @@ impl Graph {
 
     #[wasm_bindgen(js_name = removeNode)]
     pub fn remove_node(&mut self, u: usize) {
-        self.graph_mut().remove_node(NodeIndex::new(u));
+        self.graph_mut().remove_node(node_index(u));
     }
 
     #[wasm_bindgen(js_name = removeEdge)]
     pub fn remove_edge(&mut self, u: usize) {
-        self.graph_mut().remove_edge(EdgeIndex::new(u));
+        self.graph_mut().remove_edge(edge_index(u));
     }
 
     #[wasm_bindgen(js_name = nodeCount)]
@@ -165,6 +165,14 @@ impl Graph {
             })
             .into()
         }))
+    }
+
+    pub fn node(&self, a: usize) -> Object {
+        self.graph()[node_index(a)].clone()
+    }
+
+    pub fn edge(&self, e: usize) -> Object {
+        self.graph()[edge_index(e)].clone()
     }
 
     pub fn source(&self, e: usize) -> usize {

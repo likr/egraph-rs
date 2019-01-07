@@ -8,6 +8,14 @@ pub struct Simulation {
     simulation: egraph::layout::force_directed::Simulation<Node, Edge, EdgeType, IndexType>,
 }
 
+impl Simulation {
+    pub fn simulation(
+        &self,
+    ) -> &egraph::layout::force_directed::Simulation<Node, Edge, EdgeType, IndexType> {
+        &self.simulation
+    }
+}
+
 #[wasm_bindgen]
 impl Simulation {
     #[wasm_bindgen(constructor)]
