@@ -51,6 +51,7 @@ impl GroupPositionForce {
         });
     }
 
+    #[wasm_bindgen(js_name = groupX)]
     pub fn group_x(&self, f: &js_sys::Function) {
         let f = f.clone();
         self.force.borrow_mut().group_x = Box::new(move |a| {
@@ -60,6 +61,7 @@ impl GroupPositionForce {
         });
     }
 
+    #[wasm_bindgen(js_name = groupY)]
     pub fn group_y(&self, f: &js_sys::Function) {
         let f = f.clone();
         self.force.borrow_mut().group_y = Box::new(move |a| {

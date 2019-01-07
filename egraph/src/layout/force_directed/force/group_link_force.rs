@@ -14,8 +14,8 @@ pub struct GroupLinkForce<N, E, Ty: EdgeType, Ix: IndexType> {
 impl<N, E, Ty: EdgeType, Ix: IndexType> GroupLinkForce<N, E, Ty, Ix> {
     pub fn new() -> GroupLinkForce<N, E, Ty, Ix> {
         GroupLinkForce {
-            inter_group: 0.5,
-            intra_group: 0.01,
+            inter_group: 0.01,
+            intra_group: 0.5,
             group: Box::new(|_, _| 0),
             distance: Box::new(|_, _| 30.0),
         }

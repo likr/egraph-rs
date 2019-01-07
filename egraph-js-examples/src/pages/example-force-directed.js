@@ -43,6 +43,7 @@ export class ExampleForceDirected extends React.Component {
           for (const i of graph.nodeIndices()) {
             Object.assign(data.nodes[i], layout[i])
           }
+
           draw(this.refs.renderer, data)
         })
       })
