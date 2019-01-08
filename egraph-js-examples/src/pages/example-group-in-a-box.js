@@ -23,7 +23,7 @@ const layout = (mod, data) => {
   const groups = grouping.call(graph, 600, 600)
   data.groups = Array.from(Object.values(groups))
 
-  const { GroupLinkForce, GroupManyBodyForce, GroupPositionForce } = mod
+  const { GroupCenterForce, GroupLinkForce, GroupManyBodyForce, GroupPositionForce } = mod
   const manyBodyForce = new GroupManyBodyForce()
   manyBodyForce.group(groupAccessor)
   manyBodyForce.strength(_ => -30)
@@ -31,17 +31,17 @@ const layout = (mod, data) => {
   linkForce.inter_group(0.001)
   linkForce.group(groupAccessor)
   const positionForce = new GroupPositionForce()
-  positionForce.group(groupAccessor)
-  positionForce.groupX(g => {
-    return groups[g].x
-  })
-  positionForce.groupY(g => groups[g].y)
+  const centerForce = new GroupCenterForce()
+  centerForce.group(groupAccessor)
+  centerForce.groupX(g => groups[g].x)
+  centerForce.groupY(g => groups[g].y)
 
   const { Simulation } = mod
   const simulation = new Simulation()
   simulation.add(manyBodyForce.force())
   simulation.add(linkForce.force())
   simulation.add(positionForce.force())
+  simulation.add(centerForce.force())
 
   const layout = simulation.start(graph)
   for (const i of graph.nodeIndices()) {
