@@ -19,7 +19,8 @@ const layout = (mod, data) => {
   const { ForceDirectedGrouping } = mod
   const grouping = new ForceDirectedGrouping()
   grouping.group(groupAccessor)
-  grouping.size(i => 1000)
+  grouping.linkWeight(e => graph.edge(e).value)
+  grouping.manyBodyForceStrength(_ => -2000)
   const groups = grouping.call(graph, 600, 600)
   data.groups = Array.from(Object.values(groups))
 

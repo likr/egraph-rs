@@ -52,12 +52,43 @@ impl ForceDirectedGrouping {
         });
     }
 
-    pub fn size(&mut self, f: &js_sys::Function) {
+    #[wasm_bindgen(js_name = nodeSize)]
+    pub fn node_size(&mut self, f: &js_sys::Function) {
         let f = f.clone();
-        self.grouping.size = Box::new(move |_, a| {
+        self.grouping.node_size = Box::new(move |_, a| {
             let this = JsValue::NULL;
             let index = JsValue::from_f64(a.index() as f64);
             f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+        });
+    }
+
+    #[wasm_bindgen(js_name = linkWeight)]
+    pub fn link_weight(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.grouping.link_weight = Box::new(move |_, e| {
+            let this = JsValue::NULL;
+            let index = JsValue::from_f64(e.index() as f64);
+            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+        });
+    }
+
+    #[wasm_bindgen(js_name = linkForceStrength)]
+    pub fn link_force_strength(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.grouping.link_force_strength = Box::new(move |_, e| {
+            let this = JsValue::NULL;
+            let index = JsValue::from_f64(e.index() as f64);
+            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+        });
+    }
+
+    #[wasm_bindgen(js_name = manyBodyForceStrength)]
+    pub fn many_body_force_strength(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.grouping.many_body_force_strength = Box::new(move |g, a| {
+            let this = JsValue::NULL;
+            let size = JsValue::from_f64(g[a].size as f64);
+            f.call1(&this, &size).ok().unwrap().as_f64().unwrap() as f32
         });
     }
 }
