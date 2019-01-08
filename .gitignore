@@ -6,8 +6,8 @@ egraph-c-examples/example
 egraph-cpp-examples/example
 egraph-js/egraph.js
 egraph-js/egraph.wasm
-egraph-js-examples/public/egraph.wasm
-egraph-js-examples/public/bundle.js
+egraph-js-examples/public/*.wasm
+egraph-js-examples/public/*.js
 egraph-js-examples/public/vendor
 egraph-wasm/bin
 egraph-wasm/pkg
