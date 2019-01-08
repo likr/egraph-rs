@@ -4,7 +4,7 @@ use petgraph::prelude::*;
 use petgraph::EdgeType;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use utils::treemap::squarify;
+use utils::treemap::{normalize, squarify};
 
 pub struct TreemapGrouping<N, E, Ty: EdgeType, Ix: IndexType> {
     pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,
@@ -27,13 +27,14 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Grouping<N, E, Ty, Ix> for TreemapGroupi
         items.sort_by(|item1, item2| {
             if item1.1 == item2.1 {
                 Ordering::Equal
-            } else if item1.1 > item2.1 {
+            } else if item1.1 < item2.1 {
                 Ordering::Greater
             } else {
                 Ordering::Less
             }
         });
-        let values = items.iter().map(|item| *item.1 as f64).collect::<Vec<_>>();
+        let mut values = items.iter().map(|item| *item.1 as f64).collect::<Vec<_>>();
+        normalize(&mut values, (width * height) as f64);
 
         let mut result = HashMap::new();
         for (tile, item) in squarify(width as f64, height as f64, &values)
@@ -44,8 +45,8 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Grouping<N, E, Ty, Ix> for TreemapGroupi
             result.insert(
                 g,
                 Group::new(
-                    (tile.x + tile.dx / 2.) as f32,
-                    (tile.y + tile.dy / 2.) as f32,
+                    (tile.x + tile.dx / 2.) as f32 - width / 2.,
+                    (tile.y + tile.dy / 2.) as f32 - height / 2.,
                     tile.dx as f32,
                     tile.dy as f32,
                 ),

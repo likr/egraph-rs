@@ -1,6 +1,6 @@
 use super::super::super::super::graph::{Edge, EdgeType, Graph, IndexType, Node};
 use egraph::layout::grouping::Grouping;
-use js_sys::{Array, Object, Reflect};
+use js_sys::{Object, Reflect};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -18,11 +18,11 @@ impl TreemapGrouping {
     }
 
     pub fn call(&mut self, graph: &Graph, width: f64, height: f64) -> JsValue {
-        let result = self
+        let tiles = self
             .grouping
             .call(&graph.graph(), width as f32, height as f32);
-        let array = Array::new();
-        for (_, tile) in result.iter() {
+        let result = Object::new();
+        for (&g, tile) in tiles.iter() {
             let obj = Object::new();
             Reflect::set(&obj, &"x".into(), &tile.x.into())
                 .ok()
@@ -30,9 +30,17 @@ impl TreemapGrouping {
             Reflect::set(&obj, &"y".into(), &tile.y.into())
                 .ok()
                 .unwrap();
-            array.push(&obj);
+            Reflect::set(&obj, &"width".into(), &tile.width.into())
+                .ok()
+                .unwrap();
+            Reflect::set(&obj, &"height".into(), &tile.height.into())
+                .ok()
+                .unwrap();
+            Reflect::set(&result, &JsValue::from_f64(g as f64), &obj)
+                .ok()
+                .unwrap();
         }
-        array.into()
+        result.into()
     }
 
     pub fn group(&mut self, f: &js_sys::Function) {
