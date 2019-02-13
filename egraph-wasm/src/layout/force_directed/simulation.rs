@@ -29,9 +29,33 @@ impl Simulation {
         self.simulation.add(force.force());
     }
 
-    pub fn start(&mut self, graph: &Graph) -> JsValue {
-        let mut points =
-            egraph::layout::force_directed::initial_placement(graph.graph().node_count());
+    pub fn start(&mut self, graph: &Graph, initial_points: JsValue) -> JsValue {
+        let mut points = if initial_points.is_null() {
+            egraph::layout::force_directed::initial_placement(graph.graph().node_count())
+        } else {
+            let a: Array = initial_points.into();
+            a.values()
+                .into_iter()
+                .map(|p| {
+                    let p = p.ok().unwrap();
+                    if p.is_null() {
+                        egraph::layout::force_directed::force::Point::new(0., 0.)
+                    } else {
+                        let x = Reflect::get(&p, &"x".into())
+                            .ok()
+                            .unwrap()
+                            .as_f64()
+                            .unwrap() as f32;
+                        let y = Reflect::get(&p, &"y".into())
+                            .ok()
+                            .unwrap()
+                            .as_f64()
+                            .unwrap() as f32;
+                        egraph::layout::force_directed::force::Point::new(x, y)
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
         let mut context = self.simulation.build(&graph.graph());
         context.start(&mut points);
         let array = Array::new();
