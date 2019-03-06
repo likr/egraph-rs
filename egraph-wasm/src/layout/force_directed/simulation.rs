@@ -30,7 +30,7 @@ impl Simulation {
     }
 
     pub fn start(&mut self, graph: &Graph, initial_points: JsValue) -> JsValue {
-        let mut points = if initial_points.is_null() {
+        let mut points = if initial_points.is_null() || initial_points.is_undefined() {
             egraph::layout::force_directed::initial_placement(graph.graph().node_count())
         } else {
             let a: Array = initial_points.into();
@@ -70,5 +70,45 @@ impl Simulation {
             array.push(&obj);
         }
         array.into()
+    }
+
+    pub fn alpha_start(&mut self, value: JsValue) -> JsValue {
+        if value.is_null() || value.is_undefined() {
+            return self.simulation.alpha_start.into();
+        }
+        self.simulation.alpha_start = value.as_f64().unwrap() as f32;
+        JsValue::undefined()
+    }
+
+    pub fn alpha_min(&mut self, value: JsValue) -> JsValue {
+        if value.is_null() || value.is_undefined() {
+            return self.simulation.alpha_min.into();
+        }
+        self.simulation.alpha_min = value.as_f64().unwrap() as f32;
+        JsValue::undefined()
+    }
+
+    pub fn alpha_target(&mut self, value: JsValue) -> JsValue {
+        if value.is_null() || value.is_undefined() {
+            return self.simulation.alpha_target.into();
+        }
+        self.simulation.alpha_target = value.as_f64().unwrap() as f32;
+        JsValue::undefined()
+    }
+
+    pub fn velocity_decay(&mut self, value: JsValue) -> JsValue {
+        if value.is_null() || value.is_undefined() {
+            return self.simulation.velocity_decay.into();
+        }
+        self.simulation.velocity_decay = value.as_f64().unwrap() as f32;
+        JsValue::undefined()
+    }
+
+    pub fn iterations(&mut self, value: JsValue) -> JsValue {
+        if value.is_null() || value.is_undefined() {
+            return (self.simulation.iterations as f64).into();
+        }
+        self.simulation.iterations = value.as_f64().unwrap() as usize;
+        JsValue::undefined()
     }
 }

@@ -11,21 +11,30 @@ pub struct SimulationContext {
     pub alpha_min: f32,
     pub alpha_target: f32,
     pub velocity_decay: f32,
+    pub iterations: usize,
 }
 
 impl SimulationContext {
-    fn new(forces: Vec<Box<ForceContext>>) -> SimulationContext {
+    fn new(
+        forces: Vec<Box<ForceContext>>,
+        alpha: f32,
+        alpha_min: f32,
+        alpha_target: f32,
+        velocity_decay: f32,
+        iterations: usize,
+    ) -> SimulationContext {
         SimulationContext {
             forces,
-            alpha: 1.,
-            alpha_min: 0.001,
-            alpha_target: 0.,
-            velocity_decay: 0.6,
+            alpha,
+            alpha_min,
+            alpha_target,
+            velocity_decay,
+            iterations,
         }
     }
 
     pub fn start(&mut self, points: &mut Vec<Point>) {
-        let alpha_decay = 1. - (self.alpha_min as f32).powf(1. / 300.);
+        let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
         loop {
             self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
             self.step(points);
@@ -50,12 +59,22 @@ impl SimulationContext {
 
 pub struct Simulation<N, E, Ty: EdgeType, Ix: IndexType> {
     builders: Vec<Rc<RefCell<Force<N, E, Ty, Ix>>>>,
+    pub alpha_start: f32,
+    pub alpha_min: f32,
+    pub alpha_target: f32,
+    pub velocity_decay: f32,
+    pub iterations: usize,
 }
 
 impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
     pub fn new() -> Simulation<N, E, Ty, Ix> {
         Simulation {
             builders: Vec::new(),
+            alpha_start: 1.,
+            alpha_min: 0.001,
+            alpha_target: 0.,
+            velocity_decay: 0.6,
+            iterations: 300,
         }
     }
 
@@ -65,7 +84,14 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
             .iter()
             .map(|builder| builder.borrow().build(graph))
             .collect();
-        SimulationContext::new(forces)
+        SimulationContext::new(
+            forces,
+            self.alpha_start,
+            self.alpha_min,
+            self.alpha_target,
+            self.velocity_decay,
+            self.iterations,
+        )
     }
 
     pub fn add(&mut self, force: Rc<RefCell<Force<N, E, Ty, Ix>>>) {
