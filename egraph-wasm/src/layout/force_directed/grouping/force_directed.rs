@@ -91,4 +91,14 @@ impl ForceDirectedGrouping {
             f.call1(&this, &size).ok().unwrap().as_f64().unwrap() as f32
         });
     }
+
+    #[wasm_bindgen(js_name = positionForceStrength)]
+    pub fn position_force_strength(&mut self, f: &js_sys::Function) {
+        let f = f.clone();
+        self.grouping.position_force_strength = Box::new(move |g, a| {
+            let this = JsValue::NULL;
+            let size = JsValue::from_f64(g[a].size as f64);
+            f.call1(&this, &size).ok().unwrap().as_f64().unwrap() as f32
+        });
+    }
 }

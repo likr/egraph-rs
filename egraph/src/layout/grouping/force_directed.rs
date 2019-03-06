@@ -1,5 +1,7 @@
 use super::{Group, Grouping};
-use layout::force_directed::force::{CenterForce, CollideForce, LinkForce, ManyBodyForce};
+use layout::force_directed::force::{
+    CenterForce, CollideForce, LinkForce, ManyBodyForce, PositionForce,
+};
 use layout::force_directed::initial_placement;
 use layout::force_directed::simulation::Simulation;
 use petgraph::graph::IndexType;
@@ -41,6 +43,7 @@ pub struct ForceDirectedGrouping<N, E, Ty: EdgeType, Ix: IndexType> {
     pub link_weight: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
     pub link_force_strength: Box<Fn(&Graph<GroupNode, GroupLink>, EdgeIndex) -> f32>,
     pub many_body_force_strength: Box<Fn(&Graph<GroupNode, GroupLink>, NodeIndex) -> f32>,
+    pub position_force_strength: Box<Fn(&Graph<GroupNode, GroupLink>, NodeIndex) -> f32>,
 }
 
 impl<N, E, Ty: EdgeType, Ix: IndexType> ForceDirectedGrouping<N, E, Ty, Ix> {
@@ -51,6 +54,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> ForceDirectedGrouping<N, E, Ty, Ix> {
             link_weight: Box::new(|_, _| 1.),
             link_force_strength: Box::new(|graph, e| (graph[e].weight + 1.).ln()),
             many_body_force_strength: Box::new(|graph, a| -graph[a].size),
+            position_force_strength: Box::new(|_, _| 0.7),
         }
     }
 }
@@ -108,23 +112,35 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Grouping<N, E, Ty, Ix>
             .edge_indices()
             .map(|e| (self.link_force_strength)(&group_graph, e))
             .collect::<Vec<_>>();
+        let position_force_strength = group_graph
+            .node_indices()
+            .map(|a| (self.position_force_strength)(&group_graph, a))
+            .collect::<Vec<_>>();
 
+        let margin = 100.;
         let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
         many_body_force.borrow_mut().strength =
             Box::new(move |_, a| many_body_force_strength[a.index()]);
         let link_force = Rc::new(RefCell::new(LinkForce::new()));
-        link_force.borrow_mut().distance = Box::new(|g: &Graph<GroupNode, GroupLink>, e| {
+        let m = margin.clone();
+        link_force.borrow_mut().distance = Box::new(move |g: &Graph<GroupNode, GroupLink>, e| {
             let (s, t) = g.edge_endpoints(e).unwrap();
-            g[s].radius + g[t].radius
+            g[s].radius + g[t].radius + m
         });
         link_force.borrow_mut().strength = Box::new(move |_, e| link_force_strength[e.index()]);
+        let position_force = Rc::new(RefCell::new(PositionForce::new()));
+        position_force.borrow_mut().strength =
+            Box::new(move |_, a| position_force_strength[a.index()]);
+        position_force.borrow_mut().x = Box::new(|_, _| Some(0.));
+        position_force.borrow_mut().y = Box::new(|_, _| Some(0.));
         let collide_force = Rc::new(RefCell::new(CollideForce::new()));
         collide_force.borrow_mut().radius =
-            Box::new(|g: &Graph<GroupNode, GroupLink>, a| g[a].radius);
+            Box::new(move |g: &Graph<GroupNode, GroupLink>, a| g[a].radius + margin / 2.);
         let center_force = Rc::new(RefCell::new(CenterForce::new()));
         let mut simulation = Simulation::new();
         simulation.add(many_body_force);
         simulation.add(link_force);
+        simulation.add(position_force);
         simulation.add(collide_force);
         simulation.add(center_force);
 
@@ -139,8 +155,8 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Grouping<N, E, Ty, Ix>
                 Group::new(
                     points[g.index()].x,
                     points[g.index()].y,
-                    group_graph[g].radius,
-                    group_graph[g].radius,
+                    2. * group_graph[g].radius,
+                    2. * group_graph[g].radius,
                 ),
             );
         }
