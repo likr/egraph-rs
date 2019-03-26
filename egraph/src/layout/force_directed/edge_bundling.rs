@@ -188,6 +188,7 @@ pub struct EdgeBundlingOptions {
     i0: usize,
     s_step: f32,
     i_step: f32,
+    minimum_edge_compatibility: f32,
 }
 
 pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
@@ -201,6 +202,7 @@ pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
         i0,
         s_step,
         i_step,
+        minimum_edge_compatibility,
     } = options;
     let mut mid_points = Vec::new();
     let mut segments: Vec<LineSegment> = graph
@@ -227,7 +229,7 @@ pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
                     points[segment_q.source],
                     points[segment_q.target],
                 );
-                if c_e >= 0.6 {
+                if c_e >= *minimum_edge_compatibility {
                     let theta = angle(
                         points[segment_p.source],
                         points[segment_p.target],
@@ -307,6 +309,7 @@ pub struct EdgeBundling {
     pub i0: usize,
     pub s_step: f32,
     pub i_step: f32,
+    pub minimum_edge_compatibility: f32,
 }
 
 impl EdgeBundling {
@@ -317,6 +320,7 @@ impl EdgeBundling {
             i0: 90,
             s_step: 0.5,
             i_step: 2. / 3.,
+            minimum_edge_compatibility: 0.6,
         }
     }
 
@@ -336,6 +340,7 @@ impl EdgeBundling {
             i0: self.i0,
             s_step: self.s_step,
             i_step: self.i_step,
+            minimum_edge_compatibility: self.minimum_edge_compatibility,
         }
     }
 }
