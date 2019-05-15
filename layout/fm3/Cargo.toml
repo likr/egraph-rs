@@ -1,0 +1,11 @@
+[package]
+name = "egraph-layout-fm3"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+edition = "2018"
+
+[dependencies]
+egraph-graph = { path = "../../graph" }
+egraph-interface = { path = "../../interface" }
+egraph-layout-force-directed = { path = "../force-directed" }
+rand = "0.6"

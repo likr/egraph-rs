@@ -1,0 +1,9 @@
+[package]
+name = "egraph-layout-force-directed"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+
+[dependencies]
+egraph-graph = { path = "../../graph" }
+egraph-interface = { path = "../../interface" }
+quadtree = { path = "../../quadtree" }

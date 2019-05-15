@@ -1,0 +1,8 @@
+[package]
+name = "egraph-petgraph-adapter"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+
+[dependencies]
+petgraph = "0.4"
+egraph-interface = { path = "../interface" }

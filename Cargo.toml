@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "algorithm",
     "clp",
     "clp-sys",
     "egraph",
@@ -7,4 +8,12 @@ members = [
     "egraph-layered",
     "egraph-py",
     "egraph-wasm",
+    "graph",
+    "interface",
+    "layout/fm3",
+    "layout/force-directed",
+    "quadtree",
+    "petgraph-adapter",
+    "wasm/adapter",
+    "wasm/layout/force-directed",
 ]
