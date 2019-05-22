@@ -2,8 +2,40 @@ use crate::force::Force;
 use egraph::layout::force_directed::{initial_placement, Point, Simulation as EgSimulation};
 use egraph::Graph;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
-use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
+
+#[derive(Serialize, Deserialize)]
+pub struct PointGeometry {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NodeGeometry {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LinkGeometry {
+    pub bends: Vec<PointGeometry>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GraphGeometry {
+    pub nodes: Vec<NodeGeometry>,
+    pub links: Vec<LinkGeometry>,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    pub type JsForce;
+
+    #[wasm_bindgen(method, structural)]
+    fn force(this: &JsForce) -> Force;
+}
 
 #[wasm_bindgen]
 pub struct Simulation {
@@ -25,8 +57,8 @@ impl Simulation {
         }
     }
 
-    pub fn add(&mut self, force: &Force) {
-        self.simulation.add(force.force());
+    pub fn add(&mut self, force: &JsForce) {
+        self.simulation.add(force.force().force());
     }
 
     pub fn start(&mut self, graph: JsGraph, initial_points: JsValue) -> JsValue {
@@ -34,82 +66,82 @@ impl Simulation {
         let mut points = if initial_points.is_null() || initial_points.is_undefined() {
             initial_placement(graph.node_count())
         } else {
-            let a: Array = initial_points.into();
-            a.values()
-                .into_iter()
-                .map(|p| {
-                    let p = p.ok().unwrap();
-                    if p.is_null() {
-                        Point::new(0., 0.)
-                    } else {
-                        let x = Reflect::get(&p, &"x".into())
-                            .ok()
-                            .unwrap()
-                            .as_f64()
-                            .unwrap() as f32;
-                        let y = Reflect::get(&p, &"y".into())
-                            .ok()
-                            .unwrap()
-                            .as_f64()
-                            .unwrap() as f32;
-                        Point::new(x, y)
-                    }
-                })
+            initial_points
+                .into_serde::<GraphGeometry>()
+                .unwrap()
+                .nodes
+                .iter()
+                .map(|p| Point::new(p.x, p.y))
                 .collect::<Vec<_>>()
         };
         let mut context = self.simulation.build(&graph);
         context.start(&mut points);
-        let array = Array::new();
-        for point in points.iter() {
-            let obj = Object::new();
-            Reflect::set(&obj, &"x".into(), &point.x.into())
-                .ok()
-                .unwrap();
-            Reflect::set(&obj, &"y".into(), &point.y.into())
-                .ok()
-                .unwrap();
-            array.push(&obj);
-        }
-        array.into()
+
+        let result = GraphGeometry {
+            nodes: graph
+                .nodes()
+                .map(|i| NodeGeometry {
+                    x: points[i].x,
+                    y: points[i].y,
+                    width: 0.0,
+                    height: 0.0,
+                })
+                .collect(),
+            links: graph
+                .edges()
+                .map(|_| LinkGeometry { bends: Vec::new() })
+                .collect(),
+        };
+        JsValue::from_serde(&result).unwrap()
     }
 
-    pub fn alpha_start(&mut self, value: JsValue) -> JsValue {
-        if value.is_null() || value.is_undefined() {
-            return self.simulation.alpha_start.into();
-        }
-        self.simulation.alpha_start = value.as_f64().unwrap() as f32;
-        JsValue::undefined()
+    #[wasm_bindgen(getter = alphaStart)]
+    pub fn alpha_start(&mut self) -> f32 {
+        self.simulation.alpha_start
     }
 
-    pub fn alpha_min(&mut self, value: JsValue) -> JsValue {
-        if value.is_null() || value.is_undefined() {
-            return self.simulation.alpha_min.into();
-        }
-        self.simulation.alpha_min = value.as_f64().unwrap() as f32;
-        JsValue::undefined()
+    #[wasm_bindgen(setter = alphaStart)]
+    pub fn set_alpha_start(&mut self, value: f32) {
+        self.simulation.alpha_start = value;
     }
 
-    pub fn alpha_target(&mut self, value: JsValue) -> JsValue {
-        if value.is_null() || value.is_undefined() {
-            return self.simulation.alpha_target.into();
-        }
-        self.simulation.alpha_target = value.as_f64().unwrap() as f32;
-        JsValue::undefined()
+    #[wasm_bindgen(getter = alphaMin)]
+    pub fn alpha_min(&mut self) -> f32 {
+        self.simulation.alpha_min
     }
 
-    pub fn velocity_decay(&mut self, value: JsValue) -> JsValue {
-        if value.is_null() || value.is_undefined() {
-            return self.simulation.velocity_decay.into();
-        }
-        self.simulation.velocity_decay = value.as_f64().unwrap() as f32;
-        JsValue::undefined()
+    #[wasm_bindgen(setter = alphaMin)]
+    pub fn set_alpha_min(&mut self, value: f32) {
+        self.simulation.alpha_min = value;
     }
 
-    pub fn iterations(&mut self, value: JsValue) -> JsValue {
-        if value.is_null() || value.is_undefined() {
-            return (self.simulation.iterations as f64).into();
-        }
-        self.simulation.iterations = value.as_f64().unwrap() as usize;
-        JsValue::undefined()
+    #[wasm_bindgen(getter = alphaTarget)]
+    pub fn alpha_target(&mut self) -> f32 {
+        self.simulation.alpha_target
+    }
+
+    #[wasm_bindgen(setter = alphaTarget)]
+    pub fn set_alpha_target(&mut self, value: f32) {
+        self.simulation.alpha_target = value;
+    }
+
+    #[wasm_bindgen(getter = velocityDecay)]
+    pub fn velocity_decay(&mut self) -> f32 {
+        self.simulation.velocity_decay
+    }
+
+    #[wasm_bindgen(setter = velocityDecay)]
+    pub fn set_velocity_decay(&mut self, value: f32) {
+        self.simulation.velocity_decay = value;
+    }
+
+    #[wasm_bindgen(getter = iterations)]
+    pub fn iterations(&mut self) -> usize {
+        self.simulation.iterations
+    }
+
+    #[wasm_bindgen(setter = iterations)]
+    pub fn set_iterations(&mut self, value: usize) {
+        self.simulation.iterations = value;
     }
 }

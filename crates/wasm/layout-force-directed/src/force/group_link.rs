@@ -23,30 +23,50 @@ impl GroupLinkForce {
         Force::new(self.force.clone())
     }
 
-    pub fn intra_group(&self, value: f64) {
-        self.force.borrow_mut().intra_group = value as f32;
-    }
-
-    pub fn inter_group(&self, value: f64) {
-        self.force.borrow_mut().inter_group = value as f32;
-    }
-
-    pub fn distance(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = group)]
+    pub fn set_group(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().distance = Box::new(move |_, u, v| {
+        self.force.borrow_mut().group = Box::new(move |graph, u| {
             let this = JsValue::NULL;
+            let graph = graph.data();
             let u = JsValue::from_f64(u as f64);
-            let v = JsValue::from_f64(v as f64);
-            f.call2(&this, &u, &v).ok().unwrap().as_f64().unwrap() as f32
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as usize
         });
     }
 
-    pub fn group(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(getter = intraGroup)]
+    pub fn intra_group(&self) -> f32 {
+        self.force.borrow_mut().intra_group
+    }
+
+    #[wasm_bindgen(setter = intraGroup)]
+    pub fn set_intra_group(&self, value: f32) {
+        self.force.borrow_mut().intra_group = value;
+    }
+
+    #[wasm_bindgen(getter = interGroup)]
+    pub fn inter_group(&self) -> f32 {
+        self.force.borrow_mut().inter_group
+    }
+
+    #[wasm_bindgen(setter = interGroup)]
+    pub fn set_inter_group(&self, value: f32) {
+        self.force.borrow_mut().inter_group = value;
+    }
+
+    #[wasm_bindgen(setter = distance)]
+    pub fn set_distance(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().group = Box::new(move |_, u| {
+        self.force.borrow_mut().distance = Box::new(move |graph, u, v| {
             let this = JsValue::NULL;
+            let graph = graph.data();
             let u = JsValue::from_f64(u as f64);
-            f.call1(&this, &u).ok().unwrap().as_f64().unwrap() as usize
+            let v = JsValue::from_f64(v as f64);
+            f.call3(&this, &graph, &u, &v)
+                .ok()
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
         });
     }
 }

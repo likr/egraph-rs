@@ -23,21 +23,25 @@ impl GroupManyBodyForce {
         Force::new(self.force.clone())
     }
 
-    pub fn strength(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = group)]
+    pub fn set_group(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().strength = Box::new(move |_, u| {
+        self.force.borrow_mut().group = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(u as f64);
-            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as usize
         });
     }
 
-    pub fn group(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = strength)]
+    pub fn set_strength(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().group = Box::new(move |_, u| {
+        self.force.borrow_mut().strength = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(u as f64);
-            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as usize
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as f32
         });
     }
 }

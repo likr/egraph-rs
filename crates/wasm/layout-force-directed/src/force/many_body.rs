@@ -1,6 +1,7 @@
 use super::Force;
 use egraph::layout::force_directed::force::ManyBodyForce as EgManyBodyForce;
 use egraph_wasm_adapter::JsGraph;
+use js_sys::Function;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -23,12 +24,14 @@ impl ManyBodyForce {
         Force::new(self.force.clone())
     }
 
-    pub fn strength(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = strength)]
+    pub fn set_strength(&self, f: &Function) {
         let f = f.clone();
-        self.force.borrow_mut().strength = Box::new(move |_, a| {
+        self.force.borrow_mut().strength = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(a as f64);
-            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as f32
         });
     }
 }

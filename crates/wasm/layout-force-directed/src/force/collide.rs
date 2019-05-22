@@ -23,16 +23,24 @@ impl CollideForce {
         Force::new(self.force.clone())
     }
 
+    #[wasm_bindgen(setter = radius)]
     pub fn radius(&mut self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().radius = Box::new(move |_, a| {
+        self.force.borrow_mut().radius = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(a as f64);
-            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as f32
         });
     }
 
-    pub fn strength(&mut self, value: f64) {
-        self.force.borrow_mut().strength = value as f32;
+    #[wasm_bindgen(getter = strength)]
+    pub fn strength(&mut self) -> f32 {
+        self.force.borrow_mut().strength
+    }
+
+    #[wasm_bindgen(setter = strength)]
+    pub fn set_strength(&mut self, value: f32) {
+        self.force.borrow_mut().strength = value;
     }
 }

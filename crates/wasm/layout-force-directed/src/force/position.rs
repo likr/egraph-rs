@@ -23,21 +23,25 @@ impl PositionForce {
         Force::new(self.force.clone())
     }
 
-    pub fn strength(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = strength)]
+    pub fn set_strength(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().strength = Box::new(move |_, a| {
+        self.force.borrow_mut().strength = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(a as f64);
-            f.call1(&this, &index).ok().unwrap().as_f64().unwrap() as f32
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            f.call2(&this, &graph, &u).ok().unwrap().as_f64().unwrap() as f32
         });
     }
 
-    pub fn x(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = x)]
+    pub fn set_x(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().x = Box::new(move |_, a| {
+        self.force.borrow_mut().x = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(a as f64);
-            let result = f.call1(&this, &index).ok().unwrap();
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            let result = f.call2(&this, &graph, &u).ok().unwrap();
             if result.is_null() || result.is_undefined() {
                 None
             } else {
@@ -46,12 +50,14 @@ impl PositionForce {
         });
     }
 
+    #[wasm_bindgen(setter = x)]
     pub fn y(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().y = Box::new(move |_, a| {
+        self.force.borrow_mut().y = Box::new(move |graph, u| {
             let this = JsValue::NULL;
-            let index = JsValue::from_f64(a as f64);
-            let result = f.call1(&this, &index).ok().unwrap();
+            let graph = graph.data();
+            let u = JsValue::from_f64(u as f64);
+            let result = f.call2(&this, &graph, &u).ok().unwrap();
             if result.is_null() || result.is_undefined() {
                 None
             } else {

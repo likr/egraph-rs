@@ -23,23 +23,35 @@ impl LinkForce {
         Force::new(self.force.clone())
     }
 
-    pub fn strength(&self, f: &js_sys::Function) {
+    #[wasm_bindgen(setter = strength)]
+    pub fn set_strength(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().strength = Box::new(move |_, u, v| {
+        self.force.borrow_mut().strength = Box::new(move |graph, u, v| {
             let this = JsValue::NULL;
+            let graph = graph.data();
             let u = JsValue::from_f64(u as f64);
             let v = JsValue::from_f64(v as f64);
-            f.call2(&this, &u, &v).ok().unwrap().as_f64().unwrap() as f32
+            f.call3(&this, &graph, &u, &v)
+                .ok()
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
         });
     }
 
+    #[wasm_bindgen(setter = distance)]
     pub fn distance(&self, f: &js_sys::Function) {
         let f = f.clone();
-        self.force.borrow_mut().distance = Box::new(move |_, u, v| {
+        self.force.borrow_mut().distance = Box::new(move |graph, u, v| {
             let this = JsValue::NULL;
+            let graph = graph.data();
             let u = JsValue::from_f64(u as f64);
             let v = JsValue::from_f64(v as f64);
-            f.call2(&this, &u, &v).ok().unwrap().as_f64().unwrap() as f32
+            f.call3(&this, &graph, &u, &v)
+                .ok()
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
         });
     }
 }
