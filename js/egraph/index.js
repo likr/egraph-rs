@@ -140,8 +140,8 @@ export class Graph {
 
   toJSON () {
     return {
-      nodes: Array.from(this.nodes()).map((u) => ({ u, d: this.node(u) })),
-      edges: Array.from(this.edges()).map(([u, v]) => ({ u, v, d: this.edge(u, v) }))
+      nodes: Array.from(this.nodes()).map((u) => Object.assign(this.node(u), { id: u })),
+      links: Array.from(this.edges()).map(([u, v]) => Object.assign(this.edge(u, v), { source: u, target: v }))
     }
   }
 

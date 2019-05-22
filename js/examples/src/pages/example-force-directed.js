@@ -9,15 +9,15 @@ import {
   CenterForce
 } from 'egraph/layout/force-directed'
 
-const draw = (renderer, graph) => {
+const draw = (renderer, data) => {
   const color = d3.scaleOrdinal(d3.schemeCategory10)
-  for (const node of graph.nodes) {
-    node.fillColor = color(node.d.group)
+  for (const node of data.nodes) {
+    node.fillColor = color(node.group)
   }
-  for (const link of graph.edges) {
-    link.strokeWidth = Math.sqrt(link.d.value)
+  for (const link of data.links) {
+    link.strokeWidth = Math.sqrt(link.value)
   }
-  renderer.load(graph)
+  renderer.load(data)
   renderer.center()
 }
 
@@ -46,7 +46,9 @@ export class ExampleForceDirected extends React.Component {
         const stop = window.performance.now()
         console.log(stop - start)
         for (const u of graph.nodes()) {
-          Object.assign(graph.node(u), layout[u])
+          const node = graph.node(u)
+          node.x = layout.nodes[u].x
+          node.y = layout.nodes[u].y
         }
 
         draw(this.refs.renderer, graph.toJSON())
@@ -64,12 +66,7 @@ export class ExampleForceDirected extends React.Component {
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'
-        graph-links-property='edges'
-        node-label-property='d.name'
-        node-x-property='d.x'
-        node-y-property='d.y'
-        link-source-property='u'
-        link-target-property='v'
+        node-label-property='name'
         no-auto-centering
       />
     </Wrapper>
