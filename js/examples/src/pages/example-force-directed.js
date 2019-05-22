@@ -1,21 +1,21 @@
 import React from 'react'
 import * as d3 from 'd3'
 import { Wrapper } from '../wrapper'
+import { Graph } from 'egraph'
 import {
-  Graph,
   Simulation,
   ManyBodyForce,
   LinkForce,
   CenterForce
-} from 'egraph-wasm'
+} from 'egraph/layout/force-directed'
 
 const draw = (renderer, graph) => {
   const color = d3.scaleOrdinal(d3.schemeCategory10)
   for (const node of graph.nodes) {
-    node.fillColor = color(node.group)
+    node.fillColor = color(node.d.group)
   }
-  for (const link of graph.links) {
-    link.strokeWidth = Math.sqrt(link.value)
+  for (const link of graph.edges) {
+    link.strokeWidth = Math.sqrt(link.d.value)
   }
   renderer.load(graph)
   renderer.center()
@@ -27,8 +27,8 @@ export class ExampleForceDirected extends React.Component {
       .then((response) => response.json())
       .then((data) => {
         const graph = new Graph()
-        data.nodes.forEach((node) => {
-          graph.addNode(node)
+        data.nodes.forEach((node, i) => {
+          graph.addNode(i, node)
         })
         for (const link of data.links) {
           const { source, target } = link
@@ -45,11 +45,11 @@ export class ExampleForceDirected extends React.Component {
         const layout = simulation.start(graph)
         const stop = window.performance.now()
         console.log(stop - start)
-        for (const i of graph.nodeIndices()) {
-          Object.assign(data.nodes[i], layout[i])
+        for (const u of graph.nodes()) {
+          Object.assign(graph.node(u), layout[u])
         }
 
-        draw(this.refs.renderer, data)
+        draw(this.refs.renderer, graph.toJSON())
       })
   }
 
@@ -64,7 +64,12 @@ export class ExampleForceDirected extends React.Component {
         default-node-type='circle'
         default-link-stroke-color='#999'
         default-link-stroke-opacity='0.6'
-        node-label-property='name'
+        graph-links-property='edges'
+        node-label-property='d.name'
+        node-x-property='d.x'
+        node-y-property='d.y'
+        link-source-property='u'
+        link-target-property='v'
         no-auto-centering
       />
     </Wrapper>

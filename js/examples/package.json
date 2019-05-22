@@ -1,5 +1,5 @@
 {
-  "name": "egraph-examples",
+  "name": "examples",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -17,8 +17,7 @@
     "bulma": "^0.7.1",
     "d3": "^5.7.0",
     "eg-renderer": "^1.1.0-5",
-    "egraph": "file:../egraph-js",
-    "egraph-wasm": "file:../egraph-wasm/pkg",
+    "egraph": "^1.0.0",
     "react": "^16.4.2",
     "react-dom": "^16.4.2",
     "react-router": "^4.3.1",
@@ -32,7 +31,7 @@
     "babel-loader": "^8.0.5",
     "copy-webpack-plugin": "^4.5.2",
     "netlify-cli": "^1.2.3",
-    "webpack": "^4.28.2",
+    "webpack": "^4.32.1",
     "webpack-cli": "^3.1.2",
     "webpack-dev-server": "^3.1.14"
   }

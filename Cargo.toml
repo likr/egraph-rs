@@ -1,13 +1,13 @@
 [workspace]
 members = [
-    "adapter/petgraph",
-    "adapter/wasm",
-    "clp",
-    "clp-sys",
-    "egraph",
-    "egraph-c-api",
-    "egraph-layered",
-    "egraph-py",
-    "egraph-wasm",
-    "wasm/layout-force-directed",
+    "crates/adapter/petgraph",
+    "crates/adapter/wasm",
+    "crates/clp",
+    "crates/clp-sys",
+    "crates/egraph",
+    "crates/egraph-c-api",
+    "crates/egraph-layered",
+    "crates/egraph-py",
+    "crates/egraph-wasm",
+    "crates/wasm/layout-force-directed",
 ]
