@@ -1,7 +1,5 @@
-use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 
 pub struct PositionForceContext {
     strength: Vec<f32>,
@@ -34,14 +32,14 @@ impl ForceContext for PositionForceContext {
     }
 }
 
-pub struct PositionForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
-    pub x: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> Option<f32>>,
-    pub y: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> Option<f32>>,
+pub struct PositionForce<G> {
+    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
+    pub x: Box<Fn(&Graph<G>, NodeIndex) -> Option<f32>>,
+    pub y: Box<Fn(&Graph<G>, NodeIndex) -> Option<f32>>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> PositionForce<N, E, Ty, Ix> {
-    pub fn new() -> PositionForce<N, E, Ty, Ix> {
+impl<G> PositionForce<G> {
+    pub fn new() -> PositionForce<G> {
         PositionForce {
             strength: Box::new(|_, _| 0.1),
             x: Box::new(|_, _| None),
@@ -50,25 +48,16 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> PositionForce<N, E, Ty, Ix> {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for PositionForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for PositionForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let strength_accessor = &self.strength;
-        let strength = graph
-            .node_indices()
-            .map(|index| strength_accessor(graph, index))
-            .collect();
+        let strength = graph.nodes().map(|u| strength_accessor(graph, u)).collect();
 
         let x_accessor = &self.x;
-        let x = graph
-            .node_indices()
-            .map(|index| x_accessor(graph, index))
-            .collect();
+        let x = graph.nodes().map(|u| x_accessor(graph, u)).collect();
 
         let y_accessor = &self.y;
-        let y = graph
-            .node_indices()
-            .map(|index| y_accessor(graph, index))
-            .collect();
+        let y = graph.nodes().map(|u| y_accessor(graph, u)).collect();
 
         Box::new(PositionForceContext::new(strength, x, y))
     }

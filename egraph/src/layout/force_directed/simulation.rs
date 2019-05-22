@@ -1,7 +1,5 @@
 use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::Graph;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -57,8 +55,8 @@ impl SimulationContext {
     }
 }
 
-pub struct Simulation<N, E, Ty: EdgeType, Ix: IndexType> {
-    builders: Vec<Rc<RefCell<Force<N, E, Ty, Ix>>>>,
+pub struct Simulation<G> {
+    builders: Vec<Rc<RefCell<Force<G>>>>,
     pub alpha_start: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -66,8 +64,8 @@ pub struct Simulation<N, E, Ty: EdgeType, Ix: IndexType> {
     pub iterations: usize,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
-    pub fn new() -> Simulation<N, E, Ty, Ix> {
+impl<G> Simulation<G> {
+    pub fn new() -> Simulation<G> {
         Simulation {
             builders: Vec::new(),
             alpha_start: 1.,
@@ -78,7 +76,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
         }
     }
 
-    pub fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> SimulationContext {
+    pub fn build(&self, graph: &Graph<G>) -> SimulationContext {
         let forces = self
             .builders
             .iter()
@@ -94,11 +92,11 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> Simulation<N, E, Ty, Ix> {
         )
     }
 
-    pub fn add(&mut self, force: Rc<RefCell<Force<N, E, Ty, Ix>>>) {
+    pub fn add(&mut self, force: Rc<RefCell<Force<G>>>) {
         self.builders.push(force);
     }
 
-    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force<N, E, Ty, Ix>>>> {
+    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force<G>>>> {
         self.builders.get(index).map(|f| f.clone())
     }
 }

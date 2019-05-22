@@ -1,7 +1,5 @@
-use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 
 pub struct CollideForceContext {
     radius: Vec<f32>,
@@ -43,14 +41,14 @@ impl ForceContext for CollideForceContext {
     }
 }
 
-pub struct CollideForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub radius: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
+pub struct CollideForce<G> {
+    pub radius: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
     pub strength: f32,
     pub iterations: usize,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> CollideForce<N, E, Ty, Ix> {
-    pub fn new() -> CollideForce<N, E, Ty, Ix> {
+impl<G> CollideForce<G> {
+    pub fn new() -> CollideForce<G> {
         CollideForce {
             radius: Box::new(|_, _| 1.),
             strength: 0.7,
@@ -59,13 +57,10 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> CollideForce<N, E, Ty, Ix> {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for CollideForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for CollideForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let radius_accessor = &self.radius;
-        let radius = graph
-            .node_indices()
-            .map(|a| radius_accessor(graph, a))
-            .collect();
+        let radius = graph.nodes().map(|u| radius_accessor(graph, u)).collect();
         Box::new(CollideForceContext::new(radius, self.strength))
     }
 }

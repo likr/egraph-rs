@@ -1,8 +1,6 @@
-use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
-use utils::quadtree::{Element, NodeId, Quadtree, Rect};
+use crate::graph::{Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
+use crate::misc::quadtree::{Element, NodeId, Quadtree, Rect};
 
 #[derive(Copy, Clone, Debug)]
 struct Body {
@@ -130,25 +128,22 @@ impl ForceContext for ManyBodyForceContext {
     }
 }
 
-pub struct ManyBodyForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
+pub struct ManyBodyForce<G> {
+    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> ManyBodyForce<N, E, Ty, Ix> {
-    pub fn new() -> ManyBodyForce<N, E, Ty, Ix> {
+impl<G> ManyBodyForce<G> {
+    pub fn new() -> ManyBodyForce<G> {
         ManyBodyForce {
             strength: Box::new(|_, _| -30.),
         }
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for ManyBodyForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for ManyBodyForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let strength_accessor = &self.strength;
-        let strength = graph
-            .node_indices()
-            .map(|a| strength_accessor(graph, a))
-            .collect();
+        let strength = graph.nodes().map(|u| strength_accessor(graph, u)).collect();
         Box::new(ManyBodyForceContext::new(strength))
     }
 }

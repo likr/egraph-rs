@@ -1,6 +1,5 @@
-extern crate petgraph;
-extern crate rand;
-
-pub mod algorithms;
+pub mod graph;
 pub mod layout;
-pub mod utils;
+pub mod misc;
+
+pub use graph::Graph;

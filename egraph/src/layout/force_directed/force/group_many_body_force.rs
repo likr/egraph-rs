@@ -1,8 +1,6 @@
-use super::force::{Force, ForceContext, Point};
 use super::group_indices;
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
 
 pub struct GroupManyBodyForceContext {
@@ -48,13 +46,13 @@ impl ForceContext for GroupManyBodyForceContext {
     }
 }
 
-pub struct GroupManyBodyForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32>,
-    pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,
+pub struct GroupManyBodyForce<G> {
+    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
+    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> GroupManyBodyForce<N, E, Ty, Ix> {
-    pub fn new() -> GroupManyBodyForce<N, E, Ty, Ix> {
+impl<G> GroupManyBodyForce<G> {
+    pub fn new() -> GroupManyBodyForce<G> {
         GroupManyBodyForce {
             strength: Box::new(|_, _| -30.),
             group: Box::new(|_, _| 0),
@@ -62,19 +60,19 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> GroupManyBodyForce<N, E, Ty, Ix> {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for GroupManyBodyForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for GroupManyBodyForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let strength_accessor = &self.strength;
         let strength = graph
-            .node_indices()
-            .map(|a| strength_accessor(graph, a))
+            .nodes()
+            .map(|u| strength_accessor(graph, u))
             .collect::<Vec<_>>();
 
         let groups = {
             let group_accessor = &self.group;
             let groups = graph
-                .node_indices()
-                .map(|a| group_accessor(graph, a))
+                .nodes()
+                .map(|u| group_accessor(graph, u))
                 .collect::<Vec<_>>();
             group_indices(&groups)
         };

@@ -1,7 +1,5 @@
-use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::Graph;
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 
 pub struct CenterForceContext {}
 
@@ -30,8 +28,8 @@ impl CenterForce {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for CenterForce {
-    fn build(&self, _graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for CenterForce {
+    fn build(&self, _graph: &Graph<G>) -> Box<ForceContext> {
         Box::new(CenterForceContext::new())
     }
 }

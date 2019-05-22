@@ -1,6 +1,4 @@
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::Graph;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -39,6 +37,6 @@ pub trait ForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32);
 }
 
-pub trait Force<N, E, Ty: EdgeType, Ix: IndexType> {
-    fn build(&self, &Graph<N, E, Ty, Ix>) -> Box<ForceContext>;
+pub trait Force<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext>;
 }

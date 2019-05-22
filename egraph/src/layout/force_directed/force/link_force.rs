@@ -1,7 +1,5 @@
-use super::force::{Force, ForceContext, Point};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{degree, Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 
 pub struct Link {
     pub source: usize,
@@ -57,39 +55,37 @@ impl ForceContext for LinkForceContext {
     }
 }
 
-pub struct LinkForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub strength: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
-    pub distance: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
+pub struct LinkForce<G> {
+    pub strength: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
+    pub distance: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> LinkForce<N, E, Ty, Ix> {
-    pub fn new() -> LinkForce<N, E, Ty, Ix> {
+impl<G> LinkForce<G> {
+    pub fn new() -> LinkForce<G> {
         LinkForce {
-            strength: Box::new(|graph, e| {
-                let (source, target) = graph.edge_endpoints(e).unwrap();
-                let source_degree = graph.neighbors_undirected(source).count();
-                let target_degree = graph.neighbors_undirected(target).count();
+            strength: Box::new(|graph, u, v| {
+                let source_degree = degree(graph, u);
+                let target_degree = degree(graph, v);
                 1. / (source_degree.min(target_degree)) as f32
             }),
-            distance: Box::new(|_, _| 30.0),
+            distance: Box::new(|_, _, _| 30.0),
         }
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for LinkForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for LinkForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let distance_accessor = &self.distance;
         let strength_accessor = &self.strength;
         let links = graph
-            .edge_indices()
-            .map(|e| {
-                let (source, target) = graph.edge_endpoints(e).unwrap();
-                let distance = distance_accessor(graph, e);
-                let strength = strength_accessor(graph, e);
-                let source_degree = graph.neighbors_undirected(source).count() as f32;
-                let target_degree = graph.neighbors_undirected(target).count() as f32;
+            .edges()
+            .map(|(u, v)| {
+                let distance = distance_accessor(graph, u, v);
+                let strength = strength_accessor(graph, u, v);
+                let source_degree = degree(graph, u) as f32;
+                let target_degree = degree(graph, v) as f32;
                 let bias = source_degree / (source_degree + target_degree);
-                Link::new(source.index(), target.index(), distance, strength, bias)
+                Link::new(u, v, distance, strength, bias)
             })
             .collect();
         Box::new(LinkForceContext::new(links))

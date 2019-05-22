@@ -1,0 +1,9 @@
+[package]
+name = "petgraph-adapter"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+edition = "2018"
+
+[dependencies]
+egraph = { path = "../../egraph" }
+petgraph = "0.4.13"

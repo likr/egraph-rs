@@ -1,8 +1,6 @@
-use super::force::{Force, ForceContext, Point};
 use super::group_indices;
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{Graph, NodeIndex};
+use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
 
 pub struct GroupCenterForceContext {
@@ -48,14 +46,14 @@ impl ForceContext for GroupCenterForceContext {
     }
 }
 
-pub struct GroupCenterForce<N, E, Ty: EdgeType, Ix: IndexType> {
-    pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,
+pub struct GroupCenterForce<G> {
+    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
     pub group_x: Box<Fn(usize) -> f32>,
     pub group_y: Box<Fn(usize) -> f32>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> GroupCenterForce<N, E, Ty, Ix> {
-    pub fn new() -> GroupCenterForce<N, E, Ty, Ix> {
+impl<G> GroupCenterForce<G> {
+    pub fn new() -> GroupCenterForce<G> {
         GroupCenterForce {
             group: Box::new(|_, _| 0),
             group_x: Box::new(|_| 0.),
@@ -64,12 +62,12 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> GroupCenterForce<N, E, Ty, Ix> {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for GroupCenterForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for GroupCenterForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let group_accessor = &self.group;
         let groups = graph
-            .node_indices()
-            .map(|index| group_accessor(graph, index))
+            .nodes()
+            .map(|u| group_accessor(graph, u))
             .collect::<Vec<_>>();
 
         let group_x_accessor = &self.group_x;

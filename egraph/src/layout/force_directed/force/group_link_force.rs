@@ -1,50 +1,47 @@
-use super::force::{Force, ForceContext};
-use super::link_force::{Link, LinkForceContext};
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::graph::{degree, Graph, NodeIndex};
+use crate::layout::force_directed::force::link_force::{Link, LinkForceContext};
+use crate::layout::force_directed::force::{Force, ForceContext};
 
-pub struct GroupLinkForce<N, E, Ty: EdgeType, Ix: IndexType> {
+pub struct GroupLinkForce<G> {
     pub intra_group: f32,
     pub inter_group: f32,
-    pub group: Box<Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize>,
-    pub distance: Box<Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
+    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
+    pub distance: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> GroupLinkForce<N, E, Ty, Ix> {
-    pub fn new() -> GroupLinkForce<N, E, Ty, Ix> {
+impl<G> GroupLinkForce<G> {
+    pub fn new() -> GroupLinkForce<G> {
         GroupLinkForce {
             inter_group: 0.01,
             intra_group: 0.5,
             group: Box::new(|_, _| 0),
-            distance: Box::new(|_, _| 30.0),
+            distance: Box::new(|_, _, _| 30.0),
         }
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> Force<N, E, Ty, Ix> for GroupLinkForce<N, E, Ty, Ix> {
-    fn build(&self, graph: &Graph<N, E, Ty, Ix>) -> Box<ForceContext> {
+impl<G> Force<G> for GroupLinkForce<G> {
+    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
         let group_accessor = &self.group;
         let groups = graph
-            .node_indices()
-            .map(|a| group_accessor(graph, a))
+            .nodes()
+            .map(|u| group_accessor(graph, u))
             .collect::<Vec<_>>();
 
         let distance_accessor = &self.distance;
         let links = graph
-            .edge_indices()
-            .map(|e| {
-                let (source, target) = graph.edge_endpoints(e).unwrap();
-                let distance = distance_accessor(graph, e);
-                let strength = if groups[source.index()] == groups[target.index()] {
+            .edges()
+            .map(|(u, v)| {
+                let distance = distance_accessor(graph, u, v);
+                let strength = if groups[u] == groups[v] {
                     self.intra_group
                 } else {
                     self.inter_group
                 };
-                let source_degree = graph.neighbors_undirected(source).count() as f32;
-                let target_degree = graph.neighbors_undirected(target).count() as f32;
+                let source_degree = degree(graph, u) as f32;
+                let target_degree = degree(graph, v) as f32;
                 let bias = source_degree / (source_degree + target_degree);
-                Link::new(source.index(), target.index(), distance, strength, bias)
+                Link::new(u, v, distance, strength, bias)
             })
             .collect();
         Box::new(LinkForceContext::new(links))
