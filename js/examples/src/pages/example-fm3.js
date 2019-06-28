@@ -1,12 +1,9 @@
 import React from 'react'
-import {
-  Graph,
-  FM3
-} from 'egraph-wasm'
+import { Graph, FM3 } from 'egraph-wasm'
 import { Wrapper } from '../wrapper'
 
 export class ExampleFM3 extends React.Component {
-  componentDidMount () {
+  componentDidMount() {
     const components = 10
     const size = 10
     const rows = size
@@ -51,24 +48,26 @@ export class ExampleFM3 extends React.Component {
     this.refs.renderer.center()
   }
 
-  render () {
-    return <Wrapper onResize={this.handleResize.bind(this)}>
-      <eg-renderer
-        ref='renderer'
-        default-node-width='10'
-        default-node-height='10'
-        default-node-fill-color='black'
-        default-node-stroke-color='#fff'
-        default-node-stroke-width='1.5'
-        default-node-type='circle'
-        default-link-stroke-color='#999'
-        default-link-stroke-opacity='0.6'
-        no-auto-centering
-      />
-    </Wrapper>
+  render() {
+    return (
+      <Wrapper onResize={this.handleResize.bind(this)}>
+        <eg-renderer
+          ref='renderer'
+          default-node-width='10'
+          default-node-height='10'
+          default-node-fill-color='black'
+          default-node-stroke-color='#fff'
+          default-node-stroke-width='1.5'
+          default-node-type='circle'
+          default-link-stroke-color='#999'
+          default-link-stroke-opacity='0.6'
+          no-auto-centering
+        />
+      </Wrapper>
+    )
   }
 
-  handleResize (width, height) {
+  handleResize(width, height) {
     this.refs.renderer.width = width
     this.refs.renderer.height = height
   }

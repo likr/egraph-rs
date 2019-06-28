@@ -9,28 +9,31 @@ import { Home } from './pages/home'
 import { ExampleForceDirected } from './pages/example-force-directed'
 // import { ExampleGroupInABox } from './pages/example-group-in-a-box'
 
-render(<Router>
-  <div>
-    <header>
-      <nav className='navbar is-primary'>
-        <div className='container'>
-          <div className='navbar-brand'>
-            <Link to='/' className='navbar-item'>
-              <h1>Egraph Examples</h1>
-            </Link>
+render(
+  <Router>
+    <div>
+      <header>
+        <nav className='navbar is-primary'>
+          <div className='container'>
+            <div className='navbar-brand'>
+              <Link to='/' className='navbar-item'>
+                <h1>Egraph Examples</h1>
+              </Link>
+            </div>
           </div>
-        </div>
-      </nav>
-    </header>
-    <section className='section'>
-      <div className='container'>
-        <Route path='/' component={Home} exact />
-        <Route path='/force-directed' component={ExampleForceDirected} />
-        {/*
+        </nav>
+      </header>
+      <section className='section'>
+        <div className='container'>
+          <Route path='/' component={Home} exact />
+          <Route path='/force-directed' component={ExampleForceDirected} />
+          {/*
         <Route path='/fm3' component={ExampleFM3} />
         <Route path='/group-in-a-box' component={ExampleGroupInABox} />
         */}
-      </div>
-    </section>
-  </div>
-</Router>, document.getElementById('content'))
+        </div>
+      </section>
+    </div>
+  </Router>,
+  document.getElementById('content')
+)

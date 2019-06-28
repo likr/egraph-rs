@@ -23,8 +23,8 @@ const grouper = (name, graph, groupAccessor) => {
     default:
       grouping = new ForceDirectedGrouping()
       grouping.group(groupAccessor)
-      grouping.linkWeight(e => graph.edge(e).value)
-      grouping.manyBodyForceStrength(_ => -2000)
+      grouping.linkWeight((e) => graph.edge(e).value)
+      grouping.manyBodyForceStrength((_) => -2000)
       return grouping
   }
 }
@@ -49,22 +49,22 @@ const layout = (data, groupLayout) => {
     graph.addEdge(source, target, link)
   }
 
-  const groupAccessor = i => graph.node(i).group
+  const groupAccessor = (i) => graph.node(i).group
   const grouping = grouper(groupLayout, graph, groupAccessor)
   const groups = grouping.call(graph, 600, 600)
   data.groups = Array.from(Object.values(groups))
 
   const manyBodyForce = new GroupManyBodyForce()
   manyBodyForce.group(groupAccessor)
-  manyBodyForce.strength(_ => -30)
+  manyBodyForce.strength((_) => -30)
   const linkForce = new GroupLinkForce()
   linkForce.inter_group(0.001)
   linkForce.group(groupAccessor)
   const positionForce = new GroupPositionForce()
   const centerForce = new GroupCenterForce()
   centerForce.group(groupAccessor)
-  centerForce.groupX(g => groups[g].x)
-  centerForce.groupY(g => groups[g].y)
+  centerForce.groupX((g) => groups[g].x)
+  centerForce.groupY((g) => groups[g].y)
 
   const simulation = new Simulation()
   simulation.add(manyBodyForce.force())
@@ -79,10 +79,11 @@ const layout = (data, groupLayout) => {
 }
 
 export class ExampleGroupInABox extends React.Component {
-  componentDidMount () {
-    window.fetch('/data/miserables.json')
-      .then(response => response.json())
-      .then(data => {
+  componentDidMount() {
+    window
+      .fetch('/data/miserables.json')
+      .then((response) => response.json())
+      .then((data) => {
         const color = d3.scaleOrdinal(d3.schemeCategory10)
         for (const node of data.nodes) {
           node.fillColor = color(node.group)
@@ -97,53 +98,61 @@ export class ExampleGroupInABox extends React.Component {
       })
   }
 
-  render () {
-    return <div>
+  render() {
+    return (
       <div>
-        <Wrapper onResize={this.handleResize.bind(this)}>
-          <eg-renderer
-            ref='renderer'
-            transition-duration='1000'
-            default-node-width='10'
-            default-node-height='10'
-            default-node-stroke-color='#fff'
-            default-node-stroke-width='1.5'
-            default-link-stroke-color='#999'
-            default-link-stroke-opacity='0.6'
-            default-group-type='circle'
-            node-label-property='name'
-            no-auto-update
-            no-auto-centering
-          />
-        </Wrapper>
-      </div>
-      <div>
-        <div className='field'>
-          <label className='label'>Group Layout</label>
-          <div className='control'>
-            <div className='select is-fullwidth'>
-              <select ref='groupLayout' defaultValue='force-directed' onChange={this.handleChangeGroupLayout.bind(this)}>
-                <option value='force-directed'>Force-directed</option>
-                <option value='treemap'>Treemap</option>
-              </select>
+        <div>
+          <Wrapper onResize={this.handleResize.bind(this)}>
+            <eg-renderer
+              ref='renderer'
+              transition-duration='1000'
+              default-node-width='10'
+              default-node-height='10'
+              default-node-stroke-color='#fff'
+              default-node-stroke-width='1.5'
+              default-link-stroke-color='#999'
+              default-link-stroke-opacity='0.6'
+              default-group-type='circle'
+              node-label-property='name'
+              no-auto-update
+              no-auto-centering
+            />
+          </Wrapper>
+        </div>
+        <div>
+          <div className='field'>
+            <label className='label'>Group Layout</label>
+            <div className='control'>
+              <div className='select is-fullwidth'>
+                <select
+                  ref='groupLayout'
+                  defaultValue='force-directed'
+                  onChange={this.handleChangeGroupLayout.bind(this)}
+                >
+                  <option value='force-directed'>Force-directed</option>
+                  <option value='treemap'>Treemap</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    )
   }
 
-  handleResize (width, height) {
+  handleResize(width, height) {
     this.refs.renderer.width = width
     this.refs.renderer.height = height
   }
 
-  handleChangeGroupLayout () {
-    this.refs.renderer.defaultGroupType = groupShape(this.refs.groupLayout.value)
+  handleChangeGroupLayout() {
+    this.refs.renderer.defaultGroupType = groupShape(
+      this.refs.groupLayout.value
+    )
     this.layout()
   }
 
-  layout () {
+  layout() {
     layout(this.data, this.refs.groupLayout.value)
     this.refs.renderer.update()
     this.refs.renderer.center()

@@ -3,9 +3,7 @@ members = [
     "crates/adapter/petgraph",
     "crates/adapter/wasm",
     "crates/egraph",
-    "crates/egraph-c-api",
     "crates/egraph-layered",
     "crates/egraph-py",
-    "crates/egraph-wasm",
     "crates/wasm/layout-force-directed",
 ]

@@ -9,7 +9,7 @@ const checkNode = (graph, u) => {
 }
 
 export class Graph {
-  constructor () {
+  constructor() {
     privates.set(this, {
       nodes: new Map(),
       numNodes: 0,
@@ -17,7 +17,7 @@ export class Graph {
     })
   }
 
-  node (u) {
+  node(u) {
     const nodes = p(this).nodes
     if (nodes.get(u)) {
       return nodes.get(u).data
@@ -25,7 +25,7 @@ export class Graph {
     return null
   }
 
-  edge (u, v) {
+  edge(u, v) {
     const nodes = p(this).nodes
     if (nodes.get(u) && nodes.get(u).outNodes.get(v)) {
       return nodes.get(u).outNodes.get(v)
@@ -33,13 +33,13 @@ export class Graph {
     return null
   }
 
-  * nodes () {
+  *nodes() {
     for (const key of p(this).nodes.keys()) {
       yield key
     }
   }
 
-  * edges () {
+  *edges() {
     for (const u of this.nodes()) {
       for (const v of this.outNodes(u)) {
         yield [u, v]
@@ -47,51 +47,55 @@ export class Graph {
     }
   }
 
-  * outNodes (u) {
+  *outNodes(u) {
     checkNode(this, u)
-    for (const key of p(this).nodes.get(u).outNodes.keys()) {
+    for (const key of p(this)
+      .nodes.get(u)
+      .outNodes.keys()) {
       yield key
     }
   }
 
-  * inNodes (u) {
+  *inNodes(u) {
     checkNode(this, u)
-    for (const key of p(this).nodes.get(u).inNodes.keys()) {
+    for (const key of p(this)
+      .nodes.get(u)
+      .inNodes.keys()) {
       yield key
     }
   }
 
-  * outEdges (u) {
+  *outEdges(u) {
     for (const v of this.outNodes(u)) {
       yield [u, v]
     }
   }
 
-  * inEdges (u) {
+  *inEdges(u) {
     for (const v of this.inNodes(u)) {
       yield [v, u]
     }
   }
 
-  nodeCount () {
+  nodeCount() {
     return p(this).numNodes
   }
 
-  edgeCount () {
+  edgeCount() {
     return p(this).numEdges
   }
 
-  outDegree (u) {
+  outDegree(u) {
     checkNode(this, u)
     return p(this).nodes.get(u).outNodes.size
   }
 
-  inDegree (u) {
+  inDegree(u) {
     checkNode(this, u)
     return p(this).nodes.get(u).inNodes.size
   }
 
-  addNode (u, obj = {}) {
+  addNode(u, obj = {}) {
     if (this.node(u)) {
       throw new Error(`Duplicated node: ${u}`)
     }
@@ -104,19 +108,23 @@ export class Graph {
     return this
   }
 
-  addEdge (u, v, obj = {}) {
+  addEdge(u, v, obj = {}) {
     checkNode(this, u)
     checkNode(this, v)
     if (this.edge(u, v)) {
       throw new Error(`Duplicated edge: (${u}, ${v})`)
     }
     p(this).numEdges++
-    p(this).nodes.get(u).outNodes.set(v, obj)
-    p(this).nodes.get(v).inNodes.set(u, obj)
+    p(this)
+      .nodes.get(u)
+      .outNodes.set(v, obj)
+    p(this)
+      .nodes.get(v)
+      .inNodes.set(u, obj)
     return this
   }
 
-  removeNode (u) {
+  removeNode(u) {
     for (const v of this.outNodes(u)) {
       this.removeEdge(u, v)
     }
@@ -128,24 +136,32 @@ export class Graph {
     return this
   }
 
-  removeEdge (u, v) {
+  removeEdge(u, v) {
     if (this.edge(u, v) === null) {
       throw Error(`Invalid edge: (${u}, ${v})`)
     }
-    p(this).nodes.get(u).outNodes.delete(v)
-    p(this).nodes.get(v).inNodes.delete(u)
+    p(this)
+      .nodes.get(u)
+      .outNodes.delete(v)
+    p(this)
+      .nodes.get(v)
+      .inNodes.delete(u)
     p(this).numEdges--
     return this
   }
 
-  toJSON () {
+  toJSON() {
     return {
-      nodes: Array.from(this.nodes()).map((u) => Object.assign(this.node(u), { id: u })),
-      links: Array.from(this.edges()).map(([u, v]) => Object.assign(this.edge(u, v), { source: u, target: v }))
+      nodes: Array.from(this.nodes()).map((u) =>
+        Object.assign(this.node(u), { id: u })
+      ),
+      links: Array.from(this.edges()).map(([u, v]) =>
+        Object.assign(this.edge(u, v), { source: u, target: v })
+      )
     }
   }
 
-  toString () {
+  toString() {
     return JSON.stringify(this.toJSON())
   }
 }

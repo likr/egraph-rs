@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "lerna exec --scope examples -- npm start"
   },
   "repository": {
     "type": "git",
@@ -18,6 +18,17 @@
   },
   "homepage": "https://github.com/likr/egraph-rs#readme",
   "devDependencies": {
-    "lerna": "^3.14.1"
+    "eslint": "^5.16.0",
+    "eslint-config-prettier": "^6.0.0",
+    "eslint-config-react": "^1.1.7",
+    "eslint-config-standard": "^12.0.0",
+    "eslint-config-standard-react": "^7.0.2",
+    "eslint-plugin-import": "^2.18.0",
+    "eslint-plugin-node": "^9.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-react": "^7.14.2",
+    "eslint-plugin-standard": "^4.0.0",
+    "lerna": "^3.14.1",
+    "prettier": "^1.18.2"
   }
 }

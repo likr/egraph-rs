@@ -22,8 +22,9 @@ const draw = (renderer, data) => {
 }
 
 export class ExampleForceDirected extends React.Component {
-  componentDidMount () {
-    window.fetch('/data/miserables.json')
+  componentDidMount() {
+    window
+      .fetch('/data/miserables.json')
       .then((response) => response.json())
       .then((data) => {
         const graph = new Graph()
@@ -55,24 +56,26 @@ export class ExampleForceDirected extends React.Component {
       })
   }
 
-  render () {
-    return <Wrapper onResize={this.handleResize.bind(this)}>
-      <eg-renderer
-        ref='renderer'
-        default-node-width='10'
-        default-node-height='10'
-        default-node-stroke-color='#fff'
-        default-node-stroke-width='1.5'
-        default-node-type='circle'
-        default-link-stroke-color='#999'
-        default-link-stroke-opacity='0.6'
-        node-label-property='name'
-        no-auto-centering
-      />
-    </Wrapper>
+  render() {
+    return (
+      <Wrapper onResize={this.handleResize.bind(this)}>
+        <eg-renderer
+          ref='renderer'
+          default-node-width='10'
+          default-node-height='10'
+          default-node-stroke-color='#fff'
+          default-node-stroke-width='1.5'
+          default-node-type='circle'
+          default-link-stroke-color='#999'
+          default-link-stroke-opacity='0.6'
+          node-label-property='name'
+          no-auto-centering
+        />
+      </Wrapper>
+    )
   }
 
-  handleResize (width, height) {
+  handleResize(width, height) {
     this.refs.renderer.width = width
     this.refs.renderer.height = height
   }

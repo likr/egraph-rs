@@ -19,7 +19,7 @@ const draw = (renderer, graph) => {
 }
 
 export class ExampleEdgeConcentration extends React.Component {
-  componentDidMount () {
+  componentDidMount() {
     const graph = new Graph()
     const source = new Array(3)
     for (let i = 0; i < 3; ++i) {
@@ -55,25 +55,27 @@ export class ExampleEdgeConcentration extends React.Component {
     draw(this.refs.renderer, transformed)
   }
 
-  render () {
-    return <Wrapper onResize={this.handleResize.bind(this)}>
-      <eg-renderer
-        ref='renderer'
-        default-node-width='10'
-        default-node-height='10'
-        default-node-fill-color='#000'
-        default-node-stroke-width='0'
-        default-node-type='circle'
-        default-link-stroke-color='#999'
-        default-link-stroke-opacity='0.6'
-        graph-links-property='edges'
-        node-fill-color-property='properties.fillColor'
-        no-auto-centering
-      />
-    </Wrapper>
+  render() {
+    return (
+      <Wrapper onResize={this.handleResize.bind(this)}>
+        <eg-renderer
+          ref='renderer'
+          default-node-width='10'
+          default-node-height='10'
+          default-node-fill-color='#000'
+          default-node-stroke-width='0'
+          default-node-type='circle'
+          default-link-stroke-color='#999'
+          default-link-stroke-opacity='0.6'
+          graph-links-property='edges'
+          node-fill-color-property='properties.fillColor'
+          no-auto-centering
+        />
+      </Wrapper>
+    )
   }
 
-  handleResize (width, height) {
+  handleResize(width, height) {
     this.refs.renderer.width = width
     this.refs.renderer.height = height
   }

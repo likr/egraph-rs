@@ -6,9 +6,7 @@ const options = {
     rules: [
       {
         test: /\.js$/,
-        include: [
-          path.resolve(__dirname, 'src')
-        ],
+        include: [path.resolve(__dirname, 'src')],
         use: [
           {
             loader: 'babel-loader',
@@ -22,7 +20,7 @@ const options = {
     ]
   },
   entry: {
-    'bundle': './src/index.js'
+    bundle: './src/index.js'
   },
   output: {
     path: path.resolve(__dirname, 'public'),
@@ -37,14 +35,14 @@ const options = {
     ])
   ],
   node: {
-    'crypto': 'empty',
-    'path': 'empty',
-    'fs': 'empty'
+    crypto: 'empty',
+    path: 'empty',
+    fs: 'empty'
   },
   devServer: {
     contentBase: path.join(__dirname, 'public'),
     historyApiFallback: true,
-    port: 8084
+    port: 8080
   }
 }
 

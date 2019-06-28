@@ -1,6 +1,0 @@
-[submodule "crates/clp-sys/vendor/CoinUtils"]
-	path = crates/clp-sys/vendor/CoinUtils
-	url = https://github.com/coin-or/CoinUtils
-[submodule "crates/clp-sys/vendor/Clp"]
-	path = crates/clp-sys/vendor/Clp
-	url = https://github.com/coin-or/Clp

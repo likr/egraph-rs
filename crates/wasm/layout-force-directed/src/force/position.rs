@@ -50,7 +50,7 @@ impl PositionForce {
         });
     }
 
-    #[wasm_bindgen(setter = x)]
+    #[wasm_bindgen(setter = y)]
     pub fn y(&self, f: &js_sys::Function) {
         let f = f.clone();
         self.force.borrow_mut().y = Box::new(move |graph, u| {
