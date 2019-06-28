@@ -1,23 +1,21 @@
 {
-  "name": "egraph-rs",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "egraph",
+  "author": "Yosuke Onoue <onoue@likr-lab.com>",
+  "license": "MIT",
   "scripts": {
-    "start": "lerna exec --scope examples -- npm start"
+    "start": "lerna exec --scope examples -- npm start",
+    "wasm-build": "find crates/wasm -type d -depth 1 -exec wasm-pack build --scope egraph {} \\;"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/likr/egraph-rs.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/likr/egraph-rs/issues"
   },
   "homepage": "https://github.com/likr/egraph-rs#readme",
   "devDependencies": {
+    "babel-eslint": "^10.0.2",
     "eslint": "^5.16.0",
     "eslint-config-prettier": "^6.0.0",
     "eslint-config-react": "^1.1.7",
@@ -25,10 +23,12 @@
     "eslint-config-standard-react": "^7.0.2",
     "eslint-plugin-import": "^2.18.0",
     "eslint-plugin-node": "^9.1.0",
+    "eslint-plugin-prettier": "^3.1.0",
     "eslint-plugin-promise": "^4.2.1",
     "eslint-plugin-react": "^7.14.2",
     "eslint-plugin-standard": "^4.0.0",
     "lerna": "^3.14.1",
     "prettier": "^1.18.2"
-  }
+  },
+  "private": true
 }

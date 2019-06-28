@@ -1,15 +1,14 @@
 import React from 'react'
 import * as d3 from 'd3'
+import { Graph } from 'egraph'
+import { TreemapGrouping } from 'egraph/grouping'
 import {
-  Graph,
-  ForceDirectedGrouping,
-  TreemapGrouping,
   Simulation,
   GroupCenterForce,
   GroupLinkForce,
   GroupManyBodyForce,
   GroupPositionForce
-} from 'egraph-wasm'
+} from 'egraph/layout/force-directed'
 import { Wrapper } from '../wrapper'
 
 const grouper = (name, graph, groupAccessor) => {
@@ -17,14 +16,7 @@ const grouper = (name, graph, groupAccessor) => {
   switch (name) {
     case 'treemap':
       grouping = new TreemapGrouping()
-      grouping.group(groupAccessor)
-      return grouping
-    case 'force-directed':
-    default:
-      grouping = new ForceDirectedGrouping()
-      grouping.group(groupAccessor)
-      grouping.linkWeight((e) => graph.edge(e).value)
-      grouping.manyBodyForceStrength((_) => -2000)
+      grouping.group = groupAccessor
       return grouping
   }
 }
@@ -41,40 +33,42 @@ const groupShape = (name) => {
 
 const layout = (data, groupLayout) => {
   const graph = new Graph()
-  data.nodes.forEach((node) => {
-    graph.addNode(node)
+  data.nodes.forEach((node, i) => {
+    graph.addNode(i, node)
   })
   for (const link of data.links) {
     const { source, target } = link
     graph.addEdge(source, target, link)
   }
 
-  const groupAccessor = (i) => graph.node(i).group
+  const groupAccessor = (graph, u) => graph.node(u).group
   const grouping = grouper(groupLayout, graph, groupAccessor)
   const groups = grouping.call(graph, 600, 600)
   data.groups = Array.from(Object.values(groups))
 
   const manyBodyForce = new GroupManyBodyForce()
-  manyBodyForce.group(groupAccessor)
-  manyBodyForce.strength((_) => -30)
+  manyBodyForce.group = groupAccessor
+  manyBodyForce.strength = (_) => -30
   const linkForce = new GroupLinkForce()
-  linkForce.inter_group(0.001)
-  linkForce.group(groupAccessor)
+  linkForce.inter_group = 0.001
+  linkForce.group = groupAccessor
   const positionForce = new GroupPositionForce()
   const centerForce = new GroupCenterForce()
-  centerForce.group(groupAccessor)
-  centerForce.groupX((g) => groups[g].x)
-  centerForce.groupY((g) => groups[g].y)
+  centerForce.group = groupAccessor
+  centerForce.groupX = (g) => groups[g].x
+  centerForce.groupY = (g) => groups[g].y
 
   const simulation = new Simulation()
-  simulation.add(manyBodyForce.force())
-  simulation.add(linkForce.force())
-  simulation.add(positionForce.force())
-  simulation.add(centerForce.force())
+  simulation.add(manyBodyForce)
+  simulation.add(linkForce)
+  simulation.add(positionForce)
+  simulation.add(centerForce)
 
   const layout = simulation.start(graph)
-  for (const i of graph.nodeIndices()) {
-    Object.assign(data.nodes[i], layout[i])
+  for (const u of graph.nodes()) {
+    const node = graph.node(u)
+    node.x = layout.nodes[u].x
+    node.y = layout.nodes[u].y
   }
 }
 
@@ -102,7 +96,12 @@ export class ExampleGroupInABox extends React.Component {
     return (
       <div>
         <div>
-          <Wrapper onResize={this.handleResize.bind(this)}>
+          <Wrapper
+            onResize={(width, height) => {
+              this.refs.renderer.width = width
+              this.refs.renderer.height = height
+            }}
+          >
             <eg-renderer
               ref='renderer'
               transition-duration='1000'
@@ -112,7 +111,7 @@ export class ExampleGroupInABox extends React.Component {
               default-node-stroke-width='1.5'
               default-link-stroke-color='#999'
               default-link-stroke-opacity='0.6'
-              default-group-type='circle'
+              default-group-type='rect'
               node-label-property='name'
               no-auto-update
               no-auto-centering
@@ -126,8 +125,13 @@ export class ExampleGroupInABox extends React.Component {
               <div className='select is-fullwidth'>
                 <select
                   ref='groupLayout'
-                  defaultValue='force-directed'
-                  onChange={this.handleChangeGroupLayout.bind(this)}
+                  defaultValue='treemap'
+                  onChange={() => {
+                    this.refs.renderer.defaultGroupType = groupShape(
+                      this.refs.groupLayout.value
+                    )
+                    this.layout()
+                  }}
                 >
                   <option value='force-directed'>Force-directed</option>
                   <option value='treemap'>Treemap</option>
@@ -138,18 +142,6 @@ export class ExampleGroupInABox extends React.Component {
         </div>
       </div>
     )
-  }
-
-  handleResize(width, height) {
-    this.refs.renderer.width = width
-    this.refs.renderer.height = height
-  }
-
-  handleChangeGroupLayout() {
-    this.refs.renderer.defaultGroupType = groupShape(
-      this.refs.groupLayout.value
-    )
-    this.layout()
   }
 
   layout() {

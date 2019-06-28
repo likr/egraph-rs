@@ -58,7 +58,12 @@ export class ExampleForceDirected extends React.Component {
 
   render() {
     return (
-      <Wrapper onResize={this.handleResize.bind(this)}>
+      <Wrapper
+        onResize={(width, height) => {
+          this.refs.renderer.width = width
+          this.refs.renderer.height = height
+        }}
+      >
         <eg-renderer
           ref='renderer'
           default-node-width='10'
@@ -73,10 +78,5 @@ export class ExampleForceDirected extends React.Component {
         />
       </Wrapper>
     )
-  }
-
-  handleResize(width, height) {
-    this.refs.renderer.width = width
-    this.refs.renderer.height = height
   }
 }

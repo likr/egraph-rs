@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@egraph/grouping": "^0.2.0",
     "@egraph/layout-force-directed": "^0.2.0"
   }
 }
