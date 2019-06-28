@@ -2,8 +2,6 @@
 members = [
     "crates/adapter/petgraph",
     "crates/adapter/wasm",
-    "crates/clp",
-    "crates/clp-sys",
     "crates/egraph",
     "crates/egraph-c-api",
     "crates/egraph-layered",
