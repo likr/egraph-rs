@@ -1,21 +1,17 @@
-use fixedbitset::FixedBitSet;
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::visit::GetAdjacencyMatrix;
+use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 
-fn bary_center<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    matrix: &FixedBitSet,
-    h1: &Vec<NodeIndex<Ix>>,
-    h2: &Vec<NodeIndex<Ix>>,
-) -> HashMap<NodeIndex<Ix>, f64> {
+fn bary_center<D, G: Graph<D>>(
+    graph: &G,
+    h1: &Vec<NodeIndex>,
+    h2: &Vec<NodeIndex>,
+) -> HashMap<NodeIndex, f64> {
     let mut result = HashMap::new();
-    for v in h2 {
+    for &v in h2 {
         let mut sum = 0;
         let mut count = 0;
-        for (i, u) in h1.iter().enumerate() {
-            if graph.is_adjacent(&matrix, u.clone(), v.clone()) {
+        for (i, &u) in h1.iter().enumerate() {
+            if graph.has_edge(u, v) {
                 sum += i;
                 count += 1;
             }
@@ -25,13 +21,8 @@ fn bary_center<N, E, Ix: IndexType>(
     result
 }
 
-pub fn crossing_reduction<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    matrix: &FixedBitSet,
-    h1: &Vec<NodeIndex<Ix>>,
-    h2: &mut Vec<NodeIndex<Ix>>,
-) {
-    let values = bary_center(graph, matrix, h1, h2);
+pub fn crossing_reduction<D, G: Graph<D>>(graph: &G, h1: &Vec<NodeIndex>, h2: &mut Vec<NodeIndex>) {
+    let values = bary_center(graph, h1, h2);
     h2.sort_by(|u, v| {
         let cu = values.get(u).unwrap();
         let cv = values.get(v).unwrap();
@@ -42,7 +33,7 @@ pub fn crossing_reduction<N, E, Ix: IndexType>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use petgraph::visit::GetAdjacencyMatrix;
+    use egraph_petgraph_adapter::PetgraphWrapper;
     use petgraph::Graph;
 
     #[test]
@@ -61,10 +52,10 @@ mod tests {
         graph.add_edge(u3, v1, "");
         graph.add_edge(u3, v3, "");
         graph.add_edge(u4, v2, "");
-        let h1 = vec![u1, u2, u3, u4];
-        let mut h2 = vec![v1, v2, v3];
-        let matrix = graph.adjacency_matrix();
-        crossing_reduction(&graph, &matrix, &h1, &mut h2);
-        assert_eq!(h2, vec![v2, v3, v1]);
+        let h1 = vec![u1.index(), u2.index(), u3.index(), u4.index()];
+        let mut h2 = vec![v1.index(), v2.index(), v3.index()];
+        let graph = PetgraphWrapper::new(graph);
+        crossing_reduction(&graph, &h1, &mut h2);
+        assert_eq!(h2, vec![v2.index(), v3.index(), v1.index()]);
     }
 }

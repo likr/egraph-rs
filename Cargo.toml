@@ -1,9 +1,9 @@
 [workspace]
 members = [
+    "crates/adapter/adapter",
     "crates/adapter/petgraph",
     "crates/adapter/wasm",
     "crates/egraph",
-    "crates/egraph-layered",
     "crates/egraph-py",
     "crates/wasm",
 ]

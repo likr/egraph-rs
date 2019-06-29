@@ -1,6 +1,3 @@
-extern crate petgraph;
-
-use egraph::Graph as EGraph;
 use petgraph::graph::{node_index, IndexType};
 use petgraph::prelude::*;
 use petgraph::EdgeType;
@@ -15,7 +12,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> PetgraphWrapper<N, E, Ty, Ix> {
     }
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> EGraph<Graph<N, E, Ty, Ix>>
+impl<N, E, Ty: EdgeType, Ix: IndexType> egraph_adapter::Graph<Graph<N, E, Ty, Ix>>
     for PetgraphWrapper<N, E, Ty, Ix>
 {
     fn data(&self) -> &Graph<N, E, Ty, Ix> {
@@ -73,5 +70,12 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> EGraph<Graph<N, E, Ty, Ix>>
         self.graph
             .neighbors_directed(node_index(u), Incoming)
             .count()
+    }
+
+    fn has_edge(&self, u: usize, v: usize) -> bool {
+        if let Some(_) = self.graph.find_edge(node_index(u), node_index(v)) {
+            return true;
+        }
+        false
     }
 }

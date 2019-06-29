@@ -1,4 +1,4 @@
-use egraph::graph::{Graph, NodeIndex};
+use egraph_adapter::{Graph, NodeIndex};
 use js_sys::{try_iter, Reflect};
 use wasm_bindgen::prelude::*;
 
@@ -12,6 +12,10 @@ extern "C" {
     #[wasm_bindgen(method, js_class = "Graph", js_name = "addEdge")]
     pub fn add_edge(this: &JsGraph, u: usize, v: usize, data: JsValue);
 
+    #[wasm_bindgen(method, js_class = "Graph", js_name = "node")]
+    fn node(this: &JsGraph, u: usize) -> JsValue;
+    #[wasm_bindgen(method, js_class = "Graph", js_name = "edge")]
+    fn edge(this: &JsGraph, u: usize, v: usize) -> JsValue;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "nodes")]
     fn nodes(this: &JsGraph) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "edges")]
@@ -99,5 +103,9 @@ impl Graph<JsGraph> for JsGraphAdapter {
 
     fn in_degree<'a>(&'a self, u: NodeIndex) -> usize {
         self.graph.in_degree(u)
+    }
+
+    fn has_edge(&self, u: NodeIndex, v: NodeIndex) -> bool {
+        !self.graph.edge(u, v).is_null()
     }
 }

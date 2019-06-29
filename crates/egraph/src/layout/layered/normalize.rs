@@ -1,31 +1,62 @@
-use super::graph::{Edge, Node};
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::prelude::*;
+use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 
-pub fn normalize<Ix: IndexType>(
-    graph: &mut Graph<Node<Ix>, Edge, Directed, Ix>,
-    layers_map: &mut HashMap<NodeIndex<Ix>, usize>,
-) {
-    for e in graph.edge_indices() {
-        let edge = graph[e].clone();
-        let (u, v) = graph.edge_endpoints(e).unwrap();
-        let h_u = *layers_map.get(&u).unwrap();
-        let h_v = *layers_map.get(&v).unwrap();
-        let length = h_v - h_u;
-        if length == 1 {
-            continue;
+pub enum NodeType {
+    Original {
+        id: NodeIndex,
+    },
+    Dummy {
+        source: NodeIndex,
+        target: NodeIndex,
+    },
+}
+
+pub struct NodeAlignment {
+    pub index: usize,
+    pub layer: usize,
+    pub order: usize,
+    pub width: f32,
+    pub node_type: NodeType,
+}
+
+pub fn normalize<D, G: Graph<D>>(
+    graph: &G,
+    layers_map: &HashMap<NodeIndex, usize>,
+    sizes: &HashMap<NodeIndex, (f32, f32)>,
+    horizontal_margin: f32,
+) -> Vec<NodeAlignment> {
+    let mut nodes = Vec::new();
+    for u in graph.nodes() {
+        let u_layer = layers_map[&u];
+        for v in graph.out_nodes(u) {
+            let v_layer = layers_map[&v];
+            let length = v_layer - u_layer;
+            if length == 1 {
+                continue;
+            }
+            for layer in u_layer + 1..v_layer {
+                nodes.push(NodeAlignment {
+                    index: nodes.len(),
+                    layer: layer,
+                    order: 0,
+                    width: horizontal_margin,
+                    node_type: NodeType::Dummy {
+                        source: u,
+                        target: v,
+                    },
+                });
+            }
         }
-        let mut w0 = u;
-        for i in h_u + 1..h_v {
-            let w1 = graph.add_node(Node::new_dummy(e));
-            layers_map.insert(w1, i);
-            graph.add_edge(w0, w1, Edge::new_split(&edge));
-            w0 = w1;
-        }
-        graph.add_edge(w0, v, Edge::new_split(&edge));
-        graph.remove_edge(e);
+        let (width, _) = sizes[&u];
+        nodes.push(NodeAlignment {
+            index: nodes.len(),
+            layer: u_layer,
+            order: 0,
+            width: width + horizontal_margin,
+            node_type: NodeType::Original { id: u },
+        });
     }
+    nodes
 }
 
 #[cfg(test)]

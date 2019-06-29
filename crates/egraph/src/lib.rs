@@ -5,4 +5,4 @@ pub mod grouping;
 pub mod layout;
 pub mod misc;
 
-pub use graph::Graph;
+pub use graph::{Graph, NodeIndex};

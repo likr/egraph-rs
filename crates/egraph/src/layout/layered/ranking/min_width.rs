@@ -1,13 +1,13 @@
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::{Directed, Direction, Graph};
-use ranking::RankingModule;
+use super::RankingModule;
+use crate::graph::sink_nodes;
+use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 
-fn dfs<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    layers: &mut HashMap<NodeIndex<Ix>, usize>,
+fn dfs<D, G: Graph<D>>(
+    graph: &G,
+    layers: &mut HashMap<NodeIndex, usize>,
     widths: &mut HashMap<usize, usize>,
-    u: NodeIndex<Ix>,
+    u: NodeIndex,
     width_limit: usize,
 ) -> usize {
     if let Some(&layer) = layers.get(&u) {
@@ -15,7 +15,7 @@ fn dfs<N, E, Ix: IndexType>(
     }
 
     let mut max_layer = 0;
-    for v in graph.neighbors_directed(u, Direction::Incoming) {
+    for v in graph.in_nodes(u) {
         let layer = dfs(graph, layers, widths, v, width_limit);
         if layer >= max_layer {
             max_layer = layer + 1;
@@ -35,13 +35,10 @@ fn dfs<N, E, Ix: IndexType>(
     max_layer
 }
 
-fn min_width<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    width_limit: usize,
-) -> HashMap<NodeIndex<Ix>, usize> {
+fn min_width<D, G: Graph<D>>(graph: &G, width_limit: usize) -> HashMap<NodeIndex, usize> {
     let mut layering = HashMap::new();
     let mut widths = HashMap::new();
-    for u in graph.externals(Direction::Outgoing) {
+    for u in sink_nodes(graph) {
         dfs(graph, &mut layering, &mut widths, u, width_limit);
     }
     layering
@@ -57,8 +54,8 @@ impl MinWidthRanking {
     }
 }
 
-impl<N, E, Ix: IndexType> RankingModule<N, E, Ix> for MinWidthRanking {
-    fn call(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize> {
+impl<D, G: Graph<D>> RankingModule<D, G> for MinWidthRanking {
+    fn call(&self, graph: &G) -> HashMap<NodeIndex, usize> {
         min_width(graph, self.width_limit)
     }
 }
@@ -66,11 +63,12 @@ impl<N, E, Ix: IndexType> RankingModule<N, E, Ix> for MinWidthRanking {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egraph_petgraph_adapter::PetgraphWrapper;
     use petgraph::Graph;
 
     #[test]
     fn test_min_width_layering() {
-        let mut graph = Graph::<(), ()>::new();
+        let mut graph = Graph::<_, _>::new();
         let a = graph.add_node(());
         let b = graph.add_node(());
         let c = graph.add_node(());
@@ -80,11 +78,12 @@ mod tests {
         graph.add_edge(b, c, ());
         graph.add_edge(d, c, ());
         graph.add_edge(d, e, ());
+        let graph = PetgraphWrapper::new(graph);
         let layers = min_width(&graph, 1);
-        assert_eq!(*layers.get(&a).unwrap(), 1);
-        assert_eq!(*layers.get(&b).unwrap(), 2);
-        assert_eq!(*layers.get(&c).unwrap(), 3);
-        assert_eq!(*layers.get(&d).unwrap(), 0);
-        assert_eq!(*layers.get(&e).unwrap(), 4);
+        assert_eq!(layers[&a.index()], 1);
+        assert_eq!(layers[&b.index()], 2);
+        assert_eq!(layers[&c.index()], 3);
+        assert_eq!(layers[&d.index()], 0);
+        assert_eq!(layers[&e.index()], 4);
     }
 }
