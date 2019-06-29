@@ -17,10 +17,10 @@ export class ExampleForceDirected extends React.Component {
       .then((data) => {
         const color = d3.scaleOrdinal(d3.schemeCategory10)
         const graph = new Graph()
-        data.nodes.forEach((node, i) => {
+        for (const node of data.nodes) {
           node.fillColor = color(node.group)
-          graph.addNode(i, node)
-        })
+          graph.addNode(node.id, node)
+        }
         for (const link of data.links) {
           link.strokeWidth = Math.sqrt(link.value)
           const { source, target } = link

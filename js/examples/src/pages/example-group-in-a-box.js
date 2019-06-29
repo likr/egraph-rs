@@ -45,9 +45,9 @@ const grouping = (name, graph, groupAccessor) => {
 
 const layout = (data, groupLayout) => {
   const graph = new Graph()
-  data.nodes.forEach((node, i) => {
-    graph.addNode(i, node)
-  })
+  for (const node of data.nodes) {
+    graph.addNode(node.id, node)
+  }
   for (const link of data.links) {
     const { source, target } = link
     graph.addEdge(source, target, link)

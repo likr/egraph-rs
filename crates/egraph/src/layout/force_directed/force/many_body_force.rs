@@ -153,13 +153,13 @@ impl<D, G: Graph<D>> Force<D, G> for ManyBodyForce<D, G> {
 
 #[test]
 fn test_many_body() {
-    let force = ManyBodyForce::new();
     let mut points = Vec::new();
     points.push(Point::new(10., 10.));
     points.push(Point::new(10., -10.));
     points.push(Point::new(-10., 10.));
     points.push(Point::new(-10., -10.));
-    force.apply(&mut points, 1.);
+    let context = ManyBodyForceContext::new(vec![-30., -30., -30., -30.]);
+    context.apply(&mut points, 1.0);
     assert!(points[0].vx == 2.25);
     assert!(points[0].vy == 2.25);
     assert!(points[1].vx == 2.25);

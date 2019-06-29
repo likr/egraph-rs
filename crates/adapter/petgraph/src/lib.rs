@@ -1,5 +1,6 @@
 extern crate petgraph;
 
+use egraph::Graph as EGraph;
 use petgraph::graph::{node_index, IndexType};
 use petgraph::prelude::*;
 use petgraph::EdgeType;
@@ -8,7 +9,23 @@ pub struct PetgraphWrapper<N, E, Ty: EdgeType, Ix: IndexType> {
     graph: Graph<N, E, Ty, Ix>,
 }
 
-impl<N, E, Ty: EdgeType, Ix: IndexType> egraph::Graph for PetgraphWrapper<N, E, Ty, Ix> {
+impl<N, E, Ty: EdgeType, Ix: IndexType> PetgraphWrapper<N, E, Ty, Ix> {
+    pub fn new(graph: Graph<N, E, Ty, Ix>) -> PetgraphWrapper<N, E, Ty, Ix> {
+        PetgraphWrapper { graph }
+    }
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> EGraph<Graph<N, E, Ty, Ix>>
+    for PetgraphWrapper<N, E, Ty, Ix>
+{
+    fn data(&self) -> &Graph<N, E, Ty, Ix> {
+        &self.graph
+    }
+
+    fn data_mut(&mut self) -> &mut Graph<N, E, Ty, Ix> {
+        &mut self.graph
+    }
+
     fn nodes(&self) -> Box<Iterator<Item = usize>> {
         Box::new(self.graph.node_indices().map(|i| i.index()))
     }

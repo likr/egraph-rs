@@ -110,24 +110,14 @@ impl<D, G: Graph<D>> Force<D, G> for LinkForce<D, G> {
 #[test]
 fn test_link() {
     let mut links = Vec::new();
-    links.push(Link::new(0, 1));
-    links.push(Link::new(1, 3));
-    links.push(Link::new(3, 2));
-    links.push(Link::new(2, 0));
-    let mut force = LinkForce::new_with_links(links);
-    force.strength = 0.0;
+    links.push(Link::new(0, 1, 30., 0.5, 0.5));
+    let context = LinkForceContext::new(links);
     let mut points = Vec::new();
-    points.push(Point::new(10., 10.));
-    points.push(Point::new(10., -10.));
-    points.push(Point::new(-10., 10.));
-    points.push(Point::new(-10., -10.));
-    force.apply(&mut points, 1.);
-    assert_eq!(points[0].vx, 2.5);
-    assert_eq!(points[0].vy, 2.5);
+    points.push(Point::new(-10., 0.));
+    points.push(Point::new(10., 0.));
+    context.apply(&mut points, 1.);
+    assert_eq!(points[0].vx, -2.5);
+    assert_eq!(points[0].vy, 0.);
     assert_eq!(points[1].vx, 2.5);
-    assert_eq!(points[1].vy, -2.5);
-    assert_eq!(points[2].vx, -2.5);
-    assert_eq!(points[2].vy, 2.5);
-    assert_eq!(points[3].vx, -2.5);
-    assert_eq!(points[3].vy, -2.5);
+    assert_eq!(points[1].vy, 0.);
 }

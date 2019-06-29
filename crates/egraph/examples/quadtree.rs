@@ -1,8 +1,9 @@
 extern crate egraph;
 extern crate rand;
 
-use egraph::utils::quadtree::{Element, NodeId, Quadtree, Rect};
-use rand::distributions::{IndependentSample, Range};
+use egraph::misc::quadtree::{Element, NodeId, Quadtree, Rect};
+use rand::distributions::Uniform;
+use rand::prelude::*;
 
 fn print_rect(rect: Rect, color: &str) {
     println!(
@@ -29,7 +30,7 @@ fn walk(tree: &Quadtree<()>, node_id: NodeId) {
     print_rect(rect, "none");
     for &(ref e, region) in tree.elements(node_id).iter() {
         match **e {
-            Element::Leaf { x, y, n } => {
+            Element::Leaf { x, y, n, value: _ } => {
                 let sub_rect = rect.sub_rect(region);
                 print_rect(sub_rect, "#eee");
                 print_circle(x, y, n);
@@ -52,15 +53,11 @@ fn generate(width: f32, height: f32, n: usize) -> Quadtree<()> {
     });
     let root = tree.root();
 
-    let width_range = Range::new(-width / 2., width / 2.);
-    let height_range = Range::new(-height / 2., height / 2.);
-    let mut rng = rand::thread_rng();
+    let width_range = Uniform::new(-width / 2., width / 2.);
+    let height_range = Uniform::new(-height / 2., height / 2.);
+    let mut rng = thread_rng();
     for _ in 0..n {
-        tree.insert(
-            root,
-            width_range.ind_sample(&mut rng),
-            height_range.ind_sample(&mut rng),
-        );
+        tree.insert(root, rng.sample(width_range), rng.sample(height_range), 0.0);
     }
     tree
 }

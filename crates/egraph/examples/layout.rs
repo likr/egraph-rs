@@ -1,19 +1,20 @@
 #[macro_use]
 extern crate serde_derive;
 
-extern crate egraph;
-extern crate getopts;
-extern crate serde;
-extern crate serde_json;
-
-use egraph::layout::force_directed::edge_bundling::EdgeBundling;
-use egraph::layout::force_directed::force::{
-    CenterForce, Force, Link, LinkForce, ManyBodyForce, Point,
-};
-use egraph::layout::force_directed::simulation::start_simulation;
+use egraph::edge_bundling::force_directed::ForceDirectedEdgeBundling;
+use egraph::layout::force_directed::force::{CenterForce, LinkForce, ManyBodyForce};
+use egraph::layout::force_directed::{initial_placement, Simulation};
+use egraph::Graph as EGraph;
+use egraph_petgraph_adapter::PetgraphWrapper;
+use petgraph::prelude::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Serialize, Deserialize)]
-struct NodeData {}
+struct NodeData {
+    id: usize,
+}
 
 #[derive(Serialize, Deserialize)]
 struct LinkData {
@@ -39,39 +40,34 @@ fn main() {
 
     let path = std::path::Path::new(&filename);
     let file = std::fs::File::open(&path).unwrap();
-    let graph: GraphData = serde_json::from_reader(&file).unwrap();
+    let data: GraphData = serde_json::from_reader(&file).unwrap();
 
-    let mut points = graph
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let r = (i as usize as f32).sqrt();
-            let theta = std::f32::consts::PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
-            let x = r * theta.cos();
-            let y = r * theta.sin();
-            Point::new(x, y)
-        })
-        .collect::<Vec<_>>();
-    let links = graph
-        .links
-        .iter()
-        .map(|link| Link::new(link.source, link.target))
-        .collect::<Vec<_>>();
+    let mut graph = Graph::new();
+    let mut indices = HashMap::new();
+    for node in data.nodes {
+        indices.insert(node.id, graph.add_node(node));
+    }
+    for link in data.links {
+        graph.add_edge(indices[&link.source], indices[&link.target], link);
+    }
+    let graph = PetgraphWrapper::new(graph);
+
+    let mut points = initial_placement(graph.node_count());
 
     eprintln!("start");
-    let forces = {
-        let mut forces: Vec<Box<Force>> = Vec::new();
-        forces.push(Box::new(ManyBodyForce::new()));
-        forces.push(Box::new(LinkForce::new_with_links(links.to_vec())));
-        forces.push(Box::new(CenterForce::new()));
-        forces
-    };
-    start_simulation(&mut points, &forces);
+    let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
+    let link_force = Rc::new(RefCell::new(LinkForce::new()));
+    let center_force = Rc::new(RefCell::new(CenterForce::new()));
+    let mut simulation = Simulation::new();
+    simulation.add(many_body_force);
+    simulation.add(link_force);
+    simulation.add(center_force);
+    let mut context = simulation.build(&graph);
+    context.start(&mut points);
 
     eprintln!("bundling edges");
-    let edge_bundling = EdgeBundling::new();
-    let lines = edge_bundling.call(&points, &links);
+    let edge_bundling = ForceDirectedEdgeBundling::new();
+    let lines = edge_bundling.call(&graph, &points);
 
     eprintln!("writing result");
     let width = 800.;

@@ -319,47 +319,51 @@ impl<T: Default> Quadtree<T> {
 }
 
 #[cfg(test)]
-fn make_tree() -> Quadtree<()> {
-    Quadtree::new(Rect {
-        cx: 0.,
-        cy: 0.,
-        width: 100.,
-        height: 100.,
-    })
-}
+mod tests {
+    use super::{Element, Quadtree, Rect, Region};
 
-#[test]
-fn test_find() {
-    let tree = make_tree();
-    let root = tree.root();
-    let (node_id, region) = tree.find(root, 10., 10.);
-    assert!(node_id.index == 0);
-    assert!(region == Region::TR);
-}
+    fn make_tree() -> Quadtree<()> {
+        Quadtree::new(Rect {
+            cx: 0.,
+            cy: 0.,
+            width: 100.,
+            height: 100.,
+        })
+    }
 
-#[test]
-fn test_insert() {
-    let mut tree = make_tree();
-    let root = tree.root();
-    let (node_id, region) = tree.insert(root, 10., 10.);
-    assert!(node_id.index == 0);
-    assert!(region == Region::TR);
-    let (node_id, region) = tree.insert(root, 20., 40.);
-    assert!(node_id.index == 1);
-    assert!(region == Region::TL);
-    let (node_id, region) = tree.insert(root, 10., 30.);
-    assert!(node_id.index == 2);
-    assert!(region == Region::BL);
-}
+    #[test]
+    fn test_find() {
+        let tree = make_tree();
+        let root = tree.root();
+        let (node_id, region) = tree.find(root, 10., 10.);
+        assert!(node_id.index == 0);
+        assert!(region == Region::TR);
+    }
 
-#[test]
-fn test_elements() {
-    let tree = make_tree();
-    let root = tree.root();
-    for &(ref e, _) in tree.elements(root).iter() {
-        assert!(match **e {
-            Element::Empty => true,
-            _ => false,
-        });
+    #[test]
+    fn test_insert() {
+        let mut tree = make_tree();
+        let root = tree.root();
+        let (node_id, region) = tree.insert(root, 10., 10., 0.);
+        assert!(node_id.index == 0);
+        assert!(region == Region::TR);
+        let (node_id, region) = tree.insert(root, 20., 40., 0.);
+        assert!(node_id.index == 1);
+        assert!(region == Region::TL);
+        let (node_id, region) = tree.insert(root, 10., 30., 0.);
+        assert!(node_id.index == 2);
+        assert!(region == Region::BL);
+    }
+
+    #[test]
+    fn test_elements() {
+        let tree = make_tree();
+        let root = tree.root();
+        for &(ref e, _) in tree.elements(root).iter() {
+            assert!(match **e {
+                Element::Empty => true,
+                _ => false,
+            });
+        }
     }
 }

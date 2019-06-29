@@ -1,5 +1,5 @@
 use super::{aggregate_nodes, Group};
-use crate::utils::treemap::{normalize, squarify};
+use crate::misc::treemap::{normalize, squarify};
 use crate::Graph;
 use std::cmp::Ordering;
 use std::collections::HashMap;
