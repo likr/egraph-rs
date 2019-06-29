@@ -30,7 +30,7 @@ pub struct GroupLinkObject {
     pub weight: f64,
 }
 
-#[wasm_bindgen(js_name = aggregate_nodes)]
+#[wasm_bindgen(js_name = aggregateNodes)]
 pub fn js_aggregate_nodes(graph: JsGraph, grouping: Function, weight: Function) -> JsValue {
     let graph = JsGraphAdapter::new(graph);
     let grouping: Box<dyn Fn(&JsGraphAdapter, usize) -> usize> = Box::new(move |graph, u| {
@@ -65,7 +65,7 @@ pub fn js_aggregate_nodes(graph: JsGraph, grouping: Function, weight: Function) 
     JsValue::from_serde(&result).unwrap()
 }
 
-#[wasm_bindgen(js_name = aggregate_edges)]
+#[wasm_bindgen(js_name = aggregateEdges)]
 pub fn js_aggregate_edges(graph: JsGraph, grouping: Function, weight: Function) -> JsValue {
     let graph = JsGraphAdapter::new(graph);
     let grouping: Box<dyn Fn(&JsGraphAdapter, usize) -> usize> = Box::new(move |graph, u| {

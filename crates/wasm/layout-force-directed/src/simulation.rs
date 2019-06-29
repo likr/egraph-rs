@@ -12,6 +12,7 @@ pub struct PointGeometry {
 
 #[derive(Serialize, Deserialize)]
 pub struct NodeGeometry {
+    pub id: usize,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -20,6 +21,8 @@ pub struct NodeGeometry {
 
 #[derive(Serialize, Deserialize)]
 pub struct LinkGeometry {
+    pub source: usize,
+    pub target: usize,
     pub bends: Vec<PointGeometry>,
 }
 
@@ -80,7 +83,9 @@ impl JsSimulation {
         let result = GraphGeometry {
             nodes: graph
                 .nodes()
-                .map(|i| NodeGeometry {
+                .enumerate()
+                .map(|(i, u)| NodeGeometry {
+                    id: u,
                     x: points[i].x,
                     y: points[i].y,
                     width: 0.0,
@@ -89,7 +94,11 @@ impl JsSimulation {
                 .collect(),
             links: graph
                 .edges()
-                .map(|_| LinkGeometry { bends: Vec::new() })
+                .map(|(u, v)| LinkGeometry {
+                    source: u,
+                    target: v,
+                    bends: Vec::new(),
+                })
                 .collect(),
         };
         JsValue::from_serde(&result).unwrap()

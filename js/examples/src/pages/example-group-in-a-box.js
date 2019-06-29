@@ -1,9 +1,13 @@
 import React from 'react'
 import * as d3 from 'd3'
 import { Graph } from 'egraph'
-import { TreemapGrouping } from 'egraph/grouping'
+import { TreemapGrouping, ForceDirectedGrouping } from 'egraph/grouping'
 import {
   Simulation,
+  ManyBodyForce,
+  LinkForce,
+  PositionForce,
+  CollideForce,
   GroupCenterForce,
   GroupLinkForce,
   GroupManyBodyForce,
@@ -11,13 +15,31 @@ import {
 } from 'egraph/layout/force-directed'
 import { Wrapper } from '../wrapper'
 
-const grouper = (name, graph, groupAccessor) => {
-  let grouping
-  switch (name) {
-    case 'treemap':
-      grouping = new TreemapGrouping()
-      grouping.group = groupAccessor
-      return grouping
+const grouping = (name, graph, groupAccessor) => {
+  if (name === 'treemap') {
+    const grouper = new TreemapGrouping()
+    grouper.group = groupAccessor
+    return grouper.call(graph, 600, 600)
+  }
+  if (name === 'force-directed') {
+    const grouper = new ForceDirectedGrouping()
+    grouper.group = groupAccessor
+
+    const manyBodyForce = new ManyBodyForce()
+    const linkForce = new LinkForce()
+    const positionForce = new PositionForce()
+    positionForce.x = () => 0
+    positionForce.y = () => 0
+    const collideForce = new CollideForce()
+    collideForce.radius = (groupGraph, u) =>
+      Math.sqrt(groupGraph.node(u).weight)
+
+    const simulation = new Simulation()
+    simulation.add(manyBodyForce)
+    simulation.add(linkForce)
+    simulation.add(positionForce)
+    simulation.add(collideForce)
+    return grouper.call(graph, simulation)
   }
 }
 
@@ -32,8 +54,7 @@ const layout = (data, groupLayout) => {
   }
 
   const groupAccessor = (graph, u) => graph.node(u).group
-  const grouping = grouper(groupLayout, graph, groupAccessor)
-  const groups = grouping.call(graph, 600, 600)
+  const groups = grouping(groupLayout, graph, groupAccessor)
   data.groups = Array.from(Object.values(groups))
 
   const manyBodyForce = new GroupManyBodyForce()

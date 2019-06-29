@@ -53,10 +53,10 @@ impl JsTreemapGrouping {
         });
     }
 
-    #[wasm_bindgen(setter = size)]
-    pub fn set_size(&mut self, f: &Function) {
+    #[wasm_bindgen(setter = weight)]
+    pub fn set_weight(&mut self, f: &Function) {
         let f = f.clone();
-        self.grouping.size = Box::new(move |graph, u| {
+        self.grouping.weight = Box::new(move |graph, u| {
             let this = JsValue::NULL;
             let graph = graph.data();
             let u = JsValue::from_f64(u as f64);

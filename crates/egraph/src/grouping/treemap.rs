@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 pub struct TreemapGrouping<D, G: Graph<D>> {
     pub group: Box<dyn Fn(&G, usize) -> usize>,
-    pub size: Box<dyn Fn(&G, usize) -> f32>,
+    pub weight: Box<dyn Fn(&G, usize) -> f32>,
     phantom: PhantomData<D>,
 }
 
@@ -15,13 +15,13 @@ impl<D, G: Graph<D>> TreemapGrouping<D, G> {
     pub fn new() -> TreemapGrouping<D, G> {
         TreemapGrouping {
             group: Box::new(|_, _| 0),
-            size: Box::new(|_, _| 1.),
+            weight: Box::new(|_, _| 1.),
             phantom: PhantomData,
         }
     }
 
     pub fn call(&self, graph: &G, width: f32, height: f32) -> HashMap<usize, Group> {
-        let mut items = aggregate_nodes(graph, &self.group, &self.size);
+        let mut items = aggregate_nodes(graph, &self.group, &self.weight);
         items.sort_by(|item1, item2| {
             if item1.weight == item2.weight {
                 Ordering::Equal

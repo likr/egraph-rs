@@ -1,20 +1,27 @@
 use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 pub struct Link {
-    pub source: usize,
-    pub target: usize,
+    pub source_index: usize,
+    pub target_index: usize,
     pub distance: f32,
     pub strength: f32,
     pub bias: f32,
 }
 
 impl Link {
-    pub fn new(source: usize, target: usize, distance: f32, strength: f32, bias: f32) -> Link {
+    pub fn new(
+        source_index: usize,
+        target_index: usize,
+        distance: f32,
+        strength: f32,
+        bias: f32,
+    ) -> Link {
         Link {
-            source,
-            target,
+            source_index,
+            target_index,
             distance,
             strength,
             bias,
@@ -36,19 +43,19 @@ impl ForceContext for LinkForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
         let links = &self.links;
         for link in links {
-            let source = points[link.source];
-            let target = points[link.target];
+            let source = points[link.source_index];
+            let target = points[link.target_index];
             let dx = (target.x + target.vx) - (source.x + source.vx);
             let dy = (target.y + target.vy) - (source.y + source.vy);
             let l = (dx * dx + dy * dy).sqrt().max(1e-6);
             let w = (l - link.distance) / l * alpha * link.strength;
             {
-                let ref mut target = points[link.target];
+                let ref mut target = points[link.target_index];
                 target.vx -= dx * w * link.bias;
                 target.vy -= dy * w * link.bias;
             }
             {
-                let ref mut source = points[link.source];
+                let ref mut source = points[link.source_index];
                 source.vx += dx * w * (1. - link.bias);
                 source.vy += dy * w * (1. - link.bias);
             }
@@ -80,6 +87,11 @@ impl<D, G: Graph<D>> Force<D, G> for LinkForce<D, G> {
     fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let distance_accessor = &self.distance;
         let strength_accessor = &self.strength;
+        let node_indices = graph
+            .nodes()
+            .enumerate()
+            .map(|(i, u)| (u, i))
+            .collect::<HashMap<_, _>>();
         let links = graph
             .edges()
             .map(|(u, v)| {
@@ -88,7 +100,7 @@ impl<D, G: Graph<D>> Force<D, G> for LinkForce<D, G> {
                 let source_degree = degree(graph, u) as f32;
                 let target_degree = degree(graph, v) as f32;
                 let bias = source_degree / (source_degree + target_degree);
-                Link::new(u, v, distance, strength, bias)
+                Link::new(node_indices[&u], node_indices[&v], distance, strength, bias)
             })
             .collect();
         Box::new(LinkForceContext::new(links))
