@@ -44,7 +44,7 @@ impl Graph<JsGraph> for JsGraphAdapter {
         &mut self.graph
     }
 
-    fn nodes(&self) -> Box<Iterator<Item = NodeIndex>> {
+    fn nodes(&self) -> Box<dyn Iterator<Item = NodeIndex>> {
         Box::new(
             try_iter(&self.graph.nodes())
                 .unwrap()
@@ -53,7 +53,7 @@ impl Graph<JsGraph> for JsGraphAdapter {
         )
     }
 
-    fn edges<'a>(&'a self) -> Box<Iterator<Item = (NodeIndex, NodeIndex)> + 'a> {
+    fn edges<'a>(&'a self) -> Box<dyn Iterator<Item = (NodeIndex, NodeIndex)> + 'a> {
         Box::new(try_iter(&self.graph.edges()).unwrap().unwrap().map(|obj| {
             let obj = obj.unwrap();
             let u = Reflect::get_u32(&obj, 0).ok().unwrap().as_f64().unwrap() as usize;
@@ -62,7 +62,7 @@ impl Graph<JsGraph> for JsGraphAdapter {
         }))
     }
 
-    fn out_nodes<'a>(&'a self, u: NodeIndex) -> Box<Iterator<Item = NodeIndex> + 'a> {
+    fn out_nodes<'a>(&'a self, u: NodeIndex) -> Box<dyn Iterator<Item = NodeIndex> + 'a> {
         Box::new(
             try_iter(&self.graph.out_nodes(u))
                 .unwrap()
@@ -71,7 +71,7 @@ impl Graph<JsGraph> for JsGraphAdapter {
         )
     }
 
-    fn in_nodes<'a>(&'a self, u: NodeIndex) -> Box<Iterator<Item = NodeIndex> + 'a> {
+    fn in_nodes<'a>(&'a self, u: NodeIndex) -> Box<dyn Iterator<Item = NodeIndex> + 'a> {
         Box::new(
             try_iter(&self.graph.in_nodes(u))
                 .unwrap()

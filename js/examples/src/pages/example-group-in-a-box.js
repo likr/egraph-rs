@@ -21,16 +21,6 @@ const grouper = (name, graph, groupAccessor) => {
   }
 }
 
-const groupShape = (name) => {
-  switch (name) {
-    case 'treemap':
-      return 'rect'
-    case 'force-directed':
-    default:
-      return 'circle'
-  }
-}
-
 const layout = (data, groupLayout) => {
   const graph = new Graph()
   data.nodes.forEach((node, i) => {
@@ -111,7 +101,6 @@ export class ExampleGroupInABox extends React.Component {
               default-node-stroke-width='1.5'
               default-link-stroke-color='#999'
               default-link-stroke-opacity='0.6'
-              default-group-type='rect'
               node-label-property='name'
               no-auto-update
               no-auto-centering
@@ -127,9 +116,6 @@ export class ExampleGroupInABox extends React.Component {
                   ref='groupLayout'
                   defaultValue='treemap'
                   onChange={() => {
-                    this.refs.renderer.defaultGroupType = groupShape(
-                      this.refs.groupLayout.value
-                    )
                     this.layout()
                   }}
                 >

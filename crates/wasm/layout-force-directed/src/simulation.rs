@@ -1,5 +1,5 @@
-use crate::force::Force;
-use egraph::layout::force_directed::{initial_placement, Point, Simulation as EgSimulation};
+use crate::force::JsForce;
+use egraph::layout::force_directed::{initial_placement, Point, Simulation};
 use egraph::Graph;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use wasm_bindgen::prelude::*;
@@ -31,33 +31,33 @@ pub struct GraphGeometry {
 
 #[wasm_bindgen]
 extern "C" {
-    pub type JsForce;
+    pub type ForceObject;
 
     #[wasm_bindgen(method, structural)]
-    fn force(this: &JsForce) -> Force;
+    fn force(this: &ForceObject) -> JsForce;
 }
 
-#[wasm_bindgen]
-pub struct Simulation {
-    simulation: EgSimulation<JsGraph>,
+#[wasm_bindgen(js_name = Simulation)]
+pub struct JsSimulation {
+    simulation: Simulation<JsGraph, JsGraphAdapter>,
 }
 
-impl Simulation {
-    pub fn simulation(&self) -> &EgSimulation<JsGraph> {
+impl JsSimulation {
+    pub fn simulation(&self) -> &Simulation<JsGraph, JsGraphAdapter> {
         &self.simulation
     }
 }
 
-#[wasm_bindgen]
-impl Simulation {
+#[wasm_bindgen(js_class = Simulation)]
+impl JsSimulation {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Simulation {
-        Simulation {
-            simulation: EgSimulation::new(),
+    pub fn new() -> JsSimulation {
+        JsSimulation {
+            simulation: Simulation::new(),
         }
     }
 
-    pub fn add(&mut self, force: &JsForce) {
+    pub fn add(&mut self, force: &ForceObject) {
         self.simulation.add(force.force().force());
     }
 

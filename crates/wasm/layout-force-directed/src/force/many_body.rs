@@ -1,27 +1,28 @@
-use super::Force;
-use egraph::layout::force_directed::force::ManyBodyForce as EgManyBodyForce;
-use egraph_wasm_adapter::JsGraph;
+use super::JsForce;
+use egraph::layout::force_directed::force::ManyBodyForce;
+use egraph::Graph;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use js_sys::Function;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct ManyBodyForce {
-    force: Rc<RefCell<EgManyBodyForce<JsGraph>>>,
+#[wasm_bindgen(js_name = ManyBodyForce)]
+pub struct JsManyBodyForce {
+    force: Rc<RefCell<ManyBodyForce<JsGraph, JsGraphAdapter>>>,
 }
 
-#[wasm_bindgen]
-impl ManyBodyForce {
+#[wasm_bindgen(js_class = ManyBodyForce)]
+impl JsManyBodyForce {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> ManyBodyForce {
-        ManyBodyForce {
-            force: Rc::new(RefCell::new(EgManyBodyForce::new())),
+    pub fn new() -> JsManyBodyForce {
+        JsManyBodyForce {
+            force: Rc::new(RefCell::new(ManyBodyForce::new())),
         }
     }
 
-    pub fn force(&self) -> Force {
-        Force::new(self.force.clone())
+    pub fn force(&self) -> JsForce {
+        JsForce::new(self.force.clone())
     }
 
     #[wasm_bindgen(setter = strength)]

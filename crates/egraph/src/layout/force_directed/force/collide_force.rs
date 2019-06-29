@@ -1,5 +1,6 @@
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
+use std::marker::PhantomData;
 
 pub struct CollideForceContext {
     radius: Vec<f32>,
@@ -41,24 +42,26 @@ impl ForceContext for CollideForceContext {
     }
 }
 
-pub struct CollideForce<G> {
-    pub radius: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
+pub struct CollideForce<D, G: Graph<D>> {
+    pub radius: Box<dyn Fn(&G, NodeIndex) -> f32>,
     pub strength: f32,
     pub iterations: usize,
+    phantom: PhantomData<D>,
 }
 
-impl<G> CollideForce<G> {
-    pub fn new() -> CollideForce<G> {
+impl<D, G: Graph<D>> CollideForce<D, G> {
+    pub fn new() -> CollideForce<D, G> {
         CollideForce {
             radius: Box::new(|_, _| 1.),
             strength: 0.7,
             iterations: 1,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for CollideForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for CollideForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let radius_accessor = &self.radius;
         let radius = graph.nodes().map(|u| radius_accessor(graph, u)).collect();
         Box::new(CollideForceContext::new(radius, self.strength))

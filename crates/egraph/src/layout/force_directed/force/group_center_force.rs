@@ -2,6 +2,7 @@ use super::group_indices;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 pub struct GroupCenterForceContext {
     groups: HashMap<usize, Vec<usize>>,
@@ -46,24 +47,26 @@ impl ForceContext for GroupCenterForceContext {
     }
 }
 
-pub struct GroupCenterForce<G> {
-    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
-    pub group_x: Box<Fn(usize) -> f32>,
-    pub group_y: Box<Fn(usize) -> f32>,
+pub struct GroupCenterForce<D, G: Graph<D>> {
+    pub group: Box<dyn Fn(&G, NodeIndex) -> usize>,
+    pub group_x: Box<dyn Fn(usize) -> f32>,
+    pub group_y: Box<dyn Fn(usize) -> f32>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> GroupCenterForce<G> {
-    pub fn new() -> GroupCenterForce<G> {
+impl<D, G: Graph<D>> GroupCenterForce<D, G> {
+    pub fn new() -> GroupCenterForce<D, G> {
         GroupCenterForce {
             group: Box::new(|_, _| 0),
             group_x: Box::new(|_| 0.),
             group_y: Box::new(|_| 0.),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for GroupCenterForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for GroupCenterForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let group_accessor = &self.group;
         let groups = graph
             .nodes()

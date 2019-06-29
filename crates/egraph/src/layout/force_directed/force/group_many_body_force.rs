@@ -2,6 +2,7 @@ use super::group_indices;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
 pub struct GroupManyBodyForceContext {
     groups: HashMap<usize, Vec<usize>>,
@@ -46,22 +47,24 @@ impl ForceContext for GroupManyBodyForceContext {
     }
 }
 
-pub struct GroupManyBodyForce<G> {
-    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
-    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
+pub struct GroupManyBodyForce<D, G: Graph<D>> {
+    pub strength: Box<dyn Fn(&G, NodeIndex) -> f32>,
+    pub group: Box<dyn Fn(&G, NodeIndex) -> usize>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> GroupManyBodyForce<G> {
-    pub fn new() -> GroupManyBodyForce<G> {
+impl<D, G: Graph<D>> GroupManyBodyForce<D, G> {
+    pub fn new() -> GroupManyBodyForce<D, G> {
         GroupManyBodyForce {
             strength: Box::new(|_, _| -30.),
             group: Box::new(|_, _| 0),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for GroupManyBodyForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for GroupManyBodyForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let strength_accessor = &self.strength;
         let strength = graph
             .nodes()

@@ -37,6 +37,6 @@ pub trait ForceContext {
     fn apply(&self, points: &mut Vec<Point>, alpha: f32);
 }
 
-pub trait Force<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext>;
+pub trait Force<D, G: Graph<D>> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext>;
 }

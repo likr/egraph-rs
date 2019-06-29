@@ -1,5 +1,6 @@
 use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
+use std::marker::PhantomData;
 
 pub struct Link {
     pub source: usize,
@@ -55,13 +56,14 @@ impl ForceContext for LinkForceContext {
     }
 }
 
-pub struct LinkForce<G> {
-    pub strength: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
-    pub distance: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
+pub struct LinkForce<D, G: Graph<D>> {
+    pub strength: Box<dyn Fn(&G, NodeIndex, NodeIndex) -> f32>,
+    pub distance: Box<dyn Fn(&G, NodeIndex, NodeIndex) -> f32>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> LinkForce<G> {
-    pub fn new() -> LinkForce<G> {
+impl<D, G: Graph<D>> LinkForce<D, G> {
+    pub fn new() -> LinkForce<D, G> {
         LinkForce {
             strength: Box::new(|graph, u, v| {
                 let source_degree = degree(graph, u);
@@ -69,12 +71,13 @@ impl<G> LinkForce<G> {
                 1. / (source_degree.min(target_degree)) as f32
             }),
             distance: Box::new(|_, _, _| 30.0),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for LinkForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for LinkForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let distance_accessor = &self.distance;
         let strength_accessor = &self.strength;
         let links = graph

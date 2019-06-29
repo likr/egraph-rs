@@ -1,6 +1,7 @@
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use crate::misc::quadtree::{Element, NodeId, Quadtree, Rect};
+use std::marker::PhantomData;
 
 #[derive(Copy, Clone, Debug)]
 struct Body {
@@ -128,20 +129,22 @@ impl ForceContext for ManyBodyForceContext {
     }
 }
 
-pub struct ManyBodyForce<G> {
-    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
+pub struct ManyBodyForce<D, G: Graph<D>> {
+    pub strength: Box<dyn Fn(&G, NodeIndex) -> f32>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> ManyBodyForce<G> {
-    pub fn new() -> ManyBodyForce<G> {
+impl<D, G: Graph<D>> ManyBodyForce<D, G> {
+    pub fn new() -> ManyBodyForce<D, G> {
         ManyBodyForce {
             strength: Box::new(|_, _| -30.),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for ManyBodyForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for ManyBodyForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let strength_accessor = &self.strength;
         let strength = graph.nodes().map(|u| strength_accessor(graph, u)).collect();
         Box::new(ManyBodyForceContext::new(strength))

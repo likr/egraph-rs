@@ -1,27 +1,30 @@
 use super::position_force::PositionForceContext;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext};
+use std::marker::PhantomData;
 
-pub struct GroupPositionForce<G> {
-    pub strength: Box<Fn(&Graph<G>, NodeIndex) -> f32>,
-    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
-    pub group_x: Box<Fn(usize) -> f32>,
-    pub group_y: Box<Fn(usize) -> f32>,
+pub struct GroupPositionForce<D, G: Graph<D>> {
+    pub strength: Box<dyn Fn(&G, NodeIndex) -> f32>,
+    pub group: Box<dyn Fn(&G, NodeIndex) -> usize>,
+    pub group_x: Box<dyn Fn(usize) -> f32>,
+    pub group_y: Box<dyn Fn(usize) -> f32>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> GroupPositionForce<G> {
-    pub fn new() -> GroupPositionForce<G> {
+impl<D, G: Graph<D>> GroupPositionForce<D, G> {
+    pub fn new() -> GroupPositionForce<D, G> {
         GroupPositionForce {
             strength: Box::new(|_, _| 0.1),
             group: Box::new(|_, _| 0),
             group_x: Box::new(|_| 0.),
             group_y: Box::new(|_| 0.),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for GroupPositionForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for GroupPositionForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let strength_accessor = &self.strength;
         let strength = graph.nodes().map(|u| strength_accessor(graph, u)).collect();
 

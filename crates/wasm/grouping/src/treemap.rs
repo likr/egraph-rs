@@ -1,28 +1,22 @@
-use egraph::grouping::treemap::TreemapGrouping as EgTreemapGrouping;
+use super::GroupObject;
+use egraph::grouping::treemap::TreemapGrouping;
+use egraph::Graph;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use js_sys::Function;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-#[derive(Serialize, Deserialize)]
-pub struct Group {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
+#[wasm_bindgen(js_name = TreemapGrouping)]
+pub struct JsTreemapGrouping {
+    grouping: TreemapGrouping<JsGraph, JsGraphAdapter>,
 }
 
-#[wasm_bindgen]
-pub struct TreemapGrouping {
-    grouping: EgTreemapGrouping<JsGraph>,
-}
-
-#[wasm_bindgen]
-impl TreemapGrouping {
+#[wasm_bindgen(js_class = TreemapGrouping)]
+impl JsTreemapGrouping {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> TreemapGrouping {
-        TreemapGrouping {
-            grouping: EgTreemapGrouping::new(),
+    pub fn new() -> JsTreemapGrouping {
+        JsTreemapGrouping {
+            grouping: TreemapGrouping::new(),
         }
     }
 
@@ -35,7 +29,8 @@ impl TreemapGrouping {
             .map(|(&i, g)| {
                 (
                     i,
-                    Group {
+                    GroupObject {
+                        shape: "rect".into(),
                         x: g.x as f64,
                         y: g.y as f64,
                         width: g.width as f64,
@@ -43,7 +38,7 @@ impl TreemapGrouping {
                     },
                 )
             })
-            .collect::<HashMap<usize, Group>>();
+            .collect::<HashMap<_, _>>();
         JsValue::from_serde(&result).unwrap()
     }
 

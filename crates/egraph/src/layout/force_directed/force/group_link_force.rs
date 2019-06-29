@@ -1,27 +1,30 @@
 use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::link_force::{Link, LinkForceContext};
 use crate::layout::force_directed::force::{Force, ForceContext};
+use std::marker::PhantomData;
 
-pub struct GroupLinkForce<G> {
+pub struct GroupLinkForce<D, G: Graph<D>> {
     pub intra_group: f32,
     pub inter_group: f32,
-    pub group: Box<Fn(&Graph<G>, NodeIndex) -> usize>,
-    pub distance: Box<Fn(&Graph<G>, NodeIndex, NodeIndex) -> f32>,
+    pub group: Box<dyn Fn(&G, NodeIndex) -> usize>,
+    pub distance: Box<dyn Fn(&G, NodeIndex, NodeIndex) -> f32>,
+    phantom: PhantomData<D>,
 }
 
-impl<G> GroupLinkForce<G> {
-    pub fn new() -> GroupLinkForce<G> {
+impl<D, G: Graph<D>> GroupLinkForce<D, G> {
+    pub fn new() -> GroupLinkForce<D, G> {
         GroupLinkForce {
             inter_group: 0.01,
             intra_group: 0.5,
             group: Box::new(|_, _| 0),
             distance: Box::new(|_, _, _| 30.0),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<G> Force<G> for GroupLinkForce<G> {
-    fn build(&self, graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for GroupLinkForce<D, G> {
+    fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let group_accessor = &self.group;
         let groups = graph
             .nodes()

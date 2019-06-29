@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct SimulationContext {
-    forces: Vec<Box<ForceContext>>,
+    forces: Vec<Box<dyn ForceContext>>,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -14,7 +14,7 @@ pub struct SimulationContext {
 
 impl SimulationContext {
     fn new(
-        forces: Vec<Box<ForceContext>>,
+        forces: Vec<Box<dyn ForceContext>>,
         alpha: f32,
         alpha_min: f32,
         alpha_target: f32,
@@ -55,8 +55,8 @@ impl SimulationContext {
     }
 }
 
-pub struct Simulation<G> {
-    builders: Vec<Rc<RefCell<Force<G>>>>,
+pub struct Simulation<D, G: Graph<D>> {
+    builders: Vec<Rc<RefCell<dyn Force<D, G>>>>,
     pub alpha_start: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -64,8 +64,8 @@ pub struct Simulation<G> {
     pub iterations: usize,
 }
 
-impl<G> Simulation<G> {
-    pub fn new() -> Simulation<G> {
+impl<D, G: Graph<D>> Simulation<D, G> {
+    pub fn new() -> Simulation<D, G> {
         Simulation {
             builders: Vec::new(),
             alpha_start: 1.,
@@ -76,7 +76,7 @@ impl<G> Simulation<G> {
         }
     }
 
-    pub fn build(&self, graph: &Graph<G>) -> SimulationContext {
+    pub fn build(&self, graph: &G) -> SimulationContext {
         let forces = self
             .builders
             .iter()
@@ -92,11 +92,11 @@ impl<G> Simulation<G> {
         )
     }
 
-    pub fn add(&mut self, force: Rc<RefCell<Force<G>>>) {
+    pub fn add(&mut self, force: Rc<RefCell<dyn Force<D, G>>>) {
         self.builders.push(force);
     }
 
-    pub fn get(&self, index: usize) -> Option<Rc<RefCell<Force<G>>>> {
+    pub fn get(&self, index: usize) -> Option<Rc<RefCell<dyn Force<D, G>>>> {
         self.builders.get(index).map(|f| f.clone())
     }
 }

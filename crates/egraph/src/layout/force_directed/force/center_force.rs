@@ -28,8 +28,8 @@ impl CenterForce {
     }
 }
 
-impl<G> Force<G> for CenterForce {
-    fn build(&self, _graph: &Graph<G>) -> Box<ForceContext> {
+impl<D, G: Graph<D>> Force<D, G> for CenterForce {
+    fn build(&self, _graph: &G) -> Box<dyn ForceContext> {
         Box::new(CenterForceContext::new())
     }
 }

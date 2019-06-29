@@ -1,26 +1,27 @@
-use super::Force;
-use egraph::layout::force_directed::force::PositionForce as EgPositionForce;
-use egraph_wasm_adapter::JsGraph;
+use super::JsForce;
+use egraph::layout::force_directed::force::PositionForce;
+use egraph::Graph;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct PositionForce {
-    force: Rc<RefCell<EgPositionForce<JsGraph>>>,
+#[wasm_bindgen(js_name = PositionForce)]
+pub struct JsPositionForce {
+    force: Rc<RefCell<PositionForce<JsGraph, JsGraphAdapter>>>,
 }
 
-#[wasm_bindgen]
-impl PositionForce {
+#[wasm_bindgen(js_class = PositionForce)]
+impl JsPositionForce {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> PositionForce {
-        PositionForce {
-            force: Rc::new(RefCell::new(EgPositionForce::new())),
+    pub fn new() -> JsPositionForce {
+        JsPositionForce {
+            force: Rc::new(RefCell::new(PositionForce::new())),
         }
     }
 
-    pub fn force(&self) -> Force {
-        Force::new(self.force.clone())
+    pub fn force(&self) -> JsForce {
+        JsForce::new(self.force.clone())
     }
 
     #[wasm_bindgen(setter = strength)]

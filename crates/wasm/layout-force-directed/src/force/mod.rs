@@ -8,23 +8,23 @@ pub mod link;
 pub mod many_body;
 pub mod position;
 
-use egraph::layout::force_directed::force::Force as EgForce;
-use egraph_wasm_adapter::JsGraph;
+use egraph::layout::force_directed::force::Force;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct Force {
-    force: Rc<RefCell<EgForce<JsGraph>>>,
+#[wasm_bindgen(js_name = Force)]
+pub struct JsForce {
+    force: Rc<RefCell<dyn Force<JsGraph, JsGraphAdapter>>>,
 }
 
-impl Force {
-    pub fn new(force: Rc<RefCell<EgForce<JsGraph>>>) -> Force {
-        Force { force: force }
+impl JsForce {
+    pub fn new(force: Rc<RefCell<dyn Force<JsGraph, JsGraphAdapter>>>) -> JsForce {
+        JsForce { force: force }
     }
 
-    pub fn force(&self) -> Rc<RefCell<EgForce<JsGraph>>> {
+    pub fn force(&self) -> Rc<RefCell<dyn Force<JsGraph, JsGraphAdapter>>> {
         self.force.clone()
     }
 }

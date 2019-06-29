@@ -1,26 +1,27 @@
-use super::Force;
-use egraph::layout::force_directed::force::GroupLinkForce as EgGroupLinkForce;
-use egraph_wasm_adapter::JsGraph;
+use super::JsForce;
+use egraph::layout::force_directed::force::GroupLinkForce;
+use egraph::Graph;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct GroupLinkForce {
-    force: Rc<RefCell<EgGroupLinkForce<JsGraph>>>,
+#[wasm_bindgen(js_name = GroupLinkForce)]
+pub struct JsGroupLinkForce {
+    force: Rc<RefCell<GroupLinkForce<JsGraph, JsGraphAdapter>>>,
 }
 
-#[wasm_bindgen]
-impl GroupLinkForce {
+#[wasm_bindgen(js_class = GroupLinkForce)]
+impl JsGroupLinkForce {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> GroupLinkForce {
-        GroupLinkForce {
-            force: Rc::new(RefCell::new(EgGroupLinkForce::new())),
+    pub fn new() -> JsGroupLinkForce {
+        JsGroupLinkForce {
+            force: Rc::new(RefCell::new(GroupLinkForce::new())),
         }
     }
 
-    pub fn force(&self) -> Force {
-        Force::new(self.force.clone())
+    pub fn force(&self) -> JsForce {
+        JsForce::new(self.force.clone())
     }
 
     #[wasm_bindgen(setter = group)]

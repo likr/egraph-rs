@@ -1,26 +1,27 @@
-use super::Force;
-use egraph::layout::force_directed::force::GroupCenterForce as EgGroupCenterForce;
-use egraph_wasm_adapter::JsGraph;
+use super::JsForce;
+use egraph::layout::force_directed::force::GroupCenterForce;
+use egraph::Graph;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct GroupCenterForce {
-    force: Rc<RefCell<EgGroupCenterForce<JsGraph>>>,
+#[wasm_bindgen(js_name = GroupCenterForce)]
+pub struct JsGroupCenterForce {
+    force: Rc<RefCell<GroupCenterForce<JsGraph, JsGraphAdapter>>>,
 }
 
-#[wasm_bindgen]
-impl GroupCenterForce {
+#[wasm_bindgen(js_class = GroupCenterForce)]
+impl JsGroupCenterForce {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> GroupCenterForce {
-        GroupCenterForce {
-            force: Rc::new(RefCell::new(EgGroupCenterForce::new())),
+    pub fn new() -> JsGroupCenterForce {
+        JsGroupCenterForce {
+            force: Rc::new(RefCell::new(GroupCenterForce::new())),
         }
     }
 
-    pub fn force(&self) -> Force {
-        Force::new(self.force.clone())
+    pub fn force(&self) -> JsForce {
+        JsForce::new(self.force.clone())
     }
 
     #[wasm_bindgen(setter = group)]
