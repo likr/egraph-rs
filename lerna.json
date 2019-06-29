@@ -1,4 +1,4 @@
 {
-  "packages": ["js/*", "crates/wasm/*/pkg"],
+  "packages": ["js/*", "crates/wasm/pkg"],
   "version": "0.0.0"
 }

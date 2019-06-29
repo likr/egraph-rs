@@ -3,8 +3,11 @@
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
   "scripts": {
+    "prestart": "npm run wasm-build",
     "start": "lerna exec --scope examples -- npm start",
-    "wasm-build": "find crates/wasm -type d -depth 1 -exec wasm-pack build --scope egraph {} \\;"
+    "prebootstrap": "npm run wasm-build",
+    "bootstrap": "lerna bootstrap",
+    "wasm-build": "wasm-pack build --scope egraph crates/wasm;"
   },
   "repository": {
     "type": "git",

@@ -1,4 +1,4 @@
-// pub mod force_directed;
+pub mod force_directed;
 // pub mod radial;
 pub mod treemap;
 
@@ -98,6 +98,6 @@ pub fn aggregate_edges<D, G: Graph<D>>(
         .collect::<Vec<_>>()
 }
 
-// pub use self::force_directed::ForceDirectedGrouping;
+pub use self::force_directed::ForceDirectedGrouping;
 // pub use self::radial::RadialGrouping;
 pub use self::treemap::TreemapGrouping;

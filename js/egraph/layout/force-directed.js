@@ -1,1 +1,12 @@
-export * from '@egraph/layout-force-directed'
+export {
+  CenterForce,
+  CollideForce,
+  GroupCenterForce,
+  GroupLinkForce,
+  GroupManyBodyForce,
+  GroupPositionForce,
+  LinkForce,
+  ManyBodyForce,
+  PositionForce,
+  Simulation
+} from '@egraph/wasm'

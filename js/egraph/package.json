@@ -7,10 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Yosuke Onoue <onoue@likr-lab.com>",
+  "license": "MIT",
   "dependencies": {
-    "@egraph/grouping": "^0.2.0",
-    "@egraph/layout-force-directed": "^0.2.0"
+    "@egraph/wasm": "^0.2.0"
   }
 }

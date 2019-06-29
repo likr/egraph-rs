@@ -39,7 +39,7 @@ const grouping = (name, graph, groupAccessor) => {
     simulation.add(linkForce)
     simulation.add(positionForce)
     simulation.add(collideForce)
-    return grouper.call(graph, simulation)
+    return grouper.call(graph, simulation, () => new Graph())
   }
 }
 

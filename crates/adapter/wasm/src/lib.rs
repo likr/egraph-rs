@@ -7,6 +7,11 @@ extern "C" {
     #[wasm_bindgen(js_name = Graph)]
     pub type JsGraph;
 
+    #[wasm_bindgen(method, js_class = "Graph", js_name = "addNode")]
+    pub fn add_node(this: &JsGraph, u: usize, data: JsValue);
+    #[wasm_bindgen(method, js_class = "Graph", js_name = "addEdge")]
+    pub fn add_edge(this: &JsGraph, u: usize, v: usize, data: JsValue);
+
     #[wasm_bindgen(method, js_class = "Graph", js_name = "nodes")]
     fn nodes(this: &JsGraph) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "edges")]

@@ -1,4 +1,4 @@
-use crate::force::JsForce;
+use crate::layout::force_directed::force::JsForce;
 use egraph::layout::force_directed::{initial_placement, Point, Simulation};
 use egraph::Graph;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};

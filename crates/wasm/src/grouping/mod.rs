@@ -1,5 +1,5 @@
-#[macro_use]
-extern crate serde_derive;
+pub mod force_directed;
+pub mod treemap;
 
 use egraph::grouping::{aggregate_edges, aggregate_nodes};
 use egraph::Graph;
@@ -101,5 +101,3 @@ pub fn js_aggregate_edges(graph: JsGraph, grouping: Function, weight: Function) 
         .collect::<Vec<_>>();
     JsValue::from_serde(&result).unwrap()
 }
-
-pub mod treemap;

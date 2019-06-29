@@ -5,6 +5,5 @@ members = [
     "crates/egraph",
     "crates/egraph-layered",
     "crates/egraph-py",
-    "crates/wasm/grouping",
-    "crates/wasm/layout-force-directed",
+    "crates/wasm",
 ]

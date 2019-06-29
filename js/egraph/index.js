@@ -3,7 +3,7 @@ const privates = new WeakMap()
 const p = (self) => privates.get(self)
 
 const checkNode = (graph, u) => {
-  if (graph.node(u) === null) {
+  if (!p(graph).nodes.has(u)) {
     throw new Error(`Invalid node: ${u}`)
   }
 }
