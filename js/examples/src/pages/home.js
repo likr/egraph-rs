@@ -13,7 +13,7 @@ export class Home extends React.Component {
             <Link to='/group-in-a-box'>group-in-a-box</Link>
           </li>
           <li>
-            <Link to='/edge-concentration'>edge-concentration</Link>
+            <Link to='/edge-bundling'>edge-bundling</Link>
           </li>
         </ul>
       </div>

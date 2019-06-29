@@ -1,22 +1,25 @@
-use crate::graph::Graph;
+use egraph::edge_bundling::force_directed::ForceDirectedEdgeBundling;
+use egraph::layout::force_directed::force::Point;
+use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub struct EdgeBundling {
-    edge_bundling: egraph::layout::force_directed::edge_bundling::EdgeBundling,
+#[wasm_bindgen(js_name = ForceDirectedEdgeBundling)]
+pub struct JsForceDirectedEdgeBundling {
+    edge_bundling: ForceDirectedEdgeBundling,
 }
 
-#[wasm_bindgen]
-impl EdgeBundling {
+#[wasm_bindgen(js_class = ForceDirectedEdgeBundling)]
+impl JsForceDirectedEdgeBundling {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        EdgeBundling {
-            edge_bundling: egraph::layout::force_directed::edge_bundling::EdgeBundling::new(),
+        JsForceDirectedEdgeBundling {
+            edge_bundling: ForceDirectedEdgeBundling::new(),
         }
     }
 
-    pub fn call(&self, graph: &Graph, point_array: Array) -> Array {
+    pub fn call(&self, graph: JsGraph, point_array: Array) -> Array {
+        let graph = JsGraphAdapter::new(graph);
         let mut points = Vec::new();
         point_array.for_each(&mut |point, _, _| {
             let x = Reflect::get(&point, &"x".into())
@@ -29,9 +32,9 @@ impl EdgeBundling {
                 .unwrap()
                 .as_f64()
                 .unwrap() as f32;
-            points.push(egraph::layout::force_directed::force::Point::new(x, y));
+            points.push(Point::new(x, y));
         });
-        let lines = self.edge_bundling.call(&graph.graph(), &points);
+        let lines = self.edge_bundling.call(&graph, &points);
         let result = Array::new();
         for line in lines {
             let bends = Array::new();

@@ -5,7 +5,7 @@ import React from 'react'
 import { render } from 'react-dom'
 import { BrowserRouter as Router, Route, Link } from 'react-router-dom'
 import { Home } from './pages/home'
-// import { ExampleFM3 } from './pages/example-fm3'
+import { ExampleEdgeBundling } from './pages/example-edge-bundling'
 import { ExampleForceDirected } from './pages/example-force-directed'
 import { ExampleGroupInABox } from './pages/example-group-in-a-box'
 
@@ -26,10 +26,8 @@ render(
       <section className='section'>
         <div className='container'>
           <Route path='/' component={Home} exact />
+          <Route path='/edge-bundling' component={ExampleEdgeBundling} />
           <Route path='/force-directed' component={ExampleForceDirected} />
-          {/*
-            <Route path='/fm3' component={ExampleFM3} />
-          */}
           <Route path='/group-in-a-box' component={ExampleGroupInABox} />
         </div>
       </section>

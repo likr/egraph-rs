@@ -1,7 +1,5 @@
-use super::force::Point;
-use petgraph::graph::IndexType;
-use petgraph::prelude::*;
-use petgraph::EdgeType;
+use crate::layout::force_directed::force::Point;
+use crate::Graph;
 use std::f32;
 
 pub struct LineSegment {
@@ -191,8 +189,8 @@ pub struct EdgeBundlingOptions {
     minimum_edge_compatibility: f32,
 }
 
-pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
+pub fn edge_bundling<D, G: Graph<D>>(
+    graph: &G,
     points: &Vec<Point>,
     options: &EdgeBundlingOptions,
 ) -> Vec<Line> {
@@ -205,13 +203,8 @@ pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
         minimum_edge_compatibility,
     } = options;
     let mut mid_points = Vec::new();
-    let mut segments: Vec<LineSegment> = graph
-        .edge_indices()
-        .map(|e| {
-            let (source, target) = graph.edge_endpoints(e).unwrap();
-            LineSegment::new(source.index(), target.index())
-        })
-        .collect();
+    let mut segments: Vec<LineSegment> =
+        graph.edges().map(|(u, v)| LineSegment::new(u, v)).collect();
 
     let mut num_iter = *i0;
     let mut alpha = *s0;
@@ -303,7 +296,7 @@ pub fn edge_bundling<N, E, Ty: EdgeType, Ix: IndexType>(
         .collect()
 }
 
-pub struct EdgeBundling {
+pub struct ForceDirectedEdgeBundling {
     pub cycles: usize,
     pub s0: f32,
     pub i0: usize,
@@ -312,9 +305,9 @@ pub struct EdgeBundling {
     pub minimum_edge_compatibility: f32,
 }
 
-impl EdgeBundling {
-    pub fn new() -> EdgeBundling {
-        EdgeBundling {
+impl ForceDirectedEdgeBundling {
+    pub fn new() -> ForceDirectedEdgeBundling {
+        ForceDirectedEdgeBundling {
             cycles: 6,
             s0: 0.1,
             i0: 90,
@@ -324,13 +317,9 @@ impl EdgeBundling {
         }
     }
 
-    pub fn call<N, E, Ty: EdgeType, Ix: IndexType>(
-        &self,
-        graph: &Graph<N, E, Ty, Ix>,
-        points: &Vec<Point>,
-    ) -> Vec<Line> {
+    pub fn call<D, G: Graph<D>>(&self, graph: &G, points: &Vec<Point>) -> Vec<Line> {
         let options = self.options();
-        edge_bundling(&graph, &points, &options)
+        edge_bundling(graph, &points, &options)
     }
 
     fn options(&self) -> EdgeBundlingOptions {

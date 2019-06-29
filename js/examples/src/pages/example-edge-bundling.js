@@ -1,15 +1,16 @@
 import React from 'react'
 import * as d3 from 'd3'
-import { Graph } from 'egraph'
 import {
   Simulation,
   ManyBodyForce,
   LinkForce,
   CenterForce
 } from 'egraph/layout/force-directed'
+import { ForceDirectedEdgeBundling } from 'egraph/edge_bundling'
+import { Graph } from 'egraph'
 import { Wrapper } from '../wrapper'
 
-export class ExampleForceDirected extends React.Component {
+export class ExampleEdgeBundling extends React.Component {
   componentDidMount() {
     window
       .fetch('/data/miserables.json')
@@ -26,6 +27,7 @@ export class ExampleForceDirected extends React.Component {
           const { source, target } = link
           graph.addEdge(source, target, link)
         }
+
         const mbForce = new ManyBodyForce()
         const lForce = new LinkForce()
         const cForce = new CenterForce()
@@ -33,15 +35,18 @@ export class ExampleForceDirected extends React.Component {
         simulation.add(mbForce)
         simulation.add(lForce)
         simulation.add(cForce)
-        const start = window.performance.now()
         const layout = simulation.start(graph)
-        const stop = window.performance.now()
-        console.log(stop - start)
         for (const u of graph.nodes()) {
           const node = graph.node(u)
           node.x = layout.nodes[u].x
           node.y = layout.nodes[u].y
         }
+
+        const edgeBundling = new ForceDirectedEdgeBundling()
+        const bends = edgeBundling.call(graph, layout.nodes)
+        Array.from(graph.edges()).map(([u, v], i) => {
+          graph.edge(u, v).bends = bends[i].bends.map(({ x, y }) => [x, y])
+        })
 
         this.refs.renderer.load(graph.toJSON())
         this.refs.renderer.center()
