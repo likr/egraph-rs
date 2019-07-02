@@ -3,9 +3,6 @@ name = "egraph-wasm"
 version = "0.1.0-5"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 edition = "2018"
-description = "egraph-wasm is a fast graph drawing library inspired by d3-force."
-repository = "https://github.com/likr/egraph-rs/tree/master/egraph-wasm"
-license = "MIT"
 
 [dependencies]
 egraph = { path = "../egraph" }

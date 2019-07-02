@@ -3,6 +3,9 @@ name = "wasm"
 version = "0.2.0"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 edition = "2018"
+description = "WebAssembly binding of egraph."
+repository = "https://github.com/likr/egraph-rs/tree/master/crates/wasm"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib"]
