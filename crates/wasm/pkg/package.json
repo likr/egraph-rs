@@ -1,0 +1,21 @@
+{
+  "name": "@egraph/wasm",
+  "collaborators": [
+    "Yosuke Onoue <onoue@likr-lab.com>"
+  ],
+  "description": "WebAssembly binding of egraph.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/likr/egraph-rs/tree/master/crates/wasm"
+  },
+  "files": [
+    "wasm_bg.wasm",
+    "wasm.js",
+    "wasm.d.ts"
+  ],
+  "module": "wasm.js",
+  "types": "wasm.d.ts",
+  "sideEffects": "false"
+}

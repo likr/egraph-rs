@@ -1,6 +1,6 @@
 {
   "name": "egraph",
-  "version": "1.0.0",
+  "version": "4.0.1-alpha.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -10,6 +10,6 @@
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
   "dependencies": {
-    "@egraph/wasm": "^0.2.0"
+    "@egraph/wasm": "^4.0.1-alpha.0"
   }
 }
