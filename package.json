@@ -7,7 +7,7 @@
     "start": "lerna exec --scope examples -- npm start",
     "prebootstrap": "npm run wasm-build",
     "bootstrap": "lerna bootstrap",
-    "wasm-build": "wasm-pack build --scope egraph crates/wasm;"
+    "wasm-build": "wasm-pack build crates/wasm;"
   },
   "repository": {
     "type": "git",

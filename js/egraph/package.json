@@ -10,6 +10,6 @@
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
   "dependencies": {
-    "@egraph/wasm": "^4.0.1-alpha.0"
+    "egraph-wasm": "^4.0.1-alpha.0"
   }
 }

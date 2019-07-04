@@ -1,1 +1,1 @@
-export { ForceDirectedEdgeBundling } from '@egraph/wasm'
+export { ForceDirectedEdgeBundling } from 'egraph-wasm'

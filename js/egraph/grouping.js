@@ -1,1 +1,1 @@
-export { ForceDirectedGrouping, TreemapGrouping } from '@egraph/wasm'
+export { ForceDirectedGrouping, TreemapGrouping } from 'egraph-wasm'

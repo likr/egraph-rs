@@ -9,4 +9,4 @@ export {
   ManyBodyForce,
   PositionForce,
   Simulation
-} from '@egraph/wasm'
+} from 'egraph-wasm'
