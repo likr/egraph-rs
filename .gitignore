@@ -1,6 +1,5 @@
 target
 Cargo.lock
-clp-sys/vendor
 node_modules
 egraph-c-examples/example
 egraph-cpp-examples/example
@@ -9,6 +8,5 @@ egraph-js/egraph.wasm
 egraph-js-examples/public/*.wasm
 egraph-js-examples/public/*.js
 egraph-js-examples/public/vendor
-egraph-wasm/bin
-egraph-wasm/pkg
+js/egraph/umd
 wasm-pack.log

@@ -1,8 +1,9 @@
 import React from 'react'
 import * as d3 from 'd3'
-import { Graph } from 'egraph'
-import { TreemapGrouping, ForceDirectedGrouping } from 'egraph/grouping'
 import {
+  Graph,
+  TreemapGrouping,
+  ForceDirectedGrouping,
   Simulation,
   ManyBodyForce,
   LinkForce,
@@ -12,7 +13,7 @@ import {
   GroupLinkForce,
   GroupManyBodyForce,
   GroupPositionForce
-} from 'egraph/layout/force-directed'
+} from 'egraph'
 import { Wrapper } from '../wrapper'
 
 const grouping = (name, graph, groupAccessor) => {

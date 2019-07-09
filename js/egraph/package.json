@@ -3,13 +3,24 @@
   "version": "4.0.1-alpha.4",
   "description": "",
   "main": "index.js",
+  "module": "index.js",
+  "unpkg": "umd/egraph.js",
+  "files": [
+    "index.js",
+    "graph.js",
+    "umd"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepublish": "rollup -c && cp node_modules/egraph-wasm/dist/web/egraph_wasm_bg.wasm dist/egraph_bg.wasm"
   },
   "keywords": [],
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
   "dependencies": {
     "egraph-wasm": "^4.0.1-alpha.4"
+  },
+  "devDependencies": {
+    "rollup": "^1.16.7",
+    "rollup-plugin-node-resolve": "^5.2.0"
   }
 }

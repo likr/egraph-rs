@@ -1,0 +1,31 @@
+{
+  "name": "egraph-wasm",
+  "collaborators": [
+    "Yosuke Onoue <onoue@likr-lab.com>"
+  ],
+  "description": "WebAssembly binding of egraph.",
+  "version": "4.0.1-alpha.4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/likr/egraph-rs/tree/master/crates/wasm"
+  },
+  "files": [
+    "dist/browser/egraph_wasm_bg.wasm",
+    "dist/browser/egraph_wasm.js",
+    "dist/browser/egraph_wasm.d.ts",
+    "dist/no-modules/egraph_wasm_bg.wasm",
+    "dist/no-modules/egraph_wasm.js",
+    "dist/no-modules/egraph_wasm.d.ts",
+    "dist/nodejs/egraph_wasm_bg.wasm",
+    "dist/nodejs/egraph_wasm.js",
+    "dist/nodejs/egraph_wasm.d.ts",
+    "dist/web/egraph_wasm_bg.wasm",
+    "dist/web/egraph_wasm.js",
+    "dist/web/egraph_wasm.d.ts"
+  ],
+  "main": "dist/nodejs/egraph_wasm.js",
+  "module": "dist/browser/egraph_wasm.js",
+  "types": "dist/browser/egraph_wasm.d.ts",
+  "sideEffects": "false"
+}

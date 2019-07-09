@@ -1,12 +1,7 @@
 import React from 'react'
 import * as d3 from 'd3'
 import { Graph } from 'egraph'
-import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce
-} from 'egraph/layout/force-directed'
+import { Simulation, ManyBodyForce, LinkForce, CenterForce } from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleForceDirected extends React.Component {

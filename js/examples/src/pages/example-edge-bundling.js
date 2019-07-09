@@ -4,10 +4,10 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-  CenterForce
-} from 'egraph/layout/force-directed'
-import { ForceDirectedEdgeBundling } from 'egraph/edge_bundling'
-import { Graph } from 'egraph'
+  CenterForce,
+  ForceDirectedEdgeBundling,
+  Graph
+} from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleEdgeBundling extends React.Component {
