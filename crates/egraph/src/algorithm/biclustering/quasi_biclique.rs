@@ -1,18 +1,17 @@
-use super::{filter_by_size, maximal_biclusters, Bicluster, Biclustering};
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::{EdgeType, Graph};
+use crate::algorithm::biclustering::{filter_by_size, maximal_biclusters, Bicluster, Biclustering};
+use crate::graph::{neighbors, Graph};
 use std::collections::{HashMap, HashSet};
 
 fn hash_key(vertices: &Vec<usize>) -> String {
     vertices
         .iter()
-        .map(|u| format!("{}", u.index()))
+        .map(|u| format!("{}", u))
         .collect::<Vec<_>>()
         .join(",")
 }
 
-pub fn find_quasi_bicliques<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
+pub fn find_quasi_bicliques<D, G: Graph<D>>(
+    graph: &G,
     source: &HashSet<usize>,
     target: &HashSet<usize>,
     mu: f64,
@@ -20,10 +19,9 @@ pub fn find_quasi_bicliques<N, E, Ty: EdgeType, Ix: IndexType>(
     let mut biclusters = Vec::new();
     let mut keys = HashSet::new();
     for &u in source {
-        let mut u_neighbors = graph
-            .neighbors(NodeIndex::new(u))
-            .filter(|v| target.contains(&v.index()))
-            .map(|v| v.index())
+        let mut u_neighbors = neighbors(graph, u)
+            .filter(|v| target.contains(&v))
+            .map(|v| v)
             .collect::<Vec<_>>();
         u_neighbors.sort();
         let key = hash_key(&mut u_neighbors);
@@ -41,14 +39,14 @@ pub fn find_quasi_bicliques<N, E, Ty: EdgeType, Ix: IndexType>(
     for bicluster in biclusters.iter_mut() {
         let mut m = HashMap::new();
         for &v in bicluster.target.iter() {
-            for u in graph.neighbors(NodeIndex::new(v)) {
-                if !source.contains(&u.index()) {
+            for u in neighbors(graph, v) {
+                if !source.contains(&u) {
                     continue;
                 }
-                if !m.contains_key(&u.index()) {
-                    m.insert(u.index(), 0);
+                if !m.contains_key(&u) {
+                    m.insert(u, 0);
                 }
-                if let Some(count) = m.get_mut(&u.index()) {
+                if let Some(count) = m.get_mut(&u) {
                     *count += 1;
                 }
             }
@@ -78,9 +76,9 @@ impl QuasiBiclique {
 }
 
 impl Biclustering for QuasiBiclique {
-    fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+    fn call<D, G: Graph<D>>(
         &self,
-        graph: &Graph<N, E, Ty, Ix>,
+        graph: &G,
         source: &HashSet<usize>,
         target: &HashSet<usize>,
     ) -> Vec<Bicluster> {

@@ -1,10 +1,9 @@
 pub mod quasi_biclique;
 
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::{EdgeType, Graph};
+use crate::Graph;
 use std::collections::HashSet;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bicluster {
     pub source: HashSet<usize>,
     pub target: HashSet<usize>,
@@ -20,9 +19,9 @@ impl Bicluster {
 }
 
 pub trait Biclustering {
-    fn call<N, E, Ty: EdgeType, Ix: IndexType>(
+    fn call<D, G: Graph<D>>(
         &self,
-        graph: &Graph<N, E, Ty, Ix>,
+        graph: &G,
         source: &HashSet<usize>,
         target: &HashSet<usize>,
     ) -> Vec<Bicluster>;
@@ -43,8 +42,8 @@ pub fn maximal_biclusters(biclusters: &Vec<Bicluster>) -> Vec<Bicluster> {
         .collect::<Vec<_>>()
 }
 
-pub fn filter_by_size<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
+pub fn filter_by_size<D, G: Graph<D>>(
+    graph: &G,
     biclusters: &Vec<Bicluster>,
     min_size: usize,
 ) -> Vec<Bicluster> {
@@ -54,7 +53,7 @@ pub fn filter_by_size<N, E, Ty: EdgeType, Ix: IndexType>(
             let mut size = 0;
             for &u in bicluster.source.iter() {
                 for &v in bicluster.target.iter() {
-                    if let Some(_) = graph.find_edge(NodeIndex::new(u), NodeIndex::new(v)) {
+                    if graph.has_edge(u, v) {
                         size += 1;
                     }
                 }

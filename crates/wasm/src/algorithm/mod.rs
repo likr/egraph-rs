@@ -1,3 +1,5 @@
+pub mod biclustering;
+
 use egraph::algorithm::connected_components;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
 use wasm_bindgen::prelude::*;
