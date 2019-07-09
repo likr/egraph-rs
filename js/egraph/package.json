@@ -11,7 +11,7 @@
     "umd"
   ],
   "scripts": {
-    "prepublish": "rollup -c && cp node_modules/egraph-wasm/dist/web/egraph_wasm_bg.wasm dist/egraph_bg.wasm"
+    "prepublish": "rollup -c && cp node_modules/egraph-wasm/dist/web/egraph_wasm_bg.wasm umd/egraph_bg.wasm"
   },
   "keywords": [],
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
