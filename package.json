@@ -8,10 +8,10 @@
     "prebootstrap": "npm run wasm-build",
     "bootstrap": "lerna bootstrap",
     "wasm-build": "npm run wasm-build:browser && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
-    "wasm-build:browser": "wasm-pack build --target browser -d pkg/browser crates/wasm",
-    "wasm-build:no-modules": "wasm-pack build --target no-modules -d pkg/no-modules crates/wasm",
-    "wasm-build:nodejs": "wasm-pack build --target nodejs -d pkg/nodejs crates/wasm",
-    "wasm-build:web": "wasm-pack build --target web -d pkg/web crates/wasm"
+    "wasm-build:browser": "wasm-pack build --target browser -d dist/browser crates/wasm",
+    "wasm-build:no-modules": "wasm-pack build --target no-modules -d dist/no-modules crates/wasm",
+    "wasm-build:nodejs": "wasm-pack build --target nodejs -d dist/nodejs crates/wasm",
+    "wasm-build:web": "wasm-pack build --target web -d dist/web crates/wasm"
   },
   "repository": {
     "type": "git",
