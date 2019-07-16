@@ -1,5 +1,5 @@
 use super::{GroupLinkObject, GroupNodeObject, GroupObject};
-use crate::layout::force_directed::simulation::JsSimulation;
+use crate::layout::force_directed::simulation::JsSimulationBuilder;
 use egraph::grouping::force_directed::ForceDirectedGrouping;
 use egraph::grouping::{GroupLink, GroupNode};
 use egraph::Graph;
@@ -22,7 +22,12 @@ impl JsForceDirectedGrouping {
         }
     }
 
-    pub fn call(&self, graph: JsGraph, simulation: JsSimulation, new_graph: Function) -> JsValue {
+    pub fn call(
+        &self,
+        graph: JsGraph,
+        builder: JsSimulationBuilder,
+        new_graph: Function,
+    ) -> JsValue {
         let graph = JsGraphAdapter::new(graph);
         let f: Box<dyn Fn(&Vec<GroupNode>, &Vec<GroupLink>) -> JsGraphAdapter> =
             Box::new(move |nodes, links| {
@@ -47,7 +52,7 @@ impl JsForceDirectedGrouping {
             });
         let result = self
             .grouping
-            .call(&graph, simulation.simulation(), &f)
+            .call(&graph, builder.builder(), &f)
             .iter()
             .map(|(&i, g)| {
                 (

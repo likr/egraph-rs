@@ -1,6 +1,6 @@
 import React from 'react'
 import * as d3 from 'd3'
-import { Graph, Simulation, NodeGeometry } from 'egraph'
+import { Graph, SimulationBuilder } from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleForceDirected extends React.Component {
@@ -20,20 +20,19 @@ export class ExampleForceDirected extends React.Component {
           const { source, target } = link
           graph.addEdge(source, target, link)
         }
-        const simulation = Simulation.basic()
-        const context = simulation.build(graph)
-        const points = new NodeGeometry(graph)
+        const builder = SimulationBuilder.defaultSetting()
+        const simulation = builder.build(graph)
 
         const draw = () => {
-          if (context.isFinished()) {
+          if (simulation.isFinished()) {
             return
           }
           window.requestAnimationFrame(draw)
-          context.step(points)
+          simulation.stepN(10)
           for (const u of graph.nodes()) {
             const node = graph.node(u)
-            node.x = points.x(u)
-            node.y = points.y(u)
+            node.x = simulation.x(u)
+            node.y = simulation.y(u)
           }
           this.refs.renderer.update()
           this.refs.renderer.center()

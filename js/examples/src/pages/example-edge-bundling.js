@@ -1,13 +1,6 @@
 import React from 'react'
 import * as d3 from 'd3'
-import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce,
-  ForceDirectedEdgeBundling,
-  Graph
-} from 'egraph'
+import { SimulationBuilder, ForceDirectedEdgeBundling, Graph } from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleEdgeBundling extends React.Component {
@@ -28,22 +21,18 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(source, target, link)
         }
 
-        const mbForce = new ManyBodyForce()
-        const lForce = new LinkForce()
-        const cForce = new CenterForce()
-        const simulation = new Simulation()
-        simulation.add(mbForce)
-        simulation.add(lForce)
-        simulation.add(cForce)
-        const layout = simulation.start(graph)
+        const builder = SimulationBuilder.defaultSetting()
+        const simulation = builder.build(graph)
+        simulation.run()
+
         for (const u of graph.nodes()) {
           const node = graph.node(u)
-          node.x = layout.nodes[u].x
-          node.y = layout.nodes[u].y
+          node.x = simulation.x(u)
+          node.y = simulation.y(u)
         }
 
         const edgeBundling = new ForceDirectedEdgeBundling()
-        const bends = edgeBundling.call(graph, layout.nodes)
+        const bends = edgeBundling.call(graph, data.nodes)
         Array.from(graph.edges()).map(([u, v], i) => {
           graph.edge(u, v).bends = bends[i].bends.map(({ x, y }) => [x, y])
         })

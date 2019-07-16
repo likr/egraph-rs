@@ -4,7 +4,7 @@ import {
   Graph,
   TreemapGrouping,
   ForceDirectedGrouping,
-  Simulation,
+  SimulationBuilder,
   ManyBodyForce,
   LinkForce,
   PositionForce,
@@ -35,12 +35,12 @@ const grouping = (name, graph, groupAccessor) => {
     collideForce.radius = (groupGraph, u) =>
       Math.sqrt(groupGraph.node(u).weight)
 
-    const simulation = new Simulation()
-    simulation.add(manyBodyForce)
-    simulation.add(linkForce)
-    simulation.add(positionForce)
-    simulation.add(collideForce)
-    return grouper.call(graph, simulation, () => new Graph())
+    const builder = new SimulationBuilder()
+    builder.add(manyBodyForce)
+    builder.add(linkForce)
+    builder.add(positionForce)
+    builder.add(collideForce)
+    return grouper.call(graph, builder, () => new Graph())
   }
 }
 
@@ -70,17 +70,19 @@ const layout = (data, groupLayout) => {
   centerForce.groupX = (g) => groups[g].x
   centerForce.groupY = (g) => groups[g].y
 
-  const simulation = new Simulation()
-  simulation.add(manyBodyForce)
-  simulation.add(linkForce)
-  simulation.add(positionForce)
-  simulation.add(centerForce)
+  const builder = new SimulationBuilder()
+  builder.add(manyBodyForce)
+  builder.add(linkForce)
+  builder.add(positionForce)
+  builder.add(centerForce)
 
-  const layout = simulation.start(graph)
+  const simulation = builder.build(graph)
+  simulation.run()
+
   for (const u of graph.nodes()) {
     const node = graph.node(u)
-    node.x = layout.nodes[u].x
-    node.y = layout.nodes[u].y
+    node.x = simulation.x(u)
+    node.y = simulation.y(u)
   }
 }
 

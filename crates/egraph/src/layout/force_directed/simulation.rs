@@ -1,10 +1,15 @@
 use super::force::{Force, ForceContext, Point};
+use super::initial_placement;
 use crate::Graph;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
-pub struct SimulationContext {
+pub struct Simulation {
     forces: Vec<Box<dyn ForceContext>>,
+    indices: HashMap<usize, usize>,
+    points: Vec<Point>,
+    alpha_decay: f32,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -12,41 +17,42 @@ pub struct SimulationContext {
     pub iterations: usize,
 }
 
-impl SimulationContext {
+impl Simulation {
     fn new(
         forces: Vec<Box<dyn ForceContext>>,
+        indices: HashMap<usize, usize>,
+        points: Vec<Point>,
         alpha: f32,
         alpha_min: f32,
         alpha_target: f32,
         velocity_decay: f32,
         iterations: usize,
-    ) -> SimulationContext {
-        SimulationContext {
+    ) -> Simulation {
+        Simulation {
             forces,
+            indices,
+            points,
             alpha,
             alpha_min,
             alpha_target,
+            alpha_decay: 1. - alpha_min.powf(1. / iterations as f32),
             velocity_decay,
             iterations,
         }
     }
 
-    pub fn start(&mut self, points: &mut Vec<Point>) {
-        loop {
-            self.step(points);
-            if self.is_finished() {
-                break;
-            }
+    pub fn run(&mut self) {
+        while !self.is_finished() {
+            self.step();
         }
     }
 
-    pub fn step(&mut self, points: &mut Vec<Point>) {
-        let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
-        self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
+    pub fn step(&mut self) {
+        self.alpha += (self.alpha_target - self.alpha) * self.alpha_decay;
         for force in self.forces.iter() {
-            force.apply(points, self.alpha);
+            force.apply(&mut self.points, self.alpha);
         }
-        for point in points.iter_mut() {
+        for point in self.points.iter_mut() {
             point.vx *= self.velocity_decay;
             point.x += point.vx;
             point.vy *= self.velocity_decay;
@@ -54,12 +60,30 @@ impl SimulationContext {
         }
     }
 
+    pub fn step_n(&mut self, n: usize) {
+        for _ in 0..n {
+            self.step();
+        }
+    }
+
     pub fn is_finished(&self) -> bool {
         self.alpha < self.alpha_min
     }
+
+    pub fn reset(&mut self, alpha_start: f32) {
+        self.alpha = alpha_start;
+    }
+
+    pub fn x(&self, u: usize) -> f32 {
+        self.points[self.indices[&u]].x
+    }
+
+    pub fn y(&self, u: usize) -> f32 {
+        self.points[self.indices[&u]].y
+    }
 }
 
-pub struct Simulation<D, G: Graph<D>> {
+pub struct SimulationBuilder<D, G: Graph<D>> {
     builders: Vec<Rc<RefCell<dyn Force<D, G>>>>,
     pub alpha_start: f32,
     pub alpha_min: f32,
@@ -68,9 +92,9 @@ pub struct Simulation<D, G: Graph<D>> {
     pub iterations: usize,
 }
 
-impl<D, G: Graph<D>> Simulation<D, G> {
-    pub fn new() -> Simulation<D, G> {
-        Simulation {
+impl<D, G: Graph<D>> SimulationBuilder<D, G> {
+    pub fn new() -> SimulationBuilder<D, G> {
+        SimulationBuilder {
             builders: Vec::new(),
             alpha_start: 1.,
             alpha_min: 0.001,
@@ -80,14 +104,22 @@ impl<D, G: Graph<D>> Simulation<D, G> {
         }
     }
 
-    pub fn build(&self, graph: &G) -> SimulationContext {
+    pub fn build(&self, graph: &G) -> Simulation {
+        let points = initial_placement(graph.node_count());
+        let indices = graph
+            .nodes()
+            .enumerate()
+            .map(|(i, u)| (u, i))
+            .collect::<HashMap<_, _>>();
         let forces = self
             .builders
             .iter()
             .map(|builder| builder.borrow().build(graph))
             .collect();
-        SimulationContext::new(
+        Simulation::new(
             forces,
+            indices,
+            points,
             self.alpha_start,
             self.alpha_min,
             self.alpha_target,
