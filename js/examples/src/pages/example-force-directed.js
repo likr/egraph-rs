@@ -1,7 +1,6 @@
 import React from 'react'
 import * as d3 from 'd3'
-import { Graph } from 'egraph'
-import { Simulation, ManyBodyForce, LinkForce, CenterForce } from 'egraph'
+import { Graph, Simulation, NodeGeometry } from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleForceDirected extends React.Component {
@@ -21,25 +20,27 @@ export class ExampleForceDirected extends React.Component {
           const { source, target } = link
           graph.addEdge(source, target, link)
         }
-        const mbForce = new ManyBodyForce()
-        const lForce = new LinkForce()
-        const cForce = new CenterForce()
-        const simulation = new Simulation()
-        simulation.add(mbForce)
-        simulation.add(lForce)
-        simulation.add(cForce)
-        const start = window.performance.now()
-        const layout = simulation.start(graph)
-        const stop = window.performance.now()
-        console.log(stop - start)
-        for (const u of graph.nodes()) {
-          const node = graph.node(u)
-          node.x = layout.nodes[u].x
-          node.y = layout.nodes[u].y
+        const simulation = Simulation.basic()
+        const context = simulation.build(graph)
+        const points = new NodeGeometry(graph)
+
+        const draw = () => {
+          if (context.isFinished()) {
+            return
+          }
+          window.requestAnimationFrame(draw)
+          context.step(points)
+          for (const u of graph.nodes()) {
+            const node = graph.node(u)
+            node.x = points.x(u)
+            node.y = points.y(u)
+          }
+          this.refs.renderer.update()
+          this.refs.renderer.center()
         }
 
-        this.refs.renderer.load(graph.toJSON())
-        this.refs.renderer.center()
+        this.refs.renderer.load(data)
+        draw()
       })
   }
 

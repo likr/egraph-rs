@@ -32,17 +32,17 @@ impl SimulationContext {
     }
 
     pub fn start(&mut self, points: &mut Vec<Point>) {
-        let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
         loop {
-            self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
             self.step(points);
-            if self.alpha < self.alpha_min {
+            if self.is_finished() {
                 break;
             }
         }
     }
 
     pub fn step(&mut self, points: &mut Vec<Point>) {
+        let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
+        self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
         for force in self.forces.iter() {
             force.apply(points, self.alpha);
         }
@@ -52,6 +52,10 @@ impl SimulationContext {
             point.vy *= self.velocity_decay;
             point.y += point.vy;
         }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.alpha < self.alpha_min
     }
 }
 

@@ -1,35 +1,40 @@
 use crate::layout::force_directed::force::JsForce;
-use egraph::layout::force_directed::{initial_placement, Point, Simulation};
-use egraph::Graph;
+use egraph::layout::force_directed::force::{LinkForce, ManyBodyForce, PositionForce};
+use egraph::layout::force_directed::{initial_placement, Point, Simulation, SimulationContext};
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
+use js_sys::try_iter;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-#[derive(Serialize, Deserialize)]
-pub struct PointGeometry {
-    pub x: f32,
-    pub y: f32,
-}
-
-#[derive(Serialize, Deserialize)]
+#[wasm_bindgen]
 pub struct NodeGeometry {
-    pub id: usize,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
+    indices: HashMap<usize, usize>,
+    points: Vec<Point>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct LinkGeometry {
-    pub source: usize,
-    pub target: usize,
-    pub bends: Vec<PointGeometry>,
-}
+#[wasm_bindgen]
+impl NodeGeometry {
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: JsGraph) -> NodeGeometry {
+        let indices = try_iter(&graph.nodes())
+            .unwrap()
+            .unwrap()
+            .enumerate()
+            .map(|(i, obj)| (obj.unwrap().as_f64().unwrap() as usize, i))
+            .collect::<HashMap<_, _>>();
+        let points = initial_placement(graph.node_count());
+        NodeGeometry { indices, points }
+    }
 
-#[derive(Serialize, Deserialize)]
-pub struct GraphGeometry {
-    pub nodes: Vec<NodeGeometry>,
-    pub links: Vec<LinkGeometry>,
+    pub fn x(&self, u: usize) -> f32 {
+        self.points[self.indices[&u]].x
+    }
+
+    pub fn y(&self, u: usize) -> f32 {
+        self.points[self.indices[&u]].y
+    }
 }
 
 #[wasm_bindgen]
@@ -38,6 +43,33 @@ extern "C" {
 
     #[wasm_bindgen(method, structural)]
     fn force(this: &ForceObject) -> JsForce;
+}
+
+#[wasm_bindgen(js_name = SimulationContext)]
+pub struct JsSimulationContext {
+    context: SimulationContext,
+}
+
+impl JsSimulationContext {
+    pub fn new(context: SimulationContext) -> JsSimulationContext {
+        JsSimulationContext { context }
+    }
+}
+
+#[wasm_bindgen(js_class = SimulationContext)]
+impl JsSimulationContext {
+    pub fn start(&mut self, points: &mut NodeGeometry) {
+        self.context.start(&mut points.points);
+    }
+
+    pub fn step(&mut self, points: &mut NodeGeometry) {
+        self.context.step(&mut points.points);
+    }
+
+    #[wasm_bindgen(js_name = isFinished)]
+    pub fn is_finished(&self) -> bool {
+        self.context.is_finished()
+    }
 }
 
 #[wasm_bindgen(js_name = Simulation)]
@@ -60,48 +92,26 @@ impl JsSimulation {
         }
     }
 
+    pub fn basic() -> JsSimulation {
+        let mut simulation = Simulation::new();
+        let many_body_force = ManyBodyForce::new();
+        simulation.add(Rc::new(RefCell::new(many_body_force)));
+        let link_force = LinkForce::new();
+        simulation.add(Rc::new(RefCell::new(link_force)));
+        let mut position_force = PositionForce::new();
+        position_force.x = Box::new(|_, _| Some(0.));
+        position_force.y = Box::new(|_, _| Some(0.));
+        simulation.add(Rc::new(RefCell::new(position_force)));
+        JsSimulation { simulation }
+    }
+
     pub fn add(&mut self, force: &ForceObject) {
         self.simulation.add(force.force().force());
     }
 
-    pub fn start(&mut self, graph: JsGraph, initial_points: JsValue) -> JsValue {
+    pub fn build(&mut self, graph: JsGraph) -> JsSimulationContext {
         let graph = JsGraphAdapter::new(graph);
-        let mut points = if initial_points.is_null() || initial_points.is_undefined() {
-            initial_placement(graph.node_count())
-        } else {
-            initial_points
-                .into_serde::<GraphGeometry>()
-                .unwrap()
-                .nodes
-                .iter()
-                .map(|p| Point::new(p.x, p.y))
-                .collect::<Vec<_>>()
-        };
-        let mut context = self.simulation.build(&graph);
-        context.start(&mut points);
-
-        let result = GraphGeometry {
-            nodes: graph
-                .nodes()
-                .enumerate()
-                .map(|(i, u)| NodeGeometry {
-                    id: u,
-                    x: points[i].x,
-                    y: points[i].y,
-                    width: 0.0,
-                    height: 0.0,
-                })
-                .collect(),
-            links: graph
-                .edges()
-                .map(|(u, v)| LinkGeometry {
-                    source: u,
-                    target: v,
-                    bends: Vec::new(),
-                })
-                .collect(),
-        };
-        JsValue::from_serde(&result).unwrap()
+        JsSimulationContext::new(self.simulation.build(&graph))
     }
 
     #[wasm_bindgen(getter = alphaStart)]

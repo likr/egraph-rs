@@ -13,25 +13,25 @@ extern "C" {
     pub fn add_edge(this: &JsGraph, u: usize, v: usize, data: JsValue);
 
     #[wasm_bindgen(method, js_class = "Graph", js_name = "node")]
-    fn node(this: &JsGraph, u: usize) -> JsValue;
+    pub fn node(this: &JsGraph, u: usize) -> JsValue;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "edge")]
-    fn edge(this: &JsGraph, u: usize, v: usize) -> JsValue;
+    pub fn edge(this: &JsGraph, u: usize, v: usize) -> JsValue;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "nodes")]
-    fn nodes(this: &JsGraph) -> js_sys::Iterator;
+    pub fn nodes(this: &JsGraph) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "edges")]
-    fn edges(this: &JsGraph) -> js_sys::Iterator;
+    pub fn edges(this: &JsGraph) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "outNodes")]
-    fn out_nodes(this: &JsGraph, u: usize) -> js_sys::Iterator;
+    pub fn out_nodes(this: &JsGraph, u: usize) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "inNodes")]
-    fn in_nodes(this: &JsGraph, u: usize) -> js_sys::Iterator;
+    pub fn in_nodes(this: &JsGraph, u: usize) -> js_sys::Iterator;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "nodeCount")]
-    fn node_count(this: &JsGraph) -> usize;
+    pub fn node_count(this: &JsGraph) -> usize;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "edgeCount")]
-    fn edge_count(this: &JsGraph) -> usize;
+    pub fn edge_count(this: &JsGraph) -> usize;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "outDegree")]
-    fn out_degree(this: &JsGraph, u: usize) -> usize;
+    pub fn out_degree(this: &JsGraph, u: usize) -> usize;
     #[wasm_bindgen(method, js_class = "Graph", js_name = "inDegree")]
-    fn in_degree(this: &JsGraph, u: usize) -> usize;
+    pub fn in_degree(this: &JsGraph, u: usize) -> usize;
 }
 
 pub struct JsGraphAdapter {

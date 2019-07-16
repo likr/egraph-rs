@@ -2,7 +2,7 @@ pub mod force;
 pub mod simulation;
 
 pub use self::force::{Force, Point};
-pub use self::simulation::Simulation;
+pub use self::simulation::{Simulation, SimulationContext};
 use std::f32;
 
 pub fn initial_placement(n: usize) -> Vec<Point> {
