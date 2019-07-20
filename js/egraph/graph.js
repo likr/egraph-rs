@@ -85,6 +85,10 @@ export class Graph {
     return p(this).numEdges
   }
 
+  degree(u) {
+    return this.outDegree(u) && this.inDegree(u)
+  }
+
   outDegree(u) {
     checkNode(this, u)
     return p(this).nodes.get(u).outNodes.size
