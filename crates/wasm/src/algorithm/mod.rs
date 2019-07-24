@@ -1,4 +1,5 @@
 pub mod biclustering;
+pub mod ranking;
 
 use egraph::algorithm::connected_components;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};

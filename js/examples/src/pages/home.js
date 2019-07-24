@@ -15,6 +15,9 @@ export class Home extends React.Component {
           <li>
             <Link to='/edge-bundling'>edge-bundling</Link>
           </li>
+          <li>
+            <Link to='/dag'>dag</Link>
+          </li>
         </ul>
       </div>
     )

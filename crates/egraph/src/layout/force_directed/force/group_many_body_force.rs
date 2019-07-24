@@ -1,4 +1,5 @@
 use super::group_indices;
+use super::MIN_DISTANCE;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
@@ -36,7 +37,7 @@ impl ForceContext for GroupManyBodyForceContext {
                     let strength = self.strength[b];
                     let dx = points[b].x - x0;
                     let dy = points[b].y - y0;
-                    let l = (dx * dx + dy * dy).max(1e-6);
+                    let l = (dx * dx + dy * dy).max(MIN_DISTANCE);
                     dvx += dx * strength * alpha / l;
                     dvy += dy * strength * alpha / l;
                 }

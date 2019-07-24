@@ -1,3 +1,4 @@
+use super::MIN_DISTANCE;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use crate::misc::quadtree::{Element, NodeId, Quadtree, Rect};
@@ -70,7 +71,7 @@ fn apply_many_body(
                 let rect = tree.rect(node_id);
                 let dx = rect.cx - point.x;
                 let dy = rect.cy - point.y;
-                let l = (dx * dx + dy * dy).max(1e-6);
+                let l = (dx * dx + dy * dy).max(MIN_DISTANCE);
                 if rect.width * rect.height / theta2 < l {
                     point.vx += dx * data.strength * alpha / l;
                     point.vy += dy * data.strength * alpha / l;
@@ -83,7 +84,7 @@ fn apply_many_body(
                     let strength = value * n as f32;
                     let dx = x - point.x;
                     let dy = y - point.y;
-                    let l = (dx * dx + dy * dy).max(1e-6);
+                    let l = (dx * dx + dy * dy).max(MIN_DISTANCE);
                     point.vx += dx * strength * alpha / l;
                     point.vy += dy * strength * alpha / l;
                 }

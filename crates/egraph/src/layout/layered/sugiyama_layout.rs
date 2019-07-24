@@ -1,9 +1,9 @@
 use super::crossing_reduction::crossing_reduction;
-use super::cycle_removal::remove_cycle;
 use super::graph::{Edge, Node};
 use super::normalize::normalize;
 use super::position_assignment::brandes::brandes;
 use super::ranking::{LongetPathRanking, RankingModule};
+use crate::algorithm::cycle::remove_cycle;
 use petgraph::graph::IndexType;
 use petgraph::visit::GetAdjacencyMatrix;
 use petgraph::{Directed, Graph};

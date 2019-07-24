@@ -1,3 +1,4 @@
+use super::MIN_DISTANCE;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::marker::PhantomData;
@@ -27,7 +28,7 @@ impl ForceContext for CollideForceContext {
                 let dx = xi - xj;
                 let dy = yi - yj;
                 let r = ri + rj;
-                let l2 = (dx * dx + dy * dy).max(1e-6);
+                let l2 = (dx * dx + dy * dy).max(MIN_DISTANCE);
                 if l2 < r * r {
                     let l = l2.sqrt();
                     let d = (r - l) / l * self.strength;

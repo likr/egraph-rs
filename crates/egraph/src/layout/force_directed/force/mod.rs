@@ -8,6 +8,7 @@ pub mod group_position_force;
 pub mod link_force;
 pub mod many_body_force;
 pub mod position_force;
+pub mod radial_force;
 
 pub use self::center_force::CenterForce;
 pub use self::collide_force::CollideForce;
@@ -19,8 +20,11 @@ pub use self::group_position_force::GroupPositionForce;
 pub use self::link_force::LinkForce;
 pub use self::many_body_force::ManyBodyForce;
 pub use self::position_force::PositionForce;
+pub use self::radial_force::RadialForce;
 
 use std::collections::HashMap;
+
+pub const MIN_DISTANCE: f32 = 1e-6;
 
 pub fn group_indices(groups: &Vec<usize>) -> HashMap<usize, Vec<usize>> {
     let mut result = HashMap::new();

@@ -1,3 +1,4 @@
+use super::MIN_DISTANCE;
 use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::collections::HashMap;
@@ -47,7 +48,7 @@ impl ForceContext for LinkForceContext {
             let target = points[link.target_index];
             let dx = (target.x + target.vx) - (source.x + source.vx);
             let dy = (target.y + target.vy) - (source.y + source.vy);
-            let l = (dx * dx + dy * dy).sqrt().max(1e-6);
+            let l = (dx * dx + dy * dy).sqrt().max(MIN_DISTANCE);
             let w = (l - link.distance) / l * alpha * link.strength;
             {
                 let ref mut target = points[link.target_index];

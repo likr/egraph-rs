@@ -33,14 +33,6 @@ pub fn cycle_edges<D, G: Graph<D>>(graph: &G) -> Vec<(NodeIndex, NodeIndex)> {
     result
 }
 
-// pub fn remove_cycle<D, G: Graph<D>>(graph: &mut G) {
-//     for (u, v) in cycle_edges(graph) {
-//         let index = graph.find_edge(u, v).unwrap();
-//         let weight = graph.remove_edge(index).unwrap();
-//         graph.add_edge(v, u, weight);
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;

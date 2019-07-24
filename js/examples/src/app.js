@@ -6,6 +6,7 @@ import { render } from 'react-dom'
 import { BrowserRouter as Router, Route, Link } from 'react-router-dom'
 import { Home } from './pages/home'
 import { ExampleBiclustering } from './pages/example-biclustering'
+import { ExampleDag } from './pages/example-dag'
 import { ExampleEdgeBundling } from './pages/example-edge-bundling'
 import { ExampleForceDirected } from './pages/example-force-directed'
 import { ExampleGroupInABox } from './pages/example-group-in-a-box'
@@ -31,6 +32,7 @@ render(
           <Route path='/edge-bundling' component={ExampleEdgeBundling} />
           <Route path='/force-directed' component={ExampleForceDirected} />
           <Route path='/group-in-a-box' component={ExampleGroupInABox} />
+          <Route path='/dag' component={ExampleDag} />
         </div>
       </section>
     </div>

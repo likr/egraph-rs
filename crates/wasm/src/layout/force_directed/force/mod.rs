@@ -7,6 +7,7 @@ pub mod group_position;
 pub mod link;
 pub mod many_body;
 pub mod position;
+pub mod radial;
 
 use egraph::layout::force_directed::force::Force;
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
