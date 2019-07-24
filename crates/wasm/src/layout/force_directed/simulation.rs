@@ -117,6 +117,11 @@ impl JsSimulationBuilder {
         JsSimulation::new(self.builder.build(&graph))
     }
 
+    pub fn start(&mut self, graph: JsGraph) -> JsSimulation {
+        let graph = JsGraphAdapter::new(graph);
+        JsSimulation::new(self.builder.start(&graph))
+    }
+
     #[wasm_bindgen(getter = alphaStart)]
     pub fn alpha_start(&mut self) -> f32 {
         self.builder.alpha_start

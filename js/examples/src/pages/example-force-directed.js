@@ -24,7 +24,7 @@ export class ExampleForceDirected extends React.Component {
         const simulation = builder.build(graph)
 
         const draw = () => {
-          if (simulation.isFinished()) {
+          if (!this.refs.renderer || simulation.isFinished()) {
             return
           }
           window.requestAnimationFrame(draw)

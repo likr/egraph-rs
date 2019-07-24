@@ -71,8 +71,7 @@ const layout = (data, groupLayout) => {
   builder.get(centerForce).groupX = (g) => groups[g].x
   builder.get(centerForce).groupY = (g) => groups[g].y
 
-  const simulation = builder.build(graph)
-  simulation.run()
+  const simulation = builder.start(graph)
 
   for (const u of graph.nodes()) {
     const node = graph.node(u)

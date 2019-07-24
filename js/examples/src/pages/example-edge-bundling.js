@@ -22,8 +22,7 @@ export class ExampleEdgeBundling extends React.Component {
         }
 
         const builder = SimulationBuilder.defaultConnected()
-        const simulation = builder.build(graph)
-        simulation.run()
+        const simulation = builder.start(graph)
 
         for (const u of graph.nodes()) {
           const node = graph.node(u)

@@ -1,4 +1,3 @@
-use super::MIN_DISTANCE;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
 use std::marker::PhantomData;
@@ -27,8 +26,8 @@ impl ForceContext for RadialForceContext {
             if let Some(ri) = self.radius[i] {
                 let strength = self.strength[i];
                 let point = points.get_mut(i).unwrap();
-                let dx = (point.x - self.x);
-                let dy = (point.y - self.y);
+                let dx = point.x - self.x;
+                let dy = point.y - self.y;
                 let d = (dx * dx + dy * dy).sqrt();
                 let k = (ri - d) * strength * alpha / d;
                 point.vx += dx * k;

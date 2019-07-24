@@ -130,6 +130,12 @@ impl<D, G: Graph<D>> SimulationBuilder<D, G> {
         )
     }
 
+    pub fn start(&self, graph: &G) -> Simulation {
+        let mut simulation = self.build(&graph);
+        simulation.run();
+        simulation
+    }
+
     pub fn add(&mut self, force: Rc<RefCell<dyn Force<D, G>>>) -> usize {
         let index = self.builders.len();
         self.builders.insert(index, force);
