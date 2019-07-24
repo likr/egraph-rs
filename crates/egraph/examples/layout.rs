@@ -2,14 +2,10 @@
 extern crate serde_derive;
 
 use egraph::edge_bundling::force_directed::ForceDirectedEdgeBundling;
-use egraph::layout::force_directed::force::{CenterForce, LinkForce, ManyBodyForce};
-use egraph::layout::force_directed::{initial_placement, Simulation};
-use egraph::Graph as EGraph;
+use egraph::layout::force_directed::SimulationBuilder;
 use egraph_petgraph_adapter::PetgraphWrapper;
 use petgraph::prelude::*;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 #[derive(Serialize, Deserialize)]
 struct NodeData {
@@ -52,22 +48,14 @@ fn main() {
     }
     let graph = PetgraphWrapper::new(graph);
 
-    let mut points = initial_placement(graph.node_count());
-
     eprintln!("start");
-    let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
-    let link_force = Rc::new(RefCell::new(LinkForce::new()));
-    let center_force = Rc::new(RefCell::new(CenterForce::new()));
-    let mut simulation = Simulation::new();
-    simulation.add(many_body_force);
-    simulation.add(link_force);
-    simulation.add(center_force);
-    let mut context = simulation.build(&graph);
-    context.start(&mut points);
+    let builder = SimulationBuilder::default();
+    let mut simulation = builder.build(&graph);
+    simulation.run();
 
     eprintln!("bundling edges");
     let edge_bundling = ForceDirectedEdgeBundling::new();
-    let lines = edge_bundling.call(&graph, &points);
+    let lines = edge_bundling.call(&graph, &simulation.points);
 
     eprintln!("writing result");
     let width = 800.;
@@ -94,7 +82,7 @@ fn main() {
             d
         );
     }
-    for point in points.iter() {
+    for point in simulation.points.iter() {
         println!(
             "<circle cx=\"{}\" cy=\"{}\" r=\"5\" fill=\"green\" />",
             point.x, point.y

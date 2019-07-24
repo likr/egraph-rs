@@ -58,23 +58,18 @@ const layout = (data, groupLayout) => {
   const groups = grouping(groupLayout, graph, groupAccessor)
   data.groups = Array.from(Object.values(groups))
 
-  const manyBodyForce = new GroupManyBodyForce()
-  manyBodyForce.group = groupAccessor
-  manyBodyForce.strength = (_) => -30
-  const linkForce = new GroupLinkForce()
-  linkForce.inter_group = 0.001
-  linkForce.group = groupAccessor
-  const positionForce = new GroupPositionForce()
-  const centerForce = new GroupCenterForce()
-  centerForce.group = groupAccessor
-  centerForce.groupX = (g) => groups[g].x
-  centerForce.groupY = (g) => groups[g].y
-
   const builder = new SimulationBuilder()
-  builder.add(manyBodyForce)
-  builder.add(linkForce)
-  builder.add(positionForce)
-  builder.add(centerForce)
+  const manyBodyForce = builder.add(new GroupManyBodyForce())
+  builder.get(manyBodyForce).group = groupAccessor
+  builder.get(manyBodyForce).strength = (_) => -30
+  const linkForce = builder.add(new GroupLinkForce())
+  builder.get(linkForce).inter_group = 0.001
+  builder.get(linkForce).group = groupAccessor
+  builder.add(new GroupPositionForce())
+  const centerForce = builder.add(new GroupCenterForce())
+  builder.get(centerForce).group = groupAccessor
+  builder.get(centerForce).groupX = (g) => groups[g].x
+  builder.get(centerForce).groupY = (g) => groups[g].y
 
   const simulation = builder.build(graph)
   simulation.run()

@@ -20,7 +20,7 @@ export class ExampleForceDirected extends React.Component {
           const { source, target } = link
           graph.addEdge(source, target, link)
         }
-        const builder = SimulationBuilder.defaultSetting()
+        const builder = SimulationBuilder.defaultConnected()
         const simulation = builder.build(graph)
 
         const draw = () => {
@@ -28,7 +28,7 @@ export class ExampleForceDirected extends React.Component {
             return
           }
           window.requestAnimationFrame(draw)
-          simulation.stepN(10)
+          simulation.stepN(1)
           for (const u of graph.nodes()) {
             const node = graph.node(u)
             node.x = simulation.x(u)

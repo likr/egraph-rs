@@ -21,7 +21,7 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(source, target, link)
         }
 
-        const builder = SimulationBuilder.defaultSetting()
+        const builder = SimulationBuilder.defaultConnected()
         const simulation = builder.build(graph)
         simulation.run()
 

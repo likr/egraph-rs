@@ -1,9 +1,7 @@
 use crate::layout::force_directed::force::JsForce;
-use egraph::layout::force_directed::force::{LinkForce, ManyBodyForce, PositionForce};
 use egraph::layout::force_directed::{Simulation, SimulationBuilder};
 use egraph_wasm_adapter::{JsGraph, JsGraphAdapter};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -61,6 +59,7 @@ impl JsSimulation {
 #[wasm_bindgen(js_name = SimulationBuilder)]
 pub struct JsSimulationBuilder {
     builder: SimulationBuilder<JsGraph, JsGraphAdapter>,
+    forces: HashMap<usize, ForceObject>,
 }
 
 impl JsSimulationBuilder {
@@ -75,25 +74,42 @@ impl JsSimulationBuilder {
     pub fn new() -> JsSimulationBuilder {
         JsSimulationBuilder {
             builder: SimulationBuilder::new(),
+            forces: HashMap::new(),
         }
     }
 
-    #[wasm_bindgen(js_name = defaultSetting)]
-    pub fn default_setting() -> JsSimulationBuilder {
-        let mut builder = SimulationBuilder::new();
-        let many_body_force = ManyBodyForce::new();
-        builder.add(Rc::new(RefCell::new(many_body_force)));
-        let link_force = LinkForce::new();
-        builder.add(Rc::new(RefCell::new(link_force)));
-        let mut position_force = PositionForce::new();
-        position_force.x = Box::new(|_, _| Some(0.));
-        position_force.y = Box::new(|_, _| Some(0.));
-        builder.add(Rc::new(RefCell::new(position_force)));
-        JsSimulationBuilder { builder }
+    #[wasm_bindgen(js_name = defaultConnected)]
+    pub fn default_connected() -> JsSimulationBuilder {
+        JsSimulationBuilder {
+            builder: SimulationBuilder::default_connected(),
+            forces: HashMap::new(),
+        }
     }
 
-    pub fn add(&mut self, force: &ForceObject) {
-        self.builder.add(force.force().force());
+    #[wasm_bindgen(js_name = defaultNonConnected)]
+    pub fn default_non_connected() -> JsSimulationBuilder {
+        JsSimulationBuilder {
+            builder: SimulationBuilder::default_non_connected(),
+            forces: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, force: ForceObject) -> usize {
+        let index = self.builder.add(force.force().force());
+        self.forces.insert(index, force);
+        index
+    }
+
+    pub fn get(&self, index: usize) -> JsValue {
+        self.forces[&index].clone()
+    }
+
+    pub fn remove(&mut self, index: usize) -> Option<ForceObject> {
+        if let Some(_) = self.builder.remove(index) {
+            self.forces.remove(&index)
+        } else {
+            None
+        }
     }
 
     pub fn build(&mut self, graph: JsGraph) -> JsSimulation {

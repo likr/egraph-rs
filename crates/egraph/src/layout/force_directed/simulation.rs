@@ -1,4 +1,6 @@
-use super::force::{Force, ForceContext, Point};
+use super::force::{
+    CenterForce, Force, ForceContext, LinkForce, ManyBodyForce, Point, PositionForce,
+};
 use super::initial_placement;
 use crate::Graph;
 use std::cell::RefCell;
@@ -7,9 +9,9 @@ use std::rc::Rc;
 
 pub struct Simulation {
     forces: Vec<Box<dyn ForceContext>>,
-    indices: HashMap<usize, usize>,
-    points: Vec<Point>,
-    alpha_decay: f32,
+    pub indices: HashMap<usize, usize>,
+    pub points: Vec<Point>,
+    pub alpha_decay: f32,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -84,7 +86,7 @@ impl Simulation {
 }
 
 pub struct SimulationBuilder<D, G: Graph<D>> {
-    builders: Vec<Rc<RefCell<dyn Force<D, G>>>>,
+    builders: HashMap<usize, Rc<RefCell<Force<D, G>>>>,
     pub alpha_start: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -95,7 +97,7 @@ pub struct SimulationBuilder<D, G: Graph<D>> {
 impl<D, G: Graph<D>> SimulationBuilder<D, G> {
     pub fn new() -> SimulationBuilder<D, G> {
         SimulationBuilder {
-            builders: Vec::new(),
+            builders: HashMap::new(),
             alpha_start: 1.,
             alpha_min: 0.001,
             alpha_target: 0.,
@@ -113,7 +115,7 @@ impl<D, G: Graph<D>> SimulationBuilder<D, G> {
             .collect::<HashMap<_, _>>();
         let forces = self
             .builders
-            .iter()
+            .values()
             .map(|builder| builder.borrow().build(graph))
             .collect();
         Simulation::new(
@@ -128,11 +130,49 @@ impl<D, G: Graph<D>> SimulationBuilder<D, G> {
         )
     }
 
-    pub fn add(&mut self, force: Rc<RefCell<dyn Force<D, G>>>) {
-        self.builders.push(force);
+    pub fn add(&mut self, force: Rc<RefCell<dyn Force<D, G>>>) -> usize {
+        let index = self.builders.len();
+        self.builders.insert(index, force);
+        index
     }
 
     pub fn get(&self, index: usize) -> Option<Rc<RefCell<dyn Force<D, G>>>> {
-        self.builders.get(index).map(|f| f.clone())
+        self.builders.get(&index).map(|f| f.clone())
+    }
+
+    pub fn remove(&mut self, index: usize) -> Option<Rc<RefCell<dyn Force<D, G>>>> {
+        self.builders.remove(&index)
+    }
+}
+
+impl<D: 'static, G: Graph<D> + 'static> Default for SimulationBuilder<D, G> {
+    fn default() -> SimulationBuilder<D, G> {
+        let mut builder = SimulationBuilder::new();
+        let many_body_force = ManyBodyForce::new();
+        builder.add(Rc::new(RefCell::new(many_body_force)));
+        let link_force = LinkForce::new();
+        builder.add(Rc::new(RefCell::new(link_force)));
+        let center_force = CenterForce::new();
+        builder.add(Rc::new(RefCell::new(center_force)));
+        builder
+    }
+}
+
+impl<D: 'static, G: Graph<D> + 'static> SimulationBuilder<D, G> {
+    pub fn default_connected() -> SimulationBuilder<D, G> {
+        SimulationBuilder::default()
+    }
+
+    pub fn default_non_connected() -> SimulationBuilder<D, G> {
+        let mut builder = SimulationBuilder::new();
+        let many_body_force = ManyBodyForce::new();
+        builder.add(Rc::new(RefCell::new(many_body_force)));
+        let link_force = LinkForce::new();
+        builder.add(Rc::new(RefCell::new(link_force)));
+        let mut position_force = PositionForce::new();
+        position_force.x = Box::new(|_, _| Some(0.));
+        position_force.y = Box::new(|_, _| Some(0.));
+        builder.add(Rc::new(RefCell::new(position_force)));
+        builder
     }
 }
