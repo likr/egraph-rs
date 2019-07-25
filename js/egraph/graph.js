@@ -86,7 +86,7 @@ export class Graph {
   }
 
   degree(u) {
-    return this.outDegree(u) && this.inDegree(u)
+    return this.outDegree(u) + this.inDegree(u)
   }
 
   outDegree(u) {
