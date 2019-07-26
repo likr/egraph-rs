@@ -65,8 +65,6 @@ export class ExampleDag extends React.Component {
         builder.get(radialForce).strength = () => 1
         builder.get(radialForce).radius = (graph, u) =>
           distance * (ranking[u] + 1)
-        builder.get(radialForce).x = 1
-        builder.get(radialForce).y = 1
         const simulation = builder.start(graph)
 
         for (const u of graph.nodes()) {
