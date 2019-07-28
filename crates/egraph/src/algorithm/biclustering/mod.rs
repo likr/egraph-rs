@@ -5,37 +5,36 @@ use std::collections::HashSet;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bicluster {
-    pub source: HashSet<usize>,
-    pub target: HashSet<usize>,
+    pub source: Vec<usize>,
+    pub target: Vec<usize>,
 }
 
 impl Bicluster {
     pub fn new() -> Bicluster {
         Bicluster {
-            source: HashSet::new(),
-            target: HashSet::new(),
+            source: Vec::new(),
+            target: Vec::new(),
         }
     }
 }
 
-pub trait Biclustering {
-    fn call<D, G: Graph<D>>(
-        &self,
-        graph: &G,
-        source: &HashSet<usize>,
-        target: &HashSet<usize>,
-    ) -> Vec<Bicluster>;
-}
-
 pub fn maximal_biclusters(biclusters: &Vec<Bicluster>) -> Vec<Bicluster> {
+    let source_set = biclusters
+        .iter()
+        .map(|bicluster| bicluster.source.iter().collect::<HashSet<_>>())
+        .collect::<Vec<_>>();
+    let target_set = biclusters
+        .iter()
+        .map(|bicluster| bicluster.target.iter().collect::<HashSet<_>>())
+        .collect::<Vec<_>>();
     biclusters
         .iter()
         .enumerate()
-        .filter(|(i, bicluster1)| {
-            !biclusters.iter().enumerate().any(|(j, bicluster2)| {
+        .filter(|(i, _)| {
+            !biclusters.iter().enumerate().any(|(j, _)| {
                 return *i != j
-                    && bicluster2.source.is_superset(&bicluster1.source)
-                    && bicluster2.target.is_superset(&bicluster1.target);
+                    && source_set[j].is_superset(&source_set[*i])
+                    && target_set[j].is_superset(&target_set[*i]);
             })
         })
         .map(|(_, bicluster)| bicluster.clone())
@@ -64,4 +63,4 @@ pub fn filter_by_size<D, G: Graph<D>>(
         .collect::<Vec<_>>()
 }
 
-pub use self::quasi_biclique::QuasiBiclique;
+pub use self::quasi_biclique::mu_quasi_bicliques;

@@ -1,4 +1,4 @@
-use crate::algorithm::biclustering::{filter_by_size, maximal_biclusters, Bicluster, Biclustering};
+use crate::algorithm::biclustering::Bicluster;
 use crate::graph::{neighbors, Graph};
 use std::collections::{HashMap, HashSet};
 
@@ -10,10 +10,10 @@ fn hash_key(vertices: &Vec<usize>) -> String {
         .join(",")
 }
 
-pub fn find_quasi_bicliques<D, G: Graph<D>>(
+pub fn mu_quasi_bicliques<D, G: Graph<D>>(
     graph: &G,
-    source: &HashSet<usize>,
-    target: &HashSet<usize>,
+    source: &Vec<usize>,
+    target: &Vec<usize>,
     mu: f64,
 ) -> Vec<Bicluster> {
     let mut biclusters = Vec::new();
@@ -30,7 +30,7 @@ pub fn find_quasi_bicliques<D, G: Graph<D>>(
         }
         let mut bicluster = Bicluster::new();
         for v in u_neighbors {
-            bicluster.target.insert(v);
+            bicluster.target.push(v);
         }
         biclusters.push(bicluster);
         keys.insert(key);
@@ -53,37 +53,10 @@ pub fn find_quasi_bicliques<D, G: Graph<D>>(
         }
         for (u, count) in m {
             if count >= (mu * bicluster.target.len() as f64) as usize {
-                bicluster.source.insert(u);
+                bicluster.source.push(u);
             }
         }
     }
 
     biclusters
-}
-
-pub struct QuasiBiclique {
-    pub mu: f64,
-    pub min_size: usize,
-}
-
-impl QuasiBiclique {
-    pub fn new() -> QuasiBiclique {
-        QuasiBiclique {
-            mu: 0.5,
-            min_size: 4,
-        }
-    }
-}
-
-impl Biclustering for QuasiBiclique {
-    fn call<D, G: Graph<D>>(
-        &self,
-        graph: &G,
-        source: &HashSet<usize>,
-        target: &HashSet<usize>,
-    ) -> Vec<Bicluster> {
-        let biclusters = find_quasi_bicliques(graph, source, target, self.mu);
-        let biclusters = filter_by_size(graph, &biclusters, self.min_size);
-        maximal_biclusters(&biclusters)
-    }
 }
