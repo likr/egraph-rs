@@ -1,18 +1,9 @@
 import React from 'react'
-import * as d3 from 'd3'
-import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce,
-  Graph,
-  QuasiBiclique
-} from 'egraph'
+import { SimulationBuilder, Graph, muQuasiBicliques } from 'egraph'
 import { Wrapper } from '../wrapper'
 
 export class ExampleBiclustering extends React.Component {
   componentDidMount() {
-    const color = d3.scaleOrdinal(d3.schemeCategory10)
     const graph = new Graph()
     graph.addNode(0)
     graph.addNode(1)
@@ -37,20 +28,14 @@ export class ExampleBiclustering extends React.Component {
     graph.addEdge(2, 5)
     graph.addEdge(2, 6)
 
-    console.log(new QuasiBiclique().call(graph, [0, 1, 2], [3, 4, 5, 6, 7]))
+    console.log(muQuasiBicliques(graph, [0, 1, 2], [3, 4, 5, 6, 7]))
 
-    const mbForce = new ManyBodyForce()
-    const lForce = new LinkForce()
-    const cForce = new CenterForce()
-    const simulation = new Simulation()
-    simulation.add(mbForce)
-    simulation.add(lForce)
-    simulation.add(cForce)
-    const layout = simulation.start(graph)
+    const builder = SimulationBuilder.defaultConnected()
+    const simulation = builder.start(graph)
     for (const u of graph.nodes()) {
       const node = graph.node(u)
-      node.x = layout.nodes[u].x
-      node.y = layout.nodes[u].y
+      node.x = simulation.x(u)
+      node.y = simulation.y(u)
     }
 
     this.refs.renderer.load(graph.toJSON())

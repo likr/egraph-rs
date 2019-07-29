@@ -18,6 +18,9 @@ export class Home extends React.Component {
           <li>
             <Link to='/dag'>dag</Link>
           </li>
+          <li>
+            <Link to='/biclustering'>biclustering</Link>
+          </li>
         </ul>
       </div>
     )
