@@ -86,7 +86,7 @@ impl Simulation {
 }
 
 pub struct SimulationBuilder<D, G: Graph<D>> {
-    builders: HashMap<usize, Rc<RefCell<Force<D, G>>>>,
+    builders: HashMap<usize, Rc<RefCell<dyn Force<D, G>>>>,
     pub alpha_start: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
