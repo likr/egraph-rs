@@ -10,7 +10,7 @@ use std::rc::Rc;
 use test::Bencher;
 
 #[bench]
-fn bench_many_body_force(bench: &mut Bencher) {
+fn bench_quad_tree_many_body_force(bench: &mut Bencher) {
     let n = 100;
     let mut graph: Graph<(), ()> = Graph::new();
     for _ in 0..n {
@@ -19,6 +19,25 @@ fn bench_many_body_force(bench: &mut Bencher) {
     let graph = PetgraphWrapper::new(graph);
 
     let many_body_force = Rc::new(RefCell::new(ManyBodyForce::new()));
+    let mut builder = SimulationBuilder::new();
+    builder.add(many_body_force);
+    builder.iterations = 10;
+
+    bench.iter(|| {
+        builder.start(&graph);
+    })
+}
+
+#[bench]
+fn bench_all_pair_many_body_force(bench: &mut Bencher) {
+    let n = 100;
+    let mut graph: Graph<(), ()> = Graph::new();
+    for _ in 0..n {
+        graph.add_node(());
+    }
+    let graph = PetgraphWrapper::new(graph);
+
+    let many_body_force = Rc::new(RefCell::new(ManyBodyForce::all_pair()));
     let mut builder = SimulationBuilder::new();
     builder.add(many_body_force);
     builder.iterations = 10;
