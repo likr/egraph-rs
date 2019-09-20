@@ -3,5 +3,5 @@
     "crates/wasm",
     "js/*"
   ],
-  "version": "4.0.1-alpha.10"
+  "version": "4.0.1-alpha.11"
 }
