@@ -1,6 +1,6 @@
 use super::MIN_DISTANCE;
-use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
+use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -74,8 +74,8 @@ impl<D, G: Graph<D>> LinkForce<D, G> {
     pub fn new() -> LinkForce<D, G> {
         LinkForce {
             strength: Box::new(|graph, u, v| {
-                let source_degree = degree(graph, u);
-                let target_degree = degree(graph, v);
+                let source_degree = graph.degree(u);
+                let target_degree = graph.degree(v);
                 1. / (source_degree.min(target_degree)) as f32
             }),
             distance: Box::new(|_, _, _| 30.0),
@@ -88,18 +88,14 @@ impl<D, G: Graph<D>> Force<D, G> for LinkForce<D, G> {
     fn build(&self, graph: &G) -> Box<dyn ForceContext> {
         let distance_accessor = &self.distance;
         let strength_accessor = &self.strength;
-        let node_indices = graph
-            .nodes()
-            .enumerate()
-            .map(|(i, u)| (u, i))
-            .collect::<HashMap<_, _>>();
+        let node_indices = graph.nodes_with_index().collect::<HashMap<_, _>>();
         let links = graph
             .edges()
             .map(|(u, v)| {
                 let distance = distance_accessor(graph, u, v);
                 let strength = strength_accessor(graph, u, v);
-                let source_degree = degree(graph, u) as f32;
-                let target_degree = degree(graph, v) as f32;
+                let source_degree = graph.degree(u) as f32;
+                let target_degree = graph.degree(v) as f32;
                 let bias = source_degree / (source_degree + target_degree);
                 Link::new(node_indices[&u], node_indices[&v], distance, strength, bias)
             })

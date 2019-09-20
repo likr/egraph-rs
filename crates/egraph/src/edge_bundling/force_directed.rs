@@ -1,5 +1,6 @@
 use crate::layout::force_directed::force::Point;
 use crate::Graph;
+use std::collections::HashMap;
 use std::f32;
 
 pub struct LineSegment {
@@ -202,9 +203,12 @@ pub fn edge_bundling<D, G: Graph<D>>(
         i_step,
         minimum_edge_compatibility,
     } = options;
+    let node_indices = graph.nodes_with_index().collect::<HashMap<_, _>>();
     let mut mid_points = Vec::new();
-    let mut segments: Vec<LineSegment> =
-        graph.edges().map(|(u, v)| LineSegment::new(u, v)).collect();
+    let mut segments = graph
+        .edges()
+        .map(|(u, v)| LineSegment::new(node_indices[&u], node_indices[&v]))
+        .collect::<Vec<_>>();
 
     let mut num_iter = *i0;
     let mut alpha = *s0;

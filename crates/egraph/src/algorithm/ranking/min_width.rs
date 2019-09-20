@@ -1,4 +1,3 @@
-use crate::graph::sink_nodes;
 use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 
@@ -37,7 +36,7 @@ fn dfs<D, G: Graph<D>>(
 pub fn min_width<D, G: Graph<D>>(graph: &G, width_limit: usize) -> HashMap<NodeIndex, usize> {
     let mut layering = HashMap::new();
     let mut widths = HashMap::new();
-    for u in sink_nodes(graph) {
+    for u in graph.sink_nodes() {
         dfs(graph, &mut layering, &mut widths, u, width_limit);
     }
     layering

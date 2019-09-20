@@ -1,5 +1,5 @@
 use crate::algorithm::biclustering::Bicluster;
-use crate::graph::{neighbors, Graph};
+use crate::Graph;
 use std::collections::{HashMap, HashSet};
 
 fn hash_key(vertices: &Vec<usize>) -> String {
@@ -19,7 +19,8 @@ pub fn mu_quasi_bicliques<D, G: Graph<D>>(
     let mut biclusters = Vec::new();
     let mut keys = HashSet::new();
     for &u in source {
-        let mut u_neighbors = neighbors(graph, u)
+        let mut u_neighbors = graph
+            .neighbors(u)
             .filter(|v| target.contains(&v))
             .map(|v| v)
             .collect::<Vec<_>>();
@@ -39,7 +40,7 @@ pub fn mu_quasi_bicliques<D, G: Graph<D>>(
     for bicluster in biclusters.iter_mut() {
         let mut m = HashMap::new();
         for &v in bicluster.target.iter() {
-            for u in neighbors(graph, v) {
+            for u in graph.neighbors(v) {
                 if !source.contains(&u) {
                     continue;
                 }

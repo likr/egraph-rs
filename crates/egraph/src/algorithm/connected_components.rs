@@ -1,4 +1,3 @@
-use crate::graph::neighbors;
 use crate::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -18,7 +17,7 @@ pub fn connected_components<D, G: Graph<D>>(graph: &G) -> HashMap<usize, usize> 
             }
             visited.insert(v);
             components.insert(v, u);
-            for w in neighbors(graph, v) {
+            for w in graph.neighbors(v) {
                 queue.push_back(w);
             }
         }

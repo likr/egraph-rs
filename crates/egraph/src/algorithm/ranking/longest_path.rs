@@ -1,4 +1,3 @@
-use crate::graph::source_nodes;
 use crate::{Graph, NodeIndex};
 use std::collections::HashMap;
 
@@ -23,7 +22,7 @@ fn dfs<D, G: Graph<D>>(
 
 pub fn longest_path<D, G: Graph<D>>(graph: &G) -> HashMap<NodeIndex, usize> {
     let mut result = HashMap::new();
-    for u in source_nodes(graph) {
+    for u in graph.source_nodes() {
         result.insert(u, 0);
         dfs(graph, &mut result, u, 0);
     }
