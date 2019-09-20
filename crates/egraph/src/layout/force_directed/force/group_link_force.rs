@@ -1,6 +1,7 @@
 use crate::graph::{degree, Graph, NodeIndex};
 use crate::layout::force_directed::force::link_force::{Link, LinkForceContext};
 use crate::layout::force_directed::force::{Force, ForceContext};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 pub struct GroupLinkForce<D, G: Graph<D>> {
@@ -28,15 +29,15 @@ impl<D, G: Graph<D>> Force<D, G> for GroupLinkForce<D, G> {
         let group_accessor = &self.group;
         let groups = graph
             .nodes()
-            .map(|u| group_accessor(graph, u))
-            .collect::<Vec<_>>();
+            .map(|u| (u, group_accessor(graph, u)))
+            .collect::<HashMap<_, _>>();
 
         let distance_accessor = &self.distance;
         let links = graph
             .edges()
             .map(|(u, v)| {
                 let distance = distance_accessor(graph, u, v);
-                let strength = if groups[u] == groups[v] {
+                let strength = if groups[&u] == groups[&v] {
                     self.intra_group
                 } else {
                     self.inter_group
