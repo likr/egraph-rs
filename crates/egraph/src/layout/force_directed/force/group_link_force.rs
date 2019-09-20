@@ -32,6 +32,12 @@ impl<D, G: Graph<D>> Force<D, G> for GroupLinkForce<D, G> {
             .map(|u| (u, group_accessor(graph, u)))
             .collect::<HashMap<_, _>>();
 
+        let node_indices = graph
+            .nodes()
+            .enumerate()
+            .map(|(i, u)| (u, i))
+            .collect::<HashMap<_, _>>();
+
         let distance_accessor = &self.distance;
         let links = graph
             .edges()
@@ -45,7 +51,7 @@ impl<D, G: Graph<D>> Force<D, G> for GroupLinkForce<D, G> {
                 let source_degree = degree(graph, u) as f32;
                 let target_degree = degree(graph, v) as f32;
                 let bias = source_degree / (source_degree + target_degree);
-                Link::new(u, v, distance, strength, bias)
+                Link::new(node_indices[&u], node_indices[&v], distance, strength, bias)
             })
             .collect();
         Box::new(LinkForceContext::new(links))
