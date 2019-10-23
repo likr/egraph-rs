@@ -80,8 +80,16 @@ impl Simulation {
         self.points[self.indices[&u]].x
     }
 
+    pub fn set_x(&mut self, u: usize, x: f32) {
+        self.points[self.indices[&u]].x = x;
+    }
+
     pub fn y(&self, u: usize) -> f32 {
         self.points[self.indices[&u]].y
+    }
+
+    pub fn set_y(&mut self, u: usize, y: f32) {
+        self.points[self.indices[&u]].y = y;
     }
 }
 

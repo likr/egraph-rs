@@ -51,8 +51,18 @@ impl JsSimulation {
         self.simulation.x(u)
     }
 
+    #[wasm_bindgen(js_name = setX)]
+    pub fn set_x(&mut self, u: usize, x: f32) {
+        self.simulation.set_x(u, x);
+    }
+
     pub fn y(&self, u: usize) -> f32 {
         self.simulation.y(u)
+    }
+
+    #[wasm_bindgen(js_name = setY)]
+    pub fn set_y(&mut self, u: usize, y: f32) {
+        self.simulation.set_y(u, y);
     }
 }
 
