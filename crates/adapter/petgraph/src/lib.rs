@@ -23,11 +23,11 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> egraph_adapter::Graph<Graph<N, E, Ty, Ix
         &mut self.graph
     }
 
-    fn nodes(&self) -> Box<Iterator<Item = usize>> {
+    fn nodes(&self) -> Box<dyn Iterator<Item = usize>> {
         Box::new(self.graph.node_indices().map(|i| i.index()))
     }
 
-    fn edges<'a>(&'a self) -> Box<Iterator<Item = (usize, usize)> + 'a> {
+    fn edges<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
         Box::new(
             self.graph
                 .edge_indices()
@@ -36,7 +36,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> egraph_adapter::Graph<Graph<N, E, Ty, Ix
         )
     }
 
-    fn out_nodes<'a>(&'a self, u: usize) -> Box<Iterator<Item = usize> + 'a> {
+    fn out_nodes<'a>(&'a self, u: usize) -> Box<dyn Iterator<Item = usize> + 'a> {
         Box::new(
             self.graph
                 .neighbors_directed(node_index(u), Outgoing)
@@ -44,7 +44,7 @@ impl<N, E, Ty: EdgeType, Ix: IndexType> egraph_adapter::Graph<Graph<N, E, Ty, Ix
         )
     }
 
-    fn in_nodes<'a>(&'a self, u: usize) -> Box<Iterator<Item = usize> + 'a> {
+    fn in_nodes<'a>(&'a self, u: usize) -> Box<dyn Iterator<Item = usize> + 'a> {
         Box::new(
             self.graph
                 .neighbors_directed(node_index(u), Incoming)

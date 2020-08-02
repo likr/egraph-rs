@@ -1,19 +1,12 @@
 [package]
-name = "egraph"
-version = "0.2.0"
+name = "egraph-algorithm-biconnected-components"
+version = "0.1.0"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 edition = "2018"
 
 [dependencies]
-rand = "0.5"
 egraph-adapter = { path = "../adapter/adapter" }
-serde = "1.0.91"
-serde_derive = "1.0.91"
 
 [dev-dependencies]
-getopts = "0.2"
-petgraph = "0.5"
-serde = "1.0"
-serde_json = "1.0"
-serde_derive = "1.0"
 egraph-petgraph-adapter = { path = "../adapter/petgraph" }
+petgraph = "0.5"
