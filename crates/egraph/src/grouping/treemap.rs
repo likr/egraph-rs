@@ -1,9 +1,9 @@
 use super::{aggregate_nodes, Group};
-use crate::misc::treemap::{normalize, squarify};
 use crate::Graph;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use treemap::{normalize, squarify};
 
 pub struct TreemapGrouping<D, G: Graph<D>> {
     pub group: Box<dyn Fn(&G, usize) -> usize>,
