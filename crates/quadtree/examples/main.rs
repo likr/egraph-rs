@@ -1,7 +1,4 @@
-extern crate egraph;
-extern crate rand;
-
-use egraph::misc::quadtree::{Element, NodeId, Quadtree, Rect};
+use quadtree::{Element, NodeId, Quadtree, Rect};
 use rand::distributions::Uniform;
 use rand::prelude::*;
 

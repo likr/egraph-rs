@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 rand = "0.5"
 egraph-adapter = { path = "../adapter/adapter" }
+quadtree = { path = "../quadtree" }
 serde = "1.0.91"
 serde_derive = "1.0.91"
 

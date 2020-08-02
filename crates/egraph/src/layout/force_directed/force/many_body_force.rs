@@ -1,7 +1,7 @@
 use super::MIN_DISTANCE;
 use crate::graph::{Graph, NodeIndex};
 use crate::layout::force_directed::force::{Force, ForceContext, Point};
-use crate::misc::quadtree::{Element, NodeId, Quadtree, Rect};
+use quadtree::{Element, NodeId, Quadtree, Rect};
 use std::marker::PhantomData;
 
 #[derive(Copy, Clone, Debug)]
