@@ -1,16 +1,17 @@
-use egraph_adapter::{Graph, NodeIndex};
+use petgraph::graph::{Graph, IndexType, NodeIndex};
+use petgraph::EdgeType;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-fn dfs<D, G: Graph<D>>(
-    u: NodeIndex,
+fn dfs<N, E, Ty: EdgeType, Ix: IndexType>(
+    u: NodeIndex<Ix>,
     d: usize,
-    graph: &G,
-    visited: &mut HashSet<NodeIndex>,
-    depth: &mut HashMap<NodeIndex, usize>,
-    low: &mut HashMap<NodeIndex, usize>,
-    parent: &mut HashMap<NodeIndex, Option<NodeIndex>>,
-    articulation_nodes: &mut HashSet<NodeIndex>,
+    graph: &Graph<N, E, Ty, Ix>,
+    visited: &mut HashSet<NodeIndex<Ix>>,
+    depth: &mut HashMap<NodeIndex<Ix>, usize>,
+    low: &mut HashMap<NodeIndex<Ix>, usize>,
+    parent: &mut HashMap<NodeIndex<Ix>, Option<NodeIndex<Ix>>>,
+    articulation_nodes: &mut HashSet<NodeIndex<Ix>>,
 ) {
     visited.insert(u);
     depth.insert(u, d);
@@ -45,13 +46,15 @@ fn dfs<D, G: Graph<D>>(
     }
 }
 
-pub fn articulation_nodes<D, G: Graph<D>>(graph: &G) -> HashSet<NodeIndex> {
+pub fn articulation_nodes<N, E, Ty: EdgeType, Ix: IndexType>(
+    graph: &Graph<N, E, Ty, Ix>,
+) -> HashSet<NodeIndex<Ix>> {
     let mut visited = HashSet::new();
     let mut depth = HashMap::new();
     let mut low = HashMap::new();
     let mut parent = HashMap::new();
     let mut articulation_nodes = HashSet::new();
-    for u in graph.nodes() {
+    for u in graph.node_indices() {
         if !visited.contains(&u) {
             parent.insert(u, None);
             dfs(
@@ -69,13 +72,15 @@ pub fn articulation_nodes<D, G: Graph<D>>(graph: &G) -> HashSet<NodeIndex> {
     articulation_nodes
 }
 
-pub fn bridges<D, G: Graph<D>>(graph: &G) -> HashSet<(NodeIndex, NodeIndex)> {
+pub fn bridges<N, E, Ty: EdgeType, Ix: IndexType>(
+    graph: &Graph<N, E, Ty, Ix>,
+) -> HashSet<(NodeIndex<Ix>, NodeIndex<Ix>)> {
     let mut visited = HashSet::new();
     let mut depth = HashMap::new();
     let mut low = HashMap::new();
     let mut parent = HashMap::new();
     let mut articulation_nodes = HashSet::new();
-    for u in graph.nodes() {
+    for u in graph.node_indices() {
         if !visited.contains(&u) {
             parent.insert(u, None);
             dfs(
@@ -91,7 +96,8 @@ pub fn bridges<D, G: Graph<D>>(graph: &G) -> HashSet<(NodeIndex, NodeIndex)> {
         }
     }
     let mut bridges = HashSet::new();
-    for (u, v) in graph.edges() {
+    for e in graph.edge_indices() {
+        let (u, v) = graph.edge_endpoints(e).unwrap();
         let (u, v) = if depth[&u] < depth[&v] {
             (u, v)
         } else {
@@ -104,11 +110,13 @@ pub fn bridges<D, G: Graph<D>>(graph: &G) -> HashSet<(NodeIndex, NodeIndex)> {
     bridges
 }
 
-pub fn biconnected_components<D, G: Graph<D>>(graph: &G) -> Vec<Vec<NodeIndex>> {
+pub fn biconnected_components<N, E, Ty: EdgeType, Ix: IndexType>(
+    graph: &Graph<N, E, Ty, Ix>,
+) -> Vec<Vec<NodeIndex<Ix>>> {
     let bridges = bridges(graph);
     let mut component_nodes = vec![];
     let mut visited_global = HashSet::new();
-    for u in graph.nodes() {
+    for u in graph.node_indices() {
         if visited_global.contains(&u) {
             continue;
         }
@@ -156,10 +164,10 @@ pub fn biconnected_components<D, G: Graph<D>>(graph: &G) -> Vec<Vec<NodeIndex>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egraph_petgraph_adapter::PetgraphWrapper;
+    use petgraph::graph::{node_index, UnGraph};
 
-    fn create_graph() -> PetgraphWrapper<(), (), petgraph::Directed, u32> {
-        let mut graph = petgraph::Graph::new();
+    fn create_graph() -> UnGraph<(), ()> {
+        let mut graph = petgraph::Graph::new_undirected();
         let nodes = (0..23).map(|_| graph.add_node(())).collect::<Vec<_>>();
         graph.add_edge(nodes[0], nodes[1], ());
         graph.add_edge(nodes[0], nodes[2], ());
@@ -193,17 +201,17 @@ mod tests {
         graph.add_edge(nodes[20], nodes[21], ());
         graph.add_edge(nodes[20], nodes[22], ());
         graph.add_edge(nodes[21], nodes[22], ());
-        PetgraphWrapper::new(graph)
+        graph
     }
 
-    fn create_path_graph() -> PetgraphWrapper<(), (), petgraph::Directed, u32> {
-        let mut graph = petgraph::Graph::new();
+    fn create_path_graph() -> UnGraph<(), ()> {
+        let mut graph = petgraph::Graph::new_undirected();
         let nodes = (0..5).map(|_| graph.add_node(())).collect::<Vec<_>>();
         graph.add_edge(nodes[0], nodes[1], ());
         graph.add_edge(nodes[1], nodes[2], ());
         graph.add_edge(nodes[2], nodes[3], ());
         graph.add_edge(nodes[3], nodes[4], ());
-        PetgraphWrapper::new(graph)
+        graph
     }
 
     #[test]
@@ -212,7 +220,7 @@ mod tests {
         let result = articulation_nodes(&graph);
         let expected = [2, 4, 7, 10, 13, 14, 16, 20]
             .iter()
-            .map(|&u| u as NodeIndex)
+            .map(|&u| node_index(u))
             .collect::<HashSet<NodeIndex>>();
         assert_eq!(result, expected);
     }
@@ -223,7 +231,7 @@ mod tests {
         let result = articulation_nodes(&graph);
         let expected = [1, 2, 3]
             .iter()
-            .map(|&u| u as NodeIndex)
+            .map(|&u| node_index(u))
             .collect::<HashSet<NodeIndex>>();
         assert_eq!(result, expected);
     }
@@ -234,7 +242,7 @@ mod tests {
         let result = bridges(&graph);
         let expected = [(2, 4), (4, 10), (7, 9), (13, 14), (16, 19), (16, 20)]
             .iter()
-            .map(|&(u, v)| (u as NodeIndex, v as NodeIndex))
+            .map(|&(u, v)| (node_index(u), node_index(v)))
             .collect::<HashSet<(NodeIndex, NodeIndex)>>();
         assert_eq!(result, expected);
     }
@@ -245,7 +253,7 @@ mod tests {
         let result = bridges(&graph);
         let expected = [(0, 1), (1, 2), (2, 3), (3, 4)]
             .iter()
-            .map(|&(u, v)| (u as NodeIndex, v as NodeIndex))
+            .map(|&(u, v)| (node_index(u), node_index(v)))
             .collect::<HashSet<(NodeIndex, NodeIndex)>>();
         assert_eq!(result, expected);
     }
@@ -263,7 +271,10 @@ mod tests {
             vec![14, 15, 16, 17, 18],
             vec![19],
             vec![20, 21, 22],
-        ];
+        ]
+        .into_iter()
+        .map(|nodes| nodes.into_iter().map(|u| node_index(u)).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
         assert_eq!(result, expected);
     }
 }
