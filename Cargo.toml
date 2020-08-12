@@ -8,6 +8,7 @@ members = [
     "crates/edge-bundling/fdeb",
     "crates/egraph",
     "crates/egraph-py",
+    "crates/layout/fm3",
     "crates/layout/force-simulation",
     "crates/layout/grouped-force",
     "crates/quadtree",
