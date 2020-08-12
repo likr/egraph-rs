@@ -2,6 +2,7 @@
 extern crate serde_derive;
 
 use petgraph::prelude::*;
+use petgraph_edge_bundling_fdeb::{fdeb, EdgeBundlingOptions};
 use petgraph_layout_force_simulation::{
     force_connected, force_nonconnected, initial_placement, Simulation,
 };
@@ -62,7 +63,19 @@ fn layout(
     simulation.run(forces.as_slice())
 }
 
-fn print_svg(graph: &UnGraph<NodeData, LinkData>, coordinates: &HashMap<NodeIndex, (f32, f32)>) {
+fn edge_bundling(
+    graph: &UnGraph<NodeData, LinkData>,
+    coordinates: &HashMap<NodeIndex, (f32, f32)>,
+) -> HashMap<EdgeIndex, Vec<(f32, f32)>> {
+    let options = EdgeBundlingOptions::new();
+    fdeb(graph, coordinates, &options)
+}
+
+fn print_svg(
+    graph: &UnGraph<NodeData, LinkData>,
+    coordinates: &HashMap<NodeIndex, (f32, f32)>,
+    lines: &HashMap<EdgeIndex, Vec<(f32, f32)>>,
+) {
     let width = 800.;
     let height = 800.;
     let margin = 10.;
@@ -77,12 +90,14 @@ fn print_svg(graph: &UnGraph<NodeData, LinkData>, coordinates: &HashMap<NodeInde
     );
     println!("<g>");
     for e in graph.edge_indices() {
-        let (u, v) = graph.edge_endpoints(e).unwrap();
-        let (x1, y1) = coordinates[&u];
-        let (x2, y2) = coordinates[&v];
+        let d = lines[&e]
+            .iter()
+            .map(|(x, y)| format!("{} {}", x, y))
+            .collect::<Vec<_>>()
+            .join(" L ");
         println!(
-            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#999\" opacity=\"0.3\"/>",
-            x1, y1, x2, y2
+            "<path d=\"M {}\" fill=\"none\" stroke=\"#999\" opacity=\"0.3\" />",
+            d
         );
     }
     println!("</g>");
@@ -126,5 +141,6 @@ fn main() {
     };
     let graph = load_graph(&filename);
     let coordinates = layout(&graph, &layout_method);
-    print_svg(&graph, &coordinates);
+    let lines = edge_bundling(&graph, &coordinates);
+    print_svg(&graph, &coordinates, &lines);
 }
