@@ -4,6 +4,7 @@ members = [
     "crates/adapter/petgraph",
     "crates/adapter/wasm",
     "crates/algorithm/biconnected-components",
+    "crates/algorithm/connected-components",
     "crates/edge-bundling/fdeb",
     "crates/egraph",
     "crates/egraph-py",
