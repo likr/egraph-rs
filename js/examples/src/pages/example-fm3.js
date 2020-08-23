@@ -1,15 +1,9 @@
 import React from "react";
 import * as d3 from "d3";
-import {
-  Graph,
-  Simulation,
-  forceConnected,
-  initialPlacement,
-  fdeb,
-} from "egraph";
+import { Graph, fm3 } from "egraph";
 import { Wrapper } from "../wrapper";
 
-export class ExampleEdgeBundling extends React.Component {
+export class ExampleFM3 extends React.Component {
   componentDidMount() {
     window
       .fetch("/data/miserables.json")
@@ -28,22 +22,12 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const initialCoordinates = initialPlacement(graph);
-        const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-        const forces = forceConnected(graph);
-        const coordinates = simulation.run(forces);
-
+        const coordinates = fm3(graph, 10, 200);
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
           const [x, y] = coordinates[u];
           node.x = x;
           node.y = y;
-        }
-
-        const bends = fdeb(graph, coordinates);
-        for (const e of graph.edgeIndices()) {
-          const [u, v] = graph.edgeEndpoints(e);
-          graph.edgeWeight(e).bends = bends[e];
         }
 
         this.refs.renderer.load(data);

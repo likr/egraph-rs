@@ -29,7 +29,6 @@ pub trait Force {
 pub struct Simulation<Ix: IndexType> {
     indices: Vec<NodeIndex<Ix>>,
     points: Vec<Point>,
-    pub alpha_decay: f32,
     pub alpha: f32,
     pub alpha_min: f32,
     pub alpha_target: f32,
@@ -61,7 +60,6 @@ impl<Ix: IndexType> Simulation<Ix> {
             alpha,
             alpha_min,
             alpha_target,
-            alpha_decay: 1. - alpha_min.powf(1. / iterations as f32),
             velocity_decay,
             iterations,
         }
@@ -74,8 +72,20 @@ impl<Ix: IndexType> Simulation<Ix> {
         self.coordinates()
     }
 
+    pub fn run_step<T: AsRef<dyn Force>>(
+        &mut self,
+        n: usize,
+        forces: &[T],
+    ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
+        for _ in 0..n {
+            self.step(forces);
+        }
+        self.coordinates()
+    }
+
     pub fn step<T: AsRef<dyn Force>>(&mut self, forces: &[T]) {
-        self.alpha += (self.alpha_target - self.alpha) * self.alpha_decay;
+        let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
+        self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
         for force in forces {
             force.as_ref().apply(&mut self.points, self.alpha);
         }
@@ -87,17 +97,6 @@ impl<Ix: IndexType> Simulation<Ix> {
         }
     }
 
-    pub fn step_n<T: AsRef<dyn Force>>(
-        &mut self,
-        n: usize,
-        forces: &[T],
-    ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-        for _ in 0..n {
-            self.step(forces);
-        }
-        self.coordinates()
-    }
-
     pub fn is_finished(&self) -> bool {
         self.alpha < self.alpha_min
     }
@@ -106,7 +105,7 @@ impl<Ix: IndexType> Simulation<Ix> {
         self.alpha = alpha_start;
     }
 
-    fn coordinates(&self) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
+    pub fn coordinates(&self) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
         self.indices
             .iter()
             .zip(self.points.iter())

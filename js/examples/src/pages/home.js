@@ -1,5 +1,5 @@
-import React from 'react'
-import { Link } from 'react-router-dom'
+import React from "react";
+import { Link } from "react-router-dom";
 
 export class Home extends React.Component {
   render() {
@@ -7,22 +7,25 @@ export class Home extends React.Component {
       <div>
         <ul>
           <li>
-            <Link to='/force-directed'>force-directed</Link>
+            <Link to="/force-directed">Force-directed Layout</Link>
           </li>
           <li>
-            <Link to='/group-in-a-box'>group-in-a-box</Link>
+            <Link to="/fm3">FM3</Link>
           </li>
           <li>
-            <Link to='/edge-bundling'>edge-bundling</Link>
+            <Link to="/group-in-a-box">Group-in-a-box Layout</Link>
           </li>
           <li>
-            <Link to='/dag'>dag</Link>
+            <Link to="/edge-bundling">Edge-bundling</Link>
+          </li>
+          {/*<li>
+            <Link to="/dag">dag</Link>
           </li>
           <li>
-            <Link to='/biclustering'>biclustering</Link>
-          </li>
+            <Link to="/biclustering">biclustering</Link>
+          </li>*/}
         </ul>
       </div>
-    )
+    );
   }
 }

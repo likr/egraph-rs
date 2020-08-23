@@ -12,11 +12,15 @@ crate-type = ["cdylib"]
 
 [dependencies]
 egraph = { path = "../egraph" }
-egraph-wasm-adapter = { path = "../adapter/wasm" }
-js-sys = "0.3.24"
-serde = "1.0.91"
-serde_derive = "1.0.91"
+js-sys = "0.3"
+petgraph = "0.5"
+petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
+petgraph-layout-fm3 = { path = "../layout/fm3" }
+petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
+petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
+serde = "1.0"
+serde_derive = "1.0"
 
 [dependencies.wasm-bindgen]
-version = "0.2.48"
+version = "0.2.67"
 features = ["serde-serialize"]
