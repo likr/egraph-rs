@@ -1,0 +1,8 @@
+[package]
+name = "petgraph-algorithm-planarity-test"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+edition = "2018"
+
+[dependencies]
+petgraph = "0.5"

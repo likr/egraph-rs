@@ -3,6 +3,7 @@ members = [
     "crates/adapter/adapter",
     "crates/adapter/petgraph",
     "crates/adapter/wasm",
+    "crates/algorithm/planarity-test",
     "crates/algorithm/biconnected-components",
     "crates/algorithm/connected-components",
     "crates/edge-bundling/fdeb",
