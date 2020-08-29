@@ -2,7 +2,8 @@ use petgraph::graph::{node_index, IndexType};
 use petgraph::prelude::*;
 use petgraph::EdgeType;
 use petgraph_algorithm_connected_components::connected_components;
-use petgraph_layout_force_simulation::{force_nonconnected, initial_placement, Simulation};
+use petgraph_layout_force_simulation::force::{CenterForce, LinkForce, ManyBodyForce};
+use petgraph_layout_force_simulation::{initial_placement, Force, Simulation};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
@@ -15,13 +16,13 @@ pub enum NodeType {
     MoonNode,
 }
 
-fn solar_system_partition<N, E, Ty: EdgeType, Ix: IndexType, R: Rng>(
+fn solar_system_partition<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
-    rng: &mut R,
 ) -> (Vec<usize>, Vec<usize>, Vec<NodeType>) {
     let nodes = {
         let mut nodes = graph.node_indices().collect::<Vec<_>>();
-        nodes.shuffle(rng);
+        nodes.sort_by_key(|&u| graph.neighbors_undirected(u).count());
+        nodes.reverse();
         nodes
     };
     let mut groups = graph.node_indices().map(|_| 0).collect::<Vec<_>>();
@@ -64,45 +65,32 @@ fn solar_system_partition<N, E, Ty: EdgeType, Ix: IndexType, R: Rng>(
     (groups, parents, node_types)
 }
 
-fn edge_length<
-    N,
-    E,
-    Ty: EdgeType,
-    Ix: IndexType,
-    F: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
->(
+fn edge_length<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
-    link_distance_accessor: &mut F,
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     a: NodeIndex<Ix>,
     b: NodeIndex<Ix>,
 ) -> f32 {
     let (e, _) = graph.find_edge_undirected(a, b).unwrap();
-    link_distance_accessor(graph, e)
+    link_distance[&e]
 }
 
-fn path_length<
-    N,
-    E,
-    Ty: EdgeType,
-    Ix: IndexType,
-    F: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
->(
+fn path_length<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     node_parents: &Vec<usize>,
     node_types: &Vec<NodeType>,
-    link_distance_accessor: &mut F,
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     u: NodeIndex<Ix>,
 ) -> f32 {
     match node_types[u.index()] {
         NodeType::PlanetNode => {
             let s = NodeIndex::new(node_parents[u.index()]);
-            edge_length(graph, link_distance_accessor, u, s)
+            edge_length(graph, link_distance, u, s)
         }
         NodeType::MoonNode => {
             let p = NodeIndex::new(node_parents[u.index()]);
             let s = NodeIndex::new(node_parents[p.index()]);
-            edge_length(graph, link_distance_accessor, u, p)
-                + edge_length(graph, link_distance_accessor, p, s)
+            edge_length(graph, link_distance, u, p) + edge_length(graph, link_distance, p, s)
         }
         _ => 0.,
     }
@@ -114,8 +102,7 @@ fn collapse<
     Ty: EdgeType,
     Ix: IndexType,
     F1: FnMut(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N,
-    F2: FnMut(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>, f32) -> E,
-    F3: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
+    F2: FnMut(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>) -> E,
 >(
     graph: &Graph<N, E, Ty, Ix>,
     node_groups: &Vec<usize>,
@@ -123,9 +110,10 @@ fn collapse<
     node_types: &Vec<NodeType>,
     shrink_node: &mut F1,
     shrink_edge: &mut F2,
-    link_distance_accessor: &mut F3,
-) -> Graph<N, E, Ty, Ix> {
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
+) -> (Graph<N, E, Ty, Ix>, HashMap<EdgeIndex<Ix>, f32>) {
     let mut shrinked_graph = Graph::default();
+    let mut shrinked_link_distance = HashMap::new();
     let num_groups = graph
         .node_indices()
         .map(|a| node_groups[a.index()])
@@ -165,38 +153,31 @@ fn collapse<
         let mut total_edge_length = 0.;
         for &e in edge_indices.iter() {
             let (u0, v0) = graph.edge_endpoints(e).unwrap();
-            let e_u_length =
-                path_length(graph, node_parents, node_types, link_distance_accessor, u0);
-            let e_v_length =
-                path_length(graph, node_parents, node_types, link_distance_accessor, v0);
+            let e_u_length = path_length(graph, node_parents, node_types, link_distance, u0);
+            let e_v_length = path_length(graph, node_parents, node_types, link_distance, v0);
 
-            let e_length = edge_length(graph, link_distance_accessor, u0, v0);
+            let e_length = edge_length(graph, link_distance, u0, v0);
             total_edge_length += e_u_length + e_length + e_v_length;
         }
         total_edge_length /= edge_indices.len() as f32;
-        shrinked_graph.add_edge(
+        let e = shrinked_graph.add_edge(
             NodeIndex::new(gu.index()),
             NodeIndex::new(gv.index()),
-            shrink_edge(graph, edge_indices, total_edge_length),
+            shrink_edge(graph, edge_indices),
         );
+        shrinked_link_distance.insert(e, total_edge_length);
     }
-    shrinked_graph
+    (shrinked_graph, shrinked_link_distance)
 }
 
-fn expand<
-    N,
-    E,
-    Ty: EdgeType,
-    Ix: IndexType,
-    F: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
->(
+fn expand<N, E, Ty: EdgeType, Ix: IndexType>(
     graph0: &Graph<N, E, Ty, Ix>,
     graph1: &Graph<N, E, Ty, Ix>,
     graph1_points: &HashMap<NodeIndex<Ix>, (f32, f32)>,
     node_groups: &Vec<usize>,
     node_parents: &Vec<usize>,
     node_types: &Vec<NodeType>,
-    link_distance_accessor: &mut F,
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     rng: &mut StdRng,
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
     let mut points = HashMap::new();
@@ -204,7 +185,7 @@ fn expand<
         let mut x = 0.;
         let mut y = 0.;
         let mut count = 0;
-        let s1 = NodeIndex::new(node_groups[u.index()]);
+        let s1 = node_index(node_groups[u.index()]);
         let (s1_x, s1_y) = graph1_points[&s1];
         for v in graph0.neighbors_undirected(u) {
             if node_groups[u.index()] == node_groups[v.index()] {
@@ -212,19 +193,19 @@ fn expand<
             }
             let t1 = node_index(node_groups[v.index()]);
             let (t1_x, t1_y) = graph1_points[&t1];
-            let scale = path_length(graph0, node_parents, node_types, link_distance_accessor, u)
-                / edge_length(graph1, link_distance_accessor, s1, t1);
+            let scale = path_length(graph0, node_parents, node_types, link_distance, u)
+                / edge_length(graph1, link_distance, s1, t1);
             x += (t1_x - s1_x) * scale + s1_x;
             y += (t1_y - s1_y) * scale + s1_y;
             count += 1;
         }
         let (x, y) = if count > 0 {
-            (x as f32 / count as f32, y as f32 / count as f32)
+            (x / count as f32, y / count as f32)
         } else {
             let theta = rng.gen::<f32>() * 2. * PI;
-            let r = path_length(graph0, node_parents, node_types, link_distance_accessor, u) as f32;
-            let x = r * theta.cos() + s1_x as f32;
-            let y = r * theta.sin() + s1_y as f32;
+            let r = path_length(graph0, node_parents, node_types, link_distance, u);
+            let x = r * theta.cos() + s1_x;
+            let y = r * theta.sin() + s1_y;
             (x, y)
         };
         points.insert(u, (x, y));
@@ -234,30 +215,35 @@ fn expand<
 
 fn layout<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     iteration: usize,
-    alpha: &mut f32,
-    decay: f32,
+    alpha: f32,
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
     let points = initial_placement(graph);
-    layout_with_initial_placement(graph, &points, iteration, alpha, decay)
+    layout_with_initial_placement(graph, link_distance, &points, iteration, alpha)
 }
 
 fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
+    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     points: &HashMap<NodeIndex<Ix>, (f32, f32)>,
     iteration: usize,
-    _alpha: &mut f32,
-    _decay: f32,
+    alpha: f32,
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    // let mut context = simulation.build(&graph);
-    // for _i in 0..iteration {
-    //     context.step(points);
-    //     *alpha += -(*alpha) * decay;
-    // }
     let mut simulation = Simulation::new(&graph, |_, u| points[&u]);
-    simulation.iterations = iteration;
-    let forces = force_nonconnected(&graph);
-    simulation.run(forces.as_slice())
+    let forces: Vec<Box<dyn Force>> = vec![
+        Box::new(ManyBodyForce::new_with_accessor(&graph, |_, _| -100.)),
+        Box::new(LinkForce::new_with_accessor(
+            &graph,
+            |graph, e| LinkForce::default_strength_accessor(graph, e),
+            |_, e| link_distance[&e],
+        )),
+        Box::new(CenterForce::new()),
+    ];
+    for _ in 0..iteration {
+        simulation.apply_forces(&forces.as_slice(), alpha);
+    }
+    simulation.coordinates()
 }
 
 pub fn fm3<
@@ -266,7 +252,7 @@ pub fn fm3<
     Ty: EdgeType,
     Ix: IndexType,
     F1: FnMut(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N,
-    F2: FnMut(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>, f32) -> E,
+    F2: FnMut(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>) -> E,
     F3: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
 >(
     graph: &Graph<N, E, Ty, Ix>,
@@ -282,37 +268,41 @@ pub fn fm3<
         .iter()
         .collect::<HashSet<_>>()
         .len();
-    let mut shrinked_graphs = Vec::new();
+    let mut shrinked_graphs = vec![];
+    let mut link_distance = graph
+        .edge_indices()
+        .map(|e| (e, link_distance_accessor(graph, e)))
+        .collect::<HashMap<EdgeIndex<Ix>, f32>>();
     let mut g0 = graph.map(
         |a, _| shrink_node(graph, &vec![a]),
-        |e, _| shrink_edge(graph, &vec![e], link_distance_accessor(graph, e)),
+        |e, _| shrink_edge(graph, &vec![e]),
     );
 
     while g0.node_count() > min_size + num_components - 1 {
-        let (groups, parents, types) = solar_system_partition(&g0, &mut rng);
-        let g1 = collapse(
+        let (groups, parents, types) = solar_system_partition(&g0);
+        let (g1, shrinked_link_distance) = collapse(
             &g0,
             &groups,
             &parents,
             &types,
             shrink_node,
             shrink_edge,
-            link_distance_accessor,
+            &link_distance,
         );
-        shrinked_graphs.push((g0, groups, parents, types));
+        shrinked_graphs.push((g0, groups, parents, types, link_distance));
         g0 = g1;
+        link_distance = shrinked_link_distance;
     }
 
-    let total_iteration = step_iteration * (shrinked_graphs.len() + 1);
     let alpha_min = 0.001;
     let mut alpha = 1.;
-    let decay = 1. - (alpha_min as f32).powf(1. / total_iteration as f32);
+    let decay = 1. - (alpha_min as f32).powf(1. / shrinked_graphs.len() as f32);
 
     let mut gk = g0;
-    let mut g1_points = layout(&mut gk, step_iteration, &mut alpha, decay);
+    let mut g1_points = layout(&mut gk, &link_distance, step_iteration, alpha);
 
     while !shrinked_graphs.is_empty() {
-        let (g0, groups, parents, types) = shrinked_graphs.pop().unwrap();
+        let (g0, groups, parents, types, link_distance) = shrinked_graphs.pop().unwrap();
         let g0_points = expand(
             &g0,
             &gk,
@@ -320,102 +310,16 @@ pub fn fm3<
             &groups,
             &parents,
             &types,
-            link_distance_accessor,
+            &link_distance,
             &mut rng,
         );
         g1_points =
-            layout_with_initial_placement(&g0, &g0_points, step_iteration, &mut alpha, decay);
+            layout_with_initial_placement(&g0, &link_distance, &g0_points, step_iteration, alpha);
+        alpha -= alpha * decay;
         gk = g0;
     }
     g1_points
 }
-
-// pub struct FM3<N, E, Ty: EdgeType, Ix: IndexType> {
-//     pub min_size: usize,
-//     pub step_iteration: usize,
-//     pub shrink_node: Box<dyn Fn(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N>,
-//     pub shrink_edge: Box<dyn Fn(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>, f32) -> E>,
-//     pub link_distance_accessor: Box<dyn Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
-// }
-
-// impl<N, E, Ty: EdgeType, Ix: IndexType> FM3<N, E, Ty, Ix> {
-//     pub fn new(
-//         shrink_node: Box<dyn Fn(&Graph<N, E, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N>,
-//         shrink_edge: Box<dyn Fn(&Graph<N, E, Ty, Ix>, &Vec<EdgeIndex<Ix>>, f32) -> E>,
-//         link_distance_accessor: Box<dyn Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32>,
-//     ) -> FM3<N, E, Ty, Ix> {
-//         FM3 {
-//             min_size: 100,
-//             step_iteration: 100,
-//             shrink_node,
-//             shrink_edge,
-//             link_distance_accessor,
-//         }
-//     }
-//
-//     pub fn call(&self, graph: &Graph<N, E, Ty, Ix>, simulation: &Simulation<Ix>) -> Vec<Point> {
-//         let seed = [0; 32];
-//         let mut rng: StdRng = SeedableRng::from_seed(seed);
-//
-//         let num_components = connected_components(graph)
-//             .iter()
-//             .collect::<HashSet<_>>()
-//             .len();
-//         let mut shrinked_graphs = Vec::new();
-//         let mut g0 = graph.map(
-//             |a, _| (self.shrink_node)(graph, &vec![a]),
-//             |e, _| (self.shrink_edge)(graph, &vec![e], (self.link_distance_accessor)(graph, e)),
-//         );
-//
-//         while g0.node_count() > self.min_size + num_components - 1 {
-//             let (groups, parents, types) = solar_system_partition(&g0, &mut rng);
-//             let g1 = collapse(
-//                 &g0,
-//                 &groups,
-//                 &parents,
-//                 &types,
-//                 &self.shrink_node,
-//                 &self.shrink_edge,
-//                 &self.link_distance_accessor,
-//             );
-//             shrinked_graphs.push((g0, groups, parents, types));
-//             g0 = g1;
-//         }
-//
-//         let total_iteration = self.step_iteration * (shrinked_graphs.len() + 1);
-//         let alpha_min = 0.001;
-//         let mut alpha = 1.;
-//         let decay = 1. - (alpha_min as f32).powf(1. / total_iteration as f32);
-//
-//         let mut gk = g0;
-//         let mut g1_points = layout(&mut gk, simulation, self.step_iteration, &mut alpha, decay);
-//
-//         while !shrinked_graphs.is_empty() {
-//             let (g0, groups, parents, types) = shrinked_graphs.pop().unwrap();
-//             let mut g0_points = expand(
-//                 &g0,
-//                 &gk,
-//                 &g1_points,
-//                 &groups,
-//                 &parents,
-//                 &types,
-//                 &self.link_distance_accessor,
-//                 &mut rng,
-//             );
-//             layout_with_initial_placement(
-//                 &g0,
-//                 &mut g0_points,
-//                 simulation,
-//                 self.step_iteration,
-//                 &mut alpha,
-//                 decay,
-//             );
-//             g1_points = g0_points;
-//             gk = g0;
-//         }
-//         g1_points
-//     }
-// }
 
 #[test]
 fn test_fm3() {

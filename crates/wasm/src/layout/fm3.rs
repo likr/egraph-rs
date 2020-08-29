@@ -17,7 +17,7 @@ pub fn fm3(
         min_size,
         step_iteration,
         &mut |_, _| JsValue::null(),
-        &mut |_, _, _| JsValue::null(),
+        &mut |_, _| JsValue::null(),
         &mut |_, _| 30.,
     )
     .into_iter()

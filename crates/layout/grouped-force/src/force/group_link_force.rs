@@ -1,5 +1,5 @@
 use crate::{Force, Point};
-use petgraph::graph::{Graph, IndexType, NodeIndex};
+use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::force::LinkForce;
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ impl GroupLinkForce {
         Ty: EdgeType,
         Ix: IndexType,
         F1: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize,
-        F2: Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>, NodeIndex<Ix>) -> f32,
+        F2: Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
     >(
         graph: &Graph<N, E, Ty, Ix>,
         intra_group: f32,
@@ -30,7 +30,8 @@ impl GroupLinkForce {
         GroupLinkForce {
             link_force: LinkForce::new_with_accessor(
                 graph,
-                |_, u, v| {
+                |_, e| {
+                    let (u, v) = graph.edge_endpoints(e).unwrap();
                     if groups[&u] == groups[&v] {
                         intra_group
                     } else {

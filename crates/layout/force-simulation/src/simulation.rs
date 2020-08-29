@@ -86,8 +86,12 @@ impl<Ix: IndexType> Simulation<Ix> {
     pub fn step<T: AsRef<dyn Force>>(&mut self, forces: &[T]) {
         let alpha_decay = 1. - self.alpha_min.powf(1. / self.iterations as f32);
         self.alpha += (self.alpha_target - self.alpha) * alpha_decay;
+        self.apply_forces(forces, self.alpha);
+    }
+
+    pub fn apply_forces<T: AsRef<dyn Force>>(&mut self, forces: &[T], alpha: f32) {
         for force in forces {
-            force.as_ref().apply(&mut self.points, self.alpha);
+            force.as_ref().apply(&mut self.points, alpha);
         }
         for point in self.points.iter_mut() {
             point.vx *= self.velocity_decay;

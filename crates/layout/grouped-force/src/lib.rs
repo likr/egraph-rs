@@ -33,7 +33,7 @@ pub fn force_grouped<
             0.1,
             0.01,
             |_, u| groups[&u],
-            |_, _, _| 30.,
+            |_, _| 30.,
         )),
         Box::new(force::GroupPositionForce::new(
             &graph,

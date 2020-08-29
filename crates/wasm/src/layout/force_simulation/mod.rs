@@ -31,3 +31,18 @@ pub fn force_connected(graph: &JsGraph) -> Array {
         })
         .collect::<Array>()
 }
+
+#[wasm_bindgen(js_name = forceNonconnected)]
+pub fn force_nonconnected(graph: &JsGraph) -> Array {
+    let forces = petgraph_layout_force_simulation::force_nonconnected(graph.graph());
+    forces
+        .into_iter()
+        .map(|f| {
+            let js_force = JsForce::with_box(f);
+            let ptr = js_force.into_abi();
+            let obj = Object::new();
+            Reflect::set(&obj, &"ptr".into(), &JsValue::from_f64(ptr as f64)).ok();
+            obj
+        })
+        .collect::<Array>()
+}

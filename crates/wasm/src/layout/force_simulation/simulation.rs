@@ -25,13 +25,6 @@ fn convert_forces(
     Ok(result)
 }
 
-#[wasm_bindgen]
-extern "C" {
-    pub type ForceArray;
-    #[wasm_bindgen(method, structural, indexing_getter)]
-    pub fn get(this: &ForceArray, prop: &str) -> JsForce;
-}
-
 fn convert_coordinates(coordinates: &HashMap<NodeIndex, (f32, f32)>) -> JsValue {
     let coordinates = coordinates
         .iter()
