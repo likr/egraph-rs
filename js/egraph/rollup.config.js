@@ -1,11 +1,11 @@
-import resolve from 'rollup-plugin-node-resolve'
+import resolve from "rollup-plugin-node-resolve";
 
 export default {
-  input: 'build.js',
+  input: "build.js",
   output: {
-    file: 'umd/egraph.js',
-    format: 'umd',
-    name: 'egraph'
+    file: "umd/egraph.js",
+    format: "umd",
+    name: "egraph",
   },
-  plugins: [resolve()]
-}
+  plugins: [resolve()],
+};

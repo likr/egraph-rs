@@ -27,7 +27,7 @@ export class ExampleFM3 extends React.Component {
           graph.addEdge(
             indices.get(index(i, j - 1, k)),
             indices.get(index(i, j, k)),
-            {},
+            {}
           );
         }
       }
@@ -36,7 +36,7 @@ export class ExampleFM3 extends React.Component {
           graph.addEdge(
             indices.get(index(i - 1, j, k)),
             indices.get(index(i, j, k)),
-            {},
+            {}
           );
         }
       }

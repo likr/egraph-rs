@@ -1,1 +1,1 @@
-export * from 'egraph-wasm'
+export * from "egraph-wasm";
