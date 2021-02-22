@@ -10,6 +10,9 @@ export class Home extends React.Component {
             <Link to="/force-directed">Force-directed Layout</Link>
           </li>
           <li>
+            <Link to="/kamada-kawai">KamadaKawai</Link>
+          </li>
+          <li>
             <Link to="/fm3">FM3</Link>
           </li>
           <li>

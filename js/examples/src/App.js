@@ -1,14 +1,15 @@
-import "@babel/polyfill";
-import "@webcomponents/custom-elements";
 import "eg-renderer";
 import React from "react";
 import { render } from "react-dom";
 import { BrowserRouter as Router, Route, Link } from "react-router-dom";
-import { Home } from "./pages/home";
-import { ExampleEdgeBundling } from "./pages/example-edge-bundling";
-import { ExampleFM3 } from "./pages/example-fm3";
-import { ExampleForceDirected } from "./pages/example-force-directed";
-import { ExampleGroupInABox } from "./pages/example-group-in-a-box";
+import {
+  Home,
+  ExampleEdgeBundling,
+  ExampleFm3,
+  ExampleForceDirected,
+  ExampleGroupInABox,
+  ExampleKamadaKawai,
+} from "./pages";
 
 render(
   <Router>
@@ -28,9 +29,10 @@ render(
         <div className="container">
           <Route path="/" component={Home} exact />
           <Route path="/edge-bundling" component={ExampleEdgeBundling} />
-          <Route path="/fm3" component={ExampleFM3} />
+          <Route path="/fm3" component={ExampleFm3} />
           <Route path="/force-directed" component={ExampleForceDirected} />
           <Route path="/group-in-a-box" component={ExampleGroupInABox} />
+          <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
         </div>
       </section>
     </div>

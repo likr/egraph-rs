@@ -1,15 +1,8 @@
 import React from "react";
-import * as d3 from "d3";
-import {
-  Graph,
-  fm3,
-  Simulation,
-  forceNonconnected,
-  initialPlacement,
-} from "egraph";
+import { Graph, fm3, Simulation, forceNonconnected } from "egraph";
 import { Wrapper } from "../wrapper";
 
-export class ExampleFM3 extends React.Component {
+export class ExampleFm3 extends React.Component {
   componentDidMount() {
     const n = 10;
     const m = 4;
@@ -27,7 +20,7 @@ export class ExampleFM3 extends React.Component {
           graph.addEdge(
             indices.get(index(i, j - 1, k)),
             indices.get(index(i, j, k)),
-            {}
+            {},
           );
         }
       }
@@ -36,7 +29,7 @@ export class ExampleFM3 extends React.Component {
           graph.addEdge(
             indices.get(index(i - 1, j, k)),
             indices.get(index(i, j, k)),
-            {}
+            {},
           );
         }
       }

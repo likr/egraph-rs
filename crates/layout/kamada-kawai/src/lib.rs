@@ -46,6 +46,7 @@ pub fn kamada_kawai<G, F>(
   graph: G,
   coordinates: &mut HashMap<G::NodeId, (f32, f32)>,
   length: &mut F,
+  eps: f32,
   width: f32,
   height: f32,
 ) where
@@ -53,8 +54,6 @@ pub fn kamada_kawai<G, F>(
   G::NodeId: Eq + Hash,
   F: FnMut(G::EdgeRef) -> f32,
 {
-  let eps = 1e-1;
-
   let mut pos = graph
     .node_identifiers()
     .map(|u| coordinates[&u])
@@ -147,6 +146,47 @@ pub fn kamada_kawai<G, F>(
   }
 }
 
+pub struct KamadaKawai<G>
+where
+  G: IntoEdgeReferences + IntoNodeIdentifiers + NodeCount,
+  G::NodeId: Eq + Hash,
+{
+  pub length: Box<dyn FnMut(G::EdgeRef) -> f32>,
+  pub eps: f32,
+  pub width: f32,
+  pub height: f32,
+}
+
+impl<G> KamadaKawai<G>
+where
+  G: IntoEdgeReferences + IntoNodeIdentifiers + NodeCount,
+  G::NodeId: Eq + Hash,
+{
+  pub fn new() -> KamadaKawai<G> {
+    KamadaKawai {
+      length: Box::new(|_| 1.),
+      eps: 1e-1,
+      width: 1000.,
+      height: 1000.,
+    }
+  }
+
+  pub fn apply(&mut self, graph: G, coordinates: &mut HashMap<G::NodeId, (f32, f32)>)
+  where
+    G: IntoEdgeReferences + IntoNodeIdentifiers + NodeCount,
+    G::NodeId: Eq + Hash,
+  {
+    kamada_kawai(
+      graph,
+      coordinates,
+      &mut self.length,
+      self.eps,
+      self.width,
+      self.height,
+    );
+  }
+}
+
 #[test]
 fn test_kamada_kawai() {
   use petgraph::Graph;
@@ -174,7 +214,10 @@ fn test_kamada_kawai() {
     println!("{:?}", coordinates[&u]);
   }
 
-  kamada_kawai(&graph, &mut coordinates, &mut |_| 1., width, height);
+  let mut drawing = KamadaKawai::new();
+  drawing.width = width;
+  drawing.height = height;
+  drawing.apply(&graph, &mut coordinates);
 
   for &u in &nodes {
     println!("{:?}", coordinates[&u]);

@@ -1,15 +1,9 @@
 import React from "react";
 import * as d3 from "d3";
-import {
-  Graph,
-  Simulation,
-  forceConnected,
-  initialPlacement,
-  fdeb,
-} from "egraph";
+import { Graph, Simulation, forceGrouped, initialPlacement } from "egraph";
 import { Wrapper } from "../wrapper";
 
-export class ExampleEdgeBundling extends React.Component {
+export class ExampleGroupInABox extends React.Component {
   componentDidMount() {
     window
       .fetch("/data/miserables.json")
@@ -30,22 +24,14 @@ export class ExampleEdgeBundling extends React.Component {
 
         const initialCoordinates = initialPlacement(graph);
         const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-        const forces = forceConnected(graph);
+        const forces = forceGrouped(graph, (u) => graph.nodeWeight(u).group);
         const coordinates = simulation.run(forces);
-
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
           const [x, y] = coordinates[u];
           node.x = x;
           node.y = y;
         }
-
-        const bends = fdeb(graph, coordinates);
-        for (const e of graph.edgeIndices()) {
-          const [u, v] = graph.edgeEndpoints(e);
-          graph.edgeWeight(e).bends = bends[e];
-        }
-
         this.refs.renderer.load(data);
         this.refs.renderer.center();
       });
@@ -53,26 +39,30 @@ export class ExampleEdgeBundling extends React.Component {
 
   render() {
     return (
-      <Wrapper
-        onResize={(width, height) => {
-          this.refs.renderer.width = width;
-          this.refs.renderer.height = height;
-        }}
-      >
-        <eg-renderer
-          ref="renderer"
-          transition-duration="1000"
-          default-node-width="10"
-          default-node-height="10"
-          default-node-stroke-color="#fff"
-          default-node-stroke-width="1.5"
-          default-node-type="circle"
-          default-link-stroke-color="#999"
-          default-link-stroke-opacity="0.6"
-          node-label-property="name"
-          no-auto-centering
-        />
-      </Wrapper>
+      <div>
+        <div>
+          <Wrapper
+            onResize={(width, height) => {
+              this.refs.renderer.width = width;
+              this.refs.renderer.height = height;
+            }}
+          >
+            <eg-renderer
+              ref="renderer"
+              transition-duration="1000"
+              default-node-width="10"
+              default-node-height="10"
+              default-node-stroke-color="#fff"
+              default-node-stroke-width="1.5"
+              default-link-stroke-color="#999"
+              default-link-stroke-opacity="0.6"
+              node-label-property="name"
+              no-auto-update
+              no-auto-centering
+            />
+          </Wrapper>
+        </div>
+      </div>
     );
   }
 }
