@@ -4,9 +4,7 @@
   "license": "MIT",
   "scripts": {
     "prestart": "npm run wasm-build",
-    "start": "lerna exec --scope examples -- npm start",
-    "prebootstrap": "npm run wasm-build",
-    "bootstrap": "lerna bootstrap",
+    "start": "npm run start -w examples",
     "wasm-build": "npm run wasm-build:browser && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
     "wasm-build:browser": "wasm-pack build --target browser -d dist/browser crates/wasm",
     "wasm-build:no-modules": "wasm-pack build --target no-modules -d dist/no-modules crates/wasm",
@@ -22,8 +20,11 @@
   },
   "homepage": "https://github.com/likr/egraph-rs#readme",
   "devDependencies": {
-    "lerna": "^3.22.1",
-    "prettier": "^2.2.1"
+    "prettier": "^2.3.1"
   },
-  "private": true
+  "private": true,
+  "workspaces": [
+    "crates/wasm",
+    "js/*"
+  ]
 }
