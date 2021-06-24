@@ -126,7 +126,7 @@ fn main() {
     );
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
-        Err(f) => panic!(f.to_string()),
+        Err(f) => panic!("{}", f.to_string()),
     };
     let filename = matches.opt_str("f").unwrap();
     let layout_method = if let Some(layout) = matches.opt_str("l") {
