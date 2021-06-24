@@ -11,7 +11,6 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-egraph = { path = "../egraph" }
 js-sys = "0.3"
 petgraph = "0.5"
 petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
