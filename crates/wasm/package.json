@@ -1,5 +1,5 @@
 {
-  "name": "egraph-wasm",
+  "name": "egraph",
   "collaborators": [
     "Yosuke Onoue <onoue@likr-lab.com>"
   ],
@@ -11,9 +11,9 @@
     "url": "https://github.com/likr/egraph-rs/tree/master/crates/wasm"
   },
   "files": [
-    "dist/browser/egraph_wasm_bg.wasm",
-    "dist/browser/egraph_wasm.js",
-    "dist/browser/egraph_wasm.d.ts",
+    "dist/bundler/egraph_wasm_bg.wasm",
+    "dist/bundler/egraph_wasm.js",
+    "dist/bundler/egraph_wasm.d.ts",
     "dist/no-modules/egraph_wasm_bg.wasm",
     "dist/no-modules/egraph_wasm.js",
     "dist/no-modules/egraph_wasm.d.ts",
@@ -22,10 +22,19 @@
     "dist/nodejs/egraph_wasm.d.ts",
     "dist/web/egraph_wasm_bg.wasm",
     "dist/web/egraph_wasm.js",
-    "dist/web/egraph_wasm.d.ts"
+    "dist/web/egraph_wasm.d.ts",
+    "umd"
   ],
   "main": "dist/nodejs/egraph_wasm.js",
-  "module": "dist/browser/egraph_wasm.js",
-  "types": "dist/browser/egraph_wasm.d.ts",
-  "sideEffects": "false"
+  "module": "dist/bundler/egraph_wasm.js",
+  "unpkg": "umd/egraph.js",
+  "types": "dist/bundler/egraph_wasm.d.ts",
+  "sideEffects": "false",
+  "devDependencies": {
+    "rollup": "^2.52.2"
+  },
+  "scripts": {
+    "build-umd": "rollup -c && cp dist/web/egraph_wasm_bg.wasm umd/egraph_bg.wasm",
+    "prepublish": "npm run build-umd"
+  }
 }

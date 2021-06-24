@@ -5,8 +5,8 @@
   "scripts": {
     "prestart": "npm run wasm-build",
     "start": "npm run start -w examples",
-    "wasm-build": "npm run wasm-build:browser && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
-    "wasm-build:browser": "wasm-pack build --target browser -d dist/browser crates/wasm",
+    "wasm-build": "npm run wasm-build:bundler && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
+    "wasm-build:bundler": "wasm-pack build --target bundler -d dist/bundler crates/wasm",
     "wasm-build:no-modules": "wasm-pack build --target no-modules -d dist/no-modules crates/wasm",
     "wasm-build:nodejs": "wasm-pack build --target nodejs -d dist/nodejs crates/wasm",
     "wasm-build:web": "wasm-pack build --target web -d dist/web crates/wasm"
