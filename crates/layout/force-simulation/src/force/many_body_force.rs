@@ -101,7 +101,7 @@ impl ManyBodyForceBarnesHut {
     pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
         graph: &Graph<N, E, Ty, Ix>,
     ) -> ManyBodyForceBarnesHut {
-        ManyBodyForceBarnesHut::new_with_accessor(graph, |_, _| -30.)
+        ManyBodyForceBarnesHut::new_with_accessor(graph, |_, _| None)
     }
 
     pub fn new_with_accessor<
@@ -109,14 +109,20 @@ impl ManyBodyForceBarnesHut {
         E,
         Ty: EdgeType,
         Ix: IndexType,
-        F: Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32,
+        F: Fn(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> Option<f32>,
     >(
         graph: &Graph<N, E, Ty, Ix>,
         strength_accessor: F,
     ) -> ManyBodyForceBarnesHut {
         let strength = graph
             .node_indices()
-            .map(|u| strength_accessor(graph, u))
+            .map(|u| {
+                if let Some(v) = strength_accessor(graph, u) {
+                    v
+                } else {
+                    default_strength_accessor(graph, u)
+                }
+            })
             .collect();
         ManyBodyForce { strength }
     }
@@ -156,7 +162,7 @@ impl ManyBodyForceAllPair {
     pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
         graph: &Graph<N, E, Ty, Ix>,
     ) -> ManyBodyForceAllPair {
-        ManyBodyForceAllPair::new_with_accessor(graph, |_, _| -30.)
+        ManyBodyForceAllPair::new_with_accessor(graph, |_, _| None)
     }
 
     pub fn new_with_accessor<
@@ -164,14 +170,20 @@ impl ManyBodyForceAllPair {
         E,
         Ty: EdgeType,
         Ix: IndexType,
-        F: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32,
+        F: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> Option<f32>,
     >(
         graph: &Graph<N, E, Ty, Ix>,
         mut strength_accessor: F,
     ) -> ManyBodyForceAllPair {
         let strength = graph
             .node_indices()
-            .map(|u| strength_accessor(graph, u))
+            .map(|u| {
+                if let Some(v) = strength_accessor(graph, u) {
+                    v
+                } else {
+                    default_strength_accessor(graph, u)
+                }
+            })
             .collect();
         ManyBodyForceAllPair { strength }
     }
@@ -198,6 +210,13 @@ impl Force for ManyBodyForceAllPair {
 }
 
 pub type ManyBodyForce = ManyBodyForceBarnesHut;
+
+pub fn default_strength_accessor<N, E, Ty: EdgeType, Ix: IndexType>(
+    _graph: &Graph<N, E, Ty, Ix>,
+    _u: NodeIndex<Ix>,
+) -> f32 {
+    -30.
+}
 
 // #[test]
 // fn test_many_body() {

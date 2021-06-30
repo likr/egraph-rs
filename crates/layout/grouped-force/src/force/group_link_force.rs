@@ -1,7 +1,7 @@
 use crate::{Force, Point};
 use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::LinkForce;
+use petgraph_layout_force_simulation::force::link_force::{LinkArgument, LinkForce};
 use std::collections::HashMap;
 
 pub struct GroupLinkForce {
@@ -28,18 +28,16 @@ impl GroupLinkForce {
             .map(|u| (u, group_accessor(graph, u)))
             .collect::<HashMap<_, _>>();
         GroupLinkForce {
-            link_force: LinkForce::new_with_accessor(
-                graph,
-                |_, e| {
-                    let (u, v) = graph.edge_endpoints(e).unwrap();
-                    if groups[&u] == groups[&v] {
-                        intra_group
-                    } else {
-                        inter_group
-                    }
-                },
-                distance_accessor,
-            ),
+            link_force: LinkForce::new_with_accessor(graph, |graph, e| {
+                let (u, v) = graph.edge_endpoints(e).unwrap();
+                let distance = Some(distance_accessor(graph, e));
+                let strength = Some(if groups[&u] == groups[&v] {
+                    intra_group
+                } else {
+                    inter_group
+                });
+                LinkArgument { strength, distance }
+            }),
         }
     }
 }

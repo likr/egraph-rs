@@ -39,11 +39,12 @@ pub fn force_nonconnected<N, E, Ty: EdgeType, Ix: IndexType>(
     vec![
         Box::new(force::ManyBodyForce::new(&graph)),
         Box::new(force::LinkForce::new(&graph)),
-        Box::new(force::PositionForce::new(
-            &graph,
-            |_, _| 0.1,
-            |_, _| Some(0.),
-            |_, _| Some(0.),
-        )),
+        Box::new(force::PositionForce::new(&graph, |_, _| {
+            self::force::position_force::NodeArgument {
+                strength: None,
+                x: Some(0.),
+                y: Some(0.),
+            }
+        })),
     ]
 }

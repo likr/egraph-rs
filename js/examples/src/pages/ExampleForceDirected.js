@@ -33,8 +33,8 @@ export class ExampleForceDirected extends React.Component {
         const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
 
         const forces = [
-          new ManyBodyForce(graph),
-          new LinkForce(graph),
+          new ManyBodyForce(graph, () => ({ strength: -30 })),
+          new LinkForce(graph, () => ({ distance: 30 })),
           new CenterForce(),
         ];
 

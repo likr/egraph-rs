@@ -1,7 +1,7 @@
 use crate::{Force, Point};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::PositionForce;
+use petgraph_layout_force_simulation::force::position_force::{NodeArgument, PositionForce};
 use std::collections::HashMap;
 
 pub struct GroupPositionForce {
@@ -20,7 +20,7 @@ impl GroupPositionForce {
         F4: FnMut(usize) -> f32,
     >(
         graph: &Graph<N, E, Ty, Ix>,
-        strength_accessor: F1,
+        mut strength_accessor: F1,
         mut group_accessor: F2,
         mut group_x_accessor: F3,
         mut group_y_accessor: F4,
@@ -30,12 +30,12 @@ impl GroupPositionForce {
             .map(|u| (u, group_accessor(graph, u)))
             .collect::<HashMap<_, _>>();
         GroupPositionForce {
-            position_force: PositionForce::new(
-                graph,
-                strength_accessor,
-                |_, u| Some(group_x_accessor(groups[&u])),
-                |_, u| Some(group_y_accessor(groups[&u])),
-            ),
+            position_force: PositionForce::new(graph, |graph, u| {
+                let strength = Some(strength_accessor(graph, u));
+                let x = Some(group_x_accessor(groups[&u]));
+                let y = Some(group_y_accessor(groups[&u]));
+                NodeArgument { strength, x, y }
+            }),
         }
     }
 }

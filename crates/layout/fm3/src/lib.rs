@@ -2,6 +2,7 @@ use petgraph::graph::{node_index, IndexType};
 use petgraph::prelude::*;
 use petgraph::EdgeType;
 use petgraph_algorithm_connected_components::connected_components;
+use petgraph_layout_force_simulation::force::link_force::LinkArgument;
 use petgraph_layout_force_simulation::force::{CenterForce, LinkForce, ManyBodyForce};
 use petgraph_layout_force_simulation::{initial_placement, Force, Simulation};
 use rand::prelude::*;
@@ -232,12 +233,11 @@ fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
     let mut simulation = Simulation::new(&graph, |_, u| points[&u]);
     let forces: Vec<Box<dyn Force>> = vec![
-        Box::new(ManyBodyForce::new_with_accessor(&graph, |_, _| -100.)),
-        Box::new(LinkForce::new_with_accessor(
-            &graph,
-            |graph, e| LinkForce::default_strength_accessor(graph, e),
-            |_, e| link_distance[&e],
-        )),
+        Box::new(ManyBodyForce::new_with_accessor(&graph, |_, _| Some(-100.))),
+        Box::new(LinkForce::new_with_accessor(&graph, |_, e| LinkArgument {
+            distance: Some(link_distance[&e]),
+            strength: None,
+        })),
         Box::new(CenterForce::new()),
     ];
     for _ in 0..iteration {
@@ -344,7 +344,7 @@ fn test_fm3() {
         100,
         100,
         &mut |_, _| (),
-        &mut |_, _, _| (),
+        &mut |_, _| (),
         &mut |_, _| 30.,
     );
     for point in points {

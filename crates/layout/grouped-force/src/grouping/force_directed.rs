@@ -1,6 +1,7 @@
 use super::{aggregate_edges, aggregate_nodes, node_group, Group, GroupLink, GroupNode};
 use petgraph::graph::{Graph, IndexType, NodeIndex, UnGraph};
 use petgraph::EdgeType;
+use petgraph_layout_force_simulation::force::position_force;
 use petgraph_layout_force_simulation::force::{
     CollideForce, LinkForce, ManyBodyForce, PositionForce,
 };
@@ -40,12 +41,13 @@ pub fn force_directed_grouping<
     let forces: Vec<Box<dyn Force>> = vec![
         Box::new(ManyBodyForce::new(&group_graph)),
         Box::new(LinkForce::new(&group_graph)),
-        Box::new(PositionForce::new(
-            &group_graph,
-            |_, _| 0.1,
-            |_, _| Some(0.),
-            |_, _| Some(0.),
-        )),
+        Box::new(PositionForce::new(&group_graph, |_, _| {
+            position_force::NodeArgument {
+                strength: None,
+                x: Some(0.),
+                y: Some(0.),
+            }
+        })),
         Box::new(CollideForce::new(
             &group_graph,
             |graph, u| graph[u].weight.sqrt(),
