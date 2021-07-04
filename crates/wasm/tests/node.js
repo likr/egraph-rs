@@ -24,6 +24,10 @@ function runSimulation(graph, forces) {
 
 function checkSimulation(graph, forces) {
   const coordinates = runSimulation(graph, forces);
+  checkResult(graph, coordinates);
+}
+
+function checkResult(graph, coordinates) {
   for (const u of graph.nodeIndices()) {
     assert(Number.isFinite(coordinates[u][0]));
     assert(Number.isFinite(coordinates[u][1]));
@@ -99,4 +103,29 @@ exports.testRadialForce = function (data) {
   checkSimulation(graph, [
     new RadialForce(graph, () => ({ strength: 0.1, radius: 100, x: 0, y: 0 })),
   ]);
+};
+
+exports.testKamadaKawai = function (data) {
+  const { initialPlacement, kamadaKawai } = wasm;
+  const graph = constructGraph(data);
+  const initialCoordinates = initialPlacement(graph);
+  const coordinates = kamadaKawai(
+    graph,
+    initialCoordinates,
+    () => 1,
+    0.1,
+    1000,
+    1000
+  );
+  checkResult(graph, coordinates);
+};
+
+exports.testStressMajorization = function (data) {
+  const { initialPlacement, stressMajorization } = wasm;
+  const graph = constructGraph(data);
+  const initialCoordinates = initialPlacement(graph);
+  const coordinates = stressMajorization(graph, initialCoordinates, () => ({
+    distance: 100,
+  }));
+  checkResult(graph, coordinates);
 };
