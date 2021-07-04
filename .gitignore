@@ -6,3 +6,5 @@ egraph-cpp-examples/example
 crates/wasm/dist
 crates/wasm/umd
 wasm-pack.log
+
+js/examples/build
