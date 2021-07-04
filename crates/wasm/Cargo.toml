@@ -18,6 +18,7 @@ petgraph-layout-fm3 = { path = "../layout/fm3" }
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
 petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
+petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 serde = "1.0"
 serde_derive = "1.0"
 

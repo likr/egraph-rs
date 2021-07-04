@@ -13,6 +13,9 @@ export class Home extends React.Component {
             <Link to="/kamada-kawai">KamadaKawai</Link>
           </li>
           <li>
+            <Link to="/stress-majorization">StressMajorization</Link>
+          </li>
+          <li>
             <Link to="/fm3">FM3</Link>
           </li>
           <li>

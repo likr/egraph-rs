@@ -5,4 +5,5 @@ export { ExampleFm3 } from "./ExampleFm3";
 export { ExampleForceDirected } from "./ExampleForceDirected";
 export { ExampleGroupInABox } from "./ExampleGroupInABox";
 export { ExampleKamadaKawai } from "./ExampleKamadaKawai";
+export { ExampleStressMajorization } from "./ExampleStressMajorization";
 export { Home } from "./Home";

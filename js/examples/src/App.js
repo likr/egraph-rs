@@ -9,6 +9,7 @@ import {
   ExampleForceDirected,
   ExampleGroupInABox,
   ExampleKamadaKawai,
+  ExampleStressMajorization,
 } from "./pages";
 
 render(
@@ -33,9 +34,13 @@ render(
           <Route path="/force-directed" component={ExampleForceDirected} />
           <Route path="/group-in-a-box" component={ExampleGroupInABox} />
           <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
+          <Route
+            path="/stress-majorization"
+            component={ExampleStressMajorization}
+          />
         </div>
       </section>
     </div>
   </Router>,
-  document.getElementById("content"),
+  document.getElementById("content")
 );
