@@ -9,6 +9,7 @@ members = [
     "crates/layout/force-simulation",
     "crates/layout/grouped-force",
     "crates/layout/kamada-kawai",
+    "crates/layout/non-euclidean-force-simulation",
     "crates/layout/stress-majorization",
     "crates/quadtree",
     "crates/treemap",
