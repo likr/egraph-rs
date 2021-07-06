@@ -16,6 +16,11 @@ export class Home extends React.Component {
             <Link to="/stress-majorization">StressMajorization</Link>
           </li>
           <li>
+            <Link to="/non-euclidean-force-simulation">
+              NonEuclideanForceSimulation
+            </Link>
+          </li>
+          <li>
             <Link to="/fm3">FM3</Link>
           </li>
           <li>

@@ -9,6 +9,7 @@ import {
   ExampleForceDirected,
   ExampleGroupInABox,
   ExampleKamadaKawai,
+  ExampleNonEuclideanForceSimulation,
   ExampleStressMajorization,
 } from "./pages";
 
@@ -34,6 +35,10 @@ render(
           <Route path="/force-directed" component={ExampleForceDirected} />
           <Route path="/group-in-a-box" component={ExampleGroupInABox} />
           <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
+          <Route
+            path="/non-euclidean-force-simulation"
+            component={ExampleNonEuclideanForceSimulation}
+          />
           <Route
             path="/stress-majorization"
             component={ExampleStressMajorization}
