@@ -3,33 +3,44 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 fn to_tangent_space(x: (f32, f32), y: (f32, f32)) -> (f32, f32) {
-  let d = 1. - (x.0 * y.0 - x.1 * y.1);
-  let z = ((y.0 - x.0) / d, (y.1 - x.1) / d);
+  let dx = y.0 - x.0;
+  let dy = y.1 - x.1;
+  let dr = 1. - x.0 * y.0 - x.1 * y.1;
+  let di = x.1 * y.0 - x.0 * y.1;
+  let d = dr * dr + di * di;
+  let z = ((dr * dx + di * dy) / d, (dr * dy - di * dx) / d);
   let z_norm = (z.0 * z.0 + z.1 * z.1).sqrt();
-  let z_norm = if z_norm >= 1.0 { 1. - 1e-4 } else { z_norm };
   if z_norm < 1e-4 {
     return (0., 0.);
   }
-  let e = ((1. + z_norm) / (1. - z_norm)).ln() / z_norm;
-  (z.0 * e, z.1 * e)
+  let e = ((1. + z_norm) / (1. - z_norm)).ln();
+  if e.is_finite() {
+    (z.0 / z_norm * e, z.1 / z_norm * e)
+  } else {
+    (z.0 / z_norm, z.1 / z_norm)
+  }
 }
 
 fn from_tangent_space(x: (f32, f32), z: (f32, f32)) -> (f32, f32) {
   let z_norm = (z.0 * z.0 + z.1 * z.1).sqrt();
-  let e = ((1. - z_norm.exp()) / (1. + z_norm.exp())).abs();
   let y = if z_norm < 1e-4 {
     (0., 0.)
-  } else if z_norm.exp() > 1e10 {
+  } else if z_norm.exp().is_infinite() {
     (z.0 / z_norm, z.1 / z_norm)
   } else {
+    let e = ((1. - z_norm.exp()) / (1. + z_norm.exp())).abs();
     (z.0 / z_norm * e, z.1 / z_norm * e)
   };
-  let d = -(x.0 * y.0 - x.1 * y.1) - 1.;
-  ((-y.0 - x.0) / d, (-y.1 - x.1) / d)
+  let dx = -y.0 - x.0;
+  let dy = -y.1 - x.1;
+  let dr = -1. - x.0 * y.0 - x.1 * y.1;
+  let di = x.1 * y.0 - x.0 * y.1;
+  let d = dr * dr + di * di;
+  ((dr * dx + di * dy) / d, (dr * dy - di * dx) / d)
 }
 
 fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
-  let min_distance = 1e-4;
+  let min_distance = 1e-3;
   let dx = a.0 - b.0;
   let dy = a.1 - b.1;
   let d = (dx * dx + dy * dy).sqrt();
@@ -43,6 +54,8 @@ fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
 pub fn non_euclidean_fruchterman_reingold<G>(
   graph: G,
   coordinates: &mut HashMap<G::NodeId, (f32, f32)>,
+  repeat: usize,
+  k: f32,
 ) where
   G: GetAdjacencyMatrix + IntoEdgeReferences + IntoNodeIdentifiers + NodeCount,
   G::NodeId: Eq + Hash,
@@ -52,12 +65,10 @@ pub fn non_euclidean_fruchterman_reingold<G>(
   let n = graph.node_count();
   let matrix = graph.adjacency_matrix();
 
-  pos[0] = (0., 0.);
+  let mut v = vec![(0., 0.); n];
   let mut z = vec![(0., 0.); n];
-  let repeat = 300;
-  let k = 0.4621;
   for i in 0..repeat {
-    for u in 1..n {
+    for u in 0..n {
       for v in 0..n {
         z[v] = to_tangent_space(pos[u], pos[v]);
       }
@@ -76,9 +87,15 @@ pub fn non_euclidean_fruchterman_reingold<G>(
         vx -= k * k / d * t.cos();
         vy -= k * k / d * t.sin();
       }
-      z[u].0 += vx * (0.1 / (i + 1) as f32);
-      z[u].1 += vy * (0.1 / (i + 1) as f32);
-      pos[u] = from_tangent_space(pos[u], z[u]);
+      v[u] = (vx * (0.1 / (i + 1) as f32), vy * (0.1 / (i + 1) as f32));
+    }
+    for u in 0..n {
+      pos[u] = from_tangent_space(pos[u], v[u]);
+      let d = (pos[u].0 * pos[u].0 + pos[u].1 * pos[u].1).sqrt();
+      if d >= 1. {
+        pos[u].0 *= 0.99 / d;
+        pos[u].1 *= 0.99 / d;
+      }
     }
   }
 
@@ -112,7 +129,7 @@ fn test_non_euclidean_fruchterman_reingold() {
     println!("{:?}", coordinates[&u]);
   }
 
-  non_euclidean_fruchterman_reingold(&graph, &mut coordinates);
+  non_euclidean_fruchterman_reingold(&graph, &mut coordinates, 300, 1.);
 
   for &u in &nodes {
     println!("{:?}", coordinates[&u]);
