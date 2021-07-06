@@ -55,6 +55,29 @@ function recenter(cx, cy, x, y) {
   return [(dr * dx + di * dy) / d, (dr * dy - di * dx) / d];
 }
 
+function scale(data, displayR) {
+  const nodes = {};
+  for (const node of data.nodes) {
+    nodes[node.id] = node;
+    node.x *= displayR;
+    node.y *= displayR;
+  }
+  for (const link of data.links) {
+    const { x: x1, y: y1 } = nodes[link.source];
+    const { x: x2, y: y2 } = nodes[link.target];
+    const b1 = (x1 * x1 + y1 * y1 + displayR * displayR) / 2;
+    const b2 = (x2 * x2 + y2 * y2 + displayR * displayR) / 2;
+    const d = x1 * y2 - y1 * x2;
+    const cx = (link.cx = (y2 * b1 - y1 * b2) / d);
+    const cy = (link.cy = (x1 * b2 - x2 * b1) / d);
+    link.r = Math.sqrt(cx * cx + cy * cy - displayR * displayR);
+    link.x1 = x1;
+    link.y1 = y1;
+    link.x2 = x2;
+    link.y2 = y2;
+  }
+}
+
 export function ExampleNonEuclideanForceSimulation() {
   const svgRef = useRef();
   const [data, setData] = useState({ nodes: [], links: [] });
@@ -65,22 +88,15 @@ export function ExampleNonEuclideanForceSimulation() {
     const drag = d3.drag().on("drag", (event) => {
       const cx = -event.dx / displayR;
       const cy = -event.dy / displayR;
-      setData((data) => ({
-        ...data,
-        ...{
-          nodes: data.nodes.map((node) => {
-            const [x, y] = recenter(
-              cx,
-              cy,
-              node.x / displayR,
-              node.y / displayR
-            );
-            node.x = displayR * x;
-            node.y = displayR * y;
-            return node;
-          }),
-        },
-      }));
+      setData((data) => {
+        for (const node of data.nodes) {
+          const [x, y] = recenter(cx, cy, node.x / displayR, node.y / displayR);
+          node.x = x;
+          node.y = y;
+        }
+        scale(data, displayR);
+        return { ...data };
+      });
     });
     d3.select(svgRef.current).call(drag);
   }, []);
@@ -89,45 +105,55 @@ export function ExampleNonEuclideanForceSimulation() {
     (async () => {
       const data = await fetchData();
       layout(data);
-      for (const node of data.nodes) {
-        node.x *= displayR;
-        node.y *= displayR;
-      }
+      scale(data, displayR);
       setData(data);
     })();
   }, []);
 
-  const nodes = {};
-  for (const node of data.nodes) {
-    nodes[node.id] = node;
-  }
-
+  const size = (displayR + margin) * 2;
   return (
     <div>
       <svg
         ref={svgRef}
         style={{ cursor: "move" }}
-        viewBox={`${-margin} ${-margin} ${(displayR + margin) * 2} ${
-          (displayR + margin) * 2
-        }`}
+        viewBox={`${-margin} ${-margin} ${size} ${size}`}
       >
+        <defs>
+          {data.links.map((link) => {
+            const path = d3.path();
+            path.moveTo(0, 0);
+            path.lineTo(link.x1, link.y1);
+            path.lineTo(link.x2, link.y2);
+            path.closePath();
+            return (
+              <clipPath
+                key={`${link.source}:${link.target}`}
+                id={`clip:${link.source}:${link.target}`}
+              >
+                <path
+                  d={path.toString()}
+                  stroke="#000"
+                  strokeWidth={link.strokeWidth}
+                />
+              </clipPath>
+            );
+          })}
+        </defs>
         <g transform={`translate(${displayR},${displayR})`}>
           <circle r={displayR} fill="none" stroke="#888" />
           <g>
             {data.links.map((link) => {
-              const { x: x1, y: y1 } = nodes[link.source];
-              const { x: x2, y: y2 } = nodes[link.target];
-              const path = d3.path();
-              path.moveTo(x1, y1);
-              path.lineTo(x2, y2);
               return (
                 <g key={`${link.source}:${link.target}`}>
-                  <path
-                    d={path.toString()}
+                  <circle
+                    cx={link.cx}
+                    cy={link.cy}
+                    r={link.r}
                     fill="none"
                     stroke="#999"
                     strokeWidth={link.strokeWidth}
                     opacity="0.6"
+                    clipPath={`url(#clip:${link.source}:${link.target})`}
                   />
                 </g>
               );
