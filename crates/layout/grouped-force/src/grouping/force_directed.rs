@@ -1,11 +1,9 @@
 use super::{aggregate_edges, aggregate_nodes, node_group, Group, GroupLink, GroupNode};
 use petgraph::graph::{Graph, IndexType, NodeIndex, UnGraph};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::position_force;
-use petgraph_layout_force_simulation::force::{
-    CollideForce, LinkForce, ManyBodyForce, PositionForce,
-};
-use petgraph_layout_force_simulation::{initial_placement, Force, Simulation};
+use petgraph_layout_force::position_force::NodeArgument;
+use petgraph_layout_force::{CollideForce, LinkForce, ManyBodyForce, PositionForce};
+use petgraph_layout_force_simulation::{apply_forces, initial_placement, Force, Point, Simulation};
 use std::collections::HashMap;
 
 fn create_group_graph(
@@ -41,12 +39,10 @@ pub fn force_directed_grouping<
     let forces: Vec<Box<dyn Force>> = vec![
         Box::new(ManyBodyForce::new(&group_graph)),
         Box::new(LinkForce::new(&group_graph)),
-        Box::new(PositionForce::new(&group_graph, |_, _| {
-            position_force::NodeArgument {
-                strength: None,
-                x: Some(0.),
-                y: Some(0.),
-            }
+        Box::new(PositionForce::new(&group_graph, |_, _| NodeArgument {
+            strength: None,
+            x: Some(0.),
+            y: Some(0.),
         })),
         Box::new(CollideForce::new(
             &group_graph,
@@ -56,14 +52,14 @@ pub fn force_directed_grouping<
         )),
     ];
 
-    let points = initial_placement(&group_graph);
-    let mut simulation = Simulation::new(&group_graph, |_, u| points[&u]);
-    let coordinates = simulation.run(&forces.as_slice());
+    let mut coordinates = initial_placement(&group_graph);
+    let mut simulation = Simulation::new();
+    simulation.run(&mut |alpha| apply_forces(&mut coordinates.points, &forces, alpha, 0.6));
 
     let mut result = HashMap::new();
-    for u in group_graph.node_indices() {
+    for (u, p) in coordinates.iter() {
         let size = group_graph[u].weight.sqrt();
-        let (x, y) = coordinates[&u];
+        let Point { x, y, .. } = p;
         result.insert(
             group_graph[u].id,
             Group {

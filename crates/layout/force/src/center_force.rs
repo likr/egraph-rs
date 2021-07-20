@@ -13,7 +13,7 @@ impl CenterForce {
 }
 
 impl Force for CenterForce {
-    fn apply(&self, points: &mut Vec<Point>, _alpha: f32) {
+    fn apply(&self, points: &mut [Point], _alpha: f32) {
         let cx = points.iter().map(|p| p.x).sum::<f32>() / points.len() as f32;
         let cy = points.iter().map(|p| p.y).sum::<f32>() / points.len() as f32;
         for point in points.iter_mut() {

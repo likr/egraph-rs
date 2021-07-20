@@ -48,7 +48,7 @@ impl GroupCenterForce {
 }
 
 impl Force for GroupCenterForce {
-    fn apply(&self, points: &mut Vec<Point>, _alpha: f32) {
+    fn apply(&self, points: &mut [Point], _alpha: f32) {
         for (group, indices) in self.groups.iter() {
             let group_x = self.group_x[group];
             let group_y = self.group_y[group];

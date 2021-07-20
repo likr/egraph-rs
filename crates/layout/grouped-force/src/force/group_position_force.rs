@@ -1,7 +1,7 @@
 use crate::{Force, Point};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::position_force::{NodeArgument, PositionForce};
+use petgraph_layout_force::position_force::{NodeArgument, PositionForce};
 use std::collections::HashMap;
 
 pub struct GroupPositionForce {
@@ -41,7 +41,7 @@ impl GroupPositionForce {
 }
 
 impl Force for GroupPositionForce {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
+    fn apply(&self, points: &mut [Point], alpha: f32) {
         self.position_force.apply(points, alpha);
     }
 }

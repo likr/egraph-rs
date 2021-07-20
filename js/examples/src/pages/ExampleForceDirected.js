@@ -7,6 +7,7 @@ import {
   LinkForce,
   CenterForce,
   initialPlacement,
+  updateWith,
 } from "egraph";
 import { Wrapper } from "../wrapper";
 
@@ -29,25 +30,36 @@ export class ExampleForceDirected extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const initialCoordinates = initialPlacement(graph);
-        const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-
+        const coordinates = initialPlacement(graph);
+        const simulation = new Simulation();
         const forces = [
           new ManyBodyForce(graph, () => ({ strength: -30 })),
           new LinkForce(graph, () => ({ distance: 30 })),
           new CenterForce(),
         ];
+        console.log(forces);
 
         const draw = () => {
           if (!this.refs.renderer || simulation.isFinished()) {
             return;
           }
-          const coordinates = simulation.runStep(1, forces);
+          simulation.runStep(1, (alpha) => {
+            updateWith(coordinates, alpha, 0.6, (alpha) => {
+              console.log("coordinates", coordinates);
+              coordinates.setX(0, 500);
+              console.log("hoge");
+              for (const force of forces) {
+                force.apply(coordinates, alpha);
+              }
+            });
+          });
           for (const u of graph.nodeIndices()) {
             const node = graph.nodeWeight(u);
-            const [x, y] = coordinates[u];
-            node.x = x;
-            node.y = y;
+            node.x = coordinates.x(u);
+            node.y = coordinates.y(u);
+            if (u === 0) {
+              console.log(node.x, node.y);
+            }
           }
           this.refs.renderer.update();
           this.refs.renderer.center();

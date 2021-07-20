@@ -7,5 +7,6 @@ edition = "2018"
 [dependencies]
 ordered-float = "0.5"
 petgraph = "0.5"
+petgraph-layout-force= { path = "../force" }
 petgraph-layout-force-simulation = { path = "../force-simulation" }
 treemap = { path = "../../treemap" }

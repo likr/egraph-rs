@@ -3,7 +3,7 @@ pub mod grouping;
 
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::CenterForce;
+use petgraph_layout_force::CenterForce;
 use petgraph_layout_force_simulation::{Force, Point};
 use std::collections::HashMap;
 

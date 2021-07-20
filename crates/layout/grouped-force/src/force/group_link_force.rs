@@ -1,7 +1,7 @@
 use crate::{Force, Point};
 use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force_simulation::force::link_force::{LinkArgument, LinkForce};
+use petgraph_layout_force::link_force::{LinkArgument, LinkForce};
 use std::collections::HashMap;
 
 pub struct GroupLinkForce {
@@ -43,7 +43,7 @@ impl GroupLinkForce {
 }
 
 impl Force for GroupLinkForce {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
+    fn apply(&self, points: &mut [Point], alpha: f32) {
         self.link_force.apply(points, alpha);
     }
 }

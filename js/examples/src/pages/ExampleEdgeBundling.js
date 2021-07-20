@@ -3,7 +3,9 @@ import * as d3 from "d3";
 import {
   Graph,
   Simulation,
-  forceConnected,
+  ManyBodyForce,
+  LinkForce,
+  CenterForce,
   initialPlacement,
   fdeb,
 } from "egraph";
@@ -28,19 +30,28 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const initialCoordinates = initialPlacement(graph);
-        const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-        const forces = forceConnected(graph);
-        const coordinates = simulation.run(forces);
+        const coordinates = initialPlacement(graph);
+        const simulation = new Simulation();
+        const forces = [
+          new ManyBodyForce(graph),
+          new LinkForce(graph),
+          new CenterForce(),
+        ];
+        simulation.run((alpha) => {
+          for (const force of forces) {
+            force.apply(coordinates, alpha);
+          }
+        });
 
+        const result = coordinates.toJSON();
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
-          const [x, y] = coordinates[u];
+          const [x, y] = result[u];
           node.x = x;
           node.y = y;
         }
 
-        const bends = fdeb(graph, coordinates);
+        const bends = fdeb(graph, result);
         for (const e of graph.edgeIndices()) {
           graph.edgeWeight(e).bends = bends[e];
         }

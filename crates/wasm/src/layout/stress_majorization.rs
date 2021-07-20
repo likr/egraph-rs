@@ -1,6 +1,6 @@
 use crate::graph::JsGraph;
+use crate::layout::force_simulation::coordinates::JsCoordinates;
 use js_sys::{Function, Reflect};
-use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(js_name = stressMajorization)]
 pub fn stress_majorization(
   graph: &JsGraph,
-  coordinates: JsValue,
+  coordinates: &JsCoordinates,
   f: Function,
 ) -> Result<JsValue, JsValue> {
   let mut distance = HashMap::new();
@@ -20,19 +20,17 @@ pub fn stress_majorization(
     distance.insert(e, d as f32);
   }
 
-  let mut coordinates = JsValue::into_serde::<HashMap<usize, (f32, f32)>>(&coordinates)
-    .unwrap()
-    .into_iter()
-    .map(|(k, v)| (NodeIndex::new(k), v))
+  let mut result = coordinates
+    .coordinates()
+    .iter()
+    .map(|(u, p)| (u, (p.x, p.y)))
     .collect::<HashMap<_, _>>();
-  petgraph_layout_stress_majorization::stress_majorization(
-    graph.graph(),
-    &mut coordinates,
-    &mut |e| distance[&e.id()],
-  );
+  petgraph_layout_stress_majorization::stress_majorization(graph.graph(), &mut result, &mut |e| {
+    distance[&e.id()]
+  });
   Ok(
     JsValue::from_serde(
-      &coordinates
+      &result
         .into_iter()
         .map(|(k, v)| (k.index(), v))
         .collect::<HashMap<_, _>>(),

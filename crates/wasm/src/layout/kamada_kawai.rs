@@ -1,33 +1,33 @@
 use crate::graph::JsGraph;
+use crate::layout::force_simulation::coordinates::JsCoordinates;
 use js_sys::Function;
-use petgraph::graph::NodeIndex;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = kamadaKawai)]
 pub fn kamada_kawai(
   graph: &JsGraph,
-  coordinates: JsValue,
+  coordinates: &JsCoordinates,
   _length: Function,
   eps: f32,
   width: f32,
   height: f32,
 ) -> JsValue {
-  let mut coordinates = JsValue::into_serde::<HashMap<usize, (f32, f32)>>(&coordinates)
-    .unwrap()
-    .into_iter()
-    .map(|(k, v)| (NodeIndex::new(k), v))
+  let mut result = coordinates
+    .coordinates()
+    .iter()
+    .map(|(u, p)| (u, (p.x, p.y)))
     .collect::<HashMap<_, _>>();
   petgraph_layout_kamada_kawai::kamada_kawai(
     graph.graph(),
-    &mut coordinates,
+    &mut result,
     &mut |_| 1.,
     eps,
     width,
     height,
   );
   JsValue::from_serde(
-    &coordinates
+    &result
       .into_iter()
       .map(|(k, v)| (k.index(), v))
       .collect::<HashMap<_, _>>(),

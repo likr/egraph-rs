@@ -1,6 +1,6 @@
-use crate::{Force, Point};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
+use petgraph_layout_force_simulation::{Force, ForceToNode, Point};
 
 #[derive(Clone, Copy, Default)]
 pub struct NodeArgument {
@@ -9,6 +9,7 @@ pub struct NodeArgument {
     pub y: Option<f32>,
 }
 
+#[derive(Force)]
 pub struct PositionForce {
     strength: Vec<f32>,
     x: Vec<Option<f32>>,
@@ -44,17 +45,15 @@ impl PositionForce {
     }
 }
 
-impl Force for PositionForce {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
-        for i in 0..points.len() {
-            let strength = self.strength[i];
-            let point = points.get_mut(i).unwrap();
-            if let Some(xi) = self.x[i] {
-                point.vx += (xi - point.x) * alpha * strength;
-            }
-            if let Some(yi) = self.y[i] {
-                point.vy += (yi - point.y) * alpha * strength;
-            }
+impl ForceToNode for PositionForce {
+    fn apply_to_node(&self, i: usize, points: &mut [Point], alpha: f32) {
+        let strength = self.strength[i];
+        let point = points.get_mut(i).unwrap();
+        if let Some(xi) = self.x[i] {
+            point.vx += (xi - point.x) * alpha * strength;
+        }
+        if let Some(yi) = self.y[i] {
+            point.vy += (yi - point.y) * alpha * strength;
         }
     }
 }

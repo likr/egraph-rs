@@ -2,9 +2,9 @@ use petgraph::graph::{node_index, IndexType};
 use petgraph::prelude::*;
 use petgraph::EdgeType;
 use petgraph_algorithm_connected_components::connected_components;
-use petgraph_layout_force_simulation::force::link_force::LinkArgument;
-use petgraph_layout_force_simulation::force::{CenterForce, LinkForce, ManyBodyForce};
-use petgraph_layout_force_simulation::{initial_placement, Force, Simulation};
+use petgraph_layout_force::link_force::LinkArgument;
+use petgraph_layout_force::{CenterForce, LinkForce, ManyBodyForce};
+use petgraph_layout_force_simulation::{apply_forces, initial_placement, Force, Point};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
@@ -180,8 +180,8 @@ fn expand<N, E, Ty: EdgeType, Ix: IndexType>(
     node_types: &Vec<NodeType>,
     link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     rng: &mut StdRng,
-) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    let mut points = HashMap::new();
+) -> Vec<Point> {
+    let mut points = Vec::with_capacity(graph1.node_count());
     for u in graph0.node_indices() {
         let mut x = 0.;
         let mut y = 0.;
@@ -209,7 +209,7 @@ fn expand<N, E, Ty: EdgeType, Ix: IndexType>(
             let y = r * theta.sin() + s1_y;
             (x, y)
         };
-        points.insert(u, (x, y));
+        points.push(Point::new(x, y));
     }
     points
 }
@@ -220,18 +220,24 @@ fn layout<N, E, Ty: EdgeType, Ix: IndexType>(
     iteration: usize,
     alpha: f32,
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    let points = initial_placement(graph);
-    layout_with_initial_placement(graph, link_distance, &points, iteration, alpha)
+    let mut coordinates = initial_placement(graph);
+    layout_with_initial_placement(
+        graph,
+        link_distance,
+        &mut coordinates.points,
+        iteration,
+        alpha,
+    )
 }
 
 fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     link_distance: &HashMap<EdgeIndex<Ix>, f32>,
-    points: &HashMap<NodeIndex<Ix>, (f32, f32)>,
+    points: &mut [Point],
     iteration: usize,
     alpha: f32,
 ) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    let mut simulation = Simulation::new(&graph, |_, u| points[&u]);
+    let indices = graph.node_indices().collect::<Vec<_>>();
     let forces: Vec<Box<dyn Force>> = vec![
         Box::new(ManyBodyForce::new_with_accessor(&graph, |_, _| Some(-100.))),
         Box::new(LinkForce::new_with_accessor(&graph, |_, e| LinkArgument {
@@ -241,9 +247,13 @@ fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
         Box::new(CenterForce::new()),
     ];
     for _ in 0..iteration {
-        simulation.apply_forces(&forces.as_slice(), alpha);
+        apply_forces(points, &forces, alpha, 0.1);
     }
-    simulation.coordinates()
+    indices
+        .iter()
+        .zip(points)
+        .map(|(&u, p)| (u, (p.x, p.y)))
+        .collect::<HashMap<_, _>>()
 }
 
 pub fn fm3<
@@ -303,7 +313,7 @@ pub fn fm3<
 
     while !shrinked_graphs.is_empty() {
         let (g0, groups, parents, types, link_distance) = shrinked_graphs.pop().unwrap();
-        let g0_points = expand(
+        let mut g0_points = expand(
             &g0,
             &gk,
             &g1_points,
@@ -313,8 +323,13 @@ pub fn fm3<
             &link_distance,
             &mut rng,
         );
-        g1_points =
-            layout_with_initial_placement(&g0, &link_distance, &g0_points, step_iteration, alpha);
+        g1_points = layout_with_initial_placement(
+            &g0,
+            &link_distance,
+            &mut g0_points,
+            step_iteration,
+            alpha,
+        );
         alpha -= alpha * decay;
         gk = g0;
     }

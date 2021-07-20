@@ -1,5 +1,5 @@
 import React from "react";
-import { Graph, fm3, Simulation, forceNonconnected } from "egraph";
+import { Graph, fm3 } from "egraph";
 import { Wrapper } from "../wrapper";
 
 export class ExampleFm3 extends React.Component {
@@ -20,7 +20,7 @@ export class ExampleFm3 extends React.Component {
           graph.addEdge(
             indices.get(index(i, j - 1, k)),
             indices.get(index(i, j, k)),
-            {},
+            {}
           );
         }
       }
@@ -29,23 +29,18 @@ export class ExampleFm3 extends React.Component {
           graph.addEdge(
             indices.get(index(i - 1, j, k)),
             indices.get(index(i, j, k)),
-            {},
+            {}
           );
         }
       }
     }
 
-    const initialCoordinates = fm3(graph, 1, 200);
-    const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-    const forces = forceNonconnected(graph);
-    const coordinates = simulation.run(forces);
-
+    const coordinates = fm3(graph, 1, 200);
     this.refs.renderer.load({
       nodes: graph.nodeIndices().map((u) => {
-        const [x, y] = coordinates[u];
         return {
-          x,
-          y,
+          x: coordinates.x(u),
+          y: coordinates.y(u),
         };
       }),
       links: graph.edgeIndices().map((e) => {

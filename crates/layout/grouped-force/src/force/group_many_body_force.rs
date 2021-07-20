@@ -38,7 +38,7 @@ impl GroupManyBodyForce {
 }
 
 impl Force for GroupManyBodyForce {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
+    fn apply(&self, points: &mut [Point], alpha: f32) {
         for indices in self.groups.values() {
             let n = indices.len();
             for i in 0..n {

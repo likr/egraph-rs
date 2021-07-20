@@ -15,16 +15,16 @@ function constructGraph(data) {
   return graph;
 }
 
-function runSimulation(graph, forces) {
-  const { Simulation, initialPlacement } = wasm;
-  const initialCoordinates = initialPlacement(graph);
-  const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-  return simulation.run(forces);
-}
-
 function checkSimulation(graph, forces) {
-  const coordinates = runSimulation(graph, forces);
-  checkResult(graph, coordinates);
+  const { Simulation, initialPlacement } = wasm;
+  const coordinates = initialPlacement(graph);
+  const simulation = new Simulation();
+  simulation.run((alpha) => {
+    for (const force of forces) {
+      force.apply(coordinates, alpha);
+    }
+  });
+  checkResult(graph, coordinates.toJSON());
 }
 
 function checkResult(graph, coordinates) {
@@ -40,15 +40,80 @@ exports.testConstructGraph = function (data) {
   assert.strictEqual(graph.edgeCount(), data.links.length);
 };
 
-exports.testSimulation = function (data) {
-  const { Simulation, initialPlacement } = wasm;
+exports.testCoordinates = function (data) {
+  const { initialPlacement } = wasm;
   const graph = constructGraph(data);
-  const initialCoordinates = initialPlacement(graph);
-  const simulation = new Simulation(graph, (u) => initialCoordinates[u]);
-  const coordinates = simulation.run([]);
+  const coordinates = initialPlacement(graph);
+  assert.strictEqual(coordinates.len(), data.nodes.length);
+  assert(Number.isFinite(coordinates.x(0)));
+  coordinates.setX(0, 42);
+  assert.strictEqual(coordinates.x(0), 42);
+  assert(Number.isFinite(coordinates.y(0)));
+  coordinates.setY(0, 42);
+  assert.strictEqual(coordinates.y(0), 42);
+};
+
+exports.testSimulation = function (data) {
+  const { Simulation } = wasm;
+  const repeat = 300;
+  const simulation = new Simulation();
+  simulation.iterations = repeat;
+  let count = 0;
+  simulation.run((alpha) => {
+    assert(Number.isFinite(alpha));
+    count += 1;
+  });
+  assert.strictEqual(repeat, count);
+};
+
+exports.testForceDirectedLayout = function (data) {
+  const {
+    Simulation,
+    initialPlacement,
+    ManyBodyForce,
+    LinkForce,
+    CenterForce,
+  } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = initialPlacement(graph);
+  const forces = [
+    new ManyBodyForce(graph, () => ({ strength: -30 })),
+    new LinkForce(graph, () => ({ distance: 30 })),
+    new CenterForce(),
+  ];
+  const simulation = new Simulation();
+  simulation.iterations = 1;
+  simulation.run((alpha) => {
+    for (const force of forces) {
+      force.apply(coordinates, alpha);
+    }
+  });
   for (const u of graph.nodeIndices()) {
-    assert.strictEqual(initialCoordinates[u][0], coordinates[u][0]);
-    assert.strictEqual(initialCoordinates[u][1], coordinates[u][1]);
+    assert(Number.isFinite(coordinates.x(u)));
+    assert(Number.isFinite(coordinates.y(u)));
+  }
+};
+
+exports.testHyperbolicForceDirectedLayout = function (data) {
+  const { Simulation, initialPlacement, ManyBodyForce, LinkForce } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = initialPlacement(graph);
+  const tangentSpace = initialPlacement(graph);
+  const forces = [
+    new ManyBodyForce(graph, () => ({ strength: -0.5 })),
+    new LinkForce(graph, () => ({ distance: 0.5 })),
+  ];
+  const simulation = new Simulation();
+  simulation.run((alpha) => {
+    applyInHyperbolicSpace(coordinates, tangentSpace, (u) => {
+      for (const force of forces) {
+        force.applyToNode(u, tangentSpace, alpha);
+      }
+    });
+  });
+  for (const u of graph.nodeIndices()) {
+    assert(Number.isFinite(coordinates.x(u)));
+    assert(Number.isFinite(coordinates.y(u)));
   }
 };
 

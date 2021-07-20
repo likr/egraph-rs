@@ -1,4 +1,4 @@
-use crate::{Force, Point, MIN_DISTANCE};
+use crate::{Force, ForceToNode, Point, MIN_DISTANCE};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
 use quadtree::{Element, NodeId, Quadtree, Rect};
@@ -93,15 +93,13 @@ fn apply_many_body(
     }
 }
 
-pub struct ManyBodyForceBarnesHut {
+pub struct ManyBodyForce {
     strength: Vec<f32>,
 }
 
-impl ManyBodyForceBarnesHut {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
-        graph: &Graph<N, E, Ty, Ix>,
-    ) -> ManyBodyForceBarnesHut {
-        ManyBodyForceBarnesHut::new_with_accessor(graph, |_, _| None)
+impl ManyBodyForce {
+    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(graph: &Graph<N, E, Ty, Ix>) -> ManyBodyForce {
+        ManyBodyForce::new_with_accessor(graph, |_, _| None)
     }
 
     pub fn new_with_accessor<
@@ -113,7 +111,7 @@ impl ManyBodyForceBarnesHut {
     >(
         graph: &Graph<N, E, Ty, Ix>,
         strength_accessor: F,
-    ) -> ManyBodyForceBarnesHut {
+    ) -> ManyBodyForce {
         let strength = graph
             .node_indices()
             .map(|u| {
@@ -128,8 +126,8 @@ impl ManyBodyForceBarnesHut {
     }
 }
 
-impl Force for ManyBodyForceBarnesHut {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
+impl Force for ManyBodyForce {
+    fn apply(&self, points: &mut [Point], alpha: f32) {
         let max_x = points.iter().fold(0.0 / 0.0, |m, v| v.x.max(m));
         let min_x = points.iter().fold(0.0 / 0.0, |m, v| v.x.min(m));
         let max_y = points.iter().fold(0.0 / 0.0, |m, v| v.y.max(m));
@@ -148,68 +146,29 @@ impl Force for ManyBodyForceBarnesHut {
             tree.insert(root, point.x, point.y, strength);
         }
         accumulate(&mut tree, root);
-        for mut point in points.iter_mut() {
-            apply_many_body(&mut point, &tree, root, alpha, 0.81);
+        for point in points.iter_mut() {
+            apply_many_body(point, &tree, root, alpha, 0.81);
         }
     }
 }
 
-pub struct ManyBodyForceAllPair {
-    strength: Vec<f32>,
-}
-
-impl ManyBodyForceAllPair {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType>(
-        graph: &Graph<N, E, Ty, Ix>,
-    ) -> ManyBodyForceAllPair {
-        ManyBodyForceAllPair::new_with_accessor(graph, |_, _| None)
-    }
-
-    pub fn new_with_accessor<
-        N,
-        E,
-        Ty: EdgeType,
-        Ix: IndexType,
-        F: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> Option<f32>,
-    >(
-        graph: &Graph<N, E, Ty, Ix>,
-        mut strength_accessor: F,
-    ) -> ManyBodyForceAllPair {
-        let strength = graph
-            .node_indices()
-            .map(|u| {
-                if let Some(v) = strength_accessor(graph, u) {
-                    v
-                } else {
-                    default_strength_accessor(graph, u)
-                }
-            })
-            .collect();
-        ManyBodyForceAllPair { strength }
-    }
-}
-
-impl Force for ManyBodyForceAllPair {
-    fn apply(&self, points: &mut Vec<Point>, alpha: f32) {
+impl ForceToNode for ManyBodyForce {
+    fn apply_to_node(&self, i: usize, points: &mut [Point], alpha: f32) {
         let n = points.len();
-        for i in 0..n {
-            for j in 0..n {
-                if i == j {
-                    continue;
-                }
-                let Point { x, y, .. } = points[j];
-                let ref mut point = points[i];
-                let dx = x - point.x;
-                let dy = y - point.y;
-                let l = (dx * dx + dy * dy).max(MIN_DISTANCE);
-                point.vx += dx * self.strength[j] * alpha / l;
-                point.vy += dy * self.strength[j] * alpha / l;
+        for j in 0..n {
+            if i == j {
+                continue;
             }
+            let Point { x, y, .. } = points[j];
+            let ref mut point = points[i];
+            let dx = x - point.x;
+            let dy = y - point.y;
+            let l = (dx * dx + dy * dy).max(MIN_DISTANCE);
+            point.vx += dx * self.strength[j] * alpha / l;
+            point.vy += dy * self.strength[j] * alpha / l;
         }
     }
 }
-
-pub type ManyBodyForce = ManyBodyForceBarnesHut;
 
 pub fn default_strength_accessor<N, E, Ty: EdgeType, Ix: IndexType>(
     _graph: &Graph<N, E, Ty, Ix>,

@@ -34,7 +34,7 @@ impl CollideForce {
 }
 
 impl Force for CollideForce {
-    fn apply(&self, points: &mut Vec<Point>, _alpha: f32) {
+    fn apply(&self, points: &mut [Point], _alpha: f32) {
         let n = points.len();
         for _ in 0..self.iterations {
             for i in 0..n {
@@ -61,5 +61,11 @@ impl Force for CollideForce {
                 }
             }
         }
+    }
+}
+
+impl AsRef<dyn Force> for CollideForce {
+    fn as_ref(&self) -> &(dyn Force + 'static) {
+        self
     }
 }

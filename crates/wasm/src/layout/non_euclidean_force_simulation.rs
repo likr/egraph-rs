@@ -1,33 +1,21 @@
-use crate::graph::JsGraph;
-use petgraph::graph::NodeIndex;
-use std::collections::HashMap;
+use crate::layout::force_simulation::coordinates::JsCoordinates;
+use js_sys::Function;
+use petgraph_layout_non_euclidean_force_simulation::apply_in_hyperbolic_space;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(js_name = nonEuclideanFruchtermanReingold)]
-pub fn non_euclidean_fruchterman_reingold(
-  graph: &JsGraph,
-  coordinates: JsValue,
-  repeat: usize,
-  k: f32,
-) -> Result<JsValue, JsValue> {
-  let mut coordinates = JsValue::into_serde::<HashMap<usize, (f32, f32)>>(&coordinates)
-    .unwrap()
-    .into_iter()
-    .map(|(k, v)| (NodeIndex::new(k), v))
-    .collect::<HashMap<_, _>>();
-  petgraph_layout_non_euclidean_force_simulation::non_euclidean_fruchterman_reingold(
-    graph.graph(),
-    &mut coordinates,
-    repeat,
-    k,
-  );
-  Ok(
-    JsValue::from_serde(
-      &coordinates
-        .into_iter()
-        .map(|(k, v)| (k.index(), v))
-        .collect::<HashMap<_, _>>(),
-    )
-    .unwrap(),
-  )
+#[wasm_bindgen(js_name = applyInHyperbolicSpace)]
+pub fn js_apply_in_hyperbolic_space(
+    coordinates: &mut JsCoordinates,
+    buffer: &mut JsCoordinates,
+    velocity_decay: f32,
+    f: Function,
+) {
+    apply_in_hyperbolic_space(
+        coordinates.points_mut(),
+        buffer.points_mut(),
+        velocity_decay,
+        &mut |u, _| {
+            f.call1(&JsValue::null(), &(u as f32).into()).ok();
+        },
+    );
 }

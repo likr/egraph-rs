@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
-import { Graph, nonEuclideanFruchtermanReingold } from "egraph";
+import {
+  Graph,
+  Simulation,
+  ManyBodyForce,
+  LinkForce,
+  applyInHyperbolicSpace,
+  initialPlacement,
+} from "egraph";
 
 async function fetchData() {
   const response = await fetch("/data/miserables.json");
@@ -26,21 +33,24 @@ function layout(data) {
     graph.addEdge(indices.get(source), indices.get(target), link);
   }
 
-  const initialCoordinates = {};
-  graph.nodeIndices().forEach((u, i) => {
-    const r = 0.5;
-    const t = (Math.PI * 2 * i) / graph.nodeCount();
-    initialCoordinates[u] = [r * Math.cos(t), r * Math.sin(t)];
+  const coordinates = initialPlacement(graph);
+  const tangentSpace = initialPlacement(graph);
+  const simulation = new Simulation();
+  const forces = [
+    new ManyBodyForce(graph, () => ({ strength: -0.5 })),
+    new LinkForce(graph, () => ({ distance: 0.5 })),
+  ];
+  simulation.run((alpha) => {
+    applyInHyperbolicSpace(coordinates, tangentSpace, (u) => {
+      for (const force of forces) {
+        force.applyToNode(u, tangentSpace, alpha);
+      }
+    });
   });
-  const coordinates = nonEuclideanFruchtermanReingold(
-    graph,
-    initialCoordinates,
-    300,
-    0.5
-  );
+  const result = coordinates.toJSON();
   for (const u of graph.nodeIndices()) {
     const node = graph.nodeWeight(u);
-    const [x, y] = coordinates[u];
+    const [x, y] = result[u];
     node.x = x;
     node.y = y;
   }

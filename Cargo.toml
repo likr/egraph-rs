@@ -6,6 +6,7 @@ members = [
     "crates/algorithm/shortest-path",
     "crates/edge-bundling/fdeb",
     "crates/layout/fm3",
+    "crates/layout/force",
     "crates/layout/force-simulation",
     "crates/layout/grouped-force",
     "crates/layout/kamada-kawai",
@@ -13,5 +14,6 @@ members = [
     "crates/layout/stress-majorization",
     "crates/quadtree",
     "crates/treemap",
+    "crates/util/force_derive",
     "crates/wasm",
 ]

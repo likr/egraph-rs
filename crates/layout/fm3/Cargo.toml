@@ -7,5 +7,6 @@ edition = "2018"
 [dependencies]
 petgraph = "0.5"
 petgraph-algorithm-connected-components = { path = "../../algorithm/connected-components" }
+petgraph-layout-force= { path = "../force" }
 petgraph-layout-force-simulation = { path = "../force-simulation" }
 rand = "0.7"
