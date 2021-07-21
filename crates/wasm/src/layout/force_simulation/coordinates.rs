@@ -29,6 +29,16 @@ impl JsCoordinates {
     pub fn coordinates(&self) -> &Coordinates<IndexType> {
         &self.coordinates
     }
+
+    pub fn position(&self, u: usize) -> Option<(f32, f32)> {
+        let u = node_index(u);
+        self.coordinates.position(u)
+    }
+
+    pub fn set_position(&mut self, u: usize, p: (f32, f32)) {
+        let u = node_index(u);
+        self.coordinates.set_position(u, p);
+    }
 }
 
 #[wasm_bindgen(js_class = Coordinates)]

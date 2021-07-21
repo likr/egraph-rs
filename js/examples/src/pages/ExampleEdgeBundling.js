@@ -5,9 +5,10 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-  CenterForce,
-  initialPlacement,
+  center,
   fdeb,
+  initialPlacement,
+  updatePosition,
 } from "egraph";
 import { Wrapper } from "../wrapper";
 
@@ -33,14 +34,15 @@ export class ExampleEdgeBundling extends React.Component {
         const coordinates = initialPlacement(graph);
         const simulation = new Simulation();
         const forces = [
-          new ManyBodyForce(graph),
-          new LinkForce(graph),
-          new CenterForce(),
+          new ManyBodyForce(graph, () => ({ strength: -30 })),
+          new LinkForce(graph, () => ({ distance: 30 })),
         ];
         simulation.run((alpha) => {
           for (const force of forces) {
             force.apply(coordinates, alpha);
           }
+          updatePosition(coordinates, 0.6);
+          center(coordinates);
         });
 
         const result = coordinates.toJSON();

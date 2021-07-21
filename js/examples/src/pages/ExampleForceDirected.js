@@ -5,9 +5,9 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-  CenterForce,
+  center,
   initialPlacement,
-  updateWith,
+  updatePosition,
 } from "egraph";
 import { Wrapper } from "../wrapper";
 
@@ -32,34 +32,37 @@ export class ExampleForceDirected extends React.Component {
 
         const coordinates = initialPlacement(graph);
         const simulation = new Simulation();
+        simulation.iterations = 300;
         const forces = [
           new ManyBodyForce(graph, () => ({ strength: -30 })),
           new LinkForce(graph, () => ({ distance: 30 })),
-          new CenterForce(),
         ];
-        console.log(forces);
 
         const draw = () => {
           if (!this.refs.renderer || simulation.isFinished()) {
+            for (const u of graph.nodeIndices()) {
+              for (const v of graph.neighbors(u)) {
+                const dx = coordinates.x(u) - coordinates.x(v);
+                const dy = coordinates.y(u) - coordinates.y(v);
+                const d = Math.sqrt(dx * dx + dy * dy);
+                console.log(d);
+              }
+            }
             return;
           }
           simulation.runStep(1, (alpha) => {
-            updateWith(coordinates, alpha, 0.6, (alpha) => {
-              console.log("coordinates", coordinates);
-              coordinates.setX(0, 500);
-              console.log("hoge");
+            for (const u of graph.nodeIndices()) {
               for (const force of forces) {
-                force.apply(coordinates, alpha);
+                force.applyToNode(u, coordinates, alpha);
               }
-            });
+            }
+            // center(coordinates);
+            updatePosition(coordinates, 0.6);
           });
           for (const u of graph.nodeIndices()) {
             const node = graph.nodeWeight(u);
             node.x = coordinates.x(u);
             node.y = coordinates.y(u);
-            if (u === 0) {
-              console.log(node.x, node.y);
-            }
           }
           this.refs.renderer.update();
           this.refs.renderer.center();
@@ -89,6 +92,7 @@ export class ExampleForceDirected extends React.Component {
           default-node-type="circle"
           default-link-stroke-color="#999"
           default-link-stroke-opacity="0.6"
+          node-id-property="id"
           node-label-property="name"
           no-auto-centering
         />

@@ -67,19 +67,12 @@ exports.testSimulation = function (data) {
 };
 
 exports.testForceDirectedLayout = function (data) {
-  const {
-    Simulation,
-    initialPlacement,
-    ManyBodyForce,
-    LinkForce,
-    CenterForce,
-  } = wasm;
+  const { Simulation, initialPlacement, ManyBodyForce, LinkForce } = wasm;
   const graph = constructGraph(data);
   const coordinates = initialPlacement(graph);
   const forces = [
     new ManyBodyForce(graph, () => ({ strength: -30 })),
     new LinkForce(graph, () => ({ distance: 30 })),
-    new CenterForce(),
   ];
   const simulation = new Simulation();
   simulation.iterations = 1;
@@ -115,12 +108,6 @@ exports.testHyperbolicForceDirectedLayout = function (data) {
     assert(Number.isFinite(coordinates.x(u)));
     assert(Number.isFinite(coordinates.y(u)));
   }
-};
-
-exports.testCenterForce = function (data) {
-  const { CenterForce } = wasm;
-  const graph = constructGraph(data);
-  checkSimulation(graph, [new CenterForce()]);
 };
 
 exports.testCollideForce = function (data) {

@@ -42,6 +42,7 @@ impl Simulation {
 
   pub fn reset(&mut self, alpha_start: f32) {
     self.alpha = alpha_start;
+    self.count = 0;
   }
 }
 

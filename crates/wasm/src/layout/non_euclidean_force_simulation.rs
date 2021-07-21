@@ -19,3 +19,13 @@ pub fn js_apply_in_hyperbolic_space(
         },
     );
 }
+
+#[wasm_bindgen(js_name= HyperbolicSpace)]
+pub struct JsHyperbolicSpace {}
+
+#[wasm_bindgen(js_class = HyperbolicSpace)]
+impl JsHyperbolicSpace {
+    pub fn map_to_tangent_space(u: usize, source: &mut JsCoordinates, dest: &mut JsCoordinates) {}
+
+    pub fn updatePosition(u: usize, source: &JsCoordinates, dest: &JsCoordinates) {}
+}

@@ -8,6 +8,26 @@ pub trait ForceToNode {
     fn apply_to_node(&self, u: usize, points: &mut [Point], alpha: f32);
 }
 
+pub fn center(points: &mut [Point]) {
+    let cx = points.iter().map(|p| p.x).sum::<f32>() / points.len() as f32;
+    let cy = points.iter().map(|p| p.y).sum::<f32>() / points.len() as f32;
+    for point in points.iter_mut() {
+        point.x -= cx;
+        point.y -= cy;
+    }
+}
+
+pub fn update_position(points: &mut [Point], velocity_decay: f32) {
+    for point in points.iter_mut() {
+        point.vx *= velocity_decay;
+        point.vy *= velocity_decay;
+        point.x += point.vx;
+        point.y += point.vy;
+        point.vx = 0.;
+        point.vy = 0.;
+    }
+}
+
 pub fn update_with<F: FnMut(&mut [Point], f32)>(
     points: &mut [Point],
     alpha: f32,
@@ -15,12 +35,7 @@ pub fn update_with<F: FnMut(&mut [Point], f32)>(
     f: &mut F,
 ) {
     f(points, alpha);
-    for point in points.iter_mut() {
-        point.vx *= velocity_decay;
-        point.vy *= velocity_decay;
-        point.x += point.vx;
-        point.y += point.vy;
-    }
+    update_position(points, velocity_decay);
 }
 
 pub fn apply_forces<T: AsRef<dyn Force>>(

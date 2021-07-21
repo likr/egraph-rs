@@ -1,7 +1,8 @@
 pub mod map;
 
 use map::Map;
-use petgraph_layout_force_simulation::{ForceToNode, Point};
+use petgraph::graph::{IndexType, NodeIndex};
+use petgraph_layout_force_simulation::{Coordinates, ForceToNode, Point};
 
 pub fn apply_in_non_euclidean_space<M: Map, F: FnMut(usize, &mut [Point])>(
     points: &mut [Point],
@@ -67,4 +68,16 @@ pub fn apply_forces_in_hyperbolic_space<T: AsRef<dyn ForceToNode>>(
         velocity_decay,
         forces,
     );
+}
+
+pub fn map_to_tangent_space<M: Map, Ix: IndexType>(
+    u: NodeIndex<Ix>,
+    source: &Coordinates<Ix>,
+    dest: &mut Coordinates<Ix>,
+) {
+    let x = source.position(u).unwrap();
+    for &v in source.indices.iter() {
+        let y = source.position(v).unwrap();
+        dest.set_position(v, M::to_tangent_space(x, y));
+    }
 }

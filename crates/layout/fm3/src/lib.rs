@@ -3,7 +3,7 @@ use petgraph::prelude::*;
 use petgraph::EdgeType;
 use petgraph_algorithm_connected_components::connected_components;
 use petgraph_layout_force::link_force::LinkArgument;
-use petgraph_layout_force::{CenterForce, LinkForce, ManyBodyForce};
+use petgraph_layout_force::{LinkForce, ManyBodyForce};
 use petgraph_layout_force_simulation::{apply_forces, initial_placement, Force, Point};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -244,7 +244,6 @@ fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
             distance: Some(link_distance[&e]),
             strength: None,
         })),
-        Box::new(CenterForce::new()),
     ];
     for _ in 0..iteration {
         apply_forces(points, &forces, alpha, 0.1);

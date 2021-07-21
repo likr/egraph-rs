@@ -3,7 +3,6 @@ pub mod grouping;
 
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force::CenterForce;
 use petgraph_layout_force_simulation::{Force, Point};
 use std::collections::HashMap;
 
@@ -48,6 +47,5 @@ pub fn force_grouped<
             |g| group_pos[&g].x,
             |g| group_pos[&g].y,
         )),
-        Box::new(CenterForce::new()),
     ]
 }

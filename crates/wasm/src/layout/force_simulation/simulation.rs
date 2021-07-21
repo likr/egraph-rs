@@ -16,14 +16,14 @@ impl JsSimulation {
         }
     }
 
-    pub fn run(&mut self, f: Function) {
+    pub fn run(&mut self, f: &Function) {
         self.simulation.run(&mut |alpha| {
             f.call1(&JsValue::null(), &(alpha as f64).into()).ok();
         })
     }
 
     #[wasm_bindgen(js_name = runStep)]
-    pub fn run_step(&mut self, n: usize, f: Function) {
+    pub fn run_step(&mut self, n: usize, f: &Function) {
         self.simulation.run_step(n, &mut |alpha| {
             f.call1(&JsValue::null(), &(alpha as f64).into()).ok();
         })

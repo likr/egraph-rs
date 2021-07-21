@@ -21,8 +21,6 @@ extern "C" {
     fn test_force_directed_layout(data: JsValue);
     #[wasm_bindgen(js_name = "testHyperbolicForceDirectedLayout")]
     fn test_hypaerbolic_force_directed_layout(data: JsValue);
-    #[wasm_bindgen(js_name = "testCenterForce")]
-    fn test_center_force(data: JsValue);
     #[wasm_bindgen(js_name = "testCollideForce")]
     fn test_collide_force(data: JsValue);
     #[wasm_bindgen(js_name = "testLinkForce")]
@@ -67,12 +65,6 @@ pub fn force_directed_layout() {
 pub fn hyperbolic_force_directed_layout() {
     let data = example_data();
     test_hypaerbolic_force_directed_layout(data);
-}
-
-#[wasm_bindgen_test]
-pub fn center_force() {
-    let data = example_data();
-    test_center_force(data);
 }
 
 #[wasm_bindgen_test]

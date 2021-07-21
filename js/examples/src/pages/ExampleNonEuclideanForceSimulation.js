@@ -5,7 +5,7 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-  applyInHyperbolicSpace,
+  HyperbolicSpace,
   initialPlacement,
 } from "egraph";
 
@@ -41,11 +41,13 @@ function layout(data) {
     new LinkForce(graph, () => ({ distance: 0.5 })),
   ];
   simulation.run((alpha) => {
-    applyInHyperbolicSpace(coordinates, tangentSpace, (u) => {
+    for (const u of graph.nodeIndices()) {
+      HyperbolicSpace.projectToTangentSpace(u, coordinates, tangentSpace);
       for (const force of forces) {
         force.applyToNode(u, tangentSpace, alpha);
       }
-    });
+      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace);
+    }
   });
   const result = coordinates.toJSON();
   for (const u of graph.nodeIndices()) {

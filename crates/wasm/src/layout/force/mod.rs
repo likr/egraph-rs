@@ -3,30 +3,10 @@ use crate::layout::force_simulation::coordinates::JsCoordinates;
 use js_sys::{Function, Reflect};
 use petgraph_layout_force::link_force::LinkArgument;
 use petgraph_layout_force::position_force::NodeArgument;
-use petgraph_layout_force::{
-    CenterForce, CollideForce, LinkForce, ManyBodyForce, PositionForce, RadialForce,
-};
+use petgraph_layout_force::{CollideForce, LinkForce, ManyBodyForce, PositionForce, RadialForce};
 use petgraph_layout_force_simulation::{Force, ForceToNode};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
-#[wasm_bindgen(js_name = CenterForce)]
-pub struct JsCenterForce {
-    force: CenterForce,
-}
-
-#[wasm_bindgen(js_class = CenterForce)]
-impl JsCenterForce {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> JsCenterForce {
-        JsCenterForce {
-            force: CenterForce::new(),
-        }
-    }
-
-    pub fn apply(&self, coordinates: &mut JsCoordinates, alpha: f32) {
-        self.force.apply(coordinates.points_mut(), alpha);
-    }
-}
 
 #[wasm_bindgen(js_name = CollideForce)]
 pub struct JsCollideForce {
@@ -106,6 +86,7 @@ impl JsLinkForce {
         self.force.apply(coordinates.points_mut(), alpha);
     }
 
+    #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, coordinates: &mut JsCoordinates, alpha: f32) {
         self.force.apply_to_node(u, coordinates.points_mut(), alpha)
     }
@@ -141,9 +122,9 @@ impl JsManyBodyForce {
 
     pub fn apply(&self, coordinates: &mut JsCoordinates, alpha: f32) {
         self.force.apply(coordinates.points_mut(), alpha);
-        coordinates.points_mut()[0].x = 300.;
     }
 
+    #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, coordinates: &mut JsCoordinates, alpha: f32) {
         self.force.apply_to_node(u, coordinates.points_mut(), alpha)
     }
@@ -184,6 +165,7 @@ impl JsPositionForce {
         self.force.apply(coordinates.points_mut(), alpha);
     }
 
+    #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, coordinates: &mut JsCoordinates, alpha: f32) {
         self.force.apply_to_node(u, coordinates.points_mut(), alpha)
     }
@@ -227,6 +209,7 @@ impl JsRadialForce {
         self.force.apply(coordinates.points_mut(), alpha);
     }
 
+    #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, coordinates: &mut JsCoordinates, alpha: f32) {
         self.force.apply_to_node(u, coordinates.points_mut(), alpha)
     }

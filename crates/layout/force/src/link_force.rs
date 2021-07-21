@@ -20,6 +20,7 @@ impl LinkArgument {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct Link {
     pub source_index: usize,
     pub target_index: usize,
@@ -114,6 +115,9 @@ impl LinkForce {
             let stop = links.len();
             indices.push((start, stop));
         }
+        println!("{:?}", degree);
+        println!("{:?}", links);
+        println!("{:?}", indices);
         LinkForce { links, indices }
     }
 }
@@ -122,16 +126,17 @@ impl ForceToNode for LinkForce {
     fn apply_to_node(&self, u: usize, points: &mut [Point], alpha: f32) {
         let (start, stop) = self.indices[u];
         for i in start..stop {
-            let ref link = self.links[i];
+            let link = self.links[i];
+            println!("{} {:?}", i, link);
             let source = points[link.source_index];
             let target = points[link.target_index];
-            let dx = (target.x + target.vx) - (source.x + source.vx);
-            let dy = (target.y + target.vy) - (source.y + source.vy);
-            let l = (dx * dx + dy * dy).sqrt().max(MIN_DISTANCE);
+            let dx = target.x - source.x;
+            let dy = target.y - source.y;
+            let l = (dx * dx + dy * dy).sqrt().max(1.);
             let w = (l - link.distance) / l * alpha * link.strength;
-            let ref mut source = points[link.source_index];
-            source.vx += dx * w * (1. - link.bias);
-            source.vy += dy * w * (1. - link.bias);
+            points[link.source_index].vx += dx * w * (1. - link.bias);
+            points[link.source_index].vy += dy * w * (1. - link.bias);
+            println!("{:?}", points[link.source_index]);
         }
     }
 }
@@ -159,17 +164,16 @@ pub fn default_distance_accessor<N, E, Ty: EdgeType, Ix: IndexType>(
     30.
 }
 
-// #[test]
-// fn test_link() {
-//     let mut links = Vec::new();
-//     links.push(Link::new(0, 1, 30., 0.5, 0.5));
-//     let context = LinkForceContext::new(links);
-//     let mut points = Vec::new();
-//     points.push(Point::new(-10., 0.));
-//     points.push(Point::new(10., 0.));
-//     context.apply(&mut points, 1.);
-//     assert_eq!(points[0].vx, -2.5);
-//     assert_eq!(points[0].vy, 0.);
-//     assert_eq!(points[1].vx, 2.5);
-//     assert_eq!(points[1].vy, 0.);
-// }
+#[test]
+fn test_link() {
+    use petgraph_layout_force_simulation::initial_placement;
+    let mut graph = Graph::new_undirected();
+    let u = graph.add_node(());
+    let v = graph.add_node(());
+    let w = graph.add_node(());
+    graph.add_edge(u, v, ());
+    graph.add_edge(v, w, ());
+    let mut coordinates = initial_placement(&graph);
+    let force = LinkForce::new(&graph);
+    force.apply(&mut coordinates.points, 0.5);
+}
