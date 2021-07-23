@@ -5,7 +5,7 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-  center,
+  PositionForce,
   initialPlacement,
   updatePosition,
 } from "egraph";
@@ -32,32 +32,21 @@ export class ExampleForceDirected extends React.Component {
 
         const coordinates = initialPlacement(graph);
         const simulation = new Simulation();
-        simulation.iterations = 300;
         const forces = [
-          new ManyBodyForce(graph, () => ({ strength: -30 })),
-          new LinkForce(graph, () => ({ distance: 30 })),
+          new ManyBodyForce(graph, () => ({ strength: -50 })),
+          new LinkForce(graph, () => ({ distance: 50 })),
+          new PositionForce(graph, () => ({ x: 0, y: 0 })),
         ];
 
         const draw = () => {
           if (!this.refs.renderer || simulation.isFinished()) {
-            for (const u of graph.nodeIndices()) {
-              for (const v of graph.neighbors(u)) {
-                const dx = coordinates.x(u) - coordinates.x(v);
-                const dy = coordinates.y(u) - coordinates.y(v);
-                const d = Math.sqrt(dx * dx + dy * dy);
-                console.log(d);
-              }
-            }
             return;
           }
           simulation.runStep(1, (alpha) => {
-            for (const u of graph.nodeIndices()) {
-              for (const force of forces) {
-                force.applyToNode(u, coordinates, alpha);
-              }
+            for (const force of forces) {
+              force.apply(coordinates, alpha);
             }
-            // center(coordinates);
-            updatePosition(coordinates, 0.6);
+            updatePosition(coordinates, alpha);
           });
           for (const u of graph.nodeIndices()) {
             const node = graph.nodeWeight(u);

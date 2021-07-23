@@ -1,31 +1,59 @@
 use crate::layout::force_simulation::coordinates::JsCoordinates;
-use js_sys::Function;
-use petgraph_layout_non_euclidean_force_simulation::apply_in_hyperbolic_space;
+use petgraph_layout_non_euclidean_force_simulation::{HyperbolicSpace, Map};
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(js_name = applyInHyperbolicSpace)]
-pub fn js_apply_in_hyperbolic_space(
-    coordinates: &mut JsCoordinates,
-    buffer: &mut JsCoordinates,
-    velocity_decay: f32,
-    f: Function,
-) {
-    apply_in_hyperbolic_space(
-        coordinates.points_mut(),
-        buffer.points_mut(),
-        velocity_decay,
-        &mut |u, _| {
-            f.call1(&JsValue::null(), &(u as f32).into()).ok();
-        },
-    );
-}
 
 #[wasm_bindgen(js_name= HyperbolicSpace)]
 pub struct JsHyperbolicSpace {}
 
 #[wasm_bindgen(js_class = HyperbolicSpace)]
 impl JsHyperbolicSpace {
-    pub fn map_to_tangent_space(u: usize, source: &mut JsCoordinates, dest: &mut JsCoordinates) {}
+    #[wasm_bindgen(js_name = toTangentSpace)]
+    pub fn to_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
+        let x: (f32, f32) = a
+            .into_serde()
+            .map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) = b
+            .into_serde()
+            .map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(JsValue::from_serde(&HyperbolicSpace::to_tangent_space(x, y)).unwrap())
+    }
 
-    pub fn updatePosition(u: usize, source: &JsCoordinates, dest: &JsCoordinates) {}
+    #[wasm_bindgen(js_name = fromTangentSpace)]
+    pub fn from_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
+        let x: (f32, f32) = a
+            .into_serde()
+            .map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) = b
+            .into_serde()
+            .map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(JsValue::from_serde(&HyperbolicSpace::from_tangent_space(x, y)).unwrap())
+    }
+
+    #[wasm_bindgen(js_name = mapToTangentSpace)]
+    pub fn map_to_tangent_space(
+        i: usize,
+        riemann_space: &JsCoordinates,
+        tangent_space: &mut JsCoordinates,
+    ) {
+        HyperbolicSpace::map_to_tangent_space(
+            i,
+            riemann_space.points(),
+            tangent_space.points_mut(),
+        );
+    }
+
+    #[wasm_bindgen(js_name = updatePosition)]
+    pub fn update_position(
+        i: usize,
+        riemann_space: &mut JsCoordinates,
+        tangent_space: &JsCoordinates,
+        velocity_decay: f32,
+    ) {
+        HyperbolicSpace::update_position(
+            i,
+            riemann_space.points_mut(),
+            tangent_space.points(),
+            velocity_decay,
+        );
+    }
 }

@@ -23,8 +23,6 @@ pub fn update_position(points: &mut [Point], velocity_decay: f32) {
         point.vy *= velocity_decay;
         point.x += point.vx;
         point.y += point.vy;
-        point.vx = 0.;
-        point.vy = 0.;
     }
 }
 

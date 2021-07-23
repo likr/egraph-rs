@@ -34,27 +34,30 @@ function layout(data) {
   }
 
   const coordinates = initialPlacement(graph);
+  graph.nodeIndices().forEach((u, i) => {
+    const t = (Math.PI * 2 * i) / graph.nodeCount();
+    coordinates.setX(u, 0.5 * Math.cos(t));
+    coordinates.setY(u, 0.5 * Math.sin(t));
+  });
   const tangentSpace = initialPlacement(graph);
   const simulation = new Simulation();
   const forces = [
-    new ManyBodyForce(graph, () => ({ strength: -0.5 })),
+    new ManyBodyForce(graph, () => ({ strength: -0.1 })),
     new LinkForce(graph, () => ({ distance: 0.5 })),
   ];
   simulation.run((alpha) => {
     for (const u of graph.nodeIndices()) {
-      HyperbolicSpace.projectToTangentSpace(u, coordinates, tangentSpace);
+      HyperbolicSpace.mapToTangentSpace(u, coordinates, tangentSpace);
       for (const force of forces) {
         force.applyToNode(u, tangentSpace, alpha);
       }
-      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace);
+      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace, 0.1);
     }
   });
-  const result = coordinates.toJSON();
   for (const u of graph.nodeIndices()) {
     const node = graph.nodeWeight(u);
-    const [x, y] = result[u];
-    node.x = x;
-    node.y = y;
+    node.x = coordinates.x(u);
+    node.y = coordinates.y(u);
   }
 }
 

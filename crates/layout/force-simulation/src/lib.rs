@@ -8,4 +8,4 @@ pub use self::force::{
 };
 pub use self::simulation::Simulation;
 
-pub const MIN_DISTANCE: f32 = 1e-6;
+pub const MIN_DISTANCE: f32 = 1.;

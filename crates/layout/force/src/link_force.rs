@@ -115,9 +115,6 @@ impl LinkForce {
             let stop = links.len();
             indices.push((start, stop));
         }
-        println!("{:?}", degree);
-        println!("{:?}", links);
-        println!("{:?}", indices);
         LinkForce { links, indices }
     }
 }
@@ -127,16 +124,14 @@ impl ForceToNode for LinkForce {
         let (start, stop) = self.indices[u];
         for i in start..stop {
             let link = self.links[i];
-            println!("{} {:?}", i, link);
             let source = points[link.source_index];
             let target = points[link.target_index];
             let dx = target.x - source.x;
             let dy = target.y - source.y;
-            let l = (dx * dx + dy * dy).sqrt().max(1.);
+            let l = (dx * dx + dy * dy).max(MIN_DISTANCE).sqrt();
             let w = (l - link.distance) / l * alpha * link.strength;
             points[link.source_index].vx += dx * w * (1. - link.bias);
             points[link.source_index].vy += dy * w * (1. - link.bias);
-            println!("{:?}", points[link.source_index]);
         }
     }
 }

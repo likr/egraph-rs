@@ -1,83 +1,79 @@
-pub mod map;
+use petgraph_layout_force_simulation::Point;
 
-use map::Map;
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph_layout_force_simulation::{Coordinates, ForceToNode, Point};
+pub trait Map {
+    fn to_tangent_space(x: (f32, f32), y: (f32, f32)) -> (f32, f32);
+    fn from_tangent_space(x: (f32, f32), z: (f32, f32)) -> (f32, f32);
 
-pub fn apply_in_non_euclidean_space<M: Map, F: FnMut(usize, &mut [Point])>(
-    points: &mut [Point],
-    buffer: &mut [Point],
-    velocity_decay: f32,
-    f: &mut F,
-) {
-    let n = points.len();
-    for u in 0..n {
-        let Point { x: cx, y: cy, .. } = points[u];
-        for v in 0..n {
-            let Point { x, y, .. } = points[v];
-            let (zx, zy) = M::to_tangent_space((cx, cy), (x, y));
-            buffer[v] = Point::new(zx, zy);
+    fn map_to_tangent_space(i: usize, riemann_space: &[Point], tangent_space: &mut [Point]) {
+        let n = riemann_space.len();
+        let a = {
+            let Point { x, y, .. } = riemann_space[i];
+            (x, y)
+        };
+        for j in 0..n {
+            let b = {
+                let Point { x, y, .. } = riemann_space[j];
+                (x, y)
+            };
+            let (x, y) = Self::to_tangent_space(a, b);
+            tangent_space[j].x = x;
+            tangent_space[j].y = y;
+            tangent_space[j].vx = 0.;
+            tangent_space[j].vy = 0.;
         }
-        f(u, buffer);
-        points[u].vx = buffer[u].vx;
-        points[u].vy = buffer[u].vy;
     }
-    for point in points.iter_mut() {
-        point.vx *= velocity_decay;
-        point.vy *= velocity_decay;
-        let (x, y) = M::from_tangent_space((point.x, point.y), (point.vx, point.vy));
-        point.x = x;
-        point.y = y;
+
+    fn update_position(
+        i: usize,
+        riemann_space: &mut [Point],
+        tangent_space: &[Point],
+        velocity_decay: f32,
+    ) {
+        let Point { vx, vy, .. } = tangent_space[i];
+        let Point { x: x0, y: y0, .. } = riemann_space[i];
+        let (x, y) = Self::from_tangent_space((x0, y0), (vx * velocity_decay, vy * velocity_decay));
+        riemann_space[i].x = x;
+        riemann_space[i].y = y;
     }
 }
 
-pub fn apply_forces_in_non_euclidean_space<M: Map, T: AsRef<dyn ForceToNode>>(
-    points: &mut [Point],
-    buffer: &mut [Point],
-    alpha: f32,
-    velocity_decay: f32,
-    forces: &[T],
-) {
-    apply_in_non_euclidean_space::<M, _>(points, buffer, velocity_decay, &mut |u, points| {
-        for force in forces {
-            force.as_ref().apply_to_node(u, points, alpha);
+pub struct HyperbolicSpace;
+
+impl Map for HyperbolicSpace {
+    fn to_tangent_space(x: (f32, f32), y: (f32, f32)) -> (f32, f32) {
+        let dx = y.0 - x.0;
+        let dy = y.1 - x.1;
+        let dr = 1. - x.0 * y.0 - x.1 * y.1;
+        let di = x.1 * y.0 - x.0 * y.1;
+        let d = dr * dr + di * di;
+        let z = ((dr * dx + di * dy) / d, (dr * dy - di * dx) / d);
+        let z_norm = (z.0 * z.0 + z.1 * z.1).sqrt();
+        if z_norm < 1e-4 {
+            return (0., 0.);
         }
-    });
-}
+        let e = ((1. + z_norm) / (1. - z_norm)).ln();
+        if e.is_finite() {
+            (z.0 / z_norm * e, z.1 / z_norm * e)
+        } else {
+            (z.0 / z_norm, z.1 / z_norm)
+        }
+    }
 
-pub fn apply_in_hyperbolic_space<F: FnMut(usize, &mut [Point])>(
-    points: &mut [Point],
-    buffer: &mut [Point],
-    velocity_decay: f32,
-    f: &mut F,
-) {
-    apply_in_non_euclidean_space::<map::HyperbolicSpace, _>(points, buffer, velocity_decay, f);
-}
-
-pub fn apply_forces_in_hyperbolic_space<T: AsRef<dyn ForceToNode>>(
-    points: &mut [Point],
-    buffer: &mut [Point],
-    alpha: f32,
-    velocity_decay: f32,
-    forces: &[T],
-) {
-    apply_forces_in_non_euclidean_space::<map::HyperbolicSpace, _>(
-        points,
-        buffer,
-        alpha,
-        velocity_decay,
-        forces,
-    );
-}
-
-pub fn map_to_tangent_space<M: Map, Ix: IndexType>(
-    u: NodeIndex<Ix>,
-    source: &Coordinates<Ix>,
-    dest: &mut Coordinates<Ix>,
-) {
-    let x = source.position(u).unwrap();
-    for &v in source.indices.iter() {
-        let y = source.position(v).unwrap();
-        dest.set_position(v, M::to_tangent_space(x, y));
+    fn from_tangent_space(x: (f32, f32), z: (f32, f32)) -> (f32, f32) {
+        let z_norm = (z.0 * z.0 + z.1 * z.1).sqrt();
+        let y = if z_norm < 1e-4 {
+            (0., 0.)
+        } else if z_norm.exp().is_infinite() {
+            (z.0 / z_norm, z.1 / z_norm)
+        } else {
+            let e = ((1. - z_norm.exp()) / (1. + z_norm.exp())).abs();
+            (z.0 / z_norm * e, z.1 / z_norm * e)
+        };
+        let dx = -y.0 - x.0;
+        let dy = -y.1 - x.1;
+        let dr = -1. - x.0 * y.0 - x.1 * y.1;
+        let di = x.1 * y.0 - x.0 * y.1;
+        let d = dr * dr + di * di;
+        ((dr * dx + di * dy) / d, (dr * dy - di * dx) / d)
     }
 }
