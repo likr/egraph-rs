@@ -1,4 +1,4 @@
-use js_sys::Array;
+use js_sys::{Array, Function};
 use petgraph::graph::{edge_index, node_index};
 use petgraph::{Directed, Direction};
 use wasm_bindgen::prelude::*;
@@ -176,5 +176,50 @@ impl JsGraph {
             .edge_indices()
             .map(|e| JsValue::from_f64(e.index() as f64))
             .collect::<Array>()
+    }
+
+    pub fn map(&self, node_map: &Function, edge_map: &Function) -> JsGraph {
+        JsGraph {
+            graph: self.graph.map(
+                |u, node| {
+                    node_map
+                        .call2(&JsValue::null(), &(u.index() as f64).into(), node)
+                        .unwrap()
+                },
+                |e, edge| {
+                    edge_map
+                        .call2(&JsValue::null(), &(e.index() as f64).into(), edge)
+                        .unwrap()
+                },
+            ),
+        }
+    }
+
+    #[wasm_bindgen(js_name = filterMap)]
+    pub fn filter_map(&self, node_map: &Function, edge_map: &Function) -> JsGraph {
+        JsGraph {
+            graph: self.graph.filter_map(
+                |u, node| {
+                    let result = node_map
+                        .call2(&JsValue::null(), &(u.index() as f64).into(), node)
+                        .unwrap();
+                    if result.is_null() {
+                        None
+                    } else {
+                        Some(result)
+                    }
+                },
+                |e, edge| {
+                    let result = edge_map
+                        .call2(&JsValue::null(), &(e.index() as f64).into(), edge)
+                        .unwrap();
+                    if result.is_null() {
+                        None
+                    } else {
+                        Some(result)
+                    }
+                },
+            ),
+        }
     }
 }
