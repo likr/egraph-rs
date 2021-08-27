@@ -1,6 +1,5 @@
 use crate::MIN_DISTANCE;
 use petgraph::graph::{EdgeIndex, Graph, IndexType};
-use petgraph::visit::EdgeRef;
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::{Force, ForceToNode, Point};
 use std::collections::HashMap;
@@ -47,10 +46,9 @@ impl Link {
     }
 }
 
-#[derive(Force)]
 pub struct LinkForce {
     links: Vec<Link>,
-    indices: Vec<(usize, usize)>,
+    indices: Vec<Vec<usize>>,
 }
 
 impl LinkForce {
@@ -79,59 +77,79 @@ impl LinkForce {
             *degree.entry(source).or_insert(0) += 1;
             *degree.entry(target).or_insert(0) += 1;
         }
-        let mut indices = Vec::with_capacity(graph.node_count());
+        let mut indices = vec![vec![]; graph.node_count()];
         let mut links = Vec::with_capacity(graph.edge_count());
-        for u in graph.node_indices() {
-            let start = links.len();
-            for edge in graph.edges(u) {
-                let e = edge.id();
-                let v = if u == edge.source() {
-                    edge.target()
-                } else {
-                    edge.source()
-                };
-                let argument = accessor(graph, e);
-                let distance = if let Some(v) = argument.distance {
-                    v
-                } else {
-                    default_distance_accessor(graph, e)
-                };
-                let strength = if let Some(v) = argument.strength {
-                    v
-                } else {
-                    default_strength_accessor(graph, e)
-                };
-                let source_degree = degree[&u] as f32;
-                let target_degree = degree[&v] as f32;
-                let bias = source_degree / (source_degree + target_degree);
-                links.push(Link::new(
-                    node_indices[&u],
-                    node_indices[&v],
-                    distance,
-                    strength,
-                    bias,
-                ));
-            }
-            let stop = links.len();
-            indices.push((start, stop));
+        for (i, e) in graph.edge_indices().enumerate() {
+            let (u, v) = graph.edge_endpoints(e).unwrap();
+            indices[node_indices[&u]].push(i);
+            indices[node_indices[&v]].push(i);
+            let argument = accessor(graph, e);
+            let distance = if let Some(v) = argument.distance {
+                v
+            } else {
+                default_distance_accessor(graph, e)
+            };
+            let strength = if let Some(v) = argument.strength {
+                v
+            } else {
+                default_strength_accessor(graph, e)
+            };
+            let source_degree = degree[&u] as f32;
+            let target_degree = degree[&v] as f32;
+            let bias = source_degree / (source_degree + target_degree);
+            links.push(Link::new(
+                node_indices[&u],
+                node_indices[&v],
+                distance,
+                strength,
+                bias,
+            ));
         }
         LinkForce { links, indices }
     }
 }
 
+impl Force for LinkForce {
+    fn apply(&self, points: &mut [Point], alpha: f32) {
+        let links = &self.links;
+        for link in links {
+            let source = points[link.source_index];
+            let target = points[link.target_index];
+            let dx = (target.x + target.vx) - (source.x + source.vx);
+            let dy = (target.y + target.vy) - (source.y + source.vy);
+            let l = (dx * dx + dy * dy).sqrt().max(MIN_DISTANCE);
+            let w = (l - link.distance) / l * alpha * link.strength;
+            {
+                let ref mut target = points[link.target_index];
+                target.vx -= dx * w * link.bias;
+                target.vy -= dy * w * link.bias;
+            }
+            {
+                let ref mut source = points[link.source_index];
+                source.vx += dx * w * (1. - link.bias);
+                source.vy += dy * w * (1. - link.bias);
+            }
+        }
+    }
+}
+
 impl ForceToNode for LinkForce {
     fn apply_to_node(&self, u: usize, points: &mut [Point], alpha: f32) {
-        let (start, stop) = self.indices[u];
-        for i in start..stop {
+        for &i in self.indices[u].iter() {
             let link = self.links[i];
             let source = points[link.source_index];
             let target = points[link.target_index];
-            let dx = target.x - source.x;
-            let dy = target.y - source.y;
-            let l = (dx * dx + dy * dy).max(MIN_DISTANCE).sqrt();
+            let dx = target.x + target.vx - (source.x + source.vx);
+            let dy = target.y + target.vx - (source.y + source.vy);
+            let l = (dx * dx + dy * dy).sqrt().max(MIN_DISTANCE);
             let w = (l - link.distance) / l * alpha * link.strength;
-            points[link.source_index].vx += dx * w * (1. - link.bias);
-            points[link.source_index].vy += dy * w * (1. - link.bias);
+            if link.source_index == u {
+                points[link.source_index].vx += dx * w * (1. - link.bias);
+                points[link.source_index].vy += dy * w * (1. - link.bias);
+            } else {
+                points[link.target_index].vx -= dx * w * link.bias;
+                points[link.target_index].vy -= dy * w * link.bias;
+            }
         }
     }
 }

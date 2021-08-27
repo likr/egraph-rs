@@ -32,7 +32,7 @@ impl JsCollideForce {
         let strength = Reflect::get(&options, &"strength".into())?
             .as_f64()
             .ok_or_else(|| format!("options.strength is not a number"))?;
-        let iterations = Reflect::get(&options, &"strength".into())?
+        let iterations = Reflect::get(&options, &"iterations".into())?
             .as_f64()
             .ok_or_else(|| format!("options.iterations is not a number"))?;
         Ok(JsCollideForce {
