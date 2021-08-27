@@ -65,6 +65,16 @@ impl JsCoordinates {
         self.coordinates.set_y(u, y);
     }
 
+    pub fn vx(&self, u: usize) -> Option<f32> {
+        let u = node_index(u);
+        self.coordinates.vx(u)
+    }
+
+    pub fn vy(&self, u: usize) -> Option<f32> {
+        let u = node_index(u);
+        self.coordinates.vy(u)
+    }
+
     pub fn len(&self) -> usize {
         self.coordinates.len()
     }

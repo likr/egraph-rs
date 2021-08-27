@@ -18,6 +18,7 @@ petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
 petgraph-layout-fm3 = { path = "../layout/fm3" }
 petgraph-layout-force= { path = "../layout/force" }
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
+petgraph-layout-fruchterman-reingold = { path = "../layout/fruchterman-reingold" }
 petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-non-euclidean-force-simulation = { path = "../layout/non-euclidean-force-simulation" }

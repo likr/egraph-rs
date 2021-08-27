@@ -1,8 +1,9 @@
 [package]
-name = "fruchterman-reingold"
+name = "petgraph-layout-fruchterman-reingold"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+force_derive = { path = "../../util/force_derive" }
+petgraph = "0.5"
+petgraph-layout-force-simulation = { path = "../force-simulation" }

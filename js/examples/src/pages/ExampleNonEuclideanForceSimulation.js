@@ -3,8 +3,7 @@ import * as d3 from "d3";
 import {
   Graph,
   Simulation,
-  ManyBodyForce,
-  LinkForce,
+  FruchtermanReingoldForce,
   HyperbolicSpace,
   initialPlacement,
 } from "egraph";
@@ -41,17 +40,14 @@ function layout(data) {
   });
   const tangentSpace = initialPlacement(graph);
   const simulation = new Simulation();
-  const forces = [
-    new ManyBodyForce(graph, () => ({ strength: -0.1 })),
-    new LinkForce(graph, () => ({ distance: 0.5 })),
-  ];
+  const forces = [new FruchtermanReingoldForce(graph, 0.5, 0.1)];
   simulation.run((alpha) => {
     for (const u of graph.nodeIndices()) {
       HyperbolicSpace.mapToTangentSpace(u, coordinates, tangentSpace);
       for (const force of forces) {
         force.applyToNode(u, tangentSpace, alpha);
       }
-      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace, 0.1);
+      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace, 0.6);
     }
   });
   for (const u of graph.nodeIndices()) {

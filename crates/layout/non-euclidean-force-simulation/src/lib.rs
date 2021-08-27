@@ -74,6 +74,13 @@ impl Map for HyperbolicSpace {
         let dr = -1. - x.0 * y.0 - x.1 * y.1;
         let di = x.1 * y.0 - x.0 * y.1;
         let d = dr * dr + di * di;
-        ((dr * dx + di * dy) / d, (dr * dy - di * dx) / d)
+        let yx = (dr * dx + di * dy) / d;
+        let yy = (dr * dy - di * dx) / d;
+        let t = 0.99;
+        if (yx * yx + yy * yy).sqrt() < t {
+            (yx, yy)
+        } else {
+            (yx * t, yy * t)
+        }
     }
 }

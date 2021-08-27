@@ -80,6 +80,13 @@ impl<Ix: IndexType> Coordinates<Ix> {
             None
         }
     }
+    pub fn vx(&self, u: NodeIndex<Ix>) -> Option<f32> {
+        self.index_map.get(&u).map(|&i| self.points[i].vx)
+    }
+
+    pub fn vy(&self, u: NodeIndex<Ix>) -> Option<f32> {
+        self.index_map.get(&u).map(|&i| self.points[i].vy)
+    }
 
     pub fn len(&self) -> usize {
         self.points.len()

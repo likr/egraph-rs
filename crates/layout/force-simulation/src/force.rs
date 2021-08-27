@@ -36,6 +36,13 @@ pub fn update_with<F: FnMut(&mut [Point], f32)>(
     update_position(points, velocity_decay);
 }
 
+pub fn clamp_region(points: &mut [Point], x0: f32, y0: f32, x1: f32, y1: f32) {
+    for i in 0..points.len() {
+        points[i].x = points[i].x.clamp(x0, x1);
+        points[i].y = points[i].y.clamp(y0, y1);
+    }
+}
+
 pub fn apply_forces<T: AsRef<dyn Force>>(
     points: &mut [Point],
     forces: &[T],
