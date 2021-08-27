@@ -183,21 +183,25 @@ impl JsRadialForce {
         let mut node_arguments = HashMap::new();
         for u in graph.graph().node_indices() {
             let result = f.call1(&JsValue::null(), &JsValue::from_f64(u.index() as f64))?;
-            let strength = Reflect::get(&result, &"strength".into())?
-                .as_f64()
-                .ok_or_else(|| format!("nodes[{}].strength is not a number", u.index()))?;
-            let radius = Reflect::get(&result, &"radius".into())?
-                .as_f64()
-                .ok_or_else(|| format!("nodes[{}].radius is not a number", u.index()))?;
-            let x = Reflect::get(&result, &"x".into())?
-                .as_f64()
-                .ok_or_else(|| format!("nodes[{}].x is not a number", u.index()))?;
-            let y = Reflect::get(&result, &"y".into())?
-                .as_f64()
-                .ok_or_else(|| format!("nodes[{}].y is not a number", u.index()))?;
             node_arguments.insert(
                 u,
-                Some((strength as f32, radius as f32, x as f32, y as f32)),
+                if result.is_null() {
+                    None
+                } else {
+                    let strength = Reflect::get(&result, &"strength".into())?
+                        .as_f64()
+                        .ok_or_else(|| format!("nodes[{}].strength is not a number", u.index()))?;
+                    let radius = Reflect::get(&result, &"radius".into())?
+                        .as_f64()
+                        .ok_or_else(|| format!("nodes[{}].radius is not a number", u.index()))?;
+                    let x = Reflect::get(&result, &"x".into())?
+                        .as_f64()
+                        .ok_or_else(|| format!("nodes[{}].x is not a number", u.index()))?;
+                    let y = Reflect::get(&result, &"y".into())?
+                        .as_f64()
+                        .ok_or_else(|| format!("nodes[{}].y is not a number", u.index()))?;
+                    Some((strength as f32, radius as f32, x as f32, y as f32))
+                },
             );
         }
         Ok(JsRadialForce {
