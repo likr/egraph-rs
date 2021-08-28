@@ -30,6 +30,10 @@ impl JsCoordinates {
         &self.coordinates
     }
 
+    pub fn coordinates_mut(&mut self) -> &mut Coordinates<IndexType> {
+        &mut self.coordinates
+    }
+
     pub fn position(&self, u: usize) -> Option<(f32, f32)> {
         let u = node_index(u);
         self.coordinates.position(u)

@@ -8,3 +8,4 @@ edition = "2018"
 [dependencies]
 petgraph = "0.5"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
+petgraph-layout-force-simulation =  { path = "../../layout/force-simulation" }

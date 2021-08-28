@@ -173,11 +173,15 @@ exports.testKamadaKawai = function (data) {
 };
 
 exports.testStressMajorization = function (data) {
-  const { initialPlacement, stressMajorization } = wasm;
+  const { initialPlacement, StressMajorization } = wasm;
   const graph = constructGraph(data);
-  const initialCoordinates = initialPlacement(graph);
-  const coordinates = stressMajorization(graph, initialCoordinates, () => ({
+  const coordinates = initialPlacement(graph);
+  const stressMajorization = new StressMajorization(graph, coordinates, () => ({
     distance: 100,
   }));
-  checkResult(graph, coordinates);
+  while (stressMajorization.apply(coordinates) >= 1e-4) {}
+  for (const u of graph.nodeIndices()) {
+    assert(Number.isFinite(coordinates.x(u)));
+    assert(Number.isFinite(coordinates.y(u)));
+  }
 };
