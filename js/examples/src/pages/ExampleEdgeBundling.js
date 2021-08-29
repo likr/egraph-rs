@@ -1,14 +1,12 @@
 import React from "react";
 import * as d3 from "d3";
 import {
+  Coordinates,
   Graph,
   Simulation,
   ManyBodyForce,
   LinkForce,
-  center,
   fdeb,
-  initialPlacement,
-  updatePosition,
 } from "egraph";
 import { Wrapper } from "../wrapper";
 
@@ -31,7 +29,7 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const coordinates = initialPlacement(graph);
+        const coordinates = Coordinates.initialPlacement(graph);
         const simulation = new Simulation();
         const forces = [
           new ManyBodyForce(graph, () => ({ strength: -30 })),
@@ -41,8 +39,8 @@ export class ExampleEdgeBundling extends React.Component {
           for (const force of forces) {
             force.apply(coordinates, alpha);
           }
-          updatePosition(coordinates, 0.6);
-          center(coordinates);
+          coordinates.updatePosition(0.6);
+          coordinates.centralize();
         });
 
         const result = coordinates.toJSON();

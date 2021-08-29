@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { Graph, initialPlacement, StressMajorization } from "egraph";
+import { Coordinates, Graph, StressMajorization } from "egraph";
 import { Wrapper } from "../wrapper";
 
 export function ExampleStressMajorization() {
@@ -23,7 +23,7 @@ export function ExampleStressMajorization() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const coordinates = initialPlacement(graph);
+      const coordinates = Coordinates.initialPlacement(graph);
       const stressMajorization = new StressMajorization(
         graph,
         coordinates,

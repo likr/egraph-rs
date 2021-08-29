@@ -1,6 +1,6 @@
 use crate::graph::{IndexType, JsGraph};
 use petgraph::graph::{node_index, NodeIndex};
-use petgraph_layout_force_simulation::{initial_placement, Coordinates, Point};
+use petgraph_layout_force_simulation::{Coordinates, Point};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
@@ -10,6 +10,9 @@ pub struct JsCoordinates {
 }
 
 impl JsCoordinates {
+    pub fn new(coordinates: Coordinates<IndexType>) -> JsCoordinates {
+        JsCoordinates { coordinates }
+    }
     pub fn indices(&self) -> &[NodeIndex<IndexType>] {
         &self.coordinates.indices
     }
@@ -92,10 +95,23 @@ impl JsCoordinates {
             .collect::<HashMap<usize, (f32, f32)>>();
         JsValue::from_serde(&result).unwrap()
     }
-}
 
-#[wasm_bindgen(js_name = initialPlacement)]
-pub fn js_initial_placement(graph: &JsGraph) -> JsCoordinates {
-    let coordinates = initial_placement(graph.graph());
-    JsCoordinates { coordinates }
+    pub fn centralize(&mut self) {
+        self.coordinates.centralize();
+    }
+
+    #[wasm_bindgen(js_name = updatePosition)]
+    pub fn update_position(&mut self, velocity_decay: f32) {
+        self.coordinates.update_position(velocity_decay);
+    }
+
+    #[wasm_bindgen(js_name = clampRegion)]
+    pub fn clamp_region(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+        self.coordinates.clamp_region(x0, y0, x1, y1);
+    }
+
+    #[wasm_bindgen(js_name = initialPlacement)]
+    pub fn initial_placement(graph: &JsGraph) -> JsCoordinates {
+        JsCoordinates::new(Coordinates::initial_placement(graph.graph()))
+    }
 }

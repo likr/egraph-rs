@@ -3,7 +3,7 @@ use petgraph::graph::{Graph, IndexType, NodeIndex, UnGraph};
 use petgraph::EdgeType;
 use petgraph_layout_force::position_force::NodeArgument;
 use petgraph_layout_force::{CollideForce, LinkForce, ManyBodyForce, PositionForce};
-use petgraph_layout_force_simulation::{apply_forces, initial_placement, Force, Point, Simulation};
+use petgraph_layout_force_simulation::{Coordinates, Force, Point, Simulation};
 use std::collections::HashMap;
 
 fn create_group_graph(
@@ -52,9 +52,9 @@ pub fn force_directed_grouping<
         )),
     ];
 
-    let mut coordinates = initial_placement(&group_graph);
+    let mut coordinates = Coordinates::initial_placement(&group_graph);
     let mut simulation = Simulation::new();
-    simulation.run(&mut |alpha| apply_forces(&mut coordinates.points, &forces, alpha, 0.6));
+    simulation.run(&mut |alpha| coordinates.apply_forces(&forces, alpha, 0.6));
 
     let mut result = HashMap::new();
     for (u, p) in coordinates.iter() {

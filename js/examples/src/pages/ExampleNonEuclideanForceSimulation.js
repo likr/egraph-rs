@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import {
+  Coordinates,
   Graph,
   Simulation,
   FruchtermanReingoldForce,
   HyperbolicSpace,
-  initialPlacement,
 } from "egraph";
 
 async function fetchData() {
@@ -32,13 +32,13 @@ function layout(data) {
     graph.addEdge(indices.get(source), indices.get(target), link);
   }
 
-  const coordinates = initialPlacement(graph);
+  const coordinates = Coordinates.initialPlacement(graph);
   graph.nodeIndices().forEach((u, i) => {
     const t = (Math.PI * 2 * i) / graph.nodeCount();
     coordinates.setX(u, 0.5 * Math.cos(t));
     coordinates.setY(u, 0.5 * Math.sin(t));
   });
-  const tangentSpace = initialPlacement(graph);
+  const tangentSpace = Coordinates.initialPlacement(graph);
   const simulation = new Simulation();
   const forces = [new FruchtermanReingoldForce(graph, 0.5, 0.1)];
   simulation.run((alpha) => {

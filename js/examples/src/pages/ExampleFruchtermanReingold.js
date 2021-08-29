@@ -1,12 +1,10 @@
 import { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import {
+  Coordinates,
   Graph,
   Simulation,
   FruchtermanReingoldForce,
-  clampRegion,
-  initialPlacement,
-  updatePosition,
   PositionForce,
 } from "egraph";
 import { Wrapper } from "../wrapper";
@@ -31,7 +29,7 @@ export function ExampleFruchtermanReingold() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const coordinates = initialPlacement(graph);
+      const coordinates = Coordinates.initialPlacement(graph);
       const simulation = new Simulation();
       const forces = [
         new FruchtermanReingoldForce(graph, 30, 1),
@@ -42,9 +40,9 @@ export function ExampleFruchtermanReingold() {
         for (const force of forces) {
           force.apply(coordinates, alpha);
         }
-        updatePosition(coordinates, 0.6);
-        updatePosition(coordinates, 0.0);
-        clampRegion(coordinates, -500, -500, 500, 500);
+        coordinates.updatePosition(0.6);
+        coordinates.updatePosition(0.0);
+        coordinates.clampRegion(-500, -500, 500, 500);
       });
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);

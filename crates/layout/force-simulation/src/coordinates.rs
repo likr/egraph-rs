@@ -1,3 +1,4 @@
+use crate::{Force, ForceToNode};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
 use std::collections::HashMap;
@@ -91,6 +92,88 @@ impl<Ix: IndexType> Coordinates<Ix> {
     pub fn len(&self) -> usize {
         self.points.len()
     }
+
+    pub fn centralize(&mut self) {
+        let cx = self.points.iter().map(|p| p.x).sum::<f32>() / self.points.len() as f32;
+        let cy = self.points.iter().map(|p| p.y).sum::<f32>() / self.points.len() as f32;
+        for point in self.points.iter_mut() {
+            point.x -= cx;
+            point.y -= cy;
+        }
+    }
+
+    pub fn update_position(&mut self, velocity_decay: f32) {
+        for point in self.points.iter_mut() {
+            point.vx *= velocity_decay;
+            point.vy *= velocity_decay;
+            point.x += point.vx;
+            point.y += point.vy;
+        }
+    }
+
+    pub fn update_with<F: FnMut(&mut [Point], f32)>(
+        &mut self,
+        alpha: f32,
+        velocity_decay: f32,
+        f: &mut F,
+    ) {
+        f(&mut self.points, alpha);
+        self.update_position(velocity_decay);
+    }
+
+    pub fn clamp_region(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+        for i in 0..self.points.len() {
+            self.points[i].x = self.points[i].x.clamp(x0, x1);
+            self.points[i].y = self.points[i].y.clamp(y0, y1);
+        }
+    }
+
+    pub fn apply_forces<T: AsRef<dyn Force>>(
+        &mut self,
+        forces: &[T],
+        alpha: f32,
+        velocity_decay: f32,
+    ) {
+        self.update_with(alpha, velocity_decay, &mut |points, alpha| {
+            for force in forces {
+                force.as_ref().apply(points, alpha);
+            }
+        });
+    }
+
+    pub fn apply_forces_to_node<T: AsRef<dyn ForceToNode>>(
+        &mut self,
+        u: usize,
+        forces: &[T],
+        alpha: f32,
+        velocity_decay: f32,
+    ) {
+        self.update_with(alpha, velocity_decay, &mut |points, alpha| {
+            for force in forces {
+                force.as_ref().apply_to_node(u, points, alpha);
+            }
+        });
+    }
+
+    pub fn initial_placement<N, E, Ty: EdgeType>(graph: &Graph<N, E, Ty, Ix>) -> Coordinates<Ix> {
+        let indices = graph.node_indices().collect::<Vec<_>>();
+        let mut index_map = HashMap::new();
+        let n = indices.len();
+        let mut points = Vec::with_capacity(n);
+        for (i, &u) in indices.iter().enumerate() {
+            index_map.insert(u, i);
+            let r = 10. * (i as usize as f32).sqrt();
+            let theta = PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
+            let x = r * theta.cos();
+            let y = r * theta.sin();
+            points.push(Point::new(x, y));
+        }
+        Coordinates {
+            indices,
+            points,
+            index_map,
+        }
+    }
 }
 
 pub struct CoordinatesIterator<'a, Ix: IndexType> {
@@ -111,27 +194,5 @@ impl<'a, Ix: IndexType> Iterator for CoordinatesIterator<'a, Ix> {
         } else {
             None
         }
-    }
-}
-
-pub fn initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-) -> Coordinates<Ix> {
-    let indices = graph.node_indices().collect::<Vec<_>>();
-    let mut index_map = HashMap::new();
-    let n = indices.len();
-    let mut points = Vec::with_capacity(n);
-    for (i, &u) in indices.iter().enumerate() {
-        index_map.insert(u, i);
-        let r = 10. * (i as usize as f32).sqrt();
-        let theta = PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
-        let x = r * theta.cos();
-        let y = r * theta.sin();
-        points.push(Point::new(x, y));
-    }
-    Coordinates {
-        indices,
-        points,
-        index_map,
     }
 }

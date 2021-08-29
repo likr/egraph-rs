@@ -1,6 +1,6 @@
 import React from "react";
 import * as d3 from "d3";
-import { Graph, Simulation, initialPlacement } from "egraph";
+import { Coordinates, Graph, Simulation } from "egraph";
 import { Wrapper } from "../wrapper";
 
 export class ExampleGroupInABox extends React.Component {
@@ -22,20 +22,19 @@ export class ExampleGroupInABox extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const coordinates = initialPlacement(graph);
+        const coordinates = Coordinates.initialPlacement(graph);
         const simulation = new Simulation();
         const forces = [];
         simulation.run((alpha) => {
           for (const force of forces) {
             force.apply(coordinates, alpha);
           }
+          coordinates.updatePosition(0.6);
         });
-        const result = coordinates.toJSON();
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
-          const [x, y] = result[u];
-          node.x = x;
-          node.y = y;
+          node.x = coordinates.x(u);
+          node.y = coordinates.y(u);
         }
         this.refs.renderer.load(data);
         this.refs.renderer.center();

@@ -16,8 +16,8 @@ function constructGraph(data) {
 }
 
 function checkSimulation(graph, forces) {
-  const { Simulation, initialPlacement } = wasm;
-  const coordinates = initialPlacement(graph);
+  const { Coordinates, Simulation } = wasm;
+  const coordinates = Coordinates.initialPlacement(graph);
   const simulation = new Simulation();
   simulation.run((alpha) => {
     for (const force of forces) {
@@ -41,9 +41,9 @@ exports.testConstructGraph = function (data) {
 };
 
 exports.testCoordinates = function (data) {
-  const { initialPlacement } = wasm;
+  const { Coordinates } = wasm;
   const graph = constructGraph(data);
-  const coordinates = initialPlacement(graph);
+  const coordinates = Coordinates.initialPlacement(graph);
   assert.strictEqual(coordinates.len(), data.nodes.length);
   assert(Number.isFinite(coordinates.x(0)));
   coordinates.setX(0, 42);
@@ -67,9 +67,9 @@ exports.testSimulation = function (data) {
 };
 
 exports.testForceDirectedLayout = function (data) {
-  const { Simulation, initialPlacement, ManyBodyForce, LinkForce } = wasm;
+  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = wasm;
   const graph = constructGraph(data);
-  const coordinates = initialPlacement(graph);
+  const coordinates = Coordinates.initialPlacement(graph);
   const forces = [
     new ManyBodyForce(graph, () => ({ strength: -30 })),
     new LinkForce(graph, () => ({ distance: 30 })),
@@ -88,10 +88,10 @@ exports.testForceDirectedLayout = function (data) {
 };
 
 exports.testHyperbolicForceDirectedLayout = function (data) {
-  const { Simulation, initialPlacement, ManyBodyForce, LinkForce } = wasm;
+  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = wasm;
   const graph = constructGraph(data);
-  const coordinates = initialPlacement(graph);
-  const tangentSpace = initialPlacement(graph);
+  const coordinates = Coordinates.initialPlacement(graph);
+  const tangentSpace = Coordinates.initialPlacement(graph);
   const forces = [
     new ManyBodyForce(graph, () => ({ strength: -0.5 })),
     new LinkForce(graph, () => ({ distance: 0.5 })),
@@ -158,9 +158,9 @@ exports.testRadialForce = function (data) {
 };
 
 exports.testKamadaKawai = function (data) {
-  const { initialPlacement, kamadaKawai } = wasm;
+  const { Coordinates, kamadaKawai } = wasm;
   const graph = constructGraph(data);
-  const initialCoordinates = initialPlacement(graph);
+  const initialCoordinates = Coordinates.initialPlacement(graph);
   const coordinates = kamadaKawai(
     graph,
     initialCoordinates,
@@ -173,9 +173,9 @@ exports.testKamadaKawai = function (data) {
 };
 
 exports.testStressMajorization = function (data) {
-  const { initialPlacement, StressMajorization } = wasm;
+  const { Coordinates, StressMajorization } = wasm;
   const graph = constructGraph(data);
-  const coordinates = initialPlacement(graph);
+  const coordinates = Coordinates.initialPlacement(graph);
   const stressMajorization = new StressMajorization(graph, coordinates, () => ({
     distance: 100,
   }));

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { Graph, initialPlacement, kamadaKawai } from "egraph";
+import { Coordinates, Graph, kamadaKawai } from "egraph";
 import { Wrapper } from "../wrapper";
 
 export function ExampleKamadaKawai() {
@@ -23,14 +23,14 @@ export function ExampleKamadaKawai() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const initialCoordinates = initialPlacement(graph);
+      const initialCoordinates = Coordinates.initialPlacement(graph);
       const coordinates = kamadaKawai(
         graph,
         initialCoordinates,
         () => 1,
         0.1,
         1000,
-        1000,
+        1000
       );
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);

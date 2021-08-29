@@ -4,7 +4,7 @@ use petgraph::EdgeType;
 use petgraph_algorithm_connected_components::connected_components;
 use petgraph_layout_force::link_force::LinkArgument;
 use petgraph_layout_force::{LinkForce, ManyBodyForce};
-use petgraph_layout_force_simulation::{apply_forces, initial_placement, Force, Point};
+use petgraph_layout_force_simulation::{Coordinates, Force};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
@@ -174,26 +174,26 @@ fn collapse<
 fn expand<N, E, Ty: EdgeType, Ix: IndexType>(
     graph0: &Graph<N, E, Ty, Ix>,
     graph1: &Graph<N, E, Ty, Ix>,
-    graph1_points: &HashMap<NodeIndex<Ix>, (f32, f32)>,
+    graph1_coordinates: &Coordinates<Ix>,
     node_groups: &Vec<usize>,
     node_parents: &Vec<usize>,
     node_types: &Vec<NodeType>,
     link_distance: &HashMap<EdgeIndex<Ix>, f32>,
     rng: &mut StdRng,
-) -> Vec<Point> {
-    let mut points = Vec::with_capacity(graph1.node_count());
+) -> Coordinates<Ix> {
+    let mut coordinates = Coordinates::initial_placement(graph0);
     for u in graph0.node_indices() {
         let mut x = 0.;
         let mut y = 0.;
         let mut count = 0;
         let s1 = node_index(node_groups[u.index()]);
-        let (s1_x, s1_y) = graph1_points[&s1];
+        let (s1_x, s1_y) = graph1_coordinates.position(s1).unwrap();
         for v in graph0.neighbors_undirected(u) {
             if node_groups[u.index()] == node_groups[v.index()] {
                 continue;
             }
             let t1 = node_index(node_groups[v.index()]);
-            let (t1_x, t1_y) = graph1_points[&t1];
+            let (t1_x, t1_y) = graph1_coordinates.position(t1).unwrap();
             let scale = path_length(graph0, node_parents, node_types, link_distance, u)
                 / edge_length(graph1, link_distance, s1, t1);
             x += (t1_x - s1_x) * scale + s1_x;
@@ -209,35 +209,18 @@ fn expand<N, E, Ty: EdgeType, Ix: IndexType>(
             let y = r * theta.sin() + s1_y;
             (x, y)
         };
-        points.push(Point::new(x, y));
+        coordinates.set_position(u, (x, y));
     }
-    points
+    coordinates
 }
 
 fn layout<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     link_distance: &HashMap<EdgeIndex<Ix>, f32>,
+    coordinates: &mut Coordinates<Ix>,
     iteration: usize,
     alpha: f32,
-) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    let mut coordinates = initial_placement(graph);
-    layout_with_initial_placement(
-        graph,
-        link_distance,
-        &mut coordinates.points,
-        iteration,
-        alpha,
-    )
-}
-
-fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    link_distance: &HashMap<EdgeIndex<Ix>, f32>,
-    points: &mut [Point],
-    iteration: usize,
-    alpha: f32,
-) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
-    let indices = graph.node_indices().collect::<Vec<_>>();
+) {
     let forces: Vec<Box<dyn Force>> = vec![
         Box::new(ManyBodyForce::new_with_accessor(&graph, |_, _| Some(-100.))),
         Box::new(LinkForce::new_with_accessor(&graph, |_, e| LinkArgument {
@@ -246,13 +229,8 @@ fn layout_with_initial_placement<N, E, Ty: EdgeType, Ix: IndexType>(
         })),
     ];
     for _ in 0..iteration {
-        apply_forces(points, &forces, alpha, 0.1);
+        coordinates.apply_forces(&forces, alpha, 0.1);
     }
-    indices
-        .iter()
-        .zip(points)
-        .map(|(&u, p)| (u, (p.x, p.y)))
-        .collect::<HashMap<_, _>>()
 }
 
 pub fn fm3<
@@ -270,7 +248,7 @@ pub fn fm3<
     shrink_node: &mut F1,
     shrink_edge: &mut F2,
     link_distance_accessor: &mut F3,
-) -> HashMap<NodeIndex<Ix>, (f32, f32)> {
+) -> Coordinates<Ix> {
     let mut rng: StdRng = SeedableRng::from_seed([0; 32]);
 
     let num_components = connected_components(graph)
@@ -308,31 +286,39 @@ pub fn fm3<
     let decay = 1. - (alpha_min as f32).powf(1. / shrinked_graphs.len() as f32);
 
     let mut gk = g0;
-    let mut g1_points = layout(&mut gk, &link_distance, step_iteration, alpha);
+    let mut g1_coordinates = Coordinates::initial_placement(&gk);
+    layout(
+        &mut gk,
+        &link_distance,
+        &mut g1_coordinates,
+        step_iteration,
+        alpha,
+    );
 
     while !shrinked_graphs.is_empty() {
         let (g0, groups, parents, types, link_distance) = shrinked_graphs.pop().unwrap();
-        let mut g0_points = expand(
+        let mut g0_coordinates = expand(
             &g0,
             &gk,
-            &g1_points,
+            &g1_coordinates,
             &groups,
             &parents,
             &types,
             &link_distance,
             &mut rng,
         );
-        g1_points = layout_with_initial_placement(
+        layout(
             &g0,
             &link_distance,
-            &mut g0_points,
+            &mut g0_coordinates,
             step_iteration,
             alpha,
         );
+        g1_coordinates = g0_coordinates;
         alpha -= alpha * decay;
         gk = g0;
     }
-    g1_points
+    g1_coordinates
 }
 
 #[test]
@@ -353,7 +339,7 @@ fn test_fm3() {
             }
         }
     }
-    let points = fm3(
+    let coordinates = fm3(
         &graph,
         100,
         100,
@@ -361,7 +347,7 @@ fn test_fm3() {
         &mut |_, _| (),
         &mut |_, _| 30.,
     );
-    for point in points {
+    for (_, point) in coordinates.iter() {
         println!("{:?}", point);
     }
 }

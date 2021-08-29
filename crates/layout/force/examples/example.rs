@@ -4,7 +4,7 @@ extern crate serde_derive;
 use petgraph::prelude::*;
 use petgraph_edge_bundling_fdeb::{fdeb, EdgeBundlingOptions};
 use petgraph_layout_force::{force_connected, force_nonconnected};
-use petgraph_layout_force_simulation::{apply_forces, initial_placement, Simulation};
+use petgraph_layout_force_simulation::{Coordinates, Simulation};
 use petgraph_layout_grouped_force::force_grouped;
 use std::collections::HashMap;
 
@@ -57,10 +57,10 @@ fn layout(
         LayoutMethod::Nonconnected => force_nonconnected(&graph),
         LayoutMethod::Grouped => force_grouped(&graph, |graph, u| graph[u].group.unwrap()),
     };
-    let mut coordinates = initial_placement(&graph);
+    let mut coordinates = Coordinates::initial_placement(&graph);
     let mut simulation = Simulation::new();
     simulation.run(&mut |alpha| {
-        apply_forces(&mut coordinates.points, &forces, alpha, 0.6);
+        coordinates.apply_forces(&forces, alpha, 0.6);
     });
     coordinates
         .iter()

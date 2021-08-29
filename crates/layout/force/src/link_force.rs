@@ -179,14 +179,14 @@ pub fn default_distance_accessor<N, E, Ty: EdgeType, Ix: IndexType>(
 
 #[test]
 fn test_link() {
-    use petgraph_layout_force_simulation::initial_placement;
+    use petgraph_layout_force_simulation::Coordinates;
     let mut graph = Graph::new_undirected();
     let u = graph.add_node(());
     let v = graph.add_node(());
     let w = graph.add_node(());
     graph.add_edge(u, v, ());
     graph.add_edge(v, w, ());
-    let mut coordinates = initial_placement(&graph);
+    let mut coordinates = Coordinates::initial_placement(&graph);
     let force = LinkForce::new(&graph);
     force.apply(&mut coordinates.points, 0.5);
 }
