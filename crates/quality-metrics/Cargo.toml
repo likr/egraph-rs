@@ -1,0 +1,8 @@
+[package]
+name = "quality-metrics"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+petgraph = "0.5"
+petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
