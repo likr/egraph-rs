@@ -24,13 +24,13 @@ function checkSimulation(graph, forces) {
       force.apply(coordinates, alpha);
     }
   });
-  checkResult(graph, coordinates.toJSON());
+  checkResult(graph, coordinates);
 }
 
 function checkResult(graph, coordinates) {
   for (const u of graph.nodeIndices()) {
-    assert(Number.isFinite(coordinates[u][0]));
-    assert(Number.isFinite(coordinates[u][1]));
+    assert(Number.isFinite(coordinates.x(u)));
+    assert(Number.isFinite(coordinates.y(u)));
   }
 }
 
@@ -158,17 +158,11 @@ exports.testRadialForce = function (data) {
 };
 
 exports.testKamadaKawai = function (data) {
-  const { Coordinates, kamadaKawai } = wasm;
+  const { Coordinates, KamadaKawai } = wasm;
   const graph = constructGraph(data);
-  const initialCoordinates = Coordinates.initialPlacement(graph);
-  const coordinates = kamadaKawai(
-    graph,
-    initialCoordinates,
-    () => 1,
-    0.1,
-    1000,
-    1000
-  );
+  const coordinates = Coordinates.initialPlacement(graph);
+  const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 1 }));
+  kamadaKawai.run(coordinates);
   checkResult(graph, coordinates);
 };
 
@@ -179,9 +173,6 @@ exports.testStressMajorization = function (data) {
   const stressMajorization = new StressMajorization(graph, coordinates, () => ({
     distance: 100,
   }));
-  while (stressMajorization.apply(coordinates) >= 1e-4) {}
-  for (const u of graph.nodeIndices()) {
-    assert(Number.isFinite(coordinates.x(u)));
-    assert(Number.isFinite(coordinates.y(u)));
-  }
+  stressMajorization.run(coordinates);
+  checkResult(graph, coordinates);
 };

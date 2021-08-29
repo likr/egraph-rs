@@ -226,6 +226,14 @@ impl StressMajorization {
     }
     diff
   }
+
+  pub fn run(&mut self, coordinates: &mut Coordinates<u32>) {
+    loop {
+      if self.apply(coordinates) < self.epsilon {
+        break;
+      }
+    }
+  }
 }
 
 #[test]
@@ -247,7 +255,6 @@ fn test_conjugate_gradient() {
 #[test]
 fn test_stress_majorization() {
   use petgraph::Graph;
-  use petgraph_layout_force_simulation::initial_placement;
 
   let n = 10;
   let mut graph = Graph::new_undirected();
@@ -257,18 +264,14 @@ fn test_stress_majorization() {
       graph.add_edge(nodes[i], nodes[j], ());
     }
   }
-  let mut coordinates = initial_placement(&graph);
+  let mut coordinates = Coordinates::initial_placement(&graph);
 
   for &u in &nodes {
     println!("{:?}", coordinates.position(u));
   }
 
-  let mut sm = StressMajorization::new(&graph, &coordinates, &mut |_| 1.);
-  loop {
-    if sm.apply(&mut coordinates) < 1e-4 {
-      break;
-    }
-  }
+  let mut stress_majorization = StressMajorization::new(&graph, &coordinates, &mut |_| 1.);
+  stress_majorization.run(&mut coordinates);
 
   for &u in &nodes {
     println!("{:?}", coordinates.position(u));

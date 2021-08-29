@@ -41,4 +41,8 @@ impl JsStressMajorization {
         self.stress_majorization
             .apply(coordinates.coordinates_mut())
     }
+
+    pub fn run(&mut self, coordinates: &mut JsCoordinates) {
+        self.stress_majorization.run(coordinates.coordinates_mut());
+    }
 }
