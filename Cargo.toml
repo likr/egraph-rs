@@ -4,6 +4,7 @@ members = [
     "crates/algorithm/biconnected-components",
     "crates/algorithm/connected-components",
     "crates/algorithm/shortest-path",
+    "crates/clustering",
     "crates/edge-bundling/fdeb",
     "crates/layout/fm3",
     "crates/layout/force",

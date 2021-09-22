@@ -5,7 +5,7 @@ edition = "2018"
 
 [dependencies]
 force_derive = { path = "../../util/force_derive" }
-petgraph = "0.5"
+petgraph = "0.6"
 petgraph-layout-force-simulation = { path = "../force-simulation" }
 quadtree = { path = "../../quadtree" }
 

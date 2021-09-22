@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
-petgraph = "0.5"
+petgraph = "0.6"
 petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
 petgraph-layout-fm3 = { path = "../layout/fm3" }
 petgraph-layout-force= { path = "../layout/force" }

@@ -5,6 +5,6 @@ authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 edition = "2018"
 
 [dependencies]
-petgraph = "0.5"
+petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
 petgraph-layout-force-simulation = { path = "../force-simulation" }
