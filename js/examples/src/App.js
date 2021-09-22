@@ -9,8 +9,8 @@ import {
   ExampleForceDirected,
   ExampleGroupInABox,
   ExampleKamadaKawai,
-  ExampleNonEuclideanForceSimulation,
-  ExampleSphericalEmbedding,
+  ExampleHyperbolicGeometry,
+  ExampleSphericalGeometry,
   ExampleStressMajorization,
 } from "./pages";
 import { ExampleFruchtermanReingold } from "./pages/ExampleFruchtermanReingold";
@@ -42,12 +42,12 @@ render(
           <Route path="/group-in-a-box" component={ExampleGroupInABox} />
           <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
           <Route
-            path="/non-euclidean-force-simulation"
-            component={ExampleNonEuclideanForceSimulation}
+            path="/hyperbolic-geometry"
+            component={ExampleHyperbolicGeometry}
           />
           <Route
-            path="/spherical-embedding"
-            component={ExampleSphericalEmbedding}
+            path="/spherical-geometry"
+            component={ExampleSphericalGeometry}
           />
           <Route
             path="/stress-majorization"

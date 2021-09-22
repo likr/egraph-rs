@@ -19,12 +19,10 @@ export class Home extends React.Component {
             <Link to="/stress-majorization">StressMajorization</Link>
           </li>
           <li>
-            <Link to="/non-euclidean-force-simulation">
-              NonEuclideanForceSimulation
-            </Link>
+            <Link to="/hyperbolic-geometry">Hyperbolic Geometry</Link>
           </li>
           <li>
-            <Link to="/spherical-embedding">SphericalEmbedding</Link>
+            <Link to="/spherical-geometry">Spherical Geometry</Link>
           </li>
           <li>
             <Link to="/fm3">FM3</Link>

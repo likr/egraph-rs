@@ -35,7 +35,6 @@ function layout(data) {
   const coordinates = Coordinates.initialPlacement(graph);
   graph.nodeIndices().forEach((u, i) => {
     coordinates.setX(u, (2 * Math.PI * i) / graph.nodeCount());
-    // coordinates.setY(u, (Math.PI * i) / graph.nodeCount());
     coordinates.setY(u, i + 1);
   });
   const tangentSpace = Coordinates.initialPlacement(graph);
@@ -57,7 +56,7 @@ function layout(data) {
   }
 }
 
-export function ExampleSphericalEmbedding() {
+export function ExampleSphericalGeometry() {
   const svgRef = useRef();
   const [rotate, setRotate] = useState([0, 0]);
   const [data, setData] = useState({ nodes: [], links: [] });
@@ -81,10 +80,7 @@ export function ExampleSphericalEmbedding() {
 
   const size = (displayR + margin) * 2;
 
-  const projection = d3
-    .geoAzimuthalEquidistant()
-    // .center([data.nodes[0]?.lon, data.nodes[0]?.lat])
-    .rotate(rotate);
+  const projection = d3.geoAzimuthalEquidistant().rotate(rotate);
   const path = d3.geoPath(projection);
   return (
     <div>

@@ -89,7 +89,7 @@ function scale(data, displayR) {
   }
 }
 
-export function ExampleNonEuclideanForceSimulation() {
+export function ExampleHyperbolicGeometry() {
   const svgRef = useRef();
   const [data, setData] = useState({ nodes: [], links: [] });
   const displayR = 500;
