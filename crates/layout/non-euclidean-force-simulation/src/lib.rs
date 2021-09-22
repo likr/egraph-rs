@@ -84,3 +84,49 @@ impl Map for HyperbolicSpace {
         }
     }
 }
+
+pub struct SphericalSpace;
+
+impl Map for SphericalSpace {
+    fn to_tangent_space(x: (f32, f32), y: (f32, f32)) -> (f32, f32) {
+        let ux = (-x.0.sin() * x.1.sin(), 0., x.0.cos() * x.1.sin());
+        let vx = (x.0.cos() * x.1.cos(), -x.1.sin(), x.0.sin() * x.1.cos());
+        let ey = (y.0.cos() * y.1.sin(), y.1.cos(), y.0.sin() * y.1.sin());
+        let d = (x.1.sin() * y.1.sin() * (y.0 - x.0).cos() + x.1.cos() * y.1.cos())
+            .clamp(-1., 1.)
+            .acos();
+        (
+            d * (ux.0 * ey.0 + ux.1 * ey.1 + ux.2 * ey.2),
+            d * (vx.0 * ey.0 + vx.1 * ey.1 + vx.2 * ey.2),
+        )
+    }
+
+    fn from_tangent_space(x: (f32, f32), z: (f32, f32)) -> (f32, f32) {
+        let ux = (-x.0.sin() * x.1.sin(), 0., x.0.cos() * x.1.sin());
+        let vx = (x.0.cos() * x.1.cos(), -x.1.sin(), x.0.sin() * x.1.cos());
+        let p = (z.1, -z.0);
+        let n = {
+            let n = (
+                p.0 * ux.0 + p.1 * vx.0,
+                p.0 * ux.1 + p.1 * vx.1,
+                p.0 * ux.2 + p.1 * vx.2,
+            );
+            let d = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt();
+            (n.0 / d, n.1 / d, n.2 / d)
+        };
+        let ex = (x.0.cos() * x.1.sin(), x.1.cos(), x.0.sin() * x.1.sin());
+        let t = -(z.0 * z.0 + z.1 * z.1).sqrt();
+        let ey = (
+            (n.0 * n.0 * (1. - t.cos()) + t.cos()) * ex.0
+                + (n.0 * n.1 * (1. - t.cos()) - n.2 * t.sin()) * ex.1
+                + (n.2 * n.0 * (1. - t.cos()) + n.1 * t.sin()) * ex.2,
+            (n.0 * n.1 * (1. - t.cos()) + n.2 * t.sin()) * ex.0
+                + (n.1 * n.1 * (1. - t.cos()) + t.cos()) * ex.1
+                + (n.1 * n.2 * (1. - t.cos()) - n.0 * t.sin()) * ex.2,
+            (n.2 * n.0 * (1. - t.cos()) - n.1 * t.sin()) * ex.0
+                + (n.1 * n.2 * (1. - t.cos()) + n.0 * t.sin()) * ex.1
+                + (n.2 * n.2 * (1. - t.cos()) + t.cos()) * ex.2,
+        );
+        (ey.2.atan2(ey.0), ey.1.acos())
+    }
+}

@@ -7,5 +7,6 @@ export { ExampleFruchtermanReingold } from "./ExampleFruchtermanReingold";
 export { ExampleGroupInABox } from "./ExampleGroupInABox";
 export { ExampleKamadaKawai } from "./ExampleKamadaKawai";
 export { ExampleNonEuclideanForceSimulation } from "./ExampleNonEuclideanForceSimulation";
+export { ExampleSphericalEmbedding } from "./ExampleSphericalEmbedding";
 export { ExampleStressMajorization } from "./ExampleStressMajorization";
 export { Home } from "./Home";

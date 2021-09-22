@@ -24,6 +24,9 @@ export class Home extends React.Component {
             </Link>
           </li>
           <li>
+            <Link to="/spherical-embedding">SphericalEmbedding</Link>
+          </li>
+          <li>
             <Link to="/fm3">FM3</Link>
           </li>
           <li>

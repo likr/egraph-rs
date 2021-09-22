@@ -10,6 +10,7 @@ import {
   ExampleGroupInABox,
   ExampleKamadaKawai,
   ExampleNonEuclideanForceSimulation,
+  ExampleSphericalEmbedding,
   ExampleStressMajorization,
 } from "./pages";
 import { ExampleFruchtermanReingold } from "./pages/ExampleFruchtermanReingold";
@@ -43,6 +44,10 @@ render(
           <Route
             path="/non-euclidean-force-simulation"
             component={ExampleNonEuclideanForceSimulation}
+          />
+          <Route
+            path="/spherical-embedding"
+            component={ExampleSphericalEmbedding}
           />
           <Route
             path="/stress-majorization"
