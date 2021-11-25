@@ -27,7 +27,7 @@ serde = "1.0"
 serde_derive = "1.0"
 
 [dependencies.wasm-bindgen]
-version = "0.2.67"
+version = "0.2.78"
 features = ["serde-serialize"]
 
 [dev-dependencies]
