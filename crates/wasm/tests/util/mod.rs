@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 #[derive(Serialize, Deserialize)]
 struct NodeData {
   id: usize,
+  group: usize,
 }
 
 #[derive(Serialize, Deserialize)]

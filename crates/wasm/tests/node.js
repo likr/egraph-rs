@@ -176,3 +176,23 @@ exports.testStressMajorization = function (data) {
   stressMajorization.run(coordinates);
   checkResult(graph, coordinates);
 };
+
+exports.testCoarsen = function (data) {
+  const { coarsen } = wasm;
+  const graph = constructGraph(data);
+  const coarsenedGraph = coarsen(
+    graph,
+    (u) => data.nodes[u].group,
+    (children) => ({ children }),
+    (children) => ({ children })
+  );
+
+  assert.strictEqual(coarsenedGraph.nodeCount(), 10);
+  assert.strictEqual(coarsenedGraph.edgeCount(), 17);
+
+  let totalNodes = 0;
+  for (const g of coarsenedGraph.nodeIndices()) {
+    totalNodes += coarsenedGraph.nodeWeight(g).children.length;
+  }
+  assert.strictEqual(graph.nodeCount(), totalNodes);
+};

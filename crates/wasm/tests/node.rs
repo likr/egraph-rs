@@ -35,6 +35,8 @@ extern "C" {
     fn test_kamada_kawai(data: JsValue);
     #[wasm_bindgen(js_name = "testStressMajorization")]
     fn test_stress_majorization(data: JsValue);
+    #[wasm_bindgen(js_name = "testCoarsen")]
+    fn test_coarsen(data: JsValue);
 }
 
 #[wasm_bindgen_test]
@@ -107,4 +109,10 @@ pub fn kamada_kawai() {
 pub fn stress_majorization() {
     let data = example_data();
     test_stress_majorization(data);
+}
+
+#[wasm_bindgen_test]
+pub fn coarsen() {
+    let data = example_data();
+    test_coarsen(data);
 }

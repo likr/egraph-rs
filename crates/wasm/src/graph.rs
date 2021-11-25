@@ -15,6 +15,10 @@ pub struct JsGraph {
 }
 
 impl JsGraph {
+    pub fn new_from_graph(graph: GraphType) -> JsGraph {
+        JsGraph { graph }
+    }
+
     pub fn graph(&self) -> &GraphType {
         &self.graph
     }
@@ -24,9 +28,7 @@ impl JsGraph {
 impl JsGraph {
     #[wasm_bindgen(constructor)]
     pub fn new() -> JsGraph {
-        JsGraph {
-            graph: GraphType::with_capacity(0, 0),
-        }
+        JsGraph::new_from_graph(GraphType::with_capacity(0, 0))
     }
 
     #[wasm_bindgen(js_name = nodeCount)]
