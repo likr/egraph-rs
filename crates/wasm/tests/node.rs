@@ -29,6 +29,12 @@ extern "C" {
     fn test_many_body_force(data: JsValue);
     #[wasm_bindgen(js_name = "testPositionForce")]
     fn test_position_force(data: JsValue);
+    #[wasm_bindgen(js_name = "testGroupLinkForce")]
+    fn test_group_link_force(data: JsValue);
+    #[wasm_bindgen(js_name = "testGroupManyBodyForce")]
+    fn test_group_many_body_force(data: JsValue);
+    #[wasm_bindgen(js_name = "testGroupPositionForce")]
+    fn test_group_position_force(data: JsValue);
     #[wasm_bindgen(js_name = "testRadialForce")]
     fn test_radial_force(data: JsValue);
     #[wasm_bindgen(js_name = "testKamadaKawai")]
@@ -97,6 +103,24 @@ pub fn position_force() {
 pub fn radial_force() {
     let data = example_data();
     test_radial_force(data);
+}
+
+#[wasm_bindgen_test]
+pub fn group_link_force() {
+    let data = example_data();
+    test_group_link_force(data);
+}
+
+#[wasm_bindgen_test]
+pub fn group_many_body_force() {
+    let data = example_data();
+    test_group_many_body_force(data);
+}
+
+#[wasm_bindgen_test]
+pub fn group_position_force() {
+    let data = example_data();
+    test_group_position_force(data);
 }
 
 #[wasm_bindgen_test]

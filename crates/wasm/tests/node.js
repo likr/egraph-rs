@@ -157,6 +157,38 @@ exports.testRadialForce = function (data) {
   ]);
 };
 
+exports.testGroupLinkForce = function (data) {
+  const { GroupLinkForce } = wasm;
+  const graph = constructGraph(data);
+  checkSimulation(graph, [
+    new GroupLinkForce(graph, (u) => ({ group: data.nodes[u].group })),
+  ]);
+};
+
+exports.testGroupPositionForce = function (data) {
+  const { GroupPositionForce } = wasm;
+  const graph = constructGraph(data);
+  const groups = {
+    0: [-41.81871, -26.057499],
+    1: [-27.468754, 19.578482],
+    2: [-16.478506, -16.130516],
+    3: [2.144027, -3.559982],
+    4: [-72.14328, -40.380527],
+    5: [32.31394, 14.893769],
+    6: [-1.9056562, 15.8394985],
+    7: [-8.233656, -45.34843],
+    8: [15.518936, -31.066544],
+    9: [-45.534084, 4.6855717],
+  };
+  checkSimulation(graph, [
+    new GroupPositionForce(
+      graph,
+      (u) => ({ group: data.nodes[u].group }),
+      (g) => ({ strength: 0.1, x: groups[g][0], y: groups[g][1] })
+    ),
+  ]);
+};
+
 exports.testKamadaKawai = function (data) {
   const { Coordinates, KamadaKawai } = wasm;
   const graph = constructGraph(data);
