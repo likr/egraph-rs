@@ -4,6 +4,12 @@ use petgraph::EdgeType;
 use petgraph_layout_force_simulation::{Force, Point, MIN_DISTANCE};
 use std::collections::HashMap;
 
+#[derive(Copy, Clone)]
+pub struct GroupManyBodyForceArgument {
+    pub group: usize,
+    pub strength: Option<f32>,
+}
+
 pub struct GroupManyBodyForce {
     groups: HashMap<usize, Vec<usize>>,
     strength: Vec<f32>,
@@ -15,24 +21,23 @@ impl GroupManyBodyForce {
         E,
         Ty: EdgeType,
         Ix: IndexType,
-        F1: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32,
-        F2: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize,
+        F: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> GroupManyBodyForceArgument,
     >(
         graph: &Graph<N, E, Ty, Ix>,
-        mut strength_accessor: F1,
-        mut group_accessor: F2,
+        mut accessor: F,
     ) -> GroupManyBodyForce {
-        let strength = graph
-            .node_indices()
-            .map(|u| strength_accessor(graph, u))
-            .collect::<Vec<_>>();
-        let groups = {
-            let groups = graph
-                .node_indices()
-                .map(|u| group_accessor(graph, u))
-                .collect::<Vec<_>>();
-            group_indices(&groups)
-        };
+        let mut groups = vec![];
+        let mut strength = vec![];
+        for u in graph.node_indices() {
+            let arg = accessor(graph, u);
+            groups.push(arg.group);
+            strength.push(if let Some(value) = arg.strength {
+                value
+            } else {
+                -30.
+            });
+        }
+        let groups = group_indices(&groups);
         GroupManyBodyForce { groups, strength }
     }
 }

@@ -161,7 +161,23 @@ exports.testGroupLinkForce = function (data) {
   const { GroupLinkForce } = wasm;
   const graph = constructGraph(data);
   checkSimulation(graph, [
-    new GroupLinkForce(graph, (u) => ({ group: data.nodes[u].group })),
+    new GroupLinkForce(
+      graph,
+      (u) => ({ group: data.nodes[u].group }),
+      () => ({ distance: 30, strength: 0.1 }),
+      () => ({ distance: 30, strength: 0.01 })
+    ),
+  ]);
+};
+
+exports.testGroupManyBodyForce = function (data) {
+  const { GroupManyBodyForce } = wasm;
+  const graph = constructGraph(data);
+  checkSimulation(graph, [
+    new GroupManyBodyForce(graph, (u) => ({
+      group: data.nodes[u].group,
+      strength: 0.1,
+    })),
   ]);
 };
 
@@ -183,8 +199,8 @@ exports.testGroupPositionForce = function (data) {
   checkSimulation(graph, [
     new GroupPositionForce(
       graph,
-      (u) => ({ group: data.nodes[u].group }),
-      (g) => ({ strength: 0.1, x: groups[g][0], y: groups[g][1] })
+      (u) => ({ group: data.nodes[u].group, strength: 0.1 }),
+      (g) => ({ x: groups[g][0], y: groups[g][1] })
     ),
   ]);
 };
@@ -212,7 +228,7 @@ exports.testStressMajorization = function (data) {
 exports.testCoarsen = function (data) {
   const { coarsen } = wasm;
   const graph = constructGraph(data);
-  const coarsenedGraph = coarsen(
+  const [coarsenedGraph, _] = coarsen(
     graph,
     (u) => data.nodes[u].group,
     (children) => ({ children }),

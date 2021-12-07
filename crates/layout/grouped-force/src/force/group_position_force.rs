@@ -1,11 +1,23 @@
 use crate::{Force, Point};
 use petgraph::graph::{Graph, IndexType, NodeIndex};
 use petgraph::EdgeType;
-use petgraph_layout_force::position_force::{NodeArgument, PositionForce};
+use petgraph_layout_force::position_force;
 use std::collections::HashMap;
 
+#[derive(Copy, Clone)]
+pub struct NodeArgument {
+    pub group: usize,
+    pub strength: f32,
+}
+
+#[derive(Copy, Clone)]
+pub struct GroupArgument {
+    pub x: f32,
+    pub y: f32,
+}
+
 pub struct GroupPositionForce {
-    position_force: PositionForce,
+    position_force: position_force::PositionForce,
 }
 
 impl GroupPositionForce {
@@ -14,27 +26,27 @@ impl GroupPositionForce {
         E,
         Ty: EdgeType,
         Ix: IndexType,
-        F1: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> f32,
-        F2: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize,
-        F3: FnMut(usize) -> f32,
-        F4: FnMut(usize) -> f32,
+        F1: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> NodeArgument,
+        F2: FnMut(&Graph<N, E, Ty, Ix>, usize) -> GroupArgument,
     >(
         graph: &Graph<N, E, Ty, Ix>,
-        mut strength_accessor: F1,
+        mut node_accessor: F1,
         mut group_accessor: F2,
-        mut group_x_accessor: F3,
-        mut group_y_accessor: F4,
     ) -> GroupPositionForce {
-        let groups = graph
-            .node_indices()
-            .map(|u| (u, group_accessor(graph, u)))
-            .collect::<HashMap<_, _>>();
+        let mut group_position = HashMap::new();
         GroupPositionForce {
-            position_force: PositionForce::new(graph, |graph, u| {
-                let strength = Some(strength_accessor(graph, u));
-                let x = Some(group_x_accessor(groups[&u]));
-                let y = Some(group_y_accessor(groups[&u]));
-                NodeArgument { strength, x, y }
+            position_force: position_force::PositionForce::new(graph, |graph, u| {
+                let arg = node_accessor(graph, u);
+                let group = arg.group;
+                let strength = Some(arg.strength);
+                if !group_position.contains_key(&group) {
+                    let group_arg = group_accessor(graph, group);
+                    group_position.insert(group, (group_arg.x, group_arg.y));
+                }
+                let (x, y) = group_position[&group];
+                let x = Some(x);
+                let y = Some(y);
+                position_force::NodeArgument { strength, x, y }
             }),
         }
     }

@@ -15,13 +15,13 @@ impl GroupLinkForce {
         Ty: EdgeType,
         Ix: IndexType,
         F1: FnMut(&Graph<N, E, Ty, Ix>, NodeIndex<Ix>) -> usize,
-        F2: Fn(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
+        F2: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> LinkArgument,
+        F3: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> LinkArgument,
     >(
         graph: &Graph<N, E, Ty, Ix>,
-        intra_group: f32,
-        inter_group: f32,
         mut group_accessor: F1,
-        distance_accessor: F2,
+        mut inter_link_accessor: F2,
+        mut intra_link_accessor: F3,
     ) -> GroupLinkForce {
         let groups = graph
             .node_indices()
@@ -30,13 +30,11 @@ impl GroupLinkForce {
         GroupLinkForce {
             link_force: LinkForce::new_with_accessor(graph, |graph, e| {
                 let (u, v) = graph.edge_endpoints(e).unwrap();
-                let distance = Some(distance_accessor(graph, e));
-                let strength = Some(if groups[&u] == groups[&v] {
-                    intra_group
+                if groups[&u] == groups[&v] {
+                    intra_link_accessor(graph, e)
                 } else {
-                    inter_group
-                });
-                LinkArgument { strength, distance }
+                    inter_link_accessor(graph, e)
+                }
             }),
         }
     }

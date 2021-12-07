@@ -9,7 +9,7 @@ pub fn js_coarsen(
   groups: &Function,
   shrink_node: &Function,
   shrink_edge: &Function,
-) -> Result<JsGraph, JsValue> {
+) -> Result<JsValue, JsValue> {
   let graph = graph.graph();
   let mut group_map = HashMap::new();
   for u in graph.node_indices() {
@@ -19,25 +19,39 @@ pub fn js_coarsen(
       .ok_or_else(|| format!("group[{}] is not a number", u.index()))? as usize;
     group_map.insert(u, group);
   }
-  let coarsened_graph = petgraph_clustering::coarsen(
+  let (coarsened_graph, group_ids) = petgraph_clustering::coarsen(
     graph,
-    &group_map,
+    &mut |_, u| {
+      let u = JsValue::from_f64(u.index() as f64);
+      groups
+        .call1(&JsValue::null(), &u)
+        .unwrap()
+        .as_f64()
+        .unwrap() as usize
+    },
     &mut |_, node_ids| {
       let node_ids = node_ids
         .iter()
         .map(|u| JsValue::from_f64(u.index() as f64))
         .collect::<Array>();
-      let result = shrink_node.call1(&JsValue::null(), &node_ids).ok().unwrap();
-      result
+      shrink_node.call1(&JsValue::null(), &node_ids).unwrap()
     },
     &mut |_, edge_ids| {
       let edge_ids = edge_ids
         .iter()
         .map(|u| JsValue::from_f64(u.index() as f64))
         .collect::<Array>();
-      let result = shrink_edge.call1(&JsValue::null(), &edge_ids).ok().unwrap();
-      result
+      shrink_edge.call1(&JsValue::null(), &edge_ids).unwrap()
     },
   );
-  Ok(JsGraph::new_from_graph(coarsened_graph))
+
+  let group_ids = group_ids
+    .into_iter()
+    .map(|(group, node_id)| (group, node_id.index()))
+    .collect::<HashMap<_, _>>();
+
+  let result = Array::new();
+  result.push(&JsGraph::new_from_graph(coarsened_graph).into());
+  result.push(&JsValue::from_serde(&group_ids).unwrap());
+  Ok(result.into())
 }

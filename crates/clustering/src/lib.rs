@@ -1,4 +1,4 @@
-use petgraph::graph::{node_index, EdgeIndex, Graph, IndexType, NodeIndex};
+use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
 use petgraph::EdgeType;
 use std::collections::{HashMap, HashSet};
@@ -67,17 +67,22 @@ pub fn coarsen<
     E2,
     Ty: EdgeType,
     Ix: IndexType,
+    GF: FnMut(&Graph<N1, E1, Ty, Ix>, NodeIndex<Ix>) -> usize,
     NF: FnMut(&Graph<N1, E1, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N2,
     EF: FnMut(&Graph<N1, E1, Ty, Ix>, &Vec<EdgeIndex<Ix>>) -> E2,
 >(
     graph: &Graph<N1, E1, Ty, Ix>,
-    node_groups: &HashMap<NodeIndex<Ix>, usize>,
+    node_groups: &mut GF,
     shrink_node: &mut NF,
     shrink_edge: &mut EF,
-) -> Graph<N2, E2, Ty, Ix> {
-    let mut groups = HashMap::<NodeIndex<Ix>, Vec<NodeIndex<Ix>>>::new();
+) -> (Graph<N2, E2, Ty, Ix>, HashMap<usize, NodeIndex<Ix>>) {
+    let node_groups = graph
+        .node_indices()
+        .map(|u| (u, node_groups(graph, u)))
+        .collect::<HashMap<_, _>>();
+    let mut groups = HashMap::<usize, Vec<NodeIndex<Ix>>>::new();
     for u in graph.node_indices() {
-        let g = node_index(node_groups[&u]);
+        let g = node_groups[&u];
         groups.entry(g).or_insert(vec![]).push(u);
     }
     let mut group_edges = HashMap::new();
@@ -90,9 +95,9 @@ pub fn coarsen<
                 continue;
             }
             if source_group < target_group {
-                (node_index(source_group), node_index(target_group))
+                (source_group, (target_group))
             } else {
-                (node_index(target_group), node_index(source_group))
+                ((target_group), (source_group))
             }
         };
         group_edges.entry(key).or_insert(vec![]).push(e);
@@ -100,7 +105,7 @@ pub fn coarsen<
 
     let mut coarsened_graph = Graph::with_capacity(0, 0);
     let mut coarsened_node_ids = HashMap::new();
-    for (group_id, node_ids) in groups.iter() {
+    for (&group_id, node_ids) in groups.iter() {
         coarsened_node_ids.insert(
             group_id,
             coarsened_graph.add_node(shrink_node(graph, &node_ids)),
@@ -113,5 +118,5 @@ pub fn coarsen<
             shrink_edge(graph, &edge_ids),
         );
     }
-    coarsened_graph
+    (coarsened_graph, coarsened_node_ids)
 }
