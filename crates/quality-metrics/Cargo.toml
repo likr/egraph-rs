@@ -6,3 +6,4 @@ edition = "2018"
 [dependencies]
 petgraph = "0.6"
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
+spade = "2.0.0"
