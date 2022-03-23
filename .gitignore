@@ -7,4 +7,4 @@ crates/wasm/dist
 crates/wasm/umd
 wasm-pack.log
 
-js/examples/build
+js/examples/dist
