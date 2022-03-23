@@ -7,7 +7,7 @@ import {
   ManyBodyForce,
   LinkForce,
   fdeb,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export class ExampleEdgeBundling extends React.Component {

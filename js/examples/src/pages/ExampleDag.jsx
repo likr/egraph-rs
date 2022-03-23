@@ -7,7 +7,7 @@ import {
   LinkForce,
   RadialForce,
   longestPathRanking,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export class ExampleDag extends React.Component {
@@ -31,13 +31,13 @@ export class ExampleDag extends React.Component {
         const nodeSizeScale = d3
           .scaleSqrt()
           .domain(
-            d3.extent(data.nodes, ({ id }) => graph.degree(indices.get(id))),
+            d3.extent(data.nodes, ({ id }) => graph.degree(indices.get(id)))
           )
           .range([10, 30]);
         const nodeLabelFontSizeScale = d3
           .scaleSqrt()
           .domain(
-            d3.extent(data.nodes, ({ id }) => graph.degree(indices.get(id))),
+            d3.extent(data.nodes, ({ id }) => graph.degree(indices.get(id)))
           )
           .range([1, 20]);
         const color = d3.scaleOrdinal(d3.schemePaired);

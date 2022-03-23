@@ -6,7 +6,7 @@ import {
   Simulation,
   FruchtermanReingoldForce,
   PositionForce,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export function ExampleFruchtermanReingold() {

@@ -6,7 +6,7 @@ import {
   Simulation,
   ManyBodyForce,
   LinkForce,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export class ExampleForceDirected extends React.Component {

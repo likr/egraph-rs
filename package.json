@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "prestart": "npm run wasm-build",
-    "start": "npm run start -w examples",
+    "start": "npm run dev -w examples",
     "wasm-build": "npm run wasm-build:bundler && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
     "wasm-build:bundler": "wasm-pack build --target bundler -d dist/bundler crates/wasm",
     "wasm-build:no-modules": "wasm-pack build --target no-modules -d dist/no-modules crates/wasm",

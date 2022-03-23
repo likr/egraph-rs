@@ -1,5 +1,5 @@
 import React from "react";
-import { Graph, fm3 } from "egraph";
+import { Graph, fm3 } from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export class ExampleFm3 extends React.Component {

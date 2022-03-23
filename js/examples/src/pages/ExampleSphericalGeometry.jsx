@@ -6,7 +6,7 @@ import {
   Simulation,
   FruchtermanReingoldForce,
   SphericalSpace,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 
 async function fetchData() {
   const response = await fetch("/data/miserables.json");

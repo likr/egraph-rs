@@ -11,7 +11,7 @@ import {
   GroupManyBodyForce,
   GroupLinkForce,
   GroupPositionForce,
-} from "egraph";
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 function createGraph(data) {

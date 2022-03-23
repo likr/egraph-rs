@@ -1,5 +1,9 @@
 import React from "react";
-import { SimulationBuilder, Graph, muQuasiBicliques } from "egraph";
+import {
+  SimulationBuilder,
+  Graph,
+  muQuasiBicliques,
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export class ExampleBiclustering extends React.Component {

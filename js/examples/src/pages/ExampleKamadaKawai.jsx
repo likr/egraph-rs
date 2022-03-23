@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { Coordinates, Graph, KamadaKawai } from "egraph";
+import { Coordinates, Graph, KamadaKawai } from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export function ExampleKamadaKawai() {
