@@ -1,7 +1,7 @@
 use petgraph::graph::IndexType;
 use petgraph_layout_force_simulation::Coordinates;
 
-pub fn stress<Ix: IndexType>(coordinates: &Coordinates<Ix>, d: &[&[f32]]) -> f32 {
+pub fn stress<Ix: IndexType>(coordinates: &Coordinates<Ix>, d: &Vec<Vec<f32>>) -> f32 {
   let n = coordinates.len();
   let mut s = 0.;
   for j in 1..n {

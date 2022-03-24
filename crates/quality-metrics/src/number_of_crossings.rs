@@ -2,7 +2,7 @@ use petgraph::graph::{Graph, IndexType};
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::Coordinates;
 
-pub fn edge_crossings<N, E, Ty: EdgeType, Ix: IndexType>(
+pub fn number_of_crossings<N, E, Ty: EdgeType, Ix: IndexType>(
   graph: &Graph<N, E, Ty, Ix>,
   coordinates: &Coordinates<Ix>,
 ) -> usize {
