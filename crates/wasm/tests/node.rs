@@ -43,6 +43,12 @@ extern "C" {
     fn test_stress_majorization(data: JsValue);
     #[wasm_bindgen(js_name = "testCoarsen")]
     fn test_coarsen(data: JsValue);
+    #[wasm_bindgen(js_name = "testNumberOfCrossings")]
+    fn test_number_of_crossings(data: JsValue);
+    #[wasm_bindgen(js_name = "testShapeQuality")]
+    fn test_shape_quality(data: JsValue);
+    #[wasm_bindgen(js_name = "testStress")]
+    fn test_stress(data: JsValue);
 }
 
 #[wasm_bindgen_test]
@@ -139,4 +145,22 @@ pub fn stress_majorization() {
 pub fn coarsen() {
     let data = example_data();
     test_coarsen(data);
+}
+
+#[wasm_bindgen_test]
+pub fn number_of_crossings() {
+    let data = example_data();
+    test_number_of_crossings(data);
+}
+
+#[wasm_bindgen_test]
+pub fn shape_quality() {
+    let data = example_data();
+    test_shape_quality(data);
+}
+
+#[wasm_bindgen_test]
+pub fn stress() {
+    let data = example_data();
+    test_stress(data);
 }

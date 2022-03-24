@@ -244,3 +244,24 @@ exports.testCoarsen = function (data) {
   }
   assert.strictEqual(graph.nodeCount(), totalNodes);
 };
+
+exports.testNumberOfCrossings = function (data) {
+  const { Coordinates, numberOfCrossings } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = Coordinates.initialPlacement(graph);
+  numberOfCrossings(graph, coordinates);
+};
+
+exports.testShapeQuality = function (data) {
+  const { Coordinates, shapeQuality } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = Coordinates.initialPlacement(graph);
+  shapeQuality(graph, coordinates);
+};
+
+exports.testStress = function (data) {
+  const { Coordinates, stress } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = Coordinates.initialPlacement(graph);
+  stress(graph, coordinates);
+};
