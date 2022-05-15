@@ -1,0 +1,9 @@
+[package]
+name = "petgraph-layout-force-atlas2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+force_derive = { path = "../../util/force_derive" }
+petgraph = "0.6"
+petgraph-layout-force-simulation = { path = "../force-simulation" }

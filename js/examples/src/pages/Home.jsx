@@ -13,6 +13,9 @@ export class Home extends React.Component {
             <Link to="/fruchterman-reingold">FruchtermanReingold</Link>
           </li>
           <li>
+            <Link to="/force-atlas2">ForceAtlas2</Link>
+          </li>
+          <li>
             <Link to="/kamada-kawai">KamadaKawai</Link>
           </li>
           <li>

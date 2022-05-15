@@ -2,6 +2,7 @@
 // export { ExampleDag } from "./ExampleDag";
 export { ExampleEdgeBundling } from "./ExampleEdgeBundling";
 export { ExampleFm3 } from "./ExampleFm3";
+export { ExampleForceAtlas2 } from "./ExampleForceAtlas2";
 export { ExampleForceDirected } from "./ExampleForceDirected";
 export { ExampleFruchtermanReingold } from "./ExampleFruchtermanReingold";
 export { ExampleGroupInABox } from "./ExampleGroupInABox";
