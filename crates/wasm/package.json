@@ -4,7 +4,7 @@
     "Yosuke Onoue <onoue@likr-lab.com>"
   ],
   "description": "WebAssembly binding of egraph.",
-  "version": "5.0.0",
+  "version": "6.0.0-alpha.0",
   "license": "MIT",
   "repository": {
     "type": "git",
