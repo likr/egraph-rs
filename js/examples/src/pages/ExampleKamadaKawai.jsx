@@ -25,15 +25,21 @@ export function ExampleKamadaKawai() {
 
       const coordinates = Coordinates.initialPlacement(graph);
       const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 1 }));
-      kamadaKawai.run(coordinates);
-      for (const u of graph.nodeIndices()) {
-        const node = graph.nodeWeight(u);
-        node.x = coordinates.x(u);
-        node.y = coordinates.y(u);
-      }
+
+      setInterval(() => {
+        const u = kamadaKawai.selectNode(coordinates);
+        if (u != null) {
+          kamadaKawai.applyToNode(u, coordinates);
+          for (const u of graph.nodeIndices()) {
+            const node = graph.nodeWeight(u);
+            node.x = coordinates.x(u);
+            node.y = coordinates.y(u);
+          }
+          rendererRef.current.update();
+        }
+      }, 200);
 
       rendererRef.current.load(data);
-      rendererRef.current.center();
     })();
   }, []);
 
@@ -46,7 +52,7 @@ export function ExampleKamadaKawai() {
     >
       <eg-renderer
         ref={rendererRef}
-        transition-duration="1000"
+        transition-duration="100"
         default-node-width="10"
         default-node-height="10"
         default-node-stroke-color="#fff"
