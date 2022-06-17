@@ -1,0 +1,16 @@
+[package]
+name = "egraph-python"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "egraph"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.16.3", features = ["extension-module"] }
+petgraph = "0.6"
+petgraph-layout-force= { path = "../layout/force" }
+petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
+petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }

@@ -15,6 +15,7 @@ members = [
     "crates/layout/kamada-kawai",
     "crates/layout/non-euclidean-force-simulation",
     "crates/layout/stress-majorization",
+    "crates/python",
     "crates/quadtree",
     "crates/quality-metrics",
     "crates/treemap",

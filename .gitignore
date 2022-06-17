@@ -8,3 +8,5 @@ crates/wasm/umd
 wasm-pack.log
 
 js/examples/dist
+
+.venv
