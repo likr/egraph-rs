@@ -3,7 +3,7 @@
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
   "scripts": {
-    "prestart": "npm run wasm-build",
+    "prestart": "npm run wasm-build:web",
     "start": "npm run dev -w examples",
     "wasm-build": "npm run wasm-build:bundler && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
     "wasm-build:bundler": "wasm-pack build --target bundler -d dist/bundler crates/wasm",

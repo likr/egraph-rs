@@ -24,7 +24,8 @@ export function ExampleKamadaKawai() {
       }
 
       const coordinates = Coordinates.initialPlacement(graph);
-      const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 1 }));
+      const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 100 }));
+      kamadaKawai.eps = 1e-3;
 
       setInterval(() => {
         const u = kamadaKawai.selectNode(coordinates);
