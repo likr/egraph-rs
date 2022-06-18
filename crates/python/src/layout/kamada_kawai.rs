@@ -7,14 +7,14 @@ use std::collections::HashMap;
 
 #[pyclass]
 #[pyo3(name = "KamadaKawai")]
-pub struct PyKamadaKawai {
+struct PyKamadaKawai {
     kamada_kawai: KamadaKawai,
 }
 
 #[pymethods]
 impl PyKamadaKawai {
     #[new]
-    pub fn new(graph: &PyGraph, f: &PyAny) -> PyKamadaKawai {
+    fn new(graph: &PyGraph, f: &PyAny) -> PyKamadaKawai {
         let mut distance = HashMap::new();
         for e in graph.graph().edge_indices() {
             let result = f.call1((e.index(),)).unwrap();
@@ -26,17 +26,27 @@ impl PyKamadaKawai {
         }
     }
 
-    // pub fn select_node(&self, coordinates: &JsCoordinates) -> Option<usize> {
-    //     self.kamada_kawai.select_node(coordinates.coordinates())
-    // }
+    fn select_node(&self, coordinates: &PyCoordinates) -> Option<usize> {
+        self.kamada_kawai.select_node(coordinates.coordinates())
+    }
 
-    // pub fn apply_to_node(&self, m: usize, coordinates: &mut JsCoordinates) {
-    //     self.kamada_kawai
-    //         .apply_to_node(m, coordinates.coordinates_mut());
-    // }
+    fn apply_to_node(&self, m: usize, coordinates: &mut PyCoordinates) {
+        self.kamada_kawai
+            .apply_to_node(m, coordinates.coordinates_mut());
+    }
 
-    pub fn run(&self, coordinates: &mut PyCoordinates) {
+    fn run(&self, coordinates: &mut PyCoordinates) {
         self.kamada_kawai.run(coordinates.coordinates_mut());
+    }
+
+    #[getter]
+    fn eps(&self) -> f32 {
+        self.kamada_kawai.eps
+    }
+
+    #[setter]
+    fn set_eps(&mut self, value: f32) {
+        self.kamada_kawai.eps = value;
     }
 }
 
