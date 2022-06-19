@@ -1,0 +1,11 @@
+{
+  "name": "egraph-dataset",
+  "version": "5.0.0",
+  "description": "",
+  "keywords": [],
+  "author": "Yosuke Onoue",
+  "license": "MIT",
+  "files": [
+    "*.json"
+  ]
+}

@@ -5,47 +5,45 @@ import {
   Graph,
   StressMajorization,
 } from "egraph/dist/web/egraph_wasm";
+import data from "../../public/data/miserables.json";
 import { Wrapper } from "../wrapper";
 
 export function ExampleStressMajorization() {
   const rendererRef = useRef();
 
   useEffect(() => {
-    (async () => {
-      const response = await fetch("/data/miserables.json");
-      const data = await response.json();
-      const color = d3.scaleOrdinal(d3.schemeCategory10);
-      const graph = new Graph();
-      const indices = new Map();
-      for (const node of data.nodes) {
-        node.fillColor = color(node.group);
-        indices.set(node.id, graph.addNode(node));
-      }
-      for (const link of data.links) {
-        link.strokeWidth = Math.sqrt(link.value);
-        const { source, target } = link;
-        graph.addEdge(indices.get(source), indices.get(target), link);
-      }
+    const color = d3.scaleOrdinal(d3.schemeCategory10);
+    const graph = new Graph();
+    const indices = new Map();
+    for (const node of data.nodes) {
+      node.fillColor = color(node.group);
+      indices.set(node.id, graph.addNode(node));
+    }
+    for (const link of data.links) {
+      link.strokeWidth = Math.sqrt(link.value);
+      const { source, target } = link;
+      graph.addEdge(indices.get(source), indices.get(target), link);
+    }
 
-      const coordinates = Coordinates.initialPlacement(graph);
-      const stressMajorization = new StressMajorization(
-        graph,
-        coordinates,
-        () => ({ distance: 100 })
-      );
-      setInterval(() => {
-        if (stressMajorization.apply(coordinates)) {
-          for (const u of graph.nodeIndices()) {
-            const node = graph.nodeWeight(u);
-            node.x = coordinates.x(u);
-            node.y = coordinates.y(u);
-          }
-          rendererRef.current.update();
+    const coordinates = Coordinates.initialPlacement(graph);
+    const stressMajorization = new StressMajorization(
+      graph,
+      coordinates,
+      () => ({ distance: 100 })
+    );
+    rendererRef.current.load(data);
+    function draw() {
+      if (stressMajorization.apply(coordinates) > 1e-5) {
+        for (const u of graph.nodeIndices()) {
+          const node = graph.nodeWeight(u);
+          node.x = coordinates.x(u);
+          node.y = coordinates.y(u);
         }
-      }, 200);
-
-      rendererRef.current.load(data);
-    })();
+        rendererRef.current.update();
+        requestAnimationFrame(draw);
+      }
+    }
+    draw();
   }, []);
 
   return (
