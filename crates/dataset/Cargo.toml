@@ -1,0 +1,16 @@
+[package]
+name = "egraph-dataset"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+1138_bus = []
+poli = []
+USpowerGrid = []
+qh882 = []
+dwt_1005 = []
+dwt_2680 = []
+3elt = []
+
+[dependencies]
+petgraph = "0.6"
