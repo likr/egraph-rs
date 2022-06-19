@@ -33,15 +33,18 @@ export function ExampleStressMajorization() {
         coordinates,
         () => ({ distance: 100 })
       );
-      while (stressMajorization.apply(coordinates) > 1e-4) {}
-      for (const u of graph.nodeIndices()) {
-        const node = graph.nodeWeight(u);
-        node.x = coordinates.x(u);
-        node.y = coordinates.y(u);
-      }
+      setInterval(() => {
+        if (stressMajorization.apply(coordinates)) {
+          for (const u of graph.nodeIndices()) {
+            const node = graph.nodeWeight(u);
+            node.x = coordinates.x(u);
+            node.y = coordinates.y(u);
+          }
+          rendererRef.current.update();
+        }
+      }, 200);
 
       rendererRef.current.load(data);
-      rendererRef.current.center();
     })();
   }, []);
 
@@ -54,7 +57,7 @@ export function ExampleStressMajorization() {
     >
       <eg-renderer
         ref={rendererRef}
-        transition-duration="1000"
+        transition-duration="100"
         default-node-width="10"
         default-node-height="10"
         default-node-stroke-color="#fff"
