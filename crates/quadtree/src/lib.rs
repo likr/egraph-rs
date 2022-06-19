@@ -115,7 +115,6 @@ pub enum Element {
 
 #[derive(Clone, Debug)]
 pub struct Node<T> {
-    parent: Option<NodeId>,
     top_left: Box<Element>,
     top_right: Box<Element>,
     bottom_left: Box<Element>,
@@ -133,19 +132,6 @@ pub struct Quadtree<T> {
 impl<T: Default> Node<T> {
     pub fn new(rect: Rect) -> Node<T> {
         Node {
-            parent: None,
-            top_left: Box::new(Element::Empty),
-            top_right: Box::new(Element::Empty),
-            bottom_left: Box::new(Element::Empty),
-            bottom_right: Box::new(Element::Empty),
-            rect: rect,
-            data: T::default(),
-        }
-    }
-
-    pub fn new_with_parent(rect: Rect, parent: NodeId) -> Node<T> {
-        Node {
-            parent: Some(parent),
             top_left: Box::new(Element::Empty),
             top_right: Box::new(Element::Empty),
             bottom_left: Box::new(Element::Empty),
@@ -254,7 +240,7 @@ impl<T: Default> Quadtree<T> {
     ) -> (NodeId, Region) {
         let index = self.nodes.len();
         let rect = self.nodes[u.index].rect.sub_rect(region);
-        self.nodes.push(Node::new_with_parent(rect, u));
+        self.nodes.push(Node::new(rect));
         let new_node = NodeId { index: index };
         self.nodes[u.index].insert(region, Element::Node { node_id: new_node });
         let region = self.nodes[new_node.index].rect.quad(x0, y0);
