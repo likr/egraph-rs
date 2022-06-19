@@ -1,0 +1,10 @@
+[package]
+name = "petgraph-layout-mds"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = "0.15"
+ordered-float = "3.0"
+petgraph = "0.6"
+petgraph-layout-force-simulation =  { path = "../../layout/force-simulation" }

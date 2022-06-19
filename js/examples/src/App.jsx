@@ -12,6 +12,7 @@ import {
   ExampleGroupInABox,
   ExampleKamadaKawai,
   ExampleHyperbolicGeometry,
+  ExampleMds,
   ExampleSphericalGeometry,
   ExampleStressMajorization,
 } from "./pages";
@@ -42,11 +43,12 @@ render(
             component={ExampleFruchtermanReingold}
           />
           <Route path="/group-in-a-box" component={ExampleGroupInABox} />
-          <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
           <Route
             path="/hyperbolic-geometry"
             component={ExampleHyperbolicGeometry}
           />
+          <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
+          <Route path="/mds" component={ExampleMds} />
           <Route
             path="/spherical-geometry"
             component={ExampleSphericalGeometry}

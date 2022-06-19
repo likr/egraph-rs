@@ -225,6 +225,24 @@ exports.testStressMajorization = function (data) {
   checkResult(graph, coordinates);
 };
 
+exports.testClassicalMds = function (data) {
+  const { ClassicalMds } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = new ClassicalMds().run(graph, () => 100);
+  checkResult(graph, coordinates);
+};
+
+exports.testPivotMds = function (data) {
+  const { PivotMds } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = new PivotMds().run(
+    graph,
+    () => 100,
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  );
+  checkResult(graph, coordinates);
+};
+
 exports.testCoarsen = function (data) {
   const { coarsen } = wasm;
   const graph = constructGraph(data);

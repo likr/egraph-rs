@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook = "0.1"
+getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
@@ -25,6 +26,7 @@ petgraph-layout-fruchterman-reingold = { path = "../layout/fruchterman-reingold"
 petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-non-euclidean-force-simulation = { path = "../layout/non-euclidean-force-simulation" }
+petgraph-layout-mds = { path = "../layout/mds" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 serde = "1.0"

@@ -22,6 +22,9 @@ export class Home extends React.Component {
             <Link to="/stress-majorization">StressMajorization</Link>
           </li>
           <li>
+            <Link to="/mds">MDS</Link>
+          </li>
+          <li>
             <Link to="/hyperbolic-geometry">Hyperbolic Geometry</Link>
           </li>
           <li>

@@ -16,8 +16,8 @@ pub struct Point {
 impl Point {
     pub fn new(x: f32, y: f32) -> Point {
         Point {
-            x: x,
-            y: y,
+            x,
+            y,
             vx: 0.,
             vy: 0.,
         }
@@ -30,9 +30,22 @@ pub struct Coordinates<Ix: IndexType> {
     index_map: HashMap<NodeIndex<Ix>, usize>,
 }
 
-impl<Ix: IndexType> Coordinates<Ix> {}
-
 impl<Ix: IndexType> Coordinates<Ix> {
+    pub fn new<N, E, Ty: EdgeType>(graph: &Graph<N, E, Ty, Ix>) -> Coordinates<Ix> {
+        let indices = graph.node_indices().collect::<Vec<_>>();
+        let index_map = indices
+            .iter()
+            .enumerate()
+            .map(|(i, &u)| (u, i))
+            .collect::<HashMap<_, _>>();
+        let points = vec![Point::new(0., 0.); indices.len()];
+        Coordinates {
+            indices,
+            points,
+            index_map,
+        }
+    }
+
     pub fn iter(&self) -> CoordinatesIterator<Ix> {
         CoordinatesIterator {
             coordinates: self,
@@ -156,23 +169,15 @@ impl<Ix: IndexType> Coordinates<Ix> {
     }
 
     pub fn initial_placement<N, E, Ty: EdgeType>(graph: &Graph<N, E, Ty, Ix>) -> Coordinates<Ix> {
-        let indices = graph.node_indices().collect::<Vec<_>>();
-        let mut index_map = HashMap::new();
-        let n = indices.len();
-        let mut points = Vec::with_capacity(n);
-        for (i, &u) in indices.iter().enumerate() {
-            index_map.insert(u, i);
+        let mut coordinates = Coordinates::new(graph);
+        for (i, u) in graph.node_indices().enumerate() {
             let r = 10. * (i as usize as f32).sqrt();
             let theta = PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
             let x = r * theta.cos();
             let y = r * theta.sin();
-            points.push(Point::new(x, y));
+            coordinates.set_position(u, (x, y));
         }
-        Coordinates {
-            indices,
-            points,
-            index_map,
-        }
+        coordinates
     }
 }
 
