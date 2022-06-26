@@ -13,6 +13,7 @@ import {
   ExampleKamadaKawai,
   ExampleHyperbolicGeometry,
   ExampleMds,
+  ExampleSgd,
   ExampleSphericalGeometry,
   ExampleStressMajorization,
 } from "./pages";
@@ -49,6 +50,7 @@ render(
           />
           <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
           <Route path="/mds" component={ExampleMds} />
+          <Route path="/sgd" component={ExampleSgd} />
           <Route
             path="/spherical-geometry"
             component={ExampleSphericalGeometry}

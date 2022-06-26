@@ -14,6 +14,7 @@ members = [
     "crates/layout/fruchterman-reingold",
     "crates/layout/grouped-force",
     "crates/layout/kamada-kawai",
+    "crates/layout/sgd",
     "crates/layout/mds",
     "crates/layout/non-euclidean-force-simulation",
     "crates/layout/stress-majorization",

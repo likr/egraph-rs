@@ -25,8 +25,9 @@ petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
 petgraph-layout-fruchterman-reingold = { path = "../layout/fruchterman-reingold" }
 petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
-petgraph-layout-non-euclidean-force-simulation = { path = "../layout/non-euclidean-force-simulation" }
 petgraph-layout-mds = { path = "../layout/mds" }
+petgraph-layout-non-euclidean-force-simulation = { path = "../layout/non-euclidean-force-simulation" }
+petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 serde = "1.0"

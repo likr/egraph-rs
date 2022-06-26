@@ -7,4 +7,5 @@ pub mod grouped_force;
 pub mod kamada_kawai;
 pub mod mds;
 pub mod non_euclidean_force_simulation;
+pub mod sgd;
 pub mod stress_majorization;
