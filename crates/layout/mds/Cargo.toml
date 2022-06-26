@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 ndarray = "0.15"
-ordered-float = "3.0"
 petgraph = "0.6"
-petgraph-layout-force-simulation =  { path = "../../layout/force-simulation" }
+petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
+petgraph-layout-force-simulation = { path = "../../layout/force-simulation" }

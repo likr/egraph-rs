@@ -1,3 +1,4 @@
+use ndarray::prelude::*;
 use petgraph::visit::{IntoEdgeReferences, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
 use petgraph_layout_force_simulation::{Coordinates, Point};
@@ -8,8 +9,8 @@ fn norm(x: f32, y: f32) -> f32 {
 }
 
 pub struct KamadaKawai {
-    k: Vec<Vec<f32>>,
-    l: Vec<Vec<f32>>,
+    k: Array2<f32>,
+    l: Array2<f32>,
     pub eps: f32,
 }
 
@@ -20,17 +21,25 @@ impl KamadaKawai {
         G::NodeId: Eq + Hash,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let eps = 1e-1;
-        let n = graph.node_count();
         let l = warshall_floyd(graph, length);
+        KamadaKawai::new_with_distance_matrix(&l)
+    }
 
-        let mut k = vec![vec![0.; n]; n];
+    pub fn new_with_distance_matrix(l: &Array2<f32>) -> KamadaKawai {
+        let eps = 1e-1;
+        let n = l.nrows();
+
+        let mut k = Array2::zeros((n, n));
         for i in 0..n {
             for j in 0..n {
-                k[i][j] = 1. / (l[i][j] * l[i][j]);
+                k[[i, j]] = 1. / (l[[i, j]] * l[[i, j]]);
             }
         }
-        KamadaKawai { k, l, eps }
+        KamadaKawai {
+            k,
+            l: l.clone(),
+            eps,
+        }
     }
 
     pub fn select_node(&self, coordinates: &Coordinates<u32>) -> Option<usize> {
@@ -48,8 +57,8 @@ impl KamadaKawai {
                     let dx = xm - xi;
                     let dy = ym - yi;
                     let d = norm(dx, dy);
-                    dedx += k[m][i] * (1. - l[m][i] / d) * dx;
-                    dedy += k[m][i] * (1. - l[m][i] / d) * dy;
+                    dedx += k[[m, i]] * (1. - l[[m, i]] / d) * dx;
+                    dedy += k[[m, i]] * (1. - l[[m, i]] / d) * dy;
                 }
             }
             let delta2 = dedx * dedx + dedy * dedy;
@@ -82,11 +91,11 @@ impl KamadaKawai {
                 let dy = ym - yi;
                 let d = norm(dx, dy);
                 let d3 = d * d * d;
-                hxx += k[m][i] * (1. - l[m][i] * dy * dy / d3);
-                hyy += k[m][i] * (1. - l[m][i] * dx * dx / d3);
-                hxy += k[m][i] * l[m][i] * dx * dy / d3;
-                dedx += k[m][i] * (1. - l[m][i] / d) * dx;
-                dedy += k[m][i] * (1. - l[m][i] / d) * dy;
+                hxx += k[[m, i]] * (1. - l[[m, i]] * dy * dy / d3);
+                hyy += k[[m, i]] * (1. - l[[m, i]] * dx * dx / d3);
+                hxy += k[[m, i]] * l[[m, i]] * dx * dy / d3;
+                dedx += k[[m, i]] * (1. - l[[m, i]] / d) * dx;
+                dedy += k[[m, i]] * (1. - l[[m, i]] / d) * dy;
             }
         }
         let det = hxx * hyy - hxy * hxy;

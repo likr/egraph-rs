@@ -1,7 +1,7 @@
 use crate::graph::JsGraph;
 use crate::layout::force_simulation::coordinates::JsCoordinates;
 use js_sys::{Array, Function};
-use petgraph::graph::node_index;
+use petgraph::{graph::node_index, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -32,7 +32,7 @@ impl JsClassicalMds {
         }
         let coordinates = self
             .classical_mds
-            .run(graph.graph(), &mut |_, e| length_map[&e]);
+            .run(graph.graph(), &mut |e| length_map[&e.id()]);
         JsCoordinates::new(coordinates)
     }
 }
@@ -67,7 +67,7 @@ impl JsPivotMds {
         }
         let coordinates = self
             .pivot_mds
-            .run(graph.graph(), &mut |_, e| length_map[&e], &sources);
+            .run(graph.graph(), &mut |e| length_map[&e.id()], &sources);
         JsCoordinates::new(coordinates)
     }
 }

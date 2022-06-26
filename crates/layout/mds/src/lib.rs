@@ -1,37 +1,11 @@
 use ndarray::prelude::*;
-use ordered_float::OrderedFloat;
 use petgraph::prelude::*;
-use petgraph::{graph::IndexType, EdgeType};
+use petgraph::{
+    graph::{EdgeReference, IndexType},
+    EdgeType,
+};
+use petgraph_algorithm_shortest_path::{multi_source_dijkstra, warshall_floyd};
 use petgraph_layout_force_simulation::Coordinates;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
-use std::f32::INFINITY;
-
-fn multi_source_shortest_path<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    length: &HashMap<(NodeIndex<Ix>, NodeIndex<Ix>), f32>,
-    sources: &[NodeIndex<Ix>],
-) -> Array2<f32> {
-    let n = graph.node_count();
-    let k = sources.len();
-    let mut distance_matrix = Array::from_elem((n, k), INFINITY);
-    for c in 0..k {
-        let s = sources[c];
-        let mut queue = BinaryHeap::new();
-        queue.push((Reverse(OrderedFloat(0.)), s));
-        distance_matrix[[s.index(), c]] = 0.;
-        while let Some((Reverse(OrderedFloat(d)), u)) = queue.pop() {
-            for v in graph.neighbors_undirected(u) {
-                let e = d + length[&(u, v)];
-                if e < distance_matrix[[v.index(), c]] {
-                    queue.push((Reverse(OrderedFloat(e)), v));
-                    distance_matrix[[v.index(), c]] = e;
-                }
-            }
-        }
-    }
-    distance_matrix
-}
 
 fn cos(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let ab = a.dot(b);
@@ -93,13 +67,12 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
     (e, v)
 }
 
-fn classical_mds<N, E, Ty: EdgeType, Ix: IndexType>(
+fn classical_mds<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
     graph: &Graph<N, E, Ty, Ix>,
-    length: &HashMap<(NodeIndex<Ix>, NodeIndex<Ix>), f32>,
+    length: &mut F,
     eps: f32,
 ) -> Coordinates<Ix> {
-    let sources = graph.node_indices().collect::<Vec<_>>();
-    let mut delta = multi_source_shortest_path(&graph, length, &sources);
+    let mut delta = warshall_floyd(&graph, length);
     delta = delta.mapv_into(|v| v.powi(2));
     let b = double_centering(&delta);
     let (e, v) = eigendecomposition(&b, 2, eps);
@@ -111,13 +84,13 @@ fn classical_mds<N, E, Ty: EdgeType, Ix: IndexType>(
     coordinates
 }
 
-fn pivot_mds<N, E, Ty: EdgeType, Ix: IndexType>(
+fn pivot_mds<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
     graph: &Graph<N, E, Ty, Ix>,
-    length: &HashMap<(NodeIndex<Ix>, NodeIndex<Ix>), f32>,
+    length: &mut F,
     sources: &[NodeIndex<Ix>],
     eps: f32,
 ) -> Coordinates<Ix> {
-    let mut delta = multi_source_shortest_path(&graph, length, &sources);
+    let mut delta = multi_source_dijkstra(&graph, length, &sources);
     delta = delta.mapv_into(|v| v.powi(2));
     let c = double_centering(&delta);
     let ct_c = c.t().dot(&c);
@@ -140,26 +113,12 @@ impl ClassicalMds {
         ClassicalMds { eps: 1e-3 }
     }
 
-    pub fn run<
-        N,
-        E,
-        Ty: EdgeType,
-        Ix: IndexType,
-        F: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
-    >(
+    pub fn run<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
         &self,
         graph: &Graph<N, E, Ty, Ix>,
         length: &mut F,
     ) -> Coordinates<Ix> {
-        let mut length_map = HashMap::new();
-        for edge in graph.edge_references() {
-            let u = edge.source();
-            let v = edge.target();
-            let c = length(graph, edge.id());
-            length_map.insert((u, v), c);
-            length_map.insert((v, u), c);
-        }
-        classical_mds(graph, &length_map, self.eps)
+        classical_mds(graph, length, self.eps)
     }
 }
 
@@ -172,26 +131,12 @@ impl PivotMds {
         PivotMds { eps: 1e-3 }
     }
 
-    pub fn run<
-        N,
-        E,
-        Ty: EdgeType,
-        Ix: IndexType,
-        F: FnMut(&Graph<N, E, Ty, Ix>, EdgeIndex<Ix>) -> f32,
-    >(
+    pub fn run<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
         &self,
         graph: &Graph<N, E, Ty, Ix>,
         length: &mut F,
         sources: &[NodeIndex<Ix>],
     ) -> Coordinates<Ix> {
-        let mut length_map = HashMap::new();
-        for edge in graph.edge_references() {
-            let u = edge.source();
-            let v = edge.target();
-            let c = length(graph, edge.id());
-            length_map.insert((u, v), c);
-            length_map.insert((v, u), c);
-        }
-        pivot_mds(graph, &length_map, sources, self.eps)
+        pivot_mds(graph, length, sources, self.eps)
     }
 }
