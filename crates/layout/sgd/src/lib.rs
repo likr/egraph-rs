@@ -66,13 +66,29 @@ impl SparseSgd {
         h: usize,
     ) -> SparseSgd {
         let mut rng = rand::thread_rng();
+        SparseSgd::new_with_rng(graph, length, h, &mut rng)
+    }
+
+    pub fn new_with_rng<
+        N,
+        E,
+        Ty: EdgeType,
+        Ix: IndexType,
+        F: FnMut(EdgeReference<'_, E, Ix>) -> f32,
+        R: Rng,
+    >(
+        graph: &Graph<N, E, Ty, Ix>,
+        length: &mut F,
+        h: usize,
+        rng: &mut R,
+    ) -> SparseSgd {
         let indices = graph
             .node_identifiers()
             .enumerate()
             .map(|(i, u)| (u, i))
             .collect::<HashMap<_, _>>();
         let n = indices.len();
-        let (pivot, d) = max_min_random_sp(graph, &indices, length, h, &mut rng);
+        let (pivot, d) = max_min_random_sp(graph, &indices, length, h, rng);
 
         let mut node_pairs = vec![];
         let mut edges = HashSet::new();

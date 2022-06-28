@@ -4,6 +4,7 @@ import {
   Graph,
   Coordinates,
   SparseSgd as Sgd,
+  Rng,
 } from "egraph/dist/web/egraph_wasm";
 import data from "egraph-dataset/USpowerGrid.json";
 import { Wrapper } from "../wrapper";
@@ -25,8 +26,9 @@ export function ExampleSgd() {
       graph.addEdge(indices.get(source), indices.get(target), link);
     }
 
+    const rng = Rng.seedFrom(0n);
     const coordinates = Coordinates.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 30, 50);
+    const sgd = new Sgd(graph, () => 30, 50, rng);
     const scheduler = sgd.scheduler(300, 0.1);
 
     const draw = () => {
@@ -34,7 +36,7 @@ export function ExampleSgd() {
         return;
       }
       scheduler.step((eta) => {
-        sgd.shuffle();
+        sgd.shuffle(rng);
         sgd.apply(coordinates, eta);
       });
       for (const u of graph.nodeIndices()) {

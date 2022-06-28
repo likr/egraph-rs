@@ -1,9 +1,7 @@
-use crate::graph::JsGraph;
-use crate::layout::force_simulation::coordinates::JsCoordinates;
+use crate::{graph::JsGraph, layout::force_simulation::coordinates::JsCoordinates, rng::JsRng};
 use js_sys::Function;
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{FullSgd, Sgd, SgdScheduler, SparseSgd};
-use rand::prelude::*;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
@@ -49,9 +47,8 @@ impl JsFullSgd {
         }
     }
 
-    pub fn shuffle(&mut self) {
-        let mut rng = thread_rng();
-        self.sgd.shuffle(&mut rng);
+    pub fn shuffle(&mut self, rng: &mut JsRng) {
+        self.sgd.shuffle(rng.get_mut());
     }
 
     pub fn apply(&self, coordinates: &mut JsCoordinates, eta: f32) {
@@ -73,7 +70,7 @@ pub struct JsSparseSgd {
 #[wasm_bindgen(js_class = "SparseSgd")]
 impl JsSparseSgd {
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsGraph, length: &Function, h: usize) -> JsSparseSgd {
+    pub fn new(graph: &JsGraph, length: &Function, h: usize, rng: &mut JsRng) -> JsSparseSgd {
         let mut length_map = HashMap::new();
         for e in graph.graph().edge_indices() {
             let c = length
@@ -84,13 +81,17 @@ impl JsSparseSgd {
             length_map.insert(e, c);
         }
         JsSparseSgd {
-            sgd: SparseSgd::new(graph.graph(), &mut |e| length_map[&e.id()], h),
+            sgd: SparseSgd::new_with_rng(
+                graph.graph(),
+                &mut |e| length_map[&e.id()],
+                h,
+                rng.get_mut(),
+            ),
         }
     }
 
-    pub fn shuffle(&mut self) {
-        let mut rng = thread_rng();
-        self.sgd.shuffle(&mut rng);
+    pub fn shuffle(&mut self, rng: &mut JsRng) {
+        self.sgd.shuffle(rng.get_mut());
     }
 
     pub fn apply(&self, coordinates: &mut JsCoordinates, eta: f32) {

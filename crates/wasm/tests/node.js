@@ -244,26 +244,28 @@ exports.testPivotMds = function (data) {
 };
 
 exports.testFullSgd = function (data) {
-  const { Coordinates, FullSgd } = wasm;
+  const { Coordinates, FullSgd, Rng } = wasm;
+  const rng = Rng.seedFrom(0n);
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
   const sgd = new FullSgd(graph, () => 100);
   const scheduler = sgd.scheduler(15, 0.1);
   scheduler.step((eta) => {
-    sgd.shuffle();
+    sgd.shuffle(rng);
     sgd.step(eta);
   });
   checkResult(graph, coordinates);
 };
 
 exports.testSparseSgd = function (data) {
-  const { Coordinates, SparseSgd } = wasm;
+  const { Coordinates, SparseSgd, Rng } = wasm;
+  const rng = Rng.seedFrom(0n);
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
-  const sgd = new SparseSgd(graph, () => 100, 50);
+  const sgd = new SparseSgd(graph, () => 100, 50, rng);
   const scheduler = sgd.scheduler(15, 0.1);
   scheduler.step((eta) => {
-    sgd.shuffle();
+    sgd.shuffle(rng);
     sgd.step(eta);
   });
   checkResult(graph, coordinates);
