@@ -13,9 +13,17 @@ def main():
         graph.add_edge(indices[u], indices[v], (u, v))
 
     drawing = Coordinates.initial_placement(graph)
-    rng = Rng.seed_from(0)
-    sgd = SparseSgd(graph, lambda _: 30, 50, rng)
-    scheduler = sgd.scheduler(100, 0.1)
+    rng = Rng.seed_from(0)  # random seed
+    sgd = SparseSgd(
+        graph,
+        lambda _: 30,  # edge length
+        50,  # number of pivots
+        rng,
+    )
+    scheduler = sgd.scheduler(
+        100,  # number of iterations
+        0.1,  # eps: eta_min = eps * min d[i, j] ^ 2
+    )
 
     def step(eta):
         sgd.shuffle(rng)
