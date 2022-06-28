@@ -12,6 +12,12 @@ pub struct JsSgdScheduler {
 
 #[wasm_bindgen(js_class = "SgdScheduler")]
 impl JsSgdScheduler {
+    pub fn run(&mut self, f: &Function) {
+        self.scheduler.run(&mut |eta| {
+            f.call1(&JsValue::null(), &(eta as f64).into()).ok();
+        })
+    }
+
     pub fn step(&mut self, f: &Function) {
         self.scheduler.step(&mut |eta| {
             f.call1(&JsValue::null(), &(eta as f64).into()).ok();

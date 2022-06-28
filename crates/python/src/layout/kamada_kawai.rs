@@ -17,9 +17,8 @@ impl PyKamadaKawai {
     fn new(graph: &PyGraph, f: &PyAny) -> PyKamadaKawai {
         let mut distance = HashMap::new();
         for e in graph.graph().edge_indices() {
-            let result = f.call1((e.index(),)).unwrap();
-            let d = result.get_item("distance").unwrap().extract().unwrap();
-            distance.insert(e, d);
+            let v = f.call1((e.index(),)).unwrap().extract().unwrap();
+            distance.insert(e, v);
         }
         PyKamadaKawai {
             kamada_kawai: KamadaKawai::new(graph.graph(), &mut |e| distance[&e.id()]),

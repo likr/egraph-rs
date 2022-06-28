@@ -14,3 +14,6 @@ petgraph = "0.6"
 petgraph-layout-force= { path = "../layout/force" }
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
+petgraph-layout-sgd = { path = "../layout/sgd" }
+petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
+rand = "0.8"

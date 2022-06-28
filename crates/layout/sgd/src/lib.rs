@@ -147,6 +147,12 @@ pub struct SgdScheduler {
 }
 
 impl SgdScheduler {
+    pub fn run<F: FnMut(f32)>(&mut self, f: &mut F) {
+        while !self.is_finished() {
+            self.step(f)
+        }
+    }
+
     pub fn step<F: FnMut(f32)>(&mut self, f: &mut F) {
         let eta = self.a * (self.b * self.t as f32).exp();
         f(eta);
