@@ -243,6 +243,32 @@ exports.testPivotMds = function (data) {
   checkResult(graph, coordinates);
 };
 
+exports.testFullSgd = function (data) {
+  const { Coordinates, FullSgd } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = Coordinates.initialPlacement(graph);
+  const sgd = new FullSgd(graph, () => 100);
+  const scheduler = sgd.scheduler(15, 0.1);
+  scheduler.step((eta) => {
+    sgd.shuffle();
+    sgd.step(eta);
+  });
+  checkResult(graph, coordinates);
+};
+
+exports.testSparseSgd = function (data) {
+  const { Coordinates, SparseSgd } = wasm;
+  const graph = constructGraph(data);
+  const coordinates = Coordinates.initialPlacement(graph);
+  const sgd = new SparseSgd(graph, () => 100, 50);
+  const scheduler = sgd.scheduler(15, 0.1);
+  scheduler.step((eta) => {
+    sgd.shuffle();
+    sgd.step(eta);
+  });
+  checkResult(graph, coordinates);
+};
+
 exports.testCoarsen = function (data) {
   const { coarsen } = wasm;
   const graph = constructGraph(data);

@@ -45,6 +45,10 @@ extern "C" {
     fn test_classical_mds(data: JsValue);
     #[wasm_bindgen(js_name = "testPivotMds")]
     fn test_pivot_mds(data: JsValue);
+    #[wasm_bindgen(js_name = "testFullSgd")]
+    fn test_full_sgd(data: JsValue);
+    #[wasm_bindgen(js_name = "testSparseSgd")]
+    fn test_sparse_sgd(data: JsValue);
     #[wasm_bindgen(js_name = "testCoarsen")]
     fn test_coarsen(data: JsValue);
     #[wasm_bindgen(js_name = "testNumberOfCrossings")]
@@ -155,6 +159,18 @@ pub fn classical_mds() {
 pub fn pivot_mds() {
     let data = example_data();
     test_pivot_mds(data);
+}
+
+#[wasm_bindgen_test]
+pub fn full_sgd() {
+    let data = example_data();
+    test_full_sgd(data);
+}
+
+#[wasm_bindgen_test]
+pub fn sparse_sgd() {
+    let data = example_data();
+    test_sparse_sgd(data);
 }
 
 #[wasm_bindgen_test]

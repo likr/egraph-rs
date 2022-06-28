@@ -3,10 +3,9 @@ import * as d3 from "d3";
 import {
   Graph,
   Coordinates,
-  Simulation,
-  Sgd,
+  SparseSgd as Sgd,
 } from "egraph/dist/web/egraph_wasm";
-import data from "egraph-dataset/1138_bus.json";
+import data from "egraph-dataset/USpowerGrid.json";
 import { Wrapper } from "../wrapper";
 
 export function ExampleSgd() {
@@ -27,13 +26,17 @@ export function ExampleSgd() {
     }
 
     const coordinates = Coordinates.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 30);
+    const sgd = new Sgd(graph, () => 30, 50);
+    const scheduler = sgd.scheduler(300, 0.1);
 
     const draw = () => {
-      if (!rendererRef.current) {
+      if (!rendererRef.current || scheduler.isFinished()) {
         return;
       }
-      sgd.apply(coordinates);
+      scheduler.step((eta) => {
+        sgd.shuffle();
+        sgd.apply(coordinates, eta);
+      });
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
         node.x = coordinates.x(u);
@@ -56,7 +59,6 @@ export function ExampleSgd() {
     >
       <eg-renderer
         ref={rendererRef}
-        transition-duration="1000"
         default-node-width="10"
         default-node-height="10"
         default-node-stroke-color="#fff"
