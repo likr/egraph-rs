@@ -88,6 +88,7 @@ impl SparseSgd {
             .map(|(i, u)| (u, i))
             .collect::<HashMap<_, _>>();
         let n = indices.len();
+        let h = h.min(n);
         let (pivot, d) = max_min_random_sp(graph, &indices, length, h, rng);
 
         let mut node_pairs = vec![];
@@ -259,6 +260,9 @@ fn proportional_sampling<R: Rng>(values: &Array1<f32>, rng: &mut R) -> usize {
     let mut s = 0.;
     for i in 0..n {
         s += values[i];
+    }
+    if s == 0. {
+        panic!("could not choice pivot");
     }
     let x = rng.gen_range(0.0..s);
     s = 0.;
