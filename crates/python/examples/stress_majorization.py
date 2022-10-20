@@ -1,5 +1,5 @@
 import networkx as nx
-from egraph import Graph, Coordinates, StressMajorization
+from egraph import Graph, Coordinates, StressMajorization, stress, warshall_floyd
 import matplotlib.pyplot as plt
 
 
@@ -13,8 +13,12 @@ def main():
         graph.add_edge(indices[u], indices[v], (u, v))
 
     drawing = Coordinates.initial_placement(graph)
-    stress_majorization = StressMajorization(graph, drawing, lambda _: 100)
+    d = warshall_floyd(graph, lambda _: 100)
+    s0 = stress(drawing, d)
+    stress_majorization = StressMajorization.with_distance_matrix(drawing, d)
     stress_majorization.run(drawing)
+    s = stress(drawing, d)
+    print(f'stress {s0:.2f} -> {s:.2f}')
 
     pos = {u: (drawing.x(i), drawing.y(i)) for u, i in indices.items()}
     nx.draw(nx_graph, pos)

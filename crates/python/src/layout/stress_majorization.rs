@@ -1,7 +1,7 @@
-use crate::{coordinates::PyCoordinates, graph::PyGraph};
+use crate::{coordinates::PyCoordinates, distance_matrix::PyDistanceMatrix, graph::PyGraph};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyType};
 use std::collections::HashMap;
 
 #[pyclass]
@@ -24,6 +24,20 @@ impl PyStressMajorization {
                 graph.graph(),
                 coordinates.coordinates(),
                 &mut |e| distance[&e.id()],
+            ),
+        }
+    }
+
+    #[classmethod]
+    fn with_distance_matrix(
+        _cls: &PyType,
+        coordinates: &PyCoordinates,
+        distance_matrix: &PyDistanceMatrix,
+    ) -> PyStressMajorization {
+        PyStressMajorization {
+            stress_majorization: StressMajorization::new_with_distance_matrix(
+                coordinates.coordinates(),
+                distance_matrix.distance_matrix(),
             ),
         }
     }
