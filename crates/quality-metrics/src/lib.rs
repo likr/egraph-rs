@@ -40,7 +40,7 @@ pub enum QualityMetric {
     CrossingAngle,
     AspectRatio,
     AngularResolution,
-    NodeResolutin,
+    NodeResolution,
     GabrielGraphProperty,
 }
 
@@ -54,7 +54,7 @@ impl QualityMetric {
             QualityMetric::CrossingAngle => "crossing-angle".into(),
             QualityMetric::AspectRatio => "aspect-ratio".into(),
             QualityMetric::AngularResolution => "angular-resolution".into(),
-            QualityMetric::NodeResolutin => "node-resolution".into(),
+            QualityMetric::NodeResolution => "node-resolution".into(),
             QualityMetric::GabrielGraphProperty => "gabriel-graph-property".into(),
         }
     }
@@ -65,7 +65,7 @@ impl QualityMetric {
             QualityMetric::CrossingAngle => Sense::Maximize,
             QualityMetric::AspectRatio => Sense::Maximize,
             QualityMetric::AngularResolution => Sense::Maximize,
-            QualityMetric::NodeResolutin => Sense::Maximize,
+            QualityMetric::NodeResolution => Sense::Maximize,
             _ => Sense::Minimize,
         }
     }
@@ -88,7 +88,7 @@ pub fn quality_metrics<N, E, Ty: EdgeType, Ix: IndexType>(
             QualityMetric::CrossingAngle,
             QualityMetric::AspectRatio,
             QualityMetric::AngularResolution,
-            QualityMetric::NodeResolutin,
+            QualityMetric::NodeResolution,
             QualityMetric::GabrielGraphProperty,
         ],
     )
@@ -118,7 +118,7 @@ pub fn quality_metrics_with_targets<N, E, Ty: EdgeType, Ix: IndexType>(
                 }
                 QualityMetric::AspectRatio => aspect_ratio(graph, coordinates),
                 QualityMetric::AngularResolution => angular_resolution(graph, coordinates),
-                QualityMetric::NodeResolutin => node_resolution(graph, coordinates),
+                QualityMetric::NodeResolution => node_resolution(graph, coordinates),
                 QualityMetric::GabrielGraphProperty => gabriel_graph_property(graph, coordinates),
             };
             (t, v)
