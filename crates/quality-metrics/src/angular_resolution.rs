@@ -1,3 +1,4 @@
+use crate::edge_angle::edge_angle;
 use itertools::Itertools;
 use petgraph::graph::{Graph, IndexType};
 use petgraph::EdgeType;
@@ -16,14 +17,8 @@ pub fn angular_resolution<N, E, Ty: EdgeType, Ix: IndexType>(
             let w = pair[1];
             let (x1, y1) = coordinates.position(v).unwrap();
             let (x2, y2) = coordinates.position(w).unwrap();
-            let dx1 = x1 - x0;
-            let dy1 = y1 - y0;
-            let dx2 = x2 - x0;
-            let dy2 = y2 - y0;
-            let cos = (dx1 * dx2 + dy1 * dy2) / (dx1.hypot(dy1) * dx2.hypot(dy2));
-            let angle = cos.acos();
-            if angle.is_finite() {
-                min_angle = min_angle.min(angle.min(PI - angle))
+            if let Some(angle) = edge_angle(x1 - x0, y1 - y0, x2 - x0, y2 - y0) {
+                min_angle = min_angle.min(angle)
             }
         }
     }
