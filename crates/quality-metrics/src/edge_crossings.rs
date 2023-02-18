@@ -1,9 +1,8 @@
+use crate::edge_angle::edge_angle;
 use itertools::Itertools;
 use petgraph::graph::{EdgeIndex, Graph, IndexType};
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::Coordinates;
-
-use crate::edge_angle::edge_angle;
 
 pub fn crossing_edges<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
