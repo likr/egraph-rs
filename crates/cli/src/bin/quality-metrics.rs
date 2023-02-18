@@ -3,18 +3,8 @@ use egraph_cli::read_graph;
 use petgraph::prelude::*;
 use petgraph_algorithm_shortest_path::warshall_floyd;
 use petgraph_layout_force_simulation::Coordinates;
-use petgraph_quality_metrics::{number_of_crossings, shape_quality, stress};
-use serde::Serialize;
-use std::{fs::File, io::BufWriter};
-
-#[derive(Serialize)]
-struct QualityMetrics {
-    #[serde(rename = "numberOfCrossings")]
-    number_of_crossings: usize,
-    #[serde(rename = "shapeQuality")]
-    shape_quality: f32,
-    stress: f32,
-}
+use petgraph_quality_metrics::{quality_metrics, QualityMetric};
+use std::{collections::HashMap, fs::File, io::BufWriter};
 
 fn parse_args(input_path: &mut String, output_path: &mut String) {
     let mut parser = ArgumentParser::new();
@@ -32,19 +22,22 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 fn compute_metrics(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
     coordinates: &Coordinates<u32>,
-) -> QualityMetrics {
+) -> Vec<(QualityMetric, f32)> {
     let distance = warshall_floyd(graph, &mut |_| 1.);
-    QualityMetrics {
-        number_of_crossings: number_of_crossings(graph, coordinates),
-        shape_quality: shape_quality(graph, coordinates),
-        stress: stress(coordinates, &distance),
-    }
+    quality_metrics(graph, coordinates, &distance)
 }
 
-fn write_result(output: &QualityMetrics, output_path: &str) {
+fn write_result(output: &[(QualityMetric, f32)], output_path: &str) {
     let file = File::create(output_path).unwrap();
     let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &output).unwrap();
+    serde_json::to_writer(
+        writer,
+        &output
+            .iter()
+            .map(|&(q, v)| (q.name(), v))
+            .collect::<HashMap<_, _>>(),
+    )
+    .unwrap();
 }
 
 fn main() {

@@ -4,7 +4,7 @@ use petgraph::EdgeType;
 use petgraph_layout_force_simulation::Coordinates;
 use std::collections::HashMap;
 
-pub fn ideal_edge_length<N, E, Ty: EdgeType, Ix: IndexType>(
+pub fn ideal_edge_lengths<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     coordinates: &Coordinates<Ix>,
     d: &Array2<f32>,

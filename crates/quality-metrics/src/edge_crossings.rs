@@ -3,6 +3,7 @@ use itertools::Itertools;
 use petgraph::graph::{EdgeIndex, Graph, IndexType};
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::Coordinates;
+use std::f32::consts::PI;
 
 pub fn crossing_edges<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
@@ -39,9 +40,14 @@ pub fn crossing_edges<N, E, Ty: EdgeType, Ix: IndexType>(
 pub fn crossing_number<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     coordinates: &Coordinates<Ix>,
-) -> usize {
+) -> f32 {
     let crossing_edges = crossing_edges(graph, coordinates);
-    crossing_edges.len()
+    crossing_angle_with_crossing_edges(graph, coordinates, &crossing_edges)
+}
+pub fn crossing_number_with_crossing_edges<Ix: IndexType>(
+    crossing_edges: &[(EdgeIndex<Ix>, EdgeIndex<Ix>)],
+) -> f32 {
+    crossing_edges.len() as f32
 }
 
 pub fn crossing_angle<N, E, Ty: EdgeType, Ix: IndexType>(
@@ -66,7 +72,8 @@ pub fn crossing_angle_with_crossing_edges<N, E, Ty: EdgeType, Ix: IndexType>(
         let (x21, y21) = coordinates.position(source2).unwrap();
         let (x22, y22) = coordinates.position(target2).unwrap();
         if let Some(t) = edge_angle(x11 - x12, y11 - y12, x21 - x22, y21 - y22) {
-            s += t.cos() * t.cos();
+            let t = t.min(PI - t);
+            s += t.cos().powi(2);
         }
     }
     s

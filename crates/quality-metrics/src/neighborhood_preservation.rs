@@ -23,7 +23,7 @@ impl HasPosition for Point {
     }
 }
 
-pub fn shape_quality<N, E, Ty: EdgeType, Ix: IndexType>(
+pub fn neighborhood_preservation<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
     coordinates: &Coordinates<Ix>,
 ) -> f32 {

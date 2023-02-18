@@ -10,3 +10,5 @@ wasm-pack.log
 js/examples/dist
 
 .venv
+
+tmp/*
