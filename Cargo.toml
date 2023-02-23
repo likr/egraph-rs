@@ -7,6 +7,7 @@ members = [
     "crates/cli",
     "crates/clustering",
     "crates/dataset",
+    "crates/drawing",
     "crates/edge-bundling/fdeb",
     "crates/layout/fm3",
     "crates/layout/force",

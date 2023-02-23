@@ -1,0 +1,9 @@
+[package]
+name = "petgraph-drawing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = "0.15"
+num-traits = "0.2"
+petgraph = "0.6"
