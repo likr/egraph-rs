@@ -7,3 +7,11 @@ edition = "2018"
 ndarray = "0.15"
 ordered-float = "3.0"
 petgraph = "0.6"
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+egraph-dataset = { path = "../../dataset", features = ["1138_bus"] }
+
+[[bench]]
+name = "apsp"
+harness = false

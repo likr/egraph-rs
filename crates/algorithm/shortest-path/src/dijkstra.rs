@@ -66,7 +66,7 @@ where
     distance_matrix
 }
 
-pub fn all_pairs_dijkstra<G, F>(graph: G, length: &mut F) -> Array2<f32>
+pub fn all_sources_dijkstra<G, F>(graph: G, length: &mut F) -> Array2<f32>
 where
     G: IntoEdgesDirected + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
