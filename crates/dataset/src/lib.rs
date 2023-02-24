@@ -6,7 +6,7 @@ fn parse<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(input: &str) -> Gr
     let rows = input
         .split_ascii_whitespace()
         .map(|row| {
-            row.split('/')
+            row.split(',')
                 .map(|v| v.parse::<usize>().unwrap())
                 .collect::<Vec<_>>()
         })
