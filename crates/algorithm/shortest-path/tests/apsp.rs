@@ -25,11 +25,16 @@ where
 }
 
 #[test]
-fn test_warshall_floyd() {
-    run(|graph| warshall_floyd(graph, &mut |_| 1.));
+fn test_all_sources_bfs() {
+    run(|graph| all_sources_bfs(graph, 1.));
 }
 
 #[test]
 fn test_all_sources_dijkstra() {
     run(|graph| all_sources_dijkstra(graph, &mut |_| 1.));
+}
+
+#[test]
+fn test_warshall_floyd() {
+    run(|graph| warshall_floyd(graph, &mut |_| 1.));
 }

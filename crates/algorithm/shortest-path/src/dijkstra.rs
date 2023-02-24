@@ -35,6 +35,7 @@ pub fn dijkstra_with_distance_matrix<G, F>(
                 distance_matrix[[indices[&v], k]] = e;
             }
         }
+        // TODO check DiGraph
         for edge in graph.edges_directed(u, Incoming) {
             let v = edge.source();
             let e = d + length(edge);
