@@ -9,24 +9,20 @@ pub struct JsHyperbolicSpace {}
 impl JsHyperbolicSpace {
     #[wasm_bindgen(js_name = toTangentSpace)]
     pub fn to_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
-        let x: (f32, f32) = a
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        let y: (f32, f32) = b
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        Ok(JsValue::from_serde(&HyperbolicSpace::to_tangent_space(x, y)).unwrap())
+        let x: (f32, f32) =
+            serde_wasm_bindgen::from_value(a).map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) =
+            serde_wasm_bindgen::from_value(b).map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(serde_wasm_bindgen::to_value(&HyperbolicSpace::to_tangent_space(x, y)).unwrap())
     }
 
     #[wasm_bindgen(js_name = fromTangentSpace)]
     pub fn from_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
-        let x: (f32, f32) = a
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        let y: (f32, f32) = b
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        Ok(JsValue::from_serde(&HyperbolicSpace::from_tangent_space(x, y)).unwrap())
+        let x: (f32, f32) =
+            serde_wasm_bindgen::from_value(a).map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) =
+            serde_wasm_bindgen::from_value(b).map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(serde_wasm_bindgen::to_value(&HyperbolicSpace::from_tangent_space(x, y)).unwrap())
     }
 
     #[wasm_bindgen(js_name = mapToTangentSpace)]
@@ -65,24 +61,20 @@ pub struct JsSphericalSpace {}
 impl JsSphericalSpace {
     #[wasm_bindgen(js_name = toTangentSpace)]
     pub fn to_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
-        let x: (f32, f32) = a
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        let y: (f32, f32) = b
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        Ok(JsValue::from_serde(&SphericalSpace::to_tangent_space(x, y)).unwrap())
+        let x: (f32, f32) =
+            serde_wasm_bindgen::from_value(a).map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) =
+            serde_wasm_bindgen::from_value(b).map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(serde_wasm_bindgen::to_value(&SphericalSpace::to_tangent_space(x, y)).unwrap())
     }
 
     #[wasm_bindgen(js_name = fromTangentSpace)]
     pub fn from_tangent_space(a: JsValue, b: JsValue) -> Result<JsValue, JsValue> {
-        let x: (f32, f32) = a
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        let y: (f32, f32) = b
-            .into_serde()
-            .map_err(|e| JsValue::from(format!("{}", e)))?;
-        Ok(JsValue::from_serde(&SphericalSpace::from_tangent_space(x, y)).unwrap())
+        let x: (f32, f32) =
+            serde_wasm_bindgen::from_value(a).map_err(|e| JsValue::from(format!("{}", e)))?;
+        let y: (f32, f32) =
+            serde_wasm_bindgen::from_value(b).map_err(|e| JsValue::from(format!("{}", e)))?;
+        Ok(serde_wasm_bindgen::to_value(&SphericalSpace::from_tangent_space(x, y)).unwrap())
     }
 
     #[wasm_bindgen(js_name = mapToTangentSpace)]

@@ -93,7 +93,7 @@ impl JsCoordinates {
             .iter()
             .map(|(u, p)| (u.index(), (p.x, p.y)))
             .collect::<HashMap<usize, (f32, f32)>>();
-        JsValue::from_serde(&result).unwrap()
+        serde_wasm_bindgen::to_value(&result).unwrap()
     }
 
     pub fn centralize(&mut self) {

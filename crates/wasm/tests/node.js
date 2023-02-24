@@ -291,18 +291,18 @@ exports.testCoarsen = function (data) {
   assert.strictEqual(graph.nodeCount(), totalNodes);
 };
 
-exports.testNumberOfCrossings = function (data) {
-  const { Coordinates, numberOfCrossings } = wasm;
+exports.testCrossingNumber = function (data) {
+  const { Coordinates, crossingNumber } = wasm;
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
-  numberOfCrossings(graph, coordinates);
+  crossingNumber(graph, coordinates);
 };
 
-exports.testShapeQuality = function (data) {
-  const { Coordinates, shapeQuality } = wasm;
+exports.testNeighborhoodPreservation = function (data) {
+  const { Coordinates, neighborhoodPreservation } = wasm;
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
-  shapeQuality(graph, coordinates);
+  neighborhoodPreservation(graph, coordinates);
 };
 
 exports.testStress = function (data) {

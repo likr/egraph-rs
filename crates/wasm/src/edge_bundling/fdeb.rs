@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = fdeb)]
-pub fn js_fdeb(graph: &JsGraph, coordinates: &JsValue) -> JsValue {
-    let coordinates: HashMap<usize, (f32, f32)> = coordinates.into_serde().unwrap();
+pub fn js_fdeb(graph: &JsGraph, coordinates: JsValue) -> JsValue {
+    let coordinates: HashMap<usize, (f32, f32)> =
+        serde_wasm_bindgen::from_value(coordinates).unwrap();
     let coordinates = coordinates
         .into_iter()
         .map(|(u, xy)| (node_index(u), xy))
@@ -16,5 +17,5 @@ pub fn js_fdeb(graph: &JsGraph, coordinates: &JsValue) -> JsValue {
         .into_iter()
         .map(|(e, lines)| (e.index(), lines))
         .collect::<HashMap<_, _>>();
-    JsValue::from_serde(&bends).unwrap()
+    serde_wasm_bindgen::to_value(&bends).unwrap()
 }

@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate serde_derive;
-
 mod util;
 
 #[allow(unused_imports)]
@@ -51,10 +48,10 @@ extern "C" {
     fn test_sparse_sgd(data: JsValue);
     #[wasm_bindgen(js_name = "testCoarsen")]
     fn test_coarsen(data: JsValue);
-    #[wasm_bindgen(js_name = "testNumberOfCrossings")]
-    fn test_number_of_crossings(data: JsValue);
-    #[wasm_bindgen(js_name = "testShapeQuality")]
-    fn test_shape_quality(data: JsValue);
+    #[wasm_bindgen(js_name = "testCrossingNumber")]
+    fn test_crossing_number(data: JsValue);
+    #[wasm_bindgen(js_name = "testNeighborhoodPreservation")]
+    fn test_neighborhood_preservation(data: JsValue);
     #[wasm_bindgen(js_name = "testStress")]
     fn test_stress(data: JsValue);
 }
@@ -180,15 +177,15 @@ pub fn coarsen() {
 }
 
 #[wasm_bindgen_test]
-pub fn number_of_crossings() {
+pub fn crossing_number() {
     let data = example_data();
-    test_number_of_crossings(data);
+    test_crossing_number(data);
 }
 
 #[wasm_bindgen_test]
-pub fn shape_quality() {
+pub fn neighborhood_preservation() {
     let data = example_data();
-    test_shape_quality(data);
+    test_neighborhood_preservation(data);
 }
 
 #[wasm_bindgen_test]
