@@ -1,27 +1,9 @@
+use linfa_nn::{distance::L2Dist, BallTree, NearestNeighbour};
+use ndarray::prelude::*;
 use petgraph::graph::{Graph, IndexType};
 use petgraph::EdgeType;
 use petgraph_layout_force_simulation::Coordinates;
-use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 use std::collections::HashSet;
-
-struct Point {
-    x: f32,
-    y: f32,
-    index: usize,
-}
-
-impl Point {
-    fn new(index: usize, x: f32, y: f32) -> Point {
-        Point { x, y, index }
-    }
-}
-
-impl HasPosition for Point {
-    type Scalar = f32;
-    fn position(&self) -> Point2<f32> {
-        Point2::new(self.x, self.y)
-    }
-}
 
 pub fn neighborhood_preservation<N, E, Ty: EdgeType, Ix: IndexType>(
     graph: &Graph<N, E, Ty, Ix>,
@@ -34,21 +16,34 @@ pub fn neighborhood_preservation<N, E, Ty: EdgeType, Ix: IndexType>(
         graph_edges.insert((v.index(), u.index()));
     }
 
-    let mut triangulation: DelaunayTriangulation<_> = DelaunayTriangulation::new();
-    for u in graph.node_indices() {
-        let (x, y) = coordinates.position(u).unwrap();
-        triangulation.insert(Point::new(u.index(), x, y)).unwrap();
+    let n = coordinates.len();
+    let mut points = Array2::zeros((n, 2));
+    for i in 0..n {
+        points[[i, 0]] = coordinates.points[i].x;
+        points[[i, 1]] = coordinates.points[i].y;
     }
+    let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
 
     let mut cap = 0;
     let mut cup = graph_edges.len();
-    for edge in triangulation.directed_edges() {
-        let u = edge.from().data().index;
-        let v = edge.to().data().index;
-        if graph_edges.contains(&(u, v)) {
-            cap += 2;
-        } else {
-            cup += 2;
+    for i in 0..n {
+        let u = coordinates.indices[i];
+        let p = coordinates.points[i];
+        let x = p.x;
+        let y = p.y;
+        let d = graph.neighbors_undirected(u).count();
+        let query = arr1(&[x, y]);
+        let neighbors = nn.k_nearest(query.view(), d + 1).unwrap();
+        for &(_, j) in neighbors.iter() {
+            if i == j {
+                continue;
+            }
+            let v = coordinates.indices[j];
+            if graph_edges.contains(&(u.index(), v.index())) {
+                cap += 1;
+            } else {
+                cup += 1;
+            }
         }
     }
 
