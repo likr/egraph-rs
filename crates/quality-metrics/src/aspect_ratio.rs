@@ -1,48 +1,32 @@
-use petgraph::graph::{Graph, IndexType};
-use petgraph::EdgeType;
+use petgraph::graph::IndexType;
 use petgraph_layout_force_simulation::Coordinates;
-use std::f32::{consts::PI, MAX, MIN};
 
-pub fn aspect_ratio<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    coordinates: &Coordinates<Ix>,
-) -> f32 {
-    let n = graph.node_count();
-
+pub fn aspect_ratio<Ix: IndexType>(coordinates: &Coordinates<Ix>) -> f32 {
     let mut cx = 0.;
     let mut cy = 0.;
-    for u in graph.node_indices() {
-        let (x, y) = coordinates.position(u).unwrap();
-        cx += x;
-        cy += y;
+    for p in coordinates.points.iter() {
+        let xi = p.x;
+        let yi = p.y;
+        cx += xi;
+        cy += yi;
     }
-    cx /= n as f32;
-    cy /= n as f32;
+    cx /= coordinates.len() as f32;
+    cy /= coordinates.len() as f32;
 
-    let mut ratio = MAX;
-    let repeat = 7;
-    for i in 0..repeat {
-        let mut left = MAX;
-        let mut right = MIN;
-        let mut top = MAX;
-        let mut bottom = MIN;
-        let t = 2. * PI * i as f32 / n as f32;
-        let cost = t.cos();
-        let sint = t.sin();
-        for u in graph.node_indices() {
-            let (x, y) = coordinates.position(u).unwrap();
-            let xo = x - cx;
-            let yo = y - cy;
-            let rx = xo * cost - yo * sint;
-            let ry = xo * sint + yo * cost;
-            left = left.min(rx);
-            right = right.max(rx);
-            top = top.min(ry);
-            bottom = bottom.max(ry);
-        }
-        let w = right - left;
-        let h = bottom - top;
-        ratio = ratio.min(w.min(h) / w.max(h));
+    let mut xx = 0.;
+    let mut xy = 0.;
+    let mut yy = 0.;
+    for p in coordinates.points.iter() {
+        let xi = p.x - cx;
+        let yi = p.y - cy;
+        xx += xi * xi;
+        xy += xi * yi;
+        yy += yi * yi;
     }
-    ratio
+
+    let tr = xx + yy;
+    let det = xx * yy - xy * xy;
+    let sigma1 = ((tr + (tr * tr - 4. * det).sqrt()) / 2.).sqrt();
+    let sigma2 = ((tr - (tr * tr - 4. * det).sqrt()) / 2.).sqrt();
+    sigma2 / sigma1
 }

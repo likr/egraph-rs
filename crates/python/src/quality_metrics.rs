@@ -33,8 +33,8 @@ fn py_angular_resolution(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
 
 #[pyfunction]
 #[pyo3(name = "aspect_ratio")]
-fn py_aspect_ratio(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
-    aspect_ratio(graph.graph(), coordinates.coordinates())
+fn py_aspect_ratio(coordinates: &PyCoordinates) -> f32 {
+    aspect_ratio(coordinates.coordinates())
 }
 
 #[pyfunction]

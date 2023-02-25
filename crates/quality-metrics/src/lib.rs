@@ -116,7 +116,7 @@ pub fn quality_metrics_with_targets<N, E, Ty: EdgeType, Ix: IndexType>(
                 QualityMetric::CrossingAngle => {
                     crossing_angle_with_crossing_edges(graph, coordinates, &crossing_edges)
                 }
-                QualityMetric::AspectRatio => aspect_ratio(graph, coordinates),
+                QualityMetric::AspectRatio => aspect_ratio(coordinates),
                 QualityMetric::AngularResolution => angular_resolution(graph, coordinates),
                 QualityMetric::NodeResolution => node_resolution(graph, coordinates),
                 QualityMetric::GabrielGraphProperty => gabriel_graph_property(graph, coordinates),

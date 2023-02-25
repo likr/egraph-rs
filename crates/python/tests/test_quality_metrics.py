@@ -44,8 +44,8 @@ class TestQualityMetrics(unittest.TestCase):
             angular_resolution(graph, drawing)
 
     def test_aspect_ratio(self):
-        for (graph, drawing, _) in self._graphs:
-            aspect_ratio(graph, drawing)
+        for (_, drawing, _) in self._graphs:
+            aspect_ratio(drawing)
 
     def test_crossing_angle(self):
         for (graph, drawing, _) in self._graphs:
