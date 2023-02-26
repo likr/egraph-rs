@@ -165,6 +165,10 @@ impl StressMajorization {
         let StressMajorization {
             b, d, l_w, l_z, w, ..
         } = self;
+        for i in 1..n {
+            coordinates.points[i].x -= coordinates.points[n - 1].x;
+            coordinates.points[i].y -= coordinates.points[n - 1].y;
+        }
         for i in 1..n - 1 {
             for j in 0..i {
                 let dx = coordinates.points[i].x - coordinates.points[j].x;
