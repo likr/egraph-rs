@@ -1,8 +1,12 @@
 use crate::{Force, ForceToNode};
-use petgraph::graph::{Graph, IndexType, NodeIndex};
-use petgraph::EdgeType;
-use std::collections::HashMap;
-use std::f32::consts::PI;
+use petgraph::{
+    graph::{Graph, IndexType, NodeIndex},
+    EdgeType,
+};
+use std::{
+    collections::{HashMap, VecDeque},
+    f32::consts::PI,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -169,8 +173,16 @@ impl<Ix: IndexType> Coordinates<Ix> {
     }
 
     pub fn initial_placement<N, E, Ty: EdgeType>(graph: &Graph<N, E, Ty, Ix>) -> Coordinates<Ix> {
+        let nodes = graph.node_indices().collect::<Vec<_>>();
+        Coordinates::initial_placement_with_node_order(graph, &nodes)
+    }
+
+    pub fn initial_placement_with_node_order<N, E, Ty: EdgeType>(
+        graph: &Graph<N, E, Ty, Ix>,
+        nodes: &[NodeIndex<Ix>],
+    ) -> Coordinates<Ix> {
         let mut coordinates = Coordinates::new(graph);
-        for (i, u) in graph.node_indices().enumerate() {
+        for (i, &u) in nodes.iter().enumerate() {
             let r = 10. * (i as usize as f32).sqrt();
             let theta = PI * (3. - (5. as f32).sqrt()) * (i as usize as f32);
             let x = r * theta.cos();
@@ -178,6 +190,29 @@ impl<Ix: IndexType> Coordinates<Ix> {
             coordinates.set_position(u, (x, y));
         }
         coordinates
+    }
+
+    pub fn initial_placement_with_bfs_order<N, E, Ty: EdgeType>(
+        graph: &Graph<N, E, Ty, Ix>,
+        s: NodeIndex<Ix>,
+    ) -> Coordinates<Ix> {
+        let mut queue = VecDeque::new();
+        queue.push_back(s);
+        let mut order = HashMap::new();
+        order.insert(s, 0);
+        let mut index = 1usize;
+        while let Some(u) = queue.pop_front() {
+            for v in graph.neighbors_undirected(u) {
+                if !order.contains_key(&v) {
+                    queue.push_back(v);
+                    order.insert(v, index);
+                    index += 1;
+                }
+            }
+        }
+        let mut nodes = graph.node_indices().collect::<Vec<_>>();
+        nodes.sort_by_key(|&u| order.get(&u).or(Some(&std::usize::MAX)));
+        Coordinates::initial_placement_with_node_order(graph, &nodes)
     }
 }
 
