@@ -100,6 +100,14 @@ impl PyCoordinates {
     pub fn initial_placement(graph: &PyGraph) -> PyCoordinates {
         PyCoordinates::new(Coordinates::initial_placement(graph.graph()))
     }
+
+    #[staticmethod]
+    pub fn initial_placement_with_bfs_order(graph: &PyGraph, s: usize) -> PyCoordinates {
+        PyCoordinates::new(Coordinates::initial_placement_with_bfs_order(
+            graph.graph(),
+            node_index(s),
+        ))
+    }
 }
 
 pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
