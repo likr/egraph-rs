@@ -139,8 +139,8 @@ impl StressMajorization {
         let mut x_x = Array1::zeros(n - 1);
         let mut x_y = Array1::zeros(n - 1);
         for i in 0..n - 1 {
-            x_x[i] = coordinates.points[i].x;
-            x_y[i] = coordinates.points[i].y;
+            x_x[i] = coordinates.points[i].x - coordinates.points[n - 1].x;
+            x_y[i] = coordinates.points[i].y - coordinates.points[n - 1].y;
         }
 
         let epsilon = 1e-4;
@@ -165,7 +165,7 @@ impl StressMajorization {
         let StressMajorization {
             b, d, l_w, l_z, w, ..
         } = self;
-        for i in 1..n {
+        for i in 0..n {
             coordinates.points[i].x -= coordinates.points[n - 1].x;
             coordinates.points[i].y -= coordinates.points[n - 1].y;
         }
@@ -203,6 +203,7 @@ impl StressMajorization {
         }
 
         for i in 0..n - 1 {
+            self.x_x[i] = coordinates.points[i].x;
             let mut s = 0.;
             for j in 0..n - 1 {
                 s += l_z[[i, j]] * coordinates.points[j].x;
@@ -212,6 +213,7 @@ impl StressMajorization {
         conjugate_gradient(&l_w, &b, &mut self.x_x, self.epsilon);
 
         for i in 0..n - 1 {
+            self.x_y[i] = coordinates.points[i].y;
             let mut s = 0.;
             for j in 0..n - 1 {
                 s += l_z[[i, j]] * coordinates.points[j].y;
