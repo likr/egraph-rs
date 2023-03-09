@@ -1,5 +1,5 @@
 use ndarray::prelude::*;
-use petgraph::visit::{IntoEdgeReferences, IntoNodeIdentifiers, NodeCount};
+use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
 use petgraph_layout_force_simulation::Coordinates;
 use std::hash::Hash;
@@ -97,7 +97,7 @@ pub struct StressMajorization {
 impl StressMajorization {
     pub fn new<G, F>(graph: G, coordinates: &Coordinates<u32>, length: &mut F) -> StressMajorization
     where
-        G: IntoEdgeReferences + IntoNodeIdentifiers + NodeCount,
+        G: IntoEdges + IntoNodeIdentifiers + NodeCount,
         G::NodeId: Eq + Hash,
         F: FnMut(G::EdgeRef) -> f32,
     {

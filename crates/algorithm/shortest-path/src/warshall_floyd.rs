@@ -1,10 +1,10 @@
 use ndarray::prelude::*;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers};
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers};
 use std::{collections::HashMap, f32::INFINITY, hash::Hash};
 
 pub fn warshall_floyd<G, F>(graph: G, length: &mut F) -> Array2<f32>
 where
-    G: IntoEdgeReferences + IntoNodeIdentifiers,
+    G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,
     F: FnMut(G::EdgeRef) -> f32,
 {
@@ -16,12 +16,13 @@ where
     let n = indices.len();
     let mut distance = Array::from_elem((n, n), INFINITY);
 
-    for e in graph.edge_references() {
-        let i = indices[&e.source()];
-        let j = indices[&e.target()];
-        let d = length(e);
-        distance[[i, j]] = d;
-        distance[[j, i]] = d;
+    for u in graph.node_identifiers() {
+        for e in graph.edges(u) {
+            let i = indices[&e.source()];
+            let j = indices[&e.target()];
+            let d = length(e);
+            distance[[j, i]] = d;
+        }
     }
     for i in 0..n {
         distance[[i, i]] = 0.;

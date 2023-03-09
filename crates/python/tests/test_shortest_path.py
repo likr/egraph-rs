@@ -21,7 +21,7 @@ class TestShortestPath(unittest.TestCase):
         ]
         cls._digraphs = [
             create_graph(nx.les_miserables_graph().to_directed()),
-            # create_graph(nx.gn_graph(100, seed=0))
+            create_graph(nx.gn_graph(100, seed=0))
         ]
 
     def check(self, nx_graph, d_actual):
@@ -31,17 +31,7 @@ class TestShortestPath(unittest.TestCase):
             for j in range(n):
                 self.assertEqual(
                     d_actual.get(i, j),
-                    d_expected[i, j],
-                    f'({i},{j})'
-                )
-                self.assertEqual(
-                    d_actual.get(i, j),
-                    d_actual.get(j, i),
-                    f'({i},{j})'
-                )
-                self.assertEqual(
                     d_expected[j, i],
-                    d_expected[i, j],
                     f'({i},{j})'
                 )
 
