@@ -1,8 +1,11 @@
-use crate::{coordinates::PyCoordinates, graph::PyGraph, rng::PyRng};
+use crate::{
+    coordinates::PyCoordinates,
+    graph::{GraphType, PyGraphAdapter},
+    rng::PyRng,
+};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{Sgd, SgdScheduler, SparseSgd};
 use pyo3::prelude::*;
-use std::collections::HashMap;
 
 #[pyclass]
 #[pyo3(name = "SgdScheduler")]
@@ -38,19 +41,17 @@ struct PySparseSgd {
 #[pymethods]
 impl PySparseSgd {
     #[new]
-    fn new(graph: &PyGraph, f: &PyAny, h: usize, rng: &mut PyRng) -> PySparseSgd {
-        let mut distance = HashMap::new();
-        for e in graph.graph().edge_indices() {
-            let v = f.call1((e.index(),)).unwrap().extract().unwrap();
-            distance.insert(e, v);
-        }
+    fn new(graph: &PyGraphAdapter, f: &PyAny, h: usize, rng: &mut PyRng) -> PySparseSgd {
         PySparseSgd {
-            sgd: SparseSgd::new_with_rng(
-                graph.graph(),
-                &mut |e| distance[&e.id()],
-                h,
-                rng.get_mut(),
-            ),
+            sgd: match graph.graph() {
+                GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
+                    native_graph,
+                    &mut |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    h,
+                    rng.get_mut(),
+                ),
+                _ => panic!("unsupported graph type"),
+            },
         }
     }
 

@@ -1,7 +1,7 @@
 use crate::{
     coordinates::PyCoordinates,
     distance_matrix::PyDistanceMatrix,
-    graph::{IndexType, PyGraph},
+    graph::{GraphType, IndexType, PyGraphAdapter},
 };
 use petgraph::graph::EdgeIndex;
 use petgraph_quality_metrics::{
@@ -19,16 +19,30 @@ pub struct PyCrossingEdges {
 
 #[pyfunction]
 #[pyo3(name = "crossing_edges")]
-fn py_crossing_edges(graph: &PyGraph, coordinates: &PyCoordinates) -> PyCrossingEdges {
+fn py_crossing_edges(graph: &PyGraphAdapter, coordinates: &PyCoordinates) -> PyCrossingEdges {
     PyCrossingEdges {
-        crossing_edges: crossing_edges(graph.graph(), coordinates.coordinates()),
+        crossing_edges: match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                crossing_edges(native_graph, coordinates.coordinates())
+            }
+            GraphType::DiGraph(native_graph) => {
+                crossing_edges(native_graph, coordinates.coordinates())
+            }
+        },
     }
 }
 
 #[pyfunction]
 #[pyo3(name = "angular_resolution")]
-fn py_angular_resolution(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
-    angular_resolution(graph.graph(), coordinates.coordinates())
+fn py_angular_resolution(graph: &PyGraphAdapter, coordinates: &PyCoordinates) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => {
+            angular_resolution(native_graph, coordinates.coordinates())
+        }
+        GraphType::DiGraph(native_graph) => {
+            angular_resolution(native_graph, coordinates.coordinates())
+        }
+    }
 }
 
 #[pyfunction]
@@ -40,65 +54,112 @@ fn py_aspect_ratio(coordinates: &PyCoordinates) -> f32 {
 #[pyfunction]
 #[pyo3(name = "crossing_angle")]
 fn py_crossing_angle(
-    graph: &PyGraph,
+    graph: &PyGraphAdapter,
     coordinates: &PyCoordinates,
     crossing_edges: Option<&PyCrossingEdges>,
 ) -> f32 {
     if let Some(ce) = crossing_edges {
-        crossing_angle_with_crossing_edges(
-            graph.graph(),
-            coordinates.coordinates(),
-            &ce.crossing_edges,
-        )
+        match graph.graph() {
+            GraphType::Graph(native_graph) => crossing_angle_with_crossing_edges(
+                native_graph,
+                coordinates.coordinates(),
+                &ce.crossing_edges,
+            ),
+            GraphType::DiGraph(native_graph) => crossing_angle_with_crossing_edges(
+                native_graph,
+                coordinates.coordinates(),
+                &ce.crossing_edges,
+            ),
+        }
     } else {
-        crossing_angle(graph.graph(), coordinates.coordinates())
+        match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                crossing_angle(native_graph, coordinates.coordinates())
+            }
+            GraphType::DiGraph(native_graph) => {
+                crossing_angle(native_graph, coordinates.coordinates())
+            }
+        }
     }
 }
 
 #[pyfunction]
 #[pyo3(name = "crossing_number")]
 fn py_crossing_number(
-    graph: &PyGraph,
+    graph: &PyGraphAdapter,
     coordinates: &PyCoordinates,
     crossing_edges: Option<&PyCrossingEdges>,
 ) -> f32 {
     if let Some(ce) = crossing_edges {
         crossing_number_with_crossing_edges(&ce.crossing_edges)
     } else {
-        crossing_number(graph.graph(), coordinates.coordinates())
+        match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                crossing_number(native_graph, coordinates.coordinates())
+            }
+            GraphType::DiGraph(native_graph) => {
+                crossing_number(native_graph, coordinates.coordinates())
+            }
+        }
     }
 }
 
 #[pyfunction]
 #[pyo3(name = "gabriel_graph_property")]
-fn py_gabriel_graph_property(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
-    gabriel_graph_property(graph.graph(), coordinates.coordinates())
+fn py_gabriel_graph_property(graph: &PyGraphAdapter, coordinates: &PyCoordinates) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => {
+            gabriel_graph_property(native_graph, coordinates.coordinates())
+        }
+        GraphType::DiGraph(native_graph) => {
+            gabriel_graph_property(native_graph, coordinates.coordinates())
+        }
+    }
 }
 
 #[pyfunction]
 #[pyo3(name = "ideal_edge_lengths")]
 fn py_ideal_edge_lengths(
-    graph: &PyGraph,
+    graph: &PyGraphAdapter,
     coordinates: &PyCoordinates,
     distance_matrix: &PyDistanceMatrix,
 ) -> f32 {
-    ideal_edge_lengths(
-        graph.graph(),
-        coordinates.coordinates(),
-        distance_matrix.distance_matrix(),
-    )
+    match graph.graph() {
+        GraphType::Graph(native_graph) => ideal_edge_lengths(
+            native_graph,
+            coordinates.coordinates(),
+            distance_matrix.distance_matrix(),
+        ),
+        GraphType::DiGraph(native_graph) => ideal_edge_lengths(
+            native_graph,
+            coordinates.coordinates(),
+            distance_matrix.distance_matrix(),
+        ),
+    }
 }
 
 #[pyfunction]
 #[pyo3(name = "neighborhood_preservation")]
-fn py_neighborhood_preservation(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
-    neighborhood_preservation(graph.graph(), coordinates.coordinates())
+fn py_neighborhood_preservation(graph: &PyGraphAdapter, coordinates: &PyCoordinates) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => {
+            neighborhood_preservation(native_graph, coordinates.coordinates())
+        }
+        GraphType::DiGraph(native_graph) => {
+            neighborhood_preservation(native_graph, coordinates.coordinates())
+        }
+    }
 }
 
 #[pyfunction]
 #[pyo3(name = "node_resolution")]
-fn py_node_resolution(graph: &PyGraph, coordinates: &PyCoordinates) -> f32 {
-    node_resolution(graph.graph(), coordinates.coordinates())
+fn py_node_resolution(graph: &PyGraphAdapter, coordinates: &PyCoordinates) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => node_resolution(native_graph, coordinates.coordinates()),
+        GraphType::DiGraph(native_graph) => {
+            node_resolution(native_graph, coordinates.coordinates())
+        }
+    }
 }
 
 #[pyfunction]

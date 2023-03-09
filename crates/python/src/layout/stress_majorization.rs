@@ -1,8 +1,11 @@
-use crate::{coordinates::PyCoordinates, distance_matrix::PyDistanceMatrix, graph::PyGraph};
+use crate::{
+    coordinates::PyCoordinates,
+    distance_matrix::PyDistanceMatrix,
+    graph::{GraphType, PyGraphAdapter},
+};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
 use pyo3::{prelude::*, types::PyType};
-use std::collections::HashMap;
 
 #[pyclass]
 #[pyo3(name = "StressMajorization")]
@@ -13,18 +16,16 @@ struct PyStressMajorization {
 #[pymethods]
 impl PyStressMajorization {
     #[new]
-    fn new(graph: &PyGraph, coordinates: &PyCoordinates, f: &PyAny) -> PyStressMajorization {
-        let mut distance = HashMap::new();
-        for e in graph.graph().edge_indices() {
-            let v = f.call1((e.index(),)).unwrap().extract().unwrap();
-            distance.insert(e, v);
-        }
+    fn new(graph: &PyGraphAdapter, coordinates: &PyCoordinates, f: &PyAny) -> PyStressMajorization {
         PyStressMajorization {
-            stress_majorization: StressMajorization::new(
-                graph.graph(),
-                coordinates.coordinates(),
-                &mut |e| distance[&e.id()],
-            ),
+            stress_majorization: match graph.graph() {
+                GraphType::Graph(native_graph) => {
+                    StressMajorization::new(native_graph, coordinates.coordinates(), &mut |e| {
+                        f.call1((e.id().index(),)).unwrap().extract().unwrap()
+                    })
+                }
+                _ => panic!("unsupported graph type"),
+            },
         }
     }
 

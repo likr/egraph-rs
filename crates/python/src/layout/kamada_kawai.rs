@@ -1,9 +1,10 @@
-use crate::coordinates::PyCoordinates;
-use crate::graph::PyGraph;
+use crate::{
+    coordinates::PyCoordinates,
+    graph::{GraphType, PyGraphAdapter},
+};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_kamada_kawai::KamadaKawai;
 use pyo3::prelude::*;
-use std::collections::HashMap;
 
 #[pyclass]
 #[pyo3(name = "KamadaKawai")]
@@ -14,14 +15,14 @@ struct PyKamadaKawai {
 #[pymethods]
 impl PyKamadaKawai {
     #[new]
-    fn new(graph: &PyGraph, f: &PyAny) -> PyKamadaKawai {
-        let mut distance = HashMap::new();
-        for e in graph.graph().edge_indices() {
-            let v = f.call1((e.index(),)).unwrap().extract().unwrap();
-            distance.insert(e, v);
-        }
+    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyKamadaKawai {
         PyKamadaKawai {
-            kamada_kawai: KamadaKawai::new(graph.graph(), &mut |e| distance[&e.id()]),
+            kamada_kawai: match graph.graph() {
+                GraphType::Graph(native_graph) => KamadaKawai::new(native_graph, &mut |e| {
+                    f.call1((e.id().index(),)).unwrap().extract().unwrap()
+                }),
+                _ => panic!("unsupported graph type"),
+            },
         }
     }
 

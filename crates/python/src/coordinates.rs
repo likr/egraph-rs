@@ -1,4 +1,4 @@
-use crate::graph::{IndexType, PyGraph};
+use crate::graph::{GraphType, IndexType, PyGraphAdapter};
 use petgraph::graph::{node_index, NodeIndex};
 use petgraph_layout_force_simulation::{Coordinates, Point};
 use pyo3::prelude::*;
@@ -97,16 +97,23 @@ impl PyCoordinates {
     }
 
     #[staticmethod]
-    pub fn initial_placement(graph: &PyGraph) -> PyCoordinates {
-        PyCoordinates::new(Coordinates::initial_placement(graph.graph()))
+    pub fn initial_placement(graph: &PyGraphAdapter) -> PyCoordinates {
+        PyCoordinates::new(match graph.graph() {
+            GraphType::Graph(native_graph) => Coordinates::initial_placement(native_graph),
+            GraphType::DiGraph(native_graph) => Coordinates::initial_placement(native_graph),
+        })
     }
 
     #[staticmethod]
-    pub fn initial_placement_with_bfs_order(graph: &PyGraph, s: usize) -> PyCoordinates {
-        PyCoordinates::new(Coordinates::initial_placement_with_bfs_order(
-            graph.graph(),
-            node_index(s),
-        ))
+    pub fn initial_placement_with_bfs_order(graph: &PyGraphAdapter, s: usize) -> PyCoordinates {
+        PyCoordinates::new(match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                Coordinates::initial_placement_with_bfs_order(native_graph, node_index(s))
+            }
+            GraphType::DiGraph(native_graph) => {
+                Coordinates::initial_placement_with_bfs_order(native_graph, node_index(s))
+            }
+        })
     }
 }
 

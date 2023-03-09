@@ -1,8 +1,10 @@
-use crate::{coordinates::PyCoordinates, graph::PyGraph};
+use crate::{
+    coordinates::PyCoordinates,
+    graph::{GraphType, PyGraphAdapter},
+};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_mds::ClassicalMds;
 use pyo3::prelude::*;
-use std::collections::HashMap;
 
 #[pyclass]
 #[pyo3(name = "ClassicalMds")]
@@ -19,13 +21,13 @@ impl PyClassicalMds {
         }
     }
 
-    fn run(&self, graph: &PyGraph, f: &PyAny) -> PyCoordinates {
-        let mut distance = HashMap::new();
-        for e in graph.graph().edge_indices() {
-            let v = f.call1((e.index(),)).unwrap().extract().unwrap();
-            distance.insert(e, v);
-        }
-        PyCoordinates::new(self.mds.run(graph.graph(), &mut |e| distance[&e.id()]))
+    fn run(&self, graph: &PyGraphAdapter, f: &PyAny) -> PyCoordinates {
+        PyCoordinates::new(match graph.graph() {
+            GraphType::Graph(native_graph) => self.mds.run(native_graph, &mut |e| {
+                f.call1((e.id().index(),)).unwrap().extract().unwrap()
+            }),
+            _ => panic!("unsupported graph type"),
+        })
     }
 }
 
