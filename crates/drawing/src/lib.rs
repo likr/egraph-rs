@@ -1,7 +1,10 @@
 use ndarray::prelude::*;
 use num_traits::{cast::FromPrimitive, clamp, float::FloatConst};
-use petgraph::visit::IntoNodeIdentifiers;
-use std::{collections::HashMap, hash::Hash};
+use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
+use std::{
+    collections::{HashMap, VecDeque},
+    hash::Hash,
+};
 
 pub struct Drawing<N, S>
 where
@@ -120,8 +123,19 @@ where
         N: Copy,
         S: FloatConst + FromPrimitive,
     {
+        let nodes = graph.node_identifiers().collect::<Vec<_>>();
+        Drawing::initial_placement_with_node_order(graph, &nodes)
+    }
+
+    pub fn initial_placement_with_node_order<G>(graph: G, nodes: &[G::NodeId]) -> Drawing<N, S>
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Into<N>,
+        N: Copy,
+        S: FloatConst + FromPrimitive,
+    {
         let mut drawing = Drawing::new(graph);
-        for (i, u) in graph.node_identifiers().enumerate() {
+        for (i, &u) in nodes.iter().enumerate() {
             let r = S::from_usize(10).unwrap() * S::from_usize(i).unwrap().sqrt();
             let theta = S::PI()
                 * (S::from_usize(3).unwrap() - S::from_usize(5).unwrap().sqrt())
@@ -131,6 +145,32 @@ where
             drawing.set_position(u.into(), (x, y));
         }
         drawing
+    }
+
+    pub fn initial_placement_with_bfs_order<G>(graph: G, s: G::NodeId) -> Drawing<N, S>
+    where
+        G: IntoNeighbors + IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Into<N>,
+        N: Copy,
+        S: FloatConst + FromPrimitive,
+    {
+        let mut queue = VecDeque::new();
+        queue.push_back(s);
+        let mut order = HashMap::new();
+        order.insert(s, 0);
+        let mut index = 1usize;
+        while let Some(u) = queue.pop_front() {
+            for v in graph.neighbors(u) {
+                if !order.contains_key(&v) {
+                    queue.push_back(v);
+                    order.insert(v, index);
+                    index += 1;
+                }
+            }
+        }
+        let mut nodes = graph.node_identifiers().collect::<Vec<_>>();
+        nodes.sort_by_key(|&u| order.get(&u).or(Some(&std::usize::MAX)));
+        Drawing::initial_placement_with_node_order(graph, &nodes)
     }
 }
 
