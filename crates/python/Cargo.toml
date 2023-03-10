@@ -13,6 +13,7 @@ ndarray = "0.15"
 pyo3 = { version = "0.16.3", features = ["extension-module"] }
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
+petgraph-drawing = { path = "../drawing" }
 petgraph-layout-force= { path = "../layout/force" }
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }

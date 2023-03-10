@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph_drawing::Drawing;
 use std::hash::Hash;
 
 fn line_search(a: &Array2<f32>, dx: &Array1<f32>, d: &Array1<f32>) -> f32 {
@@ -95,21 +95,24 @@ pub struct StressMajorization {
 }
 
 impl StressMajorization {
-    pub fn new<G, F>(graph: G, coordinates: &Coordinates<u32>, length: &mut F) -> StressMajorization
+    pub fn new<G, F>(graph: G, drawing: &Drawing<G::NodeId, f32>, length: F) -> StressMajorization
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
         G::NodeId: Eq + Hash,
         F: FnMut(G::EdgeRef) -> f32,
     {
         let d = warshall_floyd(graph, length);
-        StressMajorization::new_with_distance_matrix(coordinates, &d)
+        StressMajorization::new_with_distance_matrix(drawing, &d)
     }
 
-    pub fn new_with_distance_matrix(
-        coordinates: &Coordinates<u32>,
+    pub fn new_with_distance_matrix<N>(
+        drawing: &Drawing<N, f32>,
         d: &Array2<f32>,
-    ) -> StressMajorization {
-        let n = coordinates.len();
+    ) -> StressMajorization
+    where
+        N: Eq + Hash,
+    {
+        let n = drawing.len();
 
         let mut w = Array2::zeros((n, n));
         for j in 1..n {
@@ -139,8 +142,8 @@ impl StressMajorization {
         let mut x_x = Array1::zeros(n - 1);
         let mut x_y = Array1::zeros(n - 1);
         for i in 0..n - 1 {
-            x_x[i] = coordinates.points[i].x - coordinates.points[n - 1].x;
-            x_y[i] = coordinates.points[i].y - coordinates.points[n - 1].y;
+            x_x[i] = drawing.coordinates[[i, 0]] - drawing.coordinates[[n - 1, 0]];
+            x_y[i] = drawing.coordinates[[i, 1]] - drawing.coordinates[[n - 1, 1]];
         }
 
         let epsilon = 1e-4;
@@ -160,19 +163,22 @@ impl StressMajorization {
         }
     }
 
-    pub fn apply(&mut self, coordinates: &mut Coordinates<u32>) -> f32 {
-        let n = coordinates.len();
+    pub fn apply<N>(&mut self, drawing: &mut Drawing<N, f32>) -> f32
+    where
+        N: Eq + Hash,
+    {
+        let n = drawing.len();
         let StressMajorization {
             b, d, l_w, l_z, w, ..
         } = self;
         for i in 0..n {
-            coordinates.points[i].x -= coordinates.points[n - 1].x;
-            coordinates.points[i].y -= coordinates.points[n - 1].y;
+            drawing.coordinates[[i, 0]] -= drawing.coordinates[[n - 1, 0]];
+            drawing.coordinates[[i, 1]] -= drawing.coordinates[[n - 1, 1]];
         }
         for i in 1..n - 1 {
             for j in 0..i {
-                let dx = coordinates.points[i].x - coordinates.points[j].x;
-                let dy = coordinates.points[i].y - coordinates.points[j].y;
+                let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
+                let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
                 let norm = (dx * dx + dy * dy).sqrt();
                 let lij = if norm < 1e-4 {
                     0.
@@ -191,8 +197,8 @@ impl StressMajorization {
                 }
             }
             let j = n - 1;
-            let dx = coordinates.points[i].x;
-            let dy = coordinates.points[i].y;
+            let dx = drawing.coordinates[[i, 0]];
+            let dy = drawing.coordinates[[i, 1]];
             let norm = (dx * dx + dy * dy).sqrt();
             s -= if norm < 1e-4 {
                 0.
@@ -203,20 +209,20 @@ impl StressMajorization {
         }
 
         for i in 0..n - 1 {
-            self.x_x[i] = coordinates.points[i].x;
+            self.x_x[i] = drawing.coordinates[[i, 0]];
             let mut s = 0.;
             for j in 0..n - 1 {
-                s += l_z[[i, j]] * coordinates.points[j].x;
+                s += l_z[[i, j]] * drawing.coordinates[[j, 0]];
             }
             b[i] = s;
         }
         conjugate_gradient(&l_w, &b, &mut self.x_x, self.epsilon);
 
         for i in 0..n - 1 {
-            self.x_y[i] = coordinates.points[i].y;
+            self.x_y[i] = drawing.coordinates[[i, 1]];
             let mut s = 0.;
             for j in 0..n - 1 {
-                s += l_z[[i, j]] * coordinates.points[j].y;
+                s += l_z[[i, j]] * drawing.coordinates[[j, 1]];
             }
             b[i] = s;
         }
@@ -226,13 +232,16 @@ impl StressMajorization {
         let diff = (self.stress - stress) / self.stress;
         self.stress = stress;
         for i in 0..n - 1 {
-            coordinates.points[i].x = self.x_x[i];
-            coordinates.points[i].y = self.x_y[i];
+            drawing.coordinates[[i, 0]] = self.x_x[i];
+            drawing.coordinates[[i, 1]] = self.x_y[i];
         }
         diff
     }
 
-    pub fn run(&mut self, coordinates: &mut Coordinates<u32>) {
+    pub fn run<N>(&mut self, coordinates: &mut Drawing<N, f32>)
+    where
+        N: Eq + Hash,
+    {
         loop {
             if self.apply(coordinates) < self.epsilon {
                 break;
@@ -269,7 +278,7 @@ fn test_stress_majorization() {
             graph.add_edge(nodes[i], nodes[j], ());
         }
     }
-    let mut coordinates = Coordinates::initial_placement(&graph);
+    let mut coordinates = Drawing::initial_placement(&graph);
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));

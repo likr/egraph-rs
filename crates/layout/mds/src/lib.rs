@@ -1,11 +1,8 @@
 use ndarray::prelude::*;
-use petgraph::prelude::*;
-use petgraph::{
-    graph::{EdgeReference, IndexType},
-    EdgeType,
-};
+use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{multi_source_dijkstra, warshall_floyd};
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph_drawing::Drawing;
+use std::hash::Hash;
 
 fn cos(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let ab = a.dot(b);
@@ -67,41 +64,42 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
     (e, v)
 }
 
-fn classical_mds<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-    graph: &Graph<N, E, Ty, Ix>,
-    length: &mut F,
-    eps: f32,
-) -> Coordinates<Ix> {
-    let mut delta = warshall_floyd(&graph, length);
+fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing<G::NodeId, f32>
+where
+    G: IntoEdges + IntoNodeIdentifiers,
+    G::NodeId: Eq + Hash,
+    F: FnMut(G::EdgeRef) -> f32,
+{
+    let mut delta = warshall_floyd(graph, length);
     delta = delta.mapv_into(|v| v.powi(2));
     let b = double_centering(&delta);
     let (e, v) = eigendecomposition(&b, 2, eps);
     let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-    let mut coordinates = Coordinates::new(graph);
-    for (i, u) in graph.node_indices().enumerate() {
-        coordinates.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
+    let mut drawing = Drawing::new(graph);
+    for (i, u) in graph.node_identifiers().enumerate() {
+        drawing.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
     }
-    coordinates
+    drawing
 }
 
-fn pivot_mds<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-    graph: &Graph<N, E, Ty, Ix>,
-    length: &mut F,
-    sources: &[NodeIndex<Ix>],
-    eps: f32,
-) -> Coordinates<Ix> {
-    let mut delta = multi_source_dijkstra(&graph, length, &sources);
+fn pivot_mds<G, F>(graph: G, length: F, sources: &[G::NodeId], eps: f32) -> Drawing<G::NodeId, f32>
+where
+    G: IntoEdges + IntoNodeIdentifiers,
+    G::NodeId: Eq + Hash + Ord,
+    F: FnMut(G::EdgeRef) -> f32,
+{
+    let mut delta = multi_source_dijkstra(graph, length, &sources);
     delta = delta.mapv_into(|v| v.powi(2));
     let c = double_centering(&delta);
     let ct_c = c.t().dot(&c);
     let (e, v) = eigendecomposition(&ct_c, 2, eps);
     let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
     let xy = c.dot(&xy);
-    let mut coordinates = Coordinates::new(graph);
-    for (i, u) in graph.node_indices().enumerate() {
-        coordinates.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
+    let mut drawing = Drawing::new(graph);
+    for (i, u) in graph.node_identifiers().enumerate() {
+        drawing.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
     }
-    coordinates
+    drawing
 }
 
 pub struct ClassicalMds {
@@ -113,11 +111,12 @@ impl ClassicalMds {
         ClassicalMds { eps: 1e-3 }
     }
 
-    pub fn run<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-        &self,
-        graph: &Graph<N, E, Ty, Ix>,
-        length: &mut F,
-    ) -> Coordinates<Ix> {
+    pub fn run<G, F>(&self, graph: G, length: F) -> Drawing<G::NodeId, f32>
+    where
+        G: IntoEdges + IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
         classical_mds(graph, length, self.eps)
     }
 }
@@ -131,12 +130,12 @@ impl PivotMds {
         PivotMds { eps: 1e-3 }
     }
 
-    pub fn run<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-        &self,
-        graph: &Graph<N, E, Ty, Ix>,
-        length: &mut F,
-        sources: &[NodeIndex<Ix>],
-    ) -> Coordinates<Ix> {
+    pub fn run<G, F>(&self, graph: G, length: F, sources: &[G::NodeId]) -> Drawing<G::NodeId, f32>
+    where
+        G: IntoEdges + IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
         pivot_mds(graph, length, sources, self.eps)
     }
 }

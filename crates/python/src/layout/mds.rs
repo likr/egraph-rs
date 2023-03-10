@@ -1,5 +1,5 @@
 use crate::{
-    coordinates::PyCoordinates,
+    drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -21,9 +21,9 @@ impl PyClassicalMds {
         }
     }
 
-    fn run(&self, graph: &PyGraphAdapter, f: &PyAny) -> PyCoordinates {
-        PyCoordinates::new(match graph.graph() {
-            GraphType::Graph(native_graph) => self.mds.run(native_graph, &mut |e| {
+    fn run(&self, graph: &PyGraphAdapter, f: &PyAny) -> PyDrawing {
+        PyDrawing::new(match graph.graph() {
+            GraphType::Graph(native_graph) => self.mds.run(native_graph, |e| {
                 f.call1((e.id().index(),)).unwrap().extract().unwrap()
             }),
             _ => panic!("unsupported graph type"),

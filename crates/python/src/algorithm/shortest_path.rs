@@ -20,10 +20,10 @@ fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: f32) -> PyDistan
 #[pyo3(name = "all_sources_dijkstra")]
 fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatrix {
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => all_sources_dijkstra(g, &mut |e| {
+        GraphType::Graph(g) => all_sources_dijkstra(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
         }),
-        GraphType::DiGraph(g) => all_sources_dijkstra(g, &mut |e| {
+        GraphType::DiGraph(g) => all_sources_dijkstra(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
         }),
     };
@@ -34,10 +34,10 @@ fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatri
 #[pyo3(name = "warshall_floyd")]
 fn py_warshall_floyd(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatrix {
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => warshall_floyd(g, &mut |e| {
+        GraphType::Graph(g) => warshall_floyd(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
         }),
-        GraphType::DiGraph(g) => warshall_floyd(g, &mut |e| {
+        GraphType::DiGraph(g) => warshall_floyd(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
         }),
     };

@@ -1,14 +1,17 @@
 use ndarray::prelude::*;
-use petgraph::graph::IndexType;
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph_drawing::Drawing;
+use std::hash::Hash;
 
-pub fn stress<Ix: IndexType>(coordinates: &Coordinates<Ix>, d: &Array2<f32>) -> f32 {
-    let n = coordinates.len();
+pub fn stress<N>(drawing: &Drawing<N, f32>, d: &Array2<f32>) -> f32
+where
+    N: Eq + Hash,
+{
+    let n = drawing.len();
     let mut s = 0.;
     for j in 1..n {
         for i in 0..j {
-            let dx = coordinates.points[i].x - coordinates.points[j].x;
-            let dy = coordinates.points[i].y - coordinates.points[j].y;
+            let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
+            let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
             let norm = (dx * dx + dy * dy).sqrt();
             let dij = d[[i, j]];
             let e = (norm - dij) / dij;

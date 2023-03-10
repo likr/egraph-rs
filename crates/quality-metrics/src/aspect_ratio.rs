@@ -1,24 +1,28 @@
-use petgraph::graph::IndexType;
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph_drawing::Drawing;
+use std::hash::Hash;
 
-pub fn aspect_ratio<Ix: IndexType>(coordinates: &Coordinates<Ix>) -> f32 {
+pub fn aspect_ratio<N>(drawing: &Drawing<N, f32>) -> f32
+where
+    N: Eq + Hash,
+{
+    let n = drawing.len();
     let mut cx = 0.;
     let mut cy = 0.;
-    for p in coordinates.points.iter() {
-        let xi = p.x;
-        let yi = p.y;
+    for i in 0..n {
+        let xi = drawing.coordinates[[i, 0]];
+        let yi = drawing.coordinates[[i, 1]];
         cx += xi;
         cy += yi;
     }
-    cx /= coordinates.len() as f32;
-    cy /= coordinates.len() as f32;
+    cx /= n as f32;
+    cy /= n as f32;
 
     let mut xx = 0.;
     let mut xy = 0.;
     let mut yy = 0.;
-    for p in coordinates.points.iter() {
-        let xi = p.x - cx;
-        let yi = p.y - cy;
+    for i in 0..n {
+        let xi = drawing.coordinates[[i, 0]] - cx;
+        let yi = drawing.coordinates[[i, 1]] - cy;
         xx += xi * xi;
         xy += xi * yi;
         yy += yi * yi;

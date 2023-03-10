@@ -1,8 +1,8 @@
 const assert = require("assert");
-const wasm = require("wasm-bindgen-test");
+const eg = require("wasm-bindgen-test");
 
 function constructGraph(data) {
-  const { Graph } = wasm;
+  const { Graph } = eg;
   const graph = new Graph();
   const indices = new Map();
   for (const node of data.nodes) {
@@ -16,7 +16,7 @@ function constructGraph(data) {
 }
 
 function checkSimulation(graph, forces) {
-  const { Coordinates, Simulation } = wasm;
+  const { Coordinates, Simulation } = eg;
   const coordinates = Coordinates.initialPlacement(graph);
   const simulation = new Simulation();
   simulation.run((alpha) => {
@@ -41,7 +41,7 @@ exports.testConstructGraph = function (data) {
 };
 
 exports.testCoordinates = function (data) {
-  const { Coordinates } = wasm;
+  const { Coordinates } = eg;
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
   assert.strictEqual(coordinates.len(), data.nodes.length);
@@ -54,7 +54,7 @@ exports.testCoordinates = function (data) {
 };
 
 exports.testSimulation = function (data) {
-  const { Simulation } = wasm;
+  const { Simulation } = eg;
   const repeat = 300;
   const simulation = new Simulation();
   simulation.iterations = repeat;
@@ -67,7 +67,7 @@ exports.testSimulation = function (data) {
 };
 
 exports.testForceDirectedLayout = function (data) {
-  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = wasm;
+  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = eg;
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
   const forces = [
@@ -88,7 +88,7 @@ exports.testForceDirectedLayout = function (data) {
 };
 
 exports.testHyperbolicForceDirectedLayout = function (data) {
-  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = wasm;
+  const { Coordinates, Simulation, ManyBodyForce, LinkForce } = eg;
   const graph = constructGraph(data);
   const coordinates = Coordinates.initialPlacement(graph);
   const tangentSpace = Coordinates.initialPlacement(graph);
@@ -111,7 +111,7 @@ exports.testHyperbolicForceDirectedLayout = function (data) {
 };
 
 exports.testCollideForce = function (data) {
-  const { CollideForce } = wasm;
+  const { CollideForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [
     new CollideForce(graph, () => ({ radius: 10 }), {
@@ -122,7 +122,7 @@ exports.testCollideForce = function (data) {
 };
 
 exports.testLinkForce = function (data) {
-  const { LinkForce } = wasm;
+  const { LinkForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [new LinkForce(graph)]);
   checkSimulation(graph, [new LinkForce(graph, () => ({}))]);
@@ -134,7 +134,7 @@ exports.testLinkForce = function (data) {
 };
 
 exports.testManyBodyForce = function (data) {
-  const { ManyBodyForce } = wasm;
+  const { ManyBodyForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [new ManyBodyForce(graph)]);
   checkSimulation(graph, [new ManyBodyForce(graph, () => ({}))]);
@@ -142,7 +142,7 @@ exports.testManyBodyForce = function (data) {
 };
 
 exports.testPositionForce = function (data) {
-  const { PositionForce } = wasm;
+  const { PositionForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [
     new PositionForce(graph, () => ({ strength: 0.1, x: 0, y: 0 })),
@@ -150,7 +150,7 @@ exports.testPositionForce = function (data) {
 };
 
 exports.testRadialForce = function (data) {
-  const { RadialForce } = wasm;
+  const { RadialForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [
     new RadialForce(graph, () => ({ strength: 0.1, radius: 100, x: 0, y: 0 })),
@@ -158,7 +158,7 @@ exports.testRadialForce = function (data) {
 };
 
 exports.testGroupLinkForce = function (data) {
-  const { GroupLinkForce } = wasm;
+  const { GroupLinkForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [
     new GroupLinkForce(
@@ -171,7 +171,7 @@ exports.testGroupLinkForce = function (data) {
 };
 
 exports.testGroupManyBodyForce = function (data) {
-  const { GroupManyBodyForce } = wasm;
+  const { GroupManyBodyForce } = eg;
   const graph = constructGraph(data);
   checkSimulation(graph, [
     new GroupManyBodyForce(graph, (u) => ({
@@ -182,7 +182,7 @@ exports.testGroupManyBodyForce = function (data) {
 };
 
 exports.testGroupPositionForce = function (data) {
-  const { GroupPositionForce } = wasm;
+  const { GroupPositionForce } = eg;
   const graph = constructGraph(data);
   const groups = {
     0: [-41.81871, -26.057499],
@@ -206,75 +206,68 @@ exports.testGroupPositionForce = function (data) {
 };
 
 exports.testKamadaKawai = function (data) {
-  const { Coordinates, KamadaKawai } = wasm;
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 1 }));
-  kamadaKawai.run(coordinates);
-  checkResult(graph, coordinates);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  const kamadaKawai = new eg.KamadaKawai(graph, () => ({ distance: 1 }));
+  kamadaKawai.run(drawing);
+  checkResult(graph, drawing);
 };
 
 exports.testStressMajorization = function (data) {
-  const { Coordinates, StressMajorization } = wasm;
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  const stressMajorization = new StressMajorization(graph, coordinates, () => ({
+  const drawing = eg.Drawing.initialPlacement(graph);
+  const stressMajorization = new eg.StressMajorization(graph, drawing, () => ({
     distance: 100,
   }));
-  stressMajorization.run(coordinates);
-  checkResult(graph, coordinates);
+  stressMajorization.run(drawing);
+  checkResult(graph, drawing);
 };
 
 exports.testClassicalMds = function (data) {
-  const { ClassicalMds } = wasm;
   const graph = constructGraph(data);
-  const coordinates = new ClassicalMds().run(graph, () => 100);
-  checkResult(graph, coordinates);
+  const drawing = new eg.ClassicalMds().run(graph, () => 100);
+  checkResult(graph, drawing);
 };
 
 exports.testPivotMds = function (data) {
-  const { PivotMds } = wasm;
   const graph = constructGraph(data);
-  const coordinates = new PivotMds().run(
+  const drawing = new eg.PivotMds().run(
     graph,
     () => 100,
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   );
-  checkResult(graph, coordinates);
+  checkResult(graph, drawing);
 };
 
 exports.testFullSgd = function (data) {
-  const { Coordinates, FullSgd, Rng } = wasm;
-  const rng = Rng.seedFrom(0n);
+  const rng = eg.Rng.seedFrom(0n);
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  const sgd = new FullSgd(graph, () => 100);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  const sgd = new eg.FullSgd(graph, () => 100);
   const scheduler = sgd.scheduler(15, 0.1);
   scheduler.step((eta) => {
     sgd.shuffle(rng);
     sgd.step(eta);
   });
-  checkResult(graph, coordinates);
+  checkResult(graph, drawing);
 };
 
 exports.testSparseSgd = function (data) {
-  const { Coordinates, SparseSgd, Rng } = wasm;
-  const rng = Rng.seedFrom(0n);
+  const rng = eg.Rng.seedFrom(0n);
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  const sgd = new SparseSgd(graph, () => 100, 50, rng);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  const sgd = new eg.SparseSgd(graph, () => 100, 50, rng);
   const scheduler = sgd.scheduler(15, 0.1);
   scheduler.step((eta) => {
     sgd.shuffle(rng);
     sgd.step(eta);
   });
-  checkResult(graph, coordinates);
+  checkResult(graph, drawing);
 };
 
 exports.testCoarsen = function (data) {
-  const { coarsen } = wasm;
   const graph = constructGraph(data);
-  const [coarsenedGraph, _] = coarsen(
+  const [coarsenedGraph, _] = eg.coarsen(
     graph,
     (u) => data.nodes[u].group,
     (children) => ({ children }),
@@ -292,22 +285,19 @@ exports.testCoarsen = function (data) {
 };
 
 exports.testCrossingNumber = function (data) {
-  const { Coordinates, crossingNumber } = wasm;
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  crossingNumber(graph, coordinates);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  eg.crossingNumber(graph, drawing);
 };
 
 exports.testNeighborhoodPreservation = function (data) {
-  const { Coordinates, neighborhoodPreservation } = wasm;
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  neighborhoodPreservation(graph, coordinates);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  eg.neighborhoodPreservation(graph, drawing);
 };
 
 exports.testStress = function (data) {
-  const { Coordinates, stress } = wasm;
   const graph = constructGraph(data);
-  const coordinates = Coordinates.initialPlacement(graph);
-  stress(graph, coordinates);
+  const drawing = eg.Drawing.initialPlacement(graph);
+  eg.stress(graph, drawing);
 };

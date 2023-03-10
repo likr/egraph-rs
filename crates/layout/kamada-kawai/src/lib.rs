@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_layout_force_simulation::{Coordinates, Point};
+use petgraph_drawing::Drawing;
 use std::hash::Hash;
 
 fn norm(x: f32, y: f32) -> f32 {
@@ -15,7 +15,7 @@ pub struct KamadaKawai {
 }
 
 impl KamadaKawai {
-    pub fn new<G, F>(graph: G, length: &mut F) -> KamadaKawai
+    pub fn new<G, F>(graph: G, length: F) -> KamadaKawai
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
         G::NodeId: Eq + Hash,
@@ -42,18 +42,23 @@ impl KamadaKawai {
         }
     }
 
-    pub fn select_node(&self, coordinates: &Coordinates<u32>) -> Option<usize> {
-        let n = coordinates.len();
+    pub fn select_node<N>(&self, drawing: &Drawing<N, f32>) -> Option<usize>
+    where
+        N: Eq + Hash,
+    {
+        let n = drawing.len();
         let KamadaKawai { k, l, eps, .. } = self;
         let mut delta2_max = 0.;
         let mut m_target = 0;
         for m in 0..n {
-            let Point { x: xm, y: ym, .. } = coordinates.points[m];
+            let xm = drawing.coordinates[[m, 0]];
+            let ym = drawing.coordinates[[m, 1]];
             let mut dedx = 0.;
             let mut dedy = 0.;
             for i in 0..n {
                 if i != m {
-                    let Point { x: xi, y: yi, .. } = coordinates.points[i];
+                    let xi = drawing.coordinates[[i, 0]];
+                    let yi = drawing.coordinates[[i, 1]];
                     let dx = xm - xi;
                     let dy = ym - yi;
                     let d = norm(dx, dy);
@@ -75,10 +80,14 @@ impl KamadaKawai {
         }
     }
 
-    pub fn apply_to_node(&self, m: usize, coordinates: &mut Coordinates<u32>) {
-        let n = coordinates.len();
+    pub fn apply_to_node<N>(&self, m: usize, drawing: &mut Drawing<N, f32>)
+    where
+        N: Eq + Hash,
+    {
+        let n = drawing.len();
         let KamadaKawai { k, l, .. } = self;
-        let Point { x: xm, y: ym, .. } = coordinates.points[m];
+        let xm = drawing.coordinates[[m, 0]];
+        let ym = drawing.coordinates[[m, 1]];
         let mut hxx = 0.;
         let mut hyy = 0.;
         let mut hxy = 0.;
@@ -86,7 +95,8 @@ impl KamadaKawai {
         let mut dedy = 0.;
         for i in 0..n {
             if i != m {
-                let Point { x: xi, y: yi, .. } = coordinates.points[i];
+                let xi = drawing.coordinates[[i, 0]];
+                let yi = drawing.coordinates[[i, 1]];
                 let dx = xm - xi;
                 let dy = ym - yi;
                 let d = norm(dx, dy);
@@ -101,13 +111,16 @@ impl KamadaKawai {
         let det = hxx * hyy - hxy * hxy;
         let delta_x = (hyy * dedx - hxy * dedy) / det;
         let delta_y = (hxx * dedy - hxy * dedx) / det;
-        coordinates.points[m].x -= delta_x;
-        coordinates.points[m].y -= delta_y;
+        drawing.coordinates[[m, 0]] -= delta_x;
+        drawing.coordinates[[m, 1]] -= delta_y;
     }
 
-    pub fn run(&self, coordinates: &mut Coordinates<u32>) {
-        while let Some(m) = self.select_node(coordinates) {
-            self.apply_to_node(m, coordinates);
+    pub fn run<N>(&self, drawing: &mut Drawing<N, f32>)
+    where
+        N: Eq + Hash,
+    {
+        while let Some(m) = self.select_node(drawing) {
+            self.apply_to_node(m, drawing);
         }
     }
 }
@@ -125,7 +138,7 @@ fn test_kamada_kawai() {
         }
     }
 
-    let mut coordinates = Coordinates::initial_placement(&graph);
+    let mut coordinates = Drawing::initial_placement(&graph);
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));

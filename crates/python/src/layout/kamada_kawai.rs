@@ -1,5 +1,5 @@
 use crate::{
-    coordinates::PyCoordinates,
+    drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -18,7 +18,7 @@ impl PyKamadaKawai {
     fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyKamadaKawai {
         PyKamadaKawai {
             kamada_kawai: match graph.graph() {
-                GraphType::Graph(native_graph) => KamadaKawai::new(native_graph, &mut |e| {
+                GraphType::Graph(native_graph) => KamadaKawai::new(native_graph, |e| {
                     f.call1((e.id().index(),)).unwrap().extract().unwrap()
                 }),
                 _ => panic!("unsupported graph type"),
@@ -26,17 +26,16 @@ impl PyKamadaKawai {
         }
     }
 
-    fn select_node(&self, coordinates: &PyCoordinates) -> Option<usize> {
-        self.kamada_kawai.select_node(coordinates.coordinates())
+    fn select_node(&self, drawing: &PyDrawing) -> Option<usize> {
+        self.kamada_kawai.select_node(drawing.drawing())
     }
 
-    fn apply_to_node(&self, m: usize, coordinates: &mut PyCoordinates) {
-        self.kamada_kawai
-            .apply_to_node(m, coordinates.coordinates_mut());
+    fn apply_to_node(&self, m: usize, drawing: &mut PyDrawing) {
+        self.kamada_kawai.apply_to_node(m, drawing.drawing_mut());
     }
 
-    fn run(&self, coordinates: &mut PyCoordinates) {
-        self.kamada_kawai.run(coordinates.coordinates_mut());
+    fn run(&self, drawing: &mut PyDrawing) {
+        self.kamada_kawai.run(drawing.drawing_mut());
     }
 
     #[getter]

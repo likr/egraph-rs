@@ -3,25 +3,31 @@ use num_traits::{cast::FromPrimitive, clamp, float::FloatConst};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::{collections::HashMap, hash::Hash};
 
-pub struct Drawing<G, S>
+pub struct Drawing<N, S>
 where
-    G: IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
-    S: NdFloat + FromPrimitive,
+    N: Eq + Hash,
+    S: NdFloat,
 {
-    pub indices: Vec<G::NodeId>,
+    pub indices: Vec<N>,
     pub coordinates: Array2<S>,
-    index_map: HashMap<G::NodeId, usize>,
+    index_map: HashMap<N, usize>,
 }
 
-impl<G, S> Drawing<G, S>
+impl<N, S> Drawing<N, S>
 where
-    G: IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
-    S: NdFloat + FromPrimitive + FloatConst,
+    N: Eq + Hash,
+    S: NdFloat,
 {
-    pub fn new(graph: G) -> Drawing<G, S> {
-        let indices = graph.node_identifiers().collect::<Vec<_>>();
+    pub fn new<G>(graph: G) -> Drawing<N, S>
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Into<N>,
+        N: Copy,
+    {
+        let indices = graph
+            .node_identifiers()
+            .map(|u| u.into())
+            .collect::<Vec<N>>();
         let index_map = indices
             .iter()
             .enumerate()
@@ -35,28 +41,31 @@ where
         }
     }
 
-    pub fn iter(&self) -> DrawingIterator<G, S> {
+    pub fn iter(&self) -> DrawingIterator<N, S>
+    where
+        N: Copy,
+    {
         DrawingIterator {
             drawing: self,
             index: 0,
         }
     }
 
-    pub fn x(&self, u: G::NodeId) -> Option<S> {
+    pub fn x(&self, u: N) -> Option<S> {
         self.index_map.get(&u).map(|&i| self.coordinates[[i, 0]])
     }
 
-    pub fn y(&self, u: G::NodeId) -> Option<S> {
+    pub fn y(&self, u: N) -> Option<S> {
         self.index_map.get(&u).map(|&i| self.coordinates[[i, 1]])
     }
 
-    pub fn position(&self, u: G::NodeId) -> Option<(S, S)> {
+    pub fn position(&self, u: N) -> Option<(S, S)> {
         self.index_map
             .get(&u)
             .map(|&i| (self.coordinates[[i, 0]], self.coordinates[[i, 1]]))
     }
 
-    pub fn set_x(&mut self, u: G::NodeId, x: S) -> Option<()> {
+    pub fn set_x(&mut self, u: N, x: S) -> Option<()> {
         if let Some(&i) = self.index_map.get(&u) {
             self.coordinates[[i, 0]] = x;
             Some(())
@@ -65,7 +74,7 @@ where
         }
     }
 
-    pub fn set_y(&mut self, u: G::NodeId, y: S) -> Option<()> {
+    pub fn set_y(&mut self, u: N, y: S) -> Option<()> {
         if let Some(&i) = self.index_map.get(&u) {
             self.coordinates[[i, 1]] = y;
             Some(())
@@ -74,7 +83,7 @@ where
         }
     }
 
-    pub fn set_position(&mut self, u: G::NodeId, (x, y): (S, S)) -> Option<()> {
+    pub fn set_position(&mut self, u: N, (x, y): (S, S)) -> Option<()> {
         if let Some(&i) = self.index_map.get(&u) {
             self.coordinates[[i, 0]] = x;
             self.coordinates[[i, 1]] = y;
@@ -83,11 +92,15 @@ where
             None
         }
     }
+
     pub fn len(&self) -> usize {
-        self.coordinates.len()
+        self.indices.len()
     }
 
-    pub fn centralize(&mut self) {
+    pub fn centralize(&mut self)
+    where
+        S: FromPrimitive,
+    {
         if let Some(c) = self.coordinates.mean_axis(Axis(0)) {
             self.coordinates -= &c;
         }
@@ -100,7 +113,13 @@ where
         }
     }
 
-    pub fn initial_placement(graph: G) -> Drawing<G, S> {
+    pub fn initial_placement<G>(graph: G) -> Drawing<N, S>
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash + Into<N>,
+        N: Copy,
+        S: FloatConst + FromPrimitive,
+    {
         let mut drawing = Drawing::new(graph);
         for (i, u) in graph.node_identifiers().enumerate() {
             let r = S::from_usize(10).unwrap() * S::from_usize(i).unwrap().sqrt();
@@ -109,29 +128,27 @@ where
                 * (S::from_usize(i).unwrap());
             let x = r * theta.cos();
             let y = r * theta.sin();
-            drawing.set_position(u, (x, y));
+            drawing.set_position(u.into(), (x, y));
         }
         drawing
     }
 }
 
-pub struct DrawingIterator<'a, G, S>
+pub struct DrawingIterator<'a, N, S>
 where
-    G: IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
-    S: NdFloat + FromPrimitive,
+    N: Copy + Eq + Hash,
+    S: NdFloat,
 {
-    drawing: &'a Drawing<G, S>,
+    drawing: &'a Drawing<N, S>,
     index: usize,
 }
 
-impl<'a, G, S> Iterator for DrawingIterator<'a, G, S>
+impl<'a, N, S> Iterator for DrawingIterator<'a, N, S>
 where
-    G: IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
-    S: NdFloat + FromPrimitive,
+    N: Copy + Eq + Hash,
+    S: NdFloat,
 {
-    type Item = (G::NodeId, (S, S));
+    type Item = (N, (S, S));
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index;
         self.index += 1;

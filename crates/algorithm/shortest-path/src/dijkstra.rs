@@ -11,7 +11,7 @@ use std::{
 pub fn dijkstra_with_distance_matrix<G, F>(
     graph: G,
     indices: &HashMap<G::NodeId, usize>,
-    length: &mut F,
+    length: F,
     s: G::NodeId,
     distance_matrix: &mut Array2<f32>,
     k: usize,
@@ -20,6 +20,7 @@ pub fn dijkstra_with_distance_matrix<G, F>(
     G::NodeId: Eq + Hash + Ord,
     F: FnMut(G::EdgeRef) -> f32,
 {
+    let mut length = length;
     let mut queue = BinaryHeap::new();
     queue.push((Reverse(OrderedFloat(0.)), s));
     distance_matrix[[indices[&s], k]] = 0.;
@@ -35,12 +36,13 @@ pub fn dijkstra_with_distance_matrix<G, F>(
     }
 }
 
-pub fn multi_source_dijkstra<G, F>(graph: G, length: &mut F, sources: &[G::NodeId]) -> Array2<f32>
+pub fn multi_source_dijkstra<G, F>(graph: G, length: F, sources: &[G::NodeId]) -> Array2<f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
     F: FnMut(G::EdgeRef) -> f32,
 {
+    let mut length = length;
     let indices = graph
         .node_identifiers()
         .enumerate()
@@ -50,12 +52,19 @@ where
     let k = sources.len();
     let mut distance_matrix = Array::from_elem((n, k), INFINITY);
     for c in 0..k {
-        dijkstra_with_distance_matrix(graph, &indices, length, sources[c], &mut distance_matrix, c);
+        dijkstra_with_distance_matrix(
+            graph,
+            &indices,
+            &mut length,
+            sources[c],
+            &mut distance_matrix,
+            c,
+        );
     }
     distance_matrix
 }
 
-pub fn all_sources_dijkstra<G, F>(graph: G, length: &mut F) -> Array2<f32>
+pub fn all_sources_dijkstra<G, F>(graph: G, length: F) -> Array2<f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
@@ -65,7 +74,7 @@ where
     multi_source_dijkstra(graph, length, &sources)
 }
 
-pub fn dijkstra<G, F>(graph: G, length: &mut F, s: G::NodeId) -> Array1<f32>
+pub fn dijkstra<G, F>(graph: G, length: F, s: G::NodeId) -> Array1<f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,

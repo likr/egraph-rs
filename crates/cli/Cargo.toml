@@ -7,6 +7,7 @@ edition = "2021"
 argparse = "0.2.2"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
+petgraph-drawing = { path = "../drawing" }
 petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
 petgraph-layout-fruchterman-reingold = { path = "../layout/fruchterman-reingold" }
 petgraph-layout-sgd = { path = "../layout/sgd" }

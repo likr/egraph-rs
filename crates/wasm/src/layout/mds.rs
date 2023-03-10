@@ -1,5 +1,4 @@
-use crate::graph::JsGraph;
-use crate::layout::force_simulation::coordinates::JsCoordinates;
+use crate::{drawing::JsDrawing, graph::JsGraph};
 use js_sys::{Array, Function};
 use petgraph::{graph::node_index, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
@@ -20,7 +19,7 @@ impl JsClassicalMds {
         }
     }
 
-    pub fn run(&self, graph: &JsGraph, length: &Function) -> JsCoordinates {
+    pub fn run(&self, graph: &JsGraph, length: &Function) -> JsDrawing {
         let mut length_map = HashMap::new();
         for e in graph.graph().edge_indices() {
             let c = length
@@ -32,8 +31,8 @@ impl JsClassicalMds {
         }
         let coordinates = self
             .classical_mds
-            .run(graph.graph(), &mut |e| length_map[&e.id()]);
-        JsCoordinates::new(coordinates)
+            .run(graph.graph(), |e| length_map[&e.id()]);
+        JsDrawing::new(coordinates)
     }
 }
 
@@ -51,7 +50,7 @@ impl JsPivotMds {
         }
     }
 
-    pub fn run(&self, graph: &JsGraph, length: &Function, sources: &Array) -> JsCoordinates {
+    pub fn run(&self, graph: &JsGraph, length: &Function, sources: &Array) -> JsDrawing {
         let sources = sources
             .iter()
             .map(|item| node_index(item.as_f64().unwrap() as usize))
@@ -67,7 +66,7 @@ impl JsPivotMds {
         }
         let coordinates = self
             .pivot_mds
-            .run(graph.graph(), &mut |e| length_map[&e.id()], &sources);
-        JsCoordinates::new(coordinates)
+            .run(graph.graph(), |e| length_map[&e.id()], &sources);
+        JsDrawing::new(coordinates)
     }
 }

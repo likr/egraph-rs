@@ -1,6 +1,6 @@
 use crate::{
-    coordinates::PyCoordinates,
     distance_matrix::PyDistanceMatrix,
+    drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -16,11 +16,11 @@ struct PyStressMajorization {
 #[pymethods]
 impl PyStressMajorization {
     #[new]
-    fn new(graph: &PyGraphAdapter, coordinates: &PyCoordinates, f: &PyAny) -> PyStressMajorization {
+    fn new(graph: &PyGraphAdapter, drawing: &PyDrawing, f: &PyAny) -> PyStressMajorization {
         PyStressMajorization {
             stress_majorization: match graph.graph() {
                 GraphType::Graph(native_graph) => {
-                    StressMajorization::new(native_graph, coordinates.coordinates(), &mut |e| {
+                    StressMajorization::new(native_graph, drawing.drawing(), |e| {
                         f.call1((e.id().index(),)).unwrap().extract().unwrap()
                     })
                 }
@@ -32,24 +32,23 @@ impl PyStressMajorization {
     #[classmethod]
     fn with_distance_matrix(
         _cls: &PyType,
-        coordinates: &PyCoordinates,
+        drawing: &PyDrawing,
         distance_matrix: &PyDistanceMatrix,
     ) -> PyStressMajorization {
         PyStressMajorization {
             stress_majorization: StressMajorization::new_with_distance_matrix(
-                coordinates.coordinates(),
+                drawing.drawing(),
                 distance_matrix.distance_matrix(),
             ),
         }
     }
 
-    fn apply(&mut self, coordinates: &mut PyCoordinates) -> f32 {
-        self.stress_majorization
-            .apply(coordinates.coordinates_mut())
+    fn apply(&mut self, drawing: &mut PyDrawing) -> f32 {
+        self.stress_majorization.apply(drawing.drawing_mut())
     }
 
-    pub fn run(&mut self, coordinates: &mut PyCoordinates) {
-        self.stress_majorization.run(coordinates.coordinates_mut());
+    pub fn run(&mut self, drawing: &mut PyDrawing) {
+        self.stress_majorization.run(drawing.drawing_mut());
     }
 }
 

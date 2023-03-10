@@ -9,9 +9,9 @@ mod node_resolution;
 mod stress;
 
 use ndarray::prelude::*;
-use petgraph::graph::{Graph, IndexType};
-use petgraph::EdgeType;
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
+use petgraph_drawing::Drawing;
+use std::hash::Hash;
 
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
@@ -71,14 +71,18 @@ impl QualityMetric {
     }
 }
 
-pub fn quality_metrics<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    coordinates: &Coordinates<Ix>,
+pub fn quality_metrics<G>(
+    graph: G,
+    drawing: &Drawing<G::NodeId, f32>,
     d: &Array2<f32>,
-) -> Vec<(QualityMetric, f32)> {
+) -> Vec<(QualityMetric, f32)>
+where
+    G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
+    G::NodeId: Eq + Hash,
+{
     quality_metrics_with_targets(
         graph,
-        coordinates,
+        drawing,
         d,
         &vec![
             QualityMetric::Stress,
@@ -94,32 +98,36 @@ pub fn quality_metrics<N, E, Ty: EdgeType, Ix: IndexType>(
     )
 }
 
-pub fn quality_metrics_with_targets<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    coordinates: &Coordinates<Ix>,
+pub fn quality_metrics_with_targets<G>(
+    graph: G,
+    drawing: &Drawing<G::NodeId, f32>,
     d: &Array2<f32>,
     targets: &[QualityMetric],
-) -> Vec<(QualityMetric, f32)> {
-    let crossing_edges = crossing_edges(graph, coordinates);
+) -> Vec<(QualityMetric, f32)>
+where
+    G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
+    G::NodeId: Eq + Hash,
+{
+    let crossing_edges = crossing_edges(graph, drawing);
     targets
         .iter()
         .map(|&t| {
             let v = match t {
-                QualityMetric::Stress => stress(coordinates, d),
-                QualityMetric::IdealEdgeLengths => ideal_edge_lengths(graph, coordinates, d),
+                QualityMetric::Stress => stress(drawing, d),
+                QualityMetric::IdealEdgeLengths => ideal_edge_lengths(graph, drawing, d),
                 QualityMetric::NeighborhoodPreservation => {
-                    neighborhood_preservation(graph, coordinates)
+                    neighborhood_preservation(graph, drawing)
                 }
                 QualityMetric::CrossingNumber => {
                     crossing_number_with_crossing_edges(&crossing_edges)
                 }
                 QualityMetric::CrossingAngle => {
-                    crossing_angle_with_crossing_edges(graph, coordinates, &crossing_edges)
+                    crossing_angle_with_crossing_edges(drawing, &crossing_edges)
                 }
-                QualityMetric::AspectRatio => aspect_ratio(coordinates),
-                QualityMetric::AngularResolution => angular_resolution(graph, coordinates),
-                QualityMetric::NodeResolution => node_resolution(graph, coordinates),
-                QualityMetric::GabrielGraphProperty => gabriel_graph_property(graph, coordinates),
+                QualityMetric::AspectRatio => aspect_ratio(drawing),
+                QualityMetric::AngularResolution => angular_resolution(graph, drawing),
+                QualityMetric::NodeResolution => node_resolution(drawing),
+                QualityMetric::GabrielGraphProperty => gabriel_graph_property(graph, drawing),
             };
             (t, v)
         })

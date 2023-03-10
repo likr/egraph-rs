@@ -1,17 +1,13 @@
 use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
-use petgraph::{
-    graph::{node_index, EdgeReference, IndexType},
-    prelude::*,
-    visit::IntoNodeIdentifiers,
-    EdgeType,
-};
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeIndexable};
 use petgraph_algorithm_shortest_path::{dijkstra_with_distance_matrix, warshall_floyd};
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph_drawing::Drawing;
 use rand::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     f32::INFINITY,
+    hash::Hash,
 };
 
 pub struct FullSgd {
@@ -19,10 +15,12 @@ pub struct FullSgd {
 }
 
 impl FullSgd {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-        graph: &Graph<N, E, Ty, Ix>,
-        length: &mut F,
-    ) -> FullSgd {
+    pub fn new<G, F>(graph: G, length: F) -> FullSgd
+    where
+        G: IntoEdges + IntoNodeIdentifiers,
+        G::NodeId: Eq + Hash,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
         let indices = graph
             .node_identifiers()
             .enumerate()
@@ -60,28 +58,24 @@ pub struct SparseSgd {
 }
 
 impl SparseSgd {
-    pub fn new<N, E, Ty: EdgeType, Ix: IndexType, F: FnMut(EdgeReference<'_, E, Ix>) -> f32>(
-        graph: &Graph<N, E, Ty, Ix>,
-        length: &mut F,
-        h: usize,
-    ) -> SparseSgd {
+    pub fn new<G, F>(graph: G, length: F, h: usize) -> SparseSgd
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: Eq + Hash + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
         let mut rng = rand::thread_rng();
         SparseSgd::new_with_rng(graph, length, h, &mut rng)
     }
 
-    pub fn new_with_rng<
-        N,
-        E,
-        Ty: EdgeType,
-        Ix: IndexType,
-        F: FnMut(EdgeReference<'_, E, Ix>) -> f32,
+    pub fn new_with_rng<G, F, R>(graph: G, length: F, h: usize, rng: &mut R) -> SparseSgd
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: Eq + Hash + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
         R: Rng,
-    >(
-        graph: &Graph<N, E, Ty, Ix>,
-        length: &mut F,
-        h: usize,
-        rng: &mut R,
-    ) -> SparseSgd {
+    {
+        let mut length = length;
         let indices = graph
             .node_identifiers()
             .enumerate()
@@ -89,7 +83,7 @@ impl SparseSgd {
             .collect::<HashMap<_, _>>();
         let n = indices.len();
         let h = h.min(n);
-        let (pivot, d) = max_min_random_sp(graph, &indices, length, h, rng);
+        let (pivot, d) = max_min_random_sp(graph, &indices, &mut length, h, rng);
 
         let mut node_pairs = vec![];
         let mut edges = HashSet::new();
@@ -174,15 +168,18 @@ pub trait Sgd {
         self.node_pairs_mut().shuffle(rng);
     }
 
-    fn apply<Ix: IndexType>(&self, coordinates: &mut Coordinates<Ix>, eta: f32) {
+    fn apply<N>(&self, drawing: &mut Drawing<N, f32>, eta: f32)
+    where
+        N: Eq + Hash,
+    {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
-            let dx = coordinates.points[i].x - coordinates.points[j].x;
-            let dy = coordinates.points[i].y - coordinates.points[j].y;
+            let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
+            let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
             let norm = (dx * dx + dy * dy).sqrt().max(1.);
             let r = 0.5 * mu * (norm - dij) / norm;
-            coordinates.points[i].x -= r * dx;
-            coordinates.points[i].y -= r * dy;
+            drawing.coordinates[[i, 0]] -= r * dx;
+            drawing.coordinates[[i, 1]] -= r * dy;
         }
     }
 
@@ -211,29 +208,29 @@ pub trait Sgd {
     }
 }
 
-fn max_min_random_sp<
-    N,
-    E,
-    Ty: EdgeType,
-    Ix: IndexType,
-    F: FnMut(EdgeReference<'_, E, Ix>) -> f32,
-    R: Rng,
->(
-    graph: &Graph<N, E, Ty, Ix>,
-    indices: &HashMap<NodeIndex<Ix>, usize>,
-    length: &mut F,
+fn max_min_random_sp<G, F, R>(
+    graph: G,
+    indices: &HashMap<G::NodeId, usize>,
+    length: F,
     h: usize,
     rng: &mut R,
-) -> (Vec<usize>, Array2<f32>) {
-    let n = graph.node_count();
+) -> (Vec<usize>, Array2<f32>)
+where
+    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+    G::NodeId: Eq + Hash + Ord,
+    F: FnMut(G::EdgeRef) -> f32,
+    R: Rng,
+{
+    let mut length = length;
+    let n = indices.len();
     let mut pivot = vec![];
     pivot.push(rng.gen_range(0..n));
     let mut distance_matrix = Array2::from_elem((n, h), INFINITY);
     dijkstra_with_distance_matrix(
         graph,
         indices,
-        length,
-        node_index(pivot[0]),
+        &mut length,
+        graph.from_index(pivot[0]),
         &mut distance_matrix,
         0,
     );
@@ -246,8 +243,8 @@ fn max_min_random_sp<
         dijkstra_with_distance_matrix(
             graph,
             indices,
-            length,
-            node_index(pivot[k]),
+            &mut length,
+            graph.from_index(pivot[k]),
             &mut distance_matrix,
             k,
         );
@@ -255,7 +252,10 @@ fn max_min_random_sp<
     (pivot, distance_matrix)
 }
 
-fn proportional_sampling<R: Rng>(values: &Array1<f32>, rng: &mut R) -> usize {
+fn proportional_sampling<R>(values: &Array1<f32>, rng: &mut R) -> usize
+where
+    R: Rng,
+{
     let n = values.len();
     let mut s = 0.;
     for i in 0..n {

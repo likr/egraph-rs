@@ -1,22 +1,24 @@
-use petgraph::graph::{Graph, IndexType};
-use petgraph::EdgeType;
-use petgraph_layout_force_simulation::Coordinates;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use petgraph_drawing::Drawing;
+use std::hash::Hash;
 
-pub fn gabriel_graph_property<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    coordinates: &Coordinates<Ix>,
-) -> f32 {
-    let n = graph.node_count();
+pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+where
+    G: IntoEdgeReferences,
+    G::NodeId: Eq + Hash,
+{
+    let n = drawing.len();
     let mut s = 0.;
-    for e in graph.edge_indices() {
-        let (u, v) = graph.edge_endpoints(e).unwrap();
-        let (x1, y1) = coordinates.position(u).unwrap();
-        let (x2, y2) = coordinates.position(v).unwrap();
+    for e in graph.edge_references() {
+        let u = e.source();
+        let v = e.target();
+        let (x1, y1) = drawing.position(u).unwrap();
+        let (x2, y2) = drawing.position(v).unwrap();
         let cx = (x1 + x2) / 2.;
         let cy = (y1 + y2) / 2.;
         let r = (x1 - x2).hypot(y1 - y2) / 2.;
         for i in 0..n {
-            s += (r - (coordinates.points[i].x - cx).hypot(coordinates.points[i].y - cy))
+            s += (r - (drawing.coordinates[[i, 0]] - cx).hypot(drawing.coordinates[[i, 1]] - cy))
                 .max(0.)
                 .powi(2);
         }

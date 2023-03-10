@@ -1,7 +1,6 @@
 use petgraph::prelude::*;
-use petgraph_layout_force_simulation::Coordinates;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use petgraph_drawing::Drawing;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::File,
@@ -31,7 +30,10 @@ struct GraphData<N, E> {
 
 pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
-) -> (Graph<Option<N>, Option<E>, Undirected>, Coordinates<u32>) {
+) -> (
+    Graph<Option<N>, Option<E>, Undirected>,
+    Drawing<NodeIndex, f32>,
+) {
     let file = File::open(input_path).unwrap();
     let reader = BufReader::new(file);
     let input_graph: GraphData<N, E> = serde_json::from_reader(reader).unwrap();
@@ -48,22 +50,22 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
             link.data.clone(),
         );
     }
-    let mut coordinates = Coordinates::initial_placement(&graph);
+    let mut drawing = Drawing::initial_placement(&graph);
     for node in input_graph.nodes.iter() {
         let u = node_ids[&node.id];
         if let Some(x) = node.x {
-            coordinates.set_x(u, x);
+            drawing.set_x(u, x);
         }
         if let Some(y) = node.y {
-            coordinates.set_x(u, y);
+            drawing.set_y(u, y);
         }
     }
-    (graph, coordinates)
+    (graph, drawing)
 }
 
 pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
     graph: &Graph<Option<N>, Option<E>, Undirected>,
-    coordinates: &Coordinates<u32>,
+    drawing: &Drawing<NodeIndex, f32>,
     output_path: &str,
 ) {
     let output = GraphData {
@@ -71,8 +73,8 @@ pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
             .node_indices()
             .map(|u| NodeData {
                 id: u.index(),
-                x: Some(coordinates.x(u).unwrap()),
-                y: Some(coordinates.y(u).unwrap()),
+                x: Some(drawing.x(u).unwrap()),
+                y: Some(drawing.y(u).unwrap()),
                 data: graph[u].clone(),
             })
             .collect::<Vec<_>>(),

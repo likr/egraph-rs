@@ -1,5 +1,4 @@
-use crate::graph::JsGraph;
-use crate::layout::force_simulation::coordinates::JsCoordinates;
+use crate::{drawing::JsDrawing, graph::JsGraph};
 use js_sys::{Function, Reflect};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
@@ -16,7 +15,7 @@ impl JsStressMajorization {
     #[wasm_bindgen(constructor)]
     pub fn new(
         graph: &JsGraph,
-        coordinates: &JsCoordinates,
+        drawing: &JsDrawing,
         f: &Function,
     ) -> Result<JsStressMajorization, JsValue> {
         let mut distance = HashMap::new();
@@ -29,20 +28,17 @@ impl JsStressMajorization {
         }
 
         Ok(JsStressMajorization {
-            stress_majorization: StressMajorization::new(
-                graph.graph(),
-                coordinates.coordinates(),
-                &mut |e| distance[&e.id()],
-            ),
+            stress_majorization: StressMajorization::new(graph.graph(), drawing.drawing(), |e| {
+                distance[&e.id()]
+            }),
         })
     }
 
-    pub fn apply(&mut self, coordinates: &mut JsCoordinates) -> f32 {
-        self.stress_majorization
-            .apply(coordinates.coordinates_mut())
+    pub fn apply(&mut self, drawing: &mut JsDrawing) -> f32 {
+        self.stress_majorization.apply(drawing.drawing_mut())
     }
 
-    pub fn run(&mut self, coordinates: &mut JsCoordinates) {
-        self.stress_majorization.run(coordinates.coordinates_mut());
+    pub fn run(&mut self, drawing: &mut JsDrawing) {
+        self.stress_majorization.run(drawing.drawing_mut());
     }
 }

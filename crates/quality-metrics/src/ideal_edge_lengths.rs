@@ -1,22 +1,26 @@
 use ndarray::prelude::*;
-use petgraph::graph::{Graph, IndexType};
-use petgraph::EdgeType;
-use petgraph_layout_force_simulation::Coordinates;
-use std::collections::HashMap;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers};
+use petgraph_drawing::Drawing;
+use std::{collections::HashMap, hash::Hash};
 
-pub fn ideal_edge_lengths<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    coordinates: &Coordinates<Ix>,
+pub fn ideal_edge_lengths<G>(
+    graph: G,
+    coordinates: &Drawing<G::NodeId, f32>,
     d: &Array2<f32>,
-) -> f32 {
+) -> f32
+where
+    G: IntoEdgeReferences + IntoNodeIdentifiers,
+    G::NodeId: Eq + Hash,
+{
     let node_indices = graph
-        .node_indices()
+        .node_identifiers()
         .enumerate()
         .map(|(i, u)| (u, i))
         .collect::<HashMap<_, _>>();
     let mut s = 0.;
-    for e in graph.edge_indices() {
-        let (u, v) = graph.edge_endpoints(e).unwrap();
+    for e in graph.edge_references() {
+        let u = e.source();
+        let v = e.target();
         let (x1, y1) = coordinates.position(u).unwrap();
         let (x2, y2) = coordinates.position(v).unwrap();
         let l = d[[node_indices[&u], node_indices[&v]]];

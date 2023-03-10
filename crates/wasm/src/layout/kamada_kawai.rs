@@ -1,5 +1,4 @@
-use crate::graph::JsGraph;
-use crate::layout::force_simulation::coordinates::JsCoordinates;
+use crate::{drawing::JsDrawing, graph::JsGraph};
 use js_sys::{Function, Reflect};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_kamada_kawai::KamadaKawai;
@@ -24,23 +23,22 @@ impl JsKamadaKawai {
             distance.insert(e, d as f32);
         }
         Ok(JsKamadaKawai {
-            kamada_kawai: KamadaKawai::new(graph.graph(), &mut |e| distance[&e.id()]),
+            kamada_kawai: KamadaKawai::new(graph.graph(), |e| distance[&e.id()]),
         })
     }
 
     #[wasm_bindgen(js_name = selectNode)]
-    pub fn select_node(&self, coordinates: &JsCoordinates) -> Option<usize> {
-        self.kamada_kawai.select_node(coordinates.coordinates())
+    pub fn select_node(&self, drawing: &JsDrawing) -> Option<usize> {
+        self.kamada_kawai.select_node(drawing.drawing())
     }
 
     #[wasm_bindgen(js_name = applyToNode)]
-    pub fn apply_to_node(&self, m: usize, coordinates: &mut JsCoordinates) {
-        self.kamada_kawai
-            .apply_to_node(m, coordinates.coordinates_mut());
+    pub fn apply_to_node(&self, m: usize, drawing: &mut JsDrawing) {
+        self.kamada_kawai.apply_to_node(m, drawing.drawing_mut());
     }
 
-    pub fn run(&self, coordinates: &mut JsCoordinates) {
-        self.kamada_kawai.run(coordinates.coordinates_mut());
+    pub fn run(&self, drawing: &mut JsDrawing) {
+        self.kamada_kawai.run(drawing.drawing_mut());
     }
 
     #[wasm_bindgen(getter)]

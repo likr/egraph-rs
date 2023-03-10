@@ -1,5 +1,5 @@
 use crate::{
-    coordinates::PyCoordinates,
+    drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
@@ -46,7 +46,7 @@ impl PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
                     native_graph,
-                    &mut |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
                     h,
                     rng.get_mut(),
                 ),
@@ -59,8 +59,8 @@ impl PySparseSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, coordinates: &mut PyCoordinates, eta: f32) {
-        self.sgd.apply(coordinates.coordinates_mut(), eta);
+    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {

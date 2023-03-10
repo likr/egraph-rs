@@ -1,4 +1,4 @@
-use crate::{graph::JsGraph, layout::force_simulation::coordinates::JsCoordinates, rng::JsRng};
+use crate::{drawing::JsDrawing, graph::JsGraph, rng::JsRng};
 use js_sys::Function;
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{FullSgd, Sgd, SgdScheduler, SparseSgd};
@@ -49,7 +49,7 @@ impl JsFullSgd {
             length_map.insert(e, c);
         }
         JsFullSgd {
-            sgd: FullSgd::new(graph.graph(), &mut |e| length_map[&e.id()]),
+            sgd: FullSgd::new(graph.graph(), |e| length_map[&e.id()]),
         }
     }
 
@@ -57,8 +57,8 @@ impl JsFullSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, coordinates: &mut JsCoordinates, eta: f32) {
-        self.sgd.apply(coordinates.coordinates_mut(), eta);
+    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {
@@ -87,12 +87,7 @@ impl JsSparseSgd {
             length_map.insert(e, c);
         }
         JsSparseSgd {
-            sgd: SparseSgd::new_with_rng(
-                graph.graph(),
-                &mut |e| length_map[&e.id()],
-                h,
-                rng.get_mut(),
-            ),
+            sgd: SparseSgd::new_with_rng(graph.graph(), |e| length_map[&e.id()], h, rng.get_mut()),
         }
     }
 
@@ -100,8 +95,8 @@ impl JsSparseSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, coordinates: &mut JsCoordinates, eta: f32) {
-        self.sgd.apply(coordinates.coordinates_mut(), eta);
+    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {

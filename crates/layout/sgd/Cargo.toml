@@ -8,5 +8,5 @@ ndarray = "0.15"
 ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
-petgraph-layout-force-simulation = { path = "../../layout/force-simulation" }
+petgraph-drawing = { path = "../../drawing" }
 rand = "0.8"

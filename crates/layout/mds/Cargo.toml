@@ -7,4 +7,4 @@ edition = "2021"
 ndarray = "0.15"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
-petgraph-layout-force-simulation = { path = "../../layout/force-simulation" }
+petgraph-drawing = { path = "../../drawing" }
