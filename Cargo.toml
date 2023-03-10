@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/algorithm/planarity-test",
     "crates/algorithm/biconnected-components",
     "crates/algorithm/connected-components",
     "crates/algorithm/shortest-path",
