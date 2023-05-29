@@ -12,9 +12,9 @@ export class Home extends React.Component {
           <li>
             <Link to="/fruchterman-reingold">FruchtermanReingold</Link>
           </li>
-          <li>
+          {/* <li>
             <Link to="/force-atlas2">ForceAtlas2</Link>
-          </li>
+          </li> */}
           <li>
             <Link to="/kamada-kawai">KamadaKawai</Link>
           </li>

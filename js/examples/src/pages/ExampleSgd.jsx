@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import {
   Graph,
-  Coordinates,
+  Drawing,
   SparseSgd as Sgd,
   Rng,
 } from "egraph/dist/web/egraph_wasm";
@@ -27,7 +27,7 @@ export function ExampleSgd() {
     }
 
     const rng = Rng.seedFrom(0n);
-    const coordinates = Coordinates.initialPlacement(graph);
+    const drawing = Drawing.initialPlacement(graph);
     const sgd = new Sgd(graph, () => 30, 50, rng);
     const scheduler = sgd.scheduler(300, 0.1);
 
@@ -37,12 +37,12 @@ export function ExampleSgd() {
       }
       scheduler.step((eta) => {
         sgd.shuffle(rng);
-        sgd.apply(coordinates, eta);
+        sgd.apply(drawing, eta);
       });
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
-        node.x = coordinates.x(u);
-        node.y = coordinates.y(u);
+        node.x = drawing.x(u);
+        node.y = drawing.y(u);
       }
       rendererRef.current.update();
       window.requestAnimationFrame(draw);

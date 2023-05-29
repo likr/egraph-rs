@@ -4,7 +4,7 @@ import {
   Coordinates,
   Graph,
   Simulation,
-  ForceAtlas2Force,
+  ForceAtlas2,
   PositionForce,
 } from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";

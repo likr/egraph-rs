@@ -6,7 +6,6 @@ import {
   Home,
   ExampleEdgeBundling,
   ExampleFm3,
-  ExampleForceAtlas2,
   ExampleForceDirected,
   ExampleFruchtermanReingold,
   ExampleGroupInABox,
@@ -37,7 +36,6 @@ render(
           <Route path="/" component={Home} exact />
           <Route path="/edge-bundling" component={ExampleEdgeBundling} />
           <Route path="/fm3" component={ExampleFm3} />
-          <Route path="/force-atlas2" component={ExampleForceAtlas2} />
           <Route path="/force-directed" component={ExampleForceDirected} />
           <Route
             path="/fruchterman-reingold"

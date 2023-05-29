@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { Coordinates, Graph, KamadaKawai } from "egraph/dist/web/egraph_wasm";
+import { Drawing, Graph, KamadaKawai } from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export function ExampleKamadaKawai() {
@@ -23,18 +23,18 @@ export function ExampleKamadaKawai() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const coordinates = Coordinates.initialPlacement(graph);
+      const drawing = Drawing.initialPlacement(graph);
       const kamadaKawai = new KamadaKawai(graph, () => ({ distance: 100 }));
       kamadaKawai.eps = 1e-3;
 
       setInterval(() => {
-        const u = kamadaKawai.selectNode(coordinates);
+        const u = kamadaKawai.selectNode(drawing);
         if (u != null) {
-          kamadaKawai.applyToNode(u, coordinates);
+          kamadaKawai.applyToNode(u, drawing);
           for (const u of graph.nodeIndices()) {
             const node = graph.nodeWeight(u);
-            node.x = coordinates.x(u);
-            node.y = coordinates.y(u);
+            node.x = drawing.x(u);
+            node.y = drawing.y(u);
           }
           rendererRef.current.update();
         }

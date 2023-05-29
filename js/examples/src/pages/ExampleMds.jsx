@@ -23,11 +23,11 @@ export function ExampleMds() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const coordinates = new ClassicalMds().run(graph, () => 100);
+      const drawing = new ClassicalMds().run(graph, () => 100);
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
-        node.x = coordinates.x(u);
-        node.y = coordinates.y(u);
+        node.x = drawing.x(u);
+        node.y = drawing.y(u);
       }
 
       rendererRef.current.load(data);
