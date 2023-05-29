@@ -1,7 +1,7 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::Drawing;
-use std::{f32::consts::PI, hash::Hash};
+use petgraph_drawing::{Drawing, DrawingIndex};
+use std::f32::consts::PI;
 
 pub fn crossing_edges<G>(
     graph: G,
@@ -9,7 +9,7 @@ pub fn crossing_edges<G>(
 ) -> Vec<((G::NodeId, G::NodeId), (G::NodeId, G::NodeId))>
 where
     G: IntoEdgeReferences,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let edges = graph
         .edge_references()
@@ -49,7 +49,7 @@ where
 pub fn crossing_number<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let crossing_edges = crossing_edges(graph, drawing);
     crossing_number_with_crossing_edges(&crossing_edges)
@@ -62,7 +62,7 @@ pub fn crossing_number_with_crossing_edges<E>(crossing_edges: &[(E, E)]) -> f32 
 pub fn crossing_angle<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let crossing_edges = crossing_edges(graph, drawing);
     crossing_angle_with_crossing_edges(drawing, &crossing_edges)
@@ -73,7 +73,7 @@ pub fn crossing_angle_with_crossing_edges<N>(
     crossing_edges: &[((N, N), (N, N))],
 ) -> f32
 where
-    N: Copy + Eq + Hash,
+    N: Copy + DrawingIndex,
 {
     let mut s = 0.;
     for &((source1, target1), (source2, target2)) in crossing_edges.iter() {

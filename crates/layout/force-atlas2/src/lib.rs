@@ -1,23 +1,25 @@
-#[macro_use]
-extern crate force_derive;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use petgraph_layout_force_simulation::{Force, ForceToNode, Point};
+use petgraph_drawing::{Drawing, DrawingIndex, DrawingValue};
 use std::collections::HashMap;
-use std::hash::Hash;
 
-#[derive(Force)]
-pub struct ForceAtlas2Force {
+pub struct ForceAtlas2<S>
+where
+    S: DrawingValue,
+{
     degree: Vec<usize>,
     links: Vec<Vec<usize>>,
-    k: f32,
-    min_distance: f32,
+    k: S,
+    min_distance: S,
 }
 
-impl ForceAtlas2Force {
-    pub fn new<G>(graph: G) -> ForceAtlas2Force
+impl<S> ForceAtlas2<S>
+where
+    S: DrawingValue,
+{
+    pub fn new<G>(graph: G) -> ForceAtlas2<S>
     where
         G: IntoNodeIdentifiers + IntoNeighbors,
-        G::NodeId: Eq + Hash,
+        G::NodeId: DrawingIndex,
     {
         let node_indices = graph
             .node_identifiers()
@@ -33,35 +35,47 @@ impl ForceAtlas2Force {
                 links[node_indices[&u]].push(node_indices[&v]);
             }
         }
-        ForceAtlas2Force {
+        ForceAtlas2 {
             degree,
             links,
-            k: 1.,
-            min_distance: 1.,
+            k: S::one(),
+            min_distance: S::one(),
         }
     }
-}
 
-impl ForceToNode for ForceAtlas2Force {
-    fn apply_to_node(&self, u: usize, points: &mut [Point], alpha: f32) {
-        let n = points.len();
+    pub fn apply_to_node<N>(&self, u: usize, drawing: &mut Drawing<N, S>, alpha: S)
+    where
+        N: DrawingIndex,
+    {
+        let n = drawing.len();
         for v in 0..n {
             if u == v {
                 continue;
             }
-            let dx = points[v].x - points[u].x;
-            let dy = points[v].y - points[u].y;
+            let dx = drawing.coordinates[[v, 0]] - drawing.coordinates[[u, 0]];
+            let dy = drawing.coordinates[[v, 1]] - drawing.coordinates[[u, 1]];
             let d = (dx * dx + dy * dy).sqrt().max(self.min_distance);
-            let c = self.k * (self.degree[u] as f32 + 1.) * (self.degree[v] as f32 + 1.) / d;
-            points[u].vx -= alpha * c * dx;
-            points[u].vy -= alpha * c * dy;
+            let du = S::from(self.degree[u] + 1).unwrap();
+            let c = self.k * du * du / d;
+            drawing.coordinates[[u, 0]] -= alpha * c * dx;
+            drawing.coordinates[[u, 1]] -= alpha * c * dy;
         }
         for &v in self.links[u].iter() {
-            let dx = points[v].x - points[u].x;
-            let dy = points[v].y - points[u].y;
+            let dx = drawing.coordinates[[v, 0]] - drawing.coordinates[[u, 0]];
+            let dy = drawing.coordinates[[v, 1]] - drawing.coordinates[[u, 1]];
             let d = (dx * dx + dy * dy).sqrt();
-            points[u].vx += alpha * d * dx;
-            points[u].vy += alpha * d * dy;
+            drawing.coordinates[[u, 0]] += alpha * d * dx;
+            drawing.coordinates[[u, 1]] += alpha * d * dy;
+        }
+    }
+
+    pub fn apply<N>(&self, drawing: &mut Drawing<N, S>, alpha: S)
+    where
+        N: DrawingIndex,
+    {
+        let n = drawing.len();
+        for u in 0..n {
+            self.apply_to_node(u, drawing, alpha);
         }
     }
 }

@@ -1,11 +1,10 @@
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let n = drawing.len();
     let mut s = 0.;

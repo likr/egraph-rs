@@ -1,8 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{multi_source_dijkstra, warshall_floyd};
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 fn cos(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let ab = a.dot(b);
@@ -67,7 +66,7 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
 fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing<G::NodeId, f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
     F: FnMut(G::EdgeRef) -> f32,
 {
     let mut delta = warshall_floyd(graph, length);
@@ -85,7 +84,7 @@ where
 fn pivot_mds<G, F>(graph: G, length: F, sources: &[G::NodeId], eps: f32) -> Drawing<G::NodeId, f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: DrawingIndex + Ord,
     F: FnMut(G::EdgeRef) -> f32,
 {
     let mut delta = multi_source_dijkstra(graph, length, &sources);
@@ -114,7 +113,7 @@ impl ClassicalMds {
     pub fn run<G, F>(&self, graph: G, length: F) -> Drawing<G::NodeId, f32>
     where
         G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Ord,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
         classical_mds(graph, length, self.eps)
@@ -133,7 +132,7 @@ impl PivotMds {
     pub fn run<G, F>(&self, graph: G, length: F, sources: &[G::NodeId]) -> Drawing<G::NodeId, f32>
     where
         G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Ord,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
         pivot_mds(graph, length, sources, self.eps)

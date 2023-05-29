@@ -1,8 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 fn norm(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt().max(1.)
@@ -18,7 +17,7 @@ impl KamadaKawai {
     pub fn new<G, F>(graph: G, length: F) -> KamadaKawai
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
-        G::NodeId: Eq + Hash,
+        G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> f32,
     {
         let l = warshall_floyd(graph, length);
@@ -44,7 +43,7 @@ impl KamadaKawai {
 
     pub fn select_node<N>(&self, drawing: &Drawing<N, f32>) -> Option<usize>
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         let n = drawing.len();
         let KamadaKawai { k, l, eps, .. } = self;
@@ -82,7 +81,7 @@ impl KamadaKawai {
 
     pub fn apply_to_node<N>(&self, m: usize, drawing: &mut Drawing<N, f32>)
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         let n = drawing.len();
         let KamadaKawai { k, l, .. } = self;
@@ -117,7 +116,7 @@ impl KamadaKawai {
 
     pub fn run<N>(&self, drawing: &mut Drawing<N, f32>)
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         while let Some(m) = self.select_node(drawing) {
             self.apply_to_node(m, drawing);

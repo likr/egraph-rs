@@ -2,12 +2,11 @@ use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeIndexable};
 use petgraph_algorithm_shortest_path::{dijkstra_with_distance_matrix, warshall_floyd};
-use petgraph_drawing::Drawing;
+use petgraph_drawing::{Drawing, DrawingIndex};
 use rand::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     f32::INFINITY,
-    hash::Hash,
 };
 
 pub struct FullSgd {
@@ -18,7 +17,7 @@ impl FullSgd {
     pub fn new<G, F>(graph: G, length: F) -> FullSgd
     where
         G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash,
+        G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> f32,
     {
         let indices = graph
@@ -61,7 +60,7 @@ impl SparseSgd {
     pub fn new<G, F>(graph: G, length: F, h: usize) -> SparseSgd
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
-        G::NodeId: Eq + Hash + Ord,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
         let mut rng = rand::thread_rng();
@@ -71,7 +70,7 @@ impl SparseSgd {
     pub fn new_with_rng<G, F, R>(graph: G, length: F, h: usize, rng: &mut R) -> SparseSgd
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
-        G::NodeId: Eq + Hash + Ord,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
         R: Rng,
     {
@@ -170,7 +169,7 @@ pub trait Sgd {
 
     fn apply<N>(&self, drawing: &mut Drawing<N, f32>, eta: f32)
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
@@ -217,7 +216,7 @@ fn max_min_random_sp<G, F, R>(
 ) -> (Vec<usize>, Array2<f32>)
 where
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: DrawingIndex + Ord,
     F: FnMut(G::EdgeRef) -> f32,
     R: Rng,
 {

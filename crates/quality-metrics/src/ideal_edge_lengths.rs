@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers};
-use petgraph_drawing::Drawing;
-use std::{collections::HashMap, hash::Hash};
+use petgraph_drawing::{Drawing, DrawingIndex};
+use std::collections::HashMap;
 
 pub fn ideal_edge_lengths<G>(
     graph: G,
@@ -10,7 +10,7 @@ pub fn ideal_edge_lengths<G>(
 ) -> f32
 where
     G: IntoEdgeReferences + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let node_indices = graph
         .node_identifiers()

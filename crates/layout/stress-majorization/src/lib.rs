@@ -1,8 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 fn line_search(a: &Array2<f32>, dx: &Array1<f32>, d: &Array1<f32>) -> f32 {
     let n = dx.len();
@@ -98,7 +97,7 @@ impl StressMajorization {
     pub fn new<G, F>(graph: G, drawing: &Drawing<G::NodeId, f32>, length: F) -> StressMajorization
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
-        G::NodeId: Eq + Hash,
+        G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> f32,
     {
         let d = warshall_floyd(graph, length);
@@ -110,7 +109,7 @@ impl StressMajorization {
         d: &Array2<f32>,
     ) -> StressMajorization
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         let n = drawing.len();
 
@@ -165,7 +164,7 @@ impl StressMajorization {
 
     pub fn apply<N>(&mut self, drawing: &mut Drawing<N, f32>) -> f32
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         let n = drawing.len();
         let StressMajorization {
@@ -240,7 +239,7 @@ impl StressMajorization {
 
     pub fn run<N>(&mut self, coordinates: &mut Drawing<N, f32>)
     where
-        N: Eq + Hash,
+        N: DrawingIndex,
     {
         loop {
             if self.apply(coordinates) < self.epsilon {

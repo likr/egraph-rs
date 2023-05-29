@@ -1,10 +1,8 @@
-use std::hash::Hash;
-
-use petgraph_drawing::Drawing;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub fn node_resolution<N>(drawing: &Drawing<N, f32>) -> f32
 where
-    N: Eq + Hash,
+    N: DrawingIndex,
 {
     let n = drawing.len();
     let r = 1. / (n as f32).sqrt();

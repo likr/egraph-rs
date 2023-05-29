@@ -1,9 +1,8 @@
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub fn aspect_ratio<N>(drawing: &Drawing<N, f32>) -> f32
 where
-    N: Eq + Hash,
+    N: DrawingIndex,
 {
     let n = drawing.len();
     let mut cx = 0.;

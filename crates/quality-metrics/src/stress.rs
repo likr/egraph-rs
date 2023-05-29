@@ -1,10 +1,9 @@
 use ndarray::prelude::*;
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub fn stress<N>(drawing: &Drawing<N, f32>, d: &Array2<f32>) -> f32
 where
-    N: Eq + Hash,
+    N: DrawingIndex,
 {
     let n = drawing.len();
     let mut s = 0.;

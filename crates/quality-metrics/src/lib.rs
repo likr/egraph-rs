@@ -10,8 +10,7 @@ mod stress;
 
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
@@ -78,7 +77,7 @@ pub fn quality_metrics<G>(
 ) -> Vec<(QualityMetric, f32)>
 where
     G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     quality_metrics_with_targets(
         graph,
@@ -106,7 +105,7 @@ pub fn quality_metrics_with_targets<G>(
 ) -> Vec<(QualityMetric, f32)>
 where
     G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let crossing_edges = crossing_edges(graph, drawing);
     targets

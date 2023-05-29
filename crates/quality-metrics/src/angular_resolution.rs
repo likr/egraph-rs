@@ -1,12 +1,11 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use petgraph_drawing::Drawing;
-use std::hash::Hash;
+use petgraph_drawing::{Drawing, DrawingIndex};
 
 pub fn angular_resolution<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
 where
     G: IntoNodeIdentifiers + IntoNeighbors,
-    G::NodeId: Eq + Hash,
+    G::NodeId: DrawingIndex,
 {
     let mut s = 0.;
     for u in graph.node_identifiers() {

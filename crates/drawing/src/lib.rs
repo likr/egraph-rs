@@ -6,10 +6,15 @@ use std::{
     hash::Hash,
 };
 
+pub trait DrawingIndex: Eq + Hash {}
+impl<T> DrawingIndex for T where T: Eq + Hash {}
+pub trait DrawingValue: NdFloat {}
+impl<T> DrawingValue for T where T: NdFloat {}
+
 pub struct Drawing<N, S>
 where
-    N: Eq + Hash,
-    S: NdFloat,
+    N: DrawingIndex,
+    S: DrawingValue,
 {
     pub indices: Vec<N>,
     pub coordinates: Array2<S>,
@@ -18,13 +23,13 @@ where
 
 impl<N, S> Drawing<N, S>
 where
-    N: Eq + Hash,
-    S: NdFloat,
+    N: DrawingIndex,
+    S: DrawingValue,
 {
     pub fn new<G>(graph: G) -> Drawing<N, S>
     where
         G: IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Into<N>,
+        G::NodeId: DrawingIndex + Into<N>,
         N: Copy,
     {
         let indices = graph
@@ -119,7 +124,7 @@ where
     pub fn initial_placement<G>(graph: G) -> Drawing<N, S>
     where
         G: IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Into<N>,
+        G::NodeId: DrawingIndex + Into<N>,
         N: Copy,
         S: FloatConst + FromPrimitive,
     {
@@ -130,7 +135,7 @@ where
     pub fn initial_placement_with_node_order<G>(graph: G, nodes: &[G::NodeId]) -> Drawing<N, S>
     where
         G: IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Into<N>,
+        G::NodeId: DrawingIndex + Into<N>,
         N: Copy,
         S: FloatConst + FromPrimitive,
     {
@@ -150,7 +155,7 @@ where
     pub fn initial_placement_with_bfs_order<G>(graph: G, s: G::NodeId) -> Drawing<N, S>
     where
         G: IntoNeighbors + IntoNodeIdentifiers,
-        G::NodeId: Eq + Hash + Into<N>,
+        G::NodeId: DrawingIndex + Into<N>,
         N: Copy,
         S: FloatConst + FromPrimitive,
     {
@@ -176,8 +181,8 @@ where
 
 pub struct DrawingIterator<'a, N, S>
 where
-    N: Copy + Eq + Hash,
-    S: NdFloat,
+    N: Copy + DrawingIndex,
+    S: DrawingValue,
 {
     drawing: &'a Drawing<N, S>,
     index: usize,
@@ -185,8 +190,8 @@ where
 
 impl<'a, N, S> Iterator for DrawingIterator<'a, N, S>
 where
-    N: Copy + Eq + Hash,
-    S: NdFloat,
+    N: Copy + DrawingIndex,
+    S: DrawingValue,
 {
     type Item = (N, (S, S));
     fn next(&mut self) -> Option<Self::Item> {
