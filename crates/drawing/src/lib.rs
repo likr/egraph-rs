@@ -109,8 +109,21 @@ where
     where
         S: FromPrimitive,
     {
-        if let Some(c) = self.coordinates.mean_axis(Axis(0)) {
-            self.coordinates -= &c;
+        let mut l = S::infinity();
+        let mut r = S::neg_infinity();
+        let mut t = S::infinity();
+        let mut b = S::neg_infinity();
+        for i in 0..self.len() {
+            l = l.min(self.coordinates[[i, 0]]);
+            r = r.max(self.coordinates[[i, 0]]);
+            t = t.min(self.coordinates[[i, 1]]);
+            b = b.max(self.coordinates[[i, 1]]);
+        }
+        let w = r - l;
+        let h = b - t;
+        for i in 0..self.len() {
+            self.coordinates[[i, 0]] -= l + w / S::from(2.).unwrap();
+            self.coordinates[[i, 1]] -= t + h / S::from(2.).unwrap();
         }
     }
 

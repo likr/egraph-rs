@@ -41,6 +41,7 @@ export function ExampleKamadaKawai() {
       }, 200);
 
       rendererRef.current.load(data);
+      rendererRef.current.focus(0, 0);
     })();
   }, []);
 

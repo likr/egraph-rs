@@ -30,14 +30,15 @@ export function ExampleStressMajorization() {
       distance: 100,
     }));
     rendererRef.current.load(data);
+    rendererRef.current.focus(0, 0);
     function draw() {
       if (stressMajorization.apply(drawing) > 1e-5) {
+        drawing.centralize();
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
           node.x = drawing.x(u);
           node.y = drawing.y(u);
         }
-        drawing.centralize();
         rendererRef.current.update();
         requestAnimationFrame(draw);
       }

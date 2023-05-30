@@ -31,7 +31,7 @@ export function ExampleMds() {
       }
 
       rendererRef.current.load(data);
-      rendererRef.current.center();
+      rendererRef.current.focus(0, 0);
     })();
   }, []);
 

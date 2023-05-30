@@ -21,15 +21,14 @@ export function ExampleSgd() {
       indices.set(node.id, graph.addNode(node));
     }
     for (const link of data.links) {
-      link.strokeWidth = Math.sqrt(link.value);
       const { source, target } = link;
       graph.addEdge(indices.get(source), indices.get(target), link);
     }
 
     const rng = Rng.seedFrom(0n);
     const drawing = Drawing.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 30, 50, rng);
-    const scheduler = sgd.scheduler(300, 0.1);
+    const sgd = new Sgd(graph, () => 15, 50, rng);
+    const scheduler = sgd.scheduler(60, 0.1);
 
     const draw = () => {
       if (!rendererRef.current || scheduler.isFinished()) {
@@ -39,6 +38,7 @@ export function ExampleSgd() {
         sgd.shuffle(rng);
         sgd.apply(drawing, eta);
       });
+      drawing.centralize();
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
         node.x = drawing.x(u);
@@ -49,6 +49,7 @@ export function ExampleSgd() {
     };
 
     rendererRef.current.load(data);
+    rendererRef.current.focus(0, 0);
     draw();
   }, []);
 
@@ -61,10 +62,10 @@ export function ExampleSgd() {
     >
       <eg-renderer
         ref={rendererRef}
-        default-node-width="10"
-        default-node-height="10"
+        default-node-width="5"
+        default-node-height="5"
         default-node-stroke-color="#fff"
-        default-node-stroke-width="1.5"
+        default-node-stroke-width="1"
         default-node-type="circle"
         default-link-stroke-color="#999"
         default-link-stroke-opacity="0.6"
