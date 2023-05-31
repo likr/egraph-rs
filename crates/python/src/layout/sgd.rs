@@ -3,8 +3,8 @@ use crate::{
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
-use petgraph::visit::EdgeRef;
-use petgraph_layout_sgd::{Sgd, SgdScheduler, SparseSgd};
+use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
+use petgraph_layout_sgd::{FullSgd, Sgd, SgdScheduler, SparseSgd};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -55,6 +55,58 @@ impl PySparseSgd {
         }
     }
 
+    #[staticmethod]
+    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> Self {
+        PySparseSgd {
+            sgd: match graph.graph() {
+                GraphType::Graph(native_graph) => {
+                    let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
+                    SparseSgd::new_with_pivot(
+                        native_graph,
+                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                        &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                    )
+                }
+                _ => panic!("unsupported graph type"),
+            },
+        }
+    }
+
+    fn shuffle(&mut self, rng: &mut PyRng) {
+        self.sgd.shuffle(rng.get_mut())
+    }
+
+    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
+        PySgdScheduler {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "FullSgd")]
+struct PyFullSgd {
+    sgd: FullSgd,
+}
+
+#[pymethods]
+impl PyFullSgd {
+    #[new]
+    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyFullSgd {
+        PyFullSgd {
+            sgd: match graph.graph() {
+                GraphType::Graph(native_graph) => FullSgd::new(native_graph, |e| {
+                    f.call1((e.id().index(),)).unwrap().extract().unwrap()
+                }),
+                _ => panic!("unsupported graph type"),
+            },
+        }
+    }
+
     fn shuffle(&mut self, rng: &mut PyRng) {
         self.sgd.shuffle(rng.get_mut())
     }
@@ -73,5 +125,6 @@ impl PySparseSgd {
 pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PySgdScheduler>()?;
     m.add_class::<PySparseSgd>()?;
+    m.add_class::<PyFullSgd>()?;
     Ok(())
 }
