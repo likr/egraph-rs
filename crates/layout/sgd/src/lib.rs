@@ -1,7 +1,9 @@
 use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeIndexable};
-use petgraph_algorithm_shortest_path::{dijkstra_with_distance_matrix, warshall_floyd};
+use petgraph_algorithm_shortest_path::{
+    dijkstra_with_distance_matrix, multi_source_dijkstra, warshall_floyd,
+};
 use petgraph_drawing::{Drawing, DrawingIndex};
 use rand::prelude::*;
 use std::{
@@ -83,7 +85,37 @@ impl SparseSgd {
         let n = indices.len();
         let h = h.min(n);
         let (pivot, d) = max_min_random_sp(graph, &indices, &mut length, h, rng);
+        Self::new_with_pivot_and_distance_matrix(graph, length, &pivot, &d)
+    }
 
+    pub fn new_with_pivot<G, F>(graph: G, mut length: F, pivot: &[G::NodeId]) -> SparseSgd
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
+        let d = multi_source_dijkstra(graph, &mut length, pivot);
+        Self::new_with_pivot_and_distance_matrix(graph, &mut length, pivot, &d)
+    }
+
+    pub fn new_with_pivot_and_distance_matrix<G, F>(
+        graph: G,
+        mut length: F,
+        pivot: &[G::NodeId],
+        distance_matrix: &Array2<f32>,
+    ) -> SparseSgd
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+    {
+        let indices = graph
+            .node_identifiers()
+            .enumerate()
+            .map(|(i, u)| (u, i))
+            .collect::<HashMap<_, _>>();
+        let n = indices.len();
+        let h = pivot.len();
         let mut node_pairs = vec![];
         let mut edges = HashSet::new();
         for edge in graph.edge_references() {
@@ -98,7 +130,11 @@ impl SparseSgd {
         }
 
         let r = (0..n)
-            .map(|i| (0..h).min_by_key(|&j| OrderedFloat(d[[i, j]])).unwrap())
+            .map(|i| {
+                (0..h)
+                    .min_by_key(|&j| OrderedFloat(distance_matrix[[i, j]]))
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
         let mut r_nodes = vec![vec![]; h];
         for i in 0..n {
@@ -106,15 +142,16 @@ impl SparseSgd {
         }
 
         for (k, &j) in pivot.iter().enumerate() {
+            let j = indices[&j];
             for i in 0..n {
                 if edges.contains(&(i, j)) || i == j {
                     continue;
                 }
-                let dij = d[[i, k]];
+                let dij = distance_matrix[[i, k]];
                 let wij = 1. / (dij * dij);
                 let sij = r_nodes[k]
                     .iter()
-                    .filter(|&&l| 2. * d[[l, k]] <= dij)
+                    .filter(|&&l| 2. * distance_matrix[[l, k]] <= dij)
                     .count() as f32;
                 node_pairs.push((i, j, dij, sij * wij));
             }
@@ -213,23 +250,24 @@ fn max_min_random_sp<G, F, R>(
     length: F,
     h: usize,
     rng: &mut R,
-) -> (Vec<usize>, Array2<f32>)
+) -> (Vec<G::NodeId>, Array2<f32>)
 where
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
     G::NodeId: DrawingIndex + Ord,
     F: FnMut(G::EdgeRef) -> f32,
     R: Rng,
 {
+    let nodes = graph.node_identifiers().collect::<Vec<_>>();
     let mut length = length;
     let n = indices.len();
     let mut pivot = vec![];
-    pivot.push(rng.gen_range(0..n));
+    pivot.push(nodes[rng.gen_range(0..n)]);
     let mut distance_matrix = Array2::from_elem((n, h), INFINITY);
     dijkstra_with_distance_matrix(
         graph,
         indices,
         &mut length,
-        graph.from_index(pivot[0]),
+        graph.from_index(indices[&pivot[0]]),
         &mut distance_matrix,
         0,
     );
@@ -238,12 +276,12 @@ where
         for i in 0..n {
             min_d[i] = min_d[i].min(distance_matrix[[i, k - 1]]);
         }
-        pivot.push(proportional_sampling(&min_d, rng));
+        pivot.push(nodes[proportional_sampling(&min_d, rng)]);
         dijkstra_with_distance_matrix(
             graph,
             indices,
             &mut length,
-            graph.from_index(pivot[k]),
+            graph.from_index(indices[&pivot[k]]),
             &mut distance_matrix,
             k,
         );
