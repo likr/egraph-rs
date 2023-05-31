@@ -5,45 +5,49 @@ import {
   Graph,
   StressMajorization,
 } from "egraph/dist/web/egraph_wasm";
-import data from "../../public/data/miserables.json";
 import { Wrapper } from "../wrapper";
 
 export function ExampleStressMajorization() {
   const rendererRef = useRef();
 
   useEffect(() => {
-    const color = d3.scaleOrdinal(d3.schemeCategory10);
-    const graph = new Graph();
-    const indices = new Map();
-    for (const node of data.nodes) {
-      node.fillColor = color(node.group);
-      indices.set(node.id, graph.addNode(node));
-    }
-    for (const link of data.links) {
-      link.strokeWidth = Math.sqrt(link.value);
-      const { source, target } = link;
-      graph.addEdge(indices.get(source), indices.get(target), link);
-    }
+    (async () => {
+      const response = await fetch("/data/miserables.json");
+      const data = await response.json();
 
-    const drawing = Drawing.initialPlacement(graph);
-    const stressMajorization = new StressMajorization(graph, drawing, () => ({
-      distance: 100,
-    }));
-    rendererRef.current.load(data);
-    rendererRef.current.focus(0, 0);
-    function draw() {
-      if (stressMajorization.apply(drawing) > 1e-5) {
-        drawing.centralize();
-        for (const u of graph.nodeIndices()) {
-          const node = graph.nodeWeight(u);
-          node.x = drawing.x(u);
-          node.y = drawing.y(u);
-        }
-        rendererRef.current.update();
-        requestAnimationFrame(draw);
+      const color = d3.scaleOrdinal(d3.schemeCategory10);
+      const graph = new Graph();
+      const indices = new Map();
+      for (const node of data.nodes) {
+        node.fillColor = color(node.group);
+        indices.set(node.id, graph.addNode(node));
       }
-    }
-    draw();
+      for (const link of data.links) {
+        link.strokeWidth = Math.sqrt(link.value);
+        const { source, target } = link;
+        graph.addEdge(indices.get(source), indices.get(target), link);
+      }
+
+      const drawing = Drawing.initialPlacement(graph);
+      const stressMajorization = new StressMajorization(graph, drawing, () => ({
+        distance: 100,
+      }));
+      rendererRef.current.load(data);
+      rendererRef.current.focus(0, 0);
+      function draw() {
+        if (stressMajorization.apply(drawing) > 1e-5) {
+          drawing.centralize();
+          for (const u of graph.nodeIndices()) {
+            const node = graph.nodeWeight(u);
+            node.x = drawing.x(u);
+            node.y = drawing.y(u);
+          }
+          rendererRef.current.update();
+          requestAnimationFrame(draw);
+        }
+      }
+      draw();
+    })();
   }, []);
 
   return (
