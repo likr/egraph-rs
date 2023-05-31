@@ -1,12 +1,10 @@
 import "bulma/css/bulma.css";
 import "./styles.css";
-import init from "egraph/dist/web/egraph_wasm";
-import wasm from "egraph/dist/web/egraph_wasm_bg.wasm?url";
-import "eg-renderer/umd/eg-renderer.js";
-import wasmUrl from "eg-renderer/umd/eg-renderer.wasm?url";
-egRenderer(wasmUrl);
+import egraph from "egraph/dist/web/egraph_wasm";
+import egraphBinary from "egraph/dist/web/egraph_wasm_bg.wasm?url";
+import egRenderer from "eg-renderer/umd/eg-renderer.js";
+import egRendererBinary from "eg-renderer/umd/eg-renderer.wasm?url";
 
-console.log(wasm);
-await customElements.whenDefined("eg-renderer");
-await init(wasm);
+await egRenderer(egRendererBinary);
+await egraph(egraphBinary);
 import("./App");
