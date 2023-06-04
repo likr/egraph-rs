@@ -50,6 +50,11 @@ impl PyStressMajorization {
     pub fn run(&mut self, drawing: &mut PyDrawing) {
         self.stress_majorization.run(drawing.drawing_mut());
     }
+
+    pub fn update_weight(&mut self, f: &PyAny) {
+        self.stress_majorization
+            .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
 }
 
 pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
