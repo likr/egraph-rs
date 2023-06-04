@@ -112,32 +112,8 @@ impl StressMajorization {
         N: DrawingIndex,
     {
         let n = drawing.len();
-
-        let mut w = Array2::zeros((n, n));
-        for j in 1..n {
-            for i in 0..j {
-                let dij = d[[i, j]];
-                let wij = 1. / (dij * dij);
-                w[[i, j]] = wij;
-                w[[j, i]] = wij;
-            }
-        }
-
-        let mut l_w = Array2::zeros((n - 1, n - 1));
-        for j in 1..n - 1 {
-            for i in 0..j {
-                let wij = w[[i, j]];
-                l_w[[i, j]] = -wij;
-                l_w[[j, i]] = -wij;
-                l_w[[i, i]] += wij;
-                l_w[[j, j]] += wij;
-            }
-        }
-        for i in 0..n - 1 {
-            let j = n - 1;
-            l_w[[i, i]] += w[[i, j]];
-        }
-
+        let w = Array2::zeros((n, n));
+        let l_w = Array2::zeros((n - 1, n - 1));
         let mut x_x = Array1::zeros(n - 1);
         let mut x_y = Array1::zeros(n - 1);
         for i in 0..n - 1 {
@@ -148,8 +124,7 @@ impl StressMajorization {
         let epsilon = 1e-4;
         let l_z = Array2::zeros((n - 1, n - 1));
         let b = Array1::zeros(n - 1);
-        let stress = stress(&x_x, &x_y, &w, &d);
-        StressMajorization {
+        let mut sm = StressMajorization {
             b,
             d: d.clone(),
             l_w,
@@ -157,9 +132,11 @@ impl StressMajorization {
             w,
             x_x,
             x_y,
-            stress,
+            stress: std::f32::INFINITY,
             epsilon,
-        }
+        };
+        sm.update_weight(|_, _, dij, _| 1. / (dij * dij));
+        sm
     }
 
     pub fn apply<N>(&mut self, drawing: &mut Drawing<N, f32>) -> f32
@@ -246,6 +223,39 @@ impl StressMajorization {
                 break;
             }
         }
+    }
+
+    pub fn update_weight<F>(&mut self, mut weight: F)
+    where
+        F: FnMut(usize, usize, f32, f32) -> f32,
+    {
+        let n = self.x_x.len() + 1;
+
+        for j in 1..n {
+            for i in 0..j {
+                let wij = weight(i, j, self.d[[i, j]], self.w[[i, j]]);
+                self.w[[i, j]] = wij;
+                self.w[[j, i]] = wij;
+            }
+        }
+
+        for i in 0..n - 1 {
+            self.l_w[[i, i]] = 0.;
+        }
+        for j in 1..n - 1 {
+            for i in 0..j {
+                let wij = self.w[[i, j]];
+                self.l_w[[i, j]] = -wij;
+                self.l_w[[j, i]] = -wij;
+                self.l_w[[i, i]] += wij;
+                self.l_w[[j, j]] += wij;
+            }
+        }
+        for i in 0..n - 1 {
+            let j = n - 1;
+            self.l_w[[i, i]] += self.w[[i, j]];
+        }
+        self.stress = stress(&self.x_x, &self.x_y, &self.w, &self.d);
     }
 }
 
