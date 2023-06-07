@@ -22,14 +22,12 @@ impl FullSgd {
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let indices = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, u)| (u, i))
-            .collect::<HashMap<_, _>>();
-        let n = indices.len();
         let d = warshall_floyd(graph, length);
+        Self::new_with_distance_matrix(&d)
+    }
 
+    pub fn new_with_distance_matrix(d: &Array2<f32>) -> FullSgd {
+        let n = d.shape()[0];
         let mut node_pairs = vec![];
         for j in 1..n {
             for i in 0..j {
@@ -39,7 +37,6 @@ impl FullSgd {
                 node_pairs.push((j, i, dij, wij));
             }
         }
-
         FullSgd { node_pairs }
     }
 }
@@ -240,6 +237,16 @@ pub trait Sgd {
             t_max,
             a: eta_max,
             b: (eta_min / eta_max).ln() / (t_max - 1) as f32,
+        }
+    }
+
+    fn update_weight<F>(&mut self, mut weight: F)
+    where
+        F: FnMut(usize, usize, f32, f32) -> f32,
+    {
+        for p in self.node_pairs_mut() {
+            let (i, j, dij, wij) = p;
+            p.3 = weight(*i, *j, *dij, *wij)
         }
     }
 }

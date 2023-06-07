@@ -1,4 +1,5 @@
 use crate::{
+    distance_matrix::PyDistanceMatrix,
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
@@ -85,6 +86,11 @@ impl PySparseSgd {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
+
+    pub fn update_weight(&mut self, f: &PyAny) {
+        self.sgd
+            .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
 }
 
 #[pyclass]
@@ -107,6 +113,13 @@ impl PyFullSgd {
         }
     }
 
+    #[staticmethod]
+    fn new_with_distance_matrix(d: &PyDistanceMatrix) -> PyFullSgd {
+        PyFullSgd {
+            sgd: FullSgd::new_with_distance_matrix(d.distance_matrix()),
+        }
+    }
+
     fn shuffle(&mut self, rng: &mut PyRng) {
         self.sgd.shuffle(rng.get_mut())
     }
@@ -119,6 +132,11 @@ impl PyFullSgd {
         PySgdScheduler {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
+    }
+
+    pub fn update_weight(&mut self, f: &PyAny) {
+        self.sgd
+            .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 }
 
