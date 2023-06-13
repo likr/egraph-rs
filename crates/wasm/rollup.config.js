@@ -4,5 +4,5 @@ export default {
     file: "umd/egraph.js",
     format: "umd",
     name: "egraph",
-  }
+  },
 };
