@@ -18,6 +18,7 @@ jobs:
         manylinux: auto
         command: build
         args: --release -o dist
+        working-directory: crates/python
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -32,6 +33,7 @@ jobs:
       with:
         command: build
         args: --release --no-sdist -o dist
+        working-directory: crates/python
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
@@ -46,6 +48,7 @@ jobs:
       with:
         command: build
         args: --release --no-sdist -o dist --universal2
+        working-directory: crates/python
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
