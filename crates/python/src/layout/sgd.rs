@@ -142,7 +142,7 @@ impl PyFullSgd {
 
 pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PySgdScheduler>()?;
-    m.add_class::<PySparseSgd>()?;
     m.add_class::<PyFullSgd>()?;
+    m.add_class::<PySparseSgd>()?;
     Ok(())
 }

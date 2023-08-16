@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ndarray = "0.15"
-pyo3 = { version = "0.16.3", features = ["abi3-py37", "extension-module"] }
+pyo3 = { version = "0.19", features = ["abi3-py37", "extension-module"] }
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-drawing = { path = "../drawing" }
