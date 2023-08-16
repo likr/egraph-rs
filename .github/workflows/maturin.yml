@@ -12,7 +12,6 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-    - working-directory: crates/python
     - uses: actions/checkout@v2
     - uses: messense/maturin-action@v1
       with:
