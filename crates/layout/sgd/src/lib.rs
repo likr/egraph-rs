@@ -240,6 +240,16 @@ pub trait Sgd {
         }
     }
 
+    fn update_distance<F>(&mut self, mut distance: F)
+    where
+        F: FnMut(usize, usize, f32, f32) -> f32,
+    {
+        for p in self.node_pairs_mut() {
+            let (i, j, dij, wij) = p;
+            p.2 = distance(*i, *j, *dij, *wij)
+        }
+    }
+
     fn update_weight<F>(&mut self, mut weight: F)
     where
         F: FnMut(usize, usize, f32, f32) -> f32,
