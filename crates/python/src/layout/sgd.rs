@@ -87,6 +87,11 @@ impl PySparseSgd {
         }
     }
 
+    pub fn update_distance(&mut self, f: &PyAny) {
+        self.sgd
+            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
+
     pub fn update_weight(&mut self, f: &PyAny) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
@@ -132,6 +137,11 @@ impl PyFullSgd {
         PySgdScheduler {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
+    }
+
+    pub fn update_distance(&mut self, f: &PyAny) {
+        self.sgd
+            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
     pub fn update_weight(&mut self, f: &PyAny) {
