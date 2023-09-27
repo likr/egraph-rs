@@ -73,6 +73,29 @@ impl PySparseSgd {
         }
     }
 
+    #[staticmethod]
+    pub fn new_with_pivot_and_distance_matrix(
+        graph: &PyGraphAdapter,
+        f: &PyAny,
+        pivot: Vec<usize>,
+        d: &PyDistanceMatrix,
+    ) -> Self {
+        PySparseSgd {
+            sgd: match graph.graph() {
+                GraphType::Graph(native_graph) => {
+                    let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
+                    SparseSgd::new_with_pivot_and_distance_matrix(
+                        native_graph,
+                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                        &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                        d.distance_matrix(),
+                    )
+                }
+                _ => panic!("unsupported graph type"),
+            },
+        }
+    }
+
     fn shuffle(&mut self, rng: &mut PyRng) {
         self.sgd.shuffle(rng.get_mut())
     }
@@ -95,6 +118,30 @@ impl PySparseSgd {
     pub fn update_weight(&mut self, f: &PyAny) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
+
+    #[staticmethod]
+    pub fn choose_pivot(
+        graph: &PyGraphAdapter,
+        f: &PyAny,
+        h: usize,
+        rng: &mut PyRng,
+    ) -> (Vec<usize>, PyDistanceMatrix) {
+        match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let (pivot, d) = SparseSgd::choose_pivot(
+                    native_graph,
+                    |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    h,
+                    rng.get_mut(),
+                );
+                (
+                    pivot.into_iter().map(|u| u.index()).collect::<Vec<_>>(),
+                    PyDistanceMatrix::new_with_distance_matrix(d),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        }
     }
 }
 
