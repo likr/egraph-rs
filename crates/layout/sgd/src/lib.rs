@@ -240,6 +240,16 @@ pub trait Sgd {
         }
     }
 
+    fn update_distance<F>(&mut self, mut distance: F)
+    where
+        F: FnMut(usize, usize, f32, f32) -> f32,
+    {
+        for p in self.node_pairs_mut() {
+            let (i, j, dij, wij) = p;
+            p.2 = distance(*i, *j, *dij, *wij)
+        }
+    }
+
     fn update_weight<F>(&mut self, mut weight: F)
     where
         F: FnMut(usize, usize, f32, f32) -> f32,
@@ -317,4 +327,61 @@ where
         }
     }
     panic!("unreachable");
+}
+
+pub struct DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    pub alpha: f32,
+    pub minimum_distance: f32,
+    sgd: A,
+    original_distance: HashMap<(usize, usize), f32>,
+}
+
+impl<A> DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    pub fn new(sgd: A) -> DistanceAdjustedSgd<A> {
+        let mut original_distance = HashMap::new();
+        for p in sgd.node_pairs().iter() {
+            original_distance.insert((p.0, p.1), p.2);
+        }
+        Self {
+            alpha: 0.5,
+            minimum_distance: 0.0,
+            sgd,
+            original_distance,
+        }
+    }
+
+    pub fn apply_with_distance_adjustment<N>(&mut self, drawing: &mut Drawing<N, f32>, eta: f32)
+    where
+        N: DrawingIndex,
+    {
+        self.sgd.apply(drawing, eta);
+        self.sgd.update_distance(|i, j, _, w| {
+            let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
+            let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
+            let d1 = dx.hypot(dy);
+            let d2 = self.original_distance[&(i, j)];
+            ((self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)
+                / (self.alpha * w + 2. * (1. - self.alpha)))
+                .max(self.minimum_distance)
+        });
+    }
+}
+
+impl<A> Sgd for DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    fn node_pairs(&self) -> &Vec<(usize, usize, f32, f32)> {
+        self.sgd.node_pairs()
+    }
+
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, f32, f32)> {
+        self.sgd.node_pairs_mut()
+    }
 }

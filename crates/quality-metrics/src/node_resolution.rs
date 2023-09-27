@@ -21,7 +21,7 @@ where
         for j in 0..i {
             let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
             let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
-            s += (1. - (dx).hypot(dy) / (r * d_max)).powi(2);
+            s += (1. - (dx).hypot(dy) / (r * d_max)).powi(2).max(0.);
         }
     }
     s

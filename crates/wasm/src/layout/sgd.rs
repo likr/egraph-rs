@@ -1,5 +1,5 @@
 use crate::{drawing::JsDrawing, graph::JsGraph, rng::JsRng};
-use js_sys::Function;
+use js_sys::{Array, Function};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{FullSgd, Sgd, SgdScheduler, SparseSgd};
 use std::collections::HashMap;
@@ -66,6 +66,38 @@ impl JsFullSgd {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
+
+    #[wasm_bindgen(js_name = "updateDistance")]
+    pub fn update_distance(&mut self, distance: &Function) {
+        self.sgd.update_distance(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            distance
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(js_name = "updateWeight")]
+    pub fn update_weight(&mut self, weight: &Function) {
+        self.sgd.update_weight(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            weight
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
 }
 
 #[wasm_bindgen(js_name = "SparseSgd")]
@@ -103,5 +135,37 @@ impl JsSparseSgd {
         JsSgdScheduler {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
+    }
+
+    #[wasm_bindgen(js_name = "updateDistance")]
+    pub fn update_distance(&mut self, distance: &Function) {
+        self.sgd.update_distance(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            distance
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(js_name = "updateWeight")]
+    pub fn update_weight(&mut self, weight: &Function) {
+        self.sgd.update_weight(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            weight
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
     }
 }
