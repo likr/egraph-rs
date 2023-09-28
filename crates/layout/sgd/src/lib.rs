@@ -380,10 +380,11 @@ where
             let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
             let d1 = dx.hypot(dy);
             let d2 = self.original_distance[&(i, j)];
-            ((self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)
-                / (self.alpha * w + 2. * (1. - self.alpha)))
-                .max(self.minimum_distance)
+            let new_d = (self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)
+                / (self.alpha * w + 2. * (1. - self.alpha));
+            new_d.clamp(self.minimum_distance, d2)
         });
+        self.sgd.update_weight(|_, _, d, _| 1. / (d * d));
     }
 }
 
