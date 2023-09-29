@@ -1,6 +1,6 @@
 use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
-use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeIndexable};
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_algorithm_shortest_path::{
     dijkstra_with_distance_matrix, multi_source_dijkstra, warshall_floyd,
 };
@@ -58,7 +58,7 @@ pub struct SparseSgd {
 impl SparseSgd {
     pub fn new<G, F>(graph: G, length: F, h: usize) -> SparseSgd
     where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
@@ -68,20 +68,15 @@ impl SparseSgd {
 
     pub fn new_with_rng<G, F, R>(graph: G, length: F, h: usize, rng: &mut R) -> SparseSgd
     where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
         R: Rng,
     {
         let mut length = length;
-        let indices = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, u)| (u, i))
-            .collect::<HashMap<_, _>>();
-        let n = indices.len();
+        let n = graph.node_count();
         let h = h.min(n);
-        let (pivot, d) = max_min_random_sp(graph, &indices, &mut length, h, rng);
+        let (pivot, d) = Self::choose_pivot(graph, &mut length, h, rng);
         Self::new_with_pivot_and_distance_matrix(graph, length, &pivot, &d)
     }
 
@@ -154,6 +149,21 @@ impl SparseSgd {
             }
         }
         SparseSgd { node_pairs }
+    }
+
+    pub fn choose_pivot<G, F, R>(
+        graph: G,
+        length: F,
+        h: usize,
+        rng: &mut R,
+    ) -> (Vec<G::NodeId>, Array2<f32>)
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> f32,
+        R: Rng,
+    {
+        max_min_random_sp(graph, length, h, rng)
     }
 }
 
@@ -263,7 +273,6 @@ pub trait Sgd {
 
 fn max_min_random_sp<G, F, R>(
     graph: G,
-    indices: &HashMap<G::NodeId, usize>,
     length: F,
     h: usize,
     rng: &mut R,
@@ -274,6 +283,11 @@ where
     F: FnMut(G::EdgeRef) -> f32,
     R: Rng,
 {
+    let indices = graph
+        .node_identifiers()
+        .enumerate()
+        .map(|(i, u)| (u, i))
+        .collect::<HashMap<_, _>>();
     let nodes = graph.node_identifiers().collect::<Vec<_>>();
     let mut length = length;
     let n = indices.len();
@@ -282,7 +296,7 @@ where
     let mut distance_matrix = Array2::from_elem((n, h), INFINITY);
     dijkstra_with_distance_matrix(
         graph,
-        indices,
+        &indices,
         &mut length,
         graph.from_index(indices[&pivot[0]]),
         &mut distance_matrix,
@@ -296,7 +310,7 @@ where
         pivot.push(nodes[proportional_sampling(&min_d, rng)]);
         dijkstra_with_distance_matrix(
             graph,
-            indices,
+            &indices,
             &mut length,
             graph.from_index(indices[&pivot[k]]),
             &mut distance_matrix,
@@ -327,4 +341,62 @@ where
         }
     }
     panic!("unreachable");
+}
+
+pub struct DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    pub alpha: f32,
+    pub minimum_distance: f32,
+    sgd: A,
+    original_distance: HashMap<(usize, usize), f32>,
+}
+
+impl<A> DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    pub fn new(sgd: A) -> DistanceAdjustedSgd<A> {
+        let mut original_distance = HashMap::new();
+        for p in sgd.node_pairs().iter() {
+            original_distance.insert((p.0, p.1), p.2);
+        }
+        Self {
+            alpha: 0.5,
+            minimum_distance: 0.0,
+            sgd,
+            original_distance,
+        }
+    }
+
+    pub fn apply_with_distance_adjustment<N>(&mut self, drawing: &mut Drawing<N, f32>, eta: f32)
+    where
+        N: DrawingIndex,
+    {
+        self.sgd.apply(drawing, eta);
+        self.sgd.update_distance(|i, j, _, w| {
+            let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
+            let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
+            let d1 = dx.hypot(dy);
+            let d2 = self.original_distance[&(i, j)];
+            let new_d = (self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)
+                / (self.alpha * w + 2. * (1. - self.alpha));
+            new_d.clamp(self.minimum_distance, d2)
+        });
+        self.sgd.update_weight(|_, _, d, _| 1. / (d * d));
+    }
+}
+
+impl<A> Sgd for DistanceAdjustedSgd<A>
+where
+    A: Sgd,
+{
+    fn node_pairs(&self) -> &Vec<(usize, usize, f32, f32)> {
+        self.sgd.node_pairs()
+    }
+
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, f32, f32)> {
+        self.sgd.node_pairs_mut()
+    }
 }

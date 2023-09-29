@@ -4,7 +4,7 @@
     "Yosuke Onoue <onoue@likr-lab.com>"
   ],
   "description": "WebAssembly binding of egraph.",
-  "version": "6.0.0-alpha.0",
+  "version": "6.0.0-alpha.3",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -31,7 +31,7 @@
   "types": "dist/bundler/egraph_wasm.d.ts",
   "sideEffects": "false",
   "devDependencies": {
-    "rollup": "^2.52.2"
+    "rollup": "^2.79.1"
   },
   "scripts": {
     "build-umd": "rollup -c && cp dist/web/egraph_wasm_bg.wasm umd/egraph_bg.wasm",
