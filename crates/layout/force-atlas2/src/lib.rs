@@ -14,7 +14,7 @@ where
 
 impl<S> ForceAtlas2<S>
 where
-    S: DrawingValue,
+    S: DrawingValue + Default,
 {
     pub fn new<G>(graph: G) -> ForceAtlas2<S>
     where
@@ -43,7 +43,7 @@ where
         }
     }
 
-    pub fn apply_to_node<N>(&self, u: usize, drawing: &mut Drawing<N, S>, alpha: S)
+    pub fn apply_to_node<N>(&self, u: usize, drawing: &mut Drawing<N, (S, S)>, alpha: S)
     where
         N: DrawingIndex,
     {
@@ -52,24 +52,24 @@ where
             if u == v {
                 continue;
             }
-            let dx = drawing.coordinates[[v, 0]] - drawing.coordinates[[u, 0]];
-            let dy = drawing.coordinates[[v, 1]] - drawing.coordinates[[u, 1]];
+            let dx = drawing.coordinates[v].0 - drawing.coordinates[u].0;
+            let dy = drawing.coordinates[v].1 - drawing.coordinates[u].1;
             let d = (dx * dx + dy * dy).sqrt().max(self.min_distance);
             let du = S::from(self.degree[u] + 1).unwrap();
             let c = self.k * du * du / d;
-            drawing.coordinates[[u, 0]] -= alpha * c * dx;
-            drawing.coordinates[[u, 1]] -= alpha * c * dy;
+            drawing.coordinates[u].0 -= alpha * c * dx;
+            drawing.coordinates[u].1 -= alpha * c * dy;
         }
         for &v in self.links[u].iter() {
-            let dx = drawing.coordinates[[v, 0]] - drawing.coordinates[[u, 0]];
-            let dy = drawing.coordinates[[v, 1]] - drawing.coordinates[[u, 1]];
+            let dx = drawing.coordinates[v].0 - drawing.coordinates[u].0;
+            let dy = drawing.coordinates[v].1 - drawing.coordinates[u].1;
             let d = (dx * dx + dy * dy).sqrt();
-            drawing.coordinates[[u, 0]] += alpha * d * dx;
-            drawing.coordinates[[u, 1]] += alpha * d * dy;
+            drawing.coordinates[u].0 += alpha * d * dx;
+            drawing.coordinates[u].1 += alpha * d * dy;
         }
     }
 
-    pub fn apply<N>(&self, drawing: &mut Drawing<N, S>, alpha: S)
+    pub fn apply<N>(&self, drawing: &mut Drawing<N, (S, S)>, alpha: S)
     where
         N: DrawingIndex,
     {

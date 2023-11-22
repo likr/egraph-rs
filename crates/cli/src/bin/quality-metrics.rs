@@ -21,7 +21,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 fn compute_metrics(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    drawing: &Drawing<NodeIndex, f32>,
+    drawing: &Drawing<NodeIndex, (f32, f32)>,
 ) -> Vec<(QualityMetric, f32)> {
     let distance = warshall_floyd(graph, &mut |_| 1.);
     quality_metrics(graph, drawing, &distance)

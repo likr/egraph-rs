@@ -2,7 +2,7 @@ use crate::edge_angle::edge_angle;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
 use petgraph_drawing::{Drawing, DrawingIndex};
 
-pub fn angular_resolution<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+pub fn angular_resolution<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
 where
     G: IntoNodeIdentifiers + IntoNeighbors,
     G::NodeId: DrawingIndex,

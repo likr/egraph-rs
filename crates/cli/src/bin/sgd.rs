@@ -20,7 +20,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    coordinates: &mut Drawing<NodeIndex, f32>,
+    coordinates: &mut Drawing<NodeIndex, (f32, f32)>,
 ) {
     let mut rng = thread_rng();
     let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 281, &mut rng);

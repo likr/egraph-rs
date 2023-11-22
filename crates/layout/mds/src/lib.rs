@@ -63,7 +63,7 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
     (e, v)
 }
 
-fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing<G::NodeId, f32>
+fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing<G::NodeId, (f32, f32)>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: DrawingIndex,
@@ -81,7 +81,12 @@ where
     drawing
 }
 
-fn pivot_mds<G, F>(graph: G, length: F, sources: &[G::NodeId], eps: f32) -> Drawing<G::NodeId, f32>
+fn pivot_mds<G, F>(
+    graph: G,
+    length: F,
+    sources: &[G::NodeId],
+    eps: f32,
+) -> Drawing<G::NodeId, (f32, f32)>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: DrawingIndex + Ord,
@@ -110,7 +115,7 @@ impl ClassicalMds {
         ClassicalMds { eps: 1e-3 }
     }
 
-    pub fn run<G, F>(&self, graph: G, length: F) -> Drawing<G::NodeId, f32>
+    pub fn run<G, F>(&self, graph: G, length: F) -> Drawing<G::NodeId, (f32, f32)>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,
@@ -129,7 +134,12 @@ impl PivotMds {
         PivotMds { eps: 1e-3 }
     }
 
-    pub fn run<G, F>(&self, graph: G, length: F, sources: &[G::NodeId]) -> Drawing<G::NodeId, f32>
+    pub fn run<G, F>(
+        &self,
+        graph: G,
+        length: F,
+        sources: &[G::NodeId],
+    ) -> Drawing<G::NodeId, (f32, f32)>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,

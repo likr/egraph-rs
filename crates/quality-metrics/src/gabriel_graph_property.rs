@@ -1,7 +1,7 @@
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph_drawing::{Drawing, DrawingIndex};
 
-pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -17,7 +17,7 @@ where
         let cy = (y1 + y2) / 2.;
         let r = (x1 - x2).hypot(y1 - y2) / 2.;
         for i in 0..n {
-            s += (r - (drawing.coordinates[[i, 0]] - cx).hypot(drawing.coordinates[[i, 1]] - cy))
+            s += (r - (drawing.coordinates[i].0 - cx).hypot(drawing.coordinates[i].1 - cy))
                 .max(0.)
                 .powi(2);
         }

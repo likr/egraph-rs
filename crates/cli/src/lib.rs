@@ -32,7 +32,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
 ) -> (
     Graph<Option<N>, Option<E>, Undirected>,
-    Drawing<NodeIndex, f32>,
+    Drawing<NodeIndex, (f32, f32)>,
 ) {
     let file = File::open(input_path).unwrap();
     let reader = BufReader::new(file);
@@ -65,7 +65,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
 
 pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
     graph: &Graph<Option<N>, Option<E>, Undirected>,
-    drawing: &Drawing<NodeIndex, f32>,
+    drawing: &Drawing<NodeIndex, (f32, f32)>,
     output_path: &str,
 ) {
     let output = GraphData {

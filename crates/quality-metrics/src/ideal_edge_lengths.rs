@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 pub fn ideal_edge_lengths<G>(
     graph: G,
-    coordinates: &Drawing<G::NodeId, f32>,
+    coordinates: &Drawing<G::NodeId, (f32, f32)>,
     d: &Array2<f32>,
 ) -> f32
 where

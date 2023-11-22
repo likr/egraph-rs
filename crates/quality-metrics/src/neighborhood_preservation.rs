@@ -4,7 +4,7 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNeighbors, NodeIndexable}
 use petgraph_drawing::{Drawing, DrawingIndex};
 use std::collections::HashSet;
 
-pub fn neighborhood_preservation<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+pub fn neighborhood_preservation<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,
     G::NodeId: DrawingIndex,
@@ -20,8 +20,8 @@ where
     let n = drawing.len();
     let mut points = Array2::zeros((n, 2));
     for i in 0..n {
-        points[[i, 0]] = drawing.coordinates[[i, 0]];
-        points[[i, 1]] = drawing.coordinates[[i, 1]];
+        points[[i, 0]] = drawing.coordinates[i].0;
+        points[[i, 1]] = drawing.coordinates[i].1;
     }
     let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
 
@@ -29,8 +29,8 @@ where
     let mut cup = graph_edges.len();
     for i in 0..n {
         let u = drawing.indices[i];
-        let x = drawing.coordinates[[i, 0]];
-        let y = drawing.coordinates[[i, 1]];
+        let x = drawing.coordinates[i].0;
+        let y = drawing.coordinates[i].1;
         let d = graph.neighbors(u).count();
         let query = arr1(&[x, y]);
         let neighbors = nn.k_nearest(query.view(), d + 1).unwrap();

@@ -72,7 +72,7 @@ impl QualityMetric {
 
 pub fn quality_metrics<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, f32>,
+    drawing: &Drawing<G::NodeId, (f32, f32)>,
     d: &Array2<f32>,
 ) -> Vec<(QualityMetric, f32)>
 where
@@ -99,7 +99,7 @@ where
 
 pub fn quality_metrics_with_targets<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, f32>,
+    drawing: &Drawing<G::NodeId, (f32, f32)>,
     d: &Array2<f32>,
     targets: &[QualityMetric],
 ) -> Vec<(QualityMetric, f32)>

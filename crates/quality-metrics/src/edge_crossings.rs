@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 
 pub fn crossing_edges<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, f32>,
+    drawing: &Drawing<G::NodeId, (f32, f32)>,
 ) -> Vec<((G::NodeId, G::NodeId), (G::NodeId, G::NodeId))>
 where
     G: IntoEdgeReferences,
@@ -46,7 +46,7 @@ where
     crossing_edges
 }
 
-pub fn crossing_number<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+pub fn crossing_number<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -59,7 +59,7 @@ pub fn crossing_number_with_crossing_edges<E>(crossing_edges: &[(E, E)]) -> f32 
     crossing_edges.len() as f32
 }
 
-pub fn crossing_angle<G>(graph: G, drawing: &Drawing<G::NodeId, f32>) -> f32
+pub fn crossing_angle<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -69,7 +69,7 @@ where
 }
 
 pub fn crossing_angle_with_crossing_edges<N>(
-    drawing: &Drawing<N, f32>,
+    drawing: &Drawing<N, (f32, f32)>,
     crossing_edges: &[((N, N), (N, N))],
 ) -> f32
 where

@@ -1,11 +1,10 @@
 use crate::graph::{IndexType, JsGraph};
-use ndarray::Array2;
 use petgraph::graph::{node_index, NodeIndex};
 use petgraph_drawing::Drawing;
 use wasm_bindgen::prelude::*;
 
 type NodeId = NodeIndex<IndexType>;
-type DrawingImpl = Drawing<NodeId, f32>;
+type DrawingImpl = Drawing<NodeId, (f32, f32)>;
 
 #[wasm_bindgen(js_name = Drawing)]
 pub struct JsDrawing {
@@ -24,11 +23,11 @@ impl JsDrawing {
         &mut self.drawing.indices
     }
 
-    pub fn coordinates(&self) -> &Array2<f32> {
+    pub fn coordinates(&self) -> &[(f32, f32)] {
         &self.drawing.coordinates
     }
 
-    pub fn coordinates_mut(&mut self) -> &mut Array2<f32> {
+    pub fn coordinates_mut(&mut self) -> &mut [(f32, f32)] {
         &mut self.drawing.coordinates
     }
 

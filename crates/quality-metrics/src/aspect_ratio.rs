@@ -1,6 +1,6 @@
 use petgraph_drawing::{Drawing, DrawingIndex};
 
-pub fn aspect_ratio<N>(drawing: &Drawing<N, f32>) -> f32
+pub fn aspect_ratio<N>(drawing: &Drawing<N, (f32, f32)>) -> f32
 where
     N: DrawingIndex,
 {
@@ -8,8 +8,8 @@ where
     let mut cx = 0.;
     let mut cy = 0.;
     for i in 0..n {
-        let xi = drawing.coordinates[[i, 0]];
-        let yi = drawing.coordinates[[i, 1]];
+        let xi = drawing.coordinates[i].0;
+        let yi = drawing.coordinates[i].1;
         cx += xi;
         cy += yi;
     }
@@ -20,8 +20,8 @@ where
     let mut xy = 0.;
     let mut yy = 0.;
     for i in 0..n {
-        let xi = drawing.coordinates[[i, 0]] - cx;
-        let yi = drawing.coordinates[[i, 1]] - cy;
+        let xi = drawing.coordinates[i].0 - cx;
+        let yi = drawing.coordinates[i].1 - cy;
         xx += xi * xi;
         xy += xi * yi;
         yy += yi * yi;
