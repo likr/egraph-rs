@@ -1,10 +1,10 @@
 use linfa_nn::{distance::L2Dist, BallTree, NearestNeighbour};
 use ndarray::prelude::*;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNeighbors, NodeIndexable};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 use std::collections::HashSet;
 
-pub fn neighborhood_preservation<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
+pub fn neighborhood_preservation<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,
     G::NodeId: DrawingIndex,

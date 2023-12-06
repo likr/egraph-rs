@@ -1,7 +1,7 @@
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex, Tuple2D};
 
-pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
+pub fn gabriel_graph_property<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -11,8 +11,8 @@ where
     for e in graph.edge_references() {
         let u = e.source();
         let v = e.target();
-        let (x1, y1) = drawing.position(u).unwrap();
-        let (x2, y2) = drawing.position(v).unwrap();
+        let Tuple2D(x1, y1) = drawing.position(u).unwrap();
+        let Tuple2D(x2, y2) = drawing.position(v).unwrap();
         let cx = (x1 + x2) / 2.;
         let cy = (y1 + y2) / 2.;
         let r = (x1 - x2).hypot(y1 - y2) / 2.;

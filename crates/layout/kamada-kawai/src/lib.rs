@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn norm(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt().max(1.)
@@ -41,7 +41,7 @@ impl KamadaKawai {
         }
     }
 
-    pub fn select_node<N>(&self, drawing: &Drawing<N, (f32, f32)>) -> Option<usize>
+    pub fn select_node<N>(&self, drawing: &Drawing2D<N, f32>) -> Option<usize>
     where
         N: DrawingIndex,
     {
@@ -79,7 +79,7 @@ impl KamadaKawai {
         }
     }
 
-    pub fn apply_to_node<N>(&self, m: usize, drawing: &mut Drawing<N, (f32, f32)>)
+    pub fn apply_to_node<N>(&self, m: usize, drawing: &mut Drawing2D<N, f32>)
     where
         N: DrawingIndex,
     {
@@ -114,7 +114,7 @@ impl KamadaKawai {
         drawing.coordinates[m].1 -= delta_y;
     }
 
-    pub fn run<N>(&self, drawing: &mut Drawing<N, (f32, f32)>)
+    pub fn run<N>(&self, drawing: &mut Drawing2D<N, f32>)
     where
         N: DrawingIndex,
     {
@@ -137,7 +137,7 @@ fn test_kamada_kawai() {
         }
     }
 
-    let mut coordinates = Drawing::initial_placement(&graph);
+    let mut coordinates = Drawing2D::initial_placement(&graph);
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));

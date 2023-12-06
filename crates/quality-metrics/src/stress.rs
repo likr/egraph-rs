@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
-pub fn stress<N>(drawing: &Drawing<N, (f32, f32)>, d: &Array2<f32>) -> f32
+pub fn stress<N>(drawing: &Drawing2D<N, f32>, d: &Array2<f32>) -> f32
 where
     N: DrawingIndex,
 {

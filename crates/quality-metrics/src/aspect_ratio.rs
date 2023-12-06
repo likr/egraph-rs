@@ -1,6 +1,6 @@
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
-pub fn aspect_ratio<N>(drawing: &Drawing<N, (f32, f32)>) -> f32
+pub fn aspect_ratio<N>(drawing: &Drawing2D<N, f32>) -> f32
 where
     N: DrawingIndex,
 {

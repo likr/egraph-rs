@@ -1,11 +1,11 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex, Tuple2D};
 use std::f32::consts::PI;
 
 pub fn crossing_edges<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, (f32, f32)>,
+    drawing: &Drawing2D<G::NodeId, f32>,
 ) -> Vec<((G::NodeId, G::NodeId), (G::NodeId, G::NodeId))>
 where
     G: IntoEdgeReferences,
@@ -16,8 +16,8 @@ where
         .map(|e| {
             let u = e.source();
             let v = e.target();
-            let (x1, y1) = drawing.position(u).unwrap();
-            let (x2, y2) = drawing.position(v).unwrap();
+            let Tuple2D(x1, y1) = drawing.position(u).unwrap();
+            let Tuple2D(x2, y2) = drawing.position(v).unwrap();
             (u, v, x1, y1, x2, y2)
         })
         .collect::<Vec<_>>();
@@ -46,7 +46,7 @@ where
     crossing_edges
 }
 
-pub fn crossing_number<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
+pub fn crossing_number<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -59,7 +59,7 @@ pub fn crossing_number_with_crossing_edges<E>(crossing_edges: &[(E, E)]) -> f32 
     crossing_edges.len() as f32
 }
 
-pub fn crossing_angle<G>(graph: G, drawing: &Drawing<G::NodeId, (f32, f32)>) -> f32
+pub fn crossing_angle<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -69,7 +69,7 @@ where
 }
 
 pub fn crossing_angle_with_crossing_edges<N>(
-    drawing: &Drawing<N, (f32, f32)>,
+    drawing: &Drawing2D<N, f32>,
     crossing_edges: &[((N, N), (N, N))],
 ) -> f32
 where
@@ -77,10 +77,10 @@ where
 {
     let mut s = 0.;
     for &((source1, target1), (source2, target2)) in crossing_edges.iter() {
-        let (x11, y11) = drawing.position(source1).unwrap();
-        let (x12, y12) = drawing.position(target1).unwrap();
-        let (x21, y21) = drawing.position(source2).unwrap();
-        let (x22, y22) = drawing.position(target2).unwrap();
+        let Tuple2D(x11, y11) = drawing.position(source1).unwrap();
+        let Tuple2D(x12, y12) = drawing.position(target1).unwrap();
+        let Tuple2D(x21, y21) = drawing.position(source2).unwrap();
+        let Tuple2D(x22, y22) = drawing.position(target2).unwrap();
         if let Some(t) = edge_angle(x11 - x12, y11 - y12, x21 - x22, y21 - y22) {
             let t = t.min(PI - t);
             s += t.cos().powi(2);

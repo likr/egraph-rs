@@ -10,7 +10,7 @@ mod stress;
 
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
@@ -72,7 +72,7 @@ impl QualityMetric {
 
 pub fn quality_metrics<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, (f32, f32)>,
+    drawing: &Drawing2D<G::NodeId, f32>,
     d: &Array2<f32>,
 ) -> Vec<(QualityMetric, f32)>
 where
@@ -99,7 +99,7 @@ where
 
 pub fn quality_metrics_with_targets<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, (f32, f32)>,
+    drawing: &Drawing2D<G::NodeId, f32>,
     d: &Array2<f32>,
     targets: &[QualityMetric],
 ) -> Vec<(QualityMetric, f32)>

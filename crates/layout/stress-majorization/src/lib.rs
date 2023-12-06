@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn line_search(a: &Array2<f32>, dx: &Array1<f32>, d: &Array1<f32>) -> f32 {
     let n = dx.len();
@@ -94,11 +94,7 @@ pub struct StressMajorization {
 }
 
 impl StressMajorization {
-    pub fn new<G, F>(
-        graph: G,
-        drawing: &Drawing<G::NodeId, (f32, f32)>,
-        length: F,
-    ) -> StressMajorization
+    pub fn new<G, F>(graph: G, drawing: &Drawing2D<G::NodeId, f32>, length: F) -> StressMajorization
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
         G::NodeId: DrawingIndex,
@@ -109,7 +105,7 @@ impl StressMajorization {
     }
 
     pub fn new_with_distance_matrix<N>(
-        drawing: &Drawing<N, (f32, f32)>,
+        drawing: &Drawing2D<N, f32>,
         d: &Array2<f32>,
     ) -> StressMajorization
     where
@@ -143,7 +139,7 @@ impl StressMajorization {
         sm
     }
 
-    pub fn apply<N>(&mut self, drawing: &mut Drawing<N, (f32, f32)>) -> f32
+    pub fn apply<N>(&mut self, drawing: &mut Drawing2D<N, f32>) -> f32
     where
         N: DrawingIndex,
     {
@@ -218,7 +214,7 @@ impl StressMajorization {
         diff
     }
 
-    pub fn run<N>(&mut self, coordinates: &mut Drawing<N, (f32, f32)>)
+    pub fn run<N>(&mut self, coordinates: &mut Drawing2D<N, f32>)
     where
         N: DrawingIndex,
     {
@@ -291,7 +287,7 @@ fn test_stress_majorization() {
             graph.add_edge(nodes[i], nodes[j], ());
         }
     }
-    let mut coordinates = Drawing::initial_placement(&graph);
+    let mut coordinates = Drawing2D::initial_placement(&graph);
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));

@@ -1,5 +1,5 @@
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use petgraph_drawing::{Drawing, DrawingIndex, DrawingValue};
+use petgraph_drawing::{Drawing2D, DrawingIndex, DrawingValue};
 use std::collections::HashMap;
 
 pub struct ForceAtlas2<S>
@@ -43,7 +43,7 @@ where
         }
     }
 
-    pub fn apply_to_node<N>(&self, u: usize, drawing: &mut Drawing<N, (S, S)>, alpha: S)
+    pub fn apply_to_node<N>(&self, u: usize, drawing: &mut Drawing2D<N, S>, alpha: S)
     where
         N: DrawingIndex,
     {
@@ -69,7 +69,7 @@ where
         }
     }
 
-    pub fn apply<N>(&self, drawing: &mut Drawing<N, (S, S)>, alpha: S)
+    pub fn apply<N>(&self, drawing: &mut Drawing2D<N, S>, alpha: S)
     where
         N: DrawingIndex,
     {

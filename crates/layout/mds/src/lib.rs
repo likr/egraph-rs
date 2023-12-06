@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{multi_source_dijkstra, warshall_floyd};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn cos(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let ab = a.dot(b);
@@ -63,7 +63,7 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
     (e, v)
 }
 
-fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing<G::NodeId, (f32, f32)>
+fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing2D<G::NodeId, f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: DrawingIndex,
@@ -74,9 +74,12 @@ where
     let b = double_centering(&delta);
     let (e, v) = eigendecomposition(&b, 2, eps);
     let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-    let mut drawing = Drawing::new(graph);
+    let mut drawing = Drawing2D::new(graph);
     for (i, u) in graph.node_identifiers().enumerate() {
-        drawing.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
+        drawing.position_mut(u).map(|p| {
+            p.0 = xy[[i, 0]];
+            p.1 = xy[[i, 1]];
+        });
     }
     drawing
 }
@@ -86,7 +89,7 @@ fn pivot_mds<G, F>(
     length: F,
     sources: &[G::NodeId],
     eps: f32,
-) -> Drawing<G::NodeId, (f32, f32)>
+) -> Drawing2D<G::NodeId, f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: DrawingIndex + Ord,
@@ -99,9 +102,12 @@ where
     let (e, v) = eigendecomposition(&ct_c, 2, eps);
     let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
     let xy = c.dot(&xy);
-    let mut drawing = Drawing::new(graph);
+    let mut drawing = Drawing2D::new(graph);
     for (i, u) in graph.node_identifiers().enumerate() {
-        drawing.set_position(u, (xy[[i, 0]], xy[[i, 1]]));
+        drawing.position_mut(u).map(|p| {
+            p.0 = xy[[i, 0]];
+            p.1 = xy[[i, 1]]
+        });
     }
     drawing
 }
@@ -115,7 +121,7 @@ impl ClassicalMds {
         ClassicalMds { eps: 1e-3 }
     }
 
-    pub fn run<G, F>(&self, graph: G, length: F) -> Drawing<G::NodeId, (f32, f32)>
+    pub fn run<G, F>(&self, graph: G, length: F) -> Drawing2D<G::NodeId, f32>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,
@@ -134,12 +140,7 @@ impl PivotMds {
         PivotMds { eps: 1e-3 }
     }
 
-    pub fn run<G, F>(
-        &self,
-        graph: G,
-        length: F,
-        sources: &[G::NodeId],
-    ) -> Drawing<G::NodeId, (f32, f32)>
+    pub fn run<G, F>(&self, graph: G, length: F, sources: &[G::NodeId]) -> Drawing2D<G::NodeId, f32>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,

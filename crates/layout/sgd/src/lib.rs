@@ -4,11 +4,12 @@ use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIn
 use petgraph_algorithm_shortest_path::{
     dijkstra_with_distance_matrix, multi_source_dijkstra, warshall_floyd,
 };
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_drawing::{Difference, Drawing, DrawingIndex, Metric};
 use rand::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     f32::INFINITY,
+    ops::{AddAssign, Mul, Sub},
 };
 
 pub struct FullSgd {
@@ -211,18 +212,18 @@ pub trait Sgd {
         self.node_pairs_mut().shuffle(rng);
     }
 
-    fn apply<N>(&self, drawing: &mut Drawing<N, (f32, f32)>, eta: f32)
+    fn apply<N, M, D>(&self, drawing: &mut Drawing<N, M>, eta: f32)
     where
         N: DrawingIndex,
+        D: Difference<S = f32> + Mul<f32, Output = D>,
+        M: Metric + Copy + AddAssign<D> + Sub<Output = D>,
     {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
-            let dx = drawing.coordinates[i].0 - drawing.coordinates[j].0;
-            let dy = drawing.coordinates[i].1 - drawing.coordinates[j].1;
-            let norm = (dx * dx + dy * dy).sqrt().max(1.);
+            let delta = drawing.coordinates[i] - drawing.coordinates[j];
+            let norm = delta.norm().max(1.);
             let r = 0.5 * mu * (norm - dij) / norm;
-            drawing.coordinates[i].0 -= r * dx;
-            drawing.coordinates[i].1 -= r * dy;
+            drawing.coordinates[i] += delta * -r;
         }
     }
 
@@ -370,18 +371,16 @@ where
         }
     }
 
-    pub fn apply_with_distance_adjustment<N>(
-        &mut self,
-        drawing: &mut Drawing<N, (f32, f32)>,
-        eta: f32,
-    ) where
+    pub fn apply_with_distance_adjustment<N, M, D>(&mut self, drawing: &mut Drawing<N, M>, eta: f32)
+    where
         N: DrawingIndex,
+        D: Difference<S = f32> + Mul<f32, Output = D>,
+        M: Metric + Copy + AddAssign<D> + Sub<Output = D>,
     {
         self.sgd.apply(drawing, eta);
         self.sgd.update_distance(|i, j, _, w| {
-            let dx = drawing.coordinates[i].0 - drawing.coordinates[j].0;
-            let dy = drawing.coordinates[i].1 - drawing.coordinates[j].1;
-            let d1 = dx.hypot(dy);
+            let delta = drawing.coordinates[i] - drawing.coordinates[j];
+            let d1 = delta.norm();
             let d2 = self.original_distance[&(i, j)];
             let new_d = (self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)
                 / (self.alpha * w + 2. * (1. - self.alpha));

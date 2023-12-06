@@ -1,10 +1,10 @@
 use crate::graph::{IndexType, JsGraph};
 use petgraph::graph::{node_index, NodeIndex};
-use petgraph_drawing::Drawing;
+use petgraph_drawing::{Drawing2D, Tuple2D};
 use wasm_bindgen::prelude::*;
 
 type NodeId = NodeIndex<IndexType>;
-type DrawingImpl = Drawing<NodeId, (f32, f32)>;
+type DrawingImpl = Drawing2D<NodeId, f32>;
 
 #[wasm_bindgen(js_name = Drawing)]
 pub struct JsDrawing {
@@ -23,11 +23,11 @@ impl JsDrawing {
         &mut self.drawing.indices
     }
 
-    pub fn coordinates(&self) -> &[(f32, f32)] {
+    pub fn coordinates(&self) -> &[Tuple2D<f32>] {
         &self.drawing.coordinates
     }
 
-    pub fn coordinates_mut(&mut self) -> &mut [(f32, f32)] {
+    pub fn coordinates_mut(&mut self) -> &mut [Tuple2D<f32>] {
         &mut self.drawing.coordinates
     }
 
@@ -39,14 +39,14 @@ impl JsDrawing {
         &mut self.drawing
     }
 
-    pub fn position(&self, u: usize) -> Option<(f32, f32)> {
+    pub fn position(&self, u: usize) -> Option<&Tuple2D<f32>> {
         let u = node_index(u);
         self.drawing.position(u)
     }
 
-    pub fn set_position(&mut self, u: usize, p: (f32, f32)) {
+    pub fn set_position(&mut self, u: usize, p: Tuple2D<f32>) {
         let u = node_index(u);
-        self.drawing.set_position(u, p);
+        self.drawing.position_mut(u).map(|q| *q = p);
     }
 }
 
@@ -89,6 +89,6 @@ impl JsDrawing {
 
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> Self {
-        Self::new(Drawing::initial_placement(graph.graph()))
+        Self::new(Drawing2D::initial_placement(graph.graph()))
     }
 }

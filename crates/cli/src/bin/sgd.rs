@@ -1,7 +1,7 @@
 use argparse::{ArgumentParser, Store};
 use egraph_cli::{read_graph, write_graph};
 use petgraph::prelude::*;
-use petgraph_drawing::Drawing;
+use petgraph_drawing::Drawing2D;
 use petgraph_layout_sgd::{Sgd, SparseSgd};
 use rand::thread_rng;
 
@@ -20,7 +20,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    coordinates: &mut Drawing<NodeIndex, (f32, f32)>,
+    coordinates: &mut Drawing2D<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
     let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 281, &mut rng);
