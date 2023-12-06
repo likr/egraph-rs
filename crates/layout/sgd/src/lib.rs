@@ -9,7 +9,6 @@ use rand::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
     f32::INFINITY,
-    ops::{AddAssign, Mul, Sub},
 };
 
 pub struct FullSgd {
@@ -215,8 +214,8 @@ pub trait Sgd {
     fn apply<N, M, D>(&self, drawing: &mut Drawing<N, M>, eta: f32)
     where
         N: DrawingIndex,
-        D: Difference<S = f32> + Mul<f32, Output = D>,
-        M: Metric + Copy + AddAssign<D> + Sub<Output = D>,
+        D: Difference<S = f32>,
+        M: Copy + Metric<D = D>,
     {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
@@ -374,8 +373,8 @@ where
     pub fn apply_with_distance_adjustment<N, M, D>(&mut self, drawing: &mut Drawing<N, M>, eta: f32)
     where
         N: DrawingIndex,
-        D: Difference<S = f32> + Mul<f32, Output = D>,
-        M: Metric + Copy + AddAssign<D> + Sub<Output = D>,
+        D: Difference<S = f32>,
+        M: Copy + Metric<D = D>,
     {
         self.sgd.apply(drawing, eta);
         self.sgd.update_distance(|i, j, _, w| {
