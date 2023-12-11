@@ -1,3 +1,6 @@
+use num_traits::{FloatConst, FromPrimitive};
+use petgraph::visit::IntoNodeIdentifiers;
+
 use crate::{Difference, Drawing, DrawingIndex, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
@@ -201,5 +204,28 @@ where
     pub fn set_y(&mut self, u: N, value: S) -> Option<()> {
         self.position_mut(u)
             .map(|p| p.1 = TorusValue(value.fract()))
+    }
+
+    pub fn initial_placement<G>(graph: G) -> DrawingTorus<N, S>
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: DrawingIndex + Into<N>,
+        N: Copy,
+        S: FloatConst + FromPrimitive + Default,
+    {
+        let nodes = graph.node_identifiers().collect::<Vec<_>>();
+        let n = nodes.len();
+        let dt = S::PI() / S::from_usize(n).unwrap();
+        let r = S::from(0.4).unwrap();
+        let cx = S::from(0.5).unwrap();
+        let cy = S::from(0.5).unwrap();
+        let mut drawing = Self::new(graph);
+        for i in 0..n {
+            let t = dt * S::from_usize(i).unwrap();
+            if let Some(p) = drawing.position_mut(nodes[i].into()) {
+                *p = Metric2DTorus(TorusValue(r * t.cos() + cx), TorusValue(r * t.sin() + cy));
+            }
+        }
+        drawing
     }
 }
