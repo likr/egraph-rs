@@ -22,7 +22,7 @@ impl PyClassicalMds {
     }
 
     fn run(&self, graph: &PyGraphAdapter, f: &PyAny) -> PyDrawing {
-        PyDrawing::new(match graph.graph() {
+        PyDrawing::new_drawing_2d(match graph.graph() {
             GraphType::Graph(native_graph) => self.mds.run(native_graph, |e| {
                 f.call1((e.id().index(),)).unwrap().extract().unwrap()
             }),
@@ -57,7 +57,7 @@ impl PyPivotMds {
     }
 
     fn run(&self, graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> PyDrawing {
-        PyDrawing::new(match graph.graph() {
+        PyDrawing::new_drawing_2d(match graph.graph() {
             GraphType::Graph(native_graph) => {
                 let pivot = pivot.into_iter().map(|u| node_index(u)).collect::<Vec<_>>();
                 self.mds.run(

@@ -1,6 +1,6 @@
 use crate::{
     distance_matrix::PyDistanceMatrix,
-    drawing::PyDrawing,
+    drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
@@ -101,7 +101,10 @@ impl PySparseSgd {
     }
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -177,7 +180,10 @@ impl PyFullSgd {
     }
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -242,12 +248,21 @@ impl PyDistanceAdjustedSparseSgd {
     }
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd
-            .apply_with_distance_adjustment(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => {
+                self.sgd.apply_with_distance_adjustment(drawing, eta)
+            }
+            DrawingType::DrawingTorus(drawing) => {
+                self.sgd.apply_with_distance_adjustment(drawing, eta)
+            }
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -319,12 +334,21 @@ impl PyDistanceAdjustedFullSgd {
     }
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd
-            .apply_with_distance_adjustment(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => {
+                self.sgd.apply_with_distance_adjustment(drawing, eta)
+            }
+            DrawingType::DrawingTorus(drawing) => {
+                self.sgd.apply_with_distance_adjustment(drawing, eta)
+            }
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {

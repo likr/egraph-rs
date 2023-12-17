@@ -27,31 +27,6 @@ impl JsDrawing {
         }
     }
 
-    // pub fn indices(&self) -> &[NodeId] {
-    //     match self.drawing {
-    //         DrawingType::Drawing2D(drawing) => &drawing.indices,
-    //         DrawingType::DrawingTorus(drawing) => &drawing.indices,
-    //     }
-    // }
-
-    // pub fn indices_mut(&mut self) -> &mut [NodeId] {
-    //     match self.drawing {
-    //         DrawingType::Drawing2D(mut drawing) => &mut drawing.indices,
-    //         DrawingType::DrawingTorus(mut drawing) => &mut drawing.indices,
-    //     }
-    // }
-
-    // pub fn coordinates(&self) -> &[Tuple2D<f32>] {
-    //     match self.drawing {
-    //         DrawingType::Drawing2D(mut drawing) => &drawing.coordinates,
-    //         DrawingType::DrawingTorus(mut drawing) => &drawing.coordinates,
-    //     }
-    // }
-
-    // pub fn coordinates_mut(&mut self) -> &mut [Tuple2D<f32>] {
-    //     &mut self.drawing.coordinates
-    // }
-
     pub fn drawing(&self) -> &DrawingType {
         &self.drawing
     }
@@ -59,16 +34,6 @@ impl JsDrawing {
     pub fn drawing_mut(&mut self) -> &mut DrawingType {
         &mut self.drawing
     }
-
-    // pub fn position(&self, u: usize) -> Option<&Tuple2D<f32>> {
-    //     let u = node_index(u);
-    //     self.drawing.position(u)
-    // }
-
-    // pub fn set_position(&mut self, u: usize, p: Tuple2D<f32>) {
-    //     let u = node_index(u);
-    //     self.drawing.position_mut(u).map(|q| *q = p);
-    // }
 }
 
 #[wasm_bindgen(js_class = Drawing)]

@@ -1,5 +1,5 @@
 use crate::{
-    drawing::PyDrawing,
+    drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -27,15 +27,24 @@ impl PyKamadaKawai {
     }
 
     fn select_node(&self, drawing: &PyDrawing) -> Option<usize> {
-        self.kamada_kawai.select_node(drawing.drawing())
+        match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => self.kamada_kawai.select_node(drawing),
+            _ => unimplemented!(),
+        }
     }
 
     fn apply_to_node(&self, m: usize, drawing: &mut PyDrawing) {
-        self.kamada_kawai.apply_to_node(m, drawing.drawing_mut());
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
+            _ => unimplemented!(),
+        };
     }
 
     fn run(&self, drawing: &mut PyDrawing) {
-        self.kamada_kawai.run(drawing.drawing_mut());
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.kamada_kawai.run(drawing),
+            _ => unimplemented!(),
+        };
     }
 
     #[getter]

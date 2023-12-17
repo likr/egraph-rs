@@ -1,6 +1,6 @@
 use crate::{
     distance_matrix::PyDistanceMatrix,
-    drawing::PyDrawing,
+    drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -17,15 +17,18 @@ struct PyStressMajorization {
 impl PyStressMajorization {
     #[new]
     fn new(graph: &PyGraphAdapter, drawing: &PyDrawing, f: &PyAny) -> PyStressMajorization {
-        PyStressMajorization {
-            stress_majorization: match graph.graph() {
-                GraphType::Graph(native_graph) => {
-                    StressMajorization::new(native_graph, drawing.drawing(), |e| {
-                        f.call1((e.id().index(),)).unwrap().extract().unwrap()
-                    })
-                }
-                _ => panic!("unsupported graph type"),
+        match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => PyStressMajorization {
+                stress_majorization: match graph.graph() {
+                    GraphType::Graph(native_graph) => {
+                        StressMajorization::new(native_graph, drawing, |e| {
+                            f.call1((e.id().index(),)).unwrap().extract().unwrap()
+                        })
+                    }
+                    _ => panic!("unsupported graph type"),
+                },
             },
+            _ => unimplemented!(),
         }
     }
 
@@ -35,20 +38,29 @@ impl PyStressMajorization {
         drawing: &PyDrawing,
         distance_matrix: &PyDistanceMatrix,
     ) -> PyStressMajorization {
-        PyStressMajorization {
-            stress_majorization: StressMajorization::new_with_distance_matrix(
-                drawing.drawing(),
-                distance_matrix.distance_matrix(),
-            ),
+        match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => PyStressMajorization {
+                stress_majorization: StressMajorization::new_with_distance_matrix(
+                    drawing,
+                    distance_matrix.distance_matrix(),
+                ),
+            },
+            _ => unimplemented!(),
         }
     }
 
     fn apply(&mut self, drawing: &mut PyDrawing) -> f32 {
-        self.stress_majorization.apply(drawing.drawing_mut())
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.stress_majorization.apply(drawing),
+            _ => unimplemented!(),
+        }
     }
 
     pub fn run(&mut self, drawing: &mut PyDrawing) {
-        self.stress_majorization.run(drawing.drawing_mut());
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.stress_majorization.run(drawing),
+            _ => unimplemented!(),
+        }
     }
 
     pub fn update_weight(&mut self, f: &PyAny) {
