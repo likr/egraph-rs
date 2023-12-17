@@ -1,4 +1,8 @@
-use crate::{drawing::JsDrawing, graph::JsGraph, rng::JsRng};
+use crate::{
+    drawing::{DrawingType, JsDrawing},
+    graph::JsGraph,
+    rng::JsRng,
+};
 use js_sys::{Array, Function};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{FullSgd, Sgd, SgdScheduler, SparseSgd};
@@ -58,7 +62,10 @@ impl JsFullSgd {
     }
 
     pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {
@@ -128,7 +135,10 @@ impl JsSparseSgd {
     }
 
     pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+        }
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {

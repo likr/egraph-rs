@@ -32,7 +32,7 @@ impl JsClassicalMds {
         let coordinates = self
             .classical_mds
             .run(graph.graph(), |e| length_map[&e.id()]);
-        JsDrawing::new(coordinates)
+        JsDrawing::new_drawing_2d(coordinates)
     }
 }
 
@@ -67,6 +67,6 @@ impl JsPivotMds {
         let coordinates = self
             .pivot_mds
             .run(graph.graph(), |e| length_map[&e.id()], &sources);
-        JsDrawing::new(coordinates)
+        JsDrawing::new_drawing_2d(coordinates)
     }
 }

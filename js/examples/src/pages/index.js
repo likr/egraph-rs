@@ -12,4 +12,5 @@ export { ExampleMds } from "./ExampleMds";
 export { ExampleSgd } from "./ExampleSgd";
 export { ExampleSphericalGeometry } from "./ExampleSphericalGeometry";
 export { ExampleStressMajorization } from "./ExampleStressMajorization";
+export { ExampleTorus } from "./ExampleTorus";
 export { Home } from "./Home";

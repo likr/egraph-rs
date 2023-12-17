@@ -14,6 +14,7 @@ import {
   ExampleSgd,
   ExampleSphericalGeometry,
   ExampleStressMajorization,
+  ExampleTorus,
 } from "./pages";
 
 render(
@@ -56,6 +57,7 @@ render(
             path="/stress-majorization"
             component={ExampleStressMajorization}
           />
+          <Route path="/torus" component={ExampleTorus} />
         </div>
       </section>
     </div>

@@ -1,4 +1,7 @@
-use crate::{drawing::JsDrawing, graph::JsGraph};
+use crate::{
+    drawing::{DrawingType, JsDrawing},
+    graph::JsGraph,
+};
 use js_sys::{Function, Reflect};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
@@ -28,17 +31,26 @@ impl JsStressMajorization {
         }
 
         Ok(JsStressMajorization {
-            stress_majorization: StressMajorization::new(graph.graph(), drawing.drawing(), |e| {
-                distance[&e.id()]
-            }),
+            stress_majorization: match drawing.drawing() {
+                DrawingType::Drawing2D(drawing) => {
+                    StressMajorization::new(graph.graph(), drawing, |e| distance[&e.id()])
+                }
+                _ => unimplemented!(),
+            },
         })
     }
 
     pub fn apply(&mut self, drawing: &mut JsDrawing) -> f32 {
-        self.stress_majorization.apply(drawing.drawing_mut())
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.stress_majorization.apply(drawing),
+            _ => unimplemented!(),
+        }
     }
 
     pub fn run(&mut self, drawing: &mut JsDrawing) {
-        self.stress_majorization.run(drawing.drawing_mut());
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.stress_majorization.run(drawing),
+            _ => unimplemented!(),
+        }
     }
 }

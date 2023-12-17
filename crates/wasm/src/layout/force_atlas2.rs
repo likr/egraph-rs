@@ -1,4 +1,7 @@
-use crate::{drawing::JsDrawing, graph::JsGraph};
+use crate::{
+    drawing::{DrawingType, JsDrawing},
+    graph::JsGraph,
+};
 use petgraph_layout_force_atlas2::ForceAtlas2;
 use wasm_bindgen::prelude::*;
 
@@ -17,12 +20,17 @@ impl JsForceAtlas2 {
     }
 
     pub fn apply(&self, drawing: &mut JsDrawing, alpha: f32) {
-        self.force_atlas2.apply(drawing.drawing_mut(), alpha);
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.force_atlas2.apply(drawing, alpha),
+            _ => unimplemented!(),
+        };
     }
 
     #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, drawing: &mut JsDrawing, alpha: f32) {
-        self.force_atlas2
-            .apply_to_node(u, drawing.drawing_mut(), alpha)
+        match drawing.drawing_mut() {
+            DrawingType::Drawing2D(drawing) => self.force_atlas2.apply_to_node(u, drawing, alpha),
+            _ => unimplemented!(),
+        };
     }
 }

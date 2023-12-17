@@ -220,7 +220,7 @@ pub trait Sgd {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
             let delta = drawing.coordinates[i] - drawing.coordinates[j];
-            let norm = delta.norm().max(1.);
+            let norm = delta.norm();
             let r = 0.5 * mu * (norm - dij) / norm;
             drawing.coordinates[i] += delta * -r;
         }
