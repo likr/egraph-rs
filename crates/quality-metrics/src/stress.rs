@@ -1,17 +1,19 @@
 use ndarray::prelude::*;
-use petgraph_drawing::{Drawing2D, DrawingIndex};
+use petgraph_drawing::{Difference, Drawing, DrawingIndex, DrawingValue, Metric};
 
-pub fn stress<N>(drawing: &Drawing2D<N, f32>, d: &Array2<f32>) -> f32
+pub fn stress<N, M, D, S>(drawing: &Drawing<N, M>, d: &Array2<S>) -> S
 where
     N: DrawingIndex,
+    M: Copy + Metric<D = D>,
+    D: Difference<S = S>,
+    S: DrawingValue,
 {
     let n = drawing.len();
-    let mut s = 0.;
+    let mut s = S::zero();
     for j in 1..n {
         for i in 0..j {
-            let dx = drawing.coordinates[i].0 - drawing.coordinates[j].0;
-            let dy = drawing.coordinates[i].1 - drawing.coordinates[j].1;
-            let norm = (dx * dx + dy * dy).sqrt();
+            let delta = drawing.coordinates[i] - drawing.coordinates[j];
+            let norm = delta.norm();
             let dij = d[[i, j]];
             let e = (norm - dij) / dij;
             s += e * e;
