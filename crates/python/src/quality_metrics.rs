@@ -157,7 +157,7 @@ fn py_node_resolution(drawing: &PyDrawing) -> f32 {
 fn py_stress(drawing: &PyDrawing, distance_matrix: &PyDistanceMatrix) -> f32 {
     match drawing.drawing() {
         DrawingType::Drawing2D(drawing) => stress(drawing, distance_matrix.distance_matrix()),
-        _ => unimplemented!(),
+        DrawingType::DrawingTorus(drawing) => stress(drawing, distance_matrix.distance_matrix()),
     }
 }
 

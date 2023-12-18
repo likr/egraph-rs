@@ -1,11 +1,11 @@
 import networkx as nx
-from egraph import Graph, DrawingTorus, Rng, FullSgd
+import egraph as eg
 import matplotlib.pyplot as plt
 
 
 def main():
     nx_graph = nx.les_miserables_graph()
-    graph = Graph()
+    graph = eg.Graph()
     indices = {}
     for u in nx_graph.nodes:
         indices[u] = graph.add_node(u)
@@ -13,18 +13,20 @@ def main():
         graph.add_edge(indices[u], indices[v], (u, v))
 
     size = nx.diameter(nx_graph) * 1.5
-    drawing = DrawingTorus.initial_placement(graph)
-    rng = Rng.seed_from(0)  # random seed
-    sgd = FullSgd(
+    d = eg.all_sources_bfs(
         graph,
-        lambda _: 1 / size,  # edge length
+        1 / size, # edge length
     )
+    drawing = eg.DrawingTorus.initial_placement(graph)
+    rng = eg.Rng.seed_from(0)  # random seed
+    sgd = eg.FullSgd.new_with_distance_matrix(d)
     scheduler = sgd.scheduler(
         100,  # number of iterations
         0.1,  # eps: eta_min = eps * min d[i, j] ^ 2
     )
 
     def step(eta):
+        print(eg.stress(drawing, d))
         sgd.shuffle(rng)
         sgd.apply(drawing, eta)
     scheduler.run(step)
