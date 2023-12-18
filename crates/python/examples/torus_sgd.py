@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    nx_graph = nx.moebius_kantor_graph()
+    nx_graph = nx.les_miserables_graph()
     graph = Graph()
     indices = {}
     for u in nx_graph.nodes:
@@ -12,13 +12,12 @@ def main():
     for u, v in nx_graph.edges:
         graph.add_edge(indices[u], indices[v], (u, v))
 
-    size = 500
-    diameter = nx.diameter(nx_graph)
+    size = nx.diameter(nx_graph) * 1.5
     drawing = DrawingTorus.initial_placement(graph)
     rng = Rng.seed_from(0)  # random seed
     sgd = FullSgd(
         graph,
-        lambda _: 1 / (diameter * 1.5),  # edge length
+        lambda _: 1 / size,  # edge length
     )
     scheduler = sgd.scheduler(
         100,  # number of iterations
@@ -30,7 +29,7 @@ def main():
         sgd.apply(drawing, eta)
     scheduler.run(step)
 
-    pos = {u: (drawing.x(i) * size, drawing.y(i) * size) for u, i in indices.items()}
+    pos = {u: (drawing.x(i) , drawing.y(i)) for u, i in indices.items()}
     nx.draw(nx_graph, pos)
     plt.savefig('tmp/torus_sgd.png')
 
