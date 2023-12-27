@@ -201,4 +201,10 @@ where
         nodes.sort_by_key(|&u| order.get(&u).or(Some(&std::usize::MAX)));
         Drawing::initial_placement_with_node_order(graph, &nodes)
     }
+
+    pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<Tuple2D<S>>> {
+        self.position(u)
+            .zip(self.position(v))
+            .map(|(&p, &q)| vec![p, q])
+    }
 }

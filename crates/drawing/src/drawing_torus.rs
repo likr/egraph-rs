@@ -150,6 +150,35 @@ where
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Metric2DTorus<S>(pub TorusValue<S>, pub TorusValue<S>);
 
+impl<S> Metric2DTorus<S>
+where
+    S: DrawingValue,
+{
+    pub fn nearest_dxdy(self, other: Self) -> (S, S)
+    where
+        S: DrawingValue,
+    {
+        let x0 = other.0 .0;
+        let y0 = other.1 .0;
+        let mut d = S::infinity();
+        let mut min_dxdy = (S::zero(), S::zero());
+        for dy in -1..=1 {
+            let dy = S::from_i32(dy).unwrap();
+            let y1 = self.1 .0 + dy;
+            for dx in -1..=1 {
+                let dx = S::from_i32(dx).unwrap();
+                let x1 = self.0 .0 + dx;
+                let new_d = (x1 - x0).hypot(y1 - y0);
+                if new_d < d {
+                    d = new_d;
+                    min_dxdy = (dx, dy);
+                }
+            }
+        }
+        min_dxdy
+    }
+}
+
 impl<S> Sub for Metric2DTorus<S>
 where
     S: DrawingValue,
@@ -157,20 +186,12 @@ where
     type Output = Difference2DTorus<S>;
 
     fn sub(self, other: Self) -> Self::Output {
+        let (dx, dy) = self.nearest_dxdy(other);
         let x0 = other.0 .0;
         let y0 = other.1 .0;
-        let mut d = Difference2DTorus(self.0 .0 - x0, self.1 .0 - y0);
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                let x1 = self.0 .0 + S::from_i32(dx).unwrap();
-                let y1 = self.1 .0 + S::from_i32(dy).unwrap();
-                let new_d = Difference2DTorus(x1 - x0, y1 - y0);
-                if new_d.norm() < d.norm() {
-                    d = new_d;
-                }
-            }
-        }
-        d
+        let x1 = self.0 .0 + dx;
+        let y1 = self.1 .0 + dy;
+        Difference2DTorus(x1 - x0, y1 - y0)
     }
 }
 
@@ -270,6 +291,19 @@ where
             }
         }
         drawing
+    }
+
+    pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<(Metric2DTorus<S>, Metric2DTorus<S>)>> {
+        self.position(u).zip(self.position(v)).map(|(&p, &q)| {
+            let (dx, dy) = p.nearest_dxdy(q);
+            let x0 = q.0 .0;
+            let y0 = q.1 .0;
+            let x1 = p.0 .0;
+            let y1 = p.1 .0;
+            match (dx, dy) {
+                _ => vec![(p, q)],
+            }
+        })
     }
 }
 
