@@ -3,10 +3,10 @@ import * as d3 from "d3";
 import {
   Graph,
   Drawing,
-  SparseSgd as Sgd,
+  DistanceAdjustedSparseSgd as Sgd,
   Rng,
 } from "egraph/dist/web/egraph_wasm";
-import data from "egraph-dataset/les_miserables.json";
+import data from "egraph-dataset/dwt_1005.json";
 import { Wrapper } from "../wrapper";
 
 export function ExampleSgd() {
@@ -27,8 +27,10 @@ export function ExampleSgd() {
 
     const rng = Rng.seedFrom(4n);
     const drawing = Drawing.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 100, 10, rng);
-    const scheduler = sgd.scheduler(50, 0.1);
+    const sgd = new Sgd(graph, () => 1, 300, rng);
+    sgd.alpha = 1 - 0.5 ** 5;
+    sgd.minimumDistance = 0.5;
+    const scheduler = sgd.scheduler(15, 0.1);
 
     const draw = () => {
       if (!rendererRef.current || scheduler.isFinished()) {
@@ -36,13 +38,13 @@ export function ExampleSgd() {
       }
       scheduler.step((eta) => {
         sgd.shuffle(rng);
-        sgd.apply(drawing, eta);
+        sgd.applyWithDistanceAdjustment(drawing, eta);
       });
       drawing.centralize();
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
-        node.x = drawing.x(u);
-        node.y = drawing.y(u);
+        node.x = drawing.x(u) * 20;
+        node.y = drawing.y(u) * 20;
       }
       rendererRef.current.update();
       window.requestAnimationFrame(draw);
