@@ -202,9 +202,9 @@ where
         Drawing::initial_placement_with_node_order(graph, &nodes)
     }
 
-    pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<Tuple2D<S>>> {
+    pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<(Tuple2D<S>, Tuple2D<S>)>> {
         self.position(u)
             .zip(self.position(v))
-            .map(|(&p, &q)| vec![p, q])
+            .map(|(&p, &q)| vec![(p, q)])
     }
 }

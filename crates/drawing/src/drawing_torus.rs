@@ -25,6 +25,14 @@ where
     pub fn new(value: S) -> Self {
         TorusValue(torus_value(value))
     }
+
+    pub fn min() -> Self {
+        TorusValue(S::zero())
+    }
+
+    pub fn max() -> Self {
+        TorusValue(S::one() - S::epsilon())
+    }
 }
 
 impl<S> Add<S> for TorusValue<S>
@@ -296,12 +304,121 @@ where
     pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<(Metric2DTorus<S>, Metric2DTorus<S>)>> {
         self.position(u).zip(self.position(v)).map(|(&p, &q)| {
             let (dx, dy) = p.nearest_dxdy(q);
-            let x0 = q.0 .0;
-            let y0 = q.1 .0;
-            let x1 = p.0 .0;
-            let y1 = p.1 .0;
-            match (dx, dy) {
-                _ => vec![(p, q)],
+            if dx == S::zero() && dy == S::zero() {
+                vec![(p, q)]
+            } else if dx == S::zero() {
+                let (x0, y0, x1, y1) = if p.1 .0 < q.1 .0 {
+                    (p.0 .0, p.1 .0, q.0 .0, q.1 .0)
+                } else {
+                    (q.0 .0, q.1 .0, p.0 .0, p.1 .0)
+                };
+                let x2 = (y0 * x1 - y1 * x0 + x0) / (y0 - y1 + S::one());
+                vec![
+                    (
+                        Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                        Metric2DTorus(TorusValue::new(x2), TorusValue::min()),
+                    ),
+                    (
+                        Metric2DTorus(TorusValue::new(x2), TorusValue::max()),
+                        Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                    ),
+                ]
+            } else if dy == S::zero() {
+                let (x0, y0, x1, y1) = if p.0 .0 < q.0 .0 {
+                    (p.0 .0, p.1 .0, q.0 .0, q.1 .0)
+                } else {
+                    (q.0 .0, q.1 .0, p.0 .0, p.1 .0)
+                };
+                let y2 = (x0 * y1 - x1 * y0 + y0) / (x0 - x1 + S::one());
+                vec![
+                    (
+                        Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                        Metric2DTorus(TorusValue::min(), TorusValue::new(y2)),
+                    ),
+                    (
+                        Metric2DTorus(TorusValue::max(), TorusValue::new(y2)),
+                        Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                    ),
+                ]
+            } else {
+                let (x0, y0, x1, y1) = if p.0 .0 < q.0 .0 {
+                    (p.0 .0, p.1 .0, q.0 .0, q.1 .0)
+                } else {
+                    (q.0 .0, q.1 .0, p.0 .0, p.1 .0)
+                };
+                let cx = x0 - x1 + S::one();
+                let cy = if dx * dy < S::zero() {
+                    y0 - y1 - S::one()
+                } else {
+                    y0 - y1 + S::one()
+                };
+                let x2 = (cy * x0 - cx * y0) / cy;
+                let y2 = (cx * y0 - cy * x0) / cx;
+                if dx * dy < S::zero() {
+                    if x2 < S::zero() {
+                        vec![
+                            (
+                                Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                                Metric2DTorus(TorusValue::min(), TorusValue::new(y2)),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::max(), TorusValue::new(y2)),
+                                Metric2DTorus(TorusValue::new(x2 + S::one()), TorusValue::max()),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::new(x2 + S::one()), TorusValue::min()),
+                                Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                            ),
+                        ]
+                    } else {
+                        vec![
+                            (
+                                Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                                Metric2DTorus(TorusValue::new(x2), TorusValue::max()),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::new(x2), TorusValue::min()),
+                                Metric2DTorus(TorusValue::min(), TorusValue::new(y2 + S::one())),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::max(), TorusValue::new(y2 + S::one())),
+                                Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                            ),
+                        ]
+                    }
+                } else {
+                    if y2 < S::zero() {
+                        vec![
+                            (
+                                Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                                Metric2DTorus(TorusValue::new(x2), TorusValue::min()),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::new(x2), TorusValue::max()),
+                                Metric2DTorus(TorusValue::min(), TorusValue::new(y2 + S::one())),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::max(), TorusValue::new(y2 + S::one())),
+                                Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                            ),
+                        ]
+                    } else {
+                        vec![
+                            (
+                                Metric2DTorus(TorusValue::new(x0), TorusValue::new(y0)),
+                                Metric2DTorus(TorusValue::min(), TorusValue::new(y2)),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::max(), TorusValue::new(y2)),
+                                Metric2DTorus(TorusValue::new(x2 + S::one()), TorusValue::min()),
+                            ),
+                            (
+                                Metric2DTorus(TorusValue::new(x2 + S::one()), TorusValue::max()),
+                                Metric2DTorus(TorusValue::new(x1), TorusValue::new(y1)),
+                            ),
+                        ]
+                    }
+                }
             }
         })
     }
