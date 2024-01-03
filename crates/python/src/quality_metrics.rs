@@ -1,23 +1,20 @@
 use crate::{
     distance_matrix::PyDistanceMatrix,
     drawing::{DrawingType, PyDrawing},
-    graph::{GraphType, IndexType, PyGraphAdapter},
+    graph::{GraphType, PyGraphAdapter},
 };
-use petgraph::graph::NodeIndex;
 use petgraph_quality_metrics::{
     angular_resolution, aspect_ratio, crossing_angle, crossing_angle_with_crossing_edges,
-    crossing_edges, crossing_number, crossing_number_with_crossing_edges, gabriel_graph_property,
-    ideal_edge_lengths, neighborhood_preservation, node_resolution, stress,
+    crossing_edges, crossing_edges_torus, crossing_number, crossing_number_with_crossing_edges,
+    gabriel_graph_property, ideal_edge_lengths, neighborhood_preservation, node_resolution, stress,
+    CrossingEdges,
 };
 use pyo3::prelude::*;
 
 #[pyclass]
 #[pyo3(name = "CrossingEdges")]
 pub struct PyCrossingEdges {
-    crossing_edges: Vec<(
-        (NodeIndex<IndexType>, NodeIndex<IndexType>),
-        (NodeIndex<IndexType>, NodeIndex<IndexType>),
-    )>,
+    crossing_edges: CrossingEdges,
 }
 
 #[pyfunction]
@@ -30,7 +27,12 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &PyDrawing) -> PyCrossingE
                 GraphType::DiGraph(native_graph) => crossing_edges(native_graph, drawing),
             },
         },
-        _ => unimplemented!(),
+        DrawingType::DrawingTorus(drawing) => PyCrossingEdges {
+            crossing_edges: match graph.graph() {
+                GraphType::Graph(native_graph) => crossing_edges_torus(native_graph, drawing),
+                GraphType::DiGraph(native_graph) => crossing_edges_torus(native_graph, drawing),
+            },
+        },
     }
 }
 
@@ -62,18 +64,16 @@ fn py_crossing_angle(
     drawing: &PyDrawing,
     crossing_edges: Option<&PyCrossingEdges>,
 ) -> f32 {
-    match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => {
-            if let Some(ce) = crossing_edges {
-                crossing_angle_with_crossing_edges(drawing, &ce.crossing_edges)
-            } else {
-                match graph.graph() {
-                    GraphType::Graph(native_graph) => crossing_angle(native_graph, drawing),
-                    GraphType::DiGraph(native_graph) => crossing_angle(native_graph, drawing),
-                }
-            }
+    if let Some(ce) = crossing_edges {
+        crossing_angle_with_crossing_edges(&ce.crossing_edges)
+    } else {
+        match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => match graph.graph() {
+                GraphType::Graph(native_graph) => crossing_angle(native_graph, drawing),
+                GraphType::DiGraph(native_graph) => crossing_angle(native_graph, drawing),
+            },
+            _ => unimplemented!(),
         }
-        _ => unimplemented!(),
     }
 }
 
@@ -84,18 +84,16 @@ fn py_crossing_number(
     drawing: &PyDrawing,
     crossing_edges: Option<&PyCrossingEdges>,
 ) -> f32 {
-    match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => {
-            if let Some(ce) = crossing_edges {
-                crossing_number_with_crossing_edges(&ce.crossing_edges)
-            } else {
-                match graph.graph() {
-                    GraphType::Graph(native_graph) => crossing_number(native_graph, drawing),
-                    GraphType::DiGraph(native_graph) => crossing_number(native_graph, drawing),
-                }
-            }
+    if let Some(ce) = crossing_edges {
+        crossing_number_with_crossing_edges(&ce.crossing_edges)
+    } else {
+        match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => match graph.graph() {
+                GraphType::Graph(native_graph) => crossing_number(native_graph, drawing),
+                GraphType::DiGraph(native_graph) => crossing_number(native_graph, drawing),
+            },
+            _ => unimplemented!(),
         }
-        _ => unimplemented!(),
     }
 }
 
@@ -148,7 +146,7 @@ fn py_neighborhood_preservation(graph: &PyGraphAdapter, drawing: &PyDrawing) -> 
 fn py_node_resolution(drawing: &PyDrawing) -> f32 {
     match drawing.drawing() {
         DrawingType::Drawing2D(drawing) => node_resolution(drawing),
-        _ => unimplemented!(),
+        DrawingType::DrawingTorus(drawing) => node_resolution(drawing),
     }
 }
 

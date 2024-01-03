@@ -15,8 +15,8 @@ use petgraph_drawing::{Drawing2D, DrawingIndex};
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
 pub use edge_crossings::{
-    crossing_angle, crossing_angle_with_crossing_edges, crossing_edges, crossing_number,
-    crossing_number_with_crossing_edges,
+    crossing_angle, crossing_angle_with_crossing_edges, crossing_edges, crossing_edges_torus,
+    crossing_number, crossing_number_with_crossing_edges, CrossingEdges,
 };
 pub use gabriel_graph_property::gabriel_graph_property;
 pub use ideal_edge_lengths::ideal_edge_lengths;
@@ -120,9 +120,7 @@ where
                 QualityMetric::CrossingNumber => {
                     crossing_number_with_crossing_edges(&crossing_edges)
                 }
-                QualityMetric::CrossingAngle => {
-                    crossing_angle_with_crossing_edges(drawing, &crossing_edges)
-                }
+                QualityMetric::CrossingAngle => crossing_angle_with_crossing_edges(&crossing_edges),
                 QualityMetric::AspectRatio => aspect_ratio(drawing),
                 QualityMetric::AngularResolution => angular_resolution(graph, drawing),
                 QualityMetric::NodeResolution => node_resolution(drawing),
