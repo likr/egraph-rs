@@ -40,7 +40,13 @@ where
         let (source1, target1, x11, y11, x12, y12) = edges[i];
         for j in 0..i {
             let (source2, target2, x21, y21, x22, y22) = edges[j];
-            if source1 == source2 || target1 == target2 {
+            if source1 == source2
+                || source1 == target1
+                || source1 == target2
+                || source2 == target1
+                || source2 == target2
+                || target1 == target2
+            {
                 continue;
             }
             if cross(x11, y11, x12, y12, x21, y21, x22, y22) {
@@ -70,7 +76,13 @@ where
         let (source1, target1, x11, y11, x12, y12) = edges[i];
         for j in 0..i {
             let (source2, target2, x21, y21, x22, y22) = edges[j];
-            if source1 == source2 || target1 == target2 {
+            if source1 == source2
+                || source1 == target1
+                || source1 == target2
+                || source2 == target1
+                || source2 == target2
+                || target1 == target2
+            {
                 continue;
             }
             if cross(x11, y11, x12, y12, x21, y21, x22, y22) {
