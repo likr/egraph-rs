@@ -352,7 +352,11 @@ where
                 } else {
                     y0 - y1 + S::one()
                 };
-                let x2 = (cy * x0 - cx * y0) / cy;
+                let x2 = if dx * dy < S::zero() {
+                    (cy * x0 - cx * y0 + cx) / cy
+                } else {
+                    (cy * x0 - cx * y0) / cy
+                };
                 let y2 = (cx * y0 - cy * x0) / cx;
                 if dx * dy < S::zero() {
                     if x2 < S::zero() {

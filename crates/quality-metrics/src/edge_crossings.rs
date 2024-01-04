@@ -4,8 +4,8 @@ use petgraph_drawing::{Drawing2D, DrawingIndex, DrawingTorus, Tuple2D};
 use std::f32::consts::PI;
 
 fn cross(x11: f32, y11: f32, x12: f32, y12: f32, x21: f32, y21: f32, x22: f32, y22: f32) -> bool {
-    let s = (x12 - x11) * (y21 - y11) - (y11 - y12) * (x21 - x11);
-    let t = (x12 - x11) * (y22 - y11) - (y11 - y12) * (x22 - x11);
+    let s = (x11 - x12) * (y21 - y11) - (y11 - y12) * (x21 - x11);
+    let t = (x11 - x12) * (y22 - y11) - (y11 - y12) * (x22 - x11);
     if s * t > 0. {
         return false;
     }
