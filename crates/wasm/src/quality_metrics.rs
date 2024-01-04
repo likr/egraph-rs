@@ -3,7 +3,10 @@ use crate::{
     graph::JsGraph,
 };
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_quality_metrics::{crossing_number, neighborhood_preservation, stress};
+use petgraph_quality_metrics::{
+    crossing_edges, crossing_edges_torus, crossing_number_with_crossing_edges,
+    neighborhood_preservation, stress,
+};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = stress)]
@@ -17,10 +20,11 @@ pub fn js_stress(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
 
 #[wasm_bindgen(js_name = crossingNumber)]
 pub fn js_crossing_number(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
-    match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => crossing_number(graph.graph(), drawing),
-        _ => unimplemented!(),
-    }
+    let crossings = match drawing.drawing() {
+        DrawingType::Drawing2D(drawing) => crossing_edges(graph.graph(), drawing),
+        DrawingType::DrawingTorus(drawing) => crossing_edges_torus(graph.graph(), drawing),
+    };
+    crossing_number_with_crossing_edges(&crossings)
 }
 
 #[wasm_bindgen(js_name = neighborhoodPreservation)]

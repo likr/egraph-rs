@@ -1,4 +1,5 @@
 use crate::graph::{IndexType, JsGraph};
+use js_sys::Array;
 use petgraph::graph::{node_index, NodeIndex};
 use petgraph_drawing::{Drawing2D, DrawingTorus};
 use wasm_bindgen::prelude::*;
@@ -92,6 +93,52 @@ impl JsDrawing {
             DrawingType::Drawing2D(drawing) => drawing.clamp_region(x0, y0, x1, y1),
             _ => unimplemented!(),
         };
+    }
+
+    #[wasm_bindgen(js_name = edgeSegments)]
+    pub fn edge_segments(&self, u: usize, v: usize) -> Option<Box<[JsValue]>> {
+        match self.drawing() {
+            DrawingType::Drawing2D(drawing) => drawing
+                .edge_segments(node_index(u), node_index(v))
+                .map(|segments| {
+                    segments
+                        .iter()
+                        .map(|&(p, q)| {
+                            let js_p = Array::new();
+                            js_p.push(&JsValue::from_f64(p.0 as f64));
+                            js_p.push(&JsValue::from_f64(p.1 as f64));
+                            let js_q = Array::new();
+                            js_q.push(&JsValue::from_f64(q.0 as f64));
+                            js_q.push(&JsValue::from_f64(q.1 as f64));
+                            let js_segment = Array::new();
+                            js_segment.push(&js_p);
+                            js_segment.push(&js_q);
+                            js_segment.into()
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice()
+                }),
+            DrawingType::DrawingTorus(drawing) => drawing
+                .edge_segments(node_index(u), node_index(v))
+                .map(|segments| {
+                    segments
+                        .iter()
+                        .map(|&(p, q)| {
+                            let js_p = Array::new();
+                            js_p.push(&JsValue::from_f64(p.0 .0 as f64));
+                            js_p.push(&JsValue::from_f64(p.1 .0 as f64));
+                            let js_q = Array::new();
+                            js_q.push(&JsValue::from_f64(q.0 .0 as f64));
+                            js_q.push(&JsValue::from_f64(q.1 .0 as f64));
+                            let js_segment = Array::new();
+                            js_segment.push(&js_p);
+                            js_segment.push(&js_q);
+                            js_segment.into()
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice()
+                }),
+        }
     }
 }
 
