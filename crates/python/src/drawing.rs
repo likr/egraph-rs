@@ -91,6 +91,27 @@ impl PyDrawing {
             _ => unimplemented!(),
         };
     }
+
+    pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<((f32, f32), (f32, f32))>> {
+        match self.drawing() {
+            DrawingType::Drawing2D(drawing) => drawing
+                .edge_segments(node_index(u), node_index(v))
+                .map(|segments| {
+                    segments
+                        .iter()
+                        .map(|&(p, q)| ((p.0, p.1), (q.0, q.1)))
+                        .collect::<Vec<_>>()
+                }),
+            DrawingType::DrawingTorus(drawing) => drawing
+                .edge_segments(node_index(u), node_index(v))
+                .map(|segments| {
+                    segments
+                        .iter()
+                        .map(|&(p, q)| ((p.0 .0, p.1 .0), (q.0 .0, q.1 .0)))
+                        .collect::<Vec<_>>()
+                }),
+        }
+    }
 }
 
 #[pyclass]
