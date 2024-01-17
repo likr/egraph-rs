@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::PyDistanceMatrix,
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
 };
@@ -116,16 +116,15 @@ fn py_ideal_edge_lengths(
     drawing: &PyDrawing,
     distance_matrix: &PyDistanceMatrix,
 ) -> f32 {
-    match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                ideal_edge_lengths(native_graph, drawing, distance_matrix.distance_matrix())
-            }
-            GraphType::DiGraph(native_graph) => {
-                ideal_edge_lengths(native_graph, drawing, distance_matrix.distance_matrix())
-            }
+    match distance_matrix.distance_matrix() {
+        DistanceMatrixType::Full(d) => match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => match graph.graph() {
+                GraphType::Graph(native_graph) => ideal_edge_lengths(native_graph, drawing, d),
+                GraphType::DiGraph(native_graph) => ideal_edge_lengths(native_graph, drawing, d),
+            },
+            _ => unimplemented!(),
         },
-        _ => unimplemented!(),
+        _ => panic!("unsupported distance matrix type"),
     }
 }
 
@@ -153,9 +152,12 @@ fn py_node_resolution(drawing: &PyDrawing) -> f32 {
 #[pyfunction]
 #[pyo3(name = "stress")]
 fn py_stress(drawing: &PyDrawing, distance_matrix: &PyDistanceMatrix) -> f32 {
-    match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => stress(drawing, distance_matrix.distance_matrix()),
-        DrawingType::DrawingTorus(drawing) => stress(drawing, distance_matrix.distance_matrix()),
+    match distance_matrix.distance_matrix() {
+        DistanceMatrixType::Full(d) => match drawing.drawing() {
+            DrawingType::Drawing2D(drawing) => stress(drawing, d),
+            DrawingType::DrawingTorus(drawing) => stress(drawing, d),
+        },
+        _ => panic!("unsupported distance matrix type"),
     }
 }
 

@@ -1,6 +1,8 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
-use petgraph_algorithm_shortest_path::{multi_source_dijkstra, warshall_floyd};
+use petgraph_algorithm_shortest_path::{
+    all_sources_dijkstra, multi_source_dijkstra, DistanceMatrix,
+};
 use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn cos(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
@@ -66,11 +68,18 @@ fn eigendecomposition(a: &Array2<f32>, k: usize, eps: f32) -> (Array1<f32>, Arra
 fn classical_mds<G, F>(graph: G, length: F, eps: f32) -> Drawing2D<G::NodeId, f32>
 where
     G: IntoEdges + IntoNodeIdentifiers,
-    G::NodeId: DrawingIndex,
+    G::NodeId: DrawingIndex + Ord,
     F: FnMut(G::EdgeRef) -> f32,
 {
-    let mut delta = warshall_floyd(graph, length);
-    delta = delta.mapv_into(|v| v.powi(2));
+    let distance_matrix = all_sources_dijkstra(graph, length);
+    let (n, m) = distance_matrix.shape();
+    let mut delta = Array2::zeros((n, m));
+    for i in 0..n {
+        for j in 0..m {
+            delta[[i, j]] = distance_matrix.get_by_index(i, j).powi(2);
+        }
+    }
+
     let b = double_centering(&delta);
     let (e, v) = eigendecomposition(&b, 2, eps);
     let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
@@ -95,8 +104,14 @@ where
     G::NodeId: DrawingIndex + Ord,
     F: FnMut(G::EdgeRef) -> f32,
 {
-    let mut delta = multi_source_dijkstra(graph, length, &sources);
-    delta = delta.mapv_into(|v| v.powi(2));
+    let distance_matrix = multi_source_dijkstra(graph, length, &sources);
+    let (n, m) = distance_matrix.shape();
+    let mut delta = Array2::zeros((n, m));
+    for i in 0..n {
+        for j in 0..m {
+            delta[[i, j]] = distance_matrix.get_by_index(i, j).powi(2);
+        }
+    }
     let c = double_centering(&delta);
     let ct_c = c.t().dot(&c);
     let (e, v) = eigendecomposition(&ct_c, 2, eps);

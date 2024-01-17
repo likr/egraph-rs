@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::PyDistanceMatrix,
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
 };
@@ -38,12 +38,15 @@ impl PyStressMajorization {
         drawing: &PyDrawing,
         distance_matrix: &PyDistanceMatrix,
     ) -> PyStressMajorization {
-        match drawing.drawing() {
-            DrawingType::Drawing2D(drawing) => PyStressMajorization {
-                stress_majorization: StressMajorization::new_with_distance_matrix(
-                    drawing,
-                    distance_matrix.distance_matrix(),
-                ),
+        match distance_matrix.distance_matrix() {
+            DistanceMatrixType::Full(distance_matrix) => match drawing.drawing() {
+                DrawingType::Drawing2D(drawing) => PyStressMajorization {
+                    stress_majorization: StressMajorization::new_with_distance_matrix(
+                        drawing,
+                        distance_matrix,
+                    ),
+                },
+                _ => unimplemented!(),
             },
             _ => unimplemented!(),
         }

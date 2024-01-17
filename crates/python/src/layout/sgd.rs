@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::PyDistanceMatrix,
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing},
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
@@ -84,12 +84,24 @@ impl PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => {
                     let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
-                    SparseSgd::new_with_pivot_and_distance_matrix(
-                        native_graph,
-                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                        &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
-                        d.distance_matrix(),
-                    )
+                    match d.distance_matrix() {
+                        DistanceMatrixType::Full(d) => {
+                            SparseSgd::new_with_pivot_and_distance_matrix(
+                                native_graph,
+                                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                                &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                                d,
+                            )
+                        }
+                        DistanceMatrixType::Sub(d) => {
+                            SparseSgd::new_with_pivot_and_distance_matrix(
+                                native_graph,
+                                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                                &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                                d,
+                            )
+                        }
+                    }
                 }
                 _ => panic!("unsupported graph type"),
             },
@@ -140,7 +152,7 @@ impl PySparseSgd {
                 );
                 (
                     pivot.into_iter().map(|u| u.index()).collect::<Vec<_>>(),
-                    PyDistanceMatrix::new_with_distance_matrix(d),
+                    PyDistanceMatrix::new_with_sub_distance_matrix(d),
                 )
             }
             _ => panic!("unsupported graph type"),
@@ -170,8 +182,11 @@ impl PyFullSgd {
 
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> PyFullSgd {
-        PyFullSgd {
-            sgd: FullSgd::new_with_distance_matrix(d.distance_matrix()),
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => PyFullSgd {
+                sgd: FullSgd::new_with_distance_matrix(d),
+            },
+            _ => panic!("unsupported distance matrix type"),
         }
     }
 
@@ -324,8 +339,11 @@ impl PyDistanceAdjustedFullSgd {
 
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
-        Self {
-            sgd: DistanceAdjustedSgd::new(FullSgd::new_with_distance_matrix(d.distance_matrix())),
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => Self {
+                sgd: DistanceAdjustedSgd::new(FullSgd::new_with_distance_matrix(d)),
+            },
+            _ => panic!("unsupported distance matrix type"),
         }
     }
 

@@ -8,8 +8,8 @@ mod neighborhood_preservation;
 mod node_resolution;
 mod stress;
 
-use ndarray::prelude::*;
 use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
+use petgraph_algorithm_shortest_path::FullDistanceMatrix;
 use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 pub use angular_resolution::angular_resolution;
@@ -73,7 +73,7 @@ impl QualityMetric {
 pub fn quality_metrics<G>(
     graph: G,
     drawing: &Drawing2D<G::NodeId, f32>,
-    d: &Array2<f32>,
+    d: &FullDistanceMatrix<G::NodeId, f32>,
 ) -> Vec<(QualityMetric, f32)>
 where
     G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
@@ -100,7 +100,7 @@ where
 pub fn quality_metrics_with_targets<G>(
     graph: G,
     drawing: &Drawing2D<G::NodeId, f32>,
-    d: &Array2<f32>,
+    d: &FullDistanceMatrix<G::NodeId, f32>,
     targets: &[QualityMetric],
 ) -> Vec<(QualityMetric, f32)>
 where

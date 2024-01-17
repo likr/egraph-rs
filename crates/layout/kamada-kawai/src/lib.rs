@@ -1,6 +1,6 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
-use petgraph_algorithm_shortest_path::warshall_floyd;
+use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
 use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn norm(x: f32, y: f32) -> f32 {
@@ -17,28 +17,29 @@ impl KamadaKawai {
     pub fn new<G, F>(graph: G, length: F) -> KamadaKawai
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
-        G::NodeId: DrawingIndex,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let l = warshall_floyd(graph, length);
+        let l = all_sources_dijkstra(graph, length);
         KamadaKawai::new_with_distance_matrix(&l)
     }
 
-    pub fn new_with_distance_matrix(l: &Array2<f32>) -> KamadaKawai {
+    pub fn new_with_distance_matrix<N>(d: &FullDistanceMatrix<N, f32>) -> KamadaKawai
+    where
+        N: DrawingIndex,
+    {
         let eps = 1e-1;
-        let n = l.nrows();
+        let n = d.shape().0;
 
+        let mut l = Array2::zeros((n, n));
         let mut k = Array2::zeros((n, n));
         for i in 0..n {
             for j in 0..n {
+                l[[i, j]] = d.get_by_index(i, j);
                 k[[i, j]] = 1. / (l[[i, j]] * l[[i, j]]);
             }
         }
-        KamadaKawai {
-            k,
-            l: l.clone(),
-            eps,
-        }
+        KamadaKawai { k, l, eps }
     }
 
     pub fn select_node<N>(&self, drawing: &Drawing2D<N, f32>) -> Option<usize>

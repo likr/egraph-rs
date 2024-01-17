@@ -1,6 +1,6 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
-use petgraph_algorithm_shortest_path::warshall_floyd;
+use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
 use petgraph_drawing::{Drawing2D, DrawingIndex};
 
 fn line_search(a: &Array2<f32>, dx: &Array1<f32>, d: &Array1<f32>) -> f32 {
@@ -97,21 +97,22 @@ impl StressMajorization {
     pub fn new<G, F>(graph: G, drawing: &Drawing2D<G::NodeId, f32>, length: F) -> StressMajorization
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
-        G::NodeId: DrawingIndex,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let d = warshall_floyd(graph, length);
+        let d = all_sources_dijkstra(graph, length);
         StressMajorization::new_with_distance_matrix(drawing, &d)
     }
 
     pub fn new_with_distance_matrix<N>(
         drawing: &Drawing2D<N, f32>,
-        d: &Array2<f32>,
+        distance_matrix: &FullDistanceMatrix<N, f32>,
     ) -> StressMajorization
     where
         N: DrawingIndex,
     {
         let n = drawing.len();
+        let mut d = Array2::zeros((n, n));
         let w = Array2::zeros((n, n));
         let l_w = Array2::zeros((n - 1, n - 1));
         let mut x_x = Array1::zeros(n - 1);
@@ -120,13 +121,18 @@ impl StressMajorization {
             x_x[i] = drawing.coordinates[i].0 - drawing.coordinates[n - 1].0;
             x_y[i] = drawing.coordinates[i].1 - drawing.coordinates[n - 1].1;
         }
+        for i in 0..n {
+            for j in 0..n {
+                d[[i, j]] = distance_matrix.get_by_index(i, j);
+            }
+        }
 
         let epsilon = 1e-4;
         let l_z = Array2::zeros((n - 1, n - 1));
         let b = Array1::zeros(n - 1);
         let mut sm = StressMajorization {
             b,
-            d: d.clone(),
+            d,
             l_w,
             l_z,
             w,
