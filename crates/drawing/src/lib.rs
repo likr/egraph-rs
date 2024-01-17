@@ -1,10 +1,12 @@
 mod drawing;
 mod drawing2d;
+mod drawing_d;
 mod drawing_torus;
 mod metric;
 
 pub use drawing::*;
 pub use drawing2d::*;
+pub use drawing_d::*;
 pub use drawing_torus::*;
 pub use metric::*;
 
