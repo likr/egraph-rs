@@ -4,25 +4,30 @@ use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
 use petgraph_drawing::{Drawing2D, DrawingD, DrawingIndex};
 
-pub struct ClassicalMds {
+pub struct ClassicalMds<N> {
     pub eps: f32,
+    indices: Vec<N>,
     b: Array2<f32>,
 }
 
-impl ClassicalMds {
+impl<N> ClassicalMds<N>
+where
+    N: DrawingIndex,
+{
     pub fn new<G, F>(graph: G, length: F) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: DrawingIndex + Ord,
+        G::NodeId: DrawingIndex + Copy + Ord + Into<N>,
         F: FnMut(G::EdgeRef) -> f32,
+        N: Copy,
     {
         let distance_matrix = all_sources_dijkstra(graph, length);
         Self::new_with_distance_matrix(distance_matrix)
     }
 
-    pub fn new_with_distance_matrix<N>(distance_matrix: FullDistanceMatrix<N, f32>) -> Self
+    pub fn new_with_distance_matrix<N2>(distance_matrix: FullDistanceMatrix<N2, f32>) -> Self
     where
-        N: DrawingIndex,
+        N2: DrawingIndex + Copy + Into<N>,
     {
         let (n, m) = distance_matrix.shape();
         let mut delta = Array2::zeros((n, m));
@@ -32,18 +37,24 @@ impl ClassicalMds {
             }
         }
         let b = double_centering(&delta);
-        Self { eps: 1e-3, b }
+        Self {
+            eps: 1e-3,
+            indices: distance_matrix
+                .row_indices()
+                .map(|u| u.into())
+                .collect::<Vec<_>>(),
+            b,
+        }
     }
 
-    pub fn run_2d<G>(&self, graph: G) -> Drawing2D<G::NodeId, f32>
+    pub fn run_2d(&self) -> Drawing2D<N, f32>
     where
-        G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: DrawingIndex + Ord,
+        N: Copy,
     {
         let (e, v) = eigendecomposition(&self.b, 2, self.eps);
         let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = Drawing2D::new(graph);
-        for (i, u) in graph.node_identifiers().enumerate() {
+        let mut drawing = Drawing2D::from_node_indices(&self.indices);
+        for (i, &u) in self.indices.iter().enumerate() {
             drawing.position_mut(u).map(|p| {
                 p.0 = xy[[i, 0]];
                 p.1 = xy[[i, 1]];
@@ -52,16 +63,15 @@ impl ClassicalMds {
         drawing
     }
 
-    pub fn run<G>(&self, graph: G, d: usize) -> DrawingD<G::NodeId, f32>
+    pub fn run(&self, d: usize) -> DrawingD<N, f32>
     where
-        G: IntoEdges + IntoNodeIdentifiers,
-        G::NodeId: DrawingIndex + Ord,
+        N: Copy,
     {
         let (e, v) = eigendecomposition(&self.b, d, self.eps);
         let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = DrawingD::new(graph);
+        let mut drawing = DrawingD::from_node_indices(&self.indices);
         drawing.set_dimension(d);
-        for (i, u) in graph.node_identifiers().enumerate() {
+        for (i, &u) in self.indices.iter().enumerate() {
             drawing.position_mut(u).map(|p| {
                 for j in 0..d {
                     p.0[j] = x[[i, j]];

@@ -24,6 +24,15 @@ where
             .node_identifiers()
             .map(|u| u.into())
             .collect::<Vec<N>>();
+        Self::from_node_indices(&indices)
+    }
+
+    pub fn from_node_indices(indices: &[N]) -> Drawing<N, M>
+    where
+        N: Copy,
+        M: Clone + Default,
+    {
+        let indices = indices.to_vec();
         let index_map = indices
             .iter()
             .enumerate()

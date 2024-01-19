@@ -16,6 +16,31 @@ pub trait DistanceMatrix<N, S> {
     fn row_index(&self, u: N) -> Option<usize>;
 
     fn col_index(&self, u: N) -> Option<usize>;
+
+    fn row_indices(&self) -> IndexIterator<N>;
+
+    fn col_indices(&self) -> IndexIterator<N>;
+}
+
+pub struct IndexIterator<'a, N> {
+    indices: &'a Vec<N>,
+    index: usize,
+}
+
+impl<'a, N> Iterator for IndexIterator<'a, N>
+where
+    N: Copy,
+{
+    type Item = N;
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index;
+        self.index += 1;
+        if index < self.indices.len() {
+            Some(self.indices[index])
+        } else {
+            None
+        }
+    }
 }
 
 pub struct FullDistanceMatrix<N, S> {
@@ -55,6 +80,20 @@ where
 
     fn col_index(&self, u: N) -> Option<usize> {
         self.index_map.get(&u).copied()
+    }
+
+    fn row_indices(&self) -> IndexIterator<N> {
+        IndexIterator {
+            indices: &self.indices,
+            index: 0,
+        }
+    }
+
+    fn col_indices(&self) -> IndexIterator<N> {
+        IndexIterator {
+            indices: &self.indices,
+            index: 0,
+        }
     }
 }
 
@@ -132,6 +171,20 @@ where
 
     fn col_index(&self, u: N) -> Option<usize> {
         self.col_index_map.get(&u).copied()
+    }
+
+    fn row_indices(&self) -> IndexIterator<N> {
+        IndexIterator {
+            indices: &self.row_indices,
+            index: 0,
+        }
+    }
+
+    fn col_indices(&self) -> IndexIterator<N> {
+        IndexIterator {
+            indices: &self.col_indices,
+            index: 0,
+        }
     }
 }
 
