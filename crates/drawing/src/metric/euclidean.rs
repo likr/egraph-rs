@@ -1,17 +1,20 @@
-use crate::{Difference, Drawing, DrawingIndex, DrawingValue, Metric};
+use crate::{
+    metric::{Difference, Metric},
+    DrawingValue,
+};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
 #[derive(Clone, Debug, Default)]
-pub struct CoordinatesD<S>(pub Vec<S>);
+pub struct MetricEuclidean<S>(pub Vec<S>);
 
-impl<S> Add for CoordinatesD<S>
+impl<S> Add for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        CoordinatesD(
+        MetricEuclidean(
             self.0
                 .iter()
                 .zip(other.0.iter())
@@ -21,7 +24,7 @@ where
     }
 }
 
-impl<S> AddAssign for CoordinatesD<S>
+impl<S> AddAssign for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
@@ -32,14 +35,14 @@ where
     }
 }
 
-impl<S> Sub for CoordinatesD<S>
+impl<S> Sub for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
-        CoordinatesD(
+        MetricEuclidean(
             self.0
                 .iter()
                 .zip(other.0.iter())
@@ -49,7 +52,7 @@ where
     }
 }
 
-impl<S> SubAssign for CoordinatesD<S>
+impl<S> SubAssign for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
@@ -60,29 +63,29 @@ where
     }
 }
 
-impl<S> Mul<S> for CoordinatesD<S>
+impl<S> Mul<S> for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
     type Output = Self;
 
     fn mul(self, other: S) -> Self {
-        CoordinatesD(self.0.iter().map(|a| *a * other).collect::<Vec<_>>())
+        MetricEuclidean(self.0.iter().map(|a| *a * other).collect::<Vec<_>>())
     }
 }
 
-impl<S> Div<S> for CoordinatesD<S>
+impl<S> Div<S> for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
     type Output = Self;
 
     fn div(self, other: S) -> Self {
-        CoordinatesD(self.0.iter().map(|a| *a / other).collect::<Vec<_>>())
+        MetricEuclidean(self.0.iter().map(|a| *a / other).collect::<Vec<_>>())
     }
 }
 
-impl<S> Difference for CoordinatesD<S>
+impl<S> Difference for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
@@ -96,23 +99,18 @@ where
     }
 }
 
-impl<S> Metric for CoordinatesD<S>
+impl<S> MetricEuclidean<S>
 where
-    S: DrawingValue,
+    S: DrawingValue + Default,
 {
-    type D = CoordinatesD<S>;
+    pub fn new(dimension: usize) -> Self {
+        MetricEuclidean(vec![S::default(); dimension])
+    }
 }
 
-pub type DrawingD<N, S> = Drawing<N, CoordinatesD<S>>;
-
-impl<N, S> DrawingD<N, S>
+impl<S> Metric for MetricEuclidean<S>
 where
-    N: DrawingIndex,
     S: DrawingValue,
 {
-    pub fn set_dimension(&mut self, d: usize) {
-        for i in 0..self.len() {
-            self.coordinates[i].0.resize(d, S::zero());
-        }
-    }
+    type D = MetricEuclidean<S>;
 }

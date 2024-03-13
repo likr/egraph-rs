@@ -1,102 +1,52 @@
-use crate::{Difference, Drawing, DrawingIndex, DrawingValue, Metric};
-use num_traits::{cast::FromPrimitive, clamp, float::FloatConst};
+use crate::{drawing::Drawing, metric::euclidean2d::MetricEuclidean2d, DrawingIndex, DrawingValue};
+use num_traits::{clamp, FloatConst, FromPrimitive};
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use std::{
-    collections::{HashMap, VecDeque},
-    ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
-};
+use std::collections::{HashMap, VecDeque};
 
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Tuple2D<S>(pub S, pub S);
-
-impl<S> Add for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self {
-        Tuple2D(self.0 + other.0, self.1 + other.1)
-    }
+pub struct DrawingEuclidean2d<N, S> {
+    indices: Vec<N>,
+    coordinates: Vec<MetricEuclidean2d<S>>,
+    index_map: HashMap<N, usize>,
 }
 
-impl<S> AddAssign for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    fn add_assign(&mut self, other: Self) {
-        self.0 += other.0;
-        self.1 += other.1;
-    }
-}
-
-impl<S> Sub for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        Tuple2D(self.0 - other.0, self.1 - other.1)
-    }
-}
-
-impl<S> SubAssign for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    fn sub_assign(&mut self, other: Self) {
-        self.0 -= other.0;
-        self.1 -= other.1;
-    }
-}
-
-impl<S> Mul<S> for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn mul(self, other: S) -> Self {
-        Tuple2D(self.0 * other, self.1 * other)
-    }
-}
-
-impl<S> Div<S> for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn div(self, other: S) -> Self {
-        Tuple2D(self.0 / other, self.1 / other)
-    }
-}
-
-impl<S> Difference for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type S = S;
-    fn norm(&self) -> Self::S {
-        self.0.hypot(self.1)
-    }
-}
-
-impl<S> Metric for Tuple2D<S>
-where
-    S: DrawingValue,
-{
-    type D = Tuple2D<S>;
-}
-
-pub type Drawing2D<N, S> = Drawing<N, Tuple2D<S>>;
-
-impl<N, S> Drawing2D<N, S>
+impl<N, S> DrawingEuclidean2d<N, S>
 where
     N: DrawingIndex,
     S: DrawingValue,
 {
+    pub fn new<G>(graph: G) -> Self
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: DrawingIndex + Into<N>,
+        N: Copy,
+        S: Default,
+    {
+        let indices = graph
+            .node_identifiers()
+            .map(|u| u.into())
+            .collect::<Vec<N>>();
+        Self::from_node_indices(&indices)
+    }
+
+    pub fn from_node_indices(indices: &[N]) -> Self
+    where
+        N: Copy,
+        S: Default,
+    {
+        let indices = indices.to_vec();
+        let index_map = indices
+            .iter()
+            .enumerate()
+            .map(|(i, &u)| (u, i))
+            .collect::<HashMap<_, _>>();
+        let coordinates = vec![MetricEuclidean2d::default(); indices.len()];
+        Self {
+            indices,
+            coordinates,
+            index_map,
+        }
+    }
+
     pub fn x(&self, u: N) -> Option<S> {
         self.position(u).map(|p| p.0)
     }
@@ -145,7 +95,7 @@ where
         }
     }
 
-    pub fn initial_placement<G>(graph: G) -> Drawing2D<N, S>
+    pub fn initial_placement<G>(graph: G) -> Self
     where
         G: IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Into<N>,
@@ -153,17 +103,17 @@ where
         S: FloatConst + FromPrimitive + Default,
     {
         let nodes = graph.node_identifiers().collect::<Vec<_>>();
-        Drawing::initial_placement_with_node_order(graph, &nodes)
+        Self::initial_placement_with_node_order(graph, &nodes)
     }
 
-    pub fn initial_placement_with_node_order<G>(graph: G, nodes: &[G::NodeId]) -> Drawing2D<N, S>
+    pub fn initial_placement_with_node_order<G>(graph: G, nodes: &[G::NodeId]) -> Self
     where
         G: IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Into<N>,
         N: Copy,
         S: FloatConst + FromPrimitive + Default,
     {
-        let mut drawing = Drawing::new(graph);
+        let mut drawing = Self::new(graph);
         for (i, &u) in nodes.iter().enumerate() {
             let r = S::from_usize(10).unwrap() * S::from_usize(i).unwrap().sqrt();
             let theta = S::PI()
@@ -171,12 +121,14 @@ where
                 * (S::from_usize(i).unwrap());
             let x = r * theta.cos();
             let y = r * theta.sin();
-            drawing.position_mut(u.into()).map(|p| *p = Tuple2D(x, y));
+            drawing
+                .position_mut(u.into())
+                .map(|p| *p = MetricEuclidean2d(x, y));
         }
         drawing
     }
 
-    pub fn initial_placement_with_bfs_order<G>(graph: G, s: G::NodeId) -> Drawing2D<N, S>
+    pub fn initial_placement_with_bfs_order<G>(graph: G, s: G::NodeId) -> Self
     where
         G: IntoNeighbors + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Into<N>,
@@ -199,12 +151,49 @@ where
         }
         let mut nodes = graph.node_identifiers().collect::<Vec<_>>();
         nodes.sort_by_key(|&u| order.get(&u).or(Some(&std::usize::MAX)));
-        Drawing::initial_placement_with_node_order(graph, &nodes)
+        Self::initial_placement_with_node_order(graph, &nodes)
     }
 
-    pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<(Tuple2D<S>, Tuple2D<S>)>> {
+    pub fn edge_segments(
+        &self,
+        u: N,
+        v: N,
+    ) -> Option<Vec<(MetricEuclidean2d<S>, MetricEuclidean2d<S>)>> {
         self.position(u)
             .zip(self.position(v))
             .map(|(&p, &q)| vec![(p, q)])
+    }
+}
+
+impl<N, S> Drawing for DrawingEuclidean2d<N, S>
+where
+    N: DrawingIndex,
+    S: DrawingValue,
+{
+    type Index = N;
+    type Item = MetricEuclidean2d<S>;
+
+    fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    fn dimension(&self) -> usize {
+        2
+    }
+
+    fn position(&self, u: Self::Index) -> Option<&Self::Item> {
+        self.index_map.get(&u).map(|&i| &self.coordinates[i])
+    }
+
+    fn position_mut(&mut self, u: Self::Index) -> Option<&mut Self::Item> {
+        self.index_map.get(&u).map(|&i| &mut self.coordinates[i])
+    }
+
+    fn raw_entry(&self, i: usize) -> &Self::Item {
+        &self.coordinates[i]
+    }
+
+    fn raw_entry_mut(&mut self, i: usize) -> &mut Self::Item {
+        &mut self.coordinates[i]
     }
 }

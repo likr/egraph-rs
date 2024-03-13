@@ -33,6 +33,7 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &PyDrawing) -> PyCrossingE
                 GraphType::DiGraph(native_graph) => crossing_edges_torus(native_graph, drawing),
             },
         },
+        _ => unimplemented!(),
     }
 }
 
@@ -146,6 +147,7 @@ fn py_node_resolution(drawing: &PyDrawing) -> f32 {
     match drawing.drawing() {
         DrawingType::Drawing2D(drawing) => node_resolution(drawing),
         DrawingType::DrawingTorus(drawing) => node_resolution(drawing),
+        _ => unimplemented!(),
     }
 }
 
@@ -156,6 +158,7 @@ fn py_stress(drawing: &PyDrawing, distance_matrix: &PyDistanceMatrix) -> f32 {
         DistanceMatrixType::Full(d) => match drawing.drawing() {
             DrawingType::Drawing2D(drawing) => stress(drawing, d),
             DrawingType::DrawingTorus(drawing) => stress(drawing, d),
+            _ => unimplemented!(),
         },
         _ => panic!("unsupported distance matrix type"),
     }

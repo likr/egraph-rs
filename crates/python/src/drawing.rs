@@ -1,11 +1,12 @@
 use crate::graph::{GraphType, IndexType, PyGraphAdapter};
 use petgraph::graph::{node_index, NodeIndex};
-use petgraph_drawing::{Drawing2D, DrawingTorus};
+use petgraph_drawing::{Drawing2D, DrawingD, DrawingTorus};
 use pyo3::prelude::*;
 
 type NodeId = NodeIndex<IndexType>;
 pub enum DrawingType {
     Drawing2D(Drawing2D<NodeId, f32>),
+    DrawingD(DrawingD<NodeId, f32>),
     DrawingTorus(DrawingTorus<NodeId, f32>),
 }
 
@@ -44,6 +45,7 @@ impl PyDrawing {
         match self.drawing() {
             DrawingType::Drawing2D(drawing) => drawing.x(u),
             DrawingType::DrawingTorus(drawing) => drawing.x(u),
+            _ => unimplemented!(),
         }
     }
 
@@ -52,6 +54,7 @@ impl PyDrawing {
         match self.drawing() {
             DrawingType::Drawing2D(drawing) => drawing.y(u),
             DrawingType::DrawingTorus(drawing) => drawing.y(u),
+            _ => unimplemented!(),
         }
     }
 
@@ -60,6 +63,7 @@ impl PyDrawing {
         match self.drawing_mut() {
             DrawingType::Drawing2D(drawing) => drawing.set_x(u, x),
             DrawingType::DrawingTorus(drawing) => drawing.set_x(u, x),
+            _ => unimplemented!(),
         };
     }
 
@@ -68,6 +72,7 @@ impl PyDrawing {
         match self.drawing_mut() {
             DrawingType::Drawing2D(drawing) => drawing.set_y(u, y),
             DrawingType::DrawingTorus(drawing) => drawing.set_y(u, y),
+            _ => unimplemented!(),
         };
     }
 
@@ -75,6 +80,7 @@ impl PyDrawing {
         match self.drawing() {
             DrawingType::Drawing2D(drawing) => drawing.len(),
             DrawingType::DrawingTorus(drawing) => drawing.len(),
+            _ => unimplemented!(),
         }
     }
 
@@ -110,9 +116,14 @@ impl PyDrawing {
                         .map(|&(p, q)| ((p.0 .0, p.1 .0), (q.0 .0, q.1 .0)))
                         .collect::<Vec<_>>()
                 }),
+            _ => unimplemented!(),
         }
     }
 }
+
+#[pyclass]
+#[pyo3(name = "DrawingD")]
+pub struct PyDrawingD;
 
 #[pyclass]
 #[pyo3(name = "Drawing2D")]
@@ -147,6 +158,7 @@ impl PyDrawingTorus {
 pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyDrawing>()?;
     m.add_class::<PyDrawing2D>()?;
+    m.add_class::<PyDrawingD>()?;
     m.add_class::<PyDrawingTorus>()?;
     Ok(())
 }

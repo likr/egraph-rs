@@ -2,7 +2,7 @@ use crate::{double_centering::double_centering, eigendecomposition::eigendecompo
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
-use petgraph_drawing::{Drawing2D, DrawingD, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex};
 
 pub struct ClassicalMds<N> {
     pub eps: f32,
@@ -47,13 +47,13 @@ where
         }
     }
 
-    pub fn run_2d(&self) -> Drawing2D<N, f32>
+    pub fn run_2d(&self) -> DrawingEuclidean2d<N, f32>
     where
         N: Copy,
     {
         let (e, v) = eigendecomposition(&self.b, 2, self.eps);
         let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = Drawing2D::from_node_indices(&self.indices);
+        let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
             drawing.position_mut(u).map(|p| {
                 p.0 = xy[[i, 0]];
@@ -63,14 +63,13 @@ where
         drawing
     }
 
-    pub fn run(&self, d: usize) -> DrawingD<N, f32>
+    pub fn run(&self, d: usize) -> DrawingEuclidean<N, f32>
     where
         N: Copy,
     {
         let (e, v) = eigendecomposition(&self.b, d, self.eps);
         let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = DrawingD::from_node_indices(&self.indices);
-        drawing.set_dimension(d);
+        let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {
             drawing.position_mut(u).map(|p| {
                 for j in 0..d {

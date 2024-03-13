@@ -1,3 +1,7 @@
+pub mod euclidean;
+pub mod euclidean2d;
+pub mod torus2d;
+
 use crate::DrawingValue;
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 pub trait Difference:

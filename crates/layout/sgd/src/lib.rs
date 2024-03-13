@@ -216,18 +216,18 @@ pub trait Sgd {
         self.node_pairs_mut().shuffle(rng);
     }
 
-    fn apply<N, M, D>(&self, drawing: &mut Drawing<N, M>, eta: f32)
+    fn apply<Diff, D, M>(&self, drawing: &mut D, eta: f32)
     where
-        N: DrawingIndex,
-        D: Difference<S = f32>,
-        M: Copy + Metric<D = D>,
+        D: Drawing<Item = M>,
+        Diff: Difference<S = f32>,
+        M: Copy + Metric<D = Diff>,
     {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
-            let delta = drawing.coordinates[i] - drawing.coordinates[j];
+            let delta = *drawing.raw_entry(i) - *drawing.raw_entry(j);
             let norm = delta.norm();
             let r = 0.5 * mu * (norm - dij) / norm;
-            drawing.coordinates[i] += delta * -r;
+            *drawing.raw_entry_mut(i) += delta * -r;
         }
     }
 
@@ -363,15 +363,15 @@ where
         }
     }
 
-    pub fn apply_with_distance_adjustment<N, M, D>(&mut self, drawing: &mut Drawing<N, M>, eta: f32)
+    pub fn apply_with_distance_adjustment<D, Diff, M>(&mut self, drawing: &mut D, eta: f32)
     where
-        N: DrawingIndex,
-        D: Difference<S = f32>,
-        M: Copy + Metric<D = D>,
+        D: Drawing<Item = M>,
+        Diff: Difference<S = f32>,
+        M: Copy + Metric<D = Diff>,
     {
         self.sgd.apply(drawing, eta);
         self.sgd.update_distance(|i, j, _, w| {
-            let delta = drawing.coordinates[i] - drawing.coordinates[j];
+            let delta = *drawing.raw_entry(i) - *drawing.raw_entry(j);
             let d1 = delta.norm();
             let d2 = self.original_distance[&(i, j)];
             let new_d = (self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)

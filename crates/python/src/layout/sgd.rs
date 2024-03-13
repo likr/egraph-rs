@@ -116,6 +116,7 @@ impl PySparseSgd {
         match drawing.drawing_mut() {
             DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
             DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            _ => unimplemented!(),
         }
     }
 
@@ -198,6 +199,7 @@ impl PyFullSgd {
         match drawing.drawing_mut() {
             DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
             DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            _ => unimplemented!(),
         }
     }
 
@@ -266,6 +268,7 @@ impl PyDistanceAdjustedSparseSgd {
         match drawing.drawing_mut() {
             DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
             DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            _ => unimplemented!(),
         }
     }
 
@@ -277,6 +280,7 @@ impl PyDistanceAdjustedSparseSgd {
             DrawingType::DrawingTorus(drawing) => {
                 self.sgd.apply_with_distance_adjustment(drawing, eta)
             }
+            _ => unimplemented!(),
         }
     }
 
@@ -355,6 +359,7 @@ impl PyDistanceAdjustedFullSgd {
         match drawing.drawing_mut() {
             DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
             DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            _ => unimplemented!(),
         }
     }
 
@@ -366,6 +371,7 @@ impl PyDistanceAdjustedFullSgd {
             DrawingType::DrawingTorus(drawing) => {
                 self.sgd.apply_with_distance_adjustment(drawing, eta)
             }
+            _ => unimplemented!(),
         }
     }
 
