@@ -16,6 +16,8 @@ pub trait Drawing {
 
     fn position_mut(&mut self, u: Self::Index) -> Option<&mut Self::Item>;
 
+    fn index(&self, i: usize) -> &Self::Index;
+
     fn raw_entry(&self, i: usize) -> &Self::Item;
 
     fn raw_entry_mut(&mut self, i: usize) -> &mut Self::Item;

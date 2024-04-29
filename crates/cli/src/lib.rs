@@ -1,5 +1,5 @@
 use petgraph::prelude::*;
-use petgraph_drawing::Drawing2D;
+use petgraph_drawing::DrawingEuclidean2d;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -32,7 +32,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
 ) -> (
     Graph<Option<N>, Option<E>, Undirected>,
-    Drawing2D<NodeIndex, f32>,
+    DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let file = File::open(input_path).unwrap();
     let reader = BufReader::new(file);
@@ -50,7 +50,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
             link.data.clone(),
         );
     }
-    let mut drawing = Drawing2D::initial_placement(&graph);
+    let mut drawing = DrawingEuclidean2d::initial_placement(&graph);
     for node in input_graph.nodes.iter() {
         let u = node_ids[&node.id];
         if let Some(x) = node.x {
@@ -65,7 +65,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
 
 pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
     graph: &Graph<Option<N>, Option<E>, Undirected>,
-    drawing: &Drawing2D<NodeIndex, f32>,
+    drawing: &DrawingEuclidean2d<NodeIndex, f32>,
     output_path: &str,
 ) {
     let output = GraphData {

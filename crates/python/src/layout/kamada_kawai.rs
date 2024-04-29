@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "KamadaKawai")]
 struct PyKamadaKawai {
-    kamada_kawai: KamadaKawai,
+    kamada_kawai: KamadaKawai<f32>,
 }
 
 #[pymethods]
@@ -28,21 +28,21 @@ impl PyKamadaKawai {
 
     fn select_node(&self, drawing: &PyDrawing) -> Option<usize> {
         match drawing.drawing() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.select_node(drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.select_node(drawing),
             _ => unimplemented!(),
         }
     }
 
     fn apply_to_node(&self, m: usize, drawing: &mut PyDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
             _ => unimplemented!(),
         };
     }
 
     fn run(&self, drawing: &mut PyDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.run(drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.run(drawing),
             _ => unimplemented!(),
         };
     }

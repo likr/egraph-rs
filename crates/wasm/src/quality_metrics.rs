@@ -13,7 +13,7 @@ use wasm_bindgen::prelude::*;
 pub fn js_stress(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
     let distance = warshall_floyd(graph.graph(), &mut |_| 1.0);
     match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => stress(drawing, &distance),
+        DrawingType::Euclidean2d(drawing) => stress(drawing, &distance),
         _ => unimplemented!(),
     }
 }
@@ -21,8 +21,8 @@ pub fn js_stress(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
 #[wasm_bindgen(js_name = crossingNumber)]
 pub fn js_crossing_number(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
     let crossings = match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => crossing_edges(graph.graph(), drawing),
-        DrawingType::DrawingTorus(drawing) => crossing_edges_torus(graph.graph(), drawing),
+        DrawingType::Euclidean2d(drawing) => crossing_edges(graph.graph(), drawing),
+        DrawingType::Torus2d(drawing) => crossing_edges_torus(graph.graph(), drawing),
     };
     crossing_number_with_crossing_edges(&crossings)
 }
@@ -30,7 +30,7 @@ pub fn js_crossing_number(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
 #[wasm_bindgen(js_name = neighborhoodPreservation)]
 pub fn js_neighborhood_preservation(graph: &JsGraph, drawing: &JsDrawing) -> f32 {
     match drawing.drawing() {
-        DrawingType::Drawing2D(drawing) => neighborhood_preservation(graph.graph(), drawing),
+        DrawingType::Euclidean2d(drawing) => neighborhood_preservation(graph.graph(), drawing),
         _ => unimplemented!(),
     }
 }

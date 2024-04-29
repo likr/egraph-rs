@@ -10,7 +10,7 @@ mod stress;
 
 use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
 use petgraph_algorithm_shortest_path::FullDistanceMatrix;
-use petgraph_drawing::{Drawing2D, DrawingIndex};
+use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex};
 
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
@@ -72,7 +72,7 @@ impl QualityMetric {
 
 pub fn quality_metrics<G>(
     graph: G,
-    drawing: &Drawing2D<G::NodeId, f32>,
+    drawing: &DrawingEuclidean2d<G::NodeId, f32>,
     d: &FullDistanceMatrix<G::NodeId, f32>,
 ) -> Vec<(QualityMetric, f32)>
 where
@@ -99,7 +99,7 @@ where
 
 pub fn quality_metrics_with_targets<G>(
     graph: G,
-    drawing: &Drawing2D<G::NodeId, f32>,
+    drawing: &DrawingEuclidean2d<G::NodeId, f32>,
     d: &FullDistanceMatrix<G::NodeId, f32>,
     targets: &[QualityMetric],
 ) -> Vec<(QualityMetric, f32)>

@@ -1,4 +1,4 @@
-use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
 
 pub fn aspect_ratio<N>(drawing: &DrawingEuclidean2d<N, f32>) -> f32
 where

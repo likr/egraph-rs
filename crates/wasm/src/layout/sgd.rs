@@ -63,8 +63,8 @@ impl JsFullSgd {
 
     pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
         }
     }
 
@@ -136,8 +136,8 @@ impl JsSparseSgd {
 
     pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
         }
     }
 

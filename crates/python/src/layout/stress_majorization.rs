@@ -18,7 +18,7 @@ impl PyStressMajorization {
     #[new]
     fn new(graph: &PyGraphAdapter, drawing: &PyDrawing, f: &PyAny) -> PyStressMajorization {
         match drawing.drawing() {
-            DrawingType::Drawing2D(drawing) => PyStressMajorization {
+            DrawingType::Euclidean2d(drawing) => PyStressMajorization {
                 stress_majorization: match graph.graph() {
                     GraphType::Graph(native_graph) => {
                         StressMajorization::new(native_graph, drawing, |e| {
@@ -40,7 +40,7 @@ impl PyStressMajorization {
     ) -> PyStressMajorization {
         match distance_matrix.distance_matrix() {
             DistanceMatrixType::Full(distance_matrix) => match drawing.drawing() {
-                DrawingType::Drawing2D(drawing) => PyStressMajorization {
+                DrawingType::Euclidean2d(drawing) => PyStressMajorization {
                     stress_majorization: StressMajorization::new_with_distance_matrix(
                         drawing,
                         distance_matrix,
@@ -54,14 +54,14 @@ impl PyStressMajorization {
 
     fn apply(&mut self, drawing: &mut PyDrawing) -> f32 {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.stress_majorization.apply(drawing),
+            DrawingType::Euclidean2d(drawing) => self.stress_majorization.apply(drawing),
             _ => unimplemented!(),
         }
     }
 
     pub fn run(&mut self, drawing: &mut PyDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.stress_majorization.run(drawing),
+            DrawingType::Euclidean2d(drawing) => self.stress_majorization.run(drawing),
             _ => unimplemented!(),
         }
     }

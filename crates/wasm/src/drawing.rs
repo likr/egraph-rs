@@ -1,13 +1,13 @@
 use crate::graph::{IndexType, JsGraph};
 use js_sys::Array;
 use petgraph::graph::{node_index, NodeIndex};
-use petgraph_drawing::{Drawing2D, DrawingTorus};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingTorus2d};
 use wasm_bindgen::prelude::*;
 
 type NodeId = NodeIndex<IndexType>;
 pub enum DrawingType {
-    Drawing2D(Drawing2D<NodeId, f32>),
-    DrawingTorus(DrawingTorus<NodeId, f32>),
+    Euclidean2d(DrawingEuclidean2d<NodeId, f32>),
+    Torus2d(DrawingTorus2d<NodeId, f32>),
 }
 
 #[wasm_bindgen(js_name = Drawing)]
@@ -16,15 +16,15 @@ pub struct JsDrawing {
 }
 
 impl JsDrawing {
-    pub fn new_drawing_2d(drawing: Drawing2D<NodeId, f32>) -> Self {
+    pub fn new_drawing_2d(drawing: DrawingEuclidean2d<NodeId, f32>) -> Self {
         Self {
-            drawing: DrawingType::Drawing2D(drawing),
+            drawing: DrawingType::Euclidean2d(drawing),
         }
     }
 
-    pub fn new_drawing_torus(drawing: DrawingTorus<NodeId, f32>) -> Self {
+    pub fn new_drawing_torus(drawing: DrawingTorus2d<NodeId, f32>) -> Self {
         Self {
-            drawing: DrawingType::DrawingTorus(drawing),
+            drawing: DrawingType::Torus2d(drawing),
         }
     }
 
@@ -42,16 +42,16 @@ impl JsDrawing {
     pub fn x(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         match self.drawing() {
-            DrawingType::Drawing2D(drawing) => drawing.x(u),
-            DrawingType::DrawingTorus(drawing) => drawing.x(u),
+            DrawingType::Euclidean2d(drawing) => drawing.x(u),
+            DrawingType::Torus2d(drawing) => drawing.x(u),
         }
     }
 
     pub fn y(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         match self.drawing() {
-            DrawingType::Drawing2D(drawing) => drawing.y(u),
-            DrawingType::DrawingTorus(drawing) => drawing.y(u),
+            DrawingType::Euclidean2d(drawing) => drawing.y(u),
+            DrawingType::Torus2d(drawing) => drawing.y(u),
         }
     }
 
@@ -59,8 +59,8 @@ impl JsDrawing {
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
         match self.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => drawing.set_x(u, x),
-            DrawingType::DrawingTorus(drawing) => drawing.set_x(u, x),
+            DrawingType::Euclidean2d(drawing) => drawing.set_x(u, x),
+            DrawingType::Torus2d(drawing) => drawing.set_x(u, x),
         };
     }
 
@@ -68,21 +68,21 @@ impl JsDrawing {
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
         match self.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => drawing.set_y(u, y),
-            DrawingType::DrawingTorus(drawing) => drawing.set_y(u, y),
+            DrawingType::Euclidean2d(drawing) => drawing.set_y(u, y),
+            DrawingType::Torus2d(drawing) => drawing.set_y(u, y),
         };
     }
 
     pub fn len(&self) -> usize {
         match self.drawing() {
-            DrawingType::Drawing2D(drawing) => drawing.len(),
-            DrawingType::DrawingTorus(drawing) => drawing.len(),
+            DrawingType::Euclidean2d(drawing) => drawing.len(),
+            DrawingType::Torus2d(drawing) => drawing.len(),
         }
     }
 
     pub fn centralize(&mut self) {
         match self.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => drawing.centralize(),
+            DrawingType::Euclidean2d(drawing) => drawing.centralize(),
             _ => unimplemented!(),
         };
     }
@@ -90,7 +90,7 @@ impl JsDrawing {
     #[wasm_bindgen(js_name = clampRegion)]
     pub fn clamp_region(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
         match self.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => drawing.clamp_region(x0, y0, x1, y1),
+            DrawingType::Euclidean2d(drawing) => drawing.clamp_region(x0, y0, x1, y1),
             _ => unimplemented!(),
         };
     }
@@ -98,7 +98,7 @@ impl JsDrawing {
     #[wasm_bindgen(js_name = edgeSegments)]
     pub fn edge_segments(&self, u: usize, v: usize) -> Option<Box<[JsValue]>> {
         match self.drawing() {
-            DrawingType::Drawing2D(drawing) => drawing
+            DrawingType::Euclidean2d(drawing) => drawing
                 .edge_segments(node_index(u), node_index(v))
                 .map(|segments| {
                     segments
@@ -118,7 +118,7 @@ impl JsDrawing {
                         .collect::<Vec<_>>()
                         .into_boxed_slice()
                 }),
-            DrawingType::DrawingTorus(drawing) => drawing
+            DrawingType::Torus2d(drawing) => drawing
                 .edge_segments(node_index(u), node_index(v))
                 .map(|segments| {
                     segments
@@ -142,24 +142,24 @@ impl JsDrawing {
     }
 }
 
-#[wasm_bindgen(js_name = Drawing2D)]
-pub struct JsDrawing2D;
+#[wasm_bindgen(js_name = DrawingEuclidean2d)]
+pub struct JsDrawingEuclidean2d;
 
-#[wasm_bindgen(js_class = Drawing2D)]
-impl JsDrawing2D {
+#[wasm_bindgen(js_class = DrawingEuclidean2d)]
+impl JsDrawingEuclidean2d {
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> JsDrawing {
-        JsDrawing::new_drawing_2d(Drawing2D::initial_placement(graph.graph()))
+        JsDrawing::new_drawing_2d(DrawingEuclidean2d::initial_placement(graph.graph()))
     }
 }
 
-#[wasm_bindgen(js_name = DrawingTorus)]
-pub struct JsDrawingTorus;
+#[wasm_bindgen(js_name = DrawingTorus2d)]
+pub struct JsDrawingTorus2d;
 
-#[wasm_bindgen(js_class = DrawingTorus)]
-impl JsDrawingTorus {
+#[wasm_bindgen(js_class = DrawingTorus2d)]
+impl JsDrawingTorus2d {
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> JsDrawing {
-        JsDrawing::new_drawing_torus(DrawingTorus::initial_placement(graph.graph()))
+        JsDrawing::new_drawing_torus(DrawingTorus2d::initial_placement(graph.graph()))
     }
 }

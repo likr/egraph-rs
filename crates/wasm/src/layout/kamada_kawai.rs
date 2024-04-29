@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = KamadaKawai)]
 pub struct JsKamadaKawai {
-    kamada_kawai: KamadaKawai,
+    kamada_kawai: KamadaKawai<f32>,
 }
 
 #[wasm_bindgen(js_class = KamadaKawai)]
@@ -33,7 +33,7 @@ impl JsKamadaKawai {
     #[wasm_bindgen(js_name = selectNode)]
     pub fn select_node(&self, drawing: &JsDrawing) -> Option<usize> {
         match drawing.drawing() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.select_node(drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.select_node(drawing),
             _ => unimplemented!(),
         }
     }
@@ -41,14 +41,14 @@ impl JsKamadaKawai {
     #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, m: usize, drawing: &mut JsDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
             _ => unimplemented!(),
         };
     }
 
     pub fn run(&self, drawing: &mut JsDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.kamada_kawai.run(drawing),
+            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.run(drawing),
             _ => unimplemented!(),
         };
     }

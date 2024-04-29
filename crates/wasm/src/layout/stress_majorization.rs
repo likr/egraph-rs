@@ -32,7 +32,7 @@ impl JsStressMajorization {
 
         Ok(JsStressMajorization {
             stress_majorization: match drawing.drawing() {
-                DrawingType::Drawing2D(drawing) => {
+                DrawingType::Euclidean2d(drawing) => {
                     StressMajorization::new(graph.graph(), drawing, |e| distance[&e.id()])
                 }
                 _ => unimplemented!(),
@@ -42,14 +42,14 @@ impl JsStressMajorization {
 
     pub fn apply(&mut self, drawing: &mut JsDrawing) -> f32 {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.stress_majorization.apply(drawing),
+            DrawingType::Euclidean2d(drawing) => self.stress_majorization.apply(drawing),
             _ => unimplemented!(),
         }
     }
 
     pub fn run(&mut self, drawing: &mut JsDrawing) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.stress_majorization.run(drawing),
+            DrawingType::Euclidean2d(drawing) => self.stress_majorization.run(drawing),
             _ => unimplemented!(),
         }
     }

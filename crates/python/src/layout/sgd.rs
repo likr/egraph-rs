@@ -114,8 +114,8 @@ impl PySparseSgd {
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
             _ => unimplemented!(),
         }
     }
@@ -197,8 +197,8 @@ impl PyFullSgd {
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
             _ => unimplemented!(),
         }
     }
@@ -266,20 +266,18 @@ impl PyDistanceAdjustedSparseSgd {
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
             _ => unimplemented!(),
         }
     }
 
     pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => {
+            DrawingType::Euclidean2d(drawing) => {
                 self.sgd.apply_with_distance_adjustment(drawing, eta)
             }
-            DrawingType::DrawingTorus(drawing) => {
-                self.sgd.apply_with_distance_adjustment(drawing, eta)
-            }
+            DrawingType::Torus2d(drawing) => self.sgd.apply_with_distance_adjustment(drawing, eta),
             _ => unimplemented!(),
         }
     }
@@ -357,20 +355,18 @@ impl PyDistanceAdjustedFullSgd {
 
     fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::DrawingTorus(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
+            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
             _ => unimplemented!(),
         }
     }
 
     pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => {
+            DrawingType::Euclidean2d(drawing) => {
                 self.sgd.apply_with_distance_adjustment(drawing, eta)
             }
-            DrawingType::DrawingTorus(drawing) => {
-                self.sgd.apply_with_distance_adjustment(drawing, eta)
-            }
+            DrawingType::Torus2d(drawing) => self.sgd.apply_with_distance_adjustment(drawing, eta),
             _ => unimplemented!(),
         }
     }

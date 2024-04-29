@@ -21,7 +21,7 @@ impl JsForceAtlas2 {
 
     pub fn apply(&self, drawing: &mut JsDrawing, alpha: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.force_atlas2.apply(drawing, alpha),
+            DrawingType::Euclidean2d(drawing) => self.force_atlas2.apply(drawing, alpha),
             _ => unimplemented!(),
         };
     }
@@ -29,7 +29,7 @@ impl JsForceAtlas2 {
     #[wasm_bindgen(js_name = applyToNode)]
     pub fn apply_to_node(&self, u: usize, drawing: &mut JsDrawing, alpha: f32) {
         match drawing.drawing_mut() {
-            DrawingType::Drawing2D(drawing) => self.force_atlas2.apply_to_node(u, drawing, alpha),
+            DrawingType::Euclidean2d(drawing) => self.force_atlas2.apply_to_node(u, drawing, alpha),
             _ => unimplemented!(),
         };
     }

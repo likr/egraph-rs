@@ -83,6 +83,10 @@ where
         self.index_map.get(&u).map(|&i| &mut self.coordinates[i])
     }
 
+    fn index(&self, i: usize) -> &Self::Index {
+        &self.indices[i]
+    }
+
     fn raw_entry(&self, i: usize) -> &Self::Item {
         &self.coordinates[i]
     }

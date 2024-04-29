@@ -1,6 +1,6 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::{Drawing2D, DrawingIndex, DrawingTorus, Tuple2D};
+use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex, DrawingTorus2d, MetricEuclidean2d};
 use std::f32::consts::PI;
 
 fn cross(x11: f32, y11: f32, x12: f32, y12: f32, x21: f32, y21: f32, x22: f32, y22: f32) -> bool {
@@ -19,7 +19,7 @@ fn cross(x11: f32, y11: f32, x12: f32, y12: f32, x21: f32, y21: f32, x22: f32, y
 
 pub type CrossingEdges = Vec<(f32, f32, f32, f32, f32, f32, f32, f32)>;
 
-pub fn crossing_edges<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> CrossingEdges
+pub fn crossing_edges<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> CrossingEdges
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -29,8 +29,8 @@ where
         let u = e.source();
         let v = e.target();
         for &(p, q) in drawing.edge_segments(u, v).unwrap().iter() {
-            let Tuple2D(x1, y1) = p;
-            let Tuple2D(x2, y2) = q;
+            let MetricEuclidean2d(x1, y1) = p;
+            let MetricEuclidean2d(x2, y2) = q;
             edges.push((u, v, x1, y1, x2, y2));
         }
     }
@@ -57,7 +57,7 @@ where
     crossing_edges
 }
 
-pub fn crossing_edges_torus<G>(graph: G, drawing: &DrawingTorus<G::NodeId, f32>) -> CrossingEdges
+pub fn crossing_edges_torus<G>(graph: G, drawing: &DrawingTorus2d<G::NodeId, f32>) -> CrossingEdges
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -93,7 +93,7 @@ where
     crossing_edges
 }
 
-pub fn crossing_number<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
+pub fn crossing_number<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -106,7 +106,7 @@ pub fn crossing_number_with_crossing_edges(crossing_edges: &CrossingEdges) -> f3
     crossing_edges.len() as f32
 }
 
-pub fn crossing_angle<G>(graph: G, drawing: &Drawing2D<G::NodeId, f32>) -> f32
+pub fn crossing_angle<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,

@@ -1,6 +1,6 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
 
 pub fn angular_resolution<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
 where
