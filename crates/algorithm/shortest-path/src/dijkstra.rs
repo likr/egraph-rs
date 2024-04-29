@@ -19,17 +19,18 @@ pub fn dijkstra_with_distance_matrix<G, S, F, D>(
 {
     let mut length = length;
     let k = distance_matrix.row_index(s).unwrap();
+    let j = distance_matrix.col_index(s).unwrap();
     let mut queue = BinaryHeap::new();
     queue.push((Reverse(OrderedFloat(S::zero())), s));
-    distance_matrix.set_by_index(k, k, S::zero());
+    distance_matrix.set_by_index(k, j, S::zero());
     while let Some((Reverse(OrderedFloat(d)), u)) = queue.pop() {
         for edge in graph.edges(u) {
             let v = edge.target();
-            let j = distance_matrix.row_index(v).unwrap();
+            let j = distance_matrix.col_index(v).unwrap();
             let e = d + length(edge);
-            if e < distance_matrix.get_by_index(j, k) {
+            if e < distance_matrix.get_by_index(k, j) {
                 queue.push((Reverse(OrderedFloat(e)), v));
-                distance_matrix.set_by_index(j, k, e);
+                distance_matrix.set_by_index(k, j, e);
             }
         }
     }

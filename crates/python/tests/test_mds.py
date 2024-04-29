@@ -13,10 +13,12 @@ def draw(nx_graph):
         graph.add_edge(indices[u], indices[v], (u, v))
     return graph
 
+
 def check_drawing(graph, drawing):
     for u in graph.node_indices():
-        assert(math.isfinite(drawing.x(u)))
-        assert(math.isfinite(drawing.y(u)))
+        assert (math.isfinite(drawing.x(u)))
+        assert (math.isfinite(drawing.y(u)))
+
 
 class TestQualityMetrics(unittest.TestCase):
     @classmethod
@@ -26,16 +28,16 @@ class TestQualityMetrics(unittest.TestCase):
         ]
 
     def test_classical_mds(self):
-        mds = eg.ClassicalMds()
         for graph in self._graphs:
-            drawing = mds.run(graph, lambda _: 30)
+            mds = eg.ClassicalMds(graph, lambda _: 30)
+            drawing = mds.run_2d()
             check_drawing(graph, drawing)
 
     def test_pivot_mds(self):
-        mds = eg.PivotMds()
         for graph in self._graphs:
             pivot = graph.node_indices()[:10]
-            drawing = mds.run(graph, lambda _: 30, pivot)
+            mds = eg.PivotMds(graph, lambda _: 30, pivot)
+            drawing = mds.run_2d()
             check_drawing(graph, drawing)
 
 

@@ -31,7 +31,7 @@ class TestShortestPath(unittest.TestCase):
             for j in range(n):
                 self.assertEqual(
                     d_actual.get(i, j),
-                    d_expected[j, i],
+                    d_expected[i, j],
                     f'({i},{j})'
                 )
 

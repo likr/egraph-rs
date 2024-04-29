@@ -27,7 +27,7 @@ class TestSgd(unittest.TestCase):
 
     def test_full_sgd(self):
         for graph in self._graphs:
-            drawing = eg.Drawing.initial_placement(graph)
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
             rng = eg.Rng.seed_from(0)
             sgd = eg.FullSgd(graph, lambda _: 30)
             scheduler = sgd.scheduler(15, 0.1)
@@ -41,7 +41,7 @@ class TestSgd(unittest.TestCase):
 
     def test_sparse_sgd(self):
         for graph in self._graphs:
-            drawing = eg.Drawing.initial_placement(graph)
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
             rng = eg.Rng.seed_from(0)
             sgd = eg.SparseSgd(graph, lambda _: 30, 50, rng)
             scheduler = sgd.scheduler(15, 0.1)
@@ -55,7 +55,7 @@ class TestSgd(unittest.TestCase):
 
     def test_distance_adjusted_full_sgd(self):
         for graph in self._graphs:
-            drawing = eg.Drawing.initial_placement(graph)
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
             rng = eg.Rng.seed_from(0)
             sgd = eg.DistanceAdjustedFullSgd(graph, lambda _: 30)
             scheduler = sgd.scheduler(15, 0.1)
@@ -69,7 +69,7 @@ class TestSgd(unittest.TestCase):
 
     def test_distance_adjusted_sparse_sgd(self):
         for graph in self._graphs:
-            drawing = eg.Drawing.initial_placement(graph)
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
             rng = eg.Rng.seed_from(0)
             sgd = eg.DistanceAdjustedSparseSgd(graph, lambda _: 30, 50, rng)
             scheduler = sgd.scheduler(15, 0.1)

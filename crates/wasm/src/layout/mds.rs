@@ -28,6 +28,7 @@ impl JsClassicalMds {
         }
     }
 
+    #[wasm_bindgen(js_name = "run2d")]
     pub fn run_2d(&self) -> JsDrawing {
         JsDrawing::new_drawing_2d(self.mds.run_2d())
     }
@@ -60,6 +61,7 @@ impl JsPivotMds {
         }
     }
 
+    #[wasm_bindgen(js_name = "run2d")]
     pub fn run_2d(&self) -> JsDrawing {
         JsDrawing::new_drawing_2d(self.mds.run_2d())
     }

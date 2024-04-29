@@ -127,28 +127,28 @@ impl SparseSgd {
         }
 
         let r = (0..n)
-            .map(|i| {
+            .map(|j| {
                 (0..h)
-                    .min_by_key(|&j| OrderedFloat(distance_matrix.get_by_index(i, j)))
+                    .min_by_key(|&i| OrderedFloat(distance_matrix.get_by_index(i, j)))
                     .unwrap()
             })
             .collect::<Vec<_>>();
         let mut r_nodes = vec![vec![]; h];
-        for i in 0..n {
-            r_nodes[r[i]].push(i);
+        for j in 0..n {
+            r_nodes[r[j]].push(j);
         }
 
-        for (k, &j) in pivot.iter().enumerate() {
-            let j = indices[&j];
-            for i in 0..n {
+        for (k, &i) in pivot.iter().enumerate() {
+            let i = indices[&i];
+            for j in 0..n {
                 if edges.contains(&(i, j)) || i == j {
                     continue;
                 }
-                let dij = distance_matrix.get_by_index(i, k);
+                let dij = distance_matrix.get_by_index(k, i);
                 let wij = 1. / (dij * dij);
                 let sij = r_nodes[k]
                     .iter()
-                    .filter(|&&l| 2. * distance_matrix.get_by_index(l, k) <= dij)
+                    .filter(|&&l| 2. * distance_matrix.get_by_index(k, l) <= dij)
                     .count() as f32;
                 node_pairs.push((i, j, dij, sij * wij));
             }
@@ -303,8 +303,8 @@ where
     dijkstra_with_distance_matrix(graph, &mut length, pivot[0], &mut distance_matrix);
     let mut min_d = Array1::from_elem(n, INFINITY);
     for k in 1..h {
-        for i in 0..n {
-            min_d[i] = min_d[i].min(distance_matrix.get_by_index(i, k - 1));
+        for j in 0..n {
+            min_d[j] = min_d[j].min(distance_matrix.get_by_index(k - 1, j));
         }
         pivot.push(nodes[proportional_sampling(&min_d, rng)]);
         distance_matrix.push(pivot[k]);

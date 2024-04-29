@@ -1,4 +1,4 @@
-use ndarray::{concatenate, prelude::*};
+use ndarray::prelude::*;
 use petgraph::visit::IntoNodeIdentifiers;
 use std::{collections::HashMap, hash::Hash};
 
@@ -208,15 +208,15 @@ where
         G::NodeId: Into<N>,
         N: Copy,
     {
-        let row_indices = graph
-            .node_identifiers()
-            .map(|u| u.into())
-            .collect::<Vec<_>>();
+        let row_indices = sources.iter().map(|&u| u.into()).collect::<Vec<_>>();
         let mut row_index_map = HashMap::new();
         for (i, &u) in row_indices.iter().enumerate() {
             row_index_map.insert(u, i);
         }
-        let col_indices = sources.iter().map(|&u| u.into()).collect::<Vec<_>>();
+        let col_indices = graph
+            .node_identifiers()
+            .map(|u| u.into())
+            .collect::<Vec<_>>();
         let mut col_index_map = HashMap::new();
         for (i, &u) in col_indices.iter().enumerate() {
             col_index_map.insert(u, i);
@@ -235,12 +235,14 @@ where
     where
         N: Copy,
     {
-        self.col_index_map.insert(u, self.col_indices.len());
-        self.col_indices.push(u);
-        concatenate![
-            Axis(1),
-            Array::from_elem((self.row_indices.len(), 1), S::infinity())
-        ];
+        self.row_index_map.insert(u, self.row_indices.len());
+        self.row_indices.push(u);
+        self.d
+            .push(
+                Axis(0),
+                Array::from_elem(self.col_indices.len(), S::infinity()).view(),
+            )
+            .ok();
     }
 
     fn index(&self, u: N, v: N) -> Option<(usize, usize)> {

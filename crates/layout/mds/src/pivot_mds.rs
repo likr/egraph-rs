@@ -30,17 +30,17 @@ where
         D: DistanceMatrix<N2, f32>,
     {
         let (n, m) = distance_matrix.shape();
-        let mut delta = Array2::zeros((n, m));
+        let mut delta = Array2::zeros((m, n));
         for i in 0..n {
             for j in 0..m {
-                delta[[i, j]] = distance_matrix.get_by_index(i, j).powi(2);
+                delta[[j, i]] = distance_matrix.get_by_index(i, j).powi(2);
             }
         }
         let c = double_centering(&delta);
         Self {
             eps: 1e-3,
             indices: distance_matrix
-                .row_indices()
+                .col_indices()
                 .map(|u| u.into())
                 .collect::<Vec<_>>(),
             c,

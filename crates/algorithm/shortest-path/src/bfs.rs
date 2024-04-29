@@ -22,16 +22,16 @@ pub fn bfs_with_distance_matrix<G, S, D>(
     queue.push_back(s);
     distance_matrix.set(s, s, S::zero());
     while let Some(u) = queue.pop_front() {
-        let i = distance_matrix.row_index(u).unwrap();
+        let i = distance_matrix.col_index(u).unwrap();
         for v in graph.neighbors(u) {
-            let j = distance_matrix.row_index(v).unwrap();
+            let j = distance_matrix.col_index(v).unwrap();
             if !visited[j] {
                 visited[j] = true;
                 queue.push_back(v);
                 distance_matrix.set_by_index(
-                    j,
                     k,
-                    distance_matrix.get_by_index(i, k) + unit_edge_length,
+                    j,
+                    distance_matrix.get_by_index(k, i) + unit_edge_length,
                 );
             }
         }
