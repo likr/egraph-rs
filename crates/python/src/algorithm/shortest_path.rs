@@ -18,7 +18,7 @@ fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: f32) -> PyDistan
 
 #[pyfunction]
 #[pyo3(name = "all_sources_dijkstra")]
-fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatrix {
+fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {
     let distance_matrix = match graph.graph() {
         GraphType::Graph(g) => all_sources_dijkstra(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
@@ -32,7 +32,7 @@ fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatri
 
 #[pyfunction]
 #[pyo3(name = "warshall_floyd")]
-fn py_warshall_floyd(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatrix {
+fn py_warshall_floyd(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {
     let distance_matrix = match graph.graph() {
         GraphType::Graph(g) => warshall_floyd(g, |e| {
             f.call1((e.id().index(),)).unwrap().extract().unwrap()
@@ -44,7 +44,7 @@ fn py_warshall_floyd(graph: &PyGraphAdapter, f: &PyAny) -> PyDistanceMatrix {
     PyDistanceMatrix::new_with_full_distance_matrix(distance_matrix)
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_all_sources_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(py_all_sources_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(py_warshall_floyd, m)?)?;

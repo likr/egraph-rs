@@ -1,6 +1,6 @@
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
-    drawing::{DrawingType, PyDrawing},
+    drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
@@ -16,13 +16,13 @@ struct PySgdScheduler {
 
 #[pymethods]
 impl PySgdScheduler {
-    pub fn run(&mut self, f: &PyAny) {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
-    pub fn step(&mut self, f: &PyAny) {
+    pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
@@ -42,7 +42,7 @@ struct PySparseSgd {
 #[pymethods]
 impl PySparseSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny, h: usize, rng: &mut PyRng) -> PySparseSgd {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, h: usize, rng: &mut PyRng) -> PySparseSgd {
         PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
@@ -57,7 +57,7 @@ impl PySparseSgd {
     }
 
     #[staticmethod]
-    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> Self {
+    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> Self {
         PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => {
@@ -76,7 +76,7 @@ impl PySparseSgd {
     #[staticmethod]
     pub fn new_with_pivot_and_distance_matrix(
         graph: &PyGraphAdapter,
-        f: &PyAny,
+        f: &Bound<PyAny>,
         pivot: Vec<usize>,
         d: &PyDistanceMatrix,
     ) -> Self {
@@ -112,12 +112,27 @@ impl PySparseSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -126,12 +141,12 @@ impl PySparseSgd {
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -139,7 +154,7 @@ impl PySparseSgd {
     #[staticmethod]
     pub fn choose_pivot(
         graph: &PyGraphAdapter,
-        f: &PyAny,
+        f: &Bound<PyAny>,
         h: usize,
         rng: &mut PyRng,
     ) -> (Vec<usize>, PyDistanceMatrix) {
@@ -170,7 +185,7 @@ struct PyFullSgd {
 #[pymethods]
 impl PyFullSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyFullSgd {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyFullSgd {
         PyFullSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => FullSgd::new(native_graph, |e| {
@@ -195,12 +210,27 @@ impl PyFullSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -209,12 +239,12 @@ impl PyFullSgd {
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -229,7 +259,7 @@ struct PyDistanceAdjustedSparseSgd {
 #[pymethods]
 impl PyDistanceAdjustedSparseSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny, h: usize, rng: &mut PyRng) -> Self {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, h: usize, rng: &mut PyRng) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
@@ -244,7 +274,7 @@ impl PyDistanceAdjustedSparseSgd {
     }
 
     #[staticmethod]
-    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> Self {
+    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => {
@@ -264,22 +294,52 @@ impl PyDistanceAdjustedSparseSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
-    pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => {
-                self.sgd.apply_with_distance_adjustment(drawing, eta)
+    pub fn apply_with_distance_adjustment(&mut self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
-            DrawingType::Torus2d(drawing) => self.sgd.apply_with_distance_adjustment(drawing, eta),
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -288,12 +348,12 @@ impl PyDistanceAdjustedSparseSgd {
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -328,7 +388,7 @@ struct PyDistanceAdjustedFullSgd {
 #[pymethods]
 impl PyDistanceAdjustedFullSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> Self {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => FullSgd::new(native_graph, |e| {
@@ -353,22 +413,52 @@ impl PyDistanceAdjustedFullSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
-    pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => {
-                self.sgd.apply_with_distance_adjustment(drawing, eta)
+    pub fn apply_with_distance_adjustment(&mut self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
-            DrawingType::Torus2d(drawing) => self.sgd.apply_with_distance_adjustment(drawing, eta),
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
             _ => unimplemented!(),
-        }
+        })
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
@@ -377,12 +467,12 @@ impl PyDistanceAdjustedFullSgd {
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -408,7 +498,7 @@ impl PyDistanceAdjustedFullSgd {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PySgdScheduler>()?;
     m.add_class::<PyFullSgd>()?;
     m.add_class::<PySparseSgd>()?;

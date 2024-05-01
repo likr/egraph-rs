@@ -4,7 +4,7 @@ import networkx as nx
 import egraph as eg
 
 
-def draw(nx_graph):
+def convert_graph(nx_graph):
     graph = eg.Graph()
     indices = {}
     for u in nx_graph.nodes:
@@ -14,7 +14,13 @@ def draw(nx_graph):
     return graph
 
 
-def check_drawing(graph, drawing):
+def check_drawing_2d(graph, drawing):
+    for u in graph.node_indices():
+        assert (math.isfinite(drawing.x(u)))
+        assert (math.isfinite(drawing.y(u)))
+
+
+def check_drawing_3d(graph, drawing):
     for u in graph.node_indices():
         assert (math.isfinite(drawing.x(u)))
         assert (math.isfinite(drawing.y(u)))
@@ -24,21 +30,21 @@ class TestQualityMetrics(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._graphs = [
-            draw(nx.les_miserables_graph())
+            convert_graph(nx.les_miserables_graph())
         ]
 
     def test_classical_mds(self):
         for graph in self._graphs:
             mds = eg.ClassicalMds(graph, lambda _: 30)
             drawing = mds.run_2d()
-            check_drawing(graph, drawing)
+            check_drawing_2d(graph, drawing)
 
     def test_pivot_mds(self):
         for graph in self._graphs:
             pivot = graph.node_indices()[:10]
             mds = eg.PivotMds(graph, lambda _: 30, pivot)
             drawing = mds.run_2d()
-            check_drawing(graph, drawing)
+            check_drawing_2d(graph, drawing)
 
 
 if __name__ == '__main__':

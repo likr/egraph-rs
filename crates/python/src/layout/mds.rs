@@ -15,7 +15,7 @@ struct PyClassicalMds {
 #[pymethods]
 impl PyClassicalMds {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyClassicalMds {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyClassicalMds {
         match graph.graph() {
             GraphType::Graph(native_graph) => PyClassicalMds {
                 mds: ClassicalMds::new(native_graph, |e| {
@@ -26,8 +26,12 @@ impl PyClassicalMds {
         }
     }
 
-    fn run_2d(&self) -> PyDrawing {
-        PyDrawing::new_drawing_2d(self.mds.run_2d())
+    fn run(&self, d: usize) -> PyObject {
+        PyDrawing::new_drawing_euclidean(self.mds.run(d))
+    }
+
+    fn run_2d(&self) -> PyObject {
+        PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
     #[getter]
@@ -50,7 +54,7 @@ struct PyPivotMds {
 #[pymethods]
 impl PyPivotMds {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> PyPivotMds {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyPivotMds {
         match graph.graph() {
             GraphType::Graph(native_graph) => {
                 let pivot = pivot.into_iter().map(|u| node_index(u)).collect::<Vec<_>>();
@@ -66,8 +70,12 @@ impl PyPivotMds {
         }
     }
 
-    fn run_2d(&self) -> PyDrawing {
-        PyDrawing::new_drawing_2d(self.mds.run_2d())
+    fn run(&self, d: usize) -> PyObject {
+        PyDrawing::new_drawing_euclidean(self.mds.run(d))
+    }
+
+    fn run_2d(&self) -> PyObject {
+        PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
     #[getter]
@@ -81,7 +89,7 @@ impl PyPivotMds {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyClassicalMds>()?;
     m.add_class::<PyPivotMds>()?;
     Ok(())

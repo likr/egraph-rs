@@ -175,8 +175,8 @@ pub fn graph_edge_indices<Ty: EdgeType>(graph: &Graph<Node, Edge, Ty, IndexType>
 
 pub fn graph_map<Ty: EdgeType>(
     graph: &Graph<Node, Edge, Ty, IndexType>,
-    node_map: &PyAny,
-    edge_map: &PyAny,
+    node_map: &Bound<PyAny>,
+    edge_map: &Bound<PyAny>,
 ) -> Graph<Node, Edge, Ty, IndexType> {
     graph.map(
         |u, node| PyObject::from(node_map.call1((u.index(), node)).unwrap()),
@@ -186,8 +186,8 @@ pub fn graph_map<Ty: EdgeType>(
 
 pub fn graph_filter_map<Ty: EdgeType>(
     graph: &Graph<Node, Edge, Ty, IndexType>,
-    node_map: &PyAny,
-    edge_map: &PyAny,
+    node_map: &Bound<PyAny>,
+    edge_map: &Bound<PyAny>,
 ) -> Graph<Node, Edge, Ty, IndexType> {
     graph.filter_map(
         |u, node| {
@@ -243,7 +243,7 @@ impl PyDiGraph {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyGraph>()?;
     m.add_class::<PyDiGraph>()?;
     Ok(())

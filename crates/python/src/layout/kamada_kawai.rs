@@ -1,5 +1,5 @@
 use crate::{
-    drawing::{DrawingType, PyDrawing},
+    drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -15,7 +15,7 @@ struct PyKamadaKawai {
 #[pymethods]
 impl PyKamadaKawai {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyKamadaKawai {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyKamadaKawai {
         PyKamadaKawai {
             kamada_kawai: match graph.graph() {
                 GraphType::Graph(native_graph) => KamadaKawai::new(native_graph, |e| {
@@ -26,25 +26,16 @@ impl PyKamadaKawai {
         }
     }
 
-    fn select_node(&self, drawing: &PyDrawing) -> Option<usize> {
-        match drawing.drawing() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.select_node(drawing),
-            _ => unimplemented!(),
-        }
+    fn select_node(&self, drawing: &PyDrawingEuclidean2d) -> Option<usize> {
+        self.kamada_kawai.select_node(drawing.drawing())
     }
 
-    fn apply_to_node(&self, m: usize, drawing: &mut PyDrawing) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
-            _ => unimplemented!(),
-        };
+    fn apply_to_node(&self, m: usize, drawing: &mut PyDrawingEuclidean2d) {
+        self.kamada_kawai.apply_to_node(m, drawing.drawing_mut())
     }
 
-    fn run(&self, drawing: &mut PyDrawing) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.run(drawing),
-            _ => unimplemented!(),
-        };
+    fn run(&self, drawing: &mut PyDrawingEuclidean2d) {
+        self.kamada_kawai.run(drawing.drawing_mut())
     }
 
     #[getter]
@@ -58,7 +49,7 @@ impl PyKamadaKawai {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyKamadaKawai>()?;
     Ok(())
 }

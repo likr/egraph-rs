@@ -75,7 +75,7 @@ impl PyDistanceMatrix {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
     Ok(())
 }

@@ -9,7 +9,7 @@ mod quality_metrics;
 mod rng;
 
 #[pymodule]
-fn egraph(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn egraph(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     graph::register(py, m)?;
     drawing::register(py, m)?;
     distance_matrix::register(py, m)?;
