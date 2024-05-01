@@ -47,17 +47,17 @@ where
             dimension,
         }
     }
-}
 
-// pub fn iter(&self) -> DrawingIterator<N, M>
-// where
-//     N: Copy,
-// {
-//     DrawingIterator {
-//         drawing: self,
-//         index: 0,
-//     }
-// }
+    pub fn get(&self, u: N, d: usize) -> Option<S> {
+        self.position(u).and_then(|p| p.0.get(d)).copied()
+    }
+
+    pub fn set(&mut self, u: N, d: usize, value: S) -> Option<()> {
+        self.position_mut(u)
+            .and_then(|p| p.0.get_mut(d))
+            .map(|p| *p = value)
+    }
+}
 
 impl<N, S> Drawing for DrawingEuclidean<N, S>
 where
@@ -95,26 +95,3 @@ where
         &mut self.coordinates[i]
     }
 }
-
-// pub struct DrawingIterator<'a, N, M> {
-//     drawing: &'a DrawingEuclidean<N, M>,
-//     index: usize,
-// }
-//
-// impl<'a, N, M> Iterator for DrawingIterator<'a, N, M>
-// where
-//     N: Copy + DrawingIndex,
-//     M: Metric + Default + Copy,
-// {
-//     type Item = (N, M);
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let index = self.index;
-//         self.index += 1;
-//         if index < self.drawing.coordinates.len() {
-//             Some((self.drawing.indices[index], self.drawing.coordinates[index]))
-//         } else {
-//             None
-//         }
-//     }
-// }
-//
