@@ -70,7 +70,7 @@ where
         N: Copy,
     {
         let ct_c = self.c.t().dot(&self.c);
-        let (e, v) = eigendecomposition(&ct_c, 2, self.eps);
+        let (e, v) = eigendecomposition(&ct_c, d, self.eps);
         let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
         let x = self.c.dot(&x);
         let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
