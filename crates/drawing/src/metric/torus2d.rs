@@ -1,5 +1,5 @@
 use crate::{
-    metric::{Difference, Metric},
+    metric::{Delta, Metric},
     DrawingValue,
 };
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
@@ -98,9 +98,9 @@ where
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct DifferenceTorus2d<S>(pub S, pub S);
+pub struct DeltaTorus2d<S>(pub S, pub S);
 
-impl<S> Add for DifferenceTorus2d<S>
+impl<S> Add for DeltaTorus2d<S>
 where
     S: DrawingValue,
 {
@@ -111,7 +111,7 @@ where
     }
 }
 
-impl<S> Sub for DifferenceTorus2d<S>
+impl<S> Sub for DeltaTorus2d<S>
 where
     S: DrawingValue,
 {
@@ -122,7 +122,7 @@ where
     }
 }
 
-impl<S> Mul<S> for DifferenceTorus2d<S>
+impl<S> Mul<S> for DeltaTorus2d<S>
 where
     S: DrawingValue,
 {
@@ -133,7 +133,7 @@ where
     }
 }
 
-impl<S> Div<S> for DifferenceTorus2d<S>
+impl<S> Div<S> for DeltaTorus2d<S>
 where
     S: DrawingValue,
 {
@@ -144,7 +144,7 @@ where
     }
 }
 
-impl<S> Difference for DifferenceTorus2d<S>
+impl<S> Delta for DeltaTorus2d<S>
 where
     S: DrawingValue,
 {
@@ -168,7 +168,8 @@ where
     {
         Self(TorusValue::new(S::default()), TorusValue::new(S::default()))
     }
-    pub fn nearest_dxdy(self, other: Self) -> (S, S)
+
+    pub fn nearest_dxdy(self, other: &Self) -> (S, S)
     where
         S: DrawingValue,
     {
@@ -193,59 +194,21 @@ where
     }
 }
 
-impl<S> Sub for MetricTorus2d<S>
+impl<S> AddAssign<DeltaTorus2d<S>> for MetricTorus2d<S>
 where
     S: DrawingValue,
 {
-    type Output = DifferenceTorus2d<S>;
-
-    fn sub(self, other: Self) -> Self::Output {
-        let (dx, dy) = self.nearest_dxdy(other);
-        let x0 = other.0 .0;
-        let y0 = other.1 .0;
-        let x1 = self.0 .0 + dx;
-        let y1 = self.1 .0 + dy;
-        DifferenceTorus2d(x1 - x0, y1 - y0)
-    }
-}
-
-impl<S> Add<DifferenceTorus2d<S>> for MetricTorus2d<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn add(self, other: DifferenceTorus2d<S>) -> Self {
-        Self(self.0 + other.0, self.1 + other.1)
-    }
-}
-
-impl<S> Sub<DifferenceTorus2d<S>> for MetricTorus2d<S>
-where
-    S: DrawingValue,
-{
-    type Output = Self;
-
-    fn sub(self, other: DifferenceTorus2d<S>) -> Self {
-        Self(self.0 - other.0, self.1 - other.1)
-    }
-}
-
-impl<S> AddAssign<DifferenceTorus2d<S>> for MetricTorus2d<S>
-where
-    S: DrawingValue,
-{
-    fn add_assign(&mut self, other: DifferenceTorus2d<S>) {
+    fn add_assign(&mut self, other: DeltaTorus2d<S>) {
         self.0 += other.0;
         self.1 += other.1;
     }
 }
 
-impl<S> SubAssign<DifferenceTorus2d<S>> for MetricTorus2d<S>
+impl<S> SubAssign<DeltaTorus2d<S>> for MetricTorus2d<S>
 where
     S: DrawingValue,
 {
-    fn sub_assign(&mut self, other: DifferenceTorus2d<S>) {
+    fn sub_assign(&mut self, other: DeltaTorus2d<S>) {
         self.0 -= other.0;
         self.1 -= other.1;
     }
@@ -255,7 +218,23 @@ impl<S> Metric for MetricTorus2d<S>
 where
     S: DrawingValue,
 {
-    type D = DifferenceTorus2d<S>;
+    type D = DeltaTorus2d<S>;
+}
+
+impl<'a, 'b, S> Sub<&'b MetricTorus2d<S>> for &'a MetricTorus2d<S>
+where
+    S: DrawingValue,
+{
+    type Output = DeltaTorus2d<S>;
+
+    fn sub(self, other: &'b MetricTorus2d<S>) -> DeltaTorus2d<S> {
+        let (dx, dy) = self.nearest_dxdy(other);
+        let x0 = other.0 .0;
+        let y0 = other.1 .0;
+        let x1 = self.0 .0 + dx;
+        let y1 = self.1 .0 + dy;
+        DeltaTorus2d(x1 - x0, y1 - y0)
+    }
 }
 
 #[cfg(test)]
@@ -285,7 +264,7 @@ mod tests {
     fn test_metric_2d_torus_sub() {
         let x = MetricTorus2d(TorusValue::new(0.), TorusValue::new(0.75));
         let y = MetricTorus2d(TorusValue::new(0.5), TorusValue::new(0.5));
-        let z = DifferenceTorus2d(-0.5, 0.25);
-        assert_eq!(x - y, z);
+        let z = DeltaTorus2d(-0.5, 0.25);
+        assert_eq!(&x - &y, z);
     }
 }

@@ -5,7 +5,7 @@ use petgraph_algorithm_shortest_path::{
     all_sources_dijkstra, dijkstra_with_distance_matrix, multi_source_dijkstra, DistanceMatrix,
     FullDistanceMatrix, SubDistanceMatrix,
 };
-use petgraph_drawing::{Difference, Drawing, DrawingIndex, Metric};
+use petgraph_drawing::{Delta, Drawing, DrawingIndex, Metric};
 use rand::prelude::*;
 use std::{
     collections::{HashMap, HashSet},
@@ -219,15 +219,17 @@ pub trait Sgd {
     fn apply<Diff, D, M>(&self, drawing: &mut D, eta: f32)
     where
         D: Drawing<Item = M>,
-        Diff: Difference<S = f32>,
-        M: Copy + Metric<D = Diff>,
+        Diff: Delta<S = f32>,
+        M: Metric<D = Diff>,
     {
         for &(i, j, dij, wij) in self.node_pairs().iter() {
             let mu = (eta * wij).min(1.);
-            let delta = *drawing.raw_entry(i) - *drawing.raw_entry(j);
+            let delta = drawing.delta(i, j);
             let norm = delta.norm();
-            let r = 0.5 * mu * (norm - dij) / norm;
-            *drawing.raw_entry_mut(i) += delta * -r;
+            if norm > 0. {
+                let r = 0.5 * mu * (norm - dij) / norm;
+                *drawing.raw_entry_mut(i) += delta * -r;
+            }
         }
     }
 
@@ -366,12 +368,12 @@ where
     pub fn apply_with_distance_adjustment<D, Diff, M>(&mut self, drawing: &mut D, eta: f32)
     where
         D: Drawing<Item = M>,
-        Diff: Difference<S = f32>,
-        M: Copy + Metric<D = Diff>,
+        Diff: Delta<S = f32>,
+        M: Metric<D = Diff>,
     {
         self.sgd.apply(drawing, eta);
         self.sgd.update_distance(|i, j, _, w| {
-            let delta = *drawing.raw_entry(i) - *drawing.raw_entry(j);
+            let delta = drawing.delta(i, j);
             let d1 = delta.norm();
             let d2 = self.original_distance[&(i, j)];
             let new_d = (self.alpha * w * d1 + 2. * (1. - self.alpha) * d2)

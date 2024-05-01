@@ -1,4 +1,5 @@
 use crate::{drawing::PyDrawing, graph::NodeId};
+use petgraph::graph::node_index;
 use petgraph_drawing::DrawingEuclidean;
 use pyo3::prelude::*;
 
@@ -23,4 +24,14 @@ impl PyDrawingEuclidean {
 }
 
 #[pymethods]
-impl PyDrawingEuclidean {}
+impl PyDrawingEuclidean {
+    pub fn get(&self, u: usize, d: usize) -> Option<f32> {
+        let u = node_index(u);
+        self.drawing.get(u, d)
+    }
+
+    pub fn set_x(&mut self, u: usize, d: usize, value: f32) {
+        let u = node_index(u);
+        self.drawing.set(u, d, value);
+    }
+}

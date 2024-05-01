@@ -21,4 +21,6 @@ pub trait Drawing {
     fn raw_entry(&self, i: usize) -> &Self::Item;
 
     fn raw_entry_mut(&mut self, i: usize) -> &mut Self::Item;
+
+    fn delta(&self, i: usize, j: usize) -> <Self::Item as Metric>::D;
 }

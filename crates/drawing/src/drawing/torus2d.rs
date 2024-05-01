@@ -1,6 +1,6 @@
 use crate::{
     drawing::Drawing,
-    metric::torus2d::{MetricTorus2d, TorusValue},
+    metric::torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
     DrawingIndex, DrawingValue,
 };
 use num_traits::{FloatConst, FromPrimitive};
@@ -94,7 +94,7 @@ where
 
     pub fn edge_segments(&self, u: N, v: N) -> Option<Vec<(MetricTorus2d<S>, MetricTorus2d<S>)>> {
         self.position(u).zip(self.position(v)).map(|(&p, &q)| {
-            let (dx, dy) = p.nearest_dxdy(q);
+            let (dx, dy) = p.nearest_dxdy(&q);
             if dx == S::zero() && dy == S::zero() {
                 vec![(p, q)]
             } else if dx == S::zero() {
@@ -253,5 +253,9 @@ where
 
     fn raw_entry_mut(&mut self, i: usize) -> &mut Self::Item {
         &mut self.coordinates[i]
+    }
+
+    fn delta(&self, i: usize, j: usize) -> DeltaTorus2d<S> {
+        self.raw_entry(i) - self.raw_entry(j)
     }
 }

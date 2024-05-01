@@ -14,6 +14,6 @@ pub use drawing::{
     euclidean::DrawingEuclidean, euclidean2d::DrawingEuclidean2d, torus2d::DrawingTorus2d, Drawing,
 };
 pub use metric::{
-    euclidean::MetricEuclidean, euclidean2d::MetricEuclidean2d, torus2d::MetricTorus2d, Difference,
+    euclidean::MetricEuclidean, euclidean2d::MetricEuclidean2d, torus2d::MetricTorus2d, Delta,
     Metric,
 };

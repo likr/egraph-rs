@@ -1,6 +1,6 @@
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
-    drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
+    drawing::{DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingTorus2d},
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
@@ -123,6 +123,14 @@ impl PySparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -131,7 +139,6 @@ impl PySparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 
@@ -221,6 +228,14 @@ impl PyFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -229,7 +244,6 @@ impl PyFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 
@@ -305,6 +319,14 @@ impl PyDistanceAdjustedSparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -313,7 +335,6 @@ impl PyDistanceAdjustedSparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 
@@ -329,6 +350,15 @@ impl PyDistanceAdjustedSparseSgd {
                 self.sgd
                     .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -338,7 +368,6 @@ impl PyDistanceAdjustedSparseSgd {
                 self.sgd
                     .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 
@@ -424,6 +453,14 @@ impl PyDistanceAdjustedFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -432,7 +469,6 @@ impl PyDistanceAdjustedFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 
@@ -448,6 +484,15 @@ impl PyDistanceAdjustedFullSgd {
                 self.sgd
                     .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -457,7 +502,6 @@ impl PyDistanceAdjustedFullSgd {
                 self.sgd
                     .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
             }
-            _ => unimplemented!(),
         })
     }
 

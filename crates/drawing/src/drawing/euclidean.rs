@@ -1,4 +1,8 @@
-use crate::{drawing::Drawing, metric::euclidean::MetricEuclidean, DrawingIndex, DrawingValue};
+use crate::{
+    drawing::Drawing,
+    metric::euclidean::{DeltaEuclidean, MetricEuclidean},
+    DrawingIndex, DrawingValue,
+};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::collections::HashMap;
 
@@ -93,5 +97,9 @@ where
 
     fn raw_entry_mut(&mut self, i: usize) -> &mut Self::Item {
         &mut self.coordinates[i]
+    }
+
+    fn delta(&self, i: usize, j: usize) -> DeltaEuclidean<S> {
+        self.raw_entry(i) - self.raw_entry(j)
     }
 }
