@@ -1,6 +1,4 @@
-use crate::{
-    drawing::Drawing, DeltaTorus2d, DrawingIndex, DrawingValue, MetricTorus2d, TorusValue,
-};
+use crate::{DeltaTorus2d, Drawing, DrawingIndex, DrawingValue, MetricTorus2d, TorusValue};
 use num_traits::{FloatConst, FromPrimitive};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::collections::HashMap;

@@ -1,7 +1,4 @@
-use crate::{
-    metric::{Delta, Metric},
-    DrawingValue,
-};
+use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
 fn torus_value<S>(value: S) -> S

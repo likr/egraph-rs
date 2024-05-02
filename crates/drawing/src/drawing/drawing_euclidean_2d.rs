@@ -1,4 +1,4 @@
-use crate::{drawing::Drawing, DeltaEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d};
+use crate::{DeltaEuclidean2d, Drawing, DrawingIndex, DrawingValue, MetricEuclidean2d};
 use num_traits::{clamp, FloatConst, FromPrimitive};
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
 use std::collections::{HashMap, VecDeque};

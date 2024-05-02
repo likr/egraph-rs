@@ -1,15 +1,15 @@
-use crate::{DeltaSpherical2d, Drawing, DrawingIndex, DrawingValue, MetricSpherical2d};
+use crate::{DeltaHyperbolic2d, Drawing, DrawingIndex, DrawingValue, MetricHyperbolic2d};
 use num_traits::{FloatConst, FromPrimitive};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::collections::HashMap;
 
-pub struct DrawingSpherical2d<N, S> {
+pub struct DrawingHyperbolic2d<N, S> {
     indices: Vec<N>,
-    coordinates: Vec<MetricSpherical2d<S>>,
+    coordinates: Vec<MetricHyperbolic2d<S>>,
     index_map: HashMap<N, usize>,
 }
 
-impl<N, S> DrawingSpherical2d<N, S>
+impl<N, S> DrawingHyperbolic2d<N, S>
 where
     N: DrawingIndex,
     S: DrawingValue,
@@ -39,7 +39,7 @@ where
             .enumerate()
             .map(|(i, &u)| (u, i))
             .collect::<HashMap<_, _>>();
-        let coordinates = vec![MetricSpherical2d::default(); indices.len()];
+        let coordinates = vec![MetricHyperbolic2d::default(); indices.len()];
         Self {
             indices,
             coordinates,
@@ -47,19 +47,19 @@ where
         }
     }
 
-    pub fn lon(&self, u: N) -> Option<S> {
+    pub fn x(&self, u: N) -> Option<S> {
         self.position(u).map(|p| p.0)
     }
 
-    pub fn lat(&self, u: N) -> Option<S> {
+    pub fn y(&self, u: N) -> Option<S> {
         self.position(u).map(|p| p.1)
     }
 
-    pub fn set_lon(&mut self, u: N, value: S) -> Option<()> {
+    pub fn set_x(&mut self, u: N, value: S) -> Option<()> {
         self.position_mut(u).map(|p| p.0 = value)
     }
 
-    pub fn set_lat(&mut self, u: N, value: S) -> Option<()> {
+    pub fn set_y(&mut self, u: N, value: S) -> Option<()> {
         self.position_mut(u).map(|p| p.1 = value)
     }
 
@@ -74,20 +74,22 @@ where
         let n = drawing.len();
         let d = S::PI() * S::from_usize(2).unwrap() / S::from_usize(n).unwrap();
         for i in 0..n {
-            drawing.coordinates[i].0 = d * S::from_usize(i).unwrap();
-            drawing.coordinates[i].1 = S::PI() / S::from_usize(4).unwrap();
+            drawing.coordinates[i].0 =
+                S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).cos();
+            drawing.coordinates[i].1 =
+                S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).sin();
         }
         drawing
     }
 }
 
-impl<N, S> Drawing for DrawingSpherical2d<N, S>
+impl<N, S> Drawing for DrawingHyperbolic2d<N, S>
 where
     N: DrawingIndex,
     S: DrawingValue,
 {
     type Index = N;
-    type Item = MetricSpherical2d<S>;
+    type Item = MetricHyperbolic2d<S>;
 
     fn len(&self) -> usize {
         self.indices.len()
@@ -117,7 +119,7 @@ where
         &mut self.coordinates[i]
     }
 
-    fn delta(&self, i: usize, j: usize) -> DeltaSpherical2d<S> {
+    fn delta(&self, i: usize, j: usize) -> DeltaHyperbolic2d<S> {
         self.raw_entry(i) - self.raw_entry(j)
     }
 }

@@ -1,4 +1,4 @@
-use crate::{drawing::Drawing, DeltaEuclidean, DrawingIndex, DrawingValue, MetricEuclidean};
+use crate::{DeltaEuclidean, Drawing, DrawingIndex, DrawingValue, MetricEuclidean};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::collections::HashMap;
 

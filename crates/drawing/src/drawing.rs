@@ -1,5 +1,6 @@
 pub mod drawing_euclidean;
 pub mod drawing_euclidean_2d;
+pub mod drawing_hyperbolic_2d;
 pub mod drawing_spherical_2d;
 pub mod drawing_torus2d;
 

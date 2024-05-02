@@ -12,11 +12,13 @@ impl<T> DrawingValue for T where T: NdFloat + FromPrimitive {}
 
 pub use drawing::{
     drawing_euclidean::DrawingEuclidean, drawing_euclidean_2d::DrawingEuclidean2d,
-    drawing_spherical_2d::DrawingSpherical2d, drawing_torus2d::DrawingTorus2d, Drawing,
+    drawing_hyperbolic_2d::DrawingHyperbolic2d, drawing_spherical_2d::DrawingSpherical2d,
+    drawing_torus2d::DrawingTorus2d, Drawing,
 };
 pub use metric::{
     metric_euclidean::{DeltaEuclidean, MetricEuclidean},
     metric_euclidean_2d::{DeltaEuclidean2d, MetricEuclidean2d},
+    metric_hyperbolic_2d::{DeltaHyperbolic2d, MetricHyperbolic2d},
     metric_spherical_2d::{DeltaSpherical2d, MetricSpherical2d},
     metric_torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
     Delta, Metric,
