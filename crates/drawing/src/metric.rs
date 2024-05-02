@@ -1,6 +1,6 @@
-pub mod euclidean;
-pub mod euclidean2d;
-pub mod torus2d;
+pub mod metric_euclidean;
+pub mod metric_euclidean2d;
+pub mod metric_torus2d;
 
 use crate::DrawingValue;
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};

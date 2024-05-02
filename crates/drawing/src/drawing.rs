@@ -1,6 +1,6 @@
-pub mod euclidean;
-pub mod euclidean2d;
-pub mod torus2d;
+pub mod drawing_euclidean;
+pub mod drawing_euclidean2d;
+pub mod drawing_torus2d;
 
 use crate::{metric::Metric, DrawingIndex};
 

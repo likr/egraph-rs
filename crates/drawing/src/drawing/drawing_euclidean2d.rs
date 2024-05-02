@@ -1,6 +1,6 @@
 use crate::{
     drawing::Drawing,
-    metric::euclidean2d::{DeltaEuclidean2d, MetricEuclidean2d},
+    metric::metric_euclidean2d::{DeltaEuclidean2d, MetricEuclidean2d},
     DrawingIndex, DrawingValue,
 };
 use num_traits::{clamp, FloatConst, FromPrimitive};

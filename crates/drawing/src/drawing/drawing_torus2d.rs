@@ -1,6 +1,6 @@
 use crate::{
     drawing::Drawing,
-    metric::torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
+    metric::metric_torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
     DrawingIndex, DrawingValue,
 };
 use num_traits::{FloatConst, FromPrimitive};

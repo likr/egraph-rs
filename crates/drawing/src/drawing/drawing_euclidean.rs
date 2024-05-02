@@ -1,6 +1,6 @@
 use crate::{
     drawing::Drawing,
-    metric::euclidean::{DeltaEuclidean, MetricEuclidean},
+    metric::metric_euclidean::{DeltaEuclidean, MetricEuclidean},
     DrawingIndex, DrawingValue,
 };
 use petgraph::visit::IntoNodeIdentifiers;

@@ -11,9 +11,10 @@ pub trait DrawingValue: NdFloat + FromPrimitive {}
 impl<T> DrawingValue for T where T: NdFloat + FromPrimitive {}
 
 pub use drawing::{
-    euclidean::DrawingEuclidean, euclidean2d::DrawingEuclidean2d, torus2d::DrawingTorus2d, Drawing,
+    drawing_euclidean::DrawingEuclidean, drawing_euclidean2d::DrawingEuclidean2d,
+    drawing_torus2d::DrawingTorus2d, Drawing,
 };
 pub use metric::{
-    euclidean::MetricEuclidean, euclidean2d::MetricEuclidean2d, torus2d::MetricTorus2d, Delta,
-    Metric,
+    metric_euclidean::MetricEuclidean, metric_euclidean2d::MetricEuclidean2d,
+    metric_torus2d::MetricTorus2d, Delta, Metric,
 };
