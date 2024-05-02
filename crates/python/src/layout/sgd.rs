@@ -8,13 +8,15 @@ use crate::{
     rng::PyRng,
 };
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
-use petgraph_layout_sgd::{DistanceAdjustedSgd, FullSgd, Sgd, SgdScheduler, SparseSgd};
+use petgraph_layout_sgd::{
+    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerExponential, Sgd, SparseSgd,
+};
 use pyo3::prelude::*;
 
 #[pyclass]
 #[pyo3(name = "SgdScheduler")]
 struct PySgdScheduler {
-    scheduler: SgdScheduler,
+    scheduler: SchedulerExponential<f32>,
 }
 
 #[pymethods]
@@ -39,7 +41,7 @@ impl PySgdScheduler {
 #[pyclass]
 #[pyo3(name = "SparseSgd")]
 struct PySparseSgd {
-    sgd: SparseSgd,
+    sgd: SparseSgd<f32>,
 }
 
 #[pymethods]
@@ -205,7 +207,7 @@ impl PySparseSgd {
 #[pyclass]
 #[pyo3(name = "FullSgd")]
 struct PyFullSgd {
-    sgd: FullSgd,
+    sgd: FullSgd<f32>,
 }
 
 #[pymethods]
@@ -302,7 +304,7 @@ impl PyFullSgd {
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedSparseSgd")]
 struct PyDistanceAdjustedSparseSgd {
-    sgd: DistanceAdjustedSgd<SparseSgd>,
+    sgd: DistanceAdjustedSgd<SparseSgd<f32>, f32>,
 }
 
 #[pymethods]
@@ -480,7 +482,7 @@ impl PyDistanceAdjustedSparseSgd {
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedFullSgd")]
 struct PyDistanceAdjustedFullSgd {
-    sgd: DistanceAdjustedSgd<FullSgd>,
+    sgd: DistanceAdjustedSgd<FullSgd<f32>, f32>,
 }
 
 #[pymethods]
