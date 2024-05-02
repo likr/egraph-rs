@@ -1,6 +1,9 @@
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
-    drawing::{DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingTorus2d},
+    drawing::{
+        DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingSpherical2d,
+        PyDrawingTorus2d,
+    },
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
@@ -131,6 +134,14 @@ impl PySparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -236,6 +247,14 @@ impl PyFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -327,6 +346,14 @@ impl PyDistanceAdjustedSparseSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -354,6 +381,15 @@ impl PyDistanceAdjustedSparseSgd {
                 let mut drawing = drawing
                     .into_py(py)
                     .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
                     .unwrap()
                     .borrow_mut();
                 self.sgd
@@ -461,6 +497,14 @@ impl PyDistanceAdjustedFullSgd {
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .into_py(py)
@@ -488,6 +532,15 @@ impl PyDistanceAdjustedFullSgd {
                 let mut drawing = drawing
                     .into_py(py)
                     .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
                     .unwrap()
                     .borrow_mut();
                 self.sgd

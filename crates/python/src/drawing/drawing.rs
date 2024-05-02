@@ -1,14 +1,15 @@
 use crate::{
-    drawing::{PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingTorus2d},
+    drawing::{PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingSpherical2d, PyDrawingTorus2d},
     graph::NodeId,
 };
-use petgraph_drawing::{DrawingEuclidean, DrawingEuclidean2d, DrawingTorus2d};
+use petgraph_drawing::{DrawingEuclidean, DrawingEuclidean2d, DrawingSpherical2d, DrawingTorus2d};
 use pyo3::prelude::*;
 
 #[derive(Clone, Copy)]
 pub enum DrawingType {
     Euclidean2d,
     Euclidean,
+    Spherical2d,
     Torus2d,
 }
 
@@ -32,6 +33,14 @@ impl PyDrawing {
             drawing_type: DrawingType::Euclidean,
         });
         let py_drawing = base.add_subclass(PyDrawingEuclidean::new(drawing));
+        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+    }
+
+    pub fn new_drawing_spherical_2d(drawing: DrawingSpherical2d<NodeId, f32>) -> PyObject {
+        let base = PyClassInitializer::from(Self {
+            drawing_type: DrawingType::Spherical2d,
+        });
+        let py_drawing = base.add_subclass(PyDrawingSpherical2d::new(drawing));
         Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
     }
 
