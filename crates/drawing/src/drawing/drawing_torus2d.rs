@@ -1,7 +1,5 @@
 use crate::{
-    drawing::Drawing,
-    metric::metric_torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
-    DrawingIndex, DrawingValue,
+    drawing::Drawing, DeltaTorus2d, DrawingIndex, DrawingValue, MetricTorus2d, TorusValue,
 };
 use num_traits::{FloatConst, FromPrimitive};
 use petgraph::visit::IntoNodeIdentifiers;

@@ -1,5 +1,6 @@
 pub mod metric_euclidean;
-pub mod metric_euclidean2d;
+pub mod metric_euclidean_2d;
+pub mod metric_spherical_2d;
 pub mod metric_torus2d;
 
 use crate::DrawingValue;
