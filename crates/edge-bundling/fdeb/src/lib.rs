@@ -1,7 +1,6 @@
-use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
-use petgraph::EdgeType;
-use std::collections::HashMap;
-use std::f32;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
+use std::{collections::HashMap, f32, hash::Hash};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -195,17 +194,17 @@ fn apply_electrostatic_force(
     }
 }
 
-pub struct EdgeBundlingOptions {
+pub struct EdgeBundlingOptions<S> {
     cycles: usize,
-    s0: f32,
+    s0: S,
     i0: usize,
-    s_step: f32,
-    i_step: f32,
-    minimum_edge_compatibility: f32,
+    s_step: S,
+    i_step: S,
+    minimum_edge_compatibility: S,
 }
 
-impl EdgeBundlingOptions {
-    pub fn new() -> EdgeBundlingOptions {
+impl<S> EdgeBundlingOptions<S> {
+    pub fn new() -> EdgeBundlingOptions<f32> {
         EdgeBundlingOptions {
             cycles: 6,
             s0: 0.1,
@@ -217,11 +216,16 @@ impl EdgeBundlingOptions {
     }
 }
 
-pub fn fdeb<N, E, Ty: EdgeType, Ix: IndexType>(
-    graph: &Graph<N, E, Ty, Ix>,
-    points: &HashMap<NodeIndex<Ix>, (f32, f32)>,
-    options: &EdgeBundlingOptions,
-) -> HashMap<EdgeIndex<Ix>, Vec<(f32, f32)>> {
+pub fn fdeb<G>(
+    graph: G,
+    drawing: &DrawingEuclidean2d<G::NodeId, f32>,
+    options: &EdgeBundlingOptions<f32>,
+) -> HashMap<G::EdgeId, Vec<(f32, f32)>>
+where
+    G: IntoNodeIdentifiers + IntoEdgeReferences,
+    G::NodeId: DrawingIndex,
+    G::EdgeId: Eq + Hash,
+{
     let EdgeBundlingOptions {
         cycles,
         s0,
@@ -231,22 +235,23 @@ pub fn fdeb<N, E, Ty: EdgeType, Ix: IndexType>(
         minimum_edge_compatibility,
     } = options;
     let points = graph
-        .node_indices()
+        .node_identifiers()
         .map(|u| {
-            let (x, y) = points[&u];
-            Point::new(x, y)
+            let MetricEuclidean2d(x, y) = drawing.position(u).unwrap();
+            Point::new(*x, *y)
         })
         .collect::<Vec<Point>>();
     let node_indices = graph
-        .node_indices()
+        .node_identifiers()
         .enumerate()
         .map(|(i, u)| (u, i))
-        .collect::<HashMap<NodeIndex<Ix>, usize>>();
+        .collect::<HashMap<G::NodeId, usize>>();
     let mut mid_points = Vec::new();
     let mut segments = graph
-        .edge_indices()
+        .edge_references()
         .map(|e| {
-            let (u, v) = graph.edge_endpoints(e).unwrap();
+            let u = e.source();
+            let v = e.target();
             LineSegment::new(node_indices[&u], node_indices[&v])
         })
         .collect::<Vec<_>>();
@@ -324,7 +329,7 @@ pub fn fdeb<N, E, Ty: EdgeType, Ix: IndexType>(
 
     segments
         .iter()
-        .zip(graph.edge_indices())
+        .zip(graph.edge_references())
         .map(|(segment, e)| {
             let mut ps = vec![];
             let p0 = points[segment.source];
@@ -335,7 +340,7 @@ pub fn fdeb<N, E, Ty: EdgeType, Ix: IndexType>(
             }
             let p1 = points[segment.target];
             ps.push((p1.x, p1.y));
-            (e, ps)
+            (e.id(), ps)
         })
         .collect()
 }
