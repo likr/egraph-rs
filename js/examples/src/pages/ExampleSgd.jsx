@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import {
   Graph,
-  Drawing,
+  DrawingEuclidean2d as Drawing,
   SparseSgd as Sgd,
   Rng,
 } from "egraph/dist/web/egraph_wasm";
@@ -27,8 +27,8 @@ export function ExampleSgd() {
 
     const rng = Rng.seedFrom(4n);
     const drawing = Drawing.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 100, 10, rng);
-    const scheduler = sgd.scheduler(50, 0.1);
+    const sgd = new Sgd(graph, () => 100, 50, rng);
+    const scheduler = sgd.scheduler(100, 0.1);
 
     const draw = () => {
       if (!rendererRef.current || scheduler.isFinished()) {
@@ -36,7 +36,7 @@ export function ExampleSgd() {
       }
       scheduler.step((eta) => {
         sgd.shuffle(rng);
-        sgd.apply(drawing, eta);
+        sgd.applyWithDrawingEuclidean2d(drawing, eta);
       });
       drawing.centralize();
       for (const u of graph.nodeIndices()) {
