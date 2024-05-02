@@ -1,5 +1,5 @@
 use crate::{
-    drawing::{JsDrawingEuclidean, JsDrawingEuclidean2d, JsDrawingTorus2d},
+    drawing::{JsDrawingEuclidean, JsDrawingEuclidean2d, JsDrawingSpherical2d, JsDrawingTorus2d},
     graph::JsGraph,
     rng::JsRng,
 };
@@ -68,6 +68,11 @@ impl JsFullSgd {
 
     #[wasm_bindgen(js_name = "applyWithDrawingEuclidean")]
     pub fn apply_with_drawing_euclidean(&self, drawing: &mut JsDrawingEuclidean, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDrawingSpherical2d")]
+    pub fn apply_with_drawing_spherical_2d(&self, drawing: &mut JsDrawingSpherical2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
