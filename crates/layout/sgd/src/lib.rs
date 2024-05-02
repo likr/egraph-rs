@@ -138,13 +138,13 @@ impl SparseSgd {
             r_nodes[r[j]].push(j);
         }
 
-        for (k, &i) in pivot.iter().enumerate() {
-            let i = indices[&i];
+        for (k, &u) in pivot.iter().enumerate() {
+            let i = indices[&u];
             for j in 0..n {
                 if edges.contains(&(i, j)) || i == j {
                     continue;
                 }
-                let dij = distance_matrix.get_by_index(k, i);
+                let dij = distance_matrix.get_by_index(k, j);
                 let wij = 1. / (dij * dij);
                 let sij = r_nodes[k]
                     .iter()
