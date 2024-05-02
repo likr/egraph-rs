@@ -245,9 +245,9 @@ exports.testFullSgd = function (data) {
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
   const sgd = new eg.FullSgd(graph, () => 100);
   const scheduler = sgd.scheduler(15, 0.1);
-  scheduler.step((eta) => {
+  scheduler.run((eta) => {
     sgd.shuffle(rng);
-    sgd.step(eta);
+    sgd.applyWithDrawingEuclidean2d(drawing, eta);
   });
   checkResult(graph, drawing);
 };
@@ -258,9 +258,9 @@ exports.testSparseSgd = function (data) {
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
   const sgd = new eg.SparseSgd(graph, () => 100, 50, rng);
   const scheduler = sgd.scheduler(15, 0.1);
-  scheduler.step((eta) => {
+  scheduler.run((eta) => {
     sgd.shuffle(rng);
-    sgd.step(eta);
+    sgd.applyWithDrawingEuclidean2d(drawing, eta);
   });
   checkResult(graph, drawing);
 };

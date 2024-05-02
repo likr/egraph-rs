@@ -1,7 +1,4 @@
-use crate::{
-    drawing::{DrawingType, JsDrawing},
-    graph::JsGraph,
-};
+use crate::{drawing::JsDrawingEuclidean2d, graph::JsGraph};
 use js_sys::{Function, Reflect};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_kamada_kawai::KamadaKawai;
@@ -31,26 +28,17 @@ impl JsKamadaKawai {
     }
 
     #[wasm_bindgen(js_name = selectNode)]
-    pub fn select_node(&self, drawing: &JsDrawing) -> Option<usize> {
-        match drawing.drawing() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.select_node(drawing),
-            _ => unimplemented!(),
-        }
+    pub fn select_node(&self, drawing: &JsDrawingEuclidean2d) -> Option<usize> {
+        self.kamada_kawai.select_node(drawing.drawing())
     }
 
     #[wasm_bindgen(js_name = applyToNode)]
-    pub fn apply_to_node(&self, m: usize, drawing: &mut JsDrawing) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.apply_to_node(m, drawing),
-            _ => unimplemented!(),
-        };
+    pub fn apply_to_node(&self, m: usize, drawing: &mut JsDrawingEuclidean2d) {
+        self.kamada_kawai.apply_to_node(m, drawing.drawing_mut())
     }
 
-    pub fn run(&self, drawing: &mut JsDrawing) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.kamada_kawai.run(drawing),
-            _ => unimplemented!(),
-        };
+    pub fn run(&self, drawing: &mut JsDrawingEuclidean2d) {
+        self.kamada_kawai.run(drawing.drawing_mut())
     }
 
     #[wasm_bindgen(getter)]

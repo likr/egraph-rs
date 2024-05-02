@@ -1,5 +1,5 @@
 use crate::{
-    drawing::{DrawingType, JsDrawing},
+    drawing::{JsDrawingEuclidean, JsDrawingEuclidean2d, JsDrawingTorus2d},
     graph::JsGraph,
     rng::JsRng,
 };
@@ -61,11 +61,19 @@ impl JsFullSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
-        }
+    #[wasm_bindgen(js_name = "applyWithDrawingEuclidean2d")]
+    pub fn apply_with_drawing_euclidean_2d(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDrawingEuclidean")]
+    pub fn apply_with_drawing_euclidean(&self, drawing: &mut JsDrawingEuclidean, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDrawingTorus2d")]
+    pub fn apply_with_drawing_torus_2d(&self, drawing: &mut JsDrawingTorus2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {
@@ -134,11 +142,19 @@ impl JsSparseSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.sgd.apply(drawing, eta),
-            DrawingType::Torus2d(drawing) => self.sgd.apply(drawing, eta),
-        }
+    #[wasm_bindgen(js_name = "applyWithDrawingEuclidean2d")]
+    pub fn apply_with_drawing_euclidean_2d(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDrawingEuclidean")]
+    pub fn apply_with_drawing_euclidean(&self, drawing: &mut JsDrawingEuclidean, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDrawingTorus2d")]
+    pub fn apply_with_drawing_torus_2d(&self, drawing: &mut JsDrawingTorus2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {

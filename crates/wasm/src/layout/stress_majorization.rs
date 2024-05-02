@@ -1,7 +1,4 @@
-use crate::{
-    drawing::{DrawingType, JsDrawing},
-    graph::JsGraph,
-};
+use crate::{drawing::JsDrawingEuclidean2d, graph::JsGraph};
 use js_sys::{Function, Reflect};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
@@ -18,7 +15,7 @@ impl JsStressMajorization {
     #[wasm_bindgen(constructor)]
     pub fn new(
         graph: &JsGraph,
-        drawing: &JsDrawing,
+        drawing: &JsDrawingEuclidean2d,
         f: &Function,
     ) -> Result<JsStressMajorization, JsValue> {
         let mut distance = HashMap::new();
@@ -31,26 +28,17 @@ impl JsStressMajorization {
         }
 
         Ok(JsStressMajorization {
-            stress_majorization: match drawing.drawing() {
-                DrawingType::Euclidean2d(drawing) => {
-                    StressMajorization::new(graph.graph(), drawing, |e| distance[&e.id()])
-                }
-                _ => unimplemented!(),
-            },
+            stress_majorization: StressMajorization::new(graph.graph(), drawing.drawing(), |e| {
+                distance[&e.id()]
+            }),
         })
     }
 
-    pub fn apply(&mut self, drawing: &mut JsDrawing) -> f32 {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.stress_majorization.apply(drawing),
-            _ => unimplemented!(),
-        }
+    pub fn apply(&mut self, drawing: &mut JsDrawingEuclidean2d) -> f32 {
+        self.stress_majorization.apply(drawing.drawing_mut())
     }
 
-    pub fn run(&mut self, drawing: &mut JsDrawing) {
-        match drawing.drawing_mut() {
-            DrawingType::Euclidean2d(drawing) => self.stress_majorization.run(drawing),
-            _ => unimplemented!(),
-        }
+    pub fn run(&mut self, drawing: &mut JsDrawingEuclidean2d) {
+        self.stress_majorization.run(drawing.drawing_mut());
     }
 }

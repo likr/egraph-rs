@@ -1,4 +1,7 @@
-use crate::{drawing::JsDrawing, graph::JsGraph};
+use crate::{
+    drawing::{JsDrawingEuclidean, JsDrawingEuclidean2d},
+    graph::JsGraph,
+};
 use js_sys::{Array, Function};
 use petgraph::{graph::node_index, stable_graph::NodeIndex, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
@@ -29,8 +32,12 @@ impl JsClassicalMds {
     }
 
     #[wasm_bindgen(js_name = "run2d")]
-    pub fn run_2d(&self) -> JsDrawing {
-        JsDrawing::new_drawing_2d(self.mds.run_2d())
+    pub fn run_2d(&self) -> JsDrawingEuclidean2d {
+        JsDrawingEuclidean2d::new(self.mds.run_2d())
+    }
+
+    pub fn run(&self, d: usize) -> JsDrawingEuclidean {
+        JsDrawingEuclidean::new(self.mds.run(d))
     }
 }
 
@@ -62,7 +69,7 @@ impl JsPivotMds {
     }
 
     #[wasm_bindgen(js_name = "run2d")]
-    pub fn run_2d(&self) -> JsDrawing {
-        JsDrawing::new_drawing_2d(self.mds.run_2d())
+    pub fn run_2d(&self) -> JsDrawingEuclidean2d {
+        JsDrawingEuclidean2d::new(self.mds.run_2d())
     }
 }
