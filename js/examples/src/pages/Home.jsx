@@ -7,15 +7,6 @@ export class Home extends React.Component {
       <div>
         <ul>
           <li>
-            <Link to="/force-directed">Force-directed Layout</Link>
-          </li>
-          <li>
-            <Link to="/fruchterman-reingold">FruchtermanReingold</Link>
-          </li>
-          {/* <li>
-            <Link to="/force-atlas2">ForceAtlas2</Link>
-          </li> */}
-          <li>
             <Link to="/kamada-kawai">KamadaKawai</Link>
           </li>
           <li>
@@ -34,20 +25,11 @@ export class Home extends React.Component {
             <Link to="/spherical-geometry">Spherical Geometry</Link>
           </li>
           <li>
-            <Link to="/fm3">FM3</Link>
-          </li>
-          <li>
-            <Link to="/group-in-a-box">Group-in-a-box Layout</Link>
+            <Link to="/torus-geometry">Torus Geometry</Link>
           </li>
           <li>
             <Link to="/edge-bundling">Edge-bundling</Link>
           </li>
-          {/*<li>
-            <Link to="/dag">dag</Link>
-          </li>
-          <li>
-            <Link to="/biclustering">biclustering</Link>
-          </li>*/}
         </ul>
       </div>
     );

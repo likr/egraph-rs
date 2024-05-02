@@ -1,17 +1,17 @@
-import React from "react";
 import * as d3 from "d3";
 import {
-  Coordinates,
+  DrawingEuclidean2d as Drawing,
   Graph,
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
+  FullSgd as Sgd,
+  Rng,
   fdeb,
 } from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
+import { useEffect, useRef } from "react";
 
-export class ExampleEdgeBundling extends React.Component {
-  componentDidMount() {
+export function ExampleEdgeBundling() {
+  const rendererRef = useRef();
+  useEffect(() => {
     window
       .fetch("/data/miserables.json")
       .then((response) => response.json())
@@ -29,60 +29,51 @@ export class ExampleEdgeBundling extends React.Component {
           graph.addEdge(indices.get(source), indices.get(target), link);
         }
 
-        const coordinates = Coordinates.initialPlacement(graph);
-        const simulation = new Simulation();
-        const forces = [
-          new ManyBodyForce(graph, () => ({ strength: -30 })),
-          new LinkForce(graph, () => ({ distance: 30 })),
-        ];
-        simulation.run((alpha) => {
-          for (const force of forces) {
-            force.apply(coordinates, alpha);
-          }
-          coordinates.updatePosition(0.6);
-          coordinates.centralize();
+        const rng = Rng.seedFrom(0n);
+        const drawing = Drawing.initialPlacement(graph);
+        const sgd = new Sgd(graph, () => 100);
+        const scheduler = sgd.scheduler(100, 0.1);
+        scheduler.run((eta) => {
+          sgd.shuffle(rng);
+          sgd.applyWithDrawingEuclidean2d(drawing, eta);
         });
 
-        const result = coordinates.toJSON();
         for (const u of graph.nodeIndices()) {
           const node = graph.nodeWeight(u);
-          const [x, y] = result[u];
-          node.x = x;
-          node.y = y;
+          node.x = drawing.x(u);
+          node.y = drawing.y(u);
         }
 
-        const bends = fdeb(graph, result);
+        const bends = fdeb(graph, drawing);
         for (const e of graph.edgeIndices()) {
-          graph.edgeWeight(e).bends = bends[e];
+          graph.edgeWeight(e).bends = bends.get(e);
         }
 
-        this.refs.renderer.load(data);
-        this.refs.renderer.center();
+        rendererRef.current.load(data);
+        rendererRef.current.center();
       });
-  }
+  }, []);
 
-  render() {
-    return (
-      <Wrapper
-        onResize={(width, height) => {
-          this.refs.renderer.width = width;
-          this.refs.renderer.height = height;
-        }}
-      >
-        <eg-renderer
-          ref="renderer"
-          transition-duration="1000"
-          default-node-width="10"
-          default-node-height="10"
-          default-node-stroke-color="#fff"
-          default-node-stroke-width="1.5"
-          default-node-type="circle"
-          default-link-stroke-color="#999"
-          default-link-stroke-opacity="0.6"
-          node-label-property="name"
-          no-auto-centering
-        />
-      </Wrapper>
-    );
-  }
+  return (
+    <Wrapper
+      onResize={(width, height) => {
+        rendererRef.current.width = width;
+        rendererRef.current.height = height;
+      }}
+    >
+      <eg-renderer
+        ref={rendererRef}
+        transition-duration="1000"
+        default-node-width="10"
+        default-node-height="10"
+        default-node-stroke-color="#fff"
+        default-node-stroke-width="1.5"
+        default-node-type="circle"
+        default-link-stroke-color="#999"
+        default-link-stroke-opacity="0.6"
+        node-label-property="name"
+        no-auto-centering
+      />
+    </Wrapper>
+  );
 }

@@ -1,13 +1,8 @@
-import React from "react";
-import { render } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { BrowserRouter as Router, Route, Link } from "react-router-dom";
 import {
   Home,
   ExampleEdgeBundling,
-  ExampleFm3,
-  ExampleForceDirected,
-  ExampleFruchtermanReingold,
-  ExampleGroupInABox,
   ExampleKamadaKawai,
   ExampleHyperbolicGeometry,
   ExampleMds,
@@ -17,7 +12,7 @@ import {
   ExampleTorus,
 } from "./pages";
 
-render(
+createRoot(document.getElementById("content")).render(
   <Router>
     <div>
       <header>
@@ -35,13 +30,6 @@ render(
         <div className="container">
           <Route path="/" component={Home} exact />
           <Route path="/edge-bundling" component={ExampleEdgeBundling} />
-          <Route path="/fm3" component={ExampleFm3} />
-          <Route path="/force-directed" component={ExampleForceDirected} />
-          <Route
-            path="/fruchterman-reingold"
-            component={ExampleFruchtermanReingold}
-          />
-          <Route path="/group-in-a-box" component={ExampleGroupInABox} />
           <Route
             path="/hyperbolic-geometry"
             component={ExampleHyperbolicGeometry}
@@ -57,10 +45,9 @@ render(
             path="/stress-majorization"
             component={ExampleStressMajorization}
           />
-          <Route path="/torus" component={ExampleTorus} />
+          <Route path="/torus-geometry" component={ExampleTorus} />
         </div>
       </section>
     </div>
-  </Router>,
-  document.getElementById("content")
+  </Router>
 );

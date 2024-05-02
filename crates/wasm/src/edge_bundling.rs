@@ -1,19 +1,12 @@
-use crate::graph::JsGraph;
-use petgraph::graph::node_index;
+use crate::{drawing::JsDrawingEuclidean2d, graph::JsGraph};
 use petgraph_edge_bundling_fdeb::{fdeb, EdgeBundlingOptions};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = fdeb)]
-pub fn js_fdeb(graph: &JsGraph, coordinates: JsValue) -> JsValue {
-    let coordinates: HashMap<usize, (f32, f32)> =
-        serde_wasm_bindgen::from_value(coordinates).unwrap();
-    let coordinates = coordinates
-        .into_iter()
-        .map(|(u, xy)| (node_index(u), xy))
-        .collect::<HashMap<_, _>>();
-    let options = EdgeBundlingOptions::new();
-    let bends = fdeb(graph.graph(), &coordinates, &options)
+pub fn js_fdeb(graph: &JsGraph, drawing: JsDrawingEuclidean2d) -> JsValue {
+    let options = EdgeBundlingOptions::<f32>::new();
+    let bends = fdeb(graph.graph(), drawing.drawing(), &options)
         .into_iter()
         .map(|(e, lines)| (e.index(), lines))
         .collect::<HashMap<_, _>>();

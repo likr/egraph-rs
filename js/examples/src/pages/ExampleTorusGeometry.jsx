@@ -5,7 +5,7 @@ import * as eg from "egraph/dist/web/egraph_wasm";
 // import data from "egraph-dataset/dodecahedral.json";
 import data from "egraph-dataset/moebius_kantor.json";
 
-export function ExampleTorus() {
+export function ExampleTorusGeometry() {
   const width = 1000;
   const height = 1000;
   const [offset, setOffset] = useState([-width / 2, -width / 2]);
@@ -23,12 +23,12 @@ export function ExampleTorus() {
     }
 
     const rng = eg.Rng.seedFrom(1n);
-    const drawing = eg.DrawingTorus.initialPlacement(graph);
+    const drawing = eg.DrawingTorus2d.initialPlacement(graph);
     const sgd = new eg.FullSgd(graph, () => 0.2);
     const scheduler = sgd.scheduler(20, 0.1);
     scheduler.run((eta) => {
       sgd.shuffle(rng);
-      sgd.apply(drawing, eta);
+      sgd.applyWithDrawingTorus2d(drawing, eta);
     });
     for (const u of graph.nodeIndices()) {
       const node = graph.nodeWeight(u);
