@@ -52,6 +52,17 @@ impl PyDrawingTorus2d {
         self.drawing.len()
     }
 
+    pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<((f32, f32), (f32, f32))>> {
+        self.drawing
+            .edge_segments(node_index(u), node_index(v))
+            .map(|segments| {
+                segments
+                    .iter()
+                    .map(|&(p, q)| ((p.0 .0, p.1 .0), (q.0 .0, q.1 .0)))
+                    .collect::<Vec<_>>()
+            })
+    }
+
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_torus_2d(match graph.graph() {
