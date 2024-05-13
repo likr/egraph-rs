@@ -193,7 +193,7 @@ fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> 
                 DrawingType::Torus2d => {
                     let drawing = drawing
                         .into_py(py)
-                        .downcast_bound::<PyDrawingEuclidean2d>(py)
+                        .downcast_bound::<PyDrawingTorus2d>(py)
                         .unwrap()
                         .borrow_mut();
                     stress(drawing.drawing(), d)

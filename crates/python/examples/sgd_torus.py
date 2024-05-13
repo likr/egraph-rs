@@ -15,9 +15,9 @@ def main():
     size = nx.diameter(nx_graph) * 1.5
     d = eg.all_sources_bfs(
         graph,
-        1 / size, # edge length
+        1 / size,  # edge length
     )
-    drawing = eg.DrawingTorus.initial_placement(graph)
+    drawing = eg.DrawingTorus2d.initial_placement(graph)
     rng = eg.Rng.seed_from(0)  # random seed
     sgd = eg.FullSgd.new_with_distance_matrix(d)
     scheduler = sgd.scheduler(
@@ -31,7 +31,7 @@ def main():
         sgd.apply(drawing, eta)
     scheduler.run(step)
 
-    pos = {u: (drawing.x(i) , drawing.y(i)) for u, i in indices.items()}
+    pos = {u: (drawing.x(i), drawing.y(i)) for u, i in indices.items()}
     nx.draw(nx_graph, pos)
     plt.savefig('tmp/torus_sgd.png')
 
