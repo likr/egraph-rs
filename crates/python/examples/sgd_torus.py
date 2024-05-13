@@ -31,9 +31,25 @@ def main():
         sgd.apply(drawing, eta)
     scheduler.run(step)
 
-    pos = {u: (drawing.x(i), drawing.y(i)) for u, i in indices.items()}
-    nx.draw(nx_graph, pos)
-    plt.savefig('tmp/torus_sgd.png')
+    pos = {u: (drawing.x(i) * size, drawing.y(i) * size)
+           for u, i in indices.items()}
+    nx_edge_graph = nx.Graph()
+    edge_pos = {}
+    for e in graph.edge_indices():
+        u, v = graph.edge_endpoints(e)
+        segments = drawing.edge_segments(u, v)
+        for i, ((x1, y1), (x2, y2)) in enumerate(segments):
+            eu = f'{u}:{v}:{i}:0'
+            ev = f'{u}:{v}:{i}:1'
+            nx_edge_graph.add_edge(eu, ev)
+            edge_pos[eu] = (x1 * size, y1 * size)
+            edge_pos[ev] = (x2 * size, y2 * size)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_xlim(0, size)
+    ax.set_ylim(0, size)
+    nx.draw_networkx_nodes(nx_graph, pos, ax=ax)
+    nx.draw_networkx_edges(nx_edge_graph, edge_pos, ax=ax)
+    plt.savefig('tmp/sgd_torus.png')
 
 
 if __name__ == '__main__':
