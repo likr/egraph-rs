@@ -3,9 +3,9 @@ use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 
 pub struct OverwrapRemoval<S> {
     radius: Vec<S>,
-    strength: S,
-    iterations: usize,
-    min_distance: S,
+    pub strength: S,
+    pub iterations: usize,
+    pub min_distance: S,
 }
 
 impl<S> OverwrapRemoval<S>
