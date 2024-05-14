@@ -76,36 +76,32 @@ fn py_aspect_ratio(drawing: &PyDrawingEuclidean2d) -> f32 {
 
 #[pyfunction]
 #[pyo3(name = "crossing_angle")]
-fn py_crossing_angle(
-    graph: &PyGraphAdapter,
-    drawing: &PyDrawingEuclidean2d,
-    crossing_edges: Option<&PyCrossingEdges>,
-) -> f32 {
-    if let Some(ce) = crossing_edges {
-        crossing_angle_with_crossing_edges(&ce.crossing_edges)
-    } else {
-        match graph.graph() {
-            GraphType::Graph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
-            GraphType::DiGraph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
-        }
+fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
+        GraphType::DiGraph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
     }
 }
 
 #[pyfunction]
+#[pyo3(name = "crossing_angle_with_crossing_edges")]
+fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
+    crossing_angle_with_crossing_edges(&crossing_edges.crossing_edges)
+}
+
+#[pyfunction]
 #[pyo3(name = "crossing_number")]
-fn py_crossing_number(
-    graph: &PyGraphAdapter,
-    drawing: &PyDrawingEuclidean2d,
-    crossing_edges: Option<&PyCrossingEdges>,
-) -> f32 {
-    if let Some(ce) = crossing_edges {
-        crossing_number_with_crossing_edges(&ce.crossing_edges)
-    } else {
-        match graph.graph() {
-            GraphType::Graph(native_graph) => crossing_number(native_graph, drawing.drawing()),
-            GraphType::DiGraph(native_graph) => crossing_number(native_graph, drawing.drawing()),
-        }
+fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => crossing_number(native_graph, drawing.drawing()),
+        GraphType::DiGraph(native_graph) => crossing_number(native_graph, drawing.drawing()),
     }
+}
+
+#[pyfunction]
+#[pyo3(name = "crossing_number_with_crossing_edges")]
+fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
+    crossing_number_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
 #[pyfunction]
@@ -166,7 +162,7 @@ fn py_node_resolution(drawing: &Bound<PyDrawing>) -> f32 {
         DrawingType::Torus2d => {
             let drawing = drawing
                 .into_py(py)
-                .downcast_bound::<PyDrawingEuclidean2d>(py)
+                .downcast_bound::<PyDrawingTorus2d>(py)
                 .unwrap()
                 .borrow();
             node_resolution(drawing.drawing())
@@ -209,8 +205,10 @@ pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_angular_resolution, m)?)?;
     m.add_function(wrap_pyfunction!(py_aspect_ratio, m)?)?;
     m.add_function(wrap_pyfunction!(py_crossing_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(py_crossing_angle_with_crossing_edges, m)?)?;
     m.add_function(wrap_pyfunction!(py_crossing_edges, m)?)?;
     m.add_function(wrap_pyfunction!(py_crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(py_crossing_number_with_crossing_edges, m)?)?;
     m.add_function(wrap_pyfunction!(py_gabriel_graph_property, m)?)?;
     m.add_function(wrap_pyfunction!(py_ideal_edge_lengths, m)?)?;
     m.add_function(wrap_pyfunction!(py_neighborhood_preservation, m)?)?;
