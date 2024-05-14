@@ -9,6 +9,7 @@ members = [
     "crates/drawing",
     "crates/edge-bundling/fdeb",
     "crates/layout/kamada-kawai",
+    "crates/layout/overwrap-removal",
     "crates/layout/sgd",
     "crates/layout/mds",
     "crates/layout/stress-majorization",
