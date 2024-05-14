@@ -58,4 +58,34 @@ impl JsOverwrapRemoval {
     pub fn apply_with_drawing_torus_2d(&self, drawing: &mut JsDrawingTorus2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
+
+    #[wasm_bindgen(getter)]
+    pub fn get_strength(&self) -> f32 {
+        self.overwrap_removal.strength
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_strength(&mut self, value: f32) {
+        self.overwrap_removal.strength = value;
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn get_iterations(&self) -> usize {
+        self.overwrap_removal.iterations
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_iterations(&mut self, value: usize) {
+        self.overwrap_removal.iterations = value;
+    }
+
+    #[wasm_bindgen(getter = minDistance)]
+    pub fn get_min_distance(&self) -> f32 {
+        self.overwrap_removal.min_distance
+    }
+
+    #[wasm_bindgen(setter = minDistance)]
+    pub fn set_min_distance(&mut self, value: f32) {
+        self.overwrap_removal.min_distance = value;
+    }
 }

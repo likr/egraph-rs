@@ -31,6 +31,7 @@ export function ExampleOverwrapRemoval() {
     const sgd = new Sgd(graph, () => 100);
     const scheduler = sgd.scheduler(100, 0.1);
     const overwrapRemoval = new OverwrapRemoval(graph, () => 25);
+    overwrapRemoval.iterations = 5;
 
     const draw = () => {
       if (!rendererRef.current || scheduler.isFinished()) {
@@ -65,8 +66,9 @@ export function ExampleOverwrapRemoval() {
     >
       <eg-renderer
         ref={rendererRef}
-        default-node-width="30"
-        default-node-height="30"
+        default-node-width="50"
+        default-node-height="50"
+        default-node-fill-opacity="0.5"
         default-node-stroke-color="#fff"
         default-node-stroke-width="0"
         default-node-type="circle"
