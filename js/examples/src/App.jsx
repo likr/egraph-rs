@@ -10,6 +10,7 @@ import {
   ExampleSphericalGeometry,
   ExampleStressMajorization,
   ExampleTorus,
+  ExampleOverwrapRemoval,
 } from "./pages";
 
 createRoot(document.getElementById("content")).render(
@@ -36,6 +37,7 @@ createRoot(document.getElementById("content")).render(
           />
           <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
           <Route path="/mds" component={ExampleMds} />
+          <Route path="/overwrap-removal" component={ExampleOverwrapRemoval} />
           <Route path="/sgd" component={ExampleSgd} />
           <Route
             path="/spherical-geometry"

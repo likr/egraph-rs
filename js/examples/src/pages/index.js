@@ -2,6 +2,7 @@ export { ExampleEdgeBundling } from "./ExampleEdgeBundling";
 export { ExampleHyperbolicGeometry } from "./ExampleHyperbolicGeometry";
 export { ExampleKamadaKawai } from "./ExampleKamadaKawai";
 export { ExampleMds } from "./ExampleMds";
+export { ExampleOverwrapRemoval } from "./ExampleOverwrapRemoval";
 export { ExampleSgd } from "./ExampleSgd";
 export { ExampleSphericalGeometry } from "./ExampleSphericalGeometry";
 export { ExampleStressMajorization } from "./ExampleStressMajorization";

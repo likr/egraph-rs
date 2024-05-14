@@ -30,6 +30,9 @@ export class Home extends React.Component {
           <li>
             <Link to="/edge-bundling">Edge-bundling</Link>
           </li>
+          <li>
+            <Link to="/overwrap-removal">Overwrap Removal</Link>
+          </li>
         </ul>
       </div>
     );

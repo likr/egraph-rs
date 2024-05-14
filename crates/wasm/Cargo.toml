@@ -22,6 +22,7 @@ petgraph-drawing = { path = "../drawing" }
 petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-mds = { path = "../layout/mds" }
+petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
