@@ -48,6 +48,36 @@ impl PyOverwrapRemoval {
     fn apply_with_drawing_torus_2d(&self, drawing: &mut PyDrawingTorus2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
+
+    #[getter]
+    fn get_strength(&self) -> f32 {
+        self.overwrap_removal.strength
+    }
+
+    #[setter]
+    fn set_strength(&mut self, value: f32) {
+        self.overwrap_removal.strength = value;
+    }
+
+    #[getter]
+    fn get_iterations(&self) -> usize {
+        self.overwrap_removal.iterations
+    }
+
+    #[setter]
+    fn set_iterations(&mut self, value: usize) {
+        self.overwrap_removal.iterations = value;
+    }
+
+    #[getter]
+    fn get_min_distance(&self) -> f32 {
+        self.overwrap_removal.min_distance
+    }
+
+    #[setter]
+    fn set_min_distance(&mut self, value: f32) {
+        self.overwrap_removal.min_distance = value;
+    }
 }
 
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {

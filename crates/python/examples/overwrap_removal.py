@@ -17,11 +17,12 @@ def main():
     sgd = eg.FullSgd(graph, lambda _: 100)
     scheduler = sgd.scheduler(100, 0.1)
     overwrap_removal = eg.OverwrapRemoval(graph, lambda _: 25)
+    overwrap_removal.iterations = 5
 
     def step(eta):
         sgd.shuffle(rng)
         sgd.apply(drawing, eta)
-        overwrap_removal.apply(drawing)
+        overwrap_removal.apply_with_drawing_euclidean_2d(drawing)
     scheduler.run(step)
     drawing.centralize()
 
@@ -29,7 +30,9 @@ def main():
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.set_xlim(-400, 400)
     ax.set_ylim(-400, 400)
-    nx.draw(nx_graph, pos, ax=ax, node_size=(72 / 100 * 20) ** 2)
+    nx.draw(nx_graph, pos, ax=ax, node_size=(72 / 100 * 50) ** 2, alpha=0.5)
+    plt.axis('tight')
+    plt.axis('off')
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
     plt.savefig('tmp/overwrap_removal.png')
 
