@@ -107,8 +107,12 @@ where
         self.index_map.get(&u).map(|&i| &mut self.coordinates[i])
     }
 
-    fn index(&self, i: usize) -> &Self::Index {
+    fn node_id(&self, i: usize) -> &Self::Index {
         &self.indices[i]
+    }
+
+    fn index(&self, u: Self::Index) -> usize {
+        self.index_map[&u]
     }
 
     fn raw_entry(&self, i: usize) -> &Self::Item {

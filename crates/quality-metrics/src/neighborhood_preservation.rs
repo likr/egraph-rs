@@ -28,7 +28,7 @@ where
     let mut cap = 0;
     let mut cup = graph_edges.len();
     for i in 0..n {
-        let u = *drawing.index(i);
+        let u = *drawing.node_id(i);
         let x = drawing.raw_entry(i).0;
         let y = drawing.raw_entry(i).1;
         let d = graph.neighbors(u).count();
@@ -38,7 +38,7 @@ where
             if i == j {
                 continue;
             }
-            let v = *drawing.index(i);
+            let v = *drawing.node_id(i);
             if graph_edges.contains(&(graph.to_index(u), graph.to_index(v))) {
                 cap += 1;
             } else {
