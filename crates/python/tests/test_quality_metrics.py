@@ -100,6 +100,9 @@ class TestQualityMetrics(unittest.TestCase):
         for (graph, drawing, distance_matrix) in self._graphs:
             assert (math.isfinite(eg.ideal_edge_lengths(
                 graph, drawing, distance_matrix)))
+        for (graph, drawing, distance_matrix) in self._torus_graphs:
+            assert (math.isfinite(eg.ideal_edge_lengths(
+                graph, drawing, distance_matrix)))
 
     def test_neighborhood_preservation(self):
         for (graph, drawing, _) in self._graphs:

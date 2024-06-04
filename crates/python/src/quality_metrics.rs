@@ -117,20 +117,53 @@ fn py_gabriel_graph_property(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidea
 #[pyo3(name = "ideal_edge_lengths")]
 fn py_ideal_edge_lengths(
     graph: &PyGraphAdapter,
-    drawing: &PyDrawingEuclidean2d,
+    drawing: &Bound<PyDrawing>,
     distance_matrix: &PyDistanceMatrix,
 ) -> f32 {
-    match distance_matrix.distance_matrix() {
-        DistanceMatrixType::Full(d) => match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                ideal_edge_lengths(native_graph, drawing.drawing(), d)
+    Python::with_gil(|py| {
+        let drawing_type = drawing.borrow().drawing_type();
+        match drawing_type {
+            DrawingType::Euclidean2d => {
+                let drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                match distance_matrix.distance_matrix() {
+                    DistanceMatrixType::Full(d) => match graph.graph() {
+                        GraphType::Graph(native_graph) => {
+                            ideal_edge_lengths(native_graph, drawing.drawing(), d)
+                        }
+                        GraphType::DiGraph(native_graph) => {
+                            ideal_edge_lengths(native_graph, drawing.drawing(), d)
+                        }
+                    },
+                    _ => panic!("unsupported distance matrix type"),
+                }
             }
-            GraphType::DiGraph(native_graph) => {
-                ideal_edge_lengths(native_graph, drawing.drawing(), d)
+            DrawingType::Torus2d => {
+                let drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                match distance_matrix.distance_matrix() {
+                    DistanceMatrixType::Full(d) => match graph.graph() {
+                        GraphType::Graph(native_graph) => {
+                            ideal_edge_lengths(native_graph, drawing.drawing(), d)
+                        }
+                        GraphType::DiGraph(native_graph) => {
+                            ideal_edge_lengths(native_graph, drawing.drawing(), d)
+                        }
+                    },
+                    _ => panic!("unsupported distance matrix type"),
+                }
             }
-        },
-        _ => panic!("unsupported distance matrix type"),
-    }
+            _ => {
+                unimplemented!()
+            }
+        }
+    })
 }
 
 #[pyfunction]
