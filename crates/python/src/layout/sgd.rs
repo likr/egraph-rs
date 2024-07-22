@@ -9,18 +9,118 @@ use crate::{
 };
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
 use petgraph_layout_sgd::{
-    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerExponential, Sgd, SparseSgd,
+    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerConstant, SchedulerExponential,
+    SchedulerLinear, SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
 };
 use pyo3::prelude::*;
+#[pyclass]
+#[pyo3(name = "SchedulerConstant")]
+struct PySchedulerConstant {
+    scheduler: SchedulerConstant<f32>,
+}
+
+#[pymethods]
+impl PySchedulerConstant {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
 
 #[pyclass]
-#[pyo3(name = "SgdScheduler")]
-struct PySgdScheduler {
+#[pyo3(name = "SchedulerLinear")]
+struct PySchedulerLinear {
+    scheduler: SchedulerLinear<f32>,
+}
+
+#[pymethods]
+impl PySchedulerLinear {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerQuadratic")]
+struct PySchedulerQuadratic {
+    scheduler: SchedulerQuadratic<f32>,
+}
+
+#[pymethods]
+impl PySchedulerQuadratic {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerExponential")]
+struct PySchedulerExponential {
     scheduler: SchedulerExponential<f32>,
 }
 
 #[pymethods]
-impl PySgdScheduler {
+impl PySchedulerExponential {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerReciprocal")]
+struct PySchedulerReciprocal {
+    scheduler: SchedulerReciprocal<f32>,
+}
+
+#[pymethods]
+impl PySchedulerReciprocal {
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
@@ -163,8 +263,36 @@ impl PySparseSgd {
         })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
@@ -284,8 +412,36 @@ impl PyFullSgd {
         })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
@@ -442,8 +598,36 @@ impl PyDistanceAdjustedSparseSgd {
         })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
@@ -610,8 +794,36 @@ impl PyDistanceAdjustedFullSgd {
         })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
@@ -648,7 +860,11 @@ impl PyDistanceAdjustedFullSgd {
 }
 
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
-    m.add_class::<PySgdScheduler>()?;
+    m.add_class::<PySchedulerConstant>()?;
+    m.add_class::<PySchedulerLinear>()?;
+    m.add_class::<PySchedulerQuadratic>()?;
+    m.add_class::<PySchedulerExponential>()?;
+    m.add_class::<PySchedulerReciprocal>()?;
     m.add_class::<PyFullSgd>()?;
     m.add_class::<PySparseSgd>()?;
     m.add_class::<PyDistanceAdjustedFullSgd>()?;
