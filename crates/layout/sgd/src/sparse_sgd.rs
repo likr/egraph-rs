@@ -10,7 +10,7 @@ use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 pub struct SparseSgd<S> {
-    node_pairs: Vec<(usize, usize, S, S)>,
+    node_pairs: Vec<(usize, usize, S, S, S)>,
 }
 
 impl<S> SparseSgd<S> {
@@ -78,8 +78,7 @@ impl<S> SparseSgd<S> {
             let j = indices[&edge.target()];
             let dij = length(edge);
             let wij = S::one() / (dij * dij);
-            node_pairs.push((i, j, dij, wij));
-            node_pairs.push((j, i, dij, wij));
+            node_pairs.push((i, j, dij, wij, wij));
             edges.insert((i, j));
             edges.insert((j, i));
         }
@@ -97,23 +96,23 @@ impl<S> SparseSgd<S> {
         }
 
         for (k, &u) in pivot.iter().enumerate() {
-            let i = indices[&u];
-            for j in 0..n {
-                if edges.contains(&(i, j)) || i == j {
+            let p = indices[&u];
+            for i in 0..n {
+                if edges.contains(&(p, i)) || p == i {
                     continue;
                 }
-                let dij = distance_matrix.get_by_index(k, j);
-                let wij = S::one() / (dij * dij);
-                let sij = S::from_usize(
+                let dpi = distance_matrix.get_by_index(k, i);
+                let wpi = S::one() / (dpi * dpi);
+                let spi = S::from_usize(
                     r_nodes[k]
                         .iter()
-                        .filter(|&&l| {
-                            S::from_usize(2).unwrap() * distance_matrix.get_by_index(k, l) <= dij
+                        .filter(|&&j| {
+                            S::from_usize(2).unwrap() * distance_matrix.get_by_index(k, j) <= dpi
                         })
                         .count(),
                 )
                 .unwrap();
-                node_pairs.push((i, j, dij, sij * wij));
+                node_pairs.push((p, i, dpi, spi * wpi, S::zero()));
             }
         }
         SparseSgd { node_pairs }
@@ -137,11 +136,11 @@ impl<S> SparseSgd<S> {
 }
 
 impl<S> Sgd<S> for SparseSgd<S> {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S)> {
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)> {
         &self.node_pairs
     }
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S)> {
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)> {
         &mut self.node_pairs
     }
 }

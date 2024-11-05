@@ -7,7 +7,7 @@ pub mod metric_torus2d;
 use crate::DrawingValue;
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 pub trait Delta:
-    Sized + Add<Self> + Sub<Self> + Mul<Self::S, Output = Self> + Div<Self::S>
+    Sized + Add<Self> + Sub<Self> + Mul<Self::S, Output = Self> + Div<Self::S> + Clone
 {
     type S: DrawingValue;
 

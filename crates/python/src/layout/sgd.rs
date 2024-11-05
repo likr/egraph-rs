@@ -298,8 +298,9 @@ impl PySparseSgd {
     }
 
     pub fn update_distance(&mut self, f: &Bound<PyAny>) {
-        self.sgd
-            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
+            f.call1((i, j, dij, wij, wji)).unwrap().extract().unwrap()
+        })
     }
 
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
@@ -447,8 +448,9 @@ impl PyFullSgd {
     }
 
     pub fn update_distance(&mut self, f: &Bound<PyAny>) {
-        self.sgd
-            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
+            f.call1((i, j, dij, wij, wji)).unwrap().extract().unwrap()
+        })
     }
 
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
@@ -633,8 +635,9 @@ impl PyDistanceAdjustedSparseSgd {
     }
 
     pub fn update_distance(&mut self, f: &Bound<PyAny>) {
-        self.sgd
-            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
+            f.call1((i, j, dij, wij, wji)).unwrap().extract().unwrap()
+        })
     }
 
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
@@ -829,8 +832,9 @@ impl PyDistanceAdjustedFullSgd {
     }
 
     pub fn update_distance(&mut self, f: &Bound<PyAny>) {
-        self.sgd
-            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
+            f.call1((i, j, dij, wij, wji)).unwrap().extract().unwrap()
+        })
     }
 
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {

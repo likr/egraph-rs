@@ -3,9 +3,9 @@ use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 use rand::prelude::*;
 
 pub trait Sgd<S> {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S)>;
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)>;
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S)>;
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)>;
 
     fn shuffle<R: Rng>(&mut self, rng: &mut R) {
         self.node_pairs_mut().shuffle(rng);
@@ -18,13 +18,15 @@ pub trait Sgd<S> {
         M: Metric<D = Diff>,
         S: DrawingValue,
     {
-        for &(i, j, dij, wij) in self.node_pairs().iter() {
-            let mu = (eta * wij).min(S::one());
+        for &(i, j, dij, wij, wji) in self.node_pairs().iter() {
+            let mu_i = (eta * wij).min(S::one());
+            let mu_j = (eta * wji).min(S::one());
             let delta = drawing.delta(i, j);
             let norm = delta.norm();
             if norm > S::zero() {
-                let r = S::from_f32(0.5).unwrap() * mu * (norm - dij) / norm;
-                *drawing.raw_entry_mut(i) += delta * -r;
+                let r = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
+                *drawing.raw_entry_mut(i) += delta.clone() * -r * mu_i;
+                *drawing.raw_entry_mut(j) += delta.clone() * r * mu_j;
             }
         }
     }
@@ -36,15 +38,17 @@ pub trait Sgd<S> {
     {
         let mut w_min = S::infinity();
         let mut w_max = S::zero();
-        for &(_, _, _, wij) in self.node_pairs().iter() {
-            if wij == S::zero() {
-                continue;
-            }
-            if wij < w_min {
-                w_min = wij;
-            }
-            if wij > w_max {
-                w_max = wij;
+        for &(_, _, _, wij, wji) in self.node_pairs().iter() {
+            for w in [wij, wji] {
+                if w == S::zero() {
+                    continue;
+                }
+                if w < w_min {
+                    w_min = w;
+                }
+                if w > w_max {
+                    w_max = w;
+                }
             }
         }
         let eta_max = S::one() / w_min;
@@ -54,12 +58,12 @@ pub trait Sgd<S> {
 
     fn update_distance<F>(&mut self, mut distance: F)
     where
-        F: FnMut(usize, usize, S, S) -> S,
+        F: FnMut(usize, usize, S, S, S) -> S,
         S: Copy,
     {
         for p in self.node_pairs_mut() {
-            let (i, j, dij, wij) = p;
-            p.2 = distance(*i, *j, *dij, *wij)
+            let (i, j, dij, wij, wji) = p;
+            p.2 = distance(*i, *j, *dij, *wij, *wji)
         }
     }
 
@@ -69,8 +73,9 @@ pub trait Sgd<S> {
         S: Copy,
     {
         for p in self.node_pairs_mut() {
-            let (i, j, dij, wij) = p;
-            p.3 = weight(*i, *j, *dij, *wij)
+            let (i, j, dij, wij, wji) = p;
+            p.3 = weight(*i, *j, *dij, *wij);
+            p.4 = weight(*i, *j, *dij, *wji);
         }
     }
 }

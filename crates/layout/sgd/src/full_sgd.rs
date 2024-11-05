@@ -4,7 +4,7 @@ use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, Ful
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 
 pub struct FullSgd<S> {
-    node_pairs: Vec<(usize, usize, S, S)>,
+    node_pairs: Vec<(usize, usize, S, S, S)>,
 }
 
 impl<S> FullSgd<S> {
@@ -30,8 +30,7 @@ impl<S> FullSgd<S> {
             for i in 0..j {
                 let dij = d.get_by_index(i, j);
                 let wij = S::one() / (dij * dij);
-                node_pairs.push((i, j, dij, wij));
-                node_pairs.push((j, i, dij, wij));
+                node_pairs.push((i, j, dij, wij, wij));
             }
         }
         FullSgd { node_pairs }
@@ -39,11 +38,11 @@ impl<S> FullSgd<S> {
 }
 
 impl<S> Sgd<S> for FullSgd<S> {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S)> {
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)> {
         &self.node_pairs
     }
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S)> {
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)> {
         &mut self.node_pairs
     }
 }

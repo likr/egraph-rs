@@ -6,7 +6,7 @@ import {
   SparseSgd as Sgd,
   Rng,
 } from "egraph/dist/web/egraph_wasm";
-import data from "egraph-dataset/les_miserables.json";
+import data from "egraph-dataset/USpowerGrid.json";
 import { Wrapper } from "../wrapper";
 
 export function ExampleSgd() {
@@ -25,9 +25,9 @@ export function ExampleSgd() {
       graph.addEdge(indices.get(source), indices.get(target), link);
     }
 
-    const rng = Rng.seedFrom(4n);
+    const rng = Rng.seedFrom(1n);
     const drawing = Drawing.initialPlacement(graph);
-    const sgd = new Sgd(graph, () => 100, 50, rng);
+    const sgd = new Sgd(graph, () => 20, 200, rng);
     const scheduler = sgd.scheduler(100, 0.1);
 
     const draw = () => {

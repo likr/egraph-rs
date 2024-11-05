@@ -233,12 +233,13 @@ impl JsFullSgd {
 
     #[wasm_bindgen(js_name = "updateDistance")]
     pub fn update_distance(&mut self, distance: &Function) {
-        self.sgd.update_distance(|i, j, d, w| {
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
             let args = Array::new();
             args.push(&JsValue::from_f64(i as f64));
             args.push(&JsValue::from_f64(j as f64));
-            args.push(&JsValue::from_f64(d as f64));
-            args.push(&JsValue::from_f64(w as f64));
+            args.push(&JsValue::from_f64(dij as f64));
+            args.push(&JsValue::from_f64(wij as f64));
+            args.push(&JsValue::from_f64(wji as f64));
             distance
                 .apply(&JsValue::null(), &args)
                 .unwrap()
@@ -357,12 +358,13 @@ impl JsSparseSgd {
 
     #[wasm_bindgen(js_name = "updateDistance")]
     pub fn update_distance(&mut self, distance: &Function) {
-        self.sgd.update_distance(|i, j, d, w| {
+        self.sgd.update_distance(|i, j, dij, wij, wji| {
             let args = Array::new();
             args.push(&JsValue::from_f64(i as f64));
             args.push(&JsValue::from_f64(j as f64));
-            args.push(&JsValue::from_f64(d as f64));
-            args.push(&JsValue::from_f64(w as f64));
+            args.push(&JsValue::from_f64(dij as f64));
+            args.push(&JsValue::from_f64(wij as f64));
+            args.push(&JsValue::from_f64(wji as f64));
             distance
                 .apply(&JsValue::null(), &args)
                 .unwrap()
