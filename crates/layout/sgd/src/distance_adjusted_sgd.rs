@@ -40,11 +40,10 @@ where
         S: DrawingValue,
     {
         self.sgd.apply(drawing, eta);
-        self.sgd.update_distance(|i, j, _, wij, wji| {
+        self.sgd.update_distance(|i, j, _, w| {
             let delta = drawing.delta(i, j);
             let d1 = delta.norm();
             let d2 = self.original_distance[&(i, j)];
-            let w = wij.max(wji);
             let new_d = (self.alpha * w * d1
                 + S::from_usize(2).unwrap() * (S::one() - self.alpha) * d2)
                 / (self.alpha * w + S::from_usize(2).unwrap() * (S::one() - self.alpha));
@@ -58,11 +57,11 @@ impl<A, S> Sgd<S> for DistanceAdjustedSgd<A, S>
 where
     A: Sgd<S>,
 {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)> {
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
         self.sgd.node_pairs()
     }
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)> {
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
         self.sgd.node_pairs_mut()
     }
 }
