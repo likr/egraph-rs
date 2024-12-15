@@ -1,8 +1,8 @@
 use argparse::{ArgumentParser, Store};
 use egraph_cli::{read_graph, write_graph};
 use petgraph::prelude::*;
-use petgraph_drawing::Drawing;
-use petgraph_layout_sgd::{Sgd, SparseSgd};
+use petgraph_drawing::DrawingEuclidean2d;
+use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd, SparseSgd};
 use rand::thread_rng;
 
 fn parse_args(input_path: &mut String, output_path: &mut String) {
@@ -20,11 +20,11 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    coordinates: &mut Drawing<NodeIndex, f32>,
+    coordinates: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
     let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 281, &mut rng);
-    let mut scheduler = sgd.scheduler(867, 0.1);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(867, 0.1);
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);
         sgd.apply(coordinates, eta);

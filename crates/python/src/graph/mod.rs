@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 pub type Node = PyObject;
 pub type Edge = PyObject;
 pub type IndexType = u32;
+pub type NodeId = NodeIndex<IndexType>;
 
 pub enum GraphType {
     Graph(Graph<Node, Edge, Undirected, IndexType>),
@@ -157,7 +158,7 @@ impl PyGraphAdapter {
         }
     }
 
-    pub fn map(&self, node_map: &PyAny, edge_map: &PyAny) -> Self {
+    pub fn map(&self, node_map: &Bound<PyAny>, edge_map: &Bound<PyAny>) -> Self {
         Self {
             graph: match self.graph() {
                 GraphType::Graph(native_graph) => {
@@ -170,7 +171,7 @@ impl PyGraphAdapter {
         }
     }
 
-    pub fn filter_map(&self, node_map: &PyAny, edge_map: &PyAny) -> Self {
+    pub fn filter_map(&self, node_map: &Bound<PyAny>, edge_map: &Bound<PyAny>) -> Self {
         Self {
             graph: match self.graph() {
                 GraphType::Graph(native_graph) => {
@@ -184,7 +185,7 @@ impl PyGraphAdapter {
     }
 }
 
-pub fn register(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyGraphAdapter>()?;
     graph::register(py, m)?;
     Ok(())

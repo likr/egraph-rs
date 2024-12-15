@@ -8,3 +8,6 @@ ndarray = "0.15"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
 petgraph-drawing = { path = "../../drawing" }
+
+[dev-dependencies]
+egraph-dataset = { path = "../../dataset", features = ["1138_bus"] }

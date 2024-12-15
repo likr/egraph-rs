@@ -23,14 +23,14 @@ impl PyRng {
     }
 
     #[classmethod]
-    fn seed_from(_cls: &PyType, seed: u64) -> PyRng {
+    fn seed_from(_cls: &Bound<PyType>, seed: u64) -> PyRng {
         PyRng {
             rng: StdRng::seed_from_u64(seed),
         }
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyRng>()?;
     Ok(())
 }

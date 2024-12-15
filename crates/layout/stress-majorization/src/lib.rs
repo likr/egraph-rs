@@ -1,7 +1,7 @@
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
-use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
 
 fn line_search(a: &Array2<f32>, dx: &Array1<f32>, d: &Array1<f32>) -> f32 {
     let n = dx.len();
@@ -94,31 +94,41 @@ pub struct StressMajorization {
 }
 
 impl StressMajorization {
-    pub fn new<G, F>(graph: G, drawing: &Drawing<G::NodeId, f32>, length: F) -> StressMajorization
+    pub fn new<G, F>(
+        graph: G,
+        drawing: &DrawingEuclidean2d<G::NodeId, f32>,
+        length: F,
+    ) -> StressMajorization
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeCount,
-        G::NodeId: DrawingIndex,
+        G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let d = warshall_floyd(graph, length);
+        let d = all_sources_dijkstra(graph, length);
         StressMajorization::new_with_distance_matrix(drawing, &d)
     }
 
     pub fn new_with_distance_matrix<N>(
-        drawing: &Drawing<N, f32>,
-        d: &Array2<f32>,
+        drawing: &DrawingEuclidean2d<N, f32>,
+        distance_matrix: &FullDistanceMatrix<N, f32>,
     ) -> StressMajorization
     where
         N: DrawingIndex,
     {
         let n = drawing.len();
+        let mut d = Array2::zeros((n, n));
         let w = Array2::zeros((n, n));
         let l_w = Array2::zeros((n - 1, n - 1));
         let mut x_x = Array1::zeros(n - 1);
         let mut x_y = Array1::zeros(n - 1);
         for i in 0..n - 1 {
-            x_x[i] = drawing.coordinates[[i, 0]] - drawing.coordinates[[n - 1, 0]];
-            x_y[i] = drawing.coordinates[[i, 1]] - drawing.coordinates[[n - 1, 1]];
+            x_x[i] = drawing.raw_entry(i).0 - drawing.raw_entry(n - 1).0;
+            x_y[i] = drawing.raw_entry(i).1 - drawing.raw_entry(n - 1).1;
+        }
+        for i in 0..n {
+            for j in 0..n {
+                d[[i, j]] = distance_matrix.get_by_index(i, j);
+            }
         }
 
         let epsilon = 1e-4;
@@ -126,7 +136,7 @@ impl StressMajorization {
         let b = Array1::zeros(n - 1);
         let mut sm = StressMajorization {
             b,
-            d: d.clone(),
+            d,
             l_w,
             l_z,
             w,
@@ -139,7 +149,7 @@ impl StressMajorization {
         sm
     }
 
-    pub fn apply<N>(&mut self, drawing: &mut Drawing<N, f32>) -> f32
+    pub fn apply<N>(&mut self, drawing: &mut DrawingEuclidean2d<N, f32>) -> f32
     where
         N: DrawingIndex,
     {
@@ -148,13 +158,13 @@ impl StressMajorization {
             b, d, l_w, l_z, w, ..
         } = self;
         for i in 0..n {
-            drawing.coordinates[[i, 0]] -= drawing.coordinates[[n - 1, 0]];
-            drawing.coordinates[[i, 1]] -= drawing.coordinates[[n - 1, 1]];
+            drawing.raw_entry_mut(i).0 -= drawing.raw_entry(n - 1).0;
+            drawing.raw_entry_mut(i).1 -= drawing.raw_entry(n - 1).1;
         }
         for i in 1..n - 1 {
             for j in 0..i {
-                let dx = drawing.coordinates[[i, 0]] - drawing.coordinates[[j, 0]];
-                let dy = drawing.coordinates[[i, 1]] - drawing.coordinates[[j, 1]];
+                let dx = drawing.raw_entry(i).0 - drawing.raw_entry(j).0;
+                let dy = drawing.raw_entry(i).1 - drawing.raw_entry(j).1;
                 let norm = (dx * dx + dy * dy).sqrt();
                 let lij = if norm < 1e-4 {
                     0.
@@ -173,8 +183,8 @@ impl StressMajorization {
                 }
             }
             let j = n - 1;
-            let dx = drawing.coordinates[[i, 0]];
-            let dy = drawing.coordinates[[i, 1]];
+            let dx = drawing.raw_entry(i).0;
+            let dy = drawing.raw_entry(i).1;
             let norm = (dx * dx + dy * dy).sqrt();
             s -= if norm < 1e-4 {
                 0.
@@ -185,20 +195,20 @@ impl StressMajorization {
         }
 
         for i in 0..n - 1 {
-            self.x_x[i] = drawing.coordinates[[i, 0]];
+            self.x_x[i] = drawing.raw_entry(i).0;
             let mut s = 0.;
             for j in 0..n - 1 {
-                s += l_z[[i, j]] * drawing.coordinates[[j, 0]];
+                s += l_z[[i, j]] * drawing.raw_entry(j).0;
             }
             b[i] = s;
         }
         conjugate_gradient(&l_w, &b, &mut self.x_x, self.epsilon);
 
         for i in 0..n - 1 {
-            self.x_y[i] = drawing.coordinates[[i, 1]];
+            self.x_y[i] = drawing.raw_entry(i).1;
             let mut s = 0.;
             for j in 0..n - 1 {
-                s += l_z[[i, j]] * drawing.coordinates[[j, 1]];
+                s += l_z[[i, j]] * drawing.raw_entry(j).1;
             }
             b[i] = s;
         }
@@ -208,13 +218,13 @@ impl StressMajorization {
         let diff = (self.stress - stress) / self.stress;
         self.stress = stress;
         for i in 0..n - 1 {
-            drawing.coordinates[[i, 0]] = self.x_x[i];
-            drawing.coordinates[[i, 1]] = self.x_y[i];
+            drawing.raw_entry_mut(i).0 = self.x_x[i];
+            drawing.raw_entry_mut(i).1 = self.x_y[i];
         }
         diff
     }
 
-    pub fn run<N>(&mut self, coordinates: &mut Drawing<N, f32>)
+    pub fn run<N>(&mut self, coordinates: &mut DrawingEuclidean2d<N, f32>)
     where
         N: DrawingIndex,
     {
@@ -287,7 +297,7 @@ fn test_stress_majorization() {
             graph.add_edge(nodes[i], nodes[j], ());
         }
     }
-    let mut coordinates = Drawing::initial_placement(&graph);
+    let mut coordinates = DrawingEuclidean2d::initial_placement(&graph);
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));

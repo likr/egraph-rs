@@ -1,28 +1,133 @@
 use crate::{
-    distance_matrix::PyDistanceMatrix,
-    drawing::PyDrawing,
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
+    drawing::{
+        DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d,
+        PyDrawingSpherical2d, PyDrawingTorus2d,
+    },
     graph::{GraphType, PyGraphAdapter},
     rng::PyRng,
 };
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
-use petgraph_layout_sgd::{DistanceAdjustedSgd, FullSgd, Sgd, SgdScheduler, SparseSgd};
+use petgraph_layout_sgd::{
+    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerConstant, SchedulerExponential,
+    SchedulerLinear, SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
+};
 use pyo3::prelude::*;
-
 #[pyclass]
-#[pyo3(name = "SgdScheduler")]
-struct PySgdScheduler {
-    scheduler: SgdScheduler,
+#[pyo3(name = "SchedulerConstant")]
+struct PySchedulerConstant {
+    scheduler: SchedulerConstant<f32>,
 }
 
 #[pymethods]
-impl PySgdScheduler {
-    pub fn run(&mut self, f: &PyAny) {
+impl PySchedulerConstant {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
-    pub fn step(&mut self, f: &PyAny) {
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerLinear")]
+struct PySchedulerLinear {
+    scheduler: SchedulerLinear<f32>,
+}
+
+#[pymethods]
+impl PySchedulerLinear {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerQuadratic")]
+struct PySchedulerQuadratic {
+    scheduler: SchedulerQuadratic<f32>,
+}
+
+#[pymethods]
+impl PySchedulerQuadratic {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerExponential")]
+struct PySchedulerExponential {
+    scheduler: SchedulerExponential<f32>,
+}
+
+#[pymethods]
+impl PySchedulerExponential {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.step(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.scheduler.is_finished()
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SchedulerReciprocal")]
+struct PySchedulerReciprocal {
+    scheduler: SchedulerReciprocal<f32>,
+}
+
+#[pymethods]
+impl PySchedulerReciprocal {
+    pub fn run(&mut self, f: &Bound<PyAny>) {
+        self.scheduler.run(&mut |eta| {
+            f.call1((eta as f64,)).ok();
+        })
+    }
+
+    pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
@@ -36,13 +141,13 @@ impl PySgdScheduler {
 #[pyclass]
 #[pyo3(name = "SparseSgd")]
 struct PySparseSgd {
-    sgd: SparseSgd,
+    sgd: SparseSgd<f32>,
 }
 
 #[pymethods]
 impl PySparseSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny, h: usize, rng: &mut PyRng) -> PySparseSgd {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, h: usize, rng: &mut PyRng) -> PySparseSgd {
         PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
@@ -57,7 +162,7 @@ impl PySparseSgd {
     }
 
     #[staticmethod]
-    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> Self {
+    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> Self {
         PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => {
@@ -76,7 +181,7 @@ impl PySparseSgd {
     #[staticmethod]
     pub fn new_with_pivot_and_distance_matrix(
         graph: &PyGraphAdapter,
-        f: &PyAny,
+        f: &Bound<PyAny>,
         pivot: Vec<usize>,
         d: &PyDistanceMatrix,
     ) -> Self {
@@ -84,12 +189,24 @@ impl PySparseSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => {
                     let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
-                    SparseSgd::new_with_pivot_and_distance_matrix(
-                        native_graph,
-                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                        &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
-                        d.distance_matrix(),
-                    )
+                    match d.distance_matrix() {
+                        DistanceMatrixType::Full(d) => {
+                            SparseSgd::new_with_pivot_and_distance_matrix(
+                                native_graph,
+                                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                                &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                                d,
+                            )
+                        }
+                        DistanceMatrixType::Sub(d) => {
+                            SparseSgd::new_with_pivot_and_distance_matrix(
+                                native_graph,
+                                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                                &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
+                                d,
+                            )
+                        }
+                    }
                 }
                 _ => panic!("unsupported graph type"),
             },
@@ -100,22 +217,92 @@ impl PySparseSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -123,7 +310,7 @@ impl PySparseSgd {
     #[staticmethod]
     pub fn choose_pivot(
         graph: &PyGraphAdapter,
-        f: &PyAny,
+        f: &Bound<PyAny>,
         h: usize,
         rng: &mut PyRng,
     ) -> (Vec<usize>, PyDistanceMatrix) {
@@ -137,7 +324,7 @@ impl PySparseSgd {
                 );
                 (
                     pivot.into_iter().map(|u| u.index()).collect::<Vec<_>>(),
-                    PyDistanceMatrix::new_with_distance_matrix(d),
+                    PyDistanceMatrix::new_with_sub_distance_matrix(d),
                 )
             }
             _ => panic!("unsupported graph type"),
@@ -148,13 +335,13 @@ impl PySparseSgd {
 #[pyclass]
 #[pyo3(name = "FullSgd")]
 struct PyFullSgd {
-    sgd: FullSgd,
+    sgd: FullSgd<f32>,
 }
 
 #[pymethods]
 impl PyFullSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> PyFullSgd {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyFullSgd {
         PyFullSgd {
             sgd: match graph.graph() {
                 GraphType::Graph(native_graph) => FullSgd::new(native_graph, |e| {
@@ -167,8 +354,11 @@ impl PyFullSgd {
 
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> PyFullSgd {
-        PyFullSgd {
-            sgd: FullSgd::new_with_distance_matrix(d.distance_matrix()),
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => PyFullSgd {
+                sgd: FullSgd::new_with_distance_matrix(d),
+            },
+            _ => panic!("unsupported distance matrix type"),
         }
     }
 
@@ -176,22 +366,92 @@ impl PyFullSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -200,13 +460,13 @@ impl PyFullSgd {
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedSparseSgd")]
 struct PyDistanceAdjustedSparseSgd {
-    sgd: DistanceAdjustedSgd<SparseSgd>,
+    sgd: DistanceAdjustedSgd<SparseSgd<f32>, f32>,
 }
 
 #[pymethods]
 impl PyDistanceAdjustedSparseSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny, h: usize, rng: &mut PyRng) -> Self {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, h: usize, rng: &mut PyRng) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => SparseSgd::new_with_rng(
@@ -221,7 +481,7 @@ impl PyDistanceAdjustedSparseSgd {
     }
 
     #[staticmethod]
-    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> Self {
+    pub fn new_with_pivot(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => {
@@ -241,27 +501,143 @@ impl PyDistanceAdjustedSparseSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd
-            .apply_with_distance_adjustment(drawing.drawing_mut(), eta);
+    pub fn apply_with_distance_adjustment(&mut self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -290,13 +666,13 @@ impl PyDistanceAdjustedSparseSgd {
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedFullSgd")]
 struct PyDistanceAdjustedFullSgd {
-    sgd: DistanceAdjustedSgd<FullSgd>,
+    sgd: DistanceAdjustedSgd<FullSgd<f32>, f32>,
 }
 
 #[pymethods]
 impl PyDistanceAdjustedFullSgd {
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &PyAny) -> Self {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> Self {
         Self {
             sgd: DistanceAdjustedSgd::new(match graph.graph() {
                 GraphType::Graph(native_graph) => FullSgd::new(native_graph, |e| {
@@ -309,8 +685,11 @@ impl PyDistanceAdjustedFullSgd {
 
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
-        Self {
-            sgd: DistanceAdjustedSgd::new(FullSgd::new_with_distance_matrix(d.distance_matrix())),
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => Self {
+                sgd: DistanceAdjustedSgd::new(FullSgd::new_with_distance_matrix(d)),
+            },
+            _ => panic!("unsupported distance matrix type"),
         }
     }
 
@@ -318,27 +697,143 @@ impl PyDistanceAdjustedFullSgd {
         self.sgd.shuffle(rng.get_mut())
     }
 
-    fn apply(&self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd.apply(drawing.drawing_mut(), eta);
+    fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd.apply(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn apply_with_distance_adjustment(&mut self, drawing: &mut PyDrawing, eta: f32) {
-        self.sgd
-            .apply_with_distance_adjustment(drawing.drawing_mut(), eta);
+    pub fn apply_with_distance_adjustment(&mut self, drawing: &Bound<PyDrawing>, eta: f32) {
+        let drawing_type = drawing.borrow().drawing_type();
+        Python::with_gil(|py| match drawing_type {
+            DrawingType::Euclidean2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Euclidean => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Hyperbolic2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Spherical2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+            DrawingType::Torus2d => {
+                let mut drawing = drawing
+                    .into_py(py)
+                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .unwrap()
+                    .borrow_mut();
+                self.sgd
+                    .apply_with_distance_adjustment(drawing.drawing_mut(), eta)
+            }
+        })
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySgdScheduler {
-        PySgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
-    pub fn update_distance(&mut self, f: &PyAny) {
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
@@ -364,8 +859,12 @@ impl PyDistanceAdjustedFullSgd {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    m.add_class::<PySgdScheduler>()?;
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+    m.add_class::<PySchedulerConstant>()?;
+    m.add_class::<PySchedulerLinear>()?;
+    m.add_class::<PySchedulerQuadratic>()?;
+    m.add_class::<PySchedulerExponential>()?;
+    m.add_class::<PySchedulerReciprocal>()?;
     m.add_class::<PyFullSgd>()?;
     m.add_class::<PySparseSgd>()?;
     m.add_class::<PyDistanceAdjustedFullSgd>()?;

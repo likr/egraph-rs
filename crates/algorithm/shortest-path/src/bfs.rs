@@ -1,88 +1,91 @@
+use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
 use ndarray::prelude::*;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use std::{
-    collections::{HashMap, VecDeque},
-    f32::INFINITY,
-    hash::Hash,
-};
+use std::{collections::VecDeque, hash::Hash};
 
-pub fn bfs_with_distance_matrix<G>(
+pub fn bfs_with_distance_matrix<G, S, D>(
     graph: G,
-    indices: &HashMap<G::NodeId, usize>,
-    unit_edge_length: f32,
+    unit_edge_length: S,
     s: G::NodeId,
-    distance_matrix: &mut Array2<f32>,
-    k: usize,
+    distance_matrix: &mut D,
 ) where
     G: IntoNeighbors,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: Eq + Hash,
+    D: DistanceMatrix<G::NodeId, S>,
+    S: NdFloat,
 {
-    let mut visited = vec![false; indices.len()];
-    visited[indices[&s]] = true;
+    let n = distance_matrix.shape().0;
+    let k = distance_matrix.row_index(s).unwrap();
+    let mut visited = vec![false; n];
+    visited[k] = true;
     let mut queue = VecDeque::new();
     queue.push_back(s);
-    distance_matrix[[indices[&s], k]] = 0.;
+    distance_matrix.set(s, s, S::zero());
     while let Some(u) = queue.pop_front() {
+        let i = distance_matrix.col_index(u).unwrap();
         for v in graph.neighbors(u) {
-            if !visited[indices[&v]] {
-                visited[indices[&v]] = true;
+            let j = distance_matrix.col_index(v).unwrap();
+            if !visited[j] {
+                visited[j] = true;
                 queue.push_back(v);
-                distance_matrix[[indices[&v], k]] =
-                    distance_matrix[[indices[&u], k]] + unit_edge_length;
+                distance_matrix.set_by_index(
+                    k,
+                    j,
+                    distance_matrix.get_by_index(k, i) + unit_edge_length,
+                );
             }
         }
     }
 }
 
-pub fn multi_source_bfs<G>(graph: G, unit_edge_length: f32, sources: &[G::NodeId]) -> Array2<f32>
+pub fn multi_source_bfs<G, S>(
+    graph: G,
+    unit_edge_length: S,
+    sources: &[G::NodeId],
+) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: Eq + Hash,
+    S: NdFloat,
 {
-    let indices = graph
-        .node_identifiers()
-        .enumerate()
-        .map(|(i, u)| (u, i))
-        .collect::<HashMap<_, _>>();
-    let n = indices.len();
-    let k = sources.len();
-    let mut distance_matrix = Array::from_elem((n, k), INFINITY);
-    for c in 0..k {
-        bfs_with_distance_matrix(
-            graph,
-            &indices,
-            unit_edge_length,
-            sources[c],
-            &mut distance_matrix,
-            c,
-        );
+    let mut distance_matrix = SubDistanceMatrix::new(graph, sources);
+    for &u in sources.iter() {
+        bfs_with_distance_matrix(graph, unit_edge_length, u, &mut distance_matrix);
     }
     distance_matrix
 }
 
-pub fn all_sources_bfs<G>(graph: G, unit_edge_length: f32) -> Array2<f32>
+pub fn all_sources_bfs<G, S>(graph: G, unit_edge_length: S) -> FullDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: Eq + Hash,
+    S: NdFloat,
 {
-    let sources = graph.node_identifiers().collect::<Vec<_>>();
-    multi_source_bfs(graph, unit_edge_length, &sources)
+    let mut distance_matrix = FullDistanceMatrix::new(graph);
+    for u in graph.node_identifiers() {
+        bfs_with_distance_matrix(graph, unit_edge_length, u, &mut distance_matrix);
+    }
+    distance_matrix
 }
 
-pub fn bfs_with_unit_edge_length<G>(graph: G, unit_edge_length: f32, s: G::NodeId) -> Array1<f32>
+pub fn bfs_with_unit_edge_length<G, S>(
+    graph: G,
+    unit_edge_length: S,
+    s: G::NodeId,
+) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: Eq + Hash,
+    S: NdFloat,
 {
-    let distance_matrix = multi_source_bfs(graph, unit_edge_length, &[s]);
-    let n = distance_matrix.shape()[0];
-    distance_matrix.into_shape(n).unwrap()
+    multi_source_bfs(graph, unit_edge_length, &[s])
 }
 
-pub fn bfs<G>(graph: G, s: G::NodeId) -> Array1<f32>
+pub fn bfs<G, S>(graph: G, s: G::NodeId) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Ord,
+    G::NodeId: Eq + Hash,
+    S: NdFloat,
 {
-    bfs_with_unit_edge_length(graph, 1., s)
+    bfs_with_unit_edge_length(graph, S::one(), s)
 }

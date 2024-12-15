@@ -8,15 +8,15 @@ mod neighborhood_preservation;
 mod node_resolution;
 mod stress;
 
-use ndarray::prelude::*;
 use petgraph::visit::{IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable};
-use petgraph_drawing::{Drawing, DrawingIndex};
+use petgraph_algorithm_shortest_path::FullDistanceMatrix;
+use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex};
 
 pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
 pub use edge_crossings::{
-    crossing_angle, crossing_angle_with_crossing_edges, crossing_edges, crossing_number,
-    crossing_number_with_crossing_edges,
+    crossing_angle, crossing_angle_with_crossing_edges, crossing_edges, crossing_edges_torus,
+    crossing_number, crossing_number_with_crossing_edges, CrossingEdges,
 };
 pub use gabriel_graph_property::gabriel_graph_property;
 pub use ideal_edge_lengths::ideal_edge_lengths;
@@ -72,8 +72,8 @@ impl QualityMetric {
 
 pub fn quality_metrics<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, f32>,
-    d: &Array2<f32>,
+    drawing: &DrawingEuclidean2d<G::NodeId, f32>,
+    d: &FullDistanceMatrix<G::NodeId, f32>,
 ) -> Vec<(QualityMetric, f32)>
 where
     G: IntoEdgeReferences + IntoNeighbors + IntoNodeIdentifiers + NodeIndexable,
@@ -99,8 +99,8 @@ where
 
 pub fn quality_metrics_with_targets<G>(
     graph: G,
-    drawing: &Drawing<G::NodeId, f32>,
-    d: &Array2<f32>,
+    drawing: &DrawingEuclidean2d<G::NodeId, f32>,
+    d: &FullDistanceMatrix<G::NodeId, f32>,
     targets: &[QualityMetric],
 ) -> Vec<(QualityMetric, f32)>
 where
@@ -120,9 +120,7 @@ where
                 QualityMetric::CrossingNumber => {
                     crossing_number_with_crossing_edges(&crossing_edges)
                 }
-                QualityMetric::CrossingAngle => {
-                    crossing_angle_with_crossing_edges(drawing, &crossing_edges)
-                }
+                QualityMetric::CrossingAngle => crossing_angle_with_crossing_edges(&crossing_edges),
                 QualityMetric::AspectRatio => aspect_ratio(drawing),
                 QualityMetric::AngularResolution => angular_resolution(graph, drawing),
                 QualityMetric::NodeResolution => node_resolution(drawing),

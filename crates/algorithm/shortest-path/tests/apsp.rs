@@ -1,22 +1,21 @@
 use egraph_dataset::dataset_1138_bus;
-use ndarray::prelude::*;
-use petgraph::{graph::node_index, prelude::*};
+use petgraph::prelude::*;
 use petgraph_algorithm_shortest_path::*;
 
-fn run<F>(f: F)
+fn run<F, D>(f: F)
 where
-    F: Fn(&UnGraph<(), ()>) -> Array2<f32>,
+    F: Fn(&UnGraph<(), ()>) -> D,
+    D: DistanceMatrix<NodeIndex, f32>,
 {
     let graph: UnGraph<(), ()> = dataset_1138_bus();
     let actual = f(&graph);
     let expected = petgraph::algo::floyd_warshall(&graph, |_| 1.).unwrap();
-    let n = graph.node_count();
-    for u in 0..n {
-        for v in 0..n {
+    for u in graph.node_indices() {
+        for v in graph.node_indices() {
             assert_eq!(
-                actual[[u, v]],
-                expected[&(node_index(u), node_index(v))],
-                "d[{}, {}]",
+                actual.get(u, v).unwrap(),
+                expected[&(u, v)],
+                "d[{:?}, {:?}]",
                 u,
                 v
             );

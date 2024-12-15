@@ -1,15 +1,10 @@
-// export { ExampleBiclustering } from "./ExampleBiclustering";
-// export { ExampleDag } from "./ExampleDag";
 export { ExampleEdgeBundling } from "./ExampleEdgeBundling";
-export { ExampleFm3 } from "./ExampleFm3";
-export { ExampleForceAtlas2 } from "./ExampleForceAtlas2";
-export { ExampleForceDirected } from "./ExampleForceDirected";
-export { ExampleFruchtermanReingold } from "./ExampleFruchtermanReingold";
-export { ExampleGroupInABox } from "./ExampleGroupInABox";
 export { ExampleHyperbolicGeometry } from "./ExampleHyperbolicGeometry";
 export { ExampleKamadaKawai } from "./ExampleKamadaKawai";
 export { ExampleMds } from "./ExampleMds";
+export { ExampleOverwrapRemoval } from "./ExampleOverwrapRemoval";
 export { ExampleSgd } from "./ExampleSgd";
 export { ExampleSphericalGeometry } from "./ExampleSphericalGeometry";
 export { ExampleStressMajorization } from "./ExampleStressMajorization";
+export { ExampleTorusGeometry as ExampleTorus } from "./ExampleTorusGeometry";
 export { Home } from "./Home";

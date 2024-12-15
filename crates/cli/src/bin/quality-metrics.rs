@@ -2,7 +2,7 @@ use argparse::{ArgumentParser, Store};
 use egraph_cli::read_graph;
 use petgraph::prelude::*;
 use petgraph_algorithm_shortest_path::warshall_floyd;
-use petgraph_drawing::Drawing;
+use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_quality_metrics::{quality_metrics, QualityMetric};
 use std::{collections::HashMap, fs::File, io::BufWriter};
 
@@ -21,7 +21,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 fn compute_metrics(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    drawing: &Drawing<NodeIndex, f32>,
+    drawing: &DrawingEuclidean2d<NodeIndex, f32>,
 ) -> Vec<(QualityMetric, f32)> {
     let distance = warshall_floyd(graph, &mut |_| 1.);
     quality_metrics(graph, drawing, &distance)

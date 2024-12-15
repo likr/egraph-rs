@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import {
-  Drawing,
+  DrawingEuclidean2d as Drawing,
   Graph,
   StressMajorization,
 } from "egraph/dist/web/egraph_wasm";

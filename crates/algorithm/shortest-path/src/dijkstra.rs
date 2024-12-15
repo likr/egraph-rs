@@ -1,86 +1,81 @@
 use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers};
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap},
-    f32::INFINITY,
-    hash::Hash,
-};
+use std::{cmp::Reverse, collections::BinaryHeap, hash::Hash};
 
-pub fn dijkstra_with_distance_matrix<G, F>(
+use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
+
+pub fn dijkstra_with_distance_matrix<G, S, F, D>(
     graph: G,
-    indices: &HashMap<G::NodeId, usize>,
     length: F,
     s: G::NodeId,
-    distance_matrix: &mut Array2<f32>,
-    k: usize,
+    distance_matrix: &mut D,
 ) where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
-    F: FnMut(G::EdgeRef) -> f32,
+    F: FnMut(G::EdgeRef) -> S,
+    S: NdFloat,
+    D: DistanceMatrix<G::NodeId, S>,
 {
     let mut length = length;
+    let k = distance_matrix.row_index(s).unwrap();
+    let j = distance_matrix.col_index(s).unwrap();
     let mut queue = BinaryHeap::new();
-    queue.push((Reverse(OrderedFloat(0.)), s));
-    distance_matrix[[indices[&s], k]] = 0.;
+    queue.push((Reverse(OrderedFloat(S::zero())), s));
+    distance_matrix.set_by_index(k, j, S::zero());
     while let Some((Reverse(OrderedFloat(d)), u)) = queue.pop() {
         for edge in graph.edges(u) {
             let v = edge.target();
+            let j = distance_matrix.col_index(v).unwrap();
             let e = d + length(edge);
-            if e < distance_matrix[[indices[&v], k]] {
+            if e < distance_matrix.get_by_index(k, j) {
                 queue.push((Reverse(OrderedFloat(e)), v));
-                distance_matrix[[indices[&v], k]] = e;
+                distance_matrix.set_by_index(k, j, e);
             }
         }
     }
 }
 
-pub fn multi_source_dijkstra<G, F>(graph: G, length: F, sources: &[G::NodeId]) -> Array2<f32>
+pub fn multi_source_dijkstra<G, S, F>(
+    graph: G,
+    length: F,
+    sources: &[G::NodeId],
+) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
-    F: FnMut(G::EdgeRef) -> f32,
+    F: FnMut(G::EdgeRef) -> S,
+    S: NdFloat,
 {
     let mut length = length;
-    let indices = graph
-        .node_identifiers()
-        .enumerate()
-        .map(|(i, u)| (u, i))
-        .collect::<HashMap<_, _>>();
-    let n = indices.len();
-    let k = sources.len();
-    let mut distance_matrix = Array::from_elem((n, k), INFINITY);
-    for c in 0..k {
-        dijkstra_with_distance_matrix(
-            graph,
-            &indices,
-            &mut length,
-            sources[c],
-            &mut distance_matrix,
-            c,
-        );
+    let mut distance_matrix = SubDistanceMatrix::new(graph, sources);
+    for &u in sources.iter() {
+        dijkstra_with_distance_matrix(graph, &mut length, u, &mut distance_matrix);
     }
     distance_matrix
 }
 
-pub fn all_sources_dijkstra<G, F>(graph: G, length: F) -> Array2<f32>
+pub fn all_sources_dijkstra<G, S, F>(graph: G, length: F) -> FullDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
-    F: FnMut(G::EdgeRef) -> f32,
+    F: FnMut(G::EdgeRef) -> S,
+    S: NdFloat,
 {
-    let sources = graph.node_identifiers().collect::<Vec<_>>();
-    multi_source_dijkstra(graph, length, &sources)
+    let mut length = length;
+    let mut distance_matrix = FullDistanceMatrix::new(graph);
+    for u in graph.node_identifiers() {
+        dijkstra_with_distance_matrix(graph, &mut length, u, &mut distance_matrix);
+    }
+    distance_matrix
 }
 
-pub fn dijkstra<G, F>(graph: G, length: F, s: G::NodeId) -> Array1<f32>
+pub fn dijkstra<G, S, F>(graph: G, length: F, s: G::NodeId) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
-    F: FnMut(G::EdgeRef) -> f32,
+    F: FnMut(G::EdgeRef) -> S,
+    S: NdFloat,
 {
-    let distance_matrix = multi_source_dijkstra(graph, length, &[s]);
-    let n = distance_matrix.shape()[0];
-    distance_matrix.into_shape(n).unwrap()
+    multi_source_dijkstra(graph, length, &[s])
 }

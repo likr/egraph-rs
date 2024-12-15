@@ -2,32 +2,36 @@ use crate::{
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
 };
-use petgraph::{graph::node_index, visit::EdgeRef};
+use petgraph::{graph::node_index, stable_graph::NodeIndex, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
 use pyo3::prelude::*;
 
 #[pyclass]
 #[pyo3(name = "ClassicalMds")]
 struct PyClassicalMds {
-    mds: ClassicalMds,
+    mds: ClassicalMds<NodeIndex>,
 }
 
 #[pymethods]
 impl PyClassicalMds {
     #[new]
-    fn new() -> PyClassicalMds {
-        PyClassicalMds {
-            mds: ClassicalMds::new(),
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyClassicalMds {
+        match graph.graph() {
+            GraphType::Graph(native_graph) => PyClassicalMds {
+                mds: ClassicalMds::new(native_graph, |e| {
+                    f.call1((e.id().index(),)).unwrap().extract().unwrap()
+                }),
+            },
+            _ => panic!("unsupported graph type"),
         }
     }
 
-    fn run(&self, graph: &PyGraphAdapter, f: &PyAny) -> PyDrawing {
-        PyDrawing::new(match graph.graph() {
-            GraphType::Graph(native_graph) => self.mds.run(native_graph, |e| {
-                f.call1((e.id().index(),)).unwrap().extract().unwrap()
-            }),
-            _ => panic!("unsupported graph type"),
-        })
+    fn run(&self, d: usize) -> PyObject {
+        PyDrawing::new_drawing_euclidean(self.mds.run(d))
+    }
+
+    fn run_2d(&self) -> PyObject {
+        PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
     #[getter]
@@ -44,30 +48,34 @@ impl PyClassicalMds {
 #[pyclass]
 #[pyo3(name = "PivotMds")]
 struct PyPivotMds {
-    mds: PivotMds,
+    mds: PivotMds<NodeIndex>,
 }
 
 #[pymethods]
 impl PyPivotMds {
     #[new]
-    fn new() -> PyPivotMds {
-        PyPivotMds {
-            mds: PivotMds::new(),
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyPivotMds {
+        match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let pivot = pivot.into_iter().map(|u| node_index(u)).collect::<Vec<_>>();
+                PyPivotMds {
+                    mds: PivotMds::new(
+                        native_graph,
+                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                        &pivot,
+                    ),
+                }
+            }
+            _ => panic!("unsupported graph type"),
         }
     }
 
-    fn run(&self, graph: &PyGraphAdapter, f: &PyAny, pivot: Vec<usize>) -> PyDrawing {
-        PyDrawing::new(match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                let pivot = pivot.into_iter().map(|u| node_index(u)).collect::<Vec<_>>();
-                self.mds.run(
-                    native_graph,
-                    |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &pivot,
-                )
-            }
-            _ => panic!("unsupported graph type"),
-        })
+    fn run(&self, d: usize) -> PyObject {
+        PyDrawing::new_drawing_euclidean(self.mds.run(d))
+    }
+
+    fn run_2d(&self) -> PyObject {
+        PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
     #[getter]
@@ -81,7 +89,7 @@ impl PyPivotMds {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyClassicalMds>()?;
     m.add_class::<PyPivotMds>()?;
     Ok(())

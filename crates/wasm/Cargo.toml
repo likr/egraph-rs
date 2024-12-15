@@ -20,15 +20,9 @@ petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-clustering = { path = "../clustering" }
 petgraph-drawing = { path = "../drawing" }
 petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
-petgraph-layout-fm3 = { path = "../layout/fm3" }
-petgraph-layout-force= { path = "../layout/force" }
-petgraph-layout-force-atlas2= { path = "../layout/force-atlas2" }
-petgraph-layout-force-simulation = { path = "../layout/force-simulation" }
-petgraph-layout-fruchterman-reingold = { path = "../layout/fruchterman-reingold" }
-petgraph-layout-grouped-force = { path = "../layout/grouped-force" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-mds = { path = "../layout/mds" }
-petgraph-layout-non-euclidean-force-simulation = { path = "../layout/non-euclidean-force-simulation" }
+petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-quality-metrics = { path = "../quality-metrics" }

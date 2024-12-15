@@ -1,6 +1,6 @@
 [workspace]
+resolver = "2"
 members = [
-    "crates/algorithm/biconnected-components",
     "crates/algorithm/connected-components",
     "crates/algorithm/shortest-path",
     "crates/cli",
@@ -8,20 +8,12 @@ members = [
     "crates/dataset",
     "crates/drawing",
     "crates/edge-bundling/fdeb",
-    "crates/layout/fm3",
-    "crates/layout/force",
-    "crates/layout/force-simulation",
-    "crates/layout/fruchterman-reingold",
-    "crates/layout/grouped-force",
     "crates/layout/kamada-kawai",
+    "crates/layout/overwrap-removal",
     "crates/layout/sgd",
     "crates/layout/mds",
-    "crates/layout/non-euclidean-force-simulation",
     "crates/layout/stress-majorization",
     "crates/python",
-    "crates/quadtree",
     "crates/quality-metrics",
-    "crates/treemap",
-    "crates/util/force_derive",
     "crates/wasm",
 ]

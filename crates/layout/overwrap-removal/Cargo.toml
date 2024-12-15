@@ -1,0 +1,8 @@
+[package]
+name = "petgraph-layout-overwrap-removal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+petgraph = "0.6"
+petgraph-drawing = { path = "../../drawing" }

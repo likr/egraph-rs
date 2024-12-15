@@ -1,6 +1,6 @@
 use crate::{
-    distance_matrix::PyDistanceMatrix,
-    drawing::PyDrawing,
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
+    drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
 };
 use petgraph::visit::EdgeRef;
@@ -16,7 +16,11 @@ struct PyStressMajorization {
 #[pymethods]
 impl PyStressMajorization {
     #[new]
-    fn new(graph: &PyGraphAdapter, drawing: &PyDrawing, f: &PyAny) -> PyStressMajorization {
+    fn new(
+        graph: &PyGraphAdapter,
+        drawing: &PyDrawingEuclidean2d,
+        f: &Bound<PyAny>,
+    ) -> PyStressMajorization {
         PyStressMajorization {
             stress_majorization: match graph.graph() {
                 GraphType::Graph(native_graph) => {
@@ -31,33 +35,36 @@ impl PyStressMajorization {
 
     #[classmethod]
     fn with_distance_matrix(
-        _cls: &PyType,
-        drawing: &PyDrawing,
+        _cls: &Bound<PyType>,
+        drawing: &PyDrawingEuclidean2d,
         distance_matrix: &PyDistanceMatrix,
     ) -> PyStressMajorization {
-        PyStressMajorization {
-            stress_majorization: StressMajorization::new_with_distance_matrix(
-                drawing.drawing(),
-                distance_matrix.distance_matrix(),
-            ),
+        match distance_matrix.distance_matrix() {
+            DistanceMatrixType::Full(distance_matrix) => PyStressMajorization {
+                stress_majorization: StressMajorization::new_with_distance_matrix(
+                    drawing.drawing(),
+                    distance_matrix,
+                ),
+            },
+            _ => unimplemented!(),
         }
     }
 
-    fn apply(&mut self, drawing: &mut PyDrawing) -> f32 {
+    fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> f32 {
         self.stress_majorization.apply(drawing.drawing_mut())
     }
 
-    pub fn run(&mut self, drawing: &mut PyDrawing) {
-        self.stress_majorization.run(drawing.drawing_mut());
+    pub fn run(&mut self, drawing: &mut PyDrawingEuclidean2d) {
+        self.stress_majorization.run(drawing.drawing_mut())
     }
 
-    pub fn update_weight(&mut self, f: &PyAny) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.stress_majorization
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 }
 
-pub fn register(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStressMajorization>()?;
     Ok(())
 }

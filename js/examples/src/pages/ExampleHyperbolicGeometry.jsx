@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import {
-  Coordinates,
+  DrawingHyperbolic2d as Drawing,
   Graph,
-  Simulation,
-  FruchtermanReingoldForce,
-  HyperbolicSpace,
+  FullSgd as Sgd,
+  Rng,
 } from "egraph/dist/web/egraph_wasm";
 
 async function fetchData() {
@@ -32,28 +31,18 @@ function layout(data) {
     graph.addEdge(indices.get(source), indices.get(target), link);
   }
 
-  const coordinates = Coordinates.initialPlacement(graph);
-  graph.nodeIndices().forEach((u, i) => {
-    const t = (Math.PI * 2 * i) / graph.nodeCount();
-    coordinates.setX(u, 0.5 * Math.cos(t));
-    coordinates.setY(u, 0.5 * Math.sin(t));
-  });
-  const tangentSpace = Coordinates.initialPlacement(graph);
-  const simulation = new Simulation();
-  const forces = [new FruchtermanReingoldForce(graph, 0.5, 0.1)];
-  simulation.run((alpha) => {
-    for (const u of graph.nodeIndices()) {
-      HyperbolicSpace.mapToTangentSpace(u, coordinates, tangentSpace);
-      for (const force of forces) {
-        force.applyToNode(u, tangentSpace, alpha);
-      }
-      HyperbolicSpace.updatePosition(u, coordinates, tangentSpace, 0.6);
-    }
+  const rng = Rng.seedFrom(4n);
+  const drawing = Drawing.initialPlacement(graph);
+  const sgd = new Sgd(graph, () => 2);
+  const scheduler = sgd.scheduler(100, 0.1);
+  scheduler.run((eta) => {
+    sgd.shuffle(rng);
+    sgd.applyWithDrawingHyperbolic2d(drawing, eta);
   });
   for (const u of graph.nodeIndices()) {
     const node = graph.nodeWeight(u);
-    node.x = coordinates.x(u);
-    node.y = coordinates.y(u);
+    node.x = drawing.x(u);
+    node.y = drawing.y(u);
   }
 }
 

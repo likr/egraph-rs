@@ -23,7 +23,7 @@ export function ExampleMds() {
         graph.addEdge(indices.get(source), indices.get(target), link);
       }
 
-      const drawing = new ClassicalMds().run(graph, () => 100);
+      const drawing = new ClassicalMds(graph, () => 100).run2d();
       for (const u of graph.nodeIndices()) {
         const node = graph.nodeWeight(u);
         node.x = drawing.x(u);

@@ -1,6 +1,10 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import { Drawing, Graph, KamadaKawai } from "egraph/dist/web/egraph_wasm";
+import {
+  DrawingEuclidean2d as Drawing,
+  Graph,
+  KamadaKawai,
+} from "egraph/dist/web/egraph_wasm";
 import { Wrapper } from "../wrapper";
 
 export function ExampleKamadaKawai() {

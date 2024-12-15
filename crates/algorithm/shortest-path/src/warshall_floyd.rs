@@ -1,40 +1,34 @@
-use ndarray::prelude::*;
+use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix};
+use ndarray::NdFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers};
-use std::{collections::HashMap, f32::INFINITY, hash::Hash};
+use std::hash::Hash;
 
-pub fn warshall_floyd<G, F>(graph: G, length: F) -> Array2<f32>
+pub fn warshall_floyd<G, F, S>(graph: G, length: F) -> FullDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,
-    F: FnMut(G::EdgeRef) -> f32,
+    F: FnMut(G::EdgeRef) -> S,
+    S: NdFloat,
 {
-    let indices = graph
-        .node_identifiers()
-        .enumerate()
-        .map(|(i, u)| (u, i))
-        .collect::<HashMap<_, _>>();
-    let n = indices.len();
-    let mut distance = Array::from_elem((n, n), INFINITY);
+    let mut distance = FullDistanceMatrix::new(graph);
     let mut length = length;
+    let n = distance.shape().0;
 
     for u in graph.node_identifiers() {
         for e in graph.edges(u) {
-            let i = indices[&e.source()];
-            let j = indices[&e.target()];
-            let d = length(e);
-            distance[[j, i]] = d;
+            distance.set(e.source(), e.target(), length(e));
         }
     }
     for i in 0..n {
-        distance[[i, i]] = 0.;
+        distance.set_by_index(i, i, S::zero());
     }
 
     for k in 0..n {
         for i in 0..n {
             for j in 0..n {
-                let d = distance[[i, k]] + distance[[k, j]];
-                if d < distance[[i, j]] {
-                    distance[[i, j]] = d;
+                let d = distance.get_by_index(i, k) + distance.get_by_index(k, j);
+                if d < distance.get_by_index(i, j) {
+                    distance.set_by_index(i, j, d);
                 }
             }
         }
