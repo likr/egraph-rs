@@ -1,4 +1,5 @@
 use crate::{
+    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
 };
@@ -23,6 +24,16 @@ impl PyClassicalMds {
                 }),
             },
             _ => panic!("unsupported graph type"),
+        }
+    }
+
+    #[staticmethod]
+    fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => Self {
+                mds: ClassicalMds::new_with_distance_matrix(d),
+            },
+            _ => panic!("unsupported distance matrix type"),
         }
     }
 
@@ -67,6 +78,18 @@ impl PyPivotMds {
                 }
             }
             _ => panic!("unsupported graph type"),
+        }
+    }
+
+    #[staticmethod]
+    fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
+        match d.distance_matrix() {
+            DistanceMatrixType::Full(d) => Self {
+                mds: PivotMds::new_with_distance_matrix(d),
+            },
+            DistanceMatrixType::Sub(d) => Self {
+                mds: PivotMds::new_with_distance_matrix(d),
+            },
         }
     }
 

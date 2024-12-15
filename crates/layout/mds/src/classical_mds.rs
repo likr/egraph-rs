@@ -22,10 +22,10 @@ where
         N: Copy,
     {
         let distance_matrix = all_sources_dijkstra(graph, length);
-        Self::new_with_distance_matrix(distance_matrix)
+        Self::new_with_distance_matrix(&distance_matrix)
     }
 
-    pub fn new_with_distance_matrix<N2>(distance_matrix: FullDistanceMatrix<N2, f32>) -> Self
+    pub fn new_with_distance_matrix<N2>(distance_matrix: &FullDistanceMatrix<N2, f32>) -> Self
     where
         N2: DrawingIndex + Copy + Into<N>,
     {
