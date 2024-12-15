@@ -2,19 +2,11 @@ import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import {
   Graph,
-<<<<<<< HEAD
-  Drawing,
-  DistanceAdjustedSparseSgd as Sgd,
-  Rng,
-} from "egraph/dist/web/egraph_wasm";
-import data from "egraph-dataset/dwt_1005.json";
-=======
   DrawingEuclidean2d as Drawing,
   SparseSgd as Sgd,
   Rng,
 } from "egraph/dist/web/egraph_wasm";
 import data from "egraph-dataset/USpowerGrid.json";
->>>>>>> efe22487a57cab11bc0ac1f51c85869669387983
 import { Wrapper } from "../wrapper";
 
 export function ExampleSgd() {
@@ -35,15 +27,8 @@ export function ExampleSgd() {
 
     const rng = Rng.seedFrom(1n);
     const drawing = Drawing.initialPlacement(graph);
-<<<<<<< HEAD
-    const sgd = new Sgd(graph, () => 1, 300, rng);
-    sgd.alpha = 1 - 0.5 ** 5;
-    sgd.minimumDistance = 0.5;
-    const scheduler = sgd.scheduler(15, 0.1);
-=======
     const sgd = new Sgd(graph, () => 20, 200, rng);
     const scheduler = sgd.scheduler(100, 0.1);
->>>>>>> efe22487a57cab11bc0ac1f51c85869669387983
 
     const draw = () => {
       if (!rendererRef.current || scheduler.isFinished()) {
@@ -51,11 +36,7 @@ export function ExampleSgd() {
       }
       scheduler.step((eta) => {
         sgd.shuffle(rng);
-<<<<<<< HEAD
-        sgd.applyWithDistanceAdjustment(drawing, eta);
-=======
         sgd.applyWithDrawingEuclidean2d(drawing, eta);
->>>>>>> efe22487a57cab11bc0ac1f51c85869669387983
       });
       drawing.centralize();
       for (const u of graph.nodeIndices()) {

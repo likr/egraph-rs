@@ -8,14 +8,10 @@ use crate::{
 };
 use js_sys::{Array, Function};
 use petgraph::visit::EdgeRef;
-<<<<<<< HEAD
-use petgraph_layout_sgd::{DistanceAdjustedSgd, FullSgd, Sgd, SgdScheduler, SparseSgd};
-=======
 use petgraph_layout_sgd::{
-    FullSgd, Scheduler, SchedulerConstant, SchedulerExponential, SchedulerLinear,
-    SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
+    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerConstant, SchedulerExponential,
+    SchedulerLinear, SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
 };
->>>>>>> efe22487a57cab11bc0ac1f51c85869669387983
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
@@ -394,7 +390,7 @@ impl JsSparseSgd {
 
 #[wasm_bindgen(js_name = "DistanceAdjustedFullSgd")]
 pub struct JsDistanceAdjustedFullSgd {
-    sgd: DistanceAdjustedSgd<FullSgd>,
+    sgd: DistanceAdjustedSgd<FullSgd<f32>, f32>,
 }
 
 #[wasm_bindgen(js_class = "DistanceAdjustedFullSgd")]
@@ -419,17 +415,17 @@ impl JsDistanceAdjustedFullSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
+    pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     #[wasm_bindgen(js_name = "applyWithDistanceAdjustment")]
-    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawing, eta: f32) {
+    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {
-        JsSgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        JsSchedulerExponential {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
@@ -489,7 +485,7 @@ impl JsDistanceAdjustedFullSgd {
 
 #[wasm_bindgen(js_name = "DistanceAdjustedSparseSgd")]
 pub struct JsDistanceAdjustedSparseSgd {
-    sgd: DistanceAdjustedSgd<SparseSgd>,
+    sgd: DistanceAdjustedSgd<SparseSgd<f32>, f32>,
 }
 
 #[wasm_bindgen(js_class = "DistanceAdjustedSparseSgd")]
@@ -519,17 +515,17 @@ impl JsDistanceAdjustedSparseSgd {
         self.sgd.shuffle(rng.get_mut());
     }
 
-    pub fn apply(&self, drawing: &mut JsDrawing, eta: f32) {
+    pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
     #[wasm_bindgen(js_name = "applyWithDistanceAdjustment")]
-    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawing, eta: f32) {
+    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
 
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSgdScheduler {
-        JsSgdScheduler {
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        JsSchedulerExponential {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
