@@ -3,9 +3,9 @@ use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 use rand::prelude::*;
 
 pub trait Sgd<S> {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)>;
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)>;
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)>;
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)>;
 
     fn shuffle<R: Rng>(&mut self, rng: &mut R) {
         self.node_pairs_mut().shuffle(rng);
@@ -18,15 +18,16 @@ pub trait Sgd<S> {
         M: Metric<D = Diff>,
         S: DrawingValue,
     {
-        for &(i, j, dij, wij, wji) in self.node_pairs().iter() {
+        for &(i, j, dij, dji, wij, wji) in self.node_pairs().iter() {
             let mu_i = (eta * wij).min(S::one());
             let mu_j = (eta * wji).min(S::one());
             let delta = drawing.delta(i, j);
             let norm = delta.norm();
             if norm > S::zero() {
-                let r = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
-                *drawing.raw_entry_mut(i) += delta.clone() * -r * mu_i;
-                *drawing.raw_entry_mut(j) += delta.clone() * r * mu_j;
+                let r_i = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
+                let r_j = S::from_f32(0.5).unwrap() * (norm - dji) / norm;
+                *drawing.raw_entry_mut(i) += delta.clone() * -r_i * mu_i;
+                *drawing.raw_entry_mut(j) += delta.clone() * r_j * mu_j;
             }
         }
     }
@@ -38,7 +39,7 @@ pub trait Sgd<S> {
     {
         let mut w_min = S::infinity();
         let mut w_max = S::zero();
-        for &(_, _, _, wij, wji) in self.node_pairs().iter() {
+        for &(_, _, _, _, wij, wji) in self.node_pairs().iter() {
             for w in [wij, wji] {
                 if w == S::zero() {
                     continue;
@@ -58,12 +59,13 @@ pub trait Sgd<S> {
 
     fn update_distance<F>(&mut self, mut distance: F)
     where
-        F: FnMut(usize, usize, S, S, S) -> S,
+        F: FnMut(usize, usize, S, S) -> S,
         S: Copy,
     {
         for p in self.node_pairs_mut() {
-            let (i, j, dij, wij, wji) = p;
-            p.2 = distance(*i, *j, *dij, *wij, *wji)
+            let (i, j, dij, dji, wij, wji) = p;
+            p.2 = distance(*i, *j, *dij, *wij);
+            p.3 = distance(*j, *i, *dji, *wji);
         }
     }
 
@@ -73,9 +75,9 @@ pub trait Sgd<S> {
         S: Copy,
     {
         for p in self.node_pairs_mut() {
-            let (i, j, dij, wij, wji) = p;
-            p.3 = weight(*i, *j, *dij, *wij);
-            p.4 = weight(*i, *j, *dij, *wji);
+            let (i, j, dij, dji, wij, wji) = p;
+            p.4 = weight(*i, *j, *dij, *wij);
+            p.5 = weight(*j, *i, *dji, *wji);
         }
     }
 }

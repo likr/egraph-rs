@@ -9,8 +9,8 @@ use crate::{
 use js_sys::{Array, Function};
 use petgraph::visit::EdgeRef;
 use petgraph_layout_sgd::{
-    FullSgd, Scheduler, SchedulerConstant, SchedulerExponential, SchedulerLinear,
-    SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
+    DistanceAdjustedSgd, FullSgd, Scheduler, SchedulerConstant, SchedulerExponential,
+    SchedulerLinear, SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
 };
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -233,13 +233,12 @@ impl JsFullSgd {
 
     #[wasm_bindgen(js_name = "updateDistance")]
     pub fn update_distance(&mut self, distance: &Function) {
-        self.sgd.update_distance(|i, j, dij, wij, wji| {
+        self.sgd.update_distance(|i, j, dij, wij| {
             let args = Array::new();
             args.push(&JsValue::from_f64(i as f64));
             args.push(&JsValue::from_f64(j as f64));
             args.push(&JsValue::from_f64(dij as f64));
             args.push(&JsValue::from_f64(wij as f64));
-            args.push(&JsValue::from_f64(wji as f64));
             distance
                 .apply(&JsValue::null(), &args)
                 .unwrap()
@@ -358,13 +357,12 @@ impl JsSparseSgd {
 
     #[wasm_bindgen(js_name = "updateDistance")]
     pub fn update_distance(&mut self, distance: &Function) {
-        self.sgd.update_distance(|i, j, dij, wij, wji| {
+        self.sgd.update_distance(|i, j, dij, wij| {
             let args = Array::new();
             args.push(&JsValue::from_f64(i as f64));
             args.push(&JsValue::from_f64(j as f64));
             args.push(&JsValue::from_f64(dij as f64));
             args.push(&JsValue::from_f64(wij as f64));
-            args.push(&JsValue::from_f64(wji as f64));
             distance
                 .apply(&JsValue::null(), &args)
                 .unwrap()
@@ -387,5 +385,200 @@ impl JsSparseSgd {
                 .as_f64()
                 .unwrap() as f32
         })
+    }
+}
+
+#[wasm_bindgen(js_name = "DistanceAdjustedFullSgd")]
+pub struct JsDistanceAdjustedFullSgd {
+    sgd: DistanceAdjustedSgd<FullSgd<f32>, f32>,
+}
+
+#[wasm_bindgen(js_class = "DistanceAdjustedFullSgd")]
+impl JsDistanceAdjustedFullSgd {
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsGraph, length: &Function) -> Self {
+        let mut length_map = HashMap::new();
+        for e in graph.graph().edge_indices() {
+            let c = length
+                .call1(&JsValue::null(), &JsValue::from_f64(e.index() as f64))
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32;
+            length_map.insert(e, c);
+        }
+        Self {
+            sgd: DistanceAdjustedSgd::new(FullSgd::new(graph.graph(), |e| length_map[&e.id()])),
+        }
+    }
+
+    pub fn shuffle(&mut self, rng: &mut JsRng) {
+        self.sgd.shuffle(rng.get_mut());
+    }
+
+    pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDistanceAdjustment")]
+    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        JsSchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "updateDistance")]
+    pub fn update_distance(&mut self, distance: &Function) {
+        self.sgd.update_distance(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            distance
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(js_name = "updateWeight")]
+    pub fn update_weight(&mut self, weight: &Function) {
+        self.sgd.update_weight(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            weight
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn alpha(&self) -> f32 {
+        self.sgd.alpha
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_alpha(&mut self, value: f32) {
+        self.sgd.alpha = value;
+    }
+
+    #[wasm_bindgen(getter, js_name = "minimumDistance")]
+    pub fn minimum_distance(&self) -> f32 {
+        self.sgd.minimum_distance
+    }
+
+    #[wasm_bindgen(setter, js_name = "minimumDistance")]
+    pub fn set_minimum_distance(&mut self, value: f32) {
+        self.sgd.minimum_distance = value;
+    }
+}
+
+#[wasm_bindgen(js_name = "DistanceAdjustedSparseSgd")]
+pub struct JsDistanceAdjustedSparseSgd {
+    sgd: DistanceAdjustedSgd<SparseSgd<f32>, f32>,
+}
+
+#[wasm_bindgen(js_class = "DistanceAdjustedSparseSgd")]
+impl JsDistanceAdjustedSparseSgd {
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsGraph, length: &Function, h: usize, rng: &mut JsRng) -> Self {
+        let mut length_map = HashMap::new();
+        for e in graph.graph().edge_indices() {
+            let c = length
+                .call1(&JsValue::null(), &JsValue::from_f64(e.index() as f64))
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32;
+            length_map.insert(e, c);
+        }
+        Self {
+            sgd: DistanceAdjustedSgd::new(SparseSgd::new_with_rng(
+                graph.graph(),
+                |e| length_map[&e.id()],
+                h,
+                rng.get_mut(),
+            )),
+        }
+    }
+
+    pub fn shuffle(&mut self, rng: &mut JsRng) {
+        self.sgd.shuffle(rng.get_mut());
+    }
+
+    pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    #[wasm_bindgen(js_name = "applyWithDistanceAdjustment")]
+    pub fn apply_with_distance_adjustment(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
+        self.sgd.apply(drawing.drawing_mut(), eta);
+    }
+
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        JsSchedulerExponential {
+            scheduler: self.sgd.scheduler(t_max, epsilon),
+        }
+    }
+
+    #[wasm_bindgen(js_name = "updateDistance")]
+    pub fn update_distance(&mut self, distance: &Function) {
+        self.sgd.update_distance(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            distance
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(js_name = "updateWeight")]
+    pub fn update_weight(&mut self, weight: &Function) {
+        self.sgd.update_weight(|i, j, d, w| {
+            let args = Array::new();
+            args.push(&JsValue::from_f64(i as f64));
+            args.push(&JsValue::from_f64(j as f64));
+            args.push(&JsValue::from_f64(d as f64));
+            args.push(&JsValue::from_f64(w as f64));
+            weight
+                .apply(&JsValue::null(), &args)
+                .unwrap()
+                .as_f64()
+                .unwrap() as f32
+        })
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn alpha(&self) -> f32 {
+        self.sgd.alpha
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_alpha(&mut self, value: f32) {
+        self.sgd.alpha = value;
+    }
+
+    #[wasm_bindgen(getter, js_name = "minimumDistance")]
+    pub fn minimum_distance(&self) -> f32 {
+        self.sgd.minimum_distance
+    }
+
+    #[wasm_bindgen(setter, js_name = "minimumDistance")]
+    pub fn set_minimum_distance(&mut self, value: f32) {
+        self.sgd.minimum_distance = value;
     }
 }

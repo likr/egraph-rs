@@ -21,10 +21,10 @@ where
         F: FnMut(G::EdgeRef) -> f32,
     {
         let distance_matrix = multi_source_dijkstra(graph, length, &sources);
-        Self::new_with_distance_matrix(distance_matrix)
+        Self::new_with_distance_matrix(&distance_matrix)
     }
 
-    pub fn new_with_distance_matrix<N2, D>(distance_matrix: D) -> Self
+    pub fn new_with_distance_matrix<N2, D>(distance_matrix: &D) -> Self
     where
         N2: DrawingIndex + Copy + Into<N>,
         D: DistanceMatrix<N2, f32>,

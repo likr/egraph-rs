@@ -47,6 +47,20 @@ class TestQualityMetrics(unittest.TestCase):
             drawing = mds.run_2d()
             check_drawing_2d(graph, drawing)
 
+    def test_classical_mds_2d_with_distance_matrix(self):
+        for graph in self._graphs:
+            d = eg.all_sources_dijkstra(graph, lambda _: 30)
+            mds = eg.ClassicalMds.new_with_distance_matrix(d)
+            drawing = mds.run_2d()
+            check_drawing_2d(graph, drawing)
+
+    def test_pivot_mds_2d_with_distance_matrix(self):
+        for graph in self._graphs:
+            d = eg.all_sources_dijkstra(graph, lambda _: 30)
+            mds = eg.PivotMds.new_with_distance_matrix(d)
+            drawing = mds.run_2d()
+            check_drawing_2d(graph, drawing)
+
     def test_classical_mds_3d(self):
         for graph in self._graphs:
             mds = eg.ClassicalMds(graph, lambda _: 30)

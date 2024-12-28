@@ -10,7 +10,7 @@ use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 pub struct SparseSgd<S> {
-    node_pairs: Vec<(usize, usize, S, S, S)>,
+    node_pairs: Vec<(usize, usize, S, S, S, S)>,
 }
 
 impl<S> SparseSgd<S> {
@@ -78,7 +78,7 @@ impl<S> SparseSgd<S> {
             let j = indices[&edge.target()];
             let dij = length(edge);
             let wij = S::one() / (dij * dij);
-            node_pairs.push((i, j, dij, wij, wij));
+            node_pairs.push((i, j, dij, dij, wij, wij));
             edges.insert((i, j));
             edges.insert((j, i));
         }
@@ -112,7 +112,7 @@ impl<S> SparseSgd<S> {
                         .count(),
                 )
                 .unwrap();
-                node_pairs.push((p, i, dpi, spi * wpi, S::zero()));
+                node_pairs.push((p, i, dpi, dpi, spi * wpi, S::zero()));
             }
         }
         SparseSgd { node_pairs }
@@ -136,11 +136,11 @@ impl<S> SparseSgd<S> {
 }
 
 impl<S> Sgd<S> for SparseSgd<S> {
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S)> {
+    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
         &self.node_pairs
     }
 
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S)> {
+    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
         &mut self.node_pairs
     }
 }
