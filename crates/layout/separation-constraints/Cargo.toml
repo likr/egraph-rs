@@ -1,0 +1,9 @@
+[package]
+name = "petgraph-layout-separation-constraints"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordered-float = "3.0"
+petgraph = "0.6"
+petgraph-drawing = { path = "../../drawing" }
