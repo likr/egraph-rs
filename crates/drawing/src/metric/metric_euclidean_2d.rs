@@ -90,7 +90,7 @@ where
     type D = DeltaEuclidean2d<S>;
 }
 
-impl<'a, 'b, S> Sub<&'b MetricEuclidean2d<S>> for &'a MetricEuclidean2d<S>
+impl<'b, S> Sub<&'b MetricEuclidean2d<S>> for &MetricEuclidean2d<S>
 where
     S: DrawingValue,
 {

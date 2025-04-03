@@ -218,7 +218,7 @@ where
     type D = DeltaTorus2d<S>;
 }
 
-impl<'a, 'b, S> Sub<&'b MetricTorus2d<S>> for &'a MetricTorus2d<S>
+impl<'b, S> Sub<&'b MetricTorus2d<S>> for &MetricTorus2d<S>
 where
     S: DrawingValue,
 {

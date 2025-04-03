@@ -94,7 +94,7 @@ where
     type D = DeltaHyperbolic2d<S>;
 }
 
-impl<'a, 'b, S> Sub<&'b MetricHyperbolic2d<S>> for &'a MetricHyperbolic2d<S>
+impl<'b, S> Sub<&'b MetricHyperbolic2d<S>> for &MetricHyperbolic2d<S>
 where
     S: DrawingValue,
 {

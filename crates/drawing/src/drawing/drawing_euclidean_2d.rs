@@ -121,9 +121,9 @@ where
                 * (S::from_usize(i).unwrap());
             let x = r * theta.cos();
             let y = r * theta.sin();
-            drawing
-                .position_mut(u.into())
-                .map(|p| *p = MetricEuclidean2d(x, y));
+            if let Some(p) = drawing.position_mut(u.into()) {
+                *p = MetricEuclidean2d(x, y);
+            }
         }
         drawing
     }
@@ -142,15 +142,15 @@ where
         let mut index = 1usize;
         while let Some(u) = queue.pop_front() {
             for v in graph.neighbors(u) {
-                if !order.contains_key(&v) {
+                if let std::collections::hash_map::Entry::Vacant(e) = order.entry(v) {
                     queue.push_back(v);
-                    order.insert(v, index);
+                    e.insert(index);
                     index += 1;
                 }
             }
         }
         let mut nodes = graph.node_identifiers().collect::<Vec<_>>();
-        nodes.sort_by_key(|&u| order.get(&u).or(Some(&std::usize::MAX)));
+        nodes.sort_by_key(|&u| order.get(&u).or(Some(&usize::MAX)));
         Self::initial_placement_with_node_order(graph, &nodes)
     }
 

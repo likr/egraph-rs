@@ -76,9 +76,9 @@ where
         let cx = S::from(0.5).unwrap();
         let cy = S::from(0.5).unwrap();
         let mut drawing = Self::new(graph);
-        for i in 0..n {
+        for (i, &node) in nodes.iter().enumerate().take(n) {
             let t = dt * S::from_usize(i).unwrap();
-            if let Some(p) = drawing.position_mut(nodes[i].into()) {
+            if let Some(p) = drawing.position_mut(node.into()) {
                 *p = MetricTorus2d(
                     TorusValue::new(r * t.cos() + cx),
                     TorusValue::new(r * t.sin() + cy),
@@ -177,38 +177,36 @@ where
                             ),
                         ]
                     }
+                } else if y2 < S::zero() {
+                    vec![
+                        (
+                            MetricTorus2d(TorusValue::new(x0), TorusValue::new(y0)),
+                            MetricTorus2d(TorusValue::new(x2), TorusValue::min()),
+                        ),
+                        (
+                            MetricTorus2d(TorusValue::new(x2), TorusValue::max()),
+                            MetricTorus2d(TorusValue::min(), TorusValue::new(y2 + S::one())),
+                        ),
+                        (
+                            MetricTorus2d(TorusValue::max(), TorusValue::new(y2 + S::one())),
+                            MetricTorus2d(TorusValue::new(x1), TorusValue::new(y1)),
+                        ),
+                    ]
                 } else {
-                    if y2 < S::zero() {
-                        vec![
-                            (
-                                MetricTorus2d(TorusValue::new(x0), TorusValue::new(y0)),
-                                MetricTorus2d(TorusValue::new(x2), TorusValue::min()),
-                            ),
-                            (
-                                MetricTorus2d(TorusValue::new(x2), TorusValue::max()),
-                                MetricTorus2d(TorusValue::min(), TorusValue::new(y2 + S::one())),
-                            ),
-                            (
-                                MetricTorus2d(TorusValue::max(), TorusValue::new(y2 + S::one())),
-                                MetricTorus2d(TorusValue::new(x1), TorusValue::new(y1)),
-                            ),
-                        ]
-                    } else {
-                        vec![
-                            (
-                                MetricTorus2d(TorusValue::new(x0), TorusValue::new(y0)),
-                                MetricTorus2d(TorusValue::min(), TorusValue::new(y2)),
-                            ),
-                            (
-                                MetricTorus2d(TorusValue::max(), TorusValue::new(y2)),
-                                MetricTorus2d(TorusValue::new(x2 + S::one()), TorusValue::min()),
-                            ),
-                            (
-                                MetricTorus2d(TorusValue::new(x2 + S::one()), TorusValue::max()),
-                                MetricTorus2d(TorusValue::new(x1), TorusValue::new(y1)),
-                            ),
-                        ]
-                    }
+                    vec![
+                        (
+                            MetricTorus2d(TorusValue::new(x0), TorusValue::new(y0)),
+                            MetricTorus2d(TorusValue::min(), TorusValue::new(y2)),
+                        ),
+                        (
+                            MetricTorus2d(TorusValue::max(), TorusValue::new(y2)),
+                            MetricTorus2d(TorusValue::new(x2 + S::one()), TorusValue::min()),
+                        ),
+                        (
+                            MetricTorus2d(TorusValue::new(x2 + S::one()), TorusValue::max()),
+                            MetricTorus2d(TorusValue::new(x1), TorusValue::new(y1)),
+                        ),
+                    ]
                 }
             }
         })

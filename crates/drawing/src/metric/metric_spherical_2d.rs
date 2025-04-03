@@ -96,7 +96,7 @@ where
     type D = DeltaSpherical2d<S>;
 }
 
-impl<'a, 'b, S> Sub<&'b MetricSpherical2d<S>> for &'a MetricSpherical2d<S>
+impl<'b, S> Sub<&'b MetricSpherical2d<S>> for &MetricSpherical2d<S>
 where
     S: DrawingValue,
 {

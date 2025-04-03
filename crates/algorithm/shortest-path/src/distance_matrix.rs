@@ -27,7 +27,7 @@ pub struct IndexIterator<'a, N> {
     index: usize,
 }
 
-impl<'a, N> Iterator for IndexIterator<'a, N>
+impl<N> Iterator for IndexIterator<'_, N>
 where
     N: Copy,
 {

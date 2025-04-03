@@ -34,7 +34,7 @@ pub fn dataset_1138_bus<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -
 
 #[cfg(feature = "3_elt")]
 pub fn dataset_3_elt<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
-    parse(include_str!("data/3_elt.csv"))
+    parse(include_str!("data/3elt.csv"))
 }
 
 #[cfg(feature = "dwt_1005")]
@@ -60,7 +60,7 @@ pub fn dataset_qh882<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> G
 }
 
 #[cfg(feature = "USpowerGrid")]
-pub fn dataset_USpowerGrid<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(
+pub fn dataset_uspower_grid<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(
 ) -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/USpowerGrid.csv"))
 }

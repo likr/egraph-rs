@@ -126,7 +126,7 @@ where
     type D = DeltaEuclidean<S>;
 }
 
-impl<'a, 'b, S> Sub<&'b MetricEuclidean<S>> for &'a MetricEuclidean<S>
+impl<'b, S> Sub<&'b MetricEuclidean<S>> for &MetricEuclidean<S>
 where
     S: DrawingValue,
 {

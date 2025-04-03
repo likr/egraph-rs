@@ -60,6 +60,9 @@ where
     }
 }
 
+type CoarsenedGraph<N2, E2, Ty, Ix> = Graph<N2, E2, Ty, Ix>;
+type NodeMap<Ix> = HashMap<usize, NodeIndex<Ix>>;
+
 pub fn coarsen<
     N1,
     N2,
@@ -75,7 +78,7 @@ pub fn coarsen<
     node_groups: &mut GF,
     shrink_node: &mut NF,
     shrink_edge: &mut EF,
-) -> (Graph<N2, E2, Ty, Ix>, HashMap<usize, NodeIndex<Ix>>) {
+) -> (CoarsenedGraph<N2, E2, Ty, Ix>, NodeMap<Ix>) {
     let node_groups = graph
         .node_indices()
         .map(|u| (u, node_groups(graph, u)))
@@ -83,9 +86,9 @@ pub fn coarsen<
     let mut groups = HashMap::<usize, Vec<NodeIndex<Ix>>>::new();
     for u in graph.node_indices() {
         let g = node_groups[&u];
-        groups.entry(g).or_insert(vec![]).push(u);
+        groups.entry(g).or_default().push(u);
     }
-    let mut group_edges = HashMap::new();
+    let mut group_edges: HashMap<(usize, usize), Vec<EdgeIndex<Ix>>> = HashMap::new();
     for e in graph.edge_indices() {
         let (u, v) = graph.edge_endpoints(e).unwrap();
         let key = {
@@ -95,12 +98,12 @@ pub fn coarsen<
                 continue;
             }
             if source_group < target_group {
-                (source_group, (target_group))
+                (source_group, target_group)
             } else {
-                ((target_group), (source_group))
+                (target_group, source_group)
             }
         };
-        group_edges.entry(key).or_insert(vec![]).push(e);
+        group_edges.entry(key).or_default().push(e);
     }
 
     let mut coarsened_graph = Graph::with_capacity(0, 0);
@@ -108,14 +111,14 @@ pub fn coarsen<
     for (&group_id, node_ids) in groups.iter() {
         coarsened_node_ids.insert(
             group_id,
-            coarsened_graph.add_node(shrink_node(graph, &node_ids)),
+            coarsened_graph.add_node(shrink_node(graph, node_ids)),
         );
     }
     for (&(u, v), edge_ids) in group_edges.iter() {
         coarsened_graph.add_edge(
             coarsened_node_ids[&u],
             coarsened_node_ids[&v],
-            shrink_edge(graph, &edge_ids),
+            shrink_edge(graph, edge_ids),
         );
     }
     (coarsened_graph, coarsened_node_ids)
