@@ -1,0 +1,49 @@
+# 開発にあたって
+
+## 一般的な開発原則 (General Development Principles)
+
+以下の項目は、プロジェクトの種類に依存しない一般的な開発の進め方に関する指示です。
+
+- **テスト:** タスクを完了する前にテストを実行し、プロジェクトが正しく動作することを確認してください。具体的なテストコマンドは「プロジェクト固有の情報」セクションを参照してください。
+- **Linter/Formatter:** LinterやFormatterを実行し、コードスタイルを統一し、潜在的な問題を早期に発見してください。具体的なコマンドは「プロジェクト固有の情報」セクションを参照してください。
+- **依存関係:** 新しくライブラリを導入するときは、特別な指定がない限り、最新の安定バージョンを使用することを検討してください。ライブラリのドキュメントを参照し、適切なバージョンを選択してください。依存関係の追加方法は「プロジェクト固有の情報」セクションを参照してください。
+- **ドキュメント参照:** 新しいライブラリや既存ライブラリの機能を使用する際には、公式ドキュメントや関連資料（例: Rustの場合は `docs.rs`）を参照してください。
+- **Git:**
+    - タスク完了時には、変更内容をGitにコミットすることをユーザー（私）に促してください。コミットメッセージの規約（例: Conventional Commits）の採用も検討してください。
+    - Gitの操作（`commit`, `push`, `pull`, `merge`など）は、実行前に必ずユーザーに許可を求めてください。
+- **自己改善:** タスク遂行を振り返り、今後の開発を円滑に進めるための改善点（この `.clinerules` の更新を含む）があれば提案してください。
+
+## 一般的なコーディングスタイル (General Coding Styles)
+
+### Rust
+- **Edition:** プロジェクトで使用するRustのEditionを明確に定義してください。具体的なEditionは「プロジェクト固有の情報」セクションを参照してください。
+- **Linter/Formatter:** `rustfmt` によるフォーマット統一と、 `clippy` によるLintチェックを推奨します。
+- **コメント (Comments):**
+    - ドキュメンテーションコメント (`///`, `//!`) 以外は、原則としてコードの意図や理由 (**Why**) を記述します。
+    - コードの動作手順 (**How**) の詳細な説明は避けます（コード自体が示すべきです）。
+    - 不要なコードのコメントアウトや、作業途中のメモは削除します。
+
+### JavaScript/TypeScript/JSON 等
+- **Formatter:** `prettier` などのFormatterを使用してコードスタイルを統一することを推奨します。
+
+## プロジェクト固有の情報 (`egraph-rs` Specific Information)
+
+以下の項目はこの `egraph-rs` プロジェクト特有のルール、ツール、コマンド、構成に関する情報です。
+
+- **プロジェクト構成:**
+    - このプロジェクトはRustのワークスペース (`Cargo.toml`参照) で構成されており、複数のクレート (`crates/*`) を含みます。
+    - JavaScript/WASM関連のコードが `js/` ディレクトリ、`crates/wasm` クレート、およびルートの `package.json` で管理されています（npm workspaces利用）。
+- **Rust:**
+    - **Edition:** `2021` を使用します。（必要に応じて更新を検討・指示してください。各クレートの `Cargo.toml` でも確認してください。）
+    - **チェック:** `cargo check --workspace`
+    - **テスト:** `cargo test --workspace`
+    - **フォーマット:** `cargo fmt --all`
+    - **Lint:** `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+    - **依存関係追加:** `crates/<target-crate>/Cargo.toml` の `[dependencies]` に追記します。
+- **JavaScript/TypeScript/JSON 等:**
+    - **フォーマット:** `npx prettier --write .` を実行します (`.prettierrc.json` の設定に従いますが、現在は空のためデフォルト設定）。
+    - **WASMビルド:** `npm run wasm-build`
+    - **Examples実行:** `npm start` (内部で `npm run dev -w examples` を実行)
+    - **依存関係追加:** `npm install <package-name> -w <workspace-name>` (例: `-w examples`, `-w crates/wasm`) またはルートで `npm install <package-name>` を実行します。
+- **その他:**
+    - (ここに、主要クレートの役割、アーキテクチャ概要、テストデータの扱いなど、このプロジェクト固有のルールや情報を追記してください。)

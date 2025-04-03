@@ -17,3 +17,7 @@ pub trait Delta:
 pub trait Metric: Sized + AddAssign<Self::D> + SubAssign<Self::D> {
     type D: Delta;
 }
+
+pub trait MetricCartesian: Metric {
+    fn nth(&self, n: usize) -> <<Self as Metric>::D as Delta>::S;
+}

@@ -21,5 +21,5 @@ pub use metric::{
     metric_hyperbolic_2d::{DeltaHyperbolic2d, MetricHyperbolic2d},
     metric_spherical_2d::{DeltaSpherical2d, MetricSpherical2d},
     metric_torus2d::{DeltaTorus2d, MetricTorus2d, TorusValue},
-    Delta, Metric,
+    Delta, Metric, MetricCartesian,
 };

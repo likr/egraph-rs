@@ -1,6 +1,8 @@
 use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
+use super::MetricCartesian;
+
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaEuclidean2d<S>(pub S, pub S);
 
@@ -96,5 +98,20 @@ where
 
     fn sub(self, other: &'b MetricEuclidean2d<S>) -> DeltaEuclidean2d<S> {
         DeltaEuclidean2d(self.0 - other.0, self.1 - other.1)
+    }
+}
+
+impl<S> MetricCartesian for MetricEuclidean2d<S>
+where
+    S: DrawingValue,
+{
+    fn nth(&self, n: usize) -> S {
+        if n == 0 {
+            self.0
+        } else if n == 1 {
+            self.1
+        } else {
+            unreachable!("index error");
+        }
     }
 }

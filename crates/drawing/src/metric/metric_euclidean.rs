@@ -1,6 +1,8 @@
 use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
+use super::MetricCartesian;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeltaEuclidean<S>(pub Vec<S>);
 
@@ -138,6 +140,15 @@ where
                 .map(|(a, b)| *a - *b)
                 .collect::<Vec<_>>(),
         )
+    }
+}
+
+impl<S> MetricCartesian for MetricEuclidean<S>
+where
+    S: DrawingValue,
+{
+    fn nth(&self, n: usize) -> S {
+        self.0[n]
     }
 }
 

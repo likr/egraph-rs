@@ -12,6 +12,7 @@ members = [
     "crates/layout/overwrap-removal",
     "crates/layout/sgd",
     "crates/layout/mds",
+    "crates/layout/separation-constraints",
     "crates/layout/stress-majorization",
     "crates/python",
     "crates/quality-metrics",
