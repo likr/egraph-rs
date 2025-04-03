@@ -3,17 +3,34 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex, DrawingTorus2d, MetricEuclidean2d};
 use std::f32::consts::PI;
 
-fn cross(x11: f32, y11: f32, x12: f32, y12: f32, x21: f32, y21: f32, x22: f32, y22: f32) -> bool {
-    let s = (x11 - x12) * (y21 - y11) - (y11 - y12) * (x21 - x11);
-    let t = (x11 - x12) * (y22 - y11) - (y11 - y12) * (x22 - x11);
-    if s * t > 0. {
+#[derive(Clone, Copy)]
+struct Line {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+}
+
+fn cross(line1: &Line, line2: &Line) -> bool {
+    let dx1 = line1.x2 - line1.x1;
+    let dy1 = line1.y2 - line1.y1;
+    let dx2 = line2.x2 - line2.x1;
+    let dy2 = line2.y2 - line2.y1;
+
+    let s1 = dx1 * (line2.y1 - line1.y1) - dy1 * (line2.x1 - line1.x1);
+    let t1 = dx1 * (line2.y2 - line1.y1) - dy1 * (line2.x2 - line1.x1);
+
+    if s1 * t1 > 0. {
         return false;
     }
-    let s = (x21 - x22) * (y11 - y21) - (y21 - y22) * (x11 - x21);
-    let t = (x21 - x22) * (y12 - y21) - (y21 - y22) * (x12 - x21);
-    if s * t > 0. {
+
+    let s2 = dx2 * (line1.y1 - line2.y1) - dy2 * (line1.x1 - line2.x1);
+    let t2 = dx2 * (line1.y2 - line2.y1) - dy2 * (line1.x2 - line2.x1);
+
+    if s2 * t2 > 0. {
         return false;
     }
+
     true
 }
 
@@ -38,8 +55,7 @@ where
     let m = edges.len();
     for i in 1..m {
         let (source1, target1, x11, y11, x12, y12) = edges[i];
-        for j in 0..i {
-            let (source2, target2, x21, y21, x22, y22) = edges[j];
+        for &(source2, target2, x21, y21, x22, y22) in edges.iter().take(i) {
             if source1 == source2
                 || source1 == target1
                 || source1 == target2
@@ -49,7 +65,19 @@ where
             {
                 continue;
             }
-            if cross(x11, y11, x12, y12, x21, y21, x22, y22) {
+            let line1 = Line {
+                x1: x11,
+                y1: y11,
+                x2: x12,
+                y2: y12,
+            };
+            let line2 = Line {
+                x1: x21,
+                y1: y21,
+                x2: x22,
+                y2: y22,
+            };
+            if cross(&line1, &line2) {
                 crossing_edges.push((x11, y11, x12, y12, x21, y21, x22, y22));
             }
         }
@@ -74,8 +102,7 @@ where
     let m = edges.len();
     for i in 1..m {
         let (source1, target1, x11, y11, x12, y12) = edges[i];
-        for j in 0..i {
-            let (source2, target2, x21, y21, x22, y22) = edges[j];
+        for &(source2, target2, x21, y21, x22, y22) in edges.iter().take(i) {
             if source1 == source2
                 || source1 == target1
                 || source1 == target2
@@ -85,7 +112,19 @@ where
             {
                 continue;
             }
-            if cross(x11, y11, x12, y12, x21, y21, x22, y22) {
+            let line1 = Line {
+                x1: x11,
+                y1: y11,
+                x2: x12,
+                y2: y12,
+            };
+            let line2 = Line {
+                x1: x21,
+                y1: y21,
+                x2: x22,
+                y2: y22,
+            };
+            if cross(&line1, &line2) {
                 crossing_edges.push((x11, y11, x12, y12, x21, y21, x22, y22));
             }
         }
@@ -117,7 +156,7 @@ where
 
 pub fn crossing_angle_with_crossing_edges(crossing_edges: &CrossingEdges) -> f32 {
     let mut s = 0.;
-    for (x11, y11, x12, y12, x21, y21, x22, y22) in crossing_edges.iter() {
+    for &(x11, y11, x12, y12, x21, y21, x22, y22) in crossing_edges.iter() {
         if let Some(t) = edge_angle(x11 - x12, y11 - y12, x21 - x22, y21 - y22) {
             let t = t.min(PI - t);
             s += t.cos().powi(2);

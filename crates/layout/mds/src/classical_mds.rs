@@ -55,10 +55,10 @@ where
         let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
         let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
-            drawing.position_mut(u).map(|p| {
+            if let Some(p) = drawing.position_mut(u) {
                 p.0 = xy[[i, 0]];
                 p.1 = xy[[i, 1]];
-            });
+            }
         }
         drawing
     }
@@ -71,11 +71,11 @@ where
         let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
         let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {
-            drawing.position_mut(u).map(|p| {
+            if let Some(p) = drawing.position_mut(u) {
                 for j in 0..d {
                     p.0[j] = x[[i, j]];
                 }
-            });
+            }
         }
         drawing
     }

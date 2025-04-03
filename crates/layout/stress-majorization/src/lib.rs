@@ -31,7 +31,7 @@ pub fn conjugate_gradient(a: &Array2<f32>, b: &Array1<f32>, x: &mut Array1<f32>,
     let n = b.len();
     let mut dx = Array1::zeros(n);
     let mut d = Array1::zeros(n);
-    delta_f(a, b, &x, &mut dx);
+    delta_f(a, b, x, &mut dx);
     for i in 0..n {
         d[i] = -dx[i];
     }
@@ -41,7 +41,7 @@ pub fn conjugate_gradient(a: &Array2<f32>, b: &Array1<f32>, x: &mut Array1<f32>,
         for i in 0..n {
             x[i] += alpha * d[i];
         }
-        delta_f(a, b, &x, &mut dx);
+        delta_f(a, b, x, &mut dx);
         let dx_norm = dx.dot(&dx);
         if dx_norm < epsilon {
             break;
@@ -142,7 +142,7 @@ impl StressMajorization {
             w,
             x_x,
             x_y,
-            stress: std::f32::INFINITY,
+            stress: f32::INFINITY,
             epsilon,
         };
         sm.update_weight(|_, _, dij, _| 1. / (dij * dij));
@@ -202,7 +202,7 @@ impl StressMajorization {
             }
             b[i] = s;
         }
-        conjugate_gradient(&l_w, &b, &mut self.x_x, self.epsilon);
+        conjugate_gradient(l_w, b, &mut self.x_x, self.epsilon);
 
         for i in 0..n - 1 {
             self.x_y[i] = drawing.raw_entry(i).1;
@@ -212,9 +212,9 @@ impl StressMajorization {
             }
             b[i] = s;
         }
-        conjugate_gradient(&l_w, &b, &mut self.x_y, self.epsilon);
+        conjugate_gradient(l_w, b, &mut self.x_y, self.epsilon);
 
-        let stress = stress(&self.x_x, &self.x_y, &w, &d);
+        let stress = stress(&self.x_x, &self.x_y, w, d);
         let diff = (self.stress - stress) / self.stress;
         self.stress = stress;
         for i in 0..n - 1 {
@@ -276,7 +276,7 @@ fn test_conjugate_gradient() {
     let mut x = arr1(&[2., 1.]);
     let epsilon = 1e-4;
     conjugate_gradient(&a, &b, &mut x, epsilon);
-    let x_exact = vec![1., 3.];
+    let x_exact = [1., 3.];
     let mut d = 0.;
     for i in 0..x.len() {
         let dx = x[i] - x_exact[i];

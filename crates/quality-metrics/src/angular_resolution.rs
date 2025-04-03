@@ -15,8 +15,8 @@ where
         for i in 1..n {
             let v = neighbors[i];
             let MetricEuclidean2d(x1, y1) = drawing.position(v).unwrap();
-            for j in 0..i {
-                let w = neighbors[j];
+            for neighbor in neighbors.iter().take(i) {
+                let w = *neighbor;
                 let MetricEuclidean2d(x2, y2) = drawing.position(w).unwrap();
                 if let Some(angle) = edge_angle(x1 - x0, y1 - y0, x2 - x0, y2 - y0) {
                     s += (-angle).exp()

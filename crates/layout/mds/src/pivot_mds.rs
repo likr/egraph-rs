@@ -20,7 +20,7 @@ where
         G::NodeId: DrawingIndex + Ord + Into<N>,
         F: FnMut(G::EdgeRef) -> f32,
     {
-        let distance_matrix = multi_source_dijkstra(graph, length, &sources);
+        let distance_matrix = multi_source_dijkstra(graph, length, sources);
         Self::new_with_distance_matrix(&distance_matrix)
     }
 
@@ -57,10 +57,10 @@ where
         let xy = self.c.dot(&xy);
         let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
-            drawing.position_mut(u).map(|p| {
+            if let Some(p) = drawing.position_mut(u) {
                 p.0 = xy[[i, 0]];
-                p.1 = xy[[i, 1]]
-            });
+                p.1 = xy[[i, 1]];
+            }
         }
         drawing
     }
@@ -75,11 +75,11 @@ where
         let x = self.c.dot(&x);
         let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {
-            drawing.position_mut(u).map(|p| {
+            if let Some(p) = drawing.position_mut(u) {
                 for j in 0..d {
                     p.0[j] = x[[i, j]];
                 }
-            });
+            }
         }
         drawing
     }

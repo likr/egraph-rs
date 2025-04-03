@@ -14,8 +14,8 @@ pub struct Point {
 impl Point {
     pub fn new(x: f32, y: f32) -> Point {
         Point {
-            x: x,
-            y: y,
+            x,
+            y,
             vx: 0.,
             vy: 0.,
         }
@@ -31,8 +31,8 @@ pub struct LineSegment {
 impl LineSegment {
     fn new(source: usize, target: usize) -> LineSegment {
         LineSegment {
-            source: source,
-            target: target,
+            source,
+            target,
             point_indices: Vec::new(),
         }
     }
@@ -119,9 +119,9 @@ fn compatibility(p1: Point, p2: Point, q1: Point, q2: Point) -> f32 {
 }
 
 fn apply_spring_force(
-    mid_points: &mut Vec<Point>,
-    segments: &Vec<LineSegment>,
-    points: &Vec<Point>,
+    mid_points: &mut [Point],
+    segments: &[LineSegment],
+    points: &[Point],
     num_p: usize,
     k: f32,
 ) {
@@ -132,7 +132,7 @@ fn apply_spring_force(
             points[segment.target].x,
             points[segment.target].y,
         );
-        let kp = k / (num_p as usize as f32) / d;
+        let kp = k / (num_p as f32) / d;
         let n = segment.point_indices.len();
         for i in 0..n {
             let p0 = if i == 0 {
@@ -145,7 +145,7 @@ fn apply_spring_force(
             } else {
                 mid_points[segment.point_indices[i + 1]]
             };
-            let ref mut p1 = mid_points[segment.point_indices[i]];
+            let p1 = &mut mid_points[segment.point_indices[i]];
             p1.vx += kp * (p0.x - p1.x + p2.x - p1.x);
             p1.vy += kp * (p0.y - p1.y + p2.y - p1.y);
         }
@@ -153,8 +153,8 @@ fn apply_spring_force(
 }
 
 fn apply_electrostatic_force(
-    mid_points: &mut Vec<Point>,
-    segments: &Vec<LineSegment>,
+    mid_points: &mut [Point],
+    segments: &[LineSegment],
     edge_pairs: &Vec<EdgePair>,
     num_p: usize,
 ) {
@@ -173,19 +173,19 @@ fn apply_electrostatic_force(
             } else {
                 num_p - i - 1
             };
-            let pi = mid_points[segment_p.point_indices[i as usize]];
-            let qi = mid_points[segment_q.point_indices[j as usize]];
+            let pi = mid_points[segment_p.point_indices[i]];
+            let qi = mid_points[segment_q.point_indices[j]];
             let dx = qi.x - pi.x;
             let dy = qi.y - pi.y;
             if dx.abs() > 1e-6 || dy.abs() > 1e-6 {
                 let w = c_e / (dx * dx + dy * dy).sqrt();
                 {
-                    let ref mut qi = mid_points[segment_q.point_indices[j as usize]];
+                    let qi = &mut mid_points[segment_q.point_indices[j]];
                     qi.vx -= dx * w;
                     qi.vy -= dy * w;
                 }
                 {
-                    let ref mut pi = mid_points[segment_p.point_indices[i as usize]];
+                    let pi = &mut mid_points[segment_p.point_indices[i]];
                     pi.vx += dx * w;
                     pi.vy += dy * w;
                 }
@@ -264,7 +264,7 @@ where
         let m = segments.len();
         for p in 0..m {
             let segment_p = &segments[p];
-            for q in (p + 1)..m {
+            for (q, _) in segments.iter().enumerate().take(m).skip(p + 1) {
                 let segment_q = &segments[q];
                 let c_e = compatibility(
                     points[segment_p.source],
@@ -287,7 +287,7 @@ where
     };
 
     for cycle in 0..*cycles {
-        let dp = (2 as i32).pow(cycle as u32);
+        let dp = 2_i32.pow(cycle as u32);
         for segment in segments.iter_mut() {
             for j in 0..dp {
                 let p0 = if j == 0 {

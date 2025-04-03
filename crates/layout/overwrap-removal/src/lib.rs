@@ -17,12 +17,9 @@ where
         G: IntoNodeIdentifiers,
         F: FnMut(G::NodeId) -> S,
     {
-        let mut radius = radius;
+        let radius = radius;
         OverwrapRemoval {
-            radius: graph
-                .node_identifiers()
-                .map(|u| radius(u))
-                .collect::<Vec<_>>(),
+            radius: graph.node_identifiers().map(radius).collect::<Vec<_>>(),
             strength: S::one(),
             iterations: 1,
             min_distance: S::from_f32(1e-3).unwrap(),

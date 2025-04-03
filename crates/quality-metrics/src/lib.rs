@@ -83,7 +83,7 @@ where
         graph,
         drawing,
         d,
-        &vec![
+        &[
             QualityMetric::Stress,
             QualityMetric::IdealEdgeLengths,
             QualityMetric::NeighborhoodPreservation,
