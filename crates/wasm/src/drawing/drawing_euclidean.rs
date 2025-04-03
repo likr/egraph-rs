@@ -39,4 +39,8 @@ impl JsDrawingEuclidean {
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.drawing.is_empty()
+    }
 }

@@ -52,6 +52,10 @@ impl JsDrawingHyperbolic2d {
         self.drawing.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.drawing.is_empty()
+    }
+
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> Self {
         Self::new(DrawingHyperbolic2d::initial_placement(graph.graph()))

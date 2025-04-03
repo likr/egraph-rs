@@ -39,7 +39,7 @@ impl<Ty: EdgeType> GraphBase<Ty> {
         let a = node_index(a);
         self.graph
             .node_weight(a)
-            .map(|node| node.clone())
+            .cloned()
             .ok_or_else(|| "invalid node index".into())
     }
 
@@ -53,7 +53,7 @@ impl<Ty: EdgeType> GraphBase<Ty> {
         let e = edge_index(e);
         self.graph
             .edge_weight(e)
-            .map(|edge| edge.clone())
+            .cloned()
             .ok_or_else(|| "invalid edge index".into())
     }
 
@@ -207,6 +207,12 @@ pub struct JsGraph {
     graph: GraphBase<Undirected>,
 }
 
+impl Default for JsGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsGraph {
     pub fn new_from_graph(graph: Graph<Node, Edge, Undirected, IndexType>) -> Self {
         Self {
@@ -215,7 +221,7 @@ impl JsGraph {
     }
 
     pub fn graph(&self) -> &Graph<Node, Edge, Undirected, IndexType> {
-        &self.graph.graph()
+        self.graph.graph()
     }
 }
 
@@ -334,6 +340,12 @@ pub struct JsDiGraph {
     graph: GraphBase<Directed>,
 }
 
+impl Default for JsDiGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsDiGraph {
     pub fn new_from_graph(graph: Graph<Node, Edge, Directed, IndexType>) -> Self {
         Self {
@@ -342,7 +354,7 @@ impl JsDiGraph {
     }
 
     pub fn graph(&self) -> &Graph<Node, Edge, Directed, IndexType> {
-        &self.graph.graph()
+        self.graph.graph()
     }
 }
 

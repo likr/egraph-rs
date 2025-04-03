@@ -1,11 +1,11 @@
-mod drawing;
+mod drawing_base;
 mod drawing_euclidean;
 mod drawing_euclidean_2d;
 mod drawing_hyperbolic_2d;
 mod drawing_spherical_2d;
 mod drawing_torus_2d;
 
-pub use drawing::*;
+pub use drawing_base::*;
 pub use drawing_euclidean::*;
 pub use drawing_euclidean_2d::*;
 pub use drawing_hyperbolic_2d::*;

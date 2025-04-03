@@ -2,6 +2,9 @@ use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
 };
+
+type Point2D = (f32, f32);
+type Segment2D = (Point2D, Point2D);
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d};
 use pyo3::prelude::*;
@@ -60,7 +63,7 @@ impl PyDrawingEuclidean2d {
         self.drawing.clamp_region(x0, y0, x1, y1);
     }
 
-    pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<((f32, f32), (f32, f32))>> {
+    pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<Segment2D>> {
         self.drawing
             .edge_segments(node_index(u), node_index(v))
             .map(|segments| {

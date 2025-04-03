@@ -28,12 +28,12 @@ struct GraphData<N, E> {
     links: Vec<LinkData<E>>,
 }
 
+type UndirectedGraph<N, E> = Graph<Option<N>, Option<E>, Undirected>;
+type Drawing2D = DrawingEuclidean2d<NodeIndex, f32>;
+
 pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
-) -> (
-    Graph<Option<N>, Option<E>, Undirected>,
-    DrawingEuclidean2d<NodeIndex, f32>,
-) {
+) -> (UndirectedGraph<N, E>, Drawing2D) {
     let file = File::open(input_path).unwrap();
     let reader = BufReader::new(file);
     let input_graph: GraphData<N, E> = serde_json::from_reader(reader).unwrap();
@@ -64,8 +64,8 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
 }
 
 pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
-    graph: &Graph<Option<N>, Option<E>, Undirected>,
-    drawing: &DrawingEuclidean2d<NodeIndex, f32>,
+    graph: &UndirectedGraph<N, E>,
+    drawing: &Drawing2D,
     output_path: &str,
 ) {
     let output = GraphData {

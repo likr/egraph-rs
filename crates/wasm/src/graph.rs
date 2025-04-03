@@ -1,6 +1,6 @@
-mod graph;
+mod graph_impl;
 
-pub use graph::{JsDiGraph, JsGraph};
+pub use graph_impl::{JsDiGraph, JsGraph};
 use wasm_bindgen::prelude::*;
 
 pub type Node = JsValue;

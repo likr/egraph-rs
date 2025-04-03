@@ -68,7 +68,7 @@ impl PyPivotMds {
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyPivotMds {
         match graph.graph() {
             GraphType::Graph(native_graph) => {
-                let pivot = pivot.into_iter().map(|u| node_index(u)).collect::<Vec<_>>();
+                let pivot = pivot.into_iter().map(node_index).collect::<Vec<_>>();
                 PyPivotMds {
                     mds: PivotMds::new(
                         native_graph,

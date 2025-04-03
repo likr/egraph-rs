@@ -53,6 +53,10 @@ impl JsDrawingTorus2d {
         self.drawing.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.drawing.is_empty()
+    }
+
     #[wasm_bindgen(js_name = edgeSegments)]
     pub fn edge_segments(&self, u: usize, v: usize) -> Option<Box<[JsValue]>> {
         self.drawing

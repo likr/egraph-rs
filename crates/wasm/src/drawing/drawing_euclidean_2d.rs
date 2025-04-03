@@ -53,6 +53,10 @@ impl JsDrawingEuclidean2d {
         self.drawing.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.drawing.is_empty()
+    }
+
     pub fn centralize(&mut self) {
         self.drawing.centralize();
     }

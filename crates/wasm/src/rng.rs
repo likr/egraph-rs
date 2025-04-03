@@ -12,6 +12,12 @@ impl JsRng {
     }
 }
 
+impl Default for JsRng {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[wasm_bindgen(js_class = Rng)]
 impl JsRng {
     #[wasm_bindgen(constructor)]

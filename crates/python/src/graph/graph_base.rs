@@ -28,7 +28,7 @@ pub fn graph_node_weight<Ty: EdgeType>(
     let a = node_index(a);
     graph
         .node_weight(a)
-        .map(|node| node.clone())
+        .cloned()
         .ok_or_else(|| PyValueError::new_err("invalid node index"))
 }
 
@@ -50,7 +50,7 @@ pub fn graph_edge_weight<Ty: EdgeType>(
     let e = edge_index(e);
     graph
         .edge_weight(e)
-        .map(|edge| edge.clone())
+        .cloned()
         .ok_or_else(|| PyValueError::new_err("invalid edge index"))
 }
 

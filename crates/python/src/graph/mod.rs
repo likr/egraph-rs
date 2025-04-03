@@ -1,6 +1,6 @@
-mod graph;
+mod graph_base;
 
-use graph::*;
+use graph_base::*;
 use petgraph::prelude::*;
 use pyo3::prelude::*;
 
@@ -187,6 +187,6 @@ impl PyGraphAdapter {
 
 pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyGraphAdapter>()?;
-    graph::register(py, m)?;
+    graph_base::register(py, m)?;
     Ok(())
 }

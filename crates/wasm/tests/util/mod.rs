@@ -23,6 +23,6 @@ struct GraphData {
 
 pub fn example_data() -> JsValue {
     let s = include_str!("./miserables.json");
-    let data = serde_json::from_str::<GraphData>(&s).unwrap();
+    let data = serde_json::from_str::<GraphData>(s).unwrap();
     serde_wasm_bindgen::to_value(&data).ok().unwrap()
 }
