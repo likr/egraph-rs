@@ -1,6 +1,14 @@
 use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
+/// Represents the difference vector between two points in 2D Hyperbolic space.
+///
+/// This struct implements the `Delta` trait for 2D Hyperbolic space using the Poincaré disk model.
+/// It stores the components of the vector in the tangent space.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaHyperbolic2d<S>(pub S, pub S);
 
@@ -58,6 +66,14 @@ where
     }
 }
 
+/// Represents a point in 2D Hyperbolic space.
+///
+/// This struct implements the `Metric` trait for 2D Hyperbolic space using the Poincaré disk model.
+/// The Poincaré disk model represents hyperbolic space as the interior of a unit disk.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MetricHyperbolic2d<S>(pub S, pub S);
 
@@ -108,6 +124,18 @@ where
     }
 }
 
+/// Converts a vector from hyperbolic space to the tangent space at point x.
+///
+/// This function computes the exponential map from the Poincaré disk model to the tangent space.
+///
+/// # Parameters
+///
+/// * `x`: The coordinates of the reference point in hyperbolic space.
+/// * `y`: The coordinates of the target point in hyperbolic space.
+///
+/// # Returns
+///
+/// The coordinates of the vector in the tangent space at point x.
 fn to_tangent_space<S>(x: (S, S), y: (S, S)) -> (S, S)
 where
     S: DrawingValue,
@@ -130,6 +158,18 @@ where
     }
 }
 
+/// Converts a vector from the tangent space at point x to hyperbolic space.
+///
+/// This function computes the logarithmic map from the tangent space to the Poincaré disk model.
+///
+/// # Parameters
+///
+/// * `x`: The coordinates of the reference point in hyperbolic space.
+/// * `z`: The coordinates of the vector in the tangent space at point x.
+///
+/// # Returns
+///
+/// The coordinates of the point in hyperbolic space.
 fn from_tangent_space<S>(x: (S, S), z: (S, S)) -> (S, S)
 where
     S: DrawingValue,

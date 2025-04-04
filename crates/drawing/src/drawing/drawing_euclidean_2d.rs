@@ -3,7 +3,17 @@ use num_traits::{clamp, FloatConst, FromPrimitive};
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
 use std::collections::{HashMap, VecDeque};
 
+/// Represents a drawing of items (nodes) in 2-dimensional Euclidean space.
+///
+/// This is a specialized version of `DrawingEuclidean` for 2D.
+/// It implements the `Drawing` trait.
+///
+/// # Type Parameters
+///
+/// * `N`: The type used for indexing items (must implement `DrawingIndex`).
+/// * `S`: The scalar type used for coordinates (must implement `DrawingValue`).
 pub struct DrawingEuclidean2d<N, S> {
+    /// A vector containing the unique identifiers (indices) of the items.
     indices: Vec<N>,
     coordinates: Vec<MetricEuclidean2d<S>>,
     index_map: HashMap<N, usize>,

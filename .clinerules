@@ -75,17 +75,22 @@
         - **構成:** RustワークスペースとJavaScript/TypeScript関連コードを含むモノレポ。
         - **Rustワークスペースメンバー (Cargo.tomlより):**
             - `crates/algorithm`: グラフアルゴリズム群
-                - `connected-components`: (済) 連結成分
-                - `shortest-path`: (済) 最短経路 (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
-            - `crates/cli`: (済) CLI (バイナリ?)
+                - `connected-components`: 連結成分
+                - `shortest-path`: 最短経路 (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
+            - `crates/cli`: CLI (バイナリ?)
                 - `src/lib.rs`: 共有ライブラリコード (JSON読み書きなど)
                 - `src/bin/quality-metrics.rs`: 描画品質指標を計算するバイナリ
                 - `src/bin/sgd.rs`: SGDレイアウトアルゴリズムを適用するバイナリ
-            - `crates/clustering`: (済) クラスタリング (Louvainアルゴリズムのステップ関数、グラフ粗視化関数を含む)
-            - `crates/dataset`: (済) SuiteSparse Matrix Collectionなどのグラフデータセットをロードするための機能を提供。
+            - `crates/clustering`: クラスタリング (Louvainアルゴリズムのステップ関数、グラフ粗視化関数を含む)
+            - `crates/dataset`: SuiteSparse Matrix Collectionなどのグラフデータセットをロードするための機能を提供。
                 - `src/lib.rs`: データセット読み込み関数 (`load_graph`)
                 - `src/data/*.csv`: データファイル (エッジリスト形式)
-            - `crates/drawing`: (未) 描画関連
+            - `crates/drawing`: 描画関連
+                - `src/lib.rs`: 基本的なトレイトの定義 (`DrawingIndex`, `DrawingValue`) やモジュールの公開
+                - `src/drawing.rs`: 描画のための基本抽象化 (`Drawing` トレイト)
+                - `src/drawing/*.rs`: 具体的な描画実装（ユークリッド、球面、双曲、トーラスなど）
+                - `src/metric.rs`: 距離空間のトレイト定義 (`Delta`, `Metric`, `MetricCartesian`)
+                - `src/metric/*.rs`: 具体的な距離計算実装（各空間での距離、ベクトル差分計算など）
             - `crates/edge-bundling`: (未) エッジバンドリング
                 - `fdeb`: (未) Force Directed Edge Bundling?
             - `crates/layout`: レイアウトアルゴリズム群

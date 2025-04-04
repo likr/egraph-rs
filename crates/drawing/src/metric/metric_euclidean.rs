@@ -3,6 +3,14 @@ use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
 use super::MetricCartesian;
 
+/// Represents the difference vector between two points in Euclidean space.
+///
+/// This struct implements the `Delta` trait and represents the vector from one point to another
+/// in a Euclidean space of arbitrary dimension.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeltaEuclidean<S>(pub Vec<S>);
 
@@ -80,11 +88,30 @@ impl<S> DeltaEuclidean<S>
 where
     S: DrawingValue + Default,
 {
+    /// Creates a new `DeltaEuclidean` instance with the specified dimension.
+    ///
+    /// All coordinates are initialized to their default values.
+    ///
+    /// # Parameters
+    ///
+    /// * `dimension`: The dimensionality of the Euclidean space.
+    ///
+    /// # Returns
+    ///
+    /// A new `DeltaEuclidean` instance.
     pub fn new(dimension: usize) -> Self {
         DeltaEuclidean(vec![S::default(); dimension])
     }
 }
 
+/// Represents a point in Euclidean space of arbitrary dimension.
+///
+/// This struct implements the `Metric` trait and represents a point in
+/// a Euclidean space with coordinates stored as a vector.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Clone, Debug, Default)]
 pub struct MetricEuclidean<S>(pub Vec<S>);
 
@@ -92,6 +119,17 @@ impl<S> MetricEuclidean<S>
 where
     S: DrawingValue + Default,
 {
+    /// Creates a new `MetricEuclidean` instance with the specified dimension.
+    ///
+    /// All coordinates are initialized to their default values.
+    ///
+    /// # Parameters
+    ///
+    /// * `dimension`: The dimensionality of the Euclidean space.
+    ///
+    /// # Returns
+    ///
+    /// A new `MetricEuclidean` instance.
     pub fn new(dimension: usize) -> Self {
         MetricEuclidean(vec![S::default(); dimension])
     }

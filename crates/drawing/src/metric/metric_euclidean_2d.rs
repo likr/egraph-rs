@@ -3,6 +3,14 @@ use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
 use super::MetricCartesian;
 
+/// Represents the difference vector between two points in 2D Euclidean space.
+///
+/// This struct implements the `Delta` trait for 2D Euclidean space.
+/// It stores the x and y components of the vector.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaEuclidean2d<S>(pub S, pub S);
 
@@ -60,6 +68,14 @@ where
     }
 }
 
+/// Represents a point in 2D Euclidean space.
+///
+/// This struct implements the `Metric` trait for 2D Euclidean space.
+/// It stores the x and y coordinates of the point.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MetricEuclidean2d<S>(pub S, pub S);
 

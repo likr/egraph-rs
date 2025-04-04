@@ -5,16 +5,25 @@ use ndarray::prelude::*;
 use num_traits::FromPrimitive;
 use std::hash::Hash;
 
+/// A trait constraint for types that can be used as indices in a drawing (typically node identifiers).
+///
+/// Requires the type to implement `Eq` and `Hash`.
 pub trait DrawingIndex: Eq + Hash {}
 impl<T> DrawingIndex for T where T: Eq + Hash {}
+
+/// A trait constraint for types that can be used as coordinate values in a drawing.
+///
+/// Requires the type to implement `NdFloat` (from `ndarray`) and `FromPrimitive` (from `num_traits`).
 pub trait DrawingValue: NdFloat + FromPrimitive {}
 impl<T> DrawingValue for T where T: NdFloat + FromPrimitive {}
 
+/// Represents a drawing, mapping indices (nodes) to coordinate arrays.
 pub use drawing::{
     drawing_euclidean::DrawingEuclidean, drawing_euclidean_2d::DrawingEuclidean2d,
     drawing_hyperbolic_2d::DrawingHyperbolic2d, drawing_spherical_2d::DrawingSpherical2d,
     drawing_torus2d::DrawingTorus2d, Drawing,
 };
+
 pub use metric::{
     metric_euclidean::{DeltaEuclidean, MetricEuclidean},
     metric_euclidean_2d::{DeltaEuclidean2d, MetricEuclidean2d},

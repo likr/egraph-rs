@@ -3,9 +3,22 @@ use num_traits::{FloatConst, FromPrimitive};
 use petgraph::visit::IntoNodeIdentifiers;
 use std::collections::HashMap;
 
+/// Represents a drawing of items (nodes) in 2-dimensional Hyperbolic space.
+///
+/// This drawing uses the Poincaré disk model of hyperbolic geometry, where points are
+/// represented as coordinates within a unit disk.
+///
+/// # Type Parameters
+///
+/// * `N`: The type used for indexing items (must implement `DrawingIndex`).
+/// * `S`: The scalar type used for coordinates (must implement `DrawingValue`).
 pub struct DrawingHyperbolic2d<N, S> {
+    /// A vector containing the unique identifiers (indices) of the items.
     indices: Vec<N>,
+    /// A vector storing the hyperbolic coordinates (`MetricHyperbolic2d`) of each item.
+    /// The order corresponds to the `indices` vector.
     coordinates: Vec<MetricHyperbolic2d<S>>,
+    /// A map from item identifiers (`N`) to their numerical index (position in `indices` and `coordinates`).
     index_map: HashMap<N, usize>,
 }
 
@@ -14,6 +27,14 @@ where
     N: DrawingIndex,
     S: DrawingValue,
 {
+    /// Creates a new `DrawingHyperbolic2d` instance from a graph-like structure.
+    ///
+    /// It extracts the node identifiers from the graph, assigns default coordinates
+    /// to each item, and sets up the internal mapping.
+    ///
+    /// - `graph`: An object implementing `IntoNodeIdentifiers` (like `petgraph::Graph`).
+    ///
+    /// Returns a new `DrawingHyperbolic2d` instance.
     pub fn new<G>(graph: G) -> Self
     where
         G: IntoNodeIdentifiers,
@@ -28,6 +49,13 @@ where
         Self::from_node_indices(&indices)
     }
 
+    /// Creates a new `DrawingHyperbolic2d` instance from a slice of node indices.
+    ///
+    /// This is a lower-level constructor. It initializes coordinates to default values.
+    ///
+    /// - `indices`: A slice containing the unique identifiers (`N`) for the items.
+    ///
+    /// Returns a new `DrawingHyperbolic2d` instance.
     pub fn from_node_indices(indices: &[N]) -> Self
     where
         N: Copy,
@@ -47,22 +75,41 @@ where
         }
     }
 
+    /// Gets the x-coordinate for the item `u` in the Poincaré disk model.
+    ///
+    /// Returns `None` if the item `u` is not found.
     pub fn x(&self, u: N) -> Option<S> {
         self.position(u).map(|p| p.0)
     }
 
+    /// Gets the y-coordinate for the item `u` in the Poincaré disk model.
+    ///
+    /// Returns `None` if the item `u` is not found.
     pub fn y(&self, u: N) -> Option<S> {
         self.position(u).map(|p| p.1)
     }
 
+    /// Sets the x-coordinate for the item `u` in the Poincaré disk model.
+    ///
+    /// Returns `None` if the item `u` is not found, otherwise returns `Some(())`.
     pub fn set_x(&mut self, u: N, value: S) -> Option<()> {
         self.position_mut(u).map(|p| p.0 = value)
     }
 
+    /// Sets the y-coordinate for the item `u` in the Poincaré disk model.
+    ///
+    /// Returns `None` if the item `u` is not found, otherwise returns `Some(())`.
     pub fn set_y(&mut self, u: N, value: S) -> Option<()> {
         self.position_mut(u).map(|p| p.1 = value)
     }
 
+    /// Creates a new drawing with nodes placed in a circular pattern within the Poincaré disk.
+    ///
+    /// This is useful for creating an initial layout before applying layout algorithms.
+    ///
+    /// - `graph`: An object implementing `IntoNodeIdentifiers` (like `petgraph::Graph`).
+    ///
+    /// Returns a new `DrawingHyperbolic2d` instance with nodes placed in a circular pattern.
     pub fn initial_placement<G>(graph: G) -> Self
     where
         G: IntoNodeIdentifiers,

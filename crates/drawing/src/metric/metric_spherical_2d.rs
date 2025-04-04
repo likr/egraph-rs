@@ -3,6 +3,15 @@ use num_traits::clamp;
 use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
+/// Represents the difference vector between two points in 2D Spherical space.
+///
+/// This struct implements the `Delta` trait for 2D Spherical space.
+/// It stores the components of the vector in the tangent space using longitudinal
+/// and latitudinal displacements.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaSpherical2d<S>(pub S, pub S);
 
@@ -60,6 +69,16 @@ where
     }
 }
 
+/// Represents a point in 2D Spherical space.
+///
+/// This struct implements the `Metric` trait for 2D Spherical space.
+/// Points are represented using spherical coordinates: longitude (0) and latitude (1).
+/// Longitude represents the angular coordinate running east-west (0 to 2π),
+/// while latitude represents the angular coordinate running north-south (-π/2 to π/2).
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MetricSpherical2d<S>(pub S, pub S);
 
@@ -110,6 +129,19 @@ where
     }
 }
 
+/// Converts a vector from spherical space to the tangent space at point x.
+///
+/// This function computes the exponential map from the spherical coordinates to
+/// the tangent space, allowing for calculations in the flat tangent space.
+///
+/// # Parameters
+///
+/// * `x`: The coordinates of the reference point in spherical space (longitude, latitude).
+/// * `y`: The coordinates of the target point in spherical space (longitude, latitude).
+///
+/// # Returns
+///
+/// The coordinates of the vector in the tangent space at point x.
 fn to_tangent_space<S>(x: (S, S), y: (S, S)) -> (S, S)
 where
     S: DrawingValue,
@@ -129,6 +161,19 @@ where
     )
 }
 
+/// Converts a vector from the tangent space at point x to spherical space.
+///
+/// This function computes the logarithmic map from the tangent space back to
+/// spherical coordinates, effectively implementing great circle navigation.
+///
+/// # Parameters
+///
+/// * `x`: The coordinates of the reference point in spherical space (longitude, latitude).
+/// * `z`: The coordinates of the vector in the tangent space at point x.
+///
+/// # Returns
+///
+/// The coordinates of the point in spherical space (longitude, latitude).
 fn from_tangent_space<S>(x: (S, S), z: (S, S)) -> (S, S)
 where
     S: DrawingValue,

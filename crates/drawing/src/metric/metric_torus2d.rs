@@ -1,6 +1,18 @@
 use crate::{Delta, DrawingValue, Metric};
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
+/// Normalizes a value to the range [0,1) for use in torus coordinate calculations.
+///
+/// This function takes any value and maps it to the range [0,1) by taking the fractional
+/// part and handling negative values appropriately.
+///
+/// # Parameters
+///
+/// * `value`: The value to be normalized.
+///
+/// # Returns
+///
+/// The normalized value in the range [0,1).
 fn torus_value<S>(value: S) -> S
 where
     S: DrawingValue,
@@ -12,6 +24,14 @@ where
     }
 }
 
+/// Represents a value in the torus space, constrained to the range [0,1).
+///
+/// This type ensures that coordinate values remain within the proper range
+/// for torus computations, where values wrap around at 0 and 1.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for the value (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct TorusValue<S>(pub S);
 
@@ -19,14 +39,33 @@ impl<S> TorusValue<S>
 where
     S: DrawingValue,
 {
+    /// Creates a new `TorusValue` by normalizing the input value to the range [0,1).
+    ///
+    /// # Parameters
+    ///
+    /// * `value`: The value to be wrapped into the torus coordinate range.
+    ///
+    /// # Returns
+    ///
+    /// A new `TorusValue` instance with the normalized value.
     pub fn new(value: S) -> Self {
         TorusValue(torus_value(value))
     }
 
+    /// Returns the minimum value in the torus space (0).
+    ///
+    /// # Returns
+    ///
+    /// A `TorusValue` representing the minimum value (0).
     pub fn min() -> Self {
         TorusValue(S::zero())
     }
 
+    /// Returns the maximum value in the torus space (just under 1).
+    ///
+    /// # Returns
+    ///
+    /// A `TorusValue` representing the maximum value (1-ε).
     pub fn max() -> Self {
         TorusValue(S::one() - S::epsilon())
     }
@@ -94,6 +133,15 @@ where
     }
 }
 
+/// Represents the difference vector between two points in 2D Torus space.
+///
+/// This struct implements the `Delta` trait for 2D Torus space.
+/// It stores the x and y components of the vector, accounting for
+/// the wrapping property of the torus.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeltaTorus2d<S>(pub S, pub S);
 
@@ -152,6 +200,15 @@ where
     }
 }
 
+/// Represents a point in 2D Torus space.
+///
+/// This struct implements the `Metric` trait for 2D Torus space.
+/// It stores x and y coordinates as `TorusValue` instances to ensure they
+/// remain in the proper range [0,1) with wrap-around semantics.
+///
+/// # Type Parameters
+///
+/// * `S`: The scalar type used for coordinate values (must implement `DrawingValue`).
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MetricTorus2d<S>(pub TorusValue<S>, pub TorusValue<S>);
 
@@ -159,6 +216,13 @@ impl<S> MetricTorus2d<S>
 where
     S: DrawingValue,
 {
+    /// Creates a new `MetricTorus2d` instance with default coordinates.
+    ///
+    /// The coordinates are initialized to the default value of `S` (typically 0).
+    ///
+    /// # Returns
+    ///
+    /// A new `MetricTorus2d` instance.
     pub fn new() -> Self
     where
         S: Default,
@@ -166,6 +230,18 @@ where
         Self(TorusValue::new(S::default()), TorusValue::new(S::default()))
     }
 
+    /// Computes the shortest displacement vector (dx, dy) between two points on the torus.
+    ///
+    /// Due to the wrap-around nature of the torus, the shortest path between two points
+    /// may cross the boundary. This function determines the optimal direction and distance.
+    ///
+    /// # Parameters
+    ///
+    /// * `other`: The target point to compute the displacement to.
+    ///
+    /// # Returns
+    ///
+    /// A tuple (dx, dy) representing the x and y components of the displacement.
     pub fn nearest_dxdy(self, other: &Self) -> (S, S)
     where
         S: DrawingValue,
