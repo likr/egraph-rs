@@ -81,7 +81,7 @@
                 - `src/lib.rs`: 共有ライブラリコード (JSON読み書きなど)
                 - `src/bin/quality-metrics.rs`: 描画品質指標を計算するバイナリ
                 - `src/bin/sgd.rs`: SGDレイアウトアルゴリズムを適用するバイナリ
-            - `crates/clustering`: (未) クラスタリング
+            - `crates/clustering`: (済) クラスタリング (Louvainアルゴリズムのステップ関数、グラフ粗視化関数を含む)
             - `crates/dataset`: (未) データセット関連
             - `crates/drawing`: (未) 描画関連
             - `crates/edge-bundling`: (未) エッジバンドリング

@@ -4,6 +4,25 @@ use petgraph::EdgeType;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+/// Performs one step of the Louvain algorithm for community detection.
+///
+/// This function iterates through each node in the graph and evaluates the
+/// modularity gain of moving the node to one of its neighboring communities.
+/// If moving a node increases the overall modularity, the node's community
+/// assignment is updated.
+///
+/// # Arguments
+///
+/// * `graph` - A reference to a graph `G` implementing `petgraph`'s `EdgeCount`,
+///   `IntoNeighbors`, and `IntoNodeIdentifiers` traits. `G::NodeId` must
+///   implement `Eq` and `Hash`.
+///
+/// # Returns
+///
+/// * `Some(communities)` - If at least one node was moved to a different
+///   community (improving modularity), returns a `HashMap` mapping each node's
+///   `NodeId` to the `NodeId` representing its assigned community.
+/// * `None` - If no node movement improved modularity during this step.
 pub fn louvain_step<G>(graph: &G) -> Option<HashMap<G::NodeId, G::NodeId>>
 where
     G: EdgeCount + IntoNeighbors + IntoNodeIdentifiers,
@@ -63,6 +82,36 @@ where
 type CoarsenedGraph<N2, E2, Ty, Ix> = Graph<N2, E2, Ty, Ix>;
 type NodeMap<Ix> = HashMap<usize, NodeIndex<Ix>>;
 
+/// Creates a coarser graph representation by grouping nodes from an original graph.
+///
+/// This function takes an input graph and grouping information to produce a new,
+/// smaller graph where each node represents a group of nodes from the original graph.
+/// Edges in the coarsened graph represent the connections between groups in the
+/// original graph.
+///
+/// # Arguments
+///
+/// * `graph` - A reference to the original `petgraph::Graph`.
+/// * `node_groups` - A mutable closure `FnMut(&Graph<...>, NodeIndex<Ix>) -> usize`.
+///   It takes the original graph and a `NodeIndex` and returns the `usize` ID
+///   of the group that node belongs to.
+/// * `shrink_node` - A mutable closure `FnMut(&Graph<...>, &Vec<NodeIndex<Ix>>) -> N2`.
+///   It takes the original graph and a `Vec` of `NodeIndex` belonging to a single
+///   group and returns the node weight (`N2`) for the corresponding node in the
+///   coarsened graph.
+/// * `shrink_edge` - A mutable closure `FnMut(&Graph<...>, &Vec<EdgeIndex<Ix>>) -> E2`.
+///   It takes the original graph and a `Vec` of `EdgeIndex` connecting two
+///   specific groups and returns the edge weight (`E2`) for the corresponding
+///   edge in the coarsened graph.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// 1. The `CoarsenedGraph<N2, E2, Ty, Ix>`: The newly created `petgraph::Graph`
+///    representing the coarsened structure.
+/// 2. The `NodeMap<Ix>`: A `HashMap` mapping the group ID (`usize`) from the
+///    original graph's grouping to the `NodeIndex` of the corresponding node
+///    in the coarsened graph.
 pub fn coarsen<
     N1,
     N2,
