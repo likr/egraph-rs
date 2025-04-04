@@ -7,3 +7,12 @@ edition = "2021"
 ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
+
+[dev-dependencies]
+egraph-dataset = { path = "../../dataset", features=["qh882"] }
+petgraph-layout-stress-majorization = { path = "../stress-majorization" }
+plotters = "0.3"
+
+[[example]]
+name = "qh882_separation_constraints"
+path = "examples/qh882_separation_constraints.rs"
