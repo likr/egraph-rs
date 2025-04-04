@@ -26,39 +26,60 @@ fn parse<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(input: &str) -> Gr
     graph
 }
 
+/// Loads the "1138_bus" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `1138_bus` feature flag to be enabled.
 #[cfg(feature = "1138_bus")]
 pub fn dataset_1138_bus<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
 {
     parse(include_str!("data/1138_bus.csv"))
 }
 
+/// Loads the "3elt" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `3_elt` feature flag to be enabled.
 #[cfg(feature = "3_elt")]
 pub fn dataset_3_elt<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/3elt.csv"))
 }
 
+/// Loads the "dwt_1005" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `dwt_1005` feature flag to be enabled.
 #[cfg(feature = "dwt_1005")]
 pub fn dataset_dwt_1005<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
 {
     parse(include_str!("data/dwt_1005.csv"))
 }
 
+/// Loads the "dwt_2680" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `dwt_2680` feature flag to be enabled.
 #[cfg(feature = "dwt_2680")]
 pub fn dataset_dwt_2680<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
 {
     parse(include_str!("data/dwt_2680.csv"))
 }
 
+/// Loads the "poli" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `poli` feature flag to be enabled.
 #[cfg(feature = "poli")]
 pub fn dataset_poli<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/poli.csv"))
 }
 
+/// Loads the "qh882" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `qh882` feature flag to be enabled.
 #[cfg(feature = "qh882")]
 pub fn dataset_qh882<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/qh882.csv"))
 }
 
+/// Loads the "USpowerGrid" graph dataset from the SuiteSparse Matrix Collection.
+///
+/// Requires the `USpowerGrid` feature flag to be enabled.
 #[cfg(feature = "USpowerGrid")]
 pub fn dataset_uspower_grid<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(
 ) -> Graph<N, E, Ty, Ix> {

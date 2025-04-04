@@ -82,7 +82,9 @@
                 - `src/bin/quality-metrics.rs`: 描画品質指標を計算するバイナリ
                 - `src/bin/sgd.rs`: SGDレイアウトアルゴリズムを適用するバイナリ
             - `crates/clustering`: (済) クラスタリング (Louvainアルゴリズムのステップ関数、グラフ粗視化関数を含む)
-            - `crates/dataset`: (未) データセット関連
+            - `crates/dataset`: (済) SuiteSparse Matrix Collectionなどのグラフデータセットをロードするための機能を提供。
+                - `src/lib.rs`: データセット読み込み関数 (`load_graph`)
+                - `src/data/*.csv`: データファイル (エッジリスト形式)
             - `crates/drawing`: (未) 描画関連
             - `crates/edge-bundling`: (未) エッジバンドリング
                 - `fdeb`: (未) Force Directed Edge Bundling?
