@@ -1,4 +1,4 @@
-use egraph_dataset::dataset_1138_bus;
+use egraph_dataset::dataset_qh882;
 use petgraph::prelude::*;
 use petgraph_algorithm_shortest_path::*;
 
@@ -7,7 +7,7 @@ where
     F: Fn(&UnGraph<(), ()>) -> D,
     D: DistanceMatrix<NodeIndex, f32>,
 {
-    let graph: UnGraph<(), ()> = dataset_1138_bus();
+    let graph: UnGraph<(), ()> = dataset_qh882();
     let actual = f(&graph);
     let expected = petgraph::algo::floyd_warshall(&graph, |_| 1.).unwrap();
     for u in graph.node_indices() {

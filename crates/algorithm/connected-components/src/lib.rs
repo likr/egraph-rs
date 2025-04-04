@@ -24,7 +24,7 @@ use std::collections::HashMap;
 ///
 /// ```
 /// use petgraph::graph::Graph;
-/// use egraph_connected_components::connected_components;
+/// use petgraph_algorithm_connected_components::connected_components;
 ///
 /// let mut graph = Graph::new_undirected();
 /// let u1 = graph.add_node(());
