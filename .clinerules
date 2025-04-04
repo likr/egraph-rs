@@ -46,74 +46,23 @@
     - ドキュメンテーションコメント (`///`, `//!`) 以外は、原則としてコードの意図や理由 (**Why**) を記述します。
     - コードの動作手順 (**How**) の詳細な説明は避けます（コード自体が示すべきです）。
     - 不要なコードのコメントアウトや、作業途中のメモは削除します。
+    - コードのコメントは必ず英語で記述してください。これには、ドキュメンテーションコメント、インラインコメント、TODOコメントなどすべてのコメントが含まれます。
 
 ### JavaScript/TypeScript/JSON 等
 - **Formatter:** `prettier` などのFormatterを使用してコードスタイルを統一することを推奨します。
 
-## プロジェクト固有の情報 (`egraph-rs` Specific Information)
+### 言語 (Language)
+- **コードコメント:** すべてのソースコード内のコメントは英語で記述してください。
+- **コミットメッセージ:** Git のコミットメッセージはすべて英語で記述してください。Conventional Commits 形式に従って作成してください。
 
-以下の項目はこの `egraph-rs` プロジェクト特有のルール、ツール、コマンド、構成に関する情報です。
+## プロジェクト固有の情報
 
-- **プロジェクト構成:**
-    - このプロジェクトはRustのワークスペース (`Cargo.toml`参照) で構成されており、複数のクレート (`crates/*`) を含みます。
-    - JavaScript/WASM関連のコードが `js/` ディレクトリ、`crates/wasm` クレート、およびルートの `package.json` で管理されています（npm workspaces利用）。
-- **Rust:**
-    - **Edition:** `2021` を使用します。（必要に応じて更新を検討・指示してください。各クレートの `Cargo.toml` でも確認してください。）
-    - **チェック:** `cargo check --workspace`
-    - **テスト:** `cargo test --workspace`
-    - **フォーマット:** `cargo fmt --all`
-    - **Lint:** `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-    - **依存関係追加:** `crates/<target-crate>/Cargo.toml` の `[dependencies]` に追記します。
-- **JavaScript/TypeScript/JSON 等:**
-    - **フォーマット:** `npx prettier --write .` を実行します (`.prettierrc.json` の設定に従いますが、現在は空のためデフォルト設定）。
-    - **WASMビルド:** `npm run wasm-build`
-    - **Examples実行:** `npm start` (内部で `npm run dev -w examples` を実行)
-    - **依存関係追加:** `npm install <package-name> -w <workspace-name>` (例: `-w examples`, `-w crates/wasm`) またはルートで `npm install <package-name>` を実行します。
-- **その他:**
-    - **アーキテクチャ概要:**
-        - **ワークスペースルート:** `/home/likr/src/likr/egraph-rs`
-        - **構成:** RustワークスペースとJavaScript/TypeScript関連コードを含むモノレポ。
-        - **Rustワークスペースメンバー (Cargo.tomlより):**
-            - `crates/algorithm`: グラフアルゴリズム群
-                - `connected-components`: 連結成分
-                - `shortest-path`: 最短経路 (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
-            - `crates/cli`: CLI (バイナリ?)
-                - `src/lib.rs`: 共有ライブラリコード (JSON読み書きなど)
-                - `src/bin/quality-metrics.rs`: 描画品質指標を計算するバイナリ
-                - `src/bin/sgd.rs`: SGDレイアウトアルゴリズムを適用するバイナリ
-            - `crates/clustering`: クラスタリング (Louvainアルゴリズムのステップ関数、グラフ粗視化関数を含む)
-            - `crates/dataset`: SuiteSparse Matrix Collectionなどのグラフデータセットをロードするための機能を提供。
-                - `src/lib.rs`: データセット読み込み関数 (`load_graph`)
-                - `src/data/*.csv`: データファイル (エッジリスト形式)
-            - `crates/drawing`: 描画関連
-                - `src/lib.rs`: 基本的なトレイトの定義 (`DrawingIndex`, `DrawingValue`) やモジュールの公開
-                - `src/drawing.rs`: 描画のための基本抽象化 (`Drawing` トレイト)
-                - `src/drawing/*.rs`: 具体的な描画実装（ユークリッド、球面、双曲、トーラスなど）
-                - `src/metric.rs`: 距離空間のトレイト定義 (`Delta`, `Metric`, `MetricCartesian`)
-                - `src/metric/*.rs`: 具体的な距離計算実装（各空間での距離、ベクトル差分計算など）
-            - `crates/edge-bundling`: (未) エッジバンドリング
-                - `fdeb`: (未) Force Directed Edge Bundling?
-            - `crates/layout`: レイアウトアルゴリズム群
-                - `kamada-kawai`: (未) Kamada-Kawai法
-                - `mds`: (未) Multidimensional Scaling
-                - `overwrap-removal`: (未) 重なり除去
-                - `separation-constraints`: (未) 分離制約
-                - `sgd`: (未) Stochastic Gradient Descent レイアウト
-                - `stress-majorization`: (未) Stress Majorization法
-            - `crates/python`: (未) Pythonバインディング (PyO3?)
-            - `crates/quality-metrics`: (未) 描画品質指標
-            - `crates/wasm`: (未) WASMバインディング (wasm-bindgen?)
-        - **その他のディレクトリ:**
-            - `js/`: JS/TSコード (npm workspaces)
-                - `js/dataset/`: データセット関連?
-                - `js/examples/`: サンプルコード?
-            - `.github/`: (未) GitHub Actionsワークフロー
-            - `.vscode/`: (未) VS Code設定
-            - `docs/`: (未) ドキュメント
-            - `examples/`: (未) Rustサンプルコード
-            - `img/`: (未) 画像ファイル
-            - `scripts/`: (未) 開発用スクリプト
-            - `www/`: (未) WASMフロントエンド?
-        - **全体的な目的 (推測):**
-            - Rust製のグラフデータ構造、アルゴリズム、品質指標、描画機能などを提供するライブラリ。
-            - PythonおよびWebAssembly (JavaScript)からの利用も想定。
+プロジェクト固有の情報（アーキテクチャ、構成、コマンド、ツールなど）については、プロジェクトルートにある `PROJECT_SUMMARY.md` ファイルを参照してください。このファイルには以下の情報が含まれています：
+
+- プロジェクト構成
+- 開発ツールとコマンド
+- アーキテクチャ概要
+- 各コンポーネントの説明
+- プロジェクトの目的
+
+この文書は、プロジェクトの全体像を把握するための最初のリファレンスとして使用してください。
