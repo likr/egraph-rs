@@ -77,7 +77,10 @@
             - `crates/algorithm`: グラフアルゴリズム群
                 - `connected-components`: (済) 連結成分
                 - `shortest-path`: (済) 最短経路 (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
-            - `crates/cli`: (未) CLI (バイナリ?)
+            - `crates/cli`: (済) CLI (バイナリ?)
+                - `src/lib.rs`: 共有ライブラリコード (JSON読み書きなど)
+                - `src/bin/quality-metrics.rs`: 描画品質指標を計算するバイナリ
+                - `src/bin/sgd.rs`: SGDレイアウトアルゴリズムを適用するバイナリ
             - `crates/clustering`: (未) クラスタリング
             - `crates/dataset`: (未) データセット関連
             - `crates/drawing`: (未) 描画関連

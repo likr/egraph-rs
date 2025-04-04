@@ -1,3 +1,9 @@
+//! This crate provides utility functions for reading and writing graph data
+//! in JSON format, specifically designed for use within the `egraph-rs`
+//! command-line tools. It handles serialization and deserialization
+//! between `petgraph` graph structures (with optional node/edge data)
+//! and a simple JSON representation that includes node positions.
+
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -7,6 +13,7 @@ use std::{
     io::{BufReader, BufWriter},
 };
 
+/// Represents node data for serialization/deserialization.
 #[derive(Clone, Serialize, Deserialize)]
 struct NodeData<N> {
     id: usize,
@@ -15,6 +22,7 @@ struct NodeData<N> {
     data: Option<N>,
 }
 
+/// Represents link (edge) data for serialization/deserialization.
 #[derive(Clone, Serialize, Deserialize)]
 struct LinkData<E> {
     source: usize,
@@ -22,15 +30,35 @@ struct LinkData<E> {
     data: Option<E>,
 }
 
+/// Represents the overall graph structure for serialization/deserialization.
 #[derive(Clone, Serialize, Deserialize)]
 struct GraphData<N, E> {
     nodes: Vec<NodeData<N>>,
     links: Vec<LinkData<E>>,
 }
 
+/// Type alias for an undirected graph using `petgraph::Graph`.
 type UndirectedGraph<N, E> = Graph<Option<N>, Option<E>, Undirected>;
+/// Type alias for a 2D Euclidean drawing using `petgraph_drawing::DrawingEuclidean2d`.
 type Drawing2D = DrawingEuclidean2d<NodeIndex, f32>;
 
+/// Reads a graph and its drawing information from a JSON file.
+///
+/// The JSON file is expected to follow the `GraphData` structure.
+/// It deserializes node and edge data of types `N` and `E` respectively.
+/// Initial node positions (if present in the JSON) are used to populate the `Drawing2D`.
+///
+/// # Arguments
+///
+/// * `input_path` - Path to the input JSON file.
+///
+/// # Returns
+///
+/// A tuple containing the `UndirectedGraph<N, E>` and its corresponding `Drawing2D`.
+///
+/// # Panics
+///
+/// Panics if the file cannot be opened or if JSON deserialization fails.
 pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
 ) -> (UndirectedGraph<N, E>, Drawing2D) {
@@ -63,6 +91,20 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     (graph, drawing)
 }
 
+/// Writes a graph and its drawing information to a JSON file.
+///
+/// Serializes the graph structure and node positions into the `GraphData` format.
+/// Node and edge data types `N` and `E` must implement `Serialize`.
+///
+/// # Arguments
+///
+/// * `graph` - The `UndirectedGraph<N, E>` to write.
+/// * `drawing` - The `Drawing2D` containing node positions.
+/// * `output_path` - Path to the output JSON file.
+///
+/// # Panics
+///
+/// Panics if the file cannot be created or if JSON serialization fails.
 pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
     graph: &UndirectedGraph<N, E>,
     drawing: &Drawing2D,
