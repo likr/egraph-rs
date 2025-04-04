@@ -70,4 +70,40 @@
     - **Examples実行:** `npm start` (内部で `npm run dev -w examples` を実行)
     - **依存関係追加:** `npm install <package-name> -w <workspace-name>` (例: `-w examples`, `-w crates/wasm`) またはルートで `npm install <package-name>` を実行します。
 - **その他:**
-    - (ここに、主要クレートの役割、アーキテクチャ概要、テストデータの扱いなど、このプロジェクト固有のルールや情報を追記してください。)
+    - **アーキテクチャ概要:**
+        - **ワークスペースルート:** `/home/likr/src/likr/egraph-rs`
+        - **構成:** RustワークスペースとJavaScript/TypeScript関連コードを含むモノレポ。
+        - **Rustワークスペースメンバー (Cargo.tomlより):**
+            - `crates/algorithm`: グラフアルゴリズム群
+                - `connected-components`: (済) 連結成分
+                - `shortest-path`: (済) 最短経路 (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
+            - `crates/cli`: (未) CLI (バイナリ?)
+            - `crates/clustering`: (未) クラスタリング
+            - `crates/dataset`: (未) データセット関連
+            - `crates/drawing`: (未) 描画関連
+            - `crates/edge-bundling`: (未) エッジバンドリング
+                - `fdeb`: (未) Force Directed Edge Bundling?
+            - `crates/layout`: レイアウトアルゴリズム群
+                - `kamada-kawai`: (未) Kamada-Kawai法
+                - `mds`: (未) Multidimensional Scaling
+                - `overwrap-removal`: (未) 重なり除去
+                - `separation-constraints`: (未) 分離制約
+                - `sgd`: (未) Stochastic Gradient Descent レイアウト
+                - `stress-majorization`: (未) Stress Majorization法
+            - `crates/python`: (未) Pythonバインディング (PyO3?)
+            - `crates/quality-metrics`: (未) 描画品質指標
+            - `crates/wasm`: (未) WASMバインディング (wasm-bindgen?)
+        - **その他のディレクトリ:**
+            - `js/`: JS/TSコード (npm workspaces)
+                - `js/dataset/`: データセット関連?
+                - `js/examples/`: サンプルコード?
+            - `.github/`: (未) GitHub Actionsワークフロー
+            - `.vscode/`: (未) VS Code設定
+            - `docs/`: (未) ドキュメント
+            - `examples/`: (未) Rustサンプルコード
+            - `img/`: (未) 画像ファイル
+            - `scripts/`: (未) 開発用スクリプト
+            - `www/`: (未) WASMフロントエンド?
+        - **全体的な目的 (推測):**
+            - Rust製のグラフデータ構造、アルゴリズム、品質指標、描画機能などを提供するライブラリ。
+            - PythonおよびWebAssembly (JavaScript)からの利用も想定。

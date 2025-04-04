@@ -5,6 +5,26 @@ use std::{cmp::Reverse, collections::BinaryHeap, hash::Hash};
 
 use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
 
+/// Computes the shortest path distances from a single source node `s` using Dijkstra's algorithm
+/// and populates the corresponding row in the provided `distance_matrix`.
+///
+/// This function uses a binary heap for efficiency and handles weighted edges.
+/// It modifies the `distance_matrix` in place.
+///
+/// # Type Parameters
+///
+/// * `G`: The graph type, implementing `IntoEdges` and `IntoNodeIdentifiers`.
+/// * `S`: The scalar type for distances, implementing `NdFloat`.
+/// * `F`: The type of the function/closure used to get edge lengths.
+/// * `D`: The distance matrix type, implementing `DistanceMatrix<G::NodeId, S>`.
+///
+/// # Arguments
+///
+/// * `graph`: The graph to perform Dijkstra's algorithm on.
+/// * `length`: A function or closure that takes an `EdgeRef` and returns its length (`S`).
+/// * `s`: The starting node ID for the algorithm.
+/// * `distance_matrix`: A mutable reference to the distance matrix to be populated.
+///   The distances from `s` will be written into the row corresponding to `s`.
 pub fn dijkstra_with_distance_matrix<G, S, F, D>(
     graph: G,
     length: F,
@@ -36,6 +56,26 @@ pub fn dijkstra_with_distance_matrix<G, S, F, D>(
     }
 }
 
+/// Computes the shortest path distances from a set of source nodes using Dijkstra's algorithm.
+///
+/// This function runs Dijkstra's algorithm starting from each node in the `sources` slice.
+///
+/// # Type Parameters
+///
+/// * `G`: The graph type, implementing `IntoEdges` and `IntoNodeIdentifiers`.
+/// * `S`: The scalar type for distances, implementing `NdFloat`.
+/// * `F`: The type of the function/closure used to get edge lengths.
+///
+/// # Arguments
+///
+/// * `graph`: The graph to perform Dijkstra's algorithm on.
+/// * `length`: A function or closure that takes an `EdgeRef` and returns its length (`S`).
+///   Note: This function might be called multiple times for the same edge if there are multiple sources.
+/// * `sources`: A slice of node IDs representing the starting points.
+///
+/// # Returns
+///
+/// A `SubDistanceMatrix` containing the shortest path distances from each source node.
 pub fn multi_source_dijkstra<G, S, F>(
     graph: G,
     length: F,
@@ -55,6 +95,25 @@ where
     distance_matrix
 }
 
+/// Computes the shortest path distances between all pairs of nodes using Dijkstra's algorithm.
+///
+/// This function runs Dijkstra's algorithm starting from every node in the graph.
+///
+/// # Type Parameters
+///
+/// * `G`: The graph type, implementing `IntoEdges` and `IntoNodeIdentifiers`.
+/// * `S`: The scalar type for distances, implementing `NdFloat`.
+/// * `F`: The type of the function/closure used to get edge lengths.
+///
+/// # Arguments
+///
+/// * `graph`: The graph to perform Dijkstra's algorithm on.
+/// * `length`: A function or closure that takes an `EdgeRef` and returns its length (`S`).
+///   Note: This function will be called multiple times for each edge.
+///
+/// # Returns
+///
+/// A `FullDistanceMatrix` containing the shortest path distances between all pairs of nodes.
 pub fn all_sources_dijkstra<G, S, F>(graph: G, length: F) -> FullDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
@@ -70,6 +129,25 @@ where
     distance_matrix
 }
 
+/// Computes the shortest path distances from a single source node `s` using Dijkstra's algorithm.
+///
+/// This is a convenience wrapper around `multi_source_dijkstra` for a single source node.
+///
+/// # Type Parameters
+///
+/// * `G`: The graph type, implementing `IntoEdges` and `IntoNodeIdentifiers`.
+/// * `S`: The scalar type for distances, implementing `NdFloat`.
+/// * `F`: The type of the function/closure used to get edge lengths.
+///
+/// # Arguments
+///
+/// * `graph`: The graph to perform Dijkstra's algorithm on.
+/// * `length`: A function or closure that takes an `EdgeRef` and returns its length (`S`).
+/// * `s`: The starting node ID for the algorithm.
+///
+/// # Returns
+///
+/// A `SubDistanceMatrix` containing the shortest path distances from the source node `s`.
 pub fn dijkstra<G, S, F>(graph: G, length: F, s: G::NodeId) -> SubDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
