@@ -1,11 +1,7 @@
-//! Graph data structures for WebAssembly.
+//! Common type definitions for graph data structures.
 //!
-//! This module provides WebAssembly bindings for graph data structures
-//! based on petgraph, exposed via wasm-bindgen.
+//! This module defines shared types used across graph implementations.
 
-mod graph_impl;
-
-pub use graph_impl::{JsDiGraph, JsGraph};
 use wasm_bindgen::prelude::*;
 
 /// Type alias for node data, can be any JavaScript value.
