@@ -9,11 +9,37 @@ use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+/// Sparse Stochastic Gradient Descent (SGD) implementation for graph layout.
+///
+/// This implementation uses a sparse approximation technique that selects a subset of
+/// pivot nodes and computes shortest-path distances only from these pivot nodes to all
+/// other nodes. This approach significantly reduces the computational complexity for
+/// large graphs compared to the full SGD algorithm, while still producing good layouts.
+///
+/// The algorithm works by:
+/// 1. Selecting a set of pivot nodes
+/// 2. Computing shortest paths from these pivots to all other nodes
+/// 3. Assigning each non-pivot node to its closest pivot
+/// 4. Using these pivot-based distances to drive the layout optimization
 pub struct SparseSgd<S> {
+    /// List of node pairs to be considered during layout optimization.
+    /// Each tuple contains (i, j, distance_ij, distance_ji, weight_ij, weight_ji)
     node_pairs: Vec<(usize, usize, S, S, S, S)>,
 }
 
 impl<S> SparseSgd<S> {
+    /// Creates a new SparseSgd instance from a graph.
+    ///
+    /// This constructor selects pivot nodes randomly and computes the shortest path
+    /// distances to set up the sparse SGD algorithm.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `h` - The number of pivot nodes to use (controls sparsity)
+    ///
+    /// # Returns
+    /// A new SparseSgd instance configured with appropriate node pairs
     pub fn new<G, F>(graph: G, length: F, h: usize) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
@@ -25,6 +51,19 @@ impl<S> SparseSgd<S> {
         SparseSgd::new_with_rng(graph, length, h, &mut rng)
     }
 
+    /// Creates a new SparseSgd instance with a provided random number generator.
+    ///
+    /// This variant of the constructor allows using a specific random number generator
+    /// for deterministic behavior in testing scenarios.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `h` - The number of pivot nodes to use (controls sparsity)
+    /// * `rng` - The random number generator to use for selecting pivots
+    ///
+    /// # Returns
+    /// A new SparseSgd instance configured with appropriate node pairs
     pub fn new_with_rng<G, F, R>(graph: G, length: F, h: usize, rng: &mut R) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
@@ -40,6 +79,19 @@ impl<S> SparseSgd<S> {
         Self::new_with_pivot_and_distance_matrix(graph, length, &pivot, &d)
     }
 
+    /// Creates a new SparseSgd instance with pre-selected pivot nodes.
+    ///
+    /// This constructor allows using a specific set of pivot nodes instead of
+    /// selecting them randomly, which can be useful when you have domain knowledge
+    /// about which nodes might make good pivots.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `pivot` - A slice of node IDs to use as pivot nodes
+    ///
+    /// # Returns
+    /// A new SparseSgd instance configured with the specified pivot nodes
     pub fn new_with_pivot<G, F>(graph: G, mut length: F, pivot: &[G::NodeId]) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
@@ -51,6 +103,19 @@ impl<S> SparseSgd<S> {
         Self::new_with_pivot_and_distance_matrix(graph, &mut length, pivot, &d)
     }
 
+    /// Creates a new SparseSgd instance with pre-selected pivot nodes and a pre-computed distance matrix.
+    ///
+    /// This is the most low-level constructor, useful when you have already computed
+    /// the distance matrix or want to provide a custom distance matrix.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `pivot` - A slice of node IDs to use as pivot nodes
+    /// * `distance_matrix` - A pre-computed distance matrix from pivots to all nodes
+    ///
+    /// # Returns
+    /// A new SparseSgd instance configured with the specified pivot nodes and distances
     pub fn new_with_pivot_and_distance_matrix<G, F, D>(
         graph: G,
         mut length: F,
@@ -118,6 +183,22 @@ impl<S> SparseSgd<S> {
         SparseSgd { node_pairs }
     }
 
+    /// Selects pivot nodes using a max-min randomized algorithm.
+    ///
+    /// This method implements a maximal-minimal distance pivot selection strategy.
+    /// It first selects a random node as the first pivot, then iteratively selects
+    /// nodes that maximize the minimum distance to all previously selected pivots.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to select pivots from
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `h` - The number of pivot nodes to select
+    /// * `rng` - The random number generator to use
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - A vector of selected pivot node IDs
+    /// - A SubDistanceMatrix containing distances from pivots to all nodes
     pub fn choose_pivot<G, F, R>(
         graph: G,
         length: F,
@@ -135,16 +216,49 @@ impl<S> SparseSgd<S> {
     }
 }
 
+/// Implementation of the Sgd trait for SparseSgd
+///
+/// This provides the core SGD functionality for the sparse graph layout algorithm,
+/// allowing it to work with the common SGD framework.
 impl<S> Sgd<S> for SparseSgd<S> {
+    /// Returns a reference to the node pairs data structure.
+    ///
+    /// For the sparse implementation, this contains:
+    /// - All direct edge connections (from the original graph)
+    /// - Additional pivot-to-node connections
     fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
         &self.node_pairs
     }
 
+    /// Returns a mutable reference to the node pairs data structure.
+    ///
+    /// This allows modifying the node pairs during execution if needed.
     fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
         &mut self.node_pairs
     }
 }
 
+/// Implementation of the maximal-minimal distance pivot selection strategy.
+///
+/// This function selects pivot nodes that are maximally distant from each other,
+/// which helps ensure good coverage of the graph for sparse layouts.
+///
+/// The strategy works as follows:
+/// 1. Select a random node as the first pivot
+/// 2. Compute shortest paths from this pivot to all other nodes
+/// 3. Select the next pivot as the node that maximizes its minimum distance to all existing pivots
+/// 4. Repeat steps 2-3 until the desired number of pivots is selected
+///
+/// # Parameters
+/// * `graph` - The input graph to select pivots from
+/// * `length` - A function that maps edges to their lengths/weights
+/// * `h` - The number of pivot nodes to select
+/// * `rng` - The random number generator to use
+///
+/// # Returns
+/// A tuple containing:
+/// - A vector of selected pivot node IDs
+/// - A SubDistanceMatrix containing distances from pivots to all nodes
 fn max_min_random_sp<G, F, R, S>(
     graph: G,
     length: F,
@@ -183,6 +297,22 @@ where
     (pivot, distance_matrix)
 }
 
+/// Selects a node index with probability proportional to its distance value.
+///
+/// This function is used in the pivot selection process to randomly choose the
+/// next pivot with probability proportional to its minimum distance from all
+/// previously selected pivots. This ensures that nodes that are farther from
+/// existing pivots have a higher chance of being selected as the next pivot.
+///
+/// # Parameters
+/// * `values` - An array of distance values for each node
+/// * `rng` - The random number generator to use
+///
+/// # Returns
+/// The index of the selected node
+///
+/// # Panics
+/// This function will panic if all values are zero or if an unexpected state is reached.
 fn proportional_sampling<R, S>(values: &Array1<S>, rng: &mut R) -> usize
 where
     R: Rng,
