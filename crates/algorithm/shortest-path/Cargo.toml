@@ -10,7 +10,7 @@ petgraph = "0.6"
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
-egraph-dataset = { path = "../../dataset", features = ["1138_bus", "qh882"] }
+egraph-dataset = { path = "../../dataset", features = ["1138_bus", "lesmis"] }
 
 [[bench]]
 name = "apsp"
