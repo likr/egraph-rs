@@ -2,6 +2,29 @@ use crate::edge_angle::edge_angle;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
 
+/// Calculates the angular resolution metric for a graph layout.
+///
+/// Angular resolution measures how well the angles between edges connected to the same node
+/// are distributed. Higher values of this metric indicate better readability, as edges
+/// are more evenly spaced around their common node.
+///
+/// This implementation calculates a sum of exponential functions of negative angles
+/// between adjacent edges. Smaller angles contribute larger values to the sum,
+/// making the metric increase as angular resolution worsens.
+///
+/// # Parameters
+///
+/// * `graph`: The graph structure to evaluate
+/// * `drawing`: The 2D Euclidean layout of the graph
+///
+/// # Returns
+///
+/// An `f32` value representing the angular resolution metric. Lower values indicate
+/// better angular resolution.
+///
+/// # Type Parameters
+///
+/// * `G`: A graph type that implements the required traits
 pub fn angular_resolution<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
 where
     G: IntoNodeIdentifiers + IntoNeighbors,

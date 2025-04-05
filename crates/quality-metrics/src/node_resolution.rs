@@ -1,5 +1,31 @@
 use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 
+/// Calculates the node resolution metric for a graph layout.
+///
+/// Node resolution evaluates how well nodes are distributed in the drawing space,
+/// assessing whether nodes are too close to each other which can hamper readability.
+/// The metric is based on a comparison of actual inter-node distances to an ideal
+/// minimum distance that depends on the number of nodes and the maximum distance
+/// between any two nodes.
+///
+/// This implementation calculates the sum of squared violations of the minimum
+/// distance rule. A lower value indicates better node resolution (fewer violations).
+///
+/// # Parameters
+///
+/// * `drawing`: The layout of the graph
+///
+/// # Returns
+///
+/// A value of type `S` representing the node resolution metric. Higher values
+/// indicate better node spacing.
+///
+/// # Type Parameters
+///
+/// * `Diff`: A type for representing differences between metric values
+/// * `D`: A drawing type
+/// * `M`: Metric type used in the drawing
+/// * `S`: Numeric type for calculations
 pub fn node_resolution<Diff, D, M, S>(drawing: &D) -> S
 where
     D: Drawing<Item = M>,

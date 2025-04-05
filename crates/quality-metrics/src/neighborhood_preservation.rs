@@ -4,6 +4,34 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNeighbors, NodeIndexable}
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
 use std::collections::HashSet;
 
+/// Calculates the neighborhood preservation metric for a graph layout.
+///
+/// This metric assesses how well the layout preserves local neighborhoods from
+/// the original graph structure. It calculates the ratio of nodes that are both
+/// graph-theoretical neighbors and spatial neighbors in the layout.
+///
+/// The implementation works by:
+/// 1. Identifying all edges in the graph
+/// 2. For each node, finding its k nearest neighbors in the layout (where k is its degree in the graph)
+/// 3. Calculating the ratio of neighbors that are preserved (i.e., are both connected in the
+///    graph and close in the layout)
+///
+/// A higher value indicates better preservation of the graph's neighborhood structure.
+///
+/// # Parameters
+///
+/// * `graph`: The graph structure to evaluate
+/// * `drawing`: The 2D Euclidean layout of the graph
+///
+/// # Returns
+///
+/// An `f32` value in the range [0, 1] representing the neighborhood preservation metric.
+/// A value of 1 indicates perfect preservation of neighborhoods, while 0 indicates
+/// no preservation.
+///
+/// # Type Parameters
+///
+/// * `G`: A graph type that implements the required traits
 pub fn neighborhood_preservation<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,

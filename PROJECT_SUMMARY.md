@@ -108,6 +108,19 @@ This document provides an overview of the egraph-rs project structure, component
     - Based on Gansner et al. (2004) "Graph drawing by stress majorization"
 - **crates/python**: Python bindings using PyO3
 - **crates/quality-metrics**: Drawing quality metrics for evaluating graph layouts
+  - Collection of metrics to quantitatively assess the quality of graph layouts
+  - Includes metrics for:
+    - `Stress`: How well layout preserves graph-theoretical distances
+    - `IdealEdgeLengths`: How well edge lengths match their ideal lengths
+    - `NeighborhoodPreservation`: How well the layout preserves local neighborhoods
+    - `CrossingNumber`: Count of edge crossings in the layout
+    - `CrossingAngle`: Angles at which edges cross
+    - `AspectRatio`: Balance between width and height of the drawing
+    - `AngularResolution`: Angles between edges connected to the same node
+    - `NodeResolution`: How well nodes are distributed in the drawing space
+    - `GabrielGraphProperty`: Adherence to the Gabriel graph condition
+  - Provides both individual metric functions and a combined quality evaluation
+  - Metrics include sense (maximize/minimize) to indicate optimization direction
 - **crates/wasm**: WebAssembly bindings using wasm-bindgen
 
 ### Other Directories
