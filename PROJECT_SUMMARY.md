@@ -71,6 +71,10 @@ This document provides an overview of the egraph-rs project structure, component
     - Uses eigendecomposition and double centering to transform distance matrices
     - Reference: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
   - `overwrap-removal`: Overlap removal algorithms for graph layouts
+    - `OverwrapRemoval`: A graph layout post-processing algorithm that resolves node overlaps
+    - Iteratively adjusts node positions based on their defined radii to ensure proper spacing
+    - Distributes displacement forces between nodes based on their relative sizes
+    - Reference: Similar to Prism force-directed overlap removal technique
   - `separation-constraints`: Separation constraints for layout algorithms
   - `sgd`: Stochastic Gradient Descent layout implementation
   - `stress-majorization`: Stress Majorization graph layout method
