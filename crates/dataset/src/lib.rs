@@ -37,8 +37,8 @@ pub fn dataset_1138_bus<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -
 
 /// Loads the "3elt" graph dataset from the SuiteSparse Matrix Collection.
 ///
-/// Requires the `3_elt` feature flag to be enabled.
-#[cfg(feature = "3_elt")]
+/// Requires the `3elt` feature flag to be enabled.
+#[cfg(feature = "3elt")]
 pub fn dataset_3_elt<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/3elt.csv"))
 }
@@ -84,4 +84,22 @@ pub fn dataset_qh882<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> G
 pub fn dataset_uspower_grid<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(
 ) -> Graph<N, E, Ty, Ix> {
     parse(include_str!("data/USpowerGrid.csv"))
+}
+
+/// Loads the "karate" graph dataset (Zachary's Karate Club).
+///
+/// Requires the `karate` feature flag to be enabled.
+#[cfg(feature = "karate")]
+pub fn dataset_karate<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
+{
+    parse(include_str!("data/karate.csv"))
+}
+
+/// Loads the "lesmis" graph dataset (Les Misérables character co-occurrence network).
+///
+/// Requires the `lesmis` feature flag to be enabled.
+#[cfg(feature = "lesmis")]
+pub fn dataset_lesmis<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
+{
+    parse(include_str!("data/lesmis.csv"))
 }

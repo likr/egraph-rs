@@ -10,7 +10,9 @@ USpowerGrid = []
 qh882 = []
 dwt_1005 = []
 dwt_2680 = []
-3_elt = []
+3elt = []
+karate = []
+lesmis = []
 
 [dependencies]
 petgraph = "0.6"
