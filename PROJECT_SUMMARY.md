@@ -38,7 +38,7 @@ This document provides an overview of the egraph-rs project structure, component
 - **crates/algorithm**: Graph algorithms
   - `connected-components`: Connected components
   - `shortest-path`: Shortest path algorithms (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
-- **crates/cli**: CLI (binary?)
+- **crates/cli**: CLI tools
   - `src/lib.rs`: Shared library code (JSON I/O, etc.)
   - `src/bin/quality-metrics.rs`: Binary to calculate drawing quality metrics
   - `src/bin/sgd.rs`: Binary to apply SGD layout algorithm
@@ -58,30 +58,35 @@ This document provides an overview of the egraph-rs project structure, component
     - `EdgeBundlingOptions`: Configuration for the bundling algorithm parameters
     - `fdeb`: Main function to apply edge bundling to a graph
 - **crates/layout**: Layout algorithms
-  - `kamada-kawai`: (Incomplete) Kamada-Kawai method
-  - `mds`: (Incomplete) Multidimensional Scaling
-  - `overwrap-removal`: (Incomplete) Overlap removal
-  - `separation-constraints`: (Incomplete) Separation constraints
-  - `sgd`: (Incomplete) Stochastic Gradient Descent layout
-  - `stress-majorization`: (Incomplete) Stress Majorization method
-- **crates/python**: (Incomplete) Python bindings (PyO3?)
-- **crates/quality-metrics**: (Incomplete) Drawing quality metrics
-- **crates/wasm**: (Incomplete) WASM bindings (wasm-bindgen?)
+  - `kamada-kawai`: Implementation of Kamada-Kawai force-directed layout algorithm
+    - `KamadaKawai`: Primary struct that implements the algorithm
+    - Models a graph as a spring system where spring lengths are based on shortest path distances
+    - Iteratively positions nodes to minimize the energy of the spring system
+    - Provides methods for node selection based on energy gradient and node position optimization
+    - Reference: Kamada, T., & Kawai, S. (1989). An algorithm for drawing general undirected graphs.
+  - `mds`: Multidimensional Scaling implementation
+  - `overwrap-removal`: Overlap removal algorithms for graph layouts
+  - `separation-constraints`: Separation constraints for layout algorithms
+  - `sgd`: Stochastic Gradient Descent layout implementation
+  - `stress-majorization`: Stress Majorization graph layout method
+- **crates/python**: Python bindings using PyO3
+- **crates/quality-metrics**: Drawing quality metrics for evaluating graph layouts
+- **crates/wasm**: WebAssembly bindings using wasm-bindgen
 
 ### Other Directories
 
 - **js/**: JS/TS code (npm workspaces)
-  - `js/dataset/`: Dataset-related?
-  - `js/examples/`: Sample code?
-- **.github/**: (Incomplete) GitHub Actions workflows
-- **.vscode/**: (Incomplete) VS Code settings
-- **docs/**: (Incomplete) Documentation
-- **examples/**: (Incomplete) Rust sample code
-- **img/**: (Incomplete) Image files
-- **scripts/**: (Incomplete) Development scripts
-- **www/**: (Incomplete) WASM frontend?
+  - `js/dataset/`: Dataset processing utilities
+  - `js/examples/`: Sample code for JavaScript usage
+- **.github/**: GitHub Actions workflows for CI/CD
+- **.vscode/**: VS Code editor settings
+- **docs/**: Documentation files
+- **examples/**: Rust sample code
+- **img/**: Image files for documentation
+- **scripts/**: Development scripts
+- **www/**: WebAssembly frontend examples
 
 ### Project Purpose
 
 - A Rust library providing graph data structures, algorithms, quality metrics, and drawing functionality.
-- Intended for use from Python and WebAssembly (JavaScript).
+- Intended for use from Rust directly, via Python bindings, or via WebAssembly (JavaScript).
