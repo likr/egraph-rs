@@ -52,8 +52,11 @@ This document provides an overview of the egraph-rs project structure, component
   - `src/drawing/*.rs`: Specific drawing implementations (euclidean, spherical, hyperbolic, torus, etc.)
   - `src/metric.rs`: Distance space trait definitions (`Delta`, `Metric`, `MetricCartesian`)
   - `src/metric/*.rs`: Specific distance calculation implementations (distances in various spaces, vector difference calculations, etc.)
-- **crates/edge-bundling**: (Incomplete) Edge bundling
-  - `fdeb`: (Incomplete) Force Directed Edge Bundling?
+- **crates/edge-bundling**: Edge bundling algorithms for graph visualization
+  - `fdeb`: Force Directed Edge Bundling - Implementation of Holten & Van Wijk's algorithm (2009) for reducing visual clutter in graph visualizations by bundling similar edges together. Provides:
+    - `Point`: 2D point structure with position and velocity
+    - `EdgeBundlingOptions`: Configuration for the bundling algorithm parameters
+    - `fdeb`: Main function to apply edge bundling to a graph
 - **crates/layout**: Layout algorithms
   - `kamada-kawai`: (Incomplete) Kamada-Kawai method
   - `mds`: (Incomplete) Multidimensional Scaling

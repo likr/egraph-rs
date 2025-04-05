@@ -1,7 +1,67 @@
+//! Force-Directed Edge Bundling (FDEB) implementation for petgraph.
+//!
+//! This crate provides an implementation of Force-Directed Edge Bundling algorithm
+//! for graph visualization. Edge bundling helps reduce visual clutter in dense graphs
+//! by grouping edges that follow similar paths.
+//!
+//! The algorithm is based on Holten, D., & Van Wijk, J. J. (2009). Force‐directed
+//! edge bundling for graph visualization. Computer Graphics Forum, 28(3), 983-990.
+//!
+//! # Example
+//!
+//! ```
+//! use petgraph::Graph;
+//! use petgraph_drawing::{Drawing, DrawingEuclidean2d, MetricEuclidean2d};
+//! use petgraph_edge_bundling_fdeb::{EdgeBundlingOptions, fdeb};
+//!
+//! // Create a graph and add nodes and edges
+//! let mut graph = Graph::<(), ()>::new();
+//! let n1 = graph.add_node(());
+//! let n2 = graph.add_node(());
+//! let n3 = graph.add_node(());
+//! let e1 = graph.add_edge(n1, n2, ());
+//! let e2 = graph.add_edge(n2, n3, ());
+//!
+//! // Create a drawing with node positions
+//! let mut drawing = DrawingEuclidean2d::new(&graph);
+//!
+//! // Set node positions using position_mut
+//! if let Some(pos) = drawing.position_mut(n1) {
+//!     *pos = MetricEuclidean2d(0.0, 0.0);
+//! }
+//! if let Some(pos) = drawing.position_mut(n2) {
+//!     *pos = MetricEuclidean2d(1.0, 1.0);
+//! }
+//! if let Some(pos) = drawing.position_mut(n3) {
+//!     *pos = MetricEuclidean2d(2.0, 0.0);
+//! }
+//!
+//! // Alternatively, you can use set_x and set_y methods
+//! // drawing.set_x(n1, 0.0);
+//! // drawing.set_y(n1, 0.0);
+//! // drawing.set_x(n2, 1.0);
+//! // drawing.set_y(n2, 1.0);
+//! // drawing.set_x(n3, 2.0);
+//! // drawing.set_y(n3, 0.0);
+//!
+//! // Apply edge bundling with default options
+//! let options = EdgeBundlingOptions::new();
+//! let bundled_edges = fdeb(&graph, &drawing, &options);
+//!
+//! // bundled_edges now contains control points for rendering curved edges
+//! ```
+
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers};
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
+use petgraph_drawing::{
+    Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d,
+};
 use std::{collections::HashMap, f32, hash::Hash};
 
+/// A 2D point with position and velocity.
+///
+/// This structure represents a point in 2D space with its position coordinates
+/// and velocity components. It's used to represent the control points of edges
+/// during the force-directed edge bundling process.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Point {
@@ -12,6 +72,16 @@ pub struct Point {
 }
 
 impl Point {
+    /// Creates a new point at position (x, y) with zero initial velocity.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - The x-coordinate of the point
+    /// * `y` - The y-coordinate of the point
+    ///
+    /// # Returns
+    ///
+    /// A new `Point` instance with the specified position and zero velocity
     pub fn new(x: f32, y: f32) -> Point {
         Point {
             x,
@@ -22,6 +92,10 @@ impl Point {
     }
 }
 
+/// A line segment representing an edge in the graph.
+///
+/// Each line segment consists of a source and target node, as well as
+/// a collection of intermediate control points that are used to bend the edge.
 pub struct LineSegment {
     source: usize,
     target: usize,
@@ -194,28 +268,79 @@ fn apply_electrostatic_force(
     }
 }
 
+/// Configuration options for the Force-Directed Edge Bundling algorithm.
+///
+/// This structure contains parameters that control various aspects of the
+/// edge bundling process, such as the number of iterations, step sizes,
+/// and compatibility thresholds.
 pub struct EdgeBundlingOptions<S> {
+    /// Number of subdivision cycles
     cycles: usize,
+    /// Initial step size for control point movement
     s0: S,
+    /// Initial number of iterations per cycle
     i0: usize,
+    /// Step size decrease factor between cycles
     s_step: S,
+    /// Iteration count decrease factor between cycles
     i_step: S,
+    /// Minimum compatibility threshold for edge interaction
     minimum_edge_compatibility: S,
 }
 
 impl<S> EdgeBundlingOptions<S> {
-    pub fn new() -> EdgeBundlingOptions<f32> {
+    /// Creates a new configuration with default values.
+    ///
+    /// The default configuration is suitable for most graph visualization scenarios
+    /// but may need adjustment for specific cases depending on graph size and density.
+    ///
+    /// # Returns
+    ///
+    /// A new `EdgeBundlingOptions` instance with the following default values:
+    /// - cycles: 6
+    /// - s0: 0.1
+    /// - i0: 90
+    /// - s_step: 0.5
+    /// - i_step: 2/3
+    /// - minimum_edge_compatibility: 0.6
+    pub fn new() -> Self
+    where
+        S: DrawingValue,
+    {
         EdgeBundlingOptions {
             cycles: 6,
-            s0: 0.1,
+            s0: S::from(0.1).unwrap(),
             i0: 90,
-            s_step: 0.5,
-            i_step: 2. / 3.,
-            minimum_edge_compatibility: 0.6,
+            s_step: S::from(0.5).unwrap(),
+            i_step: S::from(2. / 3.).unwrap(),
+            minimum_edge_compatibility: S::from(0.6).unwrap(),
         }
     }
 }
 
+/// Applies Force-Directed Edge Bundling to a graph.
+///
+/// This function implements the FDEB algorithm to create smoothly bundled edges
+/// for a graph visualization. It works by iteratively applying forces to control points
+/// that subdivide each edge, gradually pulling similar edges together.
+///
+/// # Arguments
+///
+/// * `graph` - The input graph
+/// * `drawing` - The 2D Euclidean drawing containing node positions
+/// * `options` - Configuration options for the edge bundling algorithm
+///
+/// # Returns
+///
+/// A HashMap mapping each edge ID to a vector of control points (x, y coordinates)
+/// that represent the bundled path of the edge. These control points can be used
+/// to render the edges as smooth curves.
+///
+/// # Type Parameters
+///
+/// * `G` - The graph type, which must support iterating over nodes and edges
+/// * `G::NodeId` - The node identifier type, which must be usable as a drawing index
+/// * `G::EdgeId` - The edge identifier type, which must be hashable and comparable
 pub fn fdeb<G>(
     graph: G,
     drawing: &DrawingEuclidean2d<G::NodeId, f32>,
