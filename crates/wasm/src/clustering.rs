@@ -19,14 +19,13 @@ use wasm_bindgen::prelude::*;
 /// node in the resulting coarsened graph, and multiple edges between groups are
 /// combined into a single edge.
 ///
-/// @param {Graph} graph - The graph to coarsen
-/// @param {Function} groups - A function that takes a node index and returns its group ID (number)
-/// @param {Function} shrink_node - A function that takes an array of node indices and returns a new node value
-/// @param {Function} shrink_edge - A function that takes an array of edge indices and returns a new edge value
-/// @returns {Array} An array containing [coarsened_graph, group_ids], where:
-///                  - coarsened_graph is the new simplified graph
-///                  - group_ids is a mapping from group IDs to node indices in the coarsened graph
-/// @throws {Error} If any group ID is not a number
+/// Takes a graph to coarsen, a grouping function that assigns each node to a group,
+/// and functions for creating the merged node and edge values.
+///
+/// Returns an array containing the coarsened graph and a mapping from group IDs
+/// to node indices in the coarsened graph.
+///
+/// Throws an error if any group ID is not a number.
 #[wasm_bindgen(js_name = coarsen)]
 pub fn js_coarsen(
     graph: &JsGraph,

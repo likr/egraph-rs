@@ -27,9 +27,15 @@ pub struct JsStressMajorization {
 impl JsStressMajorization {
     /// Creates a new Stress Majorization layout instance.
     ///
-    /// Takes a graph, an initial drawing, and a function that specifies desired distances.
-    /// The distance function should take an edge index and return an object with a "distance" property.
-    /// Throws an error if any edge's distance is not a number.
+    /// This constructor initializes a layout optimizer that will iteratively adjust node positions
+    /// to minimize the difference between geometric distances in the layout and desired distances
+    /// in the graph. The algorithm is particularly effective for creating layouts where
+    /// the visual distances accurately reflect the graph-theoretic distances.
+    ///
+    /// The distance function should take an edge index and return an object with a
+    /// "distance" property representing the ideal length for that edge in the layout.
+    /// A typical approach is to use graph-theoretic distance (shortest path) or some
+    /// function of it.
     #[wasm_bindgen(constructor)]
     pub fn new(
         graph: &JsGraph,
@@ -54,6 +60,10 @@ impl JsStressMajorization {
 
     /// Performs a single iteration of the stress majorization algorithm.
     ///
+    /// This method makes one pass of node position adjustments to reduce stress in the layout.
+    /// It's useful when you want to control the layout process step by step, for example
+    /// to provide animation or to monitor the stress value at each step.
+    ///
     /// Modifies the drawing by adjusting node positions to reduce stress.
     /// Returns the current stress value (lower is better).
     pub fn apply(&mut self, drawing: &mut JsDrawingEuclidean2d) -> f32 {
@@ -63,7 +73,10 @@ impl JsStressMajorization {
     /// Runs the complete stress majorization algorithm until convergence.
     ///
     /// This method iteratively applies the stress majorization algorithm
-    /// until the layout converges to a stable state.
+    /// until the layout converges to a stable state. It's a convenience method
+    /// that runs multiple iterations of `apply()` automatically until the stress
+    /// value stops decreasing significantly or until a maximum number of iterations
+    /// is reached.
     pub fn run(&mut self, drawing: &mut JsDrawingEuclidean2d) {
         self.stress_majorization.run(drawing.drawing_mut());
     }

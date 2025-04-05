@@ -54,31 +54,53 @@ impl JsOverwrapRemoval {
     /// Applies the overlap removal algorithm to a 2D Euclidean drawing.
     ///
     /// This method adjusts node positions to eliminate overlaps while attempting
-    /// to preserve the overall layout structure.
+    /// to preserve the overall layout structure. It works by iteratively applying
+    /// small repulsive forces between overlapping nodes, gradually pushing them apart
+    /// until no overlaps remain.
     #[wasm_bindgen(js_name = "applyWithDrawingEuclidean2d")]
     pub fn apply_with_drawing_euclidean_2d(&self, drawing: &mut JsDrawingEuclidean2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
 
     /// Applies the overlap removal algorithm to an n-dimensional Euclidean drawing.
+    ///
+    /// This is a generalization of the 2D version that works in arbitrary dimensions.
+    /// The algorithm uses the same principles but operates on coordinates in
+    /// n-dimensional space. This is useful for specialized visualizations that use
+    /// more than two dimensions.
     #[wasm_bindgen(js_name = "applyWithDrawingEuclidean")]
     pub fn apply_with_drawing_euclidean(&self, drawing: &mut JsDrawingEuclidean) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
 
     /// Applies the overlap removal algorithm to a 2D hyperbolic drawing.
+    ///
+    /// This version works with drawings in hyperbolic space (Poincaré disk model).
+    /// The algorithm carefully respects the non-Euclidean geometry when calculating
+    /// distances and adjusting positions, ensuring that nodes remain within the
+    /// boundaries of the hyperbolic space model.
     #[wasm_bindgen(js_name = "applyWithDrawingHyperbolic2d")]
     pub fn apply_with_drawing_hyperbolic_2d(&self, drawing: &mut JsDrawingHyperbolic2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
 
     /// Applies the overlap removal algorithm to a 2D spherical drawing.
+    ///
+    /// This version works with drawings on a spherical surface, where nodes are
+    /// positioned using longitude and latitude coordinates. The algorithm accounts
+    /// for the spherical geometry when calculating distances and adjusting positions,
+    /// ensuring proper removal of overlaps on the curved surface.
     #[wasm_bindgen(js_name = "applyWithDrawingSpherical2d")]
     pub fn apply_with_drawing_spherical_2d(&self, drawing: &mut JsDrawingSpherical2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
 
     /// Applies the overlap removal algorithm to a 2D torus drawing.
+    ///
+    /// This version works with drawings on a torus surface, where the space wraps around
+    /// in both dimensions. The algorithm correctly handles distance calculations and
+    /// positional adjustments at the boundaries of the torus, ensuring seamless overlap
+    /// removal even when nodes span the wrap-around edges.
     #[wasm_bindgen(js_name = "applyWithDrawingTorus2d")]
     pub fn apply_with_drawing_torus_2d(&self, drawing: &mut JsDrawingTorus2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());

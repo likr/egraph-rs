@@ -19,10 +19,9 @@ use wasm_bindgen::prelude::*;
 /// subdividing edges into segments and applying forces between these segments to
 /// bundle related edges together.
 ///
-/// @param {Graph} graph - The graph whose edges to bundle
-/// @param {DrawingEuclidean2d} drawing - The drawing containing node positions
-/// @returns {Object} A map from edge indices to arrays of line segments, where each line segment
-///                  is an array of points representing the bundled edge path
+/// Takes a graph and a drawing containing node positions, and returns a map from
+/// edge indices to arrays of line segments. Each line segment is an array of points
+/// representing the bundled edge path.
 #[wasm_bindgen(js_name = fdeb)]
 pub fn js_fdeb(graph: &JsGraph, drawing: JsDrawingEuclidean2d) -> JsValue {
     let options = EdgeBundlingOptions::<f32>::new();

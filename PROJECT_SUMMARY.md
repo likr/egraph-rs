@@ -184,15 +184,57 @@ Python bindings structure using PyO3:
 
 ### WebAssembly Bindings (`crates/wasm`)
 
-WebAssembly bindings using wasm-bindgen to call Rust implementations from browser environments:
+WebAssembly bindings using wasm-bindgen to call Rust implementations from browser environments. The module provides JavaScript-friendly interfaces to the core Rust graph algorithms and visualization capabilities.
 
-- **src/lib.rs**: Entry point that exports all WASM modules
-- **src/graph.rs, src/graph/graph_impl.rs**: Graph data structures (`Graph`, `DiGraph`) for JavaScript
-- **src/drawing.rs, src/drawing/\*.rs**: Drawing implementations for different geometries
-- **src/layout/\*.rs**: Layout algorithms (Kamada-Kawai, SGD, etc.)
-- **src/edge_bundling.rs**: Force-directed edge bundling for clearer visualizations
-- **src/clustering.rs**: Graph clustering and coarsening functionality
-- **src/quality_metrics.rs**: Layout quality evaluation metrics (stress, crossing number, etc.)
-- **src/rng.rs**: Random number generation for stochastic algorithms
+#### Module Structure
 
-The WASM module provides JavaScript interfaces to the Rust implementations through clearly documented APIs, keeping the same general structure as the core Rust library but adapting function signatures and data structures to work well with JavaScript.
+- **src/lib.rs**: Entry point that exports all WASM modules with documentation of overall functionality
+- **src/graph/**: Graph data structures and operations
+  - **src/graph/mod.rs**: Module definition and exports
+  - **src/graph/types.rs**: Common type definitions (`Node`, `Edge`, `IndexType`)
+  - **src/graph/base.rs**: Base implementation shared by directed and undirected graphs
+  - **src/graph/undirected.rs**: `Graph` class implementation for undirected graphs
+  - **src/graph/directed.rs**: `DiGraph` class implementation for directed graphs
+- **src/drawing/**: Graph drawing implementations for various geometric spaces
+  - **src/drawing/drawing_euclidean_2d.rs**: 2D Cartesian coordinate drawings (`DrawingEuclidean2d`)
+  - **src/drawing/drawing_hyperbolic_2d.rs**: 2D hyperbolic space drawings (`DrawingHyperbolic2d`)
+  - **src/drawing/drawing_spherical_2d.rs**: Spherical surface drawings (`DrawingSpherical2d`)
+  - **src/drawing/drawing_torus_2d.rs**: Torus surface drawings (`DrawingTorus2d`)
+  - **src/drawing/drawing_euclidean.rs**: N-dimensional Euclidean space drawings
+- **src/layout/**: Layout algorithms for positioning graph nodes
+  - **src/layout/kamada_kawai.rs**: Force-directed layout using Kamada-Kawai algorithm
+  - Additional layout algorithms (SGD, MDS, etc.)
+- **src/edge_bundling.rs**: Force-directed edge bundling for reducing visual clutter
+- **src/clustering.rs**: Graph clustering and coarsening for simplifying complex graphs
+- **src/quality_metrics.rs**: Metrics for evaluating layout quality (stress, crossing number, etc.)
+- **src/rng.rs**: Random number generation with seed control for reproducible layouts
+
+#### JavaScript API Features
+
+The WASM module provides JavaScript-friendly interfaces with these key characteristics:
+
+- **Consistent naming**: Uses camelCase for method names in JavaScript (e.g., `addNode`, `removeEdge`)
+- **JSDoc-style comments**: Function documentation includes parameter and return type information
+- **Transparent data handling**: Allows passing JavaScript values as node and edge data
+- **Memory safety**: Handles conversion between Rust and JavaScript types safely
+- **Method chaining**: Where appropriate, methods return the object for chaining operations
+- **Error handling**: Methods that can fail return Results that become JavaScript exceptions
+- **Callback support**: Many algorithms accept JavaScript callback functions for customization
+
+#### Usage Example
+
+```javascript
+// Creating a graph and drawing
+const graph = new Graph();
+const nodeA = graph.addNode({ label: "A" });
+const nodeB = graph.addNode({ label: "B" });
+graph.addEdge(nodeA, nodeB, { weight: 1.5 });
+
+// Creating a drawing and applying a layout
+const drawing = DrawingEuclidean2d.initialPlacement(graph);
+const layout = new KamadaKawai(graph, (e) => ({ distance: 1.0 }));
+layout.run(drawing);
+
+// Accessing node positions
+console.log(`Node A position: (${drawing.x(nodeA)}, ${drawing.y(nodeA)})`);
+```

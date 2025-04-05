@@ -23,10 +23,6 @@ use wasm_bindgen::prelude::*;
 /// The metric is calculated as the sum of squared differences between graph-theoretic
 /// distances and geometric distances, weighted by the inverse square of the
 /// graph-theoretic distances.
-///
-/// @param {Graph} graph - The graph
-/// @param {DrawingEuclidean2d} drawing - The drawing to evaluate
-/// @returns {number} The stress value (lower is better)
 #[wasm_bindgen(js_name = stress)]
 pub fn js_stress(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
     let distance = warshall_floyd(graph.graph(), &mut |_| 1.0);
@@ -37,10 +33,6 @@ pub fn js_stress(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
 ///
 /// The crossing number counts how many edge pairs cross each other in the drawing.
 /// Lower values indicate clearer drawings with fewer visual intersections.
-///
-/// @param {Graph} graph - The graph
-/// @param {DrawingEuclidean2d} drawing - The drawing to evaluate
-/// @returns {number} The crossing number (lower is better)
 #[wasm_bindgen(js_name = crossingNumber)]
 pub fn js_crossing_number(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
     let crossings = crossing_edges(graph.graph(), drawing.drawing());
@@ -51,10 +43,6 @@ pub fn js_crossing_number(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f3
 ///
 /// This is similar to the regular crossing number, but accounts for the
 /// different geometry of a torus where the surface wraps around in both dimensions.
-///
-/// @param {Graph} graph - The graph
-/// @param {DrawingTorus2d} drawing - The torus drawing to evaluate
-/// @returns {number} The crossing number on a torus (lower is better)
 #[wasm_bindgen(js_name = crossingNumberWithDrawingTorus2d)]
 pub fn js_crossing_number_with_drawing_torus_2d(
     graph: &JsGraph,
@@ -69,10 +57,6 @@ pub fn js_crossing_number_with_drawing_torus_2d(
 /// This metric measures how well the k-nearest neighbors in the drawing
 /// correspond to the actual graph neighbors. A value closer to 1.0 indicates
 /// better neighborhood preservation.
-///
-/// @param {Graph} graph - The graph
-/// @param {DrawingEuclidean2d} drawing - The drawing to evaluate
-/// @returns {number} The neighborhood preservation score (higher is better, max 1.0)
 #[wasm_bindgen(js_name = neighborhoodPreservation)]
 pub fn js_neighborhood_preservation(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
     neighborhood_preservation(graph.graph(), drawing.drawing())

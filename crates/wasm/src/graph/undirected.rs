@@ -189,9 +189,9 @@ impl JsGraph {
 
     /// Creates a new graph by applying mapping functions to all nodes and edges.
     ///
-    /// @param {Function} node_map - Function that takes (node_index, node_value) and returns a new node value
-    /// @param {Function} edge_map - Function that takes (edge_index, edge_value) and returns a new edge value
-    /// @returns {Graph} A new graph with mapped values
+    /// Takes mapping functions for node and edge values and returns a new graph with transformed data.
+    /// The node_map function receives node index and value and should return a new node value.
+    /// The edge_map function receives edge index and value and should return a new edge value.
     pub fn map(&self, node_map: &Function, edge_map: &Function) -> Self {
         Self {
             graph: self.graph.map(node_map, edge_map),
@@ -202,9 +202,8 @@ impl JsGraph {
     ///
     /// Similar to map(), but allows removing nodes and edges by returning null.
     ///
-    /// @param {Function} node_map - Function that takes (node_index, node_value) and returns a new node value or null to remove the node
-    /// @param {Function} edge_map - Function that takes (edge_index, edge_value) and returns a new edge value or null to remove the edge
-    /// @returns {Graph} A new filtered graph
+    /// Takes mapping functions for node and edge values. If a mapping function returns null,
+    /// the corresponding node or edge will be excluded from the new graph.
     #[wasm_bindgen(js_name = filterMap)]
     pub fn filter_map(&self, node_map: &Function, edge_map: &Function) -> Self {
         Self {

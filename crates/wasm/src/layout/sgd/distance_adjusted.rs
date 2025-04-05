@@ -49,9 +49,9 @@ impl JsDistanceAdjustedFullSgd {
     /// Applies a single SGD update step without distance adjustment.
     ///
     /// This method is provided for compatibility with the standard SGD interface.
-    /// In most cases, you should use applyWithDistanceAdjustment instead.
-    ///
-    /// Modifies the drawing by adjusting node positions with the specified learning rate.
+    /// In most cases, you should use applyWithDistanceAdjustment instead, which
+    /// provides the distance adjustment functionality that helps prevent node
+    /// overlaps.
     pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
@@ -67,9 +67,10 @@ impl JsDistanceAdjustedFullSgd {
 
     /// Creates an exponential decay scheduler for controlling the learning rate.
     ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerExponential} A learning rate scheduler
+    /// This scheduler gradually reduces the learning rate over iterations,
+    /// which helps the layout converge to a stable configuration. The learning rate
+    /// starts high for major adjustments and decreases exponentially to fine-tune
+    /// node positions in later iterations.
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
         JsSchedulerExponential {
             scheduler: self.sgd.scheduler(t_max, epsilon),
@@ -110,7 +111,8 @@ impl JsDistanceAdjustedFullSgd {
 
     /// Sets the alpha parameter that controls the strength of distance adjustment.
     ///
-    /// @param {number} value - The new alpha value
+    /// Higher values make distance adjustments more aggressive, pushing nodes apart more strongly.
+    /// Typical values range from 0.1 to 2.0.
     #[wasm_bindgen(setter)]
     pub fn set_alpha(&mut self, value: f32) {
         self.sgd.alpha = value;
@@ -126,7 +128,8 @@ impl JsDistanceAdjustedFullSgd {
 
     /// Sets the minimum distance parameter for the distance adjustment.
     ///
-    /// @param {number} value - The new minimum distance
+    /// This defines how close nodes can get to each other after adjustment.
+    /// Larger values create more spacing between nodes.
     #[wasm_bindgen(setter, js_name = "minimumDistance")]
     pub fn set_minimum_distance(&mut self, value: f32) {
         self.sgd.minimum_distance = value;
@@ -172,9 +175,9 @@ impl JsDistanceAdjustedSparseSgd {
     /// Applies a single SGD update step without distance adjustment.
     ///
     /// This method is provided for compatibility with the standard SGD interface.
-    /// In most cases, you should use applyWithDistanceAdjustment instead.
-    ///
-    /// Modifies the drawing by adjusting node positions with the specified learning rate.
+    /// In most cases, you should use applyWithDistanceAdjustment instead, which
+    /// provides the distance adjustment functionality that helps prevent node
+    /// overlaps.
     pub fn apply(&self, drawing: &mut JsDrawingEuclidean2d, eta: f32) {
         self.sgd.apply(drawing.drawing_mut(), eta);
     }
@@ -190,9 +193,10 @@ impl JsDistanceAdjustedSparseSgd {
 
     /// Creates an exponential decay scheduler for controlling the learning rate.
     ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerExponential} A learning rate scheduler
+    /// This scheduler gradually reduces the learning rate over iterations,
+    /// which helps the layout converge to a stable configuration. The learning rate
+    /// starts high for major adjustments and decreases exponentially to fine-tune
+    /// node positions in later iterations.
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
         JsSchedulerExponential {
             scheduler: self.sgd.scheduler(t_max, epsilon),
@@ -233,7 +237,8 @@ impl JsDistanceAdjustedSparseSgd {
 
     /// Sets the alpha parameter that controls the strength of distance adjustment.
     ///
-    /// @param {number} value - The new alpha value
+    /// Higher values make distance adjustments more aggressive, pushing nodes apart more strongly.
+    /// Typical values range from 0.1 to 2.0.
     #[wasm_bindgen(setter)]
     pub fn set_alpha(&mut self, value: f32) {
         self.sgd.alpha = value;
@@ -249,7 +254,8 @@ impl JsDistanceAdjustedSparseSgd {
 
     /// Sets the minimum distance parameter for the distance adjustment.
     ///
-    /// @param {number} value - The new minimum distance
+    /// This defines how close nodes can get to each other after adjustment.
+    /// Larger values create more spacing between nodes.
     #[wasm_bindgen(setter, js_name = "minimumDistance")]
     pub fn set_minimum_distance(&mut self, value: f32) {
         self.sgd.minimum_distance = value;
