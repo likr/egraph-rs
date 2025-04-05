@@ -27,11 +27,9 @@ pub struct JsStressMajorization {
 impl JsStressMajorization {
     /// Creates a new Stress Majorization layout instance.
     ///
-    /// @param {Graph} graph - The graph to layout
-    /// @param {DrawingEuclidean2d} drawing - The initial drawing to start from
-    /// @param {Function} f - A function that takes an edge index and returns an object with a "distance" property
-    /// @returns {StressMajorization} A new stress majorization instance
-    /// @throws {Error} If any edge's distance is not a number
+    /// Takes a graph, an initial drawing, and a function that specifies desired distances.
+    /// The distance function should take an edge index and return an object with a "distance" property.
+    /// Throws an error if any edge's distance is not a number.
     #[wasm_bindgen(constructor)]
     pub fn new(
         graph: &JsGraph,
@@ -56,8 +54,8 @@ impl JsStressMajorization {
 
     /// Performs a single iteration of the stress majorization algorithm.
     ///
-    /// @param {DrawingEuclidean2d} drawing - The drawing to modify
-    /// @returns {number} The current stress value (lower is better)
+    /// Modifies the drawing by adjusting node positions to reduce stress.
+    /// Returns the current stress value (lower is better).
     pub fn apply(&mut self, drawing: &mut JsDrawingEuclidean2d) -> f32 {
         self.stress_majorization.apply(drawing.drawing_mut())
     }
@@ -66,8 +64,6 @@ impl JsStressMajorization {
     ///
     /// This method iteratively applies the stress majorization algorithm
     /// until the layout converges to a stable state.
-    ///
-    /// @param {DrawingEuclidean2d} drawing - The drawing to modify
     pub fn run(&mut self, drawing: &mut JsDrawingEuclidean2d) {
         self.stress_majorization.run(drawing.drawing_mut());
     }

@@ -36,9 +36,8 @@ pub struct JsClassicalMds {
 impl JsClassicalMds {
     /// Creates a new Classical MDS layout instance for the given graph.
     ///
-    /// @param {Graph} graph - The graph to layout
-    /// @param {Function} length - A function that takes an edge index and returns its desired length
-    /// @returns {ClassicalMds} A new Classical MDS layout instance
+    /// Takes a graph and a length function that determines desired edge lengths.
+    /// The length function should take an edge index and return its desired length.
     #[wasm_bindgen(constructor)]
     pub fn new(graph: &JsGraph, length: &Function) -> JsClassicalMds {
         let mut length_map = HashMap::new();
@@ -59,8 +58,6 @@ impl JsClassicalMds {
     ///
     /// This method computes a layout that aims to preserve graph-theoretic distances
     /// in a 2D Euclidean space.
-    ///
-    /// @returns {DrawingEuclidean2d} A new drawing with computed node positions
     #[wasm_bindgen(js_name = "run2d")]
     pub fn run_2d(&self) -> JsDrawingEuclidean2d {
         JsDrawingEuclidean2d::new(self.mds.run_2d())
@@ -71,8 +68,7 @@ impl JsClassicalMds {
     /// This method allows generating layouts in arbitrary dimensions, which can be
     /// useful for advanced visualization techniques or further dimensionality reduction.
     ///
-    /// @param {number} d - The number of dimensions for the layout
-    /// @returns {DrawingEuclidean} A new drawing with computed node positions in d dimensions
+    /// The parameter specifies the number of dimensions for the layout.
     pub fn run(&self, d: usize) -> JsDrawingEuclidean {
         JsDrawingEuclidean::new(self.mds.run(d))
     }
@@ -93,10 +89,9 @@ pub struct JsPivotMds {
 impl JsPivotMds {
     /// Creates a new Pivot MDS layout instance for the given graph.
     ///
-    /// @param {Graph} graph - The graph to layout
-    /// @param {Function} length - A function that takes an edge index and returns its desired length
-    /// @param {Array} sources - An array of node indices to use as pivots
-    /// @returns {PivotMds} A new Pivot MDS layout instance
+    /// Takes a graph, a length function, and an array of node indices to use as pivots.
+    /// The length function should take an edge index and return its desired length.
+    /// The pivot nodes are used to approximate distances in the graph.
     #[wasm_bindgen(constructor)]
     pub fn new(graph: &JsGraph, length: &Function, sources: &Array) -> JsPivotMds {
         let sources = sources
@@ -122,8 +117,6 @@ impl JsPivotMds {
     /// This method computes an efficient layout approximation using the pivot nodes.
     /// The resulting layout preserves distances between nodes and pivots, which often
     /// produces good overall distance preservation.
-    ///
-    /// @returns {DrawingEuclidean2d} A new drawing with computed node positions
     #[wasm_bindgen(js_name = "run2d")]
     pub fn run_2d(&self) -> JsDrawingEuclidean2d {
         JsDrawingEuclidean2d::new(self.mds.run_2d())
