@@ -184,4 +184,15 @@ Python bindings structure using PyO3:
 
 ### WebAssembly Bindings (`crates/wasm`)
 
-WebAssembly bindings using wasm-bindgen to call Rust implementations from browser environments.
+WebAssembly bindings using wasm-bindgen to call Rust implementations from browser environments:
+
+- **src/lib.rs**: Entry point that exports all WASM modules
+- **src/graph.rs, src/graph/graph_impl.rs**: Graph data structures (`Graph`, `DiGraph`) for JavaScript
+- **src/drawing.rs, src/drawing/\*.rs**: Drawing implementations for different geometries
+- **src/layout/\*.rs**: Layout algorithms (Kamada-Kawai, SGD, etc.)
+- **src/edge_bundling.rs**: Force-directed edge bundling for clearer visualizations
+- **src/clustering.rs**: Graph clustering and coarsening functionality
+- **src/quality_metrics.rs**: Layout quality evaluation metrics (stress, crossing number, etc.)
+- **src/rng.rs**: Random number generation for stochastic algorithms
+
+The WASM module provides JavaScript interfaces to the Rust implementations through clearly documented APIs, keeping the same general structure as the core Rust library but adapting function signatures and data structures to work well with JavaScript.

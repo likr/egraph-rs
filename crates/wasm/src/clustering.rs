@@ -1,8 +1,32 @@
+//! Graph clustering algorithms for WebAssembly.
+//!
+//! This module provides WebAssembly bindings for graph clustering algorithms,
+//! which can be used to identify communities, reduce graph complexity, or
+//! analyze the hierarchical structure of networks.
+//!
+//! The main operation provided is graph coarsening, which simplifies a graph
+//! by merging nodes according to a grouping function.
+
 use crate::graph::JsGraph;
 use js_sys::{Array, Function};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
+/// Coarsens a graph by merging nodes into groups.
+///
+/// Graph coarsening is a process that simplifies a graph by merging nodes according
+/// to some grouping criteria. Nodes in the same group are collapsed into a single
+/// node in the resulting coarsened graph, and multiple edges between groups are
+/// combined into a single edge.
+///
+/// @param {Graph} graph - The graph to coarsen
+/// @param {Function} groups - A function that takes a node index and returns its group ID (number)
+/// @param {Function} shrink_node - A function that takes an array of node indices and returns a new node value
+/// @param {Function} shrink_edge - A function that takes an array of edge indices and returns a new edge value
+/// @returns {Array} An array containing [coarsened_graph, group_ids], where:
+///                  - coarsened_graph is the new simplified graph
+///                  - group_ids is a mapping from group IDs to node indices in the coarsened graph
+/// @throws {Error} If any group ID is not a number
 #[wasm_bindgen(js_name = coarsen)]
 pub fn js_coarsen(
     graph: &JsGraph,
