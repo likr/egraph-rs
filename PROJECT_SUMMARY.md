@@ -64,7 +64,12 @@ This document provides an overview of the egraph-rs project structure, component
     - Iteratively positions nodes to minimize the energy of the spring system
     - Provides methods for node selection based on energy gradient and node position optimization
     - Reference: Kamada, T., & Kawai, S. (1989). An algorithm for drawing general undirected graphs.
-  - `mds`: Multidimensional Scaling implementation
+  - `mds`: Multidimensional Scaling (MDS) implementation
+    - Provides algorithms to visualize graph structures in lower dimensional spaces
+    - `ClassicalMds`: Standard implementation that computes a full distance matrix
+    - `PivotMds`: Efficient implementation that uses a subset of nodes as pivots
+    - Uses eigendecomposition and double centering to transform distance matrices
+    - Reference: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
   - `overwrap-removal`: Overlap removal algorithms for graph layouts
   - `separation-constraints`: Separation constraints for layout algorithms
   - `sgd`: Stochastic Gradient Descent layout implementation
