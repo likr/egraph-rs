@@ -288,6 +288,16 @@ pub struct EdgeBundlingOptions<S> {
     minimum_edge_compatibility: S,
 }
 
+impl<S> Default for EdgeBundlingOptions<S>
+where
+    S: DrawingValue,
+{
+    /// Returns a new configuration with default values.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S> EdgeBundlingOptions<S> {
     /// Creates a new configuration with default values.
     ///
