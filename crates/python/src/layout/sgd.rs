@@ -521,6 +521,14 @@ impl PySparseSgd {
     }
 }
 
+/// Python class for full stochastic gradient descent (SGD) layout algorithm
+///
+/// This class implements the standard SGD algorithm that uses all pairs of nodes
+/// to compute the layout. It's suitable for small to medium-sized graphs but
+/// becomes computationally expensive for large graphs (where SparseSgd is preferred).
+///
+/// The algorithm iteratively adjusts node positions by minimizing the difference
+/// between the Euclidean distances in the layout and the graph-theoretic distances.
 #[pyclass]
 #[pyo3(name = "FullSgd")]
 struct PyFullSgd {
@@ -646,6 +654,16 @@ impl PyFullSgd {
     }
 }
 
+/// Python class for distance-adjusted sparse SGD layout algorithm
+///
+/// This class combines the sparse SGD algorithm with distance adjustments to
+/// create more aesthetically pleasing layouts. It adjusts the forces between
+/// nodes based on their current distances in the layout, helping to avoid
+/// the "hair ball" effect common in force-directed layouts.
+///
+/// Distance adjustment applies stronger forces between nodes that are already
+/// close to each other, and weaker forces between distant nodes. This helps
+/// preserve local structure while allowing the global structure to develop.
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedSparseSgd")]
 struct PyDistanceAdjustedSparseSgd {
@@ -852,6 +870,16 @@ impl PyDistanceAdjustedSparseSgd {
     }
 }
 
+/// Python class for distance-adjusted full SGD layout algorithm
+///
+/// This class combines the full SGD algorithm with distance adjustments to
+/// create more aesthetically pleasing layouts. It uses all pairs of nodes
+/// for layout computation but applies distance-dependent forces adjustments.
+///
+/// Similar to DistanceAdjustedSparseSgd, this algorithm applies stronger forces
+/// between nodes that are already close to each other and weaker forces between
+/// distant nodes, but operates on a full distance matrix rather than using
+/// sparse approximation.
 #[pyclass]
 #[pyo3(name = "DistanceAdjustedFullSgd")]
 struct PyDistanceAdjustedFullSgd {

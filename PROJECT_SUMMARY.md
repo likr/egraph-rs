@@ -107,17 +107,24 @@ This document provides an overview of the egraph-rs project structure, component
     - Supports customizable edge weights and convergence criteria
     - Based on Gansner et al. (2004) "Graph drawing by stress majorization"
 - **crates/python**: Python bindings using PyO3
-  - Provides Python interface to the core graph data structures and algorithms
+  - Provides Python interface to the core graph data structures and algorithms implemented in Rust
   - Main components:
     - `Graph` and `DiGraph`: Undirected and directed graph data structures
+      - Efficient wrappers around petgraph's Rust graph implementation
+      - Support for arbitrary Python objects as node and edge data
+      - Methods for graph manipulation, traversal, and querying
     - `Drawing`: Base class for graph layouts with implementations for different geometric spaces:
-      - `DrawingEuclidean2d`: 2D Euclidean space
-      - `DrawingEuclidean`: N-dimensional Euclidean space
-      - `DrawingHyperbolic2d`: 2D Hyperbolic space
-      - `DrawingSpherical2d`: 2D Spherical space
-      - `DrawingTorus2d`: 2D Torus space
+      - `DrawingEuclidean2d`: 2D Euclidean space drawings with (x,y) coordinates
+      - `DrawingEuclidean`: N-dimensional Euclidean space for higher dimensional layouts
+      - `DrawingHyperbolic2d`: 2D Hyperbolic space supporting non-Euclidean geometry
+      - `DrawingSpherical2d`: 2D Spherical space for layouts on the surface of a sphere
+      - `DrawingTorus2d`: 2D Torus space for layouts with periodic boundary conditions
     - `DistanceMatrix`: Matrix of distances between nodes
+      - Supports both full matrices (all node pairs) and sparse approximations
+      - Methods for querying and modifying distances
     - `Rng`: Random number generator for deterministic randomness
+      - Enables reproducible results in randomized algorithms
+      - Supports both entropy-based and seeded generation
     - Layout algorithms:
       - `SparseSgd` and `FullSgd`: Stochastic gradient descent layout algorithms
       - `DistanceAdjustedSparseSgd` and `DistanceAdjustedFullSgd`: SGD with distance adjustment
@@ -126,6 +133,7 @@ This document provides an overview of the egraph-rs project structure, component
     - Graph algorithms:
       - Shortest path functions: `all_sources_bfs`, `all_sources_dijkstra`, `warshall_floyd`
     - Quality metrics: Wrappers around Rust implementations for evaluating graph layouts
+      - Measures like stress, angular resolution, crossing number, etc.
   - `examples/`: Example Python scripts demonstrating library usage
     - SGD layouts in various spaces (Euclidean, Spherical, Hyperbolic, Torus)
     - Other layout algorithms (Kamada-Kawai, Stress Majorization)
@@ -163,3 +171,33 @@ This document provides an overview of the egraph-rs project structure, component
 
 - A Rust library providing graph data structures, algorithms, quality metrics, and drawing functionality.
 - Intended for use from Rust directly, via Python bindings, or via WebAssembly (JavaScript).
+
+## Python Bindings Structure
+
+The `crates/python` module provides Python bindings for the egraph-rs library using PyO3. The module is organized as follows:
+
+- **src/lib.rs**: Main entry point that registers all submodules
+- **src/graph/**: Graph data structures
+  - `graph_base.rs`: Core graph implementations (Graph, DiGraph)
+  - `mod.rs`: Module exports
+- **src/drawing/**: Drawing implementations
+  - `drawing_base.rs`: Base drawing trait and class
+  - `drawing_euclidean_2d.rs`: 2D Euclidean space drawing
+  - `drawing_euclidean.rs`: N-dimensional Euclidean space drawing
+  - `drawing_hyperbolic_2d.rs`: 2D Hyperbolic space (Poincaré disk model)
+  - `drawing_spherical_2d.rs`: Spherical space (longitude/latitude)
+  - `drawing_torus_2d.rs`: Toroidal space (wrapped coordinates)
+  - `mod.rs`: Module exports
+- **src/layout/**: Layout algorithms
+  - `sgd.rs`: Stochastic Gradient Descent variants and schedulers
+  - `mds.rs`: Multidimensional Scaling implementations
+  - `stress_majorization.rs`: Stress Majorization algorithm
+  - `kamada_kawai.rs`: Kamada-Kawai algorithm
+  - `overwrap_removal.rs`: Node overlap removal
+  - `mod.rs`: Module exports
+- **src/algorithm/**: Graph algorithms
+  - `shortest_path.rs`: Path finding algorithms
+  - `mod.rs`: Module exports
+- **src/distance_matrix.rs**: Distance matrix implementation
+- **src/rng.rs**: Random number generation
+- **src/quality_metrics.rs**: Layout quality evaluation metrics

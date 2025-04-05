@@ -1,3 +1,14 @@
+/// Distance matrix implementation for the Python bindings
+///
+/// This module provides classes and functions for working with distance matrices,
+/// which store the distance between pairs of nodes in a graph. These distances
+/// are typically computed using shortest path algorithms and can be used by
+/// various graph layout algorithms.
+///
+/// The implementation supports both full distance matrices (containing distances
+/// between all pairs of nodes) and sub-distance matrices (containing distances
+/// between a subset of node pairs), allowing for efficient memory usage for
+/// different use cases.
 use crate::graph::{GraphType, IndexType, PyGraphAdapter};
 use petgraph::{graph::NodeIndex, stable_graph::node_index};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
@@ -8,6 +19,12 @@ use pyo3::prelude::*;
 /// This enum allows the code to work with either a full distance matrix
 /// (containing distances between all pairs of nodes) or a sub-distance matrix
 /// (containing distances between a subset of node pairs).
+///
+/// # Variants
+///
+/// * `Full` - A complete distance matrix containing distances between all pairs of nodes
+/// * `Sub` - A partial distance matrix containing distances between a subset of node pairs,
+///           typically used in sparse algorithms for improved memory efficiency
 pub enum DistanceMatrixType {
     /// Full distance matrix containing distances between all pairs of nodes
     Full(FullDistanceMatrix<NodeIndex<IndexType>, f32>),

@@ -1,3 +1,18 @@
+/// Graph layout quality metrics for evaluating drawing aesthetics
+///
+/// This module provides a collection of metrics to quantitatively assess the quality
+/// of graph layouts. These metrics can be used to compare different layout algorithms,
+/// tune parameters, or optimize layouts for specific aesthetic criteria.
+///
+/// The metrics include various aspects of drawing quality such as:
+/// - Stress: How well distances in the layout match the graph-theoretical distances
+/// - Angular resolution: The minimum angle between edges at a node
+/// - Crossing angle: The angles at which edges cross
+/// - Crossing number: The number of edge crossings in the layout
+/// - Aspect ratio: The balance between width and height of the drawing
+/// - Neighborhood preservation: How well local neighborhoods are preserved in the layout
+/// - Node resolution: How evenly distributed the nodes are in the drawing space
+/// - Gabriel graph property: A measure of whether the layout respects theoretical constraints
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
@@ -11,6 +26,11 @@ use petgraph_quality_metrics::{
 };
 use pyo3::prelude::*;
 
+/// Python class for storing information about crossing edges in a graph drawing
+///
+/// This class is used to efficiently cache the computation of edge crossings,
+/// which can be expensive for large graphs. Once computed, the crossing information
+/// can be reused for multiple metrics like crossing number and crossing angle.
 #[pyclass]
 #[pyo3(name = "CrossingEdges")]
 pub struct PyCrossingEdges {

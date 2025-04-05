@@ -1,10 +1,30 @@
+/// Random number generation utilities for the Python bindings
+///
+/// This module provides a wrapper around Rust's high-quality random number generator,
+/// making it available to Python code. It's particularly useful for graph layout algorithms
+/// that require randomization (like initial node placement or stochastic optimization).
+///
+/// The module offers both entropy-based (truly random) initialization and seed-based
+/// (deterministic) initialization, allowing for reproducible results when desired.
+///
+/// # Example use cases
+///
+/// - Initial node placement in layout algorithms
+/// - Randomized optimization methods like SGD
+/// - Sampling pivot nodes in sparse approximation algorithms
+/// - Reproducible layouts for benchmarking and comparison
 use pyo3::{prelude::*, types::PyType};
 use rand::prelude::*;
 
 /// Python class for random number generation
 ///
 /// This class provides a wrapper around Rust's cryptographically secure random number generator.
-/// It can be used to provide deterministic randomness for layout algorithms when seeded.
+/// It can be used to provide deterministic randomness for layout algorithms when seeded,
+/// which is essential for reproducible results in visualization and optimization tasks.
+///
+/// The class offers two constructors:
+/// - `Rng()` - Creates a generator from system entropy (non-deterministic)
+/// - `Rng.seed_from(seed)` - Creates a generator with a specific seed (deterministic)
 #[pyclass]
 #[pyo3(name = "Rng")]
 pub struct PyRng {

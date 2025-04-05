@@ -1,3 +1,13 @@
+/// Multidimensional Scaling (MDS) layout algorithms for Python
+///
+/// This module provides Python bindings for Multidimensional Scaling algorithms,
+/// which visualize graph structures in lower dimensional spaces based on pairwise
+/// distances between nodes. MDS aims to place nodes such that the distances in the
+/// layout closely match the graph-theoretical distances (e.g., shortest paths).
+///
+/// Two MDS variants are implemented:
+/// - ClassicalMds: The standard MDS algorithm that computes a full distance matrix
+/// - PivotMds: An efficient approximation that uses a subset of nodes as pivots
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawing,
@@ -7,6 +17,22 @@ use petgraph::{graph::node_index, stable_graph::NodeIndex, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
 use pyo3::prelude::*;
 
+/// Python class for Classical Multidimensional Scaling
+///
+/// Classical MDS (also known as Principal Coordinates Analysis) is a dimension
+/// reduction technique that projects high-dimensional data into a lower-dimensional
+/// space while preserving pairwise distances as much as possible.
+///
+/// The algorithm works by:
+/// 1. Computing a distance matrix between all pairs of nodes (if not provided)
+/// 2. Double-centering this matrix to create a dot-product matrix
+/// 3. Computing the eigendecomposition of this matrix
+/// 4. Using the top eigenvectors to project the data into the desired dimension
+///
+/// This implementation is suitable for smaller graphs as it requires O(n²) memory
+/// for the distance matrix.
+///
+/// Reference: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
 #[pyclass]
 #[pyo3(name = "ClassicalMds")]
 struct PyClassicalMds {
@@ -56,6 +82,25 @@ impl PyClassicalMds {
     }
 }
 
+/// Python class for Pivot-based Multidimensional Scaling
+///
+/// Pivot MDS is an efficient approximation of Classical MDS that uses a subset of
+/// nodes (called pivots) to reduce the computational complexity. Instead of computing
+/// distances between all pairs of nodes, it only computes distances between each node
+/// and the pivot nodes.
+///
+/// The algorithm works by:
+/// 1. Selecting a subset of nodes as pivots
+/// 2. Computing distances between all nodes and these pivots
+/// 3. Double-centering this partial distance matrix
+/// 4. Computing eigendecomposition of a smaller matrix
+/// 5. Projecting into the desired dimension using these eigenvectors
+///
+/// This implementation is more suitable for larger graphs as it requires O(n·h) memory
+/// where h is the number of pivot nodes, which is typically much smaller than n.
+///
+/// Reference: Brandes, U., & Pich, C. (2007). Eigensolver methods for progressive
+/// multidimensional scaling of large data. Graph Drawing, 42-53.
 #[pyclass]
 #[pyo3(name = "PivotMds")]
 struct PyPivotMds {

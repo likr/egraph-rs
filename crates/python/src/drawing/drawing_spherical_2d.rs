@@ -1,3 +1,9 @@
+/// 2D Spherical drawing implementation for Python
+///
+/// This module provides a Python binding for 2D Spherical space drawings.
+/// Spherical space represents coordinates on the surface of a sphere, using
+/// longitude and latitude coordinates similar to those used in geographic
+/// coordinate systems.
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
@@ -6,6 +12,15 @@ use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingSpherical2d};
 use pyo3::prelude::*;
 
+/// Python class for 2D Spherical drawings
+///
+/// This class represents a drawing on the surface of a sphere, where each node
+/// is assigned longitude and latitude coordinates. Spherical space is useful for
+/// representing global networks, wrapping layouts around a sphere, or visualizing
+/// data with a naturally spherical distribution.
+///
+/// The coordinates are specified in radians, with longitude ranging from -π to π
+/// and latitude ranging from -π/2 to π/2.
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingSpherical2d")]
 pub struct PyDrawingSpherical2d {
@@ -28,30 +43,74 @@ impl PyDrawingSpherical2d {
 
 #[pymethods]
 impl PyDrawingSpherical2d {
+    /// Gets the longitude coordinate of a node on the sphere
+    ///
+    /// Longitude represents the angular distance east or west on the sphere,
+    /// analogous to longitude on Earth.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    ///
+    /// # Returns
+    /// The longitude (in radians, from -π to π) if the node exists, None otherwise
     pub fn lon(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lon(u)
     }
 
+    /// Gets the latitude coordinate of a node on the sphere
+    ///
+    /// Latitude represents the angular distance north or south on the sphere,
+    /// analogous to latitude on Earth.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    ///
+    /// # Returns
+    /// The latitude (in radians, from -π/2 to π/2) if the node exists, None otherwise
     pub fn lat(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lat(u)
     }
 
+    /// Sets the longitude coordinate of a node on the sphere
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    /// * `value` - The new longitude value (in radians)
     pub fn set_lon(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lon(u, value);
     }
 
+    /// Sets the latitude coordinate of a node on the sphere
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    /// * `value` - The new latitude value (in radians)
     pub fn set_lat(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lat(u, value);
     }
 
+    /// Returns the number of nodes in the drawing
+    ///
+    /// # Returns
+    /// The number of nodes
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
+    /// Creates a new drawing with an initial random placement of nodes
+    ///
+    /// This method initializes a spherical drawing with nodes placed
+    /// randomly on the surface of the sphere.
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to create a drawing for
+    ///
+    /// # Returns
+    /// A new spherical drawing with initial node positions
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_spherical_2d(match graph.graph() {

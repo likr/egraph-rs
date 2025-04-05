@@ -1,3 +1,10 @@
+/// 2D Torus drawing implementation for Python
+///
+/// This module provides a Python binding for 2D Toroidal space drawings.
+/// Toroidal space is a "donut-shaped" space that wraps around in both
+/// the x and y dimensions, allowing for continuous layouts without boundaries.
+/// It's particularly useful for visualizing networks with periodic structures
+/// or to eliminate boundary effects in layouts.
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
@@ -9,6 +16,15 @@ use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingTorus2d};
 use pyo3::prelude::*;
 
+/// Python class for 2D Torus drawings
+///
+/// This class represents a drawing on a torus (donut shape), where each node
+/// is assigned (x, y) coordinates in the unit square [0, 1] × [0, 1], with
+/// the understanding that opposite edges of this square are "glued" together.
+///
+/// The toroidal topology allows for continuous layouts without boundaries,
+/// which can be useful for visualizing periodic structures or eliminating
+/// boundary effects in force-directed layouts.
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingTorus2d")]
 pub struct PyDrawingTorus2d {
@@ -31,34 +47,90 @@ impl PyDrawingTorus2d {
 
 #[pymethods]
 impl PyDrawingTorus2d {
+    /// Gets the x-coordinate of a node on the torus
+    ///
+    /// The x-coordinate is in the range [0, 1], representing the position
+    /// along the horizontal dimension of the torus.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    ///
+    /// # Returns
+    /// The x-coordinate if the node exists, None otherwise
     pub fn x(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.x(u)
     }
 
+    /// Gets the y-coordinate of a node on the torus
+    ///
+    /// The y-coordinate is in the range [0, 1], representing the position
+    /// along the vertical dimension of the torus.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    ///
+    /// # Returns
+    /// The y-coordinate if the node exists, None otherwise
     pub fn y(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.y(u)
     }
 
+    /// Sets the x-coordinate of a node on the torus
+    ///
+    /// Note that values outside the range [0, 1] will be wrapped around
+    /// to maintain the toroidal topology.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    /// * `x` - The new x-coordinate
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
     }
 
+    /// Sets the y-coordinate of a node on the torus
+    ///
+    /// Note that values outside the range [0, 1] will be wrapped around
+    /// to maintain the toroidal topology.
+    ///
+    /// # Parameters
+    /// * `u` - The node index
+    /// * `y` - The new y-coordinate
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
     }
 
+    /// Returns the number of nodes in the drawing
+    ///
+    /// # Returns
+    /// The number of nodes
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
+    /// Checks if the drawing is empty
+    ///
+    /// # Returns
+    /// True if the drawing contains no nodes, false otherwise
     pub fn is_empty(&self) -> bool {
         self.drawing.is_empty()
     }
 
+    /// Computes the line segments needed to draw an edge on the torus
+    ///
+    /// In toroidal space, an edge may need to be drawn as multiple line segments
+    /// when it crosses the boundary of the unit square. This method computes all
+    /// segments needed to properly represent the edge.
+    ///
+    /// # Parameters
+    /// * `u` - The source node index
+    /// * `v` - The target node index
+    ///
+    /// # Returns
+    /// A vector of line segments (pairs of points) if both nodes exist, None otherwise
     pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<Segment2D>> {
         self.drawing
             .edge_segments(node_index(u), node_index(v))
@@ -70,6 +142,16 @@ impl PyDrawingTorus2d {
             })
     }
 
+    /// Creates a new drawing with an initial random placement of nodes
+    ///
+    /// This method initializes a toroidal drawing with nodes placed randomly
+    /// within the unit square [0, 1] × [0, 1].
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to create a drawing for
+    ///
+    /// # Returns
+    /// A new toroidal drawing with initial node positions
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_torus_2d(match graph.graph() {

@@ -1,3 +1,21 @@
+/// Graph data structures for the Python bindings
+///
+/// This module provides the core graph data structures for the egraph-rs Python
+/// bindings. It offers both undirected and directed graph implementations that
+/// efficiently wrap Rust's petgraph library, exposing its functionality to Python.
+///
+/// The graph implementations are designed to be flexible, allowing arbitrary Python
+/// objects to be stored as node and edge data. This enables seamless integration
+/// with existing Python code and data structures.
+///
+/// # Main components
+///
+/// - `Graph`: Undirected graph implementation where edges have no direction
+/// - `DiGraph`: Directed graph implementation where edges have a source and target
+/// - `GraphAdapter`: Base class providing common functionality for both graph types
+///
+/// These graph classes support common graph operations such as adding/removing nodes
+/// and edges, querying neighbors, finding paths, and traversal.
 mod graph_base;
 
 use graph_base::*;
@@ -14,6 +32,15 @@ pub type IndexType = u32;
 pub type NodeId = NodeIndex<IndexType>;
 
 /// Enum representing either an undirected graph or a directed graph
+///
+/// This enum allows the code to work with both directed and undirected graphs
+/// through a common interface, while preserving the specific behavior of each
+/// graph type.
+///
+/// # Variants
+///
+/// * `Graph` - An undirected graph, where edges have no direction
+/// * `DiGraph` - A directed graph, where edges have a source and target node
 pub enum GraphType {
     /// An undirected graph, where edges have no direction
     Graph(Graph<Node, Edge, Undirected, IndexType>),
