@@ -232,7 +232,7 @@ Examples:
 #### Before Starting a Task
 
 1. Understand task requirements and constraints
-2. Review project structure (refer to `PROJECT_SUMMARY.md`)
+2. Review project structure (refer to `projectbrief.md` and `systemPatterns.md`)
 3. Check related code files to understand existing coding style
 4. Create a mental checklist of requirements to fulfill
 
@@ -271,7 +271,7 @@ flowchart TD
 
 - [ ] Review all Memory Bank files to understand project context
 - [ ] Understand project structure from `projectbrief.md` and `systemPatterns.md`
-- [ ] Check code conventions from `techContext.md`
+- [ ] Check code conventions and development guidelines from `techContext.md`
 - [ ] Examine related code files to understand existing implementation patterns
 - [ ] Record task completion checklist as internal tasks
 
@@ -322,7 +322,7 @@ flowchart TD
    - When explicitly requested by the user
 
 2. **Update Process**:
-   - Review all Memory Bank files
+   - Review all Memory Bank files (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`)
    - Update current state information in `activeContext.md`
    - Record progress and status in `progress.md`
    - Document any new conventions in `techContext.md`
