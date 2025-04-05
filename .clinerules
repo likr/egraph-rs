@@ -1,133 +1,133 @@
-# 開発にあたって
+# Development Guidelines
 
-## 最初に実行すべき重要な指示
+## Important Initial Instructions
 
-**このファイルの内容を必ず読んでください。タスク開始時に `read_file .clinerules` コマンドを実行することを強く推奨します。**
+**Please read the contents of this file. It is strongly recommended to execute the `read_file .clinerules` command when starting a task.**
 
-> 本ファイルの内容は自動的にシステムに読み込まれますが、明示的に読み込むことで指示の遵守率が向上します。
+> Although the content of this file is automatically loaded into the system, explicitly reading it improves compliance with the instructions.
 
-## .clinerules 遵守のためのガイドライン
+## Guidelines for Adhering to .clinerules
 
-このセクションでは、`.clinerules`ファイルの指示を確実に遵守するためのガイドラインと仕組みを提供します。
+This section provides guidelines and mechanisms to ensure adherence to the instructions in the `.clinerules` file.
 
-### タスク実行プロセス
+### Task Execution Process
 
-#### 1. タスク開始時のプロセス
+#### 1. Process at the Start of a Task
 
 ```mermaid
 flowchart TD
-    A[タスク開始] --> B[タスクの指示内容を理解]
-    B --> C[.clinerules適用済み指示を認識]
-    C --> D[PROJECT_SUMMARY.mdでプロジェクト構造確認]
-    D --> E[関連ファイル・コード規約の確認]
-    E --> F[チェックリストの内部タスクリスト化]
-    F --> G[タスク実行開始]
+    A[Task Start] --> B[Understand Task Instructions]
+    B --> C[Recognize Applied .clinerules Instructions]
+    C --> D[Confirm Project Structure in PROJECT_SUMMARY.md]
+    D --> E[Check Related Files and Code Conventions]
+    E --> F[Create Internal Task List from Checklist]
+    F --> G[Begin Task Execution]
 ```
 
-**タスク開始時チェックリスト**:
-- [ ] システムに適用されている`.clinerules`の指示内容を認識
-- [ ] `PROJECT_SUMMARY.md`を読み込み、プロジェクト構造を確認
-- [ ] 関連するコードファイルを確認し、コーディングスタイルを把握
-- [ ] タスク完了時のチェックリストを内部タスクとして記録
+**Checklist at Task Start**:
+- [ ] Recognize the instructions in `.clinerules` applied by the system
+- [ ] Read `PROJECT_SUMMARY.md` to understand project structure
+- [ ] Check related code files and understand coding style
+- [ ] Record task completion checklist as internal tasks
 
-#### 2. タスク実行中の継続的確認
+#### 2. Continuous Verification During Task Execution
 
 ```mermaid
 flowchart TD
-    A[コード修正] --> B{英語コメント?}
-    B -->|Yes| C{コメントは理由を説明?}
-    B -->|No| D[英語コメントに修正]
-    C -->|Yes| E{フォーマット規則に従っている?}
-    C -->|No| F[コメントを修正]
-    E -->|Yes| G[次の実装ステップへ]
-    E -->|No| H[フォーマット修正]
+    A[Code Modification] --> B{English Comments?}
+    B -->|Yes| C{Comments Explain Why?}
+    B -->|No| D[Change to English Comments]
+    C -->|Yes| E{Follows Format Rules?}
+    C -->|No| F[Modify Comments]
+    E -->|Yes| G[Proceed to Next Implementation Step]
+    E -->|No| H[Fix Formatting]
     D --> C
     F --> E
     H --> G
 ```
 
-**実装中のチェックポイント**:
-- [ ] すべてのコメントは英語で記述されているか
-- [ ] コメントは「なぜそうしているのか」(Why)を説明しているか
-- [ ] コードはプロジェクトのスタイルガイドに準拠しているか
-- [ ] コミットメッセージ案を Conventional Commits 形式で準備
+**Check Points During Implementation**:
+- [ ] Are all comments written in English?
+- [ ] Do comments explain "why" things are done this way?
+- [ ] Does the code comply with the project''s style guide?
+- [ ] Prepare commit message draft in Conventional Commits format
 
-#### 3. タスク完了前の最終確認
+#### 3. Final Verification Before Task Completion
 
 ```mermaid
 flowchart TD
-    A[実装完了] --> B[フォーマッターの実行]
-    B --> C[リンターの実行]
-    C --> D[テストの実行]
-    D --> E{すべて成功?}
-    E -->|Yes| F[コミットメッセージ作成]
-    E -->|No| G[エラー修正]
+    A[Implementation Complete] --> B[Run Formatter]
+    B --> C[Run Linter]
+    C --> D[Run Tests]
+    D --> E{All Successful?}
+    E -->|Yes| F[Create Commit Message]
+    E -->|No| G[Fix Errors]
     G --> B
-    F --> H[ユーザーに完了報告と改善提案]
+    F --> H[Report Completion and Suggest Improvements to User]
 ```
 
-## タスク完了前チェックリスト
+## Checklist Before Task Completion
 
-以下の手順を順番に実行し、タスクを完了してください：
+Please execute the following steps in order to complete the task:
 
-1. フォーマッターとリンターの実行
+1. Run Formatter and Linter
    - `cargo fmt --all`
    - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 
-2. テストの実行
+2. Run Tests
    - `cargo test --workspace`
 
-3. タスクの完了確認
-   - すべての要件が満たされているか確認
-   - フォーマッター、リンター、テストがすべて成功していることを確認
+3. Verify Task Completion
+   - Confirm all requirements have been met
+   - Verify that formatter, linter, and tests all succeeded
 
-4. コミットの提案
-   - Conventional Commits形式でコミットメッセージを作成
-   - ユーザーにコミットを促す
+4. Suggest Commit
+   - Create a commit message in Conventional Commits format
+   - Encourage the user to commit
 
-5. 自己改善
-   - タスク遂行を振り返り、改善点を検討
-   - `.clinerules`の更新が必要か確認
-   - 開発プロセスの改善提案があれば共有
+5. Self-Improvement
+   - Reflect on task execution and consider improvements
+   - Check if `.clinerules` needs updates
+   - Share any suggestions for improving the development process
 
-## 一般的な開発原則 (General Development Principles)
+## General Development Principles
 
-> **注意**: タスク開始時には必ず `read_file .clinerules` を実行して、このファイルの内容を確認してください。
+> **Note**: Always execute `read_file .clinerules` at the start of a task to verify the contents of this file.
 
-以下の項目は、プロジェクトの種類に依存しない一般的な開発の進め方に関する指示です。
+The following items are instructions for general development approaches that do not depend on the type of project.
 
-- **テスト:** タスクを完了する前にテストを実行し、プロジェクトが正しく動作することを確認してください。具体的なテストコマンドは「プロジェクト固有の情報」セクションを参照してください。
-- **Linter/Formatter:** LinterやFormatterを実行し、コードスタイルを統一し、潜在的な問題を早期に発見してください。具体的なコマンドは「プロジェクト固有の情報」セクションを参照してください。
-- **依存関係:** 新しくライブラリを導入するときは、特別な指定がない限り、最新の安定バージョンを使用することを検討してください。ライブラリのドキュメントを参照し、適切なバージョンを選択してください。依存関係の追加方法は「プロジェクト固有の情報」セクションを参照してください。
-- **ドキュメント参照:** 新しいライブラリや既存ライブラリの機能を使用する際には、公式ドキュメントや関連資料（例: Rustの場合は `docs.rs`）を参照してください。
+- **Tests:** Run tests before completing a task to verify that the project is working correctly. See the "Project Specific Information" section for specific test commands.
+- **Linter/Formatter:** Run the linter and formatter to unify code style and detect potential issues early. See the "Project Specific Information" section for specific commands.
+- **Dependencies:** When introducing new libraries, consider using the latest stable version unless otherwise specified. Refer to the library documentation and select an appropriate version. See the "Project Specific Information" section for how to add dependencies.
+- **Documentation References:** When using new libraries or existing library features, refer to official documentation and related materials (e.g., `docs.rs` for Rust).
 - **Git:**
-    - タスク完了時には、変更内容をGitにコミットすることをユーザー（私）に促してください。コミットメッセージの規約（例: Conventional Commits）の採用も検討してください。
-    - Gitの操作（`commit`, `push`, `pull`, `merge`など）は、実行前に必ずユーザーに許可を求めてください。
-- **自己改善:** タスク遂行を振り返り、今後の開発を円滑に進めるための改善点（この `.clinerules` の更新を含む）があれば提案してください。
+    - When completing a task, encourage the user (me) to commit the changes to Git. Consider adopting commit message conventions (e.g., Conventional Commits).
+    - Always request permission from the user before executing Git operations (`commit`, `push`, `pull`, `merge`, etc.).
+- **Self-Improvement:** Reflect on the task execution and suggest improvements (including updates to this `.clinerules` file) to facilitate smoother development in the future.
 
-## 一般的なコーディングスタイル (General Coding Styles)
+## General Coding Styles
 
-> **重要**: タスク実行前に必ずこのファイルを読み、指示に従ってください。`read_file .clinerules`
+> **Important**: Always read this file before executing a task and follow the instructions. `read_file .clinerules`
 
 ### Rust
-- **Edition:** プロジェクトで使用するRustのEditionを明確に定義してください。具体的なEditionは「プロジェクト固有の情報」セクションを参照してください。
-- **Linter/Formatter:** `rustfmt` によるフォーマット統一と、 `clippy` によるLintチェックを推奨します。
-- **コメント (Comments):**
-    - ドキュメンテーションコメント (`///`, `//!`) 以外は、原則としてコードの意図や理由 (**Why**) を記述します。
-    - コードの動作手順 (**How**) の詳細な説明は避けます（コード自体が示すべきです）。
-    - 不要なコードのコメントアウトや、作業途中のメモは削除します。
-    - コードのコメントは必ず英語で記述してください。これには、ドキュメンテーションコメント、インラインコメント、TODOコメントなどすべてのコメントが含まれます。
+- **Edition:** Clearly define the Rust Edition used in the project. See the "Project Specific Information" section for the specific Edition.
+- **Linter/Formatter:** Recommend using `rustfmt` for unified formatting and `clippy` for lint checking.
+- **Comments:**
+    - Documentation comments (`///`, `//!`) aside, generally write the intention or reason (**Why**) for the code.
+    - Avoid detailed explanations of how the code works (**How**) (the code itself should show this).
+    - Remove unnecessary commented-out code or work-in-progress notes.
+    - Please write all code comments in English. This includes documentation comments, inline comments, TODO comments, and all other comments.
 
-### JavaScript/TypeScript/JSON 等
-- **Formatter:** `prettier` などのFormatterを使用してコードスタイルを統一することを推奨します。
+### JavaScript/TypeScript/JSON etc.
+- **Formatter:** Recommend using formatters like `prettier` to unify code style.
 
-### 言語 (Language)
-- **コードコメント:** すべてのソースコード内のコメントは英語で記述してください。
-- **コミットメッセージ:** Git のコミットメッセージはすべて英語で記述してください。Conventional Commits 形式に従って作成してください。
+### Language
+- **Code Comments:** All comments in source code must be written in English.
+- **Commit Messages:** All Git commit messages must be written in English. Follow the Conventional Commits format.
 
-## Conventional Commits 形式のガイド
+## Guide to Conventional Commits Format
 
-コミットメッセージは以下の形式に従って作成してください：
+Create commit messages in the following format:
 
 ```
 <type>(<scope>): <description>
@@ -138,53 +138,53 @@ flowchart TD
 ```
 
 - **type**: feat, fix, docs, style, refactor, perf, test, chore
-- **scope**: 影響範囲（optional）
-- **description**: 変更内容の簡潔な説明
+- **scope**: area of impact (optional)
+- **description**: concise explanation of the change
 
-例:
+Examples:
 - `feat(layout): add new force-directed layout algorithm`
 - `fix(wasm): resolve memory leak in drawing implementation`
 - `docs: update API documentation with examples`
 - `refactor(sgd): improve performance of distance calculation`
 
-## プロジェクト固有の情報
+## Project Specific Information
 
-> **重要**: タスク開始時に、このファイル(.clinerules)の内容を必ず確認してください。
+> **Important**: Always verify the contents of this file (.clinerules) at the start of a task.
 > 
-> **指示**: タスク開始時に `read_file .clinerules` を実行してください。
+> **Instruction**: Execute `read_file .clinerules` at the start of a task.
 
-プロジェクト固有の情報（アーキテクチャ、構成、コマンド、ツールなど）については、プロジェクトルートにある `PROJECT_SUMMARY.md` ファイルを参照してください。このファイルには以下の情報が含まれています：
+For project-specific information (architecture, configuration, commands, tools, etc.), refer to the `PROJECT_SUMMARY.md` file in the project root. This file contains the following information:
 
-- プロジェクト構成
-- 開発ツールとコマンド
-- アーキテクチャ概要
-- 各コンポーネントの説明
-- プロジェクトの目的
+- Project structure
+- Development tools and commands
+- Architecture overview
+- Description of each component
+- Project purpose
 
-この文書は、プロジェクトの全体像を把握するための最初のリファレンスとして使用してください。
+Use this document as the initial reference for understanding the overall project.
 
-## 指示遵守の認識強化と自動化提案
+## Enhancing Instruction Compliance Awareness and Automation Suggestions
 
-タスク実行中に自動適用されている.clinerules 指示を確実に認識し遵守するため、以下の自動化ツールの導入を検討します:
+To ensure recognition and compliance with .clinerules instructions that are automatically applied during task execution, consider implementing the following automation tools:
 
 1. **pre-commit hooks**:
-   - コミット前に自動的に fmt と clippy を実行
-   - 英語コメントチェッカーの追加
+   - Automatically run fmt and clippy before commits
+   - Add English comment checker
 
-2. **CI 強化**:
-   - GitHub Actions にコーディングスタイルチェックを追加
+2. **CI Enhancement**:
+   - Add coding style checks to GitHub Actions
 
-3. **チェックリスト自動生成**:
-   - タスク開始時に.clinerules 確認用テンプレートを自動生成するツール
+3. **Checklist Auto-generation**:
+   - Tool to automatically generate .clinerules verification templates at task start
 
-## 結論
+## Conclusion
 
-.clinerules の指示認識率と遵守率を向上させるには、以下の点が重要です:
+To improve the recognition and compliance rate of .clinerules instructions, the following points are important:
 
-1. タスク開始時に自動適用されている.clinerules 指示を明確に認識
-2. 実装中の継続的な確認ポイントの設定
-3. タスク完了前の徹底したチェックリスト実行
-4. 自動化ツールの導入による人的ミスの削減
-5. 指示内容の可視化と常時参照可能な環境の整備
+1. Clearly recognize automatically applied .clinerules instructions at the start of a task
+2. Set continuous verification points during implementation
+3. Execute thorough checklists before task completion
+4. Reduce human error through automation tools
+5. Visualize instruction content and maintain an environment where it can be referenced at any time
 
-これらの施策を実施することで、.clinerules 遵守率の向上と開発プロセスの効率化を同時に達成できます。
+By implementing these measures, you can simultaneously achieve improved .clinerules compliance and enhanced development process efficiency.
