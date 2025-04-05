@@ -99,6 +99,13 @@ This document provides an overview of the egraph-rs project structure, component
     - Modular design with the `Sgd` trait for common functionality
     - Reference: Zheng, J. X., Pawar, S., & Goodman, D. F. (2018). "Graph drawing by stochastic gradient descent"
   - `stress-majorization`: Stress Majorization graph layout method
+    - Implements the Stress Majorization algorithm for force-directed graph layout
+    - `StressMajorization`: Primary struct for the algorithm
+    - Features initialization from a graph or pre-computed distance matrix
+    - Iteratively minimizes the layout stress by solving a series of quadratic problems
+    - Uses conjugate gradient method for efficient optimization
+    - Supports customizable edge weights and convergence criteria
+    - Based on Gansner et al. (2004) "Graph drawing by stress majorization"
 - **crates/python**: Python bindings using PyO3
 - **crates/quality-metrics**: Drawing quality metrics for evaluating graph layouts
 - **crates/wasm**: WebAssembly bindings using wasm-bindgen
