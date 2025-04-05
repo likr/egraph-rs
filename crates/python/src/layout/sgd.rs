@@ -13,6 +13,10 @@ use petgraph_layout_sgd::{
     SchedulerLinear, SchedulerQuadratic, SchedulerReciprocal, Sgd, SparseSgd,
 };
 use pyo3::prelude::*;
+/// Python class that implements a constant learning rate scheduler
+///
+/// This scheduler maintains a constant learning rate throughout the optimization process.
+/// It's the simplest scheduler but may not converge as effectively as decreasing schedules.
 #[pyclass]
 #[pyo3(name = "SchedulerConstant")]
 struct PySchedulerConstant {
@@ -21,23 +25,39 @@ struct PySchedulerConstant {
 
 #[pymethods]
 impl PySchedulerConstant {
+    /// Runs the complete schedule, calling the provided function with each learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Advances the schedule by one step and calls the provided function with the current learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Checks if the schedule has completed all steps
+    ///
+    /// # Returns
+    /// `true` if the schedule is finished, `false` otherwise
     pub fn is_finished(&self) -> bool {
         self.scheduler.is_finished()
     }
 }
 
+/// Python class that implements a linear decay learning rate scheduler
+///
+/// This scheduler decreases the learning rate linearly from the initial value
+/// to the final value over the specified number of steps.
 #[pyclass]
 #[pyo3(name = "SchedulerLinear")]
 struct PySchedulerLinear {
@@ -46,23 +66,39 @@ struct PySchedulerLinear {
 
 #[pymethods]
 impl PySchedulerLinear {
+    /// Runs the complete schedule, calling the provided function with each learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Advances the schedule by one step and calls the provided function with the current learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Checks if the schedule has completed all steps
+    ///
+    /// # Returns
+    /// `true` if the schedule is finished, `false` otherwise
     pub fn is_finished(&self) -> bool {
         self.scheduler.is_finished()
     }
 }
 
+/// Python class that implements a quadratic decay learning rate scheduler
+///
+/// This scheduler decreases the learning rate according to a quadratic function
+/// from the initial value to the final value over the specified number of steps.
 #[pyclass]
 #[pyo3(name = "SchedulerQuadratic")]
 struct PySchedulerQuadratic {
@@ -71,23 +107,40 @@ struct PySchedulerQuadratic {
 
 #[pymethods]
 impl PySchedulerQuadratic {
+    /// Runs the complete schedule, calling the provided function with each learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Advances the schedule by one step and calls the provided function with the current learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Checks if the schedule has completed all steps
+    ///
+    /// # Returns
+    /// `true` if the schedule is finished, `false` otherwise
     pub fn is_finished(&self) -> bool {
         self.scheduler.is_finished()
     }
 }
 
+/// Python class that implements an exponential decay learning rate scheduler
+///
+/// This scheduler decreases the learning rate exponentially from the initial value
+/// to the final value over the specified number of steps. This is often the most
+/// effective scheduler for graph layout algorithms.
 #[pyclass]
 #[pyo3(name = "SchedulerExponential")]
 struct PySchedulerExponential {
@@ -96,23 +149,39 @@ struct PySchedulerExponential {
 
 #[pymethods]
 impl PySchedulerExponential {
+    /// Runs the complete schedule, calling the provided function with each learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Advances the schedule by one step and calls the provided function with the current learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Checks if the schedule has completed all steps
+    ///
+    /// # Returns
+    /// `true` if the schedule is finished, `false` otherwise
     pub fn is_finished(&self) -> bool {
         self.scheduler.is_finished()
     }
 }
 
+/// Python class that implements a reciprocal decay learning rate scheduler
+///
+/// This scheduler decreases the learning rate according to a reciprocal function (1/t)
+/// from the initial value to the final value over the specified number of steps.
 #[pyclass]
 #[pyo3(name = "SchedulerReciprocal")]
 struct PySchedulerReciprocal {
@@ -121,23 +190,41 @@ struct PySchedulerReciprocal {
 
 #[pymethods]
 impl PySchedulerReciprocal {
+    /// Runs the complete schedule, calling the provided function with each learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn run(&mut self, f: &Bound<PyAny>) {
         self.scheduler.run(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Advances the schedule by one step and calls the provided function with the current learning rate
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes the current learning rate as a parameter
     pub fn step(&mut self, f: &Bound<PyAny>) {
         self.scheduler.step(&mut |eta| {
             f.call1((eta as f64,)).ok();
         })
     }
 
+    /// Checks if the schedule has completed all steps
+    ///
+    /// # Returns
+    /// `true` if the schedule is finished, `false` otherwise
     pub fn is_finished(&self) -> bool {
         self.scheduler.is_finished()
     }
 }
 
+/// Python class for sparse stochastic gradient descent (SGD) layout algorithm
+///
+/// This class implements SGD with sparse distance approximation, which is more
+/// efficient for large graphs. It uses a subset of "pivot" nodes to approximate
+/// distances, reducing computational complexity from O(n²) to O(nh) where h is
+/// the number of pivot nodes.
 #[pyclass]
 #[pyo3(name = "SparseSgd")]
 struct PySparseSgd {
@@ -146,6 +233,13 @@ struct PySparseSgd {
 
 #[pymethods]
 impl PySparseSgd {
+    /// Creates a new sparse SGD instance with randomly selected pivot nodes
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to layout
+    /// * `f` - A Python function that takes an edge index and returns its weight
+    /// * `h` - The number of pivot nodes to use
+    /// * `rng` - Random number generator for selecting pivot nodes
     #[new]
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, h: usize, rng: &mut PyRng) -> PySparseSgd {
         PySparseSgd {
@@ -161,6 +255,12 @@ impl PySparseSgd {
         }
     }
 
+    /// Creates a new sparse SGD instance with specified pivot nodes
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to layout
+    /// * `f` - A Python function that takes an edge index and returns its weight
+    /// * `pivot` - A vector of node indices to use as pivot nodes
     #[staticmethod]
     pub fn new_with_pivot(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> Self {
         PySparseSgd {
@@ -178,6 +278,13 @@ impl PySparseSgd {
         }
     }
 
+    /// Creates a new sparse SGD instance with specified pivot nodes and distance matrix
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to layout
+    /// * `f` - A Python function that takes an edge index and returns its weight
+    /// * `pivot` - A vector of node indices to use as pivot nodes
+    /// * `d` - A pre-computed distance matrix
     #[staticmethod]
     pub fn new_with_pivot_and_distance_matrix(
         graph: &PyGraphAdapter,
@@ -213,10 +320,22 @@ impl PySparseSgd {
         }
     }
 
+    /// Shuffles the order of node pairs used in the SGD algorithm
+    ///
+    /// Randomizing the order of node pairs can help avoid local minima
+    /// and improve convergence.
+    ///
+    /// # Parameters
+    /// * `rng` - Random number generator for shuffling
     fn shuffle(&mut self, rng: &mut PyRng) {
         self.sgd.shuffle(rng.get_mut())
     }
 
+    /// Applies one iteration of the SGD algorithm to the drawing
+    ///
+    /// # Parameters
+    /// * `drawing` - The drawing to modify
+    /// * `eta` - The learning rate for this iteration
     fn apply(&self, drawing: &Bound<PyDrawing>, eta: f32) {
         let drawing_type = drawing.borrow().drawing_type();
         Python::with_gil(|py| match drawing_type {
@@ -263,50 +382,120 @@ impl PySparseSgd {
         })
     }
 
+    /// Creates a default scheduler (exponential) for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The final learning rate (initial rate is 1.0)
+    ///
+    /// # Returns
+    /// An exponential scheduler
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
         self.scheduler_exponential(t_max, epsilon)
     }
 
+    /// Creates a constant scheduler for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The constant learning rate
+    ///
+    /// # Returns
+    /// A constant scheduler
     pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
         PySchedulerConstant {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
+    /// Creates a linear scheduler for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The final learning rate (initial rate is 1.0)
+    ///
+    /// # Returns
+    /// A linear scheduler
     pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
         PySchedulerLinear {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
+    /// Creates a quadratic scheduler for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The final learning rate (initial rate is 1.0)
+    ///
+    /// # Returns
+    /// A quadratic scheduler
     pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
         PySchedulerQuadratic {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
+    /// Creates an exponential scheduler for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The final learning rate (initial rate is 1.0)
+    ///
+    /// # Returns
+    /// An exponential scheduler
     pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
         PySchedulerExponential {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
+    /// Creates a reciprocal scheduler for this SGD algorithm
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `epsilon` - The final learning rate (initial rate is 1.0)
+    ///
+    /// # Returns
+    /// A reciprocal scheduler
     pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
         PySchedulerReciprocal {
             scheduler: self.sgd.scheduler(t_max, epsilon),
         }
     }
 
+    /// Updates the distance matrix using a Python function
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes (i, j, distance, weight) and returns a new distance value
     pub fn update_distance(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
+    /// Updates the weight matrix using a Python function
+    ///
+    /// # Parameters
+    /// * `f` - A Python function that takes (i, j, distance, weight) and returns a new weight value
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
+    /// Selects pivot nodes and computes a distance matrix using them
+    ///
+    /// This static method selects a set of pivot nodes and then computes
+    /// a sub-distance matrix containing distances between these pivots
+    /// and all other nodes in the graph.
+    ///
+    /// # Parameters
+    /// * `graph` - The graph to select pivots from
+    /// * `f` - A Python function that takes an edge index and returns its weight
+    /// * `h` - The number of pivot nodes to select
+    /// * `rng` - Random number generator for selecting pivots
+    ///
+    /// # Returns
+    /// A tuple containing the pivot node indices and a distance matrix
     #[staticmethod]
     pub fn choose_pivot(
         graph: &PyGraphAdapter,

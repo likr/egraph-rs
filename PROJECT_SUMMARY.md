@@ -107,6 +107,29 @@ This document provides an overview of the egraph-rs project structure, component
     - Supports customizable edge weights and convergence criteria
     - Based on Gansner et al. (2004) "Graph drawing by stress majorization"
 - **crates/python**: Python bindings using PyO3
+  - Provides Python interface to the core graph data structures and algorithms
+  - Main components:
+    - `Graph` and `DiGraph`: Undirected and directed graph data structures
+    - `Drawing`: Base class for graph layouts with implementations for different geometric spaces:
+      - `DrawingEuclidean2d`: 2D Euclidean space
+      - `DrawingEuclidean`: N-dimensional Euclidean space
+      - `DrawingHyperbolic2d`: 2D Hyperbolic space
+      - `DrawingSpherical2d`: 2D Spherical space
+      - `DrawingTorus2d`: 2D Torus space
+    - `DistanceMatrix`: Matrix of distances between nodes
+    - `Rng`: Random number generator for deterministic randomness
+    - Layout algorithms:
+      - `SparseSgd` and `FullSgd`: Stochastic gradient descent layout algorithms
+      - `DistanceAdjustedSparseSgd` and `DistanceAdjustedFullSgd`: SGD with distance adjustment
+      - Various learning rate schedulers (constant, linear, quadratic, exponential, reciprocal)
+      - `MDS`, `KamadaKawai`, `StressMajorization` algorithms
+    - Graph algorithms:
+      - Shortest path functions: `all_sources_bfs`, `all_sources_dijkstra`, `warshall_floyd`
+    - Quality metrics: Wrappers around Rust implementations for evaluating graph layouts
+  - `examples/`: Example Python scripts demonstrating library usage
+    - SGD layouts in various spaces (Euclidean, Spherical, Hyperbolic, Torus)
+    - Other layout algorithms (Kamada-Kawai, Stress Majorization)
+    - Overwrap removal techniques
 - **crates/quality-metrics**: Drawing quality metrics for evaluating graph layouts
   - Collection of metrics to quantitatively assess the quality of graph layouts
   - Includes metrics for:
