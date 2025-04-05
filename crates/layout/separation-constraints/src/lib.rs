@@ -1,3 +1,74 @@
+//! # Separation Constraints for Graph Layouts
+//!
+//! This crate implements one-dimensional separation constraints for graph layouts,
+//! based on the Quadratic Programming Separation Constraints (QPSC) algorithm
+//! presented in the IPSEP-COLA (Incremental Placement with Separation Constraints) paper.
+//!
+//! Separation constraints are useful for enforcing minimum distances between nodes,
+//! ensuring hierarchical relationships, or maintaining specific layout properties
+//! while allowing other forces (like stress minimization) to operate.
+//!
+//! ## Algorithm
+//!
+//! The implementation uses a gradient projection approach to enforce separation constraints
+//! of the form `v_left + gap <= v_right`, where:
+//! - `v_left` and `v_right` are variables (typically node coordinates in one dimension)
+//! - `gap` is the minimum required separation distance
+//!
+//! The algorithm works by:
+//! 1. Maintaining a block structure where variables are grouped into rigid blocks
+//! 2. Iteratively resolving the most violated constraint by either merging blocks
+//!    or rearranging variables within a block
+//! 3. Projecting the desired positions onto the feasible region defined by the constraints
+//!
+//! ## Usage
+//!
+//! ```
+//! use petgraph::prelude::*;
+//! use petgraph_drawing::{Drawing, DrawingEuclidean2d};
+//! use petgraph_layout_separation_constraints::{Constraint, ConstraintGraph};
+//!
+//! // Create a simple graph
+//! let mut graph = Graph::new_undirected();
+//! let n1 = graph.add_node(());
+//! let n2 = graph.add_node(());
+//! graph.add_edge(n1, n2, ());
+//! let mut drawing = DrawingEuclidean2d::initial_placement(&graph);
+//!
+//! // Create a constraint: n1 must be at least 5.0 units left of n2
+//! let constraints = vec![
+//!     Constraint::new(0, 1, 5.0)
+//! ];
+//!
+//! // Create constraint graph for x-dimension (dimension 0)
+//! let mut constraint_graph = ConstraintGraph::new(&drawing, 0, &constraints);
+//!
+//! // Extract coordinates to apply constraints
+//! let mut coords_x = vec![
+//!     drawing.x(n1).unwrap(),
+//!     drawing.x(n2).unwrap()
+//! ];
+//!
+//! // Project coordinates to satisfy constraints
+//! constraint_graph.project(&mut coords_x);
+//!
+//! // Update the drawing with projected coordinates
+//! drawing.set_x(n1, coords_x[0]);
+//! drawing.set_x(n2, coords_x[1]);
+//!
+//! // Verify that the constraint is now satisfied
+//! assert!(coords_x[1] - coords_x[0] >= 5.0);
+//! ```
+//!
+//! ## References
+//!
+//! [1] Dwyer, T., Marriott, K., & Stuckey, P. J. (2006). "Fast node overlap removal—correction."
+//! In International Symposium on Graph Drawing (pp. 446-447).
+//!
+//! [2] Dwyer, T., Koren, Y., & Marriott, K. (2006). "IPSEP-COLA: An incremental procedure for
+//! separation constraint layout of graphs." IEEE Transactions on Visualization and Computer Graphics,
+//! 12(5), 821-828.
+
 use ordered_float::OrderedFloat;
 
 use petgraph_drawing::{Delta, Drawing, MetricCartesian};
@@ -15,19 +86,54 @@ struct Variable {
 
 /// Represents a separation constraint `variables[left] + gap <= variables[right]`.
 /// Enforces minimum separation between node pairs in one dimension.
-/// See Section 2 in the IPSEP-COLA paper [1].
+///
+/// Separation constraints are useful for enforcing layout properties such as:
+/// - Minimum distance between nodes
+/// - Hierarchical relationships (e.g., parent above child)
+/// - Alignment requirements (e.g., nodes at same level)
+/// - Non-overlap between elements with extent
+///
+/// In graph layouts, variables typically correspond to node coordinates in a specific dimension.
+/// For example, in a 2D layout, a constraint might enforce that node A is at least 50 pixels
+/// to the left of node B.
+///
+/// See Section 2 in the IPSEP-COLA paper [2].
 #[derive(Clone)]
 pub struct Constraint {
     /// Index (`usize`) of the variable on the left side.
+    /// This corresponds to node indices in the original graph.
     pub left: usize,
+
     /// Index (`usize`) of the variable on the right side.
+    /// This corresponds to node indices in the original graph.
     pub right: usize,
+
     /// Minimum required separation (`a` in `u + a <= v`).
+    /// Units are the same as the drawing coordinates (typically pixels or other distance units).
     pub gap: f32,
 }
 
 impl Constraint {
     /// Creates a new separation constraint.
+    ///
+    /// # Arguments
+    ///
+    /// * `left` - The index of the variable that should be on the left side of the constraint
+    /// * `right` - The index of the variable that should be on the right side of the constraint
+    /// * `gap` - The minimum required separation between the two variables
+    ///
+    /// # Returns
+    ///
+    /// A new `Constraint` instance.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use petgraph_layout_separation_constraints::Constraint;
+    ///
+    /// // Create a constraint that node 0 must be at least 5.0 units to the left of node 1
+    /// let constraint = Constraint::new(0, 1, 5.0);
+    /// ```
     pub fn new(left: usize, right: usize, gap: f32) -> Self {
         Constraint { left, right, gap }
     }
@@ -46,9 +152,24 @@ struct Block {
     active: HashSet<usize>,
 }
 
-/// Manages the state (variables, constraints, blocks) for the one-dimensional separation
-/// constraint satisfaction algorithm (gradient projection) used in IPSEP-COLA.
-/// Corresponds to the data structures described in Section 3.2 and Figure 9 [1].
+/// Manages the state for a one-dimensional separation constraint satisfaction algorithm
+/// based on the QPSC (Quadratic Programming Separation Constraints) method from IPSEP-COLA.
+///
+/// The `ConstraintGraph` implements a gradient projection approach to enforce a set of
+/// separation constraints of the form `v_left + gap <= v_right`. This is particularly
+/// useful in graph layout algorithms where you want to enforce minimum distances between
+/// nodes while still allowing other forces (like stress minimization) to operate.
+///
+/// The algorithm works by:
+/// 1. Organizing variables into "blocks" that move rigidly together
+/// 2. When constraints are violated, either merging blocks or splitting blocks
+/// 3. Using Lagrangian relaxation to determine which active constraints to maintain or release
+///
+/// This implementation can be used in conjunction with other layout algorithms (e.g.,
+/// stress majorization or force-directed) to enforce separation constraints during or
+/// after the main layout process.
+///
+/// See IPSEP-COLA paper [2] for details on the algorithm.
 pub struct ConstraintGraph {
     /// State (`block` index, `offset`) for each variable.
     variables: Vec<Variable>,
@@ -160,20 +281,31 @@ impl ConstraintGraph {
         dfdv
     }
 
-    /// Lazily splits blocks if an active constraint has a negative Lagrange multiplier,
-    /// indicating that making it inactive could improve the objective function.
-    /// Finds the active constraint `sc` with the most negative multiplier in each block
-    /// and splits the block by removing `sc`.
+    /// Optimizes the block structure by splitting blocks when beneficial.
+    ///
+    /// This method lazily splits blocks if an active constraint has a negative Lagrange multiplier,
+    /// indicating that making it inactive could improve the objective function. For each block,
+    /// it finds the active constraint `sc` with the most negative multiplier and splits the block
+    /// by removing that constraint from the active set.
+    ///
+    /// In graph layout terms, splitting blocks allows parts of the layout to move more independently
+    /// when the rigid constraints between them are counter-productive to minimizing the overall
+    /// objective function.
+    ///
+    /// The method adapts the block structure to better minimize the squared distance between the
+    /// desired positions `x` and the positions that satisfy all constraints.
+    ///
     /// Called periodically within the main QPSC solver (Figure 8).
-    /// Corresponds to `split_blocks(x)` in Figure 10 [1].
+    /// Corresponds to `split_blocks(x)` in Figure 10 [2].
     ///
     /// # Arguments
     ///
-    /// * `x` - Desired variable positions (e.g., post-gradient step).
+    /// * `x` - Desired variable positions (e.g., positions after a gradient step).
     ///
     /// # Returns
     ///
     /// * `true` if no blocks were split, `false` otherwise.
+    ///
     pub fn split_blocks(&mut self, x: &[f32]) -> bool {
         let mut nosplit = true;
         // Iterate using indices because splitting can implicitly add new blocks
@@ -258,14 +390,25 @@ impl ConstraintGraph {
     }
 
     /// Enforces all separation constraints by projecting positions `x` onto the feasible region.
-    /// Iteratively finds the most violated constraint and resolves it by either merging
-    /// blocks (`merge_block`) or expanding a block (`expand_block`). Modifies `x` in-place.
-    /// Corresponds to the `project(C)` procedure in Figure 9 [1].
+    ///
+    /// This is the main method for applying the constraints to a set of desired positions.
+    /// It iteratively finds the most violated constraint and resolves it through block operations
+    /// until all constraints are satisfied. The result is a new set of positions where all
+    /// separation constraints are honored while minimizing the squared deviation from the
+    /// original positions.
+    ///
+    /// The algorithm alternates between two operations:
+    /// - If the violated constraint is between variables in different blocks, it merges the blocks
+    /// - If the violated constraint is between variables in the same block, it rearranges the
+    ///   block's internal structure by breaking one active constraint and activating the violated one
+    ///
+    /// Corresponds to the `project(C)` procedure in Figure 9 [2].
     ///
     /// # Arguments
     ///
     /// * `x` - Variable positions (coordinate in the current dimension) to be projected.
-    ///         Modified **in-place**.
+    ///         Modified **in-place** to satisfy all constraints.
+    ///
     pub fn project(&mut self, x: &mut [f32]) {
         // Iteratively find and resolve the most violated constraint (violation > tolerance).
         while let Some(c) = (0..self.constraints.len())
