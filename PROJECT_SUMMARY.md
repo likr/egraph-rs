@@ -2,14 +2,55 @@
 
 This document provides an overview of the egraph-rs project structure, components, and development processes.
 
-## Project Configuration
+## Table of Contents
+
+- [Quick Reference](#quick-reference)
+- [Project Overview](#project-overview)
+- [Development Environment](#development-environment)
+- [Project Structure](#project-structure)
+- [Functional Components](#functional-components)
+- [Interfaces](#interfaces)
+
+## Quick Reference
+
+### Frequently Used Commands
+
+| Function            | Command                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
+| **Rust: Run Tests** | `cargo test --workspace`                                               |
+| **Rust: Format**    | `cargo fmt --all`                                                      |
+| **Rust: Lint**      | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| **JS/TS: Format**   | `npx prettier --write .`                                               |
+| **WASM: Build**     | `npm run wasm-build`                                                   |
+| **Examples: Run**   | `npm start`                                                            |
+
+### Key Directories
+
+| Directory                | Contents                        |
+| ------------------------ | ------------------------------- |
+| `crates/algorithm`       | Graph algorithm implementations |
+| `crates/layout`          | Layout algorithms               |
+| `crates/python`          | Python bindings                 |
+| `crates/quality-metrics` | Drawing quality metrics         |
+| `js/examples`            | JavaScript usage examples       |
+
+## Project Overview
+
+egraph-rs is a Rust library providing graph data structures, algorithms, quality metrics, and drawing functionality.
+It can be used:
+
+- Directly from Rust
+- Via Python bindings
+- Via WebAssembly (JavaScript)
+
+### Project Configuration
 
 - This project is a Rust workspace (`Cargo.toml`) comprising multiple crates (`crates/*`).
 - JavaScript/WASM-related code is managed in the `js/` directory, `crates/wasm` crate, and the root `package.json` (using npm workspaces).
 
-## Development Tools
+## Development Environment
 
-### Rust
+### Rust Development
 
 - **Edition:** `2021` (verify in each crate's `Cargo.toml`)
 - **Commands:**
@@ -19,185 +60,128 @@ This document provides an overview of the egraph-rs project structure, component
   - Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - **Adding Dependencies:** Add to `crates/<target-crate>/Cargo.toml` in the `[dependencies]` section.
 
-### JavaScript/TypeScript/JSON
+### JavaScript/TypeScript Development
 
 - **Format:** Run `npx prettier --write .` (using `.prettierrc.json` settings, currently default)
 - **WASM Build:** `npm run wasm-build`
 - **Run Examples:** `npm start` (internally runs `npm run dev -w examples`)
 - **Adding Dependencies:** Use `npm install <package-name> -w <workspace-name>` (e.g., `-w examples`, `-w crates/wasm`) or run `npm install <package-name>` at the root.
 
-## Architecture Overview
+## Project Structure
 
 ### Workspace Root
 
-- Location: `/home/likr/src/likr/egraph-rs`
 - Structure: Monorepo containing Rust workspace and JavaScript/TypeScript code
 
-### Rust Workspace Members (from Cargo.toml)
+### Main Directory Structure
 
-- **crates/algorithm**: Graph algorithms
-  - `connected-components`: Connected components
-  - `shortest-path`: Shortest path algorithms (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
-- **crates/cli**: CLI tools
-  - `src/lib.rs`: Shared library code (JSON I/O, etc.)
-  - `src/bin/quality-metrics.rs`: Binary to calculate drawing quality metrics
-  - `src/bin/sgd.rs`: Binary to apply SGD layout algorithm
-- **crates/clustering**: Clustering (Louvain algorithm step functions, graph coarsening functions)
-- **crates/dataset**: Provides functionality to load graph datasets such as SuiteSparse Matrix Collection
-  - `src/lib.rs`: Dataset loading functions (`load_graph`)
-  - `src/data/*.csv`: Data files (edge list format)
-- **crates/drawing**: Drawing-related
-  - `src/lib.rs`: Basic trait definitions (`DrawingIndex`, `DrawingValue`) and module exports
-  - `src/drawing.rs`: Basic abstraction for drawing (`Drawing` trait)
-  - `src/drawing/*.rs`: Specific drawing implementations (euclidean, spherical, hyperbolic, torus, etc.)
-  - `src/metric.rs`: Distance space trait definitions (`Delta`, `Metric`, `MetricCartesian`)
-  - `src/metric/*.rs`: Specific distance calculation implementations (distances in various spaces, vector difference calculations, etc.)
-- **crates/edge-bundling**: Edge bundling algorithms for graph visualization
-  - `fdeb`: Force Directed Edge Bundling - Implementation of Holten & Van Wijk's algorithm (2009) for reducing visual clutter in graph visualizations by bundling similar edges together. Provides:
-    - `Point`: 2D point structure with position and velocity
-    - `EdgeBundlingOptions`: Configuration for the bundling algorithm parameters
-    - `fdeb`: Main function to apply edge bundling to a graph
-- **crates/layout**: Layout algorithms
-  - `kamada-kawai`: Implementation of Kamada-Kawai force-directed layout algorithm
-    - `KamadaKawai`: Primary struct that implements the algorithm
-    - Models a graph as a spring system where spring lengths are based on shortest path distances
-    - Iteratively positions nodes to minimize the energy of the spring system
-    - Provides methods for node selection based on energy gradient and node position optimization
-    - Reference: Kamada, T., & Kawai, S. (1989). An algorithm for drawing general undirected graphs.
-  - `mds`: Multidimensional Scaling (MDS) implementation
-    - Provides algorithms to visualize graph structures in lower dimensional spaces
-    - `ClassicalMds`: Standard implementation that computes a full distance matrix
-    - `PivotMds`: Efficient implementation that uses a subset of nodes as pivots
-    - Uses eigendecomposition and double centering to transform distance matrices
-    - Reference: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
-  - `overwrap-removal`: Overlap removal algorithms for graph layouts
-    - `OverwrapRemoval`: A graph layout post-processing algorithm that resolves node overlaps
-    - Iteratively adjusts node positions based on their defined radii to ensure proper spacing
-    - Distributes displacement forces between nodes based on their relative sizes
-    - Reference: Similar to Prism force-directed overlap removal technique
-  - `separation-constraints`: Separation constraints for layout algorithms
-    - Implements one-dimensional separation constraints of the form `v_left + gap <= v_right`
-    - Based on the Quadratic Programming Separation Constraints (QPSC) algorithm from IPSEP-COLA
-    - `Constraint`: Public struct representing a separation constraint between two variables
-    - `ConstraintGraph`: Main class managing constraint satisfaction via block operations
-    - Uses a gradient projection approach that enforces constraints while minimizing deviation from desired positions
-    - Useful for enforcing minimum distances, hierarchical relationships, or avoiding node overlaps
-    - Can be applied to layouts generated by other algorithms like stress majorization
-    - Reference: Dwyer, T., Koren, Y., & Marriott, K. (2006). "IPSEP-COLA: An incremental procedure for separation constraint layout of graphs."
-  - `sgd`: Stochastic Gradient Descent layout implementation
-    - Provides force-directed graph layout using stochastic gradient descent optimization
-    - Multiple implementation variants for different graph sizes and requirements:
-      - `FullSgd`: Uses all-pairs shortest path distances (accurate but slower for large graphs)
-      - `SparseSgd`: Uses pivot-based sparse approximation (efficient for large graphs)
-      - `DistanceAdjustedSgd`: Dynamically adjusts distances to improve aesthetics
-    - Flexible learning rate control through various schedulers:
-      - `SchedulerConstant`: Maintains a fixed learning rate
-      - `SchedulerLinear`: Linear decay of learning rate
-      - `SchedulerExponential`: Exponential decay of learning rate
-      - `SchedulerQuadratic`: Quadratic decay of learning rate
-      - `SchedulerReciprocal`: Reciprocal decay of learning rate
-    - Modular design with the `Sgd` trait for common functionality
-    - Reference: Zheng, J. X., Pawar, S., & Goodman, D. F. (2018). "Graph drawing by stochastic gradient descent"
-  - `stress-majorization`: Stress Majorization graph layout method
-    - Implements the Stress Majorization algorithm for force-directed graph layout
-    - `StressMajorization`: Primary struct for the algorithm
-    - Features initialization from a graph or pre-computed distance matrix
-    - Iteratively minimizes the layout stress by solving a series of quadratic problems
-    - Uses conjugate gradient method for efficient optimization
-    - Supports customizable edge weights and convergence criteria
-    - Based on Gansner et al. (2004) "Graph drawing by stress majorization"
-- **crates/python**: Python bindings using PyO3
-  - Provides Python interface to the core graph data structures and algorithms implemented in Rust
-  - Main components:
-    - `Graph` and `DiGraph`: Undirected and directed graph data structures
-      - Efficient wrappers around petgraph's Rust graph implementation
-      - Support for arbitrary Python objects as node and edge data
-      - Methods for graph manipulation, traversal, and querying
-    - `Drawing`: Base class for graph layouts with implementations for different geometric spaces:
-      - `DrawingEuclidean2d`: 2D Euclidean space drawings with (x,y) coordinates
-      - `DrawingEuclidean`: N-dimensional Euclidean space for higher dimensional layouts
-      - `DrawingHyperbolic2d`: 2D Hyperbolic space supporting non-Euclidean geometry
-      - `DrawingSpherical2d`: 2D Spherical space for layouts on the surface of a sphere
-      - `DrawingTorus2d`: 2D Torus space for layouts with periodic boundary conditions
-    - `DistanceMatrix`: Matrix of distances between nodes
-      - Supports both full matrices (all node pairs) and sparse approximations
-      - Methods for querying and modifying distances
-    - `Rng`: Random number generator for deterministic randomness
-      - Enables reproducible results in randomized algorithms
-      - Supports both entropy-based and seeded generation
-    - Layout algorithms:
-      - `SparseSgd` and `FullSgd`: Stochastic gradient descent layout algorithms
-      - `DistanceAdjustedSparseSgd` and `DistanceAdjustedFullSgd`: SGD with distance adjustment
-      - Various learning rate schedulers (constant, linear, quadratic, exponential, reciprocal)
-      - `MDS`, `KamadaKawai`, `StressMajorization` algorithms
-    - Graph algorithms:
-      - Shortest path functions: `all_sources_bfs`, `all_sources_dijkstra`, `warshall_floyd`
-    - Quality metrics: Wrappers around Rust implementations for evaluating graph layouts
-      - Measures like stress, angular resolution, crossing number, etc.
-  - `examples/`: Example Python scripts demonstrating library usage
-    - SGD layouts in various spaces (Euclidean, Spherical, Hyperbolic, Torus)
-    - Other layout algorithms (Kamada-Kawai, Stress Majorization)
-    - Overwrap removal techniques
-- **crates/quality-metrics**: Drawing quality metrics for evaluating graph layouts
-  - Collection of metrics to quantitatively assess the quality of graph layouts
-  - Includes metrics for:
-    - `Stress`: How well layout preserves graph-theoretical distances
-    - `IdealEdgeLengths`: How well edge lengths match their ideal lengths
-    - `NeighborhoodPreservation`: How well the layout preserves local neighborhoods
-    - `CrossingNumber`: Count of edge crossings in the layout
-    - `CrossingAngle`: Angles at which edges cross
-    - `AspectRatio`: Balance between width and height of the drawing
-    - `AngularResolution`: Angles between edges connected to the same node
-    - `NodeResolution`: How well nodes are distributed in the drawing space
-    - `GabrielGraphProperty`: Adherence to the Gabriel graph condition
-  - Provides both individual metric functions and a combined quality evaluation
-  - Metrics include sense (maximize/minimize) to indicate optimization direction
-- **crates/wasm**: WebAssembly bindings using wasm-bindgen
-
-### Other Directories
-
+- **crates/**: Rust crates
+  - **algorithm/**: Graph algorithms
+  - **cli/**: CLI tools
+  - **clustering/**: Clustering algorithms
+  - **dataset/**: Graph dataset loaders
+  - **drawing/**: Drawing-related implementations
+  - **edge-bundling/**: Edge bundling algorithms
+  - **layout/**: Layout algorithms
+  - **python/**: Python bindings (using PyO3)
+  - **quality-metrics/**: Drawing quality metrics
+  - **wasm/**: WebAssembly bindings (using wasm-bindgen)
 - **js/**: JS/TS code (npm workspaces)
-  - `js/dataset/`: Dataset processing utilities
-  - `js/examples/`: Sample code for JavaScript usage
-- **.github/**: GitHub Actions workflows for CI/CD
-- **.vscode/**: VS Code editor settings
-- **docs/**: Documentation files
-- **examples/**: Rust sample code
-- **img/**: Image files for documentation
-- **scripts/**: Development scripts
-- **www/**: WebAssembly frontend examples
+  - **dataset/**: Dataset processing utilities
+  - **examples/**: JavaScript usage examples
+- **Other Directories**:
+  - **.github/**: GitHub Actions workflows
+  - **.vscode/**: VS Code editor settings
+  - **docs/**: Documentation files
+  - **examples/**: Rust sample code
+  - **img/**: Image files for documentation
+  - **scripts/**: Development scripts
+  - **www/**: WebAssembly frontend examples
 
-### Project Purpose
+## Functional Components
 
-- A Rust library providing graph data structures, algorithms, quality metrics, and drawing functionality.
-- Intended for use from Rust directly, via Python bindings, or via WebAssembly (JavaScript).
+### Graph Algorithms (`crates/algorithm`)
 
-## Python Bindings Structure
+- **connected-components**: Connected components
+- **shortest-path**: Shortest path algorithms (BFS, Dijkstra, Warshall-Floyd, DistanceMatrix)
 
-The `crates/python` module provides Python bindings for the egraph-rs library using PyO3. The module is organized as follows:
+### Layout Algorithms (`crates/layout`)
+
+#### Stochastic Gradient Descent (SGD) (`crates/layout/sgd`)
+
+Force-directed graph layout using stochastic gradient descent optimization:
+
+- **Implementation Variants**:
+
+  - `FullSgd`: Uses all-pairs shortest path distances (accurate but slower for large graphs)
+  - `SparseSgd`: Uses pivot-based sparse approximation (efficient for large graphs)
+  - `DistanceAdjustedSgd`: Dynamically adjusts distances to improve aesthetics
+
+- **Learning Rate Schedulers**:
+
+  - `SchedulerConstant`: Maintains a fixed learning rate
+  - `SchedulerLinear`: Linear decay of learning rate
+  - `SchedulerExponential`: Exponential decay of learning rate
+  - `SchedulerQuadratic`: Quadratic decay of learning rate
+  - `SchedulerReciprocal`: Reciprocal decay of learning rate
+
+- **Reference**: Zheng, J. X., Pawar, S., & Goodman, D. F. (2018). "Graph drawing by stochastic gradient descent"
+
+#### Multidimensional Scaling (MDS) (`crates/layout/mds`)
+
+Algorithms to visualize graph structures in lower dimensional spaces:
+
+- `ClassicalMds`: Standard implementation that computes a full distance matrix
+- `PivotMds`: Efficient implementation that uses a subset of nodes as pivots
+- Uses eigendecomposition and double centering to transform distance matrices
+- **Reference**: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
+
+#### Stress Majorization (`crates/layout/stress-majorization`)
+
+- Implements the Stress Majorization algorithm for force-directed graph layout
+- Iteratively minimizes the layout stress by solving a series of quadratic problems
+- Uses conjugate gradient method for efficient optimization
+- **Reference**: Gansner et al. (2004) "Graph drawing by stress majorization"
+
+#### Other Layout Algorithms
+
+- **Kamada-Kawai** (`crates/layout/kamada-kawai`): Spring model based layout algorithm
+- **Overlap Removal** (`crates/layout/overwrap-removal`): Algorithm to resolve node overlaps
+- **Separation Constraints** (`crates/layout/separation-constraints`): Layout constraint implementation
+
+### Drawing Quality Metrics (`crates/quality-metrics`)
+
+Collection of metrics to quantitatively assess the quality of graph layouts:
+
+- `Stress`: How well layout preserves graph-theoretical distances
+- `IdealEdgeLengths`: How well edge lengths match their ideal lengths
+- `NeighborhoodPreservation`: How well the layout preserves local neighborhoods
+- `CrossingNumber`: Count of edge crossings in the layout
+- `EdgeAngle`: Angles at which edges cross
+- `AspectRatio`: Balance between width and height of the drawing
+- `AngularResolution`: Angles between edges connected to the same node
+- `NodeResolution`: How well nodes are distributed in the drawing space
+- `GabrielGraphProperty`: Adherence to the Gabriel graph condition
+
+## Interfaces
+
+### Python Bindings (`crates/python`)
+
+Python bindings structure using PyO3:
 
 - **src/lib.rs**: Main entry point that registers all submodules
-- **src/graph/**: Graph data structures
-  - `graph_base.rs`: Core graph implementations (Graph, DiGraph)
-  - `mod.rs`: Module exports
-- **src/drawing/**: Drawing implementations
-  - `drawing_base.rs`: Base drawing trait and class
-  - `drawing_euclidean_2d.rs`: 2D Euclidean space drawing
-  - `drawing_euclidean.rs`: N-dimensional Euclidean space drawing
-  - `drawing_hyperbolic_2d.rs`: 2D Hyperbolic space (Poincaré disk model)
-  - `drawing_spherical_2d.rs`: Spherical space (longitude/latitude)
-  - `drawing_torus_2d.rs`: Toroidal space (wrapped coordinates)
-  - `mod.rs`: Module exports
-- **src/layout/**: Layout algorithms
-  - `sgd.rs`: Stochastic Gradient Descent variants and schedulers
-  - `mds.rs`: Multidimensional Scaling implementations
-  - `stress_majorization.rs`: Stress Majorization algorithm
-  - `kamada_kawai.rs`: Kamada-Kawai algorithm
-  - `overwrap_removal.rs`: Node overlap removal
-  - `mod.rs`: Module exports
-- **src/algorithm/**: Graph algorithms
-  - `shortest_path.rs`: Path finding algorithms
-  - `mod.rs`: Module exports
-- **src/distance_matrix.rs**: Distance matrix implementation
-- **src/rng.rs**: Random number generation
-- **src/quality_metrics.rs**: Layout quality evaluation metrics
+- **Data Structures**:
+
+  - **src/graph/**: Graph data structures (`Graph`, `DiGraph`)
+  - **src/drawing/**: Drawing implementations for various geometric spaces (Euclidean, Spherical, Hyperbolic, Torus, etc.)
+  - **src/distance_matrix.rs**: Distance matrix implementation
+  - **src/rng.rs**: Random number generation
+
+- **Algorithms**:
+  - **src/layout/**: Layout algorithms (SGD, MDS, Stress Majorization, etc.)
+  - **src/algorithm/**: Graph algorithms (shortest path, etc.)
+  - **src/quality_metrics.rs**: Layout quality evaluation metrics
+
+### WebAssembly Bindings (`crates/wasm`)
+
+WebAssembly bindings using wasm-bindgen to call Rust implementations from browser environments.
