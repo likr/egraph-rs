@@ -46,9 +46,6 @@ impl JsDrawingTorus2d {
     /// Returns None if the node is not present in the drawing.
     /// The coordinate is a value in the range [0, 1] representing a position
     /// on the torus surface.
-    ///
-    /// @param {number} u - The node index
-    /// @returns {number|null} The x-coordinate if the node exists, null otherwise
     pub fn x(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.x(u)
@@ -59,9 +56,6 @@ impl JsDrawingTorus2d {
     /// Returns None if the node is not present in the drawing.
     /// The coordinate is a value in the range [0, 1] representing a position
     /// on the torus surface.
-    ///
-    /// @param {number} u - The node index
-    /// @returns {number|null} The y-coordinate if the node exists, null otherwise
     pub fn y(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.y(u)
@@ -71,9 +65,6 @@ impl JsDrawingTorus2d {
     ///
     /// The coordinate should be a value in the range [0, 1]. Values outside
     /// this range will wrap around due to the torus geometry.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} x - The new x-coordinate
     #[wasm_bindgen(js_name = setX)]
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
@@ -84,9 +75,6 @@ impl JsDrawingTorus2d {
     ///
     /// The coordinate should be a value in the range [0, 1]. Values outside
     /// this range will wrap around due to the torus geometry.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} y - The new y-coordinate
     #[wasm_bindgen(js_name = setY)]
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
@@ -94,15 +82,11 @@ impl JsDrawingTorus2d {
     }
 
     /// Returns the number of nodes in the drawing.
-    ///
-    /// @returns {number} The number of nodes with coordinates
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
     /// Returns whether the drawing is empty (has no nodes).
-    ///
-    /// @returns {boolean} True if the drawing has no nodes, false otherwise
     pub fn is_empty(&self) -> bool {
         self.drawing.is_empty()
     }
@@ -112,10 +96,6 @@ impl JsDrawingTorus2d {
     /// For torus drawings, an edge may be split into multiple line segments
     /// due to the wrapping around nature of the torus. This method returns all
     /// segments needed to properly draw the edge.
-    ///
-    /// @param {number} u - The source node index
-    /// @param {number} v - The target node index
-    /// @returns {Array|null} An array of line segments, each containing two points [[x1,y1], [x2,y2]], or null if either node is not in the drawing
     #[wasm_bindgen(js_name = edgeSegments)]
     pub fn edge_segments(&self, u: usize, v: usize) -> Option<Box<[JsValue]>> {
         self.drawing
@@ -143,9 +123,6 @@ impl JsDrawingTorus2d {
     /// Creates a new drawing with an initial random placement of nodes from the given graph.
     ///
     /// Nodes are initially placed at random positions within the torus surface.
-    ///
-    /// @param {Graph} graph - The graph whose nodes to position
-    /// @returns {DrawingTorus2d} A new drawing with initial positions for all nodes in the graph
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> Self {
         Self::new(DrawingTorus2d::initial_placement(graph.graph()))

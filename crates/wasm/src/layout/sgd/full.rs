@@ -97,19 +97,11 @@ impl JsFullSgd {
     /// Creates an exponential decay scheduler for controlling the learning rate.
     ///
     /// This is the default scheduler type and works well for most graphs.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerExponential} A learning rate scheduler
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
         self.scheduler_exponential(t_max, epsilon)
     }
 
     /// Creates a constant learning rate scheduler.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The constant learning rate value
-    /// @returns {SchedulerConstant} A learning rate scheduler
     #[wasm_bindgen(js_name = "schedulerConstant")]
     pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> JsSchedulerConstant {
         JsSchedulerConstant {
@@ -118,10 +110,6 @@ impl JsFullSgd {
     }
 
     /// Creates a linear decay scheduler for controlling the learning rate.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerLinear} A learning rate scheduler
     #[wasm_bindgen(js_name = "schedulerLinear")]
     pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> JsSchedulerLinear {
         JsSchedulerLinear {
@@ -130,10 +118,6 @@ impl JsFullSgd {
     }
 
     /// Creates a quadratic decay scheduler for controlling the learning rate.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerQuadratic} A learning rate scheduler
     #[wasm_bindgen(js_name = "schedulerQuadratic")]
     pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> JsSchedulerQuadratic {
         JsSchedulerQuadratic {
@@ -142,10 +126,6 @@ impl JsFullSgd {
     }
 
     /// Creates an exponential decay scheduler for controlling the learning rate.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerExponential} A learning rate scheduler
     #[wasm_bindgen(js_name = "schedulerExponential")]
     pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
         JsSchedulerExponential {
@@ -154,10 +134,6 @@ impl JsFullSgd {
     }
 
     /// Creates a reciprocal decay scheduler for controlling the learning rate.
-    ///
-    /// @param {number} t_max - The maximum number of iterations
-    /// @param {number} epsilon - The minimum learning rate
-    /// @returns {SchedulerReciprocal} A learning rate scheduler
     #[wasm_bindgen(js_name = "schedulerReciprocal")]
     pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> JsSchedulerReciprocal {
         JsSchedulerReciprocal {

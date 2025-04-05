@@ -43,9 +43,6 @@ impl JsDrawingSpherical2d {
     /// Gets the longitude coordinate of the node at the given index.
     ///
     /// Returns None if the node is not present in the drawing.
-    ///
-    /// @param {number} u - The node index
-    /// @returns {number|null} The longitude coordinate if the node exists, null otherwise
     pub fn lon(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lon(u)
@@ -54,18 +51,12 @@ impl JsDrawingSpherical2d {
     /// Gets the latitude coordinate of the node at the given index.
     ///
     /// Returns None if the node is not present in the drawing.
-    ///
-    /// @param {number} u - The node index
-    /// @returns {number|null} The latitude coordinate if the node exists, null otherwise
     pub fn lat(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lat(u)
     }
 
     /// Sets the longitude coordinate of the node at the given index.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} value - The new longitude coordinate in radians
     #[wasm_bindgen(js_name = setX)]
     pub fn set_lon(&mut self, u: usize, value: f32) {
         let u = node_index(u);
@@ -73,9 +64,6 @@ impl JsDrawingSpherical2d {
     }
 
     /// Sets the latitude coordinate of the node at the given index.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} value - The new latitude coordinate in radians
     #[wasm_bindgen(js_name = setY)]
     pub fn set_lat(&mut self, u: usize, value: f32) {
         let u = node_index(u);
@@ -83,15 +71,11 @@ impl JsDrawingSpherical2d {
     }
 
     /// Returns the number of nodes in the drawing.
-    ///
-    /// @returns {number} The number of nodes with coordinates
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
     /// Returns whether the drawing is empty (has no nodes).
-    ///
-    /// @returns {boolean} True if the drawing has no nodes, false otherwise
     pub fn is_empty(&self) -> bool {
         self.drawing.is_empty()
     }
@@ -99,9 +83,6 @@ impl JsDrawingSpherical2d {
     /// Creates a new drawing with an initial random placement of nodes from the given graph.
     ///
     /// Nodes are initially placed around the sphere in a way that distributes them evenly.
-    ///
-    /// @param {Graph} graph - The graph whose nodes to position
-    /// @returns {DrawingSpherical2d} A new drawing with initial positions for all nodes in the graph
     #[wasm_bindgen(js_name = initialPlacement)]
     pub fn initial_placement(graph: &JsGraph) -> Self {
         Self::new(DrawingSpherical2d::initial_placement(graph.graph()))

@@ -43,35 +43,23 @@ impl JsDrawingEuclidean {
     ///
     /// Returns None if the node is not present in the drawing or if the dimension
     /// is out of bounds.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} d - The dimension index (0 for x, 1 for y, 2 for z, etc.)
-    /// @returns {number|null} The coordinate if the node exists, null otherwise
     pub fn get(&self, u: usize, d: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.get(u, d)
     }
 
     /// Sets the coordinate of the node at the given index in the specified dimension.
-    ///
-    /// @param {number} u - The node index
-    /// @param {number} d - The dimension index (0 for x, 1 for y, 2 for z, etc.)
-    /// @param {number} value - The new coordinate value
     pub fn set(&mut self, u: usize, d: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set(u, d, value);
     }
 
     /// Returns the number of nodes in the drawing.
-    ///
-    /// @returns {number} The number of nodes with coordinates
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
     /// Returns whether the drawing is empty (has no nodes).
-    ///
-    /// @returns {boolean} True if the drawing has no nodes, false otherwise
     pub fn is_empty(&self) -> bool {
         self.drawing.is_empty()
     }
