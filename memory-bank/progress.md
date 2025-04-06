@@ -88,7 +88,22 @@
 
 ### Testing
 
-- More comprehensive test suite with increased coverage
+- WebAssembly binding tests:
+  - Implemented dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
+  - Implemented dedicated test files for the `Graph` class (`tests/graph.rs` and `tests/graph.js`)
+  - Implemented dedicated test files for the `DiGraph` class (`tests/digraph.rs` and `tests/digraph.js`)
+  - Implemented dedicated test files for the `DrawingEuclidean2d` class (`tests/drawing_euclidean_2d.rs` and `tests/drawing_euclidean_2d.js`)
+  - Created a pattern for class/function-specific tests that can be run individually
+  - Tests for basic functionality, node/edge operations, traversal, and integration with other components
+  - Tests for directed graph functionality, including in/out neighbors and directed edge operations
+  - Tests for drawing functionality, including node coordinate operations, drawing manipulation, edge segment representation, and integration with Graph class
+  - Verified test execution with `wasm-pack test --node --test <filename>`
+- More comprehensive test suite with increased coverage needed for other components:
+  - Other drawing implementations (DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d)
+  - Layout algorithms (SGD, MDS, etc.)
+  - Quality Metrics
+  - Edge Bundling
+  - Clustering
 - Performance benchmarks for algorithm comparison
 - Cross-platform consistency validation
 
@@ -103,7 +118,7 @@
 - **WebAssembly Bindings**: ✅ Functional
 - **Python Bindings**: ✅ Functional
 - **Documentation**: 🔄 In progress
-- **Testing**: 🔄 In progress
+- **Testing**: 🔄 In progress (WebAssembly binding tests for Rng, Graph, DiGraph, and DrawingEuclidean2d classes completed)
 - **Performance Optimization**: 🔄 Ongoing
 
 ## Known Issues
