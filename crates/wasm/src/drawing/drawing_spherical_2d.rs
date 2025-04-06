@@ -57,14 +57,14 @@ impl JsDrawingSpherical2d {
     }
 
     /// Sets the longitude coordinate of the node at the given index.
-    #[wasm_bindgen(js_name = setX)]
+    #[wasm_bindgen(js_name = setLon)]
     pub fn set_lon(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lon(u, value);
     }
 
     /// Sets the latitude coordinate of the node at the given index.
-    #[wasm_bindgen(js_name = setY)]
+    #[wasm_bindgen(js_name = setLat)]
     pub fn set_lat(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lat(u, value);

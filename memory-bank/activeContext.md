@@ -65,6 +65,8 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Implemented tests for directed graph functionality, including in/out neighbors, directed edge operations, and integration with drawing components
   - Created dedicated test files for the `DrawingEuclidean2d` class (`tests/drawing_euclidean_2d.rs` and `tests/drawing_euclidean_2d.js`)
   - Implemented tests for drawing instantiation, node coordinate operations, drawing manipulation (centralize, clamp_region), edge segment representation, and integration with Graph class
+  - Created dedicated test files for the `DrawingSpherical2d` class (`tests/drawing_spherical_2d.rs` and `tests/drawing_spherical_2d.js`)
+  - Implemented tests for spherical drawing instantiation, node coordinate operations (longitude/latitude), and integration with Graph class
   - Established a pattern for class/function-specific tests that can be run individually
   - Verified test execution with `wasm-pack test --node --test <filename>`
 
@@ -89,7 +91,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 1. **WebAssembly Binding Tests**:
 
    - Continue implementing tests for other WebAssembly classes and functions
-   - Next components to test: Other drawing implementations (DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d)
+   - Next components to test: Other drawing implementations (DrawingHyperbolic2d, DrawingTorus2d)
    - Components to test after that: Layout algorithms (SGD, MDS, etc.), Quality Metrics, Edge Bundling, and Clustering
    - Ensure comprehensive coverage of all public API methods
    - Add edge cases and error handling tests
