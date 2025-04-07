@@ -148,8 +148,17 @@ where
         N: Copy,
     {
         let ct_c = self.c.t().dot(&self.c);
-        let (e, v) = eigendecomposition(&ct_c, 2, self.eps);
-        let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
+        let (mut e, v) = eigendecomposition(&ct_c, 2, self.eps);
+
+        // Filter out negative or very small eigenvalues to avoid NaN values
+        let epsilon = 1e-10;
+        for i in 0..e.len() {
+            if e[i] < epsilon {
+                e[i] = 0.0;
+            }
+        }
+
+        let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(0.0).sqrt())));
         let xy = self.c.dot(&xy);
         let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
@@ -178,8 +187,17 @@ where
         N: Copy,
     {
         let ct_c = self.c.t().dot(&self.c);
-        let (e, v) = eigendecomposition(&ct_c, d, self.eps);
-        let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
+        let (mut e, v) = eigendecomposition(&ct_c, d, self.eps);
+
+        // Filter out negative or very small eigenvalues to avoid NaN values
+        let epsilon = 1e-10;
+        for i in 0..e.len() {
+            if e[i] < epsilon {
+                e[i] = 0.0;
+            }
+        }
+
+        let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(0.0).sqrt())));
         let x = self.c.dot(&x);
         let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {

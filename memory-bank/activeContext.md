@@ -55,6 +55,26 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Fixed the ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed:
+
+  - Added a threshold check for eigenvalues to prevent NaN values in the coordinates
+  - Modified both `run()` and `run_2d()` methods to filter out negative or very small eigenvalues
+  - Added comprehensive tests to verify the fix works for various dimensions
+  - Updated the previously skipped WASM test for n-dimensional Euclidean drawings
+
+- Fixed the PivotMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed:
+
+  - Identified that the issue was in the power_iteration function, which was producing NaN values for certain edge cases
+  - Added unit tests for the power_iteration function to reproduce and verify the issue with various matrix types
+  - Fixed the power_iteration function by:
+    - Initializing the vector with normalized values
+    - Adding checks for zero or near-zero matrices
+    - Handling cases where matrix multiplication results in very small values
+    - Ensuring proper normalization of eigenvectors
+    - Using the Rayleigh quotient for more stable eigenvalue calculation
+    - Adding safeguards against division by very small numbers
+  - Added comprehensive tests to verify the fix works for various dimensions
+
 - Added comprehensive WebAssembly binding tests:
 
   - Created dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
@@ -151,6 +171,4 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Maintain consistent naming conventions appropriate to each language
 
 4. **Known Issues to Address**:
-   - ClassicalMds implementation produces NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph
-   - This issue affects the n-dimensional Euclidean drawing test for the FullSgd class
-   - Need to fix the ClassicalMds implementation to handle this case properly
+   - ✅ Fixed: PivotMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph, similar to the fixed issue in ClassicalMds

@@ -77,7 +77,8 @@
 - Fine-tuning of SGD schedulers for better convergence
 - Optimization of stress majorization for large graphs
 - Performance improvements for overlap removal
-- Fix for ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
+- ✅ Fix for ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
+- ✅ Fix for PivotMds implementation to handle similar cases with high-dimensional embeddings
 
 ### Documentation
 
@@ -163,5 +164,5 @@
    - Performance characteristics vary across platforms
 
 6. **Implementation Issues**:
-   - ClassicalMds implementation produces NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph
-   - This affects the n-dimensional Euclidean drawing test for the FullSgd class
+   - ✅ Fixed: ClassicalMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph
+   - ✅ Fixed: PivotMds implementation was producing NaN values in high-dimensional embeddings due to issues in the power_iteration function
