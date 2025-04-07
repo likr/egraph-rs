@@ -125,8 +125,10 @@
   - Temporarily skipped the spherical drawing test for SparseSgd with a clear comment explaining the issue, to be addressed in a future task
   - Verified test execution with `wasm-pack test --node --test <filename>`
 - More comprehensive test suite with increased coverage needed for other components:
-  - **Immediate next target**: `QualityMetrics`
-  - Remaining components after QualityMetrics: Other layout algorithms (SparseSgd, MDS, etc.), Edge Bundling, and Clustering
+  - ✅ Completed: Created dedicated test files for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
+  - Implemented tests for stress metric, crossing number in Euclidean and torus spaces, neighborhood preservation, and integration with layout algorithms
+  - **Immediate next target**: Edge Bundling and Clustering
+  - Remaining components: Edge Bundling, and Clustering
 - Performance benchmarks for algorithm comparison
 - Cross-platform consistency validation
 

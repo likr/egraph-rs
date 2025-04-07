@@ -133,8 +133,9 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 1. **WebAssembly Binding Tests**:
 
    - Continue implementing tests for other WebAssembly classes and functions
-   - **Immediate next target**: Implement tests for the `QualityMetrics` module (`src/quality_metrics.rs`).
-   - Remaining components after QualityMetrics: Other layout algorithms (SparseSgd, MDS, etc.), Edge Bundling, and Clustering.
+   - ✅ Completed: Implemented tests for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
+   - **Immediate next target**: Implement tests for Edge Bundling and Clustering modules.
+   - Remaining components: Edge Bundling, and Clustering.
    - Ensure comprehensive coverage of all public API methods
    - Add edge cases and error handling tests
    - Fix the identified issue with ClassicalMds implementation for n-dimensional Euclidean drawings
