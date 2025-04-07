@@ -94,6 +94,7 @@
   - Implemented dedicated test files for the `DiGraph` class (`tests/digraph.rs` and `tests/digraph.js`)
   - Implemented dedicated test files for the `DrawingEuclidean2d` class (`tests/drawing_euclidean_2d.rs` and `tests/drawing_euclidean_2d.js`)
   - Implemented dedicated test files for the `DrawingSpherical2d` class (`tests/drawing_spherical_2d.rs` and `tests/drawing_spherical_2d.js`)
+  - Fixed an issue in the `DrawingSpherical2d` tests where nodes added to the graph after creating the drawing were not included in the drawing
   - Created a pattern for class/function-specific tests that can be run individually
   - Tests for basic functionality, node/edge operations, traversal, and integration with other components
   - Tests for directed graph functionality, including in/out neighbors and directed edge operations

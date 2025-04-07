@@ -67,6 +67,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Implemented tests for drawing instantiation, node coordinate operations, drawing manipulation (centralize, clamp_region), edge segment representation, and integration with Graph class
   - Created dedicated test files for the `DrawingSpherical2d` class (`tests/drawing_spherical_2d.rs` and `tests/drawing_spherical_2d.js`)
   - Implemented tests for spherical drawing instantiation, node coordinate operations (longitude/latitude), and integration with Graph class
+  - Fixed an issue in the `DrawingSpherical2d` tests where nodes added to the graph after creating the drawing were not included in the drawing
   - Established a pattern for class/function-specific tests that can be run individually
   - Verified test execution with `wasm-pack test --node --test <filename>`
 
