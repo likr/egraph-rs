@@ -106,6 +106,9 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Created dedicated test files for the `KamadaKawai` class (`tests/kamada_kawai.rs` and `tests/kamada_kawai.js`)
   - Implemented tests for KamadaKawai instantiation, epsilon parameter getter/setter, node selection functionality, single-node application, complete algorithm run, and integration with other components
   - Fixed an issue in the epsilon parameter test by using approximate comparison for floating-point values
+  - Created dedicated test files for the `StressMajorization` class (`tests/stress_majorization.rs` and `tests/stress_majorization.js`)
+  - Implemented tests for StressMajorization instantiation, applying a single iteration, and integration with other components
+  - Identified an issue with the StressMajorization run method that can cause infinite loops, and implemented a workaround using multiple apply calls
   - Established a pattern for class/function-specific tests that can be run individually
   - Verified test execution with `wasm-pack test --node --test <filename>`
 
@@ -219,6 +222,7 @@ The following guidelines have been established for the project workflow:
 4. **Known Issues to Address**:
    - ✅ Fixed: PivotMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph, similar to the fixed issue in ClassicalMds
    - ✅ Fixed: MetricSpherical2d implementation had a bug that output NaN values, causing the SparseSgd spherical drawing test to fail. Fixed by adding safeguards against division by zero, handling edge cases for identical or very close points, and ensuring proper clamping of values for trigonometric functions.
+   - 🔄 Needs improvement: StressMajorization run method can enter an infinite loop and needs to be improved with a proper convergence criterion or iteration limit
 
 ## Git Command Usage
 
