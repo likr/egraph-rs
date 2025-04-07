@@ -208,3 +208,15 @@ The following guidelines have been established for the project workflow:
 
 4. **Known Issues to Address**:
    - ✅ Fixed: PivotMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph, similar to the fixed issue in ClassicalMds
+
+## Git Command Usage
+
+When executing git commands that might trigger a pager view (such as `git diff`, `git log`, or `git show`), always use the `--no-pager` option to prevent interactive pager (less) from requiring manual input:
+
+```bash
+git --no-pager diff
+git --no-pager log
+git --no-pager show
+```
+
+This approach ensures that git commands can be executed without requiring interactive user operations to navigate through the output.

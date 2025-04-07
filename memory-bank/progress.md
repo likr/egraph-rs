@@ -134,6 +134,16 @@
 - **Performance Optimization**: 🔄 Ongoing
 - **Project Workflow**: ✅ Updated with new guidelines
 
+## Development Workflow Improvements
+
+### Git Command Usage
+
+- Added standardized approach for git commands that might trigger pager views:
+  - Always use `--no-pager` option with commands like `git diff`, `git log`, and `git show`
+  - This prevents interactive pager (less) from requiring manual input
+  - Documented in both `techContext.md` and `activeContext.md`
+  - Examples added to quick reference and development setup sections
+
 ## Project Workflow Guidelines
 
 New guidelines have been established for the project workflow:

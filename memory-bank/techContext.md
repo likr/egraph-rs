@@ -34,6 +34,9 @@
 | **JS/TS: Format**           | `npx prettier --write .`                                                                                           |
 | **WASM: Build**             | `npm run wasm-build`                                                                                               |
 | **Examples: Run**           | `npm start`                                                                                                        |
+| **Git: Diff**               | `git --no-pager diff`                                                                                              |
+| **Git: Log**                | `git --no-pager log`                                                                                               |
+| **Git: Show**               | `git --no-pager show`                                                                                              |
 
 ### Key Directories
 
@@ -93,6 +96,27 @@ npm run wasm-build
 
 # Run examples
 npm start
+```
+
+### Git Commands
+
+```bash
+# Always use --no-pager option with git commands that might trigger pager view
+# This prevents interactive pager (less) from requiring manual input
+
+# View differences
+git --no-pager diff
+
+# View commit history
+git --no-pager log
+
+# View specific commit
+git --no-pager show
+
+# View commit history with graph
+git --no-pager log --graph --oneline
+
+# Other git commands that might trigger pager should also use --no-pager
 ```
 
 ## Technical Constraints
