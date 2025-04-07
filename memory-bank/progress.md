@@ -132,6 +132,43 @@
 - **Documentation**: 🔄 In progress
 - **Testing**: 🔄 In progress (WebAssembly binding tests for Rng, Graph, DiGraph, DrawingEuclidean2d, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d, and FullSgd classes completed)
 - **Performance Optimization**: 🔄 Ongoing
+- **Project Workflow**: ✅ Updated with new guidelines
+
+## Project Workflow Guidelines
+
+New guidelines have been established for the project workflow:
+
+1. **Test Execution from Project Root**:
+
+   - All tests should be run from the project root directory using Cargo's workspace options
+   - Use `cargo test --workspace` to run all tests
+   - Use `cargo test -p <crate-name>` to run tests for a specific crate
+   - Use `cargo test -p <crate-name> <test-name>` to run a specific test
+   - For WebAssembly binding tests:
+     - Run all WebAssembly tests: `wasm-pack test --node crates/wasm`
+     - Run specific test files: `wasm-pack test --node crates/wasm --test <test-name>` (e.g., `wasm-pack test --node crates/wasm --test sgd_full`)
+   - This approach ensures consistent test environment and better dependency resolution
+
+2. **Commit Message Format**:
+
+   - Follow the format: `<type>(<scope>): <description>`
+   - For scope:
+     - Use workspace crate names for changes specific to a crate
+     - Omit scope for project-wide changes
+   - Examples:
+     - `feat(petgraph-layout-mds): add support for high-dimensional embeddings`
+     - `fix(egraph-wasm): resolve NaN values in ClassicalMds implementation`
+     - `test(petgraph-layout-sgd): add comprehensive tests for schedulers`
+     - `docs: update project workflow guidelines` (project-wide change, no scope)
+
+3. **Task Completion Process**:
+   - When completing tasks, suggest appropriate commit messages following the format above
+   - Ensure all tests are run from the project root before committing changes
+   - **HIGHEST PRIORITY**: Always ask for final confirmation from the user before completing a task
+     - Present a summary of all changes made
+     - Include the proposed commit message
+     - Wait for explicit approval before marking the task as complete
+     - This confirmation step must never be skipped under any circumstances
 
 ## Known Issues
 

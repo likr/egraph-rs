@@ -21,15 +21,19 @@
 
 ### Frequently Used Commands
 
-| Function            | Command                                                                |
-| ------------------- | ---------------------------------------------------------------------- |
-| **Rust: Check**     | `cargo check --workspace`                                              |
-| **Rust: Run Tests** | `cargo test --workspace`                                               |
-| **Rust: Format**    | `cargo fmt --all`                                                      |
-| **Rust: Lint**      | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| **JS/TS: Format**   | `npx prettier --write .`                                               |
-| **WASM: Build**     | `npm run wasm-build`                                                   |
-| **Examples: Run**   | `npm start`                                                            |
+| Function                    | Command                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Rust: Check**             | `cargo check --workspace`                                                                                          |
+| **Rust: Run All Tests**     | `cargo test --workspace`                                                                                           |
+| **Rust: Run Crate Tests**   | `cargo test -p <crate-name>` (e.g., `cargo test -p petgraph-layout-mds`)                                           |
+| **Rust: Run Specific Test** | `cargo test -p <crate-name> <test-name>` (e.g., `cargo test -p egraph-wasm sgd_full`)                              |
+| **WASM: Run All Tests**     | `wasm-pack test --node crates/wasm`                                                                                |
+| **WASM: Run Specific Test** | `wasm-pack test --node crates/wasm --test <test-name>` (e.g., `wasm-pack test --node crates/wasm --test sgd_full`) |
+| **Rust: Format**            | `cargo fmt --all`                                                                                                  |
+| **Rust: Lint**              | `cargo clippy --workspace --all-targets --all-features -- -D warnings`                                             |
+| **JS/TS: Format**           | `npx prettier --write .`                                                                                           |
+| **WASM: Build**             | `npm run wasm-build`                                                                                               |
+| **Examples: Run**           | `npm start`                                                                                                        |
 
 ### Key Directories
 
@@ -49,14 +53,33 @@
 # Check code
 cargo check --workspace
 
-# Run tests
+# Run all tests from project root
 cargo test --workspace
+
+# Run tests for a specific crate
+cargo test -p <crate-name>
+
+# Run a specific test
+cargo test -p <crate-name> <test-name>
 
 # Format code
 cargo fmt --all
 
 # Lint code
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+### WebAssembly Development
+
+```bash
+# Run all WebAssembly tests from project root
+wasm-pack test --node crates/wasm
+
+# Run specific WebAssembly test file
+wasm-pack test --node crates/wasm --test <test-name>
+
+# Build WebAssembly
+npm run wasm-build
 ```
 
 ### JavaScript/TypeScript Development
@@ -215,15 +238,19 @@ Follow the Conventional Commits format:
 ```
 
 - **type**: feat, fix, docs, style, refactor, perf, test, chore
-- **scope**: area of impact (optional)
+- **scope**:
+  - Use workspace crate names for changes specific to a crate (e.g., petgraph-layout-mds, egraph-wasm)
+  - Omit scope for project-wide changes (e.g., memory-bank updates, root configuration files)
 - **description**: concise explanation of the change
 
 Examples:
 
-- `feat(layout): add new force-directed layout algorithm`
-- `fix(wasm): resolve memory leak in drawing implementation`
-- `docs: update API documentation with examples`
-- `refactor(sgd): improve performance of distance calculation`
+- `feat(petgraph-layout-mds): add support for high-dimensional embeddings`
+- `fix(egraph-wasm): resolve NaN values in ClassicalMds implementation`
+- `test(petgraph-layout-sgd): add comprehensive tests for schedulers`
+- `docs(petgraph-drawing): improve API documentation`
+- `refactor(petgraph-algorithm-shortest-path): optimize distance calculation`
+- `docs: update project workflow guidelines` (project-wide change, no scope)
 
 ## Development Process & Guidelines
 
@@ -248,10 +275,21 @@ Examples:
 1. Run formatter and linter:
    - `cargo fmt --all`
    - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-2. Run tests:
-   - `cargo test --workspace`
+2. Run tests from the project root:
+   - `cargo test --workspace` (for all tests)
+   - `cargo test -p <crate-name>` (for specific crate tests)
+   - For WebAssembly tests:
+     - `wasm-pack test --node crates/wasm` (for all WebAssembly tests)
+     - `wasm-pack test --node crates/wasm --test <test-name>` (for specific WebAssembly tests)
 3. Verify all requirements have been met
-4. Prepare a commit message in Conventional Commits format
+4. Prepare a commit message in Conventional Commits format:
+   - Use crate names as scopes for crate-specific changes
+   - Omit scope for project-wide changes
+5. **HIGHEST PRIORITY**: Ask for final confirmation from the user before completing the task
+   - Present a summary of all changes made
+   - Include the proposed commit message
+   - Wait for explicit approval before marking the task as complete
+   - This confirmation step must never be skipped under any circumstances
 
 ### Task Execution Process
 
@@ -304,12 +342,16 @@ flowchart TD
 flowchart TD
     A[Implementation Complete] --> B[Run Formatter]
     B --> C[Run Linter]
-    C --> D[Run Tests]
+    C --> D[Run Tests from Project Root]
     D --> E{All Successful?}
-    E -->|Yes| F[Create Commit Message]
+    E -->|Yes| F[Create Commit Message with Appropriate Scope]
     E -->|No| G[Fix Errors]
     G --> B
-    F --> H[Report Completion and Suggest Improvements]
+    F --> I[Ask for Final User Confirmation]
+    I --> J{User Approves?}
+    J -->|Yes| H[Report Completion]
+    J -->|No| K[Make Requested Changes]
+    K --> B
 ```
 
 ### Memory Bank Management
