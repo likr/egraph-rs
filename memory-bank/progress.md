@@ -112,6 +112,9 @@
   - Tests for FullSgd functionality, including instantiation, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
   - Tests for SparseSgd functionality, including instantiation, pivot node configuration, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
   - Tests for ClassicalMds functionality, including instantiation, 2D layout generation (run2d method), n-dimensional layout generation (run method), different graph structures (line, cycle, complete), custom length functions, high-dimensional embeddings, and integration with other components
+  - Created dedicated test files for the `KamadaKawai` class (`tests/kamada_kawai.rs` and `tests/kamada_kawai.js`)
+  - Implemented tests for KamadaKawai instantiation, epsilon parameter getter/setter, node selection functionality, single-node application, complete algorithm run, and integration with other components
+  - Fixed an issue in the epsilon parameter test by using approximate comparison for floating-point values
   - Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
   - Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
   - Identified an issue with the MetricSpherical2d implementation that outputs NaN values, causing the SparseSgd spherical drawing test to fail
@@ -137,7 +140,7 @@
 - **WebAssembly Bindings**: ✅ Functional
 - **Python Bindings**: ✅ Functional
 - **Documentation**: 🔄 In progress
-- **Testing**: 🔄 In progress (WebAssembly binding tests for Rng, Graph, DiGraph, DrawingEuclidean2d, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d, FullSgd, SparseSgd, and ClassicalMds classes completed)
+- **Testing**: 🔄 In progress (WebAssembly binding tests for Rng, Graph, DiGraph, DrawingEuclidean2d, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d, FullSgd, SparseSgd, ClassicalMds, and KamadaKawai classes completed)
 - **Performance Optimization**: 🔄 Ongoing
 - **Project Workflow**: ✅ Updated with new guidelines
 

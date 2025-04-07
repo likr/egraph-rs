@@ -103,6 +103,9 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
   - Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
   - Temporarily skipped the n-dimensional Euclidean drawing test with a clear comment explaining the issue, to be addressed in a future task
+  - Created dedicated test files for the `KamadaKawai` class (`tests/kamada_kawai.rs` and `tests/kamada_kawai.js`)
+  - Implemented tests for KamadaKawai instantiation, epsilon parameter getter/setter, node selection functionality, single-node application, complete algorithm run, and integration with other components
+  - Fixed an issue in the epsilon parameter test by using approximate comparison for floating-point values
   - Established a pattern for class/function-specific tests that can be run individually
   - Verified test execution with `wasm-pack test --node --test <filename>`
 
