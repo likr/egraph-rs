@@ -99,6 +99,7 @@
   - Implemented dedicated test files for the `DrawingHyperbolic2d` class (`tests/drawing_hyperbolic_2d.rs` and `tests/drawing_hyperbolic_2d.js`)
   - Implemented dedicated test files for the `DrawingTorus2d` class (`tests/drawing_torus_2d.rs` and `tests/drawing_torus_2d.js`)
   - Implemented dedicated test files for the `FullSgd` class (`tests/sgd_full.rs` and `tests/sgd_full.js`)
+  - Implemented dedicated test files for the `ClassicalMds` class (`tests/classical_mds.rs` and `tests/classical_mds.js`)
   - Fixed an issue in the `DrawingSpherical2d` tests where nodes added to the graph after creating the drawing were not included in the drawing
   - Created a pattern for class/function-specific tests that can be run individually
   - Tests for basic functionality, node/edge operations, traversal, and integration with other components
@@ -108,6 +109,8 @@
   - Tests for hyperbolic drawing functionality, including coordinate operations, Poincaré disc model constraints, and integration with Graph class
   - Tests for torus drawing functionality, including coordinate operations, torus wrapping behavior, edge segment representation, and integration with Graph class
   - Tests for FullSgd functionality, including instantiation, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
+  - Tests for ClassicalMds functionality, including instantiation, 2D layout generation (run2d method), n-dimensional layout generation (run method), different graph structures (line, cycle, complete), custom length functions, high-dimensional embeddings, and integration with other components
+  - Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
   - Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
   - Temporarily skipped the n-dimensional Euclidean drawing test with a clear comment explaining the issue, to be addressed in a future task
   - Verified test execution with `wasm-pack test --node --test <filename>`

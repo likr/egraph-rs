@@ -94,6 +94,9 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Implemented tests for torus drawing instantiation, node coordinate operations, torus wrapping behavior, edge segment representation, and integration with Graph class
   - Created dedicated test files for the `FullSgd` class (`tests/sgd_full.rs` and `tests/sgd_full.js`)
   - Implemented tests for FullSgd instantiation, scheduler creation, applying SGD to different drawing types (Euclidean 2D, Hyperbolic 2D, Spherical 2D, Torus 2D), updating distance and weight functions, shuffling node pairs, and integration with other components
+  - Created dedicated test files for the `ClassicalMds` class (`tests/classical_mds.rs` and `tests/classical_mds.js`)
+  - Implemented tests for ClassicalMds instantiation, 2D layout generation (run2d method), n-dimensional layout generation (run method), different graph structures (line, cycle, complete), custom length functions, high-dimensional embeddings, and integration with other components
+  - Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
   - Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
   - Temporarily skipped the n-dimensional Euclidean drawing test with a clear comment explaining the issue, to be addressed in a future task
   - Established a pattern for class/function-specific tests that can be run individually
