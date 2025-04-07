@@ -64,9 +64,7 @@ pub fn sparse_sgd_with_hyperbolic_2d() {
 }
 
 /// Test applying SGD to Spherical 2D drawings
-/// Skipped due to potential bug in MetricSpherical2d that outputs NaN values
 #[wasm_bindgen_test]
-#[ignore]
 pub fn sparse_sgd_with_spherical_2d() {
     test_sparse_sgd_with_spherical_2d();
 }

@@ -146,15 +146,31 @@ fn to_tangent_space<S>(x: (S, S), y: (S, S)) -> (S, S)
 where
     S: DrawingValue,
 {
+    // Check if the points are identical or very close
+    let lon_diff = (y.0 - x.0).abs();
+    let lat_diff = (y.1 - x.1).abs();
+
+    if lon_diff <= S::from_f32(1e-10).unwrap() && lat_diff <= S::from_f32(1e-10).unwrap() {
+        return (S::zero(), S::zero()); // Return zero vector for identical points
+    }
+
     let ux = (-x.0.sin() * x.1.sin(), S::zero(), x.0.cos() * x.1.sin());
     let vx = (x.0.cos() * x.1.cos(), -x.1.sin(), x.0.sin() * x.1.cos());
     let ey = (y.0.cos() * y.1.sin(), y.1.cos(), y.0.sin() * y.1.sin());
-    let d = clamp(
-        x.1.sin() * y.1.sin() * (y.0 - x.0).cos() + x.1.cos() * y.1.cos(),
-        -S::one(),
-        S::one(),
-    )
-    .acos();
+
+    // Calculate the dot product with safeguards
+    let dot_product = x.1.sin() * y.1.sin() * (y.0 - x.0).cos() + x.1.cos() * y.1.cos();
+    let d = clamp(dot_product, -S::one(), S::one()).acos();
+
+    // If the angle is very small, return a small vector in the appropriate direction
+    if d <= S::from_f32(1e-10).unwrap() {
+        // For very small angles, use a simplified approach
+        return (
+            S::from_f32(1e-10).unwrap() * (y.0 - x.0).signum(),
+            S::from_f32(1e-10).unwrap() * (y.1 - x.1).signum(),
+        );
+    }
+
     (
         d * (ux.0 * ey.0 + ux.1 * ey.1 + ux.2 * ey.2),
         d * (vx.0 * ey.0 + vx.1 * ey.1 + vx.2 * ey.2),
@@ -178,20 +194,41 @@ fn from_tangent_space<S>(x: (S, S), z: (S, S)) -> (S, S)
 where
     S: DrawingValue,
 {
+    // Handle the case where the tangent vector is zero (no movement)
+    let z_squared_sum = z.0 * z.0 + z.1 * z.1;
+    if z_squared_sum <= S::from_f32(1e-10).unwrap() {
+        return x; // Return the original point if the movement is negligible
+    }
+
     let ux = (-x.0.sin() * x.1.sin(), S::zero(), x.0.cos() * x.1.sin());
     let vx = (x.0.cos() * x.1.cos(), -x.1.sin(), x.0.sin() * x.1.cos());
     let p = (z.1, -z.0);
+
+    // Calculate the normal vector with safeguards against division by zero
     let n = {
         let n = (
             p.0 * ux.0 + p.1 * vx.0,
             p.0 * ux.1 + p.1 * vx.1,
             p.0 * ux.2 + p.1 * vx.2,
         );
-        let d = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt();
-        (n.0 / d, n.1 / d, n.2 / d)
+        let d_squared = n.0 * n.0 + n.1 * n.1 + n.2 * n.2;
+
+        // Check if the magnitude is too small
+        if d_squared <= S::from_f32(1e-10).unwrap() {
+            // Use a default normal vector if the calculated one is too small
+            (S::zero(), S::one(), S::zero())
+        } else {
+            let d = d_squared.sqrt();
+            (n.0 / d, n.1 / d, n.2 / d)
+        }
     };
+
     let ex = (x.0.cos() * x.1.sin(), x.1.cos(), x.0.sin() * x.1.sin());
-    let t = -(z.0 * z.0 + z.1 * z.1).sqrt();
+
+    // Calculate the magnitude of the tangent vector with a safety check
+    let t = -(z_squared_sum.sqrt());
+
+    // Calculate the new point with safeguards
     let ey = (
         (n.0 * n.0 * (S::one() - t.cos()) + t.cos()) * ex.0
             + (n.0 * n.1 * (S::one() - t.cos()) - n.2 * t.sin()) * ex.1
@@ -203,5 +240,20 @@ where
             + (n.1 * n.2 * (S::one() - t.cos()) + n.0 * t.sin()) * ex.1
             + (n.2 * n.2 * (S::one() - t.cos()) + t.cos()) * ex.2,
     );
-    (ey.2.atan2(ey.0), ey.1.acos())
+
+    // Handle potential NaN in the final calculation
+    let ey_xy_squared = ey.0 * ey.0 + ey.2 * ey.2;
+    let lon = if ey_xy_squared <= S::from_f32(1e-10).unwrap() {
+        // If the point is at or very near a pole, longitude doesn't matter much
+        // but we need to avoid NaN, so use the original longitude
+        x.0
+    } else {
+        ey.2.atan2(ey.0)
+    };
+
+    // Ensure the y component is within valid range for acos
+    let y_clamped = clamp(ey.1, S::from_f32(-1.0).unwrap(), S::from_f32(1.0).unwrap());
+    let lat = y_clamped.acos();
+
+    (lon, lat)
 }

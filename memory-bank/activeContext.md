@@ -215,7 +215,7 @@ The following guidelines have been established for the project workflow:
 
 4. **Known Issues to Address**:
    - ✅ Fixed: PivotMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph, similar to the fixed issue in ClassicalMds
-   - ❌ Identified: MetricSpherical2d implementation may have a bug that outputs NaN values, causing the SparseSgd spherical drawing test to fail
+   - ✅ Fixed: MetricSpherical2d implementation had a bug that output NaN values, causing the SparseSgd spherical drawing test to fail. Fixed by adding safeguards against division by zero, handling edge cases for identical or very close points, and ensuring proper clamping of values for trigonometric functions.
 
 ## Git Command Usage
 
