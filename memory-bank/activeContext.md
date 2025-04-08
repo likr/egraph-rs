@@ -55,6 +55,14 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Fixed API inconsistencies in the DrawingEuclidean Python bindings:
+
+  - Renamed the `set_x` method to `set` for better API consistency with other Drawing classes
+  - Added a `len()` method to return the number of nodes in the drawing
+  - Updated all tests to use the new method name
+  - Verified that all tests pass with the new API
+  - This change makes the Python bindings more consistent across all Drawing classes, improving usability and maintainability
+
 - Implemented Python binding tests for the DrawingEuclidean (n-dimensional) class:
 
   - Created a comprehensive test file (`crates/python/tests/test_drawing_euclidean.py`) with tests for:

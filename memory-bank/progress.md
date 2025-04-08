@@ -290,6 +290,10 @@ New guidelines have been established for the project workflow:
 
 3. **API Consistency**:
 
+   - ✅ Fixed: DrawingEuclidean Python bindings API inconsistencies:
+     - Renamed `set_x` method to `set` for better consistency with other Drawing classes
+     - Added `len()` method to match other Drawing classes
+     - Updated tests to use the new method names
    - Some inconsistencies between language bindings (Rust, Python, JavaScript)
    - Naming conventions differ between platforms
    - Error handling approaches vary

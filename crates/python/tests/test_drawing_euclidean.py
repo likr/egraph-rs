@@ -82,7 +82,7 @@ class TestDrawingEuclidean(unittest.TestCase):
         # Test setting coordinates for the first node in each dimension
         new_coords = [10.5, -5.25, 7.75]
         for d in range(3):
-            drawing.set_x(self.line_nodes[0], d, new_coords[d])
+            drawing.set(self.line_nodes[0], d, new_coords[d])
 
         # Verify coordinates were set correctly
         for d in range(3):
@@ -92,7 +92,7 @@ class TestDrawingEuclidean(unittest.TestCase):
         # Test setting coordinates for another node
         new_coords2 = [-3.5, 8.25, -12.75]
         for d in range(3):
-            drawing.set_x(self.line_nodes[1], d, new_coords2[d])
+            drawing.set(self.line_nodes[1], d, new_coords2[d])
 
         # Verify coordinates were set correctly
         for d in range(3):
@@ -130,7 +130,7 @@ class TestDrawingEuclidean(unittest.TestCase):
             # Test setting and getting coordinates in all dimensions
             for d in range(dimensions):
                 value = float(d) * 1.5  # Different value for each dimension
-                drawing.set_x(self.line_nodes[0], d, value)
+                drawing.set(self.line_nodes[0], d, value)
                 self.assertAlmostEqual(drawing.get(self.line_nodes[0], d), value, delta=1e-8,
                                        msg=f"Coordinate in dimension {d} should be updated")
 
@@ -173,7 +173,7 @@ class TestDrawingEuclidean(unittest.TestCase):
         # Instead, let's test modifying coordinates of existing nodes
         for d in range(3):
             new_value = float(d) * 2.5
-            drawing.set_x(nodes[0], d, new_value)
+            drawing.set(nodes[0], d, new_value)
             self.assertAlmostEqual(drawing.get(nodes[0], d), new_value, delta=1e-8,
                                    msg=f"Node coordinate in dimension {d} should match what we set")
 
@@ -243,8 +243,8 @@ class TestDrawingEuclidean(unittest.TestCase):
             for u in self.les_mis.node_indices():
                 for d in range(dimensions):
                     current = drawing.get(u, d)
-                    drawing.set_x(u, d, current + 0.01 *
-                                  (hash(f"{u}_{d}") % 100))
+                    drawing.set(u, d, current + 0.01 *
+                                (hash(f"{u}_{d}") % 100))
 
             # Verify that positions have changed
             self.assertTrue(positions_changed_nd(drawing, self.les_mis, initial_positions, dimensions),
@@ -274,7 +274,7 @@ class TestDrawingEuclidean(unittest.TestCase):
             if math.isnan(value):
                 continue
 
-            drawing.set_x(self.line_nodes[0], 0, value)
+            drawing.set(self.line_nodes[0], 0, value)
 
             # The implementation should accept any float value
             if math.isfinite(value):

@@ -5,7 +5,7 @@
 /// has coordinates in each dimension.
 use crate::{drawing::PyDrawing, graph::NodeId};
 use petgraph::graph::node_index;
-use petgraph_drawing::DrawingEuclidean;
+use petgraph_drawing::{Drawing, DrawingEuclidean};
 use pyo3::prelude::*;
 
 /// Python class for N-dimensional Euclidean drawings
@@ -59,8 +59,16 @@ impl PyDrawingEuclidean {
     /// * `u` - The node index
     /// * `d` - The dimension index (0, 1, 2, etc.)
     /// * `value` - The new coordinate value
-    pub fn set_x(&mut self, u: usize, d: usize, value: f32) {
+    pub fn set(&mut self, u: usize, d: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set(u, d, value);
+    }
+
+    /// Returns the number of nodes in the drawing
+    ///
+    /// # Returns
+    /// The number of nodes
+    pub fn len(&self) -> usize {
+        self.drawing.len()
     }
 }
