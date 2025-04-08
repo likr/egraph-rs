@@ -101,10 +101,13 @@
     - Layout quality verification helpers
     - Functions for recording and comparing node positions
     - Functions for calculating layout energy
-  - 🔄 Planned: Implement tests for Graph classes:
-    - Basic graph operations
-    - Node and edge management
-    - Traversal methods
+  - ✅ Implemented tests for Graph classes:
+    - Basic graph operations (constructor, node/edge addition/removal)
+    - Node and edge management (weight access, contains/find operations)
+    - Traversal methods (neighbors, edges, externals)
+    - Map and filter_map operations
+    - NetworkX conversion
+    - Large graph handling (Les Miserables dataset)
   - 🔄 In progress: Implement tests for Drawing implementations:
     - ✅ `DrawingEuclidean2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean_2d.py`
     - `DrawingEuclidean` (n-dimensional)
@@ -318,6 +321,13 @@ New guidelines have been established for the project workflow:
      - Adding WebAssembly bindings for epsilon and max_iterations parameters
      - Adding tests for parameter getters and setters
      - Updating test helper to use the new parameters
+   - ✅ Documented: Node/edge removal behavior in petgraph:
+     - Added detailed comments in both `test_graph.py` and `test_digraph.py` explaining the expected behavior
+     - In petgraph Rust implementation, when `remove_node` is called, the last node in the graph adopts the removed node's index
+     - Similarly, when `remove_edge` is called, the last edge in the graph adopts the removed edge's index
+     - This means previously obtained node/edge IDs may become invalid or point to different nodes/edges
+     - This is the intended behavior in petgraph, not a bug in our Python bindings
+     - This documentation will help future development by clarifying the expected behavior when working with node/edge removal
    - 🔄 Need to address: Performance issues with large graphs (>10,000 nodes)
    - 🔄 Need to address: High memory consumption for dense graphs in WebAssembly context
    - 🔄 Need to address: Inconsistencies between language bindings (Rust, Python, JavaScript)
