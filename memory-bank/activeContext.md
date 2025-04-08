@@ -55,6 +55,24 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the DrawingTorus2d class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_drawing_torus_2d.py`) with tests for:
+    - Constructor and basic instantiation
+    - Node coordinate operations (get/set x,y)
+    - Torus wrapping behavior (coordinates wrapping around)
+    - Edge segment representation
+    - Integration with Graph class
+    - Coordinate validation and normalization
+    - Testing with a large graph (Les Miserables)
+  - Addressed implementation challenges:
+    - Handled the fact that KamadaKawai layout doesn't support torus drawings by manually modifying node positions
+    - Verified torus-specific behavior like coordinate wrapping (e.g., 1.25 wrapping to 0.25)
+    - Tested edge segments for edges that cross the torus boundary
+    - Ensured all coordinates stay within the valid [0,1] range
+  - Verified that all tests pass, ensuring that the DrawingTorus2d class works correctly in the Python bindings
+  - The tests follow the same pattern as the existing tests for other drawing implementations, ensuring consistency across the codebase
+
 - Implemented Python binding tests for the DrawingHyperbolic2d class:
 
   - Created a comprehensive test file (`crates/python/tests/test_drawing_hyperbolic_2d.py`) with tests for:

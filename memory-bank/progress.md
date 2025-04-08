@@ -110,7 +110,7 @@
     - `DrawingEuclidean` (n-dimensional)
     - ✅ `DrawingHyperbolic2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_hyperbolic_2d.py`
     - ✅ `DrawingSpherical2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_spherical_2d.py`
-    - `DrawingTorus2d`
+    - ✅ `DrawingTorus2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_torus_2d.py`
   - 🔄 In progress: Implement tests for Layout algorithms:
     - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
