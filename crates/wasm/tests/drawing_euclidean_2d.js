@@ -288,10 +288,8 @@ exports.testDrawingWithGraph = function () {
   const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply Kamada-Kawai layout
-  helpers.applyLayout("kamada_kawai", graph, drawing, {
-    distanceFunc: () => ({ distance: 1.0 }),
-    epsilon: 0.01,
-  });
+  const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
+  layout.run(drawing);
 
   // Verify that positions have changed
   helpers.verifyPositionsChanged2d(

@@ -225,10 +225,8 @@ exports.testStressMajorizationIntegration = function () {
   };
 
   // Apply StressMajorization layout
-  helpers.applyLayout("stress_majorization", graph, drawing, {
-    distanceFunc: customDistanceFunc,
-    iterations: 100,
-  });
+  const layout = new eg.StressMajorization(graph, drawing, customDistanceFunc);
+  layout.run(drawing);
 
   // Calculate final stress
   const finalStress = eg.stress(graph, drawing);

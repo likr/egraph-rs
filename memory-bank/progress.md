@@ -100,10 +100,11 @@
     - Added additional helper functions:
       - `createStarGraph` and `createGridGraph` for more graph structure options
       - `createDrawing` to simplify drawing creation based on graph and drawing type
-      - `applyLayout` to standardize layout algorithm application
       - `verifyLayoutQuality` to check various quality aspects of layouts
       - `verifyLayoutImprovement` to compare layouts before and after algorithm application
       - `verifyNodePositions` to check if node positions match expected values
+  - Removed the `applyLayout` function as it was not providing essential abstraction
+  - Updated all test files that were using this function to directly instantiate and use the appropriate layout algorithm classes
   - Fixed an issue in the `verifyNodePositions` function:
     - When using object keys with computed property names like `[node1]`, JavaScript converts numeric node indices to strings
     - The drawing methods like `drawing.x()` expect numeric arguments, not strings

@@ -263,10 +263,10 @@ exports.testQualityMetricsIntegration = function () {
   );
 
   // Apply StressMajorization layout
-  helpers.applyLayout("stress_majorization", graph, drawing, {
-    distanceFunc: () => ({ distance: 1.0 }),
-    iterations: 50,
-  });
+  const layout = new eg.StressMajorization(graph, drawing, () => ({
+    distance: 1.0,
+  }));
+  layout.run(drawing);
 
   // Calculate final quality metrics
   const finalStress = eg.stress(graph, drawing);

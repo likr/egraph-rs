@@ -26,10 +26,9 @@ exports.testClassicalMdsRun2d = function () {
   // Create a simple graph
   const { graph } = helpers.createTestGraph("line", 3);
 
-  // Apply MDS layout
-  const { drawing } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 2,
-  });
+  // Create a ClassicalMds instance and apply layout
+  const mds = new eg.ClassicalMds(graph, () => 1.0);
+  const drawing = mds.run2d();
 
   // Verify that the drawing is a DrawingEuclidean2d instance
   assert(
@@ -55,10 +54,9 @@ exports.testClassicalMdsRun = function () {
   // Create a simple graph
   const { graph } = helpers.createTestGraph("line", 3);
 
-  // Apply MDS layout
-  const { drawing } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 3,
-  });
+  // Create a ClassicalMds instance and apply layout
+  const mds = new eg.ClassicalMds(graph, () => 1.0);
+  const drawing = mds.run(3);
 
   // Verify that the drawing is a DrawingEuclidean instance
   assert(
@@ -83,31 +81,23 @@ exports.testClassicalMdsRun = function () {
 exports.testClassicalMdsWithDifferentGraphs = function () {
   // Test with a line graph
   const { graph: lineGraph } = helpers.createTestGraph("line", 5);
-  const { drawing: lineDrawing } = helpers.applyLayout("mds", lineGraph, null, {
-    dimensions: 2,
-  });
+  // Create a ClassicalMds instance and apply layout for line graph
+  const lineMds = new eg.ClassicalMds(lineGraph, () => 1.0);
+  const lineDrawing = lineMds.run2d();
   helpers.verifyFiniteCoordinates2d(lineDrawing, lineGraph);
 
   // Test with a cycle graph
   const { graph: cycleGraph } = helpers.createTestGraph("cycle", 5);
-  const { drawing: cycleDrawing } = helpers.applyLayout(
-    "mds",
-    cycleGraph,
-    null,
-    {
-      dimensions: 2,
-    }
-  );
+  // Create a ClassicalMds instance and apply layout for cycle graph
+  const cycleMds = new eg.ClassicalMds(cycleGraph, () => 1.0);
+  const cycleDrawing = cycleMds.run2d();
   helpers.verifyFiniteCoordinates2d(cycleDrawing, cycleGraph);
 
   // Test with a complete graph
   const { graph: completeGraph } = helpers.createTestGraph("complete", 5);
-  const { drawing: completeDrawing } = helpers.applyLayout(
-    "mds",
-    completeGraph,
-    null,
-    { dimensions: 2 }
-  );
+  // Create a ClassicalMds instance and apply layout for complete graph
+  const completeMds = new eg.ClassicalMds(completeGraph, () => 1.0);
+  const completeDrawing = completeMds.run2d();
   helpers.verifyFiniteCoordinates2d(completeDrawing, completeGraph);
 
   // Note: Disconnected graphs are not tested as they may produce NaN coordinates
@@ -127,20 +117,16 @@ exports.testClassicalMdsWithCustomLengthFunction = function () {
     return edgeIndex === 0 ? 1.0 : 2.0;
   };
 
-  // Apply MDS layout with custom length function
-  const { drawing } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 2,
-    lengthFunc: customLengthFunc,
-  });
+  // Create a ClassicalMds instance with custom length function and apply layout
+  const mds = new eg.ClassicalMds(graph, customLengthFunc);
+  const drawing = mds.run2d();
 
   // Verify that all coordinates are finite numbers
   helpers.verifyFiniteCoordinates2d(drawing, graph);
 
-  // Apply MDS layout with constant length function for comparison
-  const { drawing: drawingConstant } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 2,
-    lengthFunc: () => 1.0,
-  });
+  // Create a ClassicalMds instance with constant length function and apply layout
+  const mdsConstant = new eg.ClassicalMds(graph, () => 1.0);
+  const drawingConstant = mdsConstant.run2d();
 
   // Verify that all coordinates are finite numbers
   helpers.verifyFiniteCoordinates2d(drawingConstant, graph);
@@ -153,10 +139,9 @@ exports.testClassicalMdsHandlesHighDimensions = function () {
   // Create a simple graph
   const { graph } = helpers.createTestGraph("line", 3);
 
-  // Apply MDS layout with high dimensions
-  const { drawing } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 5,
-  });
+  // Create a ClassicalMds instance and apply layout with high dimensions
+  const mds = new eg.ClassicalMds(graph, () => 1.0);
+  const drawing = mds.run(5);
 
   // Verify that all coordinates are finite numbers
   helpers.verifyFiniteCoordinatesNd(drawing, graph, 5);
@@ -178,10 +163,9 @@ exports.testClassicalMdsIntegration = function () {
     graph.addEdge(nodes[3], nodes[8], {});
   });
 
-  // Apply MDS layout
-  const { drawing } = helpers.applyLayout("mds", graph, null, {
-    dimensions: 2,
-  });
+  // Create a ClassicalMds instance and apply layout
+  const mds = new eg.ClassicalMds(graph, () => 1.0);
+  const drawing = mds.run2d();
 
   // Verify that all coordinates are finite numbers
   helpers.verifyFiniteCoordinates2d(drawing, graph);
@@ -190,9 +174,10 @@ exports.testClassicalMdsIntegration = function () {
   const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply SGD to refine the MDS layout
-  helpers.applyLayout("sgd_full", graph, drawing, {
-    iterations: 10,
-    learningRate: 0.1,
+  const sgd = new eg.FullSgd(graph, () => 1.0);
+  const scheduler = sgd.scheduler(10, 0.1);
+  scheduler.run((eta) => {
+    sgd.applyWithDrawingEuclidean2d(drawing, eta);
   });
 
   // Verify that positions have changed

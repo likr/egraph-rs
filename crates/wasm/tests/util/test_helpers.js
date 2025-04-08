@@ -482,128 +482,6 @@ function createDrawing(graph, drawingType = "euclidean2d", dimensions = 2) {
 }
 
 /**
- * Applies a layout algorithm to a drawing
- * @param {string} layoutType - Type of layout algorithm: 'mds', 'kamada_kawai', 'stress_majorization', 'sgd_full', 'sgd_sparse'
- * @param {Object} graph - Graph object
- * @param {Object} drawing - Drawing object
- * @param {Object} options - Options for the layout algorithm
- * @returns {Object} The layout algorithm instance
- */
-function applyLayout(layoutType, graph, drawing, options = {}) {
-  let layout;
-
-  switch (layoutType.toLowerCase()) {
-    case "mds":
-      layout = new eg.ClassicalMds(graph, options.lengthFunc || (() => 1.0));
-      if (options.dimensions === 2 || !options.dimensions) {
-        drawing = layout.run2d();
-      } else {
-        drawing = layout.run(options.dimensions);
-      }
-      break;
-
-    case "kamada_kawai":
-      layout = new eg.KamadaKawai(
-        graph,
-        options.distanceFunc || (() => ({ distance: 1.0 }))
-      );
-      if (options.epsilon) {
-        layout.eps = options.epsilon;
-      }
-      layout.run(drawing);
-      break;
-
-    case "stress_majorization":
-      layout = new eg.StressMajorization(
-        graph,
-        drawing,
-        options.distanceFunc || (() => ({ distance: 1.0 }))
-      );
-
-      // Set max_iterations to avoid potential infinite loops
-      if (options.iterations) {
-        layout.max_iterations = options.iterations;
-      }
-
-      // Set epsilon if provided
-      if (options.epsilon) {
-        layout.epsilon = options.epsilon;
-      }
-
-      // Run the algorithm
-      layout.run(drawing);
-      break;
-
-    case "sgd_full":
-      layout = new eg.FullSgd(graph, options.lengthFunc || (() => 1.0));
-
-      const scheduler = layout.scheduler(
-        options.iterations || 100,
-        options.learningRate || 0.1
-      );
-
-      scheduler.run((eta) => {
-        if (options.rng) {
-          layout.shuffle(options.rng);
-        }
-
-        if (drawing instanceof eg.DrawingEuclidean2d) {
-          layout.applyWithDrawingEuclidean2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingSpherical2d) {
-          layout.applyWithDrawingSpherical2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingHyperbolic2d) {
-          layout.applyWithDrawingHyperbolic2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingTorus2d) {
-          layout.applyWithDrawingTorus2d(drawing, eta);
-        } else {
-          layout.applyWithDrawingEuclidean(drawing, eta);
-        }
-      });
-      break;
-
-    case "sgd_sparse":
-      const rng = options.rng || new eg.Rng();
-      const pivots = options.pivots || 2;
-
-      layout = new eg.SparseSgd(
-        graph,
-        options.lengthFunc || (() => 1.0),
-        pivots,
-        rng
-      );
-
-      const sparseScheduler = layout.scheduler(
-        options.iterations || 100,
-        options.learningRate || 0.1
-      );
-
-      sparseScheduler.run((eta) => {
-        if (options.rng) {
-          layout.shuffle(options.rng);
-        }
-
-        if (drawing instanceof eg.DrawingEuclidean2d) {
-          layout.applyWithDrawingEuclidean2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingSpherical2d) {
-          layout.applyWithDrawingSpherical2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingHyperbolic2d) {
-          layout.applyWithDrawingHyperbolic2d(drawing, eta);
-        } else if (drawing instanceof eg.DrawingTorus2d) {
-          layout.applyWithDrawingTorus2d(drawing, eta);
-        } else {
-          layout.applyWithDrawingEuclidean(drawing, eta);
-        }
-      });
-      break;
-
-    default:
-      throw new Error(`Unknown layout type: ${layoutType}`);
-  }
-
-  return { layout, drawing };
-}
-
-/**
  * Verifies layout quality using various metrics
  * @param {Object} graph - Graph object
  * @param {Object} drawing - Drawing object
@@ -755,7 +633,6 @@ module.exports = {
   createStarGraph,
   createGridGraph,
   createDrawing,
-  applyLayout,
   verifyLayoutQuality,
   verifyLayoutImprovement,
   verifyNodePositions,

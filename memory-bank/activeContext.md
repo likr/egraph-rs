@@ -68,10 +68,16 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
     - Added `createStarGraph` and `createGridGraph` for more graph structure options
     - Added `createDrawing` to simplify drawing creation based on graph and drawing type
-    - Added `applyLayout` to standardize layout algorithm application
     - Added `verifyLayoutQuality` to check various quality aspects of layouts
     - Added `verifyLayoutImprovement` to compare layouts before and after algorithm application
     - Added `verifyNodePositions` to check if node positions match expected values
+
+- Removed the `applyLayout` function from the WebAssembly binding test helpers:
+
+  - Identified that the `applyLayout` function was not providing essential abstraction
+  - Updated all test files that were using this function to directly instantiate and use the appropriate layout algorithm classes
+  - This change makes the tests more explicit about how each layout algorithm should be used
+  - Improved the documentation value of the tests by showing direct API usage patterns
 
   - Refactored additional test files to use the enhanced helper functions:
 
