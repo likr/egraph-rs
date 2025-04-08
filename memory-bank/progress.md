@@ -127,8 +127,11 @@
 - More comprehensive test suite with increased coverage needed for other components:
   - ✅ Completed: Created dedicated test files for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
   - Implemented tests for stress metric, crossing number in Euclidean and torus spaces, neighborhood preservation, and integration with layout algorithms
-  - **Immediate next target**: Edge Bundling and Clustering
-  - Remaining components: Edge Bundling, and Clustering
+  - ✅ Completed: Created dedicated test files for the `EdgeBundling` module (`tests/edge_bundling.rs` and `tests/edge_bundling.js`)
+  - Implemented tests for basic functionality, complex graphs, result structure verification, and integration with other components
+  - Refactored tests to use helper functions for common verification tasks
+  - **Immediate next target**: Clustering
+  - Remaining components: Clustering
 - Performance benchmarks for algorithm comparison
 - Cross-platform consistency validation
 
