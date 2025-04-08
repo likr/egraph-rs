@@ -108,7 +108,7 @@
   - 🔄 In progress: Implement tests for Drawing implementations:
     - ✅ `DrawingEuclidean2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean_2d.py`
     - `DrawingEuclidean` (n-dimensional)
-    - `DrawingHyperbolic2d`
+    - ✅ `DrawingHyperbolic2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_hyperbolic_2d.py`
     - ✅ `DrawingSpherical2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_spherical_2d.py`
     - `DrawingTorus2d`
   - 🔄 In progress: Implement tests for Layout algorithms:

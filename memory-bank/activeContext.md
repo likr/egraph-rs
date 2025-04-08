@@ -55,6 +55,27 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the DrawingHyperbolic2d class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_drawing_hyperbolic_2d.py`) with tests for:
+    - Constructor and basic instantiation
+    - Node coordinate operations (get/set x,y)
+    - Poincaré disk model constraints
+    - Hyperbolic distance calculations
+    - Integration with Graph class
+    - Testing with a large graph (Les Miserables)
+  - Added helper functions specific to hyperbolic drawings:
+    - `check_drawing_hyperbolic_2d`: Verifies that all coordinates are finite and within the unit disk
+    - `record_positions_hyperbolic_2d`: Records node positions
+    - `positions_changed_hyperbolic_2d`: Checks if positions have changed
+    - `hyperbolic_distance`: Calculates the hyperbolic distance between two points in the Poincaré disk model
+  - Addressed implementation challenges:
+    - Handled floating-point precision issues by using appropriate delta values for comparisons
+    - Managed the behavior of hyperbolic distances near the boundary of the unit disk
+    - Accounted for the fact that the DrawingHyperbolic2d implementation doesn't automatically clamp coordinates to keep points within the unit disk
+  - Verified that all tests pass, ensuring that the DrawingHyperbolic2d class works correctly in the Python bindings
+  - The tests follow the same pattern as the existing tests for DrawingEuclidean2d and DrawingSpherical2d, ensuring consistency across the codebase
+
 - Implemented Python binding tests for the DrawingSpherical2d class:
 
   - Created a comprehensive test file (`crates/python/tests/test_drawing_spherical_2d.py`) with tests for:
