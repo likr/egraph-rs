@@ -85,6 +85,17 @@
 
 ### Documentation
 
+- 🔄 In progress: Move Python examples to doctests
+  - Plan to migrate examples from `crates/python/examples/` to Python doctests
+  - Analyze each example file to extract core functionality
+  - Create doctests in the corresponding Python module files
+  - Simplify examples to focus on API usage rather than visualization
+  - Ensure compatibility with the current API
+  - Add appropriate documentation to explain purpose and usage
+  - Exclude `nonconnected_sgd.py` as specified
+  - Note that existing examples may not be maintained and might not work properly
+  - This will improve the discoverability and maintainability of examples
+  - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
 - More comprehensive examples showcasing different layout algorithms
 - Detailed API documentation across all interfaces
 - Tutorials for common use cases

@@ -384,7 +384,20 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Next Steps
 
-1. **Python Binding Tests**:
+1. **Python Documentation Improvements**:
+
+   - Move examples from `crates/python/examples/` to Python doctests
+     - Analyze each example file to extract core functionality
+     - Create doctests in the corresponding Python module files
+     - Simplify examples to focus on API usage rather than visualization
+     - Ensure compatibility with the current API
+     - Add appropriate documentation to explain purpose and usage
+     - Exclude `nonconnected_sgd.py` as specified
+     - Note that existing examples may not be maintained and might not work properly
+   - This will improve the discoverability and maintainability of examples
+   - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
+
+2. **Python Binding Tests**:
 
    - Plan comprehensive tests for all Python bindings, following the same approach used for WebAssembly binding tests
    - Create a test helpers module with common utility functions:
@@ -414,7 +427,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Ensure consistent test coverage between Python and WebAssembly bindings
    - Account for Python-specific API differences
 
-2. **WebAssembly Binding Tests**:
+3. **WebAssembly Binding Tests**:
 
    - ✅ Completed: Implemented tests for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
    - ✅ Completed: Implemented tests for the Edge Bundling module (`tests/edge_bundling.rs` and `tests/edge_bundling.js`)
@@ -427,7 +440,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - ✅ Fixed: MetricSpherical2d implementation that was causing NaN values
    - ✅ Fixed: StressMajorization run method to prevent infinite loops
 
-3. **Layout Algorithm Refinement**:
+4. **Layout Algorithm Refinement**:
 
    - Fine-tune SGD schedulers for better convergence
    - Optimize stress majorization for large graphs
@@ -435,13 +448,13 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Address performance issues with large graphs (>10,000 nodes)
    - Implement additional layout algorithms (e.g., additional force-directed variants)
 
-4. **Integration Improvements**:
+5. **Integration Improvements**:
 
    - Ensure consistent behavior across drawing implementations
    - Improve interoperability between layout algorithms
    - Resolve inconsistencies between language bindings (Rust, Python, JavaScript)
 
-5. **Documentation and Examples**:
+6. **Documentation and Examples**:
 
    - Add examples showcasing different layout algorithms
    - Document best practices for selecting appropriate layout algorithms
@@ -449,7 +462,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Develop tutorials for common use cases
    - Create usage examples for different geometric spaces
 
-6. **Testing Enhancements**:
+7. **Testing Enhancements**:
    - Continue expanding test coverage for all components
    - Implement performance benchmarks
    - Validate cross-platform behavior consistency
