@@ -124,14 +124,16 @@
   - Temporarily skipped the n-dimensional Euclidean drawing test with a clear comment explaining the issue, to be addressed in a future task
   - Temporarily skipped the spherical drawing test for SparseSgd with a clear comment explaining the issue, to be addressed in a future task
   - Verified test execution with `wasm-pack test --node --test <filename>`
-- More comprehensive test suite with increased coverage needed for other components:
+  - More comprehensive test suite with increased coverage needed for other components:
   - ✅ Completed: Created dedicated test files for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
   - Implemented tests for stress metric, crossing number in Euclidean and torus spaces, neighborhood preservation, and integration with layout algorithms
   - ✅ Completed: Created dedicated test files for the `EdgeBundling` module (`tests/edge_bundling.rs` and `tests/edge_bundling.js`)
   - Implemented tests for basic functionality, complex graphs, result structure verification, and integration with other components
   - Refactored tests to use helper functions for common verification tasks
-  - **Immediate next target**: Clustering
-  - Remaining components: Clustering
+  - ✅ Completed: Created dedicated test files for the `Clustering` module (`tests/clustering.rs` and `tests/clustering.js`)
+  - Implemented tests for basic coarsening, complex graph coarsening, custom node and edge merging, and integration with other components
+  - Addressed challenges with JavaScript Map objects and recursive borrowing issues
+  - ✅ All WebAssembly binding tests are now implemented
 - Performance benchmarks for algorithm comparison
 - Cross-platform consistency validation
 
