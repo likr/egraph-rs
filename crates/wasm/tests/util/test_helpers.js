@@ -520,12 +520,18 @@ function applyLayout(layoutType, graph, drawing, options = {}) {
         options.distanceFunc || (() => ({ distance: 1.0 }))
       );
 
-      // Apply the algorithm multiple times instead of using run()
-      // to avoid potential infinite loops
-      const iterations = options.iterations || 50;
-      for (let i = 0; i < iterations; i++) {
-        layout.apply(drawing);
+      // Set max_iterations to avoid potential infinite loops
+      if (options.iterations) {
+        layout.max_iterations = options.iterations;
       }
+
+      // Set epsilon if provided
+      if (options.epsilon) {
+        layout.epsilon = options.epsilon;
+      }
+
+      // Run the algorithm
+      layout.run(drawing);
       break;
 
     case "sgd_full":

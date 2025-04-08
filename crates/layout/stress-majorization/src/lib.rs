@@ -185,7 +185,8 @@ pub struct StressMajorization {
     stress: f32,
     x_x: Array1<f32>,
     x_y: Array1<f32>,
-    epsilon: f32,
+    pub epsilon: f32,
+    pub max_iterations: usize,
 }
 
 impl StressMajorization {
@@ -251,6 +252,7 @@ impl StressMajorization {
         }
 
         let epsilon = 1e-4;
+        let max_iterations = 100; // Default value
         let l_z = Array2::zeros((n - 1, n - 1));
         let b = Array1::zeros(n - 1);
         let mut sm = StressMajorization {
@@ -263,6 +265,7 @@ impl StressMajorization {
             x_y,
             stress: f32::INFINITY,
             epsilon,
+            max_iterations,
         };
         sm.update_weight(|_, _, dij, _| 1. / (dij * dij));
         sm
@@ -357,7 +360,8 @@ impl StressMajorization {
     /// Runs the stress majorization algorithm until convergence.
     ///
     /// This function repeatedly applies the algorithm until the relative
-    /// change in stress falls below the threshold specified by `epsilon`.
+    /// change in stress falls below the threshold specified by `epsilon`
+    /// or the maximum number of iterations is reached.
     ///
     /// # Arguments
     ///
@@ -366,7 +370,7 @@ impl StressMajorization {
     where
         N: DrawingIndex,
     {
-        loop {
+        for _ in 0..self.max_iterations {
             if self.apply(coordinates) < self.epsilon {
                 break;
             }
@@ -455,4 +459,34 @@ fn test_stress_majorization() {
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));
     }
+}
+
+#[test]
+fn test_stress_majorization_parameters() {
+    use petgraph::Graph;
+
+    // Create a simple graph
+    let mut graph = Graph::new_undirected();
+    let n1 = graph.add_node(());
+    let n2 = graph.add_node(());
+    let n3 = graph.add_node(());
+    graph.add_edge(n1, n2, ());
+    graph.add_edge(n2, n3, ());
+
+    let coordinates = DrawingEuclidean2d::initial_placement(&graph);
+
+    // Default parameters
+    let mut stress_majorization = StressMajorization::new(&graph, &coordinates, &mut |_| 1.0);
+
+    // Check default values
+    assert_eq!(stress_majorization.epsilon, 1e-4);
+    assert_eq!(stress_majorization.max_iterations, 100);
+
+    // Update parameters
+    stress_majorization.epsilon = 1e-6;
+    stress_majorization.max_iterations = 200;
+
+    // Check updated values
+    assert_eq!(stress_majorization.epsilon, 1e-6);
+    assert_eq!(stress_majorization.max_iterations, 200);
 }

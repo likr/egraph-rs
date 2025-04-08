@@ -15,6 +15,8 @@ extern "C" {
     fn test_stress_majorization_run();
     #[wasm_bindgen(js_name = "testStressMajorizationIntegration")]
     fn test_stress_majorization_integration();
+    #[wasm_bindgen(js_name = "testStressMajorizationParameters")]
+    fn test_stress_majorization_parameters();
 }
 
 /// Test basic instantiation of StressMajorization class
@@ -30,11 +32,7 @@ pub fn stress_majorization_apply() {
 }
 
 /// Test running the complete stress majorization algorithm
-/// SKIPPED: The StressMajorization run method can enter an infinite loop.
-/// This test is temporarily skipped until the underlying issue is fixed with
-/// proper convergence criteria or iteration limits.
 #[wasm_bindgen_test]
-#[ignore]
 pub fn stress_majorization_run() {
     test_stress_majorization_run();
 }
@@ -43,4 +41,10 @@ pub fn stress_majorization_run() {
 #[wasm_bindgen_test]
 pub fn stress_majorization_integration() {
     test_stress_majorization_integration();
+}
+
+/// Test getter and setter methods for epsilon and max_iterations
+#[wasm_bindgen_test]
+pub fn stress_majorization_parameters() {
+    test_stress_majorization_parameters();
 }

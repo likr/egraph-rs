@@ -80,4 +80,44 @@ impl JsStressMajorization {
     pub fn run(&mut self, drawing: &mut JsDrawingEuclidean2d) {
         self.stress_majorization.run(drawing.drawing_mut());
     }
+
+    /// Gets the convergence threshold (epsilon).
+    ///
+    /// The algorithm stops when the relative change in stress falls below this threshold.
+    ///
+    /// @returns {number} The current epsilon value
+    #[wasm_bindgen(getter)]
+    pub fn epsilon(&self) -> f32 {
+        self.stress_majorization.epsilon
+    }
+
+    /// Sets the convergence threshold (epsilon).
+    ///
+    /// A smaller value leads to more precise layouts but may require more iterations.
+    ///
+    /// @param {number} value - The new epsilon value
+    #[wasm_bindgen(setter)]
+    pub fn set_epsilon(&mut self, value: f32) {
+        self.stress_majorization.epsilon = value;
+    }
+
+    /// Gets the maximum number of iterations.
+    ///
+    /// The algorithm will stop after this many iterations even if convergence is not reached.
+    ///
+    /// @returns {number} The current maximum iterations value
+    #[wasm_bindgen(getter)]
+    pub fn max_iterations(&self) -> u32 {
+        self.stress_majorization.max_iterations as u32
+    }
+
+    /// Sets the maximum number of iterations.
+    ///
+    /// A larger value allows more iterations for potentially better convergence.
+    ///
+    /// @param {number} value - The new maximum iterations value
+    #[wasm_bindgen(setter)]
+    pub fn set_max_iterations(&mut self, value: u32) {
+        self.stress_majorization.max_iterations = value as usize;
+    }
 }

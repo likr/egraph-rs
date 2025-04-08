@@ -75,27 +75,13 @@ exports.testStressMajorizationRun = function () {
   // Create a cycle graph
   const { graph } = helpers.createTestGraph("cycle", 4);
 
-  // Create a drawing with initial positions
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
-
-  // Place nodes in a line to create initial stress
-  drawing.setX(0, 0.0);
-  drawing.setY(0, 0.0);
-  drawing.setX(1, 1.0);
-  drawing.setY(1, 0.0);
-  drawing.setX(2, 2.0);
-  drawing.setY(2, 0.0);
-  drawing.setX(3, 3.0);
-  drawing.setY(3, 0.0);
-
-  // Record initial positions
+  // Create a drawing and initial positions
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
   const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply StressMajorization layout
-  helpers.applyLayout("stress_majorization", graph, drawing, {
-    distanceFunc: () => ({ distance: 1.0 }),
-    iterations: 100,
-  });
+  const sm = new eg.StressMajorization(graph, drawing, () => ({ distance: 1 }));
+  sm.run(drawing);
 
   // Verify that positions have changed
   helpers.verifyPositionsChanged2d(
@@ -134,6 +120,63 @@ exports.testStressMajorizationRun = function () {
   assert(
     stdDev / avgDistance < 0.2,
     "Nodes should be roughly equidistant from the center in a cycle graph"
+  );
+};
+
+/**
+ * Test getter and setter methods for epsilon and max_iterations
+ */
+exports.testStressMajorizationParameters = function () {
+  // Create a simple graph
+  const { graph } = helpers.createTestGraph("line", 3);
+
+  // Create a drawing
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
+
+  // Create a StressMajorization instance
+  const layout = new eg.StressMajorization(graph, drawing, (e) => {
+    return { distance: 1.0 };
+  });
+
+  // Check default values
+  assert.strictEqual(
+    typeof layout.epsilon,
+    "number",
+    "epsilon should be a number"
+  );
+  assert.strictEqual(
+    typeof layout.max_iterations,
+    "number",
+    "max_iterations should be a number"
+  );
+
+  // Default values should be finite numbers
+  assert(
+    Number.isFinite(layout.epsilon),
+    "Default epsilon should be a finite number"
+  );
+  assert(
+    Number.isFinite(layout.max_iterations),
+    "Default max_iterations should be a finite number"
+  );
+
+  // Test setters
+  const newEpsilon = 1e-6;
+  const newMaxIterations = 200;
+
+  layout.epsilon = newEpsilon;
+  layout.max_iterations = newMaxIterations;
+
+  // Verify values were updated - use approximate comparison for floating point
+  const epsilon = 1e-10; // Small value to account for floating point precision
+  assert(
+    Math.abs(layout.epsilon - newEpsilon) < epsilon,
+    "epsilon should be approximately updated to the new value"
+  );
+  assert.strictEqual(
+    layout.max_iterations,
+    newMaxIterations,
+    "max_iterations should be updated to the new value"
   );
 };
 

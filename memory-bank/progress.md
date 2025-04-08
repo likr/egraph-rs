@@ -265,7 +265,10 @@ New guidelines have been established for the project workflow:
      - Adding early returns for negligible movements
      - Ensuring proper clamping of values for trigonometric functions
      - Adding fallback strategies for edge cases near the poles
-   - 🔄 Needs improvement: StressMajorization run method can enter an infinite loop and needs to be improved with a proper convergence criterion or iteration limit
-     - ✅ Workaround implemented: Added the `#[ignore]` attribute to the `stress_majorization_run` test function in `crates/wasm/tests/stress_majorization.rs` to skip the test that was getting stuck in an infinite loop
-     - Added a detailed comment explaining why the test is being skipped
-     - This is a temporary solution until the underlying issue is fixed
+   - ✅ Fixed: StressMajorization run method could enter an infinite loop. The issue was fixed by:
+     - Adding a public max_iterations field with default value of 100
+     - Making epsilon field public for external configuration
+     - Simplifying run method to use max_iterations as a safety limit
+     - Adding WebAssembly bindings for epsilon and max_iterations parameters
+     - Adding tests for parameter getters and setters
+     - Updating test helper to use the new parameters
