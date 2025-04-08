@@ -91,6 +91,17 @@
 ### Testing
 
 - WebAssembly binding tests:
+  - Created a comprehensive test helpers module in `crates/wasm/tests/util/test_helpers.js` with:
+    - Graph creation helpers for different graph structures (line, cycle, complete, etc.)
+    - Position recording helpers for different geometric spaces (2D, spherical, n-dimensional)
+    - Verification helpers for position changes, coordinate validity, and geometric constraints
+    - RNG helpers for creating seeded random number generators
+    - Layout quality helpers to verify that connected nodes are positioned closer together
+  - Refactored SGD tests to use the new helper functions:
+    - Updated `sgd_full.js` to use the helper functions for all tests
+    - Updated `sgd_sparse.js` to use the helper functions for all tests
+  - Fixed an issue where helper functions were assuming drawings had graph references
+    - Modified helpers to take explicit graph parameters
   - Implemented dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
   - Implemented dedicated test files for the `Graph` class (`tests/graph.rs` and `tests/graph.js`)
   - Implemented dedicated test files for the `DiGraph` class (`tests/digraph.rs` and `tests/digraph.js`)

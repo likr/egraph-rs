@@ -1,15 +1,13 @@
 const assert = require("assert");
 const eg = require("wasm-bindgen-test");
+const helpers = require("./util/test_helpers");
 
 /**
  * Test basic instantiation of FullSgd class
  */
 exports.testFullSgdConstructor = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const edge = graph.addEdge(node1, node2, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a FullSgd instance with a simple length function
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -22,11 +20,8 @@ exports.testFullSgdConstructor = function () {
  * Test scheduler creation methods
  */
 exports.testFullSgdSchedulers = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -72,7 +67,7 @@ exports.testFullSgdSchedulers = function () {
   // Test scheduler execution
   let callCount = 0;
   const scheduler = sgd.scheduler(5, 0.1);
-  scheduler.run((eta) => {
+  helpers.runScheduler(scheduler, (eta) => {
     assert(typeof eta === "number", "Learning rate should be a number");
     assert(eta > 0, "Learning rate should be positive");
     callCount++;
@@ -82,13 +77,11 @@ exports.testFullSgdSchedulers = function () {
   // Test step-by-step execution
   callCount = 0;
   const stepScheduler = sgd.scheduler(5, 0.1);
-  while (!stepScheduler.isFinished()) {
-    stepScheduler.step((eta) => {
-      assert(typeof eta === "number", "Learning rate should be a number");
-      assert(eta > 0, "Learning rate should be positive");
-      callCount++;
-    });
-  }
+  helpers.runSchedulerStepByStep(stepScheduler, (eta) => {
+    assert(typeof eta === "number", "Learning rate should be a number");
+    assert(eta > 0, "Learning rate should be positive");
+    callCount++;
+  });
   assert.strictEqual(callCount, 5, "Step scheduler should run exactly 5 times");
 };
 
@@ -96,13 +89,8 @@ exports.testFullSgdSchedulers = function () {
  * Test applying SGD to Euclidean 2D drawings
  */
 exports.testFullSgdWithEuclidean2d = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -111,51 +99,29 @@ exports.testFullSgdWithEuclidean2d = function () {
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply SGD
   sgd.applyWithDrawingEuclidean2d(drawing, 0.1);
 
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      drawing.x(u) !== initialPositions[u].x ||
-      drawing.y(u) !== initialPositions[u].y
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(positionsChanged, "SGD should change node positions");
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
+    "SGD should change node positions"
+  );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 };
 
 /**
  * Test applying SGD to Hyperbolic 2D drawings
  */
 exports.testFullSgdWithHyperbolic2d = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -164,62 +130,32 @@ exports.testFullSgdWithHyperbolic2d = function () {
   const drawing = eg.DrawingHyperbolic2d.initialPlacement(graph);
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply SGD
   sgd.applyWithDrawingHyperbolic2d(drawing, 0.1);
 
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      drawing.x(u) !== initialPositions[u].x ||
-      drawing.y(u) !== initialPositions[u].y
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(positionsChanged, "SGD should change node positions");
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
+    "SGD should change node positions"
+  );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
-  // Verify that all nodes are within the Poincaré disc (distance from origin <= 1)
-  for (const u of graph.nodeIndices()) {
-    const distance = Math.sqrt(
-      drawing.x(u) * drawing.x(u) + drawing.y(u) * drawing.y(u)
-    );
-    assert(
-      distance < 1.0001, // Allow for small floating-point errors
-      "Node should be within the Poincaré disc"
-    );
-  }
+  // Verify that all nodes are within the Poincaré disc
+  helpers.verifyHyperbolicCoordinateRange(drawing, graph);
 };
 
 /**
  * Test applying SGD to Spherical 2D drawings
  */
 exports.testFullSgdWithSpherical2d = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -228,62 +164,35 @@ exports.testFullSgdWithSpherical2d = function () {
   const drawing = eg.DrawingSpherical2d.initialPlacement(graph);
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = {
-      lon: drawing.lon(u),
-      lat: drawing.lat(u),
-    };
-  }
+  const initialPositions = helpers.recordInitialSphericalPositions(
+    drawing,
+    graph
+  );
 
   // Apply SGD
   sgd.applyWithDrawingSpherical2d(drawing, 0.1);
 
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      drawing.lon(u) !== initialPositions[u].lon ||
-      drawing.lat(u) !== initialPositions[u].lat
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(positionsChanged, "SGD should change node positions");
+  helpers.verifySphericalPositionsChanged(
+    drawing,
+    graph,
+    initialPositions,
+    "SGD should change node positions"
+  );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.lon(u)),
-      "Longitude should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.lat(u)),
-      "Latitude should be a finite number"
-    );
-  }
+  helpers.verifyFiniteSphericalCoordinates(drawing, graph);
 
   // Verify that latitude is within valid range (-π/2 to π/2)
-  for (const u of graph.nodeIndices()) {
-    assert(
-      drawing.lat(u) >= -Math.PI / 2 && drawing.lat(u) <= Math.PI / 2,
-      "Latitude should be within valid range"
-    );
-  }
+  helpers.verifySphericalCoordinateRange(drawing, graph);
 };
 
 /**
  * Test applying SGD to Torus 2D drawings
  */
 exports.testFullSgdWithTorus2d = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -292,63 +201,32 @@ exports.testFullSgdWithTorus2d = function () {
   const drawing = eg.DrawingTorus2d.initialPlacement(graph);
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply SGD
   sgd.applyWithDrawingTorus2d(drawing, 0.1);
 
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      drawing.x(u) !== initialPositions[u].x ||
-      drawing.y(u) !== initialPositions[u].y
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(positionsChanged, "SGD should change node positions");
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
+    "SGD should change node positions"
+  );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Verify that coordinates are within the torus range (0 to 1)
-  for (const u of graph.nodeIndices()) {
-    assert(
-      drawing.x(u) >= 0 && drawing.x(u) <= 1,
-      "X coordinate should be within torus range"
-    );
-    assert(
-      drawing.y(u) >= 0 && drawing.y(u) <= 1,
-      "Y coordinate should be within torus range"
-    );
-  }
+  helpers.verifyTorusCoordinateRange(drawing, graph);
 };
 
 /**
  * Test applying SGD to n-dimensional Euclidean drawings
  */
 exports.testFullSgdWithEuclidean = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -356,54 +234,37 @@ exports.testFullSgdWithEuclidean = function () {
   // Create a 3D drawing using ClassicalMds
   const mds = new eg.ClassicalMds(graph, () => 1.0);
   const drawing = mds.run(3);
+  const dimensions = 3;
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = {
-      x: drawing.get(u, 0),
-      y: drawing.get(u, 1),
-      z: drawing.get(u, 2),
-    };
-  }
+  const initialPositions = helpers.recordInitialPositionsNd(
+    drawing,
+    graph,
+    dimensions
+  );
 
   // Apply SGD
   sgd.applyWithDrawingEuclidean(drawing, 0.1);
 
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      drawing.get(u, 0) !== initialPositions[u].x ||
-      drawing.get(u, 1) !== initialPositions[u].y ||
-      drawing.get(u, 2) !== initialPositions[u].z
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(positionsChanged, "SGD should change node positions");
+  helpers.verifyPositionsChangedNd(
+    drawing,
+    graph,
+    initialPositions,
+    dimensions,
+    "SGD should change node positions"
+  );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    for (let d = 0; d < 3; d++) {
-      assert(
-        Number.isFinite(drawing.get(u, d)),
-        `Coordinate at dimension ${d} should be a finite number`
-      );
-    }
-  }
+  helpers.verifyFiniteCoordinatesNd(drawing, graph, dimensions);
 };
 
 /**
  * Test updating distance function
  */
 exports.testFullSgdUpdateDistance = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -413,10 +274,10 @@ exports.testFullSgdUpdateDistance = function () {
 
   // Apply SGD with default distance function
   sgd.applyWithDrawingEuclidean2d(drawing, 0.1);
-  const positionsAfterDefault = {};
-  for (const u of graph.nodeIndices()) {
-    positionsAfterDefault[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const positionsAfterDefault = helpers.recordInitialPositions2d(
+    drawing,
+    graph
+  );
 
   // Reset drawing
   const resetDrawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -452,11 +313,8 @@ exports.testFullSgdUpdateDistance = function () {
  * Test updating weight function
  */
 exports.testFullSgdUpdateWeight = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -466,10 +324,10 @@ exports.testFullSgdUpdateWeight = function () {
 
   // Apply SGD with default weight function
   sgd.applyWithDrawingEuclidean2d(drawing, 0.1);
-  const positionsAfterDefault = {};
-  for (const u of graph.nodeIndices()) {
-    positionsAfterDefault[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const positionsAfterDefault = helpers.recordInitialPositions2d(
+    drawing,
+    graph
+  );
 
   // Reset drawing
   const resetDrawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -505,13 +363,8 @@ exports.testFullSgdUpdateWeight = function () {
  * Test shuffling node pairs
  */
 exports.testFullSgdShuffle = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  // Create a test graph
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -525,14 +378,13 @@ exports.testFullSgdShuffle = function () {
   // Apply SGD
   sgd.shuffle(rng);
   sgd.applyWithDrawingEuclidean2d(drawing, 0.1);
-  for (const u of graph.nodeIndices()) {
-    assert(Number.isFinite(drawing.x(u)));
-    assert(Number.isFinite(drawing.y(u)));
-  }
+
+  // Verify that all coordinates are finite numbers
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Test that the same seed produces the same shuffle result
-  const rng1 = eg.Rng.seedFrom(42n);
-  const rng2 = eg.Rng.seedFrom(42n);
+  const rng1 = helpers.createSeededRng(42n);
+  const rng2 = helpers.createSeededRng(42n);
 
   const drawing1 = eg.DrawingEuclidean2d.initialPlacement(graph);
   const drawing2 = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -565,91 +417,41 @@ exports.testFullSgdShuffle = function () {
  * Test integration with other components
  */
 exports.testFullSgdIntegration = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const nodes = [];
-  for (let i = 0; i < 10; i++) {
-    nodes.push(graph.addNode({ id: i }));
-  }
-
-  // Add some edges to create a connected graph
-  for (let i = 0; i < 9; i++) {
-    graph.addEdge(nodes[i], nodes[i + 1], {});
-  }
-  // Add some cross edges
-  graph.addEdge(nodes[0], nodes[5], {});
-  graph.addEdge(nodes[2], nodes[7], {});
-  graph.addEdge(nodes[3], nodes[8], {});
+  // Create a custom graph with cross edges
+  const { graph, nodes } = helpers.createTestGraph(
+    "custom",
+    10,
+    (graph, nodes) => {
+      // Create a path
+      for (let i = 0; i < 9; i++) {
+        graph.addEdge(nodes[i], nodes[i + 1], {});
+      }
+      // Add some cross edges
+      graph.addEdge(nodes[0], nodes[5], {});
+      graph.addEdge(nodes[2], nodes[7], {});
+      graph.addEdge(nodes[3], nodes[8], {});
+    }
+  );
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Create an RNG with a seed for reproducibility
-  const rng = eg.Rng.seedFrom(123n);
+  const rng = helpers.createSeededRng(123n);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
 
   // Run a complete layout process
   const scheduler = sgd.scheduler(10, 0.1);
-  scheduler.run((eta) => {
+  helpers.runScheduler(scheduler, (eta) => {
     sgd.shuffle(rng);
     sgd.applyWithDrawingEuclidean2d(drawing, eta);
   });
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Verify that connected nodes are positioned relatively close to each other
-  // by checking that the average distance between connected nodes is less than
-  // the average distance between all node pairs
-  let connectedPairsCount = 0;
-  let connectedPairsDistance = 0;
-  let allPairsCount = 0;
-  let allPairsDistance = 0;
-
-  // Calculate average distance between connected nodes
-  for (const e of graph.edgeIndices()) {
-    // Get the endpoints of the edge
-    const endpoints = graph.edgeEndpoints(e);
-    const u = endpoints[0];
-    const v = endpoints[1];
-
-    const dx = drawing.x(u) - drawing.x(v);
-    const dy = drawing.y(u) - drawing.y(v);
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    connectedPairsDistance += distance;
-    connectedPairsCount++;
-  }
-
-  // Calculate average distance between all node pairs
-  const nodeIndices = Array.from(graph.nodeIndices());
-  for (let i = 0; i < nodeIndices.length; i++) {
-    for (let j = i + 1; j < nodeIndices.length; j++) {
-      const u = nodeIndices[i];
-      const v = nodeIndices[j];
-      const dx = drawing.x(u) - drawing.x(v);
-      const dy = drawing.y(u) - drawing.y(v);
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      allPairsDistance += distance;
-      allPairsCount++;
-    }
-  }
-
-  const avgConnectedDistance = connectedPairsDistance / connectedPairsCount;
-  const avgAllDistance = allPairsDistance / allPairsCount;
-
-  assert(
-    avgConnectedDistance < avgAllDistance,
-    "Connected nodes should be positioned closer to each other than the average distance between all nodes"
-  );
+  helpers.verifyConnectedNodesCloser(graph, drawing);
 };
