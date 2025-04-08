@@ -118,9 +118,15 @@
     - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
     - ✅ `OverwrapRemoval` - Implemented comprehensive tests in `crates/python/tests/test_overwrap_removal.py`
-  - 🔄 In progress: Implement tests for Utility classes:
+  - ✅ Implemented tests for Utility classes:
     - ✅ `Rng` - Implemented comprehensive tests in `crates/python/tests/test_rng.py`
-    - `DistanceMatrix`
+    - ✅ `DistanceMatrix` - Implemented comprehensive tests in `crates/python/tests/test_distance_matrix.py` with tests for:
+      - Basic instantiation with different graph types (undirected, directed, empty, single-node)
+      - Distance retrieval between connected and disconnected nodes
+      - Distance modification and behavior differences between undirected and directed graphs
+      - Integration with StressMajorization
+      - Custom edge weights
+      - Discovered that setting distances in one direction doesn't automatically set them in the reverse direction
   - 🔄 Planned: Ensure consistent test coverage between Python and WebAssembly bindings
   - 🔄 Planned: Account for Python-specific API differences
 

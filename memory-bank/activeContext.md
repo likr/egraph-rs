@@ -410,7 +410,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
      - ✅ `OverwrapRemoval` - Implemented comprehensive tests in `crates/python/tests/test_overwrap_removal.py`
    - Implement tests for Utility classes:
      - ✅ `Rng` (random number generation) - Implemented comprehensive tests in `crates/python/tests/test_rng.py`
-     - `DistanceMatrix`
+     - ✅ `DistanceMatrix` - Implemented comprehensive tests in `crates/python/tests/test_distance_matrix.py`
    - Ensure consistent test coverage between Python and WebAssembly bindings
    - Account for Python-specific API differences
 
