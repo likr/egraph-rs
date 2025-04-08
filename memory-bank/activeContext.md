@@ -55,6 +55,16 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Fixed the StressMajorization implementation to prevent infinite loops:
+
+  - Added a public `max_iterations` field with a default value of 100 to limit the number of iterations
+  - Made the `epsilon` field public to allow external configuration of the convergence threshold
+  - Simplified the `run` method to use `max_iterations` as a safety limit
+  - Added WebAssembly bindings for `epsilon` and `max_iterations` parameters with getter and setter methods
+  - Added comprehensive tests for parameter getters and setters
+  - Updated test helpers to use the new parameters
+  - This fix ensures that the StressMajorization algorithm will always terminate, even if convergence is not reached
+
 - Removed the `createTestGraph` and `createTestDiGraph` functions from the WebAssembly binding test helpers and updated all affected test files:
 
   - Created separate specialized functions for each graph structure type:
@@ -207,15 +217,16 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 1. **WebAssembly Binding Tests**:
 
-   - Continue implementing tests for other WebAssembly classes and functions
    - ✅ Completed: Implemented tests for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
    - ✅ Completed: Implemented tests for the Edge Bundling module (`tests/edge_bundling.rs` and `tests/edge_bundling.js`)
-
-- ✅ Completed: Implemented tests for the Clustering module (`tests/clustering.rs` and `tests/clustering.js`)
-- ✅ All WebAssembly binding tests are now implemented.
-- Ensure comprehensive coverage of all public API methods
-- Add edge cases and error handling tests
-- Fix the identified issue with ClassicalMds implementation for n-dimensional Euclidean drawings
+   - ✅ Completed: Implemented tests for the Clustering module (`tests/clustering.rs` and `tests/clustering.js`)
+   - ✅ All WebAssembly binding tests are now implemented.
+   - Ensure comprehensive coverage of all public API methods
+   - Add edge cases and error handling tests
+   - ✅ Fixed: ClassicalMds implementation for n-dimensional Euclidean drawings
+   - ✅ Fixed: PivotMds implementation for high-dimensional embeddings
+   - ✅ Fixed: MetricSpherical2d implementation that was causing NaN values
+   - ✅ Fixed: StressMajorization run method to prevent infinite loops
 
 2. **Layout Algorithm Refinement**:
 
@@ -223,6 +234,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Optimize stress majorization for large graphs
    - Improve performance of overlap removal
    - Address performance issues with large graphs (>10,000 nodes)
+   - Implement additional layout algorithms (e.g., additional force-directed variants)
 
 3. **Integration Improvements**:
 
@@ -236,6 +248,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
    - Document best practices for selecting appropriate layout algorithms
    - Create comprehensive API documentation
    - Develop tutorials for common use cases
+   - Create usage examples for different geometric spaces
 
 5. **Testing Enhancements**:
    - Continue expanding test coverage for all components
@@ -302,6 +315,9 @@ The following guidelines have been established for the project workflow:
    - ✅ Fixed: PivotMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph, similar to the fixed issue in ClassicalMds
    - ✅ Fixed: MetricSpherical2d implementation had a bug that output NaN values, causing the SparseSgd spherical drawing test to fail. Fixed by adding safeguards against division by zero, handling edge cases for identical or very close points, and ensuring proper clamping of values for trigonometric functions.
    - ✅ Fixed: StressMajorization run method could enter an infinite loop. Fixed by adding a max_iterations parameter and making epsilon configurable to control convergence criteria.
+   - Need to address: Performance issues with large graphs (>10,000 nodes)
+   - Need to address: High memory consumption for dense graphs in WebAssembly context
+   - Need to address: Inconsistencies between language bindings (Rust, Python, JavaScript)
 
 ## Git Command Usage
 

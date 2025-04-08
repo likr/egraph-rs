@@ -23,6 +23,8 @@
 - Stress Majorization
   - Iterative stress minimization
   - Conjugate gradient solver
+  - Configurable convergence criteria (epsilon)
+  - Maximum iteration limit to prevent infinite loops
 - Kamada-Kawai (spring model based layout)
 - Overlap Removal (resolving node overlaps)
 - Separation Constraints (layout constraint implementation)
@@ -77,8 +79,9 @@
 - Fine-tuning of SGD schedulers for better convergence
 - Optimization of stress majorization for large graphs
 - Performance improvements for overlap removal
-- ✅ Fix for ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
-- ✅ Fix for PivotMds implementation to handle similar cases with high-dimensional embeddings
+- ✅ Fixed: ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
+- ✅ Fixed: PivotMds implementation to handle similar cases with high-dimensional embeddings
+- ✅ Fixed: StressMajorization run method to prevent infinite loops by adding max_iterations parameter and making epsilon configurable
 
 ### Documentation
 
@@ -91,7 +94,7 @@
 ### Testing
 
 - WebAssembly binding tests:
-  - Created a comprehensive test helpers module in `crates/wasm/tests/util/test_helpers.js` with:
+  - ✅ Created a comprehensive test helpers module in `crates/wasm/tests/util/test_helpers.js` with:
     - Graph creation helpers for different graph structures (line, cycle, complete, etc.)
     - Position recording helpers for different geometric spaces (2D, spherical, n-dimensional)
     - Verification helpers for position changes, coordinate validity, and geometric constraints
@@ -106,15 +109,15 @@
       - `verifyLayoutQuality` to check various quality aspects of layouts
       - `verifyLayoutImprovement` to compare layouts before and after algorithm application
       - `verifyNodePositions` to check if node positions match expected values
-  - Removed the `applyLayout` and `createDrawing` functions as they were not providing essential abstraction
-  - Updated all test files that were using these functions to directly instantiate and use the appropriate classes
-  - Updated all test files that were using this function to directly instantiate and use the appropriate layout algorithm classes
-  - Fixed an issue in the `verifyNodePositions` function:
+  - ✅ Removed the `applyLayout` and `createDrawing` functions as they were not providing essential abstraction
+  - ✅ Updated all test files that were using these functions to directly instantiate and use the appropriate classes
+  - ✅ Updated all test files that were using this function to directly instantiate and use the appropriate layout algorithm classes
+  - ✅ Fixed an issue in the `verifyNodePositions` function:
     - When using object keys with computed property names like `[node1]`, JavaScript converts numeric node indices to strings
     - The drawing methods like `drawing.x()` expect numeric arguments, not strings
     - Fixed by converting the string node index back to a number using `Number(nodeIndexStr)` before passing it to the drawing methods
     - All tests are now passing (with one test intentionally ignored)
-  - Refactored tests to use the helper functions:
+  - ✅ Refactored tests to use the helper functions:
     - Updated `sgd_full.js` to use the helper functions for all tests
     - Updated `sgd_sparse.js` to use the helper functions for all tests
     - Updated `classical_mds.js` to use the helper functions
@@ -122,50 +125,49 @@
     - Updated `stress_majorization.js` to use the helper functions
     - Updated `drawing_euclidean_2d.js` to use the helper functions
     - Updated `quality_metrics.js` to use the helper functions
-  - Fixed an issue where helper functions were assuming drawings had graph references
+  - ✅ Fixed an issue where helper functions were assuming drawings had graph references
     - Modified helpers to take explicit graph parameters
-  - Implemented dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
-  - Implemented dedicated test files for the `Graph` class (`tests/graph.rs` and `tests/graph.js`)
-  - Implemented dedicated test files for the `DiGraph` class (`tests/digraph.rs` and `tests/digraph.js`)
-  - Implemented dedicated test files for the `DrawingEuclidean2d` class (`tests/drawing_euclidean_2d.rs` and `tests/drawing_euclidean_2d.js`)
-  - Implemented dedicated test files for the `DrawingSpherical2d` class (`tests/drawing_spherical_2d.rs` and `tests/drawing_spherical_2d.js`)
-  - Implemented dedicated test files for the `DrawingHyperbolic2d` class (`tests/drawing_hyperbolic_2d.rs` and `tests/drawing_hyperbolic_2d.js`)
-  - Implemented dedicated test files for the `DrawingTorus2d` class (`tests/drawing_torus_2d.rs` and `tests/drawing_torus_2d.js`)
-  - Implemented dedicated test files for the `FullSgd` class (`tests/sgd_full.rs` and `tests/sgd_full.js`)
-  - Implemented dedicated test files for the `ClassicalMds` class (`tests/classical_mds.rs` and `tests/classical_mds.js`)
-  - Implemented dedicated test files for the `SparseSgd` class (`tests/sgd_sparse.rs` and `tests/sgd_sparse.js`)
-  - Fixed an issue in the `DrawingSpherical2d` tests where nodes added to the graph after creating the drawing were not included in the drawing
-  - Created a pattern for class/function-specific tests that can be run individually
-  - Tests for basic functionality, node/edge operations, traversal, and integration with other components
-  - Tests for directed graph functionality, including in/out neighbors and directed edge operations
-  - Tests for drawing functionality, including node coordinate operations, drawing manipulation, edge segment representation, and integration with Graph class
-  - Tests for spherical drawing functionality, including longitude/latitude coordinate operations and integration with Graph class
-  - Tests for hyperbolic drawing functionality, including coordinate operations, Poincaré disc model constraints, and integration with Graph class
-  - Tests for torus drawing functionality, including coordinate operations, torus wrapping behavior, edge segment representation, and integration with Graph class
-  - Tests for FullSgd functionality, including instantiation, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
-  - Tests for SparseSgd functionality, including instantiation, pivot node configuration, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
-  - Tests for ClassicalMds functionality, including instantiation, 2D layout generation (run2d method), n-dimensional layout generation (run method), different graph structures (line, cycle, complete), custom length functions, high-dimensional embeddings, and integration with other components
-  - Created dedicated test files for the `KamadaKawai` class (`tests/kamada_kawai.rs` and `tests/kamada_kawai.js`)
-  - Implemented tests for KamadaKawai instantiation, epsilon parameter getter/setter, node selection functionality, single-node application, complete algorithm run, and integration with other components
-  - Fixed an issue in the epsilon parameter test by using approximate comparison for floating-point values
-  - Created dedicated test files for the `StressMajorization` class (`tests/stress_majorization.rs` and `tests/stress_majorization.js`)
-  - Implemented tests for StressMajorization instantiation, applying a single iteration, and integration with other components
-  - Identified an issue with the StressMajorization run method that can cause infinite loops, and implemented a workaround using multiple apply calls
-  - Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
-  - Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
-  - Identified an issue with the MetricSpherical2d implementation that outputs NaN values, causing the SparseSgd spherical drawing test to fail
-  - Temporarily skipped the n-dimensional Euclidean drawing test with a clear comment explaining the issue, to be addressed in a future task
-  - Temporarily skipped the spherical drawing test for SparseSgd with a clear comment explaining the issue, to be addressed in a future task
-  - Verified test execution with `wasm-pack test --node --test <filename>`
-  - More comprehensive test suite with increased coverage needed for other components:
+  - ✅ Implemented dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
+  - ✅ Implemented dedicated test files for the `Graph` class (`tests/graph.rs` and `tests/graph.js`)
+  - ✅ Implemented dedicated test files for the `DiGraph` class (`tests/digraph.rs` and `tests/digraph.js`)
+  - ✅ Implemented dedicated test files for the `DrawingEuclidean2d` class (`tests/drawing_euclidean_2d.rs` and `tests/drawing_euclidean_2d.js`)
+  - ✅ Implemented dedicated test files for the `DrawingSpherical2d` class (`tests/drawing_spherical_2d.rs` and `tests/drawing_spherical_2d.js`)
+  - ✅ Implemented dedicated test files for the `DrawingHyperbolic2d` class (`tests/drawing_hyperbolic_2d.rs` and `tests/drawing_hyperbolic_2d.js`)
+  - ✅ Implemented dedicated test files for the `DrawingTorus2d` class (`tests/drawing_torus_2d.rs` and `tests/drawing_torus_2d.js`)
+  - ✅ Implemented dedicated test files for the `FullSgd` class (`tests/sgd_full.rs` and `tests/sgd_full.js`)
+  - ✅ Implemented dedicated test files for the `ClassicalMds` class (`tests/classical_mds.rs` and `tests/classical_mds.js`)
+  - ✅ Implemented dedicated test files for the `SparseSgd` class (`tests/sgd_sparse.rs` and `tests/sgd_sparse.js`)
+  - ✅ Fixed an issue in the `DrawingSpherical2d` tests where nodes added to the graph after creating the drawing were not included in the drawing
+  - ✅ Created a pattern for class/function-specific tests that can be run individually
+  - ✅ Tests for basic functionality, node/edge operations, traversal, and integration with other components
+  - ✅ Tests for directed graph functionality, including in/out neighbors and directed edge operations
+  - ✅ Tests for drawing functionality, including node coordinate operations, drawing manipulation, edge segment representation, and integration with Graph class
+  - ✅ Tests for spherical drawing functionality, including longitude/latitude coordinate operations and integration with Graph class
+  - ✅ Tests for hyperbolic drawing functionality, including coordinate operations, Poincaré disc model constraints, and integration with Graph class
+  - ✅ Tests for torus drawing functionality, including coordinate operations, torus wrapping behavior, edge segment representation, and integration with Graph class
+  - ✅ Tests for FullSgd functionality, including instantiation, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
+  - ✅ Tests for SparseSgd functionality, including instantiation, pivot node configuration, scheduler creation, applying SGD to different drawing types, updating distance and weight functions, shuffling node pairs, and integration with other components
+  - ✅ Tests for ClassicalMds functionality, including instantiation, 2D layout generation (run2d method), n-dimensional layout generation (run method), different graph structures (line, cycle, complete), custom length functions, high-dimensional embeddings, and integration with other components
+  - ✅ Created dedicated test files for the `KamadaKawai` class (`tests/kamada_kawai.rs` and `tests/kamada_kawai.js`)
+  - ✅ Implemented tests for KamadaKawai instantiation, epsilon parameter getter/setter, node selection functionality, single-node application, complete algorithm run, and integration with other components
+  - ✅ Fixed an issue in the epsilon parameter test by using approximate comparison for floating-point values
+  - ✅ Created dedicated test files for the `StressMajorization` class (`tests/stress_majorization.rs` and `tests/stress_majorization.js`)
+  - ✅ Implemented tests for StressMajorization instantiation, applying a single iteration, and integration with other components
+  - ✅ Identified an issue with the StressMajorization run method that can cause infinite loops, and implemented a workaround using multiple apply calls
+  - ✅ Identified an issue with calling edgeWeight within callback functions, which needs to be addressed in a future task
+  - ✅ Identified an issue with the ClassicalMds implementation when trying to embed a graph in a space with dimensions higher than what's needed, which causes NaN values in the coordinates
+  - ✅ Identified an issue with the MetricSpherical2d implementation that outputs NaN values, causing the SparseSgd spherical drawing test to fail
+  - ✅ Fixed the n-dimensional Euclidean drawing test by adding threshold checks for eigenvalues
+  - ✅ Fixed the spherical drawing test for SparseSgd by adding safeguards against division by zero and handling edge cases
+  - ✅ Verified test execution with `wasm-pack test --node --test <filename>`
   - ✅ Completed: Created dedicated test files for the `QualityMetrics` module (`tests/quality_metrics.rs` and `tests/quality_metrics.js`)
-  - Implemented tests for stress metric, crossing number in Euclidean and torus spaces, neighborhood preservation, and integration with layout algorithms
+  - ✅ Implemented tests for stress metric, crossing number in Euclidean and torus spaces, neighborhood preservation, and integration with layout algorithms
   - ✅ Completed: Created dedicated test files for the `EdgeBundling` module (`tests/edge_bundling.rs` and `tests/edge_bundling.js`)
-  - Implemented tests for basic functionality, complex graphs, result structure verification, and integration with other components
-  - Refactored tests to use helper functions for common verification tasks
+  - ✅ Implemented tests for basic functionality, complex graphs, result structure verification, and integration with other components
+  - ✅ Refactored tests to use helper functions for common verification tasks
   - ✅ Completed: Created dedicated test files for the `Clustering` module (`tests/clustering.rs` and `tests/clustering.js`)
-  - Implemented tests for basic coarsening, complex graph coarsening, custom node and edge merging, and integration with other components
-  - Addressed challenges with JavaScript Map objects and recursive borrowing issues
+  - ✅ Implemented tests for basic coarsening, complex graph coarsening, custom node and edge merging, and integration with other components
+  - ✅ Addressed challenges with JavaScript Map objects and recursive borrowing issues
   - ✅ All WebAssembly binding tests are now implemented
 - Performance benchmarks for algorithm comparison
 - Cross-platform consistency validation
@@ -174,15 +176,26 @@
 
 - **Core Functionality**: ✅ Implemented and stable
 - **Layout Algorithms**: 🔄 Functional but under active refinement
+  - ✅ Fixed: StressMajorization run method to prevent infinite loops
+  - ✅ Fixed: ClassicalMds implementation for n-dimensional Euclidean drawings
+  - ✅ Fixed: PivotMds implementation for high-dimensional embeddings
+  - ✅ Fixed: MetricSpherical2d implementation that was causing NaN values
 - **Drawing Implementations**: ✅ Complete
 - **Quality Metrics**: ✅ Complete
 - **Edge Bundling**: ✅ Functional
 - **Clustering**: ✅ Functional
 - **WebAssembly Bindings**: ✅ Functional
+  - ✅ Added getter/setter methods for StressMajorization parameters
+  - ✅ Improved error handling and parameter validation
 - **Python Bindings**: ✅ Functional
 - **Documentation**: 🔄 In progress
-- **Testing**: 🔄 In progress (WebAssembly binding tests for Rng, Graph, DiGraph, DrawingEuclidean2d, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d, FullSgd, SparseSgd, ClassicalMds, KamadaKawai, and StressMajorization classes completed)
+- **Testing**: ✅ WebAssembly binding tests completed for all components
+  - ✅ Comprehensive test suite for all WebAssembly classes and functions
+  - ✅ Improved test helpers for creating graph structures and verifying layouts
+  - 🔄 Performance benchmarks still needed
 - **Performance Optimization**: 🔄 Ongoing
+  - 🔄 Need to address performance issues with large graphs (>10,000 nodes)
+  - 🔄 Need to optimize memory usage for dense graphs in WebAssembly context
 - **Project Workflow**: ✅ Updated with new guidelines
 
 ## Development Workflow Improvements
@@ -277,3 +290,7 @@ New guidelines have been established for the project workflow:
      - Adding WebAssembly bindings for epsilon and max_iterations parameters
      - Adding tests for parameter getters and setters
      - Updating test helper to use the new parameters
+   - 🔄 Need to address: Performance issues with large graphs (>10,000 nodes)
+   - 🔄 Need to address: High memory consumption for dense graphs in WebAssembly context
+   - 🔄 Need to address: Inconsistencies between language bindings (Rust, Python, JavaScript)
+   - 🔄 Need to address: Issue with calling edgeWeight within callback functions
