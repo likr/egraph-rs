@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testSparseSgdConstructor = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -102,7 +102,7 @@ exports.testSparseSgdWithDifferentPivots = function () {
  */
 exports.testSparseSgdSchedulers = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -174,7 +174,7 @@ exports.testSparseSgdSchedulers = function () {
  */
 exports.testSparseSgdWithEuclidean2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -208,7 +208,7 @@ exports.testSparseSgdWithEuclidean2d = function () {
  */
 exports.testSparseSgdWithHyperbolic2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -245,7 +245,7 @@ exports.testSparseSgdWithHyperbolic2d = function () {
  */
 exports.testSparseSgdWithSpherical2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = helpers.createSeededRng(43n);
@@ -285,7 +285,7 @@ exports.testSparseSgdWithSpherical2d = function () {
  */
 exports.testSparseSgdWithTorus2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -322,7 +322,7 @@ exports.testSparseSgdWithTorus2d = function () {
  */
 exports.testSparseSgdWithEuclidean = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -363,7 +363,7 @@ exports.testSparseSgdWithEuclidean = function () {
  */
 exports.testSparseSgdUpdateDistance = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -416,7 +416,7 @@ exports.testSparseSgdUpdateDistance = function () {
  */
 exports.testSparseSgdUpdateWeight = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -469,7 +469,7 @@ exports.testSparseSgdUpdateWeight = function () {
  */
 exports.testSparseSgdShuffle = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create an RNG
   const rng = new eg.Rng();
@@ -523,20 +523,23 @@ exports.testSparseSgdShuffle = function () {
  */
 exports.testSparseSgdIntegration = function () {
   // Create a custom graph with cross edges
-  const { graph, nodes } = helpers.createTestGraph(
-    "custom",
-    10,
-    (graph, nodes) => {
-      // Create a path
-      for (let i = 0; i < 9; i++) {
-        graph.addEdge(nodes[i], nodes[i + 1], {});
-      }
-      // Add some cross edges
-      graph.addEdge(nodes[0], nodes[5], {});
-      graph.addEdge(nodes[2], nodes[7], {});
-      graph.addEdge(nodes[3], nodes[8], {});
-    }
-  );
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 10; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a path
+  for (let i = 0; i < 9; i++) {
+    graph.addEdge(nodes[i], nodes[i + 1], {});
+  }
+
+  // Add some cross edges
+  graph.addEdge(nodes[0], nodes[5], {});
+  graph.addEdge(nodes[2], nodes[7], {});
+  graph.addEdge(nodes[3], nodes[8], {});
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);

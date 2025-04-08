@@ -55,6 +55,27 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Removed the `createTestGraph` and `createTestDiGraph` functions from the WebAssembly binding test helpers and updated all affected test files:
+
+  - Created separate specialized functions for each graph structure type:
+    - `createLineGraph` and `createLineDiGraph` for path/line graphs
+    - `createCycleGraph` and `createCycleDiGraph` for cycle/circular graphs
+    - `createCompleteGraph` and `createCompleteDiGraph` for complete/fully-connected graphs
+    - `createTriangleGraph` and `createTriangleDiGraph` for the simple triangle graph
+    - Added `createStarDiGraph` as a directed version of the existing `createStarGraph`
+    - Added `createGridDiGraph` as a directed version of the existing `createGridGraph`
+  - Updated all test files that were using the removed functions to use the new specialized functions instead:
+    - `sgd_full.js`
+    - `sgd_sparse.js`
+    - `classical_mds.js`
+    - `kamada_kawai.js`
+    - `stress_majorization.js`
+    - `quality_metrics.js`
+    - `drawing_euclidean_2d.js`
+  - This refactoring makes the code more modular, easier to maintain, and provides more explicit functions for creating specific graph structures
+  - All functions follow the same pattern, accepting appropriate parameters and returning an object with `{ graph, nodes }` structure
+  - Added proper JSDoc documentation for all new functions
+
 - Removed the `createDrawing` function from the WebAssembly binding test helpers:
 
   - Identified that the `createDrawing` function was not providing essential abstraction, similar to the previously removed `applyLayout` function

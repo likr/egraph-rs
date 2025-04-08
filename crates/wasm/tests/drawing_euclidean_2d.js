@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testDrawingEuclidean2dConstructor = function () {
   // Create a simple graph for the drawing
-  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const { graph, nodes } = helpers.createLineGraph(2);
 
   // Create a drawing with initial placement
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -32,7 +32,7 @@ exports.testDrawingEuclidean2dConstructor = function () {
  */
 exports.testNodeCoordinates = function () {
   // Create a simple graph for the drawing
-  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const { graph, nodes } = helpers.createLineGraph(2);
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
@@ -80,7 +80,7 @@ exports.testNodeCoordinates = function () {
  */
 exports.testDrawingManipulation = function () {
   // Create a simple graph for the drawing
-  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const { graph, nodes } = helpers.createLineGraph(2);
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
@@ -151,7 +151,7 @@ exports.testDrawingManipulation = function () {
  */
 exports.testEdgeSegments = function () {
   // Create a simple graph for the drawing
-  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const { graph, nodes } = helpers.createLineGraph(2);
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
@@ -242,24 +242,26 @@ exports.testEdgeSegments = function () {
  */
 exports.testDrawingWithGraph = function () {
   // Create a more complex graph with a specific structure
-  const { graph, nodes } = helpers.createTestGraph(
-    "custom",
-    5,
-    (graph, nodes) => {
-      // Create a simple graph structure
-      //    0
-      //   / \
-      //  1---2
-      //  |   |
-      //  3---4
-      graph.addEdge(nodes[0], nodes[1], {});
-      graph.addEdge(nodes[0], nodes[2], {});
-      graph.addEdge(nodes[1], nodes[2], {});
-      graph.addEdge(nodes[1], nodes[3], {});
-      graph.addEdge(nodes[2], nodes[4], {});
-      graph.addEdge(nodes[3], nodes[4], {});
-    }
-  );
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 5; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a simple graph structure
+  //    0
+  //   / \
+  //  1---2
+  //  |   |
+  //  3---4
+  graph.addEdge(nodes[0], nodes[1], {});
+  graph.addEdge(nodes[0], nodes[2], {});
+  graph.addEdge(nodes[1], nodes[2], {});
+  graph.addEdge(nodes[1], nodes[3], {});
+  graph.addEdge(nodes[2], nodes[4], {});
+  graph.addEdge(nodes[3], nodes[4], {});
 
   // Create a drawing with initial placement
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);

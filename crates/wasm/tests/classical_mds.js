@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testClassicalMdsConstructor = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a ClassicalMds instance with a simple length function
   const mds = new eg.ClassicalMds(graph, () => 1.0);
@@ -24,7 +24,7 @@ exports.testClassicalMdsConstructor = function () {
  */
 exports.testClassicalMdsRun2d = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a ClassicalMds instance and apply layout
   const mds = new eg.ClassicalMds(graph, () => 1.0);
@@ -52,7 +52,7 @@ exports.testClassicalMdsRun2d = function () {
  */
 exports.testClassicalMdsRun = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a ClassicalMds instance and apply layout
   const mds = new eg.ClassicalMds(graph, () => 1.0);
@@ -80,21 +80,21 @@ exports.testClassicalMdsRun = function () {
  */
 exports.testClassicalMdsWithDifferentGraphs = function () {
   // Test with a line graph
-  const { graph: lineGraph } = helpers.createTestGraph("line", 5);
+  const { graph: lineGraph } = helpers.createLineGraph(5);
   // Create a ClassicalMds instance and apply layout for line graph
   const lineMds = new eg.ClassicalMds(lineGraph, () => 1.0);
   const lineDrawing = lineMds.run2d();
   helpers.verifyFiniteCoordinates2d(lineDrawing, lineGraph);
 
   // Test with a cycle graph
-  const { graph: cycleGraph } = helpers.createTestGraph("cycle", 5);
+  const { graph: cycleGraph } = helpers.createCycleGraph(5);
   // Create a ClassicalMds instance and apply layout for cycle graph
   const cycleMds = new eg.ClassicalMds(cycleGraph, () => 1.0);
   const cycleDrawing = cycleMds.run2d();
   helpers.verifyFiniteCoordinates2d(cycleDrawing, cycleGraph);
 
   // Test with a complete graph
-  const { graph: completeGraph } = helpers.createTestGraph("complete", 5);
+  const { graph: completeGraph } = helpers.createCompleteGraph(5);
   // Create a ClassicalMds instance and apply layout for complete graph
   const completeMds = new eg.ClassicalMds(completeGraph, () => 1.0);
   const completeDrawing = completeMds.run2d();
@@ -109,7 +109,7 @@ exports.testClassicalMdsWithDifferentGraphs = function () {
  */
 exports.testClassicalMdsWithCustomLengthFunction = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a ClassicalMds instance with a custom length function
   // that returns different values for different edge indices
@@ -137,7 +137,7 @@ exports.testClassicalMdsWithCustomLengthFunction = function () {
  */
 exports.testClassicalMdsHandlesHighDimensions = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a ClassicalMds instance and apply layout with high dimensions
   const mds = new eg.ClassicalMds(graph, () => 1.0);
@@ -152,16 +152,23 @@ exports.testClassicalMdsHandlesHighDimensions = function () {
  */
 exports.testClassicalMdsIntegration = function () {
   // Create a more complex graph
-  const { graph } = helpers.createTestGraph("custom", 10, (graph, nodes) => {
-    // Create a path
-    for (let i = 0; i < 9; i++) {
-      graph.addEdge(nodes[i], nodes[i + 1], {});
-    }
-    // Add some cross edges
-    graph.addEdge(nodes[0], nodes[5], {});
-    graph.addEdge(nodes[2], nodes[7], {});
-    graph.addEdge(nodes[3], nodes[8], {});
-  });
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 10; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a path
+  for (let i = 0; i < 9; i++) {
+    graph.addEdge(nodes[i], nodes[i + 1], {});
+  }
+
+  // Add some cross edges
+  graph.addEdge(nodes[0], nodes[5], {});
+  graph.addEdge(nodes[2], nodes[7], {});
+  graph.addEdge(nodes[3], nodes[8], {});
 
   // Create a ClassicalMds instance and apply layout
   const mds = new eg.ClassicalMds(graph, () => 1.0);

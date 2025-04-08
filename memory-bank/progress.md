@@ -99,6 +99,10 @@
     - Layout quality helpers to verify that connected nodes are positioned closer together
     - Added additional helper functions:
       - `createStarGraph` and `createGridGraph` for more graph structure options
+      - `createLineGraph`, `createLineDiGraph`, `createCycleGraph`, `createCycleDiGraph`, `createCompleteGraph`, `createCompleteDiGraph`, `createTriangleGraph`, `createTriangleDiGraph`, `createStarDiGraph`, and `createGridDiGraph` for specific graph structures
+  - ✅ Removed the `createTestGraph` and `createTestDiGraph` functions and updated all affected test files to use the specialized functions instead:
+    - Updated `sgd_full.js`, `sgd_sparse.js`, `classical_mds.js`, `kamada_kawai.js`, `stress_majorization.js`, `quality_metrics.js`, and `drawing_euclidean_2d.js` to use the specialized graph creation functions
+    - This change makes the code more modular, easier to maintain, and provides more explicit functions for creating specific graph structures
       - `verifyLayoutQuality` to check various quality aspects of layouts
       - `verifyLayoutImprovement` to compare layouts before and after algorithm application
       - `verifyNodePositions` to check if node positions match expected values

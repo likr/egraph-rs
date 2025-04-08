@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testStress = function () {
   // Create a path graph: node1 -- node2 -- node3 -- node4
-  const { graph, nodes } = helpers.createTestGraph("line", 4);
+  const { graph, nodes } = helpers.createLineGraph(4);
 
   // Create a drawing with specific positions
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -48,14 +48,14 @@ exports.testStress = function () {
  * Test the crossing number calculation in Euclidean 2D space
  */
 exports.testCrossingNumber = function () {
-  // Create a simple graph
-  const { graph, nodes } = helpers.createTestGraph(
-    "custom",
-    4,
-    (graph, nodes) => {
-      // No edges initially
-    }
-  );
+  // Create a simple graph with no edges initially
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 4; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -113,14 +113,14 @@ exports.testCrossingNumber = function () {
  * Test the crossing number calculation in torus 2D space
  */
 exports.testCrossingNumberWithDrawingTorus2d = function () {
-  // Create a simple graph
-  const { graph, nodes } = helpers.createTestGraph(
-    "custom",
-    4,
-    (graph, nodes) => {
-      // No edges initially
-    }
-  );
+  // Create a simple graph with no edges initially
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 4; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
 
   // Create a torus drawing
   const drawing = eg.DrawingTorus2d.initialPlacement(graph);
@@ -240,16 +240,23 @@ exports.testNeighborhoodPreservation = function () {
  */
 exports.testQualityMetricsIntegration = function () {
   // Create a more complex graph
-  const { graph } = helpers.createTestGraph("custom", 10, (graph, nodes) => {
-    // Create a path
-    for (let i = 0; i < 9; i++) {
-      graph.addEdge(nodes[i], nodes[i + 1], {});
-    }
-    // Add some cross edges
-    graph.addEdge(nodes[0], nodes[5], {});
-    graph.addEdge(nodes[2], nodes[7], {});
-    graph.addEdge(nodes[3], nodes[8], {});
-  });
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 10; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a path
+  for (let i = 0; i < 9; i++) {
+    graph.addEdge(nodes[i], nodes[i + 1], {});
+  }
+
+  // Add some cross edges
+  graph.addEdge(nodes[0], nodes[5], {});
+  graph.addEdge(nodes[2], nodes[7], {});
+  graph.addEdge(nodes[3], nodes[8], {});
 
   // Create a drawing with initial placement
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);

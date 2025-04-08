@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testKamadaKawaiConstructor = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a KamadaKawai instance with a simple distance function
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
@@ -24,7 +24,7 @@ exports.testKamadaKawaiConstructor = function () {
  */
 exports.testKamadaKawaiEpsilon = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a KamadaKawai instance
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
@@ -51,7 +51,7 @@ exports.testKamadaKawaiEpsilon = function () {
  */
 exports.testKamadaKawaiSelectNode = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a KamadaKawai instance
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
@@ -77,7 +77,7 @@ exports.testKamadaKawaiSelectNode = function () {
  */
 exports.testKamadaKawaiApplyToNode = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a KamadaKawai instance
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
@@ -114,7 +114,7 @@ exports.testKamadaKawaiApplyToNode = function () {
  */
 exports.testKamadaKawaiRun = function () {
   // Create a simple graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
@@ -143,16 +143,23 @@ exports.testKamadaKawaiRun = function () {
  */
 exports.testKamadaKawaiIntegration = function () {
   // Create a more complex graph
-  const { graph } = helpers.createTestGraph("custom", 10, (graph, nodes) => {
-    // Create a path
-    for (let i = 0; i < 9; i++) {
-      graph.addEdge(nodes[i], nodes[i + 1], {});
-    }
-    // Add some cross edges
-    graph.addEdge(nodes[0], nodes[5], {});
-    graph.addEdge(nodes[2], nodes[7], {});
-    graph.addEdge(nodes[3], nodes[8], {});
-  });
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 10; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a path
+  for (let i = 0; i < 9; i++) {
+    graph.addEdge(nodes[i], nodes[i + 1], {});
+  }
+
+  // Add some cross edges
+  graph.addEdge(nodes[0], nodes[5], {});
+  graph.addEdge(nodes[2], nodes[7], {});
+  graph.addEdge(nodes[3], nodes[8], {});
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);

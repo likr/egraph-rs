@@ -7,7 +7,7 @@ const helpers = require("./util/test_helpers");
  */
 exports.testFullSgdConstructor = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a FullSgd instance with a simple length function
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -21,7 +21,7 @@ exports.testFullSgdConstructor = function () {
  */
 exports.testFullSgdSchedulers = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -90,7 +90,7 @@ exports.testFullSgdSchedulers = function () {
  */
 exports.testFullSgdWithEuclidean2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -121,7 +121,7 @@ exports.testFullSgdWithEuclidean2d = function () {
  */
 exports.testFullSgdWithHyperbolic2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -155,7 +155,7 @@ exports.testFullSgdWithHyperbolic2d = function () {
  */
 exports.testFullSgdWithSpherical2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -192,7 +192,7 @@ exports.testFullSgdWithSpherical2d = function () {
  */
 exports.testFullSgdWithTorus2d = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -226,7 +226,7 @@ exports.testFullSgdWithTorus2d = function () {
  */
 exports.testFullSgdWithEuclidean = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -264,7 +264,7 @@ exports.testFullSgdWithEuclidean = function () {
  */
 exports.testFullSgdUpdateDistance = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -314,7 +314,7 @@ exports.testFullSgdUpdateDistance = function () {
  */
 exports.testFullSgdUpdateWeight = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 2);
+  const { graph } = helpers.createLineGraph(2);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -364,7 +364,7 @@ exports.testFullSgdUpdateWeight = function () {
  */
 exports.testFullSgdShuffle = function () {
   // Create a test graph
-  const { graph } = helpers.createTestGraph("line", 3);
+  const { graph } = helpers.createLineGraph(3);
 
   // Create a FullSgd instance
   const sgd = new eg.FullSgd(graph, () => 100);
@@ -418,20 +418,23 @@ exports.testFullSgdShuffle = function () {
  */
 exports.testFullSgdIntegration = function () {
   // Create a custom graph with cross edges
-  const { graph, nodes } = helpers.createTestGraph(
-    "custom",
-    10,
-    (graph, nodes) => {
-      // Create a path
-      for (let i = 0; i < 9; i++) {
-        graph.addEdge(nodes[i], nodes[i + 1], {});
-      }
-      // Add some cross edges
-      graph.addEdge(nodes[0], nodes[5], {});
-      graph.addEdge(nodes[2], nodes[7], {});
-      graph.addEdge(nodes[3], nodes[8], {});
-    }
-  );
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < 10; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create a path
+  for (let i = 0; i < 9; i++) {
+    graph.addEdge(nodes[i], nodes[i + 1], {});
+  }
+
+  // Add some cross edges
+  graph.addEdge(nodes[0], nodes[5], {});
+  graph.addEdge(nodes[2], nodes[7], {});
+  graph.addEdge(nodes[3], nodes[8], {});
 
   // Create a drawing
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
