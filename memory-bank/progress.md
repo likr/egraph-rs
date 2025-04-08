@@ -95,7 +95,7 @@
 
 - Python binding tests:
 
-  - 🔄 Planned: Create a comprehensive test helpers module in `crates/python/tests/test_helpers.py` with:
+  - 🔄 In progress: Create a comprehensive test helpers module in `crates/python/tests/test_helpers.py` with:
     - Graph creation helpers for different graph structures (line, cycle, complete, star, grid)
     - Position verification helpers for different geometric spaces
     - Layout quality verification helpers
@@ -109,9 +109,9 @@
     - `DrawingHyperbolic2d`
     - `DrawingSpherical2d`
     - `DrawingTorus2d`
-  - 🔄 Planned: Implement tests for Layout algorithms:
+  - 🔄 In progress: Implement tests for Layout algorithms:
     - `KamadaKawai`
-    - `StressMajorization`
+    - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
     - `OverwrapRemoval`
   - 🔄 Planned: Implement tests for Utility classes:
     - `Rng` (random number generation)

@@ -139,6 +139,50 @@ impl PyStressMajorization {
         self.stress_majorization
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
+
+    /// Gets the convergence threshold (epsilon)
+    ///
+    /// The algorithm stops when the relative change in stress falls below this threshold.
+    ///
+    /// # Returns
+    /// The current epsilon value
+    #[getter]
+    pub fn epsilon(&self) -> f32 {
+        self.stress_majorization.epsilon
+    }
+
+    /// Sets the convergence threshold (epsilon)
+    ///
+    /// A smaller value leads to more precise layouts but may require more iterations.
+    ///
+    /// # Parameters
+    /// * `value` - The new epsilon value
+    #[setter]
+    pub fn set_epsilon(&mut self, value: f32) {
+        self.stress_majorization.epsilon = value;
+    }
+
+    /// Gets the maximum number of iterations
+    ///
+    /// The algorithm will stop after this many iterations even if convergence is not reached.
+    ///
+    /// # Returns
+    /// The current maximum iterations value
+    #[getter]
+    pub fn max_iterations(&self) -> usize {
+        self.stress_majorization.max_iterations
+    }
+
+    /// Sets the maximum number of iterations
+    ///
+    /// A larger value allows more iterations for potentially better convergence.
+    ///
+    /// # Parameters
+    /// * `value` - The new maximum iterations value
+    #[setter]
+    pub fn set_max_iterations(&mut self, value: usize) {
+        self.stress_majorization.max_iterations = value;
+    }
 }
 
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {

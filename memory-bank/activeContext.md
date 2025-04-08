@@ -55,6 +55,23 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the StressMajorization class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_stress_majorization.py`) with tests for:
+    - Basic constructor tests
+    - Tests for creating a StressMajorization instance from a distance matrix
+    - Tests for applying a single iteration of the algorithm
+    - Tests for running the complete algorithm until convergence
+    - Tests for updating the weight matrix
+    - Tests with a larger graph (Les Miserables)
+    - Tests with custom distance functions
+    - Tests for the epsilon and max_iterations parameters
+  - Added getters and setters for the `epsilon` and `max_iterations` parameters to the Python bindings
+  - Fixed issues with the tests:
+    - Fixed the "Already borrowed" error by using a dictionary to store custom distances
+    - Fixed the floating-point comparison issue by using `assertAlmostEqual` with a delta
+  - Verified that all tests pass, ensuring that the StressMajorization algorithm works correctly in the Python bindings
+
 - Fixed the StressMajorization implementation to prevent infinite loops:
 
   - Added a public `max_iterations` field with a default value of 100 to limit the number of iterations
