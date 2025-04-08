@@ -55,6 +55,21 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the DrawingSpherical2d class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_drawing_spherical_2d.py`) with tests for:
+    - Constructor and basic instantiation
+    - Node coordinate operations (get/set longitude/latitude)
+    - Coordinate validation and range checking
+    - Spherical coordinates and conversion to 3D points
+    - Great circle distance calculations
+    - Integration with Graph class
+    - Testing with a large graph (Les Miserables)
+  - Addressed floating-point precision issues by using appropriate delta values for comparisons
+  - Modified tests for layout algorithms since KamadaKawai doesn't support spherical drawings directly
+  - Verified that all tests pass, ensuring that the DrawingSpherical2d class works correctly in the Python bindings
+  - Reused the test helpers module for spherical drawings, demonstrating the modularity of the test infrastructure
+
 - Implemented Python binding tests for the DrawingEuclidean2d class:
 
   - Created a comprehensive test helpers module (`crates/python/tests/test_helpers.py`) with utility functions for:
