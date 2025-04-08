@@ -10,7 +10,7 @@ exports.testStress = function () {
   const { graph, nodes } = helpers.createTestGraph("line", 4);
 
   // Create a drawing with specific positions
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set positions in a straight line with equal distances
   drawing.setX(0, 0.0);
@@ -58,7 +58,7 @@ exports.testCrossingNumber = function () {
   );
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set positions to create a layout with no edge crossings
   // node1 -- node2
@@ -123,7 +123,7 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
   );
 
   // Create a torus drawing
-  const drawing = helpers.createDrawing(graph, "torus2d");
+  const drawing = eg.DrawingTorus2d.initialPlacement(graph);
 
   // Set positions to create a layout with no edge crossings
   // node1 -- node2
@@ -185,7 +185,7 @@ exports.testNeighborhoodPreservation = function () {
   const { graph, nodes } = helpers.createStarGraph(5);
 
   // Create a drawing with optimal neighborhood preservation
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Place node1 at the center and other nodes around it
   drawing.setX(0, 0.0);
@@ -252,7 +252,7 @@ exports.testQualityMetricsIntegration = function () {
   });
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Calculate initial quality metrics
   const initialStress = eg.stress(graph, drawing);

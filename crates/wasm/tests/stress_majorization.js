@@ -10,7 +10,7 @@ exports.testStressMajorizationConstructor = function () {
   const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Create a StressMajorization instance with a simple distance function
   const layout = new eg.StressMajorization(graph, drawing, (e) => {
@@ -32,7 +32,7 @@ exports.testStressMajorizationApply = function () {
   const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a drawing with initial positions
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set specific positions for testing
   drawing.setX(0, 0.0);
@@ -131,7 +131,7 @@ exports.testStressMajorizationParameters = function () {
   const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Create a StressMajorization instance
   const layout = new eg.StressMajorization(graph, drawing, (e) => {
@@ -197,7 +197,7 @@ exports.testStressMajorizationIntegration = function () {
   });
 
   // Create a drawing with initial positions
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set specific positions instead of using random values
   let i = 0;

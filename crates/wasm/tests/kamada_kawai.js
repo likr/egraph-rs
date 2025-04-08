@@ -57,7 +57,7 @@ exports.testKamadaKawaiSelectNode = function () {
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Test node selection
   const selectedNode = layout.selectNode(drawing);
@@ -83,7 +83,7 @@ exports.testKamadaKawaiApplyToNode = function () {
   const layout = new eg.KamadaKawai(graph, () => ({ distance: 1.0 }));
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Record initial position of node 1
   const initialX = drawing.x(1);
@@ -117,7 +117,7 @@ exports.testKamadaKawaiRun = function () {
   const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Record initial positions
   const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
@@ -155,7 +155,7 @@ exports.testKamadaKawaiIntegration = function () {
   });
 
   // Create a drawing
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Custom distance function that uses node IDs
   const customDistanceFunc = (e) => {

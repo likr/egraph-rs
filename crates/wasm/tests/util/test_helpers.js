@@ -456,32 +456,6 @@ function createGridGraph(width = 3, height = 3) {
 }
 
 /**
- * Creates a drawing based on the graph and drawing type
- * @param {Object} graph - Graph object
- * @param {string} drawingType - Type of drawing: 'euclidean2d', 'spherical2d', 'hyperbolic2d', 'torus2d', or 'euclidean'
- * @param {number} dimensions - Number of dimensions for euclidean drawing (default: 2)
- * @returns {Object} Drawing object
- */
-function createDrawing(graph, drawingType = "euclidean2d", dimensions = 2) {
-  switch (drawingType.toLowerCase()) {
-    case "euclidean2d":
-      return eg.DrawingEuclidean2d.initialPlacement(graph);
-    case "spherical2d":
-      return eg.DrawingSpherical2d.initialPlacement(graph);
-    case "hyperbolic2d":
-      return eg.DrawingHyperbolic2d.initialPlacement(graph);
-    case "torus2d":
-      return eg.DrawingTorus2d.initialPlacement(graph);
-    case "euclidean":
-      // For n-dimensional Euclidean drawing, we need to use ClassicalMds
-      const mds = new eg.ClassicalMds(graph, () => 1.0);
-      return mds.run(dimensions);
-    default:
-      throw new Error(`Unknown drawing type: ${drawingType}`);
-  }
-}
-
-/**
  * Verifies layout quality using various metrics
  * @param {Object} graph - Graph object
  * @param {Object} drawing - Drawing object
@@ -632,7 +606,6 @@ module.exports = {
   createTestDiGraph,
   createStarGraph,
   createGridGraph,
-  createDrawing,
   verifyLayoutQuality,
   verifyLayoutImprovement,
   verifyNodePositions,

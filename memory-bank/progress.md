@@ -99,11 +99,11 @@
     - Layout quality helpers to verify that connected nodes are positioned closer together
     - Added additional helper functions:
       - `createStarGraph` and `createGridGraph` for more graph structure options
-      - `createDrawing` to simplify drawing creation based on graph and drawing type
       - `verifyLayoutQuality` to check various quality aspects of layouts
       - `verifyLayoutImprovement` to compare layouts before and after algorithm application
       - `verifyNodePositions` to check if node positions match expected values
-  - Removed the `applyLayout` function as it was not providing essential abstraction
+  - Removed the `applyLayout` and `createDrawing` functions as they were not providing essential abstraction
+  - Updated all test files that were using these functions to directly instantiate and use the appropriate classes
   - Updated all test files that were using this function to directly instantiate and use the appropriate layout algorithm classes
   - Fixed an issue in the `verifyNodePositions` function:
     - When using object keys with computed property names like `[node1]`, JavaScript converts numeric node indices to strings

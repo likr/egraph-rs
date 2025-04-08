@@ -10,7 +10,7 @@ exports.testDrawingEuclidean2dConstructor = function () {
   const { graph, nodes } = helpers.createTestGraph("line", 2);
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Verify that the DrawingEuclidean2d instance exists
   assert(
@@ -36,7 +36,7 @@ exports.testNodeCoordinates = function () {
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Verify initial coordinates are finite numbers
   helpers.verifyFiniteCoordinates2d(drawing, graph);
@@ -84,7 +84,7 @@ exports.testDrawingManipulation = function () {
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set specific coordinates for testing
   drawing.setX(node1, 10);
@@ -155,7 +155,7 @@ exports.testEdgeSegments = function () {
   const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Set specific coordinates for testing
   drawing.setX(node1, 0);
@@ -262,7 +262,7 @@ exports.testDrawingWithGraph = function () {
   );
 
   // Create a drawing with initial placement
-  const drawing = helpers.createDrawing(graph, "euclidean2d");
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Verify that the drawing has the correct number of nodes
   assert.strictEqual(

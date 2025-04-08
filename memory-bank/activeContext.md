@@ -55,6 +55,14 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Removed the `createDrawing` function from the WebAssembly binding test helpers:
+
+  - Identified that the `createDrawing` function was not providing essential abstraction, similar to the previously removed `applyLayout` function
+  - Updated all test files that were using this function (`quality_metrics.js`, `drawing_euclidean_2d.js`, `kamada_kawai.js`, and `stress_majorization.js`) to directly use the appropriate drawing initialization methods (e.g., `eg.DrawingEuclidean2d.initialPlacement(graph)`)
+  - This change makes the tests more explicit about how each drawing type should be created
+  - Improved the documentation value of the tests by showing direct API usage patterns
+  - Verified that all tests still pass after the changes
+
 - Fixed an issue in the WebAssembly binding tests where the `verifyNodePositions` function was failing:
 
   - Identified that when using object keys with computed property names like `[node1]`, JavaScript converts numeric node indices to strings
