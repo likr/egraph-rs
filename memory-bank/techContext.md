@@ -85,6 +85,19 @@ wasm-pack test --node crates/wasm --test <test-name>
 npm run wasm-build
 ```
 
+### Python Development
+
+```bash
+# Run all Python tests from project root
+cd crates/python && python -m unittest discover tests
+
+# Run specific Python test file
+cd crates/python && python -m unittest tests/test_<module>.py
+
+# Run specific test case
+cd crates/python && python -m unittest tests.test_<module>.TestClass.test_method
+```
+
 ### JavaScript/TypeScript Development
 
 ```bash

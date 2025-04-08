@@ -93,6 +93,32 @@
 
 ### Testing
 
+- Python binding tests:
+
+  - 🔄 Planned: Create a comprehensive test helpers module in `crates/python/tests/test_helpers.py` with:
+    - Graph creation helpers for different graph structures (line, cycle, complete, star, grid)
+    - Position verification helpers for different geometric spaces
+    - Layout quality verification helpers
+  - 🔄 Planned: Implement tests for Graph classes:
+    - Basic graph operations
+    - Node and edge management
+    - Traversal methods
+  - 🔄 Planned: Implement tests for Drawing implementations:
+    - `DrawingEuclidean2d`
+    - `DrawingEuclidean` (n-dimensional)
+    - `DrawingHyperbolic2d`
+    - `DrawingSpherical2d`
+    - `DrawingTorus2d`
+  - 🔄 Planned: Implement tests for Layout algorithms:
+    - `KamadaKawai`
+    - `StressMajorization`
+    - `OverwrapRemoval`
+  - 🔄 Planned: Implement tests for Utility classes:
+    - `Rng` (random number generation)
+    - `DistanceMatrix`
+  - 🔄 Planned: Ensure consistent test coverage between Python and WebAssembly bindings
+  - 🔄 Planned: Account for Python-specific API differences
+
 - WebAssembly binding tests:
   - ✅ Created a comprehensive test helpers module in `crates/wasm/tests/util/test_helpers.js` with:
     - Graph creation helpers for different graph structures (line, cycle, complete, etc.)
