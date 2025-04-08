@@ -117,7 +117,7 @@
   - 🔄 In progress: Implement tests for Layout algorithms:
     - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
-    - `OverwrapRemoval`
+    - ✅ `OverwrapRemoval` - Implemented comprehensive tests in `crates/python/tests/test_overwrap_removal.py`
   - 🔄 In progress: Implement tests for Utility classes:
     - ✅ `Rng` - Implemented comprehensive tests in `crates/python/tests/test_rng.py`
     - `DistanceMatrix`
