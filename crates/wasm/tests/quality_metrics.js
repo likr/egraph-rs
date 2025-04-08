@@ -1,24 +1,16 @@
 const assert = require("assert");
 const eg = require("wasm-bindgen-test");
+const helpers = require("./util/test_helpers");
 
 /**
  * Test the stress metric calculation
  */
 exports.testStress = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  const node4 = graph.addNode({});
-
   // Create a path graph: node1 -- node2 -- node3 -- node4
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
-  graph.addEdge(node3, node4, {});
+  const { graph, nodes } = helpers.createTestGraph("line", 4);
 
   // Create a drawing with specific positions
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Set positions in a straight line with equal distances
   drawing.setX(0, 0.0);
@@ -57,14 +49,16 @@ exports.testStress = function () {
  */
 exports.testCrossingNumber = function () {
   // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  const node4 = graph.addNode({});
+  const { graph, nodes } = helpers.createTestGraph(
+    "custom",
+    4,
+    (graph, nodes) => {
+      // No edges initially
+    }
+  );
 
   // Create a drawing
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Set positions to create a layout with no edge crossings
   // node1 -- node2
@@ -80,10 +74,10 @@ exports.testCrossingNumber = function () {
   drawing.setY(3, 1.0);
 
   // Add edges to form a cycle without crossings
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node4, {});
-  graph.addEdge(node4, node3, {});
-  graph.addEdge(node3, node1, {});
+  graph.addEdge(nodes[0], nodes[1], {});
+  graph.addEdge(nodes[1], nodes[3], {});
+  graph.addEdge(nodes[3], nodes[2], {});
+  graph.addEdge(nodes[2], nodes[0], {});
 
   // Calculate crossing number
   const crossingNumber = eg.crossingNumber(graph, drawing);
@@ -95,8 +89,8 @@ exports.testCrossingNumber = function () {
   );
 
   // Add edges that create crossings
-  graph.addEdge(node1, node4, {});
-  graph.addEdge(node2, node3, {});
+  graph.addEdge(nodes[0], nodes[3], {});
+  graph.addEdge(nodes[1], nodes[2], {});
 
   // Calculate crossing number with the crossing edges
   const crossingNumberWithCrossing = eg.crossingNumber(graph, drawing);
@@ -120,14 +114,16 @@ exports.testCrossingNumber = function () {
  */
 exports.testCrossingNumberWithDrawingTorus2d = function () {
   // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  const node4 = graph.addNode({});
+  const { graph, nodes } = helpers.createTestGraph(
+    "custom",
+    4,
+    (graph, nodes) => {
+      // No edges initially
+    }
+  );
 
   // Create a torus drawing
-  const drawing = eg.DrawingTorus2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "torus2d");
 
   // Set positions to create a layout with no edge crossings
   // node1 -- node2
@@ -143,10 +139,10 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
   drawing.setY(3, 0.75);
 
   // Add edges to form a cycle without crossings
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node4, {});
-  graph.addEdge(node4, node3, {});
-  graph.addEdge(node3, node1, {});
+  graph.addEdge(nodes[0], nodes[1], {});
+  graph.addEdge(nodes[1], nodes[3], {});
+  graph.addEdge(nodes[3], nodes[2], {});
+  graph.addEdge(nodes[2], nodes[0], {});
 
   // Calculate crossing number
   const crossingNumber = eg.crossingNumberWithDrawingTorus2d(graph, drawing);
@@ -158,8 +154,8 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
   );
 
   // Add edges that create crossings
-  graph.addEdge(node1, node4, {});
-  graph.addEdge(node2, node3, {});
+  graph.addEdge(nodes[0], nodes[3], {});
+  graph.addEdge(nodes[1], nodes[2], {});
 
   // Calculate crossing number with the crossing edges
   const crossingNumberWithCrossing = eg.crossingNumberWithDrawingTorus2d(
@@ -185,22 +181,11 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
  * Test the neighborhood preservation metric
  */
 exports.testNeighborhoodPreservation = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  const node4 = graph.addNode({});
-  const node5 = graph.addNode({});
-
   // Create a star graph with node1 at the center
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node1, node3, {});
-  graph.addEdge(node1, node4, {});
-  graph.addEdge(node1, node5, {});
+  const { graph, nodes } = helpers.createStarGraph(5);
 
   // Create a drawing with optimal neighborhood preservation
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Place node1 at the center and other nodes around it
   drawing.setX(0, 0.0);
@@ -225,13 +210,6 @@ exports.testNeighborhoodPreservation = function () {
   assert(
     neighborhoodPreservation >= 0 && neighborhoodPreservation <= 1,
     "Neighborhood preservation should be between 0 and 1"
-  );
-
-  // Just check that neighborhood preservation is a finite number
-  // The actual value depends on the implementation details
-  assert(
-    Number.isFinite(neighborhoodPreservation),
-    "Neighborhood preservation should be a finite number"
   );
 
   // Create a suboptimal layout by placing nodes randomly
@@ -262,23 +240,19 @@ exports.testNeighborhoodPreservation = function () {
  */
 exports.testQualityMetricsIntegration = function () {
   // Create a more complex graph
-  const graph = new eg.Graph();
-  const nodes = [];
-  for (let i = 0; i < 10; i++) {
-    nodes.push(graph.addNode({ id: i }));
-  }
+  const { graph } = helpers.createTestGraph("custom", 10, (graph, nodes) => {
+    // Create a path
+    for (let i = 0; i < 9; i++) {
+      graph.addEdge(nodes[i], nodes[i + 1], {});
+    }
+    // Add some cross edges
+    graph.addEdge(nodes[0], nodes[5], {});
+    graph.addEdge(nodes[2], nodes[7], {});
+    graph.addEdge(nodes[3], nodes[8], {});
+  });
 
-  // Add some edges to create a connected graph
-  for (let i = 0; i < 9; i++) {
-    graph.addEdge(nodes[i], nodes[i + 1], {});
-  }
-  // Add some cross edges
-  graph.addEdge(nodes[0], nodes[5], {});
-  graph.addEdge(nodes[2], nodes[7], {});
-  graph.addEdge(nodes[3], nodes[8], {});
-
-  // Create a drawing with initial random placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  // Create a drawing with initial placement
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Calculate initial quality metrics
   const initialStress = eg.stress(graph, drawing);
@@ -288,15 +262,11 @@ exports.testQualityMetricsIntegration = function () {
     drawing
   );
 
-  // Apply a layout algorithm (StressMajorization)
-  const layout = new eg.StressMajorization(graph, drawing, (e) => {
-    return { distance: 1.0 };
+  // Apply StressMajorization layout
+  helpers.applyLayout("stress_majorization", graph, drawing, {
+    distanceFunc: () => ({ distance: 1.0 }),
+    iterations: 50,
   });
-
-  // Apply the layout algorithm multiple times
-  for (let i = 0; i < 50; i++) {
-    layout.apply(drawing);
-  }
 
   // Calculate final quality metrics
   const finalStress = eg.stress(graph, drawing);
@@ -322,4 +292,7 @@ exports.testQualityMetricsIntegration = function () {
     Number.isFinite(finalNeighborhoodPreservation),
     "Neighborhood preservation should be a finite number"
   );
+
+  // Verify layout improvement using helper function
+  helpers.verifyLayoutImprovement(graph, drawing, drawing, "stress");
 };

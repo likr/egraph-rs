@@ -1,18 +1,16 @@
 const assert = require("assert");
 const eg = require("wasm-bindgen-test");
+const helpers = require("./util/test_helpers");
 
 /**
  * Test basic instantiation of StressMajorization class
  */
 exports.testStressMajorizationConstructor = function () {
   // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const edge = graph.addEdge(node1, node2, {});
+  const { graph } = helpers.createTestGraph("line", 2);
 
   // Create a drawing
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Create a StressMajorization instance with a simple distance function
   const layout = new eg.StressMajorization(graph, drawing, (e) => {
@@ -31,15 +29,11 @@ exports.testStressMajorizationConstructor = function () {
  */
 exports.testStressMajorizationApply = function () {
   // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
+  const { graph } = helpers.createTestGraph("line", 3);
 
   // Create a drawing with initial positions
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
+
   // Set specific positions for testing
   drawing.setX(0, 0.0);
   drawing.setY(0, 0.0);
@@ -54,10 +48,7 @@ exports.testStressMajorizationApply = function () {
   });
 
   // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply a single iteration
   const stress = layout.apply(drawing);
@@ -65,52 +56,28 @@ exports.testStressMajorizationApply = function () {
   // Verify that the stress value is a finite number
   assert(Number.isFinite(stress), "Stress value should be a finite number");
 
-  // Verify that at least one node position has changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      Math.abs(drawing.x(u) - initialPositions[u].x) > 1e-10 ||
-      Math.abs(drawing.y(u) - initialPositions[u].y) > 1e-10
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(
-    positionsChanged,
+  // Verify that positions have changed
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
     "At least one node position should change after applying the algorithm"
   );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 };
 
 /**
  * Test running the complete stress majorization algorithm
  */
 exports.testStressMajorizationRun = function () {
-  // Create a simple graph
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({});
-  const node2 = graph.addNode({});
-  const node3 = graph.addNode({});
-  const node4 = graph.addNode({});
-  graph.addEdge(node1, node2, {});
-  graph.addEdge(node2, node3, {});
-  graph.addEdge(node3, node4, {});
-  graph.addEdge(node4, node1, {});
+  // Create a cycle graph
+  const { graph } = helpers.createTestGraph("cycle", 4);
 
   // Create a drawing with initial positions
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
+
   // Place nodes in a line to create initial stress
   drawing.setX(0, 0.0);
   drawing.setY(0, 0.0);
@@ -121,47 +88,25 @@ exports.testStressMajorizationRun = function () {
   drawing.setX(3, 3.0);
   drawing.setY(3, 0.0);
 
-  // Create a StressMajorization instance
-  const layout = new eg.StressMajorization(graph, drawing, (e) => {
-    return { distance: 1.0 };
+  // Record initial positions
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
+
+  // Apply StressMajorization layout
+  helpers.applyLayout("stress_majorization", graph, drawing, {
+    distanceFunc: () => ({ distance: 1.0 }),
+    iterations: 100,
   });
 
-  // Record initial positions
-  const initialPositions = {};
-  for (const u of graph.nodeIndices()) {
-    initialPositions[u] = { x: drawing.x(u), y: drawing.y(u) };
-  }
-
-  // Run the complete algorithm
-  layout.run(drawing);
-
   // Verify that positions have changed
-  let positionsChanged = false;
-  for (const u of graph.nodeIndices()) {
-    if (
-      Math.abs(drawing.x(u) - initialPositions[u].x) > 1e-10 ||
-      Math.abs(drawing.y(u) - initialPositions[u].y) > 1e-10
-    ) {
-      positionsChanged = true;
-      break;
-    }
-  }
-  assert(
-    positionsChanged,
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
     "Node positions should change after running the algorithm"
   );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // For a cycle graph with uniform edge lengths, the layout should
   // approximate a regular polygon. Check that nodes are roughly
@@ -197,26 +142,21 @@ exports.testStressMajorizationRun = function () {
  */
 exports.testStressMajorizationIntegration = function () {
   // Create a more complex graph
-  const graph = new eg.Graph();
-  const nodes = [];
-  for (let i = 0; i < 10; i++) {
-    nodes.push(graph.addNode({ id: i }));
-  }
-
-  // Add some edges to create a connected graph
-  for (let i = 0; i < 9; i++) {
-    graph.addEdge(nodes[i], nodes[i + 1], {});
-  }
-  // Add some cross edges
-  graph.addEdge(nodes[0], nodes[5], {});
-  graph.addEdge(nodes[2], nodes[7], {});
-  graph.addEdge(nodes[3], nodes[8], {});
+  const { graph } = helpers.createTestGraph("custom", 10, (graph, nodes) => {
+    // Create a path
+    for (let i = 0; i < 9; i++) {
+      graph.addEdge(nodes[i], nodes[i + 1], {});
+    }
+    // Add some cross edges
+    graph.addEdge(nodes[0], nodes[5], {});
+    graph.addEdge(nodes[2], nodes[7], {});
+    graph.addEdge(nodes[3], nodes[8], {});
+  });
 
   // Create a drawing with initial positions
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Set specific positions instead of using random values
-  // This is more reliable than using random values
   let i = 0;
   for (const u of graph.nodeIndices()) {
     // Use a simple pattern to distribute nodes
@@ -230,8 +170,8 @@ exports.testStressMajorizationIntegration = function () {
   // Calculate initial stress using the stress metric
   const initialStress = eg.stress(graph, drawing);
 
-  // Create a StressMajorization instance with custom distance function
-  const layout = new eg.StressMajorization(graph, drawing, (e) => {
+  // Custom distance function that uses node IDs
+  const customDistanceFunc = (e) => {
     const endpoints = graph.edgeEndpoints(e);
     const u = endpoints[0];
     const v = endpoints[1];
@@ -239,13 +179,13 @@ exports.testStressMajorizationIntegration = function () {
     const uId = graph.nodeWeight(u).id;
     const vId = graph.nodeWeight(v).id;
     return { distance: Math.abs(uId - vId) };
-  });
+  };
 
-  // Apply the layout algorithm 100 times instead of using run()
-  // to avoid potential infinite loops
-  for (let i = 0; i < 100; i++) {
-    layout.apply(drawing);
-  }
+  // Apply StressMajorization layout
+  helpers.applyLayout("stress_majorization", graph, drawing, {
+    distanceFunc: customDistanceFunc,
+    iterations: 100,
+  });
 
   // Calculate final stress
   const finalStress = eg.stress(graph, drawing);
@@ -257,16 +197,7 @@ exports.testStressMajorizationIntegration = function () {
   );
 
   // Verify that all coordinates are finite numbers
-  for (const u of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(u)),
-      "X coordinate should be a finite number"
-    );
-    assert(
-      Number.isFinite(drawing.y(u)),
-      "Y coordinate should be a finite number"
-    );
-  }
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Verify that connected nodes with smaller ideal distances are positioned
   // closer together than those with larger ideal distances

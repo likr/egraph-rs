@@ -397,9 +397,362 @@ function runSchedulerStepByStep(scheduler, callback) {
   }
 }
 
+/**
+ * Creates a star graph with a central node connected to all other nodes
+ * @param {number} size - Number of nodes (including the central node)
+ * @returns {Object} Object containing graph and nodes array
+ */
+function createStarGraph(size = 5) {
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let i = 0; i < size; i++) {
+    nodes.push(graph.addNode({ id: i }));
+  }
+
+  // Create edges from central node (0) to all other nodes
+  for (let i = 1; i < size; i++) {
+    graph.addEdge(nodes[0], nodes[i], {});
+  }
+
+  return { graph, nodes };
+}
+
+/**
+ * Creates a grid graph with the specified width and height
+ * @param {number} width - Number of nodes in the horizontal direction
+ * @param {number} height - Number of nodes in the vertical direction
+ * @returns {Object} Object containing graph and nodes array (as a 2D array)
+ */
+function createGridGraph(width = 3, height = 3) {
+  const graph = new eg.Graph();
+  const nodes = [];
+
+  // Create nodes
+  for (let y = 0; y < height; y++) {
+    const row = [];
+    for (let x = 0; x < width; x++) {
+      row.push(graph.addNode({ id: y * width + x, x, y }));
+    }
+    nodes.push(row);
+  }
+
+  // Create horizontal edges
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      graph.addEdge(nodes[y][x], nodes[y][x + 1], {});
+    }
+  }
+
+  // Create vertical edges
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width; x++) {
+      graph.addEdge(nodes[y][x], nodes[y + 1][x], {});
+    }
+  }
+
+  return { graph, nodes };
+}
+
+/**
+ * Creates a drawing based on the graph and drawing type
+ * @param {Object} graph - Graph object
+ * @param {string} drawingType - Type of drawing: 'euclidean2d', 'spherical2d', 'hyperbolic2d', 'torus2d', or 'euclidean'
+ * @param {number} dimensions - Number of dimensions for euclidean drawing (default: 2)
+ * @returns {Object} Drawing object
+ */
+function createDrawing(graph, drawingType = "euclidean2d", dimensions = 2) {
+  switch (drawingType.toLowerCase()) {
+    case "euclidean2d":
+      return eg.DrawingEuclidean2d.initialPlacement(graph);
+    case "spherical2d":
+      return eg.DrawingSpherical2d.initialPlacement(graph);
+    case "hyperbolic2d":
+      return eg.DrawingHyperbolic2d.initialPlacement(graph);
+    case "torus2d":
+      return eg.DrawingTorus2d.initialPlacement(graph);
+    case "euclidean":
+      // For n-dimensional Euclidean drawing, we need to use ClassicalMds
+      const mds = new eg.ClassicalMds(graph, () => 1.0);
+      return mds.run(dimensions);
+    default:
+      throw new Error(`Unknown drawing type: ${drawingType}`);
+  }
+}
+
+/**
+ * Applies a layout algorithm to a drawing
+ * @param {string} layoutType - Type of layout algorithm: 'mds', 'kamada_kawai', 'stress_majorization', 'sgd_full', 'sgd_sparse'
+ * @param {Object} graph - Graph object
+ * @param {Object} drawing - Drawing object
+ * @param {Object} options - Options for the layout algorithm
+ * @returns {Object} The layout algorithm instance
+ */
+function applyLayout(layoutType, graph, drawing, options = {}) {
+  let layout;
+
+  switch (layoutType.toLowerCase()) {
+    case "mds":
+      layout = new eg.ClassicalMds(graph, options.lengthFunc || (() => 1.0));
+      if (options.dimensions === 2 || !options.dimensions) {
+        drawing = layout.run2d();
+      } else {
+        drawing = layout.run(options.dimensions);
+      }
+      break;
+
+    case "kamada_kawai":
+      layout = new eg.KamadaKawai(
+        graph,
+        options.distanceFunc || (() => ({ distance: 1.0 }))
+      );
+      if (options.epsilon) {
+        layout.eps = options.epsilon;
+      }
+      layout.run(drawing);
+      break;
+
+    case "stress_majorization":
+      layout = new eg.StressMajorization(
+        graph,
+        drawing,
+        options.distanceFunc || (() => ({ distance: 1.0 }))
+      );
+
+      // Apply the algorithm multiple times instead of using run()
+      // to avoid potential infinite loops
+      const iterations = options.iterations || 50;
+      for (let i = 0; i < iterations; i++) {
+        layout.apply(drawing);
+      }
+      break;
+
+    case "sgd_full":
+      layout = new eg.FullSgd(graph, options.lengthFunc || (() => 1.0));
+
+      const scheduler = layout.scheduler(
+        options.iterations || 100,
+        options.learningRate || 0.1
+      );
+
+      scheduler.run((eta) => {
+        if (options.rng) {
+          layout.shuffle(options.rng);
+        }
+
+        if (drawing instanceof eg.DrawingEuclidean2d) {
+          layout.applyWithDrawingEuclidean2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingSpherical2d) {
+          layout.applyWithDrawingSpherical2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingHyperbolic2d) {
+          layout.applyWithDrawingHyperbolic2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingTorus2d) {
+          layout.applyWithDrawingTorus2d(drawing, eta);
+        } else {
+          layout.applyWithDrawingEuclidean(drawing, eta);
+        }
+      });
+      break;
+
+    case "sgd_sparse":
+      const rng = options.rng || new eg.Rng();
+      const pivots = options.pivots || 2;
+
+      layout = new eg.SparseSgd(
+        graph,
+        options.lengthFunc || (() => 1.0),
+        pivots,
+        rng
+      );
+
+      const sparseScheduler = layout.scheduler(
+        options.iterations || 100,
+        options.learningRate || 0.1
+      );
+
+      sparseScheduler.run((eta) => {
+        if (options.rng) {
+          layout.shuffle(options.rng);
+        }
+
+        if (drawing instanceof eg.DrawingEuclidean2d) {
+          layout.applyWithDrawingEuclidean2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingSpherical2d) {
+          layout.applyWithDrawingSpherical2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingHyperbolic2d) {
+          layout.applyWithDrawingHyperbolic2d(drawing, eta);
+        } else if (drawing instanceof eg.DrawingTorus2d) {
+          layout.applyWithDrawingTorus2d(drawing, eta);
+        } else {
+          layout.applyWithDrawingEuclidean(drawing, eta);
+        }
+      });
+      break;
+
+    default:
+      throw new Error(`Unknown layout type: ${layoutType}`);
+  }
+
+  return { layout, drawing };
+}
+
+/**
+ * Verifies layout quality using various metrics
+ * @param {Object} graph - Graph object
+ * @param {Object} drawing - Drawing object
+ * @param {Object} options - Options for verification
+ */
+function verifyLayoutQuality(graph, drawing, options = {}) {
+  // Verify that all coordinates are finite numbers
+  if (
+    drawing instanceof eg.DrawingEuclidean2d ||
+    drawing instanceof eg.DrawingTorus2d ||
+    drawing instanceof eg.DrawingHyperbolic2d
+  ) {
+    verifyFiniteCoordinates2d(drawing, graph);
+  } else if (drawing instanceof eg.DrawingSpherical2d) {
+    verifyFiniteSphericalCoordinates(drawing, graph);
+  } else if (drawing instanceof eg.DrawingEuclidean) {
+    const dimensions = options.dimensions || 3;
+    verifyFiniteCoordinatesNd(drawing, graph, dimensions);
+  }
+
+  // Verify that connected nodes are positioned closer together
+  if (
+    drawing instanceof eg.DrawingEuclidean2d &&
+    options.verifyConnectedNodesCloser !== false
+  ) {
+    verifyConnectedNodesCloser(graph, drawing);
+  }
+
+  // Verify specific drawing constraints
+  if (drawing instanceof eg.DrawingTorus2d) {
+    verifyTorusCoordinateRange(drawing, graph);
+  } else if (drawing instanceof eg.DrawingHyperbolic2d) {
+    verifyHyperbolicCoordinateRange(drawing, graph);
+  } else if (drawing instanceof eg.DrawingSpherical2d) {
+    verifySphericalCoordinateRange(drawing, graph);
+  }
+
+  // Calculate stress if requested
+  if (options.calculateStress) {
+    const stress = eg.stress(graph, drawing);
+    assert(Number.isFinite(stress), "Stress should be a finite number");
+    return { stress };
+  }
+
+  return {};
+}
+
+/**
+ * Verifies that layout quality has improved
+ * @param {Object} graph - Graph object
+ * @param {Object} beforeDrawing - Drawing before layout application
+ * @param {Object} afterDrawing - Drawing after layout application
+ * @param {string} metric - Metric to use for comparison: 'stress', 'crossing_number', 'neighborhood_preservation'
+ * @returns {Object} Object containing before and after metric values
+ */
+function verifyLayoutImprovement(
+  graph,
+  beforeDrawing,
+  afterDrawing,
+  metric = "stress"
+) {
+  let beforeValue, afterValue;
+
+  switch (metric.toLowerCase()) {
+    case "stress":
+      beforeValue = eg.stress(graph, beforeDrawing);
+      afterValue = eg.stress(graph, afterDrawing);
+      assert(
+        afterValue <= beforeValue,
+        `Stress should be reduced or equal after layout (before: ${beforeValue}, after: ${afterValue})`
+      );
+      break;
+
+    case "crossing_number":
+      if (beforeDrawing instanceof eg.DrawingTorus2d) {
+        beforeValue = eg.crossingNumberWithDrawingTorus2d(graph, beforeDrawing);
+        afterValue = eg.crossingNumberWithDrawingTorus2d(graph, afterDrawing);
+      } else {
+        beforeValue = eg.crossingNumber(graph, beforeDrawing);
+        afterValue = eg.crossingNumber(graph, afterDrawing);
+      }
+      // We don't assert improvement here as some layouts might increase crossings
+      // while optimizing for other metrics
+      break;
+
+    case "neighborhood_preservation":
+      beforeValue = eg.neighborhoodPreservation(graph, beforeDrawing);
+      afterValue = eg.neighborhoodPreservation(graph, afterDrawing);
+      assert(
+        afterValue >= beforeValue,
+        `Neighborhood preservation should be improved or equal after layout (before: ${beforeValue}, after: ${afterValue})`
+      );
+      break;
+
+    default:
+      throw new Error(`Unknown metric: ${metric}`);
+  }
+
+  return { beforeValue, afterValue };
+}
+
+/**
+ * Verifies that node positions match expected positions within tolerance
+ * @param {Object} drawing - Drawing object
+ * @param {Object} expectedPositions - Expected positions object mapping node indices to position objects
+ * @param {number} tolerance - Tolerance for position comparison
+ */
+function verifyNodePositions(drawing, expectedPositions, tolerance = 0.001) {
+  for (const [nodeIndexStr, position] of Object.entries(expectedPositions)) {
+    // Convert string key back to number
+    const nodeIndex = Number(nodeIndexStr);
+
+    if (
+      drawing instanceof eg.DrawingEuclidean2d ||
+      drawing instanceof eg.DrawingTorus2d ||
+      drawing instanceof eg.DrawingHyperbolic2d
+    ) {
+      assert(
+        Math.abs(drawing.x(nodeIndex) - position.x) < tolerance,
+        `Node ${nodeIndex} X coordinate should match expected value`
+      );
+      assert(
+        Math.abs(drawing.y(nodeIndex) - position.y) < tolerance,
+        `Node ${nodeIndex} Y coordinate should match expected value`
+      );
+    } else if (drawing instanceof eg.DrawingSpherical2d) {
+      assert(
+        Math.abs(drawing.lon(nodeIndex) - position.lon) < tolerance,
+        `Node ${nodeIndex} longitude should match expected value`
+      );
+      assert(
+        Math.abs(drawing.lat(nodeIndex) - position.lat) < tolerance,
+        `Node ${nodeIndex} latitude should match expected value`
+      );
+    } else if (drawing instanceof eg.DrawingEuclidean) {
+      for (let d = 0; d < position.length; d++) {
+        assert(
+          Math.abs(drawing.get(nodeIndex, d) - position[d]) < tolerance,
+          `Node ${nodeIndex} coordinate at dimension ${d} should match expected value`
+        );
+      }
+    }
+  }
+}
+
 module.exports = {
   createTestGraph,
   createTestDiGraph,
+  createStarGraph,
+  createGridGraph,
+  createDrawing,
+  applyLayout,
+  verifyLayoutQuality,
+  verifyLayoutImprovement,
+  verifyNodePositions,
   recordInitialPositions2d,
   recordInitialSphericalPositions,
   recordInitialPositionsNd,

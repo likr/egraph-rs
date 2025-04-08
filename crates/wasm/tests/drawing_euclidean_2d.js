@@ -1,18 +1,16 @@
 const assert = require("assert");
 const eg = require("wasm-bindgen-test");
+const helpers = require("./util/test_helpers");
 
 /**
  * Test basic instantiation of DrawingEuclidean2d class
  */
 exports.testDrawingEuclidean2dConstructor = function () {
   // Create a simple graph for the drawing
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({ id: 1 });
-  const node2 = graph.addNode({ id: 2 });
-  graph.addEdge(node1, node2, {});
+  const { graph, nodes } = helpers.createTestGraph("line", 2);
 
   // Create a drawing with initial placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Verify that the DrawingEuclidean2d instance exists
   assert(
@@ -34,31 +32,14 @@ exports.testDrawingEuclidean2dConstructor = function () {
  */
 exports.testNodeCoordinates = function () {
   // Create a simple graph for the drawing
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({ id: 1 });
-  const node2 = graph.addNode({ id: 2 });
-  graph.addEdge(node1, node2, {});
+  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Verify initial coordinates are finite numbers
-  assert(
-    Number.isFinite(drawing.x(node1)),
-    "Initial x coordinate should be a finite number"
-  );
-  assert(
-    Number.isFinite(drawing.y(node1)),
-    "Initial y coordinate should be a finite number"
-  );
-  assert(
-    Number.isFinite(drawing.x(node2)),
-    "Initial x coordinate should be a finite number"
-  );
-  assert(
-    Number.isFinite(drawing.y(node2)),
-    "Initial y coordinate should be a finite number"
-  );
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Test setting coordinates
   const newX1 = 10.5;
@@ -99,13 +80,11 @@ exports.testNodeCoordinates = function () {
  */
 exports.testDrawingManipulation = function () {
   // Create a simple graph for the drawing
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({ id: 1 });
-  const node2 = graph.addNode({ id: 2 });
-  graph.addEdge(node1, node2, {});
+  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Set specific coordinates for testing
   drawing.setX(node1, 10);
@@ -124,22 +103,14 @@ exports.testDrawingManipulation = function () {
   const expectedX2 = 10;
   const expectedY2 = 10;
 
-  // Allow for small floating-point differences
-  assert(
-    Math.abs(drawing.x(node1) - expectedX1) < 0.001,
-    "Node1 X coordinate should be centralized"
-  );
-  assert(
-    Math.abs(drawing.y(node1) - expectedY1) < 0.001,
-    "Node1 Y coordinate should be centralized"
-  );
-  assert(
-    Math.abs(drawing.x(node2) - expectedX2) < 0.001,
-    "Node2 X coordinate should be centralized"
-  );
-  assert(
-    Math.abs(drawing.y(node2) - expectedY2) < 0.001,
-    "Node2 Y coordinate should be centralized"
+  // Verify node positions match expected values
+  helpers.verifyNodePositions(
+    drawing,
+    {
+      [node1]: { x: expectedX1, y: expectedY1 },
+      [node2]: { x: expectedX2, y: expectedY2 },
+    },
+    0.001
   );
 
   // Test clamp_region
@@ -180,13 +151,11 @@ exports.testDrawingManipulation = function () {
  */
 exports.testEdgeSegments = function () {
   // Create a simple graph for the drawing
-  const graph = new eg.Graph();
-  const node1 = graph.addNode({ id: 1 });
-  const node2 = graph.addNode({ id: 2 });
-  graph.addEdge(node1, node2, {});
+  const { graph, nodes } = helpers.createTestGraph("line", 2);
+  const [node1, node2] = nodes;
 
   // Create a drawing with initial placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Set specific coordinates for testing
   drawing.setX(node1, 0);
@@ -272,28 +241,28 @@ exports.testEdgeSegments = function () {
  * Test integration with Graph class
  */
 exports.testDrawingWithGraph = function () {
-  // Create a more complex graph
-  const graph = new eg.Graph();
-  const nodes = [];
-  for (let i = 0; i < 5; i++) {
-    nodes.push(graph.addNode({ id: i }));
-  }
-
-  // Create a simple graph structure
-  //    0
-  //   / \
-  //  1---2
-  //  |   |
-  //  3---4
-  graph.addEdge(nodes[0], nodes[1], {});
-  graph.addEdge(nodes[0], nodes[2], {});
-  graph.addEdge(nodes[1], nodes[2], {});
-  graph.addEdge(nodes[1], nodes[3], {});
-  graph.addEdge(nodes[2], nodes[4], {});
-  graph.addEdge(nodes[3], nodes[4], {});
+  // Create a more complex graph with a specific structure
+  const { graph, nodes } = helpers.createTestGraph(
+    "custom",
+    5,
+    (graph, nodes) => {
+      // Create a simple graph structure
+      //    0
+      //   / \
+      //  1---2
+      //  |   |
+      //  3---4
+      graph.addEdge(nodes[0], nodes[1], {});
+      graph.addEdge(nodes[0], nodes[2], {});
+      graph.addEdge(nodes[1], nodes[2], {});
+      graph.addEdge(nodes[1], nodes[3], {});
+      graph.addEdge(nodes[2], nodes[4], {});
+      graph.addEdge(nodes[3], nodes[4], {});
+    }
+  );
 
   // Create a drawing with initial placement
-  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const drawing = helpers.createDrawing(graph, "euclidean2d");
 
   // Verify that the drawing has the correct number of nodes
   assert.strictEqual(
@@ -302,17 +271,8 @@ exports.testDrawingWithGraph = function () {
     "Drawing should have the same number of nodes as the graph"
   );
 
-  // Verify all nodes have coordinates
-  for (const nodeIndex of graph.nodeIndices()) {
-    assert(
-      Number.isFinite(drawing.x(nodeIndex)),
-      `Node ${nodeIndex} should have a valid x coordinate`
-    );
-    assert(
-      Number.isFinite(drawing.y(nodeIndex)),
-      `Node ${nodeIndex} should have a valid y coordinate`
-    );
-  }
+  // Verify all nodes have valid coordinates
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
 
   // Test edge segments for all edges
   for (const edgeIndex of graph.edgeIndices()) {
@@ -324,11 +284,23 @@ exports.testDrawingWithGraph = function () {
     );
   }
 
-  // Test with a layout algorithm (if available)
-  // Note: This is just a placeholder. In a real test, you would use an actual layout algorithm.
-  // For example:
-  // const layout = new eg.KamadaKawai(graph);
-  // layout.run(drawing);
-  //
-  // Then verify that the drawing has been updated with new coordinates.
+  // Test with a layout algorithm
+  const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
+
+  // Apply Kamada-Kawai layout
+  helpers.applyLayout("kamada_kawai", graph, drawing, {
+    distanceFunc: () => ({ distance: 1.0 }),
+    epsilon: 0.01,
+  });
+
+  // Verify that positions have changed
+  helpers.verifyPositionsChanged2d(
+    drawing,
+    graph,
+    initialPositions,
+    "Layout algorithm should change node positions"
+  );
+
+  // Verify layout quality
+  helpers.verifyLayoutQuality(graph, drawing);
 };

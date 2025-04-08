@@ -97,9 +97,26 @@
     - Verification helpers for position changes, coordinate validity, and geometric constraints
     - RNG helpers for creating seeded random number generators
     - Layout quality helpers to verify that connected nodes are positioned closer together
-  - Refactored SGD tests to use the new helper functions:
+    - Added additional helper functions:
+      - `createStarGraph` and `createGridGraph` for more graph structure options
+      - `createDrawing` to simplify drawing creation based on graph and drawing type
+      - `applyLayout` to standardize layout algorithm application
+      - `verifyLayoutQuality` to check various quality aspects of layouts
+      - `verifyLayoutImprovement` to compare layouts before and after algorithm application
+      - `verifyNodePositions` to check if node positions match expected values
+  - Fixed an issue in the `verifyNodePositions` function:
+    - When using object keys with computed property names like `[node1]`, JavaScript converts numeric node indices to strings
+    - The drawing methods like `drawing.x()` expect numeric arguments, not strings
+    - Fixed by converting the string node index back to a number using `Number(nodeIndexStr)` before passing it to the drawing methods
+    - All tests are now passing (with one test intentionally ignored)
+  - Refactored tests to use the helper functions:
     - Updated `sgd_full.js` to use the helper functions for all tests
     - Updated `sgd_sparse.js` to use the helper functions for all tests
+    - Updated `classical_mds.js` to use the helper functions
+    - Updated `kamada_kawai.js` to use the helper functions
+    - Updated `stress_majorization.js` to use the helper functions
+    - Updated `drawing_euclidean_2d.js` to use the helper functions
+    - Updated `quality_metrics.js` to use the helper functions
   - Fixed an issue where helper functions were assuming drawings had graph references
     - Modified helpers to take explicit graph parameters
   - Implemented dedicated test files for the `Rng` class (`tests/rng.rs` and `tests/rng.js`)
