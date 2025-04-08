@@ -118,8 +118,8 @@
     - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
     - `OverwrapRemoval`
-  - 🔄 Planned: Implement tests for Utility classes:
-    - `Rng` (random number generation)
+  - 🔄 In progress: Implement tests for Utility classes:
+    - ✅ `Rng` - Implemented comprehensive tests in `crates/python/tests/test_rng.py`
     - `DistanceMatrix`
   - 🔄 Planned: Ensure consistent test coverage between Python and WebAssembly bindings
   - 🔄 Planned: Account for Python-specific API differences

@@ -55,6 +55,19 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the Rng class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_rng.py`) with tests for:
+    - Basic constructor tests (default and seed-based)
+    - Deterministic behavior with the same seed
+    - Different results with different seeds
+    - Multiple shuffles with the same RNG
+    - Integration with layout algorithms (SGD and MDS)
+    - Extreme seed values (0 and 2^64-1)
+  - Verified that the Rng class works correctly through integration with layout algorithms
+  - Ensured that the tests validate both the basic functionality and the integration aspects
+  - All tests pass successfully, confirming the correct behavior of the Rng class
+
 - Documented node/edge removal behavior in petgraph:
 
   - Added detailed comments in both `test_graph.py` and `test_digraph.py` explaining the expected behavior:
