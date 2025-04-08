@@ -110,7 +110,7 @@
     - `DrawingSpherical2d`
     - `DrawingTorus2d`
   - 🔄 In progress: Implement tests for Layout algorithms:
-    - `KamadaKawai`
+    - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
     - `OverwrapRemoval`
   - 🔄 Planned: Implement tests for Utility classes:

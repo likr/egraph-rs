@@ -55,6 +55,20 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the KamadaKawai class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_kamada_kawai.py`) with tests for:
+    - Basic constructor tests
+    - Tests for the eps parameter getter and setter
+    - Tests for node selection functionality
+    - Tests for applying the algorithm to a single node
+    - Tests for running the complete algorithm
+    - Tests with a larger graph (Les Miserables)
+    - Tests with custom distance functions
+  - Fixed issues with the tests:
+    - Fixed the floating-point comparison issue by using `assertAlmostEqual` with an appropriate delta
+  - Verified that all tests pass, ensuring that the KamadaKawai algorithm works correctly in the Python bindings
+
 - Implemented Python binding tests for the StressMajorization class:
 
   - Created a comprehensive test file (`crates/python/tests/test_stress_majorization.py`) with tests for:
