@@ -95,16 +95,18 @@
 
 - Python binding tests:
 
-  - 🔄 In progress: Create a comprehensive test helpers module in `crates/python/tests/test_helpers.py` with:
+  - ✅ Created a comprehensive test helpers module in `crates/python/tests/test_helpers.py` with:
     - Graph creation helpers for different graph structures (line, cycle, complete, star, grid)
     - Position verification helpers for different geometric spaces
     - Layout quality verification helpers
+    - Functions for recording and comparing node positions
+    - Functions for calculating layout energy
   - 🔄 Planned: Implement tests for Graph classes:
     - Basic graph operations
     - Node and edge management
     - Traversal methods
-  - 🔄 Planned: Implement tests for Drawing implementations:
-    - `DrawingEuclidean2d`
+  - 🔄 In progress: Implement tests for Drawing implementations:
+    - ✅ `DrawingEuclidean2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean_2d.py`
     - `DrawingEuclidean` (n-dimensional)
     - `DrawingHyperbolic2d`
     - `DrawingSpherical2d`

@@ -55,6 +55,24 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the DrawingEuclidean2d class:
+
+  - Created a comprehensive test helpers module (`crates/python/tests/test_helpers.py`) with utility functions for:
+    - Creating different graph structures (line, cycle, complete, star, grid)
+    - Verifying drawing coordinates
+    - Recording and comparing node positions
+    - Calculating layout energy
+    - Verifying layout quality
+  - Created a comprehensive test file (`crates/python/tests/test_drawing_euclidean_2d.py`) with tests for:
+    - Constructor and basic instantiation
+    - Node coordinate operations (get/set x,y)
+    - Drawing manipulation (centralize, clamp_region)
+    - Edge segment representation
+    - Integration with Graph class
+    - Testing with a large graph (Les Miserables)
+  - Verified that all tests pass, ensuring that the DrawingEuclidean2d class works correctly in the Python bindings
+  - The test helpers module can be reused for implementing tests for other drawing implementations in the future
+
 - Implemented Python binding tests for the KamadaKawai class:
 
   - Created a comprehensive test file (`crates/python/tests/test_kamada_kawai.py`) with tests for:
