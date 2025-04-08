@@ -55,6 +55,23 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Python binding tests for the DrawingEuclidean (n-dimensional) class:
+
+  - Created a comprehensive test file (`crates/python/tests/test_drawing_euclidean.py`) with tests for:
+    - Constructor tests for 3D and higher dimensions (4D, 5D, 10D)
+    - Node coordinate operations (get/set) in different dimensions
+    - Testing with higher dimensions (5D and 10D)
+    - Integration with Graph class
+    - Testing with ClassicalMds layout algorithm
+    - Testing with a large graph (Les Miserables)
+    - Coordinate validation with extreme values (infinity, very large numbers, etc.)
+  - Addressed implementation challenges:
+    - Handled the fact that DrawingEuclidean doesn't have a `len()` method like DrawingEuclidean2d
+    - Documented that adding a node to the graph after creating the drawing doesn't automatically add the node to the drawing's internal data structure
+    - Handled floating-point precision issues with appropriate delta values for comparisons
+  - Verified that all tests pass, ensuring that the DrawingEuclidean class works correctly in the Python bindings
+  - The tests follow the same pattern as the existing tests for other drawing implementations, ensuring consistency across the codebase
+
 - Implemented Python binding tests for the Rng class:
 
   - Created a comprehensive test file (`crates/python/tests/test_rng.py`) with tests for:
@@ -374,17 +391,17 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
      - NetworkX conversion
      - Large graph handling
    - Implement tests for Drawing implementations:
-     - `DrawingEuclidean2d`
-     - `DrawingEuclidean` (n-dimensional)
-     - `DrawingHyperbolic2d`
-     - `DrawingSpherical2d`
-     - `DrawingTorus2d`
+     - ✅ `DrawingEuclidean2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean_2d.py`
+     - ✅ `DrawingEuclidean` (n-dimensional) - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean.py`
+     - ✅ `DrawingHyperbolic2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_hyperbolic_2d.py`
+     - ✅ `DrawingSpherical2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_spherical_2d.py`
+     - ✅ `DrawingTorus2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_torus_2d.py`
    - Implement tests for Layout algorithms:
-     - `KamadaKawai`
-     - `StressMajorization`
+     - ✅ `KamadaKawai` - Implemented comprehensive tests in `crates/python/tests/test_kamada_kawai.py`
+     - ✅ `StressMajorization` - Implemented comprehensive tests in `crates/python/tests/test_stress_majorization.py`
      - `OverwrapRemoval`
    - Implement tests for Utility classes:
-     - `Rng` (random number generation)
+     - ✅ `Rng` (random number generation) - Implemented comprehensive tests in `crates/python/tests/test_rng.py`
      - `DistanceMatrix`
    - Ensure consistent test coverage between Python and WebAssembly bindings
    - Account for Python-specific API differences

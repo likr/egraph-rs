@@ -110,7 +110,7 @@
     - Large graph handling (Les Miserables dataset)
   - 🔄 In progress: Implement tests for Drawing implementations:
     - ✅ `DrawingEuclidean2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean_2d.py`
-    - `DrawingEuclidean` (n-dimensional)
+    - ✅ `DrawingEuclidean` (n-dimensional) - Implemented comprehensive tests in `crates/python/tests/test_drawing_euclidean.py`
     - ✅ `DrawingHyperbolic2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_hyperbolic_2d.py`
     - ✅ `DrawingSpherical2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_spherical_2d.py`
     - ✅ `DrawingTorus2d` - Implemented comprehensive tests in `crates/python/tests/test_drawing_torus_2d.py`
