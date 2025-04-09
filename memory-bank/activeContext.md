@@ -393,17 +393,15 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
-- Updated Rust toolchain configuration for Python bindings documentation:
+- Updated Netlify build configuration for Python bindings documentation:
 
-  - Replaced the legacy format `rust-toolchain` file with a TOML-formatted `rust-toolchain.toml` file
-  - Set the channel to "stable" in the new file using the proper TOML format:
-    ```toml
-    [toolchain]
-    channel = "stable"
-    ```
-  - This change follows the recommended approach in the Rust documentation for specifying a toolchain
-  - The new configuration ensures that Netlify correctly uses the stable Rust toolchain when building the Python bindings documentation
-  - This works alongside the existing Netlify configuration in `netlify.toml`, the Python version in `runtime.txt`, and the dependencies in `requirements.txt`
+  - Modified the Netlify build command in `netlify.toml` to explicitly install the stable Rust toolchain:
+    - Previous command: `pip install .. && make html`
+    - New command: `rustup toolchain install stable && pip install .. && make html`
+  - Removed the `rust-toolchain.toml` file that previously specified the stable channel
+  - This change moves from a declarative approach (using rust-toolchain.toml) to an imperative approach (explicitly installing the toolchain during the build process)
+  - This ensures that Netlify will have the correct Rust toolchain available when building the Python documentation
+  - The explicit installation approach provides more direct control over the build environment
 
 - Set up Netlify hosting for Python bindings documentation:
 
