@@ -41,12 +41,12 @@ impl PyKamadaKawai {
     /// This constructor initializes a Kamada-Kawai layout algorithm using a graph
     /// and a function that provides edge weights.
     ///
-    /// # Parameters
-    /// * `graph` - The graph to layout
-    /// * `f` - A Python function that takes an edge index and returns its weight
-    ///
-    /// # Returns
-    /// A new KamadaKawai instance
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :return: A new KamadaKawai instance
+    /// :rtype: KamadaKawai
     #[new]
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyKamadaKawai {
         PyKamadaKawai {
@@ -65,12 +65,10 @@ impl PyKamadaKawai {
     /// by finding the one with the largest energy gradient. The node with the largest
     /// gradient is the one that, when moved, will reduce the overall energy the most.
     ///
-    /// # Parameters
-    /// * `drawing` - The current drawing of the graph
-    ///
-    /// # Returns
-    /// The index of the selected node if any node has a gradient larger than eps,
-    /// None otherwise
+    /// :param drawing: The current drawing of the graph
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: The index of the selected node if any node has a gradient larger than eps, None otherwise
+    /// :rtype: int or None
     fn select_node(&self, drawing: &PyDrawingEuclidean2d) -> Option<usize> {
         self.kamada_kawai.select_node(drawing.drawing())
     }
@@ -80,9 +78,12 @@ impl PyKamadaKawai {
     /// This method moves a specified node to reduce the energy of the layout,
     /// while keeping all other nodes fixed.
     ///
-    /// # Parameters
-    /// * `m` - The index of the node to optimize
-    /// * `drawing` - The drawing to modify
+    /// :param m: The index of the node to optimize
+    /// :type m: int
+    /// :param drawing: The drawing to modify
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: None
+    /// :rtype: None
     fn apply_to_node(&self, m: usize, drawing: &mut PyDrawingEuclidean2d) {
         self.kamada_kawai.apply_to_node(m, drawing.drawing_mut())
     }
@@ -92,8 +93,10 @@ impl PyKamadaKawai {
     /// This method repeatedly selects the node with the largest energy gradient
     /// and optimizes its position until all nodes have gradients smaller than eps.
     ///
-    /// # Parameters
-    /// * `drawing` - The drawing to optimize
+    /// :param drawing: The drawing to optimize
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: None
+    /// :rtype: None
     fn run(&self, drawing: &mut PyDrawingEuclidean2d) {
         self.kamada_kawai.run(drawing.drawing_mut())
     }
@@ -103,8 +106,8 @@ impl PyKamadaKawai {
     /// The eps parameter determines when the algorithm stops. When all nodes
     /// have energy gradients smaller than eps, the layout is considered converged.
     ///
-    /// # Returns
-    /// The current convergence threshold
+    /// :return: The current convergence threshold
+    /// :rtype: float
     #[getter]
     fn eps(&self) -> f32 {
         self.kamada_kawai.eps
@@ -112,8 +115,10 @@ impl PyKamadaKawai {
 
     /// Sets the convergence threshold for the algorithm
     ///
-    /// # Parameters
-    /// * `value` - The new convergence threshold
+    /// :param value: The new convergence threshold
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_eps(&mut self, value: f32) {
         self.kamada_kawai.eps = value;

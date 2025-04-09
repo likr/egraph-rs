@@ -12,12 +12,12 @@ use pyo3::prelude::*;
 /// (not their weights), and then multiplies each path length by the unit edge length.
 /// It's suitable for unweighted graphs or when all edges have the same weight.
 ///
-/// # Parameters
-/// * `graph` - The graph to compute paths for
-/// * `unit_edge_length` - The length to assign to each edge
-///
-/// # Returns
-/// A distance matrix containing the shortest path distances between all pairs of nodes
+/// :param graph: The graph to compute paths for
+/// :type graph: Graph or DiGraph
+/// :param unit_edge_length: The length to assign to each edge
+/// :type unit_edge_length: float
+/// :return: A distance matrix containing the shortest path distances between all pairs of nodes
+/// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "all_sources_bfs")]
 fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: f32) -> PyDistanceMatrix {
@@ -34,12 +34,12 @@ fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: f32) -> PyDistan
 /// weights provided by a Python function. It's suitable for weighted graphs where
 /// all edge weights are positive.
 ///
-/// # Parameters
-/// * `graph` - The graph to compute paths for
-/// * `f` - A Python function that takes an edge index and returns its weight
-///
-/// # Returns
-/// A distance matrix containing the shortest path distances between all pairs of nodes
+/// :param graph: The graph to compute paths for
+/// :type graph: Graph or DiGraph
+/// :param f: A Python function that takes an edge index and returns its weight
+/// :type f: callable
+/// :return: A distance matrix containing the shortest path distances between all pairs of nodes
+/// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "all_sources_dijkstra")]
 fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {
@@ -60,12 +60,12 @@ fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistan
 /// shortest paths based on edge weights provided by a Python function. It can handle
 /// negative edge weights, unlike Dijkstra's algorithm.
 ///
-/// # Parameters
-/// * `graph` - The graph to compute paths for
-/// * `f` - A Python function that takes an edge index and returns its weight
-///
-/// # Returns
-/// A distance matrix containing the shortest path distances between all pairs of nodes
+/// :param graph: The graph to compute paths for
+/// :type graph: Graph or DiGraph
+/// :param f: A Python function that takes an edge index and returns its weight
+/// :type f: callable
+/// :return: A distance matrix containing the shortest path distances between all pairs of nodes
+/// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "warshall_floyd")]
 fn py_warshall_floyd(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {

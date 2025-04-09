@@ -55,7 +55,22 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
-- Updated Python binding documentation format to follow Sphinx recommendations:
+- Updated Python binding documentation format to follow Sphinx recommendations for SGD module:
+
+  - Improved documentation in all SGD module files to ensure consistent Sphinx format:
+    - `crates/python/src/layout/sgd/schedulers.rs`
+    - `crates/python/src/layout/sgd/sparse.rs`
+    - `crates/python/src/layout/sgd/full.rs`
+    - `crates/python/src/layout/sgd/distance_adjusted_sparse.rs`
+    - `crates/python/src/layout/sgd/distance_adjusted_full.rs`
+  - Added class-level parameter documentation for all classes
+  - Added `:raises:` directives where methods might raise exceptions
+  - Enhanced descriptions for distance adjustment parameters
+  - Provided more detailed explanations for complex parameters like `alpha`
+  - Ensured consistent formatting across all files
+  - This change ensures the Python bindings documentation follows the Sphinx format consistently, making it more accessible to users
+
+- Updated Python binding documentation format to follow Sphinx recommendations for drawing module:
 
   - Modified documentation in all drawing module files to ensure only Python-exposed functions and classes use Sphinx format
   - Converted internal Rust utility functions from Sphinx format to standard Rust documentation format

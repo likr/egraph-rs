@@ -73,6 +73,9 @@ impl PyGraphAdapter {
 #[pymethods]
 impl PyGraphAdapter {
     /// Returns the number of nodes in the graph
+    ///
+    /// :return: The number of nodes in the graph
+    /// :rtype: int
     pub fn node_count(&self) -> usize {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_node_count(native_graph),
@@ -81,6 +84,9 @@ impl PyGraphAdapter {
     }
 
     /// Returns the number of edges in the graph
+    ///
+    /// :return: The number of edges in the graph
+    /// :rtype: int
     pub fn edge_count(&self) -> usize {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edge_count(native_graph),
@@ -90,11 +96,10 @@ impl PyGraphAdapter {
 
     /// Adds a new node to the graph with the given value
     ///
-    /// # Parameters
-    /// * `value` - The Python object to store at this node
-    ///
-    /// # Returns
-    /// The index of the newly added node
+    /// :param value: The Python object to store at this node
+    /// :type value: object
+    /// :return: The index of the newly added node
+    /// :rtype: int
     pub fn add_node(&mut self, value: PyObject) -> usize {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_add_node(native_graph, value),
@@ -104,14 +109,11 @@ impl PyGraphAdapter {
 
     /// Returns the value associated with a node
     ///
-    /// # Parameters
-    /// * `a` - The index of the node
-    ///
-    /// # Returns
-    /// The Python object stored at the node
-    ///
-    /// # Errors
-    /// Returns an error if the node index is invalid
+    /// :param a: The index of the node
+    /// :type a: int
+    /// :return: The Python object stored at the node
+    /// :rtype: object
+    /// :raises ValueError: If the node index is invalid
     pub fn node_weight(&self, a: usize) -> PyResult<PyObject> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_node_weight(native_graph, a),
@@ -121,13 +123,14 @@ impl PyGraphAdapter {
 
     /// Adds a new edge to the graph with the given value
     ///
-    /// # Parameters
-    /// * `a` - The source node index
-    /// * `b` - The target node index
-    /// * `value` - The Python object to store at this edge
-    ///
-    /// # Returns
-    /// The index of the newly added edge
+    /// :param a: The source node index
+    /// :type a: int
+    /// :param b: The target node index
+    /// :type b: int
+    /// :param value: The Python object to store at this edge
+    /// :type value: object
+    /// :return: The index of the newly added edge
+    /// :rtype: int
     pub fn add_edge(&mut self, a: usize, b: usize, value: PyObject) -> usize {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_add_edge(native_graph, a, b, value),
@@ -137,14 +140,11 @@ impl PyGraphAdapter {
 
     /// Returns the value associated with an edge
     ///
-    /// # Parameters
-    /// * `e` - The index of the edge
-    ///
-    /// # Returns
-    /// The Python object stored at the edge
-    ///
-    /// # Errors
-    /// Returns an error if the edge index is invalid
+    /// :param e: The index of the edge
+    /// :type e: int
+    /// :return: The Python object stored at the edge
+    /// :rtype: object
+    /// :raises ValueError: If the edge index is invalid
     pub fn edge_weight(&mut self, e: usize) -> PyResult<PyObject> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edge_weight(native_graph, e),
@@ -154,14 +154,11 @@ impl PyGraphAdapter {
 
     /// Returns the endpoint nodes of an edge
     ///
-    /// # Parameters
-    /// * `e` - The index of the edge
-    ///
-    /// # Returns
-    /// A tuple of (source, target) node indices
-    ///
-    /// # Errors
-    /// Returns an error if the edge index is invalid
+    /// :param e: The index of the edge
+    /// :type e: int
+    /// :return: A tuple of (source, target) node indices
+    /// :rtype: tuple[int, int]
+    /// :raises ValueError: If the edge index is invalid
     pub fn edge_endpoints(&self, e: usize) -> PyResult<(usize, usize)> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edge_endpoints(native_graph, e),
@@ -171,14 +168,11 @@ impl PyGraphAdapter {
 
     /// Removes a node from the graph
     ///
-    /// # Parameters
-    /// * `a` - The index of the node to remove
-    ///
-    /// # Returns
-    /// The Python object that was stored at the node
-    ///
-    /// # Errors
-    /// Returns an error if the node index is invalid
+    /// :param a: The index of the node to remove
+    /// :type a: int
+    /// :return: The Python object that was stored at the node
+    /// :rtype: object
+    /// :raises ValueError: If the node index is invalid
     pub fn remove_node(&mut self, a: usize) -> PyResult<PyObject> {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_remove_node(native_graph, a),
@@ -188,14 +182,11 @@ impl PyGraphAdapter {
 
     /// Removes an edge from the graph
     ///
-    /// # Parameters
-    /// * `e` - The index of the edge to remove
-    ///
-    /// # Returns
-    /// The Python object that was stored at the edge
-    ///
-    /// # Errors
-    /// Returns an error if the edge index is invalid
+    /// :param e: The index of the edge to remove
+    /// :type e: int
+    /// :return: The Python object that was stored at the edge
+    /// :rtype: object
+    /// :raises ValueError: If the edge index is invalid
     pub fn remove_edge(&mut self, e: usize) -> PyResult<PyObject> {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_remove_edge(native_graph, e),
@@ -205,11 +196,10 @@ impl PyGraphAdapter {
 
     /// Returns all neighbors of a node
     ///
-    /// # Parameters
-    /// * `a` - The index of the node
-    ///
-    /// # Returns
-    /// A vector of indices of neighboring nodes
+    /// :param a: The index of the node
+    /// :type a: int
+    /// :return: A list of indices of neighboring nodes
+    /// :rtype: list[int]
     pub fn neighbors(&self, a: usize) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_neighbors(native_graph, a),
@@ -219,12 +209,12 @@ impl PyGraphAdapter {
 
     /// Returns neighbors of a node in a specific direction
     ///
-    /// # Parameters
-    /// * `a` - The index of the node
-    /// * `dir` - The direction: 0 for outgoing, any other value for incoming
-    ///
-    /// # Returns
-    /// A vector of indices of neighboring nodes in the specified direction
+    /// :param a: The index of the node
+    /// :type a: int
+    /// :param dir: The direction: 0 for outgoing, any other value for incoming
+    /// :type dir: int
+    /// :return: A list of indices of neighboring nodes in the specified direction
+    /// :rtype: list[int]
     pub fn neighbors_directed(&self, a: usize, dir: usize) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_neighbors_directed(native_graph, a, dir),
@@ -234,11 +224,10 @@ impl PyGraphAdapter {
 
     /// Returns all neighbors of a node, ignoring edge direction
     ///
-    /// # Parameters
-    /// * `a` - The index of the node
-    ///
-    /// # Returns
-    /// A vector of indices of all neighboring nodes
+    /// :param a: The index of the node
+    /// :type a: int
+    /// :return: A list of indices of all neighboring nodes
+    /// :rtype: list[int]
     pub fn neighbors_undirected(&self, a: usize) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_neighbors_undirected(native_graph, a),
@@ -248,11 +237,10 @@ impl PyGraphAdapter {
 
     /// Returns all edges connected to a node
     ///
-    /// # Parameters
-    /// * `a` - The index of the node
-    ///
-    /// # Returns
-    /// A vector of edge values (Python objects)
+    /// :param a: The index of the node
+    /// :type a: int
+    /// :return: A list of edge values (Python objects)
+    /// :rtype: list[object]
     pub fn edges(&self, a: usize) -> Vec<PyObject> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edges(native_graph, a),
@@ -262,12 +250,12 @@ impl PyGraphAdapter {
 
     /// Checks if an edge exists between two nodes
     ///
-    /// # Parameters
-    /// * `a` - The source node index
-    /// * `b` - The target node index
-    ///
-    /// # Returns
-    /// `true` if an edge exists, `false` otherwise
+    /// :param a: The source node index
+    /// :type a: int
+    /// :param b: The target node index
+    /// :type b: int
+    /// :return: True if an edge exists, False otherwise
+    /// :rtype: bool
     pub fn contains_edge(&self, a: usize, b: usize) -> bool {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_contains_edge(native_graph, a, b),
@@ -277,15 +265,13 @@ impl PyGraphAdapter {
 
     /// Finds the edge between two nodes
     ///
-    /// # Parameters
-    /// * `a` - The source node index
-    /// * `b` - The target node index
-    ///
-    /// # Returns
-    /// The edge index if found
-    ///
-    /// # Errors
-    /// Returns an error if no edge exists between the nodes
+    /// :param a: The source node index
+    /// :type a: int
+    /// :param b: The target node index
+    /// :type b: int
+    /// :return: The edge index if found
+    /// :rtype: int
+    /// :raises ValueError: If no edge exists between the nodes
     pub fn find_edge(&self, a: usize, b: usize) -> PyResult<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_find_edge(native_graph, a, b),
@@ -295,12 +281,11 @@ impl PyGraphAdapter {
 
     /// Returns nodes with no incoming or outgoing edges
     ///
-    /// # Parameters
-    /// * `dir` - The direction: 0 for outgoing (nodes with no outgoing edges),
-    ///           any other value for incoming (nodes with no incoming edges)
-    ///
-    /// # Returns
-    /// A vector of node indices that have no edges in the specified direction
+    /// :param dir: The direction: 0 for outgoing (nodes with no outgoing edges),
+    ///             any other value for incoming (nodes with no incoming edges)
+    /// :type dir: int
+    /// :return: A list of node indices that have no edges in the specified direction
+    /// :rtype: list[int]
     pub fn externals(&self, dir: usize) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_externals(native_graph, dir),
@@ -310,8 +295,8 @@ impl PyGraphAdapter {
 
     /// Returns all node indices in the graph
     ///
-    /// # Returns
-    /// A vector of all node indices
+    /// :return: A list of all node indices
+    /// :rtype: list[int]
     pub fn node_indices(&self) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_node_indices(native_graph),
@@ -321,8 +306,8 @@ impl PyGraphAdapter {
 
     /// Returns all edge indices in the graph
     ///
-    /// # Returns
-    /// A vector of all edge indices
+    /// :return: A list of all edge indices
+    /// :rtype: list[int]
     pub fn edge_indices(&self) -> Vec<usize> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edge_indices(native_graph),
@@ -332,12 +317,12 @@ impl PyGraphAdapter {
 
     /// Creates a new graph by applying mapping functions to all nodes and edges
     ///
-    /// # Parameters
-    /// * `node_map` - A Python function that takes (node_index, node_value) and returns a new node value
-    /// * `edge_map` - A Python function that takes (edge_index, edge_value) and returns a new edge value
-    ///
-    /// # Returns
-    /// A new graph with the mapped values
+    /// :param node_map: A Python function that takes (node_index, node_value) and returns a new node value
+    /// :type node_map: callable
+    /// :param edge_map: A Python function that takes (edge_index, edge_value) and returns a new edge value
+    /// :type edge_map: callable
+    /// :return: A new graph with the mapped values
+    /// :rtype: GraphAdapter
     pub fn map(&self, node_map: &Bound<PyAny>, edge_map: &Bound<PyAny>) -> Self {
         Self {
             graph: match self.graph() {
@@ -353,12 +338,12 @@ impl PyGraphAdapter {
 
     /// Creates a new graph by selectively mapping nodes and edges
     ///
-    /// # Parameters
-    /// * `node_map` - A Python function that takes (node_index, node_value) and returns a new node value or None
-    /// * `edge_map` - A Python function that takes (edge_index, edge_value) and returns a new edge value or None
-    ///
-    /// # Returns
-    /// A new graph containing only the nodes and edges for which the mapping functions returned non-None values
+    /// :param node_map: A Python function that takes (node_index, node_value) and returns a new node value or None
+    /// :type node_map: callable
+    /// :param edge_map: A Python function that takes (edge_index, edge_value) and returns a new edge value or None
+    /// :type edge_map: callable
+    /// :return: A new graph containing only the nodes and edges for which the mapping functions returned non-None values
+    /// :rtype: GraphAdapter
     pub fn filter_map(&self, node_map: &Bound<PyAny>, edge_map: &Bound<PyAny>) -> Self {
         Self {
             graph: match self.graph() {

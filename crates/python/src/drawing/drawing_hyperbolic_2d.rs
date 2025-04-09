@@ -30,27 +30,26 @@ pub struct PyDrawingHyperbolic2d {
 impl PyDrawingHyperbolic2d {
     /// Creates a new 2D Hyperbolic drawing
     ///
-    /// # Parameters
-    /// * `drawing` - The native Rust drawing object
-    ///
-    /// # Returns
-    /// A new PyDrawingHyperbolic2d instance
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingHyperbolic2d
+    /// :return: A new PyDrawingHyperbolic2d instance
+    /// :rtype: PyDrawingHyperbolic2d
     pub fn new(drawing: DrawingHyperbolic2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// # Returns
-    /// A reference to the underlying drawing
+    /// :return: A reference to the underlying drawing
+    /// :rtype: DrawingHyperbolic2d
     pub fn drawing(&self) -> &DrawingHyperbolic2d<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// # Returns
-    /// A mutable reference to the underlying drawing
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: DrawingHyperbolic2d
     pub fn drawing_mut(&mut self) -> &mut DrawingHyperbolic2d<NodeId, f32> {
         &mut self.drawing
     }

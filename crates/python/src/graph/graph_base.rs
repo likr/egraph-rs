@@ -396,6 +396,9 @@ pub struct PyGraph;
 #[pymethods]
 impl PyGraph {
     /// Creates a new empty undirected graph
+    ///
+    /// :return: A new empty undirected graph
+    /// :rtype: Graph
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyGraphAdapter {
@@ -418,6 +421,9 @@ pub struct PyDiGraph;
 #[pymethods]
 impl PyDiGraph {
     /// Creates a new empty directed graph
+    ///
+    /// :return: A new empty directed graph
+    /// :rtype: DiGraph
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(PyGraphAdapter {

@@ -24,27 +24,26 @@ pub struct PyDrawingEuclidean2d {
 impl PyDrawingEuclidean2d {
     /// Creates a new 2D Euclidean drawing
     ///
-    /// # Parameters
-    /// * `drawing` - The native Rust drawing object
-    ///
-    /// # Returns
-    /// A new PyDrawingEuclidean2d instance
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: A new PyDrawingEuclidean2d instance
+    /// :rtype: PyDrawingEuclidean2d
     pub fn new(drawing: DrawingEuclidean2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// # Returns
-    /// A reference to the underlying drawing
+    /// :return: A reference to the underlying drawing
+    /// :rtype: DrawingEuclidean2d
     pub fn drawing(&self) -> &DrawingEuclidean2d<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// # Returns
-    /// A mutable reference to the underlying drawing
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: DrawingEuclidean2d
     pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean2d<NodeId, f32> {
         &mut self.drawing
     }
@@ -80,6 +79,8 @@ impl PyDrawingEuclidean2d {
     /// :type u: int
     /// :param x: The new x-coordinate
     /// :type x: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
@@ -91,6 +92,8 @@ impl PyDrawingEuclidean2d {
     /// :type u: int
     /// :param y: The new y-coordinate
     /// :type y: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
         self.drawing.set_y(u, y);

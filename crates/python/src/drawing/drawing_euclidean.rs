@@ -23,27 +23,26 @@ pub struct PyDrawingEuclidean {
 impl PyDrawingEuclidean {
     /// Creates a new N-dimensional Euclidean drawing
     ///
-    /// # Parameters
-    /// * `drawing` - The native Rust drawing object
-    ///
-    /// # Returns
-    /// A new PyDrawingEuclidean instance
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingEuclidean
+    /// :return: A new PyDrawingEuclidean instance
+    /// :rtype: PyDrawingEuclidean
     pub fn new(drawing: DrawingEuclidean<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// # Returns
-    /// A reference to the underlying drawing
+    /// :return: A reference to the underlying drawing
+    /// :rtype: DrawingEuclidean
     pub fn drawing(&self) -> &DrawingEuclidean<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// # Returns
-    /// A mutable reference to the underlying drawing
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: DrawingEuclidean
     pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean<NodeId, f32> {
         &mut self.drawing
     }

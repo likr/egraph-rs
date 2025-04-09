@@ -41,6 +41,14 @@ struct PyClassicalMds {
 
 #[pymethods]
 impl PyClassicalMds {
+    /// Creates a new ClassicalMds instance from a graph
+    ///
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :return: A new ClassicalMds instance
+    /// :rtype: ClassicalMds
     #[new]
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyClassicalMds {
         match graph.graph() {
@@ -53,6 +61,12 @@ impl PyClassicalMds {
         }
     }
 
+    /// Creates a new ClassicalMds instance from a distance matrix
+    ///
+    /// :param d: A pre-computed matrix of distances between nodes
+    /// :type d: DistanceMatrix
+    /// :return: A new ClassicalMds instance
+    /// :rtype: ClassicalMds
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
         match d.distance_matrix() {
@@ -63,19 +77,41 @@ impl PyClassicalMds {
         }
     }
 
+    /// Runs the Classical MDS algorithm to generate a layout in the specified dimension
+    ///
+    /// :param d: The number of dimensions for the layout
+    /// :type d: int
+    /// :return: A drawing with node positions in d-dimensional Euclidean space
+    /// :rtype: DrawingEuclidean
     fn run(&self, d: usize) -> PyObject {
         PyDrawing::new_drawing_euclidean(self.mds.run(d))
     }
 
+    /// Runs the Classical MDS algorithm to generate a 2D layout
+    ///
+    /// This is a convenience method equivalent to run(2) but returns a 2D drawing.
+    ///
+    /// :return: A drawing with node positions in 2D Euclidean space
+    /// :rtype: DrawingEuclidean2d
     fn run_2d(&self) -> PyObject {
         PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
+    /// Gets the eigenvalue threshold used for numerical stability
+    ///
+    /// :return: The current epsilon value
+    /// :rtype: float
     #[getter]
     fn eps(&self) -> f32 {
         self.mds.eps
     }
 
+    /// Sets the eigenvalue threshold used for numerical stability
+    ///
+    /// :param value: The new epsilon value
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_eps(&mut self, value: f32) {
         self.mds.eps = value;
@@ -109,6 +145,16 @@ struct PyPivotMds {
 
 #[pymethods]
 impl PyPivotMds {
+    /// Creates a new PivotMds instance from a graph
+    ///
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :param pivot: A list of node indices to use as pivots
+    /// :type pivot: list[int]
+    /// :return: A new PivotMds instance
+    /// :rtype: PivotMds
     #[new]
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyPivotMds {
         match graph.graph() {
@@ -126,6 +172,12 @@ impl PyPivotMds {
         }
     }
 
+    /// Creates a new PivotMds instance from a distance matrix
+    ///
+    /// :param d: A pre-computed matrix of distances between nodes
+    /// :type d: DistanceMatrix
+    /// :return: A new PivotMds instance
+    /// :rtype: PivotMds
     #[staticmethod]
     fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
         match d.distance_matrix() {
@@ -138,19 +190,41 @@ impl PyPivotMds {
         }
     }
 
+    /// Runs the Pivot MDS algorithm to generate a layout in the specified dimension
+    ///
+    /// :param d: The number of dimensions for the layout
+    /// :type d: int
+    /// :return: A drawing with node positions in d-dimensional Euclidean space
+    /// :rtype: DrawingEuclidean
     fn run(&self, d: usize) -> PyObject {
         PyDrawing::new_drawing_euclidean(self.mds.run(d))
     }
 
+    /// Runs the Pivot MDS algorithm to generate a 2D layout
+    ///
+    /// This is a convenience method equivalent to run(2) but returns a 2D drawing.
+    ///
+    /// :return: A drawing with node positions in 2D Euclidean space
+    /// :rtype: DrawingEuclidean2d
     fn run_2d(&self) -> PyObject {
         PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
+    /// Gets the eigenvalue threshold used for numerical stability
+    ///
+    /// :return: The current epsilon value
+    /// :rtype: float
     #[getter]
     fn eps(&self) -> f32 {
         self.mds.eps
     }
 
+    /// Sets the eigenvalue threshold used for numerical stability
+    ///
+    /// :param value: The new epsilon value
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_eps(&mut self, value: f32) {
         self.mds.eps = value;

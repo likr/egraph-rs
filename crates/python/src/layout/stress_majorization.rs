@@ -69,13 +69,14 @@ impl PyStressMajorization {
     /// This constructor initializes a StressMajorization layout algorithm using a graph
     /// and an initial drawing. Edge weights are determined by the provided function.
     ///
-    /// # Parameters
-    /// * `graph` - The graph to layout
-    /// * `drawing` - The initial drawing (node positions)
-    /// * `f` - A Python function that takes an edge index and returns its weight
-    ///
-    /// # Returns
-    /// A new StressMajorization instance
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param drawing: The initial drawing (node positions)
+    /// :type drawing: DrawingEuclidean2d
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :return: A new StressMajorization instance
+    /// :rtype: StressMajorization
     #[new]
     fn new(
         graph: &PyGraphAdapter,
@@ -100,12 +101,12 @@ impl PyStressMajorization {
     /// pre-computed distance matrix and an initial drawing. This can be more efficient
     /// when the same distance matrix is reused for multiple layout operations.
     ///
-    /// # Parameters
-    /// * `drawing` - The initial drawing (node positions)
-    /// * `distance_matrix` - A pre-computed matrix of distances between nodes
-    ///
-    /// # Returns
-    /// A new StressMajorization instance
+    /// :param drawing: The initial drawing (node positions)
+    /// :type drawing: DrawingEuclidean2d
+    /// :param distance_matrix: A pre-computed matrix of distances between nodes
+    /// :type distance_matrix: DistanceMatrix
+    /// :return: A new StressMajorization instance
+    /// :rtype: StressMajorization
     #[classmethod]
     fn with_distance_matrix(
         _cls: &Bound<PyType>,
@@ -128,11 +129,10 @@ impl PyStressMajorization {
     /// This method applies one iteration of the stress majorization algorithm to the drawing,
     /// updating node positions to reduce stress.
     ///
-    /// # Parameters
-    /// * `drawing` - The drawing to update
-    ///
-    /// # Returns
-    /// The new stress value after the iteration (lower is better)
+    /// :param drawing: The drawing to update
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: The new stress value after the iteration (lower is better)
+    /// :rtype: float
     fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> f32 {
         self.stress_majorization.apply(drawing.drawing_mut())
     }
@@ -143,8 +143,10 @@ impl PyStressMajorization {
     /// layout converges (the stress no longer decreases significantly) or the maximum
     /// number of iterations is reached.
     ///
-    /// # Parameters
-    /// * `drawing` - The drawing to optimize
+    /// :param drawing: The drawing to optimize
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: None
+    /// :rtype: None
     pub fn run(&mut self, drawing: &mut PyDrawingEuclidean2d) {
         self.stress_majorization.run(drawing.drawing_mut())
     }
@@ -154,8 +156,10 @@ impl PyStressMajorization {
     /// This method allows customizing the weights used in the stress majorization
     /// calculation, which can be used to emphasize or de-emphasize certain node pairs.
     ///
-    /// # Parameters
-    /// * `f` - A Python function that takes (i, j, distance, weight) and returns a new weight value
+    /// :param f: A Python function that takes (i, j, distance, weight) and returns a new weight value
+    /// :type f: callable
+    /// :return: None
+    /// :rtype: None
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.stress_majorization
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
@@ -165,8 +169,8 @@ impl PyStressMajorization {
     ///
     /// The algorithm stops when the relative change in stress falls below this threshold.
     ///
-    /// # Returns
-    /// The current epsilon value
+    /// :return: The current epsilon value
+    /// :rtype: float
     #[getter]
     pub fn epsilon(&self) -> f32 {
         self.stress_majorization.epsilon
@@ -176,8 +180,10 @@ impl PyStressMajorization {
     ///
     /// A smaller value leads to more precise layouts but may require more iterations.
     ///
-    /// # Parameters
-    /// * `value` - The new epsilon value
+    /// :param value: The new epsilon value
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     pub fn set_epsilon(&mut self, value: f32) {
         self.stress_majorization.epsilon = value;
@@ -187,8 +193,8 @@ impl PyStressMajorization {
     ///
     /// The algorithm will stop after this many iterations even if convergence is not reached.
     ///
-    /// # Returns
-    /// The current maximum iterations value
+    /// :return: The current maximum iterations value
+    /// :rtype: int
     #[getter]
     pub fn max_iterations(&self) -> usize {
         self.stress_majorization.max_iterations
@@ -198,8 +204,10 @@ impl PyStressMajorization {
     ///
     /// A larger value allows more iterations for potentially better convergence.
     ///
-    /// # Parameters
-    /// * `value` - The new maximum iterations value
+    /// :param value: The new maximum iterations value
+    /// :type value: int
+    /// :return: None
+    /// :rtype: None
     #[setter]
     pub fn set_max_iterations(&mut self, value: usize) {
         self.stress_majorization.max_iterations = value;
