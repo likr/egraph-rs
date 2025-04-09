@@ -38,12 +38,13 @@ impl PyOverwrapRemoval {
     /// This constructor initializes an overwrap removal algorithm using a graph
     /// and a function that returns the radius for each node.
     ///
-    /// # Parameters
-    /// * `graph` - The graph whose layout will be processed
-    /// * `f` - A Python function that takes a node index and returns its radius
-    ///
-    /// # Returns
-    /// A new OverwrapRemoval instance
+    /// :param graph: The graph whose layout will be processed
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes a node index and returns its radius
+    /// :type f: callable
+    /// :return: A new OverwrapRemoval instance
+    /// :rtype: OverwrapRemoval
+    /// :raises: ValueError if the graph type is not supported
     #[new]
     fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyOverwrapRemoval {
         match graph.graph() {
@@ -61,8 +62,10 @@ impl PyOverwrapRemoval {
     /// This method adjusts node positions in the drawing to resolve any overlaps
     /// between nodes based on their radii.
     ///
-    /// # Parameters
-    /// * `drawing` - The 2D Euclidean drawing to process
+    /// :param drawing: The 2D Euclidean drawing to process
+    /// :type drawing: DrawingEuclidean2d
+    /// :return: None
+    /// :rtype: None
     fn apply_with_drawing_euclidean_2d(&self, drawing: &mut PyDrawingEuclidean2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
@@ -72,8 +75,10 @@ impl PyOverwrapRemoval {
     /// This method adjusts node positions in the drawing to resolve any overlaps
     /// between nodes based on their radii.
     ///
-    /// # Parameters
-    /// * `drawing` - The N-dimensional Euclidean drawing to process
+    /// :param drawing: The N-dimensional Euclidean drawing to process
+    /// :type drawing: DrawingEuclidean
+    /// :return: None
+    /// :rtype: None
     fn apply_with_drawing_euclidean(&self, drawing: &mut PyDrawingEuclidean) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
@@ -83,8 +88,10 @@ impl PyOverwrapRemoval {
     /// This method adjusts node positions in the drawing to resolve any overlaps
     /// between nodes based on their radii.
     ///
-    /// # Parameters
-    /// * `drawing` - The 2D Hyperbolic drawing to process
+    /// :param drawing: The 2D Hyperbolic drawing to process
+    /// :type drawing: DrawingHyperbolic2d
+    /// :return: None
+    /// :rtype: None
     fn apply_with_drawing_hyperbolic_2d(&self, drawing: &mut PyDrawingHyperbolic2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
@@ -94,8 +101,10 @@ impl PyOverwrapRemoval {
     /// This method adjusts node positions in the drawing to resolve any overlaps
     /// between nodes based on their radii.
     ///
-    /// # Parameters
-    /// * `drawing` - The 2D Spherical drawing to process
+    /// :param drawing: The 2D Spherical drawing to process
+    /// :type drawing: DrawingSpherical2d
+    /// :return: None
+    /// :rtype: None
     fn apply_with_drawing_spherical_2d(&self, drawing: &mut PyDrawingSpherical2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
@@ -105,8 +114,10 @@ impl PyOverwrapRemoval {
     /// This method adjusts node positions in the drawing to resolve any overlaps
     /// between nodes based on their radii.
     ///
-    /// # Parameters
-    /// * `drawing` - The 2D Torus drawing to process
+    /// :param drawing: The 2D Torus drawing to process
+    /// :type drawing: DrawingTorus2d
+    /// :return: None
+    /// :rtype: None
     fn apply_with_drawing_torus_2d(&self, drawing: &mut PyDrawingTorus2d) {
         self.overwrap_removal.apply(drawing.drawing_mut());
     }
@@ -116,8 +127,8 @@ impl PyOverwrapRemoval {
     /// The strength parameter controls how aggressively nodes are pushed apart
     /// when they overlap. Higher values result in more forceful separation.
     ///
-    /// # Returns
-    /// The current strength value
+    /// :return: The current strength value
+    /// :rtype: float
     #[getter]
     fn get_strength(&self) -> f32 {
         self.overwrap_removal.strength
@@ -125,8 +136,10 @@ impl PyOverwrapRemoval {
 
     /// Sets the strength parameter of the overwrap removal algorithm
     ///
-    /// # Parameters
-    /// * `value` - The new strength value (typically in range 0.0-1.0)
+    /// :param value: The new strength value (typically in range 0.0-1.0)
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_strength(&mut self, value: f32) {
         self.overwrap_removal.strength = value;
@@ -137,8 +150,8 @@ impl PyOverwrapRemoval {
     /// This parameter controls how many passes of the algorithm are applied.
     /// More iterations usually result in fewer remaining overlaps but take longer.
     ///
-    /// # Returns
-    /// The current number of iterations
+    /// :return: The current number of iterations
+    /// :rtype: int
     #[getter]
     fn get_iterations(&self) -> usize {
         self.overwrap_removal.iterations
@@ -146,8 +159,10 @@ impl PyOverwrapRemoval {
 
     /// Sets the number of iterations for the overwrap removal algorithm
     ///
-    /// # Parameters
-    /// * `value` - The new number of iterations
+    /// :param value: The new number of iterations
+    /// :type value: int
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_iterations(&mut self, value: usize) {
         self.overwrap_removal.iterations = value;
@@ -158,8 +173,8 @@ impl PyOverwrapRemoval {
     /// This parameter defines the minimum spacing to maintain between nodes,
     /// in addition to their radii.
     ///
-    /// # Returns
-    /// The current minimum distance value
+    /// :return: The current minimum distance value
+    /// :rtype: float
     #[getter]
     fn get_min_distance(&self) -> f32 {
         self.overwrap_removal.min_distance
@@ -167,8 +182,10 @@ impl PyOverwrapRemoval {
 
     /// Sets the minimum distance parameter of the overwrap removal algorithm
     ///
-    /// # Parameters
-    /// * `value` - The new minimum distance value
+    /// :param value: The new minimum distance value
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     #[setter]
     fn set_min_distance(&mut self, value: f32) {
         self.overwrap_removal.min_distance = value;

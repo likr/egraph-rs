@@ -85,6 +85,15 @@
 
 ### Documentation
 
+- ✅ Updated Python binding documentation format to follow Sphinx recommendations for the OverwrapRemoval module:
+
+  - Updated documentation in `crates/python/src/layout/overwrap_removal.rs` to ensure consistent Sphinx format
+  - Changed internal Rust documentation format (`# Parameters`, `# Returns`) to Sphinx format (`:param:`, `:type:`, `:return:`, `:rtype:`) for all Python-exposed functions and methods
+  - Added `:raises:` directive to the constructor method to document potential exceptions
+  - Enhanced descriptions for parameters and return values
+  - Ensured consistent formatting across all methods
+  - This change completes the standardization of Python bindings documentation to Sphinx format across the entire codebase
+
 - ✅ Updated Python binding documentation format to follow Sphinx recommendations for additional modules:
 
   - Updated documentation in the following files to ensure consistent Sphinx format:
@@ -308,6 +317,7 @@
   - ✅ Improved error handling and parameter validation
 - **Python Bindings**: ✅ Functional
 - **Documentation**: 🔄 In progress
+  - ✅ Completed: Updated all Python binding documentation to follow Sphinx format
 - **Testing**: ✅ WebAssembly binding tests completed for all components
   - ✅ Comprehensive test suite for all WebAssembly classes and functions
   - ✅ Improved test helpers for creating graph structures and verifying layouts
