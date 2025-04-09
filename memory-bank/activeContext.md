@@ -55,6 +55,15 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Added doctest to the StressMajorization Python binding:
+
+  - Migrated the stress_majorization.py example to a doctest in the StressMajorization module
+  - Added a minimal example that demonstrates creating a graph from NetworkX's Les Miserables dataset
+  - Showed how to create and run a StressMajorization instance using the constructor
+  - Simplified the example to focus on API usage rather than visualization
+  - This improves the discoverability and maintainability of the example
+  - The doctest serves as both documentation and a test, ensuring it stays up-to-date with the API
+
 - Fixed API inconsistencies in the DrawingEuclidean Python bindings:
 
   - Renamed the `set_x` method to `set` for better API consistency with other Drawing classes

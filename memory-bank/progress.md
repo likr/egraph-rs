@@ -86,7 +86,8 @@
 ### Documentation
 
 - 🔄 In progress: Move Python examples to doctests
-  - Plan to migrate examples from `crates/python/examples/` to Python doctests
+  - ✅ Migrated stress_majorization.py example to a doctest in the StressMajorization module
+  - Plan to migrate remaining examples from `crates/python/examples/` to Python doctests
   - Analyze each example file to extract core functionality
   - Create doctests in the corresponding Python module files
   - Simplify examples to focus on API usage rather than visualization
