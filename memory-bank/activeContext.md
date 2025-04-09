@@ -398,7 +398,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Created `netlify.toml` configuration file in `crates/python/docs/` directory:
     - Configured base directory as `crates/python/docs`
     - Set publish directory to `_build/html`
-    - Defined build command as `maturin develop -m ../Cargo.toml && make html`
+    - Defined build command as `pip install .. && make html`
   - Created `rust-toolchain` file in `crates/python/docs/` directory with content `stable`
   - Created `runtime.txt` file in `crates/python/docs/` directory with content `3.13`
   - Updated `requirements.txt` to include maturin as a dependency

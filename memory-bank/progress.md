@@ -119,7 +119,7 @@
 
 - ✅ Set up Netlify hosting for Python bindings documentation:
 
-  - Created `netlify.toml` configuration file in `crates/python/docs/` directory
+  - Created `netlify.toml` configuration file in `crates/python/docs/` directory with build command `pip install .. && make html`
   - Created `rust-toolchain` file in `crates/python/docs/` directory
   - Created `runtime.txt` file in `crates/python/docs/` directory
   - Updated `requirements.txt` to include maturin as a dependency
