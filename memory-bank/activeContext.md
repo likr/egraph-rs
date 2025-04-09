@@ -393,6 +393,18 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Set up Netlify hosting for Python bindings documentation:
+
+  - Created `netlify.toml` configuration file in `crates/python/docs/` directory:
+    - Configured base directory as `crates/python/docs`
+    - Set publish directory to `_build/html`
+    - Defined build command as `maturin develop -m ../Cargo.toml && make html`
+  - Created `rust-toolchain` file in `crates/python/docs/` directory with content `stable`
+  - Created `runtime.txt` file in `crates/python/docs/` directory with content `3.13`
+  - Updated `requirements.txt` to include maturin as a dependency
+  - This setup enables automated building and hosting of the Python bindings documentation on Netlify
+  - The documentation will be automatically rebuilt and redeployed whenever changes are pushed to the repository
+
 - Implemented Python bindings documentation with Sphinx integration:
 
   - Created a comprehensive Sphinx documentation structure in `crates/python/docs/`
@@ -408,7 +420,6 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Added example code for all layout algorithms and drawing spaces
   - Created build scripts (Makefile and make.bat) for building documentation on different platforms
   - Added requirements.txt for documentation dependencies
-  - Configured for Netlify integration for automated documentation building
   - This documentation will make the library more accessible to users and ensure examples are always up-to-date
 
 ## Next Steps

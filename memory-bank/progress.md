@@ -117,13 +117,20 @@
   - This will improve the discoverability and maintainability of examples
   - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
 
+- ✅ Set up Netlify hosting for Python bindings documentation:
+
+  - Created `netlify.toml` configuration file in `crates/python/docs/` directory
+  - Created `rust-toolchain` file in `crates/python/docs/` directory
+  - Created `runtime.txt` file in `crates/python/docs/` directory
+  - Updated `requirements.txt` to include maturin as a dependency
+  - This setup enables automated building and hosting of the Python bindings documentation on Netlify
+
 - 🔄 Planned: Additional documentation improvements
   - More comprehensive examples showcasing different layout algorithms
   - Detailed API documentation across all interfaces
   - Tutorials for common use cases
   - Best practices for selecting appropriate layout algorithms
   - Usage examples for different geometric spaces
-  - Build and deploy the documentation to Netlify
 
 ### Testing
 
