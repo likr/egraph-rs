@@ -85,6 +85,17 @@
 
 ### Documentation
 
+- ✅ Updated Python binding documentation format to follow Sphinx recommendations:
+
+  - Modified documentation in all drawing module files to ensure only Python-exposed functions and classes use Sphinx format
+  - Converted internal Rust utility functions from Sphinx format to standard Rust documentation format
+  - Changed `:param name: description` to `# Parameters\n/// * `name` - description` for internal Rust functions
+  - Changed `:return: description` to `# Returns\n/// description` for internal Rust functions
+  - Removed `:type:` and `:rtype:` directives from internal Rust functions
+  - Kept Sphinx format for all methods in `#[pymethods]` blocks and functions with `#[staticmethod]` attribute
+  - Modified files include drawing module files (Euclidean2d, Spherical2d, Hyperbolic2d, Torus2d, Euclidean)
+  - This change ensures documentation follows project standards with appropriate format for each language's ecosystem
+
 - ✅ Implemented Python bindings documentation with Sphinx integration:
 
   - Created a comprehensive Sphinx documentation structure in `crates/python/docs/`

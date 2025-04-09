@@ -55,6 +55,22 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Updated Python binding documentation format to follow Sphinx recommendations:
+
+  - Modified documentation in all drawing module files to ensure only Python-exposed functions and classes use Sphinx format
+  - Converted internal Rust utility functions from Sphinx format to standard Rust documentation format
+  - Changed `:param name: description` to `# Parameters\n/// * `name` - description` for internal Rust functions
+  - Changed `:return: description` to `# Returns\n/// description` for internal Rust functions
+  - Removed `:type:` and `:rtype:` directives from internal Rust functions
+  - Kept Sphinx format for all methods in `#[pymethods]` blocks and functions with `#[staticmethod]` attribute
+  - Modified files include:
+    - `crates/python/src/drawing/drawing_hyperbolic_2d.rs`
+    - `crates/python/src/drawing/drawing_euclidean_2d.rs`
+    - `crates/python/src/drawing/drawing_spherical_2d.rs`
+    - `crates/python/src/drawing/drawing_euclidean.rs`
+    - `crates/python/src/drawing/drawing_torus_2d.rs`
+  - This change ensures documentation follows project standards with appropriate format for each language's ecosystem
+
 - Added doctest to the StressMajorization Python binding:
 
   - Migrated the stress_majorization.py example to a doctest in the StressMajorization module

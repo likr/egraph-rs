@@ -30,26 +30,27 @@ pub struct PyDrawingSpherical2d {
 impl PyDrawingSpherical2d {
     /// Creates a new 2D Spherical drawing
     ///
-    /// :param drawing: The native Rust drawing object
-    /// :type drawing: DrawingSpherical2d<NodeId, f32>
-    /// :return: A new PyDrawingSpherical2d instance
-    /// :rtype: PyDrawingSpherical2d
+    /// # Parameters
+    /// * `drawing` - The native Rust drawing object
+    ///
+    /// # Returns
+    /// A new PyDrawingSpherical2d instance
     pub fn new(drawing: DrawingSpherical2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// :return: A reference to the underlying drawing
-    /// :rtype: &DrawingSpherical2d<NodeId, f32>
+    /// # Returns
+    /// A reference to the underlying drawing
     pub fn drawing(&self) -> &DrawingSpherical2d<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// :return: A mutable reference to the underlying drawing
-    /// :rtype: &mut DrawingSpherical2d<NodeId, f32>
+    /// # Returns
+    /// A mutable reference to the underlying drawing
     pub fn drawing_mut(&mut self) -> &mut DrawingSpherical2d<NodeId, f32> {
         &mut self.drawing
     }

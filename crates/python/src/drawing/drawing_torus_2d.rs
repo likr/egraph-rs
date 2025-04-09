@@ -34,26 +34,27 @@ pub struct PyDrawingTorus2d {
 impl PyDrawingTorus2d {
     /// Creates a new 2D Torus drawing
     ///
-    /// :param drawing: The native Rust drawing object
-    /// :type drawing: DrawingTorus2d<NodeId, f32>
-    /// :return: A new PyDrawingTorus2d instance
-    /// :rtype: PyDrawingTorus2d
+    /// # Parameters
+    /// * `drawing` - The native Rust drawing object
+    ///
+    /// # Returns
+    /// A new PyDrawingTorus2d instance
     pub fn new(drawing: DrawingTorus2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// :return: A reference to the underlying drawing
-    /// :rtype: &DrawingTorus2d<NodeId, f32>
+    /// # Returns
+    /// A reference to the underlying drawing
     pub fn drawing(&self) -> &DrawingTorus2d<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// :return: A mutable reference to the underlying drawing
-    /// :rtype: &mut DrawingTorus2d<NodeId, f32>
+    /// # Returns
+    /// A mutable reference to the underlying drawing
     pub fn drawing_mut(&mut self) -> &mut DrawingTorus2d<NodeId, f32> {
         &mut self.drawing
     }

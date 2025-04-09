@@ -24,26 +24,27 @@ pub struct PyDrawingEuclidean2d {
 impl PyDrawingEuclidean2d {
     /// Creates a new 2D Euclidean drawing
     ///
-    /// :param drawing: The native Rust drawing object
-    /// :type drawing: DrawingEuclidean2d<NodeId, f32>
-    /// :return: A new PyDrawingEuclidean2d instance
-    /// :rtype: PyDrawingEuclidean2d
+    /// # Parameters
+    /// * `drawing` - The native Rust drawing object
+    ///
+    /// # Returns
+    /// A new PyDrawingEuclidean2d instance
     pub fn new(drawing: DrawingEuclidean2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
     /// Returns a reference to the underlying drawing
     ///
-    /// :return: A reference to the underlying drawing
-    /// :rtype: &DrawingEuclidean2d<NodeId, f32>
+    /// # Returns
+    /// A reference to the underlying drawing
     pub fn drawing(&self) -> &DrawingEuclidean2d<NodeId, f32> {
         &self.drawing
     }
 
     /// Returns a mutable reference to the underlying drawing
     ///
-    /// :return: A mutable reference to the underlying drawing
-    /// :rtype: &mut DrawingEuclidean2d<NodeId, f32>
+    /// # Returns
+    /// A mutable reference to the underlying drawing
     pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean2d<NodeId, f32> {
         &mut self.drawing
     }
