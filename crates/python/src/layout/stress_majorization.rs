@@ -11,24 +11,26 @@
 ///
 /// Examples:
 ///
-/// >>> import networkx as nx
-/// >>> import egraph as eg
-/// >>>
-/// >>> # Create a graph from NetworkX
-/// >>> nx_graph = nx.les_miserables_graph()
-/// >>> graph = eg.Graph()
-/// >>> indices = {}
-/// >>> for u in nx_graph.nodes:
-/// ...     indices[u] = graph.add_node(u)
-/// >>> for u, v in nx_graph.edges:
-/// ...     graph.add_edge(indices[u], indices[v], (u, v))
-/// >>>
-/// >>> # Create an initial drawing
-/// >>> drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-/// >>>
-/// >>> # Create and run stress majorization using constructor
-/// >>> sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-/// >>> sm.run(drawing)
+/// ```python
+/// import networkx as nx
+/// import egraph as eg
+///
+/// # Create a graph from NetworkX
+/// nx_graph = nx.les_miserables_graph()
+/// graph = eg.Graph()
+/// indices = {}
+/// for u in nx_graph.nodes:
+///     indices[u] = graph.add_node(u)
+/// for u, v in nx_graph.edges:
+///     graph.add_edge(indices[u], indices[v], (u, v))
+///
+/// # Create an initial drawing
+/// drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+///
+/// # Create and run stress majorization using constructor
+/// sm = eg.StressMajorization(graph, drawing, lambda _: 100)
+/// sm.run(drawing)
+/// ```
 use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawingEuclidean2d,
@@ -45,6 +47,7 @@ use pyo3::{prelude::*, types::PyType};
 /// the layout preserves the desired distances between nodes.
 ///
 /// The algorithm works by:
+///
 /// 1. Starting with an initial layout (either provided or randomly generated)
 /// 2. Iteratively solving a series of quadratic problems using a conjugate gradient method
 /// 3. At each step, minimizing the weighted sum of squared differences between

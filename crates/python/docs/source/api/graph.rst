@@ -1,10 +1,10 @@
 Graph Module
-===========
+===========================
 
 This module provides graph data structures for representing and manipulating graphs.
 
 Graph
------
+-------------
 
 .. autoclass:: egraph.Graph
    :members:
@@ -12,7 +12,7 @@ Graph
    :show-inheritance:
 
 DiGraph
--------
+---------------
 
 .. autoclass:: egraph.DiGraph
    :members:

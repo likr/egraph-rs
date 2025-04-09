@@ -85,6 +85,17 @@
 
 ### Documentation
 
+- ✅ Fixed Python binding documentation warnings:
+
+  - Resolved duplicate object descriptions by removing redundant `automodule` directives from `index.rst`
+  - Fixed title underline length issues in all API documentation files
+  - Updated `algorithm.rst` to reference actual functions that exist (`all_sources_bfs`, `all_sources_dijkstra`, `warshall_floyd`) instead of non-existent functions
+  - Removed reference to the non-existent `edge_angle` function from `quality_metrics.rst`
+  - Fixed indentation error in StressMajorization docstring by adding a blank line before the numbered list
+  - Changed the docstring example format in StressMajorization from doctest format to code block format
+  - Verified that documentation now builds without errors when using the `-W` flag to treat warnings as errors
+  - These changes ensure that the Python bindings documentation is properly formatted and free of critical warnings
+
 - ✅ Updated Python binding documentation format to follow Sphinx recommendations for the OverwrapRemoval module:
 
   - Updated documentation in `crates/python/src/layout/overwrap_removal.rs` to ensure consistent Sphinx format

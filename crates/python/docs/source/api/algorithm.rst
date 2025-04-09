@@ -1,14 +1,11 @@
 Algorithm Module
-==============
+===============================
 
 This module provides graph algorithms for analyzing graph structures.
 
-Shortest Path
------------
+Shortest Path Algorithms
+---------------------------
 
-.. autofunction:: egraph.shortest_path
-
-Connected Components
------------------
-
-.. autofunction:: egraph.connected_components
+.. autofunction:: egraph.all_sources_bfs
+.. autofunction:: egraph.all_sources_dijkstra
+.. autofunction:: egraph.warshall_floyd

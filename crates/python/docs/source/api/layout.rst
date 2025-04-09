@@ -1,10 +1,10 @@
 Layout Module
-============
+============================
 
 This module provides layout algorithms for positioning graph nodes.
 
 StressMajorization
------------------
+-----------------------------
 
 .. autoclass:: egraph.StressMajorization
    :members:
@@ -12,7 +12,7 @@ StressMajorization
    :show-inheritance:
 
 KamadaKawai
-----------
+----------------------
 
 .. autoclass:: egraph.KamadaKawai
    :members:
@@ -20,7 +20,7 @@ KamadaKawai
    :show-inheritance:
 
 FullSgd
-------
+------------------
 
 .. autoclass:: egraph.FullSgd
    :members:
@@ -28,7 +28,7 @@ FullSgd
    :show-inheritance:
 
 SparseSgd
---------
+--------------------
 
 .. autoclass:: egraph.SparseSgd
    :members:
@@ -36,7 +36,7 @@ SparseSgd
    :show-inheritance:
 
 ClassicalMds
------------
+-----------------------
 
 .. autoclass:: egraph.ClassicalMds
    :members:
@@ -44,7 +44,7 @@ ClassicalMds
    :show-inheritance:
 
 PivotMds
--------
+-------------------
 
 .. autoclass:: egraph.PivotMds
    :members:
@@ -52,7 +52,7 @@ PivotMds
    :show-inheritance:
 
 OverwrapRemoval
--------------
+---------------------------
 
 .. autoclass:: egraph.OverwrapRemoval
    :members:
