@@ -58,8 +58,10 @@ impl PyRng {
     /// a specific value, making it produce a deterministic sequence of numbers.
     /// This is useful for reproducibility in algorithms.
     ///
-    /// # Parameters
-    /// * `seed` - The seed value to use
+    /// :param seed: The seed value to use
+    /// :type seed: int
+    /// :return: A new random number generator with the specified seed
+    /// :rtype: Rng
     #[classmethod]
     fn seed_from(_cls: &Bound<PyType>, seed: u64) -> PyRng {
         PyRng {

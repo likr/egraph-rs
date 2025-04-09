@@ -85,6 +85,19 @@
 
 ### Documentation
 
+- ✅ Updated Python binding documentation format to follow Sphinx recommendations for additional modules:
+
+  - Updated documentation in the following files to ensure consistent Sphinx format:
+    - `crates/python/src/distance_matrix.rs`
+    - `crates/python/src/rng.rs`
+    - `crates/python/src/quality_metrics.rs`
+  - Changed internal Rust documentation format (`# Parameters`, `# Returns`) to Sphinx format (`:param:`, `:type:`, `:return:`, `:rtype:`) for Python-exposed functions and methods
+  - Added comprehensive docstrings to all Python-exposed functions in the quality metrics module
+  - Added `:raises:` directives where methods might raise exceptions
+  - Enhanced descriptions for parameters and return values
+  - Ensured consistent formatting across all files
+  - This change ensures the Python bindings documentation follows the Sphinx format consistently, making it more accessible to users and ensuring it can be properly processed by Sphinx's autodoc extension
+
 - ✅ Updated Python binding documentation format to follow Sphinx recommendations for SGD module:
 
   - Improved documentation in all SGD module files to ensure consistent Sphinx format:

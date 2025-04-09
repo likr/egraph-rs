@@ -86,8 +86,10 @@ impl PyDistanceMatrix {
     /// This constructor computes shortest path distances between all pairs of nodes
     /// in the given graph and stores them in a full distance matrix.
     ///
-    /// # Parameters
-    /// * `graph` - The graph to compute distances for
+    /// :param graph: The graph to compute distances for
+    /// :type graph: Graph or DiGraph
+    /// :return: A new distance matrix
+    /// :rtype: DistanceMatrix
     #[new]
     pub fn new(graph: &PyGraphAdapter) -> PyDistanceMatrix {
         match graph.graph() {
@@ -100,12 +102,12 @@ impl PyDistanceMatrix {
 
     /// Gets the distance between two nodes
     ///
-    /// # Parameters
-    /// * `u` - The source node index
-    /// * `v` - The target node index
-    ///
-    /// # Returns
-    /// The distance between the nodes if it exists, None otherwise
+    /// :param u: The source node index
+    /// :type u: int
+    /// :param v: The target node index
+    /// :type v: int
+    /// :return: The distance between the nodes if it exists, None otherwise
+    /// :rtype: float or None
     pub fn get(&self, u: usize, v: usize) -> Option<f32> {
         match self.distance_matrix() {
             DistanceMatrixType::Full(distance_matrix) => {
@@ -119,13 +121,14 @@ impl PyDistanceMatrix {
 
     /// Sets the distance between two nodes
     ///
-    /// # Parameters
-    /// * `u` - The source node index
-    /// * `v` - The target node index
-    /// * `d` - The new distance value
-    ///
-    /// # Returns
-    /// Some(()) if the distance was set successfully, None otherwise
+    /// :param u: The source node index
+    /// :type u: int
+    /// :param v: The target node index
+    /// :type v: int
+    /// :param d: The new distance value
+    /// :type d: float
+    /// :return: Some(()) if the distance was set successfully, None otherwise
+    /// :rtype: Some(()) or None
     pub fn set(&mut self, u: usize, v: usize, d: f32) -> Option<()> {
         match self.distance_matrix_mut() {
             DistanceMatrixType::Full(distance_matrix) => {

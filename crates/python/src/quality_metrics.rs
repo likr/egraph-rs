@@ -37,6 +37,19 @@ pub struct PyCrossingEdges {
     crossing_edges: CrossingEdges,
 }
 
+/// Computes the crossing edges in a graph drawing
+///
+/// This function identifies all pairs of edges that cross in the drawing.
+/// The result is cached in a CrossingEdges object that can be reused for
+/// other metrics like crossing number and crossing angle.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: Drawing
+/// :return: An object containing information about crossing edges
+/// :rtype: CrossingEdges
+/// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "crossing_edges")]
 fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCrossingEdges {
@@ -79,6 +92,17 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCr
     })
 }
 
+/// Computes the angular resolution of a graph drawing
+///
+/// Angular resolution is the minimum angle between any two edges incident on the same node.
+/// Higher values indicate better readability as edges are more clearly separated.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The angular resolution in radians
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "angular_resolution")]
 fn py_angular_resolution(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
@@ -88,12 +112,32 @@ fn py_angular_resolution(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d)
     }
 }
 
+/// Computes the aspect ratio of a graph drawing
+///
+/// Aspect ratio is the ratio of the width to the height of the drawing.
+/// Values close to 1.0 indicate a balanced drawing that uses space efficiently.
+///
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The aspect ratio (width/height)
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "aspect_ratio")]
 fn py_aspect_ratio(drawing: &PyDrawingEuclidean2d) -> f32 {
     aspect_ratio(drawing.drawing())
 }
 
+/// Computes the average crossing angle in a graph drawing
+///
+/// Crossing angle is the angle at which edges cross. Angles closer to 90 degrees
+/// (perpendicular crossings) are generally more readable than shallow angles.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The average crossing angle in radians
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_angle")]
 fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
@@ -103,12 +147,31 @@ fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> 
     }
 }
 
+/// Computes the average crossing angle using pre-computed crossing edges
+///
+/// This function is more efficient when crossing edges have already been computed.
+///
+/// :param crossing_edges: Pre-computed crossing edges information
+/// :type crossing_edges: CrossingEdges
+/// :return: The average crossing angle in radians
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_angle_with_crossing_edges")]
 fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
     crossing_angle_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
+/// Computes the number of edge crossings in a graph drawing
+///
+/// Crossing number is the total number of pairs of edges that cross in the drawing.
+/// Lower values generally indicate clearer, more readable layouts.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The number of edge crossings
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_number")]
 fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
@@ -118,12 +181,32 @@ fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) ->
     }
 }
 
+/// Computes the number of edge crossings using pre-computed crossing edges
+///
+/// This function is more efficient when crossing edges have already been computed.
+///
+/// :param crossing_edges: Pre-computed crossing edges information
+/// :type crossing_edges: CrossingEdges
+/// :return: The number of edge crossings
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_number_with_crossing_edges")]
 fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
     crossing_number_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
+/// Computes how well a drawing satisfies the Gabriel graph property
+///
+/// The Gabriel graph property states that for each edge (u,v), the disk with diameter
+/// from u to v should not contain any other nodes. This metric measures the percentage
+/// of edges that satisfy this property.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The percentage of edges satisfying the Gabriel graph property (0.0-1.0)
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "gabriel_graph_property")]
 fn py_gabriel_graph_property(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
@@ -133,6 +216,22 @@ fn py_gabriel_graph_property(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidea
     }
 }
 
+/// Measures how well edge lengths in the drawing match their ideal lengths
+///
+/// Ideal edge lengths are proportional to the graph-theoretical distances.
+/// This metric computes the average deviation between actual edge lengths
+/// in the drawing and their ideal lengths based on the distance matrix.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: Drawing
+/// :param distance_matrix: Matrix of ideal distances between nodes
+/// :type distance_matrix: DistanceMatrix
+/// :return: The average deviation from ideal edge lengths
+/// :rtype: float
+/// :raises: ValueError if the distance matrix type is not supported
+/// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "ideal_edge_lengths")]
 fn py_ideal_edge_lengths(
@@ -186,6 +285,18 @@ fn py_ideal_edge_lengths(
     })
 }
 
+/// Measures how well the drawing preserves node neighborhoods
+///
+/// This metric computes how well the layout preserves the local structure of the graph.
+/// It measures whether nodes that are close in the graph structure are also
+/// positioned close together in the drawing.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The neighborhood preservation score (higher is better)
+/// :rtype: float
 #[pyfunction]
 #[pyo3(name = "neighborhood_preservation")]
 fn py_neighborhood_preservation(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
@@ -199,6 +310,17 @@ fn py_neighborhood_preservation(graph: &PyGraphAdapter, drawing: &PyDrawingEucli
     }
 }
 
+/// Measures how evenly nodes are distributed in the drawing space
+///
+/// Node resolution is the minimum distance between any two nodes, normalized
+/// by the average distance between all pairs of nodes. Higher values indicate
+/// a more even distribution of nodes.
+///
+/// :param drawing: The drawing to analyze
+/// :type drawing: Drawing
+/// :return: The node resolution score (higher is better)
+/// :rtype: float
+/// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "node_resolution")]
 fn py_node_resolution(drawing: &Bound<PyDrawing>) -> f32 {
@@ -224,6 +346,19 @@ fn py_node_resolution(drawing: &Bound<PyDrawing>) -> f32 {
     })
 }
 
+/// Computes the stress of a graph drawing
+///
+/// Stress measures how well the Euclidean distances in the drawing match
+/// the graph-theoretical distances. Lower values indicate a better match.
+///
+/// :param drawing: The drawing to analyze
+/// :type drawing: Drawing
+/// :param distance_matrix: Matrix of ideal distances between nodes
+/// :type distance_matrix: DistanceMatrix
+/// :return: The stress value (lower is better)
+/// :rtype: float
+/// :raises: ValueError if the distance matrix type is not supported
+/// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "stress")]
 fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> f32 {
