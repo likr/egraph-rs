@@ -409,6 +409,16 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Updated Netlify configuration for Python bindings documentation:
+
+  - Changed the base directory from `crates/python/docs` to `crates/python`:
+    - Moved `netlify.toml`, `requirements.txt`, and `runtime.txt` from `crates/python/docs/` to `crates/python/`
+    - Updated the publish directory from `_build/html` to `docs/_build/html`
+    - Modified the build command from `rustup toolchain install stable && pip install .. && make html` to `rustup toolchain install stable && pip install . && make -C docs html`
+  - This change simplifies the configuration by setting the base at the Python crate level
+  - The updated command uses `make -C docs html` to run make from the crates/python directory
+  - This ensures that Netlify will build the documentation correctly with the new directory structure
+
 - Updated Netlify build configuration for Python bindings documentation:
 
   - Modified the Netlify build command in `netlify.toml` to explicitly install the stable Rust toolchain:
@@ -418,17 +428,6 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - This change moves from a declarative approach (using rust-toolchain.toml) to an imperative approach (explicitly installing the toolchain during the build process)
   - This ensures that Netlify will have the correct Rust toolchain available when building the Python documentation
   - The explicit installation approach provides more direct control over the build environment
-
-- Set up Netlify hosting for Python bindings documentation:
-
-  - Created `netlify.toml` configuration file in `crates/python/docs/` directory:
-    - Configured base directory as `crates/python/docs`
-    - Set publish directory to `_build/html`
-    - Defined build command as `pip install .. && make html`
-  - Created `runtime.txt` file in `crates/python/docs/` directory with content `3.13`
-  - Updated `requirements.txt` to include maturin as a dependency
-  - This setup enables automated building and hosting of the Python bindings documentation on Netlify
-  - The documentation will be automatically rebuilt and redeployed whenever changes are pushed to the repository
 
 - Implemented Python bindings documentation with Sphinx integration:
 

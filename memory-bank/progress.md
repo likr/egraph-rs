@@ -128,21 +128,15 @@
   - This will improve the discoverability and maintainability of examples
   - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
 
-- ✅ Updated Netlify build configuration for Python bindings documentation:
+- ✅ Updated Netlify configuration for Python bindings documentation:
 
-  - Modified the Netlify build command in `netlify.toml` to explicitly install the stable Rust toolchain:
-    - Previous command: `pip install .. && make html`
-    - New command: `rustup toolchain install stable && pip install .. && make html`
-  - Removed the `rust-toolchain.toml` file that previously specified the stable channel
-  - This change moves from a declarative approach (using rust-toolchain.toml) to an imperative approach (explicitly installing the toolchain during the build process)
-  - This ensures that Netlify will have the correct Rust toolchain available when building the Python documentation
-
-- ✅ Set up Netlify hosting for Python bindings documentation:
-
-  - Created `netlify.toml` configuration file in `crates/python/docs/` directory with build command `pip install .. && make html`
-  - Created `runtime.txt` file in `crates/python/docs/` directory with content `3.13`
-  - Updated `requirements.txt` to include maturin as a dependency
-  - This setup enables automated building and hosting of the Python bindings documentation on Netlify
+  - Changed the base directory from `crates/python/docs` to `crates/python`:
+    - Moved `netlify.toml`, `requirements.txt`, and `runtime.txt` from `crates/python/docs/` to `crates/python/`
+    - Updated the publish directory from `_build/html` to `docs/_build/html`
+    - Modified the build command from `rustup toolchain install stable && pip install .. && make html` to `rustup toolchain install stable && pip install . && make -C docs html`
+  - This change simplifies the configuration by setting the base at the Python crate level
+  - The updated command uses `make -C docs html` to run make from the crates/python directory
+  - This ensures that Netlify will build the documentation correctly with the new directory structure
 
 - 🔄 Planned: Additional documentation improvements
   - More comprehensive examples showcasing different layout algorithms

@@ -1,0 +1,4 @@
+[build]
+  base = "crates/python"
+  publish = "docs/_build/html"
+  command = "rustup toolchain install stable && pip install . && make -C docs html"
