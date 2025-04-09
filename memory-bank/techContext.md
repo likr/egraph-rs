@@ -88,6 +88,9 @@ npm run wasm-build
 ### Python Development
 
 ```bash
+# Build egraph Python bindings for development
+maturin develop -m crates/python/Cargo.toml
+
 # Run all Python tests from project root
 cd crates/python && python -m unittest discover tests
 
@@ -96,6 +99,12 @@ cd crates/python && python -m unittest tests/test_<module>.py
 
 # Run specific test case
 cd crates/python && python -m unittest tests.test_<module>.TestClass.test_method
+
+# Build Python documentation
+make -C crates/python/docs/ html
+
+# Run doctests
+make -C crates/python/docs/ doctest
 ```
 
 ### JavaScript/TypeScript Development

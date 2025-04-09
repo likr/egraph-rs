@@ -391,9 +391,29 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Robust error handling
   - JavaScript callback support
 
+## Recent Changes
+
+- Implemented Python bindings documentation with Sphinx integration:
+
+  - Created a comprehensive Sphinx documentation structure in `crates/python/docs/`
+  - Set up configuration for doctest support to ensure examples are runnable and testable
+  - Created detailed API reference documentation for all modules:
+    - Graph module (Graph, DiGraph)
+    - Drawing module (Euclidean2d, Euclidean, Spherical2d, Hyperbolic2d, Torus2d)
+    - Layout module (StressMajorization, KamadaKawai, SGD, MDS, OverwrapRemoval)
+    - Algorithm module (shortest_path, connected_components)
+    - Quality metrics module (stress, crossing_number, etc.)
+    - Distance matrix module
+    - Random number generation module
+  - Added example code for all layout algorithms and drawing spaces
+  - Created build scripts (Makefile and make.bat) for building documentation on different platforms
+  - Added requirements.txt for documentation dependencies
+  - Configured for Netlify integration for automated documentation building
+  - This documentation will make the library more accessible to users and ensure examples are always up-to-date
+
 ## Next Steps
 
-1. **Python Documentation Improvements**:
+1. **Python Documentation Enhancements**:
 
    - Move examples from `crates/python/examples/` to Python doctests
      - Analyze each example file to extract core functionality
@@ -405,6 +425,7 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
      - Note that existing examples may not be maintained and might not work properly
    - This will improve the discoverability and maintainability of examples
    - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
+   - Build and deploy the documentation to Netlify
 
 2. **Python Binding Tests**:
 

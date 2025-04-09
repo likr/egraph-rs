@@ -85,7 +85,26 @@
 
 ### Documentation
 
+- ✅ Implemented Python bindings documentation with Sphinx integration:
+
+  - Created a comprehensive Sphinx documentation structure in `crates/python/docs/`
+  - Set up configuration for doctest support to ensure examples are runnable and testable
+  - Created detailed API reference documentation for all modules:
+    - Graph module (Graph, DiGraph)
+    - Drawing module (Euclidean2d, Euclidean, Spherical2d, Hyperbolic2d, Torus2d)
+    - Layout module (StressMajorization, KamadaKawai, SGD, MDS, OverwrapRemoval)
+    - Algorithm module (shortest_path, connected_components)
+    - Quality metrics module (stress, crossing_number, etc.)
+    - Distance matrix module
+    - Random number generation module
+  - Added example code for all layout algorithms and drawing spaces
+  - Created build scripts (Makefile and make.bat) for building documentation on different platforms
+  - Added requirements.txt for documentation dependencies
+  - Configured for Netlify integration for automated documentation building
+  - This documentation will make the library more accessible to users and ensure examples are always up-to-date
+
 - 🔄 In progress: Move Python examples to doctests
+
   - ✅ Migrated stress_majorization.py example to a doctest in the StressMajorization module
   - Plan to migrate remaining examples from `crates/python/examples/` to Python doctests
   - Analyze each example file to extract core functionality
@@ -97,11 +116,14 @@
   - Note that existing examples may not be maintained and might not work properly
   - This will improve the discoverability and maintainability of examples
   - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
-- More comprehensive examples showcasing different layout algorithms
-- Detailed API documentation across all interfaces
-- Tutorials for common use cases
-- Best practices for selecting appropriate layout algorithms
-- Usage examples for different geometric spaces
+
+- 🔄 Planned: Additional documentation improvements
+  - More comprehensive examples showcasing different layout algorithms
+  - Detailed API documentation across all interfaces
+  - Tutorials for common use cases
+  - Best practices for selecting appropriate layout algorithms
+  - Usage examples for different geometric spaces
+  - Build and deploy the documentation to Netlify
 
 ### Testing
 
