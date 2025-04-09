@@ -117,11 +117,21 @@
   - This will improve the discoverability and maintainability of examples
   - Doctests will serve as both documentation and tests, ensuring they stay up-to-date
 
+- ✅ Updated Rust toolchain configuration for Python bindings documentation:
+
+  - Replaced the legacy format `rust-toolchain` file with a TOML-formatted `rust-toolchain.toml` file
+  - Set the channel to "stable" in the new file using the proper TOML format:
+    ```toml
+    [toolchain]
+    channel = "stable"
+    ```
+  - This change follows the recommended approach in the Rust documentation for specifying a toolchain
+  - The new configuration ensures that Netlify correctly uses the stable Rust toolchain when building the Python bindings documentation
+
 - ✅ Set up Netlify hosting for Python bindings documentation:
 
   - Created `netlify.toml` configuration file in `crates/python/docs/` directory with build command `pip install .. && make html`
-  - Created `rust-toolchain` file in `crates/python/docs/` directory
-  - Created `runtime.txt` file in `crates/python/docs/` directory
+  - Created `runtime.txt` file in `crates/python/docs/` directory with content `3.13`
   - Updated `requirements.txt` to include maturin as a dependency
   - This setup enables automated building and hosting of the Python bindings documentation on Netlify
 
