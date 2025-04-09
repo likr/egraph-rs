@@ -1,10 +1,10 @@
 Stochastic Gradient Descent (SGD)
-===============================
+==================================
 
 This example demonstrates how to use the Stochastic Gradient Descent (SGD) layout algorithm.
 
 Basic SGD Example
----------------
+-----------------------
 
 .. code-block:: python
 
@@ -58,7 +58,7 @@ Basic SGD Example
     plt.show()
 
 Using FullSgd
------------
+-------------------
 
 For smaller graphs, you can use `FullSgd` which computes all-pairs shortest path distances:
 

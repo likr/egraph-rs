@@ -1,10 +1,10 @@
 Torus 2D Stochastic Gradient Descent
-=================================
+=====================================
 
 This example demonstrates how to use the Stochastic Gradient Descent (SGD) layout algorithm with torus 2D drawings.
 
 Basic Torus SGD Example
---------------------
+---------------------------
 
 .. code-block:: python
 
@@ -96,7 +96,7 @@ Basic Torus SGD Example
     plt.show()
 
 Visualizing the Torus in 3D
-------------------------
+----------------------------------
 
 You can also visualize the torus layout in 3D to better understand the topology:
 

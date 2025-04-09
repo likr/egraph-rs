@@ -16,7 +16,7 @@ This section provides examples of how to use the egraph library.
    overwrap_removal
 
 Basic Usage
-----------
+-----------------
 
 Here's a simple example of creating a graph and applying a layout algorithm:
 

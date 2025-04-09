@@ -1,10 +1,10 @@
 Hyperbolic 2D Stochastic Gradient Descent
-======================================
+=========================================
 
 This example demonstrates how to use the Stochastic Gradient Descent (SGD) layout algorithm with hyperbolic 2D drawings.
 
 Basic Hyperbolic SGD Example
--------------------------
+----------------------------------
 
 .. code-block:: python
 
@@ -86,7 +86,7 @@ Basic Hyperbolic SGD Example
     plt.show()
 
 Working with Hyperbolic Distances
-------------------------------
+----------------------------------
 
 When working with hyperbolic space, it's important to understand that distances are different from Euclidean space:
 

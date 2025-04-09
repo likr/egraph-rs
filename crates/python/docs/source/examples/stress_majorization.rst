@@ -1,10 +1,10 @@
 Stress Majorization
-=================
+===================
 
 This example demonstrates how to use the Stress Majorization layout algorithm.
 
 Basic Stress Majorization Example
-------------------------------
+------------------------------------------
 
 .. code-block:: python
 
@@ -43,7 +43,7 @@ Basic Stress Majorization Example
     plt.show()
 
 Using a Distance Matrix
---------------------
+---------------------------
 
 For more control, you can create a StressMajorization instance from a distance matrix:
 
@@ -68,7 +68,7 @@ For more control, you can create a StressMajorization instance from a distance m
     sm.run(drawing)
 
 Applying a Single Iteration
-------------------------
+----------------------------------
 
 You can also apply a single iteration of the algorithm and check the stress value:
 

@@ -1,10 +1,10 @@
 Spherical 2D Stochastic Gradient Descent
-=====================================
+========================================
 
 This example demonstrates how to use the Stochastic Gradient Descent (SGD) layout algorithm with spherical 2D drawings.
 
 Basic Spherical SGD Example
-------------------------
+----------------------------------
 
 .. code-block:: python
 
@@ -105,7 +105,7 @@ Basic Spherical SGD Example
     plt.show()
 
 Working with Spherical Distances
------------------------------
+----------------------------------
 
 When working with spherical space, distances are measured along great circles:
 

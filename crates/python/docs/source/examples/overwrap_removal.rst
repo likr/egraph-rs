@@ -1,10 +1,10 @@
 Overwrap Removal
-==============
+=================
 
 This example demonstrates how to use the Overwrap Removal algorithm to resolve node overlaps in a graph layout.
 
 Basic Overwrap Removal Example
----------------------------
+----------------------------------
 
 .. code-block:: python
 
@@ -60,7 +60,7 @@ Basic Overwrap Removal Example
     plt.show()
 
 Using Variable Node Sizes
-----------------------
+---------------------------
 
 You can also use variable node sizes:
 
@@ -79,7 +79,7 @@ You can also use variable node sizes:
     or_algo.run(drawing)
 
 Controlling the Overlap Removal Process
-------------------------------------
+------------------------------------------
 
 You can control the overlap removal process by setting parameters:
 

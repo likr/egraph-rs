@@ -1,5 +1,5 @@
 Welcome to egraph documentation
-==============================
+===============================
 
 **egraph** is a Python library for graph visualization and layout algorithms, providing efficient implementations of various graph algorithms in Rust with Python bindings.
 

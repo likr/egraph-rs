@@ -1,10 +1,10 @@
 Kamada-Kawai
-===========
+==============
 
 This example demonstrates how to use the Kamada-Kawai layout algorithm.
 
 Basic Kamada-Kawai Example
------------------------
+----------------------------------
 
 .. code-block:: python
 
@@ -44,7 +44,7 @@ Basic Kamada-Kawai Example
     plt.show()
 
 Using Custom Edge Distances
-------------------------
+----------------------------------
 
 You can customize the desired distances between nodes:
 
@@ -58,7 +58,7 @@ You can customize the desired distances between nodes:
     kk.run(drawing)
 
 Applying to a Single Node
-----------------------
+----------------------------------
 
 You can also apply the algorithm to a single node:
 

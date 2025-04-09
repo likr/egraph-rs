@@ -446,6 +446,24 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Fixed Python binding documentation title underline warnings:
+
+  - Fixed title underline length issues in all example files:
+    - `crates/python/docs/source/examples/index.rst`
+    - `crates/python/docs/source/examples/sgd.rst`
+    - `crates/python/docs/source/examples/kamada_kawai.rst`
+    - `crates/python/docs/source/examples/stress_majorization.rst`
+    - `crates/python/docs/source/examples/sgd_3d.rst`
+    - `crates/python/docs/source/examples/sgd_hyperbolic_2d.rst`
+    - `crates/python/docs/source/examples/sgd_spherical_2d.rst`
+    - `crates/python/docs/source/examples/sgd_torus.rst`
+    - `crates/python/docs/source/examples/overwrap_removal.rst`
+  - Fixed title underline length in the main index file:
+    - `crates/python/docs/source/index.rst`
+  - Made all title underlines sufficiently long to match or exceed their title text
+  - Verified that documentation now builds without errors when using the `-W` flag to treat warnings as errors
+  - These changes ensure that the Python bindings documentation renders correctly with consistent formatting
+
 - Fixed Python binding documentation warnings:
 
   - Resolved duplicate object descriptions by removing redundant `automodule` directives from `index.rst`

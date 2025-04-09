@@ -1,10 +1,10 @@
 3D Stochastic Gradient Descent
-===========================
+===============================
 
 This example demonstrates how to use the Stochastic Gradient Descent (SGD) layout algorithm with 3D Euclidean drawings.
 
 Basic 3D SGD Example
------------------
+---------------------------
 
 .. code-block:: python
 
@@ -80,7 +80,7 @@ Basic 3D SGD Example
     plt.show()
 
 Using ClassicalMds for 3D Initialization
--------------------------------------
+------------------------------------------
 
 You can also use ClassicalMds to create an initial 3D layout:
 
