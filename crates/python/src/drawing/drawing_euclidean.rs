@@ -21,14 +21,28 @@ pub struct PyDrawingEuclidean {
 }
 
 impl PyDrawingEuclidean {
+    /// Creates a new N-dimensional Euclidean drawing
+    ///
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingEuclidean<NodeId, f32>
+    /// :return: A new PyDrawingEuclidean instance
+    /// :rtype: PyDrawingEuclidean
     pub fn new(drawing: DrawingEuclidean<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
+    /// Returns a reference to the underlying drawing
+    ///
+    /// :return: A reference to the underlying drawing
+    /// :rtype: &DrawingEuclidean<NodeId, f32>
     pub fn drawing(&self) -> &DrawingEuclidean<NodeId, f32> {
         &self.drawing
     }
 
+    /// Returns a mutable reference to the underlying drawing
+    ///
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: &mut DrawingEuclidean<NodeId, f32>
     pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean<NodeId, f32> {
         &mut self.drawing
     }
@@ -40,12 +54,12 @@ impl PyDrawingEuclidean {
     ///
     /// This method retrieves the position coordinate of a node in the specified dimension.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `d` - The dimension index (0, 1, 2, etc.)
-    ///
-    /// # Returns
-    /// The coordinate value if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :param d: The dimension index (0, 1, 2, etc.)
+    /// :type d: int
+    /// :return: The coordinate value if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn get(&self, u: usize, d: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.get(u, d)
@@ -55,10 +69,14 @@ impl PyDrawingEuclidean {
     ///
     /// This method updates the position coordinate of a node in the specified dimension.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `d` - The dimension index (0, 1, 2, etc.)
-    /// * `value` - The new coordinate value
+    /// :param u: The node index
+    /// :type u: int
+    /// :param d: The dimension index (0, 1, 2, etc.)
+    /// :type d: int
+    /// :param value: The new coordinate value
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     pub fn set(&mut self, u: usize, d: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set(u, d, value);
@@ -66,8 +84,8 @@ impl PyDrawingEuclidean {
 
     /// Returns the number of nodes in the drawing
     ///
-    /// # Returns
-    /// The number of nodes
+    /// :return: The number of nodes
+    /// :rtype: int
     pub fn len(&self) -> usize {
         self.drawing.len()
     }

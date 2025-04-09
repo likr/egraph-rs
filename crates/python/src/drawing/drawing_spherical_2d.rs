@@ -28,14 +28,28 @@ pub struct PyDrawingSpherical2d {
 }
 
 impl PyDrawingSpherical2d {
+    /// Creates a new 2D Spherical drawing
+    ///
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingSpherical2d<NodeId, f32>
+    /// :return: A new PyDrawingSpherical2d instance
+    /// :rtype: PyDrawingSpherical2d
     pub fn new(drawing: DrawingSpherical2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
+    /// Returns a reference to the underlying drawing
+    ///
+    /// :return: A reference to the underlying drawing
+    /// :rtype: &DrawingSpherical2d<NodeId, f32>
     pub fn drawing(&self) -> &DrawingSpherical2d<NodeId, f32> {
         &self.drawing
     }
 
+    /// Returns a mutable reference to the underlying drawing
+    ///
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: &mut DrawingSpherical2d<NodeId, f32>
     pub fn drawing_mut(&mut self) -> &mut DrawingSpherical2d<NodeId, f32> {
         &mut self.drawing
     }
@@ -48,11 +62,10 @@ impl PyDrawingSpherical2d {
     /// Longitude represents the angular distance east or west on the sphere,
     /// analogous to longitude on Earth.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The longitude (in radians, from -π to π) if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The longitude (in radians, from -π to π) if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn lon(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lon(u)
@@ -63,11 +76,10 @@ impl PyDrawingSpherical2d {
     /// Latitude represents the angular distance north or south on the sphere,
     /// analogous to latitude on Earth.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The latitude (in radians, from -π/2 to π/2) if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The latitude (in radians, from -π/2 to π/2) if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn lat(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.lat(u)
@@ -75,9 +87,12 @@ impl PyDrawingSpherical2d {
 
     /// Sets the longitude coordinate of a node on the sphere
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `value` - The new longitude value (in radians)
+    /// :param u: The node index
+    /// :type u: int
+    /// :param value: The new longitude value (in radians)
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_lon(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lon(u, value);
@@ -85,9 +100,12 @@ impl PyDrawingSpherical2d {
 
     /// Sets the latitude coordinate of a node on the sphere
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `value` - The new latitude value (in radians)
+    /// :param u: The node index
+    /// :type u: int
+    /// :param value: The new latitude value (in radians)
+    /// :type value: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_lat(&mut self, u: usize, value: f32) {
         let u = node_index(u);
         self.drawing.set_lat(u, value);
@@ -95,8 +113,8 @@ impl PyDrawingSpherical2d {
 
     /// Returns the number of nodes in the drawing
     ///
-    /// # Returns
-    /// The number of nodes
+    /// :return: The number of nodes
+    /// :rtype: int
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
@@ -106,11 +124,10 @@ impl PyDrawingSpherical2d {
     /// This method initializes a spherical drawing with nodes placed
     /// randomly on the surface of the sphere.
     ///
-    /// # Parameters
-    /// * `graph` - The graph to create a drawing for
-    ///
-    /// # Returns
-    /// A new spherical drawing with initial node positions
+    /// :param graph: The graph to create a drawing for
+    /// :type graph: Graph or DiGraph
+    /// :return: A new spherical drawing with initial node positions
+    /// :rtype: DrawingSpherical2d
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_spherical_2d(match graph.graph() {

@@ -32,14 +32,28 @@ pub struct PyDrawingTorus2d {
 }
 
 impl PyDrawingTorus2d {
+    /// Creates a new 2D Torus drawing
+    ///
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingTorus2d<NodeId, f32>
+    /// :return: A new PyDrawingTorus2d instance
+    /// :rtype: PyDrawingTorus2d
     pub fn new(drawing: DrawingTorus2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
+    /// Returns a reference to the underlying drawing
+    ///
+    /// :return: A reference to the underlying drawing
+    /// :rtype: &DrawingTorus2d<NodeId, f32>
     pub fn drawing(&self) -> &DrawingTorus2d<NodeId, f32> {
         &self.drawing
     }
 
+    /// Returns a mutable reference to the underlying drawing
+    ///
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: &mut DrawingTorus2d<NodeId, f32>
     pub fn drawing_mut(&mut self) -> &mut DrawingTorus2d<NodeId, f32> {
         &mut self.drawing
     }
@@ -52,11 +66,10 @@ impl PyDrawingTorus2d {
     /// The x-coordinate is in the range [0, 1], representing the position
     /// along the horizontal dimension of the torus.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The x-coordinate if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The x-coordinate if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn x(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.x(u)
@@ -67,11 +80,10 @@ impl PyDrawingTorus2d {
     /// The y-coordinate is in the range [0, 1], representing the position
     /// along the vertical dimension of the torus.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The y-coordinate if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The y-coordinate if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn y(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.y(u)
@@ -82,9 +94,12 @@ impl PyDrawingTorus2d {
     /// Note that values outside the range [0, 1] will be wrapped around
     /// to maintain the toroidal topology.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `x` - The new x-coordinate
+    /// :param u: The node index
+    /// :type u: int
+    /// :param x: The new x-coordinate
+    /// :type x: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
@@ -95,9 +110,12 @@ impl PyDrawingTorus2d {
     /// Note that values outside the range [0, 1] will be wrapped around
     /// to maintain the toroidal topology.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `y` - The new y-coordinate
+    /// :param u: The node index
+    /// :type u: int
+    /// :param y: The new y-coordinate
+    /// :type y: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
@@ -105,16 +123,16 @@ impl PyDrawingTorus2d {
 
     /// Returns the number of nodes in the drawing
     ///
-    /// # Returns
-    /// The number of nodes
+    /// :return: The number of nodes
+    /// :rtype: int
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
 
     /// Checks if the drawing is empty
     ///
-    /// # Returns
-    /// True if the drawing contains no nodes, false otherwise
+    /// :return: True if the drawing contains no nodes, false otherwise
+    /// :rtype: bool
     pub fn is_empty(&self) -> bool {
         self.drawing.is_empty()
     }
@@ -125,12 +143,12 @@ impl PyDrawingTorus2d {
     /// when it crosses the boundary of the unit square. This method computes all
     /// segments needed to properly represent the edge.
     ///
-    /// # Parameters
-    /// * `u` - The source node index
-    /// * `v` - The target node index
-    ///
-    /// # Returns
-    /// A vector of line segments (pairs of points) if both nodes exist, None otherwise
+    /// :param u: The source node index
+    /// :type u: int
+    /// :param v: The target node index
+    /// :type v: int
+    /// :return: A vector of line segments (pairs of points) if both nodes exist, None otherwise
+    /// :rtype: list of tuple or None
     pub fn edge_segments(&self, u: usize, v: usize) -> Option<Vec<Segment2D>> {
         self.drawing
             .edge_segments(node_index(u), node_index(v))
@@ -147,11 +165,10 @@ impl PyDrawingTorus2d {
     /// This method initializes a toroidal drawing with nodes placed randomly
     /// within the unit square [0, 1] × [0, 1].
     ///
-    /// # Parameters
-    /// * `graph` - The graph to create a drawing for
-    ///
-    /// # Returns
-    /// A new toroidal drawing with initial node positions
+    /// :param graph: The graph to create a drawing for
+    /// :type graph: Graph or DiGraph
+    /// :return: A new toroidal drawing with initial node positions
+    /// :rtype: DrawingTorus2d
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_torus_2d(match graph.graph() {

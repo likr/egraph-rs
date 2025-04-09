@@ -28,14 +28,28 @@ pub struct PyDrawingHyperbolic2d {
 }
 
 impl PyDrawingHyperbolic2d {
+    /// Creates a new 2D Hyperbolic drawing
+    ///
+    /// :param drawing: The native Rust drawing object
+    /// :type drawing: DrawingHyperbolic2d<NodeId, f32>
+    /// :return: A new PyDrawingHyperbolic2d instance
+    /// :rtype: PyDrawingHyperbolic2d
     pub fn new(drawing: DrawingHyperbolic2d<NodeId, f32>) -> Self {
         Self { drawing }
     }
 
+    /// Returns a reference to the underlying drawing
+    ///
+    /// :return: A reference to the underlying drawing
+    /// :rtype: &DrawingHyperbolic2d<NodeId, f32>
     pub fn drawing(&self) -> &DrawingHyperbolic2d<NodeId, f32> {
         &self.drawing
     }
 
+    /// Returns a mutable reference to the underlying drawing
+    ///
+    /// :return: A mutable reference to the underlying drawing
+    /// :rtype: &mut DrawingHyperbolic2d<NodeId, f32>
     pub fn drawing_mut(&mut self) -> &mut DrawingHyperbolic2d<NodeId, f32> {
         &mut self.drawing
     }
@@ -45,11 +59,10 @@ impl PyDrawingHyperbolic2d {
 impl PyDrawingHyperbolic2d {
     /// Gets the x-coordinate of a node in the hyperbolic plane
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The x-coordinate if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The x-coordinate if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn x(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.x(u)
@@ -57,11 +70,10 @@ impl PyDrawingHyperbolic2d {
 
     /// Gets the y-coordinate of a node in the hyperbolic plane
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    ///
-    /// # Returns
-    /// The y-coordinate if the node exists, None otherwise
+    /// :param u: The node index
+    /// :type u: int
+    /// :return: The y-coordinate if the node exists, None otherwise
+    /// :rtype: float or None
     pub fn y(&self, u: usize) -> Option<f32> {
         let u = node_index(u);
         self.drawing.y(u)
@@ -72,9 +84,12 @@ impl PyDrawingHyperbolic2d {
     /// When setting coordinates in hyperbolic space, you should ensure that
     /// points remain within the unit disk (x² + y² < 1) for the Poincaré model.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `x` - The new x-coordinate
+    /// :param u: The node index
+    /// :type u: int
+    /// :param x: The new x-coordinate
+    /// :type x: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_x(&mut self, u: usize, x: f32) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
@@ -85,9 +100,12 @@ impl PyDrawingHyperbolic2d {
     /// When setting coordinates in hyperbolic space, you should ensure that
     /// points remain within the unit disk (x² + y² < 1) for the Poincaré model.
     ///
-    /// # Parameters
-    /// * `u` - The node index
-    /// * `y` - The new y-coordinate
+    /// :param u: The node index
+    /// :type u: int
+    /// :param y: The new y-coordinate
+    /// :type y: float
+    /// :return: None
+    /// :rtype: None
     pub fn set_y(&mut self, u: usize, y: f32) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
@@ -95,8 +113,8 @@ impl PyDrawingHyperbolic2d {
 
     /// Returns the number of nodes in the drawing
     ///
-    /// # Returns
-    /// The number of nodes
+    /// :return: The number of nodes
+    /// :rtype: int
     pub fn len(&self) -> usize {
         self.drawing.len()
     }
@@ -107,11 +125,10 @@ impl PyDrawingHyperbolic2d {
     /// randomly within the unit disk, with a bias toward the center to
     /// avoid extreme distortion at the boundary of the disk.
     ///
-    /// # Parameters
-    /// * `graph` - The graph to create a drawing for
-    ///
-    /// # Returns
-    /// A new hyperbolic drawing with initial node positions
+    /// :param graph: The graph to create a drawing for
+    /// :type graph: Graph or DiGraph
+    /// :return: A new hyperbolic drawing with initial node positions
+    /// :rtype: DrawingHyperbolic2d
     #[staticmethod]
     pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
         PyDrawing::new_drawing_hyperbolic_2d(match graph.graph() {
