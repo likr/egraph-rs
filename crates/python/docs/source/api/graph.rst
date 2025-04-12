@@ -3,18 +3,9 @@ Graph Module
 
 This module provides graph data structures for representing and manipulating graphs.
 
-Graph
--------------
+.. toctree::
+   :maxdepth: 1
 
-.. autoclass:: egraph.Graph
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-DiGraph
----------------
-
-.. autoclass:: egraph.DiGraph
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   graph/graph
+   graph/digraph
+   graph/graph_adapter

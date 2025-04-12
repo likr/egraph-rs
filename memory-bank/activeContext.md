@@ -446,6 +446,25 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Restructured Python API documentation with a hierarchical organization:
+
+  - Created a hierarchical structure for the API documentation with folders for each main category
+  - Organized documentation into logical groups:
+    - Graph module (Graph, DiGraph, GraphAdapter)
+    - Drawing module (DrawingEuclidean2d, DrawingEuclidean, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d)
+    - Layout module with submodules:
+      - SGD (FullSgd, SparseSgd, Schedulers)
+      - MDS (ClassicalMds, PivotMds)
+      - Other layout algorithms (StressMajorization, KamadaKawai, OverwrapRemoval)
+    - Algorithm module
+    - Quality Metrics module
+    - Distance Matrix module
+    - Random Number Generation module
+  - Added documentation for previously undocumented components:
+    - GraphAdapter base class
+    - SGD schedulers (SchedulerConstant, SchedulerLinear, SchedulerQuadratic, SchedulerExponential, SchedulerReciprocal)
+  - This restructuring improves navigation, discoverability, and maintainability of the documentation
+
 - Fixed Python binding documentation title underline warnings:
 
   - Fixed title underline length issues in all example files:
