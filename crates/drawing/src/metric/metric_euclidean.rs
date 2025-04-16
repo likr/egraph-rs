@@ -185,8 +185,12 @@ impl<S> MetricCartesian for MetricEuclidean<S>
 where
     S: DrawingValue,
 {
-    fn nth(&self, n: usize) -> S {
-        self.0[n]
+    fn nth(&self, n: usize) -> &S {
+        &self.0[n]
+    }
+
+    fn nth_mut(&mut self, n: usize) -> &mut S {
+        &mut self.0[n]
     }
 }
 

@@ -52,5 +52,7 @@ pub trait MetricCartesian: Metric {
     /// # Returns
     ///
     /// The scalar value of the `n`-th dimension.
-    fn nth(&self, n: usize) -> <<Self as Metric>::D as Delta>::S;
+    fn nth(&self, n: usize) -> &<<Self as Metric>::D as Delta>::S;
+
+    fn nth_mut(&mut self, n: usize) -> &mut <<Self as Metric>::D as Delta>::S;
 }

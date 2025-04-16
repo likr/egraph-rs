@@ -66,7 +66,7 @@ fn test_project() {
     let mut cg = ConstraintGraph::new(&drawing, 0, &constraints);
 
     // Extract x-coordinates into a mutable slice
-    let mut x: Vec<f32> = (0..n).map(|i| drawing.raw_entry(i).nth(0)).collect();
+    let mut x: Vec<f32> = (0..n).map(|i| *drawing.raw_entry(i).nth(0)).collect();
 
     // Project the coordinates
     cg.project(&mut x);
@@ -125,7 +125,7 @@ fn test_split_blocks_no_split() {
     let mut cg = ConstraintGraph::new(&drawing, 0, &constraints);
 
     // --- Setup state by calling project to merge blocks ---
-    let mut x_project: Vec<f32> = (0..n).map(|i| drawing.raw_entry(i).nth(0)).collect();
+    let mut x_project: Vec<f32> = (0..n).map(|i| *drawing.raw_entry(i).nth(0)).collect();
     cg.project(&mut x_project);
     // After project: Block 0={0,1}, active={c0}, pos=-0.25, off={0:0, 1:1}. x_project = [-0.25, 0.75]
 
@@ -155,7 +155,7 @@ fn test_split_blocks_with_split() {
     let mut cg = ConstraintGraph::new(&drawing, 0, &constraints);
 
     // --- Setup state by calling project to merge blocks ---
-    let mut x_project: Vec<f32> = (0..n).map(|i| drawing.raw_entry(i).nth(0)).collect();
+    let mut x_project: Vec<f32> = (0..n).map(|i| *drawing.raw_entry(i).nth(0)).collect();
     cg.project(&mut x_project);
     // After project: Block 0={0,1}, active={c0}, pos=-0.25, off={0:0, 1:1}. x_project = [-0.25, 0.75]
 
