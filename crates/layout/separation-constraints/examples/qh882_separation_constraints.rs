@@ -1,7 +1,9 @@
 use egraph_dataset::dataset_qh882;
 use petgraph::graph::{NodeIndex, UnGraph};
 use petgraph_drawing::DrawingEuclidean2d;
-use petgraph_layout_separation_constraints::{Constraint, ConstraintGraph};
+use petgraph_layout_separation_constraints::{
+    generate_rectangle_no_overlap_constraints, project_1d, Constraint,
+};
 use petgraph_layout_stress_majorization::StressMajorization;
 use plotters::prelude::*;
 use std::error::Error;
@@ -52,11 +54,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let right = nodes[j].index();
         constraints.push(Constraint::new(left, right, min_distance));
     }
+    let size = 50.;
 
     println!("Created {} separation constraints", constraints.len());
-
-    // Create constraint graph for x-coordinate
-    let mut constraint_graph_x = ConstraintGraph::new(&drawing, 0, &constraints);
 
     // Optimize layout using stress-majorization and constraints
     println!("Optimizing layout with constraints...");
@@ -64,23 +64,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Apply one step of stress-majorization
         let stress = stress.apply(&mut drawing);
 
-        // Get current coordinates
-        let mut x = Vec::with_capacity(n);
-        let mut y = Vec::with_capacity(n);
-        for i in 0..n {
-            x.push(drawing.x(NodeIndex::new(i)).unwrap());
-            y.push(drawing.y(NodeIndex::new(i)).unwrap());
-        }
-
         // Apply constraints by projecting coordinates
-        constraint_graph_x.project(&mut x);
-
-        // Update coordinates in the drawing
-        for i in 0..n {
-            let idx = NodeIndex::new(i);
-            drawing.set_x(idx, x[i]);
-            drawing.set_y(idx, y[i]);
-        }
+        project_1d(&mut drawing, 0, &constraints);
+        let no_overlap = generate_rectangle_no_overlap_constraints(&drawing, |_, _| size, 1);
+        project_1d(&mut drawing, 1, &no_overlap);
 
         drawing.centralize();
 
@@ -112,16 +99,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Width: {}", max_x - min_x);
     println!("Height: {}", max_y - min_y);
 
-    // Plotting the layout
-    println!("Drawing layout to qh882_layout.png...");
-    let output_path = "qh882_layout.png";
-    let root = BitMapBackend::new(output_path, (1024, 1024)).into_drawing_area();
-    root.fill(&WHITE)?;
-
     // Calculate padding for the chart
     let padding = (max_x - min_x).max(max_y - min_y) * 0.05;
     let x_range = (min_x - padding)..(max_x + padding);
     let y_range = (min_y - padding)..(max_y + padding);
+
+    // Plotting the layout
+    println!("Drawing layout to qh882_layout.png...");
+    let output_path = "qh882_layout.png";
+    let root = BitMapBackend::new(
+        output_path,
+        (
+            (x_range.end - x_range.start) as u32,
+            (y_range.end - y_range.start) as u32,
+        ),
+    )
+    .into_drawing_area();
+    root.fill(&WHITE)?;
 
     let mut chart = ChartBuilder::on(&root)
         .caption(
@@ -153,13 +147,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Draw nodes
     chart.draw_series(graph.node_indices().map(|node_index| {
-        Circle::new(
-            (
-                drawing.x(node_index).unwrap(),
-                drawing.y(node_index).unwrap(),
-            ),
-            3,
-            RED.filled(),
+        Rectangle::new(
+            [
+                (
+                    drawing.x(node_index).unwrap() - size / 2.,
+                    drawing.y(node_index).unwrap() - size / 2.,
+                ),
+                (
+                    drawing.x(node_index).unwrap() + size / 2.,
+                    drawing.y(node_index).unwrap() + size / 2.,
+                ),
+            ],
+            RED.stroke_width(1),
         ) // Red filled circle
     }))?;
 

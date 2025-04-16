@@ -121,11 +121,21 @@ impl<S> MetricCartesian for MetricEuclidean2d<S>
 where
     S: DrawingValue,
 {
-    fn nth(&self, n: usize) -> S {
+    fn nth(&self, n: usize) -> &S {
         if n == 0 {
-            self.0
+            &self.0
         } else if n == 1 {
-            self.1
+            &self.1
+        } else {
+            unreachable!("index error");
+        }
+    }
+
+    fn nth_mut(&mut self, n: usize) -> &mut S {
+        if n == 0 {
+            &mut self.0
+        } else if n == 1 {
+            &mut self.1
         } else {
             unreachable!("index error");
         }
