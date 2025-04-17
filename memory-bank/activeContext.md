@@ -55,6 +55,17 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented Delaunay triangulation algorithm:
+
+  - Created a new crate `petgraph-algorithm-triangulation` in `crates/algorithm/triangulation`
+  - Implemented a function that takes a graph and a 2D Euclidean drawing as input
+  - Uses the spade library for efficient Delaunay triangulation computation
+  - Returns a new graph with the same nodes but with edges representing the triangulation
+  - Added comprehensive tests for various node configurations (square, triangle, collinear points)
+  - Ensured proper integration with petgraph and petgraph-drawing crates
+  - The implementation handles special cases like collinear points correctly
+  - All tests pass successfully, verifying the correctness of the implementation
+
 - Updated Python binding documentation format to follow Sphinx recommendations for the OverwrapRemoval module:
 
   - Updated documentation in `crates/python/src/layout/overwrap_removal.rs` to ensure consistent Sphinx format

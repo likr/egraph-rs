@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/algorithm/connected-components",
     "crates/algorithm/shortest-path",
+    "crates/algorithm/triangulation",
     "crates/cli",
     "crates/clustering",
     "crates/dataset",

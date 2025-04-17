@@ -9,6 +9,12 @@
 - Generic data storage
 - Common type definitions (`Node`, `Edge`, `IndexType`)
 
+### Graph Algorithms
+
+- Connected Components (finding connected subgraphs)
+- Shortest Path (finding shortest paths between nodes)
+- Delaunay Triangulation (creating triangulation based on node positions)
+
 ### Layout Algorithms
 
 - Stochastic Gradient Descent (SGD)

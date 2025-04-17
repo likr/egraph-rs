@@ -1,0 +1,10 @@
+[package]
+name = "petgraph-algorithm-triangulation"
+version = "0.1.0"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+edition = "2018"
+
+[dependencies]
+petgraph = "0.6"
+petgraph-drawing = { path = "../../../crates/drawing" }
+spade = "2.2"
