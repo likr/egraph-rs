@@ -476,6 +476,26 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented layered constraints for hierarchical graph layouts:
+
+  - Created a new file `layered.rs` in the separation-constraints module
+  - Implemented cycle removal functionality based on the Sugiyama Framework
+  - Implemented layer assignment using the longest path algorithm
+  - Created the `generate_layered_constraints` function that:
+    - Takes a directed graph as input
+    - Performs cycle removal to make the graph acyclic
+    - Assigns layers to nodes using the longest path algorithm
+    - Generates constraints for edges that span multiple layers
+    - Returns constraints with gaps proportional to the number of layers spanned
+  - Added comprehensive tests for all components:
+    - Tests for cycle detection and removal
+    - Tests for layer assignment
+    - Tests for constraint generation with simple directed graphs
+    - Tests for handling graphs with cycles
+  - Updated the library exports to make the function available
+  - Added detailed documentation with examples
+  - This implementation enables hierarchical graph layouts where nodes are arranged in layers with edges flowing in a consistent direction
+
 - Restructured Python API documentation with a hierarchical organization:
 
   - Created a hierarchical structure for the API documentation with folders for each main category

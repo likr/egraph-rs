@@ -36,6 +36,7 @@
 - Separation Constraints (layout constraint implementation)
   - Rectangle overlap constraints for all node pairs
   - Triangulation-based rectangle overlap constraints (more efficient for large graphs)
+  - Layered constraints for hierarchical layouts (Sugiyama Framework)
 
 ### Drawing Implementations
 
