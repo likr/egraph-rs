@@ -58,7 +58,7 @@ where
         }
         Self {
             alpha: S::from_f32(0.5).unwrap(),
-            minimum_distance: S::from(0.0).unwrap(),
+            minimum_distance: S::from_f32(0.0).unwrap(),
             sgd,
             original_distance,
         }

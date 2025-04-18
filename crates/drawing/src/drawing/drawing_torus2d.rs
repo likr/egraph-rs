@@ -120,10 +120,10 @@ where
     {
         let nodes = graph.node_identifiers().collect::<Vec<_>>();
         let n = nodes.len();
-        let dt = S::from(2.).unwrap() * S::PI() / S::from_usize(n).unwrap();
-        let r = S::from(0.4).unwrap();
-        let cx = S::from(0.5).unwrap();
-        let cy = S::from(0.5).unwrap();
+        let dt = S::from_f32(2.).unwrap() * S::PI() / S::from_usize(n).unwrap();
+        let r = S::from_f32(0.4).unwrap();
+        let cx = S::from_f32(0.5).unwrap();
+        let cy = S::from_f32(0.5).unwrap();
         let mut drawing = Self::new(graph);
         for (i, &node) in nodes.iter().enumerate().take(n) {
             let t = dt * S::from_usize(i).unwrap();

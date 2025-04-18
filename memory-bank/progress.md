@@ -34,6 +34,8 @@
 - Kamada-Kawai (spring model based layout)
 - Overlap Removal (resolving node overlaps)
 - Separation Constraints (layout constraint implementation)
+  - Rectangle overlap constraints for all node pairs
+  - Triangulation-based rectangle overlap constraints (more efficient for large graphs)
 
 ### Drawing Implementations
 

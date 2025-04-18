@@ -2,7 +2,7 @@ mod drawing;
 mod metric;
 
 use ndarray::prelude::*;
-use num_traits::FromPrimitive;
+use num_traits::{FromPrimitive, Signed};
 use std::hash::Hash;
 
 /// A trait constraint for types that can be used as indices in a drawing (typically node identifiers).
@@ -14,8 +14,8 @@ impl<T> DrawingIndex for T where T: Eq + Hash {}
 /// A trait constraint for types that can be used as coordinate values in a drawing.
 ///
 /// Requires the type to implement `NdFloat` (from `ndarray`) and `FromPrimitive` (from `num_traits`).
-pub trait DrawingValue: NdFloat + FromPrimitive {}
-impl<T> DrawingValue for T where T: NdFloat + FromPrimitive {}
+pub trait DrawingValue: NdFloat + FromPrimitive + Signed + Into<f64> + From<f32> {}
+impl<T> DrawingValue for T where T: NdFloat + FromPrimitive + Signed + Into<f64> + From<f32> {}
 
 /// Represents a drawing, mapping indices (nodes) to coordinate arrays.
 pub use drawing::{

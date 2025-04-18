@@ -55,12 +55,31 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Enhanced the triangulation algorithm and implemented triangulation-based rectangle overlap constraints:
+
+  - Updated the Delaunay triangulation function in `petgraph-algorithm-triangulation` to take only a drawing as input (without requiring a graph)
+  - Made the triangulation function generic over scalar types with appropriate trait bounds
+  - Updated documentation to reflect the new function signature and usage
+  - Implemented a new function `generate_rectangle_no_overlap_constraints_triangulated` in the separation-constraints crate that:
+    - Takes a DrawingEuclidean2d as input
+    - Uses Delaunay triangulation to identify adjacent node pairs
+    - Generates separation constraints only for those adjacent pairs
+    - Works with generic scalar types through the DrawingValue trait
+  - Added comprehensive tests for the new function covering:
+    - Square formation (4 nodes)
+    - Triangle formation (3 nodes)
+    - Collinear points (3 nodes in a line)
+    - Constant node sizes
+  - Verified that all tests pass, including doc-tests
+  - The implementation is more efficient than the original function for large graphs because it only checks node pairs that are adjacent in the triangulated graph, rather than checking all possible pairs (which would be O(n²))
+  - The function is already being used in the example application (qh882_separation_constraints.rs)
+
 - Implemented Delaunay triangulation algorithm:
 
   - Created a new crate `petgraph-algorithm-triangulation` in `crates/algorithm/triangulation`
-  - Implemented a function that takes a graph and a 2D Euclidean drawing as input
+  - Implemented a function that takes a 2D Euclidean drawing as input
   - Uses the spade library for efficient Delaunay triangulation computation
-  - Returns a new graph with the same nodes but with edges representing the triangulation
+  - Returns a new graph with nodes corresponding to the drawing's nodes and edges representing the triangulation
   - Added comprehensive tests for various node configurations (square, triangle, collinear points)
   - Ensured proper integration with petgraph and petgraph-drawing crates
   - The implementation handles special cases like collinear points correctly

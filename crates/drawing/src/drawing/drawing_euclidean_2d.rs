@@ -90,8 +90,8 @@ where
         let w = r - l;
         let h = b - t;
         for i in 0..self.len() {
-            self.coordinates[i].0 -= l + w / S::from(2.).unwrap();
-            self.coordinates[i].1 -= t + h / S::from(2.).unwrap();
+            self.coordinates[i].0 -= l + w / S::from_f32(2.).unwrap();
+            self.coordinates[i].1 -= t + h / S::from_f32(2.).unwrap();
         }
     }
 

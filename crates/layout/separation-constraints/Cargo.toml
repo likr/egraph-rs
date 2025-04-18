@@ -7,6 +7,7 @@ edition = "2021"
 ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
+petgraph-algorithm-triangulation = { path = "../../algorithm/triangulation" }
 
 [dev-dependencies]
 egraph-dataset = { path = "../../dataset", features=["qh882"] }

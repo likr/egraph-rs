@@ -319,11 +319,11 @@ impl<S> EdgeBundlingOptions<S> {
     {
         EdgeBundlingOptions {
             cycles: 6,
-            s0: S::from(0.1).unwrap(),
+            s0: S::from_f32(0.1).unwrap(),
             i0: 90,
-            s_step: S::from(0.5).unwrap(),
-            i_step: S::from(2. / 3.).unwrap(),
-            minimum_edge_compatibility: S::from(0.6).unwrap(),
+            s_step: S::from_f32(0.5).unwrap(),
+            i_step: S::from_f32(2. / 3.).unwrap(),
+            minimum_edge_compatibility: S::from_f32(0.6).unwrap(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use petgraph::{prelude::*, visit::IntoNodeIdentifiers};
+use petgraph::prelude::*;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 use spade::{DelaunayTriangulation, HasPosition, Point2, SpadeNum, Triangulation};
 use std::collections::HashMap;
@@ -49,21 +49,25 @@ where
 {
 }
 
-/// Performs Delaunay triangulation on a graph based on node positions in a 2D Euclidean drawing.
+/// Performs Delaunay triangulation based on node positions in a 2D Euclidean drawing.
 ///
-/// This function takes a graph and a drawing as input, extracts the node positions from the drawing,
+/// This function takes a drawing as input, extracts the node positions from the drawing,
 /// computes the Delaunay triangulation of these points using the spade library, and returns a new
-/// graph with the same nodes but with edges representing the triangulation.
+/// graph with nodes corresponding to the drawing's nodes and edges representing the triangulation.
 ///
 /// # Arguments
 ///
-/// * `graph` - A reference to any graph type that implements `IntoNodeIdentifiers`.
 /// * `drawing` - A reference to a `DrawingEuclidean2d` that contains the positions of the nodes.
 ///
 /// # Returns
 ///
-/// A new undirected graph with the same nodes as the input graph, but with edges representing
+/// A new undirected graph with nodes corresponding to the drawing's nodes, and with edges representing
 /// the Delaunay triangulation.
+///
+/// # Type Parameters
+///
+/// * `N` - The node ID type.
+/// * `S` - The scalar type for coordinates (must implement `DrawingValue` and be convertible to/from f64 and f32).
 ///
 /// # Examples
 ///
@@ -91,37 +95,35 @@ where
 /// drawing.set_y(n4, 1.0);
 ///
 /// // Compute the Delaunay triangulation
-/// let triangulated_graph = triangulation(&graph, &drawing);
+/// let triangulated_graph = triangulation(&drawing);
 ///
 /// // The triangulated graph should have 4 nodes and 5 edges
 /// assert_eq!(triangulated_graph.node_count(), 4);
 /// assert_eq!(triangulated_graph.edge_count(), 5);
 /// ```
-pub fn triangulation<G, S>(
-    graph: G,
-    drawing: &DrawingEuclidean2d<G::NodeId, S>,
-) -> Graph<(), (), Undirected>
+pub fn triangulation<N, S>(drawing: &DrawingEuclidean2d<N, S>) -> Graph<(), (), Undirected>
 where
-    G: IntoNodeIdentifiers,
-    G::NodeId: DrawingIndex + Copy + Into<NodeIndex>,
-    S: DrawingValue + SpadeNum,
+    N: DrawingIndex + Copy,
+    S: DrawingValue + Into<f64> + From<f32>,
 {
     // Create a mapping from node IDs to their indices in the new graph
     let mut node_map = HashMap::new();
     let mut new_graph = Graph::new_undirected();
 
     // Add all nodes from the original graph to the new graph
-    for node_id in graph.node_identifiers() {
+    for k in 0..drawing.len() {
+        let node_id = drawing.node_id(k);
         let new_node = new_graph.add_node(());
         node_map.insert(node_id, new_node);
     }
 
     // Create a Delaunay triangulation
-    let mut triangulation = DelaunayTriangulation::<NodePoint<G::NodeId, S>>::new();
+    let mut triangulation = DelaunayTriangulation::<NodePoint<_, _>>::new();
 
     // Insert points into the triangulation
-    for node_id in graph.node_identifiers() {
-        if let Some(pos) = drawing.position(node_id) {
+    for k in 0..drawing.len() {
+        let node_id = drawing.node_id(k);
+        if let Some(pos) = drawing.position(*node_id) {
             let _ = triangulation.insert(NodePoint::new(node_id, pos.0, pos.1));
         }
     }
@@ -174,7 +176,7 @@ mod tests {
         drawing.set_y(n4, 1.0);
 
         // Compute the Delaunay triangulation
-        let triangulated_graph = triangulation(&graph, &drawing);
+        let triangulated_graph = triangulation(&drawing);
 
         // The triangulated graph should have 4 nodes and 5 edges
         // (4 edges around the square and 1 diagonal)
@@ -185,10 +187,11 @@ mod tests {
     #[test]
     fn test_triangulation_triangle() {
         // Create a graph with 3 nodes in a triangle formation
-        let mut graph = Graph::<(), (), petgraph::Undirected>::new_undirected();
+        let mut graph = Graph::new_undirected();
         let n1 = graph.add_node(());
         let n2 = graph.add_node(());
         let n3 = graph.add_node(());
+        graph.add_edge(n1, n2, ());
 
         // Create a drawing with the nodes positioned in a triangle
         let mut drawing = DrawingEuclidean2d::new(&graph);
@@ -200,7 +203,7 @@ mod tests {
         drawing.set_y(n3, 0.866); // Approximately sqrt(3)/2
 
         // Compute the Delaunay triangulation
-        let triangulated_graph = triangulation(&graph, &drawing);
+        let triangulated_graph = triangulation(&drawing);
 
         // The triangulated graph should have 3 nodes and 3 edges
         assert_eq!(triangulated_graph.node_count(), 3);
@@ -210,10 +213,11 @@ mod tests {
     #[test]
     fn test_triangulation_collinear_points() {
         // Create a graph with 3 collinear nodes
-        let mut graph = Graph::<(), (), petgraph::Undirected>::new_undirected();
+        let mut graph = Graph::new_undirected();
         let n1 = graph.add_node(());
         let n2 = graph.add_node(());
         let n3 = graph.add_node(());
+        graph.add_edge(n1, n2, ());
 
         // Create a drawing with the nodes positioned in a line
         let mut drawing = DrawingEuclidean2d::new(&graph);
@@ -225,7 +229,7 @@ mod tests {
         drawing.set_y(n3, 0.0);
 
         // Compute the Delaunay triangulation
-        let triangulated_graph = triangulation(&graph, &drawing);
+        let triangulated_graph = triangulation(&drawing);
 
         // The triangulated graph should have 3 nodes and 2 edges
         assert_eq!(triangulated_graph.node_count(), 3);

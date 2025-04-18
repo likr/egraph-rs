@@ -73,4 +73,7 @@ mod constraint_graph;
 mod constraints;
 
 pub use constraint_graph::{project_1d, Constraint, ConstraintGraph};
-pub use constraints::rectangle_overlap::generate_rectangle_no_overlap_constraints;
+pub use constraints::rectangle_overlap::{
+    generate_rectangle_no_overlap_constraints,
+    generate_rectangle_no_overlap_constraints_triangulated,
+};
