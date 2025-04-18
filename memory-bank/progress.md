@@ -398,7 +398,20 @@
 
 New guidelines have been established for the project workflow:
 
-1. **Test Execution from Project Root**:
+1. **Plan Mode Workflow**:
+
+   - Enhanced workflow for planning and executing tasks:
+     - Task understanding and Memory Bank review
+     - Solution plan development and presentation to user
+     - User approval and transition to Act Mode
+     - Implementation with task completion confirmation
+     - Memory Bank updates after task completion
+     - Commit message suggestion
+   - Added comprehensive flowchart in `techContext.md` to visualize the workflow
+   - This structured approach ensures consistent task execution and documentation
+   - Improves project maintainability and knowledge transfer
+
+2. **Test Execution from Project Root**:
 
    - All tests should be run from the project root directory using Cargo's workspace options
    - Use `cargo test --workspace` to run all tests
@@ -409,7 +422,7 @@ New guidelines have been established for the project workflow:
      - Run specific test files: `wasm-pack test --node crates/wasm --test <test-name>` (e.g., `wasm-pack test --node crates/wasm --test sgd_full`)
    - This approach ensures consistent test environment and better dependency resolution
 
-2. **Commit Message Format**:
+3. **Commit Message Format**:
 
    - Follow the format: `<type>(<scope>): <description>`
    - For scope:
@@ -421,7 +434,7 @@ New guidelines have been established for the project workflow:
      - `test(petgraph-layout-sgd): add comprehensive tests for schedulers`
      - `docs: update project workflow guidelines` (project-wide change, no scope)
 
-3. **Task Completion Process**:
+4. **Task Completion Process**:
    - When completing tasks, suggest appropriate commit messages following the format above
    - Ensure all tests are run from the project root before committing changes
    - **HIGHEST PRIORITY**: Always ask for final confirmation from the user before completing a task
@@ -429,6 +442,10 @@ New guidelines have been established for the project workflow:
      - Include the proposed commit message
      - Wait for explicit approval before marking the task as complete
      - This confirmation step must never be skipped under any circumstances
+   - After user approval:
+     - Update Memory Bank to reflect changes
+     - Suggest final commit message
+     - Report task completion
 
 ## Known Issues
 

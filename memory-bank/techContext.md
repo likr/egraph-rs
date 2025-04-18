@@ -339,6 +339,27 @@ Examples:
 
 ### Task Execution Process
 
+#### Plan Mode Workflow
+
+```mermaid
+flowchart TD
+    A[Task Start] --> B[Understand Task Instructions]
+    B --> C[Review Memory Bank]
+    C --> D[Develop Solution Plan]
+    D --> E[Present Plan to User]
+    E --> F{User Approves?}
+    F -->|Yes| G[Ask User to Toggle to Act Mode]
+    F -->|No| H[Refine Plan]
+    H --> E
+    G --> I[Implement Solution in Act Mode]
+    I --> J[Ask for Task Completion Confirmation]
+    J --> K{User Approves?}
+    K -->|Yes| L[Update Memory Bank]
+    L --> M[Suggest Commit Message]
+    K -->|No| N[Make Requested Changes]
+    N --> J
+```
+
 #### Process at the Start of a Task
 
 ```mermaid
@@ -395,9 +416,11 @@ flowchart TD
     G --> B
     F --> I[Ask for Final User Confirmation]
     I --> J{User Approves?}
-    J -->|Yes| H[Report Completion]
-    J -->|No| K[Make Requested Changes]
-    K --> B
+    J -->|Yes| K[Update Memory Bank]
+    K --> L[Suggest Final Commit Message]
+    L --> H[Report Completion]
+    J -->|No| M[Make Requested Changes]
+    M --> B
 ```
 
 ### Memory Bank Management
