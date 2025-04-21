@@ -41,6 +41,7 @@
   - Rectangle overlap constraints for all node pairs
   - Triangulation-based rectangle overlap constraints (more efficient for large graphs)
   - Layered constraints for hierarchical layouts (Sugiyama Framework)
+  - Cluster overlap constraints for removing overlaps between node clusters
 
 ### Drawing Implementations
 

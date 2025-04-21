@@ -55,6 +55,20 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Implemented cluster overlap removal in the separation-constraints module:
+
+  - Created a new file `cluster_overlap.rs` in the `petgraph-layout-separation-constraints` module
+  - Implemented the `project_clustered_rectangle_no_overlap_constraints` function that:
+    - Takes a graph, a drawing, a dimension, a cluster ID function, and a node size function
+    - Uses `coarsen` from petgraph-clustering to create a cluster graph
+    - Calculates the bounding box for each cluster based on contained nodes
+    - Applies `generate_rectangle_no_overlap_constraints` and `project_1d` to remove overlaps
+    - Updates the original drawing with the calculated displacements
+  - Added comprehensive tests to verify the functionality
+  - Optimized the implementation by caching cluster ID function results to minimize calls
+  - The function works with both x-dimension (d=0) and y-dimension (d=1)
+  - This feature is useful for hierarchical graph layouts where nodes are grouped into clusters
+
 - Created a new `petgraph-algorithm-layering` crate for layered graph algorithms:
 
   - Extracted layer assignment functionality from separation-constraints crate to a dedicated algorithm crate
