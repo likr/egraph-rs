@@ -1,88 +1,9 @@
-use fixedbitset::FixedBitSet;
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::visit::{VisitMap, Visitable};
-use petgraph::{Directed, EdgeDirection, Graph};
-use std::collections::{HashMap, HashSet};
+use petgraph::graph::IndexType;
+use petgraph::{Directed, Graph};
+use petgraph_algorithm_layering::{cycle::remove_cycle, LongestPath};
+use std::collections::HashMap;
 
 use crate::Constraint;
-
-// Cycle Removal Implementation
-// Based on: https://github.com/likr/egraph-rs/blob/cbb2e93199c2c7c2b968bbc50b46dc6a60097a3a/crates/egraph-layered/src/cycle_removal.rs
-
-fn dfs_cycle<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    map: &mut FixedBitSet,
-    ancestors: &mut HashSet<NodeIndex<Ix>>,
-    result: &mut Vec<(NodeIndex<Ix>, NodeIndex<Ix>)>,
-    u: NodeIndex<Ix>,
-) {
-    if map.is_visited(&u) {
-        return;
-    }
-    map.visit(u);
-    ancestors.insert(u);
-    for v in graph.neighbors(u) {
-        if ancestors.contains(&v) {
-            result.push((u, v));
-        } else {
-            dfs_cycle(graph, map, ancestors, result, v)
-        }
-    }
-    ancestors.remove(&u);
-}
-
-pub fn cycle_edges<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-) -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>)> {
-    let mut map = graph.visit_map();
-    let mut ancestors = HashSet::new();
-    let mut result = vec![];
-    for u in graph.node_indices() {
-        dfs_cycle(&graph, &mut map, &mut ancestors, &mut result, u)
-    }
-    result
-}
-
-pub fn remove_cycle<N, E, Ix: IndexType>(graph: &mut Graph<N, E, Directed, Ix>) {
-    for (u, v) in cycle_edges(graph) {
-        let index = graph.find_edge(u, v).unwrap();
-        let weight = graph.remove_edge(index).unwrap();
-        graph.add_edge(v, u, weight);
-    }
-}
-
-// Layer Assignment Implementation
-// Based on: https://github.com/likr/egraph-rs/blob/eff56113818199eab6a1c9e50a9e1894b1b90e55/egraph-layered/src/ranking/longest_path.rs
-
-fn dfs_layer<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    layers: &mut HashMap<NodeIndex<Ix>, usize>,
-    u: NodeIndex<Ix>,
-    depth: usize,
-) {
-    for v in graph.neighbors(u) {
-        if layers.contains_key(&v) {
-            let layer = layers.get_mut(&v).unwrap();
-            if *layer <= depth {
-                *layer = depth + 1
-            }
-        } else {
-            layers.insert(v, depth + 1);
-        }
-        dfs_layer(graph, layers, v, depth + 1);
-    }
-}
-
-pub fn longest_path<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-) -> HashMap<NodeIndex<Ix>, usize> {
-    let mut result = HashMap::new();
-    for u in graph.externals(EdgeDirection::Incoming) {
-        result.insert(u, 0);
-        dfs_layer(graph, &mut result, u, 0);
-    }
-    result
-}
 
 /// Generates layered constraints for a directed graph based on the Sugiyama Framework.
 ///
@@ -143,7 +64,8 @@ pub fn generate_layered_constraints<N, E, Ix: IndexType>(
     remove_cycle(&mut acyclic_graph);
 
     // Assign layers to nodes using longest path algorithm
-    let layers = longest_path(&acyclic_graph);
+    let longest_path = LongestPath::new();
+    let layers = longest_path.assign_layers(&acyclic_graph);
 
     // Generate constraints for edges that span multiple layers
     let mut constraints = Vec::new();
@@ -185,54 +107,6 @@ pub fn generate_layered_constraints<N, E, Ix: IndexType>(
 mod tests {
     use super::*;
     use petgraph::Graph;
-
-    #[test]
-    fn test_cycle_edges() {
-        let mut graph = Graph::<&str, &str>::new();
-        let a = graph.add_node("a");
-        let b = graph.add_node("b");
-        let c = graph.add_node("c");
-        graph.add_edge(a, b, "");
-        graph.add_edge(b, c, "");
-        graph.add_edge(c, a, "");
-        assert_eq!(cycle_edges(&graph), vec![(c, a)]);
-    }
-
-    #[test]
-    fn test_remove_cycle() {
-        let mut graph = Graph::<&str, &str>::new();
-        let a = graph.add_node("a");
-        let b = graph.add_node("b");
-        let c = graph.add_node("c");
-        graph.add_edge(a, b, "");
-        graph.add_edge(b, c, "");
-        graph.add_edge(c, a, "");
-        remove_cycle(&mut graph);
-        assert!(graph.find_edge(a, b).is_some());
-        assert!(graph.find_edge(a, c).is_some());
-        assert!(graph.find_edge(b, c).is_some());
-        assert_eq!(graph.edge_count(), 3);
-    }
-
-    #[test]
-    fn test_longest_path() {
-        let mut graph = Graph::<&str, &str>::new();
-        let a = graph.add_node("a");
-        let b = graph.add_node("b");
-        let c = graph.add_node("c");
-        let d = graph.add_node("d");
-        let e = graph.add_node("e");
-        graph.add_edge(a, b, "");
-        graph.add_edge(b, c, "");
-        graph.add_edge(d, c, "");
-        graph.add_edge(d, e, "");
-        let layers = longest_path(&graph);
-        assert_eq!(*layers.get(&a).unwrap(), 0);
-        assert_eq!(*layers.get(&b).unwrap(), 1);
-        assert_eq!(*layers.get(&c).unwrap(), 2);
-        assert_eq!(*layers.get(&d).unwrap(), 0);
-        assert_eq!(*layers.get(&e).unwrap(), 1);
-    }
 
     #[test]
     fn test_generate_layered_constraints() {

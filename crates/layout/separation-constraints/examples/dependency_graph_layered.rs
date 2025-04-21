@@ -1,8 +1,8 @@
 use petgraph::graph::{DiGraph, Graph};
-use petgraph_drawing::DrawingEuclidean2d;
+use petgraph_algorithm_layering::{remove_cycle, LongestPath};
+use petgraph_layout_mds::ClassicalMds;
 use petgraph_layout_separation_constraints::{
-    generate_layered_constraints, generate_rectangle_no_overlap_constraints_triangulated,
-    project_1d,
+    generate_rectangle_no_overlap_constraints_triangulated, project_1d,
 };
 use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential, Sgd};
 use plotters::prelude::*;
@@ -111,75 +111,54 @@ fn main() -> Result<(), Box<dyn Error>> {
         undirected_graph.add_edge(undirected_source, undirected_target, ());
     }
 
-    // Initialize layout using DrawingEuclidean2d with the undirected graph
-    let mut drawing = DrawingEuclidean2d::initial_placement(&undirected_graph);
-
-    // Initialize SGD with the undirected graph
-    let mut sgd = FullSgd::new(&undirected_graph, |_| 100.);
-    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(100, 0.1);
-    let mut rng = thread_rng();
-
-    // Optimize initial layout using SGD
-    println!("Optimizing initial layout...");
-    for _ in 0..50 {
-        scheduler.step(&mut |t| {
-            sgd.shuffle(&mut rng);
-            sgd.apply(&mut drawing, t);
-        });
-    }
-    drawing.centralize();
-
-    // Print graph statistics
-    println!("Graph statistics:");
-    println!("  Node count: {}", graph.node_count());
-    println!("  Edge count: {}", graph.edge_count());
-    println!("  Is directed: {}", graph.is_directed());
-
-    // Count incoming and outgoing edges for each node
-    let mut nodes_with_no_incoming = 0;
-    let mut nodes_with_no_outgoing = 0;
-
-    for node in graph.node_indices() {
-        let incoming = graph
-            .neighbors_directed(node, petgraph::Direction::Incoming)
-            .count();
-        let outgoing = graph
-            .neighbors_directed(node, petgraph::Direction::Outgoing)
-            .count();
-
-        if incoming == 0 {
-            nodes_with_no_incoming += 1;
-        }
-        if outgoing == 0 {
-            nodes_with_no_outgoing += 1;
-        }
-    }
-
-    println!("  Nodes with no incoming edges: {}", nodes_with_no_incoming);
-    println!("  Nodes with no outgoing edges: {}", nodes_with_no_outgoing);
+    // Constraint parameters
+    let node_width = 50.0;
+    let node_height = 20.0;
+    let node_separation = 10.0;
+    let layer_distance = 100.0;
+    let edge_length = 100.0;
 
     // Generate layered constraints for hierarchical layout
     println!("Generating layered constraints...");
-    let min_layer_distance = 100.0; // Minimum vertical distance between layers
-    let layered_constraints = generate_layered_constraints(&graph, min_layer_distance);
-    println!("Created {} layered constraints", layered_constraints.len());
+    remove_cycle(&mut graph);
+    let layering = LongestPath::new();
+    let layers = layering.assign_layers(&graph);
+    let layer_y = layers
+        .into_iter()
+        .map(|(node_id, layer)| (node_id, layer as f32 * -layer_distance))
+        .collect::<HashMap<_, _>>();
 
-    // Node size for overlap constraints
-    let node_size = 20.0;
+    // Initialize layout using DrawingEuclidean2d with the undirected graph
+    let mds = ClassicalMds::new(&undirected_graph, |_| edge_length);
+    let mut drawing = mds.run_2d();
+
+    // Initialize SGD with the undirected graph
+    let iterations = 100;
+    let mut sgd = FullSgd::new(&undirected_graph, |_| edge_length);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.5);
+    let mut rng = thread_rng();
 
     // Optimize layout using stress-majorization and constraints
     println!("Optimizing layout with constraints...");
-    for _ in 0..50 {
+    for _i in 0..iterations {
         scheduler.step(&mut |t| {
             sgd.shuffle(&mut rng);
             sgd.apply(&mut drawing, t);
-            // Apply layered constraints to the y-dimension (vertical)
-            project_1d(&mut drawing, 1, &layered_constraints);
 
+            // Apply layered constraints to the y-dimension (vertical)
+            for node_id in undirected_graph.node_indices() {
+                drawing.set_y(node_id, layer_y[&node_id]);
+            }
             // Apply rectangle overlap constraints to the x-dimension (horizontal)
             let no_overlap = generate_rectangle_no_overlap_constraints_triangulated(
                 &drawing,
-                |_, _| node_size,
+                |_, d| {
+                    if d == 0 {
+                        node_width + node_separation
+                    } else {
+                        node_height
+                    }
+                },
                 0,
             );
             project_1d(&mut drawing, 0, &no_overlap);
@@ -228,8 +207,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_path = "dependency_graph_layered.png";
 
     // Create a bitmap with appropriate dimensions
-    let width = 1000;
-    let height = 1000;
+    let width = (x_range.end - x_range.start) as u32;
+    let height = (y_range.end - y_range.start) as u32;
 
     let root = BitMapBackend::new(output_path, (width, height)).into_drawing_area();
     root.fill(&WHITE)?;
@@ -249,8 +228,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Draw edges
     chart.draw_series(graph.edge_indices().map(|edge_index| {
         let (source, target) = graph.edge_endpoints(edge_index).unwrap();
-        let undirected_source = undirected_node_indices[&source.index()];
-        let undirected_target = undirected_node_indices[&target.index()];
+        let undirected_source = node_indices[&source.index()];
+        let undirected_target = node_indices[&target.index()];
 
         let source_x = drawing.x(undirected_source).unwrap();
         let source_y = drawing.y(undirected_source).unwrap();
@@ -270,30 +249,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Draw nodes as rectangles with colors based on their y-position
     for node_idx in graph.node_indices() {
-        let undirected_idx = undirected_node_indices[&node_idx.index()];
-        let x = drawing.x(undirected_idx).unwrap();
-        let y = drawing.y(undirected_idx).unwrap();
-
-        // Determine layer based on y-position
-        let y_normalized = (y - min_y) / (max_y - min_y);
-        let layer = (y_normalized * 4.0).floor() as usize;
-
-        // Assign color based on layer
-        let color = match layer {
-            0 => RED,
-            1 => BLUE,
-            2 => GREEN,
-            3 => YELLOW,
-            _ => MAGENTA,
-        };
+        let x = drawing.x(node_idx).unwrap();
+        let y = drawing.y(node_idx).unwrap();
 
         // Draw node rectangle
         chart.draw_series(std::iter::once(Rectangle::new(
             [
-                (x - node_size / 2.0, y - node_size / 2.0),
-                (x + node_size / 2.0, y + node_size / 2.0),
+                (x - node_width / 2.0, y - node_height / 2.0),
+                (x + node_width / 2.0, y + node_height / 2.0),
             ],
-            color.filled().stroke_width(1),
+            RED.filled().stroke_width(1),
         )))?;
     }
 

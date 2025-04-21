@@ -55,6 +55,25 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
 
 ## Recent Changes
 
+- Created a new `petgraph-algorithm-layering` crate for layered graph algorithms:
+
+  - Extracted layer assignment functionality from separation-constraints crate to a dedicated algorithm crate
+  - Implemented a trait-based approach for greater extensibility:
+    - Created a `LayeringAlgorithm` trait for different layering algorithms
+    - Implemented the `LongestPath` algorithm based on the longest path method
+  - Separated cycle detection and removal functionality:
+    - Moved cycle detection/removal to a dedicated `cycle` module
+    - Enhanced with comprehensive tests for various graph configurations
+  - Updated the `generate_layered_constraints` function in separation-constraints crate to use the new API
+  - Added comprehensive tests for all components:
+    - Tests for cycle detection with multiple cycles
+    - Tests for cycle removal in complex graphs
+    - Tests for longest path layering algorithm
+    - Integration tests for layering with the constraint generation
+  - All tests pass successfully, verifying the correctness of the implementation
+  - The new architecture allows for easier addition of new layering algorithms in the future
+  - This refactoring follows the project pattern of moving algorithms to dedicated crates
+
 - Enhanced the triangulation algorithm and implemented triangulation-based rectangle overlap constraints:
 
   - Updated the Delaunay triangulation function in `petgraph-algorithm-triangulation` to take only a drawing as input (without requiring a graph)
@@ -469,138 +488,3 @@ The current focus is on enhancing the WebAssembly bindings with comprehensive te
   - Consistent naming conventions (camelCase for JavaScript)
   - JSDoc-style comments for better developer experience
   - Transparent data handling between Rust and JavaScript
-  - Memory safety improvements
-  - Method chaining support
-  - Robust error handling
-  - JavaScript callback support
-
-## Recent Changes
-
-- Enhanced project workflow with improved Plan Mode process:
-
-  - Updated the development workflow in `techContext.md` to include a comprehensive Plan Mode workflow
-  - Added a structured process for task planning and execution:
-    - Task understanding and Memory Bank review
-    - Solution plan development and presentation to user
-    - User approval and transition to Act Mode
-    - Implementation with task completion confirmation
-    - Memory Bank updates after task completion
-    - Commit message suggestion
-  - Added a flowchart diagram to visualize the Plan Mode workflow
-  - Updated the Final Verification process to include Memory Bank updates and commit message suggestion
-  - This enhancement improves project documentation, ensures consistent task execution, and maintains better version control practices
-
-- Implemented layered constraints for hierarchical graph layouts:
-
-  - Created a new file `layered.rs` in the separation-constraints module
-  - Implemented cycle removal functionality based on the Sugiyama Framework
-  - Implemented layer assignment using the longest path algorithm
-  - Created the `generate_layered_constraints` function that:
-    - Takes a directed graph as input
-    - Performs cycle removal to make the graph acyclic
-    - Assigns layers to nodes using the longest path algorithm
-    - Generates constraints for edges that span multiple layers
-    - Returns constraints with gaps proportional to the number of layers spanned
-  - Added comprehensive tests for all components:
-    - Tests for cycle detection and removal
-    - Tests for layer assignment
-    - Tests for constraint generation with simple directed graphs
-    - Tests for handling graphs with cycles
-  - Updated the library exports to make the function available
-  - Added detailed documentation with examples
-  - This implementation enables hierarchical graph layouts where nodes are arranged in layers with edges flowing in a consistent direction
-
-- Restructured Python API documentation with a hierarchical organization:
-
-  - Created a hierarchical structure for the API documentation with folders for each main category
-  - Organized documentation into logical groups:
-    - Graph module (Graph, DiGraph, GraphAdapter)
-    - Drawing module (DrawingEuclidean2d, DrawingEuclidean, DrawingSpherical2d, DrawingHyperbolic2d, DrawingTorus2d)
-    - Layout module with submodules:
-      - SGD (FullSgd, SparseSgd, Schedulers)
-      - MDS (ClassicalMds, PivotMds)
-      - Other layout algorithms (StressMajorization, KamadaKawai, OverwrapRemoval)
-    - Algorithm module
-    - Quality Metrics module
-    - Distance Matrix module
-    - Random Number Generation module
-  - Added documentation for previously undocumented components:
-    - GraphAdapter base class
-    - SGD schedulers (SchedulerConstant, SchedulerLinear, SchedulerQuadratic, SchedulerExponential, SchedulerReciprocal)
-  - This restructuring improves navigation, discoverability, and maintainability of the documentation
-
-- Fixed Python binding documentation title underline warnings:
-
-  - Fixed title underline length issues in all example files:
-    - `crates/python/docs/source/examples/index.rst`
-    - `crates/python/docs/source/examples/sgd.rst`
-    - `crates/python/docs/source/examples/kamada_kawai.rst`
-    - `crates/python/docs/source/examples/stress_majorization.rst`
-    - `crates/python/docs/source/examples/sgd_3d.rst`
-    - `crates/python/docs/source/examples/sgd_hyperbolic_2d.rst`
-    - `crates/python/docs/source/examples/sgd_spherical_2d.rst`
-    - `crates/python/docs/source/examples/sgd_torus.rst`
-    - `crates/python/docs/source/examples/overwrap_removal.rst`
-  - Fixed title underline length in the main index file:
-    - `crates/python/docs/source/index.rst`
-  - Made all title underlines sufficiently long to match or exceed their title text
-  - Verified that documentation now builds without errors when using the `-W` flag to treat warnings as errors
-  - These changes ensure that the Python bindings documentation renders correctly with consistent formatting
-
-- Fixed Python binding documentation warnings:
-
-  - Resolved duplicate object descriptions by removing redundant `automodule` directives from `index.rst`
-  - Fixed title underline length issues in all API documentation files
-  - Updated `algorithm.rst` to reference actual functions that exist (`all_sources_bfs`, `all_sources_dijkstra`, `warshall_floyd`) instead of non-existent functions
-  - Removed reference to the non-existent `edge_angle` function from `quality_metrics.rst`
-  - Fixed indentation error in StressMajorization docstring by adding a blank line before the numbered list
-  - Changed the docstring example format in StressMajorization from doctest format to code block format
-  - Verified that documentation now builds without errors when using the `-W` flag to treat warnings as errors
-  - These changes ensure that the Python bindings documentation is properly formatted and free of critical warnings
-
-- Updated Netlify configuration for Python bindings documentation:
-
-  - Changed the base directory from `crates/python/docs` to `crates/python`:
-    - Moved `netlify.toml`, `requirements.txt`, and `runtime.txt` from `crates/python/docs/` to `crates/python/`
-    - Updated the publish directory from `_build/html` to `docs/_build/html`
-    - Modified the build command from `rustup toolchain install stable && pip install .. && make html` to `rustup toolchain install stable && pip install . && make -C docs html`
-  - This change simplifies the configuration by setting the base at the Python crate level
-  - The updated command uses `make -C docs html` to run make from the crates/python directory
-  - This ensures that Netlify will build the documentation correctly with the new directory structure
-
-- Updated Netlify build configuration for Python bindings documentation:
-
-  - Modified the Netlify build command in `netlify.toml` to explicitly install the stable Rust toolchain:
-    - Previous command: `pip install .. && make html`
-    - New command: `rustup toolchain install stable && pip install .. && make html`
-  - Removed the `rust-toolchain.toml` file that previously specified the stable channel
-  - This change moves from a declarative approach (using rust-toolchain.toml) to an imperative approach (explicitly installing the toolchain during the build process)
-  - This ensures that Netlify will have the correct Rust toolchain available when building the Python documentation
-  - The explicit installation approach provides more direct control over the build environment
-
-- Implemented Python bindings documentation with Sphinx integration:
-
-  - Created a comprehensive Sphinx documentation structure in `crates/python/docs/`
-  - Set up configuration for doctest support to ensure examples are runnable and testable
-  - Created detailed API reference documentation for all modules:
-    - Graph module (Graph, DiGraph)
-    - Drawing module (Euclidean2d, Euclidean, Spherical2d, Hyperbolic2d, Torus2d)
-    - Layout module (StressMajorization, KamadaKawai, SGD, MDS, OverwrapRemoval)
-    - Algorithm module (shortest_path, connected_components)
-    - Quality metrics module (stress, crossing_number, etc.)
-    - Distance matrix module
-    - Random number generation module
-  - Added example code for all layout algorithms and drawing spaces
-  - Created build scripts (Makefile and make.bat) for building documentation on different platforms
-  - Added requirements.txt for documentation dependencies
-  - This documentation will make the library more accessible to users and ensure examples are always up-to-date
-
-## Next Steps
-
-1. **Python Documentation Enhancements**:
-
-   - Move examples from `crates/python/examples/` to Python doctests
-     - Analyze each example file to extract core functionality
-     - Create doctests in the corresponding Python module files
-     - Simplify examples to focus on API usage rather than visualization
-     - Ensure compatibility with the current API

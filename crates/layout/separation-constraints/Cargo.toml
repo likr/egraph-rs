@@ -8,10 +8,12 @@ fixedbitset = "0.4"
 ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
+petgraph-algorithm-layering = { path = "../../algorithm/layering" }
 petgraph-algorithm-triangulation = { path = "../../algorithm/triangulation" }
 
 [dev-dependencies]
 egraph-dataset = { path = "../../dataset", features=["qh882"] }
+petgraph-layout-mds = { path = "../mds" }
 petgraph-layout-stress-majorization = { path = "../stress-majorization" }
 petgraph-layout-sgd = { path = "../sgd" }
 plotters = "0.3"

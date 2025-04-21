@@ -14,6 +14,10 @@
 - Connected Components (finding connected subgraphs)
 - Shortest Path (finding shortest paths between nodes)
 - Delaunay Triangulation (creating triangulation based on node positions)
+- Layering (assigning layers to nodes in directed graphs)
+  - Cycle removal to create acyclic graphs
+  - Longest path algorithm for layer assignment
+  - Extensible trait-based architecture for future layering algorithms
 
 ### Layout Algorithms
 
@@ -91,6 +95,10 @@
 - ✅ Fixed: ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
 - ✅ Fixed: PivotMds implementation to handle similar cases with high-dimensional embeddings
 - ✅ Fixed: StressMajorization run method to prevent infinite loops by adding max_iterations parameter and making epsilon configurable
+- 🔄 Planned: Additional layering algorithms for graph hierarchical layout
+  - Network simplex algorithm
+  - Coffman-Graham algorithm
+  - Optimal layer assignment with integer programming
 
 ### Documentation
 
@@ -365,6 +373,7 @@
   - ✅ Fixed: ClassicalMds implementation for n-dimensional Euclidean drawings
   - ✅ Fixed: PivotMds implementation for high-dimensional embeddings
   - ✅ Fixed: MetricSpherical2d implementation that was causing NaN values
+  - ✅ Added: Layering algorithm crate with trait-based extensible architecture
 - **Drawing Implementations**: ✅ Complete
 - **Quality Metrics**: ✅ Complete
 - **Edge Bundling**: ✅ Functional
@@ -484,27 +493,4 @@ New guidelines have been established for the project workflow:
 6. **Implementation Issues**:
    - ✅ Fixed: ClassicalMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph
    - ✅ Fixed: PivotMds implementation was producing NaN values in high-dimensional embeddings due to issues in the power_iteration function
-   - ✅ Fixed: MetricSpherical2d implementation had a bug that output NaN values, causing the SparseSgd spherical drawing test to fail. The issue was fixed by:
-     - Adding safeguards against division by zero in vector normalization
-     - Adding special handling for identical or very close points
-     - Adding early returns for negligible movements
-     - Ensuring proper clamping of values for trigonometric functions
-     - Adding fallback strategies for edge cases near the poles
-   - ✅ Fixed: StressMajorization run method could enter an infinite loop. The issue was fixed by:
-     - Adding a public max_iterations field with default value of 100
-     - Making epsilon field public for external configuration
-     - Simplifying run method to use max_iterations as a safety limit
-     - Adding WebAssembly bindings for epsilon and max_iterations parameters
-     - Adding tests for parameter getters and setters
-     - Updating test helper to use the new parameters
-   - ✅ Documented: Node/edge removal behavior in petgraph:
-     - Added detailed comments in both `test_graph.py` and `test_digraph.py` explaining the expected behavior
-     - In petgraph Rust implementation, when `remove_node` is called, the last node in the graph adopts the removed node's index
-     - Similarly, when `remove_edge` is called, the last edge in the graph adopts the removed edge's index
-     - This means previously obtained node/edge IDs may become invalid or point to different nodes/edges
-     - This is the intended behavior in petgraph, not a bug in our Python bindings
-     - This documentation will help future development by clarifying the expected behavior when working with node/edge removal
-   - 🔄 Need to address: Performance issues with large graphs (>10,000 nodes)
-   - 🔄 Need to address: High memory consumption for dense graphs in WebAssembly context
-   - 🔄 Need to address: Inconsistencies between language bindings (Rust, Python, JavaScript)
-   - 🔄 Need to address: Issue with calling edgeWeight within callback functions
+   - ✅ Fixed: MetricSpherical2d implementation had a bug that output N
