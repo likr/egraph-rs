@@ -1,108 +1,57 @@
 # System Patterns: egraph-rs
 
-## System Architecture
+## Architecture & Design
 
-egraph-rs follows a modular architecture organized as a Rust workspace with multiple specialized crates:
+- **Modular Crate Structure**
 
-```
-egraph-rs/
-├── crates/
-│   ├── algorithm/           # Graph algorithms
-│   │   ├── connected-components/
-│   │   ├── shortest-path/
-│   ├── clustering/          # Clustering algorithms
-│   ├── dataset/             # Graph dataset loaders
-│   ├── drawing/             # Drawing implementations
-│   ├── edge-bundling/       # Edge bundling algorithms
-│   ├── layout/              # Layout algorithms
-│   │   ├── kamada-kawai/
-│   │   ├── mds/
-│   │   ├── overwrap-removal/
-│   │   ├── sgd/
-│   │   ├── stress-majorization/
-│   ├── quality-metrics/     # Layout quality evaluation
-│   ├── python/              # Python bindings
-│   ├── wasm/                # WebAssembly bindings
-```
+  - algorithm (connected-components, shortest-path, triangulation, layering)
+  - clustering (community detection)
+  - drawing (Euclidean, Spherical, Hyperbolic, Torus)
+  - layout (SGD, MDS, Stress-Majorization, Kamada-Kawai)
+  - quality-metrics, edge-bundling, separation-constraints
+  - language bindings (Python, WebAssembly)
 
-## Key Technical Decisions
+- **Key Patterns**
+  - Builder, Strategy, Adapter, Visitor, Factory Methods
+  - Trait-based Interfaces (`CommunityDetection`, `LayeringAlgorithm`)
+  - Composition over inheritance
 
-1. **Modular Crate Structure**: Separating functionality into specialized crates for better maintainability and selective dependencies
-2. **Cross-Language Support**: Exposing functionality via WebAssembly and Python bindings
-3. **Multiple Geometric Spaces**: Supporting various drawing spaces (Euclidean, Spherical, Hyperbolic, Torus)
-4. **Generic Graph Implementation**: Using generic types for node and edge data
+## Layout Algorithms
 
-## Design Patterns in Use
+- **SGD**: Force-directed layout with multiple variants
 
-1. **Builder Pattern**: For configurable construction of complex objects like layouts
-2. **Strategy Pattern**: For interchangeable layout and algorithm implementations
-3. **Adapter Pattern**: For bridging between different language interfaces
-4. **Visitor Pattern**: For operations over graph structures
-5. **Factory Methods**: For creating specialized graph instances
+  - Full, Sparse, Distance-Adjusted implementations
+  - Various learning rate schedulers (Constant, Linear, etc.)
 
-## Layout Algorithm Implementations
+- **MDS**: Lower-dimensional space visualization
 
-### Stochastic Gradient Descent (SGD) (`crates/layout/sgd`)
+  - Classical (full distance matrix)
+  - Pivot-based (efficient for large graphs)
 
-Force-directed graph layout using stochastic gradient descent optimization:
+- **Stress Majorization**: Iterative stress minimization
 
-- **Implementation Variants**:
+## Community Detection
 
-  - `FullSgd`: Uses all-pairs shortest path distances (accurate but slower for large graphs)
-  - `SparseSgd`: Uses pivot-based sparse approximation (efficient for large graphs)
-  - `DistanceAdjustedSgd`: Dynamically adjusts distances to improve aesthetics
+- **Unified Trait-Based Interface**:
 
-- **Learning Rate Schedulers**:
+  ```rust
+  trait CommunityDetection<G> {
+      fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize>;
+  }
+  ```
 
-  - `SchedulerConstant`: Maintains a fixed learning rate
-  - `SchedulerLinear`: Linear decay of learning rate
-  - `SchedulerExponential`: Exponential decay of learning rate
-  - `SchedulerQuadratic`: Quadratic decay of learning rate
-  - `SchedulerReciprocal`: Reciprocal decay of learning rate
+- **Implemented Algorithms**:
 
-- **Reference**: Zheng, J. X., Pawar, S., & Goodman, D. F. (2018). "Graph drawing by stochastic gradient descent"
+  - **Louvain**: Modularity optimization (fast for large networks)
+  - **Label Propagation**: Fast majority-based diffusion
+  - **Spectral**: Uses graph Laplacian eigenvectors
+  - **InfoMap**: Information-theoretic random walk approach
 
-### Multidimensional Scaling (MDS) (`crates/layout/mds`)
+- **Graph Coarsening**: Creates simplified graph representations
 
-Algorithms to visualize graph structures in lower dimensional spaces:
+## Quality Metrics
 
-- `ClassicalMds`: Standard implementation that computes a full distance matrix
-- `PivotMds`: Efficient implementation that uses a subset of nodes as pivots
-- Uses eigendecomposition and double centering to transform distance matrices
-- **Reference**: Cox, T. F., & Cox, M. A. (2000). Multidimensional scaling. Chapman & Hall/CRC.
-
-### Stress Majorization (`crates/layout/stress-majorization`)
-
-- Implements the Stress Majorization algorithm for force-directed graph layout
-- Iteratively minimizes the layout stress by solving a series of quadratic problems
-- Uses conjugate gradient method for efficient optimization
-- **Reference**: Gansner et al. (2004) "Graph drawing by stress majorization"
-
-### Other Layout Algorithms
-
-- **Kamada-Kawai** (`crates/layout/kamada-kawai`): Spring model based layout algorithm
-- **Overlap Removal** (`crates/layout/overwrap-removal`): Algorithm to resolve node overlaps
-- **Separation Constraints** (`crates/layout/separation-constraints`): Layout constraint implementation
-
-## Component Relationships
-
-- **Graph Structures** provide the foundation for all operations
-- **Algorithms** operate on graph structures to compute properties
-- **Layout Algorithms** position nodes in various geometric spaces
-- **Drawing Implementations** render graphs in different coordinate systems
-- **Quality Metrics** evaluate the effectiveness of layouts
-- **Language Bindings** expose functionality to Python and JavaScript
-
-## Drawing Quality Metrics (`crates/quality-metrics`)
-
-Collection of metrics to quantitatively assess the quality of graph layouts:
-
-- `Stress`: How well layout preserves graph-theoretical distances
-- `IdealEdgeLengths`: How well edge lengths match their ideal lengths
-- `NeighborhoodPreservation`: How well the layout preserves local neighborhoods
-- `CrossingNumber`: Count of edge crossings in the layout
-- `EdgeAngle`: Angles at which edges cross
-- `AspectRatio`: Balance between width and height of the drawing
-- `AngularResolution`: Angles between edges connected to the same node
-- `NodeResolution`: How well nodes are distributed in the drawing space
-- `GabrielGraphProperty`: Adherence to the Gabriel graph condition
+- Graph-theoretical distance preservation
+- Edge crossing minimization
+- Angular resolution optimization
+- Node distribution evaluation
