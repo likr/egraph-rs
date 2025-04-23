@@ -7,7 +7,7 @@ use petgraph_clustering::coarsen;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d};
 use std::collections::HashMap;
 
-use crate::{generate_rectangle_no_overlap_constraints, project_1d};
+use crate::{generate_rectangle_no_overlap_constraints_triangulated, project_1d};
 
 /// Removes overlaps between rectangular regions that represent clusters of nodes.
 ///
@@ -102,7 +102,7 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     }
 
     // Generate and apply constraints
-    let constraints = generate_rectangle_no_overlap_constraints(
+    let constraints = generate_rectangle_no_overlap_constraints_triangulated(
         &cluster_drawing,
         &mut |cluster_id, dim| {
             let (_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
@@ -117,9 +117,8 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     project_1d(&mut cluster_drawing, d, &constraints);
 
     // Calculate the displacement for each cluster
-    let mut cluster_displacements = HashMap::new();
     for cluster_id in cluster_graph.node_identifiers() {
-        let (cluster_index, _, min_x, min_y, max_x, max_y) =
+        let (_, node_ids, min_x, min_y, max_x, max_y) =
             cluster_graph.node_weight(cluster_id).unwrap();
         let old_center_x = (min_x + max_x) / 2.0;
         let old_center_y = (min_y + max_y) / 2.0;
@@ -130,17 +129,10 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
         let dx = new_center_x - old_center_x;
         let dy = new_center_y - old_center_y;
 
-        cluster_displacements.insert(cluster_index, (dx, dy));
-    }
-
-    // Apply the displacements to the original drawing
-    for node_id in graph.node_identifiers() {
-        let cluster = node_cluster_map[&node_id];
-        if let Some(&(dx, dy)) = cluster_displacements.get(&cluster) {
-            let node_id_n = node_id.into();
-            if let Some(pos) = drawing.position_mut(node_id_n) {
-                pos.0 = pos.0 + dx;
-                pos.1 = pos.1 + dy;
+        for &node_id in node_ids.iter() {
+            if let Some(pos) = drawing.position_mut(node_id) {
+                pos.0 += dx;
+                pos.1 += dy;
             }
         }
     }

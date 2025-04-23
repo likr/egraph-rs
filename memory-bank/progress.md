@@ -42,6 +42,8 @@
   - Triangulation-based rectangle overlap constraints (more efficient for large graphs)
   - Layered constraints for hierarchical layouts (Sugiyama Framework)
   - Cluster overlap constraints for removing overlaps between node clusters
+    - Enhanced with triangulation-based optimization for large cluster graphs
+    - Demonstrated with Les Miserables dataset and Louvain community detection
 
 ### Drawing Implementations
 

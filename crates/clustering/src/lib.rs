@@ -23,7 +23,7 @@ use std::hash::Hash;
 ///   community (improving modularity), returns a `HashMap` mapping each node's
 ///   `NodeId` to the `NodeId` representing its assigned community.
 /// * `None` - If no node movement improved modularity during this step.
-pub fn louvain_step<G>(graph: &G) -> Option<HashMap<G::NodeId, G::NodeId>>
+pub fn louvain_step<G>(graph: G) -> Option<HashMap<G::NodeId, G::NodeId>>
 where
     G: EdgeCount + IntoNeighbors + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,

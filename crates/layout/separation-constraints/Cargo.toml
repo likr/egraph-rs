@@ -13,7 +13,7 @@ petgraph-algorithm-layering = { path = "../../algorithm/layering" }
 petgraph-algorithm-triangulation = { path = "../../algorithm/triangulation" }
 
 [dev-dependencies]
-egraph-dataset = { path = "../../dataset", features=["qh882"] }
+egraph-dataset = { path = "../../dataset", features=["qh882", "lesmis"] }
 petgraph-layout-mds = { path = "../mds" }
 petgraph-layout-stress-majorization = { path = "../stress-majorization" }
 petgraph-layout-sgd = { path = "../sgd" }
@@ -29,3 +29,8 @@ path = "examples/qh882_separation_constraints.rs"
 [[example]]
 name = "dependency_graph_layered"
 path = "examples/dependency_graph_layered.rs"
+
+[[example]]
+name = "lesmis_cluster_overlap"
+path = "examples/lesmis_cluster_overlap.rs"
+
