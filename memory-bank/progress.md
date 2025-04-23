@@ -68,7 +68,15 @@
 ### Additional Features
 
 - Edge bundling (force-directed edge bundling for reducing visual clutter)
-- Clustering (graph clustering and coarsening for simplifying complex graphs)
+- Clustering and Community Detection
+  - Graph clustering and coarsening for simplifying complex graphs
+  - Community detection algorithms for identifying clusters in graphs:
+    - Louvain Method (modularity optimization)
+    - Label Propagation (fast label diffusion algorithm)
+    - Spectral Clustering (eigenvector-based community detection)
+    - InfoMap (information-theoretic approach)
+  - Unified interface through CommunityDetection trait
+  - Visualization integration with cluster-aware overlap constraints
 - Random number generation (with seed control for reproducible layouts)
 
 ### Language Bindings

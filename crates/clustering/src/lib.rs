@@ -1,82 +1,36 @@
+//! petgraph-clustering is a library for detecting communities in graphs.
+//!
+//! This crate provides algorithms for community detection (clustering) in graphs,
+//! implemented for the `petgraph` library. It includes several algorithms with
+//! a common interface that makes it easy to try different approaches.
+
+mod algorithms;
+mod utils;
+
+pub use algorithms::*;
+pub use utils::*;
+
 use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
 use petgraph::EdgeType;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 
-/// Performs one step of the Louvain algorithm for community detection.
+/// Trait for community detection algorithms.
 ///
-/// This function iterates through each node in the graph and evaluates the
-/// modularity gain of moving the node to one of its neighboring communities.
-/// If moving a node increases the overall modularity, the node's community
-/// assignment is updated.
-///
-/// # Arguments
-///
-/// * `graph` - A reference to a graph `G` implementing `petgraph`'s `EdgeCount`,
-///   `IntoNeighbors`, and `IntoNodeIdentifiers` traits. `G::NodeId` must
-///   implement `Eq` and `Hash`.
-///
-/// # Returns
-///
-/// * `Some(communities)` - If at least one node was moved to a different
-///   community (improving modularity), returns a `HashMap` mapping each node's
-///   `NodeId` to the `NodeId` representing its assigned community.
-/// * `None` - If no node movement improved modularity during this step.
-pub fn louvain_step<G>(graph: G) -> Option<HashMap<G::NodeId, G::NodeId>>
+/// Implementations of this trait provide methods to detect communities in graphs.
+/// All algorithms return a mapping from node identifiers to community IDs (as usize).
+pub trait CommunityDetection<G>
 where
-    G: EdgeCount + IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash,
+    G: IntoNodeIdentifiers + EdgeCount + IntoNeighbors,
+    G::NodeId: Eq + Hash + Clone,
 {
-    let m = graph.edge_count() as f32;
-    let k = graph
-        .node_identifiers()
-        .map(|u| (u, graph.neighbors(u).count() as f32))
-        .collect::<HashMap<_, _>>();
-    let mut sigma_total = k.clone();
-    let mut communities = graph
-        .node_identifiers()
-        .map(|u| (u, u))
-        .collect::<HashMap<_, _>>();
-    let mut community_nodes = graph
-        .node_identifiers()
-        .map(|u| (u, HashSet::new()))
-        .collect::<HashMap<_, _>>();
-    let mut improve = false;
-
-    for u in graph.node_identifiers() {
-        let mut neighboring_communities = HashSet::new();
-        for v in graph.neighbors(u) {
-            neighboring_communities.insert(communities[&v]);
-        }
-        neighboring_communities.remove(&communities[&u]);
-        for &c in neighboring_communities.iter() {
-            let prev_c = communities[&u];
-            community_nodes.get_mut(&prev_c).unwrap().remove(&u);
-
-            let mut k_in = 0.;
-            for v in graph.neighbors(u) {
-                if communities[&v] == c {
-                    k_in += 1.;
-                }
-            }
-            let delta_q = 0.5 * (k_in - k[&u] * sigma_total[&c] / m) / m;
-            if delta_q > 0. {
-                *sigma_total.get_mut(&c).unwrap() += k[&u];
-                *sigma_total.get_mut(&prev_c).unwrap() -= k[&u];
-                *communities.get_mut(&u).unwrap() = c;
-                community_nodes.get_mut(&c).unwrap().insert(u);
-                improve = true;
-            } else {
-                community_nodes.get_mut(&prev_c).unwrap().insert(u);
-            }
-        }
-    }
-    if improve {
-        Some(communities)
-    } else {
-        None
-    }
+    /// Detect communities in the input graph
+    ///
+    /// # Returns
+    ///
+    /// A `HashMap` mapping each node's `NodeId` to its community ID (as usize)
+    fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize>;
 }
 
 type CoarsenedGraph<N2, E2, Ty, Ix> = Graph<N2, E2, Ty, Ix>;
@@ -172,3 +126,6 @@ pub fn coarsen<
     }
     (coarsened_graph, coarsened_node_ids)
 }
+
+// For backward compatibility
+pub use algorithms::louvain::louvain_step_legacy as louvain_step;

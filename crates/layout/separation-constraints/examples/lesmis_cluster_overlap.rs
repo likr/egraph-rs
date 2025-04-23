@@ -1,7 +1,7 @@
 use egraph_dataset::dataset_lesmis;
 use petgraph::graph::UnGraph;
 use petgraph::visit::IntoNodeIdentifiers;
-use petgraph_clustering::louvain_step;
+use petgraph_clustering::{CommunityDetection, LabelPropagation};
 use petgraph_layout_mds::ClassicalMds;
 use petgraph_layout_separation_constraints::{
     generate_rectangle_no_overlap_constraints_triangulated, project_1d,
@@ -22,10 +22,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         graph.edge_count()
     );
 
-    let communities = louvain_step(&graph).unwrap();
+    let community_detection = LabelPropagation::with_seed(0);
+    let communities = community_detection.detect_communities(&graph);
 
     let edge_length = 100.;
-    let iterations = 100;
+    let iterations = 1000;
     let node_size = [20., 20.];
     let mds = ClassicalMds::new(&graph, |_| edge_length);
     let mut drawing = mds.run_2d();
@@ -41,18 +42,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             let no_overlap = generate_rectangle_no_overlap_constraints_triangulated(
                 &drawing,
                 |_, d| node_size[d],
-                0,
+                i % 2,
             );
-            project_1d(&mut drawing, 0, &no_overlap);
-            if i >= 99 {
-                project_clustered_rectangle_no_overlap_constraints(
-                    &graph,
-                    &mut drawing,
-                    0,
-                    |node_id| communities[&node_id].index(),
-                    |_, d| node_size[d],
-                );
-            }
+            project_1d(&mut drawing, i % 2, &no_overlap);
+            project_clustered_rectangle_no_overlap_constraints(
+                &graph,
+                &mut drawing,
+                i % 2,
+                |node_id| communities[&node_id],
+                |_, d| node_size[d],
+            );
         });
     }
     drawing.centralize();
@@ -147,7 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Draw nodes colored by community
     chart.draw_series(graph.node_indices().map(|node_index| {
-        let community_index = communities[&node_index].index();
+        let community_index = communities[&node_index];
         let color = get_community_color(community_index);
 
         Rectangle::new(
