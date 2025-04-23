@@ -66,6 +66,20 @@ The current focus is on enhancing the clustering capabilities through community 
 
 ## Recent Changes
 
+- Simplified and improved rectangle overlap constraint handling:
+
+  - Replaced triangulation-based approach with more direct method in `project_rectangle_no_overlap_constraints_2d`
+  - Renamed `generate_rectangle_no_overlap_constraints_triangulated` to `generate_rectangle_no_overlap_constraints_2d`
+  - Added a new convenience function `project_rectangle_no_overlap_constraints_2d` that handles both generation and application of constraints
+  - Updated examples and tests to use the new API
+  - Enhanced the Les Miserables visualization example with:
+    - Community bounding boxes with semi-transparent background colors
+    - Visual indicators for community membership
+    - Improved sizing and spacing
+  - Simplified tests by focusing on practical use cases rather than algorithm internals
+  - Reduced dependencies by removing triangulation requirement for overlap removal
+  - Improved code organization with clearer function naming and documentation
+
 - Implemented comprehensive clustering (community detection) algorithms:
 
   - Created a new common interface for all algorithms with the `CommunityDetection` trait
@@ -86,7 +100,7 @@ The current focus is on enhancing the clustering capabilities through community 
 - Enhanced cluster overlap removal in the separation-constraints module:
 
   - Updated the `project_clustered_rectangle_no_overlap_constraints` function to:
-    - Use the more efficient `generate_rectangle_no_overlap_constraints_triangulated` function instead of the original function
+    - Use the more efficient `generate_rectangle_no_overlap_constraints_2d` function instead of the original function
     - Simplify the implementation by directly updating node positions rather than using a temporary map for displacements
     - Improve performance for large cluster graphs
   - Modified the louvain_step function in the clustering module to take graph by value rather than by reference

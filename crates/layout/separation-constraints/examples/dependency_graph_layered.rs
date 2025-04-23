@@ -1,9 +1,7 @@
 use petgraph::graph::{DiGraph, Graph};
 use petgraph_algorithm_layering::{remove_cycle, LongestPath};
 use petgraph_layout_mds::ClassicalMds;
-use petgraph_layout_separation_constraints::{
-    generate_rectangle_no_overlap_constraints_triangulated, project_1d,
-};
+use petgraph_layout_separation_constraints::project_rectangle_no_overlap_constraints_2d;
 use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential, Sgd};
 use plotters::prelude::*;
 use rand::thread_rng;
@@ -150,8 +148,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 drawing.set_y(node_id, layer_y[&node_id]);
             }
             // Apply rectangle overlap constraints to the x-dimension (horizontal)
-            let no_overlap = generate_rectangle_no_overlap_constraints_triangulated(
-                &drawing,
+            project_rectangle_no_overlap_constraints_2d(
+                &mut drawing,
                 |_, d| {
                     if d == 0 {
                         node_width + node_separation
@@ -161,7 +159,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 0,
             );
-            project_1d(&mut drawing, 0, &no_overlap);
         });
     }
     drawing.centralize();

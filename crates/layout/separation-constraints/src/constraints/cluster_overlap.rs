@@ -7,7 +7,7 @@ use petgraph_clustering::coarsen;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d};
 use std::collections::HashMap;
 
-use crate::{generate_rectangle_no_overlap_constraints_triangulated, project_1d};
+use crate::project_rectangle_no_overlap_constraints_2d;
 
 /// Removes overlaps between rectangular regions that represent clusters of nodes.
 ///
@@ -102,8 +102,8 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     }
 
     // Generate and apply constraints
-    let constraints = generate_rectangle_no_overlap_constraints_triangulated(
-        &cluster_drawing,
+    project_rectangle_no_overlap_constraints_2d(
+        &mut cluster_drawing,
         &mut |cluster_id, dim| {
             let (_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
             if dim == 0 {
@@ -114,7 +114,6 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
         },
         d,
     );
-    project_1d(&mut cluster_drawing, d, &constraints);
 
     // Calculate the displacement for each cluster
     for cluster_id in cluster_graph.node_identifiers() {

@@ -37,12 +37,15 @@
   - Maximum iteration limit to prevent infinite loops
 - Kamada-Kawai (spring model based layout)
 - Overlap Removal (resolving node overlaps)
+  - ✅ Added: Simplified rectangle overlap removal with direct constraint generation
+  - ✅ Added: Convenient `project_rectangle_no_overlap_constraints_2d` function
+  - ✅ Enhanced: Improved visualization of clustered graphs with community bounding boxes
 - Separation Constraints (layout constraint implementation)
   - Rectangle overlap constraints for all node pairs
   - Triangulation-based rectangle overlap constraints (more efficient for large graphs)
   - Layered constraints for hierarchical layouts (Sugiyama Framework)
   - Cluster overlap constraints for removing overlaps between node clusters
-    - Enhanced with triangulation-based optimization for large cluster graphs
+    - Enhanced with improved rectangle overlap constraint generation
     - Demonstrated with Les Miserables dataset and Louvain community detection
 
 ### Drawing Implementations
@@ -106,6 +109,7 @@
 - ✅ Fixed: ClassicalMds implementation to handle cases where a graph is embedded in a space with dimensions higher than what's needed
 - ✅ Fixed: PivotMds implementation to handle similar cases with high-dimensional embeddings
 - ✅ Fixed: StressMajorization run method to prevent infinite loops by adding max_iterations parameter and making epsilon configurable
+- ✅ Improved: Rectangle overlap constraint handling with more direct constraint generation
 - 🔄 Planned: Additional layering algorithms for graph hierarchical layout
   - Network simplex algorithm
   - Coffman-Graham algorithm
@@ -385,6 +389,7 @@
   - ✅ Fixed: PivotMds implementation for high-dimensional embeddings
   - ✅ Fixed: MetricSpherical2d implementation that was causing NaN values
   - ✅ Added: Layering algorithm crate with trait-based extensible architecture
+  - ✅ Improved: Rectangle overlap constraint handling with direct constraint generation
 - **Drawing Implementations**: ✅ Complete
 - **Quality Metrics**: ✅ Complete
 - **Edge Bundling**: ✅ Functional
@@ -486,6 +491,7 @@ New guidelines have been established for the project workflow:
      - Renamed `set_x` method to `set` for better consistency with other Drawing classes
      - Added `len()` method to match other Drawing classes
      - Updated tests to use the new method names
+   - ✅ Improved: Separation constraints API with more intuitive function names and parameters
    - Some inconsistencies between language bindings (Rust, Python, JavaScript)
    - Naming conventions differ between platforms
    - Error handling approaches vary
@@ -504,4 +510,5 @@ New guidelines have been established for the project workflow:
 6. **Implementation Issues**:
    - ✅ Fixed: ClassicalMds implementation was producing NaN values when trying to embed a graph in a space with dimensions higher than what's needed for the graph
    - ✅ Fixed: PivotMds implementation was producing NaN values in high-dimensional embeddings due to issues in the power_iteration function
-   - ✅ Fixed: MetricSpherical2d implementation had a bug that output N
+   - ✅ Fixed: MetricSpherical2d implementation had a bug that output NaN values
+   - ✅ Improved: Rectangle overlap constraint implementation now more robust with direct constraint generation

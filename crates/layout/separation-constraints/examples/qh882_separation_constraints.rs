@@ -2,7 +2,7 @@ use egraph_dataset::dataset_qh882;
 use petgraph::graph::{NodeIndex, UnGraph};
 use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_layout_separation_constraints::{
-    generate_rectangle_no_overlap_constraints_triangulated, project_1d, Constraint,
+    project_1d, project_rectangle_no_overlap_constraints_2d, Constraint,
 };
 use petgraph_layout_stress_majorization::StressMajorization;
 use plotters::prelude::*;
@@ -66,9 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Apply constraints by projecting coordinates
         project_1d(&mut drawing, 0, &constraints);
-        let no_overlap =
-            generate_rectangle_no_overlap_constraints_triangulated(&drawing, |_, _| size, 1);
-        project_1d(&mut drawing, 1, &no_overlap);
+        project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, _| size, 1);
 
         drawing.centralize();
 
