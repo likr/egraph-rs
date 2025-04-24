@@ -66,6 +66,38 @@
   )
   ```
 
+## Layering Algorithms
+
+- **Unified Trait-Based Interface**:
+
+  ```rust
+  trait LayeringAlgorithm<N, E, Ix: IndexType> {
+      fn assign_layers(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize>;
+  }
+  ```
+
+- **Implemented Algorithms**:
+
+  - **LongestPath**: Assigns layers based on longest path from source nodes
+
+- **Cycle Handling**:
+
+  - Detection of cycles in directed graphs
+  - Removal of minimum edge set to make graph acyclic
+
+- **Python Bindings**:
+
+  ```python
+  # Layer assignment with LongestPath algorithm
+  longest_path = eg.LongestPath()
+  layers = longest_path.assign_layers(graph)
+  # layers is a dict mapping node indices to layer numbers (0, 1, 2, ...)
+
+  # Cycle detection and removal
+  cycle_edges = eg.cycle_edges(graph)  # Returns list of (source, target) tuples
+  eg.remove_cycle(graph)  # Modifies graph in-place to make it acyclic
+  ```
+
 ## Quality Metrics
 
 - Graph-theoretical distance preservation

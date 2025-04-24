@@ -38,7 +38,8 @@
 - **Python**: Complete PyO3-based API with Sphinx documentation
   - Added Python bindings for community detection algorithms (Louvain, Label Propagation, Spectral, InfoMap)
   - Implemented graph coarsening functionality in Python
-  - Added tests for clustering module Python bindings
+  - Added Python bindings for layering algorithms (LongestPath) with cycle detection and removal
+  - Added tests for clustering and layering module Python bindings
 - **WebAssembly**: JavaScript-friendly interfaces with comprehensive tests
 
 ## Ongoing Development

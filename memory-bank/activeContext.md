@@ -12,13 +12,20 @@ Current work centers on these main areas:
    - **Added Python bindings** for all community detection algorithms
    - Implemented graph coarsening functionality in Python
 
-2. **Cluster Visualization**
+2. **Graph Layering**
+
+   - **Added Python bindings** for the `petgraph-algorithm-layering` crate
+   - Implemented `LongestPath` algorithm with consistent Python interface
+   - Added cycle detection and removal functionality for directed graphs
+   - Created comprehensive tests for layering algorithms
+
+3. **Cluster Visualization**
 
    - Enhanced overlap removal with direct constraint generation
    - Added Les Miserables dataset examples with community visualization
    - Improved performance through better caching and direct position updates
 
-3. **Testing & Layout Improvements**
+4. **Testing & Layout Improvements**
    - Comprehensive WebAssembly tests with individual test files
    - Optimized layout algorithms (SGD, MDS, Stress Majorization)
    - Fixed issues with high-dimensional embeddings and infinite loops

@@ -1,3 +1,4 @@
+mod layering;
 /// Graph algorithm modules for the Python bindings
 ///
 /// This module exports various graph algorithms to Python, providing efficient
@@ -6,6 +7,7 @@
 /// # Submodules
 ///
 /// - `shortest_path`: Shortest path algorithms (BFS, Dijkstra, Warshall-Floyd)
+/// - `layering`: Graph layering algorithms for hierarchical layouts
 mod shortest_path;
 use pyo3::prelude::*;
 
@@ -15,5 +17,6 @@ use pyo3::prelude::*;
 /// making them available to be called from Python code.
 pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     shortest_path::register(py, m)?;
+    layering::register(py, m)?;
     Ok(())
 }
