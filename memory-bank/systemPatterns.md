@@ -98,6 +98,23 @@
   eg.remove_cycle(graph)  # Modifies graph in-place to make it acyclic
   ```
 
+## Triangulation
+
+- **Delaunay Triangulation**:
+
+  - Generates a graph based on node positions in a 2D Euclidean drawing
+  - Uses the spade library for efficient triangulation
+  - Handles general, triangular, and collinear point configurations
+
+- **Python Bindings**:
+
+  ```python
+  # Triangulation of a 2D Euclidean drawing
+  # Creates a new graph with edges representing the triangulation
+  triangulated_graph = eg.triangulation(drawing)
+  # triangulated_graph is a new Graph with edges representing the Delaunay triangulation
+  ```
+
 ## Quality Metrics
 
 - Graph-theoretical distance preservation

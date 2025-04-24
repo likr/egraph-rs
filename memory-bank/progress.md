@@ -39,6 +39,7 @@
   - Added Python bindings for community detection algorithms (Louvain, Label Propagation, Spectral, InfoMap)
   - Implemented graph coarsening functionality in Python
   - Added Python bindings for layering algorithms (LongestPath) with cycle detection and removal
+  - Added Python bindings for triangulation algorithm with comprehensive tests
   - Added tests for clustering and layering module Python bindings
 - **WebAssembly**: JavaScript-friendly interfaces with comprehensive tests
 

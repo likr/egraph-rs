@@ -19,19 +19,33 @@ Current work centers on these main areas:
    - Added cycle detection and removal functionality for directed graphs
    - Created comprehensive tests for layering algorithms
 
-3. **Cluster Visualization**
+3. **Triangulation**
+
+   - **Added Python bindings** for the `petgraph-algorithm-triangulation` crate
+   - Exposed the Delaunay triangulation functionality to Python
+   - Implemented function that creates a new graph with edges representing the triangulation
+   - Created comprehensive tests verifying triangulation behavior for different configurations (square, triangle, collinear points)
+
+4. **Cluster Visualization**
 
    - Enhanced overlap removal with direct constraint generation
    - Added Les Miserables dataset examples with community visualization
    - Improved performance through better caching and direct position updates
 
-4. **Testing & Layout Improvements**
+5. **Testing & Layout Improvements**
    - Comprehensive WebAssembly tests with individual test files
    - Optimized layout algorithms (SGD, MDS, Stress Majorization)
    - Fixed issues with high-dimensional embeddings and infinite loops
    - Added tests for Python bindings of clustering algorithms
 
 ## Recent Changes
+
+- **Triangulation Python Bindings**
+
+  - Added Python bindings for the triangulation algorithm
+  - Implemented as a single function that takes a DrawingEuclidean2d instance and returns a new graph
+  - Consistent naming and documentation style with other Python modules
+  - Added comprehensive tests for different geometrical configurations
 
 - **Rectangle Overlap Constraints**
 
