@@ -11,11 +11,13 @@
 /// - `distance_matrix`: Distance matrix operations
 /// - `layout`: Layout algorithms (SGD, MDS, Kamada-Kawai, etc.)
 /// - `algorithm`: Graph algorithms (shortest path)
+/// - `clustering`: Community detection algorithms (Louvain, Label Propagation, etc.)
 /// - `quality_metrics`: Layout quality evaluation metrics
 /// - `rng`: Random number generation utilities
 use pyo3::prelude::*;
 
 mod algorithm;
+mod clustering;
 mod distance_matrix;
 mod drawing;
 mod graph;
@@ -36,5 +38,6 @@ fn egraph(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     layout::register(py, m)?;
     algorithm::register(py, m)?;
     quality_metrics::register(py, m)?;
+    clustering::register(py, m)?;
     Ok(())
 }

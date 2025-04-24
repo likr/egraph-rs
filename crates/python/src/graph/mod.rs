@@ -59,6 +59,18 @@ pub struct PyGraphAdapter {
 }
 
 impl PyGraphAdapter {
+    pub fn new(graph: Graph<Node, Edge, Undirected, IndexType>) -> Self {
+        PyGraphAdapter {
+            graph: GraphType::Graph(graph),
+        }
+    }
+
+    pub fn new_digraph(graph: Graph<Node, Edge, Directed, IndexType>) -> Self {
+        PyGraphAdapter {
+            graph: GraphType::DiGraph(graph),
+        }
+    }
+
     /// Returns a reference to the underlying graph
     pub fn graph(&self) -> &GraphType {
         &self.graph

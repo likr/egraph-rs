@@ -25,6 +25,8 @@
   - Four algorithms: Louvain, Label Propagation, Spectral, InfoMap
   - Graph coarsening for simplification
   - Visual representation with cluster-aware layouts
+  - **Python bindings for all clustering algorithms** with common interface
+  - **Coarsening functionality exposed through Python**
 
 - **Additional Features**
   - Edge bundling for visual clarity
@@ -34,6 +36,9 @@
 ### Language Bindings
 
 - **Python**: Complete PyO3-based API with Sphinx documentation
+  - Added Python bindings for community detection algorithms (Louvain, Label Propagation, Spectral, InfoMap)
+  - Implemented graph coarsening functionality in Python
+  - Added tests for clustering module Python bindings
 - **WebAssembly**: JavaScript-friendly interfaces with comprehensive tests
 
 ## Ongoing Development

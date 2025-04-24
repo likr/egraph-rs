@@ -13,6 +13,7 @@ ndarray = "0.15"
 pyo3 = { version = "0.21", features = ["abi3-py37", "extension-module"] }
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
+petgraph-clustering = { path = "../clustering" }
 petgraph-drawing = { path = "../drawing" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-mds = { path = "../layout/mds" }

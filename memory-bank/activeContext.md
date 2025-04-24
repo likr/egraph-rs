@@ -2,13 +2,15 @@
 
 ## Current Work Focus
 
-Current work centers on three main areas:
+Current work centers on these main areas:
 
 1. **Community Detection**
 
    - Implemented unified `CommunityDetection` trait with consistent interface
    - Four algorithms: Louvain, Label Propagation, Spectral Clustering, InfoMap
    - Each algorithm configurable (iterations, seed, etc.)
+   - **Added Python bindings** for all community detection algorithms
+   - Implemented graph coarsening functionality in Python
 
 2. **Cluster Visualization**
 
@@ -20,6 +22,7 @@ Current work centers on three main areas:
    - Comprehensive WebAssembly tests with individual test files
    - Optimized layout algorithms (SGD, MDS, Stress Majorization)
    - Fixed issues with high-dimensional embeddings and infinite loops
+   - Added tests for Python bindings of clustering algorithms
 
 ## Recent Changes
 

@@ -49,6 +49,23 @@
 
 - **Graph Coarsening**: Creates simplified graph representations
 
+- **Python Bindings**:
+
+  ```python
+  # Common interface across algorithms
+  algorithm = eg.Louvain()  # or eg.LabelPropagation(), eg.SpectralClustering(k), eg.InfoMap()
+  communities = algorithm.detect_communities(graph)
+  # communities is a dict mapping node indices to community IDs
+
+  # Graph coarsening
+  coarsened_graph, node_map = eg.py_coarsen(
+      graph,
+      lambda node: communities[node],  # Node grouping function
+      lambda nodes: len(nodes),        # Node merge function
+      lambda edges: len(edges)         # Edge merge function
+  )
+  ```
+
 ## Quality Metrics
 
 - Graph-theoretical distance preservation
