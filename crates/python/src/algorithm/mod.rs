@@ -9,6 +9,7 @@
 /// - `layering`: Graph layering algorithms for hierarchical layouts
 /// - `triangulation`: Delaunay triangulation for 2D Euclidean drawings
 mod layering;
+mod separation_constraints;
 mod shortest_path;
 mod triangulation;
 
@@ -22,5 +23,6 @@ pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     shortest_path::register(py, m)?;
     layering::register(py, m)?;
     triangulation::register(py, m)?;
+    separation_constraints::register(py, m)?;
     Ok(())
 }

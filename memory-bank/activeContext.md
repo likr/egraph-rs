@@ -4,7 +4,15 @@
 
 Current work centers on these main areas:
 
-1. **Community Detection**
+1. **Separation Constraints**
+
+   - **Added Python bindings** for the `petgraph-layout-separation-constraints` crate
+   - Implemented `Constraint` class with properties for left, right, and gap
+   - Added functions for separation constraint generation and application
+   - Exposed rectangle overlap prevention methods and cluster overlap handling
+   - Created comprehensive tests for constraint-based functionality
+
+2. **Community Detection**
 
    - Implemented unified `CommunityDetection` trait with consistent interface
    - Four algorithms: Louvain, Label Propagation, Spectral Clustering, InfoMap
@@ -12,27 +20,27 @@ Current work centers on these main areas:
    - **Added Python bindings** for all community detection algorithms
    - Implemented graph coarsening functionality in Python
 
-2. **Graph Layering**
+3. **Graph Layering**
 
    - **Added Python bindings** for the `petgraph-algorithm-layering` crate
    - Implemented `LongestPath` algorithm with consistent Python interface
    - Added cycle detection and removal functionality for directed graphs
    - Created comprehensive tests for layering algorithms
 
-3. **Triangulation**
+4. **Triangulation**
 
    - **Added Python bindings** for the `petgraph-algorithm-triangulation` crate
    - Exposed the Delaunay triangulation functionality to Python
    - Implemented function that creates a new graph with edges representing the triangulation
    - Created comprehensive tests verifying triangulation behavior for different configurations (square, triangle, collinear points)
 
-4. **Cluster Visualization**
+5. **Cluster Visualization**
 
    - Enhanced overlap removal with direct constraint generation
    - Added Les Miserables dataset examples with community visualization
    - Improved performance through better caching and direct position updates
 
-5. **Testing & Layout Improvements**
+6. **Testing & Layout Improvements**
    - Comprehensive WebAssembly tests with individual test files
    - Optimized layout algorithms (SGD, MDS, Stress Majorization)
    - Fixed issues with high-dimensional embeddings and infinite loops

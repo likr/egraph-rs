@@ -40,7 +40,8 @@
   - Implemented graph coarsening functionality in Python
   - Added Python bindings for layering algorithms (LongestPath) with cycle detection and removal
   - Added Python bindings for triangulation algorithm with comprehensive tests
-  - Added tests for clustering and layering module Python bindings
+  - Added Python bindings for separation constraints with rectangle overlap prevention
+  - Added tests for clustering, layering, triangulation, and separation constraints Python bindings
 - **WebAssembly**: JavaScript-friendly interfaces with comprehensive tests
 
 ## Ongoing Development
