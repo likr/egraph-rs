@@ -343,5 +343,5 @@ pub fn project_rectangle_no_overlap_constraints_2d<N, F>(
     let mut size = size;
     // Generate constraints for X dimension (0)
     let constraints = generate_rectangle_no_overlap_constraints_2d(drawing, &mut size, k);
-    project_1d(drawing, 0, &constraints);
+    project_1d(drawing, k, &constraints);
 }
