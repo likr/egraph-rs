@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Apply constraints by projecting coordinates
         project_1d(&mut drawing, 0, &constraints);
-        project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, _| size, 1);
+        project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, _| size);
 
         drawing.centralize();
 

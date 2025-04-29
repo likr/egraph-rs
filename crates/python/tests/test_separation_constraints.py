@@ -32,55 +32,6 @@ class TestSeparationConstraints(unittest.TestCase):
         # Verify the constraint is now satisfied
         self.assertLess(drawing.x(n1), drawing.x(n2) - 5.0 + 1e-5)
 
-    def test_generate_rectangle_no_overlap_constraints_2d(self):
-        """Test generating rectangle non-overlap constraints"""
-        # Create a graph with 4 nodes in a square formation
-        graph = eg.Graph()
-        n1 = graph.add_node(None)
-        n2 = graph.add_node(None)
-        n3 = graph.add_node(None)
-        n4 = graph.add_node(None)
-
-        # Create a drawing with the nodes positioned in a square
-        drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        drawing.set_x(n1, 0.0)
-        drawing.set_y(n1, 0.0)
-        drawing.set_x(n2, 2.0)
-        drawing.set_y(n2, 0.0)
-        drawing.set_x(n3, 0.0)
-        drawing.set_y(n3, 2.0)
-        drawing.set_x(n4, 2.0)
-        drawing.set_y(n4, 2.0)
-
-        # Each node is size 1.0 in both dimensions
-        node_size = 1.0
-        def size_fn(node, dim): return node_size
-
-        # Generate constraints for the x dimension
-        constraints_x = eg.generate_rectangle_no_overlap_constraints_2d(
-            drawing, size_fn, 0
-        )
-
-        # There should be constraints between potentially overlapping rectangles
-        self.assertGreater(len(constraints_x), 0)
-
-        # Apply the constraints
-        eg.project_1d(drawing, 0, constraints_x)
-
-        # Verify no overlapping rectangles
-        for i in range(4):
-            for j in range(i + 1, 4):
-                # Check if rectangles are separated in x-dimension
-                centers_distance_x = abs(drawing.x(i) - drawing.x(j))
-                min_distance_x = node_size
-
-                if centers_distance_x < min_distance_x - 1e-5:
-                    # If not separated in x, they must be separated in y
-                    centers_distance_y = abs(drawing.y(i) - drawing.y(j))
-                    min_distance_y = node_size
-                    self.assertGreaterEqual(
-                        centers_distance_y, min_distance_y - 1e-5)
-
     def test_project_rectangle_no_overlap_constraints_2d(self):
         """Test applying rectangle non-overlap constraints in a single call"""
         # Create a graph with 2 overlapping nodes
@@ -102,9 +53,9 @@ class TestSeparationConstraints(unittest.TestCase):
         orig_x2 = drawing.x(n2)
         orig_y2 = drawing.y(n2)
 
-        # Apply constraints to remove overlaps in x dimension
+        # Apply constraints to remove overlaps in both dimensions
         eg.project_rectangle_no_overlap_constraints_2d(
-            drawing, lambda node, dim: 1.0, 0
+            drawing, lambda node, dim: 1.0
         )
 
         # Verify positions have changed to resolve x-overlap
@@ -182,7 +133,6 @@ class TestSeparationConstraints(unittest.TestCase):
         eg.project_clustered_rectangle_no_overlap_constraints(
             graph,
             drawing,
-            0,  # x dimension
             get_cluster,
             lambda node, dim: 1.0  # Size function
         )

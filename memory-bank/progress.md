@@ -70,6 +70,8 @@
   - Fixed high-dimensional embedding issues
   - Added maximum iterations to prevent infinite loops
   - Improved constraint handling for overlaps
+  - Enhanced rectangle overlap algorithm with separate X and Y dimension handling
+  - Replaced external RBTree with built-in BTreeSet for better efficiency
 - **Visualization**: ✅ Complete
 - **Metrics**: ✅ Complete
 - **Bindings**: ✅ Functional with comprehensive tests
@@ -78,11 +80,13 @@
 
 ## Recent Fixes
 
+- Refactored rectangle overlap constraints to use separate X and Y dimension algorithms
+- Implemented BTreeSet-based active rectangle tracking for more efficient overlap detection
+- Simplified parameter structure for better API usability
 - ClassicalMds for n-dimensional drawings
 - PivotMds for high-dimensional embeddings
 - StressMajorization infinite loop prevention
 - MetricSpherical2d NaN value resolution
-- Rectangle overlap constraint handling improvements
 
 ## Development Guidelines
 

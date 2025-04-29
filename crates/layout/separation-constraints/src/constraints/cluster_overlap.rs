@@ -22,7 +22,6 @@ use crate::project_rectangle_no_overlap_constraints_2d;
 ///
 /// * `graph` - The input graph
 /// * `drawing` - The drawing to modify (must be a 2D Euclidean drawing)
-/// * `d` - The dimension along which to apply the separation constraint (0 for x, 1 for y)
 /// * `cluster_id` - A function that returns the cluster ID for a node
 /// * `size` - A function that returns the size of a node in a given dimension
 ///
@@ -36,7 +35,6 @@ use crate::project_rectangle_no_overlap_constraints_2d;
 pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     graph: &Graph<N, E, Ty, Ix>,
     drawing: &mut DrawingEuclidean2d<NodeIndex<Ix>, f32>,
-    d: usize,
     mut cluster_id: F1,
     mut size: F2,
 ) where
@@ -102,18 +100,14 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     }
 
     // Generate and apply constraints
-    project_rectangle_no_overlap_constraints_2d(
-        &mut cluster_drawing,
-        &mut |cluster_id, dim| {
-            let (_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
-            if dim == 0 {
-                max_x - min_x
-            } else {
-                max_y - min_y
-            }
-        },
-        d,
-    );
+    project_rectangle_no_overlap_constraints_2d(&mut cluster_drawing, &mut |cluster_id, dim| {
+        let (_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
+        if dim == 0 {
+            max_x - min_x
+        } else {
+            max_y - min_y
+        }
+    });
 
     // Calculate the displacement for each cluster
     for cluster_id in cluster_graph.node_identifiers() {
@@ -189,7 +183,6 @@ mod tests {
         project_clustered_rectangle_no_overlap_constraints(
             &graph,
             &mut drawing,
-            0,
             cluster_id,
             node_size,
         );

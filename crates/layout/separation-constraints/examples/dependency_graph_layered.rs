@@ -147,18 +147,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             for node_id in undirected_graph.node_indices() {
                 drawing.set_y(node_id, layer_y[&node_id]);
             }
-            // Apply rectangle overlap constraints to the x-dimension (horizontal)
-            project_rectangle_no_overlap_constraints_2d(
-                &mut drawing,
-                |_, d| {
-                    if d == 0 {
-                        node_width + node_separation
-                    } else {
-                        node_height
-                    }
-                },
-                0,
-            );
+            // Apply rectangle overlap constraints to both dimensions
+            project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, d| {
+                if d == 0 {
+                    node_width + node_separation
+                } else {
+                    node_height
+                }
+            });
         });
     }
     drawing.centralize();

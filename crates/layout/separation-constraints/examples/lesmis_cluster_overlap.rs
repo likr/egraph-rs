@@ -54,21 +54,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
     let mut rng = thread_rng();
 
-    for i in 0..iterations {
-        scheduler.step(&mut |eta| {
-            sgd.shuffle(&mut rng);
-            sgd.apply(&mut drawing, eta);
+    scheduler.run(&mut |eta| {
+        sgd.shuffle(&mut rng);
+        sgd.apply(&mut drawing, eta);
 
-            project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, d| node_size[d], i % 2);
-            project_clustered_rectangle_no_overlap_constraints(
-                &graph,
-                &mut drawing,
-                i % 2,
-                |node_id| communities[&node_id],
-                |_, d| node_size[d],
-            );
-        });
-    }
+        project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, d| node_size[d]);
+        project_clustered_rectangle_no_overlap_constraints(
+            &graph,
+            &mut drawing,
+            |node_id| communities[&node_id],
+            |_, d| node_size[d],
+        );
+    });
     drawing.centralize();
 
     // Output final statistics

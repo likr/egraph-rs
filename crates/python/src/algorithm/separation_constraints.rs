@@ -2,8 +2,7 @@ use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::{GraphType, PyGraphAdapter};
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
-    generate_layered_constraints, generate_rectangle_no_overlap_constraints_2d, project_1d,
-    project_clustered_rectangle_no_overlap_constraints,
+    generate_layered_constraints, project_1d, project_clustered_rectangle_no_overlap_constraints,
     project_rectangle_no_overlap_constraints_2d, Constraint,
 };
 use pyo3::exceptions::PyValueError;
@@ -121,88 +120,9 @@ fn py_project_1d(
     Ok(())
 }
 
-/// Generates separation constraints to prevent rectangle overlaps in a specific dimension.
+/// Projects rectangle positions to satisfy non-overlap constraints in both X and Y dimensions.
 ///
-/// This function generates separation constraints for rectangles in a drawing to ensure
-/// they don't overlap. It examines all pairs of rectangles and generates constraints
-/// for the given dimension (X or Y).
-///
-/// Parameters
-/// ----------
-/// drawing : DrawingEuclidean2d
-///     A drawing containing the positions of the nodes.
-/// size_fn : callable
-///     A function that takes a node and a dimension index, and returns the size of the node in that dimension.
-/// dimension : int
-///     The dimension (0 for x, 1 for y) along which to generate the constraints.
-///
-/// Returns
-/// -------
-/// list of Constraint
-///     A list of separation constraints to prevent overlaps in the specified dimension.
-///
-/// Examples
-/// --------
-/// >>> import egraph as eg
-/// >>> # Create a graph with 4 nodes in a square formation
-/// >>> graph = eg.Graph()
-/// >>> n1 = graph.add_node(None)
-/// >>> n2 = graph.add_node(None)
-/// >>> n3 = graph.add_node(None)
-/// >>> n4 = graph.add_node(None)
-/// >>> # Create a drawing with the nodes positioned in a square
-/// >>> drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-/// >>> drawing.set_x(n1, 0.0)
-/// >>> drawing.set_y(n1, 0.0)
-/// >>> drawing.set_x(n2, 2.0)
-/// >>> drawing.set_y(n2, 0.0)
-/// >>> drawing.set_x(n3, 0.0)
-/// >>> drawing.set_y(n3, 2.0)
-/// >>> drawing.set_x(n4, 2.0)
-/// >>> drawing.set_y(n4, 2.0)
-/// >>> # Generate constraints for the x dimension
-/// >>> def size_fn(node, dim): return 1.0
-/// >>> constraints_x = eg.generate_rectangle_no_overlap_constraints_2d(
-/// ...     drawing, size_fn, 0
-/// ... )
-#[pyfunction]
-#[pyo3(name = "generate_rectangle_no_overlap_constraints_2d")]
-fn py_generate_rectangle_no_overlap_constraints_2d(
-    drawing: &PyDrawingEuclidean2d,
-    size_fn: &Bound<PyAny>,
-    dimension: usize,
-) -> PyResult<Vec<PyConstraint>> {
-    if dimension >= drawing.drawing().dimension() {
-        return Err(PyValueError::new_err(format!(
-            "dimension {} out of bounds. Drawing has {} dimensions",
-            dimension,
-            drawing.drawing().dimension()
-        )));
-    }
-
-    let rust_constraints = generate_rectangle_no_overlap_constraints_2d(
-        drawing.drawing(),
-        |node_id, dim| {
-            size_fn
-                .call1((node_id.index(), dim))
-                .unwrap()
-                .extract()
-                .unwrap()
-        },
-        dimension,
-    );
-
-    let py_constraints = rust_constraints
-        .into_iter()
-        .map(|c| PyConstraint { constraint: c })
-        .collect();
-
-    Ok(py_constraints)
-}
-
-/// Projects rectangle positions to satisfy non-overlap constraints in the specified dimension.
-///
-/// This function generates and applies constraints for the specified dimension to ensure
+/// This function generates and applies constraints for both X and Y dimensions to ensure
 /// rectangles don't overlap. It's a convenience wrapper that combines constraint generation
 /// and application.
 ///
@@ -212,8 +132,6 @@ fn py_generate_rectangle_no_overlap_constraints_2d(
 ///     A drawing containing the positions of the nodes.
 /// size_fn : callable
 ///     A function that takes a node and a dimension index, and returns the size of the node in that dimension.
-/// dimension : int
-///     The dimension (0 for x, 1 for y) along which to apply the constraints.
 ///
 /// Examples
 /// --------
@@ -232,7 +150,6 @@ fn py_generate_rectangle_no_overlap_constraints_2d(
 /// >>> eg.project_rectangle_no_overlap_constraints_2d(
 /// ...     drawing,
 /// ...     lambda node, dim: 1.0,  # Each node has size 1.0 in both dimensions
-/// ...     0  # x dimension
 /// ... )
 /// >>> # The nodes should no longer overlap
 #[pyfunction]
@@ -240,27 +157,14 @@ fn py_generate_rectangle_no_overlap_constraints_2d(
 fn py_project_rectangle_no_overlap_constraints_2d(
     drawing: &mut PyDrawingEuclidean2d,
     size_fn: &Bound<PyAny>,
-    dimension: usize,
 ) -> PyResult<()> {
-    if dimension >= drawing.drawing().dimension() {
-        return Err(PyValueError::new_err(format!(
-            "dimension {} out of bounds. Drawing has {} dimensions",
-            dimension,
-            drawing.drawing().dimension()
-        )));
-    }
-
-    project_rectangle_no_overlap_constraints_2d(
-        drawing.drawing_mut(),
-        |node_id, dim| {
-            size_fn
-                .call1((node_id.index(), dim))
-                .unwrap()
-                .extract()
-                .unwrap()
-        },
-        dimension,
-    );
+    project_rectangle_no_overlap_constraints_2d(drawing.drawing_mut(), |node_id, dim| {
+        size_fn
+            .call1((node_id.index(), dim))
+            .unwrap()
+            .extract()
+            .unwrap()
+    });
 
     Ok(())
 }
@@ -337,8 +241,6 @@ fn py_generate_layered_constraints(
 ///     The input graph.
 /// drawing : DrawingEuclidean2d
 ///     The drawing to modify.
-/// dimension : int
-///     The dimension (0 for x, 1 for y) along which to apply the constraints.
 /// cluster_id_fn : callable
 ///     A function that takes a node and returns its cluster ID.
 /// size_fn : callable
@@ -368,11 +270,10 @@ fn py_generate_layered_constraints(
 /// >>> def get_cluster(node):
 /// ...     # Nodes 0,1 in cluster 0; nodes 2,3 in cluster 1
 /// ...     return 0 if node < 2 else 1
-/// >>> # Apply cluster-based separation in x dimension
+/// >>> # Apply cluster-based separation
 /// >>> eg.project_clustered_rectangle_no_overlap_constraints(
 /// ...     graph,
 /// ...     drawing,
-/// ...     0,  # x dimension
 /// ...     get_cluster,
 /// ...     lambda node, dim: 1.0  # Size function
 /// ... )
@@ -381,22 +282,13 @@ fn py_generate_layered_constraints(
 fn py_project_clustered_rectangle_no_overlap_constraints(
     graph: &PyGraphAdapter,
     drawing: &mut PyDrawingEuclidean2d,
-    dimension: usize,
     cluster_id_fn: &Bound<PyAny>,
     size_fn: &Bound<PyAny>,
 ) -> PyResult<()> {
-    if dimension >= drawing.drawing().dimension() {
-        return Err(PyValueError::new_err(format!(
-            "dimension {} out of bounds. Drawing has {} dimensions",
-            dimension,
-            drawing.drawing().dimension()
-        )));
-    }
     match graph.graph() {
         GraphType::Graph(graph) => project_clustered_rectangle_no_overlap_constraints(
             graph,
             drawing.drawing_mut(),
-            dimension,
             |node_id| {
                 cluster_id_fn
                     .call1((node_id.index(),))
@@ -422,10 +314,6 @@ fn py_project_clustered_rectangle_no_overlap_constraints(
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyConstraint>()?;
     m.add_function(wrap_pyfunction!(py_project_1d, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        py_generate_rectangle_no_overlap_constraints_2d,
-        m
-    )?)?;
     m.add_function(wrap_pyfunction!(
         py_project_rectangle_no_overlap_constraints_2d,
         m

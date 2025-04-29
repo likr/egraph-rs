@@ -11,6 +11,8 @@ Current work centers on these main areas:
    - Added functions for separation constraint generation and application
    - Exposed rectangle overlap prevention methods and cluster overlap handling
    - Created comprehensive tests for constraint-based functionality
+   - Improved rectangle overlap implementation by splitting into X and Y dimension algorithms
+   - Replaced external RBTree implementation with Rust's built-in BTreeSet for better efficiency
 
 2. **Community Detection**
 
@@ -47,6 +49,13 @@ Current work centers on these main areas:
    - Added tests for Python bindings of clustering algorithms
 
 ## Recent Changes
+
+- **Rectangle Overlap Algorithm Enhancement**
+
+  - Split implementation into X and Y dimension-specific algorithms
+  - Replaced external RBTree with Rust's BTreeSet for better efficiency
+  - Simplified parameter structure for better usability
+  - Improved test coverage for rectangle overlap constraints
 
 - **Triangulation Python Bindings**
 
