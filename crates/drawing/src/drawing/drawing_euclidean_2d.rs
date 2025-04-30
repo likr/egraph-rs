@@ -12,6 +12,7 @@ use std::collections::{HashMap, VecDeque};
 ///
 /// * `N`: The type used for indexing items (must implement `DrawingIndex`).
 /// * `S`: The scalar type used for coordinates (must implement `DrawingValue`).
+#[derive(Clone)]
 pub struct DrawingEuclidean2d<N, S> {
     /// A vector containing the unique identifiers (indices) of the items.
     indices: Vec<N>,

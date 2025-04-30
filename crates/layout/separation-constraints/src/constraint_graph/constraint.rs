@@ -12,7 +12,7 @@
 /// to the left of node B.
 ///
 /// See Section 2 in the IPSEP-COLA paper [2].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Constraint {
     /// Index (`usize`) of the variable on the left side.
     /// This corresponds to node indices in the original graph.

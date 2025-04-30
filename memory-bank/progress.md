@@ -72,6 +72,7 @@
   - Improved constraint handling for overlaps
   - Enhanced rectangle overlap algorithm with separate X and Y dimension handling
   - Replaced external RBTree with built-in BTreeSet for better efficiency
+  - Fixed infinite loop issues in rectangle overlap constraints
 - **Visualization**: ✅ Complete
 - **Metrics**: ✅ Complete
 - **Bindings**: ✅ Functional with comprehensive tests
@@ -80,7 +81,13 @@
 
 ## Recent Fixes
 
-- Refactored rectangle overlap constraints to use separate X and Y dimension algorithms
+- **Completely refactored rectangle overlap algorithm**:
+  - Created new implementation in separate module
+  - Split into X and Y dimension-specific algorithms (following WebCola's design)
+  - Fixed infinite loop issues by improving sweep line event handling
+  - Enhanced neighbor finding logic to better match WebCola's implementation
+  - Maintained backward compatibility through legacy function
+  - Added thorough unit tests for each component
 - Implemented BTreeSet-based active rectangle tracking for more efficient overlap detection
 - Simplified parameter structure for better API usability
 - ClassicalMds for n-dimensional drawings

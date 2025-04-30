@@ -13,6 +13,8 @@ Current work centers on these main areas:
    - Created comprehensive tests for constraint-based functionality
    - Improved rectangle overlap implementation by splitting into X and Y dimension algorithms
    - Replaced external RBTree implementation with Rust's built-in BTreeSet for better efficiency
+   - Fixed infinite loop issues in rectangle overlap constraints with improved sweep line algorithm
+   - Added extensive unit tests to validate algorithm correctness and performance
 
 2. **Community Detection**
 
@@ -50,12 +52,15 @@ Current work centers on these main areas:
 
 ## Recent Changes
 
-- **Rectangle Overlap Algorithm Enhancement**
+- **Rectangle Overlap Algorithm Refactoring**
 
-  - Split implementation into X and Y dimension-specific algorithms
-  - Replaced external RBTree with Rust's BTreeSet for better efficiency
-  - Simplified parameter structure for better usability
-  - Improved test coverage for rectangle overlap constraints
+  - Completely refactored implementation with separate `rectangle_overlap_2d.rs` module
+  - Split algorithm into distinct X and Y dimension-specific implementations following WebCola's approach
+  - Replaced external RBTree with Rust's BTreeSet for better efficiency and maintainability
+  - Improved event handling in sweep line algorithm to fix infinite loop issues
+  - Enhanced neighbor finding logic to match WebCola's implementation more precisely
+  - Added thorough unit tests for each component of the algorithm
+  - Maintained backward compatibility through legacy function in original module
 
 - **Triangulation Python Bindings**
 
