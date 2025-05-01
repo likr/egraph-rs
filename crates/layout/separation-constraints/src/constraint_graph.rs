@@ -269,7 +269,7 @@ impl ConstraintGraph {
     pub fn project(&mut self, x: &mut [f32]) {
         // Iteratively find and resolve the most violated constraint (violation > tolerance).
         while let Some(c) = (0..self.constraints.len())
-            .filter(|&i| self.violation(i) > 1e-3) // Use tolerance for float comparison.
+            .filter(|&i| self.violation(i) > 1e-1) // Use tolerance for float comparison.
             .max_by_key(|&c| OrderedFloat(self.violation(c)))
         {
             if self.variables[self.constraints[c].left].block
