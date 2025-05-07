@@ -66,7 +66,7 @@ where
             if i == j {
                 continue;
             }
-            let v = *drawing.node_id(i);
+            let v = *drawing.node_id(j);
             if graph_edges.contains(&(graph.to_index(u), graph.to_index(v))) {
                 cap += 1;
             } else {
