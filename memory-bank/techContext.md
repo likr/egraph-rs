@@ -40,13 +40,20 @@
 
 ### Key Directories
 
-| Directory                | Contents                        |
-| ------------------------ | ------------------------------- |
-| `crates/algorithm`       | Graph algorithm implementations |
-| `crates/layout`          | Layout algorithms               |
-| `crates/python`          | Python bindings                 |
-| `crates/quality-metrics` | Drawing quality metrics         |
-| `js/examples`            | JavaScript usage examples       |
+| Directory                | Contents                                                    |
+| ------------------------ | ----------------------------------------------------------- |
+| `crates/algorithm`       | Graph algorithm implementations                             |
+| `crates/clustering`      | Community detection algorithms                              |
+| `crates/dataset`         | Graph dataset loaders and utilities                         |
+| `crates/drawing`         | Drawing implementations for various spaces                  |
+| `crates/edge-bundling`   | Force-directed edge bundling                                |
+| `crates/layout`          | Layout algorithms (SGD variants including Omega, MDS, etc.) |
+| `crates/python`          | Python bindings (PyO3)                                      |
+| `crates/quality-metrics` | Drawing quality evaluation metrics                          |
+| `crates/wasm`            | WebAssembly bindings (wasm-bindgen)                         |
+| `js/dataset`             | JavaScript dataset files                                    |
+| `js/examples`            | JavaScript usage examples                                   |
+| `memory-bank`            | Project documentation and context files                     |
 
 ## Development Setup
 

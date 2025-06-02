@@ -6,9 +6,11 @@
 
   - algorithm (connected-components, shortest-path, triangulation, layering)
   - clustering (community detection)
+  - dataset (graph dataset loaders)
   - drawing (Euclidean, Spherical, Hyperbolic, Torus)
-  - layout (SGD, MDS, Stress-Majorization, Kamada-Kawai)
-  - quality-metrics, edge-bundling, separation-constraints
+  - edge-bundling (force-directed edge bundling)
+  - layout (SGD, MDS, Stress-Majorization, Kamada-Kawai, overlap-removal, random, separation-constraints)
+  - quality-metrics (layout evaluation)
   - language bindings (Python, WebAssembly)
 
 - **Key Patterns**
@@ -20,8 +22,9 @@
 
 - **SGD**: Force-directed layout with multiple variants
 
-  - Full, Sparse, Distance-Adjusted implementations
+  - Full, Sparse, Distance-Adjusted, Omega implementations
   - Various learning rate schedulers (Constant, Linear, etc.)
+  - **Omega**: Spectral coordinates-based SGD using graph Laplacian eigenvalues
 
 - **MDS**: Lower-dimensional space visualization
 

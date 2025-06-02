@@ -1,0 +1,11 @@
+[package]
+name = "petgraph-layout-omega"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nalgebra = "0.32"
+petgraph = "0.6"
+petgraph-drawing = { path = "../../drawing" }
+petgraph-layout-sgd = { path = "../sgd" }
+rand = "0.8"
