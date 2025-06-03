@@ -63,7 +63,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 /// * `coordinates` - Mutable `DrawingEuclidean2d` containing the initial and resulting node positions.
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
-    coordinates: &mut DrawingEuclidean2d<NodeIndex, f32>,
+    drawing: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
 
@@ -71,7 +71,7 @@ fn layout(
     // d = 2: Number of spectral dimensions (for 2D layouts)
     // k = 30: Number of random pairs per node (same as SparseSgd)
     let d = 10;
-    let k = 200;
+    let k = 400;
 
     let mut omega = Omega::new(graph, |_| 30.0, d, k, &mut rng);
 
@@ -81,7 +81,7 @@ fn layout(
 
     scheduler.run(&mut |eta| {
         omega.shuffle(&mut rng);
-        omega.apply(coordinates, eta);
+        omega.apply(drawing, eta);
     });
 }
 
@@ -90,7 +90,7 @@ fn main() {
     let mut input_path = "".to_string();
     let mut output_path = "".to_string();
     parse_args(&mut input_path, &mut output_path);
-    let (input_graph, mut coordinates) = read_graph(&input_path);
-    layout(&input_graph, &mut coordinates);
-    write_pos(&input_graph, &coordinates, &output_path);
+    let (input_graph, node_ids, mut drawing) = read_graph(&input_path);
+    layout(&input_graph, &mut drawing);
+    write_pos(&node_ids, &drawing, &output_path);
 }

@@ -61,7 +61,7 @@ type Drawing2D = DrawingEuclidean2d<NodeIndex, f32>;
 /// Panics if the file cannot be opened or if JSON deserialization fails.
 pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     input_path: &str,
-) -> (UndirectedGraph<N, E>, Drawing2D) {
+) -> (UndirectedGraph<N, E>, HashMap<String, NodeIndex>, Drawing2D) {
     let file = File::open(input_path).unwrap();
     let reader = BufReader::new(file);
     let input_graph: GraphData<N, E> = serde_json::from_reader(reader).unwrap();
@@ -88,7 +88,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
             drawing.set_y(u, y);
         }
     }
-    (graph, drawing)
+    (graph, node_ids, drawing)
 }
 
 /// Writes a graph and its drawing information to a JSON file.
@@ -163,15 +163,14 @@ pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
 /// # Panics
 ///
 /// Panics if the file cannot be created or if JSON serialization fails.
-pub fn write_pos<N, E>(graph: &UndirectedGraph<N, E>, drawing: &Drawing2D, output_path: &str) {
-    let positions: HashMap<String, [f32; 2]> = graph
-        .node_indices()
-        .map(|u| {
-            let id = u.index().to_string();
+pub fn write_pos(node_ids: &HashMap<String, NodeIndex>, drawing: &Drawing2D, output_path: &str) {
+    let positions = node_ids
+        .iter()
+        .map(|(id, &u)| {
             let pos = [drawing.x(u).unwrap(), drawing.y(u).unwrap()];
             (id, pos)
         })
-        .collect();
+        .collect::<HashMap<_, _>>();
 
     let file = File::create(output_path).unwrap();
     let writer = BufWriter::new(file);

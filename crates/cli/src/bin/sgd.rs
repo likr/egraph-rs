@@ -63,7 +63,7 @@ fn main() {
     let mut input_path = "".to_string();
     let mut output_path = "".to_string();
     parse_args(&mut input_path, &mut output_path);
-    let (input_graph, mut coordinates) = read_graph(&input_path);
+    let (input_graph, _, mut coordinates) = read_graph(&input_path);
     layout(&input_graph, &mut coordinates);
     write_graph(&input_graph, &coordinates, &output_path);
 }

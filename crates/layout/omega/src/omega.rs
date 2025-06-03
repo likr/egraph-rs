@@ -131,6 +131,7 @@ where
 
         // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
         let (eigenvalues, eigenvectors) = solver.compute_smallest_eigenvalues(graph, d);
+        println!("{:?}", eigenvalues);
 
         // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
         let mut coordinates = vec![vec![S::zero(); d]; n];

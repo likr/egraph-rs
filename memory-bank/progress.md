@@ -13,6 +13,12 @@
 - ✅ **Layout Algorithms**
 
   - SGD with Full, Sparse, Distance-adjusted, and Omega variants
+  - **Omega Algorithm**: Complete spectral coordinate-based SGD with proper eigenvalue computation
+    - **Eigenvalue Solver**: Completely rewritten using inverse power method with CG solver
+    - **Sequential Computation**: λ2, λ3, ..., λ(N+1) with Gram-Schmidt orthogonalization
+    - **Matrix-Free Operations**: Efficient Laplacian-vector multiplication without full matrix construction
+    - **Convergence Criteria**: Dual eigenvalue and eigenvector convergence checks
+    - **Performance**: O(d(|V| + |E|) + k|V|) computational complexity maintained
   - MDS (Classical and Pivot-based) with high-dimensional support
   - Stress Majorization with convergence controls and infinite loop prevention
   - Kamada-Kawai spring model

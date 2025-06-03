@@ -117,6 +117,12 @@ mod tests {
         let solver = EigenSolver::<f32>::default();
         let (eigenvalues, eigenvectors) = solver.compute_smallest_eigenvalues(&graph, 2);
 
+        // Debug output
+        println!("Found {} eigenvalues: {:?}", eigenvalues.len(), eigenvalues);
+        for (i, eigenvalue) in eigenvalues.iter().enumerate() {
+            println!("Eigenvalue {}: {}", i, eigenvalue);
+        }
+
         // Should compute 2 eigenvalues and eigenvectors
         assert_eq!(eigenvalues.len(), 2, "Should compute 2 eigenvalues");
         assert_eq!(eigenvectors.len(), 2, "Should compute 2 eigenvectors");

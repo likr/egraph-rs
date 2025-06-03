@@ -40,6 +40,24 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Eigenvalue Algorithm Implementation Overhaul**
+
+  - **Completely rewrote `crates/layout/omega/src/eigenvalue.rs`**: Implementation now follows exact specification for graph Laplacian eigenvalue computation
+  - **Sequential Algorithm**: Replaced deflation approach with sequential computation of λ2, λ3, ..., λ(N+1)
+  - **Inverse Power Method**: Proper implementation with CG solver for each eigenvalue
+  - **Conjugate Gradient Method**: Added `solve_with_conjugate_gradient()` for solving Ly = x_iter systems
+  - **Gram-Schmidt Orthogonalization**: Explicit orthogonalization against all previously found eigenvectors
+  - **Rayleigh Quotient**: Proper eigenvalue estimation using v^T _ L _ v / (v^T \* v)
+  - **Matrix-Free Operations**: Efficient `laplacian_multiply()` without building full matrix
+  - **Algorithm Components**:
+    - Initialize with v1 = (1,1,...,1)^T/√n
+    - Random vector generation with deterministic reproducibility
+    - CG solver with proper convergence criteria
+    - Dual convergence checks (eigenvalue and vector)
+    - Sequential eigenvalue computation maintaining orthogonality
+  - **Performance**: Maintains O(d(|V| + |E|) + k|V|) computational complexity
+  - **Code Quality**: Removed all unused methods, clean implementation, all tests passing
+
 - **Omega CLI Binary Implementation**
 
   - **Created `crates/cli/src/bin/omega.rs`**: Complete CLI binary for Omega layout algorithm
@@ -53,7 +71,7 @@ The project has reached a mature state with comprehensive functionality across m
 - **Omega SGD Implementation**
 
   - Added new `petgraph-layout-omega` crate implementing spectral coordinates-based SGD
-  - Pure Rust eigenvalue computation using deflation-based power method with orthogonalization
+  - Pure Rust eigenvalue computation using inverse power method with CG solver and Gram-Schmidt orthogonalization
   - 4-step algorithm: Laplacian eigenvalues → spectral coordinates → edge pairs → random pairs
   - Computational complexity: O(d(|V| + |E|) + k|V|) as specified
   - Duplicate avoidance in node pairs using HashSet-based skipping

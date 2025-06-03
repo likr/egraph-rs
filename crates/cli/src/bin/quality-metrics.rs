@@ -93,7 +93,7 @@ fn main() {
     let mut output_path = "".to_string();
     parse_args(&mut input_path, &mut output_path);
     // Use the type aliases
-    let (graph, coordinates): (MyGraph, MyDrawing) = read_graph(&input_path);
+    let (graph, _, coordinates) = read_graph(&input_path);
     let quality_metrics = compute_metrics(&graph, &coordinates);
     write_result(&quality_metrics, &output_path);
 }
