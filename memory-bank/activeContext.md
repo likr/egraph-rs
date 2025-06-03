@@ -40,6 +40,16 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Omega CLI Binary Implementation**
+
+  - **Created `crates/cli/src/bin/omega.rs`**: Complete CLI binary for Omega layout algorithm
+  - **Added `write_pos` function**: New simplified JSON output format to `crates/cli/src/lib.rs`
+  - **Output Format**: Node positions as `{"node_id": [x, y]}` instead of full graph structure
+  - **Integration**: Uses existing Omega layout algorithm with spectral coordinate-based SGD
+  - **Parameters**: d=2 spectral dimensions, k=200 random pairs per node, 1000 iterations
+  - **Consistency**: Follows same CLI pattern as SGD binary with argument parsing and graph I/O
+  - **Testing**: Verified with multiple datasets (bull.json, karate_club.json)
+
 - **Omega SGD Implementation**
 
   - Added new `petgraph-layout-omega` crate implementing spectral coordinates-based SGD

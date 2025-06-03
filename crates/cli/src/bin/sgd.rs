@@ -50,8 +50,8 @@ fn layout(
     coordinates: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
-    let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 281, &mut rng);
-    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(867, 0.1);
+    let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 200, &mut rng);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);
         sgd.apply(coordinates, eta);

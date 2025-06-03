@@ -16,7 +16,7 @@ use std::{
 /// Represents node data for serialization/deserialization.
 #[derive(Clone, Serialize, Deserialize)]
 struct NodeData<N> {
-    id: usize,
+    id: String,
     x: Option<f32>,
     y: Option<f32>,
     data: Option<N>,
@@ -25,8 +25,8 @@ struct NodeData<N> {
 /// Represents link (edge) data for serialization/deserialization.
 #[derive(Clone, Serialize, Deserialize)]
 struct LinkData<E> {
-    source: usize,
-    target: usize,
+    source: String,
+    target: String,
     data: Option<E>,
 }
 
@@ -69,7 +69,7 @@ pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
     let mut graph = Graph::new_undirected();
     let mut node_ids = HashMap::new();
     for node in input_graph.nodes.iter() {
-        node_ids.insert(node.id, graph.add_node(node.data.clone()));
+        node_ids.insert(node.id.clone(), graph.add_node(node.data.clone()));
     }
     for link in input_graph.links.iter() {
         graph.add_edge(
@@ -114,7 +114,7 @@ pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
         nodes: graph
             .node_indices()
             .map(|u| NodeData {
-                id: u.index(),
+                id: u.index().to_string(),
                 x: Some(drawing.x(u).unwrap()),
                 y: Some(drawing.y(u).unwrap()),
                 data: graph[u].clone(),
@@ -125,8 +125,8 @@ pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
             .map(|e| {
                 let (source, target) = graph.edge_endpoints(e).unwrap();
                 LinkData {
-                    source: source.index(),
-                    target: target.index(),
+                    source: source.index().to_string(),
+                    target: target.index().to_string(),
                     data: graph[e].clone(),
                 }
             })
@@ -136,4 +136,44 @@ pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
     let file = File::create(output_path).unwrap();
     let writer = BufWriter::new(file);
     serde_json::to_writer(writer, &output).unwrap();
+}
+
+/// Writes node positions to a JSON file in a simplified format.
+///
+/// Creates a JSON object where keys are node IDs (as strings) and values are
+/// coordinate arrays [x, y]. This provides a cleaner output format focused
+/// solely on node positions without graph structure or metadata.
+///
+/// # Arguments
+///
+/// * `graph` - The `UndirectedGraph<N, E>` containing the nodes.
+/// * `drawing` - The `Drawing2D` containing node positions.
+/// * `output_path` - Path to the output JSON file.
+///
+/// # Output Format
+///
+/// ```json
+/// {
+///   "0": [1.23, 4.56],
+///   "1": [2.34, 5.67],
+///   "2": [3.45, 6.78]
+/// }
+/// ```
+///
+/// # Panics
+///
+/// Panics if the file cannot be created or if JSON serialization fails.
+pub fn write_pos<N, E>(graph: &UndirectedGraph<N, E>, drawing: &Drawing2D, output_path: &str) {
+    let positions: HashMap<String, [f32; 2]> = graph
+        .node_indices()
+        .map(|u| {
+            let id = u.index().to_string();
+            let pos = [drawing.x(u).unwrap(), drawing.y(u).unwrap()];
+            (id, pos)
+        })
+        .collect();
+
+    let file = File::create(output_path).unwrap();
+    let writer = BufWriter::new(file);
+    serde_json::to_writer(writer, &positions).unwrap();
 }

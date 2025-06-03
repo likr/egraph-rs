@@ -19,6 +19,14 @@
   - Overlap removal with rectangular constraints
   - Separation constraints for hierarchical layouts
   - Random layout for initial positioning
+  - **CLI Binaries**: Complete command-line tools for SGD and Omega layout algorithms
+
+- ✅ **CLI Tools & Output Formats**
+
+  - **Omega CLI Binary**: `crates/cli/src/bin/omega.rs` implementing spectral coordinate SGD
+  - **Simplified JSON Output**: `write_pos` function for clean node position format `{"id": [x, y]}`
+  - **Consistent Interface**: Unified argument parsing and graph I/O across CLI tools
+  - **Graph Format Support**: Reads/writes GraphData JSON format with optional coordinates
 
 - ✅ **Community Detection**
 
