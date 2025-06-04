@@ -7,13 +7,13 @@ use petgraph_layout_sgd::Sgd;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
-/// Configuration options for the Omega algorithm using Builder pattern.
+/// Builder for configuring the Omega algorithm.
 ///
 /// This structure contains all parameters needed to configure the Omega algorithm,
 /// including spectral dimensions, random pairs, distance constraints, and
 /// eigenvalue solver parameters.
 #[derive(Debug, Clone)]
-pub struct OmegaOption<S> {
+pub struct OmegaBuilder<S> {
     /// Number of spectral dimensions
     pub d: usize,
     /// Number of random pairs per node  
@@ -32,11 +32,11 @@ pub struct OmegaOption<S> {
     pub vector_tolerance: S,
 }
 
-impl<S> OmegaOption<S>
+impl<S> OmegaBuilder<S>
 where
     S: DrawingValue,
 {
-    /// Creates a new OmegaOption with default values.
+    /// Creates a new OmegaBuilder with default values.
     ///
     /// Default values:
     /// - d: 2 (spectral dimensions)
@@ -107,9 +107,28 @@ where
         self.vector_tolerance = vector_tolerance;
         self
     }
+
+    /// Builds an Omega instance using the configured parameters.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `rng` - Random number generator for selecting random node pairs
+    ///
+    /// # Returns
+    /// A new Omega instance configured with the builder's parameters
+    pub fn build<G, F, R>(self, graph: G, length: F, rng: &mut R) -> Omega<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        Omega::new(graph, length, self, rng)
+    }
 }
 
-impl<S> Default for OmegaOption<S>
+impl<S> Default for OmegaBuilder<S>
 where
     S: DrawingValue,
 {
@@ -162,7 +181,7 @@ where
     /// - Step 2: O(d|V|) - Coordinate generation
     /// - Step 3: O(|E|) - Edge-based pairs
     /// - Step 4: O(k|V|) - Random pairs
-    pub fn new<G, F, R>(graph: G, length: F, options: OmegaOption<S>, rng: &mut R) -> Self
+    pub fn new<G, F, R>(graph: G, length: F, options: OmegaBuilder<S>, rng: &mut R) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex + Ord,
@@ -231,7 +250,7 @@ where
     /// # Parameters
     /// * `graph` - The input graph
     /// * `length` - Function to extract edge weights/lengths
-    /// * `options` - Configuration options containing solver parameters and dimensions
+    /// * `options` - Configuration builder containing solver parameters and dimensions
     /// * `rng` - Random number generator for eigenvalue computation
     ///
     /// # Returns
@@ -239,7 +258,7 @@ where
     fn compute_spectral_coordinates_with_weights<G, F, R>(
         graph: G,
         length: F,
-        options: &OmegaOption<S>,
+        options: &OmegaBuilder<S>,
         rng: &mut R,
     ) -> Vec<Vec<S>>
     where

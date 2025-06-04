@@ -14,7 +14,7 @@
 //!
 //! ```rust
 //! use petgraph::{Graph, graph::NodeIndex};
-//! use petgraph_layout_omega::{Omega, OmegaOption};
+//! use petgraph_layout_omega::{Omega, OmegaBuilder};
 //! use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd};
 //! use petgraph_drawing::DrawingEuclidean2d;
 //! use rand::thread_rng;
@@ -28,13 +28,13 @@
 //! graph.add_edge(b, c, ());
 //! graph.add_edge(c, a, ());
 //!
-//! // Create Omega instance with options
+//! // Create Omega instance using builder pattern
 //! let mut rng = thread_rng();
-//! let options = OmegaOption::new()
+//! let mut omega = OmegaBuilder::new()
 //!     .d(2)        // Number of spectral dimensions
 //!     .k(5)        // Number of random pairs per node
-//!     .min_dist(1e-3); // Minimum distance between node pairs
-//! let mut omega = Omega::new(&graph, |_| 1.0, options, &mut rng);
+//!     .min_dist(1e-3) // Minimum distance between node pairs
+//!     .build(&graph, |_| 1.0, &mut rng);
 //!
 //! // Use with SGD framework
 //! let mut drawing: DrawingEuclidean2d<NodeIndex, f32> = DrawingEuclidean2d::initial_placement(&graph);
@@ -60,7 +60,7 @@ mod omega;
 pub use eigenvalue::{
     compute_smallest_eigenvalues, compute_smallest_eigenvalues_with_laplacian, LaplacianStructure,
 };
-pub use omega::{Omega, OmegaOption};
+pub use omega::{Omega, OmegaBuilder};
 
 #[cfg(test)]
 mod tests {
@@ -80,13 +80,13 @@ mod tests {
         graph.add_edge(b, c, ());
         graph.add_edge(c, a, ());
 
-        // Create Omega instance with options
+        // Create Omega instance with builder
         let mut rng = thread_rng();
-        let options = OmegaOption::new()
+        let omega = OmegaBuilder::new()
             .d(2) // Number of spectral dimensions
             .k(1) // Number of random pairs per node
-            .min_dist(1e-3f32); // Minimum distance between node pairs
-        let omega = Omega::new(&graph, |_| 1.0f32, options, &mut rng);
+            .min_dist(1e-3f32) // Minimum distance between node pairs
+            .build(&graph, |_| 1.0f32, &mut rng);
 
         // Verify that node pairs were created
         assert!(
@@ -120,11 +120,11 @@ mod tests {
 
         // Create Omega instance with a specific min_dist
         let mut rng = thread_rng();
-        let options = OmegaOption::new()
+        let omega = OmegaBuilder::new()
             .d(1) // Single dimension for simplicity
             .k(0) // No random pairs to isolate edge pairs
-            .min_dist(0.5f32); // Set a minimum distance
-        let omega = Omega::new(&graph, |_| 1.0f32, options, &mut rng);
+            .min_dist(0.5f32) // Set a minimum distance
+            .build(&graph, |_| 1.0f32, &mut rng);
 
         // Verify that all distances are at least min_dist
         for &(i, j, dij, dji, _wij, _wji) in omega.node_pairs() {

@@ -28,6 +28,14 @@
       - **Improved Flexibility**: Direct function calls without object instantiation
       - **Code Quality**: Fixed all clippy warnings, improved function signatures
       - **Maintained Performance**: Zero regression in computational efficiency
+    - **OmegaBuilder Pattern Implementation (2025-06-04)**: Renamed `OmegaOption` to `OmegaBuilder` with complete builder pattern
+      - **API Restructuring**: Renamed for clarity and conventional Rust naming (`OmegaOption` → `OmegaBuilder`)
+      - **Builder Pattern**: Added `build()` method that consumes builder and returns `Omega` instance
+      - **Fluent API**: Changed from separate configuration/instantiation to single fluent chain
+      - **Standard Pattern**: Follows conventional Rust builder pattern with explicit `build()` method
+      - **Updated Integration**: CLI binary and all tests updated to use new API
+      - **Documentation**: All examples demonstrate new fluent builder pattern
+      - **Backward Compatibility**: `Omega::new()` method still available for direct usage
   - MDS (Classical and Pivot-based) with high-dimensional support
   - Stress Majorization with convergence controls and infinite loop prevention
   - Kamada-Kawai spring model

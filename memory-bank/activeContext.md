@@ -40,6 +40,59 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **OmegaBuilder Pattern Implementation (2025-06-04)**
+
+  - **API Restructuring**: Renamed `OmegaOption` to `OmegaBuilder` and implemented complete builder pattern with `build()` method
+
+  - **Structural Changes**:
+
+    - **Renamed**: `OmegaOption<S>` → `OmegaBuilder<S>` for clarity and conventional naming
+    - **Added**: `build()` method that consumes the builder and returns an `Omega` instance
+    - **Maintained**: All existing configuration methods (`d()`, `k()`, `min_dist()`, etc.)
+
+  - **New Builder Pattern API**:
+
+    ```rust
+    // Before: Separate configuration and instantiation
+    let options = OmegaOption::new()
+        .d(3).k(50).min_dist(1e-3);
+    let omega = Omega::new(graph, length, options, rng);
+
+    // After: Fluent builder pattern with build()
+    let omega = OmegaBuilder::new()
+        .d(3).k(50).min_dist(1e-3)
+        .build(graph, length, rng);
+    ```
+
+  - **Implementation Details**:
+
+    - **Builder Method**: `pub fn build<G, F, R>(self, graph: G, length: F, rng: &mut R) -> Omega<S>`
+    - **Method Chaining**: All setter methods return `Self` for fluid configuration
+    - **Type Safety**: Generic constraints ensure proper graph and function types
+    - **Documentation**: Updated all examples and tests to use new pattern
+
+  - **Files Updated**:
+
+    - **omega.rs**: Struct rename, added `build()` method, updated all references
+    - **lib.rs**: Updated exports (`OmegaOption` → `OmegaBuilder`), documentation examples, and test cases
+    - **omega.rs (CLI)**: Updated import and usage to new builder pattern
+    - **All Documentation**: Examples now demonstrate fluent builder pattern
+
+  - **Benefits Achieved**:
+
+    - **Standard Rust Pattern**: Follows conventional builder pattern with explicit `build()` method
+    - **Improved Ergonomics**: More natural API flow from configuration to instantiation
+    - **Better Intent**: Makes builder pattern more explicit and recognizable to Rust developers
+    - **Maintainability**: Easier to extend with new configuration options
+    - **Code Clarity**: Clearer separation between configuration and instantiation phases
+
+  - **Verification Results**:
+    - **Tests**: All 3 unit tests + 1 doc test continue to pass
+    - **CLI Compilation**: Binary builds successfully with new API
+    - **Clippy Clean**: No warnings or linting issues
+    - **Documentation**: All examples updated and functional
+    - **Backward Compatibility**: `Omega::new()` method still available for direct usage
+
 - **EigenSolver Refactoring to Function-Based API (2025-06-04)**
 
   - **Architectural Transformation**: Completely refactored EigenSolver from struct-based OOP design to functional programming approach using plain functions

@@ -28,7 +28,7 @@ use argparse::{ArgumentParser, Store};
 use egraph_cli::{read_graph, write_pos};
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
-use petgraph_layout_omega::{Omega, OmegaOption};
+use petgraph_layout_omega::OmegaBuilder;
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd};
 use rand::thread_rng;
 
@@ -67,15 +67,14 @@ fn layout(
 ) {
     let mut rng = thread_rng();
 
-    // Create Omega options with desired parameters
-    let options = OmegaOption::new()
+    // Create Omega instance using builder pattern
+    let mut omega = OmegaBuilder::new()
         .d(10) // Number of spectral dimensions
         .k(200) // Number of random pairs per node
         .min_dist(1e-1) // Minimum distance between node pairs
         .max_iterations(2000) // More iterations for better convergence
-        .tolerance(1e-5); // Tighter tolerance for better quality
-
-    let mut omega = Omega::new(graph, |_| 1.0, options, &mut rng);
+        .tolerance(1e-5) // Tighter tolerance for better quality
+        .build(graph, |_| 1.0, &mut rng);
 
     // Use same iteration count and learning rate schedule as SGD
     // 100 iterations with exponential decay to final eta of 0.1
