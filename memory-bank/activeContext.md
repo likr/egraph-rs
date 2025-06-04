@@ -40,6 +40,66 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Omega CLI Command-Line Options Enhancement (2025-06-05)**
+
+  - **Comprehensive CLI Parameter Support**: Added complete command-line interface for all Omega algorithm parameters in the omega binary
+
+  - **New Command-Line Options Added**:
+
+    - **`--d <value>`**: Number of spectral dimensions (default: 2)
+    - **`--k <value>`**: Number of random pairs per node (default: 30)
+    - **`--min-dist <value>`**: Minimum distance between node pairs (default: 1e-3)
+    - **`--eigenvalue-max-iterations <value>`**: Max iterations for eigenvalue computation (default: 1000)
+    - **`--cg-max-iterations <value>`**: Max iterations for CG method (default: 100)
+    - **`--eigenvalue-tolerance <value>`**: Convergence tolerance for eigenvalue computation (default: 1e-4)
+    - **`--cg-tolerance <value>`**: Convergence tolerance for CG method (default: 1e-4)
+    - **`--unit-edge-length <value>`**: Length value for all edges (default: 30.0)
+    - **`--sgd-iterations <value>`**: Number of SGD iterations (default: 100)
+    - **`--sgd-eps <value>`**: Final learning rate for SGD scheduler (default: 0.1)
+
+  - **Implementation Details**:
+
+    - **Parameter Structure**: Created `OmegaParams` struct with Default trait implementation for organized parameter management
+    - **Argument Parsing**: Extended `parse_args()` function using argparse library with proper Option<T> handling
+    - **Borrowing Solution**: Used scoped parser creation to avoid Rust borrowing conflicts with argparse
+    - **Parameter Integration**: All options properly wired through to `OmegaBuilder` and SGD scheduler
+    - **Documentation**: Updated help text, usage examples, and code documentation
+
+  - **Files Modified**:
+
+    - **`crates/cli/src/bin/omega.rs`**: Complete rewrite of argument parsing and parameter handling
+      - Added `OmegaParams` struct with sensible defaults
+      - Extended `parse_args()` with all 10 new command-line options
+      - Updated `layout()` function to accept and use parameter struct
+      - Enhanced documentation with usage examples
+
+  - **Usage Examples**:
+
+    ```bash
+    # Basic usage (uses defaults)
+    cargo run --bin omega -- input.json output.json
+
+    # Custom parameters
+    cargo run --bin omega -- input.json output.json --d 3 --k 50 --sgd-iterations 200
+
+    # Fine-tuned eigenvalue computation
+    cargo run --bin omega -- input.json output.json --eigenvalue-tolerance 1e-6 --cg-tolerance 1e-6
+    ```
+
+  - **Benefits Achieved**:
+
+    - **Full Parameter Control**: Users can now customize every aspect of the Omega algorithm from command line
+    - **Backward Compatibility**: Existing usage patterns continue to work with sensible defaults
+    - **Professional CLI**: Help output shows all options with descriptions and defaults
+    - **Research Flexibility**: Enables parameter tuning and experimentation without code changes
+    - **Production Ready**: Configurable performance/quality trade-offs for different use cases
+
+  - **Verification Results**:
+    - **Clean Compilation**: No warnings with `cargo clippy --bin omega`
+    - **All Tests Pass**: omega-specific tests continue to pass
+    - **Help Output**: Professional help display with all options documented
+    - **Build Success**: Binary builds and runs successfully with all options
+
 - **OmegaBuilder Parameter Renaming and Cleanup (2025-06-04)**
 
   - **Parameter Renaming for Better API Clarity**: Renamed OmegaBuilder parameters to be more descriptive and reflect their actual purpose in eigenvalue computation
