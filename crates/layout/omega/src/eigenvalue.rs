@@ -2,6 +2,7 @@
 //! with Gram-Schmidt orthogonalization and Conjugate Gradient solver for computing
 //! the smallest non-zero eigenvalues of graph Laplacians.
 
+use ndarray::{s, Array1, Array2, ArrayView2};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;
@@ -105,10 +106,107 @@ where
     }
 }
 
+/// Generates a random vector of specified size using the provided RNG.
+pub fn generate_random_vector<S, R>(n: usize, rng: &mut R) -> Array1<S>
+where
+    S: DrawingValue,
+    R: Rng,
+{
+    Array1::from_shape_fn(n, |_| S::from_f32(rng.gen_range(-1.0..1.0)).unwrap())
+}
+
+/// Performs Gram-Schmidt orthogonalization of a vector against known vectors.
+///
+/// Implements: x_orth = x - Σ(dot(x, v_i) * v_i) for all known vectors v_i
+pub fn gram_schmidt_orthogonalize<S>(vector: &mut Array1<S>, known_vectors: &ArrayView2<S>)
+where
+    S: DrawingValue,
+{
+    for col in known_vectors.columns() {
+        let dot_product_value = vector.dot(&col);
+        *vector -= &(col.to_owned() * dot_product_value);
+    }
+}
+
+/// Normalizes an Array1 vector to unit length.
+pub fn normalize<S>(vector: &mut Array1<S>)
+where
+    S: DrawingValue,
+{
+    let norm = vector.dot(vector).sqrt();
+    if norm > S::zero() {
+        *vector /= norm;
+    }
+}
+
+/// Solves the linear system Ly = b using the Conjugate Gradient method with Array1 input/output.
+///
+/// This implements CG for the semi-positive definite Laplacian matrix L.
+/// Since L has a zero eigenvalue, we solve for the component orthogonal to
+/// the null space (the constant vector).
+///
+/// # Parameters
+/// * `laplacian` - The Laplacian structure
+/// * `b` - Right-hand side vector as Array1
+/// * `cg_max_iterations` - Maximum iterations for CG method
+/// * `cg_tolerance` - Convergence tolerance for CG method
+pub fn solve_with_conjugate_gradient<S>(
+    laplacian: &LaplacianStructure<S>,
+    b: &Array1<S>,
+    cg_max_iterations: usize,
+    cg_tolerance: S,
+) -> Array1<S>
+where
+    S: DrawingValue,
+{
+    let n = laplacian.node_count();
+    let mut x = Array1::zeros(n); // Initial guess: zero vector
+    let mut r = b.clone(); // Initial residual r = b - Lx = b (since x = 0)
+    let mut p = r.clone(); // Initial search direction
+
+    let mut rsold = r.dot(&r);
+
+    for _iter in 0..cg_max_iterations {
+        // Compute Ap = L * p
+        let ap_vec = laplacian.multiply(p.as_slice().unwrap());
+        let ap = Array1::from_vec(ap_vec);
+
+        // Compute alpha = (r^T * r) / (p^T * Ap)
+        let pap = p.dot(&ap);
+        if pap.abs() < cg_tolerance {
+            break; // Avoid division by zero
+        }
+        let alpha = rsold / pap;
+
+        // Update solution: x = x + alpha * p
+        x += &(&p * alpha);
+
+        // Update residual: r = r - alpha * Ap
+        r -= &(&ap * alpha);
+
+        let rsnew = r.dot(&r);
+
+        // Check for convergence
+        if rsnew.sqrt() < cg_tolerance {
+            break;
+        }
+
+        // Compute beta = (r_new^T * r_new) / (r_old^T * r_old)
+        let beta = rsnew / rsold;
+
+        // Update search direction: p = r + beta * p
+        p = &r + &(&p * beta);
+
+        rsold = rsnew;
+    }
+
+    x
+}
+
 /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors using a precomputed LaplacianStructure.
 ///
 /// Implements the algorithm specified for computing non-zero eigenvalues of graph Laplacians using:
-/// 1. Sequential computation of λ2, λ3, ..., λ(n_target+1)
+/// 1. Sequential computation of λ1, λ2, ..., λn_target (smallest non-zero eigenvalues)
 /// 2. Inverse power method with CG solver for each eigenvalue
 /// 3. Gram-Schmidt orthogonalization against previously found eigenvectors
 /// 4. Optimized Rayleigh quotient using quadratic form
@@ -125,8 +223,8 @@ where
 ///
 /// # Returns
 /// A tuple containing:
-/// - Vector of eigenvalues (λ2, λ3, ..., λ(n_target+1))
-/// - Vector of corresponding eigenvectors
+/// - Array1 of eigenvalues (\lambda_0, \lambda_1, \cdots, \lambda_{n_target})
+/// - Array2 of corresponding eigenvectors (each column is an eigenvector)
 #[allow(clippy::too_many_arguments)]
 pub fn compute_smallest_eigenvalues_with_laplacian<S, R>(
     laplacian: &LaplacianStructure<S>,
@@ -137,26 +235,28 @@ pub fn compute_smallest_eigenvalues_with_laplacian<S, R>(
     cg_tolerance: S,
     vector_tolerance: S,
     rng: &mut R,
-) -> (Vec<S>, Vec<Vec<S>>)
+) -> (Array1<S>, Array2<S>)
 where
     S: DrawingValue,
     R: Rng,
 {
     let n = laplacian.node_count();
 
-    // Initialize found eigenvectors with v1 = (1,1,...,1)^T / sqrt(n)
-    let mut found_eigenvectors: Vec<Vec<S>> = Vec::new();
-    let mut v1 = vec![S::one() / (n as f32).sqrt().into(); n];
-    normalize(&mut v1);
-    found_eigenvectors.push(v1);
+    // Initialize storage for eigenvalues and eigenvectors using ndarray
+    let mut eigenvalues = Array1::zeros(n_target + 1);
+    let mut eigenvectors = Array2::zeros((n, n_target + 1));
+    eigenvectors
+        .column_mut(0)
+        .fill(S::one() / S::from_usize(n).unwrap().sqrt());
 
-    let mut found_eigenvalues: Vec<S> = Vec::new();
-
-    // For k = 1, ..., n_target: find the (k+1)-th eigenvalue λ(k+1) and eigenvector v(k+1)
-    for _ in 1..=n_target {
+    // For k = 1, ..., n_target: find the k-th smallest non-zero eigenvalue and eigenvector
+    for k in 1..=n_target {
         // Step 1: Initialize random vector and orthogonalize against found eigenvectors
         let mut x_iter = generate_random_vector(n, rng);
-        gram_schmidt_orthogonalize(&mut x_iter, &found_eigenvectors);
+
+        // Orthogonalize against previously found eigenvectors
+        let found_vecs = eigenvectors.slice(s![.., ..k]);
+        gram_schmidt_orthogonalize(&mut x_iter, &found_vecs);
         normalize(&mut x_iter);
 
         let mut lambda_prev_est = S::zero();
@@ -170,32 +270,29 @@ where
 
             // Step 2b: Orthogonalize y against found eigenvectors (for numerical stability)
             let mut y_orth = y_solved;
-            gram_schmidt_orthogonalize(&mut y_orth, &found_eigenvectors);
+            let found_vecs = eigenvectors.slice(s![.., ..k]);
+            gram_schmidt_orthogonalize(&mut y_orth, &found_vecs);
 
             // Step 2c: Normalize
             normalize(&mut y_orth);
             let x_next_iter = y_orth;
 
             // Step 2d: Compute eigenvalue estimate using optimized Rayleigh quotient
-            let numerator = laplacian.quadratic_form(&x_next_iter);
-            let denominator = dot_product(&x_next_iter, &x_next_iter);
+            let numerator = laplacian.quadratic_form(x_next_iter.as_slice().unwrap());
+            let denominator = x_next_iter.dot(&x_next_iter);
             let lambda_est = numerator / denominator;
 
             // Step 2e: Check convergence
             let eigenvalue_converged = (lambda_est - lambda_prev_est).abs() < tolerance;
             let vector_converged = {
-                let diff: Vec<S> = x_next_iter
-                    .iter()
-                    .zip(x_iter.iter())
-                    .map(|(&a, &b)| a - b)
-                    .collect();
-                let diff_norm = dot_product(&diff, &diff).sqrt();
+                let diff = &x_next_iter - &x_iter;
+                let diff_norm = diff.dot(&diff).sqrt();
                 diff_norm < vector_tolerance
             };
 
             if eigenvalue_converged || vector_converged {
-                found_eigenvalues.push(lambda_est);
-                found_eigenvectors.push(x_next_iter);
+                eigenvalues[k] = lambda_est;
+                eigenvectors.column_mut(k).assign(&x_next_iter);
                 converged = true;
                 break;
             }
@@ -207,19 +304,16 @@ where
 
         if !converged {
             // If didn't converge, still store the best estimate
-            let numerator = laplacian.quadratic_form(&x_iter);
-            let denominator = dot_product(&x_iter, &x_iter);
+            let numerator = laplacian.quadratic_form(x_iter.as_slice().unwrap());
+            let denominator = x_iter.dot(&x_iter);
             let lambda_est = numerator / denominator;
 
-            found_eigenvalues.push(lambda_est);
-            found_eigenvectors.push(x_iter);
+            eigenvalues[k] = lambda_est;
+            eigenvectors.column_mut(k).assign(&x_iter);
         }
     }
 
-    // Return only the non-zero eigenvalues and eigenvectors (skip the first one which is v1)
-    let result_eigenvectors = found_eigenvectors.into_iter().skip(1).collect();
-
-    (found_eigenvalues, result_eigenvectors)
+    (eigenvalues, eigenvectors)
 }
 
 /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors of a graph Laplacian.
@@ -233,9 +327,9 @@ where
 ///
 /// # Returns
 /// A tuple containing:
-/// - Vector of eigenvalues (λ2, λ3, ..., λ(n_target+1))
-/// - Vector of corresponding eigenvectors
-pub fn compute_smallest_eigenvalues<G, S>(graph: G, n_target: usize) -> (Vec<S>, Vec<Vec<S>>)
+/// - Array1 of eigenvalues (λ1, λ2, ..., λn_target)
+/// - Array2 of corresponding eigenvectors (each column is an eigenvector)
+pub fn compute_smallest_eigenvalues<G, S>(graph: G, n_target: usize) -> (Array1<S>, Array2<S>)
 where
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
     G::NodeId: DrawingIndex,
@@ -253,127 +347,4 @@ where
         S::from_f32(1e-4).unwrap(), // vector_tolerance
         &mut rng,
     )
-}
-
-/// Generates a random vector of specified size using the provided RNG.
-pub fn generate_random_vector<S, R>(n: usize, rng: &mut R) -> Vec<S>
-where
-    S: DrawingValue,
-    R: Rng,
-{
-    let mut vector = Vec::with_capacity(n);
-    for _ in 0..n {
-        // Generate actual random values between -1 and 1
-        let value = S::from_f32(rng.gen_range(-1.0..1.0)).unwrap();
-        vector.push(value);
-    }
-    vector
-}
-
-/// Performs Gram-Schmidt orthogonalization of a vector against known vectors.
-///
-/// Implements: x_orth = x - Σ(dot(x, v_i) * v_i) for all known vectors v_i
-pub fn gram_schmidt_orthogonalize<S>(vector: &mut [S], known_vectors: &[Vec<S>])
-where
-    S: DrawingValue,
-{
-    for known_vector in known_vectors {
-        let dot_product_value = dot_product(vector, known_vector);
-        for j in 0..vector.len() {
-            vector[j] -= dot_product_value * known_vector[j];
-        }
-    }
-}
-
-/// Solves the linear system Ly = b using the Conjugate Gradient method.
-///
-/// This implements CG for the semi-positive definite Laplacian matrix L.
-/// Since L has a zero eigenvalue, we solve for the component orthogonal to
-/// the null space (the constant vector).
-///
-/// # Parameters
-/// * `laplacian` - The Laplacian structure
-/// * `b` - Right-hand side vector
-/// * `cg_max_iterations` - Maximum iterations for CG method
-/// * `cg_tolerance` - Convergence tolerance for CG method
-pub fn solve_with_conjugate_gradient<S>(
-    laplacian: &LaplacianStructure<S>,
-    b: &[S],
-    cg_max_iterations: usize,
-    cg_tolerance: S,
-) -> Vec<S>
-where
-    S: DrawingValue,
-{
-    let n = laplacian.node_count();
-    let mut x = vec![S::zero(); n]; // Initial guess: zero vector
-    let mut r = b.to_vec(); // Initial residual r = b - Lx = b (since x = 0)
-    let mut p = r.clone(); // Initial search direction
-
-    let mut rsold = dot_product(&r, &r);
-
-    for _iter in 0..cg_max_iterations {
-        // Compute Ap = L * p
-        let ap = laplacian.multiply(&p);
-
-        // Compute alpha = (r^T * r) / (p^T * Ap)
-        let pap = dot_product(&p, &ap);
-        if pap.abs() < cg_tolerance {
-            break; // Avoid division by zero
-        }
-        let alpha = rsold / pap;
-
-        // Update solution: x = x + alpha * p
-        for i in 0..n {
-            x[i] += alpha * p[i];
-        }
-
-        // Update residual: r = r - alpha * Ap
-        for i in 0..n {
-            r[i] -= alpha * ap[i];
-        }
-
-        let rsnew = dot_product(&r, &r);
-
-        // Check for convergence
-        if rsnew.sqrt() < cg_tolerance {
-            break;
-        }
-
-        // Compute beta = (r_new^T * r_new) / (r_old^T * r_old)
-        let beta = rsnew / rsold;
-
-        // Update search direction: p = r + beta * p
-        for i in 0..n {
-            p[i] = r[i] + beta * p[i];
-        }
-
-        rsold = rsnew;
-    }
-
-    x
-}
-
-/// Computes the dot product of two vectors.
-pub fn dot_product<S>(a: &[S], b: &[S]) -> S
-where
-    S: DrawingValue,
-{
-    a.iter()
-        .zip(b.iter())
-        .map(|(&x, &y)| x * y)
-        .fold(S::zero(), |acc, x| acc + x)
-}
-
-/// Normalizes a vector to unit length.
-pub fn normalize<S>(vector: &mut [S])
-where
-    S: DrawingValue,
-{
-    let norm = dot_product(vector, vector).sqrt();
-    if norm > S::zero() {
-        for x in vector.iter_mut() {
-            *x /= norm;
-        }
-    }
 }

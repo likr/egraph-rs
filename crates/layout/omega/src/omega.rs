@@ -1,6 +1,7 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
 use crate::eigenvalue::{compute_smallest_eigenvalues_with_laplacian, LaplacianStructure};
+use ndarray::{Array2, Zip};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
@@ -198,8 +199,7 @@ where
             .collect();
 
         // Step 1 & 2: Compute spectral coordinates using edge weights
-        let coordinates =
-            Self::compute_spectral_coordinates_with_weights(graph, length, &options, rng);
+        let coordinates = compute_spectral_coordinates_with_weights(graph, length, &options, rng);
 
         let mut node_pairs = Vec::new();
         let mut used_pairs = HashSet::new();
@@ -212,7 +212,7 @@ where
 
             if !used_pairs.contains(&pair_key) {
                 used_pairs.insert(pair_key);
-                let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
+                let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
                 let distance = distance.max(options.min_dist);
                 let weight = S::one() / (distance * distance);
                 node_pairs.push((i, j, distance, distance, weight, weight));
@@ -228,7 +228,7 @@ where
 
                     if !used_pairs.contains(&pair_key) {
                         used_pairs.insert(pair_key);
-                        let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
+                        let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
                         let distance = distance.max(options.min_dist);
                         let weight = S::one() / (distance * distance);
                         node_pairs.push((i, j, distance, distance, weight, weight));
@@ -240,84 +240,78 @@ where
 
         Omega { node_pairs }
     }
+}
 
-    /// Computes d-dimensional spectral coordinates using edge weights and custom options.
-    ///
-    /// Uses a weighted Laplacian based on edge lengths/weights and configurable eigenvalue solver
-    /// to compute the smallest d non-zero eigenvalues and eigenvectors, then creates coordinates
-    /// by dividing each eigenvector by the square root of its corresponding eigenvalue.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph
-    /// * `length` - Function to extract edge weights/lengths
-    /// * `options` - Configuration builder containing solver parameters and dimensions
-    /// * `rng` - Random number generator for eigenvalue computation
-    ///
-    /// # Returns
-    /// A vector where coordinates[i] contains the d-dimensional coordinate for node i
-    fn compute_spectral_coordinates_with_weights<G, F, R>(
-        graph: G,
-        length: F,
-        options: &OmegaBuilder<S>,
-        rng: &mut R,
-    ) -> Vec<Vec<S>>
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-        F: FnMut(G::EdgeRef) -> S,
-        R: Rng,
-    {
-        let n = graph.node_count();
+/// Computes d-dimensional spectral coordinates using edge weights and custom options.
+///
+/// Uses a weighted Laplacian based on edge lengths/weights and configurable eigenvalue solver
+/// to compute the smallest d non-zero eigenvalues and eigenvectors, then creates coordinates
+/// by dividing each eigenvector by the square root of its corresponding eigenvalue.
+///
+/// # Parameters
+/// * `graph` - The input graph
+/// * `length` - Function to extract edge weights/lengths
+/// * `options` - Configuration builder containing solver parameters and dimensions
+/// * `rng` - Random number generator for eigenvalue computation
+///
+/// # Returns
+/// An Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
+fn compute_spectral_coordinates_with_weights<S, G, F, R>(
+    graph: G,
+    length: F,
+    options: &OmegaBuilder<S>,
+    rng: &mut R,
+) -> Array2<S>
+where
+    S: DrawingValue,
+    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+    G::NodeId: DrawingIndex,
+    F: FnMut(G::EdgeRef) -> S,
+    R: Rng,
+{
+    // Create weighted Laplacian structure
+    let laplacian = LaplacianStructure::new(graph, length);
 
-        // Create weighted Laplacian structure
-        let laplacian = LaplacianStructure::new(graph, length);
+    // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
+    let (eigenvalues, mut eigenvectors) = compute_smallest_eigenvalues_with_laplacian(
+        &laplacian,
+        options.d,
+        options.max_iterations,
+        options.cg_max_iterations,
+        options.tolerance,
+        options.cg_tolerance,
+        options.vector_tolerance,
+        rng,
+    );
 
-        // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
-        let (eigenvalues, eigenvectors) = compute_smallest_eigenvalues_with_laplacian(
-            &laplacian,
-            options.d,
-            options.max_iterations,
-            options.cg_max_iterations,
-            options.tolerance,
-            options.cg_tolerance,
-            options.vector_tolerance,
-            rng,
-        );
-
-        // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
-        let mut coordinates = vec![vec![S::zero(); options.d]; n];
-
-        for (dim, (eigenvalue, eigenvector)) in
-            eigenvalues.iter().zip(eigenvectors.iter()).enumerate()
-        {
-            let sqrt_eigenvalue = eigenvalue.sqrt();
-            for node in 0..n {
-                coordinates[node][dim] = eigenvector[node] / sqrt_eigenvalue;
-            }
-        }
-
-        coordinates
+    // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
+    eigenvectors.column_mut(0).fill(S::zero());
+    for dim in 1..=options.d {
+        let mut eigenvector = eigenvectors.column_mut(dim);
+        eigenvector /= eigenvalues[dim];
     }
 
-    /// Computes the Euclidean distance between two d-dimensional coordinates.
-    ///
-    /// # Parameters
-    /// * `coord1` - First coordinate vector
-    /// * `coord2` - Second coordinate vector
-    ///
-    /// # Returns
-    /// The Euclidean distance between the two coordinates
-    fn euclidean_distance(coord1: &[S], coord2: &[S]) -> S {
-        coord1
-            .iter()
-            .zip(coord2.iter())
-            .map(|(&x1, &x2)| {
-                let diff = x1 - x2;
-                diff * diff
-            })
-            .fold(S::zero(), |acc, x| acc + x)
-            .sqrt()
-    }
+    eigenvectors
+}
+
+/// Computes the Euclidean distance between two d-dimensional coordinates.
+///
+/// # Parameters
+/// * `coord1` - First coordinate vector (ndarray row view)
+/// * `coord2` - Second coordinate vector (ndarray row view)
+///
+/// # Returns
+/// The Euclidean distance between the two coordinates
+fn euclidean_distance<S>(coord1: ndarray::ArrayView1<S>, coord2: ndarray::ArrayView1<S>) -> S
+where
+    S: DrawingValue,
+{
+    let mut sum = S::zero();
+    Zip::from(coord1).and(coord2).for_each(|&a, &b| {
+        let diff = a - b;
+        sum += diff * diff
+    });
+    sum.sqrt()
 }
 
 /// Implementation of the Sgd trait for Omega

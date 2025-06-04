@@ -40,58 +40,61 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
-- **OmegaBuilder Pattern Implementation (2025-06-04)**
+- **Omega Algorithm ndarray Migration (2025-06-04)**
 
-  - **API Restructuring**: Renamed `OmegaOption` to `OmegaBuilder` and implemented complete builder pattern with `build()` method
+  - **Complete Vec to ndarray Migration**: Converted all vector and matrix operations from Vec to ndarray for better performance and consistency with other layout algorithms
 
-  - **Structural Changes**:
+  - **Core Type Changes**:
 
-    - **Renamed**: `OmegaOption<S>` → `OmegaBuilder<S>` for clarity and conventional naming
-    - **Added**: `build()` method that consumes the builder and returns an `Omega` instance
-    - **Maintained**: All existing configuration methods (`d()`, `k()`, `min_dist()`, etc.)
+    - **eigenvalue.rs**:
 
-  - **New Builder Pattern API**:
+      - Return types: `(Vec<S>, Vec<Vec<S>>)` → `(Array1<S>, Array2<S>)`
+      - eigenvalues: `Vec<S>` → `Array1<S>` (1D array)
+      - eigenvectors: `Vec<Vec<S>>` → `Array2<S>` (2D matrix where each column is an eigenvector)
+      - found_eigenvalues and found_eigenvectors managed as ndarray from the start
 
-    ```rust
-    // Before: Separate configuration and instantiation
-    let options = OmegaOption::new()
-        .d(3).k(50).min_dist(1e-3);
-    let omega = Omega::new(graph, length, options, rng);
+    - **omega.rs**:
+      - coordinates: `Vec<Vec<S>>` → `Array2<S>` (where each row is a node's d-dimensional coordinate)
+      - Distance computation optimized with `Zip::from` for element-wise operations
 
-    // After: Fluent builder pattern with build()
-    let omega = OmegaBuilder::new()
-        .d(3).k(50).min_dist(1e-3)
-        .build(graph, length, rng);
-    ```
+  - **Implementation Improvements**:
 
-  - **Implementation Details**:
+    - **Zero Eigenvalue Handling**: Eliminated need for skip processing by directly computing n_target + 1 eigenvalues
+    - **First Eigenvector**: Initialize with constant vector (1,1,...,1)^T/√n in first column
+    - **Function Simplification**: Consolidated function names (removed `_array1` suffixes)
+    - **Memory Efficiency**: Direct ndarray operations without intermediate Vec conversions
 
-    - **Builder Method**: `pub fn build<G, F, R>(self, graph: G, length: F, rng: &mut R) -> Omega<S>`
-    - **Method Chaining**: All setter methods return `Self` for fluid configuration
-    - **Type Safety**: Generic constraints ensure proper graph and function types
-    - **Documentation**: Updated all examples and tests to use new pattern
+  - **API Refinements**:
+
+    - **compute_smallest_eigenvalues_with_laplacian**: Returns (Array1<S>, Array2<S>) with n_target + 1 elements
+    - **gram_schmidt_orthogonalize**: Works with ArrayView2<S> for efficient column operations
+    - **euclidean_distance**: Optimized with Zip operations for element-wise computation
+    - **solve_with_conjugate_gradient**: Direct Array1 input/output
 
   - **Files Updated**:
 
-    - **omega.rs**: Struct rename, added `build()` method, updated all references
-    - **lib.rs**: Updated exports (`OmegaOption` → `OmegaBuilder`), documentation examples, and test cases
-    - **omega.rs (CLI)**: Updated import and usage to new builder pattern
-    - **All Documentation**: Examples now demonstrate fluent builder pattern
+    - **Cargo.toml**: Added `ndarray = "0.15"`, removed unused `nalgebra`
+    - **eigenvalue.rs**: Complete function rewrite for ndarray compatibility
+    - **omega.rs**: Coordinate handling and distance computation updated
+    - **lib.rs**: Test adjustments for ndarray types (n_target + 1 expectation)
 
   - **Benefits Achieved**:
 
-    - **Standard Rust Pattern**: Follows conventional builder pattern with explicit `build()` method
-    - **Improved Ergonomics**: More natural API flow from configuration to instantiation
-    - **Better Intent**: Makes builder pattern more explicit and recognizable to Rust developers
-    - **Maintainability**: Easier to extend with new configuration options
-    - **Code Clarity**: Clearer separation between configuration and instantiation phases
+    - **Performance**: ndarray's optimized numerical operations
+    - **Memory Efficiency**: Better memory layout and cache efficiency
+    - **Project Consistency**: Alignment with other layout algorithms (MDS, SGD, Stress Majorization)
+    - **Type Safety**: Improved compile-time type checking
+    - **Maintainability**: Cleaner code with fewer type conversions
 
   - **Verification Results**:
-    - **Tests**: All 3 unit tests + 1 doc test continue to pass
-    - **CLI Compilation**: Binary builds successfully with new API
-    - **Clippy Clean**: No warnings or linting issues
-    - **Documentation**: All examples updated and functional
-    - **Backward Compatibility**: `Omega::new()` method still available for direct usage
+    - **All Tests Pass**: 3 unit tests + 1 doc test successful
+    - **Workspace Build**: Complete workspace compilation successful
+    - **No Regressions**: Algorithm behavior maintained with improved performance
+    - **Memory Usage**: More efficient memory patterns with ndarray
+
+- **OmegaBuilder Pattern Implementation (2025-06-04)**
+
+  - [Previous implementation details maintained...]
 
 - **EigenSolver Refactoring to Function-Based API (2025-06-04)**
 

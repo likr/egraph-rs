@@ -158,22 +158,30 @@ mod tests {
 
         // Debug output
         println!("Found {} eigenvalues: {:?}", eigenvalues.len(), eigenvalues);
-        for (i, eigenvalue) in eigenvalues.iter().enumerate() {
-            println!("Eigenvalue {}: {}", i, eigenvalue);
+        for i in 0..eigenvalues.len() {
+            println!("Eigenvalue {}: {}", i, eigenvalues[i]);
         }
 
-        // Should compute 2 eigenvalues and eigenvectors
-        assert_eq!(eigenvalues.len(), 2, "Should compute 2 eigenvalues");
-        assert_eq!(eigenvectors.len(), 2, "Should compute 2 eigenvectors");
+        // Should compute n_target + 1 eigenvalues and eigenvectors (2 requested = 3 total)
+        assert_eq!(eigenvalues.len(), 3, "Should compute 3 eigenvalues");
+        assert_eq!(eigenvectors.ncols(), 3, "Should compute 3 eigenvectors");
 
         // Each eigenvector should have the same length as the number of nodes
-        for eigenvector in &eigenvectors {
+        for i in 0..eigenvectors.ncols() {
+            let eigenvector = eigenvectors.column(i);
             assert_eq!(eigenvector.len(), 3, "Eigenvector should have 3 components");
         }
 
-        // Eigenvalues should be positive (non-zero for connected graph)
-        for &eigenvalue in &eigenvalues {
-            assert!(eigenvalue > 0.0, "Eigenvalues should be positive");
+        // First eigenvalue should be zero (constant eigenvector), rest should be positive
+        assert!(
+            eigenvalues[0].abs() < 1e-6,
+            "First eigenvalue should be approximately zero"
+        );
+        for i in 1..eigenvalues.len() {
+            assert!(
+                eigenvalues[i] > 0.0,
+                "Non-zero eigenvalues should be positive"
+            );
         }
     }
 }
