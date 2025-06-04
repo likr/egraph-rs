@@ -40,6 +40,17 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Omega Algorithm min_dist Parameter Enhancement**
+
+  - **Added `min_dist` parameter to `Omega::new` method**: Enhanced numerical stability by preventing overly small distances between node pairs
+  - **Distance clamping logic**: Applied `distance.max(min_dist)` to both edge-based and random node pairs in spectral coordinate computation
+  - **CLI integration**: Set reasonable default of `min_dist = 1e-3` in the Omega CLI binary for optimal balance of stability and quality
+  - **Comprehensive testing**: Added `test_min_dist_functionality()` to verify distance clamping works correctly
+  - **Documentation updates**: Updated method signatures, documentation, and examples to include the new parameter
+  - **Backward compatibility**: Maintained API consistency by adding parameter to existing method rather than breaking changes
+  - **Numerical benefits**: Prevents division by very small numbers in weight calculation (`weight = 1 / (distance * distance)`)
+  - **Algorithm preservation**: Maintains the core spectral coordinate-based pair selection that makes Omega unique
+
 - **Eigenvalue Algorithm Implementation Overhaul**
 
   - **Completely rewrote `crates/layout/omega/src/eigenvalue.rs`**: Implementation now follows exact specification for graph Laplacian eigenvalue computation

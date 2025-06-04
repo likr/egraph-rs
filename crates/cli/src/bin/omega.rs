@@ -61,6 +61,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 ///
 /// * `graph` - The graph to layout (node/edge data ignored).
 /// * `coordinates` - Mutable `DrawingEuclidean2d` containing the initial and resulting node positions.
+/// * `min_dist` - Minimum distance between node pairs; distances below this are clamped to this value.
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
     drawing: &mut DrawingEuclidean2d<NodeIndex, f32>,
@@ -71,13 +72,14 @@ fn layout(
     // d = 2: Number of spectral dimensions (for 2D layouts)
     // k = 30: Number of random pairs per node (same as SparseSgd)
     let d = 10;
-    let k = 400;
+    let k = 200;
+    let min_dist = 1e-1;
 
-    let mut omega = Omega::new(graph, |_| 30.0, d, k, &mut rng);
+    let mut omega = Omega::new(graph, |_| 30.0, d, k, min_dist, &mut rng);
 
     // Use same iteration count and learning rate schedule as SGD
     // 1000 iterations with exponential decay to final eta of 0.1
-    let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
+    let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(100, 0.1);
 
     scheduler.run(&mut |eta| {
         omega.shuffle(&mut rng);

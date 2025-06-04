@@ -42,6 +42,7 @@ where
     /// * `length` - A function that maps edges to their lengths (currently unused but kept for API consistency)
     /// * `d` - The number of dimensions for spectral coordinates
     /// * `k` - The number of random node pairs to add per node
+    /// * `min_dist` - Minimum distance between node pairs; distances below this are clamped to this value
     /// * `rng` - Random number generator for selecting random node pairs
     ///
     /// # Returns
@@ -52,7 +53,14 @@ where
     /// - Step 2: O(d|V|) - Coordinate generation
     /// - Step 3: O(|E|) - Edge-based pairs
     /// - Step 4: O(k|V|) - Random pairs
-    pub fn new<G, F, R>(graph: G, mut _length: F, d: usize, k: usize, rng: &mut R) -> Self
+    pub fn new<G, F, R>(
+        graph: G,
+        mut _length: F,
+        d: usize,
+        k: usize,
+        min_dist: S,
+        rng: &mut R,
+    ) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex + Ord,
@@ -83,6 +91,7 @@ where
             if !used_pairs.contains(&pair_key) {
                 used_pairs.insert(pair_key);
                 let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
+                let distance = distance.max(min_dist);
                 let weight = S::one() / (distance * distance);
                 node_pairs.push((i, j, distance, distance, weight, weight));
             }
@@ -98,6 +107,7 @@ where
                     if !used_pairs.contains(&pair_key) {
                         used_pairs.insert(pair_key);
                         let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
+                        let distance = distance.max(min_dist);
                         let weight = S::one() / (distance * distance);
                         node_pairs.push((i, j, distance, distance, weight, weight));
                     }
@@ -131,7 +141,6 @@ where
 
         // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
         let (eigenvalues, eigenvectors) = solver.compute_smallest_eigenvalues(graph, d);
-        println!("{:?}", eigenvalues);
 
         // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
         let mut coordinates = vec![vec![S::zero(); d]; n];

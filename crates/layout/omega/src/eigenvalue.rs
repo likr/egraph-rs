@@ -58,11 +58,11 @@ where
     /// Creates a default eigenvalue solver with reasonable parameters.
     pub fn default() -> Self {
         Self::new(
-            1000,                        // max_iterations
-            1000,                        // cg_max_iterations
-            S::from_f32(1e-10).unwrap(), // tolerance
-            S::from_f32(1e-10).unwrap(), // cg_tolerance
-            S::from_f32(1e-10).unwrap(), // vector_tolerance
+            1000,                       // max_iterations
+            100,                        // cg_max_iterations
+            S::from_f32(1e-4).unwrap(), // tolerance
+            S::from_f32(1e-4).unwrap(), // cg_tolerance
+            S::from_f32(1e-4).unwrap(), // vector_tolerance
         )
     }
 
