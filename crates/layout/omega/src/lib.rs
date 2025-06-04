@@ -57,7 +57,9 @@
 mod eigenvalue;
 mod omega;
 
-pub use eigenvalue::{EigenSolver, LaplacianStructure};
+pub use eigenvalue::{
+    compute_smallest_eigenvalues, compute_smallest_eigenvalues_with_laplacian, LaplacianStructure,
+};
 pub use omega::{Omega, OmegaOption};
 
 #[cfg(test)]
@@ -152,8 +154,7 @@ mod tests {
         graph.add_edge(a, b, ());
         graph.add_edge(b, c, ());
 
-        let solver = EigenSolver::<f32>::default();
-        let (eigenvalues, eigenvectors) = solver.compute_smallest_eigenvalues(&graph, 2);
+        let (eigenvalues, eigenvectors) = compute_smallest_eigenvalues::<_, f32>(&graph, 2);
 
         // Debug output
         println!("Found {} eigenvalues: {:?}", eigenvalues.len(), eigenvalues);

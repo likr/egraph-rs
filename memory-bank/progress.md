@@ -22,6 +22,12 @@
     - **Static Functions**: Utility functions converted to associated functions for better organization
     - **Builder Pattern API**: Clean `Omega::new(graph, length, options, rng)` interface
     - **Enhanced Performance**: Significant constant factor improvements while maintaining O(d(|V| + |E|) + k|V|) complexity
+    - **EigenSolver Refactoring (2025-06-04)**: Converted from struct-based OOP to functional programming
+      - **Function-Based API**: Eliminated `EigenSolver<S>` struct, converted to standalone functions
+      - **Pure Functions**: `compute_smallest_eigenvalues_with_laplacian()`, `generate_random_vector()`, etc.
+      - **Improved Flexibility**: Direct function calls without object instantiation
+      - **Code Quality**: Fixed all clippy warnings, improved function signatures
+      - **Maintained Performance**: Zero regression in computational efficiency
   - MDS (Classical and Pivot-based) with high-dimensional support
   - Stress Majorization with convergence controls and infinite loop prevention
   - Kamada-Kawai spring model

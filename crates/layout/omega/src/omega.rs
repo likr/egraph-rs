@@ -1,6 +1,6 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
-use crate::eigenvalue::{EigenSolver, LaplacianStructure};
+use crate::eigenvalue::{compute_smallest_eigenvalues_with_laplacian, LaplacianStructure};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
@@ -253,18 +253,17 @@ where
         // Create weighted Laplacian structure
         let laplacian = LaplacianStructure::new(graph, length);
 
-        // Create custom eigenvalue solver from options
-        let solver = EigenSolver::new(
+        // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
+        let (eigenvalues, eigenvectors) = compute_smallest_eigenvalues_with_laplacian(
+            &laplacian,
+            options.d,
             options.max_iterations,
             options.cg_max_iterations,
             options.tolerance,
             options.cg_tolerance,
             options.vector_tolerance,
+            rng,
         );
-
-        // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
-        let (eigenvalues, eigenvectors) =
-            solver.compute_smallest_eigenvalues_with_laplacian(&laplacian, options.d, rng);
 
         // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
         let mut coordinates = vec![vec![S::zero(); options.d]; n];
