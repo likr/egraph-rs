@@ -40,6 +40,38 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **OmegaBuilder Parameter Renaming and Cleanup (2025-06-04)**
+
+  - **Parameter Renaming for Better API Clarity**: Renamed OmegaBuilder parameters to be more descriptive and reflect their actual purpose in eigenvalue computation
+
+  - **Parameter Name Changes**:
+
+    - **`max_iterations`** → **`eigenvalue_max_iterations`**: More clearly indicates this controls the maximum iterations for eigenvalue computation using inverse power method
+    - **`tolerance`** → **`eigenvalue_tolerance`**: Clarifies this is specifically the convergence tolerance for eigenvalue computation
+
+  - **Removed Unused Parameter**:
+
+    - **`vector_tolerance`**: Completely removed this parameter as it was not actually used in the eigenvalue computation implementation
+    - Eliminated dead code that could confuse API users
+
+  - **Files Updated**:
+
+    - **eigenvalue.rs**: Removed `vector_tolerance` parameter from `compute_smallest_eigenvalues_with_laplacian` function signature and documentation
+    - **omega.rs**: Updated OmegaBuilder struct with new parameter names, updated all builder methods, updated documentation and function calls
+    - **omega.rs (CLI)**: Updated CLI usage to use new parameter method names
+
+  - **Benefits Achieved**:
+
+    - **Better API Clarity**: Parameter names now clearly indicate their purpose in eigenvalue computation
+    - **Cleaner Code**: Removed unused parameter that could confuse users
+    - **No Breaking Changes to Functionality**: Algorithm behavior remains exactly the same
+    - **Improved Maintainability**: More descriptive parameter names make the code easier to understand
+
+  - **Verification Results**:
+    - **All Tests Pass**: 3 unit tests + 1 doc test successful
+    - **Clean Compilation**: No warnings with cargo clippy
+    - **No Regressions**: Algorithm behavior maintained with improved API clarity
+
 - **Omega Algorithm ndarray Migration (2025-06-04)**
 
   - **Complete Vec to ndarray Migration**: Converted all vector and matrix operations from Vec to ndarray for better performance and consistency with other layout algorithms

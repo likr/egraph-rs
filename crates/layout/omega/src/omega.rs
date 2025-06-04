@@ -21,16 +21,14 @@ pub struct OmegaBuilder<S> {
     pub k: usize,
     /// Minimum distance between node pairs
     pub min_dist: S,
-    /// Maximum number of iterations for inverse power method
-    pub max_iterations: usize,
+    /// Maximum number of iterations for eigenvalue computation using inverse power method
+    pub eigenvalue_max_iterations: usize,
     /// Maximum number of iterations for CG method
     pub cg_max_iterations: usize,
     /// Convergence tolerance for eigenvalue computation
-    pub tolerance: S,
+    pub eigenvalue_tolerance: S,
     /// Convergence tolerance for CG method
     pub cg_tolerance: S,
-    /// Convergence tolerance for eigenvector changes
-    pub vector_tolerance: S,
 }
 
 impl<S> OmegaBuilder<S>
@@ -43,21 +41,19 @@ where
     /// - d: 2 (spectral dimensions)
     /// - k: 30 (random pairs per node)
     /// - min_dist: 1e-3 (minimum distance)
-    /// - max_iterations: 1000 (eigenvalue solver)
+    /// - eigenvalue_max_iterations: 1000 (eigenvalue solver)
     /// - cg_max_iterations: 100 (CG solver)
-    /// - tolerance: 1e-4 (eigenvalue convergence)
+    /// - eigenvalue_tolerance: 1e-4 (eigenvalue convergence)
     /// - cg_tolerance: 1e-4 (CG convergence)
-    /// - vector_tolerance: 1e-4 (eigenvector convergence)
     pub fn new() -> Self {
         Self {
             d: 2,
             k: 30,
             min_dist: S::from_f32(1e-3).unwrap(),
-            max_iterations: 1000,
+            eigenvalue_max_iterations: 1000,
             cg_max_iterations: 100,
-            tolerance: S::from_f32(1e-4).unwrap(),
+            eigenvalue_tolerance: S::from_f32(1e-4).unwrap(),
             cg_tolerance: S::from_f32(1e-4).unwrap(),
-            vector_tolerance: S::from_f32(1e-4).unwrap(),
         }
     }
 
@@ -79,9 +75,9 @@ where
         self
     }
 
-    /// Sets maximum iterations for inverse power method.
-    pub fn max_iterations(mut self, max_iterations: usize) -> Self {
-        self.max_iterations = max_iterations;
+    /// Sets maximum iterations for eigenvalue computation using inverse power method.
+    pub fn eigenvalue_max_iterations(mut self, eigenvalue_max_iterations: usize) -> Self {
+        self.eigenvalue_max_iterations = eigenvalue_max_iterations;
         self
     }
 
@@ -91,21 +87,15 @@ where
         self
     }
 
-    /// Sets convergence tolerance for eigenvalues.
-    pub fn tolerance(mut self, tolerance: S) -> Self {
-        self.tolerance = tolerance;
+    /// Sets convergence tolerance for eigenvalue computation.
+    pub fn eigenvalue_tolerance(mut self, eigenvalue_tolerance: S) -> Self {
+        self.eigenvalue_tolerance = eigenvalue_tolerance;
         self
     }
 
     /// Sets convergence tolerance for CG method.
     pub fn cg_tolerance(mut self, cg_tolerance: S) -> Self {
         self.cg_tolerance = cg_tolerance;
-        self
-    }
-
-    /// Sets convergence tolerance for eigenvectors.
-    pub fn vector_tolerance(mut self, vector_tolerance: S) -> Self {
-        self.vector_tolerance = vector_tolerance;
         self
     }
 
@@ -276,11 +266,10 @@ where
     let (eigenvalues, mut eigenvectors) = compute_smallest_eigenvalues_with_laplacian(
         &laplacian,
         options.d,
-        options.max_iterations,
+        options.eigenvalue_max_iterations,
         options.cg_max_iterations,
-        options.tolerance,
+        options.eigenvalue_tolerance,
         options.cg_tolerance,
-        options.vector_tolerance,
         rng,
     );
 

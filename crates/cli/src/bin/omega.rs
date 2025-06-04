@@ -72,13 +72,13 @@ fn layout(
         .d(10) // Number of spectral dimensions
         .k(200) // Number of random pairs per node
         .min_dist(1e-1) // Minimum distance between node pairs
-        .max_iterations(2000) // More iterations for better convergence
-        .tolerance(1e-5) // Tighter tolerance for better quality
-        .build(graph, |_| 1.0, &mut rng);
+        .eigenvalue_max_iterations(1000) // More iterations for better convergence
+        .eigenvalue_tolerance(1e-5) // Tighter tolerance for better quality
+        .build(graph, |_| 30.0, &mut rng);
 
     // Use same iteration count and learning rate schedule as SGD
     // 100 iterations with exponential decay to final eta of 0.1
-    let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(100, 0.1);
+    let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(15, 0.1);
 
     scheduler.run(&mut |eta| {
         omega.shuffle(&mut rng);

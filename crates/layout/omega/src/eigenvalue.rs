@@ -218,14 +218,12 @@ where
 /// * `cg_max_iterations` - Maximum iterations for CG method
 /// * `tolerance` - Convergence tolerance for eigenvalues
 /// * `cg_tolerance` - Convergence tolerance for CG method
-/// * `vector_tolerance` - Convergence tolerance for eigenvectors
 /// * `rng` - Random number generator for initial vectors
 ///
 /// # Returns
 /// A tuple containing:
 /// - Array1 of eigenvalues (\lambda_0, \lambda_1, \cdots, \lambda_{n_target})
 /// - Array2 of corresponding eigenvectors (each column is an eigenvector)
-#[allow(clippy::too_many_arguments)]
 pub fn compute_smallest_eigenvalues_with_laplacian<S, R>(
     laplacian: &LaplacianStructure<S>,
     n_target: usize,
@@ -233,7 +231,6 @@ pub fn compute_smallest_eigenvalues_with_laplacian<S, R>(
     cg_max_iterations: usize,
     tolerance: S,
     cg_tolerance: S,
-    vector_tolerance: S,
     rng: &mut R,
 ) -> (Array1<S>, Array2<S>)
 where
@@ -260,7 +257,6 @@ where
         normalize(&mut x_iter);
 
         let mut lambda_prev_est = S::zero();
-        let mut converged = false;
 
         // Step 2: Inverse power method iteration
         for _iter in 0..max_iterations {
@@ -283,34 +279,19 @@ where
             let lambda_est = numerator / denominator;
 
             // Step 2e: Check convergence
-            let eigenvalue_converged = (lambda_est - lambda_prev_est).abs() < tolerance;
-            let vector_converged = {
-                let diff = &x_next_iter - &x_iter;
-                let diff_norm = diff.dot(&diff).sqrt();
-                diff_norm < vector_tolerance
-            };
-
-            if eigenvalue_converged || vector_converged {
-                eigenvalues[k] = lambda_est;
-                eigenvectors.column_mut(k).assign(&x_next_iter);
-                converged = true;
-                break;
-            }
+            let converged = (lambda_est - lambda_prev_est).abs() < tolerance;
 
             // Step 2f: Update for next iteration
             x_iter = x_next_iter;
             lambda_prev_est = lambda_est;
+
+            if converged {
+                break;
+            }
         }
 
-        if !converged {
-            // If didn't converge, still store the best estimate
-            let numerator = laplacian.quadratic_form(x_iter.as_slice().unwrap());
-            let denominator = x_iter.dot(&x_iter);
-            let lambda_est = numerator / denominator;
-
-            eigenvalues[k] = lambda_est;
-            eigenvectors.column_mut(k).assign(&x_iter);
-        }
+        eigenvalues[k] = lambda_prev_est;
+        eigenvectors.column_mut(k).assign(&x_iter);
     }
 
     (eigenvalues, eigenvectors)
@@ -344,7 +325,6 @@ where
         100,                        // cg_max_iterations
         S::from_f32(1e-4).unwrap(), // tolerance
         S::from_f32(1e-4).unwrap(), // cg_tolerance
-        S::from_f32(1e-4).unwrap(), // vector_tolerance
         &mut rng,
     )
 }
