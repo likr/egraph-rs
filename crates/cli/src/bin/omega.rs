@@ -28,7 +28,7 @@ use argparse::{ArgumentParser, Store};
 use egraph_cli::{read_graph, write_pos};
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
-use petgraph_layout_omega::Omega;
+use petgraph_layout_omega::{Omega, OmegaOption};
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd};
 use rand::thread_rng;
 
@@ -60,25 +60,25 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 /// # Arguments
 ///
 /// * `graph` - The graph to layout (node/edge data ignored).
-/// * `coordinates` - Mutable `DrawingEuclidean2d` containing the initial and resulting node positions.
-/// * `min_dist` - Minimum distance between node pairs; distances below this are clamped to this value.
+/// * `drawing` - Mutable `DrawingEuclidean2d` containing the initial and resulting node positions.
 fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
     drawing: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
 
-    // Algorithm parameters:
-    // d = 2: Number of spectral dimensions (for 2D layouts)
-    // k = 30: Number of random pairs per node (same as SparseSgd)
-    let d = 10;
-    let k = 200;
-    let min_dist = 1e-1;
+    // Create Omega options with desired parameters
+    let options = OmegaOption::new()
+        .d(10) // Number of spectral dimensions
+        .k(200) // Number of random pairs per node
+        .min_dist(1e-1) // Minimum distance between node pairs
+        .max_iterations(2000) // More iterations for better convergence
+        .tolerance(1e-5); // Tighter tolerance for better quality
 
-    let mut omega = Omega::new(graph, |_| 30.0, d, k, min_dist, &mut rng);
+    let mut omega = Omega::new(graph, |_| 1.0, options, &mut rng);
 
     // Use same iteration count and learning rate schedule as SGD
-    // 1000 iterations with exponential decay to final eta of 0.1
+    // 100 iterations with exponential decay to final eta of 0.1
     let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(100, 0.1);
 
     scheduler.run(&mut |eta| {

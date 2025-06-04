@@ -40,55 +40,91 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
-- **Omega Algorithm min_dist Parameter Enhancement**
+- **Omega Algorithm Complete Refactoring and Enhancement (2025-01-06)**
 
-  - **Added `min_dist` parameter to `Omega::new` method**: Enhanced numerical stability by preventing overly small distances between node pairs
-  - **Distance clamping logic**: Applied `distance.max(min_dist)` to both edge-based and random node pairs in spectral coordinate computation
-  - **CLI integration**: Set reasonable default of `min_dist = 1e-3` in the Omega CLI binary for optimal balance of stability and quality
-  - **Comprehensive testing**: Added `test_min_dist_functionality()` to verify distance clamping works correctly
-  - **Documentation updates**: Updated method signatures, documentation, and examples to include the new parameter
-  - **Backward compatibility**: Maintained API consistency by adding parameter to existing method rather than breaking changes
-  - **Numerical benefits**: Prevents division by very small numbers in weight calculation (`weight = 1 / (distance * distance)`)
-  - **Algorithm preservation**: Maintains the core spectral coordinate-based pair selection that makes Omega unique
+  - **Comprehensive Implementation Overhaul**: Completely redesigned the Omega algorithm implementation to address all identified issues
 
-- **Eigenvalue Algorithm Implementation Overhaul**
+  - **Edge Length Integration**:
 
-  - **Completely rewrote `crates/layout/omega/src/eigenvalue.rs`**: Implementation now follows exact specification for graph Laplacian eigenvalue computation
-  - **Sequential Algorithm**: Replaced deflation approach with sequential computation of λ2, λ3, ..., λ(N+1)
-  - **Inverse Power Method**: Proper implementation with CG solver for each eigenvalue
-  - **Conjugate Gradient Method**: Added `solve_with_conjugate_gradient()` for solving Ly = x_iter systems
-  - **Gram-Schmidt Orthogonalization**: Explicit orthogonalization against all previously found eigenvectors
-  - **Rayleigh Quotient**: Proper eigenvalue estimation using v^T _ L _ v / (v^T \* v)
-  - **Matrix-Free Operations**: Efficient `laplacian_multiply()` without building full matrix
-  - **Algorithm Components**:
-    - Initialize with v1 = (1,1,...,1)^T/√n
-    - Random vector generation with deterministic reproducibility
-    - CG solver with proper convergence criteria
-    - Dual convergence checks (eigenvalue and vector)
-    - Sequential eigenvalue computation maintaining orthogonality
-  - **Performance**: Maintains O(d(|V| + |E|) + k|V|) computational complexity
-  - **Code Quality**: Removed all unused methods, clean implementation, all tests passing
+    - **Issue Fixed**: Edge lengths were previously ignored (`_length` parameter unused)
+    - **Solution**: Implemented weighted Laplacian using `LaplacianStructure::new(graph, length)`
+    - **Impact**: Proper edge weight support enables more accurate graph representation
 
-- **Omega CLI Binary Implementation**
+  - **Efficient Laplacian Operations**:
 
-  - **Created `crates/cli/src/bin/omega.rs`**: Complete CLI binary for Omega layout algorithm
-  - **Added `write_pos` function**: New simplified JSON output format to `crates/cli/src/lib.rs`
-  - **Output Format**: Node positions as `{"node_id": [x, y]}` instead of full graph structure
-  - **Integration**: Uses existing Omega layout algorithm with spectral coordinate-based SGD
-  - **Parameters**: d=2 spectral dimensions, k=200 random pairs per node, 1000 iterations
-  - **Consistency**: Follows same CLI pattern as SGD binary with argument parsing and graph I/O
-  - **Testing**: Verified with multiple datasets (bull.json, karate_club.json)
+    - **Issue Fixed**: Graph Laplacian rebuilt from scratch every time, causing redundant computations
+    - **Solution**: Created `LaplacianStructure<S>` that pre-computes and caches:
+      - Edge list with weights: `Vec<(usize, usize, S)>`
+      - Node degrees: `Vec<S>`
+      - Node count: `usize`
+    - **Impact**: Eliminates repeated computations during eigenvalue iteration
 
-- **Omega SGD Implementation**
+  - **Optimized Quadratic Form Computation**:
 
-  - Added new `petgraph-layout-omega` crate implementing spectral coordinates-based SGD
-  - Pure Rust eigenvalue computation using inverse power method with CG solver and Gram-Schmidt orthogonalization
-  - 4-step algorithm: Laplacian eigenvalues → spectral coordinates → edge pairs → random pairs
-  - Computational complexity: O(d(|V| + |E|) + k|V|) as specified
-  - Duplicate avoidance in node pairs using HashSet-based skipping
-  - Full integration with existing SGD framework and trait system
-  - Comprehensive unit tests and documentation with working examples
-  - Added to workspace configuration in root Cargo.toml
+    - **Issue Fixed**: Used inefficient full matrix-vector multiplication for Rayleigh quotient
+    - **Solution**: Implemented `LaplacianStructure::quadratic_form()` with O(|E|) complexity
+    - **Formula**: `x^T L x = Σ_{(i,j) ∈ E} weight[i,j] * (x[i] - x[j])^2`
+    - **Impact**: Significant performance improvement from O(|V|²) to O(|E|)
+
+  - **Configurable EigenSolver Parameters**:
+
+    - **Issue Fixed**: EigenSolver parameters were hardcoded and not customizable
+    - **Solution**: Implemented `OmegaOption<S>` with Builder pattern supporting:
+      - `d`: Number of spectral dimensions
+      - `k`: Number of random pairs per node
+      - `min_dist`: Minimum distance between node pairs
+      - `max_iterations`: Maximum iterations for inverse power method
+      - `cg_max_iterations`: Maximum iterations for CG method
+      - `tolerance`: Convergence tolerance for eigenvalues
+      - `cg_tolerance`: Convergence tolerance for CG method
+      - `vector_tolerance`: Convergence tolerance for eigenvectors
+    - **Impact**: Full control over algorithm parameters and performance trade-offs
+
+  - **Proper Random Vector Generation**:
+
+    - **Issue Fixed**: Used deterministic sine function instead of actual randomness
+    - **Solution**: Uses actual RNG: `rng.gen_range(-1.0..1.0)` while maintaining reproducibility
+    - **Impact**: True randomness improves algorithm quality while preserving deterministic results with seeded RNG
+
+  - **Static Function Refactoring**:
+
+    - **Issue Fixed**: Utility functions unnecessarily implemented as instance methods
+    - **Solution**: Converted to static associated functions:
+      - `euclidean_distance()`, `generate_random_vector()`, `gram_schmidt_orthogonalize()`
+      - `dot_product()`, `normalize()`
+    - **Impact**: Better code organization and clearer intent
+
+  - **New Builder Pattern API**:
+
+    ```rust
+    // Before: 6 individual parameters
+    Omega::new(graph, length, d, k, min_dist, rng)
+
+    // After: Clean options-based API
+    let options = OmegaOption::new()
+        .d(3).k(50).min_dist(1e-2)
+        .max_iterations(2000).tolerance(1e-5);
+    Omega::new(graph, length, options, rng)
+    ```
+
+  - **Enhanced Eigenvalue Implementation**:
+
+    - **LaplacianStructure Integration**: Eigenvalue solver now uses precomputed Laplacian structure
+    - **Optimized Methods**: `compute_smallest_eigenvalues_with_laplacian()` for direct structure usage
+    - **Performance**: Maintains O(d(|V| + |E|) + k|V|) computational complexity with significant constant factor improvements
+
+  - **Updated CLI and Testing**:
+
+    - **CLI Binary**: Updated `crates/cli/src/bin/omega.rs` to use new OmegaOption API
+    - **Comprehensive Testing**: All tests updated and passing with new API
+    - **Documentation**: Complete API documentation with Builder pattern examples
+    - **Exports**: Added `OmegaOption` and `LaplacianStructure` to public API
+
+  - **Code Quality Improvements**:
+    - **No Compilation Warnings**: Clean compilation with no dead code
+    - **Type Safety**: Builder pattern prevents parameter confusion
+    - **Extensibility**: Easy to add new configuration options
+    - **Memory Efficiency**: More efficient storage of graph topology
 
 - **Rectangle Overlap Algorithm Refactoring**
 

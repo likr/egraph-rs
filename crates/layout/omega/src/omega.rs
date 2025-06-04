@@ -1,11 +1,122 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
-use crate::eigenvalue::EigenSolver;
+use crate::eigenvalue::{EigenSolver, LaplacianStructure};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
+
+/// Configuration options for the Omega algorithm using Builder pattern.
+///
+/// This structure contains all parameters needed to configure the Omega algorithm,
+/// including spectral dimensions, random pairs, distance constraints, and
+/// eigenvalue solver parameters.
+#[derive(Debug, Clone)]
+pub struct OmegaOption<S> {
+    /// Number of spectral dimensions
+    pub d: usize,
+    /// Number of random pairs per node  
+    pub k: usize,
+    /// Minimum distance between node pairs
+    pub min_dist: S,
+    /// Maximum number of iterations for inverse power method
+    pub max_iterations: usize,
+    /// Maximum number of iterations for CG method
+    pub cg_max_iterations: usize,
+    /// Convergence tolerance for eigenvalue computation
+    pub tolerance: S,
+    /// Convergence tolerance for CG method
+    pub cg_tolerance: S,
+    /// Convergence tolerance for eigenvector changes
+    pub vector_tolerance: S,
+}
+
+impl<S> OmegaOption<S>
+where
+    S: DrawingValue,
+{
+    /// Creates a new OmegaOption with default values.
+    ///
+    /// Default values:
+    /// - d: 2 (spectral dimensions)
+    /// - k: 30 (random pairs per node)
+    /// - min_dist: 1e-3 (minimum distance)
+    /// - max_iterations: 1000 (eigenvalue solver)
+    /// - cg_max_iterations: 100 (CG solver)
+    /// - tolerance: 1e-4 (eigenvalue convergence)
+    /// - cg_tolerance: 1e-4 (CG convergence)
+    /// - vector_tolerance: 1e-4 (eigenvector convergence)
+    pub fn new() -> Self {
+        Self {
+            d: 2,
+            k: 30,
+            min_dist: S::from_f32(1e-3).unwrap(),
+            max_iterations: 1000,
+            cg_max_iterations: 100,
+            tolerance: S::from_f32(1e-4).unwrap(),
+            cg_tolerance: S::from_f32(1e-4).unwrap(),
+            vector_tolerance: S::from_f32(1e-4).unwrap(),
+        }
+    }
+
+    /// Sets the number of spectral dimensions.
+    pub fn d(mut self, d: usize) -> Self {
+        self.d = d;
+        self
+    }
+
+    /// Sets the number of random pairs per node.
+    pub fn k(mut self, k: usize) -> Self {
+        self.k = k;
+        self
+    }
+
+    /// Sets the minimum distance between node pairs.
+    pub fn min_dist(mut self, min_dist: S) -> Self {
+        self.min_dist = min_dist;
+        self
+    }
+
+    /// Sets maximum iterations for inverse power method.
+    pub fn max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets maximum iterations for CG method.
+    pub fn cg_max_iterations(mut self, cg_max_iterations: usize) -> Self {
+        self.cg_max_iterations = cg_max_iterations;
+        self
+    }
+
+    /// Sets convergence tolerance for eigenvalues.
+    pub fn tolerance(mut self, tolerance: S) -> Self {
+        self.tolerance = tolerance;
+        self
+    }
+
+    /// Sets convergence tolerance for CG method.
+    pub fn cg_tolerance(mut self, cg_tolerance: S) -> Self {
+        self.cg_tolerance = cg_tolerance;
+        self
+    }
+
+    /// Sets convergence tolerance for eigenvectors.
+    pub fn vector_tolerance(mut self, vector_tolerance: S) -> Self {
+        self.vector_tolerance = vector_tolerance;
+        self
+    }
+}
+
+impl<S> Default for OmegaOption<S>
+where
+    S: DrawingValue,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Omega Stochastic Gradient Descent implementation for graph layout.
 ///
@@ -39,10 +150,8 @@ where
     ///
     /// # Parameters
     /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths (currently unused but kept for API consistency)
-    /// * `d` - The number of dimensions for spectral coordinates
-    /// * `k` - The number of random node pairs to add per node
-    /// * `min_dist` - Minimum distance between node pairs; distances below this are clamped to this value
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `options` - Configuration options for the Omega algorithm
     /// * `rng` - Random number generator for selecting random node pairs
     ///
     /// # Returns
@@ -53,16 +162,9 @@ where
     /// - Step 2: O(d|V|) - Coordinate generation
     /// - Step 3: O(|E|) - Edge-based pairs
     /// - Step 4: O(k|V|) - Random pairs
-    pub fn new<G, F, R>(
-        graph: G,
-        mut _length: F,
-        d: usize,
-        k: usize,
-        min_dist: S,
-        rng: &mut R,
-    ) -> Self
+    pub fn new<G, F, R>(graph: G, length: F, options: OmegaOption<S>, rng: &mut R) -> Self
     where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
@@ -76,8 +178,9 @@ where
             .map(|(i, node_id)| (node_id, i))
             .collect();
 
-        // Step 1 & 2: Compute spectral coordinates
-        let coordinates = Self::compute_spectral_coordinates(&graph, d);
+        // Step 1 & 2: Compute spectral coordinates using edge weights
+        let coordinates =
+            Self::compute_spectral_coordinates_with_weights(graph, length, &options, rng);
 
         let mut node_pairs = Vec::new();
         let mut used_pairs = HashSet::new();
@@ -91,7 +194,7 @@ where
             if !used_pairs.contains(&pair_key) {
                 used_pairs.insert(pair_key);
                 let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
-                let distance = distance.max(min_dist);
+                let distance = distance.max(options.min_dist);
                 let weight = S::one() / (distance * distance);
                 node_pairs.push((i, j, distance, distance, weight, weight));
             }
@@ -99,7 +202,7 @@ where
 
         // Step 4: Add random node pairs with Euclidean distances (avoiding duplicates)
         for i in 0..n {
-            for _ in 0..k {
+            for _ in 0..options.k {
                 let j = rng.gen_range(0..n);
                 if i != j {
                     let pair_key = if i < j { (i, j) } else { (j, i) };
@@ -107,7 +210,7 @@ where
                     if !used_pairs.contains(&pair_key) {
                         used_pairs.insert(pair_key);
                         let distance = Self::euclidean_distance(&coordinates[i], &coordinates[j]);
-                        let distance = distance.max(min_dist);
+                        let distance = distance.max(options.min_dist);
                         let weight = S::one() / (distance * distance);
                         node_pairs.push((i, j, distance, distance, weight, weight));
                     }
@@ -119,31 +222,52 @@ where
         Omega { node_pairs }
     }
 
-    /// Computes d-dimensional spectral coordinates for all nodes in the graph.
+    /// Computes d-dimensional spectral coordinates using edge weights and custom options.
     ///
-    /// Uses the eigenvalue solver to compute the smallest d non-zero eigenvalues
-    /// and eigenvectors of the graph Laplacian, then creates coordinates by
-    /// dividing each eigenvector by the square root of its corresponding eigenvalue.
+    /// Uses a weighted Laplacian based on edge lengths/weights and configurable eigenvalue solver
+    /// to compute the smallest d non-zero eigenvalues and eigenvectors, then creates coordinates
+    /// by dividing each eigenvector by the square root of its corresponding eigenvalue.
     ///
     /// # Parameters
     /// * `graph` - The input graph
-    /// * `d` - Number of dimensions for the coordinates
+    /// * `length` - Function to extract edge weights/lengths
+    /// * `options` - Configuration options containing solver parameters and dimensions
+    /// * `rng` - Random number generator for eigenvalue computation
     ///
     /// # Returns
     /// A vector where coordinates[i] contains the d-dimensional coordinate for node i
-    fn compute_spectral_coordinates<G>(graph: &G, d: usize) -> Vec<Vec<S>>
+    fn compute_spectral_coordinates_with_weights<G, F, R>(
+        graph: G,
+        length: F,
+        options: &OmegaOption<S>,
+        rng: &mut R,
+    ) -> Vec<Vec<S>>
     where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
     {
         let n = graph.node_count();
-        let solver = EigenSolver::<S>::default();
+
+        // Create weighted Laplacian structure
+        let laplacian = LaplacianStructure::new(graph, length);
+
+        // Create custom eigenvalue solver from options
+        let solver = EigenSolver::new(
+            options.max_iterations,
+            options.cg_max_iterations,
+            options.tolerance,
+            options.cg_tolerance,
+            options.vector_tolerance,
+        );
 
         // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
-        let (eigenvalues, eigenvectors) = solver.compute_smallest_eigenvalues(graph, d);
+        let (eigenvalues, eigenvectors) =
+            solver.compute_smallest_eigenvalues_with_laplacian(&laplacian, options.d, rng);
 
         // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
-        let mut coordinates = vec![vec![S::zero(); d]; n];
+        let mut coordinates = vec![vec![S::zero(); options.d]; n];
 
         for (dim, (eigenvalue, eigenvector)) in
             eigenvalues.iter().zip(eigenvectors.iter()).enumerate()

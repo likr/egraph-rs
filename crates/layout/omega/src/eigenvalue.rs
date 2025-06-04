@@ -4,7 +4,106 @@
 
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
+use rand::Rng;
 use std::collections::HashMap;
+
+/// Precomputed Laplacian structure for efficient matrix operations.
+///
+/// This structure caches the graph topology and edge weights to avoid
+/// repeated computations during eigenvalue iteration.
+#[derive(Debug, Clone)]
+pub struct LaplacianStructure<S> {
+    /// Number of nodes in the graph
+    n: usize,
+    /// List of edges with their weights: (source_index, target_index, weight)
+    edges: Vec<(usize, usize, S)>,
+    /// Degree of each node (sum of incident edge weights)
+    degrees: Vec<S>,
+}
+
+impl<S> LaplacianStructure<S>
+where
+    S: DrawingValue,
+{
+    /// Creates a new LaplacianStructure from a graph with edge weights.
+    pub fn new<G, F>(graph: G, mut edge_weight: F) -> Self
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+    {
+        let n = graph.node_count();
+
+        // Create node index mapping
+        let node_indices: HashMap<G::NodeId, usize> = graph
+            .node_identifiers()
+            .enumerate()
+            .map(|(i, node_id)| (node_id, i))
+            .collect();
+
+        let mut edges = Vec::new();
+        let mut degrees = vec![S::zero(); n];
+
+        // Process edges and compute degrees
+        for edge in graph.edge_references() {
+            let i = node_indices[&edge.source()];
+            let j = node_indices[&edge.target()];
+            let weight = edge_weight(edge);
+
+            edges.push((i, j, weight));
+
+            if i != j {
+                degrees[i] = degrees[i] + weight;
+                degrees[j] = degrees[j] + weight;
+            } else {
+                degrees[i] = degrees[i] + weight;
+            }
+        }
+
+        LaplacianStructure { n, edges, degrees }
+    }
+
+    /// Computes the Laplacian matrix-vector product Lv efficiently.
+    ///
+    /// For each vertex i: (Lv)_i = degree(i) * v_i - Σ(weight_ij * v_j for j neighbor of i)
+    pub fn multiply(&self, vector: &[S]) -> Vec<S> {
+        let mut result = vec![S::zero(); self.n];
+
+        // Initialize result with degree * vector
+        for i in 0..self.n {
+            result[i] = self.degrees[i] * vector[i];
+        }
+
+        // Subtract adjacency contribution
+        for &(i, j, weight) in &self.edges {
+            result[i] = result[i] - weight * vector[j];
+            if i != j {
+                result[j] = result[j] - weight * vector[i];
+            }
+        }
+
+        result
+    }
+
+    /// Computes the Laplacian quadratic form x^T L x efficiently in O(|E|) time.
+    ///
+    /// Uses the fact that x^T L x = Σ_{(i,j) ∈ E} weight_ij * (x_i - x_j)^2
+    pub fn quadratic_form(&self, vector: &[S]) -> S {
+        let mut result = S::zero();
+
+        for &(i, j, weight) in &self.edges {
+            let diff = vector[i] - vector[j];
+            result = result + weight * diff * diff;
+        }
+
+        result
+    }
+
+    /// Returns the number of nodes in the graph.
+    pub fn node_count(&self) -> usize {
+        self.n
+    }
+}
 
 /// Eigenvalue solver using inverse power method with Gram-Schmidt orthogonalization.
 ///
@@ -66,32 +165,33 @@ where
         )
     }
 
-    /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors of a graph Laplacian.
+    /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors using a precomputed LaplacianStructure.
     ///
     /// Implements the algorithm specified:
     /// 1. Sequential computation of λ2, λ3, ..., λ(n_target+1)
     /// 2. Inverse power method with CG solver for each eigenvalue
     /// 3. Gram-Schmidt orthogonalization against previously found eigenvectors
-    /// 4. Rayleigh quotient for eigenvalue estimation
+    /// 4. Optimized Rayleigh quotient using quadratic form
     ///
     /// # Parameters
-    /// * `graph` - The input graph
+    /// * `laplacian` - Precomputed Laplacian structure
     /// * `n_target` - Number of smallest non-zero eigenvalues to compute
+    /// * `rng` - Random number generator for initial vectors
     ///
     /// # Returns
     /// A tuple containing:
     /// - Vector of eigenvalues (λ2, λ3, ..., λ(n_target+1))
     /// - Vector of corresponding eigenvectors
-    pub fn compute_smallest_eigenvalues<G>(
+    pub fn compute_smallest_eigenvalues_with_laplacian<R>(
         &self,
-        graph: G,
+        laplacian: &LaplacianStructure<S>,
         n_target: usize,
+        rng: &mut R,
     ) -> (Vec<S>, Vec<Vec<S>>)
     where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
+        R: Rng,
     {
-        let n = graph.node_count();
+        let n = laplacian.node_count();
 
         // Initialize found eigenvectors with v1 = (1,1,...,1)^T / sqrt(n)
         let mut found_eigenvectors: Vec<Vec<S>> = Vec::new();
@@ -104,8 +204,8 @@ where
         // For k = 1, ..., n_target: find the (k+1)-th eigenvalue λ(k+1) and eigenvector v(k+1)
         for _ in 1..=n_target {
             // Step 1: Initialize random vector and orthogonalize against found eigenvectors
-            let mut x_iter = self.generate_random_vector(n);
-            self.gram_schmidt_orthogonalize(&mut x_iter, &found_eigenvectors);
+            let mut x_iter = Self::generate_random_vector(n, rng);
+            Self::gram_schmidt_orthogonalize(&mut x_iter, &found_eigenvectors);
             Self::normalize(&mut x_iter);
 
             let mut lambda_prev_est = S::zero();
@@ -114,19 +214,18 @@ where
             // Step 2: Inverse power method iteration
             for _iter in 0..self.max_iterations {
                 // Step 2a: Solve Ly = x_iter using CG method
-                let y_solved = self.solve_with_conjugate_gradient(graph, &x_iter);
+                let y_solved = self.solve_with_conjugate_gradient(laplacian, &x_iter);
 
                 // Step 2b: Orthogonalize y against found eigenvectors (for numerical stability)
                 let mut y_orth = y_solved;
-                self.gram_schmidt_orthogonalize(&mut y_orth, &found_eigenvectors);
+                Self::gram_schmidt_orthogonalize(&mut y_orth, &found_eigenvectors);
 
                 // Step 2c: Normalize
                 Self::normalize(&mut y_orth);
                 let x_next_iter = y_orth;
 
-                // Step 2d: Compute eigenvalue estimate using Rayleigh quotient
-                let lx = self.laplacian_multiply(graph, &x_next_iter);
-                let numerator = Self::dot_product(&x_next_iter, &lx);
+                // Step 2d: Compute eigenvalue estimate using optimized Rayleigh quotient
+                let numerator = laplacian.quadratic_form(&x_next_iter);
                 let denominator = Self::dot_product(&x_next_iter, &x_next_iter);
                 let lambda_est = numerator / denominator;
 
@@ -156,8 +255,7 @@ where
 
             if !converged {
                 // If didn't converge, still store the best estimate
-                let lx = self.laplacian_multiply(graph, &x_iter);
-                let numerator = Self::dot_product(&x_iter, &lx);
+                let numerator = laplacian.quadratic_form(&x_iter);
                 let denominator = Self::dot_product(&x_iter, &x_iter);
                 let lambda_est = numerator / denominator;
 
@@ -171,12 +269,41 @@ where
 
         (found_eigenvalues, result_eigenvectors)
     }
-    /// Generates a random vector of specified size.
-    fn generate_random_vector(&self, n: usize) -> Vec<S> {
+
+    /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors of a graph Laplacian.
+    ///
+    /// This is a convenience method that creates a LaplacianStructure and calls the optimized version.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph
+    /// * `n_target` - Number of smallest non-zero eigenvalues to compute
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - Vector of eigenvalues (λ2, λ3, ..., λ(n_target+1))
+    /// - Vector of corresponding eigenvectors
+    pub fn compute_smallest_eigenvalues<G>(
+        &self,
+        graph: G,
+        n_target: usize,
+    ) -> (Vec<S>, Vec<Vec<S>>)
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+    {
+        let laplacian = LaplacianStructure::new(graph, |_| S::one());
+        let mut rng = rand::thread_rng();
+        self.compute_smallest_eigenvalues_with_laplacian(&laplacian, n_target, &mut rng)
+    }
+    /// Generates a random vector of specified size using the provided RNG.
+    fn generate_random_vector<R>(n: usize, rng: &mut R) -> Vec<S>
+    where
+        R: Rng,
+    {
         let mut vector = Vec::with_capacity(n);
-        for i in 0..n {
-            // Use deterministic values for reproducibility
-            let value = S::from_f32(((i as f32 + 1.0) * 0.123456).sin()).unwrap();
+        for _ in 0..n {
+            // Generate actual random values between -1 and 1
+            let value = S::from_f32(rng.gen_range(-1.0..1.0)).unwrap();
             vector.push(value);
         }
         vector
@@ -185,7 +312,7 @@ where
     /// Performs Gram-Schmidt orthogonalization of a vector against known vectors.
     ///
     /// Implements: x_orth = x - Σ(dot(x, v_i) * v_i) for all known vectors v_i
-    fn gram_schmidt_orthogonalize(&self, vector: &mut Vec<S>, known_vectors: &[Vec<S>]) {
+    fn gram_schmidt_orthogonalize(vector: &mut Vec<S>, known_vectors: &[Vec<S>]) {
         for known_vector in known_vectors {
             let dot_product = Self::dot_product(vector, known_vector);
             for j in 0..vector.len() {
@@ -199,12 +326,8 @@ where
     /// This implements CG for the semi-positive definite Laplacian matrix L.
     /// Since L has a zero eigenvalue, we solve for the component orthogonal to
     /// the null space (the constant vector).
-    fn solve_with_conjugate_gradient<G>(&self, graph: G, b: &[S]) -> Vec<S>
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-    {
-        let n = graph.node_count();
+    fn solve_with_conjugate_gradient(&self, laplacian: &LaplacianStructure<S>, b: &[S]) -> Vec<S> {
+        let n = laplacian.node_count();
         let mut x = vec![S::zero(); n]; // Initial guess: zero vector
         let mut r = b.to_vec(); // Initial residual r = b - Lx = b (since x = 0)
         let mut p = r.clone(); // Initial search direction
@@ -213,7 +336,7 @@ where
 
         for _iter in 0..self.cg_max_iterations {
             // Compute Ap = L * p
-            let ap = self.laplacian_multiply(graph, &p);
+            let ap = laplacian.multiply(&p);
 
             // Compute alpha = (r^T * r) / (p^T * Ap)
             let pap = Self::dot_product(&p, &ap);
@@ -251,57 +374,6 @@ where
         }
 
         x
-    }
-
-    /// Computes the Laplacian matrix-vector product Lv efficiently without building the full matrix.
-    ///
-    /// For each vertex i: (Lv)_i = degree(i) * v_i - Σ(v_j for j neighbor of i)
-    fn laplacian_multiply<G>(&self, graph: G, vector: &[S]) -> Vec<S>
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-    {
-        let n = graph.node_count();
-        let mut result = vec![S::zero(); n];
-
-        // Create node index mapping
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        // Compute degrees
-        let mut degrees = vec![S::zero(); n];
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-
-            if i != j {
-                degrees[i] = degrees[i] + S::one();
-                degrees[j] = degrees[j] + S::one();
-            } else {
-                degrees[i] = degrees[i] + S::one();
-            }
-        }
-
-        // Initialize result with degree * vector
-        for i in 0..n {
-            result[i] = degrees[i] * vector[i];
-        }
-
-        // Subtract adjacency contribution
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-
-            result[i] = result[i] - vector[j];
-            if i != j {
-                result[j] = result[j] - vector[i];
-            }
-        }
-
-        result
     }
 
     /// Computes the dot product of two vectors.

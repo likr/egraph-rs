@@ -13,14 +13,15 @@
 - ✅ **Layout Algorithms**
 
   - SGD with Full, Sparse, Distance-adjusted, and Omega variants
-  - **Omega Algorithm**: Complete spectral coordinate-based SGD with proper eigenvalue computation
-    - **Eigenvalue Solver**: Completely rewritten using inverse power method with CG solver
-    - **Sequential Computation**: λ2, λ3, ..., λ(N+1) with Gram-Schmidt orthogonalization
-    - **Matrix-Free Operations**: Efficient Laplacian-vector multiplication without full matrix construction
-    - **Convergence Criteria**: Dual eigenvalue and eigenvector convergence checks
-    - **Numerical Stability**: Added `min_dist` parameter to prevent overly small distances between node pairs
-    - **Distance Clamping**: Applied to both edge-based and random node pairs in spectral coordinate computation
-    - **Performance**: O(d(|V| + |E|) + k|V|) computational complexity maintained
+  - **Omega Algorithm**: Complete refactoring with all issues resolved (2025-01-06)
+    - **Edge Length Integration**: Now properly uses weighted Laplacian from edge length function
+    - **LaplacianStructure Caching**: Pre-computes and caches graph topology to eliminate redundant computations
+    - **Optimized Quadratic Form**: O(|E|) computation using `x^T L x = Σ_{(i,j) ∈ E} weight[i,j] * (x[i] - x[j])^2`
+    - **Configurable Parameters**: `OmegaOption<S>` Builder pattern for all solver parameters
+    - **True Randomness**: Proper RNG usage while maintaining reproducibility
+    - **Static Functions**: Utility functions converted to associated functions for better organization
+    - **Builder Pattern API**: Clean `Omega::new(graph, length, options, rng)` interface
+    - **Enhanced Performance**: Significant constant factor improvements while maintaining O(d(|V| + |E|) + k|V|) complexity
   - MDS (Classical and Pivot-based) with high-dimensional support
   - Stress Majorization with convergence controls and infinite loop prevention
   - Kamada-Kawai spring model
