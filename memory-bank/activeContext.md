@@ -158,6 +158,92 @@ Given the mature state of the project, focus areas include:
 - **Modular Architecture**: Specialized crates for focused functionality
 - **Testing Strategy**: Comprehensive coverage including cross-language validation
 
+## Workflow Corrections and Guidelines
+
+### Corrected Commit Message Rules (Updated 2025-01-06)
+
+**CRITICAL**: The following workflow must be followed for ALL tasks without exception:
+
+#### Conventional Commits Format
+
+All commit messages must follow this exact format:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+**Types**: feat, fix, docs, style, refactor, perf, test, chore
+
+**Scoping Rules**:
+
+- **Crate-specific changes**: Use crate name as scope (e.g., `petgraph-layout-omega`, `egraph-wasm`, `petgraph-layout-mds`)
+- **Project-wide changes**: Omit scope entirely (e.g., root configuration files, memory-bank updates, workspace-level changes)
+
+**Examples**:
+
+- `feat(petgraph-layout-omega): add min_dist parameter for numerical stability`
+- `fix(egraph-wasm): resolve NaN values in ClassicalMds implementation`
+- `test(petgraph-layout-sgd): add comprehensive tests for schedulers`
+- `docs(petgraph-drawing): improve API documentation`
+- `refactor(petgraph-algorithm-shortest-path): optimize distance calculation`
+- `docs: update project workflow guidelines` (no scope for project-wide)
+- `chore: update workspace dependencies` (no scope for workspace-level)
+
+#### Mandatory Final Confirmation Process
+
+**This step must NEVER be skipped under any circumstances:**
+
+1. **Run all required checks**:
+
+   - `cargo fmt --all`
+   - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+   - `cargo test --workspace` (or appropriate tests for the changes)
+
+2. **Prepare comprehensive summary**:
+
+   - List all files modified
+   - Describe all changes made
+   - Explain the impact and benefits
+
+3. **Create proper commit message**:
+
+   - Follow Conventional Commits format exactly
+   - Use correct scope based on crates affected
+   - Provide clear, concise description
+
+4. **Present to user for approval**:
+
+   - Show complete summary of changes
+   - Present the proposed commit message
+   - Wait for explicit user approval
+   - Do not proceed without confirmation
+
+5. **Only after user approval**: Mark task as complete
+
+#### Scope Determination Guide
+
+- **Single crate affected**: Use that crate's name as scope
+- **Multiple crates in same domain**: Use the primary crate name or most relevant scope
+- **Cross-cutting changes**: Choose the most impacted crate or omit scope if truly project-wide
+- **Documentation/configuration**: Use specific crate if crate-specific, omit scope if project-wide
+- **Memory bank updates**: No scope (project-wide documentation)
+- **Root-level files**: No scope (project-wide)
+
+### Workflow Enforcement
+
+This corrected workflow addresses previous issues where:
+
+- Commit messages didn't consistently follow Conventional Commits format
+- Scoping rules weren't properly applied
+- Final confirmation step was sometimes skipped
+- Commit message proposals weren't always provided
+
+**All future tasks must follow this corrected workflow without exception.**
+
 ## Learnings and Project Insights
 
 - **Rust-First Design**: Starting with Rust implementation ensures memory safety and performance
@@ -166,3 +252,4 @@ Given the mature state of the project, focus areas include:
 - **Performance Considerations**: External dependencies should be carefully evaluated (RBTree → BTreeSet transition)
 - **Testing Importance**: Cross-language testing reveals subtle implementation differences
 - **Documentation Value**: Good documentation significantly improves adoption and usability
+- **Workflow Discipline**: Consistent adherence to commit message conventions and confirmation processes is essential for project quality
