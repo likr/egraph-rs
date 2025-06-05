@@ -21,6 +21,7 @@ petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-mds = { path = "../layout/mds" }
 petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }
+petgraph-layout-omega = { path = "../layout/omega" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-separation-constraints = { path = "../layout/separation-constraints" }
 petgraph-quality-metrics = { path = "../quality-metrics" }

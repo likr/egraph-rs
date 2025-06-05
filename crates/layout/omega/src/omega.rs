@@ -58,43 +58,43 @@ where
     }
 
     /// Sets the number of spectral dimensions.
-    pub fn d(mut self, d: usize) -> Self {
+    pub fn d(&mut self, d: usize) -> &mut Self {
         self.d = d;
         self
     }
 
     /// Sets the number of random pairs per node.
-    pub fn k(mut self, k: usize) -> Self {
+    pub fn k(&mut self, k: usize) -> &mut Self {
         self.k = k;
         self
     }
 
     /// Sets the minimum distance between node pairs.
-    pub fn min_dist(mut self, min_dist: S) -> Self {
+    pub fn min_dist(&mut self, min_dist: S) -> &mut Self {
         self.min_dist = min_dist;
         self
     }
 
     /// Sets maximum iterations for eigenvalue computation using inverse power method.
-    pub fn eigenvalue_max_iterations(mut self, eigenvalue_max_iterations: usize) -> Self {
+    pub fn eigenvalue_max_iterations(&mut self, eigenvalue_max_iterations: usize) -> &mut Self {
         self.eigenvalue_max_iterations = eigenvalue_max_iterations;
         self
     }
 
     /// Sets maximum iterations for CG method.
-    pub fn cg_max_iterations(mut self, cg_max_iterations: usize) -> Self {
+    pub fn cg_max_iterations(&mut self, cg_max_iterations: usize) -> &mut Self {
         self.cg_max_iterations = cg_max_iterations;
         self
     }
 
     /// Sets convergence tolerance for eigenvalue computation.
-    pub fn eigenvalue_tolerance(mut self, eigenvalue_tolerance: S) -> Self {
+    pub fn eigenvalue_tolerance(&mut self, eigenvalue_tolerance: S) -> &mut Self {
         self.eigenvalue_tolerance = eigenvalue_tolerance;
         self
     }
 
     /// Sets convergence tolerance for CG method.
-    pub fn cg_tolerance(mut self, cg_tolerance: S) -> Self {
+    pub fn cg_tolerance(&mut self, cg_tolerance: S) -> &mut Self {
         self.cg_tolerance = cg_tolerance;
         self
     }
@@ -108,7 +108,7 @@ where
     ///
     /// # Returns
     /// A new Omega instance configured with the builder's parameters
-    pub fn build<G, F, R>(self, graph: G, length: F, rng: &mut R) -> Omega<S>
+    pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Omega<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex + Ord,
@@ -172,7 +172,7 @@ where
     /// - Step 2: O(d|V|) - Coordinate generation
     /// - Step 3: O(|E|) - Edge-based pairs
     /// - Step 4: O(k|V|) - Random pairs
-    pub fn new<G, F, R>(graph: G, length: F, options: OmegaBuilder<S>, rng: &mut R) -> Self
+    pub fn new<G, F, R>(graph: G, length: F, options: &OmegaBuilder<S>, rng: &mut R) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex + Ord,
@@ -189,7 +189,7 @@ where
             .collect();
 
         // Step 1 & 2: Compute spectral coordinates using edge weights
-        let coordinates = compute_spectral_coordinates_with_weights(graph, length, &options, rng);
+        let coordinates = compute_spectral_coordinates_with_weights(graph, length, options, rng);
 
         let mut node_pairs = Vec::new();
         let mut used_pairs = HashSet::new();

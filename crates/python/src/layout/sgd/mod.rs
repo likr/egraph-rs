@@ -5,6 +5,7 @@
 mod distance_adjusted_full;
 mod distance_adjusted_sparse;
 mod full;
+mod omega;
 mod schedulers;
 mod sparse;
 
@@ -13,6 +14,7 @@ use pyo3::prelude::*;
 pub use self::distance_adjusted_full::PyDistanceAdjustedFullSgd;
 pub use self::distance_adjusted_sparse::PyDistanceAdjustedSparseSgd;
 pub use self::full::PyFullSgd;
+pub use self::omega::{PyOmega, PyOmegaBuilder};
 pub use self::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
@@ -33,6 +35,8 @@ pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PySparseSgd>()?;
     m.add_class::<PyDistanceAdjustedFullSgd>()?;
     m.add_class::<PyDistanceAdjustedSparseSgd>()?;
+    m.add_class::<PyOmega>()?;
+    m.add_class::<PyOmegaBuilder>()?;
 
     Ok(())
 }
