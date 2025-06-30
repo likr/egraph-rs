@@ -1,10 +1,12 @@
-use crate::{scheduler::Scheduler, Sgd};
+use std::marker::PhantomData;
+
+use crate::scheduler::Scheduler;
 use petgraph_drawing::DrawingValue;
 
 /// A learning rate scheduler with exponential decay.
 ///
-/// This scheduler decreases the learning rate exponentially over time,
-/// following the formula: η(t) = a * exp(b * t).
+/// This scheduler decreases the learning rate exponentially over time from 1.0 to 0.01,
+/// following the formula: η(t) = exp(-ln(100) * t / (t_max - 1)).
 ///
 /// Exponential decay creates a learning rate that decreases quickly at first
 /// and then more gradually, which can help achieve faster convergence in many cases.
@@ -13,31 +15,20 @@ pub struct SchedulerExponential<S> {
     t: usize,
     /// Maximum number of iterations
     t_max: usize,
-    /// Coefficient in the exponential formula
-    a: S,
-    /// Decay rate in the exponential formula
-    b: S,
+    /// Phantom data to use the generic parameter S
+    phantom: PhantomData<S>,
 }
 
-impl<S> SchedulerExponential<S> {
-    /// Creates a new exponential scheduler from an SGD instance.
-    ///
-    /// This constructor uses the SGD's scheduler method to initialize appropriate parameters
-    /// for exponential decay.
-    ///
-    /// # Parameters
-    /// * `sgd` - The SGD algorithm instance to create a scheduler for
-    /// * `t_max` - The maximum number of iterations to run
-    /// * `epsilon` - A small value used to calculate the minimum learning rate
-    ///
-    /// # Returns
-    /// A new exponential scheduler instance
-    pub fn new<SGD>(sgd: SGD, t_max: usize, epsilon: S) -> Self
-    where
-        SGD: Sgd<S>,
-        S: DrawingValue,
-    {
-        sgd.scheduler(t_max, epsilon)
+impl<S> SchedulerExponential<S>
+where
+    S: DrawingValue,
+{
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            t: 0,
+            t_max,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -46,27 +37,6 @@ impl<S> Scheduler<S> for SchedulerExponential<S>
 where
     S: DrawingValue,
 {
-    /// Initializes a new exponential scheduler.
-    ///
-    /// This method calculates the parameters for the exponential decay formula
-    /// based on the desired minimum and maximum learning rates and the number of iterations.
-    ///
-    /// # Parameters
-    /// * `t_max` - The maximum number of iterations
-    /// * `eta_min` - The minimum learning rate (reached at the end)
-    /// * `eta_max` - The maximum learning rate (used at the beginning)
-    ///
-    /// # Returns
-    /// A new SchedulerExponential instance
-    fn init(t_max: usize, eta_min: S, eta_max: S) -> Self {
-        Self {
-            t: 0,
-            t_max,
-            a: eta_max,
-            b: (eta_min / eta_max).ln() / S::from_usize(t_max - 1).unwrap(),
-        }
-    }
-
     /// Performs a single step of the scheduling process.
     ///
     /// This method calculates the learning rate using the exponential decay formula,
@@ -75,7 +45,14 @@ where
     /// # Parameters
     /// * `callback` - A function that will be called with the calculated learning rate
     fn step<F: FnMut(S)>(&mut self, callback: &mut F) {
-        let eta = self.a * (self.b * S::from_usize(self.t).unwrap()).exp();
+        let eta = if self.t_max == 1 {
+            S::one()
+        } else {
+            // Exponential decay from 1.0 to 0.01: exp(-ln(100) * t / (t_max - 1))
+            let progress = S::from_usize(self.t).unwrap() / S::from_usize(self.t_max - 1).unwrap();
+            let ln_100 = S::from_f32(4.605170).unwrap(); // ln(100) ≈ 4.605170
+            (-ln_100 * progress).exp()
+        };
         callback(eta);
         self.t += 1;
     }

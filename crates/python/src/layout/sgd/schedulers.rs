@@ -21,11 +21,18 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "SchedulerConstant")]
 pub struct PySchedulerConstant {
-    pub(crate) scheduler: SchedulerConstant<f32>,
+    scheduler: SchedulerConstant<f32>,
 }
 
 #[pymethods]
 impl PySchedulerConstant {
+    #[new]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerConstant::new(t_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -73,11 +80,18 @@ impl PySchedulerConstant {
 #[pyclass]
 #[pyo3(name = "SchedulerLinear")]
 pub struct PySchedulerLinear {
-    pub(crate) scheduler: SchedulerLinear<f32>,
+    scheduler: SchedulerLinear<f32>,
 }
 
 #[pymethods]
 impl PySchedulerLinear {
+    #[new]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerLinear::new(t_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -125,11 +139,18 @@ impl PySchedulerLinear {
 #[pyclass]
 #[pyo3(name = "SchedulerQuadratic")]
 pub struct PySchedulerQuadratic {
-    pub(crate) scheduler: SchedulerQuadratic<f32>,
+    scheduler: SchedulerQuadratic<f32>,
 }
 
 #[pymethods]
 impl PySchedulerQuadratic {
+    #[new]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerQuadratic::new(t_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -178,11 +199,18 @@ impl PySchedulerQuadratic {
 #[pyclass]
 #[pyo3(name = "SchedulerExponential")]
 pub struct PySchedulerExponential {
-    pub(crate) scheduler: SchedulerExponential<f32>,
+    scheduler: SchedulerExponential<f32>,
 }
 
 #[pymethods]
 impl PySchedulerExponential {
+    #[new]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerExponential::new(t_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -230,11 +258,18 @@ impl PySchedulerExponential {
 #[pyclass]
 #[pyo3(name = "SchedulerReciprocal")]
 pub struct PySchedulerReciprocal {
-    pub(crate) scheduler: SchedulerReciprocal<f32>,
+    scheduler: SchedulerReciprocal<f32>,
 }
 
 #[pymethods]
 impl PySchedulerReciprocal {
+    #[new]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerReciprocal::new(t_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter

@@ -17,13 +17,11 @@
 //! between the graph-theoretical distances and the geometric distances in the layout. The algorithm
 //! uses a learning rate parameter that typically decreases over time according to a schedule.
 
-mod distance_adjusted_sgd;
 mod full_sgd;
 mod scheduler;
 mod sgd;
 mod sparse_sgd;
 
-pub use distance_adjusted_sgd::DistanceAdjustedSgd;
 pub use full_sgd::FullSgd;
 pub use scheduler::*;
 pub use sgd::Sgd;

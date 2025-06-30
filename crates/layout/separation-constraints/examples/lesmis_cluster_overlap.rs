@@ -6,7 +6,7 @@ use petgraph_layout_mds::ClassicalMds;
 use petgraph_layout_separation_constraints::{
     project_clustered_rectangle_no_overlap_constraints, project_rectangle_no_overlap_constraints_2d,
 };
-use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential, Sgd};
+use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential};
 use plotters::prelude::*;
 use plotters::style::RGBColor;
 use rand::thread_rng;
@@ -50,8 +50,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let node_size = [20., 20.];
     let mds = ClassicalMds::new(&graph, |_| edge_length);
     let mut drawing = mds.run_2d();
-    let mut sgd = FullSgd::new(&graph, |_| edge_length);
-    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
+    let mut sgd = FullSgd::new().build(&graph, |_| edge_length);
+    let mut scheduler = SchedulerExponential::new(iterations);
     let mut rng = thread_rng();
 
     scheduler.run(&mut |eta| {

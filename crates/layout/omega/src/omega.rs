@@ -14,7 +14,8 @@ use std::collections::{HashMap, HashSet};
 /// including spectral dimensions, random pairs, distance constraints, and
 /// eigenvalue solver parameters.
 #[derive(Debug, Clone)]
-pub struct OmegaBuilder<S> {
+pub struct Omega<S> {
+    pub eps: S,
     /// Number of spectral dimensions
     pub d: usize,
     /// Number of random pairs per node  
@@ -31,7 +32,7 @@ pub struct OmegaBuilder<S> {
     pub cg_tolerance: S,
 }
 
-impl<S> OmegaBuilder<S>
+impl<S> Omega<S>
 where
     S: DrawingValue,
 {
@@ -47,6 +48,7 @@ where
     /// - cg_tolerance: 1e-4 (CG convergence)
     pub fn new() -> Self {
         Self {
+            eps: S::from_f32(0.1).unwrap(),
             d: 2,
             k: 30,
             min_dist: S::from_f32(1e-3).unwrap(),
@@ -55,6 +57,11 @@ where
             eigenvalue_tolerance: S::from_f32(1e-4).unwrap(),
             cg_tolerance: S::from_f32(1e-4).unwrap(),
         }
+    }
+
+    pub fn eps(&mut self, eps: S) -> &mut Self {
+        self.eps = eps;
+        self
     }
 
     /// Sets the number of spectral dimensions.
@@ -99,7 +106,7 @@ where
         self
     }
 
-    /// Builds an Omega instance using the configured parameters.
+    /// Builds an SGD instance using the configured parameters.
     ///
     /// # Parameters
     /// * `graph` - The input graph to be laid out
@@ -107,128 +114,103 @@ where
     /// * `rng` - Random number generator for selecting random node pairs
     ///
     /// # Returns
-    /// A new Omega instance configured with the builder's parameters
-    pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Omega<S>
+    /// A new SGD instance configured with the builder's parameters
+    pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        Omega::new(graph, length, self, rng)
+        let node_pairs = compute_omega_node_pairs(graph, length, self, rng);
+        Sgd::new(node_pairs, self.eps)
     }
 }
 
-impl<S> Default for OmegaBuilder<S>
+/// Computes node pairs for the Omega algorithm using spectral coordinates.
+///
+/// This function implements the core Omega algorithm logic, extracting it from
+/// the previous Omega::new method to work with the new builder pattern.
+///
+/// # Parameters
+/// * `graph` - The input graph to be laid out
+/// * `length` - A function that maps edges to their lengths/weights
+/// * `options` - Configuration options for the Omega algorithm
+/// * `rng` - Random number generator for selecting random node pairs
+///
+/// # Returns
+/// A vector of node pairs ready for SGD processing
+fn compute_omega_node_pairs<S, G, F, R>(
+    graph: G,
+    length: F,
+    options: &Omega<S>,
+    rng: &mut R,
+) -> Vec<(usize, usize, S, S, S, S)>
+where
+    S: DrawingValue,
+    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+    G::NodeId: DrawingIndex,
+    F: FnMut(G::EdgeRef) -> S,
+    R: Rng,
+{
+    let n = graph.node_count();
+
+    // Create node index mapping
+    let node_indices: HashMap<G::NodeId, usize> = graph
+        .node_identifiers()
+        .enumerate()
+        .map(|(i, node_id)| (node_id, i))
+        .collect();
+
+    // Step 1 & 2: Compute spectral coordinates using edge weights
+    let coordinates = compute_spectral_coordinates_with_weights(graph, length, options, rng);
+
+    let mut node_pairs = Vec::new();
+    let mut used_pairs = HashSet::new();
+
+    // Step 3: Add edge-based node pairs with Euclidean distances
+    for edge in graph.edge_references() {
+        let i = node_indices[&edge.source()];
+        let j = node_indices[&edge.target()];
+        let pair_key = if i < j { (i, j) } else { (j, i) };
+
+        if !used_pairs.contains(&pair_key) {
+            used_pairs.insert(pair_key);
+            let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
+            let distance = distance.max(options.min_dist);
+            let weight = S::one() / (distance * distance);
+            node_pairs.push((i, j, distance, distance, weight, weight));
+        }
+    }
+
+    // Step 4: Add random node pairs with Euclidean distances (avoiding duplicates)
+    for i in 0..n {
+        for _ in 0..options.k {
+            let j = rng.gen_range(0..n);
+            if i != j {
+                let pair_key = if i < j { (i, j) } else { (j, i) };
+
+                if !used_pairs.contains(&pair_key) {
+                    used_pairs.insert(pair_key);
+                    let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
+                    let distance = distance.max(options.min_dist);
+                    let weight = S::one() / (distance * distance);
+                    node_pairs.push((i, j, distance, distance, weight, weight));
+                }
+                // Skip if duplicate - no re-sampling
+            }
+        }
+    }
+
+    node_pairs
+}
+
+impl<S> Default for Omega<S>
 where
     S: DrawingValue,
 {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Omega Stochastic Gradient Descent implementation for graph layout.
-///
-/// This implementation differs from FullSgd and SparseSgd in how it constructs node pairs.
-/// It uses spectral analysis of the graph Laplacian to create d-dimensional coordinates
-/// for nodes, then uses these coordinates to compute distances for both edge-based and
-/// random node pairs.
-///
-/// The algorithm follows these steps:
-/// 1. Compute graph Laplacian eigenvalues and eigenvectors
-/// 2. Generate d-dimensional coordinates from eigenvectors
-/// 3. Add edge-based node pairs with Euclidean distances
-/// 4. Add random node pairs with Euclidean distances (avoiding duplicates)
-pub struct Omega<S> {
-    /// List of node pairs to be considered during layout optimization.
-    /// Each tuple contains (i, j, distance_ij, distance_ji, weight_ij, weight_ji)
-    node_pairs: Vec<(usize, usize, S, S, S, S)>,
-}
-
-impl<S> Omega<S>
-where
-    S: DrawingValue,
-{
-    /// Creates a new Omega instance from a graph using spectral coordinates.
-    ///
-    /// This constructor implements the 4-step Omega algorithm:
-    /// 1. Computes the smallest d non-zero eigenvalues and eigenvectors of the graph Laplacian
-    /// 2. Creates d-dimensional coordinates by dividing eigenvectors by sqrt of eigenvalues
-    /// 3. Adds edge-based node pairs using Euclidean distances from coordinates
-    /// 4. Adds k random node pairs per node using Euclidean distances (avoiding duplicates)
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `options` - Configuration options for the Omega algorithm
-    /// * `rng` - Random number generator for selecting random node pairs
-    ///
-    /// # Returns
-    /// A new Omega instance configured with appropriate node pairs
-    ///
-    /// # Computational Complexity
-    /// - Step 1: O(d(|V| + |E|)) - Eigenvalue computation
-    /// - Step 2: O(d|V|) - Coordinate generation
-    /// - Step 3: O(|E|) - Edge-based pairs
-    /// - Step 4: O(k|V|) - Random pairs
-    pub fn new<G, F, R>(graph: G, length: F, options: &OmegaBuilder<S>, rng: &mut R) -> Self
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex + Ord,
-        F: FnMut(G::EdgeRef) -> S,
-        R: Rng,
-    {
-        let n = graph.node_count();
-
-        // Create node index mapping
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        // Step 1 & 2: Compute spectral coordinates using edge weights
-        let coordinates = compute_spectral_coordinates_with_weights(graph, length, options, rng);
-
-        let mut node_pairs = Vec::new();
-        let mut used_pairs = HashSet::new();
-
-        // Step 3: Add edge-based node pairs with Euclidean distances
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-            let pair_key = if i < j { (i, j) } else { (j, i) };
-
-            if !used_pairs.contains(&pair_key) {
-                used_pairs.insert(pair_key);
-                let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
-                let distance = distance.max(options.min_dist);
-                let weight = S::one() / (distance * distance);
-                node_pairs.push((i, j, distance, distance, weight, weight));
-            }
-        }
-
-        // Step 4: Add random node pairs with Euclidean distances (avoiding duplicates)
-        for i in 0..n {
-            for _ in 0..options.k {
-                let j = rng.gen_range(0..n);
-                if i != j {
-                    let pair_key = if i < j { (i, j) } else { (j, i) };
-
-                    if !used_pairs.contains(&pair_key) {
-                        used_pairs.insert(pair_key);
-                        let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
-                        let distance = distance.max(options.min_dist);
-                        let weight = S::one() / (distance * distance);
-                        node_pairs.push((i, j, distance, distance, weight, weight));
-                    }
-                    // Skip if duplicate - no re-sampling
-                }
-            }
-        }
-
-        Omega { node_pairs }
     }
 }
 
@@ -249,7 +231,7 @@ where
 fn compute_spectral_coordinates_with_weights<S, G, F, R>(
     graph: G,
     length: F,
-    options: &OmegaBuilder<S>,
+    options: &Omega<S>,
     rng: &mut R,
 ) -> Array2<S>
 where
@@ -301,26 +283,4 @@ where
         sum += diff * diff
     });
     sum.sqrt()
-}
-
-/// Implementation of the Sgd trait for Omega
-///
-/// This provides the core SGD functionality for the Omega graph layout algorithm,
-/// allowing it to work with the common SGD framework.
-impl<S> Sgd<S> for Omega<S> {
-    /// Returns a reference to the node pairs data structure.
-    ///
-    /// This implementation uses a combination of edge-based and random node pairs,
-    /// all computed using spectral coordinates derived from the graph Laplacian.
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
-        &self.node_pairs
-    }
-
-    /// Returns a mutable reference to the node pairs data structure.
-    ///
-    /// This allows the algorithm to modify the node pairs during execution,
-    /// such as updating distances or weights based on current layout.
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
-        &mut self.node_pairs
-    }
 }

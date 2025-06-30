@@ -2,7 +2,7 @@ use petgraph::graph::{DiGraph, Graph};
 use petgraph_algorithm_layering::{remove_cycle, LongestPath};
 use petgraph_layout_mds::ClassicalMds;
 use petgraph_layout_separation_constraints::project_rectangle_no_overlap_constraints_2d;
-use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential, Sgd};
+use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential};
 use plotters::prelude::*;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -132,8 +132,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Initialize SGD with the undirected graph
     let iterations = 100;
-    let mut sgd = FullSgd::new(&undirected_graph, |_| edge_length);
-    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.5);
+    let mut sgd = FullSgd::new().build(&undirected_graph, |_| edge_length);
+    let mut scheduler = SchedulerExponential::new(iterations);
     let mut rng = thread_rng();
 
     // Optimize layout using stress-majorization and constraints

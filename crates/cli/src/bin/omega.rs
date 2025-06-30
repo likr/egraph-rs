@@ -42,8 +42,8 @@ use argparse::{ArgumentParser, Store, StoreOption};
 use egraph_cli::{read_graph, write_pos};
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
-use petgraph_layout_omega::OmegaBuilder;
-use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd};
+use petgraph_layout_omega::Omega;
+use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 use rand::thread_rng;
 
 /// Command-line parameters for the Omega algorithm.
@@ -219,8 +219,9 @@ fn layout(
 ) {
     let mut rng = thread_rng();
 
-    // Create Omega instance using builder pattern with command-line parameters
-    let mut omega = OmegaBuilder::new()
+    // Create SGD instance using Omega builder pattern with command-line parameters
+    let mut sgd = Omega::new()
+        .eps(params.sgd_eps)
         .d(params.d)
         .k(params.k)
         .min_dist(params.min_dist)
@@ -230,13 +231,12 @@ fn layout(
         .cg_tolerance(params.cg_tolerance)
         .build(graph, |_| params.unit_edge_length, &mut rng);
 
-    // Use SGD parameters from command line
-    let mut scheduler =
-        omega.scheduler::<SchedulerExponential<f32>>(params.sgd_iterations, params.sgd_eps);
+    // Use SGD parameters from command line - create scheduler directly
+    let mut scheduler = SchedulerExponential::new(params.sgd_iterations);
 
     scheduler.run(&mut |eta| {
-        omega.shuffle(&mut rng);
-        omega.apply(drawing, eta);
+        sgd.shuffle(&mut rng);
+        sgd.apply(drawing, eta);
     });
 }
 

@@ -14,7 +14,7 @@ use argparse::{ArgumentParser, Store};
 use egraph_cli::{read_graph, write_graph};
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
-use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd, SparseSgd};
+use petgraph_layout_sgd::{Scheduler, SchedulerExponential, SparseSgd};
 use rand::thread_rng;
 
 /// Parses command-line arguments for input and output file paths.
@@ -38,7 +38,7 @@ fn parse_args(input_path: &mut String, output_path: &mut String) {
 
 /// Applies the Sparse Stochastic Gradient Descent (SGD) layout algorithm.
 ///
-/// Modifies the provided `coordinates` in place using the `SparseSgd` implementation
+/// Modifies the provided `coordinates` in place using the `SparseSgdBuilder` implementation
 /// with an exponential learning rate scheduler.
 ///
 /// # Arguments
@@ -50,8 +50,8 @@ fn layout(
     coordinates: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
     let mut rng = thread_rng();
-    let mut sgd = SparseSgd::new_with_rng(graph, |_| 30., 200, &mut rng);
-    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
+    let mut sgd = SparseSgd::new().h(200).build(graph, |_| 30., &mut rng);
+    let mut scheduler = SchedulerExponential::new(1000);
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);
         sgd.apply(coordinates, eta);

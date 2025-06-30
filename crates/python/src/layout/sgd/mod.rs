@@ -2,23 +2,21 @@
 //!
 //! This module provides Python bindings for various SGD-based layout algorithms.
 
-mod distance_adjusted_full;
-mod distance_adjusted_sparse;
 mod full;
 mod omega;
 mod schedulers;
+mod sgd;
 mod sparse;
 
 use pyo3::prelude::*;
 
-pub use self::distance_adjusted_full::PyDistanceAdjustedFullSgd;
-pub use self::distance_adjusted_sparse::PyDistanceAdjustedSparseSgd;
 pub use self::full::PyFullSgd;
-pub use self::omega::{PyOmega, PyOmegaBuilder};
+pub use self::omega::PyOmega;
 pub use self::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
 };
+pub use self::sgd::PySgd;
 pub use self::sparse::PySparseSgd;
 
 /// Register all SGD-related classes with the Python module
@@ -33,10 +31,8 @@ pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     // Register SGD algorithm classes
     m.add_class::<PyFullSgd>()?;
     m.add_class::<PySparseSgd>()?;
-    m.add_class::<PyDistanceAdjustedFullSgd>()?;
-    m.add_class::<PyDistanceAdjustedSparseSgd>()?;
     m.add_class::<PyOmega>()?;
-    m.add_class::<PyOmegaBuilder>()?;
+    m.add_class::<PySgd>()?;
 
     Ok(())
 }

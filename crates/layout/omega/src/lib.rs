@@ -15,7 +15,7 @@
 //! ```rust
 //! use petgraph::{Graph, graph::NodeIndex};
 //! use petgraph_layout_omega::{Omega, OmegaBuilder};
-//! use petgraph_layout_sgd::{Scheduler, SchedulerExponential, Sgd};
+//! use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 //! use petgraph_drawing::DrawingEuclidean2d;
 //! use rand::thread_rng;
 //!
@@ -30,7 +30,7 @@
 //!
 //! // Create Omega instance using builder pattern
 //! let mut rng = thread_rng();
-//! let mut omega = OmegaBuilder::new()
+//! let mut omega = Omega::new()
 //!     .d(2)        // Number of spectral dimensions
 //!     .k(5)        // Number of random pairs per node
 //!     .min_dist(1e-3) // Minimum distance between node pairs
@@ -38,7 +38,7 @@
 //!
 //! // Use with SGD framework
 //! let mut drawing: DrawingEuclidean2d<NodeIndex, f32> = DrawingEuclidean2d::initial_placement(&graph);
-//! let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
+//! let mut scheduler = SchedulerExponential::new(1000);
 //!
 //! scheduler.run(&mut |eta| {
 //!     omega.shuffle(&mut rng);
@@ -60,13 +60,12 @@ mod omega;
 pub use eigenvalue::{
     compute_smallest_eigenvalues, compute_smallest_eigenvalues_with_laplacian, LaplacianStructure,
 };
-pub use omega::{Omega, OmegaBuilder};
+pub use omega::Omega;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use petgraph::Graph;
-    use petgraph_layout_sgd::Sgd;
     use rand::thread_rng;
 
     #[test]
@@ -82,7 +81,7 @@ mod tests {
 
         // Create Omega instance with builder
         let mut rng = thread_rng();
-        let omega = OmegaBuilder::new()
+        let omega = Omega::new()
             .d(2) // Number of spectral dimensions
             .k(1) // Number of random pairs per node
             .min_dist(1e-3f32) // Minimum distance between node pairs
@@ -120,7 +119,7 @@ mod tests {
 
         // Create Omega instance with a specific min_dist
         let mut rng = thread_rng();
-        let omega = OmegaBuilder::new()
+        let omega = Omega::new()
             .d(1) // Single dimension for simplicity
             .k(0) // No random pairs to isolate edge pairs
             .min_dist(0.5f32) // Set a minimum distance

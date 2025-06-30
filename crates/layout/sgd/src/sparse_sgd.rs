@@ -9,9 +9,9 @@ use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// Sparse Stochastic Gradient Descent (SGD) implementation for graph layout.
+/// Builder for creating Sparse SGD instances.
 ///
-/// This implementation uses a sparse approximation technique that selects a subset of
+/// This builder uses a sparse approximation technique that selects a subset of
 /// pivot nodes and computes shortest-path distances only from these pivot nodes to all
 /// other nodes. This approach significantly reduces the computational complexity for
 /// large graphs compared to the full SGD algorithm, while still producing good layouts.
@@ -22,66 +22,66 @@ use std::collections::{HashMap, HashSet};
 /// 3. Assigning each non-pivot node to its closest pivot
 /// 4. Using these pivot-based distances to drive the layout optimization
 pub struct SparseSgd<S> {
-    /// List of node pairs to be considered during layout optimization.
-    /// Each tuple contains (i, j, distance_ij, distance_ji, weight_ij, weight_ji)
-    node_pairs: Vec<(usize, usize, S, S, S, S)>,
+    /// Number of pivot nodes to use (controls sparsity)
+    h: usize,
+    eps: S,
 }
 
-impl<S> SparseSgd<S> {
-    /// Creates a new SparseSgd instance from a graph.
-    ///
-    /// This constructor selects pivot nodes randomly and computes the shortest path
-    /// distances to set up the sparse SGD algorithm.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `h` - The number of pivot nodes to use (controls sparsity)
+impl<S> SparseSgd<S>
+where
+    S: DrawingValue,
+{
+    /// Creates a new SparseSgdBuilder with the specified number of pivots.
     ///
     /// # Returns
-    /// A new SparseSgd instance configured with appropriate node pairs
-    pub fn new<G, F>(graph: G, length: F, h: usize) -> Self
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
-        G::NodeId: DrawingIndex + Ord,
-        F: FnMut(G::EdgeRef) -> S,
-        S: DrawingValue,
-    {
-        let mut rng = rand::thread_rng();
-        SparseSgd::new_with_rng(graph, length, h, &mut rng)
+    /// A new SparseSgdBuilder instance
+    pub fn new() -> Self {
+        Self {
+            h: 200,
+            eps: S::from_f32(0.1).unwrap(),
+        }
     }
 
-    /// Creates a new SparseSgd instance with a provided random number generator.
+    pub fn eps(&mut self, eps: S) -> &mut Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Sets the number of pivot nodes.
+    pub fn h(&mut self, h: usize) -> &mut Self {
+        self.h = h;
+        self
+    }
+
+    /// Creates a new SGD instance with a provided random number generator.
     ///
-    /// This variant of the constructor allows using a specific random number generator
+    /// This variant allows using a specific random number generator
     /// for deterministic behavior in testing scenarios.
     ///
     /// # Parameters
     /// * `graph` - The input graph to be laid out
     /// * `length` - A function that maps edges to their lengths/weights
-    /// * `h` - The number of pivot nodes to use (controls sparsity)
     /// * `rng` - The random number generator to use for selecting pivots
     ///
     /// # Returns
-    /// A new SparseSgd instance configured with appropriate node pairs
-    pub fn new_with_rng<G, F, R>(graph: G, length: F, h: usize, rng: &mut R) -> Self
+    /// A new SGD instance configured with appropriate node pairs
+    pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        S: DrawingValue,
     {
         let mut length = length;
         let n = graph.node_count();
-        let h = h.min(n);
+        let h = self.h.min(n);
         let (pivot, d) = Self::choose_pivot(graph, &mut length, h, rng);
-        Self::new_with_pivot_and_distance_matrix(graph, length, &pivot, &d)
+        self.build_with_pivot_and_distance_matrix(graph, length, &pivot, &d)
     }
 
-    /// Creates a new SparseSgd instance with pre-selected pivot nodes.
+    /// Creates a new SGD instance with pre-selected pivot nodes.
     ///
-    /// This constructor allows using a specific set of pivot nodes instead of
+    /// This method allows using a specific set of pivot nodes instead of
     /// selecting them randomly, which can be useful when you have domain knowledge
     /// about which nodes might make good pivots.
     ///
@@ -91,21 +91,20 @@ impl<S> SparseSgd<S> {
     /// * `pivot` - A slice of node IDs to use as pivot nodes
     ///
     /// # Returns
-    /// A new SparseSgd instance configured with the specified pivot nodes
-    pub fn new_with_pivot<G, F>(graph: G, mut length: F, pivot: &[G::NodeId]) -> Self
+    /// A new SGD instance configured with the specified pivot nodes
+    pub fn build_with_pivot<G, F>(&self, graph: G, mut length: F, pivot: &[G::NodeId]) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
-        S: DrawingValue,
     {
         let d = multi_source_dijkstra(graph, &mut length, pivot);
-        Self::new_with_pivot_and_distance_matrix(graph, &mut length, pivot, &d)
+        self.build_with_pivot_and_distance_matrix(graph, &mut length, pivot, &d)
     }
 
-    /// Creates a new SparseSgd instance with pre-selected pivot nodes and a pre-computed distance matrix.
+    /// Creates a new SGD instance with pre-selected pivot nodes and a pre-computed distance matrix.
     ///
-    /// This is the most low-level constructor, useful when you have already computed
+    /// This is the most low-level method, useful when you have already computed
     /// the distance matrix or want to provide a custom distance matrix.
     ///
     /// # Parameters
@@ -115,19 +114,19 @@ impl<S> SparseSgd<S> {
     /// * `distance_matrix` - A pre-computed distance matrix from pivots to all nodes
     ///
     /// # Returns
-    /// A new SparseSgd instance configured with the specified pivot nodes and distances
-    pub fn new_with_pivot_and_distance_matrix<G, F, D>(
+    /// A new SGD instance configured with the specified pivot nodes and distances
+    pub fn build_with_pivot_and_distance_matrix<G, F, D>(
+        &self,
         graph: G,
         mut length: F,
         pivot: &[G::NodeId],
         distance_matrix: &D,
-    ) -> Self
+    ) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         D: DistanceMatrix<G::NodeId, S>,
-        S: DrawingValue,
     {
         let indices = graph
             .node_identifiers()
@@ -180,12 +179,12 @@ impl<S> SparseSgd<S> {
                 node_pairs.push((p, i, dpi, dpi, spi * wpi, S::zero()));
             }
         }
-        SparseSgd { node_pairs }
+        Sgd::new(node_pairs, self.eps)
     }
 
     /// Selects pivot nodes using a max-min randomized algorithm.
     ///
-    /// This method implements a maximal-minimal distance pivot selection strategy.
+    /// This function implements a maximal-minimal distance pivot selection strategy.
     /// It first selects a random node as the first pivot, then iteratively selects
     /// nodes that maximize the minimum distance to all previously selected pivots.
     ///
@@ -210,31 +209,8 @@ impl<S> SparseSgd<S> {
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        S: DrawingValue,
     {
         max_min_random_sp(graph, length, h, rng)
-    }
-}
-
-/// Implementation of the Sgd trait for SparseSgd
-///
-/// This provides the core SGD functionality for the sparse graph layout algorithm,
-/// allowing it to work with the common SGD framework.
-impl<S> Sgd<S> for SparseSgd<S> {
-    /// Returns a reference to the node pairs data structure.
-    ///
-    /// For the sparse implementation, this contains:
-    /// - All direct edge connections (from the original graph)
-    /// - Additional pivot-to-node connections
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
-        &self.node_pairs
-    }
-
-    /// Returns a mutable reference to the node pairs data structure.
-    ///
-    /// This allows modifying the node pairs during execution if needed.
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
-        &mut self.node_pairs
     }
 }
 

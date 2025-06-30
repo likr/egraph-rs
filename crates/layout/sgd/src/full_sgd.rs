@@ -3,22 +3,34 @@ use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 
-/// Full Stochastic Gradient Descent (SGD) implementation for graph layout.
+/// Builder for creating Full SGD instances.
 ///
-/// This implementation computes the shortest-path distances between all pairs of nodes
-/// in the graph and optimizes the layout to match these distances geometrically.
-/// It considers all possible node pairs during the optimization process, which
-/// makes it accurate but potentially slow for large graphs.
+/// This builder computes the shortest-path distances between all pairs of nodes
+/// in the graph and creates an SGD instance that optimizes the layout to match
+/// these distances geometrically. It considers all possible node pairs during
+/// the optimization process, which makes it accurate but potentially slow for large graphs.
 pub struct FullSgd<S> {
-    /// List of node pairs to be considered during layout optimization.
-    /// Each tuple contains (i, j, distance_ij, distance_ji, weight_ij, weight_ji)
-    node_pairs: Vec<(usize, usize, S, S, S, S)>,
+    eps: S,
 }
 
-impl<S> FullSgd<S> {
-    /// Creates a new FullSgd instance from a graph.
+impl<S> FullSgd<S>
+where
+    S: DrawingValue,
+{
+    pub fn new() -> Self {
+        Self {
+            eps: S::from_f32(0.1).unwrap(),
+        }
+    }
+
+    pub fn eps(&mut self, eps: S) -> &mut Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Creates a new SGD instance from a graph using all-pairs shortest paths.
     ///
-    /// This constructor computes the all-pairs shortest path distances for the input graph
+    /// This method computes the all-pairs shortest path distances for the input graph
     /// and uses them as target distances for the layout optimization.
     ///
     /// # Parameters
@@ -26,32 +38,30 @@ impl<S> FullSgd<S> {
     /// * `length` - A function that maps edges to their lengths/weights
     ///
     /// # Returns
-    /// A new FullSgd instance configured with all node pairs
-    pub fn new<G, F>(graph: G, length: F) -> Self
+    /// A new SGD instance configured with all node pairs
+    pub fn build<G, F>(&self, graph: G, length: F) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
-        S: DrawingValue,
     {
         let d = all_sources_dijkstra(graph, length);
-        Self::new_with_distance_matrix(&d)
+        self.build_with_distance_matrix(&d)
     }
 
-    /// Creates a new FullSgd instance from a pre-computed distance matrix.
+    /// Creates a new SGD instance from a pre-computed distance matrix.
     ///
-    /// This constructor is useful when you already have a distance matrix computed
+    /// This method is useful when you already have a distance matrix computed
     /// or want to use custom distances rather than shortest-path distances.
     ///
     /// # Parameters
     /// * `d` - A full distance matrix containing distances between all node pairs
     ///
     /// # Returns
-    /// A new FullSgd instance configured with all node pairs
-    pub fn new_with_distance_matrix<N>(d: &FullDistanceMatrix<N, S>) -> Self
+    /// A new SGD instance configured with all node pairs
+    pub fn build_with_distance_matrix<N>(&self, d: &FullDistanceMatrix<N, S>) -> Sgd<S>
     where
         N: DrawingIndex,
-        S: DrawingValue,
     {
         let n = d.shape().0;
         let mut node_pairs = vec![];
@@ -62,28 +72,6 @@ impl<S> FullSgd<S> {
                 node_pairs.push((i, j, dij, dij, wij, wij));
             }
         }
-        FullSgd { node_pairs }
-    }
-}
-
-/// Implementation of the Sgd trait for FullSgd
-///
-/// This provides the core SGD functionality for the full graph layout algorithm,
-/// allowing it to work with the common SGD framework.
-impl<S> Sgd<S> for FullSgd<S> {
-    /// Returns a reference to the node pairs data structure.
-    ///
-    /// This implementation uses a full complement of node pairs where each tuple
-    /// represents a pair of nodes with their associated target distances and weights.
-    fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
-        &self.node_pairs
-    }
-
-    /// Returns a mutable reference to the node pairs data structure.
-    ///
-    /// This allows the algorithm to modify the node pairs during execution,
-    /// such as updating distances or weights based on current layout.
-    fn node_pairs_mut(&mut self) -> &mut Vec<(usize, usize, S, S, S, S)> {
-        &mut self.node_pairs
+        Sgd::new(node_pairs, self.eps)
     }
 }

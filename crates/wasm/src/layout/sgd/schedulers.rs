@@ -18,11 +18,18 @@ use wasm_bindgen::prelude::*;
 /// to decay-based schedulers.
 #[wasm_bindgen(js_name = "SchedulerConstant")]
 pub struct JsSchedulerConstant {
-    pub(crate) scheduler: SchedulerConstant<f32>,
+    scheduler: SchedulerConstant<f32>,
 }
 
 #[wasm_bindgen(js_class = "SchedulerConstant")]
 impl JsSchedulerConstant {
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerConstant::new(t_max),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -56,11 +63,18 @@ impl JsSchedulerConstant {
 /// to a minimum value over the specified number of iterations.
 #[wasm_bindgen(js_name = "SchedulerLinear")]
 pub struct JsSchedulerLinear {
-    pub(crate) scheduler: SchedulerLinear<f32>,
+    scheduler: SchedulerLinear<f32>,
 }
 
 #[wasm_bindgen(js_class = "SchedulerLinear")]
 impl JsSchedulerLinear {
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerLinear::new(t_max),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -94,11 +108,18 @@ impl JsSchedulerLinear {
 /// which provides a more aggressive decay early on compared to linear decay.
 #[wasm_bindgen(js_name = "SchedulerQuadratic")]
 pub struct JsSchedulerQuadratic {
-    pub(crate) scheduler: SchedulerQuadratic<f32>,
+    scheduler: SchedulerQuadratic<f32>,
 }
 
 #[wasm_bindgen(js_class = "SchedulerQuadratic")]
 impl JsSchedulerQuadratic {
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerQuadratic::new(t_max),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -133,11 +154,18 @@ impl JsSchedulerQuadratic {
 /// It's often effective for helping SGD converge to good solutions.
 #[wasm_bindgen(js_name = "SchedulerExponential")]
 pub struct JsSchedulerExponential {
-    pub(crate) scheduler: SchedulerExponential<f32>,
+    scheduler: SchedulerExponential<f32>,
 }
 
 #[wasm_bindgen(js_class = "SchedulerExponential")]
 impl JsSchedulerExponential {
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerExponential::new(t_max),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -172,11 +200,18 @@ impl JsSchedulerExponential {
 /// many optimization algorithms.
 #[wasm_bindgen(js_name = "SchedulerReciprocal")]
 pub struct JsSchedulerReciprocal {
-    pub(crate) scheduler: SchedulerReciprocal<f32>,
+    scheduler: SchedulerReciprocal<f32>,
 }
 
 #[wasm_bindgen(js_class = "SchedulerReciprocal")]
 impl JsSchedulerReciprocal {
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerReciprocal::new(t_max),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.

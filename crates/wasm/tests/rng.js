@@ -29,8 +29,8 @@ exports.testRngSeedFrom = function () {
   graph.addEdge(node2, node3, {});
 
   // Create two SparseSgd instances with the same parameters but different RNG instances
-  const sgd1 = new eg.SparseSgd(graph, () => 100, 10, rng1);
-  const sgd2 = new eg.SparseSgd(graph, () => 100, 10, rng2);
+  const sgd1 = new eg.SparseSgd().build(graph, () => 100, rng1);
+  const sgd2 = new eg.SparseSgd().build(graph, () => 100, rng2);
 
   // Shuffle both and verify they produce the same result
   sgd1.shuffle(rng1);
@@ -77,8 +77,8 @@ exports.testRngDifferentSeeds = function () {
   graph.addEdge(node2, node3, {});
 
   // Create two SparseSgd instances with the same parameters but different RNG instances
-  const sgd1 = new eg.SparseSgd(graph, () => 100, 10, rng1);
-  const sgd2 = new eg.SparseSgd(graph, () => 100, 10, rng2);
+  const sgd1 = new eg.SparseSgd().build(graph, () => 100, rng1);
+  const sgd2 = new eg.SparseSgd().build(graph, () => 100, rng2);
 
   // Shuffle both
   sgd1.shuffle(rng1);
@@ -130,10 +130,10 @@ exports.testRngWithSgdLayout = function () {
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
 
   // Create an SGD layout with our RNG
-  const sgd = new eg.SparseSgd(graph, () => 100, 5, rng);
+  const sgd = new eg.SparseSgd().build(graph, () => 100, rng);
 
   // Run a few iterations
-  const scheduler = sgd.scheduler(5, 0.1);
+  const scheduler = new eg.SchedulerExponential(5);
   scheduler.run((eta) => {
     sgd.shuffle(rng);
     sgd.applyWithDrawingEuclidean2d(drawing, eta);

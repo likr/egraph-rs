@@ -1,10 +1,12 @@
-use crate::{scheduler::Scheduler, Sgd};
+use std::marker::PhantomData;
+
+use crate::scheduler::Scheduler;
 use petgraph_drawing::DrawingValue;
 
 /// A learning rate scheduler with reciprocal decay.
 ///
-/// This scheduler decreases the learning rate following a reciprocal (hyperbolic) curve,
-/// using the formula: η(t) = a / (1 + b*t).
+/// This scheduler decreases the learning rate following a reciprocal (hyperbolic) curve from 1.0 to 0.01,
+/// using the formula: η(t) = 1 / (1 + 99*t/(t_max-1)).
 ///
 /// Reciprocal decay provides an initially rapid decrease that slows down over time,
 /// which can be effective for finding a balance between exploration and exploitation
@@ -14,31 +16,20 @@ pub struct SchedulerReciprocal<S> {
     t: usize,
     /// Maximum number of iterations
     t_max: usize,
-    /// Initial learning rate (numerator in the reciprocal formula)
-    a: S,
-    /// Rate parameter controlling the decay speed
-    b: S,
+    /// Phantom data to use the generic parameter S
+    phantom: std::marker::PhantomData<S>,
 }
 
-impl<S> SchedulerReciprocal<S> {
-    /// Creates a new reciprocal scheduler from an SGD instance.
-    ///
-    /// This constructor uses the SGD's scheduler method to initialize appropriate parameters
-    /// for reciprocal decay.
-    ///
-    /// # Parameters
-    /// * `sgd` - The SGD algorithm instance to create a scheduler for
-    /// * `t_max` - The maximum number of iterations to run
-    /// * `epsilon` - A small value used to calculate the minimum learning rate
-    ///
-    /// # Returns
-    /// A new reciprocal scheduler instance
-    pub fn new<SGD>(sgd: SGD, t_max: usize, epsilon: S) -> Self
-    where
-        SGD: Sgd<S>,
-        S: DrawingValue,
-    {
-        sgd.scheduler(t_max, epsilon)
+impl<S> SchedulerReciprocal<S>
+where
+    S: DrawingValue,
+{
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            t: 0,
+            t_max,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -47,27 +38,6 @@ impl<S> Scheduler<S> for SchedulerReciprocal<S>
 where
     S: DrawingValue,
 {
-    /// Initializes a new reciprocal scheduler.
-    ///
-    /// This method calculates the parameters for the reciprocal decay formula
-    /// based on the desired minimum and maximum learning rates and the number of iterations.
-    ///
-    /// # Parameters
-    /// * `t_max` - The maximum number of iterations
-    /// * `eta_min` - The minimum learning rate (approached asymptotically at the end)
-    /// * `eta_max` - The maximum learning rate (used at the beginning)
-    ///
-    /// # Returns
-    /// A new SchedulerReciprocal instance
-    fn init(t_max: usize, eta_min: S, eta_max: S) -> Self {
-        Self {
-            t: 0,
-            t_max,
-            a: eta_max,
-            b: (eta_max - eta_min) / eta_min / S::from_usize(t_max - 1).unwrap(),
-        }
-    }
-
     /// Performs a single step of the scheduling process.
     ///
     /// This method calculates the learning rate using the reciprocal decay formula,
@@ -76,7 +46,14 @@ where
     /// # Parameters
     /// * `callback` - A function that will be called with the calculated learning rate
     fn step<F: FnMut(S)>(&mut self, callback: &mut F) {
-        let eta = self.a / (S::one() + self.b * S::from_usize(self.t).unwrap());
+        let eta = if self.t_max == 1 {
+            S::one()
+        } else {
+            // Reciprocal decay from 1.0 to 0.01: 1 / (1 + 99*t/(t_max-1))
+            let progress = S::from_usize(self.t).unwrap() / S::from_usize(self.t_max - 1).unwrap();
+            let decay_factor = S::from_f32(99.0).unwrap() * progress;
+            S::one() / (S::one() + decay_factor)
+        };
         callback(eta);
         self.t += 1;
     }

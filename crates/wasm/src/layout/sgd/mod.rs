@@ -7,15 +7,13 @@
 //! The module includes several variants of SGD algorithms:
 //! * Full SGD - computes accurate layouts using all node pairs
 //! * Sparse SGD - uses pivot nodes to approximate distances for better scalability
-//! * Distance-adjusted variants - modify distances dynamically to avoid node overlap
 
-pub mod distance_adjusted;
 pub mod full;
 pub mod schedulers;
+pub mod sgd;
 pub mod sparse;
 
 // Re-export all SGD implementations for convenience
-pub use self::distance_adjusted::{JsDistanceAdjustedFullSgd, JsDistanceAdjustedSparseSgd};
 pub use self::full::JsFullSgd;
 pub use self::sparse::JsSparseSgd;
 

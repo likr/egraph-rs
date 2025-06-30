@@ -15,8 +15,8 @@ def draw(nx_graph):
     d = eg.all_sources_bfs(graph, 30)
     drawing = eg.DrawingEuclidean2d.initial_placement(graph)
     rng = eg.Rng.seed_from(0)
-    sgd = eg.FullSgd.new_with_distance_matrix(d)
-    scheduler = sgd.scheduler(100, 0.1)
+    sgd = eg.FullSgd().build_with_distance_matrix(d)
+    scheduler = eg.SchedulerExponential(100)
 
     def step(eta):
         sgd.shuffle(rng)
@@ -37,8 +37,8 @@ def draw_torus_2d(nx_graph):
     d = eg.all_sources_bfs(graph, 1 / 30)
     drawing = eg.DrawingTorus2d.initial_placement(graph)
     rng = eg.Rng.seed_from(0)
-    sgd = eg.FullSgd.new_with_distance_matrix(d)
-    scheduler = sgd.scheduler(100, 0.1)
+    sgd = eg.FullSgd().build_with_distance_matrix(d)
+    scheduler = eg.SchedulerExponential(100)
 
     def step(eta):
         sgd.shuffle(rng)

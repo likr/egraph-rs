@@ -181,8 +181,8 @@ exports.testClassicalMdsIntegration = function () {
   const initialPositions = helpers.recordInitialPositions2d(drawing, graph);
 
   // Apply SGD to refine the MDS layout
-  const sgd = new eg.FullSgd(graph, () => 1.0);
-  const scheduler = sgd.scheduler(10, 0.1);
+  const sgd = new eg.FullSgd().build(graph, () => 1.0);
+  const scheduler = new eg.SchedulerExponential(10);
   scheduler.run((eta) => {
     sgd.applyWithDrawingEuclidean2d(drawing, eta);
   });

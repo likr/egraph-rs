@@ -45,8 +45,8 @@ class TestRng(unittest.TestCase):
             self.assertEqual(initial_positions1[u], initial_positions2[u])
 
         # Create SGD instances with the same parameters
-        sgd1 = eg.FullSgd(self._graph, lambda _: 1.0)
-        sgd2 = eg.FullSgd(self._graph, lambda _: 1.0)
+        sgd1 = eg.FullSgd().build(self._graph, lambda _: 1.0)
+        sgd2 = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         # Apply SGD with the two RNGs
         sgd1.shuffle(rng1)
@@ -81,8 +81,8 @@ class TestRng(unittest.TestCase):
             self.assertEqual(initial_positions1[u], initial_positions2[u])
 
         # Create SGD instances with the same parameters
-        sgd1 = eg.FullSgd(self._graph, lambda _: 1.0)
-        sgd2 = eg.FullSgd(self._graph, lambda _: 1.0)
+        sgd1 = eg.FullSgd().build(self._graph, lambda _: 1.0)
+        sgd2 = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         # Apply SGD with the two RNGs
         sgd1.shuffle(rng1)
@@ -109,8 +109,8 @@ class TestRng(unittest.TestCase):
         drawing2 = eg.DrawingEuclidean2d.initial_placement(self._graph)
 
         # Create SGD instances with the same parameters
-        sgd1 = eg.FullSgd(self._graph, lambda _: 1.0)
-        sgd2 = eg.FullSgd(self._graph, lambda _: 1.0)
+        sgd1 = eg.FullSgd().build(self._graph, lambda _: 1.0)
+        sgd2 = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         # Apply SGD with first shuffle
         sgd1.shuffle(rng)
@@ -151,8 +151,8 @@ class TestRng(unittest.TestCase):
         drawing2 = mds2.run_2d()
 
         # Apply SGD with the two RNGs for refinement
-        sgd1 = eg.FullSgd.new_with_distance_matrix(d1)
-        sgd2 = eg.FullSgd.new_with_distance_matrix(d2)
+        sgd1 = eg.FullSgd().build_with_distance_matrix(d1)
+        sgd2 = eg.FullSgd().build_with_distance_matrix(d2)
 
         sgd1.shuffle(rng1)
         sgd1.apply(drawing1, 0.1)
@@ -179,8 +179,8 @@ class TestRng(unittest.TestCase):
         drawing_min = eg.DrawingEuclidean2d.initial_placement(self._graph)
         drawing_max = eg.DrawingEuclidean2d.initial_placement(self._graph)
 
-        sgd_min = eg.FullSgd(self._graph, lambda _: 1.0)
-        sgd_max = eg.FullSgd(self._graph, lambda _: 1.0)
+        sgd_min = eg.FullSgd().build(self._graph, lambda _: 1.0)
+        sgd_max = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         sgd_min.shuffle(rng_min)
         sgd_min.apply(drawing_min, 0.1)
