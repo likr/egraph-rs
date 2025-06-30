@@ -19,6 +19,22 @@ impl PySgd {
 
 #[pymethods]
 impl PySgd {
+    /// Creates a new SGD instance with the given node pairs and epsilon
+    ///
+    /// :param node_pairs: List of tuples (i, j, dij, dji, wij, wji) representing node pairs
+    /// :type node_pairs: list[tuple[int, int, float, float, float, float]]
+    /// :param epsilon: Small value for numerical stability, defaults to 0.1
+    /// :type epsilon: float
+    /// :return: A new SGD instance
+    /// :rtype: Sgd
+    /// :raises ValueError: If node_pairs is malformed or contains invalid values
+    #[new]
+    #[pyo3(signature = (node_pairs, epsilon = 0.1))]
+    fn new(node_pairs: Vec<(usize, usize, f32, f32, f32, f32)>, epsilon: f32) -> PyResult<Self> {
+        let sgd = Sgd::new(node_pairs, epsilon);
+        Ok(Self { sgd })
+    }
+
     /// Shuffles the order of node pairs used in the SGD algorithm
     ///
     /// Randomizing the order of node pairs can help avoid local minima

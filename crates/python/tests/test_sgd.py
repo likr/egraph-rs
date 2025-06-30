@@ -99,5 +99,43 @@ class TestSgd(unittest.TestCase):
                 scheduler.run(step)
                 check_drawing_3d(graph, drawing)
 
+    def test_sgd_constructor(self):
+        """Test the direct SGD constructor with custom node pairs"""
+        for Scheduler in self._schedulers:
+            # Create simple node pairs: (i, j, dij, dji, wij, wji)
+            # Simple 3-node triangle with equal distances and weights
+            node_pairs = [
+                (0, 1, 1.0, 1.0, 1.0, 1.0),
+                (0, 2, 1.0, 1.0, 1.0, 1.0), 
+                (1, 2, 1.0, 1.0, 1.0, 1.0),
+            ]
+            
+            # Test with default epsilon
+            sgd = eg.Sgd(node_pairs)
+            
+            # Test with custom epsilon
+            sgd_custom = eg.Sgd(node_pairs, epsilon=0.05)
+            
+            # Create a simple 3-node graph for testing
+            graph = eg.Graph()
+            n0 = graph.add_node(0)
+            n1 = graph.add_node(1)
+            n2 = graph.add_node(2)
+            graph.add_edge(n0, n1, (0, 1))
+            graph.add_edge(n1, n2, (1, 2))
+            graph.add_edge(n2, n0, (2, 0))
+            
+            # Create drawing from graph
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+            rng = eg.Rng.seed_from(42)
+            scheduler = Scheduler(10)
+
+            def step(eta):
+                sgd.shuffle(rng)
+                sgd.apply(drawing, eta)
+
+            scheduler.run(step)
+            check_drawing_2d(graph, drawing)
+
 if __name__ == "__main__":
     unittest.main()

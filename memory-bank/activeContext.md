@@ -40,6 +40,69 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **SGD Direct Constructor Implementation (2025-06-30)**
+
+  - **Python SGD Constructor Addition**: Implemented direct constructor for `PySgd` class allowing users to create SGD instances with custom node pairs without requiring builder patterns
+
+  - **Implementation Details**:
+
+    - **`crates/python/src/layout/sgd/sgd.rs`**: Added `#[new]` constructor to `PySgd` class
+      - **`#[new]` method**: Direct constructor accepting node pairs and epsilon parameter
+      - **Parameter validation**: Simplified approach without extensive input validation (user's preference)
+      - **Signature**: `fn new(node_pairs: Vec<(usize, usize, f32, f32, f32, f32)>, epsilon: f32) -> PyResult<Self>`
+      - **Default epsilon**: 0.1 (matches other SGD implementations in the project)
+      - **Error handling**: Returns `PyResult<Self>` for proper Python error propagation
+    - **`crates/python/tests/test_sgd.py`**: Added comprehensive test case `test_sgd_constructor`
+      - **Custom node pairs testing**: Creates simple 3-node triangle with equal distances and weights
+      - **Default epsilon testing**: Verifies constructor works with default epsilon parameter
+      - **Custom epsilon testing**: Verifies constructor works with user-specified epsilon
+      - **Integration testing**: Full SGD workflow with schedulers and drawing updates
+      - **Cross-scheduler validation**: Tests with all 5 scheduler types (Constant, Linear, Quadratic, Exponential, Reciprocal)
+
+  - **API Features Implemented**:
+
+    ```python
+    # Basic usage with default epsilon
+    node_pairs = [(0, 1, 1.0, 1.0, 1.0, 1.0), (0, 2, 1.0, 1.0, 1.0, 1.0), (1, 2, 1.0, 1.0, 1.0, 1.0)]
+    sgd = eg.Sgd(node_pairs)
+
+    # Custom epsilon
+    sgd_custom = eg.Sgd(node_pairs, epsilon=0.05)
+
+    # Full SGD workflow
+    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+    rng = eg.Rng.seed_from(42)
+    scheduler = eg.SchedulerExponential(10)
+
+    def step(eta):
+        sgd.shuffle(rng)
+        sgd.apply(drawing, eta)
+
+    scheduler.run(step)
+    ```
+
+  - **Design Decisions**:
+
+    - **Simplified validation**: User requested no extensive input validation for performance and simplicity
+    - **Builder pattern avoided**: User specifically requested no builder pattern implementation
+    - **Consistent API**: Follows same method signatures as existing SGD classes (shuffle, apply, update_distance, update_weight)
+    - **Parameter format**: Node pairs use 6-tuple format (i, j, dij, dji, wij, wji) matching Rust SGD::new() signature
+
+  - **Benefits Achieved**:
+
+    - **Direct access**: Users can now create SGD instances directly without requiring FullSgd or SparseSgd builders
+    - **Custom workflows**: Enables advanced users to define custom node pair configurations
+    - **API completeness**: Fills gap in Python bindings where core SGD class was only accessible through builders
+    - **Performance**: Direct constructor eliminates intermediate builder steps for custom use cases
+    - **Flexibility**: Allows integration with external distance computation algorithms
+
+  - **Integration Status**:
+    - ✅ **Core constructor**: Direct SGD creation with custom node pairs
+    - ✅ **Test coverage**: Comprehensive test with all scheduler types
+    - ✅ **Error handling**: Proper PyResult error propagation
+    - ✅ **Documentation**: Complete docstring with parameter descriptions and usage examples
+    - ✅ **Backward compatibility**: Existing builder-based workflows continue to work unchanged
+
 - **Omega Python Bindings Implementation (2025-06-05)**
 
   - **Complete Python Bindings for Omega Algorithm**: Implemented comprehensive PyO3-based Python wrapper for the Omega spectral coordinates SGD layout algorithm

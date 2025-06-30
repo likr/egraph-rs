@@ -84,6 +84,13 @@
   - Triangulation algorithm with comprehensive tests
   - Separation constraints with rectangle overlap prevention
   - All layout algorithms with multi-dimensional drawing support
+  - **SGD Direct Constructor (2025-06-30)**: Direct constructor for PySgd class enabling custom node pair configurations
+    - Direct SGD instance creation without requiring builder patterns
+    - Custom node pairs with 6-tuple format (i, j, dij, dji, wij, wji)
+    - Configurable epsilon parameter with sensible default (0.1)
+    - Full integration with scheduler system and all drawing spaces
+    - Comprehensive test coverage with all 5 scheduler types
+    - Enables advanced workflows with external distance computations
   - **Omega Algorithm Python Bindings (2025-06-05)**: Complete PyOmega and PyOmegaBuilder implementation
     - Full SGD interface compatibility with other layout algorithms
     - Builder pattern with all 7 configurable parameters (d, k, min_dist, tolerances)
