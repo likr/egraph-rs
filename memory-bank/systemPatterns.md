@@ -20,10 +20,35 @@
 
 ## Layout Algorithms
 
-- **SGD**: Force-directed layout with multiple variants
+- **SGD**: Force-directed layout with unified concrete implementation
 
-  - Full, Sparse, Distance-Adjusted, Omega implementations
-  - Various learning rate schedulers (Constant, Linear, etc.)
+  - **Architectural Evolution**: Moved from trait-based approach to concrete `Sgd<S>` struct for better performance and simplicity
+  - **Unified Framework**: Single implementation supports Full, Sparse, Distance-Adjusted, Omega variants through different node pair generation strategies
+  - **Core Structure**:
+    ```rust
+    pub struct Sgd<S> {
+        node_pairs: Vec<(usize, usize, S, S, S, S)>, // (i, j, dij, dji, wij, wji)
+        epsilon: S,    // Numerical stability parameter
+        eta_min: S,    // Minimum learning rate (calculated from weights)
+        eta_max: S,    // Maximum learning rate (calculated from weights)
+    }
+    ```
+  - **Learning Rate Management**: Automatic eta_min/eta_max calculation from weight distribution eliminates manual tuning
+  - **Scheduler Integration**: Comprehensive trait-based scheduler system:
+    ```rust
+    pub trait Scheduler<S> {
+        fn run<F: FnMut(S)>(&mut self, callback: &mut F);
+        fn step<F: FnMut(S)>(&mut self, callback: &mut F);
+        fn is_finished(&self) -> bool;
+    }
+    ```
+  - **Five Scheduler Implementations**: Constant, Linear, Quadratic, Exponential, Reciprocal with customizable parameters
+  - **Dynamic Updates**: Runtime distance and weight updates with automatic recalculation:
+    ```rust
+    sgd.update_distance(|i, j, dist, weight| new_distance);
+    sgd.update_weight(|i, j, dist, weight| new_weight);
+    ```
+  - **Numerical Stability**: Proper epsilon handling and normalized learning rate calculation from [0,1] to [eta_min, eta_max]
   - **Omega**: Spectral coordinates-based SGD using graph Laplacian eigenvalues
 
 - **MDS**: Lower-dimensional space visualization

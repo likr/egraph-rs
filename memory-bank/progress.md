@@ -12,6 +12,13 @@
 
 - ✅ **Layout Algorithms**
 
+  - **SGD Framework**: Complete refactoring with unified concrete implementation
+    - **Architectural Evolution**: Moved from trait-based approach to concrete `Sgd<S>` struct for better performance and simplicity
+    - **Unified Interface**: Single implementation supports Full, Sparse, Distance-adjusted, and Omega variants
+    - **Learning Rate Management**: Automatic eta_min/eta_max calculation from weight distribution
+    - **Scheduler Integration**: Comprehensive trait-based scheduler system with five implementations (Constant, Linear, Quadratic, Exponential, Reciprocal)
+    - **Numerical Stability**: Proper epsilon handling and normalized learning rate calculation
+    - **Dynamic Updates**: Support for runtime distance and weight updates with automatic recalculation
   - SGD with Full, Sparse, Distance-adjusted, and Omega variants
   - **Omega Algorithm**: Complete refactoring with all issues resolved (2025-01-06)
     - **Edge Length Integration**: Now properly uses weighted Laplacian from edge length function
