@@ -9,23 +9,11 @@ use petgraph_drawing::{DrawingIndex, DrawingValue};
 /// in the graph and creates an SGD instance that optimizes the layout to match
 /// these distances geometrically. It considers all possible node pairs during
 /// the optimization process, which makes it accurate but potentially slow for large graphs.
-pub struct FullSgd<S> {
-    eps: S,
-}
+pub struct FullSgd;
 
-impl<S> FullSgd<S>
-where
-    S: DrawingValue,
-{
+impl FullSgd {
     pub fn new() -> Self {
-        Self {
-            eps: S::from_f32(0.1).unwrap(),
-        }
-    }
-
-    pub fn eps(&mut self, eps: S) -> &mut Self {
-        self.eps = eps;
-        self
+        Self
     }
 
     /// Creates a new SGD instance from a graph using all-pairs shortest paths.
@@ -39,11 +27,12 @@ where
     ///
     /// # Returns
     /// A new SGD instance configured with all node pairs
-    pub fn build<G, F>(&self, graph: G, length: F) -> Sgd<S>
+    pub fn build<G, F, S>(&self, graph: G, length: F) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
     {
         let d = all_sources_dijkstra(graph, length);
         self.build_with_distance_matrix(&d)
@@ -59,9 +48,10 @@ where
     ///
     /// # Returns
     /// A new SGD instance configured with all node pairs
-    pub fn build_with_distance_matrix<N>(&self, d: &FullDistanceMatrix<N, S>) -> Sgd<S>
+    pub fn build_with_distance_matrix<N, S>(&self, d: &FullDistanceMatrix<N, S>) -> Sgd<S>
     where
         N: DrawingIndex,
+        S: DrawingValue,
     {
         let n = d.shape().0;
         let mut node_pairs = vec![];
@@ -72,6 +62,6 @@ where
                 node_pairs.push((i, j, dij, dij, wij, wij));
             }
         }
-        Sgd::new(node_pairs, self.eps)
+        Sgd::new(node_pairs)
     }
 }

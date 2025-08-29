@@ -21,15 +21,14 @@ pub struct JsSchedulerConstant {
     scheduler: SchedulerConstant<f32>,
 }
 
+impl JsSchedulerConstant {
+    pub fn new_with_scheduler(scheduler: SchedulerConstant<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[wasm_bindgen(js_class = "SchedulerConstant")]
 impl JsSchedulerConstant {
-    #[wasm_bindgen(constructor)]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerConstant::new(t_max),
-        }
-    }
-
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -66,15 +65,14 @@ pub struct JsSchedulerLinear {
     scheduler: SchedulerLinear<f32>,
 }
 
+impl JsSchedulerLinear {
+    pub fn new_with_scheduler(scheduler: SchedulerLinear<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[wasm_bindgen(js_class = "SchedulerLinear")]
 impl JsSchedulerLinear {
-    #[wasm_bindgen(constructor)]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerLinear::new(t_max),
-        }
-    }
-
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -111,15 +109,14 @@ pub struct JsSchedulerQuadratic {
     scheduler: SchedulerQuadratic<f32>,
 }
 
+impl JsSchedulerQuadratic {
+    pub fn new_with_scheduler(scheduler: SchedulerQuadratic<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[wasm_bindgen(js_class = "SchedulerQuadratic")]
 impl JsSchedulerQuadratic {
-    #[wasm_bindgen(constructor)]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerQuadratic::new(t_max),
-        }
-    }
-
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -157,15 +154,14 @@ pub struct JsSchedulerExponential {
     scheduler: SchedulerExponential<f32>,
 }
 
+impl JsSchedulerExponential {
+    pub fn new_with_scheduler(scheduler: SchedulerExponential<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[wasm_bindgen(js_class = "SchedulerExponential")]
 impl JsSchedulerExponential {
-    #[wasm_bindgen(constructor)]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerExponential::new(t_max),
-        }
-    }
-
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -203,15 +199,14 @@ pub struct JsSchedulerReciprocal {
     scheduler: SchedulerReciprocal<f32>,
 }
 
+impl JsSchedulerReciprocal {
+    pub fn new_with_scheduler(scheduler: SchedulerReciprocal<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[wasm_bindgen(js_class = "SchedulerReciprocal")]
 impl JsSchedulerReciprocal {
-    #[wasm_bindgen(constructor)]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerReciprocal::new(t_max),
-        }
-    }
-
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.

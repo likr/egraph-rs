@@ -19,7 +19,7 @@ use super::extract_edge_lengths;
 /// computationally expensive for large graphs.
 #[wasm_bindgen(js_name = "FullSgd")]
 pub struct JsFullSgd {
-    builder: FullSgd<f32>,
+    builder: FullSgd,
 }
 
 #[wasm_bindgen(js_class = "FullSgd")]

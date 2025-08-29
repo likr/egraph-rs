@@ -17,24 +17,31 @@ pub struct SchedulerConstant<S> {
     phantom: PhantomData<S>,
 }
 
-impl<S> SchedulerConstant<S>
+/// Implementation of the Scheduler trait for SchedulerConstant
+impl<S> Scheduler<S> for SchedulerConstant<S>
 where
     S: DrawingValue,
 {
-    pub fn new(t_max: usize) -> Self {
+    /// Initializes a new constant scheduler.
+    ///
+    /// This method initializes a scheduler that provides a constant learning rate.
+    /// The constant value is set to eta_max (ignoring eta_min).
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `eta_min` - The minimum learning rate (ignored for constant scheduler)
+    /// * `eta_max` - The maximum learning rate (used as the constant value)
+    ///
+    /// # Returns
+    /// A new SchedulerConstant instance
+    fn init(t_max: usize, _eta_min: S, _eta_max: S) -> Self {
         Self {
             t: 0,
             t_max,
             phantom: PhantomData,
         }
     }
-}
 
-/// Implementation of the Scheduler trait for SchedulerConstant
-impl<S> Scheduler<S> for SchedulerConstant<S>
-where
-    S: DrawingValue,
-{
     /// Performs a single step of the scheduling process.
     ///
     /// This implementation always provides a learning rate of 1.0 to the callback

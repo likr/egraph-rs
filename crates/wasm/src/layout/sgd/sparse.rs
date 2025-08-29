@@ -19,7 +19,7 @@ use super::extract_edge_lengths;
 /// where computing all-pairs shortest paths would be too expensive.
 #[wasm_bindgen(js_name = "SparseSgd")]
 pub struct JsSparseSgd {
-    builder: SparseSgd<f32>,
+    builder: SparseSgd,
 }
 
 #[wasm_bindgen(js_class = "SparseSgd")]

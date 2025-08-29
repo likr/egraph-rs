@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Initialize SGD with the undirected graph
     let iterations = 100;
     let mut sgd = FullSgd::new().build(&undirected_graph, |_| edge_length);
-    let mut scheduler = SchedulerExponential::new(iterations);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
     let mut rng = thread_rng();
 
     // Optimize layout using stress-majorization and constraints

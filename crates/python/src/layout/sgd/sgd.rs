@@ -2,7 +2,14 @@ use crate::drawing::{
     DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d,
     PyDrawingSpherical2d, PyDrawingTorus2d,
 };
-use petgraph_layout_sgd::Sgd;
+use crate::layout::sgd::schedulers::{
+    PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
+    PySchedulerReciprocal,
+};
+use petgraph_layout_sgd::{
+    SchedulerConstant, SchedulerExponential, SchedulerLinear, SchedulerQuadratic,
+    SchedulerReciprocal, Sgd,
+};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -23,15 +30,12 @@ impl PySgd {
     ///
     /// :param node_pairs: List of tuples (i, j, dij, dji, wij, wji) representing node pairs
     /// :type node_pairs: list[tuple[int, int, float, float, float, float]]
-    /// :param epsilon: Small value for numerical stability, defaults to 0.1
-    /// :type epsilon: float
     /// :return: A new SGD instance
     /// :rtype: Sgd
     /// :raises ValueError: If node_pairs is malformed or contains invalid values
     #[new]
-    #[pyo3(signature = (node_pairs, epsilon = 0.1))]
-    fn new(node_pairs: Vec<(usize, usize, f32, f32, f32, f32)>, epsilon: f32) -> PyResult<Self> {
-        let sgd = Sgd::new(node_pairs, epsilon);
+    fn new(node_pairs: Vec<(usize, usize, f32, f32, f32, f32)>) -> PyResult<Self> {
+        let sgd = Sgd::new(node_pairs);
         Ok(Self { sgd })
     }
 
@@ -122,5 +126,88 @@ impl PySgd {
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.sgd
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
+
+    /// Creates an default scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: An exponential scheduler
+    /// :rtype: SchedulerExponential
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    /// Creates a constant scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: A constant scheduler
+    /// :rtype: SchedulerConstant
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+        PySchedulerConstant::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerConstant<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a linear scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: A linear scheduler
+    /// :rtype: SchedulerLinear
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+        PySchedulerLinear::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerLinear<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates an exponential scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: An exponential scheduler
+    /// :rtype: SchedulerExponential
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+        PySchedulerExponential::new_with_scheduler(
+            self.sgd
+                .scheduler::<SchedulerExponential<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a quadratic scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: A quadratic scheduler
+    /// :rtype: SchedulerQuadratic
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+        PySchedulerQuadratic::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerQuadratic<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a reciprocal scheduler from this SGD instance
+    ///
+    /// :param t_max: The maximum number of iterations
+    /// :type t_max: int
+    /// :param epsilon: The minimum learning rate
+    /// :type epsilon: float
+    /// :return: A reciprocal scheduler
+    /// :rtype: SchedulerReciprocal
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+        PySchedulerReciprocal::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerReciprocal<_>>(t_max, epsilon),
+        )
     }
 }

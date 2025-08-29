@@ -15,7 +15,6 @@ use std::collections::{HashMap, HashSet};
 /// eigenvalue solver parameters.
 #[derive(Debug, Clone)]
 pub struct Omega<S> {
-    pub eps: S,
     /// Number of spectral dimensions
     pub d: usize,
     /// Number of random pairs per node  
@@ -48,7 +47,6 @@ where
     /// - cg_tolerance: 1e-4 (CG convergence)
     pub fn new() -> Self {
         Self {
-            eps: S::from_f32(0.1).unwrap(),
             d: 2,
             k: 30,
             min_dist: S::from_f32(1e-3).unwrap(),
@@ -57,11 +55,6 @@ where
             eigenvalue_tolerance: S::from_f32(1e-4).unwrap(),
             cg_tolerance: S::from_f32(1e-4).unwrap(),
         }
-    }
-
-    pub fn eps(&mut self, eps: S) -> &mut Self {
-        self.eps = eps;
-        self
     }
 
     /// Sets the number of spectral dimensions.
@@ -123,7 +116,7 @@ where
         R: Rng,
     {
         let node_pairs = compute_omega_node_pairs(graph, length, self, rng);
-        Sgd::new(node_pairs, self.eps)
+        Sgd::new(node_pairs)
     }
 }
 

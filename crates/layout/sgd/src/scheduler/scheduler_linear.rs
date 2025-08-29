@@ -1,12 +1,10 @@
-use std::marker::PhantomData;
-
 use crate::scheduler::Scheduler;
 use petgraph_drawing::DrawingValue;
 
 /// A learning rate scheduler with linear decay.
 ///
-/// This scheduler decreases the learning rate linearly over time from 1.0 to 0.0,
-/// following the formula: η(t) = 1.0 - t / (t_max - 1).
+/// This scheduler decreases the learning rate linearly over time,
+/// following the formula: η(t) = a - b * t.
 ///
 /// Linear decay provides a steady, predictable decrease in the learning rate,
 /// which can be useful for many graph layout applications.
@@ -15,21 +13,10 @@ pub struct SchedulerLinear<S> {
     t: usize,
     /// Maximum number of iterations
     t_max: usize,
-    /// Phantom data to use the generic parameter S
-    phantom: PhantomData<S>,
-}
-
-impl<S> SchedulerLinear<S>
-where
-    S: DrawingValue,
-{
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            t: 0,
-            t_max,
-            phantom: PhantomData,
-        }
-    }
+    /// Initial learning rate (y-intercept in the linear formula)
+    a: S,
+    /// Rate of decrease per iteration (slope in the linear formula)
+    b: S,
 }
 
 /// Implementation of the Scheduler trait for SchedulerLinear
@@ -37,6 +24,27 @@ impl<S> Scheduler<S> for SchedulerLinear<S>
 where
     S: DrawingValue,
 {
+    /// Initializes a new linear scheduler.
+    ///
+    /// This method calculates the parameters for the linear decay formula
+    /// based on the desired minimum and maximum learning rates and the number of iterations.
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations
+    /// * `eta_min` - The minimum learning rate (reached at the end)
+    /// * `eta_max` - The maximum learning rate (used at the beginning)
+    ///
+    /// # Returns
+    /// A new SchedulerLinear instance
+    fn init(t_max: usize, eta_min: S, eta_max: S) -> Self {
+        Self {
+            t: 0,
+            t_max,
+            a: eta_max,
+            b: (eta_max - eta_min) / S::from_usize(t_max - 1).unwrap(),
+        }
+    }
+
     /// Performs a single step of the scheduling process.
     ///
     /// This method calculates the learning rate using the linear decay formula,
@@ -45,11 +53,7 @@ where
     /// # Parameters
     /// * `callback` - A function that will be called with the calculated learning rate
     fn step<F: FnMut(S)>(&mut self, callback: &mut F) {
-        let eta = if self.t_max == 1 {
-            S::one()
-        } else {
-            S::one() - S::from_usize(self.t).unwrap() / S::from_usize(self.t_max - 1).unwrap()
-        };
+        let eta = self.a - self.b * S::from_usize(self.t).unwrap();
         callback(eta);
         self.t += 1;
     }

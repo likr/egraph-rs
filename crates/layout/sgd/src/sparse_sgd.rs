@@ -21,30 +21,18 @@ use std::collections::{HashMap, HashSet};
 /// 2. Computing shortest paths from these pivots to all other nodes
 /// 3. Assigning each non-pivot node to its closest pivot
 /// 4. Using these pivot-based distances to drive the layout optimization
-pub struct SparseSgd<S> {
+pub struct SparseSgd {
     /// Number of pivot nodes to use (controls sparsity)
     h: usize,
-    eps: S,
 }
 
-impl<S> SparseSgd<S>
-where
-    S: DrawingValue,
-{
+impl SparseSgd {
     /// Creates a new SparseSgdBuilder with the specified number of pivots.
     ///
     /// # Returns
     /// A new SparseSgdBuilder instance
     pub fn new() -> Self {
-        Self {
-            h: 200,
-            eps: S::from_f32(0.1).unwrap(),
-        }
-    }
-
-    pub fn eps(&mut self, eps: S) -> &mut Self {
-        self.eps = eps;
-        self
+        Self { h: 200 }
     }
 
     /// Sets the number of pivot nodes.
@@ -65,12 +53,13 @@ where
     ///
     /// # Returns
     /// A new SGD instance configured with appropriate node pairs
-    pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Sgd<S>
+    pub fn build<G, F, R, S>(&self, graph: G, length: F, rng: &mut R) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
+        S: DrawingValue,
     {
         let mut length = length;
         let n = graph.node_count();
@@ -92,11 +81,12 @@ where
     ///
     /// # Returns
     /// A new SGD instance configured with the specified pivot nodes
-    pub fn build_with_pivot<G, F>(&self, graph: G, mut length: F, pivot: &[G::NodeId]) -> Sgd<S>
+    pub fn build_with_pivot<G, F, S>(&self, graph: G, mut length: F, pivot: &[G::NodeId]) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
     {
         let d = multi_source_dijkstra(graph, &mut length, pivot);
         self.build_with_pivot_and_distance_matrix(graph, &mut length, pivot, &d)
@@ -115,7 +105,7 @@ where
     ///
     /// # Returns
     /// A new SGD instance configured with the specified pivot nodes and distances
-    pub fn build_with_pivot_and_distance_matrix<G, F, D>(
+    pub fn build_with_pivot_and_distance_matrix<G, F, D, S>(
         &self,
         graph: G,
         mut length: F,
@@ -127,6 +117,7 @@ where
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         D: DistanceMatrix<G::NodeId, S>,
+        S: DrawingValue,
     {
         let indices = graph
             .node_identifiers()
@@ -179,7 +170,7 @@ where
                 node_pairs.push((p, i, dpi, dpi, spi * wpi, S::zero()));
             }
         }
-        Sgd::new(node_pairs, self.eps)
+        Sgd::new(node_pairs)
     }
 
     /// Selects pivot nodes using a max-min randomized algorithm.
@@ -198,7 +189,7 @@ where
     /// A tuple containing:
     /// - A vector of selected pivot node IDs
     /// - A SubDistanceMatrix containing distances from pivots to all nodes
-    pub fn choose_pivot<G, F, R>(
+    pub fn choose_pivot<G, F, R, S>(
         graph: G,
         length: F,
         h: usize,
@@ -209,6 +200,7 @@ where
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
+        S: DrawingValue,
     {
         max_min_random_sp(graph, length, h, rng)
     }

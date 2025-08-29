@@ -51,7 +51,7 @@ fn layout(
 ) {
     let mut rng = thread_rng();
     let mut sgd = SparseSgd::new().h(200).build(graph, |_| 30., &mut rng);
-    let mut scheduler = SchedulerExponential::new(1000);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);
         sgd.apply(coordinates, eta);

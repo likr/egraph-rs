@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "SparseSgd")]
 pub struct PySparseSgd {
-    builder: SparseSgd<f32>,
+    builder: SparseSgd,
 }
 
 #[pymethods]
@@ -21,11 +21,6 @@ impl PySparseSgd {
         Self {
             builder: SparseSgd::new(),
         }
-    }
-
-    fn eps(mut slf: PyRefMut<Self>, eps: f32) -> Py<Self> {
-        slf.builder.eps(eps);
-        slf.into()
     }
 
     fn h(mut slf: PyRefMut<Self>, h: usize) -> Py<Self> {

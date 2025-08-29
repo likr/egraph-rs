@@ -221,7 +221,6 @@ fn layout(
 
     // Create SGD instance using Omega builder pattern with command-line parameters
     let mut sgd = Omega::new()
-        .eps(params.sgd_eps)
         .d(params.d)
         .k(params.k)
         .min_dist(params.min_dist)
@@ -231,8 +230,9 @@ fn layout(
         .cg_tolerance(params.cg_tolerance)
         .build(graph, |_| params.unit_edge_length, &mut rng);
 
-    // Use SGD parameters from command line - create scheduler directly
-    let mut scheduler = SchedulerExponential::new(params.sgd_iterations);
+    // Use SGD parameters from command line - create scheduler from SGD instance
+    let mut scheduler =
+        sgd.scheduler::<SchedulerExponential<f32>>(params.sgd_iterations, params.sgd_eps);
 
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);

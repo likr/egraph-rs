@@ -14,12 +14,23 @@ mod scheduler_reciprocal;
 /// Trait for learning rate schedulers in SGD algorithms.
 ///
 /// Schedulers control how the learning rate changes over time during the layout process.
-/// All schedulers generate values in the range [0, 1], which are then normalized by the
-/// SGD implementation to the appropriate learning rate range based on weight distribution.
+/// Typically, the learning rate starts high to allow for bigger movements and then
+/// gradually decreases to allow for fine-tuning the final positions.
 ///
 /// The generic parameter `S` represents the scalar type used for calculations
 /// (typically `f32` or `f64`).
 pub trait Scheduler<S> {
+    /// Initializes a new scheduler with the specified parameters.
+    ///
+    /// # Parameters
+    /// * `t_max` - The maximum number of iterations the scheduler will run
+    /// * `eta_min` - The minimum learning rate (typically reached at the end of the process)
+    /// * `eta_max` - The maximum learning rate (typically used at the beginning of the process)
+    ///
+    /// # Returns
+    /// A new scheduler instance configured with the provided parameters
+    fn init(t_max: usize, eta_min: S, eta_max: S) -> Self;
+
     /// Runs the complete scheduling process from start to finish.
     ///
     /// This method repeatedly calls `step()` until `is_finished()` returns true,

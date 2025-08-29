@@ -24,15 +24,14 @@ pub struct PySchedulerConstant {
     scheduler: SchedulerConstant<f32>,
 }
 
+impl PySchedulerConstant {
+    pub fn new_with_scheduler(scheduler: SchedulerConstant<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[pymethods]
 impl PySchedulerConstant {
-    #[new]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerConstant::new(t_max),
-        }
-    }
-
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -83,15 +82,14 @@ pub struct PySchedulerLinear {
     scheduler: SchedulerLinear<f32>,
 }
 
+impl PySchedulerLinear {
+    pub fn new_with_scheduler(scheduler: SchedulerLinear<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[pymethods]
 impl PySchedulerLinear {
-    #[new]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerLinear::new(t_max),
-        }
-    }
-
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -142,15 +140,14 @@ pub struct PySchedulerQuadratic {
     scheduler: SchedulerQuadratic<f32>,
 }
 
+impl PySchedulerQuadratic {
+    pub fn new_with_scheduler(scheduler: SchedulerQuadratic<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[pymethods]
 impl PySchedulerQuadratic {
-    #[new]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerQuadratic::new(t_max),
-        }
-    }
-
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -202,15 +199,14 @@ pub struct PySchedulerExponential {
     scheduler: SchedulerExponential<f32>,
 }
 
+impl PySchedulerExponential {
+    pub fn new_with_scheduler(scheduler: SchedulerExponential<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[pymethods]
 impl PySchedulerExponential {
-    #[new]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerExponential::new(t_max),
-        }
-    }
-
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -261,15 +257,14 @@ pub struct PySchedulerReciprocal {
     scheduler: SchedulerReciprocal<f32>,
 }
 
+impl PySchedulerReciprocal {
+    pub fn new_with_scheduler(scheduler: SchedulerReciprocal<f32>) -> Self {
+        Self { scheduler }
+    }
+}
+
 #[pymethods]
 impl PySchedulerReciprocal {
-    #[new]
-    pub fn new(t_max: usize) -> Self {
-        Self {
-            scheduler: SchedulerReciprocal::new(t_max),
-        }
-    }
-
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter

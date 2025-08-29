@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "FullSgd")]
 pub struct PyFullSgd {
-    builder: FullSgd<f32>,
+    builder: FullSgd,
 }
 
 #[pymethods]
@@ -20,11 +20,6 @@ impl PyFullSgd {
         Self {
             builder: FullSgd::new(),
         }
-    }
-
-    fn eps(mut slf: PyRefMut<Self>, eps: f32) -> Py<Self> {
-        slf.builder.eps(eps);
-        slf.into()
     }
 
     fn build(&self, graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PySgd {

@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mds = ClassicalMds::new(&graph, |_| edge_length);
     let mut drawing = mds.run_2d();
     let mut sgd = FullSgd::new().build(&graph, |_| edge_length);
-    let mut scheduler = SchedulerExponential::new(iterations);
+    let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
     let mut rng = thread_rng();
 
     scheduler.run(&mut |eta| {

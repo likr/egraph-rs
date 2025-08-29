@@ -9,10 +9,17 @@ use crate::{
         JsDrawingEuclidean, JsDrawingEuclidean2d, JsDrawingHyperbolic2d, JsDrawingSpherical2d,
         JsDrawingTorus2d,
     },
+    layout::sgd::schedulers::{
+        JsSchedulerConstant, JsSchedulerExponential, JsSchedulerLinear, JsSchedulerQuadratic,
+        JsSchedulerReciprocal,
+    },
     rng::JsRng,
 };
 use js_sys::Function;
-use petgraph_layout_sgd::Sgd;
+use petgraph_layout_sgd::{
+    SchedulerConstant, SchedulerExponential, SchedulerLinear, SchedulerQuadratic,
+    SchedulerReciprocal, Sgd,
+};
 use wasm_bindgen::prelude::*;
 
 use super::{create_distance_transform, create_weight_transform};
@@ -104,5 +111,52 @@ impl JsSgd {
     #[wasm_bindgen(js_name = "updateWeight")]
     pub fn update_weight(&mut self, weight: &Function) {
         self.sgd.update_weight(create_weight_transform(weight));
+    }
+
+    /// Creates a default scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerConstant")]
+    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        self.scheduler_exponential(t_max, epsilon)
+    }
+
+    /// Creates a constant scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerConstant")]
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> JsSchedulerConstant {
+        JsSchedulerConstant::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerConstant<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a linear scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerLinear")]
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> JsSchedulerLinear {
+        JsSchedulerLinear::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerLinear<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates an exponential scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerExponential")]
+    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
+        JsSchedulerExponential::new_with_scheduler(
+            self.sgd
+                .scheduler::<SchedulerExponential<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a quadratic scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerQuadratic")]
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> JsSchedulerQuadratic {
+        JsSchedulerQuadratic::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerQuadratic<_>>(t_max, epsilon),
+        )
+    }
+
+    /// Creates a reciprocal scheduler from this SGD instance.
+    #[wasm_bindgen(js_name = "schedulerReciprocal")]
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> JsSchedulerReciprocal {
+        JsSchedulerReciprocal::new_with_scheduler(
+            self.sgd.scheduler::<SchedulerReciprocal<_>>(t_max, epsilon),
+        )
     }
 }
