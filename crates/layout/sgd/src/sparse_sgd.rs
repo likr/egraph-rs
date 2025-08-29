@@ -167,7 +167,7 @@ impl SparseSgd {
                         .count(),
                 )
                 .unwrap();
-                node_pairs.push((p, i, dpi, dpi, spi * wpi, S::zero()));
+                node_pairs.push((p, i, dpi, dpi, S::zero(), spi * wpi));
             }
         }
         Sgd::new(node_pairs)
