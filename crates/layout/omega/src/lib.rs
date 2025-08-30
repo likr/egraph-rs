@@ -14,7 +14,7 @@
 //!
 //! ```rust
 //! use petgraph::{Graph, graph::NodeIndex};
-//! use petgraph_layout_omega::{Omega, OmegaBuilder};
+//! use petgraph_layout_omega::Omega;
 //! use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 //! use petgraph_drawing::DrawingEuclidean2d;
 //! use rand::thread_rng;
@@ -38,7 +38,7 @@
 //!
 //! // Use with SGD framework
 //! let mut drawing: DrawingEuclidean2d<NodeIndex, f32> = DrawingEuclidean2d::initial_placement(&graph);
-//! let mut scheduler = SchedulerExponential::new(1000);
+//! let mut scheduler = omega.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
 //!
 //! scheduler.run(&mut |eta| {
 //!     omega.shuffle(&mut rng);
@@ -57,9 +57,7 @@
 mod eigenvalue;
 mod omega;
 
-pub use eigenvalue::{
-    compute_smallest_eigenvalues, compute_smallest_eigenvalues_with_laplacian, LaplacianStructure,
-};
+pub use eigenvalue::{compute_smallest_eigenvalues, LaplacianStructure};
 pub use omega::Omega;
 
 #[cfg(test)]
@@ -153,7 +151,11 @@ mod tests {
         graph.add_edge(a, b, ());
         graph.add_edge(b, c, ());
 
-        let (eigenvalues, eigenvectors) = compute_smallest_eigenvalues::<_, f32>(&graph, 2);
+        // Create LaplacianStructure
+        let laplacian = LaplacianStructure::new(&graph, |_| 1.0f32);
+        let mut rng = thread_rng();
+        let (eigenvalues, eigenvectors) =
+            compute_smallest_eigenvalues(&laplacian, 2, 1000, 100, 1e-4f32, 1e-4f32, &mut rng);
 
         // Debug output
         println!("Found {} eigenvalues: {:?}", eigenvalues.len(), eigenvalues);

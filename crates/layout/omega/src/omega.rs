@@ -1,6 +1,6 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
-use crate::eigenvalue::{compute_smallest_eigenvalues_with_laplacian, LaplacianStructure};
+use crate::eigenvalue::{compute_smallest_eigenvalues, LaplacianStructure};
 use ndarray::{Array2, Zip};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
@@ -21,6 +21,8 @@ pub struct Omega<S> {
     pub k: usize,
     /// Minimum distance between node pairs
     pub min_dist: S,
+    /// Shift parameter for creating positive definite matrix L + cI
+    pub shift: S,
     /// Maximum number of iterations for eigenvalue computation using inverse power method
     pub eigenvalue_max_iterations: usize,
     /// Maximum number of iterations for CG method
@@ -41,18 +43,20 @@ where
     /// - d: 2 (spectral dimensions)
     /// - k: 30 (random pairs per node)
     /// - min_dist: 1e-3 (minimum distance)
+    /// - shift: 1e-3 (shift parameter for positive definite matrix)
     /// - eigenvalue_max_iterations: 1000 (eigenvalue solver)
     /// - cg_max_iterations: 100 (CG solver)
-    /// - eigenvalue_tolerance: 1e-4 (eigenvalue convergence)
+    /// - eigenvalue_tolerance: 1e-1 (eigenvalue convergence)
     /// - cg_tolerance: 1e-4 (CG convergence)
     pub fn new() -> Self {
         Self {
             d: 2,
             k: 30,
             min_dist: S::from_f32(1e-3).unwrap(),
+            shift: S::from_f32(1e-3).unwrap(),
             eigenvalue_max_iterations: 1000,
             cg_max_iterations: 100,
-            eigenvalue_tolerance: S::from_f32(1e-4).unwrap(),
+            eigenvalue_tolerance: S::from_f32(1e-1).unwrap(),
             cg_tolerance: S::from_f32(1e-4).unwrap(),
         }
     }
@@ -72,6 +76,12 @@ where
     /// Sets the minimum distance between node pairs.
     pub fn min_dist(&mut self, min_dist: S) -> &mut Self {
         self.min_dist = min_dist;
+        self
+    }
+
+    /// Sets the shift parameter for creating positive definite matrix L + cI.
+    pub fn shift(&mut self, shift: S) -> &mut Self {
+        self.shift = shift;
         self
     }
 
@@ -234,11 +244,11 @@ where
     F: FnMut(G::EdgeRef) -> S,
     R: Rng,
 {
-    // Create weighted Laplacian structure
-    let laplacian = LaplacianStructure::new(graph, length);
+    // Create weighted Laplacian structure with shift for positive definite matrix L + cI
+    let laplacian = LaplacianStructure::new_with_shift(graph, length, options.shift);
 
     // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
-    let (eigenvalues, mut eigenvectors) = compute_smallest_eigenvalues_with_laplacian(
+    let (mut eigenvalues, mut eigenvectors) = compute_smallest_eigenvalues(
         &laplacian,
         options.d,
         options.eigenvalue_max_iterations,
@@ -248,7 +258,12 @@ where
         rng,
     );
 
-    // Step 2: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
+    // Step 2: Subtract shift from eigenvalues to get original Laplacian eigenvalues
+    for eigenvalue in eigenvalues.iter_mut() {
+        *eigenvalue -= options.shift;
+    }
+
+    // Step 3: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
     eigenvectors.column_mut(0).fill(S::zero());
     for dim in 1..=options.d {
         let mut eigenvector = eigenvectors.column_mut(dim);

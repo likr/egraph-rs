@@ -64,6 +64,58 @@ where
         LaplacianStructure { n, edges, degrees }
     }
 
+    /// Creates a new LaplacianStructure with shift parameter, precomputing L + cI matrix.
+    ///
+    /// This constructor creates a positive definite matrix L + cI by adding the shift value c
+    /// to the diagonal elements. This improves convergence of the conjugate gradient method
+    /// since the matrix becomes positive definite instead of semi-positive definite.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph
+    /// * `edge_weight` - Function to extract edge weights
+    /// * `shift` - Shift parameter c to add to diagonal (makes matrix positive definite)
+    pub fn new_with_shift<G, F>(graph: G, mut edge_weight: F, shift: S) -> Self
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+    {
+        let n = graph.node_count();
+
+        // Create node index mapping
+        let node_indices: HashMap<G::NodeId, usize> = graph
+            .node_identifiers()
+            .enumerate()
+            .map(|(i, node_id)| (node_id, i))
+            .collect();
+
+        let mut edges = Vec::new();
+        let mut degrees = vec![S::zero(); n];
+
+        // Process edges and compute degrees
+        for edge in graph.edge_references() {
+            let i = node_indices[&edge.source()];
+            let j = node_indices[&edge.target()];
+            let weight = edge_weight(edge);
+
+            edges.push((i, j, weight));
+
+            if i != j {
+                degrees[i] += weight;
+                degrees[j] += weight;
+            } else {
+                degrees[i] += weight;
+            }
+        }
+
+        // Add shift to diagonal elements to create L + cI matrix
+        for degree in &mut degrees {
+            *degree += shift;
+        }
+
+        LaplacianStructure { n, edges, degrees }
+    }
+
     /// Computes the Laplacian matrix-vector product Lv efficiently.
     ///
     /// For each vertex i: (Lv)_i = degree(i) * v_i - Σ(weight_ij * v_j for j neighbor of i)
@@ -224,7 +276,7 @@ where
 /// A tuple containing:
 /// - Array1 of eigenvalues (\lambda_0, \lambda_1, \cdots, \lambda_{n_target})
 /// - Array2 of corresponding eigenvectors (each column is an eigenvector)
-pub fn compute_smallest_eigenvalues_with_laplacian<S, R>(
+pub fn compute_smallest_eigenvalues<S, R>(
     laplacian: &LaplacianStructure<S>,
     n_target: usize,
     max_iterations: usize,
@@ -278,8 +330,9 @@ where
             let denominator = x_next_iter.dot(&x_next_iter);
             let lambda_est = numerator / denominator;
 
-            // Step 2e: Check convergence
-            let converged = (lambda_est - lambda_prev_est).abs() < tolerance;
+            // Step 2e: Check convergence using relative error only
+            let converged =
+                (lambda_est - lambda_prev_est).abs() / lambda_prev_est.abs() < tolerance;
 
             // Step 2f: Update for next iteration
             x_iter = x_next_iter;
@@ -295,36 +348,4 @@ where
     }
 
     (eigenvalues, eigenvectors)
-}
-
-/// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors of a graph Laplacian.
-///
-/// This is a convenience function that creates a LaplacianStructure and calls the optimized version
-/// with default parameters.
-///
-/// # Parameters
-/// * `graph` - The input graph
-/// * `n_target` - Number of smallest non-zero eigenvalues to compute
-///
-/// # Returns
-/// A tuple containing:
-/// - Array1 of eigenvalues (λ1, λ2, ..., λn_target)
-/// - Array2 of corresponding eigenvectors (each column is an eigenvector)
-pub fn compute_smallest_eigenvalues<G, S>(graph: G, n_target: usize) -> (Array1<S>, Array2<S>)
-where
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    S: DrawingValue,
-{
-    let laplacian = LaplacianStructure::new(graph, |_| S::one());
-    let mut rng = rand::thread_rng();
-    compute_smallest_eigenvalues_with_laplacian(
-        &laplacian,
-        n_target,
-        1000,                       // max_iterations
-        100,                        // cg_max_iterations
-        S::from_f32(1e-4).unwrap(), // tolerance
-        S::from_f32(1e-4).unwrap(), // cg_tolerance
-        &mut rng,
-    )
 }
