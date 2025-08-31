@@ -25,6 +25,8 @@ mod layout;
 mod quality_metrics;
 mod rng;
 
+pub type FloatType = f64;
+
 /// Creates and initializes the egraph Python module.
 ///
 /// This function is the main entry point for the Python module. It registers all submodules

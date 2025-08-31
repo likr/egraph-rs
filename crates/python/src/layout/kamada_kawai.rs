@@ -10,6 +10,7 @@
 use crate::{
     drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_layout_kamada_kawai::KamadaKawai;
@@ -31,7 +32,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "KamadaKawai")]
 struct PyKamadaKawai {
-    kamada_kawai: KamadaKawai<f32>,
+    kamada_kawai: KamadaKawai<FloatType>,
 }
 
 #[pymethods]
@@ -109,7 +110,7 @@ impl PyKamadaKawai {
     /// :return: The current convergence threshold
     /// :rtype: float
     #[getter]
-    fn eps(&self) -> f32 {
+    fn eps(&self) -> FloatType {
         self.kamada_kawai.eps
     }
 
@@ -120,7 +121,7 @@ impl PyKamadaKawai {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_eps(&mut self, value: f32) {
+    fn set_eps(&mut self, value: FloatType) {
         self.kamada_kawai.eps = value;
     }
 }

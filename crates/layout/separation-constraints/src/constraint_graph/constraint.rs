@@ -13,7 +13,7 @@
 ///
 /// See Section 2 in the IPSEP-COLA paper [2].
 #[derive(Clone, Debug)]
-pub struct Constraint {
+pub struct Constraint<S> {
     /// Index (`usize`) of the variable on the left side.
     /// This corresponds to node indices in the original graph.
     pub left: usize,
@@ -24,10 +24,10 @@ pub struct Constraint {
 
     /// Minimum required separation (`a` in `u + a <= v`).
     /// Units are the same as the drawing coordinates (typically pixels or other distance units).
-    pub gap: f32,
+    pub gap: S,
 }
 
-impl Constraint {
+impl<S> Constraint<S> {
     /// Creates a new separation constraint.
     ///
     /// # Arguments
@@ -48,7 +48,7 @@ impl Constraint {
     /// // Create a constraint that node 0 must be at least 5.0 units to the left of node 1
     /// let constraint = Constraint::new(0, 1, 5.0);
     /// ```
-    pub fn new(left: usize, right: usize, gap: f32) -> Self {
+    pub fn new(left: usize, right: usize, gap: S) -> Self {
         Constraint { left, right, gap }
     }
 }

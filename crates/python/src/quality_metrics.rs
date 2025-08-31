@@ -17,6 +17,7 @@ use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 use petgraph_quality_metrics::{
     angular_resolution, aspect_ratio, crossing_angle, crossing_angle_with_crossing_edges,
@@ -34,7 +35,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "CrossingEdges")]
 pub struct PyCrossingEdges {
-    crossing_edges: CrossingEdges,
+    crossing_edges: CrossingEdges<FloatType>,
 }
 
 /// Computes the crossing edges in a graph drawing
@@ -105,7 +106,7 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCr
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "angular_resolution")]
-fn py_angular_resolution(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_angular_resolution(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> FloatType {
     match graph.graph() {
         GraphType::Graph(native_graph) => angular_resolution(native_graph, drawing.drawing()),
         GraphType::DiGraph(native_graph) => angular_resolution(native_graph, drawing.drawing()),
@@ -123,7 +124,7 @@ fn py_angular_resolution(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d)
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "aspect_ratio")]
-fn py_aspect_ratio(drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_aspect_ratio(drawing: &PyDrawingEuclidean2d) -> FloatType {
     aspect_ratio(drawing.drawing())
 }
 
@@ -140,7 +141,7 @@ fn py_aspect_ratio(drawing: &PyDrawingEuclidean2d) -> f32 {
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_angle")]
-fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> FloatType {
     match graph.graph() {
         GraphType::Graph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
         GraphType::DiGraph(native_graph) => crossing_angle(native_graph, drawing.drawing()),
@@ -157,7 +158,7 @@ fn py_crossing_angle(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> 
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_angle_with_crossing_edges")]
-fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
+fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> FloatType {
     crossing_angle_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
@@ -174,7 +175,7 @@ fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f3
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_number")]
-fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> FloatType {
     match graph.graph() {
         GraphType::Graph(native_graph) => crossing_number(native_graph, drawing.drawing()),
         GraphType::DiGraph(native_graph) => crossing_number(native_graph, drawing.drawing()),
@@ -191,7 +192,7 @@ fn py_crossing_number(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) ->
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "crossing_number_with_crossing_edges")]
-fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f32 {
+fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> FloatType {
     crossing_number_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
@@ -209,7 +210,7 @@ fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> f
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "gabriel_graph_property")]
-fn py_gabriel_graph_property(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_gabriel_graph_property(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> FloatType {
     match graph.graph() {
         GraphType::Graph(native_graph) => gabriel_graph_property(native_graph, drawing.drawing()),
         GraphType::DiGraph(native_graph) => gabriel_graph_property(native_graph, drawing.drawing()),
@@ -238,7 +239,7 @@ fn py_ideal_edge_lengths(
     graph: &PyGraphAdapter,
     drawing: &Bound<PyDrawing>,
     distance_matrix: &PyDistanceMatrix,
-) -> f32 {
+) -> FloatType {
     Python::with_gil(|py| {
         let drawing_type = drawing.borrow().drawing_type();
         match drawing_type {
@@ -299,7 +300,10 @@ fn py_ideal_edge_lengths(
 /// :rtype: float
 #[pyfunction]
 #[pyo3(name = "neighborhood_preservation")]
-fn py_neighborhood_preservation(graph: &PyGraphAdapter, drawing: &PyDrawingEuclidean2d) -> f32 {
+fn py_neighborhood_preservation(
+    graph: &PyGraphAdapter,
+    drawing: &PyDrawingEuclidean2d,
+) -> FloatType {
     match graph.graph() {
         GraphType::Graph(native_graph) => {
             neighborhood_preservation(native_graph, drawing.drawing())
@@ -323,7 +327,7 @@ fn py_neighborhood_preservation(graph: &PyGraphAdapter, drawing: &PyDrawingEucli
 /// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "node_resolution")]
-fn py_node_resolution(drawing: &Bound<PyDrawing>) -> f32 {
+fn py_node_resolution(drawing: &Bound<PyDrawing>) -> FloatType {
     let drawing_type = drawing.borrow().drawing_type();
     Python::with_gil(|py| match drawing_type {
         DrawingType::Euclidean2d => {
@@ -361,7 +365,7 @@ fn py_node_resolution(drawing: &Bound<PyDrawing>) -> f32 {
 /// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "stress")]
-fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> f32 {
+fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> FloatType {
     Python::with_gil(|py| {
         let drawing_type = drawing.borrow().drawing_type();
         match distance_matrix.distance_matrix() {

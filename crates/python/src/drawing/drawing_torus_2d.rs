@@ -8,9 +8,10 @@
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
+    FloatType,
 };
 
-type Point2D = (f32, f32);
+type Point2D = (FloatType, FloatType);
 type Segment2D = (Point2D, Point2D);
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingTorus2d};
@@ -28,7 +29,7 @@ use pyo3::prelude::*;
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingTorus2d")]
 pub struct PyDrawingTorus2d {
-    drawing: DrawingTorus2d<NodeId, f32>,
+    drawing: DrawingTorus2d<NodeId, FloatType>,
 }
 
 impl PyDrawingTorus2d {
@@ -38,7 +39,7 @@ impl PyDrawingTorus2d {
     /// :type drawing: DrawingTorus2d
     /// :return: A new PyDrawingTorus2d instance
     /// :rtype: PyDrawingTorus2d
-    pub fn new(drawing: DrawingTorus2d<NodeId, f32>) -> Self {
+    pub fn new(drawing: DrawingTorus2d<NodeId, FloatType>) -> Self {
         Self { drawing }
     }
 
@@ -46,7 +47,7 @@ impl PyDrawingTorus2d {
     ///
     /// :return: A reference to the underlying drawing
     /// :rtype: DrawingTorus2d
-    pub fn drawing(&self) -> &DrawingTorus2d<NodeId, f32> {
+    pub fn drawing(&self) -> &DrawingTorus2d<NodeId, FloatType> {
         &self.drawing
     }
 
@@ -54,7 +55,7 @@ impl PyDrawingTorus2d {
     ///
     /// :return: A mutable reference to the underlying drawing
     /// :rtype: DrawingTorus2d
-    pub fn drawing_mut(&mut self) -> &mut DrawingTorus2d<NodeId, f32> {
+    pub fn drawing_mut(&mut self) -> &mut DrawingTorus2d<NodeId, FloatType> {
         &mut self.drawing
     }
 }
@@ -70,7 +71,7 @@ impl PyDrawingTorus2d {
     /// :type u: int
     /// :return: The x-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn x(&self, u: usize) -> Option<f32> {
+    pub fn x(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.x(u)
     }
@@ -84,7 +85,7 @@ impl PyDrawingTorus2d {
     /// :type u: int
     /// :return: The y-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn y(&self, u: usize) -> Option<f32> {
+    pub fn y(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.y(u)
     }
@@ -100,7 +101,7 @@ impl PyDrawingTorus2d {
     /// :type x: float
     /// :return: None
     /// :rtype: None
-    pub fn set_x(&mut self, u: usize, x: f32) {
+    pub fn set_x(&mut self, u: usize, x: FloatType) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
     }
@@ -116,7 +117,7 @@ impl PyDrawingTorus2d {
     /// :type y: float
     /// :return: None
     /// :rtype: None
-    pub fn set_y(&mut self, u: usize, y: f32) {
+    pub fn set_y(&mut self, u: usize, y: FloatType) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
     }

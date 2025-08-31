@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
+linfa = "0.6"
 linfa-nn = "0.6"
 ndarray = "0.15"
 petgraph = "0.6"

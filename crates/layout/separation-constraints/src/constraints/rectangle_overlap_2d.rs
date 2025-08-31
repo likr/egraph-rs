@@ -1,22 +1,25 @@
 use crate::{project_1d, Constraint};
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricCartesian};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricCartesian};
 use std::{cmp::Ordering, collections::BTreeSet};
 
 /// Represents a rectangle with its dimensions and node index
 #[derive(Clone, Debug)]
-struct Rectangle {
+struct Rectangle<S> {
     /// Minimum x-coordinate
-    x_min: f32,
+    x_min: S,
     /// Maximum x-coordinate
-    x_max: f32,
+    x_max: S,
     /// Minimum y-coordinate
-    y_min: f32,
+    y_min: S,
     /// Maximum y-coordinate
-    y_max: f32,
+    y_max: S,
 }
 
-impl Rectangle {
-    fn new(x_min: f32, x_max: f32, y_min: f32, y_max: f32) -> Self {
+impl<S> Rectangle<S>
+where
+    S: DrawingValue,
+{
+    fn new(x_min: S, x_max: S, y_min: S, y_max: S) -> Self {
         Rectangle {
             x_min,
             x_max,
@@ -24,23 +27,23 @@ impl Rectangle {
             y_max,
         }
     }
-    fn cx(&self) -> f32 {
-        (self.x_min + self.x_max) / 2.0
+    fn cx(&self) -> S {
+        (self.x_min + self.x_max) / (2.0).into()
     }
 
-    fn cy(&self) -> f32 {
-        (self.y_min + self.y_max) / 2.0
+    fn cy(&self) -> S {
+        (self.y_min + self.y_max) / (2.0).into()
     }
 
-    fn width(&self) -> f32 {
+    fn width(&self) -> S {
         self.x_max - self.x_min
     }
 
-    fn height(&self) -> f32 {
+    fn height(&self) -> S {
         self.y_max - self.y_min
     }
 
-    fn overlap_x(&self, r: &Rectangle) -> f32 {
+    fn overlap_x(&self, r: &Rectangle<S>) -> S {
         let ux = self.cx();
         let vx = r.cx();
         if ux <= vx && r.x_min < self.x_max {
@@ -49,10 +52,10 @@ impl Rectangle {
         if vx <= ux && self.x_min < r.x_max {
             return r.x_max - self.x_min;
         }
-        return 0.0;
+        return S::zero();
     }
 
-    fn overlap_y(&self, r: &Rectangle) -> f32 {
+    fn overlap_y(&self, r: &Rectangle<S>) -> S {
         let uy = self.cy();
         let vy = r.cy();
         if uy <= vy && r.y_min < self.y_max {
@@ -61,27 +64,30 @@ impl Rectangle {
         if vy <= uy && self.y_min < r.y_max {
             return r.y_max - self.y_min;
         }
-        return 0.0;
+        return S::zero();
     }
 }
 
 /// Node structure used for the sweep line algorithm
 #[derive(Debug, Clone)]
-struct Node {
+struct Node<S> {
     /// Variable index
     v: usize,
     /// Rectangle
-    r: Rectangle,
+    r: Rectangle<S>,
     /// Position
-    pos: f32,
+    pos: S,
     /// Previous nodes
-    prev: BTreeSet<NodeIndex>,
+    prev: BTreeSet<NodeIndex<S>>,
     /// Next nodes
-    next: BTreeSet<NodeIndex>,
+    next: BTreeSet<NodeIndex<S>>,
 }
 
-impl Node {
-    fn new_x(v: usize, r: Rectangle) -> Self {
+impl<S> Node<S>
+where
+    S: DrawingValue,
+{
+    fn new_x(v: usize, r: Rectangle<S>) -> Self {
         let pos = r.cx();
         Node {
             v,
@@ -92,7 +98,7 @@ impl Node {
         }
     }
 
-    fn new_y(v: usize, r: Rectangle) -> Self {
+    fn new_y(v: usize, r: Rectangle<S>) -> Self {
         let pos = r.cy();
         Node {
             v,
@@ -103,7 +109,7 @@ impl Node {
         }
     }
 
-    fn index(&self) -> NodeIndex {
+    fn index(&self) -> NodeIndex<S> {
         NodeIndex {
             pos: self.pos,
             index: self.v,
@@ -112,18 +118,24 @@ impl Node {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct NodeIndex {
-    pos: f32,
+struct NodeIndex<S> {
+    pos: S,
     index: usize,
 }
 
-impl Ord for NodeIndex {
+impl<S> Ord for NodeIndex<S>
+where
+    S: DrawingValue,
+{
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
 
-impl PartialOrd for NodeIndex {
+impl<S> PartialOrd for NodeIndex<S>
+where
+    S: DrawingValue,
+{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.pos.partial_cmp(&other.pos) {
             Some(ord) => Some(match ord {
@@ -135,19 +147,22 @@ impl PartialOrd for NodeIndex {
     }
 }
 
-impl PartialEq for NodeIndex {
+impl<S> PartialEq for NodeIndex<S>
+where
+    S: DrawingValue,
+{
     fn eq(&self, other: &Self) -> bool {
         (self.pos, self.index).eq(&(other.pos, other.index))
     }
 }
 
-impl Eq for NodeIndex {}
+impl<S> Eq for NodeIndex<S> where S: DrawingValue {}
 
 /// Event for the sweepline algorithm
 #[derive(Debug, Clone)]
-struct Event {
+struct Event<S> {
     /// Position of the event along the sweep dimension
-    pos: f32,
+    pos: S,
     /// Type of event (open or close)
     is_open: bool,
     /// Associated node index
@@ -155,17 +170,21 @@ struct Event {
 }
 
 /// Find X-dimension neighbors
-fn find_x_neighbours(v: usize, scanline: &BTreeSet<NodeIndex>, nodes: &mut Vec<Node>) {
+fn find_x_neighbours<S: DrawingValue>(
+    v: usize,
+    scanline: &BTreeSet<NodeIndex<S>>,
+    nodes: &mut Vec<Node<S>>,
+) {
     let v_index = nodes[v].index();
     for r in scanline.range(v_index..).skip(1) {
         let u = r.index;
         let u_index = nodes[u].index();
         let u_over_v_x = nodes[u].r.overlap_x(&nodes[v].r);
-        if u_over_v_x <= 0.0 || u_over_v_x <= nodes[u].r.overlap_y(&nodes[v].r) {
+        if u_over_v_x <= S::zero() || u_over_v_x <= nodes[u].r.overlap_y(&nodes[v].r) {
             nodes[v].next.insert(u_index);
             nodes[u].prev.insert(v_index);
         }
-        if u_over_v_x <= 0.0 {
+        if u_over_v_x <= S::zero() {
             break;
         }
     }
@@ -174,23 +193,27 @@ fn find_x_neighbours(v: usize, scanline: &BTreeSet<NodeIndex>, nodes: &mut Vec<N
         let u = r.index;
         let u_index = nodes[u].index();
         let u_over_v_x = nodes[u].r.overlap_x(&nodes[v].r);
-        if u_over_v_x <= 0.0 || u_over_v_x <= nodes[u].r.overlap_y(&nodes[v].r) {
+        if u_over_v_x <= S::zero() || u_over_v_x <= nodes[u].r.overlap_y(&nodes[v].r) {
             nodes[v].prev.insert(u_index);
             nodes[u].next.insert(v_index);
         }
-        if u_over_v_x <= 0.0 {
+        if u_over_v_x <= S::zero() {
             break;
         }
     }
 }
 
 /// Find Y-dimension neighbors according to WebCola's algorithm
-fn find_y_neighbours(v: usize, scanline: &BTreeSet<NodeIndex>, nodes: &mut Vec<Node>) {
+fn find_y_neighbours<S: DrawingValue>(
+    v: usize,
+    scanline: &BTreeSet<NodeIndex<S>>,
+    nodes: &mut Vec<Node<S>>,
+) {
     let v_index = nodes[v].index();
     for r in scanline.range(v_index..).skip(1) {
         let u = r.index;
         let u_index = nodes[u].index();
-        if nodes[u].r.overlap_x(&nodes[v].r) > 0.0 {
+        if nodes[u].r.overlap_x(&nodes[v].r) > S::zero() {
             nodes[v].next.insert(u_index);
             nodes[u].prev.insert(v_index);
         }
@@ -199,7 +222,7 @@ fn find_y_neighbours(v: usize, scanline: &BTreeSet<NodeIndex>, nodes: &mut Vec<N
     for r in scanline.range(..v_index).rev() {
         let u = r.index;
         let u_index = nodes[u].index();
-        if nodes[u].r.overlap_x(&nodes[v].r) > 0.0 {
+        if nodes[u].r.overlap_x(&nodes[v].r) > S::zero() {
             nodes[v].prev.insert(u_index);
             nodes[u].next.insert(v_index);
         }
@@ -211,13 +234,14 @@ fn find_y_neighbours(v: usize, scanline: &BTreeSet<NodeIndex>, nodes: &mut Vec<N
 /// This function uses a sweep line algorithm to efficiently find potential overlapping
 /// rectangle pairs and generate appropriate X-dimension constraints. This implementation
 /// is based on the WebCola algorithm but uses Rust's BTreeSet instead of an RBTree.
-fn generate_rectangle_no_overlap_constraints_x<N, F>(
-    drawing: &DrawingEuclidean2d<N, f32>,
+fn generate_rectangle_no_overlap_constraints_x<N, F, S>(
+    drawing: &DrawingEuclidean2d<N, S>,
     mut size: F,
-) -> Vec<Constraint>
+) -> Vec<Constraint<S>>
 where
     N: DrawingIndex + Copy,
-    F: FnMut(N, usize) -> f32,
+    F: FnMut(N, usize) -> S,
+    S: DrawingValue,
 {
     let n = drawing.len();
     let mut constraints = Vec::new();
@@ -231,16 +255,16 @@ where
     let mut nodes = Vec::with_capacity(n);
 
     for i in 0..n {
-        let x = drawing.raw_entry(i).nth(0);
-        let y = drawing.raw_entry(i).nth(1);
+        let x = *drawing.raw_entry(i).nth(0);
+        let y = *drawing.raw_entry(i).nth(1);
         let width = size(*drawing.node_id(i), 0);
         let height = size(*drawing.node_id(i), 1);
 
         let rect = Rectangle::new(
-            x - width / 2.0,
-            x + width / 2.0,
-            y - height / 2.0,
-            y + height / 2.0,
+            x - width / (2.0).into(),
+            x + width / (2.0).into(),
+            y - height / (2.0).into(),
+            y + height / (2.0).into(),
         );
 
         rectangles.push(rect.clone());
@@ -300,7 +324,7 @@ where
                 u = w;
                 let i = u.index;
                 let j = v.index;
-                let gap = (nodes[i].r.width() + nodes[j].r.width()) / 2. + 1e-6;
+                let gap = (nodes[i].r.width() + nodes[j].r.width()) / (2. + 1e-6).into();
                 constraints.push(Constraint::new(i, j, gap));
                 nodes[i].next.remove(&v);
             }
@@ -312,7 +336,7 @@ where
                 u = w;
                 let i = v.index;
                 let j = u.index;
-                let gap = (nodes[i].r.width() + nodes[j].r.width()) / 2. + 1e-6;
+                let gap = (nodes[i].r.width() + nodes[j].r.width()) / (2. + 1e-6).into();
                 constraints.push(Constraint::new(i, j, gap));
                 nodes[j].prev.remove(&v);
             }
@@ -327,13 +351,14 @@ where
 /// This function uses a sweep line algorithm to efficiently find potential overlapping
 /// rectangle pairs and generate appropriate Y-dimension constraints. This implementation
 /// is based on the WebCola algorithm but uses Rust's BTreeSet instead of an RBTree.
-fn generate_rectangle_no_overlap_constraints_y<N, F>(
-    drawing: &DrawingEuclidean2d<N, f32>,
+fn generate_rectangle_no_overlap_constraints_y<N, F, S>(
+    drawing: &DrawingEuclidean2d<N, S>,
     mut size: F,
-) -> Vec<Constraint>
+) -> Vec<Constraint<S>>
 where
     N: DrawingIndex + Copy,
-    F: FnMut(N, usize) -> f32,
+    F: FnMut(N, usize) -> S,
+    S: DrawingValue,
 {
     let n = drawing.len();
     let mut constraints = Vec::new();
@@ -347,16 +372,16 @@ where
     let mut nodes = Vec::with_capacity(n);
 
     for i in 0..n {
-        let x = drawing.raw_entry(i).nth(0);
-        let y = drawing.raw_entry(i).nth(1);
+        let x = *drawing.raw_entry(i).nth(0);
+        let y = *drawing.raw_entry(i).nth(1);
         let width = size(*drawing.node_id(i), 0);
         let height = size(*drawing.node_id(i), 1);
 
         let rect = Rectangle::new(
-            x - width / 2.0,
-            x + width / 2.0,
-            y - height / 2.0,
-            y + height / 2.0,
+            x - width / (2.0).into(),
+            x + width / (2.0).into(),
+            y - height / (2.0).into(),
+            y + height / (2.0).into(),
         );
 
         rectangles.push(rect.clone());
@@ -416,7 +441,7 @@ where
                 u = w;
                 let i = u.index;
                 let j = v.index;
-                let gap = (nodes[i].r.height() + nodes[j].r.height()) / 2. + 1e-6;
+                let gap = (nodes[i].r.height() + nodes[j].r.height()) / (2. + 1e-6).into();
                 constraints.push(Constraint::new(i, j, gap));
                 nodes[i].next.remove(&v);
             }
@@ -428,7 +453,7 @@ where
                 u = w;
                 let i = v.index;
                 let j = u.index;
-                let gap = (nodes[i].r.height() + nodes[j].r.height()) / 2. + 1e-6;
+                let gap = (nodes[i].r.height() + nodes[j].r.height()) / (2. + 1e-6).into();
                 constraints.push(Constraint::new(i, j, gap));
                 nodes[j].prev.remove(&v);
             }
@@ -483,12 +508,13 @@ where
 /// let node_size = 1.0; // Size of each node
 /// project_rectangle_no_overlap_constraints_2d(&mut drawing, |_, _| node_size);
 /// ```
-pub fn project_rectangle_no_overlap_constraints_2d<N, F>(
-    drawing: &mut DrawingEuclidean2d<N, f32>,
+pub fn project_rectangle_no_overlap_constraints_2d<N, F, S>(
+    drawing: &mut DrawingEuclidean2d<N, S>,
     mut size: F,
 ) where
     N: DrawingIndex + Copy,
-    F: FnMut(N, usize) -> f32,
+    F: FnMut(N, usize) -> S,
+    S: DrawingValue,
 {
     // Generate and apply constraints for X dimension (0)
     let x_constraints = generate_rectangle_no_overlap_constraints_x(drawing, &mut size);

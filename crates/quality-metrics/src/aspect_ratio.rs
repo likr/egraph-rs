@@ -1,4 +1,4 @@
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 
 /// Calculates the aspect ratio metric for a graph layout.
 ///
@@ -17,32 +17,33 @@ use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
 ///
 /// # Returns
 ///
-/// An `f32` value in the range [0, 1] representing the aspect ratio metric.
+/// An `S` value in the range [0, 1] representing the aspect ratio metric.
 /// A value of 1 indicates a perfectly balanced layout (equal spread in all directions),
 /// while lower values indicate more elongated layouts.
 ///
 /// # Type Parameters
 ///
 /// * `N`: Node ID type that implements `DrawingIndex`
-pub fn aspect_ratio<N>(drawing: &DrawingEuclidean2d<N, f32>) -> f32
+pub fn aspect_ratio<N, S>(drawing: &DrawingEuclidean2d<N, S>) -> S
 where
     N: DrawingIndex,
+    S: DrawingValue,
 {
     let n = drawing.len();
-    let mut cx = 0.;
-    let mut cy = 0.;
+    let mut cx = S::zero();
+    let mut cy = S::zero();
     for i in 0..n {
         let xi = drawing.raw_entry(i).0;
         let yi = drawing.raw_entry(i).1;
         cx += xi;
         cy += yi;
     }
-    cx /= n as f32;
-    cy /= n as f32;
+    cx /= S::from_usize(n).unwrap();
+    cy /= S::from_usize(n).unwrap();
 
-    let mut xx = 0.;
-    let mut xy = 0.;
-    let mut yy = 0.;
+    let mut xx = S::zero();
+    let mut xy = S::zero();
+    let mut yy = S::zero();
     for i in 0..n {
         let xi = drawing.raw_entry(i).0 - cx;
         let yi = drawing.raw_entry(i).1 - cy;
@@ -53,7 +54,7 @@ where
 
     let tr = xx + yy;
     let det = xx * yy - xy * xy;
-    let sigma1 = ((tr + (tr * tr - 4. * det).sqrt()) / 2.).sqrt();
-    let sigma2 = ((tr - (tr * tr - 4. * det).sqrt()) / 2.).sqrt();
+    let sigma1 = ((tr + (tr * tr - det * (4.).into()).sqrt()) / (2.).into()).sqrt();
+    let sigma2 = ((tr - (tr * tr - det * (4.).into()).sqrt()) / (2.).into()).sqrt();
     sigma2 / sigma1
 }

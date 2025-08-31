@@ -1,6 +1,7 @@
 use petgraph::graph::IndexType;
 use petgraph::{Directed, Graph};
 use petgraph_algorithm_layering::{cycle::remove_cycle, LongestPath};
+use petgraph_drawing::DrawingValue;
 use std::collections::HashMap;
 
 use crate::Constraint;
@@ -53,10 +54,13 @@ use crate::Constraint;
 /// assert_eq!(drawing.y(n3).unwrap() - drawing.y(n2).unwrap(), 1.);
 /// assert_eq!(drawing.y(n3).unwrap() - drawing.y(n1).unwrap(), 2.);
 /// ```
-pub fn generate_layered_constraints<N, E, Ix: IndexType>(
+pub fn generate_layered_constraints<N, E, Ix: IndexType, S>(
     graph: &Graph<N, E, Directed, Ix>,
-    min_layer_distance: f32,
-) -> Vec<Constraint> {
+    min_layer_distance: S,
+) -> Vec<Constraint<S>>
+where
+    S: DrawingValue,
+{
     // Create a clone of the graph to perform cycle removal
     let mut acyclic_graph = graph.map(|_, _| (), |_, _| ());
 
@@ -95,7 +99,7 @@ pub fn generate_layered_constraints<N, E, Ix: IndexType>(
             constraints.push(Constraint::new(
                 source_idx,
                 target_idx,
-                min_layer_distance * (target_layer - source_layer) as f32,
+                min_layer_distance * S::from_usize(target_layer - source_layer).unwrap(),
             ));
         }
     }

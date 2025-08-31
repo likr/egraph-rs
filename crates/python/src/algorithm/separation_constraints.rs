@@ -1,5 +1,6 @@
 use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::{GraphType, PyGraphAdapter};
+use crate::FloatType;
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
     generate_layered_constraints, project_1d, project_clustered_rectangle_no_overlap_constraints,
@@ -37,13 +38,13 @@ use pyo3::prelude::*;
 #[derive(Clone)]
 #[pyo3(name = "Constraint")]
 pub struct PyConstraint {
-    constraint: Constraint,
+    constraint: Constraint<FloatType>,
 }
 
 #[pymethods]
 impl PyConstraint {
     #[new]
-    fn new(left: usize, right: usize, gap: f32) -> Self {
+    fn new(left: usize, right: usize, gap: FloatType) -> Self {
         PyConstraint {
             constraint: Constraint::new(left, right, gap),
         }
@@ -60,7 +61,7 @@ impl PyConstraint {
     }
 
     #[getter]
-    fn gap(&self) -> f32 {
+    fn gap(&self) -> FloatType {
         self.constraint.gap
     }
 }
@@ -105,7 +106,7 @@ fn py_project_1d(
     dimension: usize,
     constraints: Vec<PyConstraint>,
 ) -> PyResult<()> {
-    let rust_constraints: Vec<Constraint> =
+    let rust_constraints: Vec<Constraint<FloatType>> =
         constraints.iter().map(|c| c.constraint.clone()).collect();
 
     if dimension >= drawing.drawing().dimension() {
@@ -211,7 +212,7 @@ fn py_project_rectangle_no_overlap_constraints_2d(
 #[pyo3(name = "generate_layered_constraints")]
 fn py_generate_layered_constraints(
     graph: &PyGraphAdapter,
-    gap: f32,
+    gap: FloatType,
 ) -> PyResult<Vec<PyConstraint>> {
     match graph.graph() {
         GraphType::DiGraph(graph) => {

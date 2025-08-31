@@ -1,10 +1,11 @@
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
+    FloatType,
 };
 
 /// A 2D point represented as (x, y) coordinates of floats
-type Point2D = (f32, f32);
+type Point2D = (FloatType, FloatType);
 /// A line segment represented as two points (start, end)
 type Segment2D = (Point2D, Point2D);
 use petgraph::graph::node_index;
@@ -18,7 +19,7 @@ use pyo3::prelude::*;
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingEuclidean2d")]
 pub struct PyDrawingEuclidean2d {
-    drawing: DrawingEuclidean2d<NodeId, f32>,
+    drawing: DrawingEuclidean2d<NodeId, FloatType>,
 }
 
 impl PyDrawingEuclidean2d {
@@ -28,7 +29,7 @@ impl PyDrawingEuclidean2d {
     /// :type drawing: DrawingEuclidean2d
     /// :return: A new PyDrawingEuclidean2d instance
     /// :rtype: PyDrawingEuclidean2d
-    pub fn new(drawing: DrawingEuclidean2d<NodeId, f32>) -> Self {
+    pub fn new(drawing: DrawingEuclidean2d<NodeId, FloatType>) -> Self {
         Self { drawing }
     }
 
@@ -36,7 +37,7 @@ impl PyDrawingEuclidean2d {
     ///
     /// :return: A reference to the underlying drawing
     /// :rtype: DrawingEuclidean2d
-    pub fn drawing(&self) -> &DrawingEuclidean2d<NodeId, f32> {
+    pub fn drawing(&self) -> &DrawingEuclidean2d<NodeId, FloatType> {
         &self.drawing
     }
 
@@ -44,7 +45,7 @@ impl PyDrawingEuclidean2d {
     ///
     /// :return: A mutable reference to the underlying drawing
     /// :rtype: DrawingEuclidean2d
-    pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean2d<NodeId, f32> {
+    pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean2d<NodeId, FloatType> {
         &mut self.drawing
     }
 }
@@ -57,7 +58,7 @@ impl PyDrawingEuclidean2d {
     /// :type u: int
     /// :return: The x-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn x(&self, u: usize) -> Option<f32> {
+    pub fn x(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.x(u)
     }
@@ -68,7 +69,7 @@ impl PyDrawingEuclidean2d {
     /// :type u: int
     /// :return: The y-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn y(&self, u: usize) -> Option<f32> {
+    pub fn y(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.y(u)
     }
@@ -81,7 +82,7 @@ impl PyDrawingEuclidean2d {
     /// :type x: float
     /// :return: None
     /// :rtype: None
-    pub fn set_x(&mut self, u: usize, x: f32) {
+    pub fn set_x(&mut self, u: usize, x: FloatType) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
     }
@@ -94,7 +95,7 @@ impl PyDrawingEuclidean2d {
     /// :type y: float
     /// :return: None
     /// :rtype: None
-    pub fn set_y(&mut self, u: usize, y: f32) {
+    pub fn set_y(&mut self, u: usize, y: FloatType) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
     }
@@ -130,7 +131,7 @@ impl PyDrawingEuclidean2d {
     /// :type y1: float
     /// :return: None
     /// :rtype: None
-    pub fn clamp_region(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+    pub fn clamp_region(&mut self, x0: FloatType, y0: FloatType, x1: FloatType, y1: FloatType) {
         self.drawing.clamp_region(x0, y0, x1, y1);
     }
 

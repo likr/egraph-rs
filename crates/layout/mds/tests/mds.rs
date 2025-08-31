@@ -14,7 +14,7 @@ fn test_classical_mds_high_dimension() {
     graph.add_edge(n2, n3, ());
 
     // Run ClassicalMds with dimensions higher than the number of nodes
-    let mds = ClassicalMds::new(&graph, |_| 1.0);
+    let mds = ClassicalMds::<_, f32>::new(&graph, |_| 1.0);
     let drawing = mds.run(5); // 5 dimensions (more than the 3 nodes)
 
     // Check that coordinates are not NaN
@@ -45,7 +45,7 @@ fn test_classical_mds_various_dimensions() {
     graph.add_edge(nodes[0], nodes[5], ());
     graph.add_edge(nodes[2], nodes[7], ());
 
-    let mds = ClassicalMds::new(&graph, |_| 1.0);
+    let mds = ClassicalMds::<_, f32>::new(&graph, |_| 1.0);
 
     // Test with various dimensions
     for dim in 1..15 {
@@ -70,7 +70,7 @@ fn test_classical_mds_various_dimensions() {
 #[test]
 fn test_classical_mds_2d() {
     let graph: UnGraph<(), ()> = dataset_1138_bus();
-    let mds = ClassicalMds::new(&graph, |_| 1.);
+    let mds = ClassicalMds::<_, f32>::new(&graph, |_| 1.);
     let drawing = mds.run_2d();
     for u in graph.node_indices() {
         assert!(drawing.x(u).unwrap().is_finite());
@@ -81,7 +81,7 @@ fn test_classical_mds_2d() {
 #[test]
 fn test_classical_mds_3d() {
     let graph: UnGraph<(), ()> = dataset_1138_bus();
-    let mds = ClassicalMds::new(&graph, |_| 1.);
+    let mds = ClassicalMds::<_, f32>::new(&graph, |_| 1.);
     let drawing = mds.run(3);
     for u in graph.node_indices() {
         assert!(drawing.get(u, 0).unwrap().is_finite());
@@ -94,7 +94,7 @@ fn test_classical_mds_3d() {
 fn test_pivot_mds_2d() {
     let graph: UnGraph<(), ()> = dataset_1138_bus();
     let pivot = graph.node_indices().take(50).collect::<Vec<_>>();
-    let mds = PivotMds::new(&graph, |_| 1., &pivot);
+    let mds = PivotMds::<_, f32>::new(&graph, |_| 1., &pivot);
     let drawing = mds.run_2d();
     for u in graph.node_indices() {
         assert!(drawing.x(u).unwrap().is_finite());
@@ -106,7 +106,7 @@ fn test_pivot_mds_2d() {
 fn test_pivot_mds_3d() {
     let graph: UnGraph<(), ()> = dataset_1138_bus();
     let pivot = graph.node_indices().take(50).collect::<Vec<_>>();
-    let mds = PivotMds::new(&graph, |_| 1., &pivot);
+    let mds = PivotMds::<_, f32>::new(&graph, |_| 1., &pivot);
     let drawing = mds.run(3);
     for u in graph.node_indices() {
         assert!(drawing.get(u, 0).unwrap().is_finite());
@@ -130,7 +130,7 @@ fn test_pivot_mds_high_dimension() {
     let pivot_nodes = vec![n1, n3];
 
     // Run PivotMds with dimensions higher than the number of nodes
-    let mds = PivotMds::new(&graph, |_| 1.0, &pivot_nodes);
+    let mds = PivotMds::<_, f32>::new(&graph, |_| 1.0, &pivot_nodes);
     let drawing = mds.run(5); // 5 dimensions (more than the 3 nodes)
 
     // Check that coordinates are not NaN
@@ -164,7 +164,7 @@ fn test_pivot_mds_various_dimensions() {
     // Use a subset of nodes as pivots
     let pivot_nodes = vec![nodes[0], nodes[3], nodes[6], nodes[9]];
 
-    let mds = PivotMds::new(&graph, |_| 1.0, &pivot_nodes);
+    let mds = PivotMds::<_, f32>::new(&graph, |_| 1.0, &pivot_nodes);
 
     // Test with various dimensions
     for dim in 1..15 {

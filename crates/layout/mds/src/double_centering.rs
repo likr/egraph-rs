@@ -1,4 +1,5 @@
 use ndarray::prelude::*;
+use petgraph_drawing::DrawingValue;
 
 /// Applies double centering transformation to a squared distance matrix.
 ///
@@ -24,7 +25,7 @@ use ndarray::prelude::*;
 /// # Returns
 ///
 /// The double-centered matrix (kernel matrix)
-pub fn double_centering(delta: &Array2<f32>) -> Array2<f32> {
+pub fn double_centering<S: DrawingValue>(delta: &Array2<S>) -> Array2<S> {
     let n = delta.shape()[0];
     let k = delta.shape()[1];
     let sum_col = delta.mean_axis(Axis(1)).unwrap();
@@ -33,7 +34,7 @@ pub fn double_centering(delta: &Array2<f32>) -> Array2<f32> {
     let mut c = Array::zeros((n, k));
     for i in 0..n {
         for j in 0..k {
-            c[[i, j]] = (sum_col[i] + sum_row[j] - delta[[i, j]] - sum_all) / 2.;
+            c[[i, j]] = (sum_col[i] + sum_row[j] - delta[[i, j]] - sum_all) / (2.).into();
         }
     }
     c

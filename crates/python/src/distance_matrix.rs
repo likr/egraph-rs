@@ -9,7 +9,10 @@
 /// between all pairs of nodes) and sub-distance matrices (containing distances
 /// between a subset of node pairs), allowing for efficient memory usage for
 /// different use cases.
-use crate::graph::{GraphType, IndexType, PyGraphAdapter};
+use crate::{
+    graph::{GraphType, IndexType, PyGraphAdapter},
+    FloatType,
+};
 use petgraph::{graph::NodeIndex, stable_graph::node_index};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
 use pyo3::prelude::*;
@@ -27,9 +30,9 @@ use pyo3::prelude::*;
 ///           typically used in sparse algorithms for improved memory efficiency
 pub enum DistanceMatrixType {
     /// Full distance matrix containing distances between all pairs of nodes
-    Full(FullDistanceMatrix<NodeIndex<IndexType>, f32>),
+    Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     /// Sub-distance matrix containing distances between a subset of node pairs
-    Sub(SubDistanceMatrix<NodeIndex<IndexType>, f32>),
+    Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
 /// Python class for working with distance matrices
@@ -49,7 +52,7 @@ impl PyDistanceMatrix {
     /// # Parameters
     /// * `distance_matrix` - The full distance matrix to wrap
     pub fn new_with_full_distance_matrix(
-        distance_matrix: FullDistanceMatrix<NodeIndex<IndexType>, f32>,
+        distance_matrix: FullDistanceMatrix<NodeIndex<IndexType>, FloatType>,
     ) -> Self {
         PyDistanceMatrix {
             distance_matrix: DistanceMatrixType::Full(distance_matrix),
@@ -61,7 +64,7 @@ impl PyDistanceMatrix {
     /// # Parameters
     /// * `distance_matrix` - The sub-distance matrix to wrap
     pub fn new_with_sub_distance_matrix(
-        distance_matrix: SubDistanceMatrix<NodeIndex<IndexType>, f32>,
+        distance_matrix: SubDistanceMatrix<NodeIndex<IndexType>, FloatType>,
     ) -> Self {
         PyDistanceMatrix {
             distance_matrix: DistanceMatrixType::Sub(distance_matrix),
@@ -108,7 +111,7 @@ impl PyDistanceMatrix {
     /// :type v: int
     /// :return: The distance between the nodes if it exists, None otherwise
     /// :rtype: float or None
-    pub fn get(&self, u: usize, v: usize) -> Option<f32> {
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
         match self.distance_matrix() {
             DistanceMatrixType::Full(distance_matrix) => {
                 distance_matrix.get(node_index(u), node_index(v))
@@ -129,7 +132,7 @@ impl PyDistanceMatrix {
     /// :type d: float
     /// :return: Some(()) if the distance was set successfully, None otherwise
     /// :rtype: Some(()) or None
-    pub fn set(&mut self, u: usize, v: usize, d: f32) -> Option<()> {
+    pub fn set(&mut self, u: usize, v: usize, d: FloatType) -> Option<()> {
         match self.distance_matrix_mut() {
             DistanceMatrixType::Full(distance_matrix) => {
                 distance_matrix.set(node_index(u), node_index(v), d)

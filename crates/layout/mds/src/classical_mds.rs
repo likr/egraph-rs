@@ -2,7 +2,7 @@ use crate::{double_centering::double_centering, eigendecomposition::eigendecompo
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
-use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 
 /// Classical Multidimensional Scaling (CMDS) implementation.
 ///
@@ -35,22 +35,23 @@ use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingInd
 /// // Run MDS to get a 2D layout
 /// let drawing = mds.run_2d();
 /// ```
-pub struct ClassicalMds<N> {
+pub struct ClassicalMds<N, S> {
     /// Convergence threshold for eigendecomposition.
     ///
     /// Lower values will result in more accurate layouts but may require more iterations.
-    pub eps: f32,
+    pub eps: S,
 
     /// Node indices of the graph.
     indices: Vec<N>,
 
     /// Double-centered distance matrix.
-    b: Array2<f32>,
+    b: Array2<S>,
 }
 
-impl<N> ClassicalMds<N>
+impl<N, S> ClassicalMds<N, S>
 where
     N: DrawingIndex,
+    S: DrawingValue + Default,
 {
     /// Creates a new Classical MDS instance from a graph and an edge length function.
     ///
@@ -74,7 +75,7 @@ where
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Copy + Ord + Into<N>,
-        F: FnMut(G::EdgeRef) -> f32,
+        F: FnMut(G::EdgeRef) -> S,
         N: Copy,
     {
         let distance_matrix = all_sources_dijkstra(graph, length);
@@ -97,7 +98,7 @@ where
     /// # Returns
     ///
     /// A new `ClassicalMds` instance ready to compute a layout
-    pub fn new_with_distance_matrix<N2>(distance_matrix: &FullDistanceMatrix<N2, f32>) -> Self
+    pub fn new_with_distance_matrix<N2>(distance_matrix: &FullDistanceMatrix<N2, S>) -> Self
     where
         N2: DrawingIndex + Copy + Into<N>,
     {
@@ -110,7 +111,7 @@ where
         }
         let b = double_centering(&delta);
         Self {
-            eps: 1e-3,
+            eps: (1e-3).into(),
             indices: distance_matrix
                 .row_indices()
                 .map(|u| u.into())
@@ -127,17 +128,17 @@ where
     /// # Returns
     ///
     /// A `DrawingEuclidean2d` instance containing the 2D coordinates of all nodes.
-    pub fn run_2d(&self) -> DrawingEuclidean2d<N, f32>
+    pub fn run_2d(&self) -> DrawingEuclidean2d<N, S>
     where
         N: Copy,
     {
         let (mut e, v) = eigendecomposition(&self.b, 2, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = 1e-10;
+        let epsilon = (1e-10).into();
         for i in 0..e.len() {
             if e[i] < epsilon {
-                e[i] = 0.0;
+                e[i] = S::zero();
             }
         }
 
@@ -164,17 +165,17 @@ where
     /// # Returns
     ///
     /// A `DrawingEuclidean` instance containing the d-dimensional coordinates of all nodes.
-    pub fn run(&self, d: usize) -> DrawingEuclidean<N, f32>
+    pub fn run(&self, d: usize) -> DrawingEuclidean<N, S>
     where
         N: Copy,
     {
         let (mut e, v) = eigendecomposition(&self.b, d, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = 1e-10;
+        let epsilon = (1e-10).into();
         for i in 0..e.len() {
             if e[i] < epsilon {
-                e[i] = 0.0;
+                e[i] = S::zero();
             }
         }
 

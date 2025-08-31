@@ -13,6 +13,7 @@ use crate::{
         PyDrawingTorus2d,
     },
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 
 /// Python class for the overwrap removal algorithm
@@ -28,7 +29,7 @@ use crate::{
 #[pyclass]
 #[pyo3(name = "OverwrapRemoval")]
 struct PyOverwrapRemoval {
-    overwrap_removal: OverwrapRemoval<f32>,
+    overwrap_removal: OverwrapRemoval<FloatType>,
 }
 
 #[pymethods]
@@ -130,7 +131,7 @@ impl PyOverwrapRemoval {
     /// :return: The current strength value
     /// :rtype: float
     #[getter]
-    fn get_strength(&self) -> f32 {
+    fn get_strength(&self) -> FloatType {
         self.overwrap_removal.strength
     }
 
@@ -141,7 +142,7 @@ impl PyOverwrapRemoval {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_strength(&mut self, value: f32) {
+    fn set_strength(&mut self, value: FloatType) {
         self.overwrap_removal.strength = value;
     }
 
@@ -176,7 +177,7 @@ impl PyOverwrapRemoval {
     /// :return: The current minimum distance value
     /// :rtype: float
     #[getter]
-    fn get_min_distance(&self) -> f32 {
+    fn get_min_distance(&self) -> FloatType {
         self.overwrap_removal.min_distance
     }
 
@@ -187,7 +188,7 @@ impl PyOverwrapRemoval {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_min_distance(&mut self, value: f32) {
+    fn set_min_distance(&mut self, value: FloatType) {
         self.overwrap_removal.min_distance = value;
     }
 }

@@ -6,6 +6,7 @@ use crate::layout::sgd::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
 };
+use crate::FloatType;
 use petgraph_layout_sgd::{
     SchedulerConstant, SchedulerExponential, SchedulerLinear, SchedulerQuadratic,
     SchedulerReciprocal, Sgd,
@@ -15,11 +16,11 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "Sgd")]
 pub struct PySgd {
-    sgd: Sgd<f32>,
+    sgd: Sgd<FloatType>,
 }
 
 impl PySgd {
-    pub fn new_with_sgd(sgd: Sgd<f32>) -> Self {
+    pub fn new_with_sgd(sgd: Sgd<FloatType>) -> Self {
         Self { sgd }
     }
 }
@@ -34,7 +35,9 @@ impl PySgd {
     /// :rtype: Sgd
     /// :raises ValueError: If node_pairs is malformed or contains invalid values
     #[new]
-    fn new(node_pairs: Vec<(usize, usize, f32, f32, f32, f32)>) -> PyResult<Self> {
+    fn new(
+        node_pairs: Vec<(usize, usize, FloatType, FloatType, FloatType, FloatType)>,
+    ) -> PyResult<Self> {
         let sgd = Sgd::new(node_pairs);
         Ok(Self { sgd })
     }
@@ -60,7 +63,7 @@ impl PySgd {
     /// :type eta: float
     /// :return: None
     /// :rtype: None
-    fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: f32) {
+    fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: FloatType) {
         let drawing_type = drawing.borrow().drawing_type();
         Python::with_gil(|py| match drawing_type {
             DrawingType::Euclidean2d => {
@@ -136,7 +139,7 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: An exponential scheduler
     /// :rtype: SchedulerExponential
-    pub fn scheduler(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+    pub fn scheduler(&self, t_max: usize, epsilon: FloatType) -> PySchedulerExponential {
         self.scheduler_exponential(t_max, epsilon)
     }
 
@@ -148,7 +151,7 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: A constant scheduler
     /// :rtype: SchedulerConstant
-    pub fn scheduler_constant(&self, t_max: usize, epsilon: f32) -> PySchedulerConstant {
+    pub fn scheduler_constant(&self, t_max: usize, epsilon: FloatType) -> PySchedulerConstant {
         PySchedulerConstant::new_with_scheduler(
             self.sgd.scheduler::<SchedulerConstant<_>>(t_max, epsilon),
         )
@@ -162,7 +165,7 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: A linear scheduler
     /// :rtype: SchedulerLinear
-    pub fn scheduler_linear(&self, t_max: usize, epsilon: f32) -> PySchedulerLinear {
+    pub fn scheduler_linear(&self, t_max: usize, epsilon: FloatType) -> PySchedulerLinear {
         PySchedulerLinear::new_with_scheduler(
             self.sgd.scheduler::<SchedulerLinear<_>>(t_max, epsilon),
         )
@@ -176,7 +179,11 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: An exponential scheduler
     /// :rtype: SchedulerExponential
-    pub fn scheduler_exponential(&self, t_max: usize, epsilon: f32) -> PySchedulerExponential {
+    pub fn scheduler_exponential(
+        &self,
+        t_max: usize,
+        epsilon: FloatType,
+    ) -> PySchedulerExponential {
         PySchedulerExponential::new_with_scheduler(
             self.sgd
                 .scheduler::<SchedulerExponential<_>>(t_max, epsilon),
@@ -191,7 +198,7 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: A quadratic scheduler
     /// :rtype: SchedulerQuadratic
-    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: f32) -> PySchedulerQuadratic {
+    pub fn scheduler_quadratic(&self, t_max: usize, epsilon: FloatType) -> PySchedulerQuadratic {
         PySchedulerQuadratic::new_with_scheduler(
             self.sgd.scheduler::<SchedulerQuadratic<_>>(t_max, epsilon),
         )
@@ -205,7 +212,7 @@ impl PySgd {
     /// :type epsilon: float
     /// :return: A reciprocal scheduler
     /// :rtype: SchedulerReciprocal
-    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: f32) -> PySchedulerReciprocal {
+    pub fn scheduler_reciprocal(&self, t_max: usize, epsilon: FloatType) -> PySchedulerReciprocal {
         PySchedulerReciprocal::new_with_scheduler(
             self.sgd.scheduler::<SchedulerReciprocal<_>>(t_max, epsilon),
         )

@@ -34,17 +34,18 @@ where
 /// # Returns
 ///
 /// A vector of `Constraint` objects representing the separation constraints.
-pub fn generate_rectangle_no_overlap_constraints<D, Diff, M, F>(
+pub fn generate_rectangle_no_overlap_constraints<D, Diff, M, F, S>(
     drawing: &D,
     size: F,
     k: usize,
-) -> Vec<Constraint>
+) -> Vec<Constraint<S>>
 where
     D: Drawing<Item = M>,
     D::Index: Clone,
-    Diff: Delta<S = f32>,
+    Diff: Delta<S = S>,
     M: MetricCartesian<D = Diff>,
-    F: FnMut(D::Index, usize) -> f32,
+    F: FnMut(D::Index, usize) -> S,
+    S: DrawingValue,
 {
     let mut size = size;
     let n = drawing.len();
@@ -56,8 +57,8 @@ where
             let x = drawing.raw_entry(i);
             (0..d)
                 .map(|j| {
-                    let xj = x.nth(j);
-                    let w = size(u.clone(), j) / 2.;
+                    let xj = *x.nth(j);
+                    let w = size(u.clone(), j) / (2.).into();
                     (xj - w, xj + w)
                 })
                 .collect::<Vec<_>>()
@@ -71,13 +72,15 @@ where
                         Constraint::new(
                             i,
                             j,
-                            (sizes[i][k].1 - sizes[i][k].0 + sizes[j][k].1 - sizes[j][k].0) / 2.,
+                            (sizes[i][k].1 - sizes[i][k].0 + sizes[j][k].1 - sizes[j][k].0)
+                                / (2.).into(),
                         )
                     } else {
                         Constraint::new(
                             j,
                             i,
-                            (sizes[i][k].1 - sizes[i][k].0 + sizes[j][k].1 - sizes[j][k].0) / 2.,
+                            (sizes[i][k].1 - sizes[i][k].0 + sizes[j][k].1 - sizes[j][k].0)
+                                / (2.).into(),
                         )
                     },
                 )

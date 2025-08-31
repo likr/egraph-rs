@@ -2,7 +2,7 @@ use crate::{double_centering::double_centering, eigendecomposition::eigendecompo
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::{multi_source_dijkstra, DistanceMatrix};
-use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 
 /// Pivot-based Multidimensional Scaling (Pivot MDS) implementation.
 ///
@@ -42,22 +42,23 @@ use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingInd
 /// // Run Pivot MDS to get a 2D layout
 /// let drawing = mds.run_2d();
 /// ```
-pub struct PivotMds<N> {
+pub struct PivotMds<N, S> {
     /// Convergence threshold for eigendecomposition.
     ///
     /// Lower values will result in more accurate layouts but may require more iterations.
-    pub eps: f32,
+    pub eps: S,
 
     /// Node indices of the graph.
     indices: Vec<N>,
 
     /// Double-centered distance matrix.
-    c: Array2<f32>,
+    c: Array2<S>,
 }
 
-impl<N> PivotMds<N>
+impl<N, S> PivotMds<N, S>
 where
     N: DrawingIndex,
+    S: DrawingValue,
 {
     /// Creates a new Pivot MDS instance from a graph, edge length function, and pivot nodes.
     ///
@@ -84,7 +85,7 @@ where
     where
         G: IntoEdges + IntoNodeIdentifiers,
         G::NodeId: DrawingIndex + Ord + Into<N>,
-        F: FnMut(G::EdgeRef) -> f32,
+        F: FnMut(G::EdgeRef) -> S,
     {
         let distance_matrix = multi_source_dijkstra(graph, length, sources);
         Self::new_with_distance_matrix(&distance_matrix)
@@ -110,7 +111,7 @@ where
     pub fn new_with_distance_matrix<N2, D>(distance_matrix: &D) -> Self
     where
         N2: DrawingIndex + Copy + Into<N>,
-        D: DistanceMatrix<N2, f32>,
+        D: DistanceMatrix<N2, S>,
     {
         let (n, m) = distance_matrix.shape();
         let mut delta = Array2::zeros((m, n));
@@ -121,7 +122,7 @@ where
         }
         let c = double_centering(&delta);
         Self {
-            eps: 1e-3,
+            eps: (1e-3).into(),
             indices: distance_matrix
                 .col_indices()
                 .map(|u| u.into())
@@ -143,22 +144,23 @@ where
     /// # Returns
     ///
     /// A `DrawingEuclidean2d` instance containing the 2D coordinates of all nodes.
-    pub fn run_2d(&self) -> DrawingEuclidean2d<N, f32>
+    pub fn run_2d(&self) -> DrawingEuclidean2d<N, S>
     where
         N: Copy,
+        S: Default,
     {
         let ct_c = self.c.t().dot(&self.c);
         let (mut e, v) = eigendecomposition(&ct_c, 2, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = 1e-10;
+        let epsilon = (1e-10).into();
         for i in 0..e.len() {
             if e[i] < epsilon {
-                e[i] = 0.0;
+                e[i] = S::zero();
             }
         }
 
-        let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(0.0).sqrt())));
+        let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(S::zero()).sqrt())));
         let xy = self.c.dot(&xy);
         let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
@@ -182,22 +184,23 @@ where
     /// # Returns
     ///
     /// A `DrawingEuclidean` instance containing the d-dimensional coordinates of all nodes.
-    pub fn run(&self, d: usize) -> DrawingEuclidean<N, f32>
+    pub fn run(&self, d: usize) -> DrawingEuclidean<N, S>
     where
         N: Copy,
+        S: Default,
     {
         let ct_c = self.c.t().dot(&self.c);
         let (mut e, v) = eigendecomposition(&ct_c, d, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = 1e-10;
+        let epsilon = (1e-10).into();
         for i in 0..e.len() {
             if e[i] < epsilon {
-                e[i] = 0.0;
+                e[i] = S::zero();
             }
         }
 
-        let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(0.0).sqrt())));
+        let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(S::zero()).sqrt())));
         let x = self.c.dot(&x);
         let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {

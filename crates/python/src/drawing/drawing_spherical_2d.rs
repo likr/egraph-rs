@@ -7,6 +7,7 @@
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingSpherical2d};
@@ -24,7 +25,7 @@ use pyo3::prelude::*;
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingSpherical2d")]
 pub struct PyDrawingSpherical2d {
-    drawing: DrawingSpherical2d<NodeId, f32>,
+    drawing: DrawingSpherical2d<NodeId, FloatType>,
 }
 
 impl PyDrawingSpherical2d {
@@ -34,7 +35,7 @@ impl PyDrawingSpherical2d {
     /// :type drawing: DrawingSpherical2d
     /// :return: A new PyDrawingSpherical2d instance
     /// :rtype: PyDrawingSpherical2d
-    pub fn new(drawing: DrawingSpherical2d<NodeId, f32>) -> Self {
+    pub fn new(drawing: DrawingSpherical2d<NodeId, FloatType>) -> Self {
         Self { drawing }
     }
 
@@ -42,7 +43,7 @@ impl PyDrawingSpherical2d {
     ///
     /// :return: A reference to the underlying drawing
     /// :rtype: DrawingSpherical2d
-    pub fn drawing(&self) -> &DrawingSpherical2d<NodeId, f32> {
+    pub fn drawing(&self) -> &DrawingSpherical2d<NodeId, FloatType> {
         &self.drawing
     }
 
@@ -50,7 +51,7 @@ impl PyDrawingSpherical2d {
     ///
     /// :return: A mutable reference to the underlying drawing
     /// :rtype: DrawingSpherical2d
-    pub fn drawing_mut(&mut self) -> &mut DrawingSpherical2d<NodeId, f32> {
+    pub fn drawing_mut(&mut self) -> &mut DrawingSpherical2d<NodeId, FloatType> {
         &mut self.drawing
     }
 }
@@ -66,7 +67,7 @@ impl PyDrawingSpherical2d {
     /// :type u: int
     /// :return: The longitude (in radians, from -π to π) if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn lon(&self, u: usize) -> Option<f32> {
+    pub fn lon(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.lon(u)
     }
@@ -80,7 +81,7 @@ impl PyDrawingSpherical2d {
     /// :type u: int
     /// :return: The latitude (in radians, from -π/2 to π/2) if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn lat(&self, u: usize) -> Option<f32> {
+    pub fn lat(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.lat(u)
     }
@@ -93,7 +94,7 @@ impl PyDrawingSpherical2d {
     /// :type value: float
     /// :return: None
     /// :rtype: None
-    pub fn set_lon(&mut self, u: usize, value: f32) {
+    pub fn set_lon(&mut self, u: usize, value: FloatType) {
         let u = node_index(u);
         self.drawing.set_lon(u, value);
     }
@@ -106,7 +107,7 @@ impl PyDrawingSpherical2d {
     /// :type value: float
     /// :return: None
     /// :rtype: None
-    pub fn set_lat(&mut self, u: usize, value: f32) {
+    pub fn set_lat(&mut self, u: usize, value: FloatType) {
         let u = node_index(u);
         self.drawing.set_lat(u, value);
     }

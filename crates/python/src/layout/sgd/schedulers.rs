@@ -9,6 +9,8 @@ use petgraph_layout_sgd::{
 };
 use pyo3::prelude::*;
 
+use crate::FloatType;
+
 /// Python class that implements a constant learning rate scheduler
 ///
 /// This scheduler maintains a constant learning rate throughout the optimization process.
@@ -21,11 +23,11 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "SchedulerConstant")]
 pub struct PySchedulerConstant {
-    scheduler: SchedulerConstant<f32>,
+    scheduler: SchedulerConstant<FloatType>,
 }
 
 impl PySchedulerConstant {
-    pub fn new_with_scheduler(scheduler: SchedulerConstant<f32>) -> Self {
+    pub fn new_with_scheduler(scheduler: SchedulerConstant<FloatType>) -> Self {
         Self { scheduler }
     }
 }
@@ -79,11 +81,11 @@ impl PySchedulerConstant {
 #[pyclass]
 #[pyo3(name = "SchedulerLinear")]
 pub struct PySchedulerLinear {
-    scheduler: SchedulerLinear<f32>,
+    scheduler: SchedulerLinear<FloatType>,
 }
 
 impl PySchedulerLinear {
-    pub fn new_with_scheduler(scheduler: SchedulerLinear<f32>) -> Self {
+    pub fn new_with_scheduler(scheduler: SchedulerLinear<FloatType>) -> Self {
         Self { scheduler }
     }
 }
@@ -137,11 +139,11 @@ impl PySchedulerLinear {
 #[pyclass]
 #[pyo3(name = "SchedulerQuadratic")]
 pub struct PySchedulerQuadratic {
-    scheduler: SchedulerQuadratic<f32>,
+    scheduler: SchedulerQuadratic<FloatType>,
 }
 
 impl PySchedulerQuadratic {
-    pub fn new_with_scheduler(scheduler: SchedulerQuadratic<f32>) -> Self {
+    pub fn new_with_scheduler(scheduler: SchedulerQuadratic<FloatType>) -> Self {
         Self { scheduler }
     }
 }
@@ -196,11 +198,11 @@ impl PySchedulerQuadratic {
 #[pyclass]
 #[pyo3(name = "SchedulerExponential")]
 pub struct PySchedulerExponential {
-    scheduler: SchedulerExponential<f32>,
+    scheduler: SchedulerExponential<FloatType>,
 }
 
 impl PySchedulerExponential {
-    pub fn new_with_scheduler(scheduler: SchedulerExponential<f32>) -> Self {
+    pub fn new_with_scheduler(scheduler: SchedulerExponential<FloatType>) -> Self {
         Self { scheduler }
     }
 }
@@ -254,11 +256,11 @@ impl PySchedulerExponential {
 #[pyclass]
 #[pyo3(name = "SchedulerReciprocal")]
 pub struct PySchedulerReciprocal {
-    scheduler: SchedulerReciprocal<f32>,
+    scheduler: SchedulerReciprocal<FloatType>,
 }
 
 impl PySchedulerReciprocal {
-    pub fn new_with_scheduler(scheduler: SchedulerReciprocal<f32>) -> Self {
+    pub fn new_with_scheduler(scheduler: SchedulerReciprocal<FloatType>) -> Self {
         Self { scheduler }
     }
 }

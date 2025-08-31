@@ -1,6 +1,7 @@
 use crate::{
     distance_matrix::PyDistanceMatrix,
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{all_sources_bfs, all_sources_dijkstra, warshall_floyd};
@@ -20,7 +21,7 @@ use pyo3::prelude::*;
 /// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "all_sources_bfs")]
-fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: f32) -> PyDistanceMatrix {
+fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: FloatType) -> PyDistanceMatrix {
     let distance_matrix = match graph.graph() {
         GraphType::Graph(g) => all_sources_bfs(g, unit_edge_length),
         GraphType::DiGraph(g) => all_sources_bfs(g, unit_edge_length),

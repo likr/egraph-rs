@@ -12,6 +12,7 @@ use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::{graph::node_index, stable_graph::NodeIndex, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};
@@ -36,7 +37,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "ClassicalMds")]
 struct PyClassicalMds {
-    mds: ClassicalMds<NodeIndex>,
+    mds: ClassicalMds<NodeIndex, FloatType>,
 }
 
 #[pymethods]
@@ -102,7 +103,7 @@ impl PyClassicalMds {
     /// :return: The current epsilon value
     /// :rtype: float
     #[getter]
-    fn eps(&self) -> f32 {
+    fn eps(&self) -> FloatType {
         self.mds.eps
     }
 
@@ -113,7 +114,7 @@ impl PyClassicalMds {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_eps(&mut self, value: f32) {
+    fn set_eps(&mut self, value: FloatType) {
         self.mds.eps = value;
     }
 }
@@ -140,7 +141,7 @@ impl PyClassicalMds {
 #[pyclass]
 #[pyo3(name = "PivotMds")]
 struct PyPivotMds {
-    mds: PivotMds<NodeIndex>,
+    mds: PivotMds<NodeIndex, FloatType>,
 }
 
 #[pymethods]
@@ -215,7 +216,7 @@ impl PyPivotMds {
     /// :return: The current epsilon value
     /// :rtype: float
     #[getter]
-    fn eps(&self) -> f32 {
+    fn eps(&self) -> FloatType {
         self.mds.eps
     }
 
@@ -226,7 +227,7 @@ impl PyPivotMds {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_eps(&mut self, value: f32) {
+    fn set_eps(&mut self, value: FloatType) {
         self.mds.eps = value;
     }
 }

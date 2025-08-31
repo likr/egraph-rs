@@ -1,6 +1,7 @@
 use crate::{
     drawing::{PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingSpherical2d, PyDrawingTorus2d},
     graph::NodeId,
+    FloatType,
 };
 use petgraph_drawing::{
     DrawingEuclidean, DrawingEuclidean2d, DrawingHyperbolic2d, DrawingSpherical2d, DrawingTorus2d,
@@ -45,7 +46,7 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_euclidean_2d(drawing: DrawingEuclidean2d<NodeId, f32>) -> PyObject {
+    pub fn new_drawing_euclidean_2d(drawing: DrawingEuclidean2d<NodeId, FloatType>) -> PyObject {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Euclidean2d,
         });
@@ -60,7 +61,7 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_euclidean(drawing: DrawingEuclidean<NodeId, f32>) -> PyObject {
+    pub fn new_drawing_euclidean(drawing: DrawingEuclidean<NodeId, FloatType>) -> PyObject {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Euclidean,
         });
@@ -75,7 +76,7 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_hyperbolic_2d(drawing: DrawingHyperbolic2d<NodeId, f32>) -> PyObject {
+    pub fn new_drawing_hyperbolic_2d(drawing: DrawingHyperbolic2d<NodeId, FloatType>) -> PyObject {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Hyperbolic2d,
         });
@@ -90,7 +91,7 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_spherical_2d(drawing: DrawingSpherical2d<NodeId, f32>) -> PyObject {
+    pub fn new_drawing_spherical_2d(drawing: DrawingSpherical2d<NodeId, FloatType>) -> PyObject {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Spherical2d,
         });
@@ -105,7 +106,7 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_torus_2d(drawing: DrawingTorus2d<NodeId, f32>) -> PyObject {
+    pub fn new_drawing_torus_2d(drawing: DrawingTorus2d<NodeId, FloatType>) -> PyObject {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Torus2d,
         });

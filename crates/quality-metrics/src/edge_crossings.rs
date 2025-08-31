@@ -1,7 +1,8 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph_drawing::{DrawingEuclidean2d, DrawingIndex, DrawingTorus2d, MetricEuclidean2d};
-use std::f32::consts::PI;
+use petgraph_drawing::{
+    DrawingEuclidean2d, DrawingIndex, DrawingTorus2d, DrawingValue, MetricEuclidean2d,
+};
 
 /// Represents a collection of crossing edges in a graph layout.
 ///
@@ -11,11 +12,11 @@ use std::f32::consts::PI;
 /// - (x21, y21) and (x22, y22) are the endpoints of the second line segment
 
 #[derive(Clone, Copy)]
-struct Line {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
+struct Line<S> {
+    x1: S,
+    y1: S,
+    x2: S,
+    y2: S,
 }
 
 /// Determines whether two line segments intersect.
@@ -31,7 +32,7 @@ struct Line {
 /// # Returns
 ///
 /// `true` if the line segments intersect, `false` otherwise
-fn cross(line1: &Line, line2: &Line) -> bool {
+fn cross<S: DrawingValue>(line1: &Line<S>, line2: &Line<S>) -> bool {
     let dx1 = line1.x2 - line1.x1;
     let dy1 = line1.y2 - line1.y1;
     let dx2 = line2.x2 - line2.x1;
@@ -40,21 +41,21 @@ fn cross(line1: &Line, line2: &Line) -> bool {
     let s1 = dx1 * (line2.y1 - line1.y1) - dy1 * (line2.x1 - line1.x1);
     let t1 = dx1 * (line2.y2 - line1.y1) - dy1 * (line2.x2 - line1.x1);
 
-    if s1 * t1 > 0. {
+    if s1 * t1 > S::zero() {
         return false;
     }
 
     let s2 = dx2 * (line1.y1 - line2.y1) - dy2 * (line1.x1 - line2.x1);
     let t2 = dx2 * (line1.y2 - line2.y1) - dy2 * (line1.x2 - line2.x1);
 
-    if s2 * t2 > 0. {
+    if s2 * t2 > S::zero() {
         return false;
     }
 
     true
 }
 
-pub type CrossingEdges = Vec<(f32, f32, f32, f32, f32, f32, f32, f32)>;
+pub type CrossingEdges<S> = Vec<(S, S, S, S, S, S, S, S)>;
 
 /// Identifies all edge crossings in a graph layout in Euclidean 2D space.
 ///
@@ -74,10 +75,14 @@ pub type CrossingEdges = Vec<(f32, f32, f32, f32, f32, f32, f32, f32)>;
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn crossing_edges<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> CrossingEdges
+pub fn crossing_edges<G, S>(
+    graph: G,
+    drawing: &DrawingEuclidean2d<G::NodeId, S>,
+) -> CrossingEdges<S>
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
+    S: DrawingValue,
 {
     let mut edges = vec![];
     for e in graph.edge_references() {
@@ -140,10 +145,14 @@ where
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn crossing_edges_torus<G>(graph: G, drawing: &DrawingTorus2d<G::NodeId, f32>) -> CrossingEdges
+pub fn crossing_edges_torus<G, S>(
+    graph: G,
+    drawing: &DrawingTorus2d<G::NodeId, S>,
+) -> CrossingEdges<S>
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
+    S: DrawingValue,
 {
     let mut edges = vec![];
     for e in graph.edge_references() {
@@ -199,15 +208,16 @@ where
 ///
 /// # Returns
 ///
-/// An `f32` value representing the crossing number (count of edge crossings).
+/// An `S` value representing the crossing number (count of edge crossings).
 ///
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn crossing_number<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
+pub fn crossing_number<G, S>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, S>) -> S
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
+    S: DrawingValue,
 {
     let crossing_edges = crossing_edges(graph, drawing);
     crossing_number_with_crossing_edges(&crossing_edges)
@@ -224,9 +234,11 @@ where
 ///
 /// # Returns
 ///
-/// An `f32` value representing the crossing number (count of edge crossings).
-pub fn crossing_number_with_crossing_edges(crossing_edges: &CrossingEdges) -> f32 {
-    crossing_edges.len() as f32
+/// An `S` value representing the crossing number (count of edge crossings).
+pub fn crossing_number_with_crossing_edges<S: DrawingValue>(
+    crossing_edges: &CrossingEdges<S>,
+) -> S {
+    S::from_usize(crossing_edges.len()).unwrap()
 }
 
 /// Calculates the crossing angle metric for a graph layout in Euclidean 2D space.
@@ -243,16 +255,17 @@ pub fn crossing_number_with_crossing_edges(crossing_edges: &CrossingEdges) -> f3
 ///
 /// # Returns
 ///
-/// An `f32` value representing the crossing angle metric. Higher values indicate
+/// An `S` value representing the crossing angle metric. Higher values indicate
 /// better crossing angles (closer to 90 degrees).
 ///
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn crossing_angle<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
+pub fn crossing_angle<G, S>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, S>) -> S
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
+    S: DrawingValue,
 {
     let crossing_edges = crossing_edges(graph, drawing);
     crossing_angle_with_crossing_edges(&crossing_edges)
@@ -272,13 +285,13 @@ where
 ///
 /// # Returns
 ///
-/// An `f32` value representing the crossing angle metric. Higher values indicate
+/// An `S` value representing the crossing angle metric. Higher values indicate
 /// better crossing angles (closer to 90 degrees).
-pub fn crossing_angle_with_crossing_edges(crossing_edges: &CrossingEdges) -> f32 {
-    let mut s = 0.;
+pub fn crossing_angle_with_crossing_edges<S: DrawingValue>(crossing_edges: &CrossingEdges<S>) -> S {
+    let mut s = S::zero();
     for &(x11, y11, x12, y12, x21, y21, x22, y22) in crossing_edges.iter() {
         if let Some(t) = edge_angle(x11 - x12, y11 - y12, x21 - x22, y21 - y22) {
-            let t = t.min(PI - t);
+            let t = t.min(S::PI() - t);
             s += t.cos().powi(2);
         }
     }

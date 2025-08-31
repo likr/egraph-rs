@@ -35,6 +35,7 @@ use crate::{
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_layout_stress_majorization::StressMajorization;
@@ -62,7 +63,7 @@ use pyo3::{prelude::*, types::PyType};
 #[pyclass]
 #[pyo3(name = "StressMajorization")]
 struct PyStressMajorization {
-    stress_majorization: StressMajorization,
+    stress_majorization: StressMajorization<FloatType>,
 }
 
 #[pymethods]
@@ -136,7 +137,7 @@ impl PyStressMajorization {
     /// :type drawing: DrawingEuclidean2d
     /// :return: The new stress value after the iteration (lower is better)
     /// :rtype: float
-    fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> f32 {
+    fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> FloatType {
         self.stress_majorization.apply(drawing.drawing_mut())
     }
 
@@ -175,7 +176,7 @@ impl PyStressMajorization {
     /// :return: The current epsilon value
     /// :rtype: float
     #[getter]
-    pub fn epsilon(&self) -> f32 {
+    pub fn epsilon(&self) -> FloatType {
         self.stress_majorization.epsilon
     }
 
@@ -188,7 +189,7 @@ impl PyStressMajorization {
     /// :return: None
     /// :rtype: None
     #[setter]
-    pub fn set_epsilon(&mut self, value: f32) {
+    pub fn set_epsilon(&mut self, value: FloatType) {
         self.stress_majorization.epsilon = value;
     }
 

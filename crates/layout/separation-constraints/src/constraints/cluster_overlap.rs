@@ -4,7 +4,7 @@ use petgraph::{
     EdgeType, Graph,
 };
 use petgraph_clustering::coarsen;
-use petgraph_drawing::{Drawing, DrawingEuclidean2d};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingValue};
 use std::collections::HashMap;
 
 use crate::project_rectangle_no_overlap_constraints_2d;
@@ -32,16 +32,17 @@ use crate::project_rectangle_no_overlap_constraints_2d;
 /// * `S` - The scalar type for coordinates
 /// * `F1` - The type of the cluster ID function
 /// * `F2` - The type of the size function
-pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
+pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2, S>(
     graph: &Graph<N, E, Ty, Ix>,
-    drawing: &mut DrawingEuclidean2d<NodeIndex<Ix>, f32>,
+    drawing: &mut DrawingEuclidean2d<NodeIndex<Ix>, S>,
     mut cluster_id: F1,
     mut size: F2,
 ) where
     Ty: EdgeType,
     Ix: IndexType,
     F1: FnMut(NodeIndex<Ix>) -> usize,
-    F2: FnMut(NodeIndex<Ix>, usize) -> f32,
+    F2: FnMut(NodeIndex<Ix>, usize) -> S,
+    S: DrawingValue + Default,
 {
     // Cache cluster_id function results to minimize calls
     let mut node_cluster_map = HashMap::new();
@@ -55,17 +56,17 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
         graph,
         &mut |_, node_id| node_cluster_map[&node_id], // Use cached cluster ID
         &mut |_, node_ids| {
-            let mut min_x = f32::INFINITY;
-            let mut min_y = f32::INFINITY;
-            let mut max_x = f32::NEG_INFINITY;
-            let mut max_y = f32::NEG_INFINITY;
+            let mut min_x = S::infinity();
+            let mut min_y = S::infinity();
+            let mut max_x = S::neg_infinity();
+            let mut max_y = S::neg_infinity();
 
             for &node_id in node_ids.iter() {
                 if let Some(pos) = drawing.position(node_id) {
                     let x = pos.0;
                     let y = pos.1;
-                    let half_width = size(node_id, 0) / 2.0;
-                    let half_height = size(node_id, 1) / 2.0;
+                    let half_width = size(node_id, 0) / (2.0).into();
+                    let half_height = size(node_id, 1) / (2.0).into();
 
                     min_x = min_x.min(x - half_width);
                     min_y = min_y.min(y - half_height);
@@ -90,9 +91,9 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
 
     // Set the initial position of each cluster to the center of its bounding box
     for cluster_id in cluster_graph.node_identifiers() {
-        if let Some((_, _, min_x, min_y, max_x, max_y)) = cluster_graph.node_weight(cluster_id) {
-            let center_x = (min_x + max_x) / 2.0;
-            let center_y = (min_y + max_y) / 2.0;
+        if let Some(&(_, _, min_x, min_y, max_x, max_y)) = cluster_graph.node_weight(cluster_id) {
+            let center_x = (min_x + max_x) / (2.0).into();
+            let center_y = (min_y + max_y) / (2.0).into();
 
             cluster_drawing.set_x(cluster_id, center_x);
             cluster_drawing.set_y(cluster_id, center_y);
@@ -101,7 +102,7 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
 
     // Generate and apply constraints
     project_rectangle_no_overlap_constraints_2d(&mut cluster_drawing, &mut |cluster_id, dim| {
-        let (_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
+        let &(_, _, min_x, min_y, max_x, max_y) = cluster_graph.node_weight(cluster_id).unwrap();
         if dim == 0 {
             max_x - min_x
         } else {
@@ -113,8 +114,8 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2>(
     for cluster_id in cluster_graph.node_identifiers() {
         let (_, node_ids, min_x, min_y, max_x, max_y) =
             cluster_graph.node_weight(cluster_id).unwrap();
-        let old_center_x = (min_x + max_x) / 2.0;
-        let old_center_y = (min_y + max_y) / 2.0;
+        let old_center_x = (*min_x + *max_x) / (2.0).into();
+        let old_center_y = (*min_y + *max_y) / (2.0).into();
 
         let new_center_x = cluster_drawing.x(cluster_id).unwrap();
         let new_center_y = cluster_drawing.y(cluster_id).unwrap();
@@ -146,7 +147,7 @@ mod tests {
         let n4 = graph.add_node(());
 
         // Create a drawing with the nodes positioned
-        let mut drawing = DrawingEuclidean2d::new(&graph);
+        let mut drawing = DrawingEuclidean2d::<_, f32>::new(&graph);
 
         // Cluster 1: nodes 0 and 1
         drawing.set_x(n1, 0.0);

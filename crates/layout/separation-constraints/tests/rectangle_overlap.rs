@@ -14,7 +14,7 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
     let nodes = vec![n1, n2, n3, n4, n5];
 
     // Create a drawing with the nodes positioned with overlap
-    let mut drawing = DrawingEuclidean2d::new(&graph);
+    let mut drawing = DrawingEuclidean2d::<_, f32>::new(&graph);
     drawing.set_x(n1, 5.);
     drawing.set_y(n1, 5.);
     drawing.set_x(n2, 13.);
@@ -43,8 +43,8 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
         for i in 0..j {
             let u = nodes[i];
             let v = nodes[j];
-            let dx = (drawing.x(u).unwrap() - drawing.x(v).unwrap()).abs() as f32;
-            let dy = (drawing.y(u).unwrap() - drawing.y(v).unwrap()).abs() as f32;
+            let dx = (drawing.x(u).unwrap() - drawing.x(v).unwrap()).abs();
+            let dy = (drawing.y(u).unwrap() - drawing.y(v).unwrap()).abs();
             let gap_x = (size[i][0] + size[j][0]) / 2.0;
             let gap_y = (size[i][1] + size[j][1]) / 2.0;
             assert!(

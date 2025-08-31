@@ -6,6 +6,7 @@
 use crate::{
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
+    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_layout_omega::Omega;
@@ -36,7 +37,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "Omega")]
 pub struct PyOmega {
-    builder: Omega<f32>,
+    builder: Omega<FloatType>,
 }
 
 #[pymethods]
@@ -83,13 +84,18 @@ impl PyOmega {
         slf.into()
     }
 
+    fn shift(mut slf: PyRefMut<Self>, shift: FloatType) -> Py<Self> {
+        slf.builder.shift(shift);
+        slf.into()
+    }
+
     /// Sets the minimum distance between node pairs
     ///
     /// :param min_dist: Minimum distance between node pairs
     /// :type min_dist: float
     /// :return: Self for method chaining
     /// :rtype: Omega
-    fn min_dist(mut slf: PyRefMut<Self>, min_dist: f32) -> Py<Self> {
+    fn min_dist(mut slf: PyRefMut<Self>, min_dist: FloatType) -> Py<Self> {
         slf.builder.min_dist(min_dist);
         slf.into()
     }
@@ -126,7 +132,7 @@ impl PyOmega {
     /// :type eigenvalue_tolerance: float
     /// :return: Self for method chaining
     /// :rtype: Omega
-    fn eigenvalue_tolerance(mut slf: PyRefMut<Self>, eigenvalue_tolerance: f32) -> Py<Self> {
+    fn eigenvalue_tolerance(mut slf: PyRefMut<Self>, eigenvalue_tolerance: FloatType) -> Py<Self> {
         slf.builder.eigenvalue_tolerance(eigenvalue_tolerance);
         slf.into()
     }
@@ -137,7 +143,7 @@ impl PyOmega {
     /// :type cg_tolerance: float
     /// :return: Self for method chaining
     /// :rtype: Omega
-    fn cg_tolerance(mut slf: PyRefMut<Self>, cg_tolerance: f32) -> Py<Self> {
+    fn cg_tolerance(mut slf: PyRefMut<Self>, cg_tolerance: FloatType) -> Py<Self> {
         slf.builder.cg_tolerance(cg_tolerance);
         slf.into()
     }

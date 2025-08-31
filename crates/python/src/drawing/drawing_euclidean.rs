@@ -3,7 +3,7 @@
 /// This module provides a Python binding for N-dimensional Euclidean drawings.
 /// These drawings place nodes in an N-dimensional Euclidean space, where each node
 /// has coordinates in each dimension.
-use crate::{drawing::PyDrawing, graph::NodeId};
+use crate::{drawing::PyDrawing, graph::NodeId, FloatType};
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingEuclidean};
 use pyo3::prelude::*;
@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingEuclidean")]
 pub struct PyDrawingEuclidean {
-    drawing: DrawingEuclidean<NodeId, f32>,
+    drawing: DrawingEuclidean<NodeId, FloatType>,
 }
 
 impl PyDrawingEuclidean {
@@ -27,7 +27,7 @@ impl PyDrawingEuclidean {
     /// :type drawing: DrawingEuclidean
     /// :return: A new PyDrawingEuclidean instance
     /// :rtype: PyDrawingEuclidean
-    pub fn new(drawing: DrawingEuclidean<NodeId, f32>) -> Self {
+    pub fn new(drawing: DrawingEuclidean<NodeId, FloatType>) -> Self {
         Self { drawing }
     }
 
@@ -35,7 +35,7 @@ impl PyDrawingEuclidean {
     ///
     /// :return: A reference to the underlying drawing
     /// :rtype: DrawingEuclidean
-    pub fn drawing(&self) -> &DrawingEuclidean<NodeId, f32> {
+    pub fn drawing(&self) -> &DrawingEuclidean<NodeId, FloatType> {
         &self.drawing
     }
 
@@ -43,7 +43,7 @@ impl PyDrawingEuclidean {
     ///
     /// :return: A mutable reference to the underlying drawing
     /// :rtype: DrawingEuclidean
-    pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean<NodeId, f32> {
+    pub fn drawing_mut(&mut self) -> &mut DrawingEuclidean<NodeId, FloatType> {
         &mut self.drawing
     }
 }
@@ -60,7 +60,7 @@ impl PyDrawingEuclidean {
     /// :type d: int
     /// :return: The coordinate value if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn get(&self, u: usize, d: usize) -> Option<f32> {
+    pub fn get(&self, u: usize, d: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.get(u, d)
     }
@@ -77,7 +77,7 @@ impl PyDrawingEuclidean {
     /// :type value: float
     /// :return: None
     /// :rtype: None
-    pub fn set(&mut self, u: usize, d: usize, value: f32) {
+    pub fn set(&mut self, u: usize, d: usize, value: FloatType) {
         let u = node_index(u);
         self.drawing.set(u, d, value);
     }

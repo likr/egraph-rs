@@ -6,7 +6,7 @@ pub use constraint::Constraint;
 
 use self::{block::Block, variable::Variable};
 use ordered_float::OrderedFloat;
-use petgraph_drawing::{Delta, Drawing, MetricCartesian};
+use petgraph_drawing::{Delta, Drawing, DrawingValue, MetricCartesian};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Manages the state for a one-dimensional separation constraint satisfaction algorithm
@@ -27,19 +27,22 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// after the main layout process.
 ///
 /// See IPSEP-COLA paper [2] for details on the algorithm.
-pub struct ConstraintGraph {
+pub struct ConstraintGraph<S> {
     /// State (`block` index, `offset`) for each variable.
-    variables: Vec<Variable>,
+    variables: Vec<Variable<S>>,
     /// All defined separation constraints.
-    constraints: Vec<Constraint>,
+    constraints: Vec<Constraint<S>>,
     /// All current blocks. Blocks can become empty after merging.
-    blocks: Vec<Block>,
+    blocks: Vec<Block<S>>,
     /// Static adjacency list storing `(neighbor_variable_index, constraint_index)` tuples
     /// for *all* constraints. Used by `comp_path` to find paths along *active* constraints.
     neighbors: Vec<Vec<(usize, usize)>>,
 }
 
-impl ConstraintGraph {
+impl<S> ConstraintGraph<S>
+where
+    S: DrawingValue,
+{
     /// Creates and initializes the `ConstraintGraph` for a specific dimension `d`.
     /// Each variable starts in its own block at its initial position.
     /// Corresponds to the initialization described at the end of Section 3.2 [1].
@@ -49,10 +52,10 @@ impl ConstraintGraph {
     /// * `drawing` - Initial layout providing variable positions.
     /// * `d` - The dimension (0 for x, 1 for y) being constrained.
     /// * `constraints` - All separation constraints for this dimension.
-    pub fn new<Diff, D, M>(drawing: &D, d: usize, constraints: &[Constraint]) -> Self
+    pub fn new<Diff, D, M>(drawing: &D, d: usize, constraints: &[Constraint<S>]) -> Self
     where
         D: Drawing<Item = M>,
-        Diff: Delta<S = f32>,
+        Diff: Delta<S = S>,
         M: MetricCartesian<D = Diff>,
     {
         let n = drawing.len();
@@ -60,7 +63,7 @@ impl ConstraintGraph {
         let variables = (0..n)
             .map(|i| Variable {
                 block: i,
-                offset: 0.,
+                offset: S::zero(),
             })
             .collect();
         let blocks = (0..n)
@@ -93,12 +96,12 @@ impl ConstraintGraph {
     /// from the desired variable positions `x`, given the current variable offsets within the block.
     /// Used in `split_blocks` (Figure 10) and needed after `expand_block` (Section 3.2).
     /// Formula: `Sum(x[j] - offset[j] for j in B_i.vars) / B_i.nvars`.
-    fn optimal_position(&self, i: usize, x: &[f32]) -> f32 {
-        let mut s = 0.;
+    fn optimal_position(&self, i: usize, x: &[S]) -> S {
+        let mut s = S::zero();
         for &j in self.blocks[i].variables.iter() {
             s += x[j] - self.variables[j].offset;
         }
-        s / self.blocks[i].variables.len() as f32
+        s / S::from_usize(self.blocks[i].variables.len()).unwrap()
     }
 
     /// Recursively computes the derivative `dF/dv` (related to Lagrange multipliers) for variable `v`
@@ -119,9 +122,9 @@ impl ConstraintGraph {
         v: usize,
         active_constraints: &HashSet<usize>,
         u: Option<usize>,
-        lm: &mut HashMap<usize, f32>,
-        x: &[f32],
-    ) -> f32 {
+        lm: &mut HashMap<usize, S>,
+        x: &[S],
+    ) -> S {
         let mut dfdv = self.variable_position(v) - x[v];
         for &i in active_constraints.iter() {
             let c = &self.constraints[i];
@@ -163,7 +166,7 @@ impl ConstraintGraph {
     ///
     /// * `true` if no blocks were split, `false` otherwise.
     ///
-    pub fn split_blocks(&mut self, x: &[f32]) -> bool {
+    pub fn split_blocks(&mut self, x: &[S]) -> bool {
         let mut nosplit = true;
         // Iterate using indices because splitting can implicitly add new blocks
         // (by reusing existing slots, although this implementation reuses 's').
@@ -184,7 +187,7 @@ impl ConstraintGraph {
             else {
                 break;
             };
-            if lm[&sc] >= 0. {
+            if lm[&sc] >= S::zero() {
                 break;
             }
             nosplit = false;
@@ -266,10 +269,10 @@ impl ConstraintGraph {
     /// * `x` - Variable positions (coordinate in the current dimension) to be projected.
     ///         Modified **in-place** to satisfy all constraints.
     ///
-    pub fn project(&mut self, x: &mut [f32]) {
+    pub fn project(&mut self, x: &mut [S]) {
         // Iteratively find and resolve the most violated constraint (violation > tolerance).
         while let Some(c) = (0..self.constraints.len())
-            .filter(|&i| self.violation(i) > 1e-1) // Use tolerance for float comparison.
+            .filter(|&i| self.violation(i) > (1e-1).into()) // Use tolerance for float comparison.
             .max_by_key(|&c| OrderedFloat(self.violation(c)))
         {
             if self.variables[self.constraints[c].left].block
@@ -292,14 +295,14 @@ impl ConstraintGraph {
 
     /// Calculates the current position of variable `i`: `block_position + offset`.
     #[inline]
-    fn variable_position(&self, i: usize) -> f32 {
+    fn variable_position(&self, i: usize) -> S {
         self.blocks[self.variables[i].block].position + self.variables[i].offset
     }
 
     /// Calculates the violation of constraint `c`: `pos(left) + gap - pos(right)`.
     /// A value > 0 indicates the constraint is violated.
     #[inline]
-    fn violation(&self, c: usize) -> f32 {
+    fn violation(&self, c: usize) -> S {
         self.variable_position(self.constraints[c].left) + self.constraints[c].gap
             - self.variable_position(self.constraints[c].right)
     }
@@ -315,8 +318,8 @@ impl ConstraintGraph {
         // Calculate the relative offset 'd' based on the constraint becoming active.
         let d = self.variables[constraint.left].offset + constraint.gap
             - self.variables[constraint.right].offset;
-        let nvar_l = self.blocks[l].variables.len() as f32;
-        let nvar_r = self.blocks[r].variables.len() as f32;
+        let nvar_l = S::from_usize(self.blocks[l].variables.len()).unwrap();
+        let nvar_r = S::from_usize(self.blocks[r].variables.len()).unwrap();
 
         // Calculate the new position for the merged block l using a weighted average.
         self.blocks[l].position = (self.blocks[l].position * nvar_l
@@ -345,7 +348,7 @@ impl ConstraintGraph {
     /// Finds an active constraint `sc` to remove from the block's spanning tree, makes `c` active,
     /// and shifts the part of the block reachable from `right(c)` (without `sc`) to satisfy `c`.
     /// Corresponds to `expand_block(b, c̃)` in Figure 9 [1].
-    fn expand_block(&mut self, b: usize, c: usize, x: &[f32]) {
+    fn expand_block(&mut self, b: usize, c: usize, x: &[S]) {
         let mut lm = HashMap::new(); // Stores computed Lagrange multipliers for active constraints.
         let mut ac = self.blocks[b].active.clone(); // Work with a copy of the active set.
 
@@ -371,7 +374,7 @@ impl ConstraintGraph {
         if let Some(&sc) = ps.iter().min_by_key(|&&constraint_idx| {
             // Ensure the lm map contains the key before accessing.
             // If comp_dfdv didn't reach a constraint in ps (shouldn't happen?), treat its lm as infinity.
-            OrderedFloat(lm.get(&constraint_idx).copied().unwrap_or(f32::INFINITY))
+            OrderedFloat(lm.get(&constraint_idx).copied().unwrap_or(S::infinity()))
         }) {
             // Deactivate the chosen split constraint `sc`.
             ac.remove(&sc);
@@ -466,11 +469,12 @@ impl ConstraintGraph {
     }
 }
 
-pub fn project_1d<Diff, D, M>(drawing: &mut D, k: usize, constraints: &[Constraint])
+pub fn project_1d<Diff, D, M, S>(drawing: &mut D, k: usize, constraints: &[Constraint<S>])
 where
     D: Drawing<Item = M>,
-    Diff: Delta<S = f32>,
+    Diff: Delta<S = S>,
     M: MetricCartesian<D = Diff>,
+    S: DrawingValue,
 {
     let n = drawing.len();
     let mut cg = ConstraintGraph::new(drawing, k, constraints);
@@ -494,7 +498,7 @@ mod tests {
         n: usize,
         initial_positions: &[f32],
         constraints_data: &[(usize, usize, f32)],
-    ) -> ConstraintGraph {
+    ) -> ConstraintGraph<f32> {
         let mut graph: UnGraph<(), ()> = Graph::new_undirected();
         // Add nodes to the petgraph Graph (weights are not relevant here).
         let nodes: Vec<NodeIndex<u32>> = (0..n).map(|_| graph.add_node(())).collect();
@@ -505,10 +509,10 @@ mod tests {
             drawing.set(nodes[i], 0, initial_positions[i]);
         }
 
-        let constraints: Vec<Constraint> = constraints_data
+        let constraints = constraints_data
             .iter()
             .map(|&(l, r, g)| Constraint::new(l, r, g))
-            .collect();
+            .collect::<Vec<_>>();
 
         ConstraintGraph::new(&drawing, 0, &constraints)
     }

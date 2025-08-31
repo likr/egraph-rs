@@ -1,7 +1,8 @@
+use linfa::Float;
 use linfa_nn::{distance::L2Dist, BallTree, NearestNeighbour};
 use ndarray::prelude::*;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNeighbors, NodeIndexable};
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex};
+use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 use std::collections::HashSet;
 
 /// Calculates the neighborhood preservation metric for a graph layout.
@@ -25,17 +26,18 @@ use std::collections::HashSet;
 ///
 /// # Returns
 ///
-/// An `f32` value in the range [0, 1] representing the neighborhood preservation metric.
+/// An `S` value in the range [0, 1] representing the neighborhood preservation metric.
 /// A value of 1 indicates perfect preservation of neighborhoods, while 0 indicates
 /// no preservation.
 ///
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn neighborhood_preservation<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
+pub fn neighborhood_preservation<G, S>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, S>) -> S
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,
     G::NodeId: DrawingIndex,
+    S: DrawingValue + Float,
 {
     let mut graph_edges = HashSet::new();
     for e in graph.edge_references() {
@@ -75,5 +77,5 @@ where
         }
     }
 
-    cap as f32 / cup as f32
+    S::from_usize(cap).unwrap() / S::from_usize(cup).unwrap()
 }

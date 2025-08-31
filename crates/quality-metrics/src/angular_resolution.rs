@@ -1,6 +1,8 @@
 use crate::edge_angle::edge_angle;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidean2d};
+use petgraph_drawing::{
+    Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d,
+};
 
 /// Calculates the angular resolution metric for a graph layout.
 ///
@@ -19,28 +21,29 @@ use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, MetricEuclidea
 ///
 /// # Returns
 ///
-/// An `f32` value representing the angular resolution metric. Lower values indicate
+/// An `S` value representing the angular resolution metric. Lower values indicate
 /// better angular resolution.
 ///
 /// # Type Parameters
 ///
 /// * `G`: A graph type that implements the required traits
-pub fn angular_resolution<G>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, f32>) -> f32
+pub fn angular_resolution<G, S>(graph: G, drawing: &DrawingEuclidean2d<G::NodeId, S>) -> S
 where
     G: IntoNodeIdentifiers + IntoNeighbors,
     G::NodeId: DrawingIndex,
+    S: DrawingValue,
 {
-    let mut s = 0.;
+    let mut s = S::zero();
     for u in graph.node_identifiers() {
-        let MetricEuclidean2d(x0, y0) = drawing.position(u).unwrap();
+        let MetricEuclidean2d(x0, y0) = *drawing.position(u).unwrap();
         let neighbors = graph.neighbors(u).collect::<Vec<_>>();
         let n = neighbors.len();
         for i in 1..n {
             let v = neighbors[i];
-            let MetricEuclidean2d(x1, y1) = drawing.position(v).unwrap();
+            let MetricEuclidean2d(x1, y1) = *drawing.position(v).unwrap();
             for neighbor in neighbors.iter().take(i) {
                 let w = *neighbor;
-                let MetricEuclidean2d(x2, y2) = drawing.position(w).unwrap();
+                let MetricEuclidean2d(x2, y2) = *drawing.position(w).unwrap();
                 if let Some(angle) = edge_angle(x1 - x0, y1 - y0, x2 - x0, y2 - y0) {
                     s += (-angle).exp()
                 }

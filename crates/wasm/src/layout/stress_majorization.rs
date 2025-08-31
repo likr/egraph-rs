@@ -20,7 +20,7 @@ use wasm_bindgen::prelude::*;
 /// that preserve the graph's structure by solving a sequence of quadratic problems.
 #[wasm_bindgen(js_name = StressMajorization)]
 pub struct JsStressMajorization {
-    stress_majorization: StressMajorization,
+    stress_majorization: StressMajorization<f32>,
 }
 
 #[wasm_bindgen(js_class = StressMajorization)]

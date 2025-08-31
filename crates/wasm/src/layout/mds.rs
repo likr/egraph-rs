@@ -29,7 +29,7 @@ use wasm_bindgen::prelude::*;
 /// computation time.
 #[wasm_bindgen(js_name = "ClassicalMds")]
 pub struct JsClassicalMds {
-    mds: ClassicalMds<NodeIndex>,
+    mds: ClassicalMds<NodeIndex, f32>,
 }
 
 #[wasm_bindgen(js_class = "ClassicalMds")]
@@ -82,7 +82,7 @@ impl JsClassicalMds {
 /// The quality of the layout depends on the number and choice of pivot nodes.
 #[wasm_bindgen(js_name = "PivotMds")]
 pub struct JsPivotMds {
-    mds: PivotMds<NodeIndex>,
+    mds: PivotMds<NodeIndex, f32>,
 }
 
 #[wasm_bindgen(js_class = "PivotMds")]

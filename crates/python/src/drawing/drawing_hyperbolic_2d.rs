@@ -7,6 +7,7 @@
 use crate::{
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
+    FloatType,
 };
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingHyperbolic2d};
@@ -24,7 +25,7 @@ use pyo3::prelude::*;
 #[pyclass(extends=PyDrawing)]
 #[pyo3(name = "DrawingHyperbolic2d")]
 pub struct PyDrawingHyperbolic2d {
-    drawing: DrawingHyperbolic2d<NodeId, f32>,
+    drawing: DrawingHyperbolic2d<NodeId, FloatType>,
 }
 
 impl PyDrawingHyperbolic2d {
@@ -34,7 +35,7 @@ impl PyDrawingHyperbolic2d {
     /// :type drawing: DrawingHyperbolic2d
     /// :return: A new PyDrawingHyperbolic2d instance
     /// :rtype: PyDrawingHyperbolic2d
-    pub fn new(drawing: DrawingHyperbolic2d<NodeId, f32>) -> Self {
+    pub fn new(drawing: DrawingHyperbolic2d<NodeId, FloatType>) -> Self {
         Self { drawing }
     }
 
@@ -42,7 +43,7 @@ impl PyDrawingHyperbolic2d {
     ///
     /// :return: A reference to the underlying drawing
     /// :rtype: DrawingHyperbolic2d
-    pub fn drawing(&self) -> &DrawingHyperbolic2d<NodeId, f32> {
+    pub fn drawing(&self) -> &DrawingHyperbolic2d<NodeId, FloatType> {
         &self.drawing
     }
 
@@ -50,7 +51,7 @@ impl PyDrawingHyperbolic2d {
     ///
     /// :return: A mutable reference to the underlying drawing
     /// :rtype: DrawingHyperbolic2d
-    pub fn drawing_mut(&mut self) -> &mut DrawingHyperbolic2d<NodeId, f32> {
+    pub fn drawing_mut(&mut self) -> &mut DrawingHyperbolic2d<NodeId, FloatType> {
         &mut self.drawing
     }
 }
@@ -63,7 +64,7 @@ impl PyDrawingHyperbolic2d {
     /// :type u: int
     /// :return: The x-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn x(&self, u: usize) -> Option<f32> {
+    pub fn x(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.x(u)
     }
@@ -74,7 +75,7 @@ impl PyDrawingHyperbolic2d {
     /// :type u: int
     /// :return: The y-coordinate if the node exists, None otherwise
     /// :rtype: float or None
-    pub fn y(&self, u: usize) -> Option<f32> {
+    pub fn y(&self, u: usize) -> Option<FloatType> {
         let u = node_index(u);
         self.drawing.y(u)
     }
@@ -90,7 +91,7 @@ impl PyDrawingHyperbolic2d {
     /// :type x: float
     /// :return: None
     /// :rtype: None
-    pub fn set_x(&mut self, u: usize, x: f32) {
+    pub fn set_x(&mut self, u: usize, x: FloatType) {
         let u = node_index(u);
         self.drawing.set_x(u, x);
     }
@@ -106,7 +107,7 @@ impl PyDrawingHyperbolic2d {
     /// :type y: float
     /// :return: None
     /// :rtype: None
-    pub fn set_y(&mut self, u: usize, y: f32) {
+    pub fn set_y(&mut self, u: usize, y: FloatType) {
         let u = node_index(u);
         self.drawing.set_y(u, y);
     }
