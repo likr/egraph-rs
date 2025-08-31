@@ -27,41 +27,13 @@ where
     S: DrawingValue,
 {
     /// Creates a new LaplacianStructure from a graph with edge weights.
-    pub fn new<G, F>(graph: G, mut edge_weight: F) -> Self
+    pub fn new<G, F>(graph: G, edge_weight: F) -> Self
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
     {
-        let n = graph.node_count();
-
-        // Create node index mapping
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        let mut edges = Vec::new();
-        let mut degrees = vec![S::zero(); n];
-
-        // Process edges and compute degrees
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-            let weight = edge_weight(edge);
-
-            edges.push((i, j, weight));
-
-            if i != j {
-                degrees[i] += weight;
-                degrees[j] += weight;
-            } else {
-                degrees[i] += weight;
-            }
-        }
-
-        LaplacianStructure { n, edges, degrees }
+        Self::new_with_shift(graph, edge_weight, S::zero())
     }
 
     /// Creates a new LaplacianStructure with shift parameter, precomputing L + cI matrix.
@@ -98,14 +70,12 @@ where
             let j = node_indices[&edge.target()];
             let weight = edge_weight(edge);
 
-            edges.push((i, j, weight));
-
-            if i != j {
-                degrees[i] += weight;
-                degrees[j] += weight;
-            } else {
-                degrees[i] += weight;
+            if i == j {
+                panic!("self loop");
             }
+            edges.push((i, j, weight));
+            degrees[i] += weight;
+            degrees[j] += weight;
         }
 
         // Add shift to diagonal elements to create L + cI matrix
@@ -119,29 +89,20 @@ where
     /// Computes the Laplacian matrix-vector product Lv efficiently.
     ///
     /// For each vertex i: (Lv)_i = degree(i) * v_i - Σ(weight_ij * v_j for j neighbor of i)
-    pub fn multiply(&self, vector: &[S]) -> Vec<S> {
-        let mut result = vec![S::zero(); self.n];
-
-        // Initialize result with degree * vector
+    pub fn multiply(&self, vector: &Array1<S>, result: &mut Array1<S>) {
         for i in 0..self.n {
             result[i] = self.degrees[i] * vector[i];
         }
-
-        // Subtract adjacency contribution
         for &(i, j, weight) in &self.edges {
             result[i] -= weight * vector[j];
-            if i != j {
-                result[j] -= weight * vector[i];
-            }
+            result[j] -= weight * vector[i];
         }
-
-        result
     }
 
     /// Computes the Laplacian quadratic form x^T L x efficiently in O(|E|) time.
     ///
     /// Uses the fact that x^T L x = Σ_{(i,j) ∈ E} weight_ij * (x_i - x_j)^2
-    pub fn quadratic_form(&self, vector: &[S]) -> S {
+    pub fn quadratic_form(&self, vector: &Array1<S>) -> S {
         let mut result = S::zero();
 
         for &(i, j, weight) in &self.edges {
@@ -205,54 +166,49 @@ where
 pub fn solve_with_conjugate_gradient<S>(
     laplacian: &LaplacianStructure<S>,
     b: &Array1<S>,
+    x: &mut Array1<S>,
     cg_max_iterations: usize,
     cg_tolerance: S,
-) -> Array1<S>
-where
+) where
     S: DrawingValue,
 {
     let n = laplacian.node_count();
-    let mut x = Array1::zeros(n); // Initial guess: zero vector
-    let mut r = b.clone(); // Initial residual r = b - Lx = b (since x = 0)
-    let mut p = r.clone(); // Initial search direction
+    let mut r = Array1::zeros(n);
+    let mut q = Array1::zeros(n);
 
-    let mut rsold = r.dot(&r);
+    laplacian.multiply(&x, &mut r);
+    for i in 0..n {
+        r[i] = b[i] - r[i];
+    }
+    let mut z = r.clone();
+    for i in 0..n {
+        z[i] /= laplacian.degrees[i];
+    }
+    let mut p = z.clone();
+
+    let mut rsold = r.dot(&z);
 
     for _iter in 0..cg_max_iterations {
-        // Compute Ap = L * p
-        let ap_vec = laplacian.multiply(p.as_slice().unwrap());
-        let ap = Array1::from_vec(ap_vec);
-
-        // Compute alpha = (r^T * r) / (p^T * Ap)
-        let pap = p.dot(&ap);
-        if pap.abs() < cg_tolerance {
-            break; // Avoid division by zero
+        laplacian.multiply(&p, &mut q);
+        let alpha = rsold / p.dot(&q);
+        for i in 0..n {
+            x[i] += alpha * p[i];
+            r[i] -= alpha * q[i];
+            z[i] = r[i] / laplacian.degrees[i];
         }
-        let alpha = rsold / pap;
 
-        // Update solution: x = x + alpha * p
-        x += &(&p * alpha);
-
-        // Update residual: r = r - alpha * Ap
-        r -= &(&ap * alpha);
-
-        let rsnew = r.dot(&r);
-
-        // Check for convergence
-        if rsnew.sqrt() < cg_tolerance {
+        let rsnew = r.dot(&z);
+        if rsnew < cg_tolerance * cg_tolerance {
             break;
         }
 
-        // Compute beta = (r_new^T * r_new) / (r_old^T * r_old)
         let beta = rsnew / rsold;
-
-        // Update search direction: p = r + beta * p
-        p = &r + &(&p * beta);
+        for i in 0..n {
+            p[i] = beta * p[i] + z[i];
+        }
 
         rsold = rsnew;
     }
-
-    x
 }
 
 /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors using a precomputed LaplacianStructure.
@@ -297,6 +253,7 @@ where
     eigenvectors
         .column_mut(0)
         .fill(S::one() / S::from_usize(n).unwrap().sqrt());
+    let mut y = Array1::zeros(n);
 
     // For k = 1, ..., n_target: find the k-th smallest non-zero eigenvalue and eigenvector
     for k in 1..=n_target {
@@ -313,26 +270,29 @@ where
         // Step 2: Inverse power method iteration
         for _iter in 0..max_iterations {
             // Step 2a: Solve Ly = x_iter using CG method
-            let y_solved =
-                solve_with_conjugate_gradient(laplacian, &x_iter, cg_max_iterations, cg_tolerance);
+            solve_with_conjugate_gradient(
+                laplacian,
+                &x_iter,
+                &mut y,
+                cg_max_iterations,
+                cg_tolerance,
+            );
+            let mut x_next_iter = y.clone();
 
             // Step 2b: Orthogonalize y against found eigenvectors (for numerical stability)
-            let mut y_orth = y_solved;
             let found_vecs = eigenvectors.slice(s![.., ..k]);
-            gram_schmidt_orthogonalize(&mut y_orth, &found_vecs);
+            gram_schmidt_orthogonalize(&mut x_next_iter, &found_vecs);
 
             // Step 2c: Normalize
-            normalize(&mut y_orth);
-            let x_next_iter = y_orth;
+            normalize(&mut x_next_iter);
 
             // Step 2d: Compute eigenvalue estimate using optimized Rayleigh quotient
-            let numerator = laplacian.quadratic_form(x_next_iter.as_slice().unwrap());
+            let numerator = laplacian.quadratic_form(&x_next_iter);
             let denominator = x_next_iter.dot(&x_next_iter);
             let lambda_est = numerator / denominator;
 
-            // Step 2e: Check convergence using relative error only
-            let converged =
-                (lambda_est - lambda_prev_est).abs() / lambda_prev_est.abs() < tolerance;
+            // Step 2e: Check convergence
+            let converged = (lambda_est - lambda_prev_est).abs() < tolerance;
 
             // Step 2f: Update for next iteration
             x_iter = x_next_iter;
