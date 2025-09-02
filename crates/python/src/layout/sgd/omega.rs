@@ -4,6 +4,7 @@
 //! which uses spectral coordinates derived from graph Laplacian eigenvalues.
 
 use crate::{
+    array::{PyArray1, PyArray2},
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
     FloatType,
@@ -146,6 +147,104 @@ impl PyOmega {
     fn cg_tolerance(mut slf: PyRefMut<Self>, cg_tolerance: FloatType) -> Py<Self> {
         slf.builder.cg_tolerance(cg_tolerance);
         slf.into()
+    }
+
+    /// Computes spectral coordinates using the configured parameters
+    ///
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :param rng: Random number generator for spectral coordinate computation
+    /// :type rng: Rng
+    /// :return: Spectral coordinates as a 2D Array2 where each row is a node's coordinate
+    /// :rtype: Array2
+    /// :raises: ValueError if the graph type is not supported
+    fn embedding(
+        &self,
+        graph: &PyGraphAdapter,
+        f: &Bound<PyAny>,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyArray2> {
+        let coordinates = match graph.graph() {
+            GraphType::Graph(native_graph) => self.builder.embedding(
+                native_graph,
+                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                rng.get_mut(),
+            ),
+            _ => panic!("unsupported graph type"),
+        };
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
+        Ok(PyArray2::new(converted_coords))
+    }
+
+    /// Computes spectral coordinates and eigenvalues using the configured parameters
+    ///
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param f: A Python function that takes an edge index and returns its weight
+    /// :type f: callable
+    /// :param rng: Random number generator for spectral coordinate computation
+    /// :type rng: Rng
+    /// :return: A tuple containing (coordinates, eigenvalues) as Array2 and Array1
+    /// :rtype: tuple[Array2, Array1]
+    /// :raises: ValueError if the graph type is not supported
+    fn embedding_and_eigenvalues(
+        &self,
+        graph: &PyGraphAdapter,
+        f: &Bound<PyAny>,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<(PyArray2, PyArray1)> {
+        let (coordinates, eigenvalues) = match graph.graph() {
+            GraphType::Graph(native_graph) => self.builder.embedding_and_eigenvalues(
+                native_graph,
+                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                rng.get_mut(),
+            ),
+            _ => panic!("unsupported graph type"),
+        };
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
+        let converted_eigenvals = eigenvalues.mapv(|v| v as FloatType);
+
+        Ok((
+            PyArray2::new(converted_coords),
+            PyArray1::new(converted_eigenvals),
+        ))
+    }
+
+    /// Builds an Sgd instance using precomputed embedding
+    ///
+    /// :param graph: The graph to layout
+    /// :type graph: Graph or DiGraph
+    /// :param embedding: Precomputed spectral coordinates as a 2D Array2
+    /// :type embedding: Array2
+    /// :param rng: Random number generator for selecting random node pairs
+    /// :type rng: Rng
+    /// :return: A new Sgd instance
+    /// :rtype: Sgd
+    /// :raises: ValueError if the graph type is not supported
+    fn build_with_embedding(
+        &self,
+        graph: &PyGraphAdapter,
+        embedding: &PyArray2,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PySgd> {
+        // Get the ndarray directly from PyArray2
+        let coordinates = embedding.as_array();
+
+        let sgd = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.builder
+                    .build_with_embedding(native_graph, coordinates, rng.get_mut())
+            }
+            _ => panic!("unsupported graph type"),
+        };
+
+        Ok(PySgd::new_with_sgd(sgd))
     }
 
     /// Builds an Sgd instance using the configured parameters

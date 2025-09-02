@@ -57,7 +57,9 @@
 mod eigenvalue;
 mod omega;
 
-pub use eigenvalue::{compute_smallest_eigenvalues, LaplacianStructure};
+pub use eigenvalue::{
+    compute_smallest_eigenvalues, IncompleteCholeskyPreconditioner, LaplacianStructure,
+};
 pub use omega::Omega;
 
 #[cfg(test)]
@@ -152,7 +154,7 @@ mod tests {
         graph.add_edge(b, c, ());
 
         // Create LaplacianStructure
-        let laplacian = LaplacianStructure::new(&graph, |_| 1.0f32);
+        let laplacian = LaplacianStructure::new_with_shift(&graph, |_| 1.0f32, 1e-3);
         let mut rng = thread_rng();
         let (eigenvalues, eigenvectors) =
             compute_smallest_eigenvalues(&laplacian, 2, 1000, 100, 1e-4f32, 1e-4f32, &mut rng);
@@ -184,5 +186,49 @@ mod tests {
                 "Non-zero eigenvalues should be positive"
             );
         }
+    }
+
+    #[test]
+    fn test_ic0_preconditioner() {
+        // Create a simple triangle graph
+        let mut graph = Graph::new_undirected();
+        let a = graph.add_node(());
+        let b = graph.add_node(());
+        let c = graph.add_node(());
+        graph.add_edge(a, b, ());
+        graph.add_edge(b, c, ());
+        graph.add_edge(c, a, ());
+
+        // Create LaplacianStructure and IC(0) preconditioner
+        let laplacian = LaplacianStructure::new_with_shift(&graph, |_| 1.0f32, 1e-3);
+        let preconditioner = IncompleteCholeskyPreconditioner::from_laplacian(&laplacian);
+
+        // Test that preconditioner structure is correctly built
+        assert_eq!(
+            preconditioner.node_count(),
+            3,
+            "Preconditioner should have 3 nodes"
+        );
+        assert_eq!(
+            preconditioner.diagonal_count(),
+            3,
+            "Should have 3 diagonal entries"
+        );
+
+        // Test preconditioner application
+        use ndarray::Array1;
+        let test_vector = Array1::from_vec(vec![1.0f32, 2.0f32, 3.0f32]);
+        let mut result = Array1::zeros(3);
+
+        // Apply preconditioner
+        preconditioner.apply(&test_vector, &mut result);
+
+        // Result should be non-zero and finite
+        for &val in result.iter() {
+            assert!(val.is_finite(), "Preconditioner result should be finite");
+            assert!(val != 0.0, "Preconditioner result should be non-zero");
+        }
+
+        println!("IC(0) preconditioner test passed - result: {:?}", result);
     }
 }

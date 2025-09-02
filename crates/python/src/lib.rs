@@ -17,6 +17,7 @@
 use pyo3::prelude::*;
 
 mod algorithm;
+mod array;
 mod clustering;
 mod distance_matrix;
 mod drawing;
@@ -41,5 +42,6 @@ fn egraph(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     algorithm::register(py, m)?;
     quality_metrics::register(py, m)?;
     clustering::register(py, m)?;
+    array::register(py, m)?;
     Ok(())
 }

@@ -8,6 +8,186 @@ use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;
 use std::collections::HashMap;
 
+/// IC(0) Incomplete Cholesky preconditioner for sparse symmetric positive definite matrices.
+///
+/// This structure stores the lower triangular factor L such that LL^T ≈ A,
+/// where the sparsity pattern of L matches the lower triangle of A (no fill-in).
+/// The preconditioner solves M^{-1}r by solving Ly = r and L^T z = y.
+#[derive(Debug, Clone)]
+pub struct IncompleteCholeskyPreconditioner<S> {
+    /// Number of nodes in the matrix
+    n: usize,
+    /// Diagonal entries of the L factor
+    diagonal: Vec<S>,
+    /// Row-wise storage: row_entries[i] contains (column_index, value) pairs for row i
+    /// Only stores off-diagonal entries where column_index < i
+    row_entries: Vec<Vec<(usize, S)>>,
+    /// Column-wise storage: col_entries[j] contains (row_index, value) pairs for column j
+    /// Only stores off-diagonal entries where row_index > j
+    col_entries: Vec<Vec<(usize, S)>>,
+}
+
+impl<S> IncompleteCholeskyPreconditioner<S>
+where
+    S: DrawingValue,
+{
+    /// Creates an IC(0) preconditioner from a LaplacianStructure.
+    ///
+    /// Performs incomplete Cholesky factorization with zero fill-in, maintaining
+    /// the sparsity pattern of the lower triangle of the Laplacian matrix.
+    /// This achieves O(|E|) complexity by leveraging the graph structure.
+    pub fn from_laplacian(laplacian: &LaplacianStructure<S>) -> Self {
+        let n = laplacian.n;
+
+        // Build adjacency lists with HashMap for O(1) lookup
+        let mut adjacency: Vec<HashMap<usize, S>> = vec![HashMap::new(); n];
+        for &(i, j, weight) in &laplacian.edges {
+            adjacency[i].insert(j, weight);
+            adjacency[j].insert(i, weight);
+        }
+
+        // Initialize storage
+        let mut diagonal = vec![S::zero(); n];
+        let mut row_entries: Vec<Vec<(usize, S)>> = vec![Vec::new(); n];
+        let mut col_entries: Vec<Vec<(usize, S)>> = vec![Vec::new(); n];
+
+        // Build initial sparsity pattern: collect lower triangular entries
+        for i in 0..n {
+            for (&j, &weight) in &adjacency[i] {
+                if j < i {
+                    // Add to row-wise storage: row i has entry (column j, value)
+                    row_entries[i].push((j, -weight));
+                    // Add to column-wise storage: column j has entry (row i, value)
+                    col_entries[j].push((i, -weight));
+                }
+            }
+        }
+
+        // Sort entries by column index for efficient lookup
+        for i in 0..n {
+            row_entries[i].sort_by_key(|&(col, _)| col);
+            col_entries[i].sort_by_key(|&(row, _)| row);
+        }
+
+        // Perform IC(0) factorization: L L^T = A
+        for i in 0..n {
+            // Compute diagonal element L_ii
+            let mut sum = S::zero();
+
+            // sum += L_ik^2 for k < i where L_ik != 0
+            for &(_, l_ik) in &row_entries[i] {
+                sum += l_ik * l_ik;
+            }
+
+            // L_ii = sqrt(A_ii - sum)
+            let aii = laplacian.degrees[i]; // Diagonal entry of Laplacian
+            diagonal[i] = (aii - sum).sqrt();
+
+            if diagonal[i] <= S::zero() {
+                panic!("non positive definite");
+            }
+
+            // Update off-diagonal elements L_ji for j > i (only process actual edges)
+            for (&j, &weight) in &adjacency[i] {
+                if j > i {
+                    // Find entry (j, i) in row j's storage
+                    if let Some(entry_pos) = row_entries[j].iter().position(|&(col, _)| col == i) {
+                        // Compute L_ji = (A_ji - sum) / L_ii
+                        let mut sum = S::zero();
+
+                        // Find common indices k < i where both L_jk and L_ik are non-zero
+                        // Use two-pointer technique on sorted lists
+                        let mut i_ptr = 0;
+                        let mut j_ptr = 0;
+
+                        while i_ptr < row_entries[i].len() && j_ptr < row_entries[j].len() {
+                            let (i_col, i_val) = row_entries[i][i_ptr];
+                            let (j_col, j_val) = row_entries[j][j_ptr];
+
+                            if i_col == j_col && i_col < i {
+                                sum += i_val * j_val;
+                                i_ptr += 1;
+                                j_ptr += 1;
+                            } else if i_col < j_col {
+                                i_ptr += 1;
+                            } else {
+                                j_ptr += 1;
+                            }
+                        }
+
+                        // A_ji = -weight (negative of edge weight)
+                        let a_ji = -weight;
+                        let new_value = (a_ji - sum) / diagonal[i];
+
+                        // Update both storage structures
+                        row_entries[j][entry_pos].1 = new_value;
+                        // Find and update corresponding entry in col_entries[i]
+                        if let Some(col_pos) = col_entries[i].iter().position(|&(row, _)| row == j)
+                        {
+                            col_entries[i][col_pos].1 = new_value;
+                        }
+                    }
+                }
+            }
+        }
+
+        IncompleteCholeskyPreconditioner {
+            n,
+            diagonal,
+            row_entries,
+            col_entries,
+        }
+    }
+
+    /// Applies the IC(0) preconditioner: solves M^{-1} * r = z
+    ///
+    /// This performs two triangular solves:
+    /// 1. Forward solve: L * y = r
+    /// 2. Backward solve: L^T * z = y
+    ///
+    /// Complexity: O(|E|) leveraging sparsity of L.
+    pub fn apply(&self, r: &Array1<S>, z: &mut Array1<S>) {
+        let mut y = Array1::zeros(self.n);
+
+        // Forward solve: L * y = r
+        for i in 0..self.n {
+            let mut sum = S::zero();
+
+            // sum += L_ij * y_j for j < i
+            for &(j, l_ij) in &self.row_entries[i] {
+                sum += l_ij * y[j];
+            }
+
+            y[i] = (r[i] - sum) / self.diagonal[i];
+        }
+
+        // Backward solve: L^T * z = y
+        z.fill(S::zero());
+
+        for i in (0..self.n).rev() {
+            let mut sum = S::zero();
+
+            // sum += L_ji * z_j for j > i (where L_ji is transpose of L_ij)
+            // Use column-wise storage for efficient access
+            for &(j, l_ji) in &self.col_entries[i] {
+                sum += l_ji * z[j];
+            }
+
+            z[i] = (y[i] - sum) / self.diagonal[i];
+        }
+    }
+
+    /// Returns the number of nodes in the preconditioner matrix.
+    pub fn node_count(&self) -> usize {
+        self.n
+    }
+
+    /// Returns the number of diagonal entries.
+    pub fn diagonal_count(&self) -> usize {
+        self.diagonal.len()
+    }
+}
+
 /// Precomputed Laplacian structure for efficient matrix operations.
 ///
 /// This structure caches the graph topology and edge weights to avoid
@@ -152,19 +332,22 @@ where
     }
 }
 
-/// Solves the linear system Ly = b using the Conjugate Gradient method with Array1 input/output.
+/// Solves the linear system Ly = b using the Conjugate Gradient method with IC(0) preconditioning.
 ///
-/// This implements CG for the semi-positive definite Laplacian matrix L.
-/// Since L has a zero eigenvalue, we solve for the component orthogonal to
-/// the null space (the constant vector).
+/// This implements preconditioned CG for the semi-positive definite Laplacian matrix L.
+/// Uses IC(0) incomplete Cholesky preconditioner for improved convergence compared to
+/// Jacobi preconditioning.
 ///
 /// # Parameters
 /// * `laplacian` - The Laplacian structure
+/// * `preconditioner` - The IC(0) preconditioner
 /// * `b` - Right-hand side vector as Array1
+/// * `x` - Initial guess and solution vector
 /// * `cg_max_iterations` - Maximum iterations for CG method
 /// * `cg_tolerance` - Convergence tolerance for CG method
 pub fn solve_with_conjugate_gradient<S>(
     laplacian: &LaplacianStructure<S>,
+    preconditioner: &IncompleteCholeskyPreconditioner<S>,
     b: &Array1<S>,
     x: &mut Array1<S>,
     cg_max_iterations: usize,
@@ -174,28 +357,34 @@ pub fn solve_with_conjugate_gradient<S>(
 {
     let n = laplacian.node_count();
     let mut r = Array1::zeros(n);
+    let mut z = Array1::zeros(n);
     let mut q = Array1::zeros(n);
 
+    // r = b - A*x
     laplacian.multiply(&x, &mut r);
     for i in 0..n {
         r[i] = b[i] - r[i];
     }
-    let mut z = r.clone();
-    for i in 0..n {
-        z[i] /= laplacian.degrees[i];
-    }
+
+    // z = M^{-1} * r (apply IC(0) preconditioner)
+    preconditioner.apply(&r, &mut z);
     let mut p = z.clone();
 
     let mut rsold = r.dot(&z);
 
     for _iter in 0..cg_max_iterations {
+        // q = A * p
         laplacian.multiply(&p, &mut q);
         let alpha = rsold / p.dot(&q);
+
+        // Update x and r
         for i in 0..n {
             x[i] += alpha * p[i];
             r[i] -= alpha * q[i];
-            z[i] = r[i] / laplacian.degrees[i];
         }
+
+        // Apply preconditioner: z = M^{-1} * r
+        preconditioner.apply(&r, &mut z);
 
         let rsnew = r.dot(&z);
         if rsnew < cg_tolerance * cg_tolerance {
@@ -209,6 +398,134 @@ pub fn solve_with_conjugate_gradient<S>(
 
         rsold = rsnew;
     }
+}
+
+/// Computes d-dimensional spectral coordinates and eigenvalues using edge weights and custom parameters.
+///
+/// This function combines the spectral coordinate computation with eigenvalue computation,
+/// returning both the final embedding coordinates and the computed eigenvalues.
+/// It excludes the zero eigenvalue and returns only d non-zero eigenvalues and their eigenvectors.
+///
+/// # Parameters
+/// * `graph` - The input graph
+/// * `length` - Function to extract edge weights/lengths
+/// * `shift` - Shift parameter for creating positive definite matrix L + cI
+/// * `eigenvalue_max_iterations` - Maximum iterations for eigenvalue computation
+/// * `cg_max_iterations` - Maximum iterations for CG method
+/// * `eigenvalue_tolerance` - Convergence tolerance for eigenvalue computation
+/// * `cg_tolerance` - Convergence tolerance for CG method
+/// * `d` - Number of spectral dimensions
+/// * `rng` - Random number generator for eigenvalue computation
+///
+/// # Returns
+/// A tuple containing:
+/// - Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
+/// - Array1 of d non-zero eigenvalues (λ_1, λ_2, ..., λ_d)
+pub fn compute_spectral_coordinates_and_eigenvalues<S, G, F, R>(
+    graph: G,
+    length: F,
+    shift: S,
+    eigenvalue_max_iterations: usize,
+    cg_max_iterations: usize,
+    eigenvalue_tolerance: S,
+    cg_tolerance: S,
+    d: usize,
+    rng: &mut R,
+) -> (Array2<S>, Array1<S>)
+where
+    S: DrawingValue,
+    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+    G::NodeId: DrawingIndex,
+    F: FnMut(G::EdgeRef) -> S,
+    R: Rng,
+{
+    let n = graph.node_count();
+
+    // Create weighted Laplacian structure with shift for positive definite matrix L + cI
+    let laplacian = LaplacianStructure::new_with_shift(graph, length, shift);
+
+    // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors (+ zero eigenvalue)
+    let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+        &laplacian,
+        d,
+        eigenvalue_max_iterations,
+        cg_max_iterations,
+        eigenvalue_tolerance,
+        cg_tolerance,
+        rng,
+    );
+
+    // Step 2: Extract only the non-zero eigenvalues and eigenvectors (skip index 0)
+    let mut eigenvalues = Array1::zeros(d);
+    let mut eigenvectors = Array2::zeros((n, d));
+
+    for i in 0..d {
+        eigenvalues[i] = all_eigenvalues[i + 1] - shift; // Subtract shift and skip zero eigenvalue
+    }
+
+    for i in 0..d {
+        eigenvectors
+            .column_mut(i)
+            .assign(&all_eigenvectors.column(i + 1)); // Skip zero eigenvector
+    }
+
+    // Step 3: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
+    for dim in 0..d {
+        let mut eigenvector = eigenvectors.column_mut(dim);
+        eigenvector /= eigenvalues[dim].sqrt();
+    }
+
+    (eigenvectors, eigenvalues)
+}
+
+/// Computes d-dimensional spectral coordinates using edge weights and custom parameters.
+///
+/// This is a convenience function that computes spectral coordinates without returning eigenvalues.
+/// It internally uses `compute_spectral_coordinates_and_eigenvalues` and discards the eigenvalues.
+///
+/// # Parameters
+/// * `graph` - The input graph
+/// * `length` - Function to extract edge weights/lengths
+/// * `shift` - Shift parameter for creating positive definite matrix L + cI
+/// * `eigenvalue_max_iterations` - Maximum iterations for eigenvalue computation
+/// * `cg_max_iterations` - Maximum iterations for CG method
+/// * `eigenvalue_tolerance` - Convergence tolerance for eigenvalue computation
+/// * `cg_tolerance` - Convergence tolerance for CG method
+/// * `d` - Number of spectral dimensions
+/// * `rng` - Random number generator for eigenvalue computation
+///
+/// # Returns
+/// An Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
+pub fn compute_spectral_coordinates<S, G, F, R>(
+    graph: G,
+    length: F,
+    shift: S,
+    eigenvalue_max_iterations: usize,
+    cg_max_iterations: usize,
+    eigenvalue_tolerance: S,
+    cg_tolerance: S,
+    d: usize,
+    rng: &mut R,
+) -> Array2<S>
+where
+    S: DrawingValue,
+    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+    G::NodeId: DrawingIndex,
+    F: FnMut(G::EdgeRef) -> S,
+    R: Rng,
+{
+    let (coordinates, _eigenvalues) = compute_spectral_coordinates_and_eigenvalues(
+        graph,
+        length,
+        shift,
+        eigenvalue_max_iterations,
+        cg_max_iterations,
+        eigenvalue_tolerance,
+        cg_tolerance,
+        d,
+        rng,
+    );
+    coordinates
 }
 
 /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors using a precomputed LaplacianStructure.
@@ -247,6 +564,9 @@ where
 {
     let n = laplacian.node_count();
 
+    // Create IC(0) preconditioner from the Laplacian (computed once and reused)
+    let preconditioner = IncompleteCholeskyPreconditioner::from_laplacian(laplacian);
+
     // Initialize storage for eigenvalues and eigenvectors using ndarray
     let mut eigenvalues = Array1::zeros(n_target + 1);
     let mut eigenvectors = Array2::zeros((n, n_target + 1));
@@ -269,9 +589,10 @@ where
 
         // Step 2: Inverse power method iteration
         for _iter in 0..max_iterations {
-            // Step 2a: Solve Ly = x_iter using CG method
+            // Step 2a: Solve Ly = x_iter using CG method with IC(0) preconditioning
             solve_with_conjugate_gradient(
                 laplacian,
+                &preconditioner,
                 &x_iter,
                 &mut y,
                 cg_max_iterations,

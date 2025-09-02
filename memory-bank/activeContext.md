@@ -40,6 +40,92 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Omega Algorithm Enhancement with Custom Python Array Types (2025-09-03)**
+
+  - **Complete Omega API Extension**: Added three new methods to Omega struct for enhanced spectral embedding functionality and improved Python bindings with custom array types
+
+  - **New Omega Methods**:
+
+    - **`embedding(graph, length, rng)`**: Computes spectral coordinates using `compute_spectral_coordinates`
+    - **`embedding_and_eigenvalues(graph, length, rng)`**: Computes both embedding and eigenvalues using `compute_spectral_coordinates_and_eigenvalues`
+    - **`build_with_embedding(graph, embedding, rng)`**: Creates SGD instance from precomputed embedding using `compute_omega_node_pairs`
+
+  - **Core Function Refactoring**:
+
+    - **`compute_omega_node_pairs`**: Now accepts embedding and individual parameters (min_dist, k) instead of full Omega struct
+    - **`compute_spectral_coordinates`**: Now accepts individual parameters (shift, eigenvalue_max_iterations, cg_max_iterations, eigenvalue_tolerance, cg_tolerance) instead of SGD instance
+    - **`compute_spectral_coordinates_and_eigenvalues`**: New function that returns both coordinates and eigenvalues
+    - **Zero Eigenvalue Exclusion**: Modified to exclude zero eigenvalue and return only d non-zero eigenvalues and eigenvectors
+
+  - **Custom Python Array Implementation**:
+
+    - **`crates/python/src/array.rs`**: Created new module with custom wrapper classes
+      - **`PyArray1`**: Wrapper for ndarray::Array1<FloatType> with Python indexing, iteration, and shape access
+      - **`PyArray2`**: Wrapper for ndarray::Array2<FloatType> with Python indexing, row/column access, and shape methods
+      - **Numpy Independence**: Complete elimination of numpy dependency in favor of custom types
+    - **`crates/python/src/lib.rs`**: Integrated array module with `array::register(py, m)?`
+
+  - **Updated Python Bindings**:
+
+    - **`crates/python/src/layout/sgd/omega.rs`**: Complete overhaul of Python interface
+      - **`embedding()`**: Returns `PyArray2` instead of numpy array with f32->f64 conversion
+      - **`embedding_and_eigenvalues()`**: Returns `(PyArray2, PyArray1)` tuple instead of numpy arrays
+      - **`build_with_embedding()`**: Accepts `PyArray2` instead of numpy array for embedding parameter
+      - **Type Conversion**: Proper handling of f32 (Rust Omega) to f64 (Python FloatType) conversion using `mapv(|v| v as FloatType)`
+
+  - **Enhanced Eigenvalue Computation**:
+
+    - **`crates/layout/omega/src/eigenvalue.rs`**: Modified `compute_spectral_coordinates_and_eigenvalues`
+      - **Zero Eigenvalue Exclusion**: Skip index 0 (zero eigenvalue) and extract only non-zero eigenvalues
+      - **Proper Array Sizing**: Returns Array1<S> of size d and Array2<S> of size (n, d)
+      - **Coordinate Calculation**: Divide eigenvectors by sqrt of eigenvalues for proper spectral coordinates
+      - **API Consistency**: Both functions now work with the same underlying eigenvalue computation
+
+  - **Implementation Benefits**:
+
+    - **API Flexibility**: Users can now compute embeddings separately from SGD instance creation
+    - **Performance**: Precomputed embeddings can be reused across multiple SGD instances
+    - **Python Independence**: No external numpy dependency reduces installation complexity
+    - **Type Safety**: Custom array types provide better Rust-Python type integration
+    - **Mathematical Correctness**: Proper exclusion of zero eigenvalue aligns with spectral graph theory
+
+  - **Files Modified**:
+
+    - **`crates/layout/omega/src/omega.rs`**: Added three new methods and updated internal method calls
+    - **`crates/layout/omega/src/eigenvalue.rs`**: Enhanced eigenvalue computation with zero exclusion
+    - **`crates/python/src/array.rs`**: New custom array wrapper implementation
+    - **`crates/python/src/layout/sgd/omega.rs`**: Complete Python binding overhaul
+    - **`crates/python/src/lib.rs`**: Array module integration
+
+  - **API Usage Examples**:
+
+    ```python
+    # Separate embedding computation
+    omega = eg.Omega().d(2).k(30)
+    embedding = omega.embedding(graph, lambda i: 1.0, rng)
+    eigenvals = omega.embedding_and_eigenvalues(graph, lambda i: 1.0, rng)
+
+    # Build SGD from precomputed embedding
+    sgd = omega.build_with_embedding(graph, embedding, rng)
+
+    # Custom array types
+    coords = embedding  # PyArray2 with shape (n_nodes, d)
+    values = eigenvals[1]  # PyArray1 with d eigenvalues
+    ```
+
+  - **Quality Assurance**:
+
+    - **Compilation Success**: All workspace builds pass without warnings
+    - **Type Safety**: Proper f32/f64 conversion and array bounds checking
+    - **Memory Safety**: Custom arrays manage ndarray lifecycle properly
+    - **API Consistency**: New methods follow existing Omega patterns
+    - **Mathematical Correctness**: Eigenvalue computation excludes zero eigenvalue as required
+
+  - **Breaking Changes**:
+    - **Function Signatures**: `compute_omega_node_pairs` and `compute_spectral_coordinates` now accept individual parameters
+    - **Return Types**: `compute_spectral_coordinates_and_eigenvalues` returns smaller arrays (d elements instead of d+1)
+    - **Python Types**: Omega methods return custom PyArray types instead of numpy arrays
+
 - **SGD Direct Constructor Implementation (2025-06-30)**
 
   - **Python SGD Constructor Addition**: Implemented direct constructor for `PySgd` class allowing users to create SGD instances with custom node pairs without requiring builder patterns

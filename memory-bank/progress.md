@@ -20,29 +20,38 @@
     - **Numerical Stability**: Proper epsilon handling and normalized learning rate calculation
     - **Dynamic Updates**: Support for runtime distance and weight updates with automatic recalculation
   - SGD with Full, Sparse, Distance-adjusted, and Omega variants
-  - **Omega Algorithm**: Complete refactoring with all issues resolved (2025-01-06)
-    - **Edge Length Integration**: Now properly uses weighted Laplacian from edge length function
-    - **LaplacianStructure Caching**: Pre-computes and caches graph topology to eliminate redundant computations
-    - **Optimized Quadratic Form**: O(|E|) computation using `x^T L x = Σ_{(i,j) ∈ E} weight[i,j] * (x[i] - x[j])^2`
-    - **Configurable Parameters**: `OmegaOption<S>` Builder pattern for all solver parameters
-    - **True Randomness**: Proper RNG usage while maintaining reproducibility
-    - **Static Functions**: Utility functions converted to associated functions for better organization
-    - **Builder Pattern API**: Clean `Omega::new(graph, length, options, rng)` interface
-    - **Enhanced Performance**: Significant constant factor improvements while maintaining O(d(|V| + |E|) + k|V|) complexity
-    - **EigenSolver Refactoring (2025-06-04)**: Converted from struct-based OOP to functional programming
-      - **Function-Based API**: Eliminated `EigenSolver<S>` struct, converted to standalone functions
-      - **Pure Functions**: `compute_smallest_eigenvalues_with_laplacian()`, `generate_random_vector()`, etc.
-      - **Improved Flexibility**: Direct function calls without object instantiation
-      - **Code Quality**: Fixed all clippy warnings, improved function signatures
-      - **Maintained Performance**: Zero regression in computational efficiency
-    - **OmegaBuilder Pattern Implementation (2025-06-04)**: Renamed `OmegaOption` to `OmegaBuilder` with complete builder pattern
-      - **API Restructuring**: Renamed for clarity and conventional Rust naming (`OmegaOption` → `OmegaBuilder`)
-      - **Builder Pattern**: Added `build()` method that consumes builder and returns `Omega` instance
-      - **Fluent API**: Changed from separate configuration/instantiation to single fluent chain
-      - **Standard Pattern**: Follows conventional Rust builder pattern with explicit `build()` method
-      - **Updated Integration**: CLI binary and all tests updated to use new API
-      - **Documentation**: All examples demonstrate new fluent builder pattern
-      - **Backward Compatibility**: `Omega::new()` method still available for direct usage
+    - **Omega Algorithm**: Complete refactoring with all issues resolved (2025-01-06)
+      - **Edge Length Integration**: Now properly uses weighted Laplacian from edge length function
+      - **LaplacianStructure Caching**: Pre-computes and caches graph topology to eliminate redundant computations
+      - **Optimized Quadratic Form**: O(|E|) computation using `x^T L x = Σ_{(i,j) ∈ E} weight[i,j] * (x[i] - x[j])^2`
+      - **Configurable Parameters**: `OmegaOption<S>` Builder pattern for all solver parameters
+      - **True Randomness**: Proper RNG usage while maintaining reproducibility
+      - **Static Functions**: Utility functions converted to associated functions for better organization
+      - **Builder Pattern API**: Clean `Omega::new(graph, length, options, rng)` interface
+      - **Enhanced Performance**: Significant constant factor improvements while maintaining O(d(|V| + |E|) + k|V|) complexity
+      - **EigenSolver Refactoring (2025-06-04)**: Converted from struct-based OOP to functional programming
+        - **Function-Based API**: Eliminated `EigenSolver<S>` struct, converted to standalone functions
+        - **Pure Functions**: `compute_smallest_eigenvalues_with_laplacian()`, `generate_random_vector()`, etc.
+        - **Improved Flexibility**: Direct function calls without object instantiation
+        - **Code Quality**: Fixed all clippy warnings, improved function signatures
+        - **Maintained Performance**: Zero regression in computational efficiency
+      - **OmegaBuilder Pattern Implementation (2025-06-04)**: Renamed `OmegaOption` to `OmegaBuilder` with complete builder pattern
+        - **API Restructuring**: Renamed for clarity and conventional Rust naming (`OmegaOption` → `OmegaBuilder`)
+        - **Builder Pattern**: Added `build()` method that consumes builder and returns `Omega` instance
+        - **Fluent API**: Changed from separate configuration/instantiation to single fluent chain
+        - **Standard Pattern**: Follows conventional Rust builder pattern with explicit `build()` method
+        - **Updated Integration**: CLI binary and all tests updated to use new API
+        - **Documentation**: All examples demonstrate new fluent builder pattern
+        - **Backward Compatibility**: `Omega::new()` method still available for direct usage
+      - **Omega API Enhancement with Custom Python Arrays (2025-09-03)**: Major API extension and Python binding overhaul
+        - **New Omega Methods**: Added `embedding()`, `embedding_and_eigenvalues()`, `build_with_embedding()` for flexible spectral coordinate computation
+        - **Function Refactoring**: Modified core functions to accept individual parameters instead of struct instances for better modularity
+        - **Zero Eigenvalue Exclusion**: Enhanced eigenvalue computation to properly exclude zero eigenvalue and return only d non-zero eigenvalues
+        - **Custom Python Arrays**: Implemented `PyArray1` and `PyArray2` wrapper classes to eliminate numpy dependency
+        - **Type Safety**: Proper f32 (Rust) to f64 (Python) conversion with custom array lifecycle management
+        - **API Flexibility**: Enables separate embedding computation and reuse across multiple SGD instances
+        - **Mathematical Correctness**: Proper spectral coordinate calculation by dividing eigenvectors by sqrt of eigenvalues
+        - **Breaking Changes**: Updated function signatures for better parameter clarity and mathematical accuracy
   - MDS (Classical and Pivot-based) with high-dimensional support
   - Stress Majorization with convergence controls and infinite loop prevention
   - Kamada-Kawai spring model

@@ -1,6 +1,8 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
-use crate::eigenvalue::{compute_smallest_eigenvalues, LaplacianStructure};
+use crate::eigenvalue::{
+    compute_spectral_coordinates, compute_spectral_coordinates_and_eigenvalues,
+};
 use ndarray::{Array2, Zip};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
@@ -109,6 +111,90 @@ where
         self
     }
 
+    /// Computes spectral coordinates using the configured parameters.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `rng` - Random number generator for spectral coordinate computation
+    ///
+    /// # Returns
+    /// An Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
+    pub fn embedding<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Array2<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        compute_spectral_coordinates(
+            graph,
+            length,
+            self.shift,
+            self.eigenvalue_max_iterations,
+            self.cg_max_iterations,
+            self.eigenvalue_tolerance,
+            self.cg_tolerance,
+            self.d,
+            rng,
+        )
+    }
+
+    /// Computes spectral coordinates and eigenvalues using the configured parameters.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `length` - A function that maps edges to their lengths/weights
+    /// * `rng` - Random number generator for spectral coordinate computation
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
+    /// - Array1 of eigenvalues (λ_0, λ_1, ..., λ_d)
+    pub fn embedding_and_eigenvalues<G, F, R>(
+        &self,
+        graph: G,
+        length: F,
+        rng: &mut R,
+    ) -> (Array2<S>, ndarray::Array1<S>)
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        compute_spectral_coordinates_and_eigenvalues(
+            graph,
+            length,
+            self.shift,
+            self.eigenvalue_max_iterations,
+            self.cg_max_iterations,
+            self.eigenvalue_tolerance,
+            self.cg_tolerance,
+            self.d,
+            rng,
+        )
+    }
+
+    /// Builds an SGD instance using precomputed embedding.
+    ///
+    /// # Parameters
+    /// * `graph` - The input graph to be laid out
+    /// * `embedding` - Precomputed spectral coordinates
+    /// * `rng` - Random number generator for selecting random node pairs
+    ///
+    /// # Returns
+    /// A new SGD instance configured with node pairs derived from the embedding
+    pub fn build_with_embedding<G, R>(&self, graph: G, embedding: &Array2<S>, rng: &mut R) -> Sgd<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        R: Rng,
+    {
+        let node_pairs = compute_omega_node_pairs(graph, embedding, self.min_dist, self.k, rng);
+        Sgd::new(node_pairs)
+    }
+
     /// Builds an SGD instance using the configured parameters.
     ///
     /// # Parameters
@@ -125,35 +211,36 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        let node_pairs = compute_omega_node_pairs(graph, length, self, rng);
-        Sgd::new(node_pairs)
+        let embedding = self.embedding(graph, length, rng);
+        self.build_with_embedding(graph, &embedding, rng)
     }
 }
 
-/// Computes node pairs for the Omega algorithm using spectral coordinates.
+/// Computes node pairs for the Omega algorithm using precomputed spectral coordinates.
 ///
-/// This function implements the core Omega algorithm logic, extracting it from
-/// the previous Omega::new method to work with the new builder pattern.
+/// This function generates node pairs from both edges and random sampling, using
+/// distances computed from the provided spectral embedding coordinates.
 ///
 /// # Parameters
 /// * `graph` - The input graph to be laid out
-/// * `length` - A function that maps edges to their lengths/weights
-/// * `options` - Configuration options for the Omega algorithm
+/// * `embedding` - Precomputed spectral coordinates where embedding.row(i) is the coordinate for node i
+/// * `min_dist` - Minimum distance between node pairs
+/// * `k` - Number of random pairs per node
 /// * `rng` - Random number generator for selecting random node pairs
 ///
 /// # Returns
 /// A vector of node pairs ready for SGD processing
-fn compute_omega_node_pairs<S, G, F, R>(
+fn compute_omega_node_pairs<S, G, R>(
     graph: G,
-    length: F,
-    options: &Omega<S>,
+    embedding: &Array2<S>,
+    min_dist: S,
+    k: usize,
     rng: &mut R,
 ) -> Vec<(usize, usize, S, S, S, S)>
 where
     S: DrawingValue,
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
     G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
     R: Rng,
 {
     let n = graph.node_count();
@@ -165,13 +252,10 @@ where
         .map(|(i, node_id)| (node_id, i))
         .collect();
 
-    // Step 1 & 2: Compute spectral coordinates using edge weights
-    let coordinates = compute_spectral_coordinates_with_weights(graph, length, options, rng);
-
     let mut node_pairs = Vec::new();
     let mut used_pairs = HashSet::new();
 
-    // Step 3: Add edge-based node pairs with Euclidean distances
+    // Step 1: Add edge-based node pairs with Euclidean distances
     for edge in graph.edge_references() {
         let i = node_indices[&edge.source()];
         let j = node_indices[&edge.target()];
@@ -179,24 +263,24 @@ where
 
         if !used_pairs.contains(&pair_key) {
             used_pairs.insert(pair_key);
-            let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
-            let distance = distance.max(options.min_dist);
+            let distance = euclidean_distance(embedding.row(i), embedding.row(j));
+            let distance = distance.max(min_dist);
             let weight = S::one() / (distance * distance);
             node_pairs.push((i, j, distance, distance, weight, weight));
         }
     }
 
-    // Step 4: Add random node pairs with Euclidean distances (avoiding duplicates)
+    // Step 2: Add random node pairs with Euclidean distances (avoiding duplicates)
     for i in 0..n {
-        for _ in 0..options.k {
+        for _ in 0..k {
             let j = rng.gen_range(0..n);
             if i != j {
                 let pair_key = if i < j { (i, j) } else { (j, i) };
 
                 if !used_pairs.contains(&pair_key) {
                     used_pairs.insert(pair_key);
-                    let distance = euclidean_distance(coordinates.row(i), coordinates.row(j));
-                    let distance = distance.max(options.min_dist);
+                    let distance = euclidean_distance(embedding.row(i), embedding.row(j));
+                    let distance = distance.max(min_dist);
                     let weight = S::one() / (distance * distance);
                     node_pairs.push((i, j, distance, distance, weight, weight));
                 }
@@ -215,62 +299,6 @@ where
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Computes d-dimensional spectral coordinates using edge weights and custom options.
-///
-/// Uses a weighted Laplacian based on edge lengths/weights and configurable eigenvalue solver
-/// to compute the smallest d non-zero eigenvalues and eigenvectors, then creates coordinates
-/// by dividing each eigenvector by the square root of its corresponding eigenvalue.
-///
-/// # Parameters
-/// * `graph` - The input graph
-/// * `length` - Function to extract edge weights/lengths
-/// * `options` - Configuration builder containing solver parameters and dimensions
-/// * `rng` - Random number generator for eigenvalue computation
-///
-/// # Returns
-/// An Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
-fn compute_spectral_coordinates_with_weights<S, G, F, R>(
-    graph: G,
-    length: F,
-    options: &Omega<S>,
-    rng: &mut R,
-) -> Array2<S>
-where
-    S: DrawingValue,
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
-    R: Rng,
-{
-    // Create weighted Laplacian structure with shift for positive definite matrix L + cI
-    let laplacian = LaplacianStructure::new_with_shift(graph, length, options.shift);
-
-    // Step 1: Compute smallest d non-zero eigenvalues and eigenvectors
-    let (mut eigenvalues, mut eigenvectors) = compute_smallest_eigenvalues(
-        &laplacian,
-        options.d,
-        options.eigenvalue_max_iterations,
-        options.cg_max_iterations,
-        options.eigenvalue_tolerance,
-        options.cg_tolerance,
-        rng,
-    );
-
-    // Step 2: Subtract shift from eigenvalues to get original Laplacian eigenvalues
-    for eigenvalue in eigenvalues.iter_mut() {
-        *eigenvalue -= options.shift;
-    }
-
-    // Step 3: Create coordinates by dividing eigenvectors by sqrt of eigenvalues
-    eigenvectors.column_mut(0).fill(S::zero());
-    for dim in 1..=options.d {
-        let mut eigenvector = eigenvectors.column_mut(dim);
-        eigenvector /= eigenvalues[dim];
-    }
-
-    eigenvectors
 }
 
 /// Computes the Euclidean distance between two d-dimensional coordinates.
