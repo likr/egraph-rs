@@ -4,7 +4,9 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
-use petgraph_algorithm_shortest_path::{all_sources_bfs, all_sources_dijkstra, warshall_floyd};
+use petgraph_algorithm_shortest_path::{
+    all_sources_bfs, all_sources_dijkstra, warshall_floyd, WeightedEdgeLength,
+};
 use pyo3::prelude::*;
 
 /// Computes shortest paths from all nodes to all other nodes using BFS
@@ -81,10 +83,53 @@ fn py_warshall_floyd(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatr
     PyDistanceMatrix::new_with_full_distance_matrix(distance_matrix)
 }
 
+/// Python wrapper for the WeightedEdgeLength calculator
+///
+/// This class calculates edge weights based on node degrees and common neighbors.
+/// It implements the same interface as the original Python WeightedEdgeLength class.
+#[pyclass]
+#[pyo3(name = "WeightedEdgeLength")]
+pub struct PyWeightedEdgeLength {
+    calculator: WeightedEdgeLength,
+}
+
+#[pymethods]
+impl PyWeightedEdgeLength {
+    /// Creates a new WeightedEdgeLength calculator for the given graph.
+    ///
+    /// :param graph: The graph to analyze
+    /// :type graph: Graph or DiGraph
+    #[new]
+    fn new(graph: &PyGraphAdapter) -> PyResult<Self> {
+        match graph.graph() {
+            GraphType::Graph(g) => Ok(Self {
+                calculator: WeightedEdgeLength::new(g),
+            }),
+            GraphType::DiGraph(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "WeightedEdgeLength currently only supports undirected graphs",
+            )),
+        }
+    }
+
+    /// Calculates the weighted length for an edge.
+    ///
+    /// This method is called when the instance is used as a function.
+    /// It matches the interface of the original Python WeightedEdgeLength class.
+    ///
+    /// :param edge_index: The index of the edge
+    /// :type edge_index: int
+    /// :return: The calculated edge weight
+    /// :rtype: int
+    fn __call__(&self, edge_index: usize) -> PyResult<usize> {
+        Ok(self.calculator.edge_weight(edge_index))
+    }
+}
+
 /// Registers shortest path functions with the Python module
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_all_sources_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(py_all_sources_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(py_warshall_floyd, m)?)?;
+    m.add_class::<PyWeightedEdgeLength>()?;
     Ok(())
 }
