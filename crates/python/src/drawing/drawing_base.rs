@@ -46,12 +46,12 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_euclidean_2d(drawing: DrawingEuclidean2d<NodeId, FloatType>) -> PyObject {
+    pub fn new_drawing_euclidean_2d(drawing: DrawingEuclidean2d<NodeId, FloatType>) -> Py<PyAny> {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Euclidean2d,
         });
         let py_drawing = base.add_subclass(PyDrawingEuclidean2d::new(drawing));
-        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+        Python::attach(|py| Py::new(py, py_drawing).unwrap().into_any())
     }
 
     /// Creates a new N-dimensional Euclidean drawing object
@@ -61,12 +61,12 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_euclidean(drawing: DrawingEuclidean<NodeId, FloatType>) -> PyObject {
+    pub fn new_drawing_euclidean(drawing: DrawingEuclidean<NodeId, FloatType>) -> Py<PyAny> {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Euclidean,
         });
         let py_drawing = base.add_subclass(PyDrawingEuclidean::new(drawing));
-        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+        Python::attach(|py| Py::new(py, py_drawing).unwrap().into_any())
     }
 
     /// Creates a new Hyperbolic 2D drawing object
@@ -76,12 +76,12 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_hyperbolic_2d(drawing: DrawingHyperbolic2d<NodeId, FloatType>) -> PyObject {
+    pub fn new_drawing_hyperbolic_2d(drawing: DrawingHyperbolic2d<NodeId, FloatType>) -> Py<PyAny> {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Hyperbolic2d,
         });
         let py_drawing = base.add_subclass(PyDrawingHyperbolic2d::new(drawing));
-        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+        Python::attach(|py| Py::new(py, py_drawing).unwrap().into_any())
     }
 
     /// Creates a new Spherical 2D drawing object
@@ -91,12 +91,12 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_spherical_2d(drawing: DrawingSpherical2d<NodeId, FloatType>) -> PyObject {
+    pub fn new_drawing_spherical_2d(drawing: DrawingSpherical2d<NodeId, FloatType>) -> Py<PyAny> {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Spherical2d,
         });
         let py_drawing = base.add_subclass(PyDrawingSpherical2d::new(drawing));
-        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+        Python::attach(|py| Py::new(py, py_drawing).unwrap().into_any())
     }
 
     /// Creates a new Torus 2D drawing object
@@ -106,12 +106,12 @@ impl PyDrawing {
     ///
     /// # Returns
     /// A Python drawing object
-    pub fn new_drawing_torus_2d(drawing: DrawingTorus2d<NodeId, FloatType>) -> PyObject {
+    pub fn new_drawing_torus_2d(drawing: DrawingTorus2d<NodeId, FloatType>) -> Py<PyAny> {
         let base = PyClassInitializer::from(Self {
             drawing_type: DrawingType::Torus2d,
         });
         let py_drawing = base.add_subclass(PyDrawingTorus2d::new(drawing));
-        Python::with_gil(|py| Py::new(py, py_drawing).unwrap().to_object(py))
+        Python::attach(|py| Py::new(py, py_drawing).unwrap().into_any())
     }
 
     /// Returns the type of this drawing

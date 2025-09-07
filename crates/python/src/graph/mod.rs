@@ -23,9 +23,9 @@ use petgraph::prelude::*;
 use pyo3::prelude::*;
 
 /// Type alias for node data in a graph, which can be any Python object
-pub type Node = PyObject;
-/// Type alias for edge data in a graph, which can be any Python object
-pub type Edge = PyObject;
+pub type Node = Py<PyAny>;
+
+pub type Edge = Py<PyAny>;
 /// Type alias for the index type used in graphs
 pub type IndexType = u32;
 /// Type alias for node indices in a graph
@@ -112,7 +112,7 @@ impl PyGraphAdapter {
     /// :type value: object
     /// :return: The index of the newly added node
     /// :rtype: int
-    pub fn add_node(&mut self, value: PyObject) -> usize {
+    pub fn add_node(&mut self, value: Py<PyAny>) -> usize {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_add_node(native_graph, value),
             GraphType::DiGraph(native_graph) => graph_add_node(native_graph, value),
@@ -126,7 +126,7 @@ impl PyGraphAdapter {
     /// :return: The Python object stored at the node
     /// :rtype: object
     /// :raises ValueError: If the node index is invalid
-    pub fn node_weight(&self, a: usize) -> PyResult<PyObject> {
+    pub fn node_weight(&self, a: usize) -> PyResult<Py<PyAny>> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_node_weight(native_graph, a),
             GraphType::DiGraph(native_graph) => graph_node_weight(native_graph, a),
@@ -143,7 +143,7 @@ impl PyGraphAdapter {
     /// :type value: object
     /// :return: The index of the newly added edge
     /// :rtype: int
-    pub fn add_edge(&mut self, a: usize, b: usize, value: PyObject) -> usize {
+    pub fn add_edge(&mut self, a: usize, b: usize, value: Py<PyAny>) -> usize {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_add_edge(native_graph, a, b, value),
             GraphType::DiGraph(native_graph) => graph_add_edge(native_graph, a, b, value),
@@ -157,7 +157,7 @@ impl PyGraphAdapter {
     /// :return: The Python object stored at the edge
     /// :rtype: object
     /// :raises ValueError: If the edge index is invalid
-    pub fn edge_weight(&mut self, e: usize) -> PyResult<PyObject> {
+    pub fn edge_weight(&mut self, e: usize) -> PyResult<Py<PyAny>> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edge_weight(native_graph, e),
             GraphType::DiGraph(native_graph) => graph_edge_weight(native_graph, e),
@@ -185,7 +185,7 @@ impl PyGraphAdapter {
     /// :return: The Python object that was stored at the node
     /// :rtype: object
     /// :raises ValueError: If the node index is invalid
-    pub fn remove_node(&mut self, a: usize) -> PyResult<PyObject> {
+    pub fn remove_node(&mut self, a: usize) -> PyResult<Py<PyAny>> {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_remove_node(native_graph, a),
             GraphType::DiGraph(native_graph) => graph_remove_node(native_graph, a),
@@ -199,7 +199,7 @@ impl PyGraphAdapter {
     /// :return: The Python object that was stored at the edge
     /// :rtype: object
     /// :raises ValueError: If the edge index is invalid
-    pub fn remove_edge(&mut self, e: usize) -> PyResult<PyObject> {
+    pub fn remove_edge(&mut self, e: usize) -> PyResult<Py<PyAny>> {
         match self.graph_mut() {
             GraphType::Graph(native_graph) => graph_remove_edge(native_graph, e),
             GraphType::DiGraph(native_graph) => graph_remove_edge(native_graph, e),
@@ -253,7 +253,7 @@ impl PyGraphAdapter {
     /// :type a: int
     /// :return: A list of edge values (Python objects)
     /// :rtype: list[object]
-    pub fn edges(&self, a: usize) -> Vec<PyObject> {
+    pub fn edges(&self, a: usize) -> Vec<Py<PyAny>> {
         match self.graph() {
             GraphType::Graph(native_graph) => graph_edges(native_graph, a),
             GraphType::DiGraph(native_graph) => graph_edges(native_graph, a),

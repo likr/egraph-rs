@@ -2,7 +2,6 @@ use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::PyGraphAdapter;
 use petgraph_algorithm_triangulation;
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
 
 /// Performs Delaunay triangulation based on node positions in a 2D Euclidean drawing.
 ///
@@ -46,13 +45,13 @@ use pyo3::types::PyTuple;
 #[pyfunction]
 #[pyo3(name = "triangulation")]
 pub fn py_triangulation(
-    py: Python<'_>,
+    _py: Python<'_>,
     drawing: &PyDrawingEuclidean2d,
 ) -> PyResult<PyGraphAdapter> {
     let drawing_ref = drawing.drawing();
     let triangulated = petgraph_algorithm_triangulation::triangulation(drawing_ref).map(
-        |_, _| PyTuple::empty_bound(py).extract().unwrap(),
-        |_, _| PyTuple::empty_bound(py).extract().unwrap(),
+        |_, _| Python::attach(|py| py.None()),
+        |_, _| Python::attach(|py| py.None()),
     );
 
     // Create a new PyGraphAdapter from the triangulated graph

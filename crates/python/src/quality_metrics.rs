@@ -54,13 +54,13 @@ pub struct PyCrossingEdges {
 #[pyfunction]
 #[pyo3(name = "crossing_edges")]
 fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCrossingEdges {
-    Python::with_gil(|py| {
+    Python::attach(|_py| {
         let drawing_type = drawing.borrow().drawing_type();
         let crossing_edges = match drawing_type {
             DrawingType::Euclidean2d => {
                 let drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 match graph.graph() {
@@ -74,8 +74,8 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCr
             }
             DrawingType::Torus2d => {
                 let drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 match graph.graph() {
@@ -240,13 +240,13 @@ fn py_ideal_edge_lengths(
     drawing: &Bound<PyDrawing>,
     distance_matrix: &PyDistanceMatrix,
 ) -> FloatType {
-    Python::with_gil(|py| {
+    Python::attach(|_py| {
         let drawing_type = drawing.borrow().drawing_type();
         match drawing_type {
             DrawingType::Euclidean2d => {
                 let drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 match distance_matrix.distance_matrix() {
@@ -263,8 +263,8 @@ fn py_ideal_edge_lengths(
             }
             DrawingType::Torus2d => {
                 let drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 match distance_matrix.distance_matrix() {
@@ -329,19 +329,19 @@ fn py_neighborhood_preservation(
 #[pyo3(name = "node_resolution")]
 fn py_node_resolution(drawing: &Bound<PyDrawing>) -> FloatType {
     let drawing_type = drawing.borrow().drawing_type();
-    Python::with_gil(|py| match drawing_type {
+    Python::attach(|_py| match drawing_type {
         DrawingType::Euclidean2d => {
             let drawing = drawing
-                .into_py(py)
-                .downcast_bound::<PyDrawingEuclidean2d>(py)
+                .clone()
+                .downcast::<PyDrawingEuclidean2d>()
                 .unwrap()
                 .borrow();
             node_resolution(drawing.drawing())
         }
         DrawingType::Torus2d => {
             let drawing = drawing
-                .into_py(py)
-                .downcast_bound::<PyDrawingTorus2d>(py)
+                .clone()
+                .downcast::<PyDrawingTorus2d>()
                 .unwrap()
                 .borrow();
             node_resolution(drawing.drawing())
@@ -366,22 +366,22 @@ fn py_node_resolution(drawing: &Bound<PyDrawing>) -> FloatType {
 #[pyfunction]
 #[pyo3(name = "stress")]
 fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> FloatType {
-    Python::with_gil(|py| {
+    Python::attach(|_py| {
         let drawing_type = drawing.borrow().drawing_type();
         match distance_matrix.distance_matrix() {
             DistanceMatrixType::Full(d) => match drawing_type {
                 DrawingType::Euclidean2d => {
                     let drawing = drawing
-                        .into_py(py)
-                        .downcast_bound::<PyDrawingEuclidean2d>(py)
+                        .clone()
+                        .downcast::<PyDrawingEuclidean2d>()
                         .unwrap()
                         .borrow_mut();
                     stress(drawing.drawing(), d)
                 }
                 DrawingType::Torus2d => {
                     let drawing = drawing
-                        .into_py(py)
-                        .downcast_bound::<PyDrawingTorus2d>(py)
+                        .clone()
+                        .downcast::<PyDrawingTorus2d>()
                         .unwrap()
                         .borrow_mut();
                     stress(drawing.drawing(), d)

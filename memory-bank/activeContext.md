@@ -40,6 +40,140 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Numpy Integration and PyO3 0.26 Upgrade (2025-09-07)**
+
+  - **Complete Numpy Integration for Array Types**: Added comprehensive numpy support for PyArray1 and PyArray2 with bidirectional conversion capabilities
+
+  - **New Array Constructor Features**:
+
+    - **PyArray1 Constructor**: Optional numpy array parameter `PyArray1(array=None)` for seamless integration
+    - **PyArray2 Constructor**: Optional numpy array parameter `PyArray2(array=None)` for matrix operations
+    - **from_numpy() Class Methods**: Direct conversion from numpy arrays to custom array types
+    - **to_numpy() Methods**: Convert custom arrays back to numpy arrays for external library compatibility
+    - **Rust-numpy Integration**: Added `numpy = "0.26"` dependency with PyReadonlyArray1/PyReadonlyArray2 support
+
+  - **DrawingEuclidean2d Enhancement**:
+
+    - **from_array2 Static Method**: Create 2D Euclidean drawings directly from coordinate arrays
+    - **Direct Integration**: `DrawingEuclidean2d.from_array2(graph, coordinates)` for streamlined workflow
+    - **Type Safety**: Proper PyArray2 integration with coordinate validation
+
+  - **PyO3 Framework Upgrade**:
+
+    - **Version Upgrade**: PyO3 0.21 → 0.26 with breaking change migration
+    - **Type Migration**: Fixed all `PyObject` → `Py<PyAny>` type changes across codebase
+    - **API Migration**: Updated all `Python::with_gil` → `Python::attach` deprecation warnings
+    - **Comprehensive Coverage**: Fixed deprecations in quality_metrics.rs, layout/sgd/sgd.rs, graph_base.rs, triangulation.rs
+    - **Warning Resolution**: Eliminated all 11 compilation warnings for clean build
+
+  - **Test Suite Enhancement**:
+
+    - **Format Migration**: Converted from pytest to unittest format as requested
+    - **Comprehensive Coverage**: test_numpy_integration.py with full feature testing
+    - **Error Handling**: Proper exception testing for edge cases and invalid inputs
+    - **Integration Testing**: Complete workflow validation from array creation to drawing generation
+
+  - **Implementation Details**:
+
+    - **`crates/python/src/array.rs`**: Enhanced with numpy imports and conversion methods
+
+      ```rust
+      use numpy::{PyArray1 as NumpyArray1, PyArray2 as NumpyArray2, PyReadonlyArray1, PyReadonlyArray2};
+
+      #[new]
+      #[pyo3(signature = (array=None))]
+      fn new_py(array: Option<PyReadonlyArray1<FloatType>>) -> PyResult<Self>
+
+      #[classmethod]
+      fn from_numpy(_cls: &Bound<PyType>, array: PyReadonlyArray1<FloatType>) -> Self
+
+      fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, NumpyArray1<FloatType>>
+      ```
+
+    - **`crates/python/src/drawing/drawing_euclidean_2d.rs`**: Added numpy integration
+
+      ```rust
+      #[staticmethod]
+      pub fn from_array2(graph: &PyGraphAdapter, coordinates: &PyArray2) -> PyResult<Py<PyAny>>
+      ```
+
+    - **`crates/python/Cargo.toml`**: Updated dependencies
+
+      ```toml
+      pyo3 = "0.26"
+      numpy = "0.26"
+      ```
+
+    - **`crates/python/tests/test_numpy_integration.py`**: Comprehensive unittest suite
+      ```python
+      class TestNumpyIntegration(unittest.TestCase):
+          def test_array1_constructors(self)
+          def test_array2_constructors(self)
+          def test_numpy_conversion_methods(self)
+          def test_drawing_from_array2(self)
+          def test_error_handling(self)
+      ```
+
+  - **PyO3 Migration Scope**:
+
+    - **Type Updates**: 16+ instances of PyObject → Py<PyAny> across drawing, layout, and quality modules
+    - **API Updates**: 6+ instances of Python::with_gil → Python::attach deprecation fixes
+    - **Parameter Updates**: Unused variable warnings fixed with underscore prefixes
+    - **Return Type Updates**: All initial_placement methods updated for new PyO3 API
+
+  - **Files Modified**:
+
+    - **Core Implementation**: `crates/python/src/array.rs`, `crates/python/src/drawing/drawing_euclidean_2d.rs`
+    - **PyO3 Migrations**: `crates/python/src/quality_metrics.rs`, `crates/python/src/layout/sgd/sgd.rs`, `crates/python/src/graph/graph_base.rs`, `crates/python/src/algorithm/triangulation.rs`
+    - **Drawing Modules**: `crates/python/src/drawing/drawing_hyperbolic_2d.rs`, `crates/python/src/drawing/drawing_spherical_2d.rs`, `crates/python/src/drawing/drawing_torus_2d.rs`, `crates/python/src/drawing/drawing_base.rs`
+    - **Layout Modules**: `crates/python/src/layout/mds.rs`
+    - **Configuration**: `crates/python/Cargo.toml`
+    - **Tests**: `crates/python/tests/test_numpy_integration.py`
+
+  - **API Usage Examples**:
+
+    ```python
+    # Direct numpy integration
+    import numpy as np
+    import egraph as eg
+
+    # Create arrays from numpy
+    np_array = np.array([1.0, 2.0, 3.0])
+    arr1 = eg.Array1(np_array)
+    arr2 = eg.Array1.from_numpy(np_array)
+
+    # Convert back to numpy
+    result = arr1.to_numpy()
+
+    # Create drawings from coordinate arrays
+    coords = np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]])
+    drawing = eg.DrawingEuclidean2d.from_array2(graph, eg.Array2(coords))
+    ```
+
+  - **Quality Assurance Results**:
+
+    - **Clean Compilation**: `cargo check` completed with zero warnings
+    - **Test Success**: All unittest cases pass with comprehensive coverage
+    - **API Consistency**: Numpy integration follows established patterns
+    - **Backward Compatibility**: Existing array functionality unchanged
+    - **Type Safety**: Proper error handling for invalid inputs
+
+  - **Benefits Achieved**:
+
+    - **Seamless Integration**: Direct numpy array support for scientific computing workflows
+    - **Modern PyO3**: Up-to-date Python bindings with latest performance improvements
+    - **Clean Codebase**: Zero compilation warnings with modern Rust patterns
+    - **Enhanced Usability**: Simplified coordinate handling for visualization applications
+    - **Future-Proof**: Latest PyO3 version ensures compatibility with future Python releases
+
+  - **Integration Status**:
+    - ✅ **Array Constructors**: PyArray1/PyArray2 with optional numpy parameters
+    - ✅ **Numpy Conversion**: Bidirectional conversion methods (from_numpy/to_numpy)
+    - ✅ **Drawing Integration**: DrawingEuclidean2d.from_array2 static method
+    - ✅ **PyO3 Migration**: Complete upgrade to 0.26 with all warnings resolved
+    - ✅ **Test Coverage**: Comprehensive unittest suite with error handling
+    - ✅ **Documentation**: Complete API documentation with usage examples
+
 - **Omega Algorithm Enhancement with Custom Python Array Types (2025-09-03)**
 
   - **Complete Omega API Extension**: Added three new methods to Omega struct for enhanced spectral embedding functionality and improved Python bindings with custom array types

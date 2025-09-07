@@ -32,7 +32,7 @@ pub fn graph_edge_count<Ty: EdgeType>(graph: &Graph<Node, Edge, Ty, IndexType>) 
 /// The index of the newly added node
 pub fn graph_add_node<Ty: EdgeType>(
     graph: &mut Graph<Node, Edge, Ty, IndexType>,
-    value: PyObject,
+    value: Py<PyAny>,
 ) -> usize {
     graph.add_node(value).index()
 }
@@ -51,11 +51,11 @@ pub fn graph_add_node<Ty: EdgeType>(
 pub fn graph_node_weight<Ty: EdgeType>(
     graph: &Graph<Node, Edge, Ty, IndexType>,
     a: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let a = node_index(a);
     graph
         .node_weight(a)
-        .cloned()
+        .map(|node| Python::attach(|py| node.clone_ref(py)))
         .ok_or_else(|| PyValueError::new_err("invalid node index"))
 }
 
@@ -73,7 +73,7 @@ pub fn graph_add_edge<Ty: EdgeType>(
     graph: &mut Graph<Node, Edge, Ty, IndexType>,
     a: usize,
     b: usize,
-    value: PyObject,
+    value: Py<PyAny>,
 ) -> usize {
     let a = node_index(a);
     let b = node_index(b);
@@ -94,11 +94,11 @@ pub fn graph_add_edge<Ty: EdgeType>(
 pub fn graph_edge_weight<Ty: EdgeType>(
     graph: &Graph<Node, Edge, Ty, IndexType>,
     e: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let e = edge_index(e);
     graph
         .edge_weight(e)
-        .cloned()
+        .map(|edge| Python::attach(|py| edge.clone_ref(py)))
         .ok_or_else(|| PyValueError::new_err("invalid edge index"))
 }
 
@@ -138,7 +138,7 @@ pub fn graph_edge_endpoints<Ty: EdgeType>(
 pub fn graph_remove_node<Ty: EdgeType>(
     graph: &mut Graph<Node, Edge, Ty, IndexType>,
     a: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let a = node_index(a);
     graph
         .remove_node(a)
@@ -159,7 +159,7 @@ pub fn graph_remove_node<Ty: EdgeType>(
 pub fn graph_remove_edge<Ty: EdgeType>(
     graph: &mut Graph<Node, Edge, Ty, IndexType>,
     e: usize,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let e = edge_index(e);
     graph
         .remove_edge(e)
@@ -238,10 +238,10 @@ pub fn graph_neighbors_undirected<Ty: EdgeType>(
 pub fn graph_edges<Ty: EdgeType>(
     graph: &Graph<Node, Edge, Ty, IndexType>,
     a: usize,
-) -> Vec<PyObject> {
+) -> Vec<Py<PyAny>> {
     graph
         .edges(node_index(a))
-        .map(|e| e.weight().clone())
+        .map(|e| Python::attach(|py| e.weight().clone_ref(py)))
         .collect::<Vec<_>>()
 }
 
@@ -346,8 +346,8 @@ pub fn graph_map<Ty: EdgeType>(
     edge_map: &Bound<PyAny>,
 ) -> Graph<Node, Edge, Ty, IndexType> {
     graph.map(
-        |u, node| PyObject::from(node_map.call1((u.index(), node)).unwrap()),
-        |e, edge| PyObject::from(edge_map.call1((e.index(), edge)).unwrap()),
+        |u, node| node_map.call1((u.index(), node)).unwrap().unbind(),
+        |e, edge| edge_map.call1((e.index(), edge)).unwrap().unbind(),
     )
 }
 
@@ -371,7 +371,7 @@ pub fn graph_filter_map<Ty: EdgeType>(
             if result.is_none() {
                 None
             } else {
-                Some(PyObject::from(result))
+                Some(result.unbind())
             }
         },
         |e, edge| {
@@ -379,7 +379,7 @@ pub fn graph_filter_map<Ty: EdgeType>(
             if result.is_none() {
                 None
             } else {
-                Some(PyObject::from(result))
+                Some(result.unbind())
             }
         },
     )

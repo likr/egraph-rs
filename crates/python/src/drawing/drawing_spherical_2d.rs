@@ -130,7 +130,7 @@ impl PyDrawingSpherical2d {
     /// :return: A new spherical drawing with initial node positions
     /// :rtype: DrawingSpherical2d
     #[staticmethod]
-    pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
+    pub fn initial_placement(graph: &PyGraphAdapter) -> Py<PyAny> {
         PyDrawing::new_drawing_spherical_2d(match graph.graph() {
             GraphType::Graph(native_graph) => DrawingSpherical2d::initial_placement(native_graph),
             GraphType::DiGraph(native_graph) => DrawingSpherical2d::initial_placement(native_graph),

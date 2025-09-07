@@ -65,43 +65,43 @@ impl PySgd {
     /// :rtype: None
     fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: FloatType) {
         let drawing_type = drawing.borrow().drawing_type();
-        Python::with_gil(|py| match drawing_type {
+        Python::attach(|_py| match drawing_type {
             DrawingType::Euclidean2d => {
                 let mut drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingEuclidean2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
             DrawingType::Euclidean => {
                 let mut drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingEuclidean>(py)
+                    .clone()
+                    .downcast::<PyDrawingEuclidean>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
             DrawingType::Hyperbolic2d => {
                 let mut drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingHyperbolic2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingHyperbolic2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
             DrawingType::Spherical2d => {
                 let mut drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingSpherical2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingSpherical2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
             }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
-                    .into_py(py)
-                    .downcast_bound::<PyDrawingTorus2d>(py)
+                    .clone()
+                    .downcast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)

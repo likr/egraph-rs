@@ -1,8 +1,10 @@
 use crate::{
+    array::PyArray2,
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
     FloatType,
 };
+use pyo3::Py;
 
 /// A 2D point represented as (x, y) coordinates of floats
 type Point2D = (FloatType, FloatType);
@@ -161,10 +163,60 @@ impl PyDrawingEuclidean2d {
     /// :return: A new drawing with random node positions
     /// :rtype: DrawingEuclidean2d
     #[staticmethod]
-    pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
+    pub fn initial_placement(graph: &PyGraphAdapter) -> Py<PyAny> {
         PyDrawing::new_drawing_euclidean_2d(match graph.graph() {
             GraphType::Graph(native_graph) => DrawingEuclidean2d::initial_placement(native_graph),
             GraphType::DiGraph(native_graph) => DrawingEuclidean2d::initial_placement(native_graph),
         })
+    }
+
+    /// Creates a new drawing from a 2D array of coordinates
+    ///
+    /// The array should have shape (n, 2) where n is the number of nodes,
+    /// and each row contains the (x, y) coordinates for a node.
+    ///
+    /// :param graph: The graph to create a drawing for
+    /// :type graph: Graph or DiGraph
+    /// :param coordinates: 2D array of shape (n, 2) with (x, y) coordinates
+    /// :type coordinates: Array2
+    /// :return: A new drawing with coordinates from the array
+    /// :rtype: DrawingEuclidean2d
+    /// :raises ValueError: If array shape is invalid or doesn't match graph size
+    #[staticmethod]
+    pub fn from_array2(graph: &PyGraphAdapter, coordinates: &PyArray2) -> PyResult<Py<PyAny>> {
+        let node_count = graph.node_count();
+        let array = coordinates.as_array();
+
+        // Validate array shape
+        if array.ncols() != 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Array must have exactly 2 columns (x, y), got {}",
+                array.ncols()
+            )));
+        }
+
+        if array.nrows() != node_count {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Array must have {} rows to match graph node count, got {}",
+                node_count,
+                array.nrows()
+            )));
+        }
+
+        // Create initial drawing and set coordinates
+        let mut drawing = match graph.graph() {
+            GraphType::Graph(native_graph) => DrawingEuclidean2d::initial_placement(native_graph),
+            GraphType::DiGraph(native_graph) => DrawingEuclidean2d::initial_placement(native_graph),
+        };
+
+        // Set coordinates from array
+        for node_idx in 0..node_count {
+            let x = array[[node_idx, 0]];
+            let y = array[[node_idx, 1]];
+            drawing.set_x(node_index(node_idx), x);
+            drawing.set_y(node_index(node_idx), y);
+        }
+
+        Ok(PyDrawing::new_drawing_euclidean_2d(drawing))
     }
 }

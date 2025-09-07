@@ -84,7 +84,7 @@ impl PyClassicalMds {
     /// :type d: int
     /// :return: A drawing with node positions in d-dimensional Euclidean space
     /// :rtype: DrawingEuclidean
-    fn run(&self, d: usize) -> PyObject {
+    fn run(&self, d: usize) -> Py<PyAny> {
         PyDrawing::new_drawing_euclidean(self.mds.run(d))
     }
 
@@ -94,7 +94,7 @@ impl PyClassicalMds {
     ///
     /// :return: A drawing with node positions in 2D Euclidean space
     /// :rtype: DrawingEuclidean2d
-    fn run_2d(&self) -> PyObject {
+    fn run_2d(&self) -> Py<PyAny> {
         PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 
@@ -197,7 +197,7 @@ impl PyPivotMds {
     /// :type d: int
     /// :return: A drawing with node positions in d-dimensional Euclidean space
     /// :rtype: DrawingEuclidean
-    fn run(&self, d: usize) -> PyObject {
+    fn run(&self, d: usize) -> Py<PyAny> {
         PyDrawing::new_drawing_euclidean(self.mds.run(d))
     }
 
@@ -207,7 +207,7 @@ impl PyPivotMds {
     ///
     /// :return: A drawing with node positions in 2D Euclidean space
     /// :rtype: DrawingEuclidean2d
-    fn run_2d(&self) -> PyObject {
+    fn run_2d(&self) -> Py<PyAny> {
         PyDrawing::new_drawing_euclidean_2d(self.mds.run_2d())
     }
 

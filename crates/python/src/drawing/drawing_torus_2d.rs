@@ -171,7 +171,7 @@ impl PyDrawingTorus2d {
     /// :return: A new toroidal drawing with initial node positions
     /// :rtype: DrawingTorus2d
     #[staticmethod]
-    pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
+    pub fn initial_placement(graph: &PyGraphAdapter) -> Py<PyAny> {
         PyDrawing::new_drawing_torus_2d(match graph.graph() {
             GraphType::Graph(native_graph) => DrawingTorus2d::initial_placement(native_graph),
             GraphType::DiGraph(native_graph) => DrawingTorus2d::initial_placement(native_graph),

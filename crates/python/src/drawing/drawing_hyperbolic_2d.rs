@@ -131,7 +131,7 @@ impl PyDrawingHyperbolic2d {
     /// :return: A new hyperbolic drawing with initial node positions
     /// :rtype: DrawingHyperbolic2d
     #[staticmethod]
-    pub fn initial_placement(graph: &PyGraphAdapter) -> PyObject {
+    pub fn initial_placement(graph: &PyGraphAdapter) -> Py<PyAny> {
         PyDrawing::new_drawing_hyperbolic_2d(match graph.graph() {
             GraphType::Graph(native_graph) => DrawingHyperbolic2d::initial_placement(native_graph),
             GraphType::DiGraph(native_graph) => {

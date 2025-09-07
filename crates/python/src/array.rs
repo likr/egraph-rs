@@ -1,11 +1,13 @@
 //! Python wrapper classes for ndarray types
 //!
 //! This module provides PyArray1 and PyArray2 classes that wrap ndarray::Array1 and ndarray::Array2
-//! to provide a Python-native interface without depending on numpy.
+//! with numpy integration for seamless interoperability.
 
 use crate::FloatType;
 use ndarray::{Array1, Array2};
+use numpy::{PyArray1 as NumpyArray1, PyArray2 as NumpyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 /// Python wrapper for ndarray::Array1<FloatType>
 ///
@@ -35,6 +37,47 @@ impl PyArray1 {
 
 #[pymethods]
 impl PyArray1 {
+    /// Create a new Array1 from a numpy array
+    ///
+    /// :param array: Input numpy array
+    /// :type array: numpy.ndarray
+    /// :return: New Array1 instance
+    /// :rtype: Array1
+    #[new]
+    #[pyo3(signature = (array=None))]
+    fn new_py(array: Option<PyReadonlyArray1<FloatType>>) -> PyResult<Self> {
+        if let Some(numpy_array) = array {
+            let array = numpy_array.as_array().to_owned();
+            Ok(Self { array })
+        } else {
+            // Create empty array if no input provided
+            Ok(Self {
+                array: Array1::from_vec(vec![]),
+            })
+        }
+    }
+
+    /// Create Array1 from a numpy array
+    ///
+    /// :param array: Input numpy array
+    /// :type array: numpy.ndarray
+    /// :return: New Array1 instance
+    /// :rtype: Array1
+    #[classmethod]
+    fn from_numpy(_cls: &Bound<PyType>, array: PyReadonlyArray1<FloatType>) -> Self {
+        let array = array.as_array().to_owned();
+        Self { array }
+    }
+
+    /// Convert to numpy array
+    ///
+    /// :param py: Python interpreter
+    /// :return: Numpy array
+    /// :rtype: numpy.ndarray
+    fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, NumpyArray1<FloatType>> {
+        NumpyArray1::from_array(py, &self.array)
+    }
+
     /// Get the length of the array
     ///
     /// :return: Number of elements
@@ -165,6 +208,47 @@ impl PyArray2 {
 
 #[pymethods]
 impl PyArray2 {
+    /// Create a new Array2 from a numpy array
+    ///
+    /// :param array: Input numpy array (2D)
+    /// :type array: numpy.ndarray
+    /// :return: New Array2 instance
+    /// :rtype: Array2
+    #[new]
+    #[pyo3(signature = (array=None))]
+    fn new_py(array: Option<PyReadonlyArray2<FloatType>>) -> PyResult<Self> {
+        if let Some(numpy_array) = array {
+            let array = numpy_array.as_array().to_owned();
+            Ok(Self { array })
+        } else {
+            // Create empty 0x0 array if no input provided
+            Ok(Self {
+                array: Array2::from_shape_vec((0, 0), vec![]).unwrap(),
+            })
+        }
+    }
+
+    /// Create Array2 from a numpy array
+    ///
+    /// :param array: Input numpy array (2D)
+    /// :type array: numpy.ndarray
+    /// :return: New Array2 instance
+    /// :rtype: Array2
+    #[classmethod]
+    fn from_numpy(_cls: &Bound<PyType>, array: PyReadonlyArray2<FloatType>) -> Self {
+        let array = array.as_array().to_owned();
+        Self { array }
+    }
+
+    /// Convert to numpy array
+    ///
+    /// :param py: Python interpreter
+    /// :return: Numpy array (2D)
+    /// :rtype: numpy.ndarray
+    fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, NumpyArray2<FloatType>> {
+        NumpyArray2::from_array(py, &self.array)
+    }
+
     /// Get the shape of the array
     ///
     /// :return: Tuple of (rows, columns)
