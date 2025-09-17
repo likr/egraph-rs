@@ -139,4 +139,8 @@ impl PyDrawingHyperbolic2d {
             }
         })
     }
+
+    pub fn recenter(&mut self, u: usize) {
+        self.drawing.recenter(node_index(u))
+    }
 }

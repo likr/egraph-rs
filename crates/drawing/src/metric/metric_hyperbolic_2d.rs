@@ -77,6 +77,15 @@ where
 #[derive(Copy, Clone, Debug, Default)]
 pub struct MetricHyperbolic2d<S>(pub S, pub S);
 
+impl<S> MetricHyperbolic2d<S>
+where
+    S: DrawingValue,
+{
+    pub fn zero() -> Self {
+        MetricHyperbolic2d(S::zero(), S::zero())
+    }
+}
+
 impl<S> AddAssign<DeltaHyperbolic2d<S>> for MetricHyperbolic2d<S>
 where
     S: DrawingValue,

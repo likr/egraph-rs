@@ -128,6 +128,15 @@ where
         }
         drawing
     }
+
+    pub fn recenter(&mut self, u: N) {
+        if let Some(center) = self.position(u) {
+            let delta = &MetricHyperbolic2d::zero() - center;
+            for pos in self.coordinates.iter_mut() {
+                *pos += delta;
+            }
+        }
+    }
 }
 
 impl<N, S> Drawing for DrawingHyperbolic2d<N, S>
