@@ -191,14 +191,14 @@ impl PyOmega {
     /// :return: A tuple containing (coordinates, eigenvalues) as Array2 and Array1
     /// :rtype: tuple[Array2, Array1]
     /// :raises: ValueError if the graph type is not supported
-    fn embedding_and_eigenvalues(
+    fn eigendecomposition(
         &self,
         graph: &PyGraphAdapter,
         f: &Bound<PyAny>,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<(PyArray2, PyArray1)> {
         let (coordinates, eigenvalues) = match graph.graph() {
-            GraphType::Graph(native_graph) => self.builder.embedding_and_eigenvalues(
+            GraphType::Graph(native_graph) => self.builder.eigendecomposition(
                 native_graph,
                 |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
                 rng.get_mut(),

@@ -421,7 +421,7 @@ pub fn solve_with_conjugate_gradient<S>(
 /// A tuple containing:
 /// - Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
 /// - Array1 of d non-zero eigenvalues (λ_1, λ_2, ..., λ_d)
-pub fn compute_spectral_coordinates_and_eigenvalues<S, G, F, R>(
+pub fn eigendecomposition<S, G, F, R>(
     graph: G,
     length: F,
     shift: S,
@@ -476,56 +476,6 @@ where
     }
 
     (eigenvectors, eigenvalues)
-}
-
-/// Computes d-dimensional spectral coordinates using edge weights and custom parameters.
-///
-/// This is a convenience function that computes spectral coordinates without returning eigenvalues.
-/// It internally uses `compute_spectral_coordinates_and_eigenvalues` and discards the eigenvalues.
-///
-/// # Parameters
-/// * `graph` - The input graph
-/// * `length` - Function to extract edge weights/lengths
-/// * `shift` - Shift parameter for creating positive definite matrix L + cI
-/// * `eigenvalue_max_iterations` - Maximum iterations for eigenvalue computation
-/// * `cg_max_iterations` - Maximum iterations for CG method
-/// * `eigenvalue_tolerance` - Convergence tolerance for eigenvalue computation
-/// * `cg_tolerance` - Convergence tolerance for CG method
-/// * `d` - Number of spectral dimensions
-/// * `rng` - Random number generator for eigenvalue computation
-///
-/// # Returns
-/// An Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
-pub fn compute_spectral_coordinates<S, G, F, R>(
-    graph: G,
-    length: F,
-    shift: S,
-    eigenvalue_max_iterations: usize,
-    cg_max_iterations: usize,
-    eigenvalue_tolerance: S,
-    cg_tolerance: S,
-    d: usize,
-    rng: &mut R,
-) -> Array2<S>
-where
-    S: DrawingValue,
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
-    R: Rng,
-{
-    let (coordinates, _eigenvalues) = compute_spectral_coordinates_and_eigenvalues(
-        graph,
-        length,
-        shift,
-        eigenvalue_max_iterations,
-        cg_max_iterations,
-        eigenvalue_tolerance,
-        cg_tolerance,
-        d,
-        rng,
-    );
-    coordinates
 }
 
 /// Computes the smallest `n_target` non-zero eigenvalues and eigenvectors using a precomputed LaplacianStructure.

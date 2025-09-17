@@ -1,9 +1,7 @@
 //! Omega implementation of the SGD trait for graph layout using spectral coordinates.
 
-use crate::eigenvalue::{
-    compute_spectral_coordinates, compute_spectral_coordinates_and_eigenvalues,
-};
-use ndarray::{Array2, Zip};
+use crate::eigenvalue::eigendecomposition;
+use ndarray::{Array1, Array2, Zip};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
@@ -127,17 +125,12 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        compute_spectral_coordinates(
-            graph,
-            length,
-            self.shift,
-            self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
-            self.eigenvalue_tolerance,
-            self.cg_tolerance,
-            self.d,
-            rng,
-        )
+        let (mut eigenvectors, eigenvalues) = self.eigendecomposition(graph, length, rng);
+        for dim in 0..self.d {
+            let mut eigenvector = eigenvectors.column_mut(dim);
+            eigenvector /= eigenvalues[dim].sqrt();
+        }
+        eigenvectors
     }
 
     /// Computes spectral coordinates and eigenvalues using the configured parameters.
@@ -151,19 +144,19 @@ where
     /// A tuple containing:
     /// - Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
     /// - Array1 of eigenvalues (λ_0, λ_1, ..., λ_d)
-    pub fn embedding_and_eigenvalues<G, F, R>(
+    pub fn eigendecomposition<G, F, R>(
         &self,
         graph: G,
         length: F,
         rng: &mut R,
-    ) -> (Array2<S>, ndarray::Array1<S>)
+    ) -> (Array2<S>, Array1<S>)
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        compute_spectral_coordinates_and_eigenvalues(
+        eigendecomposition(
             graph,
             length,
             self.shift,
