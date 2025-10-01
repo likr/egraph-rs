@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-linfa = "0.6"
-linfa-nn = "0.6"
-ndarray = "0.15"
+linfa = "0.8"
+linfa-nn = "0.8"
+ndarray = "0.16"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-drawing = { path = "../drawing" }

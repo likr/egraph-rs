@@ -9,7 +9,7 @@ name = "egraph"
 crate-type = ["cdylib"]
 
 [dependencies]
-ndarray = "0.15"
+ndarray = "0.16"
 numpy = "0.26"
 pyo3 = { version = "0.26", features = ["abi3-py37", "extension-module"] }
 petgraph = "0.6"

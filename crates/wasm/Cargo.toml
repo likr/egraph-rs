@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
-ndarray = "0.15"
+ndarray = "0.16"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-clustering = { path = "../clustering" }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ndarray = "0.15"
+ndarray = "0.16"
 ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
