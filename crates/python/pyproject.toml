@@ -5,10 +5,79 @@ build-backend = "maturin"
 [project]
 name = "egraph"
 dynamic = ["version"]
+description = "High-performance graph drawing and layout library powered by Rust"
+readme = "README.md"
 requires-python = ">=3.6"
+license = { text = "MIT" }
+authors = [
+    { name = "Yosuke Onoue", email = "onoue@likr-lab.com" }
+]
+maintainers = [
+    { name = "Yosuke Onoue", email = "onoue@likr-lab.com" }
+]
+keywords = [
+    "graph",
+    "network",
+    "visualization",
+    "layout",
+    "drawing",
+    "graph-algorithms",
+    "network-analysis",
+    "force-directed",
+    "sgd",
+    "mds",
+    "community-detection"
+]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent",
 ]
 
+[project.urls]
+Homepage = "https://github.com/likr/egraph-rs"
+Documentation = "https://egraph-py-docs.netlify.app/"
+Repository = "https://github.com/likr/egraph-rs"
+Issues = "https://github.com/likr/egraph-rs/issues"
+Changelog = "https://github.com/likr/egraph-rs/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "maturin>=1.0",
+]
+docs = [
+    "sphinx>=8.0",
+    "sphinx-rtd-theme>=2.0",
+]
+viz = [
+    "networkx>=2.5",
+    "matplotlib>=3.3",
+]
+
+[tool.maturin]
+module-name = "egraph"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
