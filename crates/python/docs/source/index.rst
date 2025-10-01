@@ -7,6 +7,7 @@ Welcome to egraph documentation
    :maxdepth: 3
    :caption: Contents:
 
+   getting_started/index
    api/index
    examples/index
 
