@@ -6,7 +6,7 @@ This example demonstrates how to use the Stochastic Gradient Descent (SGD) layou
 Basic SGD Example
 -----------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -27,13 +27,8 @@ Basic SGD Example
     # Create a random number generator with a seed for reproducibility
     rng = eg.Rng.seed_from(0)
     
-    # Create a SparseSgd instance
-    sgd = eg.SparseSgd(
-        graph,
-        lambda _: 30,  # edge length
-        50,  # number of pivots
-        rng,
-    )
+    # Create a SparseSgd instance using the builder pattern
+    sgd = eg.SparseSgd().h(50).build(graph, lambda _: 30, rng)
     
     # Create a scheduler for the SGD algorithm
     scheduler = sgd.scheduler(
@@ -54,22 +49,16 @@ Basic SGD Example
     
     # Visualize with NetworkX
     nx.draw(nx_graph, pos)
-    plt.savefig('sgd_layout.png')
-    plt.show()
 
 Using FullSgd
 -------------------
 
 For smaller graphs, you can use `FullSgd` which computes all-pairs shortest path distances:
 
-.. code-block:: python
+.. testcode:: python
 
-    # Create a FullSgd instance
-    sgd = eg.FullSgd(
-        graph,
-        lambda _: 30,  # edge length
-        rng,
-    )
+    # Create a FullSgd instance using the builder pattern
+    sgd = eg.FullSgd().build(graph, lambda _: 30)
     
     # The rest of the code is the same as the SparseSgd example
     scheduler = sgd.scheduler(100, 0.1)

@@ -6,7 +6,7 @@ This example demonstrates how to use the Stochastic Gradient Descent (SGD) layou
 Basic 3D SGD Example
 ---------------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -22,26 +22,16 @@ Basic 3D SGD Example
     for u, v in nx_graph.edges:
         graph.add_edge(indices[u], indices[v], (u, v))
 
-    # Create a 3D drawing
-    # The second parameter (3) specifies the number of dimensions
-    drawing = eg.DrawingEuclidean(graph, 3)
-    
-    # Initialize with random positions
-    for i in range(graph.node_count()):
-        drawing.set(i, 0, 2.0 * (0.5 - i / graph.node_count()))
-        drawing.set(i, 1, 2.0 * (0.5 - (i % 10) / 10))
-        drawing.set(i, 2, 2.0 * (0.5 - (i % 20) / 20))
+    # Create a 3D drawing using ClassicalMds
+    # The parameter (3) specifies the number of dimensions
+    mds = eg.ClassicalMds(graph, lambda _: 1.0)
+    drawing = mds.run(3)
     
     # Create a random number generator with a seed for reproducibility
     rng = eg.Rng.seed_from(0)
     
-    # Create a SparseSgd instance
-    sgd = eg.SparseSgd(
-        graph,
-        lambda _: 30,  # edge length
-        50,  # number of pivots
-        rng,
-    )
+    # Create a SparseSgd instance using the builder pattern
+    sgd = eg.SparseSgd().h(50).build(graph, lambda _: 30, rng)
     
     # Create a scheduler for the SGD algorithm
     scheduler = sgd.scheduler(
@@ -75,25 +65,19 @@ Basic 3D SGD Example
         y = [pos_3d[u][1], pos_3d[v][1]]
         z = [pos_3d[u][2], pos_3d[v][2]]
         ax.plot(x, y, z, c='k', alpha=0.5)
-    
-    plt.savefig('sgd_3d_layout.png')
-    plt.show()
 
 Using ClassicalMds for 3D Initialization
 ------------------------------------------
 
 You can also use ClassicalMds to create an initial 3D layout:
 
-.. code-block:: python
+.. testcode:: python
 
-    # Create a 3D drawing
-    drawing = eg.DrawingEuclidean(graph, 3)
-    
-    # Use ClassicalMds to create an initial layout
+    # Create a 3D drawing using ClassicalMds
     mds = eg.ClassicalMds(graph, lambda _: 1.0)
-    mds.run(drawing)
+    drawing = mds.run(3)
     
     # Then apply SGD to refine the layout
-    sgd = eg.SparseSgd(graph, lambda _: 30, 50, rng)
+    sgd = eg.SparseSgd().h(50).build(graph, lambda _: 30, rng)
     scheduler = sgd.scheduler(100, 0.1)
     scheduler.run(lambda eta: (sgd.shuffle(rng), sgd.apply(drawing, eta)))

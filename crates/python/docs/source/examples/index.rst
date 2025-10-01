@@ -20,7 +20,7 @@ Basic Usage
 
 Here's a simple example of creating a graph and applying a layout algorithm:
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -47,4 +47,3 @@ Here's a simple example of creating a graph and applying a layout algorithm:
     # Visualize with NetworkX
     import matplotlib.pyplot as plt
     nx.draw(nx_graph, pos)
-    plt.show()

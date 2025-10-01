@@ -6,7 +6,7 @@ This example demonstrates how to use the Stress Majorization layout algorithm.
 Basic Stress Majorization Example
 ------------------------------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -39,15 +39,13 @@ Basic Stress Majorization Example
     
     # Visualize with NetworkX
     nx.draw(nx_graph, pos)
-    plt.savefig('stress_majorization_layout.png')
-    plt.show()
 
 Using a Distance Matrix
 ---------------------------
 
 For more control, you can create a StressMajorization instance from a distance matrix:
 
-.. code-block:: python
+.. testcode:: python
 
     # Create a distance matrix
     distance_matrix = eg.DistanceMatrix(graph)
@@ -72,13 +70,15 @@ Applying a Single Iteration
 
 You can also apply a single iteration of the algorithm and check the stress value:
 
-.. code-block:: python
+.. testcode:: python
 
+    # Create a fresh drawing for this example
+    drawing_fresh = eg.DrawingEuclidean2d.initial_placement(graph)
+    sm_fresh = eg.StressMajorization(graph, drawing_fresh, lambda _: 100)
+    
     # Apply a single iteration
-    stress = sm.apply(drawing)
-    print(f"Stress after one iteration: {stress}")
+    stress = sm_fresh.apply(drawing_fresh)
     
     # Apply multiple iterations manually
     for i in range(10):
-        stress = sm.apply(drawing)
-        print(f"Iteration {i+1}, stress: {stress}")
+        stress = sm_fresh.apply(drawing_fresh)

@@ -6,7 +6,7 @@ This example demonstrates how to use the Overwrap Removal algorithm to resolve n
 Basic Overwrap Removal Example
 ----------------------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -36,11 +36,11 @@ Basic Overwrap Removal Example
     node_sizes = np.ones(graph.node_count()) * 0.1
     
     # Create an OverwrapRemoval instance
-    # The first parameter is the node radius function
-    or_algo = eg.OverwrapRemoval(lambda i: node_sizes[i])
+    # The first parameter is the graph, the second is the node radius function
+    or_algo = eg.OverwrapRemoval(graph, lambda i: node_sizes[i])
     
     # Run the algorithm
-    or_algo.run(drawing)
+    or_algo.apply_with_drawing_euclidean_2d(drawing)
     
     # Save the positions after overlap removal
     pos_after = {u: (drawing.x(i), drawing.y(i)) for u, i in indices.items()}
@@ -55,16 +55,13 @@ Basic Overwrap Removal Example
     # Draw the graph after overlap removal
     nx.draw(nx_graph, pos_after, ax=ax2, node_size=200)
     ax2.set_title('After Overlap Removal')
-    
-    plt.savefig('overwrap_removal.png')
-    plt.show()
 
 Using Variable Node Sizes
 ---------------------------
 
 You can also use variable node sizes:
 
-.. code-block:: python
+.. testcode:: python
 
     # Create variable node sizes based on node degree
     node_sizes = np.zeros(graph.node_count())
@@ -73,28 +70,30 @@ You can also use variable node sizes:
         node_sizes[i] = 0.05 + 0.02 * nx_graph.degree(u)
     
     # Create an OverwrapRemoval instance with variable node sizes
-    or_algo = eg.OverwrapRemoval(lambda i: node_sizes[i])
+    or_algo = eg.OverwrapRemoval(graph, lambda i: node_sizes[i])
     
     # Run the algorithm
-    or_algo.run(drawing)
+    or_algo.apply_with_drawing_euclidean_2d(drawing)
 
 Controlling the Overlap Removal Process
 ------------------------------------------
 
 You can control the overlap removal process by setting parameters:
 
-.. code-block:: python
+.. testcode:: python
 
     # Create an OverwrapRemoval instance with custom parameters
-    or_algo = eg.OverwrapRemoval(
-        lambda i: node_sizes[i],  # Node radius function
-    )
+    or_algo = eg.OverwrapRemoval(graph, lambda i: node_sizes[i])
+    
+    # Set custom parameters
+    or_algo.strength = 0.5
+    or_algo.iterations = 1
     
     # Apply a single iteration
-    or_algo.apply(drawing)
+    or_algo.apply_with_drawing_euclidean_2d(drawing)
     
     # Apply multiple iterations manually
     for i in range(10):
-        or_algo.apply(drawing)
+        or_algo.apply_with_drawing_euclidean_2d(drawing)
         # You can check the layout after each iteration
         # and stop when satisfied

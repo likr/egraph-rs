@@ -6,7 +6,7 @@ This example demonstrates how to use the Kamada-Kawai layout algorithm.
 Basic Kamada-Kawai Example
 ----------------------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -30,7 +30,7 @@ Basic Kamada-Kawai Example
     kk = eg.KamadaKawai(graph, lambda _: 1.0)
     
     # Set the convergence threshold
-    kk.epsilon = 1e-3
+    kk.eps = 1e-3
     
     # Run the algorithm
     kk.run(drawing)
@@ -40,19 +40,18 @@ Basic Kamada-Kawai Example
     
     # Visualize with NetworkX
     nx.draw(nx_graph, pos)
-    plt.savefig('kamada_kawai_layout.png')
-    plt.show()
 
 Using Custom Edge Distances
 ----------------------------------
 
 You can customize the desired distances between nodes:
 
-.. code-block:: python
+.. testcode:: python
 
     # Create a KamadaKawai instance with custom edge distances
     # The lambda function takes an edge index and returns the desired distance
-    kk = eg.KamadaKawai(graph, lambda e: 2.0 if graph.edge_weight(e) > 5 else 1.0)
+    # Note: We use a simple distance function to avoid graph borrow conflicts
+    kk = eg.KamadaKawai(graph, lambda e: 2.0)
     
     # Run the algorithm
     kk.run(drawing)
@@ -62,12 +61,12 @@ Applying to a Single Node
 
 You can also apply the algorithm to a single node:
 
-.. code-block:: python
+.. testcode:: python
 
     # Apply the algorithm to a specific node
     node_index = 0
-    kk.apply_node(drawing, node_index)
+    kk.apply_to_node(node_index, drawing)
     
     # Apply the algorithm to all nodes one by one
     for i in range(graph.node_count()):
-        kk.apply_node(drawing, i)
+        kk.apply_to_node(i, drawing)

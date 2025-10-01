@@ -6,7 +6,7 @@ This example demonstrates how to use the Stochastic Gradient Descent (SGD) layou
 Basic Spherical SGD Example
 ----------------------------------
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import egraph as eg
@@ -23,31 +23,14 @@ Basic Spherical SGD Example
     for u, v in nx_graph.edges:
         graph.add_edge(indices[u], indices[v], (u, v))
 
-    # Create a spherical drawing
-    drawing = eg.DrawingSpherical2d(graph)
-    
-    # Initialize with random positions on the sphere
-    for i in range(graph.node_count()):
-        # Generate random positions in spherical coordinates
-        # Longitude (0 to 2π)
-        lon = 2 * np.pi * np.random.random() - np.pi
-        # Latitude (-π/2 to π/2)
-        lat = np.pi * np.random.random() - np.pi/2
-        
-        # Set the coordinates
-        drawing.longitude(i, lon)
-        drawing.latitude(i, lat)
+    # Create a spherical drawing using the factory method
+    drawing = eg.DrawingSpherical2d.initial_placement(graph)
     
     # Create a random number generator with a seed for reproducibility
     rng = eg.Rng.seed_from(0)
     
-    # Create a SparseSgd instance
-    sgd = eg.SparseSgd(
-        graph,
-        lambda _: 0.5,  # edge length (in radians)
-        50,  # number of pivots
-        rng,
-    )
+    # Create a SparseSgd instance using the builder pattern
+    sgd = eg.SparseSgd().h(50).build(graph, lambda _: 0.5, rng)
     
     # Create a scheduler for the SGD algorithm
     scheduler = sgd.scheduler(
@@ -66,8 +49,8 @@ Basic Spherical SGD Example
     # Extract node positions in 3D Cartesian coordinates for visualization
     pos_3d = {}
     for u, i in indices.items():
-        lon = drawing.longitude(i)
-        lat = drawing.latitude(i)
+        lon = drawing.lon(i)
+        lat = drawing.lat(i)
         
         # Convert spherical to Cartesian coordinates
         x = np.cos(lat) * np.cos(lon)
@@ -100,31 +83,10 @@ Basic Spherical SGD Example
     
     # Set equal aspect ratio
     ax.set_box_aspect([1,1,1])
-    
-    plt.savefig('sgd_spherical_2d_layout.png')
-    plt.show()
 
 Working with Spherical Distances
 ----------------------------------
 
-When working with spherical space, distances are measured along great circles:
-
-.. code-block:: python
-
-    # Calculate great-circle distance between two points on a sphere
-    def spherical_distance(lon1, lat1, lon2, lat2):
-        # Haversine formula
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-        c = 2 * np.arcsin(np.sqrt(a))
-        return c
-    
-    # Example usage
-    node1 = 0
-    node2 = 1
-    lon1, lat1 = drawing.longitude(node1), drawing.latitude(node1)
-    lon2, lat2 = drawing.longitude(node2), drawing.latitude(node2)
-    
-    dist = spherical_distance(lon1, lat1, lon2, lat2)
-    print(f"Spherical distance between nodes {node1} and {node2}: {dist} radians")
+When working with spherical space, distances are measured along great circles.
+The great-circle distance (also known as orthodromic distance) is the shortest distance
+between two points on the surface of a sphere, measured along the surface.
