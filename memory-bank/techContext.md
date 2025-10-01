@@ -23,14 +23,19 @@
 
 | Function                    | Command                                                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Rust: Check**             | `cargo check --workspace`                                                                                          |
-| **Rust: Run All Tests**     | `cargo test --workspace`                                                                                           |
-| **Rust: Run Crate Tests**   | `cargo test -p <crate-name>` (e.g., `cargo test -p petgraph-layout-mds`)                                           |
+| **Rust: Check**             | `make check`                                                                                                       |
+| **Rust: Run All Tests**     | `make test`                                                                                                        |
+| **Rust: Run Crate Tests**   | `make test-crate CRATE=<crate-name>` (e.g., `make test-crate CRATE=petgraph-layout-mds`)                           |
 | **Rust: Run Specific Test** | `cargo test -p <crate-name> <test-name>` (e.g., `cargo test -p egraph-wasm sgd_full`)                              |
 | **WASM: Run All Tests**     | `wasm-pack test --node crates/wasm`                                                                                |
 | **WASM: Run Specific Test** | `wasm-pack test --node crates/wasm --test <test-name>` (e.g., `wasm-pack test --node crates/wasm --test sgd_full`) |
-| **Rust: Format**            | `cargo fmt --all`                                                                                                  |
-| **Rust: Lint**              | `cargo clippy --workspace --all-targets --all-features -- -D warnings`                                             |
+| **Rust: Format**            | `make fmt`                                                                                                         |
+| **Rust: Lint**              | `make lint`                                                                                                        |
+| **Python: Build**           | `make python-build`                                                                                                |
+| **Python: Run All Tests**   | `make python-test`                                                                                                 |
+| **Python: Run Test Module** | `make python-test-module MODULE=<module>` (e.g., `make python-test-module MODULE=test_sgd`)                        |
+| **Python: Build Docs**      | `make python-docs`                                                                                                 |
+| **Python: Run Doctests**    | `make python-doctest`                                                                                              |
 | **JS/TS: Format**           | `npx prettier --write .`                                                                                           |
 | **WASM: Build**             | `npm run wasm-build`                                                                                               |
 | **Examples: Run**           | `npm start`                                                                                                        |
@@ -61,22 +66,22 @@
 
 ```bash
 # Check code
-cargo check --workspace
+make check
 
 # Run all tests from project root
-cargo test --workspace
+make test
 
 # Run tests for a specific crate
-cargo test -p <crate-name>
+make test-crate CRATE=<crate-name>
 
-# Run a specific test
+# Run a specific test (use cargo directly)
 cargo test -p <crate-name> <test-name>
 
 # Format code
-cargo fmt --all
+make fmt
 
 # Lint code
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+make lint
 ```
 
 ### WebAssembly Development
@@ -96,22 +101,22 @@ npm run wasm-build
 
 ```bash
 # Build egraph Python bindings for development
-maturin develop -m crates/python/Cargo.toml
+make python-build
 
 # Run all Python tests from project root
-cd crates/python && python -m unittest discover tests
+make python-test
 
-# Run specific Python test file
-cd crates/python && python -m unittest tests/test_<module>.py
+# Run specific Python test module
+make python-test-module MODULE=<module>
 
-# Run specific test case
+# Run specific test case (use Python directly)
 cd crates/python && python -m unittest tests.test_<module>.TestClass.test_method
 
 # Build Python documentation
-make -C crates/python/docs/ html
+make python-docs
 
 # Run doctests
-make -C crates/python/docs/ doctest
+make python-doctest
 ```
 
 ### JavaScript/TypeScript Development

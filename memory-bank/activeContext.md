@@ -40,6 +40,84 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Makefile Task Runner Implementation (2025-10-01)**
+
+  - **Complete Task Standardization**: Created comprehensive root-level Makefile to standardize all project task execution
+
+  - **Makefile Structure**:
+
+    - **Rust Tasks**: `fmt`, `lint`, `check`, `test`, `test-crate CRATE=<name>`
+    - **Python Tasks**: `python-build`, `python-test`, `python-test-module MODULE=<name>`, `python-docs`, `python-doctest`, `python-clean`
+    - **Combined Tasks**: `all` (format, lint, test everything), `clean` (clean all build artifacts)
+    - **Help System**: Default `help` target with comprehensive usage documentation
+
+  - **Key Features**:
+
+    - **Phony Targets**: All targets properly declared as `.PHONY` for reliability
+    - **Parameter Validation**: Error checking for required parameters (CRATE, MODULE)
+    - **Informative Output**: Echo statements showing what each target is doing
+    - **Nested Make Calls**: Proper delegation to Python docs Makefile with `$(MAKE) -C`
+    - **Comprehensive Help**: Examples and clear descriptions for all targets
+
+  - **Implementation Benefits**:
+
+    - **Standardized Interface**: Single, consistent way to run all project tasks
+    - **Reduced Cognitive Load**: No need to remember different command patterns for Rust vs Python
+    - **Better Discoverability**: `make help` shows all available commands
+    - **Easier Onboarding**: New contributors can quickly understand available tasks
+    - **CI/CD Ready**: Simplified automation with consistent make targets
+
+  - **Usage Examples**:
+
+    ```bash
+    # Format and lint all code
+    make fmt
+    make lint
+
+    # Run tests
+    make test                                    # All Rust tests
+    make test-crate CRATE=petgraph-layout-mds   # Specific crate
+    make python-test                             # All Python tests
+    make python-test-module MODULE=test_sgd     # Specific module
+
+    # Python development
+    make python-build                            # Build bindings
+    make python-docs                             # Build documentation
+    make python-doctest                          # Run doctests
+
+    # Combined operations
+    make all                                     # Format, lint, test everything
+    make clean                                   # Clean all artifacts
+    ```
+
+  - **Memory Bank Updates**:
+
+    - **techContext.md**: Updated "Quick Reference" table with all make commands
+    - **techContext.md**: Updated "Development Setup" sections to use make commands
+    - **activeContext.md**: Documented Makefile implementation (this entry)
+    - **progress.md**: Added task runner standardization to completed features
+
+  - **Files Created/Modified**:
+
+    - **`Makefile`**: New root-level task runner with 15+ targets
+    - **`memory-bank/techContext.md`**: Updated command references throughout
+    - **`memory-bank/activeContext.md`**: Added implementation documentation
+    - **`memory-bank/progress.md`**: Updated completion status
+
+  - **Quality Assurance**:
+
+    - **Tested Targets**: Verified `help`, `check`, `fmt`, `test-crate` work correctly
+    - **Error Handling**: Parameter validation prevents incorrect usage
+    - **Documentation**: Comprehensive help output and examples
+    - **Backward Compatibility**: Direct cargo/python commands still work
+
+  - **Integration Status**:
+    - ✅ **Rust Tasks**: Complete with format, lint, check, test capabilities
+    - ✅ **Python Tasks**: Complete with build, test, docs, doctest capabilities
+    - ✅ **Combined Tasks**: `all` and `clean` for comprehensive operations
+    - ✅ **Documentation**: Updated Memory Bank with all make commands
+    - ✅ **Help System**: User-friendly help output with examples
+
 - **WeightedEdgeLength Algorithm Implementation (2025-09-08)**
 
   - **Complete Rust Implementation**: Added WeightedEdgeLength algorithm to petgraph-algorithm-shortest-path crate with degree-based edge weight calculation

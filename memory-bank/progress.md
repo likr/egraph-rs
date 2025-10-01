@@ -132,6 +132,11 @@
   - Replaced external RBTree with built-in BTreeSet for efficiency
   - Memory usage improvements for large graphs
 - ✅ **Cross-Language Consistency**: Verified behavior across Rust, Python, and JavaScript
+- ✅ **Task Runner Standardization**: Comprehensive Makefile for unified task execution
+  - Rust tasks: format, lint, check, test (all and per-crate)
+  - Python tasks: build, test (all and per-module), docs, doctest
+  - Combined tasks: all (format, lint, test everything), clean
+  - Help system with examples and clear documentation
 
 ## Current Status Summary
 
