@@ -8,6 +8,7 @@ Welcome to egraph documentation
    :caption: Contents:
 
    getting_started/index
+   tutorial/index
    api/index
    examples/index
 
