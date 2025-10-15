@@ -76,10 +76,8 @@ where
     G::NodeId: Eq + Hash + Clone,
 {
     fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize> {
-        let mut current_communities: HashMap<G::NodeId, G::NodeId> = graph
-            .node_identifiers()
-            .map(|u| (u, u))
-            .collect();
+        let mut current_communities: HashMap<G::NodeId, G::NodeId> =
+            graph.node_identifiers().map(|u| (u, u)).collect();
 
         let mut iteration = 0;
         while iteration < self.max_iterations {
@@ -227,10 +225,8 @@ where
     G::NodeId: Eq + Hash + Clone,
 {
     // Initialize each node in its own community
-    let initial_communities: HashMap<G::NodeId, G::NodeId> = graph
-        .node_identifiers()
-        .map(|u| (u, u))
-        .collect();
+    let initial_communities: HashMap<G::NodeId, G::NodeId> =
+        graph.node_identifiers().map(|u| (u, u)).collect();
 
     louvain_step(graph, &initial_communities)
 }

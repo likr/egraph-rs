@@ -27,11 +27,13 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
     drawing.set_y(n5, 13.);
 
     // Set node size so they overlap (each node is 10.0 wide)
-    let size = [vec![10.0, 10.0],
+    let size = [
         vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
-        vec![10.0, 10.0]];
+        vec![10.0, 10.0],
+        vec![10.0, 10.0],
+    ];
 
     // Apply constraints to remove overlaps
     project_rectangle_no_overlap_constraints_2d(&mut drawing, |u, d| size[u.index()][d]);

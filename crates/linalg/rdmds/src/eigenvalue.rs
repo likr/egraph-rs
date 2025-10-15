@@ -2,7 +2,7 @@
 //! with Gram-Schmidt orthogonalization and Conjugate Gradient solver for computing
 //! the smallest non-zero eigenvalues of graph Laplacians.
 
-use ndarray::{s, Array1, Array2, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView2, s};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;

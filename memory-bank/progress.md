@@ -20,6 +20,13 @@
     - **Numerical Stability**: Proper epsilon handling and normalized learning rate calculation
     - **Dynamic Updates**: Support for runtime distance and weight updates with automatic recalculation
   - SGD with Full, Sparse, Distance-adjusted, and Omega variants
+    - **RdMds (Resistance-distance MDS) Separation (2025-10-15)**: Extracted spectral embedding computation into separate crate
+      - **New Crate**: Created `petgraph-linalg-rdmds` for spectral embedding computation
+      - **Separation of Concerns**: RdMds handles eigenvalue computation, Omega handles node pair generation
+      - **Modular Architecture**: Clean separation between embedding computation and SGD preparation
+      - **Workflow**: RdMds → embedding → Omega → SGD
+      - **Breaking Changes**: Omega no longer computes embeddings internally
+      - **Benefits**: Reusable spectral embeddings, clearer responsibilities, better testability
     - **Omega Algorithm**: Complete refactoring with all issues resolved (2025-01-06)
       - **Edge Length Integration**: Now properly uses weighted Laplacian from edge length function
       - **LaplacianStructure Caching**: Pre-computes and caches graph topology to eliminate redundant computations

@@ -17,6 +17,7 @@ members = [
     "crates/layout/mds",
     "crates/layout/separation-constraints",
     "crates/layout/stress-majorization",
+    "crates/linalg/rdmds",
     "crates/python",
     "crates/quality-metrics",
     "crates/wasm",

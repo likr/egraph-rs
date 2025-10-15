@@ -138,9 +138,9 @@ where
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.pos.partial_cmp(&other.pos).map(|ord| match ord {
-                Ordering::Equal => self.index.cmp(&other.index),
-                _ => ord,
-            })
+            Ordering::Equal => self.index.cmp(&other.index),
+            _ => ord,
+        })
     }
 }
 
@@ -657,11 +657,13 @@ fn test_generate_rectangle_no_overlap_constraints_x() {
     let n3 = graph.add_node(());
     let n4 = graph.add_node(());
     let n5 = graph.add_node(());
-    let size = [vec![10.0, 10.0],
+    let size = [
         vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
-        vec![10.0, 10.0]];
+        vec![10.0, 10.0],
+        vec![10.0, 10.0],
+    ];
     let mut drawing = DrawingEuclidean2d::new(&graph);
     drawing.set_x(n1, 5.);
     drawing.set_y(n1, 5.);

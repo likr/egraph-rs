@@ -1,14 +1,11 @@
 [package]
-name = "petgraph-layout-omega"
+name = "petgraph-linalg-rdmds"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 ndarray = "0.16"
+num-traits = "0.2"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
-petgraph-layout-sgd = { path = "../sgd" }
 rand = "0.8"
-
-[dev-dependencies]
-petgraph-linalg-rdmds = { path = "../../linalg/rdmds" }
