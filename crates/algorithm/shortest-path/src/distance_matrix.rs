@@ -54,10 +54,10 @@ pub trait DistanceMatrix<N, S> {
     fn col_index(&self, u: N) -> Option<usize>;
 
     /// Returns an iterator over the node identifiers corresponding to the rows.
-    fn row_indices(&self) -> IndexIterator<N>;
+    fn row_indices(&'_ self) -> IndexIterator<'_, N>;
 
     /// Returns an iterator over the node identifiers corresponding to the columns.
-    fn col_indices(&self) -> IndexIterator<N>;
+    fn col_indices(&'_ self) -> IndexIterator<'_, N>;
 }
 
 /// An iterator over the node identifiers in a distance matrix dimension (row or column).
@@ -128,14 +128,14 @@ where
         self.index_map.get(&u).copied()
     }
 
-    fn row_indices(&self) -> IndexIterator<N> {
+    fn row_indices(&'_ self) -> IndexIterator<'_, N> {
         IndexIterator {
             indices: &self.indices,
             index: 0,
         }
     }
 
-    fn col_indices(&self) -> IndexIterator<N> {
+    fn col_indices(&'_ self) -> IndexIterator<'_, N> {
         IndexIterator {
             indices: &self.indices,
             index: 0,
@@ -230,14 +230,14 @@ where
         self.col_index_map.get(&u).copied()
     }
 
-    fn row_indices(&self) -> IndexIterator<N> {
+    fn row_indices(&'_ self) -> IndexIterator<'_, N> {
         IndexIterator {
             indices: &self.row_indices,
             index: 0,
         }
     }
 
-    fn col_indices(&self) -> IndexIterator<N> {
+    fn col_indices(&'_ self) -> IndexIterator<'_, N> {
         IndexIterator {
             indices: &self.col_indices,
             index: 0,
