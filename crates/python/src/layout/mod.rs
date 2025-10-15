@@ -7,6 +7,7 @@
 /// # Submodules
 ///
 /// - `mds`: Multidimensional Scaling algorithms
+/// - `rdmds`: Resistance-distance MDS for spectral embeddings
 /// - `kamada_kawai`: Kamada-Kawai force-directed layout algorithm
 /// - `overwrap_removal`: Algorithms to remove overlaps between nodes
 /// - `stress_majorization`: Stress majorization layout algorithm
@@ -14,6 +15,7 @@
 mod kamada_kawai;
 mod mds;
 mod overwrap_removal;
+mod rdmds;
 mod sgd;
 mod stress_majorization;
 
@@ -28,6 +30,7 @@ use pyo3::prelude::*;
 pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     // Register various layout algorithm implementations
     mds::register(py, m)?;
+    rdmds::register(py, m)?;
     kamada_kawai::register(py, m)?;
     overwrap_removal::register(py, m)?;
     stress_majorization::register(py, m)?;

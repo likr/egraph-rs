@@ -1,8 +1,8 @@
 """
 Tests for the Omega layout algorithm Python bindings.
 
-This module tests the Omega algorithm, which uses spectral coordinates derived
-from graph Laplacian eigenvalues to create high-quality graph layouts.
+This module tests the Omega algorithm, which generates node pairs for SGD
+from precomputed spectral embeddings (computed by RdMds).
 """
 
 import unittest
@@ -22,51 +22,52 @@ class TestOmega(unittest.TestCase):
         graph.add_edge(a, b, None)
         graph.add_edge(b, c, None)
         graph.add_edge(c, a, None)
-        
+
         # Create RNG for reproducible results
         rng = eg.Rng.seed_from(42)
-        
+
+        # Compute spectral embedding with RdMds
+        rdmds = eg.RdMds()
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+
         # Create Omega instance with default parameters
-        sgd = eg.Omega().build(graph, lambda edge_idx: 1.0, rng)
-        
+        sgd = eg.Omega().build(graph, embedding, rng)
+
         # Verify the algorithm was created successfully
         self.assertIsNotNone(sgd)
-        
+
         # Create a drawing for layout
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        
+
         # Test shuffle functionality
         sgd.shuffle(rng)
-        
+
         # Test apply functionality
         sgd.apply(drawing, 0.1)
 
     def test_omega_builder(self):
-        """Test Omega for custom configuration."""
+        """Test Omega with custom configuration."""
         # Create a simple path graph
         graph = eg.Graph()
         nodes = [graph.add_node(i) for i in range(4)]
         for i in range(3):
             graph.add_edge(nodes[i], nodes[i + 1], None)
-        
+
         # Create RNG
         rng = eg.Rng.seed_from(123)
-        
-        # Create Omega with custom builder configuration
-        builder = eg.Omega()
-        builder = builder.d(3)  # 3 spectral dimensions
-        builder = builder.k(10)  # 10 random pairs per node
-        builder = builder.min_dist(1e-2)  # Minimum distance
-        builder = builder.eigenvalue_max_iterations(500)
-        builder = builder.cg_max_iterations(50)
-        builder = builder.eigenvalue_tolerance(1e-3)
-        builder = builder.cg_tolerance(1e-3)
-        
+
+        # Compute spectral embedding
+        rdmds = eg.RdMds().d(3)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+
+        # Create Omega with custom configuration
+        omega = eg.Omega().k(10).min_dist(1e-2)
+
         # Build SGD instance
-        sgd = builder.build(graph, lambda edge_idx: 1.0, rng)
-        
+        sgd = omega.build(graph, embedding, rng)
+
         self.assertIsNotNone(sgd)
-        
+
         # Test with drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
         sgd.shuffle(rng)
@@ -78,24 +79,20 @@ class TestOmega(unittest.TestCase):
         nodes = [graph.add_node(i) for i in range(3)]
         for i in range(2):
             graph.add_edge(nodes[i], nodes[i + 1], None)
-        
+
         rng = eg.Rng.seed_from(456)
-        
+
+        # Compute embedding
+        rdmds = eg.RdMds().d(2)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 2.0, rng)
+
         # Test method chaining
-        sgd = (eg.Omega()
-                 .d(2)
-                 .k(5) 
-                 .min_dist(5e-3)
-                 .eigenvalue_max_iterations(200)
-                 .cg_max_iterations(30)
-                 .eigenvalue_tolerance(5e-4)
-                 .cg_tolerance(5e-4)
-                 .build(graph, lambda edge_idx: 2.0, rng))
-        
+        sgd = eg.Omega().k(5).min_dist(5e-3).build(graph, embedding, rng)
+
         self.assertIsNotNone(sgd)
 
     def test_omega_with_weighted_edges(self):
-        """Test Omega with weighted edges."""
+        """Test Omega with weighted edges in embedding computation."""
         graph = eg.Graph()
         a = graph.add_node(0)
         b = graph.add_node(1)
@@ -103,87 +100,116 @@ class TestOmega(unittest.TestCase):
         graph.add_edge(a, b, None)  # edge index 0
         graph.add_edge(b, c, None)  # edge index 1
         graph.add_edge(c, a, None)  # edge index 2
-        
+
         rng = eg.Rng.seed_from(999)
-        
+
         # Define edge weights: first edge has weight 2.0, others have weight 1.0
         def edge_weight(edge_idx):
             return 2.0 if edge_idx == 0 else 1.0
-        
-        sgd = eg.Omega().build(graph, edge_weight, rng)
-        
+
+        # Compute embedding with weighted edges
+        rdmds = eg.RdMds()
+        embedding = rdmds.embedding(graph, edge_weight, rng)
+
+        # Build SGD with Omega
+        sgd = eg.Omega().build(graph, embedding, rng)
+
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
         sgd.apply(drawing, 0.1)
-        
+
         self.assertIsNotNone(sgd)
 
     def test_omega_full_layout_process(self):
-        """Test a complete layout process using Omega with a scheduler."""
+        """Test a complete layout process using RdMds, Omega, and scheduler."""
         # Create a more complex graph (small grid)
         graph = eg.Graph()
         nodes = [[graph.add_node(i * 3 + j) for j in range(3)] for i in range(3)]
-        
+
         # Add horizontal edges
         for i in range(3):
             for j in range(2):
                 graph.add_edge(nodes[i][j], nodes[i][j + 1], None)
-        
-        # Add vertical edges  
+
+        # Add vertical edges
         for i in range(2):
             for j in range(3):
                 graph.add_edge(nodes[i][j], nodes[i + 1][j], None)
-        
+
         rng = eg.Rng.seed_from(1337)
-        
+
+        # Compute spectral embedding
+        rdmds = eg.RdMds().d(2)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+
         # Create Omega with specific parameters
-        sgd = (eg.Omega()
-                 .d(2)
-                 .k(5)
-                 .min_dist(1e-3)
-                 .build(graph, lambda edge_idx: 1.0, rng))
-        
+        sgd = eg.Omega().k(5).min_dist(1e-3).build(graph, embedding, rng)
+
         # Create initial drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        
+
         # Run layout algorithm with exponential scheduler
-        scheduler = eg.SchedulerExponential(50)
-        
+        scheduler = sgd.scheduler(50, 0.1)
+
         def step(eta):
             sgd.shuffle(rng)
             sgd.apply(drawing, eta)
-        
+
         scheduler.run(step)
-        
+
         # Verify that drawing positions have been modified
-        # (We can't check exact values since they depend on eigenvalue computation,
-        #  but we can verify the positions are different from initial placement)
         self.assertIsNotNone(drawing)
 
-    def test_omega_update_functions(self):
-        """Test distance and weight update functions."""
+    def test_omega_different_k_values(self):
+        """Test Omega with different k (random pairs per node) values."""
         graph = eg.Graph()
-        a = graph.add_node(0)
-        b = graph.add_node(1)
-        graph.add_edge(a, b, None)
-        
+        for i in range(5):
+            graph.add_node(i)
+        for i in range(4):
+            graph.add_edge(i, i + 1, None)
+
         rng = eg.Rng.seed_from(2021)
-        sgd = eg.Omega().build(graph, lambda edge_idx: 1.0, rng)
-        
-        # Test update_distance function
-        def update_distance_func(i, j, distance, weight):
-            return distance * 1.1  # Increase all distances by 10%
-        
-        sgd.update_distance(update_distance_func)
-        
-        # Test update_weight function  
-        def update_weight_func(i, j, distance, weight):
-            return weight * 0.9  # Decrease all weights by 10%
-        
-        sgd.update_weight(update_weight_func)
-        
-        # Verify the omega instance still works after updates
+
+        # Compute embedding once
+        rdmds = eg.RdMds()
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+
+        # Test with different k values
+        for k in [5, 10, 20, 30]:
+            omega = eg.Omega().k(k)
+            sgd = omega.build(graph, embedding, rng)
+            self.assertIsNotNone(sgd)
+
+            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+            sgd.apply(drawing, 0.1)
+
+    def test_omega_reusable_embedding(self):
+        """Test that the same embedding can be used with multiple Omega instances."""
+        graph = eg.Graph()
+        for i in range(4):
+            graph.add_node(i)
+        for i in range(3):
+            graph.add_edge(i, i + 1, None)
+
+        rng = eg.Rng.seed_from(3000)
+
+        # Compute embedding once
+        rdmds = eg.RdMds().d(2)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+
+        # Create multiple Omega instances with the same embedding
+        omega1 = eg.Omega().k(10)
+        omega2 = eg.Omega().k(20)
+
+        sgd1 = omega1.build(graph, embedding, rng)
+        sgd2 = omega2.build(graph, embedding, rng)
+
+        # Both should work
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        sgd.apply(drawing, 0.1)
+        sgd1.apply(drawing, 0.1)
+        sgd2.apply(drawing, 0.1)
+
+        self.assertIsNotNone(sgd1)
+        self.assertIsNotNone(sgd2)
 
 
 if __name__ == "__main__":

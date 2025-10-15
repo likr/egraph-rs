@@ -25,5 +25,6 @@ petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-omega = { path = "../layout/omega" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-separation-constraints = { path = "../layout/separation-constraints" }
+petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"

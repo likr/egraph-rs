@@ -40,6 +40,118 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **RdMds and Omega Python Bindings Separation (2025-10-15)**
+
+  - **Complete API Separation**: Separated RdMds (spectral embedding computation) from Omega (node pair generation) in Python bindings to match the Rust architecture refactoring
+
+  - **New PyRdMds Class Implementation**:
+
+    - **Location**: `crates/python/src/layout/rdmds.rs` (new file, ~200 lines)
+    - **Purpose**: Python bindings for RdMds spectral embedding computation
+    - **Builder Pattern**: Full parameter configuration support
+      - `d()`: Number of spectral dimensions (default: 2)
+      - `shift()`: Shift parameter for positive definite matrix L + cI (default: 1e-3)
+      - `eigenvalue_max_iterations()`: Max iterations for eigenvalue computation (default: 1000)
+      - `cg_max_iterations()`: Max iterations for conjugate gradient method (default: 100)
+      - `eigenvalue_tolerance()`: Convergence tolerance for eigenvalues (default: 1e-1)
+      - `cg_tolerance()`: Convergence tolerance for CG method (default: 1e-4)
+    - **Core Methods**:
+      - `embedding(graph, length, rng)`: Computes spectral coordinates, returns PyArray2
+      - `eigendecomposition(graph, length, rng)`: Returns (PyArray2, PyArray1) tuple with coordinates and eigenvalues
+    - **Type Conversion**: Proper f32 (Rust) to f64 (Python FloatType) conversion
+
+  - **Updated PyOmega Class**:
+
+    - **Location**: `crates/python/src/layout/sgd/omega.rs` (reduced from ~270 to ~100 lines)
+    - **Removed Methods**: All RdMds-related functionality eliminated
+      - Removed: `embedding()`, `eigendecomposition()`, `shift()`, `eigenvalue_max_iterations()`, `cg_max_iterations()`, `eigenvalue_tolerance()`, `cg_tolerance()`
+    - **Simplified API**: Now focused solely on node pair generation
+      - `k()`: Number of random pairs per node (default: 30)
+      - `min_dist()`: Minimum distance between node pairs (default: 1e-3)
+      - `build(graph, embedding, rng)`: Creates SGD instance from precomputed embedding
+    - **Clear Separation**: Omega now accepts precomputed embeddings from RdMds
+
+  - **Dependency and Module Updates**:
+
+    - **`crates/python/Cargo.toml`**: Added `petgraph-linalg-rdmds` dependency
+    - **`crates/python/src/layout/mod.rs`**: Registered rdmds module with `rdmds::register(py, m)?`
+    - **`crates/python/src/layout/rdmds.rs`**: Implemented `register()` function for module registration
+
+  - **Comprehensive Test Suite**:
+
+    - **`crates/python/tests/test_rdmds.py`** (new file, ~200 lines, 9 test cases):
+      - RdMds unit tests: default parameters, custom dimensions, method chaining, eigendecomposition, weighted edges
+      - Integration tests: RdMds→Omega→SGD workflow, custom parameters, embedding reuse, scheduler integration
+    - **`crates/python/tests/test_omega.py`** (updated, 7 test cases):
+      - Updated all tests to use new separated API
+      - Tests now compute embedding with RdMds first, then use Omega.build()
+      - Comprehensive coverage of the new workflow
+
+  - **New Python API Workflow**:
+
+    ```python
+    import egraph as eg
+
+    # Step 1: Compute spectral embedding with RdMds
+    rdmds = eg.RdMds().d(2).shift(1e-3)
+    embedding = rdmds.embedding(graph, lambda i: 1.0, rng)
+
+    # Step 2: Generate node pairs with Omega
+    omega = eg.Omega().k(30).min_dist(1e-3)
+    sgd = omega.build(graph, embedding, rng)
+
+    # Step 3: Apply SGD for layout optimization
+    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+    scheduler = sgd.scheduler(100, 0.1)
+
+    def step(eta):
+        sgd.shuffle(rng)
+        sgd.apply(drawing, eta)
+
+    scheduler.run(step)
+    ```
+
+  - **Test Results**:
+
+    - **All 16 tests passing**: test_rdmds.py (9/9) + test_omega.py (7/7)
+    - **Build success**: Python bindings compile cleanly
+    - **Code quality**: Formatted with cargo fmt
+
+  - **Implementation Benefits**:
+
+    - **Separation of Concerns**: RdMds handles embedding computation, Omega handles node pair generation
+    - **Reusability**: Embeddings can be computed once and reused for multiple Omega instances
+    - **Flexibility**: Each component can be configured independently
+    - **Consistency**: Python API now matches the Rust architecture
+    - **Clarity**: Clear workflow with distinct responsibilities
+
+  - **Breaking Changes**:
+
+    - Omega no longer computes embeddings internally
+    - Users must use `RdMds.embedding()` then `Omega.build()`
+    - Old API: `Omega().build(graph, length, rng)`
+    - New API: `Omega().build(graph, embedding, rng)` where embedding comes from RdMds
+
+  - **Files Created**:
+
+    - `crates/python/src/layout/rdmds.rs`: PyRdMds class implementation
+    - `crates/python/tests/test_rdmds.py`: Comprehensive test suite
+
+  - **Files Modified**:
+
+    - `crates/python/src/layout/sgd/omega.rs`: Simplified to node pair generation only
+    - `crates/python/Cargo.toml`: Added petgraph-linalg-rdmds dependency
+    - `crates/python/src/layout/mod.rs`: Added rdmds module registration
+    - `crates/python/tests/test_omega.py`: Updated for new API
+
+  - **Integration Status**:
+    - ✅ **PyRdMds Class**: Complete implementation with all parameters
+    - ✅ **PyOmega Update**: Simplified API focused on node pair generation
+    - ✅ **Dependencies**: petgraph-linalg-rdmds properly integrated
+    - ✅ **Module Registration**: RdMds registered in Python module
+    - ✅ **Test Coverage**: 16/16 tests passing
+    - ✅ **Build Quality**: Clean compilation with no warnings
+
 - **Python Documentation Complete Overhaul (2025-10-01)**
 
   - **Comprehensive Documentation Creation**: Created complete Getting Started and Tutorial sections for Python bindings with 100% doctest pass rate
