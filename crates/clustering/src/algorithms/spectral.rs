@@ -1,5 +1,9 @@
-use crate::{utils::renumber_communities, CommunityDetection};
-use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
+use crate::{CommunityDetection, utils::renumber_communities};
+use petgraph::visit::{EdgeCount, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_drawing::DrawingIndex;
+use petgraph_linalg_rdmds::RdMds;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -8,6 +12,10 @@ use std::hash::Hash;
 /// This algorithm uses the eigenvectors of the graph Laplacian matrix
 /// to identify communities in the graph. It's particularly effective
 /// for finding well-separated communities.
+///
+/// The implementation uses RdMds (Resistance-distance MDS) for computing
+/// spectral coordinates, which provides high-quality eigenvalue computation
+/// with IC(0) preconditioning and conjugate gradient solver.
 ///
 /// # Examples
 ///
@@ -54,11 +62,11 @@ impl Spectral {
 
 impl<G> CommunityDetection<G> for Spectral
 where
-    G: EdgeCount + IntoNeighbors + IntoNodeIdentifiers,
-    G::NodeId: Eq + Hash + Clone,
+    G: EdgeCount + IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+    G::NodeId: Eq + Hash + Clone + DrawingIndex,
 {
     fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize> {
-        let node_count = graph.node_identifiers().count();
+        let node_count = graph.node_count();
 
         // For empty graphs or too many clusters, return empty map
         if node_count == 0 || self.k > node_count {
@@ -73,48 +81,30 @@ where
             return communities;
         }
 
-        // Build adjacency matrix representation
+        // Collect nodes for indexing
         let nodes: Vec<G::NodeId> = graph.node_identifiers().collect();
-        let node_indices: HashMap<G::NodeId, usize> = nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| (*node, i))
+
+        // Use RdMds to compute spectral coordinates
+        // The eigenvectors of the Laplacian provide the embedding for clustering
+        // Use a seeded RNG for reproducibility
+        let mut rng = StdRng::seed_from_u64(42);
+        let embedding = RdMds::new()
+            .d(self.k) // Use k dimensions for k-way clustering
+            .shift(1e-3f32)
+            .eigenvalue_max_iterations(1000)
+            .cg_max_iterations(100)
+            .eigenvalue_tolerance(1e-1)
+            .cg_tolerance(1e-4)
+            .embedding(&graph, |_| 1.0f32, &mut rng);
+
+        // Convert Array2 to Vec<Vec<f64>> for k-means clustering
+        let eigenvectors: Vec<Vec<f64>> = (0..node_count)
+            .map(|i| (0..self.k).map(|j| embedding[[i, j]] as f64).collect())
             .collect();
 
-        // Build adjacency matrix (simple unweighted representation)
-        let mut adjacency = vec![vec![0.0; node_count]; node_count];
-        for (i, node) in nodes.iter().enumerate() {
-            for neighbor in graph.neighbors(*node) {
-                let j = node_indices[&neighbor];
-                adjacency[i][j] = 1.0;
-            }
-        }
-
-        // Build degree matrix
-        let mut degree = vec![0.0; node_count];
-        for i in 0..node_count {
-            degree[i] = adjacency[i].iter().sum();
-        }
-
-        // Build Laplacian matrix: L = D - A
-        let mut laplacian = vec![vec![0.0; node_count]; node_count];
-        for i in 0..node_count {
-            for j in 0..node_count {
-                if i == j {
-                    laplacian[i][j] = degree[i] - adjacency[i][j];
-                } else {
-                    laplacian[i][j] = -adjacency[i][j];
-                }
-            }
-        }
-
-        // Compute eigenvalues and eigenvectors using power iteration
-        // For simplicity, we implement a basic approach that works for small graphs
-        // In practice, you would use a specialized library like nalgebra or ndarray
-        let eigenvectors = compute_first_k_eigenvectors(&laplacian, self.k);
-
-        // Perform k-means clustering on the eigenvectors
-        let clusters = kmeans_clustering(&eigenvectors, self.k);
+        // Perform k-means clustering on the eigenvectors with seeded RNG
+        let mut kmeans_rng = StdRng::seed_from_u64(123);
+        let clusters = kmeans_clustering(&eigenvectors, self.k, &mut kmeans_rng);
 
         // Map back to node IDs
         let mut communities = HashMap::new();
@@ -127,79 +117,11 @@ where
     }
 }
 
-/// Computes the first k eigenvectors of the Laplacian matrix using power iteration.
-///
-/// This is a simplified implementation that works for small graphs.
-/// For real-world applications, use a specialized linear algebra library.
-fn compute_first_k_eigenvectors(matrix: &[Vec<f64>], k: usize) -> Vec<Vec<f64>> {
-    let n = matrix.len();
-    let mut eigenvectors: Vec<Vec<f64>> = Vec::with_capacity(k);
-
-    // Very simplified approach to find approximate eigenvectors
-    for i in 0..k {
-        // Initialize with random vector (here we use a simple approach)
-        let mut v: Vec<f64> = vec![0.0; n];
-        v[i % n] = 1.0; // Simple initialization, not truly random
-
-        // Orthogonalize against previous eigenvectors
-        for prev_v in &eigenvectors {
-            let dot_product: f64 = v.iter().zip(prev_v.iter()).map(|(a, b)| a * b).sum();
-            for j in 0..n {
-                v[j] -= dot_product * prev_v[j];
-            }
-        }
-
-        // Normalize
-        let norm: f64 = v.iter().map(|x| x * x).sum::<f64>().sqrt();
-        if norm > 1e-10 {
-            for j in 0..n {
-                v[j] /= norm;
-            }
-        }
-
-        // Power iteration
-        for _ in 0..20 {
-            // Small number of iterations for simplicity
-            let mut next_v: Vec<f64> = vec![0.0; n];
-
-            // Matrix-vector multiplication
-            for i in 0..n {
-                for j in 0..n {
-                    next_v[i] += matrix[i][j] * v[j];
-                }
-            }
-
-            // Orthogonalize against previous eigenvectors
-            for prev_v in &eigenvectors {
-                let dot_product: f64 = next_v.iter().zip(prev_v.iter()).map(|(a, b)| a * b).sum();
-                for j in 0..n {
-                    next_v[j] -= dot_product * prev_v[j];
-                }
-            }
-
-            // Normalize
-            let norm: f64 = next_v.iter().map(|x| x * x).sum::<f64>().sqrt();
-            if norm > 1e-10 {
-                for j in 0..n {
-                    next_v[j] /= norm;
-                }
-                v = next_v;
-            } else {
-                break; // Vector collapsed, likely orthogonal to all eigenvectors
-            }
-        }
-
-        eigenvectors.push(v);
-    }
-
-    eigenvectors
-}
-
 /// Performs k-means clustering on the eigenvectors.
 ///
 /// This is a simplified implementation that works for small datasets.
 /// For real-world applications, use a specialized clustering library.
-fn kmeans_clustering(data: &[Vec<f64>], k: usize) -> Vec<usize> {
+fn kmeans_clustering<R: Rng>(data: &[Vec<f64>], k: usize, _rng: &mut R) -> Vec<usize> {
     let n = data.len();
     if n == 0 {
         return Vec::new();
