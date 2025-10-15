@@ -47,6 +47,12 @@ pub struct Louvain {
     max_iterations: usize,
 }
 
+impl Default for Louvain {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Louvain {
     /// Creates a new Louvain community detection algorithm instance.
     ///
@@ -72,7 +78,7 @@ where
     fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize> {
         let mut current_communities: HashMap<G::NodeId, G::NodeId> = graph
             .node_identifiers()
-            .map(|u| (u.clone(), u.clone()))
+            .map(|u| (u, u))
             .collect();
 
         let mut iteration = 0;
@@ -93,11 +99,11 @@ where
                 Some(&id) => id,
                 None => {
                     let id = node_to_community_id.len();
-                    node_to_community_id.insert(community_node.clone(), id);
+                    node_to_community_id.insert(*community_node, id);
                     id
                 }
             };
-            node_to_community_id.insert(node.clone(), community_id);
+            node_to_community_id.insert(*node, community_id);
         }
 
         renumber_communities(&node_to_community_id)
@@ -140,13 +146,13 @@ where
 
     let k = graph
         .node_identifiers()
-        .map(|u| (u.clone(), graph.neighbors(u).count() as f32))
+        .map(|u| (u, graph.neighbors(u).count() as f32))
         .collect::<HashMap<_, _>>();
 
     let mut sigma_total = HashMap::new();
     for (node, degree) in &k {
         let community = &initial_communities[node];
-        *sigma_total.entry(community.clone()).or_insert(0.0) += degree;
+        *sigma_total.entry(*community).or_insert(0.0) += degree;
     }
 
     let mut communities = initial_communities.clone();
@@ -154,28 +160,28 @@ where
 
     for (node, community) in &communities {
         community_nodes
-            .entry(community.clone())
+            .entry(*community)
             .or_insert_with(HashSet::new)
-            .insert(node.clone());
+            .insert(*node);
     }
 
     let mut improve = false;
 
     for u in graph.node_identifiers() {
         let mut neighboring_communities = HashSet::new();
-        for v in graph.neighbors(u.clone()) {
-            neighboring_communities.insert(communities[&v].clone());
+        for v in graph.neighbors(u) {
+            neighboring_communities.insert(communities[&v]);
         }
 
-        let current_community = communities[&u].clone();
+        let current_community = communities[&u];
         neighboring_communities.remove(&current_community);
 
         for c in neighboring_communities {
-            let prev_c = communities[&u].clone();
+            let prev_c = communities[&u];
             community_nodes.get_mut(&prev_c).unwrap().remove(&u);
 
             let mut k_in = 0.;
-            for v in graph.neighbors(u.clone()) {
+            for v in graph.neighbors(u) {
                 if communities[&v] == c {
                     k_in += 1.;
                 }
@@ -186,11 +192,11 @@ where
             if delta_q > 0. {
                 *sigma_total.get_mut(&c).unwrap() += k[&u];
                 *sigma_total.get_mut(&prev_c).unwrap() -= k[&u];
-                *communities.get_mut(&u).unwrap() = c.clone();
-                community_nodes.get_mut(&c).unwrap().insert(u.clone());
+                *communities.get_mut(&u).unwrap() = c;
+                community_nodes.get_mut(&c).unwrap().insert(u);
                 improve = true;
             } else {
-                community_nodes.get_mut(&prev_c).unwrap().insert(u.clone());
+                community_nodes.get_mut(&prev_c).unwrap().insert(u);
             }
         }
     }
@@ -223,7 +229,7 @@ where
     // Initialize each node in its own community
     let initial_communities: HashMap<G::NodeId, G::NodeId> = graph
         .node_identifiers()
-        .map(|u| (u.clone(), u.clone()))
+        .map(|u| (u, u))
         .collect();
 
     louvain_step(graph, &initial_communities)

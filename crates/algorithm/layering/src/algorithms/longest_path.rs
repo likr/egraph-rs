@@ -22,13 +22,13 @@ fn dfs_layer<N, E, Ix: IndexType>(
     depth: usize,
 ) {
     for v in graph.neighbors(u) {
-        if layers.contains_key(&v) {
+        if let std::collections::hash_map::Entry::Vacant(e) = layers.entry(v) {
+            e.insert(depth + 1);
+        } else {
             let layer = layers.get_mut(&v).unwrap();
             if *layer <= depth {
                 *layer = depth + 1
             }
-        } else {
-            layers.insert(v, depth + 1);
         }
         dfs_layer(graph, layers, v, depth + 1);
     }
@@ -43,6 +43,12 @@ fn dfs_layer<N, E, Ix: IndexType>(
 /// This is one of the simplest layer assignment algorithms for hierarchical graph layouts
 /// and is commonly used in the Sugiyama framework.
 pub struct LongestPath;
+
+impl Default for LongestPath {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl LongestPath {
     /// Creates a new instance of the LongestPath algorithm.

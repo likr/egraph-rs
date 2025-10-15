@@ -42,7 +42,7 @@ impl PySchedulerConstant {
     /// :rtype: None
     pub fn run(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.run(&mut callback);
     }
@@ -55,7 +55,7 @@ impl PySchedulerConstant {
     /// :rtype: None
     pub fn step(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.step(&mut callback);
     }
@@ -100,7 +100,7 @@ impl PySchedulerLinear {
     /// :rtype: None
     pub fn run(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.run(&mut callback);
     }
@@ -113,7 +113,7 @@ impl PySchedulerLinear {
     /// :rtype: None
     pub fn step(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.step(&mut callback);
     }
@@ -158,7 +158,7 @@ impl PySchedulerQuadratic {
     /// :rtype: None
     pub fn run(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.run(&mut callback);
     }
@@ -171,7 +171,7 @@ impl PySchedulerQuadratic {
     /// :rtype: None
     pub fn step(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.step(&mut callback);
     }
@@ -217,7 +217,7 @@ impl PySchedulerExponential {
     /// :rtype: None
     pub fn run(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.run(&mut callback);
     }
@@ -230,7 +230,7 @@ impl PySchedulerExponential {
     /// :rtype: None
     pub fn step(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.step(&mut callback);
     }
@@ -275,7 +275,7 @@ impl PySchedulerReciprocal {
     /// :rtype: None
     pub fn run(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.run(&mut callback);
     }
@@ -288,7 +288,7 @@ impl PySchedulerReciprocal {
     /// :rtype: None
     pub fn step(&mut self, f: &Bound<PyAny>) {
         let mut callback = |eta| {
-            f.call1((eta as f64,)).ok();
+            f.call1((eta,)).ok();
         };
         self.scheduler.step(&mut callback);
     }

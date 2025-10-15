@@ -1,6 +1,5 @@
 use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::PyGraphAdapter;
-use petgraph_algorithm_triangulation;
 use pyo3::prelude::*;
 
 /// Performs Delaunay triangulation based on node positions in a 2D Euclidean drawing.

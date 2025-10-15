@@ -41,6 +41,12 @@ pub struct LabelPropagation {
     seed: Option<u64>,
 }
 
+impl Default for LabelPropagation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LabelPropagation {
     /// Creates a new Label Propagation community detection algorithm instance.
     ///
@@ -89,7 +95,7 @@ where
         // Initialize each node with a unique label
         let mut labels: HashMap<G::NodeId, usize> = HashMap::new();
         for (i, node) in graph.node_identifiers().enumerate() {
-            labels.insert(node.clone(), i);
+            labels.insert(node, i);
         }
 
         // Create a Random Number Generator with seed if provided
@@ -142,7 +148,7 @@ where
     G::NodeId: Eq + Hash + Clone,
 {
     graph
-        .neighbors(node.clone())
+        .neighbors(node)
         .map(|neighbor| labels[&neighbor])
         .collect()
 }

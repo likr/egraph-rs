@@ -26,6 +26,12 @@ pub struct SparseSgd {
     h: usize,
 }
 
+impl Default for SparseSgd {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SparseSgd {
     /// Creates a new SparseSgdBuilder with the specified number of pivots.
     ///

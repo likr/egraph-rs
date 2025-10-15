@@ -39,6 +39,12 @@ pub struct InfoMap {
     max_iterations: usize,
 }
 
+impl Default for InfoMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InfoMap {
     /// Creates a new InfoMap community detection algorithm instance.
     ///
@@ -134,15 +140,15 @@ where
             continue;
         }
 
-        let mut queue = vec![start_node.clone()];
-        visited.insert(start_node.clone());
-        communities.insert(start_node.clone(), community_id);
+        let mut queue = vec![start_node];
+        visited.insert(start_node);
+        communities.insert(start_node, community_id);
 
         while let Some(node) = queue.pop() {
             for neighbor in graph.neighbors(node) {
                 if !visited.contains(&neighbor) {
-                    visited.insert(neighbor.clone());
-                    communities.insert(neighbor.clone(), community_id);
+                    visited.insert(neighbor);
+                    communities.insert(neighbor, community_id);
                     queue.push(neighbor);
                 }
             }
@@ -166,7 +172,7 @@ where
 {
     // Count frequency of neighbor communities
     let mut community_counts = HashMap::new();
-    for neighbor in graph.neighbors(node.clone()) {
+    for neighbor in graph.neighbors(node) {
         let neighbor_community = communities[&neighbor];
         *community_counts.entry(neighbor_community).or_insert(0) += 1;
     }

@@ -78,13 +78,13 @@ where
         let node_indices: HashMap<G::NodeId, usize> = nodes
             .iter()
             .enumerate()
-            .map(|(i, node)| (node.clone(), i))
+            .map(|(i, node)| (*node, i))
             .collect();
 
         // Build adjacency matrix (simple unweighted representation)
         let mut adjacency = vec![vec![0.0; node_count]; node_count];
         for (i, node) in nodes.iter().enumerate() {
-            for neighbor in graph.neighbors(node.clone()) {
+            for neighbor in graph.neighbors(*node) {
                 let j = node_indices[&neighbor];
                 adjacency[i][j] = 1.0;
             }
@@ -119,7 +119,7 @@ where
         // Map back to node IDs
         let mut communities = HashMap::new();
         for (i, &cluster) in clusters.iter().enumerate() {
-            communities.insert(nodes[i].clone(), cluster);
+            communities.insert(nodes[i], cluster);
         }
 
         // Renumber communities from 0 to n-1 (in case some clusters are empty)

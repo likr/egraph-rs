@@ -11,7 +11,7 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
     let n3 = graph.add_node(());
     let n4 = graph.add_node(());
     let n5 = graph.add_node(());
-    let nodes = vec![n1, n2, n3, n4, n5];
+    let nodes = [n1, n2, n3, n4, n5];
 
     // Create a drawing with the nodes positioned with overlap
     let mut drawing = DrawingEuclidean2d::<_, f32>::new(&graph);
@@ -27,13 +27,11 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
     drawing.set_y(n5, 13.);
 
     // Set node size so they overlap (each node is 10.0 wide)
-    let size = vec![
+    let size = [vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
-        vec![10.0, 10.0],
-        vec![10.0, 10.0],
-    ];
+        vec![10.0, 10.0]];
 
     // Apply constraints to remove overlaps
     project_rectangle_no_overlap_constraints_2d(&mut drawing, |u, d| size[u.index()][d]);

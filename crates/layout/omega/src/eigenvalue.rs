@@ -361,7 +361,7 @@ pub fn solve_with_conjugate_gradient<S>(
     let mut q = Array1::zeros(n);
 
     // r = b - A*x
-    laplacian.multiply(&x, &mut r);
+    laplacian.multiply(x, &mut r);
     for i in 0..n {
         r[i] = b[i] - r[i];
     }

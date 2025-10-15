@@ -52,7 +52,7 @@ where
         if vx <= ux && self.x_min < r.x_max {
             return r.x_max - self.x_min;
         }
-        return S::zero();
+        S::zero()
     }
 
     fn overlap_y(&self, r: &Rectangle<S>) -> S {
@@ -64,7 +64,7 @@ where
         if vy <= uy && self.y_min < r.y_max {
             return r.y_max - self.y_min;
         }
-        return S::zero();
+        S::zero()
     }
 }
 
@@ -137,13 +137,10 @@ where
     S: DrawingValue,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.pos.partial_cmp(&other.pos) {
-            Some(ord) => Some(match ord {
+        self.pos.partial_cmp(&other.pos).map(|ord| match ord {
                 Ordering::Equal => self.index.cmp(&other.index),
                 _ => ord,
-            }),
-            None => None,
-        }
+            })
     }
 }
 
@@ -292,7 +289,7 @@ where
         if a.pos > b.pos {
             Ordering::Greater
         } else if a.pos < b.pos {
-            return Ordering::Less;
+            Ordering::Less
         } else if a.is_open {
             Ordering::Less
         } else if b.is_open {
@@ -320,7 +317,7 @@ where
             // Create constraints with 'prev' neighbors
             let v = nodes[event.v].index();
             let mut u = v;
-            while let Some(&w) = nodes[u.index].prev.iter().rev().nth(0) {
+            while let Some(&w) = nodes[u.index].prev.iter().next_back() {
                 u = w;
                 let i = u.index;
                 let j = v.index;
@@ -332,7 +329,7 @@ where
             // Create constraints with 'next' neighbors
             let v = nodes[event.v].index();
             let mut u = v;
-            while let Some(&w) = nodes[u.index].next.iter().nth(0) {
+            while let Some(&w) = nodes[u.index].next.iter().next() {
                 u = w;
                 let i = v.index;
                 let j = u.index;
@@ -409,7 +406,7 @@ where
         if a.pos > b.pos {
             Ordering::Greater
         } else if a.pos < b.pos {
-            return Ordering::Less;
+            Ordering::Less
         } else if a.is_open {
             Ordering::Less
         } else if b.is_open {
@@ -437,7 +434,7 @@ where
             // Create constraints with 'prev' neighbors
             let v = nodes[event.v].index();
             let mut u = v;
-            while let Some(&w) = nodes[u.index].prev.iter().rev().nth(0) {
+            while let Some(&w) = nodes[u.index].prev.iter().next_back() {
                 u = w;
                 let i = u.index;
                 let j = v.index;
@@ -449,7 +446,7 @@ where
             // Create constraints with 'next' neighbors
             let v = nodes[event.v].index();
             let mut u = v;
-            while let Some(&w) = nodes[u.index].next.iter().nth(0) {
+            while let Some(&w) = nodes[u.index].next.iter().next() {
                 u = w;
                 let i = v.index;
                 let j = u.index;
@@ -660,13 +657,11 @@ fn test_generate_rectangle_no_overlap_constraints_x() {
     let n3 = graph.add_node(());
     let n4 = graph.add_node(());
     let n5 = graph.add_node(());
-    let size = vec![
+    let size = [vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
         vec![10.0, 10.0],
-        vec![10.0, 10.0],
-        vec![10.0, 10.0],
-    ];
+        vec![10.0, 10.0]];
     let mut drawing = DrawingEuclidean2d::new(&graph);
     drawing.set_x(n1, 5.);
     drawing.set_y(n1, 5.);
@@ -689,7 +684,7 @@ fn test_generate_rectangle_no_overlap_constraints_y() {
     let n1 = graph.add_node(());
     let n2 = graph.add_node(());
     let n3 = graph.add_node(());
-    let size = vec![vec![10.0, 10.0], vec![10.0, 10.0], vec![10.0, 10.0]];
+    let size = [vec![10.0, 10.0], vec![10.0, 10.0], vec![10.0, 10.0]];
     let mut drawing = DrawingEuclidean2d::new(&graph);
     drawing.set_x(n1, 0.);
     drawing.set_y(n1, 0.);

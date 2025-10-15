@@ -29,7 +29,7 @@ where
     // Calculate the degree of each node
     let degrees: HashMap<_, _> = graph
         .node_identifiers()
-        .map(|node| (node.clone(), graph.neighbors(node).count() as f64))
+        .map(|node| (node, graph.neighbors(node).count() as f64))
         .collect();
 
     // Calculate the sum of the degrees of nodes in each community
@@ -43,7 +43,7 @@ where
 
     // For each pair of nodes, calculate contribution to modularity
     for i in graph.node_identifiers() {
-        for j in graph.neighbors(i.clone()) {
+        for j in graph.neighbors(i) {
             // Check if nodes are in the same community
             let ci = communities.get(&i).unwrap_or(&0);
             let cj = communities.get(&j).unwrap_or(&0);

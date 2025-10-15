@@ -47,7 +47,7 @@ pub fn py_coarsen(
 ) -> (PyGraphAdapter, HashMap<usize, usize>) {
     let (coarsened_graph, node_map) = match graph.graph() {
         GraphType::Graph(graph) => coarsen(
-            &graph,
+            graph,
             &mut |_, u| {
                 node_group_func
                     .call1((u.index(),))

@@ -45,7 +45,7 @@ impl PyInfoMap {
             GraphType::DiGraph(graph) => self.instance.detect_communities(graph),
         };
         map.into_iter()
-            .map(|(u, c)| (u.index() as usize, c))
+            .map(|(u, c)| (u.index(), c))
             .collect::<HashMap<_, _>>()
     }
 }

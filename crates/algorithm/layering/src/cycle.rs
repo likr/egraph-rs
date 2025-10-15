@@ -75,7 +75,7 @@ pub fn cycle_edges<N, E, Ix: IndexType>(
     let mut ancestors = HashSet::new();
     let mut result = vec![];
     for u in graph.node_indices() {
-        dfs_cycle(&graph, &mut map, &mut ancestors, &mut result, u)
+        dfs_cycle(graph, &mut map, &mut ancestors, &mut result, u)
     }
     result
 }
