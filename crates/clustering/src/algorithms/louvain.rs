@@ -1,4 +1,4 @@
-use crate::{utils::renumber_communities, CommunityDetection};
+use crate::{CommunityDetection, utils::renumber_communities};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -199,11 +199,7 @@ where
         }
     }
 
-    if improve {
-        Some(communities)
-    } else {
-        None
-    }
+    if improve { Some(communities) } else { None }
 }
 
 /// Original louvain_step function that initializes each node to its own community.

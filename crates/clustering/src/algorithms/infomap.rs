@@ -1,4 +1,4 @@
-use crate::{utils::renumber_communities, CommunityDetection};
+use crate::{CommunityDetection, utils::renumber_communities};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;

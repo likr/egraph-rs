@@ -9,3 +9,5 @@ petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
 petgraph-drawing = { path = "../drawing" }
 ndarray = "0.16"
 rand = "0.8"
+linfa = "0.8"
+linfa-clustering = "0.8"

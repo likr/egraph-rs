@@ -10,9 +10,9 @@ mod utils;
 pub use algorithms::*;
 pub use utils::*;
 
+use petgraph::EdgeType;
 use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
-use petgraph::EdgeType;
 use std::collections::HashMap;
 use std::hash::Hash;
 

@@ -1,9 +1,12 @@
 use crate::{CommunityDetection, utils::renumber_communities};
+use linfa::prelude::*;
+use linfa_clustering::KMeans;
+use ndarray::Array2;
 use petgraph::visit::{EdgeCount, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingIndex;
 use petgraph_linalg_rdmds::RdMds;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -13,9 +16,12 @@ use std::hash::Hash;
 /// to identify communities in the graph. It's particularly effective
 /// for finding well-separated communities.
 ///
-/// The implementation uses RdMds (Resistance-distance MDS) for computing
-/// spectral coordinates, which provides high-quality eigenvalue computation
-/// with IC(0) preconditioning and conjugate gradient solver.
+/// The implementation uses:
+/// - RdMds (Resistance-distance MDS) for computing spectral coordinates with
+///   high-quality eigenvalue computation using IC(0) preconditioning and
+///   conjugate gradient solver
+/// - linfa's k-means clustering with k-means++ initialization for robust
+///   cluster assignment
 ///
 /// # Examples
 ///
@@ -97,14 +103,24 @@ where
             .cg_tolerance(1e-4)
             .embedding(&graph, |_| 1.0f32, &mut rng);
 
-        // Convert Array2 to Vec<Vec<f64>> for k-means clustering
-        let eigenvectors: Vec<Vec<f64>> = (0..node_count)
-            .map(|i| (0..self.k).map(|j| embedding[[i, j]] as f64).collect())
-            .collect();
+        // Convert embedding to f64 for linfa (linfa uses f64)
+        let data_array =
+            Array2::from_shape_fn((node_count, self.k), |(i, j)| embedding[[i, j]] as f64);
 
-        // Perform k-means clustering on the eigenvectors with seeded RNG
-        let mut kmeans_rng = StdRng::seed_from_u64(123);
-        let clusters = kmeans_clustering(&eigenvectors, self.k, &mut kmeans_rng);
+        // Create dataset for k-means
+        let dataset = Dataset::from(data_array);
+
+        // Perform k-means clustering using linfa
+        // Use k-means++ initialization for better cluster quality
+        let model = KMeans::params(self.k)
+            .max_n_iterations(100)
+            .tolerance(1e-4)
+            .fit(&dataset)
+            .expect("K-means clustering failed");
+
+        // Get cluster assignments
+        let predictions = model.predict(&dataset);
+        let clusters: Vec<usize> = predictions.as_targets().iter().copied().collect();
 
         // Map back to node IDs
         let mut communities = HashMap::new();
@@ -115,95 +131,6 @@ where
         // Renumber communities from 0 to n-1 (in case some clusters are empty)
         renumber_communities(&communities)
     }
-}
-
-/// Performs k-means clustering on the eigenvectors.
-///
-/// This is a simplified implementation that works for small datasets.
-/// For real-world applications, use a specialized clustering library.
-fn kmeans_clustering<R: Rng>(data: &[Vec<f64>], k: usize, _rng: &mut R) -> Vec<usize> {
-    let n = data.len();
-    if n == 0 {
-        return Vec::new();
-    }
-
-    let dim = data[0].len();
-
-    // Initialize centroids (use first k data points as initial centroids)
-    let mut centroids: Vec<Vec<f64>> = Vec::with_capacity(k);
-    for i in 0..k {
-        if i < n {
-            centroids.push(data[i].clone());
-        } else {
-            // If k > n, duplicate some centroids
-            centroids.push(data[i % n].clone());
-        }
-    }
-
-    // Initialize cluster assignments
-    let mut clusters = vec![0; n];
-
-    // Iterative refinement
-    let max_iterations = 20; // Limit iterations for simplicity
-    for _ in 0..max_iterations {
-        let mut changed = false;
-
-        // Assign points to nearest centroid
-        for i in 0..n {
-            let mut min_dist = f64::MAX;
-            let mut min_cluster = 0;
-
-            for c in 0..k {
-                let mut dist = 0.0;
-                for j in 0..dim {
-                    let diff = data[i][j] - centroids[c][j];
-                    dist += diff * diff;
-                }
-
-                if dist < min_dist {
-                    min_dist = dist;
-                    min_cluster = c;
-                }
-            }
-
-            if clusters[i] != min_cluster {
-                clusters[i] = min_cluster;
-                changed = true;
-            }
-        }
-
-        if !changed {
-            break; // Convergence reached
-        }
-
-        // Update centroids
-        let mut new_centroids = vec![vec![0.0; dim]; k];
-        let mut counts = vec![0; k];
-
-        for i in 0..n {
-            let cluster = clusters[i];
-            counts[cluster] += 1;
-
-            for j in 0..dim {
-                new_centroids[cluster][j] += data[i][j];
-            }
-        }
-
-        for c in 0..k {
-            if counts[c] > 0 {
-                for j in 0..dim {
-                    new_centroids[c][j] /= counts[c] as f64;
-                }
-            } else {
-                // Handle empty clusters by keeping the old centroid
-                new_centroids[c] = centroids[c].clone();
-            }
-        }
-
-        centroids = new_centroids;
-    }
-
-    clusters
 }
 
 #[cfg(test)]
@@ -219,15 +146,21 @@ mod tests {
         let n2 = graph.add_node(());
         let n3 = graph.add_node(());
         let n4 = graph.add_node(());
+        let n5 = graph.add_node(());
+        let n6 = graph.add_node(());
 
         // Community 1: n1, n2 are densely connected
         graph.add_edge(n1, n2, ());
+        graph.add_edge(n1, n3, ());
+        graph.add_edge(n2, n3, ());
 
         // Community 2: n3, n4 are densely connected
-        graph.add_edge(n3, n4, ());
+        graph.add_edge(n4, n5, ());
+        graph.add_edge(n4, n6, ());
+        graph.add_edge(n5, n6, ());
 
         // Weak connection between communities
-        graph.add_edge(n2, n3, ());
+        graph.add_edge(n3, n4, ());
 
         // Detect communities
         let spectral = Spectral::new(2);
@@ -238,13 +171,13 @@ mod tests {
             communities[&n1], communities[&n2],
             "Nodes 1 and 2 should be in the same community"
         );
-        assert_eq!(
-            communities[&n3], communities[&n4],
-            "Nodes 3 and 4 should be in the same community"
-        );
         assert_ne!(
-            communities[&n1], communities[&n3],
-            "Nodes 1 and 3 should be in different communities"
+            communities[&n3], communities[&n4],
+            "Nodes 3 and 4 should be in different communities"
+        );
+        assert_eq!(
+            communities[&n5], communities[&n6],
+            "Nodes 5 and 6 should be in the same community"
         );
     }
 

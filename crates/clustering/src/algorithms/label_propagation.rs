@@ -1,6 +1,6 @@
-use crate::{utils::renumber_communities, CommunityDetection};
+use crate::{CommunityDetection, utils::renumber_communities};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::HashMap;
 use std::hash::Hash;
 
