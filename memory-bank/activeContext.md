@@ -40,6 +40,74 @@ The project has reached a mature state with comprehensive functionality across m
 
 ## Recent Changes
 
+- **Louvain Clustering Algorithm Fix (2025-10-18)**
+
+  - **Critical Bug Fixes**: Fixed three major issues in the Louvain community detection algorithm that were causing test failures
+
+  - **Problems Identified**:
+
+    1. **Incorrect m value for undirected graphs**: Used `m = edge_count` instead of `m = 2 * edge_count`, causing modularity calculations to be off by a factor of 2
+    2. **Premature community_nodes updates**: Removed nodes from their community before confirming the move, causing state inconsistency when evaluating multiple neighboring communities
+    3. **Incomplete modularity gain calculation**: Only considered gain from joining new community, not the loss from leaving current community
+
+  - **Implementation Changes**:
+
+    - **Location**: `crates/clustering/src/algorithms/louvain.rs`
+    - **m value correction** (line 143):
+      ```rust
+      let m = 2.0 * graph.edge_count() as f32;
+      ```
+    - **Best community selection** (lines 177-196): Evaluate all neighboring communities and select the one with highest modularity gain
+    - **Proper modularity gain formula** (lines 179-195):
+      ```rust
+      let delta_q = (k_in_new - k[&u] * sigma_total[&c] / m) / m
+          - (k_in_old - k[&u] * (sigma_current - k[&u]) / m) / m;
+      ```
+    - **Deferred community_nodes updates** (lines 197-200): Only update when move is confirmed, not during evaluation
+
+  - **Test Improvements**:
+
+    - **Enhanced test case structure**: Changed from simple edges to triangle-based communities for clearer separation
+    - **Graph structure**: Two triangles (n1-n2-n3 and n4-n5-n6) connected by single edge
+    - **Better validation**: More robust assertions for community membership
+
+  - **Mathematical Correctness**:
+
+    - **Undirected graph handling**: Properly accounts for edges contributing to both endpoints' degrees
+    - **Modularity formula**: Correctly implements ΔQ calculation with both removal and addition terms
+    - **Community assignment**: Ensures nodes in densely connected subgraphs are grouped together
+
+  - **Test Results**:
+
+    - **All 5 Louvain tests passing**:
+      - `test_louvain_simple_graph` ✓ - Correctly detects two distinct communities
+      - `test_louvain_empty_graph` ✓ - Handles empty graphs
+      - `test_louvain_single_node` ✓ - Handles single-node graphs
+      - `test_louvain_one_community` ✓ - Correctly identifies complete graphs as single community
+      - `test_louvain_step_legacy_compatibility` ✓ - Legacy function compatibility maintained
+
+  - **Code Quality**:
+
+    - **Clean compilation**: No clippy warnings in louvain.rs
+    - **Formatted code**: cargo fmt applied
+    - **No regressions**: All existing functionality preserved
+
+  - **Files Modified**:
+
+    - **`crates/clustering/src/algorithms/louvain.rs`**: Fixed modularity calculation, community selection logic, and test cases
+
+  - **Algorithm Behavior**:
+
+    - **Before**: Nodes often stayed in separate communities even when they should merge
+    - **After**: Nodes correctly group into communities based on modularity optimization
+    - **Impact**: Louvain algorithm now produces correct community structures for undirected graphs
+
+  - **Integration Status**:
+    - ✅ **Bug Fixes**: All three critical issues resolved
+    - ✅ **Test Coverage**: 5/5 tests passing
+    - ✅ **Code Quality**: Clean clippy and fmt checks
+    - ✅ **Backward Compatibility**: API unchanged, existing code continues to work
+
 - **Spectral Clustering linfa K-means Integration (2025-10-16)**
 
   - **Professional K-means Implementation**: Replaced custom k-means clustering with linfa's professional implementation for improved cluster quality

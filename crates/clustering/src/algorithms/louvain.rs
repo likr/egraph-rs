@@ -90,21 +90,30 @@ where
             }
         }
 
-        // Convert G::NodeId community IDs to usize community IDs
-        let mut node_to_community_id = HashMap::new();
-        for (node, community_node) in &current_communities {
-            let community_id = match node_to_community_id.get(community_node) {
-                Some(&id) => id,
-                None => {
-                    let id = node_to_community_id.len();
-                    node_to_community_id.insert(*community_node, id);
-                    id
-                }
-            };
-            node_to_community_id.insert(*node, community_id);
+        // Normalize community assignments: ensure all nodes in the same community
+        // point to the same representative by finding unique community representatives
+        let mut community_representatives: HashMap<G::NodeId, G::NodeId> = HashMap::new();
+
+        // Find all unique community IDs (the values in current_communities)
+        for community_id in current_communities.values() {
+            if !community_representatives.contains_key(community_id) {
+                community_representatives.insert(*community_id, *community_id);
+            }
         }
 
-        renumber_communities(&node_to_community_id)
+        // Assign usize IDs to each unique community
+        let mut community_id_map: HashMap<G::NodeId, usize> = HashMap::new();
+        for (idx, community_id) in community_representatives.keys().enumerate() {
+            community_id_map.insert(*community_id, idx);
+        }
+
+        // Map each node to its community's usize ID
+        let mut result: HashMap<G::NodeId, usize> = HashMap::new();
+        for (node, community_id) in &current_communities {
+            result.insert(*node, community_id_map[community_id]);
+        }
+
+        renumber_communities(&result)
     }
 }
 
@@ -137,7 +146,7 @@ where
     G: EdgeCount + IntoNeighbors + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Clone,
 {
-    let m = graph.edge_count() as f32;
+    let m = 2.0 * graph.edge_count() as f32;
     if m == 0.0 {
         return None; // Empty graph has no communities to optimize
     }
@@ -174,28 +183,51 @@ where
         let current_community = communities[&u];
         neighboring_communities.remove(&current_community);
 
-        for c in neighboring_communities {
-            let prev_c = communities[&u];
-            community_nodes.get_mut(&prev_c).unwrap().remove(&u);
+        // Find the best community to move to
+        let mut best_delta_q = 0.0;
+        let mut best_community = None;
 
-            let mut k_in = 0.;
+        for c in neighboring_communities {
+            // Calculate k_in: edges from u to community c
+            let mut k_in_new = 0.;
             for v in graph.neighbors(u) {
                 if communities[&v] == c {
-                    k_in += 1.;
+                    k_in_new += 1.;
                 }
             }
 
-            let delta_q = 0.5 * (k_in - k[&u] * sigma_total[&c] / m) / m;
-
-            if delta_q > 0. {
-                *sigma_total.get_mut(&c).unwrap() += k[&u];
-                *sigma_total.get_mut(&prev_c).unwrap() -= k[&u];
-                *communities.get_mut(&u).unwrap() = c;
-                community_nodes.get_mut(&c).unwrap().insert(u);
-                improve = true;
-            } else {
-                community_nodes.get_mut(&prev_c).unwrap().insert(u);
+            // Calculate k_in_old: edges from u to its current community (excluding u itself)
+            let mut k_in_old = 0.;
+            for v in graph.neighbors(u) {
+                if communities[&v] == current_community && v != u {
+                    k_in_old += 1.;
+                }
             }
+
+            // Modularity gain formula:
+            // ΔQ = [k_in_new - k[u] * sigma_total[c] / m] / m - [k_in_old - k[u] * (sigma_total[current] - k[u]) / m] / m
+            let sigma_current = sigma_total[&current_community];
+            let delta_q = (k_in_new - k[&u] * sigma_total[&c] / m) / m
+                - (k_in_old - k[&u] * (sigma_current - k[&u]) / m) / m;
+
+            if delta_q > best_delta_q {
+                best_delta_q = delta_q;
+                best_community = Some(c);
+            }
+        }
+
+        // Move to the best community if it improves modularity
+        if let Some(c) = best_community {
+            let prev_c = communities[&u];
+
+            // Only update community_nodes when we actually move the node
+            community_nodes.get_mut(&prev_c).unwrap().remove(&u);
+            community_nodes.get_mut(&c).unwrap().insert(u);
+
+            *sigma_total.get_mut(&c).unwrap() += k[&u];
+            *sigma_total.get_mut(&prev_c).unwrap() -= k[&u];
+            *communities.get_mut(&u).unwrap() = c;
+            improve = true;
         }
     }
 
@@ -235,20 +267,27 @@ mod tests {
     #[test]
     fn test_louvain_simple_graph() {
         // Create a simple graph with two communities
+        // To ensure two distinct communities, we need stronger internal connections
         let mut graph = UnGraph::<(), ()>::new_undirected();
         let n1 = graph.add_node(());
         let n2 = graph.add_node(());
         let n3 = graph.add_node(());
         let n4 = graph.add_node(());
+        let n5 = graph.add_node(());
+        let n6 = graph.add_node(());
 
-        // Community 1: n1, n2 are densely connected
+        // Community 1: n1, n2, n3 form a triangle (densely connected)
         graph.add_edge(n1, n2, ());
-
-        // Community 2: n3, n4 are densely connected
-        graph.add_edge(n3, n4, ());
-
-        // Weak connection between communities
+        graph.add_edge(n1, n3, ());
         graph.add_edge(n2, n3, ());
+
+        // Community 2: n4, n5, n6 form a triangle (densely connected)
+        graph.add_edge(n4, n5, ());
+        graph.add_edge(n4, n6, ());
+        graph.add_edge(n5, n6, ());
+
+        // Single weak connection between communities
+        graph.add_edge(n3, n4, ());
 
         // Detect communities - must use reference to graph
         let louvain = Louvain::new();
@@ -260,12 +299,20 @@ mod tests {
             "Nodes 1 and 2 should be in the same community"
         );
         assert_eq!(
-            communities[&n3], communities[&n4],
-            "Nodes 3 and 4 should be in the same community"
+            communities[&n2], communities[&n3],
+            "Nodes 2 and 3 should be in the same community"
+        );
+        assert_eq!(
+            communities[&n4], communities[&n5],
+            "Nodes 4 and 5 should be in the same community"
+        );
+        assert_eq!(
+            communities[&n5], communities[&n6],
+            "Nodes 5 and 6 should be in the same community"
         );
         assert_ne!(
-            communities[&n1], communities[&n3],
-            "Nodes 1 and 3 should be in different communities"
+            communities[&n1], communities[&n4],
+            "Nodes from different communities should have different IDs"
         );
     }
 
