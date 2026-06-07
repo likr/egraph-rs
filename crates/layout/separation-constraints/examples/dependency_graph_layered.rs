@@ -4,7 +4,7 @@ use petgraph_layout_mds::ClassicalMds;
 use petgraph_layout_separation_constraints::project_rectangle_no_overlap_constraints_2d;
 use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential};
 use plotters::prelude::*;
-use rand::thread_rng;
+use rand::rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let iterations = 100;
     let mut sgd = FullSgd::new().build(&undirected_graph, |_| edge_length);
     let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     // Optimize layout using stress-majorization and constraints
     println!("Optimizing layout with constraints...");

@@ -18,7 +18,7 @@
 //! use petgraph_layout_omega::Omega;
 //! use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 //! use petgraph_drawing::DrawingEuclidean2d;
-//! use rand::thread_rng;
+//! use rand::rng;
 //!
 //! // Create a graph
 //! let mut graph = Graph::new_undirected();
@@ -30,7 +30,7 @@
 //! graph.add_edge(c, a, ());
 //!
 //! // Step 1: Compute spectral embedding with RdMds
-//! let mut rng = thread_rng();
+//! let mut rng = rng();
 //! let rdmds = RdMds::new().d(2).shift(1e-3f32);
 //! let embedding = rdmds.embedding(&graph, |_| 1.0f32, &mut rng);
 //!
@@ -64,7 +64,7 @@ mod tests {
     use super::*;
     use petgraph::Graph;
     use petgraph_linalg_rdmds::RdMds;
-    use rand::thread_rng;
+    use rand::rng;
 
     #[test]
     fn test_omega_basic_functionality() {
@@ -78,7 +78,7 @@ mod tests {
         graph.add_edge(c, a, ());
 
         // Compute embedding with RdMds
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut rdmds = RdMds::new();
         let embedding = rdmds
             .d(2)
@@ -123,7 +123,7 @@ mod tests {
         graph.add_edge(a, b, ());
 
         // Compute embedding with RdMds
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut rdmds = RdMds::new();
         let embedding = rdmds
             .d(2)

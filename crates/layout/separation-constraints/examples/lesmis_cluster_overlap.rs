@@ -9,7 +9,7 @@ use petgraph_layout_separation_constraints::{
 use petgraph_layout_sgd::{FullSgd, Scheduler, SchedulerExponential};
 use plotters::prelude::*;
 use plotters::style::RGBColor;
-use rand::thread_rng;
+use rand::rng;
 use std::collections::HashMap;
 use std::error::Error;
 use std::f32;
@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut drawing = mds.run_2d();
     let mut sgd = FullSgd::new().build(&graph, |_| edge_length);
     let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(iterations, 0.1);
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     scheduler.run(&mut |eta| {
         sgd.shuffle(&mut rng);

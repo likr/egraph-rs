@@ -3,7 +3,7 @@
 use ndarray::Array1;
 use num_traits::Float;
 use petgraph_linalg_spmv::SparseSymmetricMatrix;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// Estimates the maximum eigenvalue of a symmetric matrix using the power method.
 ///
@@ -31,7 +31,7 @@ where
     let n = matrix.dim();
 
     // Initialize with random vector
-    let mut v = Array1::from_shape_fn(n, |_| T::from(rng.gen_range(-1.0..1.0)).unwrap());
+    let mut v = Array1::from_shape_fn(n, |_| T::from(rng.random_range(-1.0..1.0)).unwrap());
 
     // Normalize
     let norm = v.iter().map(|&x| x * x).sum::<T>().sqrt();

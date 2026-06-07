@@ -12,7 +12,7 @@
 //! ```rust
 //! use petgraph::Graph;
 //! use petgraph_linalg_rdmds::RdMds;
-//! use rand::thread_rng;
+//! use rand::rng;
 //!
 //! // Create a graph
 //! let mut graph = Graph::new_undirected();
@@ -24,7 +24,7 @@
 //! graph.add_edge(c, a, ());
 //!
 //! // Compute spectral embedding
-//! let mut rng = thread_rng();
+//! let mut rng = rng();
 //! let embedding = RdMds::new()
 //!     .d(2)
 //!     .shift(1e-3f32)

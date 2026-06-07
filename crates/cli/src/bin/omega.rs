@@ -45,7 +45,7 @@ use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_layout_omega::Omega;
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 use petgraph_linalg_rdmds::RdMds;
-use rand::thread_rng;
+use rand::rng;
 
 /// Command-line parameters for the Omega algorithm.
 #[derive(Debug)]
@@ -218,7 +218,7 @@ fn layout(
     drawing: &mut DrawingEuclidean2d<NodeIndex, f32>,
     params: &OmegaParams,
 ) {
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     // Create SGD instance using Omega builder pattern with command-line parameters
     let embedding = RdMds::new()

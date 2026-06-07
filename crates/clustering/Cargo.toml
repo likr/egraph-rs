@@ -8,6 +8,6 @@ petgraph = "0.6"
 petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
 petgraph-drawing = { path = "../drawing" }
 ndarray = "0.16"
-rand = "0.8"
+rand = "0.10"
 linfa = "0.8"
 linfa-clustering = "0.8"

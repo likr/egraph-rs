@@ -15,7 +15,7 @@ use egraph_cli::{read_graph, write_graph};
 use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential, SparseSgd};
-use rand::thread_rng;
+use rand::rng;
 
 /// Parses command-line arguments for input and output file paths.
 ///
@@ -49,7 +49,7 @@ fn layout(
     graph: &Graph<Option<()>, Option<()>, Undirected>,
     coordinates: &mut DrawingEuclidean2d<NodeIndex, f32>,
 ) {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let mut sgd = SparseSgd::new().h(200).build(graph, |_| 30., &mut rng);
     let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
     scheduler.run(&mut |eta| {

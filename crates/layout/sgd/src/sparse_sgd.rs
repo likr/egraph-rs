@@ -255,7 +255,7 @@ where
     let mut length = length;
     let n = indices.len();
     let mut pivot = vec![];
-    pivot.push(nodes[rng.gen_range(0..n)]);
+    pivot.push(nodes[rng.random_range(0..n)]);
     let mut distance_matrix = SubDistanceMatrix::empty(graph);
     distance_matrix.push(pivot[0]);
     dijkstra_with_distance_matrix(graph, &mut length, pivot[0], &mut distance_matrix);
@@ -300,7 +300,7 @@ where
     if s == 0. {
         panic!("could not choice pivot");
     }
-    let x = rng.gen_range(0.0..s);
+    let x = rng.random_range(0.0..s);
     s = 0.;
     for i in 0..n {
         s += values[i].to_f32().unwrap();

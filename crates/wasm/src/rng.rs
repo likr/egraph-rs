@@ -40,7 +40,7 @@ impl JsRng {
     #[wasm_bindgen(constructor)]
     pub fn new() -> JsRng {
         JsRng {
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_rng(&mut rand::rng()),
         }
     }
 

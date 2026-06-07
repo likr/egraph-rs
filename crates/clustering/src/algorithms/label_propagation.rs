@@ -1,6 +1,6 @@
 use crate::{CommunityDetection, utils::renumber_communities};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
-use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
+use rand::{SeedableRng, rngs::StdRng, seq::IndexedRandom, seq::SliceRandom};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -101,7 +101,7 @@ where
         // Create a Random Number Generator with seed if provided
         let mut rng = match self.seed {
             Some(seed) => StdRng::seed_from_u64(seed),
-            None => StdRng::from_entropy(),
+            None => StdRng::from_rng(&mut rand::rng()),
         };
 
         // Store all nodes in a vector for random shuffling

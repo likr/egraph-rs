@@ -5,7 +5,7 @@
 use ndarray::{Array1, Array2, ArrayView2, s};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::collections::HashMap;
 
 /// IC(0) Incomplete Cholesky preconditioner for sparse symmetric positive definite matrices.
@@ -305,7 +305,7 @@ where
     S: DrawingValue,
     R: Rng,
 {
-    Array1::from_shape_fn(n, |_| S::from_f32(rng.gen_range(-1.0..1.0)).unwrap())
+    Array1::from_shape_fn(n, |_| S::from_f32(rng.random_range(-1.0..1.0)).unwrap())
 }
 
 /// Performs Gram-Schmidt orthogonalization of a vector against known vectors.

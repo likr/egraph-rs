@@ -5,7 +5,7 @@
 
 use ndarray::Array2;
 use num_traits::Float;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// Hutchinson estimator for querying kernel matrix elements.
 ///
@@ -125,7 +125,7 @@ where
     R: Rng,
 {
     Array2::from_shape_fn((n, num_vectors), |_| {
-        if rng.gen::<bool>() {
+        if rng.random::<bool>() {
             T::one()
         } else {
             -T::one()

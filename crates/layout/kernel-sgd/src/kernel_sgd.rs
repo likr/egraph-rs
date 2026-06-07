@@ -4,7 +4,7 @@ use crate::diffusion_kernel::DiffusionKernel;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::collections::HashSet;
 
 /// KernelSgd builder for creating SGD instances from diffusion kernel distances.
@@ -215,7 +215,7 @@ where
     // Step 2: Add random node pairs with kernel distances
     for i in 0..n {
         for _ in 0..k {
-            let j = rng.gen_range(0..n);
+            let j = rng.random_range(0..n);
             if i != j {
                 let pair_key = if i < j { (i, j) } else { (j, i) };
 

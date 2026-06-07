@@ -14,4 +14,4 @@ petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-layout-sgd = { path = "../sgd" }
 petgraph-linalg-spmv = { path = "../../linalg/spmv" }
-rand = "0.8"
+rand = "0.10"
