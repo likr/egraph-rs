@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
+    distance_matrix::with_distance,
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
     rng::PyRng,
@@ -64,31 +64,25 @@ impl PySparseSgd {
         graph: &PyGraphAdapter,
         f: &Bound<PyAny>,
         pivot: Vec<usize>,
-        d: &PyDistanceMatrix,
-    ) -> PySgd {
-        PySgd::new_with_sgd(match graph.graph() {
+        d: &Bound<PyAny>,
+    ) -> PyResult<PySgd> {
+        match graph.graph() {
             GraphType::Graph(native_graph) => {
                 let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
-                match d.distance_matrix() {
-                    DistanceMatrixType::Full(d) => {
-                        self.builder.build_with_pivot_and_distance_matrix(
-                            native_graph,
-                            |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                            &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
-                            d,
-                        )
-                    }
-                    DistanceMatrixType::Sub(d) => {
-                        self.builder.build_with_pivot_and_distance_matrix(
-                            native_graph,
-                            |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                            &pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>(),
-                            d,
-                        )
-                    }
-                }
+                let pivot_nodes = pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>();
+                let sgd = with_distance(d, |distance| {
+                    self.builder.build_with_pivot_and_distance_matrix(
+                        native_graph,
+                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                        &pivot_nodes,
+                        distance,
+                    )
+                })?;
+                Ok(PySgd::new_with_sgd(sgd))
             }
-            _ => panic!("unsupported graph type"),
-        })
+            _ => Err(pyo3::exceptions::PyValueError::new_err(
+                "unsupported graph type",
+            )),
+        }
     }
 }

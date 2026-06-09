@@ -8,7 +8,7 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
-use petgraph_layout_kernel_sgd::DiffusionKernel;
+use petgraph_linalg_diffusion_kernel::DiffusionKernel;
 use pyo3::prelude::*;
 
 /// Python class for querying diffusion kernel matrix elements

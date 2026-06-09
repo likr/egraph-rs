@@ -6,8 +6,8 @@
 
 mod diffusion_kernel;
 mod full;
-mod kernel_sgd;
 mod omega;
+mod random_pair_sparse_sgd;
 mod schedulers;
 mod sgd;
 mod sparse;
@@ -16,8 +16,8 @@ use pyo3::prelude::*;
 
 pub use self::diffusion_kernel::PyDiffusionKernel;
 pub use self::full::PyFullSgd;
-pub use self::kernel_sgd::PyKernelSgd;
 pub use self::omega::PyOmega;
+pub use self::random_pair_sparse_sgd::PyRandomPairSparseSgd;
 pub use self::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
@@ -37,7 +37,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register SGD algorithm classes
     m.add_class::<PyFullSgd>()?;
     m.add_class::<PySparseSgd>()?;
-    m.add_class::<PyKernelSgd>()?;
+    m.add_class::<PyRandomPairSparseSgd>()?;
     m.add_class::<PyOmega>()?;
     m.add_class::<PySgd>()?;
     m.add_class::<PyDiffusionKernel>()?;

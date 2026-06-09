@@ -18,11 +18,13 @@
 //! uses a learning rate parameter that typically decreases over time according to a schedule.
 
 mod full_sgd;
+mod random_pair_sparse_sgd;
 mod scheduler;
 mod sgd;
 mod sparse_sgd;
 
 pub use full_sgd::FullSgd;
+pub use random_pair_sparse_sgd::RandomPairSparseSgd;
 pub use scheduler::*;
 pub use sgd::Sgd;
 pub use sparse_sgd::SparseSgd;

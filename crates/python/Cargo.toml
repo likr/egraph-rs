@@ -19,7 +19,6 @@ petgraph-algorithm-triangulation = { path = "../algorithm/triangulation" }
 petgraph-clustering = { path = "../clustering" }
 petgraph-drawing = { path = "../drawing" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
-petgraph-layout-kernel-sgd = { path = "../layout/kernel-sgd" }
 petgraph-layout-mds = { path = "../layout/mds" }
 petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }

@@ -9,4 +9,5 @@ ordered-float = "3.0"
 petgraph = "0.6"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
 petgraph-drawing = { path = "../../drawing" }
+petgraph-distance = { path = "../../linalg/distance" }
 rand = "0.8"

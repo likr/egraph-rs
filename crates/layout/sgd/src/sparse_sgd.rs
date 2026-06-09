@@ -3,8 +3,9 @@ use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_algorithm_shortest_path::{
-    dijkstra_with_distance_matrix, multi_source_dijkstra, DistanceMatrix, SubDistanceMatrix,
+    dijkstra_with_distance_matrix, multi_source_dijkstra, SubDistanceMatrix,
 };
+use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -111,24 +112,24 @@ impl SparseSgd {
     ///
     /// # Returns
     /// A new SGD instance configured with the specified pivot nodes and distances
-    pub fn build_with_pivot_and_distance_matrix<G, F, D, S>(
+    pub fn build_with_pivot_and_distance_matrix<G, F, S>(
         &self,
         graph: G,
         mut length: F,
         pivot: &[G::NodeId],
-        distance_matrix: &D,
+        distance_matrix: &dyn Distance<G::NodeId, S>,
     ) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
-        D: DistanceMatrix<G::NodeId, S>,
         S: DrawingValue,
     {
-        let indices = graph
-            .node_identifiers()
+        let nodes = graph.node_identifiers().collect::<Vec<_>>();
+        let indices = nodes
+            .iter()
             .enumerate()
-            .map(|(i, u)| (u, i))
+            .map(|(i, &u)| (u, i))
             .collect::<HashMap<_, _>>();
         let n = indices.len();
         let h = pivot.len();
@@ -147,7 +148,12 @@ impl SparseSgd {
         let r = (0..n)
             .map(|j| {
                 (0..h)
-                    .min_by_key(|&i| OrderedFloat(distance_matrix.get_by_index(i, j)))
+                    .min_by_key(|&i| {
+                        let dpi = distance_matrix
+                            .get(pivot[i], nodes[j])
+                            .unwrap_or(S::infinity());
+                        OrderedFloat(dpi)
+                    })
                     .unwrap()
             })
             .collect::<Vec<_>>();
@@ -162,13 +168,14 @@ impl SparseSgd {
                 if edges.contains(&(p, i)) || p == i {
                     continue;
                 }
-                let dpi = distance_matrix.get_by_index(k, i);
+                let dpi = distance_matrix.get(u, nodes[i]).unwrap_or(S::infinity());
                 let wpi = S::one() / (dpi * dpi);
                 let spi = S::from_usize(
                     r_nodes[k]
                         .iter()
                         .filter(|&&j| {
-                            S::from_usize(2).unwrap() * distance_matrix.get_by_index(k, j) <= dpi
+                            let dpj = distance_matrix.get(u, nodes[j]).unwrap_or(S::infinity());
+                            S::from_usize(2).unwrap() * dpj <= dpi
                         })
                         .count(),
                 )

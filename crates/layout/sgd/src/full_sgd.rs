@@ -1,6 +1,7 @@
 use crate::Sgd;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
-use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
+use petgraph_algorithm_shortest_path::all_sources_dijkstra;
+use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 
 /// Builder for creating Full SGD instances.
@@ -50,13 +51,12 @@ impl FullSgd {
     /// or want to use custom distances rather than shortest-path distances.
     ///
     /// # Parameters
-    /// * `d` - A full distance matrix containing distances between all node pairs
+    /// * `d` - A distance matrix containing distances between all node pairs
     ///
     /// # Returns
     /// A new SGD instance configured with all node pairs
-    pub fn build_with_distance_matrix<N, S>(&self, d: &FullDistanceMatrix<N, S>) -> Sgd<S>
+    pub fn build_with_distance_matrix<N, S>(&self, d: &dyn Distance<N, S>) -> Sgd<S>
     where
-        N: DrawingIndex,
         S: DrawingValue,
     {
         let n = d.shape().0;

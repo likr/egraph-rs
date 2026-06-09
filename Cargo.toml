@@ -11,7 +11,6 @@ members = [
     "crates/drawing",
     "crates/edge-bundling/fdeb",
     "crates/layout/kamada-kawai",
-    "crates/layout/kernel-sgd",
     "crates/layout/omega",
     "crates/layout/overwrap-removal",
     "crates/layout/sgd",

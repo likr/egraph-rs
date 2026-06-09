@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
+    distance_matrix::with_distance,
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
 };
@@ -31,10 +31,10 @@ impl PyFullSgd {
         })
     }
 
-    fn build_with_distance_matrix(&self, d: &PyDistanceMatrix) -> PySgd {
-        PySgd::new_with_sgd(match d.distance_matrix() {
-            DistanceMatrixType::Full(d) => self.builder.build_with_distance_matrix(d),
-            _ => panic!("unsupported distance matrix type"),
-        })
+    fn build_with_distance_matrix(&self, d: &Bound<PyAny>) -> PyResult<PySgd> {
+        let sgd = with_distance(d, |distance| {
+            self.builder.build_with_distance_matrix(distance)
+        })?;
+        Ok(PySgd::new_with_sgd(sgd))
     }
 }
