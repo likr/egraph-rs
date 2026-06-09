@@ -20,6 +20,7 @@
 
 // pub mod algorithm;
 pub mod clustering;
+pub mod distance_matrix;
 pub mod drawing;
 pub mod edge_bundling;
 pub mod graph;

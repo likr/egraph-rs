@@ -34,6 +34,16 @@ impl PySchedulerConstant {
 
 #[pymethods]
 impl PySchedulerConstant {
+    #[new]
+    #[pyo3(signature = (t_max, eta_min=None, eta_max=None))]
+    pub fn new(t_max: usize, eta_min: Option<FloatType>, eta_max: Option<FloatType>) -> Self {
+        let eta_min = eta_min.unwrap_or(0.1);
+        let eta_max = eta_max.unwrap_or(1.0);
+        Self {
+            scheduler: SchedulerConstant::init(t_max, eta_min, eta_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -92,6 +102,16 @@ impl PySchedulerLinear {
 
 #[pymethods]
 impl PySchedulerLinear {
+    #[new]
+    #[pyo3(signature = (t_max, eta_min=None, eta_max=None))]
+    pub fn new(t_max: usize, eta_min: Option<FloatType>, eta_max: Option<FloatType>) -> Self {
+        let eta_min = eta_min.unwrap_or(0.1);
+        let eta_max = eta_max.unwrap_or(1.0);
+        Self {
+            scheduler: SchedulerLinear::init(t_max, eta_min, eta_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -150,6 +170,16 @@ impl PySchedulerQuadratic {
 
 #[pymethods]
 impl PySchedulerQuadratic {
+    #[new]
+    #[pyo3(signature = (t_max, eta_min=None, eta_max=None))]
+    pub fn new(t_max: usize, eta_min: Option<FloatType>, eta_max: Option<FloatType>) -> Self {
+        let eta_min = eta_min.unwrap_or(0.1);
+        let eta_max = eta_max.unwrap_or(1.0);
+        Self {
+            scheduler: SchedulerQuadratic::init(t_max, eta_min, eta_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -209,6 +239,16 @@ impl PySchedulerExponential {
 
 #[pymethods]
 impl PySchedulerExponential {
+    #[new]
+    #[pyo3(signature = (t_max, eta_min=None, eta_max=None))]
+    pub fn new(t_max: usize, eta_min: Option<FloatType>, eta_max: Option<FloatType>) -> Self {
+        let eta_min = eta_min.unwrap_or(0.1);
+        let eta_max = eta_max.unwrap_or(1.0);
+        Self {
+            scheduler: SchedulerExponential::init(t_max, eta_min, eta_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter
@@ -267,6 +307,16 @@ impl PySchedulerReciprocal {
 
 #[pymethods]
 impl PySchedulerReciprocal {
+    #[new]
+    #[pyo3(signature = (t_max, eta_min=None, eta_max=None))]
+    pub fn new(t_max: usize, eta_min: Option<FloatType>, eta_max: Option<FloatType>) -> Self {
+        let eta_min = eta_min.unwrap_or(0.1);
+        let eta_max = eta_max.unwrap_or(1.0);
+        Self {
+            scheduler: SchedulerReciprocal::init(t_max, eta_min, eta_max),
+        }
+    }
+
     /// Runs the complete schedule, calling the provided function with each learning rate
     ///
     /// :param f: A Python function that takes the current learning rate as a parameter

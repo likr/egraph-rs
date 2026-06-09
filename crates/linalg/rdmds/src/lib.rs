@@ -46,7 +46,6 @@ mod eigenvalue;
 mod rdmds;
 
 pub use eigenvalue::{
-    IncompleteCholeskyPreconditioner, LaplacianStructure, compute_smallest_eigenvalues,
-    eigendecomposition,
+    IncompleteCholeskyPreconditioner, compute_smallest_eigenvalues, eigendecomposition,
 };
 pub use rdmds::RdMds;

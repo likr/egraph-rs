@@ -27,5 +27,9 @@ petgraph-layout-omega = { path = "../layout/omega" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-separation-constraints = { path = "../layout/separation-constraints" }
 petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
+petgraph-distance = { path = "../linalg/distance" }
+petgraph-linalg-diffusion-kernel = { path = "../linalg/diffusion-kernel" }
+petgraph-linalg-embedding-distance = { path = "../linalg/embedding-distance" }
+petgraph-layout-ts-net = { path = "../layout/ts-net" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"

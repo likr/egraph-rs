@@ -87,6 +87,7 @@ where
 ///
 /// This implementation uses an `ndarray::Array2` internally.
 /// Node identifiers (`N`) are mapped to `usize` indices for array access.
+#[derive(Clone)]
 pub struct FullDistanceMatrix<N, S> {
     /// Vector of node identifiers, mapping index to node identifier.
     indices: Vec<N>,
@@ -143,6 +144,32 @@ where
     }
 }
 
+impl<N, S> petgraph_distance::Distance<N, S> for FullDistanceMatrix<N, S>
+where
+    N: Eq + Hash + Copy,
+    S: NdFloat,
+{
+    fn get(&self, u: N, v: N) -> Option<S> {
+        self.index(u, v).map(|(i, j)| self.d[[i, j]])
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
+        self.d[[i, j]]
+    }
+
+    fn shape(&self) -> (usize, usize) {
+        (self.indices.len(), self.indices.len())
+    }
+
+    fn row_index(&self, u: N) -> Option<usize> {
+        self.index_map.get(&u).copied()
+    }
+
+    fn col_index(&self, u: N) -> Option<usize> {
+        self.index_map.get(&u).copied()
+    }
+}
+
 impl<N, S> FullDistanceMatrix<N, S>
 where
     N: Eq + Hash,
@@ -184,6 +211,7 @@ where
 /// Node identifiers (`N`) are mapped to `usize` indices for both rows and columns.
 /// This is useful for algorithms where distances are calculated from a subset of source nodes
 /// to all other nodes (e.g., single-source shortest path).
+#[derive(Clone)]
 pub struct SubDistanceMatrix<N, S> {
     /// Vector of node identifiers that make up the rows (typically source nodes).
     row_indices: Vec<N>,
@@ -242,6 +270,32 @@ where
             indices: &self.col_indices,
             index: 0,
         }
+    }
+}
+
+impl<N, S> petgraph_distance::Distance<N, S> for SubDistanceMatrix<N, S>
+where
+    N: Eq + Hash + Copy,
+    S: NdFloat,
+{
+    fn get(&self, u: N, v: N) -> Option<S> {
+        self.index(u, v).map(|(i, j)| self.d[[i, j]])
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
+        self.d[[i, j]]
+    }
+
+    fn shape(&self) -> (usize, usize) {
+        (self.row_indices.len(), self.col_indices.len())
+    }
+
+    fn row_index(&self, u: N) -> Option<usize> {
+        self.row_index_map.get(&u).copied()
+    }
+
+    fn col_index(&self, u: N) -> Option<usize> {
+        self.col_index_map.get(&u).copied()
     }
 }
 

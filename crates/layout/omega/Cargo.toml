@@ -7,6 +7,8 @@ edition = "2024"
 ndarray = "0.16"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
+petgraph-distance = { path = "../../linalg/distance" }
+petgraph-linalg-embedding-distance = { path = "../../linalg/embedding-distance" }
 petgraph-layout-sgd = { path = "../sgd" }
 rand = "0.8"
 

@@ -187,6 +187,17 @@ impl PyDrawingEuclidean2d {
         let node_count = graph.node_count();
         let array = coordinates.as_array();
 
+        if array.ncols() != 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "coordinates must have exactly 2 columns",
+            ));
+        }
+        if array.nrows() != node_count {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "coordinates must have rows to match graph node count",
+            ));
+        }
+
         // Create initial drawing and set coordinates
         let mut drawing = match graph.graph() {
             GraphType::Graph(native_graph) => DrawingEuclidean2d::initial_placement(native_graph),

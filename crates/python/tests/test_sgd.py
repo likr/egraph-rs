@@ -113,9 +113,6 @@ class TestSgd(unittest.TestCase):
             # Test with default epsilon
             sgd = eg.Sgd(node_pairs)
             
-            # Test with custom epsilon
-            sgd_custom = eg.Sgd(node_pairs, epsilon=0.05)
-            
             # Create a simple 3-node graph for testing
             graph = eg.Graph()
             n0 = graph.add_node(0)

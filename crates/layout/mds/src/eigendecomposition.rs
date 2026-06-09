@@ -43,7 +43,11 @@ fn cos<S: DrawingValue>(a: &Array1<S>, b: &Array1<S>) -> S {
 /// - The corresponding normalized eigenvector
 fn power_iteration<S: DrawingValue>(a: &Array2<S>, eps: S) -> (S, Array1<S>) {
     let n = a.shape()[0];
-    let mut x = Array1::from_elem(n, (S::one() / S::from_usize(n).unwrap()).sqrt());
+    let mut x = Array1::from_shape_fn(n, |i| S::from_usize(i + 1).unwrap());
+    let norm_initial = x.dot(&x).sqrt();
+    if norm_initial > S::zero() {
+        x /= norm_initial;
+    }
     let mut x_next = a.dot(&x);
 
     // Check if the matrix is all zeros or very close to zero

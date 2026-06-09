@@ -114,10 +114,10 @@ impl PyDistanceMatrix {
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
         match self.distance_matrix() {
             DistanceMatrixType::Full(distance_matrix) => {
-                distance_matrix.get(node_index(u), node_index(v))
+                DistanceMatrix::get(distance_matrix, node_index(u), node_index(v))
             }
             DistanceMatrixType::Sub(distance_matrix) => {
-                distance_matrix.get(node_index(u), node_index(v))
+                DistanceMatrix::get(distance_matrix, node_index(u), node_index(v))
             }
         }
     }
@@ -144,8 +144,196 @@ impl PyDistanceMatrix {
     }
 }
 
+use petgraph_distance::{Distance, GaussianKernel, KernelDistance};
+use petgraph_linalg_diffusion_kernel::DiffusionDistanceMatrix;
+use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
+
+/// Helper enum to store any underlying Rust distance matrix in python bindings
+#[derive(Clone)]
+pub enum InnerDistanceMatrix {
+    Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    Diffusion(DiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+}
+
+impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
+    fn get(&self, u: NodeIndex<IndexType>, v: NodeIndex<IndexType>) -> Option<FloatType> {
+        match self {
+            Self::Full(d) => Distance::get(d, u, v),
+            Self::Sub(d) => Distance::get(d, u, v),
+            Self::Diffusion(d) => Distance::get(d, u, v),
+            Self::Embedding(d) => Distance::get(d, u, v),
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> FloatType {
+        match self {
+            Self::Full(d) => Distance::get_by_index(d, i, j),
+            Self::Sub(d) => Distance::get_by_index(d, i, j),
+            Self::Diffusion(d) => Distance::get_by_index(d, i, j),
+            Self::Embedding(d) => Distance::get_by_index(d, i, j),
+        }
+    }
+
+    fn shape(&self) -> (usize, usize) {
+        match self {
+            Self::Full(d) => Distance::shape(d),
+            Self::Sub(d) => Distance::shape(d),
+            Self::Diffusion(d) => Distance::shape(d),
+            Self::Embedding(d) => Distance::shape(d),
+        }
+    }
+
+    fn row_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
+        match self {
+            Self::Full(d) => Distance::row_index(d, u),
+            Self::Sub(d) => Distance::row_index(d, u),
+            Self::Diffusion(d) => Distance::row_index(d, u),
+            Self::Embedding(d) => Distance::row_index(d, u),
+        }
+    }
+
+    fn col_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
+        match self {
+            Self::Full(d) => Distance::col_index(d, u),
+            Self::Sub(d) => Distance::col_index(d, u),
+            Self::Diffusion(d) => Distance::col_index(d, u),
+            Self::Embedding(d) => Distance::col_index(d, u),
+        }
+    }
+}
+
+pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerDistanceMatrix> {
+    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
+        match dm.distance_matrix() {
+            DistanceMatrixType::Full(d) => Ok(InnerDistanceMatrix::Full(d.clone())),
+            DistanceMatrixType::Sub(d) => Ok(InnerDistanceMatrix::Sub(d.clone())),
+        }
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
+        Ok(InnerDistanceMatrix::Diffusion(dm.matrix.clone()))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
+        Ok(InnerDistanceMatrix::Embedding(dm.matrix.clone()))
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported distance matrix type for wrapping",
+        ))
+    }
+}
+
+/// Helper function to perform dynamic dispatch on any distance matrix in python bindings
+pub fn with_distance<R>(
+    distance_matrix: &Bound<PyAny>,
+    f: impl FnOnce(&dyn Distance<NodeIndex<IndexType>, FloatType>) -> R,
+) -> PyResult<R> {
+    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
+        match dm.distance_matrix() {
+            DistanceMatrixType::Full(d) => Ok(f(d)),
+            DistanceMatrixType::Sub(d) => Ok(f(d)),
+        }
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
+        Ok(f(&dm.matrix))
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported distance matrix type",
+        ))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "DiffusionDistanceMatrix")]
+pub struct PyDiffusionDistanceMatrix {
+    pub(crate) matrix: DiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+}
+
+#[pymethods]
+impl PyDiffusionDistanceMatrix {
+    #[new]
+    pub fn new(
+        graph: &PyGraphAdapter,
+        kernel: &crate::layout::sgd::PyDiffusionKernel,
+        min_dist: FloatType,
+    ) -> PyResult<Self> {
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                DiffusionDistanceMatrix::new(native_graph, kernel.kernel.clone(), min_dist)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(Self { matrix })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix.get(node_index(u), node_index(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "EmbeddingDistanceMatrix")]
+pub struct PyEmbeddingDistanceMatrix {
+    pub(crate) matrix: EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+}
+
+#[pymethods]
+impl PyEmbeddingDistanceMatrix {
+    #[new]
+    pub fn new(
+        graph: &PyGraphAdapter,
+        embedding: &crate::array::PyArray2,
+        min_dist: FloatType,
+    ) -> PyResult<Self> {
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                EmbeddingDistanceMatrix::new(native_graph, embedding.as_array().clone(), min_dist)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(Self { matrix })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix.get(node_index(u), node_index(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "KernelDistance")]
+pub struct PyKernelDistance {
+    pub(crate) matrix: KernelDistance<InnerDistanceMatrix, GaussianKernel<FloatType>>,
+}
+
+#[pymethods]
+impl PyKernelDistance {
+    #[new]
+    pub fn new(distance_matrix: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
+        let inner = extract_inner_distance(distance_matrix)?;
+        let kernel = GaussianKernel::new(gamma);
+        let matrix = KernelDistance::new(inner, kernel);
+        Ok(Self { matrix })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix.get(node_index(u), node_index(v))
+    }
+}
+
 /// Registers distance matrix classes with the Python module
 pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
+    m.add_class::<PyDiffusionDistanceMatrix>()?;
+    m.add_class::<PyEmbeddingDistanceMatrix>()?;
+    m.add_class::<PyKernelDistance>()?;
     Ok(())
 }

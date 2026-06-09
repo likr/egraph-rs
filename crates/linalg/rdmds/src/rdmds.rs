@@ -3,20 +3,18 @@
 use crate::eigenvalue::eigendecomposition;
 use ndarray::{Array1, Array2};
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_distance::{Laplacian, StandardLaplacian};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;
 
 /// RdMds (Resistance-distance MDS) for computing spectral embeddings from graph Laplacians.
-///
-/// This structure computes d-dimensional spectral coordinates by finding the smallest
-/// non-zero eigenvalues and eigenvectors of the graph Laplacian matrix.
 #[derive(Debug, Clone)]
-pub struct RdMds<S> {
+pub struct RdMds<S, L = StandardLaplacian> {
     /// Number of spectral dimensions
     pub d: usize,
     /// Shift parameter for creating positive definite matrix L + cI
     pub shift: S,
-    /// Maximum number of iterations for eigenvalue computation using inverse power method
+    /// Maximum number of iterations for eigenvalue computation
     pub eigenvalue_max_iterations: usize,
     /// Maximum number of iterations for CG method
     pub cg_max_iterations: usize,
@@ -24,21 +22,15 @@ pub struct RdMds<S> {
     pub eigenvalue_tolerance: S,
     /// Convergence tolerance for CG method
     pub cg_tolerance: S,
+    /// The builder to construct the Laplacian matrix
+    pub laplacian_builder: L,
 }
 
-impl<S> RdMds<S>
+impl<S> RdMds<S, StandardLaplacian>
 where
-    S: DrawingValue,
+    S: DrawingValue + Default,
 {
     /// Creates a new RdMds with default values.
-    ///
-    /// Default values:
-    /// - d: 2 (spectral dimensions)
-    /// - shift: 1e-3 (shift parameter for positive definite matrix)
-    /// - eigenvalue_max_iterations: 1000 (eigenvalue solver)
-    /// - cg_max_iterations: 100 (CG solver)
-    /// - eigenvalue_tolerance: 1e-1 (eigenvalue convergence)
-    /// - cg_tolerance: 1e-4 (CG convergence)
     pub fn new() -> Self {
         Self {
             d: 2,
@@ -47,9 +39,12 @@ where
             cg_max_iterations: 100,
             eigenvalue_tolerance: S::from_f32(1e-1).unwrap(),
             cg_tolerance: S::from_f32(1e-4).unwrap(),
+            laplacian_builder: StandardLaplacian,
         }
     }
+}
 
+impl<S, L> RdMds<S, L> {
     /// Sets the number of spectral dimensions.
     pub fn d(&mut self, d: usize) -> &mut Self {
         self.d = d;
@@ -62,7 +57,7 @@ where
         self
     }
 
-    /// Sets maximum iterations for eigenvalue computation using inverse power method.
+    /// Sets maximum iterations for eigenvalue computation.
     pub fn eigenvalue_max_iterations(&mut self, eigenvalue_max_iterations: usize) -> &mut Self {
         self.eigenvalue_max_iterations = eigenvalue_max_iterations;
         self
@@ -86,37 +81,38 @@ where
         self
     }
 
+    /// Configures a custom Laplacian builder.
+    pub fn laplacian_builder<L2>(self, laplacian_builder: L2) -> RdMds<S, L2> {
+        RdMds {
+            d: self.d,
+            shift: self.shift,
+            eigenvalue_max_iterations: self.eigenvalue_max_iterations,
+            cg_max_iterations: self.cg_max_iterations,
+            eigenvalue_tolerance: self.eigenvalue_tolerance,
+            cg_tolerance: self.cg_tolerance,
+            laplacian_builder,
+        }
+    }
+}
+
+impl<S, L> RdMds<S, L>
+where
+    S: DrawingValue + Default,
+{
     /// Computes spectral coordinates (embedding) using the configured parameters.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `rng` - Random number generator for spectral coordinate computation
-    ///
-    /// # Returns
-    /// An Array2 where embedding.row(i) contains the d-dimensional coordinate for node i
     pub fn embedding<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Array2<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
+        L: Laplacian<G, S> + Copy,
     {
         let (embedding, _eigenvalues) = self.eigendecomposition(graph, length, rng);
         embedding
     }
 
     /// Computes spectral coordinates and eigenvalues using the configured parameters.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `rng` - Random number generator for spectral coordinate computation
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// - Array2 where embedding.row(i) contains the d-dimensional coordinate for node i
-    /// - Array1 of eigenvalues (λ_1, λ_2, ..., λ_d)
     pub fn eigendecomposition<G, F, R>(
         &self,
         graph: G,
@@ -128,6 +124,7 @@ where
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
+        L: Laplacian<G, S> + Copy,
     {
         eigendecomposition(
             graph,
@@ -138,14 +135,15 @@ where
             self.eigenvalue_tolerance,
             self.cg_tolerance,
             self.d,
+            self.laplacian_builder,
             rng,
         )
     }
 }
 
-impl<S> Default for RdMds<S>
+impl<S> Default for RdMds<S, StandardLaplacian>
 where
-    S: DrawingValue,
+    S: DrawingValue + Default,
 {
     fn default() -> Self {
         Self::new()

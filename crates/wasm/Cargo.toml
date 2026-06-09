@@ -20,11 +20,15 @@ petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-clustering = { path = "../clustering" }
 petgraph-drawing = { path = "../drawing" }
 petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
+petgraph-distance = { path = "../linalg/distance" }
 petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
 petgraph-layout-mds = { path = "../layout/mds" }
 petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
+petgraph-layout-ts-net = { path = "../layout/ts-net" }
+petgraph-linalg-diffusion-kernel = { path = "../linalg/diffusion-kernel" }
+petgraph-linalg-embedding-distance = { path = "../linalg/embedding-distance" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }

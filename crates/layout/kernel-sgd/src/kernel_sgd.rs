@@ -1,18 +1,14 @@
 //! KernelSgd builder for creating SGD instances using diffusion kernel distances.
 
-use crate::diffusion_kernel::DiffusionKernel;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_distance::StandardLaplacian;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_layout_sgd::Sgd;
+use petgraph_linalg_diffusion_kernel::DiffusionKernel;
 use rand::Rng;
 use std::collections::HashSet;
 
 /// KernelSgd builder for creating SGD instances from diffusion kernel distances.
-///
-/// This structure uses the diffusion kernel exp(-tL) to compute ideal distances
-/// between nodes, where L is the graph Laplacian. The kernel is approximated using
-/// Chebyshev polynomials and element queries are performed using the Hutchinson
-/// trace estimator with symmetry optimization.
 #[derive(Debug, Clone)]
 pub struct KernelSgd<S> {
     /// Diffusion time parameter
@@ -32,13 +28,6 @@ where
     S: DrawingValue,
 {
     /// Creates a new KernelSgd with default values.
-    ///
-    /// Default values:
-    /// - t: 1000.0 (diffusion time)
-    /// - num_vectors: 50 (Hutchinson vectors, effective 100 with symmetry)
-    /// - degree: 10 (Chebyshev polynomial degree)
-    /// - k: 30 (random pairs per node)
-    /// - min_dist: 1e-3 (minimum distance)
     pub fn new() -> Self {
         Self {
             t: S::from_f32(1000.0).unwrap(),
@@ -56,8 +45,6 @@ where
     }
 
     /// Sets the number of Hutchinson random vectors.
-    ///
-    /// Note: Due to symmetry optimization, effective sample count is 2x this value.
     pub fn num_vectors(&mut self, num_vectors: usize) -> &mut Self {
         self.num_vectors = num_vectors;
         self
@@ -82,27 +69,24 @@ where
     }
 
     /// Builds an SGD instance with automatic lambda_max estimation.
-    ///
-    /// Uses power method to estimate the maximum eigenvalue of the Laplacian.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `rng` - Random number generator
-    ///
-    /// # Returns
-    /// A new SGD instance configured with kernel-based distances
     pub fn build<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        S: std::iter::Sum + Default,
+        S: std::iter::Sum + Default + ndarray::ScalarOperand + num_traits::Float,
     {
-        // Create DiffusionKernel with automatic lambda_max estimation
-        let kernel =
-            DiffusionKernel::new(graph, length, self.t, self.degree, self.num_vectors, rng);
+        // Create DiffusionKernel with automatic lambda_max estimation and StandardLaplacian
+        let kernel = DiffusionKernel::new(
+            graph,
+            length,
+            self.t,
+            self.degree,
+            self.num_vectors,
+            StandardLaplacian,
+            rng,
+        );
 
         // Generate node pairs with kernel-based distances
         let node_pairs = generate_node_pairs(graph, &kernel, self.min_dist, self.k, rng);
@@ -111,15 +95,6 @@ where
     }
 
     /// Builds an SGD instance with externally provided lambda_max.
-    ///
-    /// # Parameters
-    /// * `graph` - The input graph to be laid out
-    /// * `length` - A function that maps edges to their lengths/weights
-    /// * `lambda_max` - Maximum eigenvalue of the Laplacian
-    /// * `rng` - Random number generator
-    ///
-    /// # Returns
-    /// A new SGD instance configured with kernel-based distances
     pub fn build_with_lambda_max<G, F, R>(
         &self,
         graph: G,
@@ -132,9 +107,9 @@ where
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        S: std::iter::Sum + Default + ndarray::ScalarOperand,
+        S: std::iter::Sum + Default + ndarray::ScalarOperand + num_traits::Float,
     {
-        // Create DiffusionKernel with provided lambda_max
+        // Create DiffusionKernel with provided lambda_max and StandardLaplacian
         let kernel = DiffusionKernel::new_with_lambda_max(
             graph,
             length,
@@ -142,6 +117,7 @@ where
             self.degree,
             lambda_max,
             self.num_vectors,
+            StandardLaplacian,
             rng,
         );
 
@@ -172,7 +148,7 @@ fn generate_node_pairs<G, S, R>(
 where
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount,
     G::NodeId: DrawingIndex,
-    S: DrawingValue + std::iter::Sum,
+    S: DrawingValue + std::iter::Sum + num_traits::Float + Default,
     R: Rng,
 {
     use std::collections::HashMap;
@@ -204,6 +180,7 @@ where
                 let k_jj = kernel.get(j, j);
                 let k_ij = kernel.get(i, j);
                 let distance = (k_ii + k_jj - S::from_f32(2.0).unwrap() * k_ij)
+                    .max(S::zero())
                     .sqrt()
                     .max(min_dist);
                 let weight = S::one() / (distance * distance);
@@ -226,6 +203,7 @@ where
                     let k_jj = kernel.get(j, j);
                     let k_ij = kernel.get(i, j);
                     let distance = (k_ii + k_jj - S::from_f32(2.0).unwrap() * k_ij)
+                        .max(S::zero())
                         .sqrt()
                         .max(min_dist);
                     let weight = S::one() / (distance * distance);
@@ -286,8 +264,6 @@ mod tests {
 
         let sgd = kernel_sgd.build(&graph, |_| 1.0, &mut rng);
 
-        // Should have node pairs from edges + some random pairs
-        // Exact count depends on random sampling, but should be > 2 (edges)
         assert!(sgd.node_pairs().len() >= 2);
     }
 }

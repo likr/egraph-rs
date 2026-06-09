@@ -1,10 +1,10 @@
 [package]
-name = "petgraph-layout-kernel-sgd"
+name = "petgraph-layout-ts-net"
 version = "0.1.0"
 edition = "2021"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 license = "MIT"
-description = "Kernel-based SGD layout algorithm using diffusion kernel approximation"
+description = "tsNET graph layout algorithm using t-SNE objective function optimization"
 repository = "https://github.com/likr/egraph-rs"
 
 [dependencies]
@@ -13,7 +13,7 @@ num-traits = "0.2"
 petgraph = "0.6"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../../linalg/distance" }
-petgraph-linalg-diffusion-kernel = { path = "../../linalg/diffusion-kernel" }
-petgraph-layout-sgd = { path = "../sgd" }
-petgraph-linalg-spmv = { path = "../../linalg/spmv" }
 rand = "0.8"
+
+[dev-dependencies]
+petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }

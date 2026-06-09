@@ -7,6 +7,7 @@ edition = "2018"
 ndarray = "0.16"
 ordered-float = "3.0"
 petgraph = "0.6"
+petgraph-distance = { path = "../../linalg/distance" }
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }

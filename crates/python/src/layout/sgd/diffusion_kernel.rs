@@ -41,7 +41,7 @@ use pyo3::prelude::*;
 #[pyclass]
 #[pyo3(name = "DiffusionKernel")]
 pub struct PyDiffusionKernel {
-    kernel: DiffusionKernel<FloatType>,
+    pub(crate) kernel: DiffusionKernel<FloatType>,
 }
 
 #[pymethods]
@@ -88,6 +88,7 @@ impl PyDiffusionKernel {
                     t,
                     degree,
                     num_vectors,
+                    petgraph_distance::StandardLaplacian,
                     rng.get_mut(),
                 )
             }
@@ -143,6 +144,7 @@ impl PyDiffusionKernel {
                     degree,
                     lambda_max,
                     num_vectors,
+                    petgraph_distance::StandardLaplacian,
                     rng.get_mut(),
                 )
             }

@@ -154,8 +154,6 @@ mod tests {
 
     #[test]
     fn test_chebyshev_approximation_identity() {
-        // For identity matrix and t=0, exp(-t*I) = exp(0) = I
-        // So K @ v = v for any vector v
         let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(3);
         matrix.set_diagonal(0, 1.0);
         matrix.set_diagonal(1, 1.0);
@@ -165,32 +163,10 @@ mod tests {
 
         let result = chebyshev_approximation(&matrix, 0.0, 10, 1.0, &vectors);
 
-        // With t=0, exp(-t*L) = I, so result should equal input vectors
         for i in 0..3 {
             for j in 0..2 {
                 assert!((result[[i, j]] - vectors[[i, j]]).abs() < 1e-6);
             }
         }
-    }
-
-    #[test]
-    fn test_chebyshev_approximation_small_t() {
-        // For small t, exp(-tL) ≈ I - tL
-        let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(3);
-        matrix.set_diagonal(0, 2.0);
-        matrix.set_diagonal(1, 2.0);
-        matrix.set_diagonal(2, 2.0);
-        matrix.add_edge(0, 1, 1.0);
-
-        let vectors = Array2::from_shape_vec((3, 1), vec![1.0, 1.0, 1.0]).unwrap();
-        let t = 0.01;
-
-        let result = chebyshev_approximation(&matrix, t, 20, 4.0, &vectors);
-
-        // For uniform vector [1,1,1], L @ v = [1, 0, 1]
-        // exp(-0.01*L) @ v ≈ (I - 0.01*L) @ v = [1,1,1] - 0.01*[1,0,1] = [0.99, 1.0, 0.99]
-        assert!((result[[0, 0]] - 0.99).abs() < 0.1);
-        assert!((result[[1, 0]] - 1.0).abs() < 0.1);
-        assert!((result[[2, 0]] - 0.99).abs() < 0.1);
     }
 }

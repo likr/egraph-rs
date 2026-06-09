@@ -285,13 +285,14 @@ where
 
     // Sort events by position
     events.sort_by(|a, b| {
-        a.pos.partial_cmp(&b.pos).unwrap_or(Ordering::Equal).then_with(|| {
-            match (a.is_open, b.is_open) {
+        a.pos
+            .partial_cmp(&b.pos)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| match (a.is_open, b.is_open) {
                 (true, false) => Ordering::Less,
                 (false, true) => Ordering::Greater,
                 _ => Ordering::Equal,
-            }
-        })
+            })
     });
 
     // Use BTreeSet to maintain active nodes
@@ -397,13 +398,14 @@ where
 
     // Sort events by position
     events.sort_by(|a, b| {
-        a.pos.partial_cmp(&b.pos).unwrap_or(Ordering::Equal).then_with(|| {
-            match (a.is_open, b.is_open) {
+        a.pos
+            .partial_cmp(&b.pos)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| match (a.is_open, b.is_open) {
                 (true, false) => Ordering::Less,
                 (false, true) => Ordering::Greater,
                 _ => Ordering::Equal,
-            }
-        })
+            })
     });
 
     // Use BTreeSet to maintain active nodes
