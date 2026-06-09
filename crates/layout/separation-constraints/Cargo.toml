@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 fixedbitset = "0.4"
 ordered-float = "3.0"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-clustering = { path = "../../clustering" }
 petgraph-drawing = { path = "../../drawing" }
 petgraph-algorithm-layering = { path = "../../algorithm/layering" }

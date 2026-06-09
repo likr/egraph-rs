@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
 petgraph-drawing = { path = "../drawing" }
 ndarray = "0.16"

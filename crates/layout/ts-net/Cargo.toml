@@ -10,7 +10,7 @@ repository = "https://github.com/likr/egraph-rs"
 [dependencies]
 ndarray = "0.16"
 num-traits = "0.2"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../../linalg/distance" }
 rand = "0.8"

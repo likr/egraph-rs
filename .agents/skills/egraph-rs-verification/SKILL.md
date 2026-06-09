@@ -41,3 +41,9 @@ Whenever a task is ready to be completed:
 - **Always use `--no-pager`**: When querying Git history or diffs in CLI (e.g. `git diff`, `git log`, `git show`), prefix with `git --no-pager` to prevent terminal lockups or interactive page-hangs.
   - Correct: `git --no-pager diff`
   - Correct: `git --no-pager log`
+
+## System Dependencies & Environment Variables
+
+- **`RUST_FONTCONFIG_DLOPEN=1`**: When checking, building, or testing crates in the workspace, you may encounter compile-time failures from `yeslogic-fontconfig-sys` if the system lacks `fontconfig` libraries. Setting `RUST_FONTCONFIG_DLOPEN=1` bypasses the compile-time link checks by dynamically loading the library at runtime.
+  - Example: `RUST_FONTCONFIG_DLOPEN=1 cargo test --workspace`
+

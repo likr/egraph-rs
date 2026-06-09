@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 argparse = "0.2.2"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-drawing = { path = "../drawing" }
 petgraph-layout-omega = { path = "../layout/omega" }

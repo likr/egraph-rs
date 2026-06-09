@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 ndarray = "0.16"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
 petgraph-drawing = { path = "../../drawing" }
 

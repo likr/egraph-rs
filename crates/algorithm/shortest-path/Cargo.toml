@@ -6,7 +6,7 @@ edition = "2018"
 [dependencies]
 ndarray = "0.16"
 ordered-float = "3.0"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-distance = { path = "../../linalg/distance" }
 
 [dev-dependencies]

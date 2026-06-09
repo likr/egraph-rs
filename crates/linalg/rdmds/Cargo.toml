@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 ndarray = "0.16"
 num-traits = "0.2"
-petgraph = "0.6"
+petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../distance" }
 petgraph-linalg-spmv = { path = "../spmv" }
