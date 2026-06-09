@@ -184,15 +184,18 @@ Uses spectral coordinates for initialization, combining spectral methods with SG
     
     drawing = eg.DrawingEuclidean2d.initial_placement(graph)
     rng = eg.Rng.seed_from(42)
+    # Step 1: Compute spectral embedding with RdMds
+    rdmds = eg.RdMds().d(2)
+    embedding = rdmds.embedding(graph, lambda _: 1.0, rng)
+
+    # Step 2: Create Omega instance and build SGD
+    sgd = eg.Omega().k(30).build(graph, embedding, rng)
     
-    # Create Omega instance
-    omega = eg.Omega().d(2).k(30).build(graph, lambda _: 30, rng)
-    
-    # Run optimization
-    scheduler = omega.scheduler(100, 0.1)
+    # Step 3: Run optimization with scheduler
+    scheduler = sgd.scheduler(100, 0.1)
     def step(eta):
-        omega.shuffle(rng)
-        omega.apply(drawing, eta)
+        sgd.shuffle(rng)
+        sgd.apply(drawing, eta)
     scheduler.run(step)
     
     print("Omega layout complete")
@@ -202,8 +205,8 @@ Uses spectral coordinates for initialization, combining spectral methods with SG
     Omega layout complete
 
 **Parameters**:
-- `d(n)`: Number of spectral dimensions (default: 2)
 - `k(n)`: Number of random pairs per node (default: 30)
+- `min_dist(float)`: Minimum distance between node pairs (default: 1e-3)
 
 MDS (Multidimensional Scaling)
 -------------------------------
