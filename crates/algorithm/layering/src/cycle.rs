@@ -1,28 +1,23 @@
-use fixedbitset::FixedBitSet;
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::visit::{VisitMap, Visitable};
+use petgraph::graph::IndexType;
+use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, VisitMap, Visitable};
 use petgraph::{Directed, Graph};
 use std::collections::HashSet;
+use std::hash::Hash;
 
 /// Performs a depth-first search to detect cycles in a directed graph.
 ///
 /// This function is used internally by `cycle_edges` to identify all edges that
 /// form part of a cycle in the graph.
-///
-/// # Arguments
-///
-/// * `graph` - The directed graph to search
-/// * `map` - A bit set to track visited nodes
-/// * `ancestors` - A set to track ancestor nodes in the current search path
-/// * `result` - A vector to accumulate the cycle edges
-/// * `u` - The current node being visited
-fn dfs_cycle<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    map: &mut FixedBitSet,
-    ancestors: &mut HashSet<NodeIndex<Ix>>,
-    result: &mut Vec<(NodeIndex<Ix>, NodeIndex<Ix>)>,
-    u: NodeIndex<Ix>,
-) {
+fn dfs_cycle<G>(
+    graph: G,
+    map: &mut G::Map,
+    ancestors: &mut HashSet<G::NodeId>,
+    result: &mut Vec<(G::NodeId, G::NodeId)>,
+    u: G::NodeId,
+) where
+    G: IntoNeighbors + Visitable + Copy,
+    G::NodeId: Eq + Hash,
+{
     if map.is_visited(&u) {
         return;
     }
@@ -68,13 +63,15 @@ fn dfs_cycle<N, E, Ix: IndexType>(
 /// let cycle_edges = cycle_edges(&graph);
 /// assert_eq!(cycle_edges.len(), 1);
 /// ```
-pub fn cycle_edges<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-) -> Vec<(NodeIndex<Ix>, NodeIndex<Ix>)> {
+pub fn cycle_edges<G>(graph: G) -> Vec<(G::NodeId, G::NodeId)>
+where
+    G: IntoNodeIdentifiers + IntoNeighbors + Visitable + Copy,
+    G::NodeId: Eq + Hash + Copy,
+{
     let mut map = graph.visit_map();
     let mut ancestors = HashSet::new();
     let mut result = vec![];
-    for u in graph.node_indices() {
+    for u in graph.node_identifiers() {
         dfs_cycle(graph, &mut map, &mut ancestors, &mut result, u)
     }
     result
@@ -110,7 +107,7 @@ pub fn cycle_edges<N, E, Ix: IndexType>(
 /// assert!(graph.find_edge(a, c).is_some() || graph.find_edge(c, a).is_some());
 /// ```
 pub fn remove_cycle<N, E, Ix: IndexType>(graph: &mut Graph<N, E, Directed, Ix>) {
-    for (u, v) in cycle_edges(graph) {
+    for (u, v) in cycle_edges(&*graph) {
         let index = graph.find_edge(u, v).unwrap();
         let weight = graph.remove_edge(index).unwrap();
         graph.add_edge(v, u, weight);

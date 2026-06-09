@@ -1,6 +1,7 @@
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::{Directed, EdgeDirection, Graph};
+use petgraph::visit::{IntoNeighborsDirected, IntoNodeIdentifiers};
+use petgraph::EdgeDirection;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use crate::LayeringAlgorithm;
 
@@ -8,19 +9,11 @@ use crate::LayeringAlgorithm;
 ///
 /// This function recursively traverses the graph, assigning layer values to nodes
 /// based on their maximum path length from a source node.
-///
-/// # Arguments
-///
-/// * `graph` - The directed graph to traverse
-/// * `layers` - A map from node indices to their layer values
-/// * `u` - The current node being visited
-/// * `depth` - The current depth in the traversal
-fn dfs_layer<N, E, Ix: IndexType>(
-    graph: &Graph<N, E, Directed, Ix>,
-    layers: &mut HashMap<NodeIndex<Ix>, usize>,
-    u: NodeIndex<Ix>,
-    depth: usize,
-) {
+fn dfs_layer<G>(graph: G, layers: &mut HashMap<G::NodeId, usize>, u: G::NodeId, depth: usize)
+where
+    G: IntoNeighborsDirected + Copy,
+    G::NodeId: Eq + Hash,
+{
     for v in graph.neighbors(u) {
         if let std::collections::hash_map::Entry::Vacant(e) = layers.entry(v) {
             e.insert(depth + 1);
@@ -92,24 +85,35 @@ impl LongestPath {
     /// assert_eq!(*layers.get(&b).unwrap(), 1);
     /// assert_eq!(*layers.get(&c).unwrap(), 2);
     /// ```
-    pub fn assign_layers<N, E, Ix: IndexType>(
-        &self,
-        graph: &Graph<N, E, Directed, Ix>,
-    ) -> HashMap<NodeIndex<Ix>, usize> {
+    pub fn assign_layers<G>(&self, graph: G) -> HashMap<G::NodeId, usize>
+    where
+        G: IntoNodeIdentifiers + IntoNeighborsDirected + Copy,
+        G::NodeId: Eq + Hash + Copy,
+    {
         let mut result = HashMap::new();
 
         // Start with source nodes (nodes with no incoming edges)
-        for u in graph.externals(EdgeDirection::Incoming) {
-            result.insert(u, 0);
-            dfs_layer(graph, &mut result, u, 0);
+        for u in graph.node_identifiers() {
+            if graph
+                .neighbors_directed(u, EdgeDirection::Incoming)
+                .next()
+                .is_none()
+            {
+                result.insert(u, 0);
+                dfs_layer(graph, &mut result, u, 0);
+            }
         }
 
         result
     }
 }
 
-impl<N, E, Ix: IndexType> LayeringAlgorithm<N, E, Ix> for LongestPath {
-    fn assign_layers(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize> {
+impl<G> LayeringAlgorithm<G> for LongestPath
+where
+    G: IntoNodeIdentifiers + IntoNeighborsDirected + Copy,
+    G::NodeId: Eq + Hash + Copy,
+{
+    fn assign_layers(&self, graph: G) -> HashMap<G::NodeId, usize> {
         self.assign_layers(graph)
     }
 }

@@ -11,8 +11,10 @@ pub use algorithms::*;
 pub use utils::*;
 
 use petgraph::EdgeType;
-use petgraph::graph::{EdgeIndex, Graph, IndexType, NodeIndex};
-use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
+use petgraph::graph::{Graph, IndexType, NodeIndex};
+use petgraph::visit::{
+    EdgeCount, EdgeRef, GraphProp, IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers,
+};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -33,7 +35,6 @@ where
     fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize>;
 }
 
-type CoarsenedGraph<N2, E2, Ty, Ix> = Graph<N2, E2, Ty, Ix>;
 type NodeMap<Ix> = HashMap<usize, NodeIndex<Ix>>;
 
 /// Creates a coarser graph representation by grouping nodes from an original graph.
@@ -45,55 +46,55 @@ type NodeMap<Ix> = HashMap<usize, NodeIndex<Ix>>;
 ///
 /// # Arguments
 ///
-/// * `graph` - A reference to the original `petgraph::Graph`.
-/// * `node_groups` - A mutable closure `FnMut(&Graph<...>, NodeIndex<Ix>) -> usize`.
-///   It takes the original graph and a `NodeIndex` and returns the `usize` ID
+/// * `graph` - A reference to the original graph.
+/// * `node_groups` - A mutable closure `FnMut(G, G::NodeId) -> usize`.
+///   It takes the original graph and a node identifier and returns the `usize` ID
 ///   of the group that node belongs to.
-/// * `shrink_node` - A mutable closure `FnMut(&Graph<...>, &Vec<NodeIndex<Ix>>) -> N2`.
-///   It takes the original graph and a `Vec` of `NodeIndex` belonging to a single
+/// * `shrink_node` - A mutable closure `FnMut(G, &Vec<G::NodeId>) -> N2`.
+///   It takes the original graph and a `Vec` of node identifiers belonging to a single
 ///   group and returns the node weight (`N2`) for the corresponding node in the
 ///   coarsened graph.
-/// * `shrink_edge` - A mutable closure `FnMut(&Graph<...>, &Vec<EdgeIndex<Ix>>) -> E2`.
-///   It takes the original graph and a `Vec` of `EdgeIndex` connecting two
+/// * `shrink_edge` - A mutable closure `FnMut(G, &Vec<G::EdgeId>) -> E2`.
+///   It takes the original graph and a `Vec` of edge identifiers connecting two
 ///   specific groups and returns the edge weight (`E2`) for the corresponding
 ///   edge in the coarsened graph.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// 1. The `CoarsenedGraph<N2, E2, Ty, Ix>`: The newly created `petgraph::Graph`
-///    representing the coarsened structure.
+/// 1. The coarsened graph `Graph<N2, E2, Ty, Ix>`.
 /// 2. The `NodeMap<Ix>`: A `HashMap` mapping the group ID (`usize`) from the
 ///    original graph's grouping to the `NodeIndex` of the corresponding node
 ///    in the coarsened graph.
-pub fn coarsen<
-    N1,
-    N2,
-    E1,
-    E2,
-    Ty: EdgeType,
-    Ix: IndexType,
-    GF: FnMut(&Graph<N1, E1, Ty, Ix>, NodeIndex<Ix>) -> usize,
-    NF: FnMut(&Graph<N1, E1, Ty, Ix>, &Vec<NodeIndex<Ix>>) -> N2,
-    EF: FnMut(&Graph<N1, E1, Ty, Ix>, &Vec<EdgeIndex<Ix>>) -> E2,
->(
-    graph: &Graph<N1, E1, Ty, Ix>,
+pub fn coarsen<G, N2, E2, Ty, Ix, GF, NF, EF>(
+    graph: G,
     node_groups: &mut GF,
     shrink_node: &mut NF,
     shrink_edge: &mut EF,
-) -> (CoarsenedGraph<N2, E2, Ty, Ix>, NodeMap<Ix>) {
+) -> (Graph<N2, E2, Ty, Ix>, NodeMap<Ix>)
+where
+    G: IntoNodeIdentifiers + IntoEdgeReferences + GraphProp<EdgeType = Ty> + Copy,
+    G::NodeId: Eq + Hash + Copy,
+    G::EdgeId: Eq + Hash,
+    Ty: EdgeType,
+    Ix: IndexType,
+    GF: FnMut(G, G::NodeId) -> usize,
+    NF: FnMut(G, &Vec<G::NodeId>) -> N2,
+    EF: FnMut(G, &Vec<G::EdgeId>) -> E2,
+{
     let node_groups = graph
-        .node_indices()
+        .node_identifiers()
         .map(|u| (u, node_groups(graph, u)))
         .collect::<HashMap<_, _>>();
-    let mut groups = HashMap::<usize, Vec<NodeIndex<Ix>>>::new();
-    for u in graph.node_indices() {
+    let mut groups = HashMap::<usize, Vec<G::NodeId>>::new();
+    for u in graph.node_identifiers() {
         let g = node_groups[&u];
         groups.entry(g).or_default().push(u);
     }
-    let mut group_edges: HashMap<(usize, usize), Vec<EdgeIndex<Ix>>> = HashMap::new();
-    for e in graph.edge_indices() {
-        let (u, v) = graph.edge_endpoints(e).unwrap();
+    let mut group_edges: HashMap<(usize, usize), Vec<G::EdgeId>> = HashMap::new();
+    for e in graph.edge_references() {
+        let u = e.source();
+        let v = e.target();
         let key = {
             let source_group = node_groups[&u];
             let target_group = node_groups[&v];
@@ -106,7 +107,7 @@ pub fn coarsen<
                 (target_group, source_group)
             }
         };
-        group_edges.entry(key).or_default().push(e);
+        group_edges.entry(key).or_default().push(e.id());
     }
 
     let mut coarsened_graph = Graph::with_capacity(0, 0);

@@ -40,9 +40,9 @@
 pub mod algorithms;
 pub mod cycle;
 
-use petgraph::graph::{IndexType, NodeIndex};
-use petgraph::{Directed, Graph};
+use petgraph::visit::{IntoNeighborsDirected, IntoNodeIdentifiers};
 use std::collections::HashMap;
+use std::hash::Hash;
 
 // Re-export commonly used types and functions
 pub use algorithms::LongestPath;
@@ -57,24 +57,28 @@ pub use cycle::{cycle_edges, remove_cycle};
 /// Implementations of this trait should assign layer values (starting from 0)
 /// to nodes in the graph, typically ensuring that if there's an edge (u,v),
 /// then layer(v) > layer(u).
-pub trait LayeringAlgorithm<N, E, Ix: IndexType> {
+pub trait LayeringAlgorithm<G>
+where
+    G: IntoNodeIdentifiers + IntoNeighborsDirected,
+    G::NodeId: Eq + Hash,
+{
     /// Assigns layers to nodes in the given directed graph.
     ///
     /// # Arguments
     ///
-    /// * `graph` - A reference to a directed graph
+    /// * `graph` - A directed graph
     ///
     /// # Returns
     ///
     /// A HashMap mapping each node index to its assigned layer (starting from 0).
-    fn assign_layers(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize>;
+    fn assign_layers(&self, graph: G) -> HashMap<G::NodeId, usize>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::algorithms::LongestPath;
-    use petgraph::Graph;
+    use petgraph::{Directed, Graph};
 
     #[test]
     fn test_layering_algorithm_trait() {
@@ -87,7 +91,8 @@ mod tests {
         graph.add_edge(b, c, ());
 
         // Use the LongestPath algorithm through the trait
-        let algorithm: Box<dyn LayeringAlgorithm<(), (), _>> = Box::new(LongestPath::new());
+        let algorithm: Box<dyn LayeringAlgorithm<&Graph<(), (), Directed, DefaultIx>>> =
+            Box::new(LongestPath::new());
         let layers = algorithm.assign_layers(&graph);
 
         // Verify the layer assignments
@@ -95,6 +100,8 @@ mod tests {
         assert_eq!(*layers.get(&b).unwrap(), 1);
         assert_eq!(*layers.get(&c).unwrap(), 2);
     }
+
+    type DefaultIx = petgraph::graph::DefaultIx;
 
     #[test]
     fn test_cycle_removal_integration() {

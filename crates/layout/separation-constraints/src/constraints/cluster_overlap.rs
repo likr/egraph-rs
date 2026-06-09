@@ -1,11 +1,9 @@
-use petgraph::{
-    graph::{IndexType, NodeIndex},
-    visit::IntoNodeIdentifiers,
-    EdgeType, Graph,
-};
+use petgraph::graph::DefaultIx;
+use petgraph::visit::{GraphProp, IntoEdgeReferences, IntoNodeIdentifiers};
 use petgraph_clustering::coarsen;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingValue};
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use crate::project_rectangle_no_overlap_constraints_2d;
 
@@ -28,20 +26,20 @@ use crate::project_rectangle_no_overlap_constraints_2d;
 /// # Type Parameters
 ///
 /// * `G` - The graph type
-/// * `N` - The node ID type
 /// * `S` - The scalar type for coordinates
 /// * `F1` - The type of the cluster ID function
 /// * `F2` - The type of the size function
-pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2, S>(
-    graph: &Graph<N, E, Ty, Ix>,
-    drawing: &mut DrawingEuclidean2d<NodeIndex<Ix>, S>,
+pub fn project_clustered_rectangle_no_overlap_constraints<G, F1, F2, S>(
+    graph: G,
+    drawing: &mut DrawingEuclidean2d<G::NodeId, S>,
     mut cluster_id: F1,
     mut size: F2,
 ) where
-    Ty: EdgeType,
-    Ix: IndexType,
-    F1: FnMut(NodeIndex<Ix>) -> usize,
-    F2: FnMut(NodeIndex<Ix>, usize) -> S,
+    G: IntoNodeIdentifiers + IntoEdgeReferences + GraphProp + Copy,
+    G::NodeId: Eq + Hash + Copy,
+    G::EdgeId: Eq + Hash,
+    F1: FnMut(G::NodeId) -> usize,
+    F2: FnMut(G::NodeId, usize) -> S,
     S: DrawingValue + Default,
 {
     // Cache cluster_id function results to minimize calls
@@ -52,7 +50,7 @@ pub fn project_clustered_rectangle_no_overlap_constraints<N, E, Ty, Ix, F1, F2, 
     }
 
     // Create a cluster graph where each node represents a cluster
-    let (cluster_graph, _) = coarsen(
+    let (cluster_graph, _) = coarsen::<G, _, _, G::EdgeType, DefaultIx, _, _, _>(
         graph,
         &mut |_, node_id| node_cluster_map[&node_id], // Use cached cluster ID
         &mut |_, node_ids| {
