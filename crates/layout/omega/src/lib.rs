@@ -31,15 +31,17 @@
 //!
 //! // Step 1: Compute spectral embedding with RdMds
 //! let mut rng = thread_rng();
-//! let rdmds = RdMds::new().d(2).shift(1e-3f32);
+//! let mut rdmds = RdMds::new();
+//! rdmds.d(2).shift(1e-3f32);
 //! let embedding = rdmds.embedding(&graph, |_| 1.0f32, &mut rng);
 //!
 //! // Step 2: Create SGD instance from embedding
-//! let omega = Omega::new().k(5).min_dist(1e-3f32);
+//! let mut omega = Omega::new();
+//! omega.k(5).min_dist(1e-3f32);
 //! let mut sgd = omega.build(&graph, &embedding, &mut rng);
 //!
 //! // Step 3: Run SGD optimization
-//! let mut drawing = DrawingEuclidean2d::initial_placement(&graph);
+//! let mut drawing = DrawingEuclidean2d::<petgraph::graph::NodeIndex, f32>::initial_placement(&graph);
 //! let mut scheduler = sgd.scheduler::<SchedulerExponential<f32>>(1000, 0.1);
 //!
 //! scheduler.run(&mut |eta| {

@@ -8,6 +8,8 @@
 //! * Full SGD - computes accurate layouts using all node pairs
 //! * Sparse SGD - uses pivot nodes to approximate distances for better scalability
 
+#![allow(clippy::module_inception)]
+
 pub mod full;
 pub mod schedulers;
 pub mod sgd;

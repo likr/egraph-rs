@@ -1,3 +1,5 @@
+export RUST_FONTCONFIG_DLOPEN=1
+
 .PHONY: help fmt lint check test test-crate python-build python-test python-test-module python-docs python-doctest python-clean all clean
 
 # Default target

@@ -2,6 +2,8 @@
 //!
 //! This module provides Python bindings for various SGD-based layout algorithms.
 
+#![allow(clippy::module_inception)]
+
 mod diffusion_kernel;
 mod full;
 mod kernel_sgd;

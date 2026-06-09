@@ -123,9 +123,9 @@ mod tests {
         // Verify the layer relationships after cycle removal
         // Each node should have a unique layer
         // Verify each node has been assigned a layer
-        assert!(layers.get(&a).is_some());
-        assert!(layers.get(&b).is_some());
-        assert!(layers.get(&c).is_some());
+        assert!(layers.contains_key(&a));
+        assert!(layers.contains_key(&b));
+        assert!(layers.contains_key(&c));
 
         // Check that the remaining edges respect the layer ordering
         for edge in acyclic_graph.edge_indices() {

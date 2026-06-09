@@ -421,6 +421,7 @@ pub fn solve_with_conjugate_gradient<S>(
 /// A tuple containing:
 /// - Array2 where coordinates.row(i) contains the d-dimensional coordinate for node i
 /// - Array1 of d non-zero eigenvalues (λ_1, λ_2, ..., λ_d)
+#[allow(clippy::too_many_arguments)]
 pub fn eigendecomposition<S, G, F, R>(
     graph: G,
     length: F,

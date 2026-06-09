@@ -128,7 +128,10 @@ where
     S: DrawingValue,
 {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        match self.pos.partial_cmp(&other.pos) {
+            Some(Ordering::Equal) | None => self.index.cmp(&other.index),
+            Some(ord) => ord,
+        }
     }
 }
 
@@ -137,10 +140,7 @@ where
     S: DrawingValue,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.pos.partial_cmp(&other.pos).map(|ord| match ord {
-            Ordering::Equal => self.index.cmp(&other.index),
-            _ => ord,
-        })
+        Some(self.cmp(other))
     }
 }
 
@@ -170,7 +170,7 @@ struct Event<S> {
 fn find_x_neighbours<S: DrawingValue>(
     v: usize,
     scanline: &BTreeSet<NodeIndex<S>>,
-    nodes: &mut Vec<Node<S>>,
+    nodes: &mut [Node<S>],
 ) {
     let v_index = nodes[v].index();
     for r in scanline.range(v_index..).skip(1) {
@@ -204,7 +204,7 @@ fn find_x_neighbours<S: DrawingValue>(
 fn find_y_neighbours<S: DrawingValue>(
     v: usize,
     scanline: &BTreeSet<NodeIndex<S>>,
-    nodes: &mut Vec<Node<S>>,
+    nodes: &mut [Node<S>],
 ) {
     let v_index = nodes[v].index();
     for r in scanline.range(v_index..).skip(1) {
@@ -270,8 +270,7 @@ where
 
     // Create events for the sweep line algorithm
     let mut events = Vec::with_capacity(n * 2);
-    for i in 0..n {
-        let rect = &rectangles[i];
+    for (i, rect) in rectangles.iter().enumerate().take(n) {
         events.push(Event {
             pos: rect.y_min,
             is_open: true,
@@ -286,17 +285,13 @@ where
 
     // Sort events by position
     events.sort_by(|a, b| {
-        if a.pos > b.pos {
-            Ordering::Greater
-        } else if a.pos < b.pos {
-            Ordering::Less
-        } else if a.is_open {
-            Ordering::Less
-        } else if b.is_open {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        }
+        a.pos.partial_cmp(&b.pos).unwrap_or(Ordering::Equal).then_with(|| {
+            match (a.is_open, b.is_open) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        })
     });
 
     // Use BTreeSet to maintain active nodes
@@ -387,8 +382,7 @@ where
 
     // Create events for the sweep line algorithm
     let mut events = Vec::with_capacity(n * 2);
-    for i in 0..n {
-        let rect = &rectangles[i];
+    for (i, rect) in rectangles.iter().enumerate().take(n) {
         events.push(Event {
             pos: rect.x_min,
             is_open: true,
@@ -403,17 +397,13 @@ where
 
     // Sort events by position
     events.sort_by(|a, b| {
-        if a.pos > b.pos {
-            Ordering::Greater
-        } else if a.pos < b.pos {
-            Ordering::Less
-        } else if a.is_open {
-            Ordering::Less
-        } else if b.is_open {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        }
+        a.pos.partial_cmp(&b.pos).unwrap_or(Ordering::Equal).then_with(|| {
+            match (a.is_open, b.is_open) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        })
     });
 
     // Use BTreeSet to maintain active nodes

@@ -30,7 +30,7 @@ use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingInd
 /// graph.add_edge(n2, n3, ());
 ///
 /// // Create a ClassicalMds instance
-/// let mds = ClassicalMds::<NodeIndex>::new(&graph, |_| 1.0);
+/// let mds = ClassicalMds::<NodeIndex, f64>::new(&graph, |_| 1.0);
 ///
 /// // Run MDS to get a 2D layout
 /// let drawing = mds.run_2d();

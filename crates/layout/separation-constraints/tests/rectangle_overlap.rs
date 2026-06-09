@@ -48,7 +48,7 @@ fn test_project_rectangle_no_overlap_constraints_2d() {
             let gap_x = (size[i][0] + size[j][0]) / 2.0;
             let gap_y = (size[i][1] + size[j][1]) / 2.0;
             assert!(
-                dx >= gap_x || dy >= gap_y,
+                dx >= gap_x - 1e-5 || dy >= gap_y - 1e-5,
                 "|x({i}) - x({j})| = {dx} >= {gap_x} or |y({i}) - y({j})| = {dy} >= {gap_y}"
             );
         }

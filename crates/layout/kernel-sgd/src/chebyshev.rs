@@ -63,7 +63,7 @@ where
     let mut coeffs = vec![T::zero(); degree + 1];
 
     // Compute coefficients using Chebyshev-Gauss quadrature
-    for j in 0..=degree {
+    for (j, coeff) in coeffs.iter_mut().enumerate() {
         let mut sum = T::zero();
 
         for k in 0..n_points {
@@ -81,7 +81,7 @@ where
             sum = sum + f * t_j;
         }
 
-        coeffs[j] = T::from(2.0).unwrap() * sum / T::from(n_points).unwrap();
+        *coeff = T::from(2.0).unwrap() * sum / T::from(n_points).unwrap();
     }
 
     // First coefficient has weight 1 instead of 2

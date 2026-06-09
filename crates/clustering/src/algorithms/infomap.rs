@@ -1,6 +1,6 @@
 use crate::{CommunityDetection, utils::renumber_communities};
 use petgraph::visit::{EdgeCount, IntoNeighbors, IntoNodeIdentifiers};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 
 /// InfoMap community detection algorithm implementation.
@@ -131,32 +131,9 @@ where
     G::NodeId: Eq + Hash + Clone,
 {
     let mut communities = HashMap::new();
-    let mut visited = HashSet::new();
-    let mut community_id = 0;
-
-    // Use a breadth-first search to identify connected components
-    for start_node in graph.node_identifiers() {
-        if visited.contains(&start_node) {
-            continue;
-        }
-
-        let mut queue = vec![start_node];
-        visited.insert(start_node);
-        communities.insert(start_node, community_id);
-
-        while let Some(node) = queue.pop() {
-            for neighbor in graph.neighbors(node) {
-                if !visited.contains(&neighbor) {
-                    visited.insert(neighbor);
-                    communities.insert(neighbor, community_id);
-                    queue.push(neighbor);
-                }
-            }
-        }
-
-        community_id += 1;
+    for (i, node) in graph.node_identifiers().enumerate() {
+        communities.insert(node, i);
     }
-
     communities
 }
 
@@ -185,6 +162,11 @@ where
     for (community, count) in community_counts {
         if count > max_count {
             max_count = count;
+            best_community = community;
+        } else if count == max_count
+            && (community == current_community
+                || (best_community != current_community && community > best_community))
+        {
             best_community = community;
         }
     }

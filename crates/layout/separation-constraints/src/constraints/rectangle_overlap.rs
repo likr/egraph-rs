@@ -6,11 +6,11 @@ fn overlap_1d<S>(x00: S, x01: S, x10: S, x11: S) -> bool
 where
     S: DrawingValue,
 {
-    (x00 < x11 && x10 < x01) || (x10 < x01 && x00 < x11)
+    x00 < x11 && x10 < x01
 }
 
 /// Checks if two rectangles overlap by comparing their intervals in all dimensions
-fn overlap<S>(a: &Vec<(S, S)>, b: &Vec<(S, S)>) -> bool
+fn overlap<S>(a: &[(S, S)], b: &[(S, S)]) -> bool
 where
     S: DrawingValue,
 {

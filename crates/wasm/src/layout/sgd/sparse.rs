@@ -40,3 +40,9 @@ impl JsSparseSgd {
         ))
     }
 }
+
+impl Default for JsSparseSgd {
+    fn default() -> Self {
+        Self::new()
+    }
+}

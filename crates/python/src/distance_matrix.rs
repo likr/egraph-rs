@@ -27,7 +27,7 @@ use pyo3::prelude::*;
 ///
 /// * `Full` - A complete distance matrix containing distances between all pairs of nodes
 /// * `Sub` - A partial distance matrix containing distances between a subset of node pairs,
-///           typically used in sparse algorithms for improved memory efficiency
+///   typically used in sparse algorithms for improved memory efficiency
 pub enum DistanceMatrixType {
     /// Full distance matrix containing distances between all pairs of nodes
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),

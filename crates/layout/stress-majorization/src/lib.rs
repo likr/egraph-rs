@@ -257,7 +257,7 @@ where
             }
         }
 
-        let epsilon = (1e-4).into();
+        let epsilon = S::from_f64(1e-4).unwrap();
         let max_iterations = 100; // Default value
         let l_z = Array2::zeros((n - 1, n - 1));
         let b = Array1::zeros(n - 1);
@@ -306,7 +306,7 @@ where
                 let dx = drawing.raw_entry(i).0 - drawing.raw_entry(j).0;
                 let dy = drawing.raw_entry(i).1 - drawing.raw_entry(j).1;
                 let norm = (dx * dx + dy * dy).sqrt();
-                let lij = if norm < (1e-4).into() {
+                let lij = if norm < S::from_f64(1e-4).unwrap() {
                     S::zero()
                 } else {
                     -w[[i, j]] * d[[i, j]] / norm
@@ -326,7 +326,7 @@ where
             let dx = drawing.raw_entry(i).0;
             let dy = drawing.raw_entry(i).1;
             let norm = (dx * dx + dy * dy).sqrt();
-            s -= if norm < (1e-4).into() {
+            s -= if norm < S::from_f64(1e-4).unwrap() {
                 S::zero()
             } else {
                 -w[[i, j]] * d[[i, j]] / norm

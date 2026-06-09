@@ -1,6 +1,7 @@
 use petgraph_drawing::{Delta, DeltaSpherical2d, MetricSpherical2d};
 
 // Helper function to check if a value is NaN
+#[allow(clippy::eq_op)]
 fn is_nan<T: PartialEq + Copy>(value: T) -> bool {
     value != value
 }

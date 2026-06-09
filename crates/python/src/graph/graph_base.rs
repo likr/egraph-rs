@@ -294,7 +294,7 @@ pub fn graph_find_edge<Ty: EdgeType>(
 /// # Parameters
 /// * `graph` - The graph to query
 /// * `dir` - The direction: 0 for outgoing (nodes with no outgoing edges),
-///           any other value for incoming (nodes with no incoming edges)
+///   any other value for incoming (nodes with no incoming edges)
 ///
 /// # Returns
 /// A vector of node indices that have no edges in the specified direction

@@ -37,7 +37,7 @@ use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingInd
 ///
 /// // Use n1 and n3 as pivot nodes
 /// let pivot_nodes = vec![n1, n3];
-/// let mds = PivotMds::<NodeIndex>::new(&graph, |_| 1.0, &pivot_nodes);
+/// let mds = PivotMds::<NodeIndex, f64>::new(&graph, |_| 1.0, &pivot_nodes);
 ///
 /// // Run Pivot MDS to get a 2D layout
 /// let drawing = mds.run_2d();

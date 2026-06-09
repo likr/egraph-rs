@@ -34,7 +34,7 @@ fn cos<S: DrawingValue>(a: &Array1<S>, b: &Array1<S>) -> S {
 ///
 /// * `a`: The input matrix
 /// * `eps`: Convergence threshold - stops iterating when the cosine similarity between
-///          consecutive iterations is close enough to 1
+///   consecutive iterations is close enough to 1
 ///
 /// # Returns
 ///

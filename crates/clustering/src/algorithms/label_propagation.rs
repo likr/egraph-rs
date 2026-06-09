@@ -121,11 +121,10 @@ where
                 let neighbor_labels = collect_neighbor_labels(graph, *node, &labels);
 
                 if let Some(most_common_label) = find_most_common_label(&neighbor_labels, &mut rng)
+                    .filter(|&label| labels[node] != label)
                 {
-                    if labels[node] != most_common_label {
-                        *labels.get_mut(node).unwrap() = most_common_label;
-                        changed = true;
-                    }
+                    *labels.get_mut(node).unwrap() = most_common_label;
+                    changed = true;
                 }
             }
 
@@ -170,11 +169,12 @@ fn find_most_common_label<R: rand::Rng>(neighbor_labels: &[usize], rng: &mut R) 
     let max_count = label_counts.values().cloned().max().unwrap_or(0);
 
     // Collect all labels that have the maximum count
-    let most_common_labels: Vec<usize> = label_counts
+    let mut most_common_labels: Vec<usize> = label_counts
         .iter()
         .filter(|&(_, &count)| count == max_count)
         .map(|(&label, _)| label)
         .collect();
+    most_common_labels.sort_unstable();
 
     // Randomly select one of the most common labels
     most_common_labels.choose(rng).cloned()

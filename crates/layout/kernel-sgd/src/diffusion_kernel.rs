@@ -232,8 +232,8 @@ where
     }
 
     // Set diagonal elements (degrees)
-    for i in 0..n {
-        matrix.set_diagonal(i, degrees[i]);
+    for (i, &deg) in degrees.iter().enumerate().take(n) {
+        matrix.set_diagonal(i, deg);
     }
 
     matrix

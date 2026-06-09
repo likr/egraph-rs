@@ -267,7 +267,7 @@ where
     /// # Arguments
     ///
     /// * `x` - Variable positions (coordinate in the current dimension) to be projected.
-    ///         Modified **in-place** to satisfy all constraints.
+    ///   Modified **in-place** to satisfy all constraints.
     ///
     pub fn project(&mut self, x: &mut [S]) {
         // Iteratively find and resolve the most violated constraint (violation > tolerance).
@@ -482,8 +482,8 @@ where
         .map(|i| *drawing.raw_entry(i).nth(k))
         .collect::<Vec<_>>();
     cg.project(&mut x);
-    for i in 0..n {
-        *drawing.raw_entry_mut(i).nth_mut(k) = x[i];
+    for (i, val) in x.into_iter().enumerate() {
+        *drawing.raw_entry_mut(i).nth_mut(k) = val;
     }
 }
 

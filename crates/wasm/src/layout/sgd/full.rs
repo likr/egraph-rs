@@ -36,3 +36,9 @@ impl JsFullSgd {
         JsSgd::new_with_sgd(self.builder.build(graph.graph(), |e| length_map[&e.id()]))
     }
 }
+
+impl Default for JsFullSgd {
+    fn default() -> Self {
+        Self::new()
+    }
+}
