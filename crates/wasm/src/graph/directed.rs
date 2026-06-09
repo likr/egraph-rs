@@ -73,7 +73,7 @@ impl JsDiGraph {
     ///
     /// Returns an error if the node index is invalid.
     #[wasm_bindgen(js_name = nodeWeight)]
-    pub fn node_weight(&self, a: usize) -> Result<JsValue, JsValue> {
+    pub fn node_weight(&self, a: usize) -> Result<JsValue, JsError> {
         self.graph.node_weight(a)
     }
 
@@ -91,7 +91,7 @@ impl JsDiGraph {
     ///
     /// Returns an error if the edge index is invalid.
     #[wasm_bindgen(js_name = edgeWeight)]
-    pub fn edge_weight(&mut self, e: usize) -> Result<JsValue, JsValue> {
+    pub fn edge_weight(&mut self, e: usize) -> Result<JsValue, JsError> {
         self.graph.edge_weight(e)
     }
 
@@ -100,7 +100,7 @@ impl JsDiGraph {
     /// Returns an array containing two node indices [source, target].
     /// Returns an error if the edge index is invalid.
     #[wasm_bindgen(js_name = edgeEndpoints)]
-    pub fn edge_endpoints(&self, e: usize) -> Result<Array, JsValue> {
+    pub fn edge_endpoints(&self, e: usize) -> Result<Array, JsError> {
         self.graph.edge_endpoints(e)
     }
 
@@ -110,7 +110,7 @@ impl JsDiGraph {
     /// Note that removing a node will invalidate any edge indices that pointed to edges
     /// connected to the removed node.
     #[wasm_bindgen(js_name = removeNode)]
-    pub fn remove_node(&mut self, a: usize) -> Result<JsValue, JsValue> {
+    pub fn remove_node(&mut self, a: usize) -> Result<JsValue, JsError> {
         self.graph.remove_node(a)
     }
 
@@ -118,7 +118,7 @@ impl JsDiGraph {
     ///
     /// Returns the edge value if successful, or an error if the edge index is invalid.
     #[wasm_bindgen(js_name = removeEdge)]
-    pub fn remove_edge(&mut self, e: usize) -> Result<JsValue, JsValue> {
+    pub fn remove_edge(&mut self, e: usize) -> Result<JsValue, JsError> {
         self.graph.remove_edge(e)
     }
 
@@ -162,7 +162,7 @@ impl JsDiGraph {
     ///
     /// Returns an error if no such edge exists.
     #[wasm_bindgen(js_name = findEdge)]
-    pub fn find_edge(&self, a: usize, b: usize) -> Result<usize, JsValue> {
+    pub fn find_edge(&self, a: usize, b: usize) -> Result<usize, JsError> {
         self.graph.find_edge(a, b)
     }
 

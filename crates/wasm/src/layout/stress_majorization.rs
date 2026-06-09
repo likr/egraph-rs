@@ -41,13 +41,18 @@ impl JsStressMajorization {
         graph: &JsGraph,
         drawing: &JsDrawingEuclidean2d,
         f: &Function,
-    ) -> Result<JsStressMajorization, JsValue> {
+    ) -> Result<JsStressMajorization, JsError> {
         let mut distance = HashMap::new();
         for e in graph.graph().edge_indices() {
-            let result = f.call1(&JsValue::null(), &JsValue::from_f64(e.index() as f64))?;
-            let d = Reflect::get(&result, &"distance".into())?
+            let result = f
+                .call1(&JsValue::null(), &JsValue::from_f64(e.index() as f64))
+                .map_err(|e| JsError::new(&format!("Error calling distance function: {:?}", e)))?;
+            let d = Reflect::get(&result, &"distance".into())
+                .map_err(|e| JsError::new(&format!("Error getting distance property: {:?}", e)))?
                 .as_f64()
-                .ok_or_else(|| format!("links[{}].distance is not a Number.", e.index()))?;
+                .ok_or_else(|| {
+                    JsError::new(&format!("links[{}].distance is not a Number.", e.index()))
+                })?;
             distance.insert(e, d as f32);
         }
 

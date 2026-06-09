@@ -28,17 +28,17 @@ exports.testTsNetConstructor = function () {
   tsNet.learningRate = 100.0;
   assert.strictEqual(tsNet.learningRate, 100.0, "learningRate should be updated");
 
-  assert.strictEqual(tsNet.momentum, 0.8, "default momentum should be 0.8");
+  assert.ok(Math.abs(tsNet.momentum - 0.8) < 1e-6, "default momentum should be 0.8");
   tsNet.momentum = 0.9;
-  assert.strictEqual(tsNet.momentum, 0.9, "momentum should be updated");
+  assert.ok(Math.abs(tsNet.momentum - 0.9) < 1e-6, "momentum should be updated");
 
-  assert.strictEqual(tsNet.epsilonD, 0.01, "default epsilonD should be 0.01");
+  assert.ok(Math.abs(tsNet.epsilonD - 0.01) < 1e-6, "default epsilonD should be 0.01");
   tsNet.epsilonD = 0.02;
-  assert.strictEqual(tsNet.epsilonD, 0.02, "epsilonD should be updated");
+  assert.ok(Math.abs(tsNet.epsilonD - 0.02) < 1e-6, "epsilonD should be updated");
 
-  assert.strictEqual(tsNet.epsilonR, 0.05, "default epsilonR should be 0.05");
+  assert.ok(Math.abs(tsNet.epsilonR - 0.05) < 1e-6, "default epsilonR should be 0.05");
   tsNet.epsilonR = 0.06;
-  assert.strictEqual(tsNet.epsilonR, 0.06, "epsilonR should be updated");
+  assert.ok(Math.abs(tsNet.epsilonR - 0.06) < 1e-6, "epsilonR should be updated");
 };
 
 /**

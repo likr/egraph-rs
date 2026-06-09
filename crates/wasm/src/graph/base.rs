@@ -44,12 +44,12 @@ impl<Ty: EdgeType> GraphBase<Ty> {
         self.graph.add_node(value).index()
     }
 
-    pub fn node_weight(&self, a: usize) -> Result<JsValue, JsValue> {
+    pub fn node_weight(&self, a: usize) -> Result<JsValue, JsError> {
         let a = node_index(a);
         self.graph
             .node_weight(a)
             .cloned()
-            .ok_or_else(|| "invalid node index".into())
+            .ok_or_else(|| JsError::new("invalid node index"))
     }
 
     pub fn add_edge(&mut self, a: usize, b: usize, value: JsValue) -> usize {
@@ -58,15 +58,15 @@ impl<Ty: EdgeType> GraphBase<Ty> {
         self.graph.add_edge(a, b, value).index()
     }
 
-    pub fn edge_weight(&mut self, e: usize) -> Result<JsValue, JsValue> {
+    pub fn edge_weight(&mut self, e: usize) -> Result<JsValue, JsError> {
         let e = edge_index(e);
         self.graph
             .edge_weight(e)
             .cloned()
-            .ok_or_else(|| "invalid edge index".into())
+            .ok_or_else(|| JsError::new("invalid edge index"))
     }
 
-    pub fn edge_endpoints(&self, e: usize) -> Result<Array, JsValue> {
+    pub fn edge_endpoints(&self, e: usize) -> Result<Array, JsError> {
         let e = edge_index(e);
         self.graph
             .edge_endpoints(e)
@@ -76,21 +76,21 @@ impl<Ty: EdgeType> GraphBase<Ty> {
                     .map(|a| JsValue::from_f64(a.index() as f64))
                     .collect::<Array>()
             })
-            .ok_or_else(|| "invalid edge index".into())
+            .ok_or_else(|| JsError::new("invalid edge index"))
     }
 
-    pub fn remove_node(&mut self, a: usize) -> Result<JsValue, JsValue> {
+    pub fn remove_node(&mut self, a: usize) -> Result<JsValue, JsError> {
         let a = node_index(a);
         self.graph
             .remove_node(a)
-            .ok_or_else(|| "invalid node index".into())
+            .ok_or_else(|| JsError::new("invalid node index"))
     }
 
-    pub fn remove_edge(&mut self, e: usize) -> Result<JsValue, JsValue> {
+    pub fn remove_edge(&mut self, e: usize) -> Result<JsValue, JsError> {
         let e = edge_index(e);
         self.graph
             .remove_edge(e)
-            .ok_or_else(|| "invalid node index".into())
+            .ok_or_else(|| JsError::new("invalid node index"))
     }
 
     pub fn neighbors(&self, a: usize) -> Array {
@@ -132,13 +132,13 @@ impl<Ty: EdgeType> GraphBase<Ty> {
         self.graph.contains_edge(a, b)
     }
 
-    pub fn find_edge(&self, a: usize, b: usize) -> Result<usize, JsValue> {
+    pub fn find_edge(&self, a: usize, b: usize) -> Result<usize, JsError> {
         let a = node_index(a);
         let b = node_index(b);
         self.graph
             .find_edge(a, b)
             .map(|e| e.index())
-            .ok_or_else(|| "invalid edge index".into())
+            .ok_or_else(|| JsError::new("invalid edge index"))
     }
 
     pub fn externals(&self, dir: usize) -> Array {

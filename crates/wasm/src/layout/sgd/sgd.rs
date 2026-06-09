@@ -114,7 +114,7 @@ impl JsSgd {
     }
 
     /// Creates a default scheduler from this SGD instance.
-    #[wasm_bindgen(js_name = "schedulerConstant")]
+    #[wasm_bindgen]
     pub fn scheduler(&self, t_max: usize, epsilon: f32) -> JsSchedulerExponential {
         self.scheduler_exponential(t_max, epsilon)
     }

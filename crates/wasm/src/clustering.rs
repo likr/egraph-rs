@@ -32,14 +32,15 @@ pub fn js_coarsen(
     groups: &Function,
     shrink_node: &Function,
     shrink_edge: &Function,
-) -> Result<JsValue, JsValue> {
+) -> Result<JsValue, JsError> {
     let graph = graph.graph();
     let mut group_map = HashMap::new();
     for u in graph.node_indices() {
         let group = groups
-            .call1(&JsValue::null(), &JsValue::from_f64(u.index() as f64))?
+            .call1(&JsValue::null(), &JsValue::from_f64(u.index() as f64))
+            .map_err(|e| JsError::new(&format!("Error calling groups function: {:?}", e)))?
             .as_f64()
-            .ok_or_else(|| format!("group[{}] is not a number", u.index()))?
+            .ok_or_else(|| JsError::new(&format!("group[{}] is not a number", u.index())))?
             as usize;
         group_map.insert(u, group);
     }

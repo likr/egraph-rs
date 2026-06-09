@@ -212,14 +212,23 @@ impl JsDistanceMatrix {
         coordinates: &[f32],
         d: usize,
         min_dist: f32,
-    ) -> JsDistanceMatrix {
+    ) -> Result<JsDistanceMatrix, JsError> {
         let n = graph.graph().node_count();
-        assert_eq!(coordinates.len(), n * d, "coordinates length must be n * d");
-        let array = ndarray::Array2::from_shape_vec((n, d), coordinates.to_vec()).unwrap();
-        let matrix = EmbeddingDistanceMatrix::new(graph.graph(), array, min_dist);
-        JsDistanceMatrix {
-            inner: InnerDistanceMatrix::Embedding(matrix),
+        if coordinates.len() != n * d {
+            return Err(JsError::new(&format!(
+                "coordinates length must be n * d (n: {}, d: {}, expected: {}, got: {})",
+                n,
+                d,
+                n * d,
+                coordinates.len()
+            )));
         }
+        let array = ndarray::Array2::from_shape_vec((n, d), coordinates.to_vec())
+            .map_err(|e| JsError::new(&format!("Failed to create ndarray shape: {:?}", e)))?;
+        let matrix = EmbeddingDistanceMatrix::new(graph.graph(), array, min_dist);
+        Ok(JsDistanceMatrix {
+            inner: InnerDistanceMatrix::Embedding(matrix),
+        })
     }
 
     #[wasm_bindgen(js_name = "kernel")]

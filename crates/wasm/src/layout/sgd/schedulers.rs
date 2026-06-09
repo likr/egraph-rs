@@ -29,6 +29,14 @@ impl JsSchedulerConstant {
 
 #[wasm_bindgen(js_class = "SchedulerConstant")]
 impl JsSchedulerConstant {
+    /// Creates a new constant learning rate scheduler.
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerConstant::init(t_max, 0.1, 1.0),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -73,6 +81,14 @@ impl JsSchedulerLinear {
 
 #[wasm_bindgen(js_class = "SchedulerLinear")]
 impl JsSchedulerLinear {
+    /// Creates a new linear learning rate scheduler.
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerLinear::init(t_max, 0.1, 1.0),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -117,6 +133,14 @@ impl JsSchedulerQuadratic {
 
 #[wasm_bindgen(js_class = "SchedulerQuadratic")]
 impl JsSchedulerQuadratic {
+    /// Creates a new quadratic learning rate scheduler.
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerQuadratic::init(t_max, 0.1, 1.0),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -162,6 +186,14 @@ impl JsSchedulerExponential {
 
 #[wasm_bindgen(js_class = "SchedulerExponential")]
 impl JsSchedulerExponential {
+    /// Creates a new exponential learning rate scheduler.
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerExponential::init(t_max, 0.1, 1.0),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
@@ -207,6 +239,14 @@ impl JsSchedulerReciprocal {
 
 #[wasm_bindgen(js_class = "SchedulerReciprocal")]
 impl JsSchedulerReciprocal {
+    /// Creates a new reciprocal learning rate scheduler.
+    #[wasm_bindgen(constructor)]
+    pub fn new(t_max: usize) -> Self {
+        Self {
+            scheduler: SchedulerReciprocal::init(t_max, 0.1, 1.0),
+        }
+    }
+
     /// Runs the complete scheduling process, applying the learning rate to each iteration.
     ///
     /// Takes a callback function that receives the current learning rate at each step.
