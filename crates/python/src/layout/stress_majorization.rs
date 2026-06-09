@@ -218,7 +218,7 @@ impl PyStressMajorization {
     }
 }
 
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStressMajorization>()?;
     Ok(())
 }

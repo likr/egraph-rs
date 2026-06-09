@@ -33,15 +33,15 @@ pub type FloatType = f64;
 /// This function is the main entry point for the Python module. It registers all submodules
 /// and their associated classes and functions.
 #[pymodule]
-fn egraph(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
-    graph::register(py, m)?;
-    drawing::register(py, m)?;
-    distance_matrix::register(py, m)?;
-    rng::register(py, m)?;
-    layout::register(py, m)?;
-    algorithm::register(py, m)?;
-    quality_metrics::register(py, m)?;
-    clustering::register(py, m)?;
-    array::register(py, m)?;
+fn egraph(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    graph::register(m)?;
+    drawing::register(m)?;
+    distance_matrix::register(m)?;
+    rng::register(m)?;
+    layout::register(m)?;
+    algorithm::register(m)?;
+    quality_metrics::register(m)?;
+    clustering::register(m)?;
+    array::register(m)?;
     Ok(())
 }

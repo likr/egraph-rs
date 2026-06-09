@@ -26,7 +26,7 @@ pub use self::sgd::PySgd;
 pub use self::sparse::PySparseSgd;
 
 /// Register all SGD-related classes with the Python module
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register scheduler classes
     m.add_class::<PySchedulerConstant>()?;
     m.add_class::<PySchedulerLinear>()?;

@@ -10,7 +10,7 @@ use crate::graph::{GraphType, PyGraphAdapter};
 use longest_path::PyLongestPath;
 
 /// Register the layering module and its classes with Python.
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLongestPath>()?;
 
     // Register cycle detection and removal functions

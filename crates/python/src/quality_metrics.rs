@@ -60,7 +60,7 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCr
             DrawingType::Euclidean2d => {
                 let drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingEuclidean2d>()
+                    .cast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 match graph.graph() {
@@ -75,7 +75,7 @@ fn py_crossing_edges(graph: &PyGraphAdapter, drawing: &Bound<PyDrawing>) -> PyCr
             DrawingType::Torus2d => {
                 let drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingTorus2d>()
+                    .cast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 match graph.graph() {
@@ -246,7 +246,7 @@ fn py_ideal_edge_lengths(
             DrawingType::Euclidean2d => {
                 let drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingEuclidean2d>()
+                    .cast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 match distance_matrix.distance_matrix() {
@@ -264,7 +264,7 @@ fn py_ideal_edge_lengths(
             DrawingType::Torus2d => {
                 let drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingTorus2d>()
+                    .cast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 match distance_matrix.distance_matrix() {
@@ -333,17 +333,13 @@ fn py_node_resolution(drawing: &Bound<PyDrawing>) -> FloatType {
         DrawingType::Euclidean2d => {
             let drawing = drawing
                 .clone()
-                .downcast::<PyDrawingEuclidean2d>()
+                .cast::<PyDrawingEuclidean2d>()
                 .unwrap()
                 .borrow();
             node_resolution(drawing.drawing())
         }
         DrawingType::Torus2d => {
-            let drawing = drawing
-                .clone()
-                .downcast::<PyDrawingTorus2d>()
-                .unwrap()
-                .borrow();
+            let drawing = drawing.clone().cast::<PyDrawingTorus2d>().unwrap().borrow();
             node_resolution(drawing.drawing())
         }
         _ => unimplemented!(),
@@ -373,7 +369,7 @@ fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> 
                 DrawingType::Euclidean2d => {
                     let drawing = drawing
                         .clone()
-                        .downcast::<PyDrawingEuclidean2d>()
+                        .cast::<PyDrawingEuclidean2d>()
                         .unwrap()
                         .borrow_mut();
                     stress(drawing.drawing(), d)
@@ -381,7 +377,7 @@ fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> 
                 DrawingType::Torus2d => {
                     let drawing = drawing
                         .clone()
-                        .downcast::<PyDrawingTorus2d>()
+                        .cast::<PyDrawingTorus2d>()
                         .unwrap()
                         .borrow_mut();
                     stress(drawing.drawing(), d)
@@ -393,7 +389,7 @@ fn py_stress(drawing: &Bound<PyDrawing>, distance_matrix: &PyDistanceMatrix) -> 
     })
 }
 
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_angular_resolution, m)?)?;
     m.add_function(wrap_pyfunction!(py_aspect_ratio, m)?)?;
     m.add_function(wrap_pyfunction!(py_crossing_angle, m)?)?;

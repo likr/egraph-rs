@@ -126,7 +126,7 @@ impl PyWeightedEdgeLength {
 }
 
 /// Registers shortest path functions with the Python module
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_all_sources_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(py_all_sources_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(py_warshall_floyd, m)?)?;

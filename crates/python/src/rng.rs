@@ -71,7 +71,7 @@ impl PyRng {
 }
 
 /// Registers random number generator classes with the Python module
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRng>()?;
     Ok(())
 }

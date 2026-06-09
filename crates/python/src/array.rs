@@ -392,7 +392,7 @@ impl PyArray2 {
 }
 
 /// Register the array module with Python
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyArray1>()?;
     m.add_class::<PyArray2>()?;
     m.add_class::<PyArray1Iterator>()?;

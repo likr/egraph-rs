@@ -19,10 +19,10 @@ use pyo3::prelude::*;
 ///
 /// This function adds all the graph algorithm functions to the Python module,
 /// making them available to be called from Python code.
-pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
-    shortest_path::register(py, m)?;
-    layering::register(py, m)?;
-    triangulation::register(py, m)?;
-    separation_constraints::register(py, m)?;
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    shortest_path::register(m)?;
+    layering::register(m)?;
+    triangulation::register(m)?;
+    separation_constraints::register(m)?;
     Ok(())
 }

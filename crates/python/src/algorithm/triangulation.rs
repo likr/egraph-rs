@@ -58,7 +58,7 @@ pub fn py_triangulation(
 }
 
 /// Register the triangulation module with Python
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_triangulation, m)?)?;
     Ok(())
 }

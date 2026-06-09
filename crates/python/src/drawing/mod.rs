@@ -34,7 +34,7 @@ use pyo3::prelude::*;
 /// making them available to be instantiated and used from Python code.
 /// Drawing classes provide the foundation for graph visualization by
 /// mapping nodes to positions in various geometric spaces.
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register the base drawing class
     m.add_class::<PyDrawing>()?;
 

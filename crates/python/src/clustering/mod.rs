@@ -17,7 +17,7 @@ use louvain::PyLouvain;
 use spectral::PySpectralClustering;
 
 /// Register the clustering module and its classes with Python.
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLouvain>()?;
     m.add_class::<PyLabelPropagation>()?;
     m.add_class::<PySpectralClustering>()?;

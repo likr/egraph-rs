@@ -76,33 +76,32 @@ where
                 };
                 if let Some(entry_pos) = entry_pos {
                     let mut sum = S::zero();
-                        let mut i_ptr = 0;
-                        let mut j_ptr = 0;
+                    let mut i_ptr = 0;
+                    let mut j_ptr = 0;
 
-                        while i_ptr < row_entries[i].len() && j_ptr < row_entries[j].len() {
-                            let (i_col, i_val) = row_entries[i][i_ptr];
-                            let (j_col, j_val) = row_entries[j][j_ptr];
+                    while i_ptr < row_entries[i].len() && j_ptr < row_entries[j].len() {
+                        let (i_col, i_val) = row_entries[i][i_ptr];
+                        let (j_col, j_val) = row_entries[j][j_ptr];
 
-                            if i_col == j_col && i_col < i {
-                                sum += i_val * j_val;
-                                i_ptr += 1;
-                                j_ptr += 1;
-                            } else if i_col < j_col {
-                                i_ptr += 1;
-                            } else {
-                                j_ptr += 1;
-                            }
-                        }
-
-                        let a_ji = val;
-                        let new_value = (a_ji - sum) / diagonal[i];
-
-                        row_entries[j][entry_pos].1 = new_value;
-                        if let Some(col_pos) = col_entries[i].iter().position(|&(row, _)| row == j)
-                        {
-                            col_entries[i][col_pos].1 = new_value;
+                        if i_col == j_col && i_col < i {
+                            sum += i_val * j_val;
+                            i_ptr += 1;
+                            j_ptr += 1;
+                        } else if i_col < j_col {
+                            i_ptr += 1;
+                        } else {
+                            j_ptr += 1;
                         }
                     }
+
+                    let a_ji = val;
+                    let new_value = (a_ji - sum) / diagonal[i];
+
+                    row_entries[j][entry_pos].1 = new_value;
+                    if let Some(col_pos) = col_entries[i].iter().position(|&(row, _)| row == j) {
+                        col_entries[i][col_pos].1 = new_value;
+                    }
+                }
             }
         }
 

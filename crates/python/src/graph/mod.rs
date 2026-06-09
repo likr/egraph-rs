@@ -371,8 +371,8 @@ impl PyGraphAdapter {
 }
 
 /// Registers graph-related classes with the Python module
-pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGraphAdapter>()?;
-    graph_base::register(py, m)?;
+    graph_base::register(m)?;
     Ok(())
 }

@@ -34,7 +34,7 @@ use pyo3::prelude::*;
 /// 1
 /// >>> constraint.gap
 /// 5.0
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 #[pyo3(name = "Constraint")]
 pub struct PyConstraint {
@@ -312,7 +312,7 @@ fn py_project_clustered_rectangle_no_overlap_constraints(
 }
 
 /// Register the separation constraints module with Python
-pub fn register(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConstraint>()?;
     m.add_function(wrap_pyfunction!(py_project_1d, m)?)?;
     m.add_function(wrap_pyfunction!(

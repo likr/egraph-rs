@@ -28,14 +28,14 @@ use pyo3::prelude::*;
 /// making them available to be instantiated and used from Python code.
 /// These algorithms determine the positions of nodes in a graph drawing,
 /// optimizing for various aesthetic criteria.
-pub fn register(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register various layout algorithm implementations
-    mds::register(py, m)?;
-    rdmds::register(py, m)?;
-    kamada_kawai::register(py, m)?;
-    overwrap_removal::register(py, m)?;
-    stress_majorization::register(py, m)?;
-    sgd::register(py, m)?;
-    ts_net::register(py, m)?;
+    mds::register(m)?;
+    rdmds::register(m)?;
+    kamada_kawai::register(m)?;
+    overwrap_removal::register(m)?;
+    stress_majorization::register(m)?;
+    sgd::register(m)?;
+    ts_net::register(m)?;
     Ok(())
 }

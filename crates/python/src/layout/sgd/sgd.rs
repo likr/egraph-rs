@@ -69,7 +69,7 @@ impl PySgd {
             DrawingType::Euclidean2d => {
                 let mut drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingEuclidean2d>()
+                    .cast::<PyDrawingEuclidean2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
@@ -77,7 +77,7 @@ impl PySgd {
             DrawingType::Euclidean => {
                 let mut drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingEuclidean>()
+                    .cast::<PyDrawingEuclidean>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
@@ -85,7 +85,7 @@ impl PySgd {
             DrawingType::Hyperbolic2d => {
                 let mut drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingHyperbolic2d>()
+                    .cast::<PyDrawingHyperbolic2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
@@ -93,7 +93,7 @@ impl PySgd {
             DrawingType::Spherical2d => {
                 let mut drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingSpherical2d>()
+                    .cast::<PyDrawingSpherical2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
@@ -101,7 +101,7 @@ impl PySgd {
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .clone()
-                    .downcast::<PyDrawingTorus2d>()
+                    .cast::<PyDrawingTorus2d>()
                     .unwrap()
                     .borrow_mut();
                 self.sgd.apply(drawing.drawing_mut(), eta)
