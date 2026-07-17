@@ -46,8 +46,12 @@ where
 
     for k in 0..n {
         for i in 0..n {
+            let dik = distance.get_by_index(i, k);
+            if dik == S::infinity() {
+                continue;
+            }
             for j in 0..n {
-                let d = distance.get_by_index(i, k) + distance.get_by_index(k, j);
+                let d = dik + distance.get_by_index(k, j);
                 if d < distance.get_by_index(i, j) {
                     distance.set_by_index(i, j, d);
                 }

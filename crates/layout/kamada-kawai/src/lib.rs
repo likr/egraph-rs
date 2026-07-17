@@ -181,7 +181,7 @@ impl<S> KamadaKawai<S> {
     ///
     /// * `m` - The index of the node to move
     /// * `drawing` - The current node positions, which will be updated
-    pub fn apply_to_node<N>(&self, m: usize, drawing: &mut DrawingEuclidean2d<N, S>)
+    pub fn apply_to_node<N>(&self, m: usize, drawing: &mut DrawingEuclidean2d<N, S>) -> S
     where
         N: DrawingIndex,
         S: DrawingValue,
@@ -215,6 +215,7 @@ impl<S> KamadaKawai<S> {
         let delta_y = (hxx * dedy - hxy * dedx) / det;
         drawing.raw_entry_mut(m).0 -= delta_x;
         drawing.raw_entry_mut(m).1 -= delta_y;
+        dedx * dedx + dedy * dedy
     }
 
     /// Runs the Kamada-Kawai algorithm until convergence.
@@ -231,7 +232,12 @@ impl<S> KamadaKawai<S> {
         S: DrawingValue,
     {
         while let Some(m) = self.select_node(drawing) {
-            self.apply_to_node(m, drawing);
+            for _ in 0..15 {
+                let delta2 = self.apply_to_node(m, drawing);
+                if delta2 < self.eps * self.eps {
+                    break;
+                }
+            }
         }
     }
 }
@@ -260,5 +266,35 @@ fn test_kamada_kawai() {
 
     for &u in &nodes {
         println!("{:?}", coordinates.position(u));
+    }
+}
+
+#[test]
+fn test_kamada_kawai_local_convergence() {
+    use petgraph::Graph;
+
+    let n = 5;
+    let mut graph = Graph::new_undirected();
+    let nodes = (0..n).map(|_| graph.add_node(())).collect::<Vec<_>>();
+    for i in 0..n {
+        for j in 0..i {
+            graph.add_edge(nodes[j], nodes[i], ());
+        }
+    }
+
+    let mut coordinates = DrawingEuclidean2d::<petgraph::graph::NodeIndex, f32>::initial_placement(&graph);
+    let kamada_kawai = KamadaKawai::new(&graph, &mut |_| 1.);
+
+    if let Some(m) = kamada_kawai.select_node(&coordinates) {
+        let delta2_initial = kamada_kawai.apply_to_node(m, &mut coordinates);
+        for _ in 0..10 {
+            let next_delta2 = kamada_kawai.apply_to_node(m, &mut coordinates);
+            if next_delta2 < kamada_kawai.eps * kamada_kawai.eps {
+                break;
+            }
+        }
+        // ローカルに動かした結果、勾配が非常に小さくなる（局所収束）ことを確認
+        let final_delta2 = kamada_kawai.apply_to_node(m, &mut coordinates);
+        assert!(final_delta2 < delta2_initial);
     }
 }

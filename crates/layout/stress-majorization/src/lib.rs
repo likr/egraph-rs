@@ -39,7 +39,7 @@
 //! let mut sm = StressMajorization::new(&graph, &drawing, |_| 1.0);
 //! sm.run(&mut drawing);
 //! ```
-
+//!
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount};
 use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
@@ -47,32 +47,7 @@ use petgraph_drawing::{
     Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d,
 };
 
-/// Computes the optimal step length (alpha) in the conjugate gradient method.
-///
-/// The line search finds the value of alpha that minimizes the function value
-/// when moving in the direction d.
-///
-/// # Arguments
-///
-/// * `a` - The coefficient matrix
-/// * `dx` - The gradient vector
-/// * `d` - The search direction
-///
-/// # Returns
-///
-/// The optimal step length alpha
-fn line_search<S: DrawingValue>(a: &Array2<S>, dx: &Array1<S>, d: &Array1<S>) -> S {
-    let n = dx.len();
-    let mut alpha = -d.dot(dx);
-    let mut s = S::zero();
-    for i in 0..n {
-        for j in 0..n {
-            s += d[i] * d[j] * a[[i, j]];
-        }
-    }
-    alpha /= s;
-    alpha
-}
+
 
 /// Computes the gradient (delta_f) of the quadratic function f(x) = (1/2)x^T A x - b^T x.
 ///
@@ -119,11 +94,23 @@ pub fn conjugate_gradient<S: DrawingValue>(
     }
     let mut dx_norm0 = dx.dot(&dx);
     for _ in 0..n {
-        let alpha = line_search(a, &dx, &d);
+        let mut q = Array1::zeros(n);
+        for i in 0..n {
+            let mut sum = S::zero();
+            for j in 0..n {
+                sum += a[[i, j]] * d[j];
+            }
+            q[i] = sum;
+        }
+        let mut s = S::zero();
+        for i in 0..n {
+            s += d[i] * q[i];
+        }
+        let alpha = -d.dot(&dx) / s;
         for i in 0..n {
             x[i] += alpha * d[i];
+            dx[i] += alpha * q[i];
         }
-        delta_f(a, b, x, &mut dx);
         let dx_norm = dx.dot(&dx);
         if dx_norm < epsilon {
             break;
@@ -440,6 +427,22 @@ fn test_conjugate_gradient() {
         d += dx * dx;
     }
     assert!(d < epsilon);
+}
+
+#[test]
+fn test_conjugate_gradient_larger() {
+    let a = arr2(&[[4., 1., 1.], [1., 3., -1.], [1., -1., 2.]]);
+    let b = arr1(&[9., 4., 5.]);
+    let mut x = arr1(&[0., 0., 0.]);
+    let epsilon = 1e-6;
+    conjugate_gradient(&a, &b, &mut x, epsilon);
+    let x_exact = [1., 2., 3.];
+    let mut d = 0.;
+    for i in 0..x.len() {
+        let dx = x[i] - x_exact[i];
+        d += dx * dx;
+    }
+    assert!(d < 1e-4);
 }
 
 #[test]
