@@ -37,3 +37,28 @@ fn test_all_sources_dijkstra() {
 fn test_warshall_floyd() {
     run(|graph| warshall_floyd(graph, &mut |_| 1.));
 }
+
+#[test]
+fn test_warshall_floyd_disconnected() {
+    let mut graph = UnGraph::<(), ()>::new_undirected();
+    let n0 = graph.add_node(());
+    let n1 = graph.add_node(());
+    let n2 = graph.add_node(());
+    let n3 = graph.add_node(());
+    
+    graph.add_edge(n0, n1, ());
+    graph.add_edge(n2, n3, ());
+
+    let actual = warshall_floyd(&graph, &mut |_| 1.0f32);
+    
+    assert_eq!(actual.get(n0, n0).unwrap(), 0.0);
+    assert_eq!(actual.get(n0, n1).unwrap(), 1.0);
+    assert_eq!(actual.get(n1, n0).unwrap(), 1.0);
+    
+    assert_eq!(actual.get(n2, n2).unwrap(), 0.0);
+    assert_eq!(actual.get(n2, n3).unwrap(), 1.0);
+    assert_eq!(actual.get(n3, n2).unwrap(), 1.0);
+    
+    assert_eq!(actual.get(n0, n2).unwrap(), f32::INFINITY);
+    assert_eq!(actual.get(n1, n3).unwrap(), f32::INFINITY);
+}
