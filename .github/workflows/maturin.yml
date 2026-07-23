@@ -13,14 +13,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install maturin
-        run: pip install maturin
-      - uses: messense/maturin-action@v1
-        with:
-          command: build
-          args: --release -o dist
-          working-directory: crates/python
-          manylinux: off
+      - name: Install Python dev headers and maturin
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-dev
+          pip install maturin
+      - name: Build wheels
+        run: maturin build --manifest-path crates/python/Cargo.toml --release -o crates/python/dist
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
