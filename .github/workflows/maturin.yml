@@ -15,7 +15,7 @@ jobs:
           python-version: '3.10'
       - name: Install Python dev headers and maturin
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-dev
+          sudo apt-get update && sudo apt-get install -y python3.10-dev
           pip install maturin
       - name: Build wheels
         run: maturin build --manifest-path crates/python/Cargo.toml --release -o crates/python/dist
