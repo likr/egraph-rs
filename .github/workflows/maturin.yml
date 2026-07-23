@@ -16,7 +16,7 @@ jobs:
       - uses: messense/maturin-action@v1
         with:
           command: build
-          args: --release -o dist
+          args: --release --interpreter python3 -o dist
           working-directory: crates/python
           manylinux: off
       - name: Upload wheels
