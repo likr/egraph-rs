@@ -7,7 +7,7 @@ name = "egraph"
 dynamic = ["version"]
 description = "High-performance graph drawing and layout library powered by Rust"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
     { name = "Yosuke Onoue", email = "onoue@likr-lab.com" }
@@ -35,8 +35,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
