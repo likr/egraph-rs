@@ -32,3 +32,4 @@ When running `cargo test --workspace`, compilation fails due to a dependency ver
 1. Document the dependency conflict (done in this maintenance plan).
 2. Discuss with maintainers whether to downgrade PyO3/NumPy to 0.26 (Option A) or migrate away from `linfa` to support NumPy 0.28 (Option B).
 3. Execute the chosen resolution strategy and ensure `cargo test --workspace` and `make all` pass cleanly.
+
