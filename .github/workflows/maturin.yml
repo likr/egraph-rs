@@ -9,16 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install Python dev headers and maturin
-        run: |
-          sudo apt-get update && sudo apt-get install -y python3-dev
-          pip install maturin
-      - name: Build wheels
-        run: maturin build --manifest-path crates/python/Cargo.toml --release --interpreter python3 -o crates/python/dist
+      - uses: messense/maturin-action@v1
+        with:
+          command: build
+          args: --release -o dist
+          working-directory: crates/python
+          rust-version: stable
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
