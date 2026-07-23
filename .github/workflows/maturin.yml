@@ -15,8 +15,7 @@ jobs:
       - uses: messense/maturin-action@v1
         with:
           command: build
-          args: --release -o dist
-          working-directory: crates/python
+          args: --manifest-path crates/python/Cargo.toml --release -o crates/python/dist
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
