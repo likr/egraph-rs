@@ -80,12 +80,10 @@ Generates node pairs for SGD from spectral embeddings.
 Diffusion kernel-based SGD using exp(-tL) kernel.
 - **Location**: `crates/layout/kernel-sgd/` and `crates/linalg/spmv/`
 - **Architecture**:
-  - `power_method.rs`: Estimates maximum eigenvalue of graph Laplacian
-  - `chebyshev.rs`: Approximates exp(-tL) using Chebyshev polynomials
-  - `hutchinson.rs`: Trace estimator
-  - `diffusion_kernel.rs`: Random access interface (provides K[i, j] query in O(num_vectors) time)
-  - `multiscale.rs`: Eigenvalue-free Multiscale Diffusion Distance engine using Batched BiCGSTAB and Row-Major Hutchinson index
-  - `kernel_sgd.rs`: Builder pattern and integration
+  - `diffusion_kernel.rs`: Single-scale heat kernel `DiffusionKernel` ($e^{-tL}$) and `DiffusionDistanceMatrix`
+  - `bicgstab.rs`: Batched BiCGSTAB linear solver ($(I - \alpha P) Y = B$) with internal `BicgstabSolverBuffers`
+  - `multiscale.rs`: Eigenvalue-free `MultiscaleDiffusionKernel` engine using Batched BiCGSTAB and Hutchinson index, with `MultiscaleDiffusionDistanceMatrix`
+  - **API Surface Principle**: Keep submodules private (`mod ...;`), export minimal symmetric API (`DiffusionKernel` & `MultiscaleDiffusionKernel`, `DiffusionDistanceMatrix` & `MultiscaleDiffusionDistanceMatrix`), and hide internal solver workspace buffers (`pub(crate)`).
 
 ## Community Detection
 

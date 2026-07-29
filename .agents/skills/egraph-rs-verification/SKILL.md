@@ -17,6 +17,7 @@ This skill contains all the commands to check formatting, lint code, and run tes
 | **Rust** | All Tests | `make test` (runs `cargo test --workspace`) |
 | **Rust** | Crate Tests | `make test-crate CRATE=<crate-name>` |
 | **Rust** | Specific Test | `cargo test -p <crate-name> <test-name>` |
+| **Rust** | Ignored / Accuracy Test | `cargo test -p <crate-name> --test <test-name> -- --ignored --nocapture` |
 | **WASM** | All Tests | `wasm-pack test --node crates/wasm` |
 | **WASM** | Specific Test | `wasm-pack test --node crates/wasm --test <test-name>` |
 | **WASM** | Build | `npm run wasm-build` |
