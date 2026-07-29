@@ -1,5 +1,6 @@
 //! Diffusion kernel matrix computation and distance representation.
 
+mod bicgstab;
 mod chebyshev;
 mod diffusion_kernel;
 mod hutchinson;
@@ -8,7 +9,4 @@ mod power_method;
 
 pub use diffusion_kernel::{DiffusionDistanceMatrix, DiffusionKernel};
 pub use hutchinson::HutchinsonEstimator;
-pub use multiscale::{
-    MultiscaleDiffusionConfig, MultiscaleDiffusionDistanceMatrix, MultiscaleDiffusionEngine,
-    SolverBuffers,
-};
+pub use multiscale::{MultiscaleDiffusionDistanceMatrix, MultiscaleDiffusionKernel};

@@ -131,7 +131,11 @@ where
     }
 }
 
-pub fn generate_rademacher_vectors<T, R>(n: usize, num_vectors: usize, rng: &mut R) -> Array2<T>
+pub(crate) fn generate_rademacher_vectors<T, R>(
+    n: usize,
+    num_vectors: usize,
+    rng: &mut R,
+) -> Array2<T>
 where
     T: Float,
     R: Rng,

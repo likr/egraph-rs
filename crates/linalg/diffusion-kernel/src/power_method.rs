@@ -6,7 +6,7 @@ use petgraph_linalg_spmv::SparseSymmetricMatrix;
 use rand::Rng;
 
 /// Estimates the maximum eigenvalue of a symmetric matrix using the power method.
-pub fn estimate_lambda_max<T, R>(
+pub(crate) fn estimate_lambda_max<T, R>(
     matrix: &SparseSymmetricMatrix<T>,
     rng: &mut R,
     max_iterations: usize,

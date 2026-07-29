@@ -22,7 +22,7 @@ use std::f64::consts::PI;
 ///
 /// # Returns
 /// KV - Result of K @ vectors where K = exp(-tL), shape (n, num_vectors)
-pub fn chebyshev_approximation<T>(
+pub(crate) fn chebyshev_approximation<T>(
     laplacian: &SparseSymmetricMatrix<T>,
     t: T,
     degree: usize,
