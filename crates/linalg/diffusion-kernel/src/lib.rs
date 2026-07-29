@@ -9,6 +9,6 @@ mod power_method;
 pub use diffusion_kernel::{DiffusionDistanceMatrix, DiffusionKernel};
 pub use hutchinson::HutchinsonEstimator;
 pub use multiscale::{
-    HutchinsonIndex, MultiscaleDiffusionConfig, MultiscaleDiffusionDistanceMatrix,
-    MultiscaleDiffusionEngine, SolverBuffers,
+    MultiscaleDiffusionConfig, MultiscaleDiffusionDistanceMatrix, MultiscaleDiffusionEngine,
+    SolverBuffers,
 };

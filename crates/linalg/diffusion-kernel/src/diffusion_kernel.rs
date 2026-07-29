@@ -88,6 +88,11 @@ where
         self.estimator.query(i, j)
     }
 
+    /// Computes multiscale / diffusion distance between node i and node j.
+    pub fn distance(&self, i: usize, j: usize) -> S {
+        self.estimator.distance(i, j)
+    }
+
     /// Returns the number of nodes in the graph.
     pub fn n(&self) -> usize {
         self.estimator.n()
@@ -145,11 +150,11 @@ where
     }
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
-        let k_ii = self.kernel.get(i, i);
-        let k_jj = self.kernel.get(j, j);
-        let k_ij = self.kernel.get(i, j);
-        let diff = k_ii + k_jj - S::from_f32(2.0).unwrap() * k_ij;
-        diff.max(S::zero()).sqrt().max(self.min_dist)
+        if i == j {
+            S::zero()
+        } else {
+            self.kernel.distance(i, j).max(self.min_dist)
+        }
     }
 
     fn shape(&self) -> (usize, usize) {

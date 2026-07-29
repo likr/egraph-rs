@@ -84,6 +84,7 @@ Diffusion kernel-based SGD using exp(-tL) kernel.
   - `chebyshev.rs`: Approximates exp(-tL) using Chebyshev polynomials
   - `hutchinson.rs`: Trace estimator
   - `diffusion_kernel.rs`: Random access interface (provides K[i, j] query in O(num_vectors) time)
+  - `multiscale.rs`: Eigenvalue-free Multiscale Diffusion Distance engine using Batched BiCGSTAB and Row-Major Hutchinson index
   - `kernel_sgd.rs`: Builder pattern and integration
 
 ## Community Detection

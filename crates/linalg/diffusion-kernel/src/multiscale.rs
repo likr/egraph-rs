@@ -1,5 +1,7 @@
 //! Eigenvalue-free Multiscale Diffusion Distance Engine using Batched BiCGSTAB and Hutchinson sampling.
 
+use crate::hutchinson::{generate_rademacher_vectors, HutchinsonEstimator};
+use ndarray::Array2;
 use num_traits::Float;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers, NodeCount};
 use petgraph_distance::Distance;
@@ -30,42 +32,6 @@ impl Default for MultiscaleDiffusionConfig {
             tol: 1e-7,
             max_iter: 100,
         }
-    }
-}
-
-/// Pre-calculated Row-Major Hutchinson index for O(M) fast random pair distance queries.
-#[derive(Debug, Clone)]
-pub struct HutchinsonIndex {
-    /// Number of sample vectors M.
-    pub m: usize,
-    /// Number of nodes n in the graph.
-    pub n: usize,
-    /// Precomputed diagonal estimations M_ii for each node (size n).
-    pub diag_m: Vec<f64>,
-    /// Row-Major Rademacher random matrix Z (+1 or -1) of size n * m.
-    pub z_samples: Vec<i8>,
-    /// Row-Major solution matrix Y of size n * m.
-    pub y_samples: Vec<f64>,
-}
-
-impl HutchinsonIndex {
-    /// Computes multiscale diffusion distance estimate between nodes x and y in O(M) time.
-    pub fn distance(&self, x: usize, y: usize) -> f64 {
-        if x == y {
-            return 0.0;
-        }
-        assert!(x < self.n && y < self.n, "Node index out of bounds");
-
-        let m = self.m;
-        let y_x = &self.y_samples[x * m..(x + 1) * m];
-        let y_y = &self.y_samples[y * m..(y + 1) * m];
-
-        let mut sum_sq = 0.0;
-        for i in 0..m {
-            let diff = y_x[i] - y_y[i];
-            sum_sq += diff * diff;
-        }
-        (sum_sq / (m as f64)).sqrt()
     }
 }
 
@@ -107,7 +73,7 @@ pub struct MultiscaleDiffusionEngine {
     matrix: SparseSymmetricMatrix<f64>,
     config: MultiscaleDiffusionConfig,
     degrees: Vec<f64>,
-    index: Option<HutchinsonIndex>,
+    index: Option<HutchinsonEstimator<f64>>,
     buffers: SolverBuffers,
 }
 
@@ -178,19 +144,13 @@ impl MultiscaleDiffusionEngine {
         let n = self.matrix.dim();
         let m = self.config.num_samples;
 
-        // Generate Rademacher random matrix Z in {-1, 1} (Row-Major n x m)
-        let mut z_samples = vec![0i8; n * m];
-        for val in z_samples.iter_mut() {
-            *val = if rng.gen_bool(0.5) { 1 } else { -1 };
-        }
+        // Generate Rademacher random matrix Z in {-1.0, 1.0} of shape (n, m)
+        let z_matrix = generate_rademacher_vectors(n, m, rng);
 
         // Convert Z to f64 RHS matrix B = alpha * P * Z
         let mut b = vec![0.0; n * m];
-        let mut z_f64 = vec![0.0; n * m];
-        for i in 0..n * m {
-            z_f64[i] = z_samples[i] as f64;
-        }
-        apply_p(&self.matrix, &self.degrees, &z_f64, &mut b, m);
+        let z_slice = z_matrix.as_slice().expect("Array2 Z must be contiguous");
+        apply_p(&self.matrix, &self.degrees, z_slice, &mut b, m);
         for val in b.iter_mut() {
             *val *= self.config.alpha;
         }
@@ -209,37 +169,21 @@ impl MultiscaleDiffusionEngine {
             &mut self.buffers,
         );
 
-        // Pre-calculate diagonal estimates M_ii = (1/M) * sum_m (Y_{i,m} * Z_{i,m})
-        let mut diag_m = vec![0.0; n];
-        for i in 0..n {
-            let y_slice = &y_samples[i * m..(i + 1) * m];
-            let z_slice = &z_samples[i * m..(i + 1) * m];
-            let mut sum = 0.0;
-            for j in 0..m {
-                sum += y_slice[j] * (z_slice[j] as f64);
-            }
-            diag_m[i] = sum / (m as f64);
-        }
+        let y_matrix = Array2::from_shape_vec((n, m), y_samples).expect("Shape should match n x m");
 
-        self.index = Some(HutchinsonIndex {
-            m,
-            n,
-            diag_m,
-            z_samples,
-            y_samples,
-        });
+        self.index = Some(HutchinsonEstimator::new(z_matrix, y_matrix));
     }
 
     /// Computes multiscale diffusion distance between nodes x and y using precomputed index.
     pub fn sample_distance(&self, x: usize, y: usize) -> Result<f64, String> {
         match &self.index {
-            Some(idx) => Ok(idx.distance(x, y)),
+            Some(idx) => Ok(idx.distance_l2(x, y)),
             None => Err("Index not built. Call build_index() first.".to_string()),
         }
     }
 
     /// Returns a reference to the built Hutchinson index, if available.
-    pub fn index(&self) -> Option<&HutchinsonIndex> {
+    pub fn index(&self) -> Option<&HutchinsonEstimator<f64>> {
         self.index.as_ref()
     }
 }
