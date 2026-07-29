@@ -8,7 +8,7 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
-use petgraph_linalg_diffusion_kernel::DiffusionKernel;
+use petgraph_linalg_diffusion_kernel::{DiffusionKernel, MultiscaleDiffusionKernel};
 use pyo3::prelude::*;
 
 /// Python class for querying diffusion kernel matrix elements
@@ -172,6 +172,140 @@ impl PyDiffusionKernel {
     ///     >>> k_10 = dk.get(1, 0)  # Symmetric: k_01 == k_10
     fn get(&self, i: usize, j: usize) -> FloatType {
         self.kernel.get(i, j)
+    }
+
+    /// Returns the number of nodes in the graph
+    ///
+    /// :return: The dimension of the kernel matrix (number of nodes)
+    /// :rtype: int
+    fn n(&self) -> usize {
+        self.kernel.n()
+    }
+}
+
+/// Python class for computing multiscale diffusion distance between nodes
+///
+/// MultiscaleDiffusionKernel provides fast distance queries between graph nodes
+/// using Hutchinson sampling and batched BiCGSTAB linear solves.
+///
+/// :param graph: The input graph
+/// :type graph: Graph or DiGraph
+/// :param length: A function that maps edge indices to their lengths/weights
+/// :type length: callable
+/// :param alpha: Restart/scaling parameter alpha (e.g. 0.85)
+/// :type alpha: float
+/// :param num_samples: Number of Hutchinson random samples (e.g. 32)
+/// :type num_samples: int
+/// :param tol: BiCGSTAB solver convergence tolerance (e.g. 1e-7)
+/// :type tol: float
+/// :param max_iter: Maximum BiCGSTAB solver iterations (e.g. 100)
+/// :type max_iter: int
+/// :param rng: Random number generator
+/// :type rng: Rng
+///
+/// Example:
+///     >>> import egraph as eg
+///     >>> graph = eg.Graph()
+///     >>> # ... add nodes and edges
+///     >>> rng = eg.Rng.seed_from(42)
+///     >>> mdk = eg.MultiscaleDiffusionKernel(graph, lambda i: 1.0, 0.85, 32, 1e-7, 100, rng)
+///     >>> dist_01 = mdk.get(0, 1)
+#[pyclass]
+#[pyo3(name = "MultiscaleDiffusionKernel")]
+pub struct PyMultiscaleDiffusionKernel {
+    pub(crate) kernel: MultiscaleDiffusionKernel,
+}
+
+#[pymethods]
+impl PyMultiscaleDiffusionKernel {
+    /// Creates a new MultiscaleDiffusionKernel and builds its Hutchinson index
+    ///
+    /// :param graph: The input graph
+    /// :type graph: Graph or DiGraph
+    /// :param length: A function that maps edge indices to their lengths/weights
+    /// :type length: callable
+    /// :param alpha: Restart/scaling parameter alpha
+    /// :type alpha: float
+    /// :param num_samples: Number of Hutchinson random samples
+    /// :type num_samples: int
+    /// :param tol: BiCGSTAB solver tolerance
+    /// :type tol: float
+    /// :param max_iter: Maximum BiCGSTAB solver iterations
+    /// :type max_iter: int
+    /// :param rng: Random number generator
+    /// :type rng: Rng
+    /// :return: A new MultiscaleDiffusionKernel instance
+    /// :rtype: MultiscaleDiffusionKernel
+    #[new]
+    fn new(
+        graph: &PyGraphAdapter,
+        length: Py<PyAny>,
+        alpha: FloatType,
+        num_samples: usize,
+        tol: FloatType,
+        max_iter: usize,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<Self> {
+        let mut kernel = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                MultiscaleDiffusionKernel::from_petgraph(
+                    native_graph,
+                    length_fn,
+                    alpha,
+                    num_samples,
+                    tol,
+                    max_iter,
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        };
+
+        kernel.build_index_with_rng(rng.get_mut());
+
+        Ok(PyMultiscaleDiffusionKernel { kernel })
+    }
+
+    /// Queries the multiscale diffusion distance between nodes i and j
+    ///
+    /// :param i: Row index
+    /// :type i: int
+    /// :param j: Column index
+    /// :type j: int
+    /// :return: Approximated multiscale diffusion distance between (i, j)
+    /// :rtype: float
+    fn get(&self, i: usize, j: usize) -> FloatType {
+        self.kernel.sample_distance(i, j).unwrap_or(0.0)
+    }
+
+    /// Computes multiscale diffusion distance between nodes i and j
+    ///
+    /// :param i: Row index
+    /// :type i: int
+    /// :param j: Column index
+    /// :type j: int
+    /// :return: Approximated multiscale diffusion distance between (i, j)
+    /// :rtype: float
+    fn sample_distance(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        self.kernel
+            .sample_distance(i, j)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Re-builds the Hutchinson index using a custom random number generator
+    ///
+    /// :param rng: Random number generator
+    /// :type rng: Rng
+    fn build_index(&mut self, rng: &mut crate::rng::PyRng) {
+        self.kernel.build_index_with_rng(rng.get_mut());
     }
 
     /// Returns the number of nodes in the graph

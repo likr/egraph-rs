@@ -14,7 +14,7 @@ mod sparse;
 
 use pyo3::prelude::*;
 
-pub use self::diffusion_kernel::PyDiffusionKernel;
+pub use self::diffusion_kernel::{PyDiffusionKernel, PyMultiscaleDiffusionKernel};
 pub use self::full::PyFullSgd;
 pub use self::omega::PyOmega;
 pub use self::random_pair_sparse_sgd::PyRandomPairSparseSgd;
@@ -41,6 +41,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOmega>()?;
     m.add_class::<PySgd>()?;
     m.add_class::<PyDiffusionKernel>()?;
+    m.add_class::<PyMultiscaleDiffusionKernel>()?;
 
     Ok(())
 }

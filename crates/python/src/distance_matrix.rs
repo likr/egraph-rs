@@ -145,7 +145,9 @@ impl PyDistanceMatrix {
 }
 
 use petgraph_distance::{Distance, GaussianKernel, KernelDistance};
-use petgraph_linalg_diffusion_kernel::DiffusionDistanceMatrix;
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionDistanceMatrix, MultiscaleDiffusionDistanceMatrix,
+};
 use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
 
 /// Helper enum to store any underlying Rust distance matrix in python bindings
@@ -154,6 +156,7 @@ pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     Diffusion(DiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    MultiscaleDiffusion(Box<MultiscaleDiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
@@ -163,6 +166,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::get(d, u, v),
             Self::Sub(d) => Distance::get(d, u, v),
             Self::Diffusion(d) => Distance::get(d, u, v),
+            Self::MultiscaleDiffusion(d) => Distance::get(d.as_ref(), u, v),
             Self::Embedding(d) => Distance::get(d, u, v),
         }
     }
@@ -172,6 +176,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::get_by_index(d, i, j),
             Self::Sub(d) => Distance::get_by_index(d, i, j),
             Self::Diffusion(d) => Distance::get_by_index(d, i, j),
+            Self::MultiscaleDiffusion(d) => Distance::get_by_index(d.as_ref(), i, j),
             Self::Embedding(d) => Distance::get_by_index(d, i, j),
         }
     }
@@ -181,6 +186,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::shape(d),
             Self::Sub(d) => Distance::shape(d),
             Self::Diffusion(d) => Distance::shape(d),
+            Self::MultiscaleDiffusion(d) => Distance::shape(d.as_ref()),
             Self::Embedding(d) => Distance::shape(d),
         }
     }
@@ -190,6 +196,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::row_index(d, u),
             Self::Sub(d) => Distance::row_index(d, u),
             Self::Diffusion(d) => Distance::row_index(d, u),
+            Self::MultiscaleDiffusion(d) => Distance::row_index(d.as_ref(), u),
             Self::Embedding(d) => Distance::row_index(d, u),
         }
     }
@@ -199,6 +206,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::col_index(d, u),
             Self::Sub(d) => Distance::col_index(d, u),
             Self::Diffusion(d) => Distance::col_index(d, u),
+            Self::MultiscaleDiffusion(d) => Distance::col_index(d.as_ref(), u),
             Self::Embedding(d) => Distance::col_index(d, u),
         }
     }
@@ -212,6 +220,10 @@ pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerD
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
         Ok(InnerDistanceMatrix::Diffusion(dm.matrix.clone()))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyMultiscaleDiffusionDistanceMatrix>>() {
+        Ok(InnerDistanceMatrix::MultiscaleDiffusion(Box::new(
+            dm.matrix.clone(),
+        )))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(InnerDistanceMatrix::Embedding(dm.matrix.clone()))
     } else {
@@ -232,6 +244,8 @@ pub fn with_distance<R>(
             DistanceMatrixType::Sub(d) => Ok(f(d)),
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyMultiscaleDiffusionDistanceMatrix>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(f(&dm.matrix))
@@ -262,6 +276,40 @@ impl PyDiffusionDistanceMatrix {
             GraphType::Graph(native_graph) => {
                 DiffusionDistanceMatrix::new(native_graph, kernel.kernel.clone(), min_dist)
             }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(Self { matrix })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix.get(node_index(u), node_index(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "MultiscaleDiffusionDistanceMatrix")]
+pub struct PyMultiscaleDiffusionDistanceMatrix {
+    pub(crate) matrix: MultiscaleDiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+}
+
+#[pymethods]
+impl PyMultiscaleDiffusionDistanceMatrix {
+    #[new]
+    pub fn new(
+        graph: &PyGraphAdapter,
+        kernel: &crate::layout::sgd::PyMultiscaleDiffusionKernel,
+        min_dist: FloatType,
+    ) -> PyResult<Self> {
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => MultiscaleDiffusionDistanceMatrix::new(
+                native_graph,
+                kernel.kernel.clone(),
+                min_dist,
+            ),
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Unsupported graph type",
@@ -333,6 +381,7 @@ impl PyKernelDistance {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
     m.add_class::<PyDiffusionDistanceMatrix>()?;
+    m.add_class::<PyMultiscaleDiffusionDistanceMatrix>()?;
     m.add_class::<PyEmbeddingDistanceMatrix>()?;
     m.add_class::<PyKernelDistance>()?;
     Ok(())
