@@ -377,6 +377,78 @@ impl PyKernelDistance {
     }
 }
 
+use petgraph::visit::EdgeRef;
+use petgraph_distance::SparseSymmetricMatrix;
+
+#[pyclass]
+#[pyo3(name = "Laplacian")]
+#[derive(Clone)]
+pub struct PyLaplacian {
+    pub(crate) matrix: SparseSymmetricMatrix<FloatType>,
+}
+
+#[pyclass]
+#[pyo3(name = "StandardLaplacian")]
+pub struct PyStandardLaplacian;
+
+#[pymethods]
+impl PyStandardLaplacian {
+    #[staticmethod]
+    pub fn build(graph: &PyGraphAdapter, length: Py<PyAny>) -> PyResult<PyLaplacian> {
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                SparseSymmetricMatrix::standard_laplacian(native_graph, length_fn)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(PyLaplacian { matrix })
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "SymmetricNormalizedLaplacian")]
+pub struct PySymmetricNormalizedLaplacian;
+
+#[pymethods]
+impl PySymmetricNormalizedLaplacian {
+    #[staticmethod]
+    pub fn build(graph: &PyGraphAdapter, length: Py<PyAny>) -> PyResult<PyLaplacian> {
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                SparseSymmetricMatrix::symmetric_normalized_laplacian(native_graph, length_fn)
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(PyLaplacian { matrix })
+    }
+}
+
 /// Registers distance matrix classes with the Python module
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
@@ -384,5 +456,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMultiscaleDiffusionDistanceMatrix>()?;
     m.add_class::<PyEmbeddingDistanceMatrix>()?;
     m.add_class::<PyKernelDistance>()?;
+    m.add_class::<PyLaplacian>()?;
+    m.add_class::<PyStandardLaplacian>()?;
+    m.add_class::<PySymmetricNormalizedLaplacian>()?;
     Ok(())
 }

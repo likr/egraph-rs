@@ -15,10 +15,10 @@ class TestDiffusionKernel(unittest.TestCase):
         self.rng = eg.Rng.seed_from(42)
 
     def test_basic_construction(self):
-        """Test basic DiffusionKernel construction"""
+        """Test basic DiffusionKernel construction with StandardLaplacian"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         dk = eg.DiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             1000.0,  # t
             10,  # degree
             50,  # num_vectors
@@ -28,11 +28,24 @@ class TestDiffusionKernel(unittest.TestCase):
         # Check that we can query the size
         self.assertEqual(dk.n(), 3)
 
+    def test_construction_with_symmetric_normalized(self):
+        """Test DiffusionKernel construction with SymmetricNormalizedLaplacian"""
+        laplacian = eg.SymmetricNormalizedLaplacian.build(self.graph, lambda i: 1.0)
+        dk = eg.DiffusionKernel(
+            laplacian,
+            1000.0,  # t
+            10,  # degree
+            50,  # num_vectors
+            self.rng,
+        )
+
+        self.assertEqual(dk.n(), 3)
+
     def test_construction_with_lambda_max(self):
         """Test DiffusionKernel construction with external lambda_max"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         dk = eg.DiffusionKernel.new_with_lambda_max(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             1000.0,  # t
             10,  # degree
             2.0,  # lambda_max
@@ -44,7 +57,8 @@ class TestDiffusionKernel(unittest.TestCase):
 
     def test_element_access(self):
         """Test querying kernel matrix elements"""
-        dk = eg.DiffusionKernel(self.graph, lambda i: 1.0, 1000.0, 10, 50, self.rng)
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, self.rng)
 
         # Get diagonal elements
         k_00 = dk.get(0, 0)
@@ -66,9 +80,9 @@ class TestDiffusionKernel(unittest.TestCase):
 
     def test_symmetry(self):
         """Test that K[i,j] == K[j,i] (symmetry)"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         dk = eg.DiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             1000.0,
             10,
             100,  # Use more vectors for better accuracy
@@ -86,9 +100,9 @@ class TestDiffusionKernel(unittest.TestCase):
 
     def test_custom_parameters(self):
         """Test with custom diffusion parameters"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         dk = eg.DiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             500.0,  # Different t
             20,  # Different degree
             100,  # Different num_vectors
@@ -116,9 +130,10 @@ class TestDiffusionKernel(unittest.TestCase):
         # Use different weights
         edge_weights = {0: 1.0, 1: 2.0}
 
-        dk = eg.DiffusionKernel(
-            graph, lambda i: edge_weights.get(i, 1.0), 1000.0, 10, 50, rng
+        laplacian = eg.StandardLaplacian.build(
+            graph, lambda i: edge_weights.get(i, 1.0)
         )
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, rng)
 
         self.assertEqual(dk.n(), 3)
         k_01 = dk.get(0, 1)
@@ -128,7 +143,8 @@ class TestDiffusionKernel(unittest.TestCase):
         """Test computing distances from kernel elements"""
         import math
 
-        dk = eg.DiffusionKernel(self.graph, lambda i: 1.0, 1000.0, 10, 50, self.rng)
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, self.rng)
 
         # Compute distance using kernel elements
         # distance(i,j) = sqrt(K[i,i] + K[j,j] - 2*K[i,j])

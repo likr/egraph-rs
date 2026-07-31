@@ -22,7 +22,6 @@ members = [
     "crates/linalg/embedding-distance",
     "crates/layout/ts-net",
     "crates/linalg/rdmds",
-    "crates/linalg/spmv",
     "crates/python",
     "crates/quality-metrics",
     "crates/wasm",

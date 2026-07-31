@@ -2,7 +2,7 @@
 
 use ndarray::Array1;
 use num_traits::Float;
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
+use petgraph_distance::SparseSymmetricMatrix;
 use rand::Rng;
 
 /// Estimates the maximum eigenvalue of a symmetric matrix using the power method.

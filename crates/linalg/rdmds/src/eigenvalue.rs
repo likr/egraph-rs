@@ -3,9 +3,8 @@
 
 use ndarray::{Array1, Array2, ArrayView2, s};
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::Laplacian;
+use petgraph_distance::{Laplacian, SparseSymmetricMatrix};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
 use rand::Rng;
 use std::collections::HashMap;
 

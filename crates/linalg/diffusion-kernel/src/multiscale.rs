@@ -4,10 +4,9 @@ use crate::bicgstab::{apply_p, solve_batched_bicgstab, BicgstabSolverBuffers};
 use crate::hutchinson::{generate_rademacher_vectors, HutchinsonEstimator};
 use ndarray::Array2;
 use num_traits::Float;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers, NodeCount};
-use petgraph_distance::Distance;
-use petgraph_drawing::{DrawingIndex, DrawingValue};
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
+use petgraph::visit::IntoNodeIdentifiers;
+use petgraph_distance::{Distance, SparseSymmetricMatrix};
+use petgraph_drawing::DrawingValue;
 use rand::Rng;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -48,43 +47,6 @@ impl MultiscaleDiffusionKernel {
             index: None,
             buffers,
         }
-    }
-
-    /// Creates a new multiscale kernel directly from any petgraph graph and edge weight closure.
-    pub fn from_petgraph<G, F>(
-        graph: G,
-        mut edge_weight: F,
-        alpha: f64,
-        num_samples: usize,
-        tol: f64,
-        max_iter: usize,
-    ) -> Self
-    where
-        G: IntoEdgeReferences + IntoNodeIdentifiers + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-        F: FnMut(G::EdgeRef) -> f64,
-    {
-        let n = graph.node_count();
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        let mut matrix = SparseSymmetricMatrix::new(n);
-        for edge in graph.edge_references() {
-            let u = node_indices[&edge.source()];
-            let v = node_indices[&edge.target()];
-            let w = edge_weight(edge);
-            if u == v {
-                matrix.add_to_diagonal(u, w);
-            } else {
-                let (i, j) = if u < v { (u, v) } else { (v, u) };
-                matrix.add_edge(i, j, w);
-            }
-        }
-
-        Self::new(matrix, alpha, num_samples, tol, max_iter)
     }
 
     /// Returns the number of nodes in the graph.
@@ -221,10 +183,16 @@ where
 
 /// Helper function to compute vertex degree array for symmetric graph matrix.
 fn compute_degrees(matrix: &SparseSymmetricMatrix<f64>) -> Vec<f64> {
-    let mut degrees = matrix.diagonal().to_vec();
+    let mut degrees = vec![0.0; matrix.dim()];
     for &(i, j, w) in matrix.edges() {
-        degrees[i] += w;
-        degrees[j] += w;
+        let abs_w = w.abs();
+        degrees[i] += abs_w;
+        degrees[j] += abs_w;
+    }
+    for (deg, &diag) in degrees.iter_mut().zip(matrix.diagonal()) {
+        if *deg == 0.0 && diag > 0.0 {
+            *deg = diag;
+        }
     }
     degrees
 }
@@ -289,8 +257,8 @@ mod tests {
         graph.add_edge(n1, n2, 1.0);
         graph.add_edge(n2, n3, 1.0);
 
-        let kernel =
-            MultiscaleDiffusionKernel::from_petgraph(&graph, |e| *e.weight(), 0.85, 32, 1e-7, 100);
+        let laplacian = SparseSymmetricMatrix::standard_laplacian(&graph, |e| *e.weight());
+        let kernel = MultiscaleDiffusionKernel::new(laplacian, 0.85, 32, 1e-7, 100);
 
         let dist_matrix = MultiscaleDiffusionDistanceMatrix::new(&graph, kernel, 1e-4);
 

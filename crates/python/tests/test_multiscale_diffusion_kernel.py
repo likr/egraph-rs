@@ -18,9 +18,9 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
 
     def test_basic_construction(self):
         """Test basic MultiscaleDiffusionKernel construction and node count"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         mdk = eg.MultiscaleDiffusionKernel(
-            self.graph,
-            lambda i: 1.0,  # length
+            laplacian,
             0.85,  # alpha
             32,  # num_samples
             1e-7,  # tol
@@ -30,11 +30,25 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
 
         self.assertEqual(mdk.n(), 4)
 
+    def test_construction_with_symmetric_normalized(self):
+        """Test MultiscaleDiffusionKernel construction with SymmetricNormalizedLaplacian"""
+        laplacian = eg.SymmetricNormalizedLaplacian.build(self.graph, lambda i: 1.0)
+        mdk = eg.MultiscaleDiffusionKernel(
+            laplacian,
+            0.85,
+            32,
+            1e-7,
+            100,
+            self.rng,
+        )
+
+        self.assertEqual(mdk.n(), 4)
+
     def test_distance_queries(self):
         """Test querying distances with get and sample_distance"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         mdk = eg.MultiscaleDiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             0.85,
             32,
             1e-7,
@@ -56,9 +70,9 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
 
     def test_symmetry(self):
         """Test distance symmetry d(i, j) == d(j, i)"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         mdk = eg.MultiscaleDiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             0.85,
             64,
             1e-7,
@@ -76,9 +90,9 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
 
     def test_rebuild_index(self):
         """Test explicitly re-building index with build_index"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         mdk = eg.MultiscaleDiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             0.85,
             32,
             1e-7,
@@ -96,9 +110,9 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
 
     def test_distance_matrix_integration(self):
         """Test MultiscaleDiffusionDistanceMatrix integration"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         mdk = eg.MultiscaleDiffusionKernel(
-            self.graph,
-            lambda i: 1.0,
+            laplacian,
             0.85,
             32,
             1e-7,

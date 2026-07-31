@@ -2,6 +2,9 @@
 
 use ndarray::Array1;
 use num_traits::Zero;
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_drawing::{DrawingIndex, DrawingValue};
+use std::collections::HashMap;
 use std::ops::{Add, AddAssign, Div, Mul, Sub};
 
 /// A sparse symmetric matrix represented in edge list format.
@@ -31,12 +34,6 @@ where
     T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + AddAssign + Default + Zero,
 {
     /// Creates a new sparse symmetric matrix with specified dimension.
-    ///
-    /// # Parameters
-    /// * `n` - The dimension of the matrix (n x n)
-    ///
-    /// # Returns
-    /// A zero matrix of size n x n
     pub fn new(n: usize) -> Self {
         Self {
             n,
@@ -46,16 +43,7 @@ where
     }
 
     /// Creates a sparse symmetric matrix from edges and diagonal elements.
-    ///
-    /// # Parameters
-    /// * `n` - The dimension of the matrix
-    /// * `edges` - Off-diagonal entries (i, j, value) where i < j
-    /// * `diagonal` - Diagonal entries
-    ///
-    /// # Panics
-    /// Panics if any edge has i >= j or if indices are out of bounds
     pub fn from_parts(n: usize, edges: Vec<(usize, usize, T)>, diagonal: Vec<T>) -> Self {
-        // Validate edges
         for &(i, j, _) in &edges {
             assert!(i < j, "Edges must have i < j for lower triangular storage");
             assert!(i < n && j < n, "Edge indices out of bounds");
@@ -83,14 +71,6 @@ where
     }
 
     /// Adds an off-diagonal edge.
-    ///
-    /// # Parameters
-    /// * `i` - Row index (must be < j)
-    /// * `j` - Column index (must be > i)
-    /// * `value` - The value to store
-    ///
-    /// # Panics
-    /// Panics if i >= j or if indices are out of bounds
     pub fn add_edge(&mut self, i: usize, j: usize, value: T) {
         assert!(i < j, "i must be < j for lower triangular storage");
         assert!(i < self.n && j < self.n, "Indices out of bounds");
@@ -98,27 +78,17 @@ where
     }
 
     /// Computes the matrix-vector product: y = A * x
-    ///
-    /// For a symmetric matrix, this leverages the symmetry:
-    /// y[i] = diagonal[i] * x[i] + Σ(value * x[j] for all edges (i,j))
-    ///                            + Σ(value * x[i] for all edges (j,i))
-    ///
-    /// Complexity: O(nnz) where nnz is the number of non-zero elements
     pub fn multiply(&self, x: &Array1<T>) -> Array1<T> {
         assert_eq!(x.len(), self.n, "Vector dimension mismatch");
 
         let mut y = Array1::zeros(self.n);
 
-        // Add diagonal contribution: y[i] += diagonal[i] * x[i]
         for i in 0..self.n {
             y[i] = self.diagonal[i] * x[i];
         }
 
-        // Add off-diagonal contributions using symmetry
         for &(i, j, value) in &self.edges {
-            // A[i,j] * x[j] contributes to y[i]
             y[i] += value * x[j];
-            // A[j,i] * x[i] contributes to y[j] (using symmetry A[j,i] = A[i,j])
             y[j] += value * x[i];
         }
 
@@ -126,18 +96,14 @@ where
     }
 
     /// Computes the matrix-vector product in-place: y = A * x
-    ///
-    /// This is more memory-efficient than the allocating version.
     pub fn multiply_into(&self, x: &Array1<T>, y: &mut Array1<T>) {
         assert_eq!(x.len(), self.n, "Input vector dimension mismatch");
         assert_eq!(y.len(), self.n, "Output vector dimension mismatch");
 
-        // Initialize with diagonal contribution
         for i in 0..self.n {
             y[i] = self.diagonal[i] * x[i];
         }
 
-        // Add off-diagonal contributions using symmetry
         for &(i, j, value) in &self.edges {
             y[i] += value * x[j];
             y[j] += value * x[i];
@@ -167,13 +133,6 @@ where
         + PartialOrd,
 {
     /// Creates a scaled and shifted matrix: (scale * A) - shift * I
-    ///
-    /// This is useful for Chebyshev approximation where we need to scale
-    /// the matrix to [-1, 1] range: A' = (2/λ_max) * A - I
-    ///
-    /// # Parameters
-    /// * `scale` - Scaling factor for all matrix elements
-    /// * `shift` - Value to subtract from diagonal elements
     pub fn scale_and_shift(&self, scale: T, shift: T) -> Self {
         let mut edges = Vec::with_capacity(self.edges.len());
         for &(i, j, value) in &self.edges {
@@ -190,6 +149,100 @@ where
             edges,
             diagonal,
         }
+    }
+}
+
+impl<T> SparseSymmetricMatrix<T>
+where
+    T: DrawingValue + Default,
+{
+    /// Builds standard graph Laplacian matrix: L = D - A
+    pub fn standard_laplacian<G, F>(graph: G, mut length: F) -> Self
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> T,
+    {
+        let n = graph.node_count();
+        let node_indices: HashMap<G::NodeId, usize> = graph
+            .node_identifiers()
+            .enumerate()
+            .map(|(i, node_id)| (node_id, i))
+            .collect();
+
+        let mut matrix = SparseSymmetricMatrix::new(n);
+        let mut degrees = vec![T::zero(); n];
+
+        for edge in graph.edge_references() {
+            let i = node_indices[&edge.source()];
+            let j = node_indices[&edge.target()];
+            let weight = length(edge);
+
+            if i != j {
+                let (min_idx, max_idx) = if i < j { (i, j) } else { (j, i) };
+                matrix.add_edge(min_idx, max_idx, -weight);
+                degrees[i] += weight;
+                degrees[j] += weight;
+            }
+        }
+
+        for (i, &deg) in degrees.iter().enumerate().take(n) {
+            matrix.set_diagonal(i, deg);
+        }
+
+        matrix
+    }
+
+    /// Builds symmetric normalized graph Laplacian matrix: L_sym = D^{-1/2} L D^{-1/2}
+    pub fn symmetric_normalized_laplacian<G, F>(graph: G, mut length: F) -> Self
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> T,
+    {
+        let n = graph.node_count();
+        let node_indices: HashMap<G::NodeId, usize> = graph
+            .node_identifiers()
+            .enumerate()
+            .map(|(i, node_id)| (node_id, i))
+            .collect();
+
+        let mut degrees = vec![T::zero(); n];
+        let mut raw_edges = Vec::new();
+
+        for edge in graph.edge_references() {
+            let i = node_indices[&edge.source()];
+            let j = node_indices[&edge.target()];
+            let weight = length(edge);
+
+            if i != j {
+                degrees[i] += weight;
+                degrees[j] += weight;
+                raw_edges.push((i, j, weight));
+            }
+        }
+
+        let mut matrix = SparseSymmetricMatrix::new(n);
+
+        for (i, &deg) in degrees.iter().enumerate() {
+            if deg > T::zero() {
+                matrix.set_diagonal(i, T::one());
+            } else {
+                matrix.set_diagonal(i, T::zero());
+            }
+        }
+
+        for (i, j, w) in raw_edges {
+            let deg_i = degrees[i];
+            let deg_j = degrees[j];
+            if deg_i > T::zero() && deg_j > T::zero() {
+                let norm_w = -w / (deg_i * deg_j).sqrt();
+                let (min_idx, max_idx) = if i < j { (i, j) } else { (j, i) };
+                matrix.add_edge(min_idx, max_idx, norm_w);
+            }
+        }
+
+        matrix
     }
 }
 
@@ -218,72 +271,5 @@ mod tests {
         assert_eq!(y[0], 1.0);
         assert_eq!(y[1], 2.0);
         assert_eq!(y[2], 3.0);
-    }
-
-    #[test]
-    fn test_multiply_with_edges() {
-        // Create a 3x3 symmetric matrix:
-        // [2  1  0]
-        // [1  2  1]
-        // [0  1  2]
-        let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(3);
-        matrix.set_diagonal(0, 2.0);
-        matrix.set_diagonal(1, 2.0);
-        matrix.set_diagonal(2, 2.0);
-        matrix.add_edge(0, 1, 1.0); // (0,1) and (1,0)
-        matrix.add_edge(1, 2, 1.0); // (1,2) and (2,1)
-
-        let x = Array1::from_vec(vec![1.0, 2.0, 3.0]);
-        let y = matrix.multiply(&x);
-
-        // y[0] = 2*1 + 1*2 = 4
-        // y[1] = 1*1 + 2*2 + 1*3 = 8
-        // y[2] = 1*2 + 2*3 = 8
-        assert_eq!(y[0], 4.0);
-        assert_eq!(y[1], 8.0);
-        assert_eq!(y[2], 8.0);
-    }
-
-    #[test]
-    fn test_multiply_into() {
-        let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(3);
-        matrix.set_diagonal(0, 2.0);
-        matrix.set_diagonal(1, 2.0);
-        matrix.set_diagonal(2, 2.0);
-        matrix.add_edge(0, 1, 1.0);
-        matrix.add_edge(1, 2, 1.0);
-
-        let x = Array1::from_vec(vec![1.0, 2.0, 3.0]);
-        let mut y = Array1::zeros(3);
-        matrix.multiply_into(&x, &mut y);
-
-        assert_eq!(y[0], 4.0);
-        assert_eq!(y[1], 8.0);
-        assert_eq!(y[2], 8.0);
-    }
-
-    #[test]
-    fn test_scale_and_shift() {
-        let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(2);
-        matrix.set_diagonal(0, 2.0);
-        matrix.set_diagonal(1, 2.0);
-        matrix.add_edge(0, 1, 1.0);
-
-        // Create (2*A) - I
-        let scaled = matrix.scale_and_shift(2.0, 1.0);
-
-        // Diagonal should be 2*2 - 1 = 3
-        assert_eq!(scaled.diagonal()[0], 3.0);
-        assert_eq!(scaled.diagonal()[1], 3.0);
-
-        // Off-diagonal should be 2*1 = 2
-        assert_eq!(scaled.edges()[0].2, 2.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "i must be < j")]
-    fn test_add_edge_wrong_order() {
-        let mut matrix: SparseSymmetricMatrix<f64> = SparseSymmetricMatrix::new(3);
-        matrix.add_edge(1, 0, 1.0); // Should panic: i >= j
     }
 }

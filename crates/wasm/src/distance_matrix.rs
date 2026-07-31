@@ -11,7 +11,7 @@ use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{
     all_sources_dijkstra, FullDistanceMatrix, SubDistanceMatrix,
 };
-use petgraph_distance::{Distance, GaussianKernel, KernelDistance};
+use petgraph_distance::{Distance, GaussianKernel, KernelDistance, SparseSymmetricMatrix};
 use petgraph_linalg_diffusion_kernel::{DiffusionDistanceMatrix, DiffusionKernel};
 use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
 use wasm_bindgen::prelude::*;
@@ -104,15 +104,9 @@ impl JsDiffusionKernel {
                 .unwrap() as f32;
             length_map.insert(e, c);
         }
-        let kernel = DiffusionKernel::new(
-            graph.graph(),
-            |e| length_map[&e.id()],
-            t,
-            degree,
-            num_vectors,
-            petgraph_distance::StandardLaplacian,
-            rng.get_mut(),
-        );
+        let laplacian =
+            SparseSymmetricMatrix::standard_laplacian(graph.graph(), |e| length_map[&e.id()]);
+        let kernel = DiffusionKernel::new(&laplacian, t, degree, num_vectors, rng.get_mut());
         JsDiffusionKernel { kernel }
     }
 
@@ -135,14 +129,14 @@ impl JsDiffusionKernel {
                 .unwrap() as f32;
             length_map.insert(e, c);
         }
+        let laplacian =
+            SparseSymmetricMatrix::standard_laplacian(graph.graph(), |e| length_map[&e.id()]);
         let kernel = DiffusionKernel::new_with_lambda_max(
-            graph.graph(),
-            |e| length_map[&e.id()],
+            &laplacian,
             t,
             degree,
             lambda_max,
             num_vectors,
-            petgraph_distance::StandardLaplacian,
             rng.get_mut(),
         );
         JsDiffusionKernel { kernel }

@@ -5,7 +5,7 @@
 
 use ndarray::{Array1, Array2};
 use num_traits::Float;
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
+use petgraph_distance::SparseSymmetricMatrix;
 use std::f64::consts::PI;
 
 /// Approximates exp(-tL) @ vectors using Chebyshev polynomial expansion.

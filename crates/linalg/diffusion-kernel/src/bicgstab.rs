@@ -1,6 +1,6 @@
 //! Batched BiCGSTAB solver implementation for linear systems $(I - \alpha P) Y = B$.
 
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
+use petgraph_distance::SparseSymmetricMatrix;
 
 /// Workspace memory buffer reused across iterations during Batched BiCGSTAB solving.
 ///
@@ -61,6 +61,7 @@ pub(crate) fn apply_p(
 
     // Off-diagonal edge interactions W_ij * V_{j,m} and W_ij * V_{i,m}
     for &(i, j, w) in matrix.edges() {
+        let abs_w = w.abs();
         let v_i = &v[i * m..(i + 1) * m];
         let v_j = &v[j * m..(j + 1) * m];
 
@@ -70,8 +71,8 @@ pub(crate) fn apply_p(
             let y_i = &mut left[i * m..(i + 1) * m];
             let y_j = &mut right[0..m];
             for k in 0..m {
-                y_i[k] += w * v_j[k];
-                y_j[k] += w * v_i[k];
+                y_i[k] += abs_w * v_j[k];
+                y_j[k] += abs_w * v_i[k];
             }
         }
     }

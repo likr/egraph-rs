@@ -2,9 +2,8 @@
 
 use ndarray::Array1;
 use petgraph::graph::UnGraph;
-use petgraph_distance::{Laplacian, StandardLaplacian};
+use petgraph_distance::{Laplacian, SparseSymmetricMatrix, StandardLaplacian};
 use petgraph_linalg_diffusion_kernel::{DiffusionKernel, MultiscaleDiffusionKernel};
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
 use rand::SeedableRng;
 
 /// Computes exact matrix exponential exp(-t * L) using Taylor series expansion.
@@ -192,15 +191,7 @@ fn test_diffusion_kernel_accuracy() {
     let num_vectors = 3000;
     let mut rng = rand::rngs::StdRng::seed_from_u64(12345);
 
-    let kernel = DiffusionKernel::new(
-        &graph,
-        |_| 1.0,
-        t,
-        degree,
-        num_vectors,
-        StandardLaplacian,
-        &mut rng,
-    );
+    let kernel = DiffusionKernel::new(&laplacian, t, degree, num_vectors, &mut rng);
 
     // Evaluate error statistics
     let mut total_abs_err = 0.0;

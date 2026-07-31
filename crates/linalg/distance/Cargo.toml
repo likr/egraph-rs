@@ -12,4 +12,3 @@ ndarray = "0.16"
 num-traits = "0.2"
 petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
-petgraph-linalg-spmv = { path = "../spmv" }

@@ -3,9 +3,9 @@ use crate::hutchinson::{generate_rademacher_vectors, HutchinsonEstimator};
 use crate::power_method::estimate_lambda_max;
 use ndarray::ScalarOperand;
 use num_traits::Float;
-use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::{Distance, Laplacian};
-use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph::visit::IntoNodeIdentifiers;
+use petgraph_distance::{Distance, SparseSymmetricMatrix};
+use petgraph_drawing::DrawingValue;
 use rand::Rng;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -26,59 +26,29 @@ where
         + num_traits::FromPrimitive,
 {
     /// Creates a new DiffusionKernel with automatic lambda_max estimation.
-    pub fn new<G, F, R, L>(
-        graph: G,
-        mut length: F,
+    pub fn new<R: Rng>(
+        laplacian: &SparseSymmetricMatrix<S>,
         t: S,
         degree: usize,
         num_vectors: usize,
-        laplacian_builder: L,
         rng: &mut R,
-    ) -> Self
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-        F: FnMut(G::EdgeRef) -> S,
-        R: Rng,
-        L: Laplacian<G, S>,
-    {
-        let laplacian = laplacian_builder.build(graph, &mut length);
-        let lambda_max = estimate_lambda_max(&laplacian, rng, 100, S::from_f64(1e-6).unwrap());
-        Self::new_with_lambda_max(
-            graph,
-            length,
-            t,
-            degree,
-            lambda_max,
-            num_vectors,
-            laplacian_builder,
-            rng,
-        )
+    ) -> Self {
+        let lambda_max = estimate_lambda_max(laplacian, rng, 100, S::from_f64(1e-6).unwrap());
+        Self::new_with_lambda_max(laplacian, t, degree, lambda_max, num_vectors, rng)
     }
 
     /// Creates a new DiffusionKernel with externally provided lambda_max.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_lambda_max<G, F, R, L>(
-        graph: G,
-        mut length: F,
+    pub fn new_with_lambda_max<R: Rng>(
+        laplacian: &SparseSymmetricMatrix<S>,
         t: S,
         degree: usize,
         lambda_max: S,
         num_vectors: usize,
-        laplacian_builder: L,
         rng: &mut R,
-    ) -> Self
-    where
-        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-        G::NodeId: DrawingIndex,
-        F: FnMut(G::EdgeRef) -> S,
-        R: Rng,
-        L: Laplacian<G, S>,
-    {
-        let n = graph.node_count();
-        let laplacian = laplacian_builder.build(graph, &mut length);
+    ) -> Self {
+        let n = laplacian.dim();
         let v = generate_rademacher_vectors(n, num_vectors, rng);
-        let kv = chebyshev_approximation(&laplacian, t, degree, lambda_max, &v);
+        let kv = chebyshev_approximation(laplacian, t, degree, lambda_max, &v);
         let estimator = HutchinsonEstimator::new(v, kv);
         Self { estimator }
     }

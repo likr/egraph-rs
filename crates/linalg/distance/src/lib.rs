@@ -1,7 +1,9 @@
-use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+mod sparse_symmetric_matrix;
+
+pub use sparse_symmetric_matrix::SparseSymmetricMatrix;
+
+use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
-use petgraph_linalg_spmv::SparseSymmetricMatrix;
-use std::collections::HashMap;
 
 /// A trait representing a read-only distance matrix.
 pub trait Distance<N, S> {
@@ -46,34 +48,7 @@ where
         graph: G,
         length: &mut impl FnMut(G::EdgeRef) -> S,
     ) -> SparseSymmetricMatrix<S> {
-        let n = graph.node_count();
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        let mut matrix = SparseSymmetricMatrix::new(n);
-        let mut degrees = vec![S::zero(); n];
-
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-            let weight = length(edge);
-
-            if i != j {
-                let (min_idx, max_idx) = if i < j { (i, j) } else { (j, i) };
-                matrix.add_edge(min_idx, max_idx, -weight);
-                degrees[i] += weight;
-                degrees[j] += weight;
-            }
-        }
-
-        for (i, &deg) in degrees.iter().enumerate().take(n) {
-            matrix.set_diagonal(i, deg);
-        }
-
-        matrix
+        SparseSymmetricMatrix::standard_laplacian(graph, length)
     }
 }
 
@@ -92,49 +67,7 @@ where
         graph: G,
         length: &mut impl FnMut(G::EdgeRef) -> S,
     ) -> SparseSymmetricMatrix<S> {
-        let n = graph.node_count();
-        let node_indices: HashMap<G::NodeId, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id, i))
-            .collect();
-
-        let mut degrees = vec![S::zero(); n];
-        let mut raw_edges = Vec::new();
-
-        for edge in graph.edge_references() {
-            let i = node_indices[&edge.source()];
-            let j = node_indices[&edge.target()];
-            let weight = length(edge);
-
-            if i != j {
-                degrees[i] += weight;
-                degrees[j] += weight;
-                raw_edges.push((i, j, weight));
-            }
-        }
-
-        let mut matrix = SparseSymmetricMatrix::new(n);
-
-        for (i, &deg) in degrees.iter().enumerate() {
-            if deg > S::zero() {
-                matrix.set_diagonal(i, S::one());
-            } else {
-                matrix.set_diagonal(i, S::zero());
-            }
-        }
-
-        for (i, j, w) in raw_edges {
-            let deg_i = degrees[i];
-            let deg_j = degrees[j];
-            if deg_i > S::zero() && deg_j > S::zero() {
-                let norm_w = -w / (deg_i * deg_j).sqrt();
-                let (min_idx, max_idx) = if i < j { (i, j) } else { (j, i) };
-                matrix.add_edge(min_idx, max_idx, norm_w);
-            }
-        }
-
-        matrix
+        SparseSymmetricMatrix::symmetric_normalized_laplacian(graph, length)
     }
 }
 
