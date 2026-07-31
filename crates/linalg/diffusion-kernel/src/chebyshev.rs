@@ -22,7 +22,7 @@ use std::f64::consts::PI;
 ///
 /// # Returns
 /// KV - Result of K @ vectors where K = exp(-tL), shape (n, num_vectors)
-pub(crate) fn chebyshev_approximation<T>(
+pub fn chebyshev_approximation<T>(
     laplacian: &SparseSymmetricMatrix<T>,
     t: T,
     degree: usize,
@@ -30,18 +30,70 @@ pub(crate) fn chebyshev_approximation<T>(
     vectors: &Array2<T>,
 ) -> Array2<T>
 where
+    T: Float
+        + std::iter::Sum
+        + std::ops::AddAssign
+        + Default
+        + ndarray::ScalarOperand
+        + num_traits::FromPrimitive,
+{
+    let u1 = laplacian.stationary_vector();
+    let (kv, _, _) =
+        chebyshev_approximation_with_baseline(laplacian, t, degree, lambda_max, vectors, &u1);
+    kv
+}
+
+/// Approximates exp(-tL) @ vectors with baseline subtraction for variance reduction.
+///
+/// Returns (kv, w, residual_diag_sum) where kv is K @ vectors, w is residual matrix
+/// exp(-tL) @ v_sub, and residual_diag_sum accumulates (v_r o exp(-tL) v_{sub, r}) across all samples.
+pub fn chebyshev_approximation_with_baseline<T>(
+    laplacian: &SparseSymmetricMatrix<T>,
+    t: T,
+    degree: usize,
+    lambda_max: T,
+    vectors: &Array2<T>,
+    u1: &Array1<T>,
+) -> (Array2<T>, Array2<T>, Vec<T>)
+where
     T: Float + std::iter::Sum + std::ops::AddAssign + Default + ndarray::ScalarOperand,
 {
-    // Scale L to [-1, 1]: L' = (2L/lambda_max) - I
     let two = T::from(2.0).unwrap();
     let scale = two / lambda_max;
     let l_scaled = laplacian.scale_and_shift(scale, T::one());
 
-    // Compute Chebyshev coefficients for exp(-t * lambda_max * (x + 1) / 2)
     let coeffs = compute_chebyshev_coefficients(t, lambda_max, degree);
 
-    // Evaluate Chebyshev polynomial at L_scaled applied to vectors
-    evaluate_chebyshev_polynomial(&l_scaled, &coeffs, vectors)
+    let n = l_scaled.dim();
+    let num_vectors = vectors.ncols();
+    let mut kv = Array2::zeros((n, num_vectors));
+    let mut w_mat = Array2::zeros((n, num_vectors));
+    let mut residual_diag_sum = vec![T::zero(); n];
+
+    for i in 0..num_vectors {
+        let v = vectors.column(i).to_owned();
+
+        // Baseline Subtraction: project out stationary eigenvector u1
+        // v_sub = v - (u1^T v) u1
+        let dot_u1_v: T = u1.iter().zip(v.iter()).map(|(&u, &x)| u * x).sum();
+        let mut v_sub = Array1::zeros(n);
+        for j in 0..n {
+            v_sub[j] = v[j] - dot_u1_v * u1[j];
+        }
+
+        // Compute w = exp(-tL) @ v_sub using Clenshaw's algorithm
+        let w = evaluate_chebyshev_polynomial_vec(&l_scaled, &coeffs, &v_sub);
+
+        // Reconstruct full K @ v = w + (u1^T v) u1
+        for j in 0..n {
+            let full_kv_j = w[j] + dot_u1_v * u1[j];
+            kv[[j, i]] = full_kv_j;
+            w_mat[[j, i]] = w[j];
+            residual_diag_sum[j] += v[j] * w[j];
+        }
+    }
+
+    (kv, w_mat, residual_diag_sum)
 }
 
 /// Approximates exp(-tL) @ vector using Chebyshev polynomial expansion.
@@ -124,6 +176,7 @@ where
 ///
 /// # Returns
 /// Result of polynomial(L_scaled) @ vectors, shape (n, num_vectors)
+#[allow(dead_code)]
 fn evaluate_chebyshev_polynomial<T>(
     l_scaled: &SparseSymmetricMatrix<T>,
     coeffs: &[T],

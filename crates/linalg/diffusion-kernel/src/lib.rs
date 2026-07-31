@@ -1,11 +1,11 @@
 //! Diffusion kernel matrix computation and distance representation.
 
-mod bicgstab;
-mod chebyshev;
+pub mod bicgstab;
+pub mod chebyshev;
 mod diffusion_kernel;
-mod hutchinson;
-mod multiscale;
-mod power_method;
+pub mod hutchinson;
+pub mod multiscale;
+pub mod power_method;
 
 pub use diffusion_kernel::{
     DiffusionDistanceMatrix, DiffusionKernel, PivotDiffusionDistanceMatrix,

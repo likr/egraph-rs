@@ -1,4 +1,4 @@
-use crate::chebyshev::{chebyshev_approximation, chebyshev_approximation_vec};
+use crate::chebyshev::{chebyshev_approximation_vec, chebyshev_approximation_with_baseline};
 use crate::hutchinson::{generate_rademacher_vectors, HutchinsonEstimator};
 use crate::power_method::estimate_lambda_max;
 use ndarray::{Array1, ScalarOperand};
@@ -48,9 +48,15 @@ where
         rng: &mut R,
     ) -> Self {
         let n = laplacian.dim();
+        let u1 = laplacian.stationary_vector();
         let v = generate_rademacher_vectors(n, num_vectors, rng);
-        let kv = chebyshev_approximation(laplacian, t, degree, lambda_max, &v);
-        let estimator = HutchinsonEstimator::new(v, kv);
+        let (kv, w_mat, residual_diag_sum) =
+            chebyshev_approximation_with_baseline(laplacian, t, degree, lambda_max, &v, &u1);
+        let u1_slice = u1
+            .as_slice()
+            .expect("Stationary vector u1 must be contiguous");
+        let estimator =
+            HutchinsonEstimator::new_with_baseline(v, kv, w_mat, &residual_diag_sum, u1_slice);
         Self {
             estimator,
             lambda_max,

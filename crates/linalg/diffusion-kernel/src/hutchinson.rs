@@ -9,6 +9,8 @@ use rand::Rng;
 pub struct HutchinsonEstimator<T> {
     v: Array2<T>,
     kv: Array2<T>,
+    w: Option<Array2<T>>,
+    u1: Option<Vec<T>>,
     num_vectors: usize,
     diag: Vec<T>,
 }
@@ -37,6 +39,44 @@ where
         Self {
             v,
             kv,
+            w: None,
+            u1: None,
+            num_vectors,
+            diag,
+        }
+    }
+
+    /// Creates a new HutchinsonEstimator with baseline-subtracted residual sum and stationary eigenvector.
+    pub fn new_with_baseline(
+        v: Array2<T>,
+        kv: Array2<T>,
+        w: Array2<T>,
+        residual_diag_sum: &[T],
+        u1: &[T],
+    ) -> Self {
+        assert_eq!(v.shape(), kv.shape(), "V and KV must have the same shape");
+        assert_eq!(v.shape(), w.shape(), "V and W must have the same shape");
+        let num_vectors = v.ncols();
+        let n = v.nrows();
+        assert_eq!(
+            residual_diag_sum.len(),
+            n,
+            "residual_diag_sum length mismatch"
+        );
+        assert_eq!(u1.len(), n, "u1 length mismatch");
+
+        let num_vectors_t = T::from(num_vectors).unwrap();
+        let mut diag = Vec::with_capacity(n);
+        for i in 0..n {
+            let baseline_val = (residual_diag_sum[i] / num_vectors_t) + u1[i] * u1[i];
+            diag.push(baseline_val);
+        }
+
+        Self {
+            v,
+            kv,
+            w: Some(w),
+            u1: Some(u1.to_vec()),
             num_vectors,
             diag,
         }
@@ -77,18 +117,31 @@ where
     pub fn query_symmetric(&self, i: usize, j: usize) -> T {
         let m = self.num_vectors;
         let v_slice = self.v.as_slice().expect("Array2 V must be contiguous");
-        let kv_slice = self.kv.as_slice().expect("Array2 KV must be contiguous");
 
         let v_i = &v_slice[i * m..(i + 1) * m];
-        let kv_i = &kv_slice[i * m..(i + 1) * m];
         let v_j = &v_slice[j * m..(j + 1) * m];
-        let kv_j = &kv_slice[j * m..(j + 1) * m];
 
-        let sum1: T = v_i.iter().zip(kv_j.iter()).map(|(&x, &y)| x * y).sum();
-        let sum2: T = v_j.iter().zip(kv_i.iter()).map(|(&x, &y)| x * y).sum();
+        if let (Some(ref w), Some(ref u1)) = (&self.w, &self.u1) {
+            let w_slice = w.as_slice().expect("Array2 W must be contiguous");
+            let w_i = &w_slice[i * m..(i + 1) * m];
+            let w_j = &w_slice[j * m..(j + 1) * m];
 
-        let two_m = T::from(2 * self.num_vectors).unwrap();
-        (sum1 + sum2) / two_m
+            let sum1: T = v_i.iter().zip(w_j.iter()).map(|(&x, &y)| x * y).sum();
+            let sum2: T = v_j.iter().zip(w_i.iter()).map(|(&x, &y)| x * y).sum();
+
+            let two_m = T::from(2 * m).unwrap();
+            (sum1 + sum2) / two_m + u1[i] * u1[j]
+        } else {
+            let kv_slice = self.kv.as_slice().expect("Array2 KV must be contiguous");
+            let kv_i = &kv_slice[i * m..(i + 1) * m];
+            let kv_j = &kv_slice[j * m..(j + 1) * m];
+
+            let sum1: T = v_i.iter().zip(kv_j.iter()).map(|(&x, &y)| x * y).sum();
+            let sum2: T = v_j.iter().zip(kv_i.iter()).map(|(&x, &y)| x * y).sum();
+
+            let two_m = T::from(2 * m).unwrap();
+            (sum1 + sum2) / two_m
+        }
     }
 
     pub fn distance_kernel(&self, i: usize, j: usize) -> T {
@@ -131,11 +184,7 @@ where
     }
 }
 
-pub(crate) fn generate_rademacher_vectors<T, R>(
-    n: usize,
-    num_vectors: usize,
-    rng: &mut R,
-) -> Array2<T>
+pub fn generate_rademacher_vectors<T, R>(n: usize, num_vectors: usize, rng: &mut R) -> Array2<T>
 where
     T: Float,
     R: Rng,

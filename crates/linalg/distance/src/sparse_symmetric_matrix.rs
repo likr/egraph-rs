@@ -27,6 +27,8 @@ pub struct SparseSymmetricMatrix<T> {
     edges: Vec<(usize, usize, T)>,
     /// Diagonal entries: diagonal[i] is the (i,i) element
     diagonal: Vec<T>,
+    /// Principal stationary eigenvector (null-space vector of Laplacian)
+    stationary_vector: Option<Vec<T>>,
 }
 
 impl<T> SparseSymmetricMatrix<T>
@@ -39,6 +41,7 @@ where
             n,
             edges: Vec::new(),
             diagonal: vec![T::default(); n],
+            stationary_vector: None,
         }
     }
 
@@ -50,7 +53,12 @@ where
         }
         assert_eq!(diagonal.len(), n, "Diagonal length must match dimension");
 
-        Self { n, edges, diagonal }
+        Self {
+            n,
+            edges,
+            diagonal,
+            stationary_vector: None,
+        }
     }
 
     /// Returns the dimension of the matrix.
@@ -148,13 +156,34 @@ where
             n: self.n,
             edges,
             diagonal,
+            stationary_vector: self.stationary_vector.clone(),
         }
     }
 }
 
 impl<T> SparseSymmetricMatrix<T>
 where
-    T: DrawingValue + Default,
+    T: num_traits::Float + Zero + AddAssign + Default + num_traits::FromPrimitive,
+{
+    /// Returns the stationary unit vector u1 (null-space vector of Laplacian).
+    pub fn stationary_vector(&self) -> Array1<T> {
+        if let Some(ref u1) = self.stationary_vector {
+            Array1::from_vec(u1.clone())
+        } else {
+            let n = self.n;
+            if n == 0 {
+                return Array1::zeros(0);
+            }
+            let n_t = T::from_usize(n).unwrap();
+            let inv_sqrt_n = T::one() / n_t.sqrt();
+            Array1::from_elem(n, inv_sqrt_n)
+        }
+    }
+}
+
+impl<T> SparseSymmetricMatrix<T>
+where
+    T: DrawingValue + Default + num_traits::Float + num_traits::FromPrimitive,
 {
     /// Builds standard graph Laplacian matrix: L = D - A
     pub fn standard_laplacian<G, F>(graph: G, mut length: F) -> Self
@@ -188,6 +217,12 @@ where
 
         for (i, &deg) in degrees.iter().enumerate().take(n) {
             matrix.set_diagonal(i, deg);
+        }
+
+        if n > 0 {
+            let n_t = T::from_usize(n).unwrap();
+            let inv_sqrt_n = T::one() / n_t.sqrt();
+            matrix.stationary_vector = Some(vec![inv_sqrt_n; n]);
         }
 
         matrix
@@ -240,6 +275,16 @@ where
                 let (min_idx, max_idx) = if i < j { (i, j) } else { (j, i) };
                 matrix.add_edge(min_idx, max_idx, norm_w);
             }
+        }
+
+        let two_m: T = degrees.iter().copied().fold(T::zero(), |acc, d| acc + d);
+        if two_m > T::zero() {
+            let u1: Vec<T> = degrees.iter().map(|&d| (d / two_m).sqrt()).collect();
+            matrix.stationary_vector = Some(u1);
+        } else if n > 0 {
+            let n_t = T::from_usize(n).unwrap();
+            let inv_sqrt_n = T::one() / n_t.sqrt();
+            matrix.stationary_vector = Some(vec![inv_sqrt_n; n]);
         }
 
         matrix
