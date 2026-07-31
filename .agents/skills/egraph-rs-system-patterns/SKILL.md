@@ -80,7 +80,8 @@ Generates node pairs for SGD from spectral embeddings.
 Diffusion kernel-based SGD using exp(-tL) kernel.
 - **Location**: `crates/layout/kernel-sgd/` and `crates/linalg/spmv/`
 - **Architecture**:
-  - `diffusion_kernel.rs`: Single-scale heat kernel `DiffusionKernel` ($e^{-tL}$) and `DiffusionDistanceMatrix`
+  - `diffusion_kernel.rs`: Single-scale heat kernel `DiffusionKernel` ($e^{-tL}$), `DiffusionDistanceMatrix`, and `PivotDiffusionDistanceMatrix` (exact single-source heat diffusion distances from pivots $D_{ij}^2 = -4t \log(K_{ij} / \sqrt{K_{ii} K_{jj}})$)
+  - `pivot_diffusion_sgd.rs`: `PivotDiffusionSgd` layout builder using incremental max-min random pivot sampling on exact single-source heat vectors, delegating layout optimization to `SparseSgd`.
   - `bicgstab.rs`: Batched BiCGSTAB linear solver ($(I - \alpha P) Y = B$) with internal `BicgstabSolverBuffers`
   - `multiscale.rs`: Eigenvalue-free `MultiscaleDiffusionKernel` engine using Batched BiCGSTAB and Hutchinson index, with `MultiscaleDiffusionDistanceMatrix`
   - **API Surface Principle**: Keep submodules private (`mod ...;`), export minimal symmetric API (`DiffusionKernel` & `MultiscaleDiffusionKernel`, `DiffusionDistanceMatrix` & `MultiscaleDiffusionDistanceMatrix`), and hide internal solver workspace buffers (`pub(crate)`).
