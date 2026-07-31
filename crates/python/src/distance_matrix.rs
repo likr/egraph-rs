@@ -380,7 +380,7 @@ impl PyKernelDistance {
 use petgraph::visit::EdgeRef;
 use petgraph_distance::SparseSymmetricMatrix;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "Laplacian")]
 #[derive(Clone)]
 pub struct PyLaplacian {
