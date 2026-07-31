@@ -44,6 +44,26 @@ where
     evaluate_chebyshev_polynomial(&l_scaled, &coeffs, vectors)
 }
 
+/// Approximates exp(-tL) @ vector using Chebyshev polynomial expansion.
+pub(crate) fn chebyshev_approximation_vec<T>(
+    laplacian: &SparseSymmetricMatrix<T>,
+    t: T,
+    degree: usize,
+    lambda_max: T,
+    vector: &Array1<T>,
+) -> Array1<T>
+where
+    T: Float + std::iter::Sum + std::ops::AddAssign + Default + ndarray::ScalarOperand,
+{
+    let two = T::from(2.0).unwrap();
+    let scale = two / lambda_max;
+    let l_scaled = laplacian.scale_and_shift(scale, T::one());
+
+    let coeffs = compute_chebyshev_coefficients(t, lambda_max, degree);
+
+    evaluate_chebyshev_polynomial_vec(&l_scaled, &coeffs, vector)
+}
+
 /// Computes Chebyshev coefficients for exp(-t * lambda_max * (x + 1) / 2).
 ///
 /// # Parameters
@@ -145,6 +165,33 @@ where
     }
 
     result
+}
+
+/// Evaluates Chebyshev polynomial at matrix L_scaled applied to a single vector.
+fn evaluate_chebyshev_polynomial_vec<T>(
+    l_scaled: &SparseSymmetricMatrix<T>,
+    coeffs: &[T],
+    v: &Array1<T>,
+) -> Array1<T>
+where
+    T: Float + std::iter::Sum + std::ops::AddAssign + Default + ndarray::ScalarOperand,
+{
+    let n = l_scaled.dim();
+    let degree = coeffs.len() - 1;
+
+    let mut b_k_plus_2 = Array1::zeros(n);
+    let mut b_k_plus_1 = Array1::zeros(n);
+
+    for k in (1..=degree).rev() {
+        let l_times_b = l_scaled.multiply(&b_k_plus_1);
+        let b_k = v * coeffs[k] + &(l_times_b * T::from(2.0).unwrap()) - &b_k_plus_2;
+
+        b_k_plus_2 = b_k_plus_1;
+        b_k_plus_1 = b_k;
+    }
+
+    let l_times_b = l_scaled.multiply(&b_k_plus_1);
+    v * coeffs[0] + &l_times_b - &b_k_plus_2
 }
 
 #[cfg(test)]

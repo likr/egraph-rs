@@ -315,3 +315,35 @@ fn test_multiscale_diffusion_kernel_accuracy() {
         max_abs_err
     );
 }
+
+#[test]
+fn test_single_source_heat_vector_and_pivot_distance() {
+    let n = 6;
+    let mut graph = UnGraph::<(), ()>::new_undirected();
+    let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
+    for i in 0..(n - 1) {
+        graph.add_edge(nodes[i], nodes[i + 1], ());
+    }
+
+    let laplacian = StandardLaplacian.build(&graph, &mut |_| 1.0);
+    let t = 0.5;
+    let degree = 20;
+
+    let pivot = 0;
+    let heat_vec = DiffusionKernel::single_source_heat_vector(&laplacian, t, degree, pivot);
+
+    assert_eq!(heat_vec.len(), n);
+    assert!(heat_vec[0] > 0.0, "Pivot heat should be positive");
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let kernel = DiffusionKernel::new(&laplacian, t, degree, 50, &mut rng);
+    use petgraph_linalg_diffusion_kernel::PivotDiffusionDistanceMatrix;
+    let dist_vec =
+        PivotDiffusionDistanceMatrix::pivot_distance_vector(&laplacian, &kernel, t, degree, pivot);
+
+    assert_eq!(dist_vec[0], 0.0, "Distance to self should be 0");
+    assert!(dist_vec[1] > 0.0, "Distance to neighbor should be positive");
+    assert!(
+        dist_vec[2] > dist_vec[1],
+        "Distance should increase with path length"
+    );
+}

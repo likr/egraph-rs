@@ -1,10 +1,14 @@
-//! Python bindings for DiffusionKernel
-//!
-//! This module provides Python access to the diffusion kernel matrix exp(-tL),
-//! allowing random access to individual matrix elements.
-
-use crate::{distance_matrix::PyLaplacian, FloatType};
-use petgraph_linalg_diffusion_kernel::{DiffusionKernel, MultiscaleDiffusionKernel};
+use crate::{
+    distance_matrix::PyLaplacian,
+    graph::{GraphType, PyGraphAdapter},
+    layout::sgd::PySgd,
+    FloatType,
+};
+use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
+use petgraph_layout_sgd::PivotDiffusionSgd;
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionKernel, MultiscaleDiffusionKernel, PivotDiffusionDistanceMatrix,
+};
 use pyo3::prelude::*;
 
 /// Python class for querying diffusion kernel matrix elements
@@ -55,6 +59,34 @@ impl PyDiffusionKernel {
     /// Queries the (i, j) element of the diffusion kernel matrix
     fn get(&self, i: usize, j: usize) -> FloatType {
         self.kernel.get(i, j)
+    }
+
+    /// Computes the exact single-source heat diffusion vector K e_pivot for a given pivot node
+    #[staticmethod]
+    fn single_source_heat_vector(
+        laplacian: &PyLaplacian,
+        t: FloatType,
+        degree: usize,
+        pivot: usize,
+    ) -> Vec<FloatType> {
+        DiffusionKernel::single_source_heat_vector(&laplacian.matrix, t, degree, pivot).to_vec()
+    }
+
+    /// Computes the distance vector from a pivot to all nodes using single-source exact heat diffusion
+    fn pivot_distance_vector(
+        &self,
+        laplacian: &PyLaplacian,
+        t: FloatType,
+        degree: usize,
+        pivot: usize,
+    ) -> Vec<FloatType> {
+        PivotDiffusionDistanceMatrix::pivot_distance_vector(
+            &laplacian.matrix,
+            &self.kernel,
+            t,
+            degree,
+            pivot,
+        )
     }
 
     /// Returns the number of nodes in the graph
@@ -115,5 +147,91 @@ impl PyMultiscaleDiffusionKernel {
     /// Returns the number of nodes in the graph
     fn n(&self) -> usize {
         self.kernel.n()
+    }
+}
+
+/// Python class for creating Pivot-based Diffusion SGD layout instances
+#[pyclass]
+#[pyo3(name = "PivotDiffusionSgd")]
+pub struct PyPivotDiffusionSgd {
+    builder: PivotDiffusionSgd<FloatType>,
+}
+
+#[pymethods]
+impl PyPivotDiffusionSgd {
+    /// Creates a new PivotDiffusionSgd builder
+    #[new]
+    fn new() -> Self {
+        Self {
+            builder: PivotDiffusionSgd::new(),
+        }
+    }
+
+    /// Sets the diffusion time parameter t
+    fn t(mut slf: PyRefMut<Self>, t: FloatType) -> Py<Self> {
+        slf.builder.t(t);
+        slf.into()
+    }
+
+    /// Sets the degree of Chebyshev polynomial approximation
+    fn degree(mut slf: PyRefMut<Self>, degree: usize) -> Py<Self> {
+        slf.builder.degree(degree);
+        slf.into()
+    }
+
+    /// Sets the number of vectors used for Hutchinson diagonal trace estimation
+    fn num_vectors(mut slf: PyRefMut<Self>, num_vectors: usize) -> Py<Self> {
+        slf.builder.num_vectors(num_vectors);
+        slf.into()
+    }
+
+    /// Sets the number of pivot nodes
+    fn h(mut slf: PyRefMut<Self>, h: usize) -> Py<Self> {
+        slf.builder.h(h);
+        slf.into()
+    }
+
+    /// Builds an SGD instance with heat diffusion distances and max-min random pivot sampling
+    fn build(
+        &self,
+        graph: &PyGraphAdapter,
+        laplacian: &PyLaplacian,
+        f: &Bound<PyAny>,
+        rng: &mut crate::rng::PyRng,
+    ) -> PySgd {
+        PySgd::new_with_sgd(match graph.graph() {
+            GraphType::Graph(native_graph) => self.builder.build(
+                native_graph,
+                &laplacian.matrix,
+                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                rng.get_mut(),
+            ),
+            _ => panic!("unsupported graph type"),
+        })
+    }
+
+    /// Builds an SGD instance with pre-selected pivot nodes
+    fn build_with_pivot(
+        &self,
+        graph: &PyGraphAdapter,
+        laplacian: &PyLaplacian,
+        f: &Bound<PyAny>,
+        pivot: Vec<usize>,
+        rng: &mut crate::rng::PyRng,
+    ) -> PySgd {
+        PySgd::new_with_sgd(match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                let nodes = native_graph.node_identifiers().collect::<Vec<_>>();
+                let pivot_nodes = pivot.iter().map(|&i| nodes[i]).collect::<Vec<_>>();
+                self.builder.build_with_pivot(
+                    native_graph,
+                    &laplacian.matrix,
+                    |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &pivot_nodes,
+                    rng.get_mut(),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        })
     }
 }

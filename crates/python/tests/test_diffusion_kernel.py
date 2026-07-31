@@ -157,6 +157,25 @@ class TestDiffusionKernel(unittest.TestCase):
         # Distance should be non-negative
         self.assertGreaterEqual(distance, 0.0)
 
+    def test_single_source_and_pivot_distance(self):
+        """Test single_source_heat_vector and pivot_distance_vector"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        heat_vec = eg.DiffusionKernel.single_source_heat_vector(laplacian, 0.5, 10, 0)
+        self.assertEqual(len(heat_vec), 3)
+        self.assertGreater(heat_vec[0], 0.0)
+
+        dk = eg.DiffusionKernel(laplacian, 0.5, 10, 50, self.rng)
+        dist_vec = dk.pivot_distance_vector(laplacian, 0.5, 10, 0)
+        self.assertEqual(len(dist_vec), 3)
+        self.assertEqual(dist_vec[0], 0.0)
+        self.assertGreater(dist_vec[1], 0.0)
+
+    def test_pivot_diffusion_sgd(self):
+        """Test PivotDiffusionSgd builder"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        sgd = eg.PivotDiffusionSgd().t(0.5).degree(10).num_vectors(16).h(2).build(self.graph, laplacian, lambda i: 1.0, self.rng)
+        self.assertIsNotNone(sgd)
+
 
 if __name__ == "__main__":
     unittest.main()

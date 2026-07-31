@@ -279,41 +279,26 @@ where
 }
 
 /// Selects a node index with probability proportional to its distance value.
-///
-/// This function is used in the pivot selection process to randomly choose the
-/// next pivot with probability proportional to its minimum distance from all
-/// previously selected pivots. This ensures that nodes that are farther from
-/// existing pivots have a higher chance of being selected as the next pivot.
-///
-/// # Parameters
-/// * `values` - An array of distance values for each node
-/// * `rng` - The random number generator to use
-///
-/// # Returns
-/// The index of the selected node
-///
-/// # Panics
-/// This function will panic if all values are zero or if an unexpected state is reached.
-fn proportional_sampling<R, S>(values: &Array1<S>, rng: &mut R) -> usize
+pub(crate) fn proportional_sampling<R, S>(values: &Array1<S>, rng: &mut R) -> usize
 where
     R: Rng,
     S: DrawingValue,
 {
     let n = values.len();
-    let mut s = 0.;
+    let mut s = 0.0;
     for i in 0..n {
         s += values[i].to_f32().unwrap();
     }
-    if s == 0. {
-        panic!("could not choice pivot");
+    if s == 0.0 {
+        panic!("could not choose pivot");
     }
     let x = rng.gen_range(0.0..s);
-    s = 0.;
+    s = 0.0;
     for i in 0..n {
         s += values[i].to_f32().unwrap();
         if x < s {
             return i;
         }
     }
-    panic!("unreachable");
+    n - 1
 }

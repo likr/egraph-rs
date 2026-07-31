@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 ndarray = "0.16"
+num-traits = "0.2"
 ordered-float = "3.0"
 petgraph = "0.8"
 petgraph-algorithm-shortest-path = { path = "../../algorithm/shortest-path" }
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../../linalg/distance" }
+petgraph-linalg-diffusion-kernel = { path = "../../linalg/diffusion-kernel" }
 rand = "0.8"
