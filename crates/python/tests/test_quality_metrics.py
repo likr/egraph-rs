@@ -108,6 +108,13 @@ class TestQualityMetrics(unittest.TestCase):
         for (graph, drawing, _) in self._graphs:
             assert (math.isfinite(eg.neighborhood_preservation(graph, drawing)))
 
+    def test_neighborhood_preservation_2hop(self):
+        for (graph, drawing, _) in self._graphs:
+            val = eg.neighborhood_preservation_2hop(graph, drawing)
+            assert (math.isfinite(val))
+            assert (0.0 <= val <= 1.0)
+
+
     def test_node_resolution(self):
         for (_, drawing, _) in self._graphs:
             assert (math.isfinite(eg.node_resolution(drawing)))

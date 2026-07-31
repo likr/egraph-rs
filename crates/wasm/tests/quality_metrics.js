@@ -236,6 +236,36 @@ exports.testNeighborhoodPreservation = function () {
 };
 
 /**
+ * Test the 2-hop neighborhood preservation metric
+ */
+exports.testNeighborhoodPreservation2Hop = function () {
+  const { graph } = helpers.createStarGraph(5);
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+
+  drawing.setX(0, 0.0);
+  drawing.setY(0, 0.0);
+  drawing.setX(1, 1.0);
+  drawing.setY(1, 0.0);
+  drawing.setX(2, 0.0);
+  drawing.setY(2, 1.0);
+  drawing.setX(3, -1.0);
+  drawing.setY(3, 0.0);
+  drawing.setX(4, 0.0);
+  drawing.setY(4, -1.0);
+
+  const np2hop = eg.neighborhoodPreservation2Hop(graph, drawing);
+  assert(
+    Number.isFinite(np2hop),
+    "2-hop neighborhood preservation should be a finite number"
+  );
+  assert(
+    np2hop >= 0 && np2hop <= 1,
+    "2-hop neighborhood preservation should be between 0 and 1"
+  );
+};
+
+
+/**
  * Test integration of quality metrics with layout algorithms
  */
 exports.testQualityMetricsIntegration = function () {

@@ -73,7 +73,7 @@ pub use edge_crossings::{
 };
 pub use gabriel_graph_property::gabriel_graph_property;
 pub use ideal_edge_lengths::ideal_edge_lengths;
-pub use neighborhood_preservation::neighborhood_preservation;
+pub use neighborhood_preservation::{neighborhood_preservation, neighborhood_preservation_2hop};
 pub use node_resolution::node_resolution;
 pub use stress::stress;
 
@@ -115,6 +115,13 @@ pub enum QualityMetric {
     /// neighbors and spatial neighbors in the layout. Higher values indicate better
     /// preservation of the graph's neighborhood structure.
     NeighborhoodPreservation,
+
+    /// Assesses how well the layout preserves 2-hop local neighborhoods.
+    ///
+    /// This metric calculates the average Jaccard similarity of 2-hop graph neighborhoods
+    /// and spatial nearest neighbors in the layout. Higher values indicate better
+    /// preservation of 2-hop structure.
+    NeighborhoodPreservation2Hop,
 
     /// Counts the number of edge crossings in the layout.
     ///
@@ -170,6 +177,7 @@ impl QualityMetric {
             QualityMetric::Stress => "stress".into(),
             QualityMetric::IdealEdgeLengths => "ideal-edge-lengths".into(),
             QualityMetric::NeighborhoodPreservation => "neighborhood-preservation".into(),
+            QualityMetric::NeighborhoodPreservation2Hop => "neighborhood-preservation-2hop".into(),
             QualityMetric::CrossingNumber => "crossing-number".into(),
             QualityMetric::CrossingAngle => "crossing-angle".into(),
             QualityMetric::AspectRatio => "aspect-ratio".into(),
@@ -191,6 +199,7 @@ impl QualityMetric {
     pub fn sense(&self) -> Sense {
         match self {
             QualityMetric::NeighborhoodPreservation => Sense::Maximize,
+            QualityMetric::NeighborhoodPreservation2Hop => Sense::Maximize,
             QualityMetric::CrossingAngle => Sense::Maximize,
             QualityMetric::AspectRatio => Sense::Maximize,
             QualityMetric::AngularResolution => Sense::Maximize,
@@ -237,6 +246,7 @@ where
             QualityMetric::Stress,
             QualityMetric::IdealEdgeLengths,
             QualityMetric::NeighborhoodPreservation,
+            QualityMetric::NeighborhoodPreservation2Hop,
             QualityMetric::CrossingNumber,
             QualityMetric::CrossingAngle,
             QualityMetric::AspectRatio,
@@ -286,6 +296,9 @@ where
                 QualityMetric::IdealEdgeLengths => ideal_edge_lengths(graph, drawing, d),
                 QualityMetric::NeighborhoodPreservation => {
                     neighborhood_preservation(graph, drawing)
+                }
+                QualityMetric::NeighborhoodPreservation2Hop => {
+                    neighborhood_preservation_2hop(graph, drawing)
                 }
                 QualityMetric::CrossingNumber => {
                     crossing_number_with_crossing_edges(&crossing_edges)

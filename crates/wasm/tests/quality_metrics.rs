@@ -15,6 +15,8 @@ extern "C" {
     fn test_crossing_number_with_drawing_torus_2d();
     #[wasm_bindgen(js_name = "testNeighborhoodPreservation")]
     fn test_neighborhood_preservation();
+    #[wasm_bindgen(js_name = "testNeighborhoodPreservation2Hop")]
+    fn test_neighborhood_preservation_2hop();
     #[wasm_bindgen(js_name = "testQualityMetricsIntegration")]
     fn test_quality_metrics_integration();
 }
@@ -41,6 +43,12 @@ pub fn crossing_number_with_drawing_torus_2d() {
 #[wasm_bindgen_test]
 pub fn neighborhood_preservation() {
     test_neighborhood_preservation();
+}
+
+/// Test the 2-hop neighborhood preservation metric
+#[wasm_bindgen_test]
+pub fn neighborhood_preservation_2hop() {
+    test_neighborhood_preservation_2hop();
 }
 
 /// Test integration of quality metrics with layout algorithms

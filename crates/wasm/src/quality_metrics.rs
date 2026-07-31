@@ -12,8 +12,9 @@ use crate::{
 use petgraph_algorithm_shortest_path::warshall_floyd;
 use petgraph_quality_metrics::{
     crossing_edges, crossing_edges_torus, crossing_number_with_crossing_edges,
-    neighborhood_preservation, stress,
+    neighborhood_preservation, neighborhood_preservation_2hop, stress,
 };
+
 use wasm_bindgen::prelude::*;
 
 /// Calculates the stress metric for a graph drawing.
@@ -60,4 +61,14 @@ pub fn js_crossing_number_with_drawing_torus_2d(
 #[wasm_bindgen(js_name = neighborhoodPreservation)]
 pub fn js_neighborhood_preservation(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
     neighborhood_preservation(graph.graph(), drawing.drawing())
+}
+
+/// Calculates how well a drawing preserves 2-hop node neighborhoods.
+///
+/// This metric measures how well the 2-hop graph neighborhoods correspond
+/// to spatial nearest neighbors in the drawing. A value closer to 1.0 indicates
+/// better 2-hop neighborhood preservation.
+#[wasm_bindgen(js_name = neighborhoodPreservation2Hop)]
+pub fn js_neighborhood_preservation_2hop(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
+    neighborhood_preservation_2hop(graph.graph(), drawing.drawing())
 }

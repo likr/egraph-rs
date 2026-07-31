@@ -17,6 +17,8 @@ Neighborhood Preservation
 ----------------------------------
 
 .. autofunction:: egraph.neighborhood_preservation
+.. autofunction:: egraph.neighborhood_preservation_2hop
+
 
 Aspect Ratio
 ----------------------

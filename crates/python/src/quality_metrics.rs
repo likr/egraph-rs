@@ -22,8 +22,8 @@ use crate::{
 use petgraph_quality_metrics::{
     angular_resolution, aspect_ratio, crossing_angle, crossing_angle_with_crossing_edges,
     crossing_edges, crossing_edges_torus, crossing_number, crossing_number_with_crossing_edges,
-    gabriel_graph_property, ideal_edge_lengths, neighborhood_preservation, node_resolution, stress,
-    CrossingEdges,
+    gabriel_graph_property, ideal_edge_lengths, neighborhood_preservation,
+    neighborhood_preservation_2hop, node_resolution, stress, CrossingEdges,
 };
 use pyo3::prelude::*;
 
@@ -314,6 +314,34 @@ fn py_neighborhood_preservation(
     }
 }
 
+/// Measures how well the drawing preserves 2-hop node neighborhoods
+///
+/// This metric computes how well the layout preserves the 2-hop local structure of the graph.
+/// It measures whether nodes that are within shortest path distance <= 2 in the graph structure are
+/// positioned close together in the drawing.
+///
+/// :param graph: The graph being drawn
+/// :type graph: Graph or DiGraph
+/// :param drawing: The drawing to analyze
+/// :type drawing: DrawingEuclidean2d
+/// :return: The 2-hop neighborhood preservation score (higher is better)
+/// :rtype: float
+#[pyfunction]
+#[pyo3(name = "neighborhood_preservation_2hop")]
+fn py_neighborhood_preservation_2hop(
+    graph: &PyGraphAdapter,
+    drawing: &PyDrawingEuclidean2d,
+) -> FloatType {
+    match graph.graph() {
+        GraphType::Graph(native_graph) => {
+            neighborhood_preservation_2hop(native_graph, drawing.drawing())
+        }
+        GraphType::DiGraph(native_graph) => {
+            neighborhood_preservation_2hop(native_graph, drawing.drawing())
+        }
+    }
+}
+
 /// Measures how evenly nodes are distributed in the drawing space
 ///
 /// Node resolution is the minimum distance between any two nodes, normalized
@@ -400,7 +428,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_gabriel_graph_property, m)?)?;
     m.add_function(wrap_pyfunction!(py_ideal_edge_lengths, m)?)?;
     m.add_function(wrap_pyfunction!(py_neighborhood_preservation, m)?)?;
+    m.add_function(wrap_pyfunction!(py_neighborhood_preservation_2hop, m)?)?;
     m.add_function(wrap_pyfunction!(py_node_resolution, m)?)?;
+
     m.add_function(wrap_pyfunction!(py_stress, m)?)?;
     Ok(())
 }
