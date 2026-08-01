@@ -13,4 +13,5 @@ num-traits = "0.2"
 petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../distance" }
+petgraph-linalg-rdmds = { path = "../rdmds" }
 rand = "0.8"
