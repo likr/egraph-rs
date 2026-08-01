@@ -177,5 +177,72 @@ class TestDiffusionKernel(unittest.TestCase):
         self.assertIsNotNone(sgd)
 
 
+class TestLowRankDiffusionKernel(unittest.TestCase):
+    def setUp(self):
+        """Set up a simple graph for testing LowRankDiffusionKernel"""
+        self.graph = eg.Graph()
+        self.n0 = self.graph.add_node(0)
+        self.n1 = self.graph.add_node(1)
+        self.n2 = self.graph.add_node(2)
+        self.graph.add_edge(self.n0, self.n1, None)
+        self.graph.add_edge(self.n1, self.n2, None)
+
+        self.rng = eg.Rng.seed_from(42)
+
+    def test_basic_construction_and_properties(self):
+        """Test LowRankDiffusionKernel basic construction and properties"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
+
+        self.assertEqual(lr.n(), 3)
+        self.assertEqual(lr.t(), 1.0)
+        self.assertEqual(lr.rank(), 2)
+
+        eigenvalues = lr.eigenvalues()
+        self.assertGreaterEqual(len(eigenvalues), 2)
+        self.assertGreaterEqual(eigenvalues[0], 0.0)
+
+    def test_element_access_and_symmetry(self):
+        """Test LowRankDiffusionKernel matrix element queries and symmetry"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
+
+        k_00 = lr.get(0, 0)
+        k_11 = lr.get(1, 1)
+        self.assertGreater(k_00, 0.0)
+        self.assertGreater(k_11, 0.0)
+
+        k_01 = lr.get(0, 1)
+        k_10 = lr.get(1, 0)
+        self.assertAlmostEqual(k_01, k_10, places=10)
+
+    def test_distance_and_pivot_vector(self):
+        """Test distance and pivot_distance_vector queries"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
+
+        self.assertEqual(lr.distance(0, 0), 0.0)
+        self.assertGreater(lr.distance(0, 1), 0.0)
+
+        dist_vec = lr.pivot_distance_vector(0)
+        self.assertEqual(len(dist_vec), 3)
+        self.assertEqual(dist_vec[0], 0.0)
+        self.assertGreater(dist_vec[1], 0.0)
+
+    def test_low_rank_diffusion_distance_matrix(self):
+        """Test LowRankDiffusionDistanceMatrix wrapping and querying"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
+
+        dm = eg.LowRankDiffusionDistanceMatrix(self.graph, lr, 0.1)
+        self.assertEqual(dm.get(0, 0), 0.0)
+        self.assertGreaterEqual(dm.get(0, 1), 0.1)
+
+        dm_pivots = eg.LowRankDiffusionDistanceMatrix.new_with_pivots(self.graph, lr, [0], 0.1)
+        self.assertEqual(dm_pivots.get(0, 0), 0.0)
+        self.assertGreaterEqual(dm_pivots.get(0, 1), 0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
+

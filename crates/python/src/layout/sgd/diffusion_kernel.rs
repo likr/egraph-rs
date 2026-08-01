@@ -7,7 +7,8 @@ use crate::{
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
 use petgraph_layout_sgd::PivotDiffusionSgd;
 use petgraph_linalg_diffusion_kernel::{
-    DiffusionKernel, MultiscaleDiffusionKernel, PivotDiffusionDistanceMatrix,
+    DiffusionKernel, LowRankDiffusionKernel, MultiscaleDiffusionKernel,
+    PivotDiffusionDistanceMatrix,
 };
 use pyo3::prelude::*;
 
@@ -233,5 +234,90 @@ impl PyPivotDiffusionSgd {
             }
             _ => panic!("unsupported graph type"),
         })
+    }
+}
+
+/// Python class for querying low-rank spectral heat kernel matrix elements and heat diffusion distances
+#[pyclass]
+#[pyo3(name = "LowRankDiffusionKernel")]
+pub struct PyLowRankDiffusionKernel {
+    pub(crate) kernel: LowRankDiffusionKernel<FloatType>,
+}
+
+#[pymethods]
+impl PyLowRankDiffusionKernel {
+    /// Creates a new LowRankDiffusionKernel by computing smallest eigenvalues and eigenvectors
+    #[new]
+    fn new(
+        laplacian: &PyLaplacian,
+        t: FloatType,
+        rank: usize,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<Self> {
+        let kernel = LowRankDiffusionKernel::new(&laplacian.matrix, t, rank, rng.get_mut());
+        Ok(PyLowRankDiffusionKernel { kernel })
+    }
+
+    /// Creates a LowRankDiffusionKernel with custom eigensolver iteration and tolerance parameters
+    #[allow(clippy::too_many_arguments)]
+    #[staticmethod]
+    fn new_with_params(
+        laplacian: &PyLaplacian,
+        t: FloatType,
+        rank: usize,
+        shift: FloatType,
+        eigenvalue_max_iterations: usize,
+        cg_max_iterations: usize,
+        eigenvalue_tolerance: FloatType,
+        cg_tolerance: FloatType,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<Self> {
+        let kernel = LowRankDiffusionKernel::new_with_params(
+            &laplacian.matrix,
+            t,
+            rank,
+            shift,
+            eigenvalue_max_iterations,
+            cg_max_iterations,
+            eigenvalue_tolerance,
+            cg_tolerance,
+            rng.get_mut(),
+        );
+        Ok(PyLowRankDiffusionKernel { kernel })
+    }
+
+    /// Queries the (i, j) element of the low-rank heat kernel matrix
+    fn get(&self, i: usize, j: usize) -> FloatType {
+        self.kernel.get(i, j)
+    }
+
+    /// Computes the heat diffusion distance between node i and node j
+    fn distance(&self, i: usize, j: usize) -> FloatType {
+        self.kernel.distance(i, j)
+    }
+
+    /// Computes the single-source heat diffusion distance vector from a pivot node
+    fn pivot_distance_vector(&self, pivot: usize) -> Vec<FloatType> {
+        self.kernel.pivot_distance_vector(pivot)
+    }
+
+    /// Returns the number of nodes in the graph
+    fn n(&self) -> usize {
+        self.kernel.n()
+    }
+
+    /// Returns the diffusion time parameter t
+    fn t(&self) -> FloatType {
+        self.kernel.t()
+    }
+
+    /// Returns the approximation rank r
+    fn rank(&self) -> usize {
+        self.kernel.rank()
+    }
+
+    /// Returns a list of computed eigenvalues
+    fn eigenvalues(&self) -> Vec<FloatType> {
+        self.kernel.eigenvalues().to_vec()
     }
 }
