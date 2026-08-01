@@ -84,7 +84,7 @@ Diffusion kernel-based SGD using exp(-tL) kernel.
   - `pivot_diffusion_sgd.rs`: `PivotDiffusionSgd` layout builder using incremental max-min random pivot sampling on exact single-source heat vectors, delegating layout optimization to `SparseSgd`.
   - `bicgstab.rs`: Batched BiCGSTAB linear solver ($(I - \alpha P) Y = B$) with internal `BicgstabSolverBuffers`
   - `multiscale.rs`: Eigenvalue-free `MultiscaleDiffusionKernel` engine using Batched BiCGSTAB and Hutchinson index, with `MultiscaleDiffusionDistanceMatrix`
-  - `low_rank.rs`: Low-rank spectral heat kernel `LowRankDiffusionKernel` ($K_{ij}^{(r)} = \sum_{k=0}^{r} \exp(-t \lambda_k) u_{k,i} u_{k,j}$) and `LowRankDiffusionDistanceMatrix`, computing low-rank spectral embeddings via `petgraph-linalg-rdmds` eigensolver. Supports both Standard ($L = D - A$) and Symmetric Normalized ($L_{\text{sym}} = D^{-1/2} L D^{-1/2}$) Laplacians.
+  - `low_rank.rs`: Low-rank spectral heat kernel `LowRankDiffusionKernel` ($K_{ij}^{(r)} = \sum_{k=0}^{r} \exp(-t \lambda_k) u_{k,i} u_{k,j}$) and `LowRankDiffusionDistanceMatrix`, computing low-rank spectral embeddings via `petgraph-linalg-rdmds` eigensolver. Supports both Standard ($L = D - A$) and Symmetric Normalized ($L_{\text{sym}} = D^{-1/2} L D^{-1/2}$) Laplacians. Exposed in Python bindings as `egraph.LowRankDiffusionKernel` & `egraph.LowRankDiffusionDistanceMatrix`.
   - **API Surface Principle**: Keep submodules private or clean (`mod ...;`), export minimal symmetric API (`DiffusionKernel`, `LowRankDiffusionKernel`, & `MultiscaleDiffusionKernel`, `DiffusionDistanceMatrix` & `LowRankDiffusionDistanceMatrix`), and hide internal solver workspace buffers (`pub(crate)`).
 
 ## Community Detection
