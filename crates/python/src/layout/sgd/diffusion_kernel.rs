@@ -7,7 +7,7 @@ use crate::{
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
 use petgraph_layout_sgd::PivotDiffusionSgd;
 use petgraph_linalg_diffusion_kernel::{
-    DiffusionKernel, LowRankDiffusionKernel, MultiscaleDiffusionKernel,
+    DiffusionKernel, ExactDiffusionKernel, LowRankDiffusionKernel, MultiscaleDiffusionKernel,
     PivotDiffusionDistanceMatrix,
 };
 use pyo3::prelude::*;
@@ -319,5 +319,65 @@ impl PyLowRankDiffusionKernel {
     /// Returns a list of computed eigenvalues
     fn eigenvalues(&self) -> Vec<FloatType> {
         self.kernel.eigenvalues().to_vec()
+    }
+}
+
+/// Python class for querying exact heat kernel matrix elements and heat diffusion distances
+#[pyclass]
+#[pyo3(name = "ExactDiffusionKernel")]
+pub struct PyExactDiffusionKernel {
+    pub(crate) kernel: ExactDiffusionKernel<FloatType>,
+}
+
+#[pymethods]
+impl PyExactDiffusionKernel {
+    /// Creates a new ExactDiffusionKernel with automatic lambda_max estimation
+    #[new]
+    fn new(laplacian: &PyLaplacian, t: FloatType, degree: usize) -> PyResult<Self> {
+        let kernel = ExactDiffusionKernel::new(&laplacian.matrix, t, degree);
+        Ok(PyExactDiffusionKernel { kernel })
+    }
+
+    /// Creates an ExactDiffusionKernel with externally provided lambda_max
+    #[staticmethod]
+    fn new_with_lambda_max(
+        laplacian: &PyLaplacian,
+        t: FloatType,
+        degree: usize,
+        lambda_max: FloatType,
+    ) -> PyResult<Self> {
+        let kernel =
+            ExactDiffusionKernel::new_with_lambda_max(&laplacian.matrix, t, degree, lambda_max);
+        Ok(PyExactDiffusionKernel { kernel })
+    }
+
+    /// Queries the (i, j) element of the exact heat kernel matrix
+    fn get(&self, i: usize, j: usize) -> FloatType {
+        self.kernel.get(i, j)
+    }
+
+    /// Computes the heat diffusion distance between node i and node j
+    fn distance(&self, i: usize, j: usize) -> FloatType {
+        self.kernel.distance(i, j)
+    }
+
+    /// Computes the single-source heat diffusion distance vector from a pivot node
+    fn pivot_distance_vector(&self, pivot: usize) -> Vec<FloatType> {
+        self.kernel.pivot_distance_vector(pivot)
+    }
+
+    /// Returns the number of nodes in the graph
+    fn n(&self) -> usize {
+        self.kernel.n()
+    }
+
+    /// Returns the diffusion time parameter t
+    fn t(&self) -> FloatType {
+        self.kernel.t()
+    }
+
+    /// Returns the full exact heat kernel matrix
+    fn matrix(&self) -> crate::array::PyArray2 {
+        crate::array::PyArray2::new(self.kernel.matrix().clone())
     }
 }

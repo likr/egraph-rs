@@ -1,58 +1,14 @@
 #![allow(clippy::needless_range_loop)]
 
-use ndarray::Array1;
 use petgraph::graph::UnGraph;
 use petgraph_distance::{
     Laplacian, SparseSymmetricMatrix, StandardLaplacian, SymmetricNormalizedLaplacian,
 };
-use petgraph_linalg_diffusion_kernel::{DiffusionKernel, LowRankDiffusionKernel};
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionKernel, ExactDiffusionKernel, LowRankDiffusionKernel,
+};
 use rand::SeedableRng;
 use std::time::Instant;
-
-/// Computes exact matrix exponential exp(-t * L) using Taylor series expansion up to `num_terms`.
-fn compute_exact_exp_neg_tl(
-    laplacian: &SparseSymmetricMatrix<f64>,
-    t: f64,
-    num_terms: usize,
-) -> Vec<Vec<f64>> {
-    let n = laplacian.dim();
-    let mut exp_matrix = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        exp_matrix[i][i] = 1.0;
-    }
-
-    let mut current_term = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        current_term[i][i] = 1.0;
-    }
-
-    for k in 1..num_terms {
-        let mut next_term = vec![vec![0.0; n]; n];
-        let factor = -t / (k as f64);
-
-        for j in 0..n {
-            let mut col_j = vec![0.0; n];
-            for i in 0..n {
-                col_j[i] = current_term[i][j];
-            }
-            let x_arr = Array1::from_vec(col_j);
-            let l_col_j = laplacian.multiply(&x_arr);
-            for i in 0..n {
-                next_term[i][j] = factor * l_col_j[i];
-            }
-        }
-
-        for i in 0..n {
-            for j in 0..n {
-                exp_matrix[i][j] += next_term[i][j];
-            }
-        }
-
-        current_term = next_term;
-    }
-
-    exp_matrix
-}
 
 struct TestTopology {
     name: String,
@@ -188,22 +144,14 @@ fn benchmark_hutchinson_vs_low_rank_accuracy_and_speed() {
                 &tc.laplacian_std
             };
 
-            // 1. Ground truth exact matrix exponential exp(-t L) via high-order Taylor series
-            let exact_exp = compute_exact_exp_neg_tl(laplacian, t, 60);
+            // 1. Ground truth exact matrix exponential exp(-t L) via Chebyshev polynomial expansion
+            let exact_kernel = ExactDiffusionKernel::new(laplacian, t, 60);
 
             // Ground truth pairwise exact heat distances
             let mut exact_dist = vec![vec![0.0; n]; n];
             for i in 0..n {
                 for j in 0..n {
-                    if i == j {
-                        exact_dist[i][j] = 0.0;
-                    } else {
-                        let k_ii = exact_exp[i][i];
-                        let k_jj = exact_exp[j][j];
-                        let k_ij = exact_exp[i][j];
-                        let ratio = (k_ij / (k_ii * k_jj).sqrt()).clamp(1e-15, 1.0);
-                        exact_dist[i][j] = (-4.0 * t * ratio.ln()).max(0.0).sqrt();
-                    }
+                    exact_dist[i][j] = exact_kernel.distance(i, j);
                 }
             }
 
@@ -226,12 +174,12 @@ fn benchmark_hutchinson_vs_low_rank_accuracy_and_speed() {
             let pair_count = (n * (n - 1)) / 2;
 
             for i in 0..n {
-                let err_diag = (kernel_hutch.get(i, i) - exact_exp[i][i]).abs();
+                let err_diag = (kernel_hutch.get(i, i) - exact_kernel.get(i, i)).abs();
                 hutch_diag_mae += err_diag;
                 hutch_diag_sq += err_diag * err_diag;
 
                 for j in (i + 1)..n {
-                    let err_offdiag = (kernel_hutch.get(i, j) - exact_exp[i][j]).abs();
+                    let err_offdiag = (kernel_hutch.get(i, j) - exact_kernel.get(i, j)).abs();
                     hutch_offdiag_mae += err_offdiag;
                     hutch_offdiag_sq += err_offdiag * err_offdiag;
 
@@ -277,12 +225,12 @@ fn benchmark_hutchinson_vs_low_rank_accuracy_and_speed() {
                 let mut lr_dist_maxae = 0.0f64;
 
                 for i in 0..n {
-                    let err_diag = (kernel_lr.get(i, i) - exact_exp[i][i]).abs();
+                    let err_diag = (kernel_lr.get(i, i) - exact_kernel.get(i, i)).abs();
                     lr_diag_mae += err_diag;
                     lr_diag_sq += err_diag * err_diag;
 
                     for j in (i + 1)..n {
-                        let err_offdiag = (kernel_lr.get(i, j) - exact_exp[i][j]).abs();
+                        let err_offdiag = (kernel_lr.get(i, j) - exact_kernel.get(i, j)).abs();
                         lr_offdiag_mae += err_offdiag;
                         lr_offdiag_sq += err_offdiag * err_offdiag;
 

@@ -1,63 +1,11 @@
 #![allow(clippy::needless_range_loop)]
 
-use ndarray::Array1;
 use petgraph::graph::UnGraph;
 use petgraph_distance::{Laplacian, SparseSymmetricMatrix, StandardLaplacian};
-use petgraph_linalg_diffusion_kernel::{DiffusionKernel, MultiscaleDiffusionKernel};
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionKernel, ExactDiffusionKernel, MultiscaleDiffusionKernel,
+};
 use rand::SeedableRng;
-
-/// Computes exact matrix exponential exp(-t * L) using Taylor series expansion.
-/// Designed for small matrices (n <= 30) where high accuracy is required.
-fn compute_exact_exp_neg_tl(
-    laplacian: &SparseSymmetricMatrix<f64>,
-    t: f64,
-    num_terms: usize,
-) -> Vec<Vec<f64>> {
-    let n = laplacian.dim();
-    // Initialize result with Identity matrix I
-    let mut exp_matrix = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        exp_matrix[i][i] = 1.0;
-    }
-
-    // Current term T_k = (-t)^k L^k / k!
-    let mut current_term = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        current_term[i][i] = 1.0;
-    }
-
-    for k in 1..num_terms {
-        // Compute next_term = (-t / k) * (L @ current_term)
-        let mut next_term = vec![vec![0.0; n]; n];
-        let factor = -t / (k as f64);
-
-        for j in 0..n {
-            // Extract column j of current_term as Array1
-            let mut col_j = vec![0.0; n];
-            for i in 0..n {
-                col_j[i] = current_term[i][j];
-            }
-            let x_arr = Array1::from_vec(col_j);
-
-            // SpMV: L @ col_j
-            let l_col_j = laplacian.multiply(&x_arr);
-            for i in 0..n {
-                next_term[i][j] = factor * l_col_j[i];
-            }
-        }
-
-        // Add to exp_matrix
-        for i in 0..n {
-            for j in 0..n {
-                exp_matrix[i][j] += next_term[i][j];
-            }
-        }
-
-        current_term = next_term;
-    }
-
-    exp_matrix
-}
 
 /// Computes exact multiscale diffusion vector representation:
 /// s_x = sqrt(alpha) * (I - alpha * P)^(-1) e_x * sqrt(deg)
@@ -259,14 +207,16 @@ fn test_diffusion_kernel_accuracy() {
     for tc in test_cases {
         let n = tc.n;
 
-        // Ground truth exp(-t L) via high-order Taylor series
-        let exact_exp = compute_exact_exp_neg_tl(&tc.laplacian, t, 60);
+        // Ground truth exp(-t L) via Chebyshev polynomial expansion
+        let exact_kernel = ExactDiffusionKernel::new(&tc.laplacian, t, 60);
 
         // Ground truth pairwise diffusion distances
         let mut exact_dist = vec![vec![0.0; n]; n];
         for i in 0..n {
             for j in 0..n {
-                let d_sq = (exact_exp[i][i] + exact_exp[j][j] - 2.0 * exact_exp[i][j]).max(0.0);
+                let d_sq = (exact_kernel.get(i, i) + exact_kernel.get(j, j)
+                    - 2.0 * exact_kernel.get(i, j))
+                .max(0.0);
                 exact_dist[i][j] = d_sq.sqrt();
             }
         }
@@ -307,18 +257,14 @@ fn test_diffusion_kernel_accuracy() {
         let mut diag_sub_sq = 0.0;
 
         for i in 0..n {
-            let exact_k_ii = exact_exp[i][i];
-            let approx_naive = estimator_before.query_diagonal(i);
-            let approx_sub = kernel_after.get(i, i);
+            let err_diag_sub = (kernel_after.get(i, i) - exact_kernel.get(i, i)).abs();
+            diag_sub_mae += err_diag_sub;
+            diag_sub_sq += err_diag_sub * err_diag_sub;
 
-            let err_naive = (approx_naive - exact_k_ii).abs();
-            let err_sub = (approx_sub - exact_k_ii).abs();
-
-            diag_naive_mae += err_naive;
-            diag_naive_sq += err_naive * err_naive;
-
-            diag_sub_mae += err_sub;
-            diag_sub_sq += err_sub * err_sub;
+            let err_diag_naive =
+                (estimator_before.query_diagonal(i) - exact_kernel.get(i, i)).abs();
+            diag_naive_mae += err_diag_naive;
+            diag_naive_sq += err_diag_naive * err_diag_naive;
         }
 
         diag_naive_mae /= n as f64;

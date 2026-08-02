@@ -5,6 +5,7 @@
 //! where $\lambda_k$ and $u_k$ are the smallest eigenvalues and orthonormal eigenvectors
 //! of the graph Laplacian matrix (Standard or Symmetric Normalized).
 
+use crate::heat_kernel::HeatKernel;
 use ndarray::{Array1, Array2, ScalarOperand};
 use num_traits::Float;
 use petgraph::visit::IntoNodeIdentifiers;
@@ -201,17 +202,44 @@ where
     }
 }
 
-/// Distance matrix implementation backed by LowRankDiffusionKernel.
+impl<S> HeatKernel<S> for LowRankDiffusionKernel<S>
+where
+    S: Float
+        + std::iter::Sum
+        + std::ops::AddAssign
+        + Default
+        + ScalarOperand
+        + num_traits::FromPrimitive
+        + DrawingValue,
+{
+    fn get(&self, i: usize, j: usize) -> S {
+        self.get(i, j)
+    }
+
+    fn n(&self) -> usize {
+        self.n()
+    }
+
+    fn t(&self) -> S {
+        self.t()
+    }
+}
+
+/// Distance matrix implementation backed by any HeatKernel implementation.
 #[derive(Debug, Clone)]
-pub struct LowRankDiffusionDistanceMatrix<N, S> {
-    kernel: LowRankDiffusionKernel<S>,
+pub struct HeatGeodesicDistanceMatrix<N, S, K> {
+    kernel: K,
     node_indices: HashMap<N, usize>,
     min_dist: S,
     pivots: Option<Vec<usize>>,
     pivot_distances: Option<Vec<Vec<S>>>,
 }
 
-impl<N, S> LowRankDiffusionDistanceMatrix<N, S>
+/// Backward-compatible type alias for LowRankDiffusionDistanceMatrix.
+pub type LowRankDiffusionDistanceMatrix<N, S> =
+    HeatGeodesicDistanceMatrix<N, S, LowRankDiffusionKernel<S>>;
+
+impl<N, S, K> HeatGeodesicDistanceMatrix<N, S, K>
 where
     N: Eq + Hash + Copy,
     S: Float
@@ -221,9 +249,10 @@ where
         + ScalarOperand
         + num_traits::FromPrimitive
         + DrawingValue,
+    K: HeatKernel<S>,
 {
-    /// Creates a new LowRankDiffusionDistanceMatrix for all node pairs.
-    pub fn new<G>(graph: G, kernel: LowRankDiffusionKernel<S>, min_dist: S) -> Self
+    /// Creates a new HeatGeodesicDistanceMatrix for all node pairs.
+    pub fn new<G>(graph: G, kernel: K, min_dist: S) -> Self
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -243,13 +272,8 @@ where
         }
     }
 
-    /// Creates a new LowRankDiffusionDistanceMatrix with precomputed pivot distance vectors.
-    pub fn new_with_pivots<G>(
-        graph: G,
-        kernel: LowRankDiffusionKernel<S>,
-        pivots: &[usize],
-        min_dist: S,
-    ) -> Self
+    /// Creates a new HeatGeodesicDistanceMatrix with precomputed pivot distance vectors.
+    pub fn new_with_pivots<G>(graph: G, kernel: K, pivots: &[usize], min_dist: S) -> Self
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -275,10 +299,11 @@ where
     }
 }
 
-impl<N, S> Distance<N, S> for LowRankDiffusionDistanceMatrix<N, S>
+impl<N, S, K> Distance<N, S> for HeatGeodesicDistanceMatrix<N, S, K>
 where
     N: Eq + Hash + Copy,
     S: Float + std::iter::Sum + std::ops::AddAssign + Default + ScalarOperand + DrawingValue,
+    K: HeatKernel<S>,
 {
     fn get(&self, u: N, v: N) -> Option<S> {
         let i = self.row_index(u)?;
