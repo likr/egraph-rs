@@ -6,8 +6,10 @@ use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
 use petgraph_distance::{Distance, GaussianKernel, Kernel, KernelDistance};
 use petgraph_linalg_diffusion_kernel::{
-    DiffusionKernel, LowRankDiffusionKernel, MultiscaleDiffusionKernel, NegLogSimDistance,
-    NegLogSimDistanceBuilder,
+    DiffusionKernel, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
+    MultiscaleDiffusionKernel, NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance,
+    NegLogSimDistanceBuilder, PivotedDiffusionKernel, PivotedKernel,
+    PivotedMultiscaleDiffusionKernel,
 };
 use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
 use pyo3::prelude::*;
@@ -41,6 +43,7 @@ impl PyDistanceMatrix {
     pub fn distance_matrix(&self) -> &DistanceMatrixType {
         &self.distance_matrix
     }
+
     pub fn distance_matrix_mut(&mut self) -> &mut DistanceMatrixType {
         &mut self.distance_matrix
     }
@@ -48,24 +51,28 @@ impl PyDistanceMatrix {
 
 #[pymethods]
 impl PyDistanceMatrix {
-    #[new]
-    pub fn new(graph: &PyGraphAdapter) -> PyDistanceMatrix {
-        match graph.graph() {
-            GraphType::Graph(g) => Self::new_with_full_distance_matrix(FullDistanceMatrix::new(g)),
-            GraphType::DiGraph(g) => {
-                Self::new_with_full_distance_matrix(FullDistanceMatrix::new(g))
-            }
+    pub fn shape(&self) -> (usize, usize) {
+        match &self.distance_matrix {
+            DistanceMatrixType::Full(dm) => DistanceMatrix::shape(dm),
+            DistanceMatrixType::Sub(dm) => DistanceMatrix::shape(dm),
         }
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        match self.distance_matrix() {
+        match &self.distance_matrix {
             DistanceMatrixType::Full(dm) => {
                 DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
             DistanceMatrixType::Sub(dm) => {
                 DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
+        }
+    }
+
+    pub fn get_by_index(&self, i: usize, j: usize) -> FloatType {
+        match &self.distance_matrix {
+            DistanceMatrixType::Full(dm) => DistanceMatrix::get_by_index(dm, i, j),
+            DistanceMatrixType::Sub(dm) => DistanceMatrix::get_by_index(dm, i, j),
         }
     }
 
@@ -85,6 +92,7 @@ impl PyDistanceMatrix {
 pub enum InnerKernel {
     Diffusion(DiffusionKernel<FloatType>),
     LowRank(LowRankDiffusionKernel<FloatType>),
+    LowRankMultiscale(LowRankMultiscaleDiffusionKernel<FloatType>),
     Multiscale(MultiscaleDiffusionKernel<FloatType>),
 }
 
@@ -93,6 +101,7 @@ impl Kernel<FloatType> for InnerKernel {
         match self {
             Self::Diffusion(k) => k.get(i, j),
             Self::LowRank(k) => k.get(i, j),
+            Self::LowRankMultiscale(k) => k.get(i, j),
             Self::Multiscale(k) => k.get(i, j),
         }
     }
@@ -100,6 +109,7 @@ impl Kernel<FloatType> for InnerKernel {
         match self {
             Self::Diffusion(k) => k.n(),
             Self::LowRank(k) => k.n(),
+            Self::LowRankMultiscale(k) => k.n(),
             Self::Multiscale(k) => k.n(),
         }
     }
@@ -110,6 +120,10 @@ pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
         Ok(InnerKernel::Diffusion(k.kernel.clone()))
     } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyLowRankDiffusionKernel>>() {
         Ok(InnerKernel::LowRank(k.kernel.clone()))
+    } else if let Ok(k) =
+        kernel.extract::<PyRef<crate::layout::sgd::PyLowRankMultiscaleDiffusionKernel>>()
+    {
+        Ok(InnerKernel::LowRankMultiscale(k.kernel.clone()))
     } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyMultiscaleDiffusionKernel>>()
     {
         Ok(InnerKernel::Multiscale(k.kernel.clone()))
@@ -121,10 +135,47 @@ pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
 }
 
 #[derive(Clone)]
+pub enum InnerPivotedKernel {
+    Diffusion(PivotedDiffusionKernel<FloatType>),
+    Multiscale(PivotedMultiscaleDiffusionKernel<FloatType>),
+}
+
+impl PivotedKernel<FloatType> for InnerPivotedKernel {
+    fn pivots(&self) -> &[usize] {
+        match self {
+            Self::Diffusion(k) => k.pivots(),
+            Self::Multiscale(k) => k.pivots(),
+        }
+    }
+
+    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> FloatType {
+        match self {
+            Self::Diffusion(k) => k.get_from_pivot(pivot_idx, j),
+            Self::Multiscale(k) => k.get_from_pivot(pivot_idx, j),
+        }
+    }
+}
+
+pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivotedKernel> {
+    if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyPivotedDiffusionKernel>>() {
+        Ok(InnerPivotedKernel::Diffusion(k.kernel.clone()))
+    } else if let Ok(k) =
+        kernel.extract::<PyRef<crate::layout::sgd::PyPivotedMultiscaleDiffusionKernel>>()
+    {
+        Ok(InnerPivotedKernel::Multiscale(k.kernel.clone()))
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported pivoted kernel type",
+        ))
+    }
+}
+
+#[derive(Clone)]
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     NegLogSim(NegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
+    NegLog(NegLogDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
@@ -134,6 +185,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::get(d, u, v),
             Self::Sub(d) => Distance::get(d, u, v),
             Self::NegLogSim(d) => Distance::get(d, u, v),
+            Self::NegLog(d) => Distance::get(d, u, v),
             Self::Embedding(d) => Distance::get(d, u, v),
         }
     }
@@ -143,6 +195,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::get_by_index(d, i, j),
             Self::Sub(d) => Distance::get_by_index(d, i, j),
             Self::NegLogSim(d) => Distance::get_by_index(d, i, j),
+            Self::NegLog(d) => Distance::get_by_index(d, i, j),
             Self::Embedding(d) => Distance::get_by_index(d, i, j),
         }
     }
@@ -152,6 +205,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::shape(d),
             Self::Sub(d) => Distance::shape(d),
             Self::NegLogSim(d) => Distance::shape(d),
+            Self::NegLog(d) => Distance::shape(d),
             Self::Embedding(d) => Distance::shape(d),
         }
     }
@@ -161,6 +215,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::row_index(d, u),
             Self::Sub(d) => Distance::row_index(d, u),
             Self::NegLogSim(d) => Distance::row_index(d, u),
+            Self::NegLog(d) => Distance::row_index(d, u),
             Self::Embedding(d) => Distance::row_index(d, u),
         }
     }
@@ -170,6 +225,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
             Self::Full(d) => Distance::col_index(d, u),
             Self::Sub(d) => Distance::col_index(d, u),
             Self::NegLogSim(d) => Distance::col_index(d, u),
+            Self::NegLog(d) => Distance::col_index(d, u),
             Self::Embedding(d) => Distance::col_index(d, u),
         }
     }
@@ -183,6 +239,8 @@ pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerD
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
         Ok(InnerDistanceMatrix::NegLogSim(dm.matrix.clone()))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
+        Ok(InnerDistanceMatrix::NegLog(dm.matrix.clone()))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(InnerDistanceMatrix::Embedding(dm.matrix.clone()))
     } else {
@@ -202,6 +260,8 @@ pub fn with_distance<R>(
             DistanceMatrixType::Sub(d) => Ok(f(d)),
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(f(&dm.matrix))
@@ -233,6 +293,44 @@ impl PyNegLogSimDistance {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
             GraphType::Graph(native_graph) => NegLogSimDistanceBuilder::new(inner_kernel)
+                .alpha(alpha)
+                .beta(beta)
+                .build(native_graph)
+                .map_err(pyo3::exceptions::PyValueError::new_err)?,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
+        Ok(Self { matrix })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "NegLogDistance")]
+pub struct PyNegLogDistance {
+    pub(crate) matrix: NegLogDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>,
+}
+
+#[pymethods]
+impl PyNegLogDistance {
+    #[new]
+    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0))]
+    pub fn new(
+        graph: &PyGraphAdapter,
+        kernel: &Bound<PyAny>,
+        alpha: FloatType,
+        beta: FloatType,
+    ) -> PyResult<Self> {
+        let inner_kernel = extract_inner_pivoted_kernel(kernel)?;
+        let matrix = match graph.graph() {
+            GraphType::Graph(native_graph) => NegLogDistanceBuilder::new(inner_kernel)
                 .alpha(alpha)
                 .beta(beta)
                 .build(native_graph)
@@ -351,6 +449,7 @@ impl PyStandardLaplacian {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
     m.add_class::<PyNegLogSimDistance>()?;
+    m.add_class::<PyNegLogDistance>()?;
     m.add_class::<PyEmbeddingDistanceMatrix>()?;
     m.add_class::<PyKernelDistance>()?;
     m.add_class::<PyLaplacian>()?;
