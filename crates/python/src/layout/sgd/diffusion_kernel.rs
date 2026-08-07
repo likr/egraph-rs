@@ -248,19 +248,23 @@ pub struct PyLowRankDiffusionKernel {
 impl PyLowRankDiffusionKernel {
     /// Creates a new LowRankDiffusionKernel by computing smallest eigenvalues and eigenvectors
     #[new]
+    #[pyo3(signature = (laplacian, t, rank, rng, eta = 0.0))]
     fn new(
         laplacian: &PyLaplacian,
         t: FloatType,
         rank: usize,
         rng: &mut crate::rng::PyRng,
+        eta: FloatType,
     ) -> PyResult<Self> {
-        let kernel = LowRankDiffusionKernel::new(&laplacian.matrix, t, rank, rng.get_mut());
+        let kernel =
+            LowRankDiffusionKernel::new_with_eta(&laplacian.matrix, t, rank, eta, rng.get_mut());
         Ok(PyLowRankDiffusionKernel { kernel })
     }
 
     /// Creates a LowRankDiffusionKernel with custom eigensolver iteration and tolerance parameters
     #[allow(clippy::too_many_arguments)]
     #[staticmethod]
+    #[pyo3(signature = (laplacian, t, rank, shift, eigenvalue_max_iterations, cg_max_iterations, eigenvalue_tolerance, cg_tolerance, rng, eta = 0.0))]
     fn new_with_params(
         laplacian: &PyLaplacian,
         t: FloatType,
@@ -271,6 +275,7 @@ impl PyLowRankDiffusionKernel {
         eigenvalue_tolerance: FloatType,
         cg_tolerance: FloatType,
         rng: &mut crate::rng::PyRng,
+        eta: FloatType,
     ) -> PyResult<Self> {
         let kernel = LowRankDiffusionKernel::new_with_params(
             &laplacian.matrix,
@@ -281,6 +286,7 @@ impl PyLowRankDiffusionKernel {
             cg_max_iterations,
             eigenvalue_tolerance,
             cg_tolerance,
+            eta,
             rng.get_mut(),
         );
         Ok(PyLowRankDiffusionKernel { kernel })
@@ -314,6 +320,11 @@ impl PyLowRankDiffusionKernel {
     /// Returns the approximation rank r
     fn rank(&self) -> usize {
         self.kernel.rank()
+    }
+
+    /// Returns the regularization parameter eta
+    fn eta(&self) -> FloatType {
+        self.kernel.eta()
     }
 
     /// Returns a list of computed eigenvalues

@@ -25,6 +25,7 @@ pub struct LowRankDiffusionKernel<S> {
     eigenvalues: Array1<S>,
     eigenvectors: Array2<S>,
     coefficients: Array1<S>,
+    eta: S,
 }
 
 impl<S> LowRankDiffusionKernel<S>
@@ -38,11 +39,22 @@ where
         + DrawingValue,
 {
     /// Creates a new LowRankDiffusionKernel by computing the smallest r eigenvalues and eigenvectors
-    /// of the given Laplacian matrix (Standard or Symmetric Normalized).
+    /// of the given Laplacian matrix (Standard or Symmetric Normalized) with default eta = 0.0.
     pub fn new<R: Rng>(
         laplacian: &SparseSymmetricMatrix<S>,
         t: S,
         rank: usize,
+        rng: &mut R,
+    ) -> Self {
+        Self::new_with_eta(laplacian, t, rank, S::zero(), rng)
+    }
+
+    /// Creates a new LowRankDiffusionKernel with a specified eta parameter.
+    pub fn new_with_eta<R: Rng>(
+        laplacian: &SparseSymmetricMatrix<S>,
+        t: S,
+        rank: usize,
+        eta: S,
         rng: &mut R,
     ) -> Self {
         let shift = S::from_f64(1e-3).unwrap();
@@ -55,11 +67,12 @@ where
             100,
             S::from_f64(1e-2).unwrap(),
             S::from_f64(1e-4).unwrap(),
+            eta,
             rng,
         )
     }
 
-    /// Creates a LowRankDiffusionKernel with custom eigensolver iteration and tolerance parameters.
+    /// Creates a LowRankDiffusionKernel with custom eigensolver iteration, tolerance, and eta parameters.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_params<R: Rng>(
         laplacian: &SparseSymmetricMatrix<S>,
@@ -70,6 +83,7 @@ where
         cg_max_iterations: usize,
         eigenvalue_tolerance: S,
         cg_tolerance: S,
+        eta: S,
         rng: &mut R,
     ) -> Self {
         let n = laplacian.dim();
@@ -108,6 +122,7 @@ where
             eigenvalues,
             eigenvectors,
             coefficients,
+            eta,
         }
     }
 
@@ -131,11 +146,11 @@ where
         let k_ij = self.get(i, j);
 
         let eps = S::from_f64(1e-15).unwrap();
-        let k_ii_clamped = k_ii.max(eps);
-        let k_jj_clamped = k_jj.max(eps);
-        let sqrt_prod = (k_ii_clamped * k_jj_clamped).sqrt();
+        let k_ii_eta = (k_ii + self.eta).max(eps);
+        let k_jj_eta = (k_jj + self.eta).max(eps);
+        let sqrt_prod = (k_ii_eta * k_jj_eta).sqrt();
 
-        let ratio = (k_ij / sqrt_prod).clamp(eps, S::one());
+        let ratio = ((k_ij + self.eta) / sqrt_prod).clamp(eps, S::one());
         let four_t = S::from_f64(4.0).unwrap() * self.t;
         (-four_t * ratio.ln()).max(S::zero()).sqrt()
     }
@@ -149,14 +164,14 @@ where
         let mut distances = vec![S::zero(); n];
         let four_t = S::from_f64(4.0).unwrap() * self.t;
 
-        // Precompute diagonal elements K_jj for all j
+        // Precompute diagonal elements (K_jj + eta) for all j
         let mut diag = vec![S::zero(); n];
         for (j, diag_j) in diag.iter_mut().enumerate() {
             let mut sum = S::zero();
             for k in 0..=self.rank {
                 sum += self.coefficients[k] * self.eigenvectors[[j, k]] * self.eigenvectors[[j, k]];
             }
-            *diag_j = sum.max(eps);
+            *diag_j = (sum + self.eta).max(eps);
         }
 
         let sqrt_k_pp = diag[pivot].sqrt();
@@ -173,7 +188,7 @@ where
                         * self.eigenvectors[[j, k]];
                 }
                 let sqrt_k_jj = diag[j].sqrt();
-                let ratio = (k_pj / (sqrt_k_pp * sqrt_k_jj)).clamp(eps, S::one());
+                let ratio = ((k_pj + self.eta) / (sqrt_k_pp * sqrt_k_jj)).clamp(eps, S::one());
                 distances[j] = (-four_t * ratio.ln()).max(S::zero()).sqrt();
             }
         }
@@ -194,6 +209,11 @@ where
     /// Returns the approximation rank r.
     pub fn rank(&self) -> usize {
         self.rank
+    }
+
+    /// Returns the regularization parameter eta.
+    pub fn eta(&self) -> S {
+        self.eta
     }
 
     /// Returns a reference to the computed eigenvalues.
@@ -338,5 +358,51 @@ where
 
     fn col_index(&self, u: N) -> Option<usize> {
         self.node_indices.get(&u).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use petgraph_distance::{Laplacian, StandardLaplacian};
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_low_rank_kernel_eta() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        g.add_edge(n1, n2, ());
+
+        let laplacian = StandardLaplacian.build(&g, &mut |_| 1.0);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+        // Test default eta = 0.0
+        let kernel_default = LowRankDiffusionKernel::new(&laplacian, 1.0, 2, &mut rng);
+        assert_eq!(kernel_default.eta(), 0.0);
+
+        // Test custom eta = 0.01
+        let eta = 0.01;
+        let kernel_eta = LowRankDiffusionKernel::new_with_eta(&laplacian, 1.0, 2, eta, &mut rng);
+        assert_eq!(kernel_eta.eta(), eta);
+
+        // Verify distance formula with eta:
+        // ratio = (k_ij + eta) / sqrt((k_ii + eta) * (k_jj + eta))
+        let k_00 = kernel_eta.get(0, 0);
+        let k_11 = kernel_eta.get(1, 1);
+        let k_01 = kernel_eta.get(0, 1);
+
+        let expected_ratio = (k_01 + eta) / ((k_00 + eta) * (k_11 + eta)).sqrt();
+        let expected_ratio_clamped = expected_ratio.clamp(1e-15, 1.0);
+        let expected_dist = (-4.0 * expected_ratio_clamped.ln()).max(0.0).sqrt();
+
+        assert!((kernel_eta.distance(0, 1) - expected_dist).abs() < 1e-12);
+
+        // Verify pivot distance vector matches pairwise distance
+        let pivot_dists = kernel_eta.pivot_distance_vector(0);
+        assert!((pivot_dists[1] - expected_dist).abs() < 1e-12);
     }
 }

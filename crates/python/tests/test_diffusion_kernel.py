@@ -197,10 +197,27 @@ class TestLowRankDiffusionKernel(unittest.TestCase):
         self.assertEqual(lr.n(), 3)
         self.assertEqual(lr.t(), 1.0)
         self.assertEqual(lr.rank(), 2)
+        self.assertEqual(lr.eta(), 0.0)
 
         eigenvalues = lr.eigenvalues()
         self.assertGreaterEqual(len(eigenvalues), 2)
         self.assertGreaterEqual(eigenvalues[0], 0.0)
+
+    def test_eta_parameter(self):
+        """Test LowRankDiffusionKernel with custom eta parameter"""
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        eta = 0.05
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng, eta)
+        self.assertEqual(lr.eta(), eta)
+
+        import math
+        k_00 = lr.get(0, 0)
+        k_11 = lr.get(1, 1)
+        k_01 = lr.get(0, 1)
+
+        ratio = (k_01 + eta) / math.sqrt((k_00 + eta) * (k_11 + eta))
+        expected_dist = math.sqrt(max(0.0, -4.0 * math.log(max(1e-15, min(1.0, ratio)))))
+        self.assertAlmostEqual(lr.distance(0, 1), expected_dist, places=10)
 
     def test_element_access_and_symmetry(self):
         """Test LowRankDiffusionKernel matrix element queries and symmetry"""
