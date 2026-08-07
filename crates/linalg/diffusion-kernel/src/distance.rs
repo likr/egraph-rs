@@ -8,18 +8,18 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 /// Builder for NegLogSimDistance
-pub struct NegLogSimDistanceBuilder<K, S> {
-    kernel: K,
+pub struct NegLogSimDistanceBuilder<S> {
     alpha: S,
     beta: S,
+    p: S,
 }
 
-impl<K, S: Float> NegLogSimDistanceBuilder<K, S> {
-    pub fn new(kernel: K) -> Self {
+impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
+    pub fn new() -> Self {
         Self {
-            kernel,
             alpha: S::one(),
             beta: S::zero(),
+            p: S::from_f64(0.5).unwrap(),
         }
     }
 
@@ -33,7 +33,12 @@ impl<K, S: Float> NegLogSimDistanceBuilder<K, S> {
         self
     }
 
-    pub fn build<G, N>(self, graph: G) -> Result<NegLogSimDistance<N, S, K>, String>
+    pub fn p(mut self, p: S) -> Self {
+        self.p = p;
+        self
+    }
+
+    pub fn build<G, N, K>(self, graph: G, kernel: K) -> Result<NegLogSimDistance<N, S, K>, String>
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -46,20 +51,28 @@ impl<K, S: Float> NegLogSimDistanceBuilder<K, S> {
             .collect();
 
         Ok(NegLogSimDistance {
-            kernel: self.kernel,
+            kernel,
             alpha: self.alpha,
             beta: self.beta,
+            p: self.p,
             node_indices,
         })
     }
 }
 
-/// A distance matrix computing `alpha * (log(K_ii + beta) - 2 * log(K_ij + beta) + log(K_jj + beta))`
+impl<S: Float + num_traits::FromPrimitive> Default for NegLogSimDistanceBuilder<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A distance matrix computing `alpha * (log(K_ii + beta) - 2 * log(K_ij + beta) + log(K_jj + beta))^p`
 #[derive(Debug, Clone)]
 pub struct NegLogSimDistance<N, S, K> {
     kernel: K,
     alpha: S,
     beta: S,
+    p: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -85,7 +98,8 @@ where
         let log_ij = (k_ij + self.beta).ln();
 
         let two = S::from_f64(2.0).unwrap();
-        self.alpha * (log_ii - two * log_ij + log_jj)
+        let val = (self.alpha * (log_ii - two * log_ij + log_jj)).max(S::zero());
+        val.powf(self.p)
     }
 
     fn shape(&self) -> (usize, usize) {
@@ -103,18 +117,18 @@ where
 }
 
 /// Builder for NegLogDistance
-pub struct NegLogDistanceBuilder<K, S> {
-    kernel: K,
+pub struct NegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,
+    p: S,
 }
 
-impl<K, S: Float> NegLogDistanceBuilder<K, S> {
-    pub fn new(kernel: K) -> Self {
+impl<S: Float + num_traits::FromPrimitive> NegLogDistanceBuilder<S> {
+    pub fn new() -> Self {
         Self {
-            kernel,
             alpha: S::one(),
             beta: S::zero(),
+            p: S::from_f64(0.5).unwrap(),
         }
     }
 
@@ -128,7 +142,12 @@ impl<K, S: Float> NegLogDistanceBuilder<K, S> {
         self
     }
 
-    pub fn build<G, N>(self, graph: G) -> Result<NegLogDistance<N, S, K>, String>
+    pub fn p(mut self, p: S) -> Self {
+        self.p = p;
+        self
+    }
+
+    pub fn build<G, N, K>(self, graph: G, kernel: K) -> Result<NegLogDistance<N, S, K>, String>
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -141,20 +160,28 @@ impl<K, S: Float> NegLogDistanceBuilder<K, S> {
             .collect();
 
         Ok(NegLogDistance {
-            kernel: self.kernel,
+            kernel,
             alpha: self.alpha,
             beta: self.beta,
+            p: self.p,
             node_indices,
         })
     }
 }
 
-/// A distance matrix for full kernels computing `-alpha * log(K_ij + beta)`
+impl<S: Float + num_traits::FromPrimitive> Default for NegLogDistanceBuilder<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A distance matrix for full kernels computing `(-alpha * log(K_ij + beta))^p`
 #[derive(Debug, Clone)]
 pub struct NegLogDistance<N, S, K> {
     kernel: K,
     alpha: S,
     beta: S,
+    p: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -172,7 +199,8 @@ where
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
         let k_ij = self.kernel.get(i, j);
-        -self.alpha * (k_ij + self.beta).ln()
+        let val = (-self.alpha * (k_ij + self.beta).ln()).max(S::zero());
+        val.powf(self.p)
     }
 
     fn shape(&self) -> (usize, usize) {
@@ -190,18 +218,18 @@ where
 }
 
 /// Builder for PivotedNegLogDistance
-pub struct PivotedNegLogDistanceBuilder<K, S> {
-    kernel: K,
+pub struct PivotedNegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,
+    p: S,
 }
 
-impl<K, S: Float> PivotedNegLogDistanceBuilder<K, S> {
-    pub fn new(kernel: K) -> Self {
+impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
+    pub fn new() -> Self {
         Self {
-            kernel,
             alpha: S::one(),
             beta: S::zero(),
+            p: S::from_f64(0.5).unwrap(),
         }
     }
 
@@ -215,7 +243,16 @@ impl<K, S: Float> PivotedNegLogDistanceBuilder<K, S> {
         self
     }
 
-    pub fn build<G, N>(self, graph: G) -> Result<PivotedNegLogDistance<N, S, K>, String>
+    pub fn p(mut self, p: S) -> Self {
+        self.p = p;
+        self
+    }
+
+    pub fn build<G, N, K>(
+        self,
+        graph: G,
+        kernel: K,
+    ) -> Result<PivotedNegLogDistance<N, S, K>, String>
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -228,20 +265,28 @@ impl<K, S: Float> PivotedNegLogDistanceBuilder<K, S> {
             .collect();
 
         Ok(PivotedNegLogDistance {
-            kernel: self.kernel,
+            kernel,
             alpha: self.alpha,
             beta: self.beta,
+            p: self.p,
             node_indices,
         })
     }
 }
 
-/// A distance matrix for pivoted kernels computing `-alpha * log(K_pj + beta)`
+impl<S: Float + num_traits::FromPrimitive> Default for PivotedNegLogDistanceBuilder<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A distance matrix for pivoted kernels computing `(-alpha * log(K_pj + beta))^p`
 #[derive(Debug, Clone)]
 pub struct PivotedNegLogDistance<N, S, K> {
     kernel: K,
     alpha: S,
     beta: S,
+    p: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -280,7 +325,8 @@ where
         let target_j = if pivots[pivot_idx] == i { j } else { i };
 
         let k_pj = self.kernel.get_from_pivot(pivot_idx, target_j);
-        -self.alpha * (k_pj + self.beta).ln()
+        let val = (-self.alpha * (k_pj + self.beta).ln()).max(S::zero());
+        val.powf(self.p)
     }
 
     fn shape(&self) -> (usize, usize) {

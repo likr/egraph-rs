@@ -195,8 +195,8 @@ impl JsDistanceMatrix {
         kernel: &JsDiffusionKernel,
         _min_dist: f32, // Ignored, kept for API compatibility
     ) -> Result<JsDistanceMatrix, JsError> {
-        let matrix = NegLogSimDistanceBuilder::new(kernel.kernel.clone())
-            .build(graph.graph())
+        let matrix = NegLogSimDistanceBuilder::new()
+            .build(graph.graph(), kernel.kernel.clone())
             .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(JsDistanceMatrix {
             inner: InnerDistanceMatrix::Diffusion(matrix),

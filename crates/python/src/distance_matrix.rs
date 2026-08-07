@@ -318,19 +318,21 @@ pub struct PyNegLogSimDistance {
 #[pymethods]
 impl PyNegLogSimDistance {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0))]
+    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5))]
     pub fn new(
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
         alpha: FloatType,
         beta: FloatType,
+        p: FloatType,
     ) -> PyResult<Self> {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => NegLogSimDistanceBuilder::new(inner_kernel)
+            GraphType::Graph(native_graph) => NegLogSimDistanceBuilder::new()
                 .alpha(alpha)
                 .beta(beta)
-                .build(native_graph)
+                .p(p)
+                .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
@@ -356,19 +358,21 @@ pub struct PyNegLogDistance {
 #[pymethods]
 impl PyNegLogDistance {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0))]
+    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5))]
     pub fn new(
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
         alpha: FloatType,
         beta: FloatType,
+        p: FloatType,
     ) -> PyResult<Self> {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => NegLogDistanceBuilder::new(inner_kernel)
+            GraphType::Graph(native_graph) => NegLogDistanceBuilder::new()
                 .alpha(alpha)
                 .beta(beta)
-                .build(native_graph)
+                .p(p)
+                .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
@@ -394,19 +398,21 @@ pub struct PyPivotedNegLogDistance {
 #[pymethods]
 impl PyPivotedNegLogDistance {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0))]
+    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5))]
     pub fn new(
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
         alpha: FloatType,
         beta: FloatType,
+        p: FloatType,
     ) -> PyResult<Self> {
         let inner_kernel = extract_inner_pivoted_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => PivotedNegLogDistanceBuilder::new(inner_kernel)
+            GraphType::Graph(native_graph) => PivotedNegLogDistanceBuilder::new()
                 .alpha(alpha)
                 .beta(beta)
-                .build(native_graph)
+                .p(p)
+                .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
