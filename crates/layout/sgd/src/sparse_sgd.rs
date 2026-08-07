@@ -112,6 +112,27 @@ impl SparseSgd {
     ///
     /// # Returns
     /// A new SGD instance configured with the specified pivot nodes and distances
+    pub fn build_with_pivoted_neg_log_distance<G, F, K, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &petgraph_linalg_diffusion_kernel::PivotedNegLogDistance<G::NodeId, S, K>,
+    ) -> Sgd<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+        K: petgraph_linalg_diffusion_kernel::PivotedKernel<S>,
+    {
+        let nodes = graph.node_identifiers().collect::<Vec<_>>();
+        let pivot_nodes = distance_matrix
+            .pivots()
+            .iter()
+            .map(|&idx| nodes[idx])
+            .collect::<Vec<_>>();
+        self.build_with_pivot_and_distance_matrix(graph, length, &pivot_nodes, distance_matrix)
+    }
     pub fn build_with_pivot_and_distance_matrix<G, F, S>(
         &self,
         graph: G,

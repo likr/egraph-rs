@@ -165,7 +165,7 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
         self.assertEqual(pk.pivots(), [0, 1])
         self.assertGreater(pk.get_from_pivot(0, 0), 0.0)
 
-        neg_log_dist = eg.NegLogDistance(self.graph, pk, 1.0, 0.0)
+        neg_log_dist = eg.PivotedNegLogDistance(self.graph, pk, 1.0, 0.0)
         self.assertGreaterEqual(neg_log_dist.get(0, 1), 0.0)
 
     def test_pivoted_multiscale_diffusion_kernel(self):
@@ -174,8 +174,41 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
         self.assertEqual(pmk.pivots(), [0])
         self.assertGreater(pmk.get_from_pivot(0, 0), 0.0)
 
-        neg_log_dist = eg.NegLogDistance(self.graph, pmk, 1.0, 0.0)
+        neg_log_dist = eg.PivotedNegLogDistance(self.graph, pmk, 1.0, 0.0)
         self.assertGreaterEqual(neg_log_dist.get(0, 1), 0.0)
+
+    def test_sparse_sgd_with_pivoted_neg_log_distance(self):
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.rng)
+        pnd = eg.PivotedNegLogDistance(self.graph, pk, 1.0, 0.0)
+
+        sparse_sgd = eg.SparseSgd()
+        sgd = sparse_sgd.build_with_pivoted_distance(self.graph, lambda i: 1.0, pnd)
+        drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
+        sgd.run(drawing)
+
+    def test_neg_log_distance_with_all_kernels(self):
+        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
+        
+        # Test full DiffusionKernel
+        dk = eg.DiffusionKernel(laplacian, 1.0, 10, self.rng)
+        nld_dk = eg.NegLogDistance(self.graph, dk, 1.0, 0.0)
+        self.assertGreaterEqual(nld_dk.get(0, 1), 0.0)
+
+        # Test LowRankDiffusionKernel
+        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
+        nld_lr = eg.NegLogDistance(self.graph, lr, 1.0, 0.0)
+        self.assertGreaterEqual(nld_lr.get(0, 1), 0.0)
+
+        # Test MultiscaleDiffusionKernel
+        mk = eg.MultiscaleDiffusionKernel(laplacian, 0.85)
+        nld_mk = eg.NegLogDistance(self.graph, mk, 1.0, 0.0)
+        self.assertGreaterEqual(nld_mk.get(0, 1), 0.0)
+
+        # Test LowRankMultiscaleDiffusionKernel
+        lrm = eg.LowRankMultiscaleDiffusionKernel(laplacian, 0.85, 2, self.rng)
+        nld_lrm = eg.NegLogDistance(self.graph, lrm, 1.0, 0.0)
+        self.assertGreaterEqual(nld_lrm.get(0, 1), 0.0)
 
 
 if __name__ == "__main__":

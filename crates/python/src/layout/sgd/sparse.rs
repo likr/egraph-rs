@@ -1,5 +1,5 @@
 use crate::{
-    distance_matrix::with_distance,
+    distance_matrix::{with_distance, PyPivotedNegLogDistance},
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
     rng::PyRng,
@@ -83,6 +83,33 @@ impl PySparseSgd {
             _ => Err(pyo3::exceptions::PyValueError::new_err(
                 "unsupported graph type",
             )),
+        }
+    }
+
+    pub fn build_with_pivoted_distance(
+        &self,
+        graph: &PyGraphAdapter,
+        f: &Bound<PyAny>,
+        d: &Bound<PyAny>,
+    ) -> PyResult<PySgd> {
+        if let Ok(dm) = d.extract::<PyRef<PyPivotedNegLogDistance>>() {
+            match graph.graph() {
+                GraphType::Graph(native_graph) => {
+                    let sgd = self.builder.build_with_pivoted_neg_log_distance(
+                        native_graph,
+                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                        &dm.matrix,
+                    );
+                    Ok(PySgd::new_with_sgd(sgd))
+                }
+                _ => Err(pyo3::exceptions::PyValueError::new_err(
+                    "unsupported graph type",
+                )),
+            }
+        } else {
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "Expected PivotedNegLogDistance",
+            ))
         }
     }
 }

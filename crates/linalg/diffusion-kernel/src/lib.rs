@@ -14,6 +14,7 @@ pub use diffusion_kernel::{
 };
 pub use distance::{
     NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
+    PivotedNegLogDistance, PivotedNegLogDistanceBuilder,
 };
 pub use low_rank::{
     LowRankDiffusionKernel, LowRankDiffusionKernelBuilder, LowRankMultiscaleDiffusionKernel,
