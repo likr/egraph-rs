@@ -3,7 +3,7 @@ use crate::{
     FloatType,
 };
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
-use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
+use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
 use petgraph_distance::{Distance, GaussianKernel, Kernel, KernelDistance};
 use petgraph_linalg_diffusion_kernel::{
     DiffusionKernel, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 
 pub enum DistanceMatrixType {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    Pivoted(PivotedDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
 #[pyclass]
@@ -33,11 +33,11 @@ impl PyDistanceMatrix {
             distance_matrix: DistanceMatrixType::Full(distance_matrix),
         }
     }
-    pub fn new_with_sub_distance_matrix(
-        distance_matrix: SubDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+    pub fn new_with_pivoted_distance_matrix(
+        distance_matrix: PivotedDistanceMatrix<NodeIndex<IndexType>, FloatType>,
     ) -> Self {
         PyDistanceMatrix {
-            distance_matrix: DistanceMatrixType::Sub(distance_matrix),
+            distance_matrix: DistanceMatrixType::Pivoted(distance_matrix),
         }
     }
     pub fn distance_matrix(&self) -> &DistanceMatrixType {
@@ -54,7 +54,16 @@ impl PyDistanceMatrix {
     pub fn shape(&self) -> (usize, usize) {
         match &self.distance_matrix {
             DistanceMatrixType::Full(dm) => DistanceMatrix::shape(dm),
-            DistanceMatrixType::Sub(dm) => DistanceMatrix::shape(dm),
+            DistanceMatrixType::Pivoted(dm) => DistanceMatrix::shape(dm),
+        }
+    }
+
+    pub fn pivots(&self) -> Option<Vec<usize>> {
+        match &self.distance_matrix {
+            DistanceMatrixType::Pivoted(dm) => {
+                Some(dm.pivots().iter().map(|u| u.index()).collect())
+            }
+            DistanceMatrixType::Full(_) => None,
         }
     }
 
@@ -63,7 +72,7 @@ impl PyDistanceMatrix {
             DistanceMatrixType::Full(dm) => {
                 DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
-            DistanceMatrixType::Sub(dm) => {
+            DistanceMatrixType::Pivoted(dm) => {
                 DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
         }
@@ -72,7 +81,7 @@ impl PyDistanceMatrix {
     pub fn get_by_index(&self, i: usize, j: usize) -> FloatType {
         match &self.distance_matrix {
             DistanceMatrixType::Full(dm) => DistanceMatrix::get_by_index(dm, i, j),
-            DistanceMatrixType::Sub(dm) => DistanceMatrix::get_by_index(dm, i, j),
+            DistanceMatrixType::Pivoted(dm) => DistanceMatrix::get_by_index(dm, i, j),
         }
     }
 
@@ -81,7 +90,7 @@ impl PyDistanceMatrix {
             DistanceMatrixType::Full(dm) => {
                 dm.set(node_index::<IndexType>(u), node_index::<IndexType>(v), d)
             }
-            DistanceMatrixType::Sub(dm) => {
+            DistanceMatrixType::Pivoted(dm) => {
                 dm.set(node_index::<IndexType>(u), node_index::<IndexType>(v), d)
             }
         }
@@ -173,7 +182,7 @@ pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivo
 #[derive(Clone)]
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
+    Pivoted(PivotedDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     NegLogSim(NegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
     NegLog(NegLogDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
     PivotedNegLog(PivotedNegLogDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>),
@@ -187,7 +196,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
     fn get(&self, u: NodeIndex<IndexType>, v: NodeIndex<IndexType>) -> Option<FloatType> {
         match self {
             Self::Full(d) => Distance::get(d, u, v),
-            Self::Sub(d) => Distance::get(d, u, v),
+            Self::Pivoted(d) => Distance::get(d, u, v),
             Self::NegLogSim(d) => Distance::get(d, u, v),
             Self::NegLog(d) => Distance::get(d, u, v),
             Self::PivotedNegLog(d) => Distance::get(d, u, v),
@@ -199,7 +208,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
     fn get_by_index(&self, i: usize, j: usize) -> FloatType {
         match self {
             Self::Full(d) => Distance::get_by_index(d, i, j),
-            Self::Sub(d) => Distance::get_by_index(d, i, j),
+            Self::Pivoted(d) => Distance::get_by_index(d, i, j),
             Self::NegLogSim(d) => Distance::get_by_index(d, i, j),
             Self::NegLog(d) => Distance::get_by_index(d, i, j),
             Self::PivotedNegLog(d) => Distance::get_by_index(d, i, j),
@@ -213,7 +222,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
     fn shape(&self) -> (usize, usize) {
         match self {
             Self::Full(d) => Distance::shape(d),
-            Self::Sub(d) => Distance::shape(d),
+            Self::Pivoted(d) => Distance::shape(d),
             Self::NegLogSim(d) => Distance::shape(d),
             Self::NegLog(d) => Distance::shape(d),
             Self::PivotedNegLog(d) => Distance::shape(d),
@@ -227,7 +236,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
     fn row_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
         match self {
             Self::Full(d) => Distance::row_index(d, u),
-            Self::Sub(d) => Distance::row_index(d, u),
+            Self::Pivoted(d) => Distance::row_index(d, u),
             Self::NegLogSim(d) => Distance::row_index(d, u),
             Self::NegLog(d) => Distance::row_index(d, u),
             Self::PivotedNegLog(d) => Distance::row_index(d, u),
@@ -239,7 +248,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
     fn col_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
         match self {
             Self::Full(d) => Distance::col_index(d, u),
-            Self::Sub(d) => Distance::col_index(d, u),
+            Self::Pivoted(d) => Distance::col_index(d, u),
             Self::NegLogSim(d) => Distance::col_index(d, u),
             Self::NegLog(d) => Distance::col_index(d, u),
             Self::PivotedNegLog(d) => Distance::col_index(d, u),
@@ -253,7 +262,7 @@ pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerD
     if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
         match dm.distance_matrix() {
             DistanceMatrixType::Full(d) => Ok(InnerDistanceMatrix::Full(d.clone())),
-            DistanceMatrixType::Sub(d) => Ok(InnerDistanceMatrix::Sub(d.clone())),
+            DistanceMatrixType::Pivoted(d) => Ok(InnerDistanceMatrix::Pivoted(d.clone())),
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
         Ok(InnerDistanceMatrix::NegLogSim(dm.matrix.clone()))
@@ -281,7 +290,7 @@ pub fn with_distance<R>(
     if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
         match dm.distance_matrix() {
             DistanceMatrixType::Full(d) => Ok(f(d)),
-            DistanceMatrixType::Sub(d) => Ok(f(d)),
+            DistanceMatrixType::Pivoted(d) => Ok(f(d)),
         }
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
         Ok(f(&dm.matrix))

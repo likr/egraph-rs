@@ -9,7 +9,7 @@ use js_sys::Function;
 use petgraph::graph::{node_index, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{
-    all_sources_dijkstra, FullDistanceMatrix, SubDistanceMatrix,
+    all_sources_dijkstra, FullDistanceMatrix, PivotedDistanceMatrix,
 };
 use petgraph_distance::{Distance, GaussianKernel, KernelDistance, SparseSymmetricMatrix};
 use petgraph_linalg_diffusion_kernel::{
@@ -22,7 +22,7 @@ use wasm_bindgen::prelude::*;
 #[derive(Clone)]
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<u32>, f32>),
-    Sub(SubDistanceMatrix<NodeIndex<u32>, f32>),
+    Pivoted(PivotedDistanceMatrix<NodeIndex<u32>, f32>),
     Diffusion(NegLogSimDistance<NodeIndex<u32>, f32, DiffusionKernel<f32>>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<u32>, f32>),
     Kernel(Box<KernelDistance<GaussianKernel<NodeIndex<u32>, InnerDistanceMatrix, f32>>>),
@@ -32,7 +32,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
     fn get(&self, u: NodeIndex<u32>, v: NodeIndex<u32>) -> Option<f32> {
         match self {
             Self::Full(d) => Distance::get(d, u, v),
-            Self::Sub(d) => Distance::get(d, u, v),
+            Self::Pivoted(d) => Distance::get(d, u, v),
             Self::Diffusion(d) => Distance::get(d, u, v),
             Self::Embedding(d) => Distance::get(d, u, v),
             Self::Kernel(d) => Distance::get(d.as_ref(), u, v),
@@ -42,7 +42,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
     fn get_by_index(&self, i: usize, j: usize) -> f32 {
         match self {
             Self::Full(d) => Distance::get_by_index(d, i, j),
-            Self::Sub(d) => Distance::get_by_index(d, i, j),
+            Self::Pivoted(d) => Distance::get_by_index(d, i, j),
             Self::Diffusion(d) => Distance::get_by_index(d, i, j),
             Self::Embedding(d) => Distance::get_by_index(d, i, j),
             Self::Kernel(d) => Distance::<NodeIndex<u32>, f32>::get_by_index(d.as_ref(), i, j),
@@ -52,7 +52,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
     fn shape(&self) -> (usize, usize) {
         match self {
             Self::Full(d) => Distance::shape(d),
-            Self::Sub(d) => Distance::shape(d),
+            Self::Pivoted(d) => Distance::shape(d),
             Self::Diffusion(d) => Distance::shape(d),
             Self::Embedding(d) => Distance::shape(d),
             Self::Kernel(d) => Distance::<NodeIndex<u32>, f32>::shape(d.as_ref()),
@@ -62,7 +62,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
     fn row_index(&self, u: NodeIndex<u32>) -> Option<usize> {
         match self {
             Self::Full(d) => Distance::row_index(d, u),
-            Self::Sub(d) => Distance::row_index(d, u),
+            Self::Pivoted(d) => Distance::row_index(d, u),
             Self::Diffusion(d) => Distance::row_index(d, u),
             Self::Embedding(d) => Distance::row_index(d, u),
             Self::Kernel(d) => Distance::row_index(d.as_ref(), u),
@@ -72,7 +72,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
     fn col_index(&self, u: NodeIndex<u32>) -> Option<usize> {
         match self {
             Self::Full(d) => Distance::col_index(d, u),
-            Self::Sub(d) => Distance::col_index(d, u),
+            Self::Pivoted(d) => Distance::col_index(d, u),
             Self::Diffusion(d) => Distance::col_index(d, u),
             Self::Embedding(d) => Distance::col_index(d, u),
             Self::Kernel(d) => Distance::col_index(d.as_ref(), u),

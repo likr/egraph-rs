@@ -185,7 +185,7 @@ impl PyPivotMds {
             DistanceMatrixType::Full(d) => Self {
                 mds: PivotMds::new_with_distance_matrix(d),
             },
-            DistanceMatrixType::Sub(d) => Self {
+            DistanceMatrixType::Pivoted(d) => Self {
                 mds: PivotMds::new_with_distance_matrix(d),
             },
         }

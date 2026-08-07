@@ -3,7 +3,7 @@ use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers};
 use std::{cmp::Reverse, collections::BinaryHeap, hash::Hash};
 
-use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
+use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
 
 /// Computes the shortest path distances from a single source node `s` using Dijkstra's algorithm
 /// and populates the corresponding row in the provided `distance_matrix`.
@@ -75,12 +75,12 @@ pub fn dijkstra_with_distance_matrix<G, S, F, D>(
 ///
 /// # Returns
 ///
-/// A `SubDistanceMatrix` containing the shortest path distances from each source node.
+/// A `PivotedDistanceMatrix` containing the shortest path distances from each source node.
 pub fn multi_source_dijkstra<G, S, F>(
     graph: G,
     length: F,
     sources: &[G::NodeId],
-) -> SubDistanceMatrix<G::NodeId, S>
+) -> PivotedDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,
@@ -88,7 +88,7 @@ where
     S: NdFloat,
 {
     let mut length = length;
-    let mut distance_matrix = SubDistanceMatrix::new(graph, sources);
+    let mut distance_matrix = PivotedDistanceMatrix::new(graph, sources);
     for &u in sources.iter() {
         dijkstra_with_distance_matrix(graph, &mut length, u, &mut distance_matrix);
     }
@@ -147,8 +147,8 @@ where
 ///
 /// # Returns
 ///
-/// A `SubDistanceMatrix` containing the shortest path distances from the source node `s`.
-pub fn dijkstra<G, S, F>(graph: G, length: F, s: G::NodeId) -> SubDistanceMatrix<G::NodeId, S>
+/// A `PivotedDistanceMatrix` containing the shortest path distances from the source node `s`.
+pub fn dijkstra<G, S, F>(graph: G, length: F, s: G::NodeId) -> PivotedDistanceMatrix<G::NodeId, S>
 where
     G: IntoEdges + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash + Ord,

@@ -209,11 +209,10 @@ where
 ///
 /// This implementation uses an `ndarray::Array2` internally.
 /// Node identifiers (`N`) are mapped to `usize` indices for both rows and columns.
-/// This is useful for algorithms where distances are calculated from a subset of source nodes
-/// to all other nodes (e.g., single-source shortest path).
-#[derive(Clone)]
-pub struct SubDistanceMatrix<N, S> {
-    /// Vector of node identifiers that make up the rows (typically source nodes).
+/// A distance matrix storing shortest paths from a specific set of pivot nodes to all nodes in a graph.
+#[derive(Debug, Clone)]
+pub struct PivotedDistanceMatrix<N, S> {
+    /// Vector of node identifiers that make up the rows (pivot nodes).
     row_indices: Vec<N>,
     /// Hash map from node identifier to row index.
     row_index_map: HashMap<N, usize>,
@@ -225,7 +224,9 @@ pub struct SubDistanceMatrix<N, S> {
     d: Array2<S>,
 }
 
-impl<N, S> DistanceMatrix<N, S> for SubDistanceMatrix<N, S>
+pub type SubDistanceMatrix<N, S> = PivotedDistanceMatrix<N, S>;
+
+impl<N, S> DistanceMatrix<N, S> for PivotedDistanceMatrix<N, S>
 where
     N: Eq + Hash,
     S: NdFloat,
@@ -273,7 +274,7 @@ where
     }
 }
 
-impl<N, S> petgraph_distance::Distance<N, S> for SubDistanceMatrix<N, S>
+impl<N, S> petgraph_distance::Distance<N, S> for PivotedDistanceMatrix<N, S>
 where
     N: Eq + Hash + Copy,
     S: NdFloat,
@@ -299,12 +300,17 @@ where
     }
 }
 
-impl<N, S> SubDistanceMatrix<N, S>
+impl<N, S> PivotedDistanceMatrix<N, S>
 where
     N: Eq + Hash,
     S: NdFloat,
 {
-    /// Creates an empty `SubDistanceMatrix` for the given graph context.
+    /// Returns the pivot nodes.
+    pub fn pivots(&self) -> &[N] {
+        &self.row_indices
+    }
+
+    /// Creates an empty `PivotedDistanceMatrix` for the given graph context.
     ///
     /// The resulting matrix will have zero rows and columns corresponding to all nodes in the graph.
     /// This is useful as a starting point if rows (source nodes) are added dynamically later using `push`.
@@ -317,7 +323,7 @@ where
         Self::new(graph, &[])
     }
 
-    /// Creates a new `SubDistanceMatrix` for the given graph and a specific set of source nodes.
+    /// Creates a new `PivotedDistanceMatrix` for the given graph and a specific set of source nodes.
     ///
     /// The rows of the matrix correspond to the `sources` provided, and the columns correspond
     /// to all nodes in the `graph`. All distances are initialized to infinity.
@@ -350,7 +356,7 @@ where
         }
     }
 
-    /// Adds a new row to the `SubDistanceMatrix` corresponding to the node identifier `u`.
+    /// Adds a new row to the `PivotedDistanceMatrix` corresponding to the node identifier `u`.
     ///
     /// The new row is initialized with infinity values.
     /// This allows adding source nodes dynamically after initial creation.

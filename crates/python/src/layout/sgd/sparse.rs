@@ -106,9 +106,30 @@ impl PySparseSgd {
                     "unsupported graph type",
                 )),
             }
+        } else if let Ok(dm) = d.extract::<PyRef<crate::distance_matrix::PyDistanceMatrix>>() {
+            match dm.distance_matrix() {
+                crate::distance_matrix::DistanceMatrixType::Pivoted(pivoted_dm) => {
+                    match graph.graph() {
+                        GraphType::Graph(native_graph) => {
+                            let sgd = self.builder.build_with_pivoted_distance_matrix(
+                                native_graph,
+                                |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                                pivoted_dm,
+                            );
+                            Ok(PySgd::new_with_sgd(sgd))
+                        }
+                        _ => Err(pyo3::exceptions::PyValueError::new_err(
+                            "unsupported graph type",
+                        )),
+                    }
+                }
+                _ => Err(pyo3::exceptions::PyTypeError::new_err(
+                    "Expected a pivoted distance matrix",
+                )),
+            }
         } else {
             Err(pyo3::exceptions::PyTypeError::new_err(
-                "Expected PivotedNegLogDistance",
+                "Expected PivotedNegLogDistance or PivotedDistanceMatrix",
             ))
         }
     }

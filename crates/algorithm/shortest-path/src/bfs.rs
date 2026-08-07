@@ -1,4 +1,4 @@
-use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
+use crate::distance_matrix::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
 use ndarray::prelude::*;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers};
 use std::{collections::VecDeque, hash::Hash};
@@ -75,19 +75,19 @@ pub fn bfs_with_distance_matrix<G, S, D>(
 ///
 /// # Returns
 ///
-/// A `SubDistanceMatrix` containing the shortest path distances from each source node
+/// A `PivotedDistanceMatrix` containing the shortest path distances from each source node
 /// to all nodes present in the `distance_matrix`'s column index mapping.
 pub fn multi_source_bfs<G, S>(
     graph: G,
     unit_edge_length: S,
     sources: &[G::NodeId],
-) -> SubDistanceMatrix<G::NodeId, S>
+) -> PivotedDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,
     S: NdFloat,
 {
-    let mut distance_matrix = SubDistanceMatrix::new(graph, sources);
+    let mut distance_matrix = PivotedDistanceMatrix::new(graph, sources);
     for &u in sources.iter() {
         bfs_with_distance_matrix(graph, unit_edge_length, u, &mut distance_matrix);
     }
@@ -125,11 +125,8 @@ where
     distance_matrix
 }
 
-/// Computes the shortest path distances from a single source node `s` to all other nodes
-/// in the graph using Breadth-First Search (BFS).
-///
-/// Assumes all edge lengths are equal to `unit_edge_length`.
-/// This is a convenience wrapper around `multi_source_bfs` for a single source node.
+/// Computes the shortest path distances from a single source node `s` to all other nodes,
+/// assuming a specified unit edge length.
 ///
 /// # Type Parameters
 ///
@@ -144,12 +141,12 @@ where
 ///
 /// # Returns
 ///
-/// A `SubDistanceMatrix` containing the shortest path distances from the source node `s`.
+/// A `PivotedDistanceMatrix` containing the shortest path distances from the source node `s`.
 pub fn bfs_with_unit_edge_length<G, S>(
     graph: G,
     unit_edge_length: S,
     s: G::NodeId,
-) -> SubDistanceMatrix<G::NodeId, S>
+) -> PivotedDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,
@@ -175,8 +172,8 @@ where
 ///
 /// # Returns
 ///
-/// A `SubDistanceMatrix` containing the shortest path distances (hop count) from `s`.
-pub fn bfs<G, S>(graph: G, s: G::NodeId) -> SubDistanceMatrix<G::NodeId, S>
+/// A `PivotedDistanceMatrix` containing the shortest path distances (hop count) from `s`.
+pub fn bfs<G, S>(graph: G, s: G::NodeId) -> PivotedDistanceMatrix<G::NodeId, S>
 where
     G: IntoNeighbors + IntoNodeIdentifiers,
     G::NodeId: Eq + Hash,

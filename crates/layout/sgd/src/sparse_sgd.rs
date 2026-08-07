@@ -3,7 +3,7 @@ use ndarray::prelude::*;
 use ordered_float::OrderedFloat;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_algorithm_shortest_path::{
-    dijkstra_with_distance_matrix, multi_source_dijkstra, SubDistanceMatrix,
+    dijkstra_with_distance_matrix, multi_source_dijkstra, PivotedDistanceMatrix,
 };
 use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
@@ -133,6 +133,27 @@ impl SparseSgd {
             .collect::<Vec<_>>();
         self.build_with_pivot_and_distance_matrix(graph, length, &pivot_nodes, distance_matrix)
     }
+
+    pub fn build_with_pivoted_distance_matrix<G, F, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &PivotedDistanceMatrix<G::NodeId, S>,
+    ) -> Sgd<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+    {
+        self.build_with_pivot_and_distance_matrix(
+            graph,
+            length,
+            distance_matrix.pivots(),
+            distance_matrix,
+        )
+    }
+
     pub fn build_with_pivot_and_distance_matrix<G, F, S>(
         &self,
         graph: G,
@@ -228,7 +249,7 @@ impl SparseSgd {
         length: F,
         h: usize,
         rng: &mut R,
-    ) -> (Vec<G::NodeId>, SubDistanceMatrix<G::NodeId, S>)
+    ) -> (Vec<G::NodeId>, PivotedDistanceMatrix<G::NodeId, S>)
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
@@ -260,13 +281,13 @@ impl SparseSgd {
 /// # Returns
 /// A tuple containing:
 /// - A vector of selected pivot node IDs
-/// - A SubDistanceMatrix containing distances from pivots to all nodes
+/// - A PivotedDistanceMatrix containing distances from pivots to all nodes
 fn max_min_random_sp<G, F, R, S>(
     graph: G,
     length: F,
     h: usize,
     rng: &mut R,
-) -> (Vec<G::NodeId>, SubDistanceMatrix<G::NodeId, S>)
+) -> (Vec<G::NodeId>, PivotedDistanceMatrix<G::NodeId, S>)
 where
     G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
     G::NodeId: DrawingIndex + Ord,
@@ -284,7 +305,7 @@ where
     let n = indices.len();
     let mut pivot = vec![];
     pivot.push(nodes[rng.gen_range(0..n)]);
-    let mut distance_matrix = SubDistanceMatrix::empty(graph);
+    let mut distance_matrix = PivotedDistanceMatrix::empty(graph);
     distance_matrix.push(pivot[0]);
     dijkstra_with_distance_matrix(graph, &mut length, pivot[0], &mut distance_matrix);
     let mut min_d = Array1::from_elem(n, S::infinity());
