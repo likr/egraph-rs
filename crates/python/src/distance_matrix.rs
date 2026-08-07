@@ -1,45 +1,22 @@
-/// Distance matrix implementation for the Python bindings
-///
-/// This module provides classes and functions for working with distance matrices,
-/// which store the distance between pairs of nodes in a graph. These distances
-/// are typically computed using shortest path algorithms and can be used by
-/// various graph layout algorithms.
-///
-/// The implementation supports both full distance matrices (containing distances
-/// between all pairs of nodes) and sub-distance matrices (containing distances
-/// between a subset of node pairs), allowing for efficient memory usage for
-/// different use cases.
 use crate::{
     graph::{GraphType, IndexType, PyGraphAdapter},
     FloatType,
 };
-use petgraph::{graph::NodeIndex, stable_graph::node_index};
+use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, SubDistanceMatrix};
+use petgraph_distance::{Distance, GaussianKernel, Kernel, KernelDistance};
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionKernel, LowRankDiffusionKernel, MultiscaleDiffusionKernel, NegLogSimDistance,
+    NegLogSimDistanceBuilder,
+};
+use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
 use pyo3::prelude::*;
 
-/// Enum representing different types of distance matrices
-///
-/// This enum allows the code to work with either a full distance matrix
-/// (containing distances between all pairs of nodes) or a sub-distance matrix
-/// (containing distances between a subset of node pairs).
-///
-/// # Variants
-///
-/// * `Full` - A complete distance matrix containing distances between all pairs of nodes
-/// * `Sub` - A partial distance matrix containing distances between a subset of node pairs,
-///   typically used in sparse algorithms for improved memory efficiency
 pub enum DistanceMatrixType {
-    /// Full distance matrix containing distances between all pairs of nodes
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    /// Sub-distance matrix containing distances between a subset of node pairs
     Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
-/// Python class for working with distance matrices
-///
-/// A distance matrix stores the distance between pairs of nodes in a graph.
-/// These distances are typically computed using shortest path algorithms and
-/// can be used by various graph layout algorithms.
 #[pyclass]
 #[pyo3(name = "DistanceMatrix")]
 pub struct PyDistanceMatrix {
@@ -47,10 +24,6 @@ pub struct PyDistanceMatrix {
 }
 
 impl PyDistanceMatrix {
-    /// Creates a new distance matrix from a full distance matrix
-    ///
-    /// # Parameters
-    /// * `distance_matrix` - The full distance matrix to wrap
     pub fn new_with_full_distance_matrix(
         distance_matrix: FullDistanceMatrix<NodeIndex<IndexType>, FloatType>,
     ) -> Self {
@@ -58,11 +31,6 @@ impl PyDistanceMatrix {
             distance_matrix: DistanceMatrixType::Full(distance_matrix),
         }
     }
-
-    /// Creates a new distance matrix from a sub-distance matrix
-    ///
-    /// # Parameters
-    /// * `distance_matrix` - The sub-distance matrix to wrap
     pub fn new_with_sub_distance_matrix(
         distance_matrix: SubDistanceMatrix<NodeIndex<IndexType>, FloatType>,
     ) -> Self {
@@ -70,13 +38,9 @@ impl PyDistanceMatrix {
             distance_matrix: DistanceMatrixType::Sub(distance_matrix),
         }
     }
-
-    /// Returns a reference to the underlying distance matrix
     pub fn distance_matrix(&self) -> &DistanceMatrixType {
         &self.distance_matrix
     }
-
-    /// Returns a mutable reference to the underlying distance matrix
     pub fn distance_matrix_mut(&mut self) -> &mut DistanceMatrixType {
         &mut self.distance_matrix
     }
@@ -84,15 +48,6 @@ impl PyDistanceMatrix {
 
 #[pymethods]
 impl PyDistanceMatrix {
-    /// Creates a new distance matrix from a graph
-    ///
-    /// This constructor computes shortest path distances between all pairs of nodes
-    /// in the given graph and stores them in a full distance matrix.
-    ///
-    /// :param graph: The graph to compute distances for
-    /// :type graph: Graph or DiGraph
-    /// :return: A new distance matrix
-    /// :rtype: DistanceMatrix
     #[new]
     pub fn new(graph: &PyGraphAdapter) -> PyDistanceMatrix {
         match graph.graph() {
@@ -103,104 +58,73 @@ impl PyDistanceMatrix {
         }
     }
 
-    /// Gets the distance between two nodes
-    ///
-    /// :param u: The source node index
-    /// :type u: int
-    /// :param v: The target node index
-    /// :type v: int
-    /// :return: The distance between the nodes if it exists, None otherwise
-    /// :rtype: float or None
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
         match self.distance_matrix() {
-            DistanceMatrixType::Full(distance_matrix) => {
-                DistanceMatrix::get(distance_matrix, node_index(u), node_index(v))
+            DistanceMatrixType::Full(dm) => {
+                DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
-            DistanceMatrixType::Sub(distance_matrix) => {
-                DistanceMatrix::get(distance_matrix, node_index(u), node_index(v))
+            DistanceMatrixType::Sub(dm) => {
+                DistanceMatrix::get(dm, node_index::<IndexType>(u), node_index::<IndexType>(v))
             }
         }
     }
 
-    /// Sets the distance between two nodes
-    ///
-    /// :param u: The source node index
-    /// :type u: int
-    /// :param v: The target node index
-    /// :type v: int
-    /// :param d: The new distance value
-    /// :type d: float
-    /// :return: Some(()) if the distance was set successfully, None otherwise
-    /// :rtype: Some(()) or None
     pub fn set(&mut self, u: usize, v: usize, d: FloatType) -> Option<()> {
         match self.distance_matrix_mut() {
-            DistanceMatrixType::Full(distance_matrix) => {
-                distance_matrix.set(node_index(u), node_index(v), d)
+            DistanceMatrixType::Full(dm) => {
+                dm.set(node_index::<IndexType>(u), node_index::<IndexType>(v), d)
             }
-            DistanceMatrixType::Sub(distance_matrix) => {
-                distance_matrix.set(node_index(u), node_index(v), d)
+            DistanceMatrixType::Sub(dm) => {
+                dm.set(node_index::<IndexType>(u), node_index::<IndexType>(v), d)
             }
         }
     }
 }
 
-use petgraph_distance::{Distance, GaussianKernel, KernelDistance};
-use petgraph_linalg_diffusion_kernel::{
-    DiffusionDistanceMatrix, ExactDiffusionKernel, HeatGeodesicDistanceMatrix, HeatKernel,
-    LowRankDiffusionKernel, MultiscaleDiffusionDistanceMatrix,
-};
-use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
-
-/// Inner heat kernel wrapper for dynamic dispatch in python bindings
 #[derive(Clone)]
-pub enum InnerHeatKernel {
+pub enum InnerKernel {
+    Diffusion(DiffusionKernel<FloatType>),
     LowRank(LowRankDiffusionKernel<FloatType>),
-    Exact(ExactDiffusionKernel<FloatType>),
+    Multiscale(MultiscaleDiffusionKernel<FloatType>),
 }
 
-impl HeatKernel<FloatType> for InnerHeatKernel {
+impl Kernel<FloatType> for InnerKernel {
     fn get(&self, i: usize, j: usize) -> FloatType {
         match self {
+            Self::Diffusion(k) => k.get(i, j),
             Self::LowRank(k) => k.get(i, j),
-            Self::Exact(k) => k.get(i, j),
+            Self::Multiscale(k) => k.get(i, j),
         }
     }
-
     fn n(&self) -> usize {
         match self {
+            Self::Diffusion(k) => k.n(),
             Self::LowRank(k) => k.n(),
-            Self::Exact(k) => k.n(),
-        }
-    }
-
-    fn t(&self) -> FloatType {
-        match self {
-            Self::LowRank(k) => k.t(),
-            Self::Exact(k) => k.t(),
+            Self::Multiscale(k) => k.n(),
         }
     }
 }
 
-pub fn extract_inner_heat_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerHeatKernel> {
-    if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyLowRankDiffusionKernel>>() {
-        Ok(InnerHeatKernel::LowRank(k.kernel.clone()))
-    } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyExactDiffusionKernel>>() {
-        Ok(InnerHeatKernel::Exact(k.kernel.clone()))
+pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
+    if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyDiffusionKernel>>() {
+        Ok(InnerKernel::Diffusion(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyLowRankDiffusionKernel>>() {
+        Ok(InnerKernel::LowRank(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyMultiscaleDiffusionKernel>>()
+    {
+        Ok(InnerKernel::Multiscale(k.kernel.clone()))
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
-            "Unsupported heat kernel type for HeatGeodesicDistanceMatrix",
+            "Unsupported kernel type",
         ))
     }
 }
 
-/// Helper enum to store any underlying Rust distance matrix in python bindings
 #[derive(Clone)]
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     Sub(SubDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    Diffusion(DiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    HeatGeodesic(HeatGeodesicDistanceMatrix<NodeIndex<IndexType>, FloatType, InnerHeatKernel>),
-    MultiscaleDiffusion(Box<MultiscaleDiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>>),
+    NegLogSim(NegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
 }
 
@@ -209,9 +133,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
         match self {
             Self::Full(d) => Distance::get(d, u, v),
             Self::Sub(d) => Distance::get(d, u, v),
-            Self::Diffusion(d) => Distance::get(d, u, v),
-            Self::HeatGeodesic(d) => Distance::get(d, u, v),
-            Self::MultiscaleDiffusion(d) => Distance::get(d.as_ref(), u, v),
+            Self::NegLogSim(d) => Distance::get(d, u, v),
             Self::Embedding(d) => Distance::get(d, u, v),
         }
     }
@@ -220,9 +142,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
         match self {
             Self::Full(d) => Distance::get_by_index(d, i, j),
             Self::Sub(d) => Distance::get_by_index(d, i, j),
-            Self::Diffusion(d) => Distance::get_by_index(d, i, j),
-            Self::HeatGeodesic(d) => Distance::get_by_index(d, i, j),
-            Self::MultiscaleDiffusion(d) => Distance::get_by_index(d.as_ref(), i, j),
+            Self::NegLogSim(d) => Distance::get_by_index(d, i, j),
             Self::Embedding(d) => Distance::get_by_index(d, i, j),
         }
     }
@@ -231,9 +151,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
         match self {
             Self::Full(d) => Distance::shape(d),
             Self::Sub(d) => Distance::shape(d),
-            Self::Diffusion(d) => Distance::shape(d),
-            Self::HeatGeodesic(d) => Distance::shape(d),
-            Self::MultiscaleDiffusion(d) => Distance::shape(d.as_ref()),
+            Self::NegLogSim(d) => Distance::shape(d),
             Self::Embedding(d) => Distance::shape(d),
         }
     }
@@ -242,9 +160,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
         match self {
             Self::Full(d) => Distance::row_index(d, u),
             Self::Sub(d) => Distance::row_index(d, u),
-            Self::Diffusion(d) => Distance::row_index(d, u),
-            Self::HeatGeodesic(d) => Distance::row_index(d, u),
-            Self::MultiscaleDiffusion(d) => Distance::row_index(d.as_ref(), u),
+            Self::NegLogSim(d) => Distance::row_index(d, u),
             Self::Embedding(d) => Distance::row_index(d, u),
         }
     }
@@ -253,9 +169,7 @@ impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
         match self {
             Self::Full(d) => Distance::col_index(d, u),
             Self::Sub(d) => Distance::col_index(d, u),
-            Self::Diffusion(d) => Distance::col_index(d, u),
-            Self::HeatGeodesic(d) => Distance::col_index(d, u),
-            Self::MultiscaleDiffusion(d) => Distance::col_index(d.as_ref(), u),
+            Self::NegLogSim(d) => Distance::col_index(d, u),
             Self::Embedding(d) => Distance::col_index(d, u),
         }
     }
@@ -267,14 +181,8 @@ pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerD
             DistanceMatrixType::Full(d) => Ok(InnerDistanceMatrix::Full(d.clone())),
             DistanceMatrixType::Sub(d) => Ok(InnerDistanceMatrix::Sub(d.clone())),
         }
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
-        Ok(InnerDistanceMatrix::Diffusion(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyHeatGeodesicDistanceMatrix>>() {
-        Ok(InnerDistanceMatrix::HeatGeodesic(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyMultiscaleDiffusionDistanceMatrix>>() {
-        Ok(InnerDistanceMatrix::MultiscaleDiffusion(Box::new(
-            dm.matrix.clone(),
-        )))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
+        Ok(InnerDistanceMatrix::NegLogSim(dm.matrix.clone()))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(InnerDistanceMatrix::Embedding(dm.matrix.clone()))
     } else {
@@ -284,7 +192,6 @@ pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerD
     }
 }
 
-/// Helper function to perform dynamic dispatch on any distance matrix in python bindings
 pub fn with_distance<R>(
     distance_matrix: &Bound<PyAny>,
     f: impl FnOnce(&dyn Distance<NodeIndex<IndexType>, FloatType>) -> R,
@@ -294,11 +201,7 @@ pub fn with_distance<R>(
             DistanceMatrixType::Full(d) => Ok(f(d)),
             DistanceMatrixType::Sub(d) => Ok(f(d)),
         }
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyDiffusionDistanceMatrix>>() {
-        Ok(f(&dm.matrix))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyHeatGeodesicDistanceMatrix>>() {
-        Ok(f(&dm.matrix))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyMultiscaleDiffusionDistanceMatrix>>() {
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(f(&dm.matrix))
@@ -312,23 +215,28 @@ pub fn with_distance<R>(
 }
 
 #[pyclass]
-#[pyo3(name = "DiffusionDistanceMatrix")]
-pub struct PyDiffusionDistanceMatrix {
-    pub(crate) matrix: DiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+#[pyo3(name = "NegLogSimDistance")]
+pub struct PyNegLogSimDistance {
+    pub(crate) matrix: NegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerKernel>,
 }
 
 #[pymethods]
-impl PyDiffusionDistanceMatrix {
+impl PyNegLogSimDistance {
     #[new]
+    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0))]
     pub fn new(
         graph: &PyGraphAdapter,
-        kernel: &crate::layout::sgd::PyDiffusionKernel,
-        min_dist: FloatType,
+        kernel: &Bound<PyAny>,
+        alpha: FloatType,
+        beta: FloatType,
     ) -> PyResult<Self> {
+        let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                DiffusionDistanceMatrix::new(native_graph, kernel.kernel.clone(), min_dist)
-            }
+            GraphType::Graph(native_graph) => NegLogSimDistanceBuilder::new(inner_kernel)
+                .alpha(alpha)
+                .beta(beta)
+                .build(native_graph)
+                .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Unsupported graph type",
@@ -339,41 +247,8 @@ impl PyDiffusionDistanceMatrix {
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix.get(node_index(u), node_index(v))
-    }
-}
-
-#[pyclass]
-#[pyo3(name = "MultiscaleDiffusionDistanceMatrix")]
-pub struct PyMultiscaleDiffusionDistanceMatrix {
-    pub(crate) matrix: MultiscaleDiffusionDistanceMatrix<NodeIndex<IndexType>, FloatType>,
-}
-
-#[pymethods]
-impl PyMultiscaleDiffusionDistanceMatrix {
-    #[new]
-    pub fn new(
-        graph: &PyGraphAdapter,
-        kernel: &crate::layout::sgd::PyMultiscaleDiffusionKernel,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
-        let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => MultiscaleDiffusionDistanceMatrix::new(
-                native_graph,
-                kernel.kernel.clone(),
-                min_dist,
-            ),
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
-            }
-        };
-        Ok(Self { matrix })
-    }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix.get(node_index(u), node_index(v))
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
     }
 }
 
@@ -405,14 +280,16 @@ impl PyEmbeddingDistanceMatrix {
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix.get(node_index(u), node_index(v))
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
     }
 }
 
 #[pyclass]
 #[pyo3(name = "KernelDistance")]
 pub struct PyKernelDistance {
-    pub(crate) matrix: KernelDistance<InnerDistanceMatrix, GaussianKernel<FloatType>>,
+    pub(crate) matrix:
+        KernelDistance<GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>>,
 }
 
 #[pymethods]
@@ -420,17 +297,17 @@ impl PyKernelDistance {
     #[new]
     pub fn new(distance_matrix: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
         let inner = extract_inner_distance(distance_matrix)?;
-        let kernel = GaussianKernel::new(gamma);
-        let matrix = KernelDistance::new(inner, kernel);
+        let kernel = GaussianKernel::new(inner, gamma);
+        let matrix = KernelDistance::new(kernel);
         Ok(Self { matrix })
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix.get(node_index(u), node_index(v))
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
     }
 }
 
-use petgraph::visit::EdgeRef;
 use petgraph_distance::SparseSymmetricMatrix;
 
 #[pyclass(from_py_object)]
@@ -471,104 +348,12 @@ impl PyStandardLaplacian {
     }
 }
 
-#[pyclass]
-#[pyo3(name = "SymmetricNormalizedLaplacian")]
-pub struct PySymmetricNormalizedLaplacian;
-
-#[pymethods]
-impl PySymmetricNormalizedLaplacian {
-    #[staticmethod]
-    pub fn build(graph: &PyGraphAdapter, length: Py<PyAny>) -> PyResult<PyLaplacian> {
-        let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
-                    Python::attach(|py| {
-                        let result = length.call1(py, (edge.id().index(),));
-                        match result {
-                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
-                            Err(_) => 1.0,
-                        }
-                    })
-                };
-                SparseSymmetricMatrix::symmetric_normalized_laplacian(native_graph, length_fn)
-            }
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
-            }
-        };
-        Ok(PyLaplacian { matrix })
-    }
-}
-
-#[pyclass]
-#[pyo3(name = "HeatGeodesicDistanceMatrix")]
-pub struct PyHeatGeodesicDistanceMatrix {
-    pub(crate) matrix: HeatGeodesicDistanceMatrix<NodeIndex<IndexType>, FloatType, InnerHeatKernel>,
-}
-
-#[pymethods]
-impl PyHeatGeodesicDistanceMatrix {
-    #[new]
-    pub fn new(
-        graph: &PyGraphAdapter,
-        kernel: &Bound<PyAny>,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
-        let inner_kernel = extract_inner_heat_kernel(kernel)?;
-        let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                HeatGeodesicDistanceMatrix::new(native_graph, inner_kernel, min_dist)
-            }
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
-            }
-        };
-        Ok(Self { matrix })
-    }
-
-    #[staticmethod]
-    pub fn new_with_pivots(
-        graph: &PyGraphAdapter,
-        kernel: &Bound<PyAny>,
-        pivots: Vec<usize>,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
-        let inner_kernel = extract_inner_heat_kernel(kernel)?;
-        let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => HeatGeodesicDistanceMatrix::new_with_pivots(
-                native_graph,
-                inner_kernel,
-                &pivots,
-                min_dist,
-            ),
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
-            }
-        };
-        Ok(Self { matrix })
-    }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix.get(node_index(u), node_index(v))
-    }
-}
-
-/// Registers distance matrix classes with the Python module
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
-    m.add_class::<PyDiffusionDistanceMatrix>()?;
-    m.add_class::<PyHeatGeodesicDistanceMatrix>()?;
-    m.add_class::<PyMultiscaleDiffusionDistanceMatrix>()?;
+    m.add_class::<PyNegLogSimDistance>()?;
     m.add_class::<PyEmbeddingDistanceMatrix>()?;
     m.add_class::<PyKernelDistance>()?;
     m.add_class::<PyLaplacian>()?;
     m.add_class::<PyStandardLaplacian>()?;
-    m.add_class::<PySymmetricNormalizedLaplacian>()?;
     Ok(())
 }

@@ -71,89 +71,91 @@ where
     }
 }
 
-/// A kernel function applied to distances.
+/// A kernel matrix interface.
 pub trait Kernel<S> {
-    /// Applies the kernel function to a distance value.
-    fn apply(&self, distance: S) -> S;
+    /// Returns the kernel value for identical points K(i, j).
+    fn get(&self, i: usize, j: usize) -> S;
 
-    /// Returns the kernel value for identical points K(x, x).
-    fn self_kernel(&self) -> S;
+    /// Returns the number of nodes in the graph.
+    fn n(&self) -> usize;
 }
 
-/// Gaussian Kernel: K(x, y) = exp(-gamma * d(x, y)^2)
+use std::marker::PhantomData;
+
+/// Gaussian Kernel applied to a distance matrix: K(x, y) = exp(-gamma * d(x, y)^2)
 #[derive(Debug, Clone, Copy)]
-pub struct GaussianKernel<S> {
+pub struct GaussianKernel<N, D, S> {
+    pub distance: D,
     pub gamma: S,
+    _marker: PhantomData<N>,
 }
 
-impl<S> GaussianKernel<S> {
-    pub fn new(gamma: S) -> Self {
-        Self { gamma }
+impl<N, D, S> GaussianKernel<N, D, S> {
+    pub fn new(distance: D, gamma: S) -> Self {
+        Self {
+            distance,
+            gamma,
+            _marker: PhantomData,
+        }
     }
 }
 
-impl<S> Kernel<S> for GaussianKernel<S>
+impl<N, D, S> Kernel<S> for GaussianKernel<N, D, S>
 where
+    D: Distance<N, S>,
     S: DrawingValue,
 {
-    fn apply(&self, distance: S) -> S {
-        (-self.gamma * distance * distance).exp()
+    fn get(&self, i: usize, j: usize) -> S {
+        let d = self.distance.get_by_index(i, j);
+        (-self.gamma * d * d).exp()
     }
 
-    fn self_kernel(&self) -> S {
-        S::one()
+    fn n(&self) -> usize {
+        self.distance.shape().0
     }
 }
 
-/// A distance matrix wrapping another distance matrix with a kernel, representing distance in the kernel space.
-/// d_K(u, v) = sqrt(K(u, u) + K(v, v) - 2 * K(u, v))
+/// A distance matrix wrapping a kernel, representing distance in the kernel space.
+/// d_K(i, j) = sqrt(K(i, i) + K(j, j) - 2 * K(i, j))
 #[derive(Debug, Clone)]
-pub struct KernelDistance<D, K> {
-    pub distance: D,
+pub struct KernelDistance<K> {
     pub kernel: K,
 }
 
-impl<D, K> KernelDistance<D, K> {
-    pub fn new(distance: D, kernel: K) -> Self {
-        Self { distance, kernel }
+impl<K> KernelDistance<K> {
+    pub fn new(kernel: K) -> Self {
+        Self { kernel }
     }
 }
 
-impl<N, S, D, K> Distance<N, S> for KernelDistance<D, K>
+impl<N, S, K> Distance<N, S> for KernelDistance<K>
 where
-    D: Distance<N, S>,
     K: Kernel<S>,
     S: DrawingValue,
 {
-    fn get(&self, u: N, v: N) -> Option<S> {
-        self.distance.get(u, v).map(|d| {
-            let k_uu = self.kernel.self_kernel();
-            let k_vv = self.kernel.self_kernel();
-            let k_uv = self.kernel.apply(d);
-            let diff = k_uu + k_vv - S::from_f32(2.0).unwrap() * k_uv;
-            diff.max(S::zero()).sqrt()
-        })
+    fn get(&self, _u: N, _v: N) -> Option<S> {
+        None
     }
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
-        let d = self.distance.get_by_index(i, j);
-        let k_ii = self.kernel.self_kernel();
-        let k_jj = self.kernel.self_kernel();
-        let k_ij = self.kernel.apply(d);
+        let k_ii = self.kernel.get(i, i);
+        let k_jj = self.kernel.get(j, j);
+        let k_ij = self.kernel.get(i, j);
         let diff = k_ii + k_jj - S::from_f32(2.0).unwrap() * k_ij;
         diff.max(S::zero()).sqrt()
     }
 
     fn shape(&self) -> (usize, usize) {
-        self.distance.shape()
+        let n = self.kernel.n();
+        (n, n)
     }
 
-    fn row_index(&self, u: N) -> Option<usize> {
-        self.distance.row_index(u)
+    fn row_index(&self, _u: N) -> Option<usize> {
+        None
     }
 
-    fn col_index(&self, u: N) -> Option<usize> {
-        self.distance.col_index(u)
+    fn col_index(&self, _u: N) -> Option<usize> {
+        None
     }
 }
 

@@ -2,21 +2,25 @@
 
 pub mod bicgstab;
 pub mod chebyshev;
-mod diffusion_kernel;
-pub mod exact;
-pub mod heat_kernel;
-pub mod hutchinson;
+pub mod diffusion_kernel;
+pub mod distance;
 pub mod low_rank;
 pub mod multiscale;
 pub mod power_method;
+pub mod traits;
 
 pub use diffusion_kernel::{
-    DiffusionDistanceMatrix, DiffusionKernel, PivotDiffusionDistanceMatrix,
+    DiffusionKernel, DiffusionKernelBuilder, PivotedDiffusionKernel, PivotedDiffusionKernelBuilder,
 };
-pub use exact::ExactDiffusionKernel;
-pub use heat_kernel::HeatKernel;
-pub use hutchinson::HutchinsonEstimator;
+pub use distance::{
+    NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
+};
 pub use low_rank::{
-    HeatGeodesicDistanceMatrix, LowRankDiffusionDistanceMatrix, LowRankDiffusionKernel,
+    LowRankDiffusionKernel, LowRankDiffusionKernelBuilder, LowRankMultiscaleDiffusionKernel,
+    LowRankMultiscaleDiffusionKernelBuilder,
 };
-pub use multiscale::{MultiscaleDiffusionDistanceMatrix, MultiscaleDiffusionKernel};
+pub use multiscale::{
+    MultiscaleDiffusionKernel, MultiscaleDiffusionKernelBuilder, PivotedMultiscaleDiffusionKernel,
+    PivotedMultiscaleDiffusionKernelBuilder,
+};
+pub use traits::PivotedKernel;

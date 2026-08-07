@@ -11,6 +11,10 @@ use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 pub struct TsNet<S> {
     /// Target perplexity for t-SNE probability distribution
     pub perplexity: S,
+    /// Number of iterations for Stage 1 (early exaggeration)
+    pub iterations_stage1: usize,
+    /// Exaggeration factor for Stage 1
+    pub exaggeration: S,
     /// Number of iterations for Stage 2 (compression)
     pub iterations_stage2: usize,
     /// Number of iterations for Stage 3 (refinement)
@@ -19,6 +23,10 @@ pub struct TsNet<S> {
     pub learning_rate: S,
     /// Momentum parameter
     pub momentum: S,
+    /// Power exponent for input space distance matrix (default: 2.0)
+    pub power: S,
+    /// Repulsion weight lambda_r for Stage 3
+    pub lambda_r: S,
     /// Minimum distance for input space
     pub epsilon_d: S,
     /// Repulsion parameter to prevent zero division
@@ -38,10 +46,14 @@ where
     pub fn new() -> Self {
         Self {
             perplexity: S::from_f32(30.0).unwrap(),
+            iterations_stage1: 250,
+            exaggeration: S::from_f32(4.0).unwrap(),
             iterations_stage2: 250,
             iterations_stage3: 250,
             learning_rate: S::from_f32(200.0).unwrap(),
             momentum: S::from_f32(0.8).unwrap(),
+            power: S::from_f32(2.0).unwrap(),
+            lambda_r: S::from_f32(0.6).unwrap(),
             epsilon_d: S::from_f32(0.01).unwrap(),
             epsilon_r: S::from_f32(0.05).unwrap(),
         }
@@ -50,6 +62,18 @@ where
     /// Sets the target perplexity.
     pub fn perplexity(&mut self, perplexity: S) -> &mut Self {
         self.perplexity = perplexity;
+        self
+    }
+
+    /// Sets the number of iterations for Stage 1.
+    pub fn iterations_stage1(&mut self, iterations: usize) -> &mut Self {
+        self.iterations_stage1 = iterations;
+        self
+    }
+
+    /// Sets the exaggeration factor for Stage 1.
+    pub fn exaggeration(&mut self, exaggeration: S) -> &mut Self {
+        self.exaggeration = exaggeration;
         self
     }
 
@@ -74,6 +98,18 @@ where
     /// Sets the momentum parameter.
     pub fn momentum(&mut self, momentum: S) -> &mut Self {
         self.momentum = momentum;
+        self
+    }
+
+    /// Sets the power exponent for distance matrix.
+    pub fn power(&mut self, power: S) -> &mut Self {
+        self.power = power;
+        self
+    }
+
+    /// Sets the lambda_r parameter.
+    pub fn lambda_r(&mut self, lambda_r: S) -> &mut Self {
+        self.lambda_r = lambda_r;
         self
     }
 
@@ -107,6 +143,7 @@ where
             .min(S::from_usize(n - 1).unwrap() - S::from_f32(0.01).unwrap())
             .max(S::one());
         let entropy_target = perplexity.ln();
+        let power = self.power;
 
         // Step 3: Compute joint probabilities P
         let mut p = Array2::zeros((n, n));
@@ -118,15 +155,16 @@ where
 
             for _ in 0..50 {
                 let mut sum_w = S::zero();
-                let mut max_neg_d2 = S::neg_infinity();
+                let mut max_neg_dp = S::neg_infinity();
 
-                // Find max negative squared distance for numerical stability
+                // Find max negative powered distance for numerical stability
                 for j in 0..n {
                     if i != j {
                         let d = distance_matrix.get_by_index(i, j);
-                        let neg_d2 = -beta * d * d;
-                        if neg_d2 > max_neg_d2 {
-                            max_neg_d2 = neg_d2;
+                        let dp = d.powf(power);
+                        let neg_dp = -beta * dp;
+                        if neg_dp > max_neg_dp {
+                            max_neg_dp = neg_dp;
                         }
                     }
                 }
@@ -136,7 +174,8 @@ where
                 for j in 0..n {
                     if i != j {
                         let d = distance_matrix.get_by_index(i, j);
-                        let w = (-beta * d * d - max_neg_d2).exp();
+                        let dp = d.powf(power);
+                        let w = (-beta * dp - max_neg_dp).exp();
                         weights[j] = w;
                         sum_w += w;
                     }
@@ -144,18 +183,19 @@ where
 
                 sum_w = sum_w.max(S::from_f32(1e-12).unwrap());
 
-                // Compute conditional expectation of squared distance
-                let mut sum_d2_p = S::zero();
+                // Compute conditional expectation of powered distance
+                let mut sum_dp_p = S::zero();
                 for j in 0..n {
                     if i != j {
                         let prob = weights[j] / sum_w;
                         let d = distance_matrix.get_by_index(i, j);
-                        sum_d2_p += prob * d * d;
+                        let dp = d.powf(power);
+                        sum_dp_p += prob * dp;
                     }
                 }
 
                 // Calculate Shannon entropy in nats
-                let h = beta * sum_d2_p + max_neg_d2 + sum_w.ln();
+                let h = beta * sum_dp_p + max_neg_dp + sum_w.ln();
 
                 let h_diff = h - entropy_target;
                 if h_diff.abs() < S::from_f32(1e-5).unwrap() {
@@ -177,13 +217,14 @@ where
 
             // Compute final conditional probabilities for row i
             let mut sum_w = S::zero();
-            let mut max_neg_d2 = S::neg_infinity();
+            let mut max_neg_dp = S::neg_infinity();
             for j in 0..n {
                 if i != j {
                     let d = distance_matrix.get_by_index(i, j);
-                    let neg_d2 = -beta * d * d;
-                    if neg_d2 > max_neg_d2 {
-                        max_neg_d2 = neg_d2;
+                    let dp = d.powf(power);
+                    let neg_dp = -beta * dp;
+                    if neg_dp > max_neg_dp {
+                        max_neg_dp = neg_dp;
                     }
                 }
             }
@@ -191,7 +232,8 @@ where
             for j in 0..n {
                 if i != j {
                     let d = distance_matrix.get_by_index(i, j);
-                    let w = (-beta * d * d - max_neg_d2).exp();
+                    let dp = d.powf(power);
+                    let w = (-beta * dp - max_neg_dp).exp();
                     weights[j] = w;
                     sum_w += w;
                 }
@@ -217,27 +259,44 @@ where
         let mut velocity = Array2::zeros((n, 2));
 
         // Step 5: Momentum-based gradient descent optimization
+        // Stage 1: Early Exaggeration
+        if self.iterations_stage1 > 0 {
+            self.optimize_stage(
+                drawing,
+                &p_joint,
+                &mut velocity,
+                self.iterations_stage1,
+                self.exaggeration,
+                S::from_f32(0.1).unwrap(),
+                S::zero(),
+            );
+        }
+
         // Stage 2: Compression optimization
-        self.optimize_stage(
-            drawing,
-            &p_joint,
-            &mut velocity,
-            self.iterations_stage2,
-            S::one(),
-            S::from_f32(0.1).unwrap(),
-            S::zero(),
-        );
+        if self.iterations_stage2 > 0 {
+            self.optimize_stage(
+                drawing,
+                &p_joint,
+                &mut velocity,
+                self.iterations_stage2,
+                S::one(),
+                S::from_f32(0.1).unwrap(),
+                S::zero(),
+            );
+        }
 
         // Stage 3: Refinement optimization
-        self.optimize_stage(
-            drawing,
-            &p_joint,
-            &mut velocity,
-            self.iterations_stage3,
-            S::one(),
-            S::from_f32(0.01).unwrap(),
-            S::from_f32(0.6).unwrap(),
-        );
+        if self.iterations_stage3 > 0 {
+            self.optimize_stage(
+                drawing,
+                &p_joint,
+                &mut velocity,
+                self.iterations_stage3,
+                S::one(),
+                S::from_f32(0.01).unwrap(),
+                self.lambda_r,
+            );
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -328,18 +387,29 @@ where
                         let yj_1 = drawing.raw_entry(j).1;
                         let dx = yi_0 - yj_0;
                         let dy = yi_1 - yj_1;
-                        let dist = (dx * dx + dy * dy).sqrt().max(S::from_f32(1e-9).unwrap());
-                        let factor =
-                            -S::one() / (S::from_usize(n * n).unwrap() * dist * (dist + epsilon_r));
-                        grad_r_0 += factor * dx;
-                        grad_r_1 += factor * dy;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist > S::from_f32(1e-6).unwrap() {
+                            let factor = -S::one()
+                                / (S::from_usize(n * n).unwrap() * dist * (dist + epsilon_r));
+                            grad_r_0 += factor * dx;
+                            grad_r_1 += factor * dy;
+                        }
                     }
                 }
 
-                gradients[[i, 0]] =
-                    lambda_kl * grad_kl_0 + lambda_c * grad_c_0 + lambda_r * grad_r_0;
-                gradients[[i, 1]] =
-                    lambda_kl * grad_kl_1 + lambda_c * grad_c_1 + lambda_r * grad_r_1;
+                let g0 = lambda_kl * grad_kl_0 + lambda_c * grad_c_0 + lambda_r * grad_r_0;
+                let g1 = lambda_kl * grad_kl_1 + lambda_c * grad_c_1 + lambda_r * grad_r_1;
+
+                gradients[[i, 0]] = if g0.is_nan() || g0.is_infinite() {
+                    S::zero()
+                } else {
+                    g0
+                };
+                gradients[[i, 1]] = if g1.is_nan() || g1.is_infinite() {
+                    S::zero()
+                } else {
+                    g1
+                };
             }
 
             // Update positions and velocities
@@ -347,8 +417,15 @@ where
                 velocity[[i, 0]] = momentum * velocity[[i, 0]] - learning_rate * gradients[[i, 0]];
                 velocity[[i, 1]] = momentum * velocity[[i, 1]] - learning_rate * gradients[[i, 1]];
 
-                drawing.raw_entry_mut(i).0 += velocity[[i, 0]];
-                drawing.raw_entry_mut(i).1 += velocity[[i, 1]];
+                let new_x = drawing.raw_entry(i).0 + velocity[[i, 0]];
+                let new_y = drawing.raw_entry(i).1 + velocity[[i, 1]];
+
+                if !new_x.is_nan() && !new_x.is_infinite() {
+                    drawing.raw_entry_mut(i).0 = new_x;
+                }
+                if !new_y.is_nan() && !new_y.is_infinite() {
+                    drawing.raw_entry_mut(i).1 = new_y;
+                }
             }
         }
     }

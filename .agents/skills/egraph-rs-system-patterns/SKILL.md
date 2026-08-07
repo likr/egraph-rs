@@ -76,17 +76,20 @@ Generates node pairs for SGD from spectral embeddings.
   }
   ```
 
-### Kernel-SGD
-Diffusion kernel-based SGD using exp(-tL) kernel.
-- **Location**: `crates/layout/kernel-sgd/` and `crates/linalg/diffusion-kernel/`
-- **Architecture**:
-  - `diffusion_kernel.rs`: Single-scale heat kernel `DiffusionKernel` ($e^{-tL}$), `DiffusionDistanceMatrix`, and `PivotDiffusionDistanceMatrix` (exact single-source heat diffusion distances from pivots $D_{ij}^2 = -4t \log(K_{ij} / \sqrt{K_{ii} K_{jj}})$)
-  - `pivot_diffusion_sgd.rs`: `PivotDiffusionSgd` layout builder using incremental max-min random pivot sampling on exact single-source heat vectors, delegating layout optimization to `SparseSgd`.
-  - `bicgstab.rs`: Batched BiCGSTAB linear solver ($(I - \alpha P) Y = B$) with internal `BicgstabSolverBuffers`
-  - `multiscale.rs`: Eigenvalue-free `MultiscaleDiffusionKernel` engine using Batched BiCGSTAB and Hutchinson index, with `MultiscaleDiffusionDistanceMatrix`
-  - `exact.rs`: Exact heat kernel `ExactDiffusionKernel` ($e^{-tL}$) computed via high-order Chebyshev polynomial expansion for all matrix columns. Exposed in Python bindings as `egraph.ExactDiffusionKernel`.
-  - `low_rank.rs`: Low-rank spectral heat kernel `LowRankDiffusionKernel` ($K_{ij}^{(r)} = \sum_{k=0}^{r} \exp(-t \lambda_k) u_{k,i} u_{k,j}$) and generic `HeatGeodesicDistanceMatrix<N, S, K>` (formerly `LowRankDiffusionDistanceMatrix`), computing low-rank spectral embeddings via `petgraph-linalg-rdmds` eigensolver. Supports both Standard ($L = D - A$) and Symmetric Normalized ($L_{\text{sym}} = D^{-1/2} L D^{-1/2}$) Laplacians. Exposed in Python bindings as `egraph.LowRankDiffusionKernel` & `egraph.HeatGeodesicDistanceMatrix`.
-  - **API Surface Principle**: Keep submodules private or clean (`mod ...;`), export minimal symmetric API (`DiffusionKernel`, `LowRankDiffusionKernel`, `ExactDiffusionKernel`, & `MultiscaleDiffusionKernel`, `DiffusionDistanceMatrix`, `HeatGeodesicDistanceMatrix`, & `MultiscaleDiffusionDistanceMatrix`), and hide internal solver workspace buffers (`pub(crate)`).
+### Kernel-SGD & Diffusion Kernels
+Diffusion kernel-based computations for graph distances and embeddings.
+- **Location**: `crates/linalg/diffusion-kernel/` and `crates/linalg/distance/`
+- **Core Architectural Rules**:
+  1. **Builder Pattern**: All kernel and distance structs must be instantiated using the Builder pattern (e.g., `DiffusionKernelBuilder`). Builders must return `Result<T, String>` to ensure explicit error handling instead of silent fallbacks.
+  2. **Explicit RNG**: Never instantiate internal `thread_rng()` within library functions. Random Number Generators (`&mut R` where `R: rand::Rng`) must be explicitly passed into builders/methods to guarantee determinism.
+  3. **No Trace Estimation**: The Hutchinson method for trace estimation has been strictly removed. Avoid re-introducing randomized diagonal estimators.
+  4. **Separation of Concerns (Kernel vs. Distance)**:
+     - The `Kernel` trait must remain lightweight, requiring only `get(i, j)` and `n()`. No distance calculation logic should exist within the kernel implementations themselves.
+     - Distance conversion is strictly the responsibility of unified distance matrices.
+  5. **Unified Distance Matrices**: 
+     - **`NegLogSimDistance`**: Replaces previous matrix variants (like `HeatGeodesicDistanceMatrix`). Computes standard pairwise geodesic distances using the formula: $\alpha (\log(K_{ii} + \beta) - 2\log(K_{ij} + \beta) + \log(K_{jj} + \beta))$.
+     - **`NegLogDistance`**: Used with the `PivotedKernel` trait for single-source unit vector calculations. Computes $-\alpha \log(K_{ij} + \beta)$.
+     - Default parameters are $\alpha = 1.0, \beta = 0.0$.
 
 ## Community Detection
 

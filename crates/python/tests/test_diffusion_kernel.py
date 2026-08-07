@@ -170,13 +170,6 @@ class TestDiffusionKernel(unittest.TestCase):
         self.assertEqual(dist_vec[0], 0.0)
         self.assertGreater(dist_vec[1], 0.0)
 
-    def test_pivot_diffusion_sgd(self):
-        """Test PivotDiffusionSgd builder"""
-        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        sgd = eg.PivotDiffusionSgd().t(0.5).degree(10).num_vectors(16).h(2).build(self.graph, laplacian, lambda i: 1.0, self.rng)
-        self.assertIsNotNone(sgd)
-
-
 class TestLowRankDiffusionKernel(unittest.TestCase):
     def setUp(self):
         """Set up a simple graph for testing LowRankDiffusionKernel"""
@@ -195,29 +188,9 @@ class TestLowRankDiffusionKernel(unittest.TestCase):
         lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
 
         self.assertEqual(lr.n(), 3)
-        self.assertEqual(lr.t(), 1.0)
-        self.assertEqual(lr.rank(), 2)
-        self.assertEqual(lr.eta(), 0.0)
+        self.assertEqual(lr.n(), 3)
 
-        eigenvalues = lr.eigenvalues()
-        self.assertGreaterEqual(len(eigenvalues), 2)
-        self.assertGreaterEqual(eigenvalues[0], 0.0)
 
-    def test_eta_parameter(self):
-        """Test LowRankDiffusionKernel with custom eta parameter"""
-        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        eta = 0.05
-        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng, eta)
-        self.assertEqual(lr.eta(), eta)
-
-        import math
-        k_00 = lr.get(0, 0)
-        k_11 = lr.get(1, 1)
-        k_01 = lr.get(0, 1)
-
-        ratio = (k_01 + eta) / math.sqrt((k_00 + eta) * (k_11 + eta))
-        expected_dist = math.sqrt(max(0.0, -4.0 * math.log(max(1e-15, min(1.0, ratio)))))
-        self.assertAlmostEqual(lr.distance(0, 1), expected_dist, places=10)
 
     def test_element_access_and_symmetry(self):
         """Test LowRankDiffusionKernel matrix element queries and symmetry"""
@@ -233,31 +206,7 @@ class TestLowRankDiffusionKernel(unittest.TestCase):
         k_10 = lr.get(1, 0)
         self.assertAlmostEqual(k_01, k_10, places=10)
 
-    def test_distance_and_pivot_vector(self):
-        """Test distance and pivot_distance_vector queries"""
-        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
 
-        self.assertEqual(lr.distance(0, 0), 0.0)
-        self.assertGreater(lr.distance(0, 1), 0.0)
-
-        dist_vec = lr.pivot_distance_vector(0)
-        self.assertEqual(len(dist_vec), 3)
-        self.assertEqual(dist_vec[0], 0.0)
-        self.assertGreater(dist_vec[1], 0.0)
-
-    def test_low_rank_diffusion_distance_matrix(self):
-        """Test HeatGeodesicDistanceMatrix wrapping and querying"""
-        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        lr = eg.LowRankDiffusionKernel(laplacian, 1.0, 2, self.rng)
-
-        dm = eg.HeatGeodesicDistanceMatrix(self.graph, lr, 0.1)
-        self.assertEqual(dm.get(0, 0), 0.0)
-        self.assertGreaterEqual(dm.get(0, 1), 0.1)
-
-        dm_pivots = eg.HeatGeodesicDistanceMatrix.new_with_pivots(self.graph, lr, [0], 0.1)
-        self.assertEqual(dm_pivots.get(0, 0), 0.0)
-        self.assertGreaterEqual(dm_pivots.get(0, 1), 0.1)
 
 
 class TestExactDiffusionKernel(unittest.TestCase):
@@ -276,27 +225,11 @@ class TestExactDiffusionKernel(unittest.TestCase):
         exact = eg.ExactDiffusionKernel(laplacian, 1.0, 20)
 
         self.assertEqual(exact.n(), 3)
-        self.assertEqual(exact.t(), 1.0)
 
         self.assertGreater(exact.get(0, 0), 0.0)
         self.assertAlmostEqual(exact.get(0, 1), exact.get(1, 0), places=10)
 
-        self.assertEqual(exact.distance(0, 0), 0.0)
-        self.assertGreater(exact.distance(0, 1), 0.0)
 
-        dist_vec = exact.pivot_distance_vector(0)
-        self.assertEqual(len(dist_vec), 3)
-        self.assertEqual(dist_vec[0], 0.0)
-        self.assertGreater(dist_vec[1], 0.0)
-
-    def test_heat_geodesic_distance_matrix(self):
-        """Test HeatGeodesicDistanceMatrix with ExactDiffusionKernel"""
-        laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        exact = eg.ExactDiffusionKernel(laplacian, 1.0, 20)
-
-        dm = eg.HeatGeodesicDistanceMatrix(self.graph, exact, 0.1)
-        self.assertEqual(dm.get(0, 0), 0.0)
-        self.assertGreaterEqual(dm.get(0, 1), 0.1)
 
 
 if __name__ == "__main__":

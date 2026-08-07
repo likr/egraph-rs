@@ -1,23 +1,22 @@
-use crate::chebyshev::{chebyshev_approximation_vec, chebyshev_approximation_with_baseline};
-use crate::hutchinson::{generate_rademacher_vectors, HutchinsonEstimator};
+//! Diffusion kernel matrix computation via high-order Chebyshev polynomial expansion.
+
+use crate::chebyshev::{chebyshev_approximation, chebyshev_approximation_vec};
 use crate::power_method::estimate_lambda_max;
-use ndarray::{Array1, ScalarOperand};
+use crate::traits::PivotedKernel;
+use ndarray::{Array1, Array2, ScalarOperand};
 use num_traits::Float;
-use petgraph::visit::IntoNodeIdentifiers;
-use petgraph_distance::{Distance, SparseSymmetricMatrix};
-use petgraph_drawing::DrawingValue;
+use petgraph_distance::{Kernel, SparseSymmetricMatrix};
 use rand::Rng;
-use std::collections::HashMap;
-use std::hash::Hash;
 
-/// DiffusionKernel provides random access to exp(-tL) matrix elements.
-#[derive(Debug, Clone)]
-pub struct DiffusionKernel<S> {
-    estimator: HutchinsonEstimator<S>,
-    lambda_max: S,
+/// Builder for DiffusionKernel
+pub struct DiffusionKernelBuilder<'a, S> {
+    laplacian: &'a SparseSymmetricMatrix<S>,
+    t: S,
+    degree: usize,
+    lambda_max: Option<S>,
 }
 
-impl<S> DiffusionKernel<S>
+impl<'a, S> DiffusionKernelBuilder<'a, S>
 where
     S: Float
         + std::iter::Sum
@@ -26,315 +25,135 @@ where
         + ScalarOperand
         + num_traits::FromPrimitive,
 {
-    /// Creates a new DiffusionKernel with automatic lambda_max estimation.
-    pub fn new<R: Rng>(
-        laplacian: &SparseSymmetricMatrix<S>,
-        t: S,
-        degree: usize,
-        num_vectors: usize,
-        rng: &mut R,
-    ) -> Self {
-        let lambda_max = estimate_lambda_max(laplacian, rng, 100, S::from_f64(1e-6).unwrap());
-        Self::new_with_lambda_max(laplacian, t, degree, lambda_max, num_vectors, rng)
-    }
-
-    /// Creates a new DiffusionKernel with externally provided lambda_max.
-    pub fn new_with_lambda_max<R: Rng>(
-        laplacian: &SparseSymmetricMatrix<S>,
-        t: S,
-        degree: usize,
-        lambda_max: S,
-        num_vectors: usize,
-        rng: &mut R,
-    ) -> Self {
-        let n = laplacian.dim();
-        let u1 = laplacian.stationary_vector();
-        let v = generate_rademacher_vectors(n, num_vectors, rng);
-        let (kv, w_mat, residual_diag_sum) =
-            chebyshev_approximation_with_baseline(laplacian, t, degree, lambda_max, &v, &u1);
-        let u1_slice = u1
-            .as_slice()
-            .expect("Stationary vector u1 must be contiguous");
-        let estimator =
-            HutchinsonEstimator::new_with_baseline(v, kv, w_mat, &residual_diag_sum, u1_slice);
+    pub fn new(laplacian: &'a SparseSymmetricMatrix<S>, t: S, degree: usize) -> Self {
         Self {
-            estimator,
-            lambda_max,
-        }
-    }
-
-    /// Queries the (i, j) element of the diffusion kernel matrix.
-    pub fn get(&self, i: usize, j: usize) -> S {
-        self.estimator.query(i, j)
-    }
-
-    /// Computes multiscale / diffusion distance between node i and node j.
-    pub fn distance(&self, i: usize, j: usize) -> S {
-        self.estimator.distance(i, j)
-    }
-
-    /// Returns the number of nodes in the graph.
-    pub fn n(&self) -> usize {
-        self.estimator.n()
-    }
-
-    /// Returns the estimated maximum eigenvalue of the Laplacian.
-    pub fn lambda_max(&self) -> S {
-        self.lambda_max
-    }
-
-    /// Computes the exact single-source heat diffusion vector K e_pivot for a given pivot node.
-    pub fn single_source_heat_vector(
-        laplacian: &SparseSymmetricMatrix<S>,
-        t: S,
-        degree: usize,
-        pivot: usize,
-    ) -> Array1<S> {
-        let mut rng = rand::thread_rng();
-        let lambda_max = estimate_lambda_max(laplacian, &mut rng, 100, S::from_f64(1e-6).unwrap());
-        Self::single_source_heat_vector_with_lambda_max(laplacian, t, degree, lambda_max, pivot)
-    }
-
-    /// Computes the exact single-source heat diffusion vector K e_pivot with given lambda_max.
-    pub fn single_source_heat_vector_with_lambda_max(
-        laplacian: &SparseSymmetricMatrix<S>,
-        t: S,
-        degree: usize,
-        lambda_max: S,
-        pivot: usize,
-    ) -> Array1<S> {
-        let n = laplacian.dim();
-        let mut e = Array1::zeros(n);
-        e[pivot] = S::one();
-        chebyshev_approximation_vec(laplacian, t, degree, lambda_max, &e)
-    }
-}
-
-/// A read-only distance matrix that computes distance from a DiffusionKernel:
-/// d(i, j) = max(sqrt(K[i,i] + K[j,j] - 2*K[i,j]), min_dist)
-#[derive(Debug, Clone)]
-pub struct DiffusionDistanceMatrix<N, S> {
-    kernel: DiffusionKernel<S>,
-    node_indices: HashMap<N, usize>,
-    min_dist: S,
-}
-
-impl<N, S> DiffusionDistanceMatrix<N, S>
-where
-    N: Eq + Hash + Copy,
-    S: Float
-        + std::iter::Sum
-        + std::ops::AddAssign
-        + Default
-        + ScalarOperand
-        + num_traits::FromPrimitive,
-{
-    /// Creates a new DiffusionDistanceMatrix from a DiffusionKernel and a node mapping.
-    pub fn new<G>(graph: G, kernel: DiffusionKernel<S>, min_dist: S) -> Self
-    where
-        G: IntoNodeIdentifiers,
-        G::NodeId: Into<N>,
-    {
-        let node_indices: HashMap<N, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id.into(), i))
-            .collect();
-
-        Self {
-            kernel,
-            node_indices,
-            min_dist,
-        }
-    }
-}
-
-impl<N, S> Distance<N, S> for DiffusionDistanceMatrix<N, S>
-where
-    N: Eq + Hash + Copy,
-    S: Float + std::iter::Sum + std::ops::AddAssign + Default + ScalarOperand + DrawingValue,
-{
-    fn get(&self, u: N, v: N) -> Option<S> {
-        let i = self.row_index(u)?;
-        let j = self.col_index(v)?;
-        Some(self.get_by_index(i, j))
-    }
-
-    fn get_by_index(&self, i: usize, j: usize) -> S {
-        if i == j {
-            S::zero()
-        } else {
-            self.kernel.distance(i, j).max(self.min_dist)
-        }
-    }
-
-    fn shape(&self) -> (usize, usize) {
-        let n = self.kernel.n();
-        (n, n)
-    }
-
-    fn row_index(&self, u: N) -> Option<usize> {
-        self.node_indices.get(&u).copied()
-    }
-
-    fn col_index(&self, u: N) -> Option<usize> {
-        self.node_indices.get(&u).copied()
-    }
-}
-
-/// A read-only distance matrix that computes single-source heat diffusion distances from pre-selected pivots.
-#[derive(Debug, Clone)]
-pub struct PivotDiffusionDistanceMatrix<N, S> {
-    pivots: Vec<usize>,
-    distances: Vec<Vec<S>>,
-    node_indices: HashMap<N, usize>,
-    min_dist: S,
-}
-
-impl<S> PivotDiffusionDistanceMatrix<(), S>
-where
-    S: Float
-        + std::iter::Sum
-        + std::ops::AddAssign
-        + Default
-        + ScalarOperand
-        + num_traits::FromPrimitive,
-{
-    /// Computes single-source heat diffusion distance vector from a pivot node.
-    pub fn pivot_distance_vector(
-        laplacian: &SparseSymmetricMatrix<S>,
-        kernel: &DiffusionKernel<S>,
-        t: S,
-        degree: usize,
-        pivot: usize,
-    ) -> Vec<S> {
-        let heat_vec = DiffusionKernel::single_source_heat_vector_with_lambda_max(
             laplacian,
             t,
             degree,
-            kernel.lambda_max(),
-            pivot,
-        );
-        let n = kernel.n();
-        let mut distances = vec![S::zero(); n];
-        let four_t = S::from_f64(4.0).unwrap() * t;
-        let eps = S::from_f64(1e-15).unwrap();
-
-        let k_pp = kernel.estimator.query_diagonal(pivot).max(eps);
-        let sqrt_k_pp = k_pp.sqrt();
-
-        for (j, &k_pj) in heat_vec.iter().enumerate() {
-            if j == pivot {
-                distances[j] = S::zero();
-            } else {
-                let k_pj_clamped = k_pj.max(eps);
-                let k_jj = kernel.estimator.query_diagonal(j).max(eps);
-                let sqrt_k_jj = k_jj.sqrt();
-                let ratio = k_pj_clamped / (sqrt_k_pp * sqrt_k_jj);
-                let ratio_clamped = ratio.min(S::one()).max(eps);
-                distances[j] = (-four_t * ratio_clamped.ln()).max(S::zero()).sqrt();
-            }
-        }
-        distances
-    }
-
-    /// Creates a new PivotDiffusionDistanceMatrix by computing single-source heat diffusion from the given pivots.
-    pub fn new<G, N>(
-        graph: G,
-        laplacian: &SparseSymmetricMatrix<S>,
-        kernel: &DiffusionKernel<S>,
-        t: S,
-        degree: usize,
-        pivots: &[usize],
-        min_dist: S,
-    ) -> PivotDiffusionDistanceMatrix<N, S>
-    where
-        G: IntoNodeIdentifiers,
-        G::NodeId: Into<N>,
-        N: Eq + Hash + Copy,
-    {
-        let node_indices: HashMap<N, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id.into(), i))
-            .collect();
-
-        let mut distances = Vec::with_capacity(pivots.len());
-        for &p in pivots {
-            let dist_vec = Self::pivot_distance_vector(laplacian, kernel, t, degree, p);
-            distances.push(dist_vec);
-        }
-
-        PivotDiffusionDistanceMatrix {
-            pivots: pivots.to_vec(),
-            distances,
-            node_indices,
-            min_dist,
+            lambda_max: None,
         }
     }
 
-    /// Creates a PivotDiffusionDistanceMatrix from pre-computed pivot distance vectors.
-    ///
-    /// Used by incremental pivot selection to avoid recomputing distances.
-    pub fn from_precomputed<G, N>(
-        graph: G,
-        pivots: &[usize],
-        distances: Vec<Vec<S>>,
-        min_dist: S,
-    ) -> PivotDiffusionDistanceMatrix<N, S>
-    where
-        G: IntoNodeIdentifiers,
-        G::NodeId: Into<N>,
-        N: Eq + Hash + Copy,
-    {
-        let node_indices: HashMap<N, usize> = graph
-            .node_identifiers()
-            .enumerate()
-            .map(|(i, node_id)| (node_id.into(), i))
-            .collect();
+    pub fn lambda_max(mut self, lambda_max: S) -> Self {
+        self.lambda_max = Some(lambda_max);
+        self
+    }
 
-        PivotDiffusionDistanceMatrix {
-            pivots: pivots.to_vec(),
-            distances,
-            node_indices,
-            min_dist,
+    pub fn build<R: Rng>(self, rng: &mut R) -> Result<DiffusionKernel<S>, String> {
+        let lambda_max = match self.lambda_max {
+            Some(l) => l,
+            None => estimate_lambda_max(self.laplacian, rng, 100, S::from_f64(1e-4).unwrap()),
+        };
+
+        let n = self.laplacian.dim();
+        let mut eye = Array2::zeros((n, n));
+        for i in 0..n {
+            eye[[i, i]] = S::one();
         }
+
+        let matrix = chebyshev_approximation(self.laplacian, self.t, self.degree, lambda_max, &eye);
+
+        Ok(DiffusionKernel { n, matrix })
     }
 }
 
-impl<N, S> Distance<N, S> for PivotDiffusionDistanceMatrix<N, S>
-where
-    N: Eq + Hash + Copy,
-    S: Float + std::iter::Sum + std::ops::AddAssign + Default + ScalarOperand + DrawingValue,
-{
-    fn get(&self, u: N, v: N) -> Option<S> {
-        let i = self.row_index(u)?;
-        let j = self.col_index(v)?;
-        Some(self.get_by_index(i, j))
+/// Exact heat kernel exp(-tL) computed via Chebyshev polynomial expansion for all matrix columns.
+#[derive(Debug, Clone)]
+pub struct DiffusionKernel<S> {
+    n: usize,
+    matrix: Array2<S>,
+}
+
+impl<S: Float + ScalarOperand> Kernel<S> for DiffusionKernel<S> {
+    fn get(&self, i: usize, j: usize) -> S {
+        assert!(i < self.n && j < self.n, "Index out of bounds");
+        self.matrix[[i, j]]
     }
 
-    fn get_by_index(&self, i: usize, j: usize) -> S {
-        if i == j {
-            S::zero()
-        } else if let Some(pivot_idx) = self.pivots.iter().position(|&p| p == i) {
-            self.distances[pivot_idx][j].max(self.min_dist)
-        } else if let Some(pivot_idx) = self.pivots.iter().position(|&p| p == j) {
-            self.distances[pivot_idx][i].max(self.min_dist)
-        } else {
-            S::infinity()
+    fn n(&self) -> usize {
+        self.n
+    }
+}
+
+/// Builder for PivotedDiffusionKernel
+pub struct PivotedDiffusionKernelBuilder<'a, S> {
+    laplacian: &'a SparseSymmetricMatrix<S>,
+    t: S,
+    degree: usize,
+    pivots: Vec<usize>,
+    lambda_max: Option<S>,
+}
+
+impl<'a, S> PivotedDiffusionKernelBuilder<'a, S>
+where
+    S: Float
+        + std::iter::Sum
+        + std::ops::AddAssign
+        + Default
+        + ScalarOperand
+        + num_traits::FromPrimitive,
+{
+    pub fn new(
+        laplacian: &'a SparseSymmetricMatrix<S>,
+        t: S,
+        degree: usize,
+        pivots: Vec<usize>,
+    ) -> Self {
+        Self {
+            laplacian,
+            t,
+            degree,
+            pivots,
+            lambda_max: None,
         }
     }
 
-    fn shape(&self) -> (usize, usize) {
-        let n = self.node_indices.len();
-        (n, n)
+    pub fn lambda_max(mut self, lambda_max: S) -> Self {
+        self.lambda_max = Some(lambda_max);
+        self
     }
 
-    fn row_index(&self, u: N) -> Option<usize> {
-        self.node_indices.get(&u).copied()
+    pub fn build<R: Rng>(self, rng: &mut R) -> Result<PivotedDiffusionKernel<S>, String> {
+        let lambda_max = match self.lambda_max {
+            Some(l) => l,
+            None => estimate_lambda_max(self.laplacian, rng, 100, S::from_f64(1e-4).unwrap()),
+        };
+
+        let n = self.laplacian.dim();
+        let mut pivot_vectors = Vec::with_capacity(self.pivots.len());
+
+        for &p in &self.pivots {
+            let mut e = Array1::zeros(n);
+            if p < n {
+                e[p] = S::one();
+            } else {
+                return Err("Pivot index out of bounds".to_string());
+            }
+            let heat_vec =
+                chebyshev_approximation_vec(self.laplacian, self.t, self.degree, lambda_max, &e);
+            pivot_vectors.push(heat_vec);
+        }
+
+        Ok(PivotedDiffusionKernel {
+            pivots: self.pivots,
+            vectors: pivot_vectors,
+        })
+    }
+}
+
+/// Pivoted diffusion kernel computing distance from specific sources.
+#[derive(Debug, Clone)]
+pub struct PivotedDiffusionKernel<S> {
+    pivots: Vec<usize>,
+    vectors: Vec<Array1<S>>,
+}
+
+impl<S: Float + ScalarOperand> PivotedKernel<S> for PivotedDiffusionKernel<S> {
+    fn pivots(&self) -> &[usize] {
+        &self.pivots
     }
 
-    fn col_index(&self, u: N) -> Option<usize> {
-        self.node_indices.get(&u).copied()
+    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> S {
+        self.vectors[pivot_idx][j]
     }
 }

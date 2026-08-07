@@ -46,6 +46,50 @@ impl PyTsNet {
         slf.into()
     }
 
+    /// Sets the number of iterations for Stage 1 (early exaggeration)
+    ///
+    /// :param iterations: Number of iterations
+    /// :type iterations: int
+    /// :return: Self for method chaining
+    /// :rtype: TsNet
+    pub fn iterations_stage1(mut slf: PyRefMut<Self>, iterations: usize) -> Py<Self> {
+        slf.ts_net.iterations_stage1(iterations);
+        slf.into()
+    }
+
+    /// Sets the exaggeration factor for Stage 1
+    ///
+    /// :param exaggeration: Exaggeration factor
+    /// :type exaggeration: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNet
+    pub fn exaggeration(mut slf: PyRefMut<Self>, exaggeration: FloatType) -> Py<Self> {
+        slf.ts_net.exaggeration(exaggeration);
+        slf.into()
+    }
+
+    /// Sets the power exponent for distance matrix
+    ///
+    /// :param power: Power exponent value (e.g. 1.0, 2.0)
+    /// :type power: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNet
+    pub fn power(mut slf: PyRefMut<Self>, power: FloatType) -> Py<Self> {
+        slf.ts_net.power(power);
+        slf.into()
+    }
+
+    /// Sets the repulsion weight lambda_r for Stage 3
+    ///
+    /// :param lambda_r: Repulsion weight
+    /// :type lambda_r: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNet
+    pub fn lambda_r(mut slf: PyRefMut<Self>, lambda_r: FloatType) -> Py<Self> {
+        slf.ts_net.lambda_r(lambda_r);
+        slf.into()
+    }
+
     /// Sets the number of iterations for Stage 2 (compression)
     ///
     /// :param iterations: Number of iterations

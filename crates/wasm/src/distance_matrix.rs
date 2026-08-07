@@ -12,7 +12,9 @@ use petgraph_algorithm_shortest_path::{
     all_sources_dijkstra, FullDistanceMatrix, SubDistanceMatrix,
 };
 use petgraph_distance::{Distance, GaussianKernel, KernelDistance, SparseSymmetricMatrix};
-use petgraph_linalg_diffusion_kernel::{DiffusionDistanceMatrix, DiffusionKernel};
+use petgraph_linalg_diffusion_kernel::{
+    DiffusionKernel, DiffusionKernelBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
+};
 use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
 use wasm_bindgen::prelude::*;
 
@@ -21,9 +23,9 @@ use wasm_bindgen::prelude::*;
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<u32>, f32>),
     Sub(SubDistanceMatrix<NodeIndex<u32>, f32>),
-    Diffusion(DiffusionDistanceMatrix<NodeIndex<u32>, f32>),
+    Diffusion(NegLogSimDistance<NodeIndex<u32>, f32, DiffusionKernel<f32>>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<u32>, f32>),
-    Kernel(Box<KernelDistance<InnerDistanceMatrix, GaussianKernel<f32>>>),
+    Kernel(Box<KernelDistance<GaussianKernel<NodeIndex<u32>, InnerDistanceMatrix, f32>>>),
 }
 
 impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
@@ -43,7 +45,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
             Self::Sub(d) => Distance::get_by_index(d, i, j),
             Self::Diffusion(d) => Distance::get_by_index(d, i, j),
             Self::Embedding(d) => Distance::get_by_index(d, i, j),
-            Self::Kernel(d) => Distance::get_by_index(d.as_ref(), i, j),
+            Self::Kernel(d) => Distance::<NodeIndex<u32>, f32>::get_by_index(d.as_ref(), i, j),
         }
     }
 
@@ -53,7 +55,7 @@ impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
             Self::Sub(d) => Distance::shape(d),
             Self::Diffusion(d) => Distance::shape(d),
             Self::Embedding(d) => Distance::shape(d),
-            Self::Kernel(d) => Distance::shape(d.as_ref()),
+            Self::Kernel(d) => Distance::<NodeIndex<u32>, f32>::shape(d.as_ref()),
         }
     }
 
@@ -92,9 +94,9 @@ impl JsDiffusionKernel {
         length: &Function,
         t: f32,
         degree: usize,
-        num_vectors: usize,
+        _num_vectors: usize,
         rng: &mut JsRng,
-    ) -> JsDiffusionKernel {
+    ) -> Result<JsDiffusionKernel, JsError> {
         let mut length_map = std::collections::HashMap::new();
         for e in graph.graph().edge_indices() {
             let c = length
@@ -106,8 +108,10 @@ impl JsDiffusionKernel {
         }
         let laplacian =
             SparseSymmetricMatrix::standard_laplacian(graph.graph(), |e| length_map[&e.id()]);
-        let kernel = DiffusionKernel::new(&laplacian, t, degree, num_vectors, rng.get_mut());
-        JsDiffusionKernel { kernel }
+        let kernel = DiffusionKernelBuilder::new(&laplacian, t, degree)
+            .build(rng.get_mut())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(JsDiffusionKernel { kernel })
     }
 
     #[wasm_bindgen(js_name = "newWithLambdaMax")]
@@ -117,9 +121,9 @@ impl JsDiffusionKernel {
         t: f32,
         degree: usize,
         lambda_max: f32,
-        num_vectors: usize,
+        _num_vectors: usize,
         rng: &mut JsRng,
-    ) -> JsDiffusionKernel {
+    ) -> Result<JsDiffusionKernel, JsError> {
         let mut length_map = std::collections::HashMap::new();
         for e in graph.graph().edge_indices() {
             let c = length
@@ -131,23 +135,20 @@ impl JsDiffusionKernel {
         }
         let laplacian =
             SparseSymmetricMatrix::standard_laplacian(graph.graph(), |e| length_map[&e.id()]);
-        let kernel = DiffusionKernel::new_with_lambda_max(
-            &laplacian,
-            t,
-            degree,
-            lambda_max,
-            num_vectors,
-            rng.get_mut(),
-        );
-        JsDiffusionKernel { kernel }
+        let kernel = DiffusionKernelBuilder::new(&laplacian, t, degree)
+            .lambda_max(lambda_max)
+            .build(rng.get_mut())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(JsDiffusionKernel { kernel })
     }
 
     pub fn get(&self, i: usize, j: usize) -> f32 {
-        self.kernel.get(i, j)
+        petgraph_distance::Kernel::get(&self.kernel, i, j)
     }
 
+    #[wasm_bindgen]
     pub fn n(&self) -> usize {
-        self.kernel.n()
+        petgraph_distance::Kernel::n(&self.kernel)
     }
 }
 
@@ -192,12 +193,14 @@ impl JsDistanceMatrix {
     pub fn diffusion(
         graph: &JsGraph,
         kernel: &JsDiffusionKernel,
-        min_dist: f32,
-    ) -> JsDistanceMatrix {
-        let matrix = DiffusionDistanceMatrix::new(graph.graph(), kernel.kernel.clone(), min_dist);
-        JsDistanceMatrix {
+        _min_dist: f32, // Ignored, kept for API compatibility
+    ) -> Result<JsDistanceMatrix, JsError> {
+        let matrix = NegLogSimDistanceBuilder::new(kernel.kernel.clone())
+            .build(graph.graph())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(JsDistanceMatrix {
             inner: InnerDistanceMatrix::Diffusion(matrix),
-        }
+        })
     }
 
     #[wasm_bindgen(js_name = "embedding")]
@@ -227,8 +230,8 @@ impl JsDistanceMatrix {
 
     #[wasm_bindgen(js_name = "kernel")]
     pub fn kernel(distance_matrix: &JsDistanceMatrix, gamma: f32) -> JsDistanceMatrix {
-        let kernel = GaussianKernel::new(gamma);
-        let matrix = KernelDistance::new(distance_matrix.inner.clone(), kernel);
+        let kernel = GaussianKernel::new(distance_matrix.inner.clone(), gamma);
+        let matrix = KernelDistance::new(kernel);
         JsDistanceMatrix {
             inner: InnerDistanceMatrix::Kernel(Box::new(matrix)),
         }

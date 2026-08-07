@@ -15,8 +15,7 @@ mod sparse;
 use pyo3::prelude::*;
 
 pub use self::diffusion_kernel::{
-    PyDiffusionKernel, PyExactDiffusionKernel, PyLowRankDiffusionKernel,
-    PyMultiscaleDiffusionKernel, PyPivotDiffusionSgd,
+    PyDiffusionKernel, PyLowRankDiffusionKernel, PyMultiscaleDiffusionKernel,
 };
 pub use self::full::PyFullSgd;
 pub use self::omega::PyOmega;
@@ -44,10 +43,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOmega>()?;
     m.add_class::<PySgd>()?;
     m.add_class::<PyDiffusionKernel>()?;
-    m.add_class::<PyExactDiffusionKernel>()?;
     m.add_class::<PyLowRankDiffusionKernel>()?;
     m.add_class::<PyMultiscaleDiffusionKernel>()?;
-    m.add_class::<PyPivotDiffusionSgd>()?;
 
     Ok(())
 }
