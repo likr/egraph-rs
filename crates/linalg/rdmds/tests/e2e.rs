@@ -217,3 +217,4 @@ macro_rules! generate_solver_tests {
 generate_solver_tests!(cg_solver, CgSolver { max_iterations: 100, tolerance: 1e-6 });
 generate_solver_tests!(jacobi_cg_solver, JacobiCgSolver { max_iterations: 100, tolerance: 1e-6 });
 generate_solver_tests!(ic0_cg_solver, Ic0CgSolver { max_iterations: 100, tolerance: 1e-6 });
+generate_solver_tests!(amg_cg_solver, AmgCgSolver { max_iterations: 100, tolerance: 1e-6 });

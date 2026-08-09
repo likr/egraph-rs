@@ -45,6 +45,7 @@
 //! where d is the number of spectral dimensions, |V| is the number of vertices,
 //! and |E| is the number of edges.
 
+pub mod amg;
 pub mod eigenvalue;
 pub mod rdmds;
 pub mod solvers;

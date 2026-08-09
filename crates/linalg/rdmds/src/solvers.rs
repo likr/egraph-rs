@@ -303,13 +303,55 @@ where
     S: DrawingValue + Default,
 {
     fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
-        // Fallback to Jacobi CG for this basic implementation.
-        // A complete AMG implementation requires complex coarsening and transfer operators.
-        // For now, we perform a V-cycle with Jacobi smoothing.
-        let jacobi = JacobiCgSolver {
-            max_iterations: self.max_iterations,
-            tolerance: self.tolerance,
-        };
-        jacobi.solve(matrix, b, x)
+        let n = matrix.dim();
+        let mut r = Array1::zeros(n);
+        let mut z = Array1::zeros(n);
+        let mut q = Array1::zeros(n);
+
+        matrix.multiply_into(x, &mut r);
+        for i in 0..n {
+            r[i] = b[i] - r[i];
+        }
+
+        let amg = crate::amg::AmgSolver::<S>::default();
+        let a_csr = crate::amg::matrix::CsrMatrix::from_symmetric(matrix);
+        let hierarchy = crate::amg::hierarchy::build_hierarchy(
+            a_csr,
+            amg.theta,
+            amg.max_levels,
+            amg.max_coarse_size,
+        );
+
+        amg.apply_preconditioner(&hierarchy, &r, &mut z);
+        let mut p = z.clone();
+        let mut rsold = r.dot(&z);
+
+        if rsold < self.tolerance * self.tolerance {
+            return 0;
+        }
+
+        for iter in 0..self.max_iterations {
+            matrix.multiply_into(&p, &mut q);
+            let alpha = rsold / p.dot(&q);
+
+            for i in 0..n {
+                x[i] += alpha * p[i];
+                r[i] -= alpha * q[i];
+            }
+
+            amg.apply_preconditioner(&hierarchy, &r, &mut z);
+
+            let rsnew = r.dot(&z);
+            if rsnew < self.tolerance * self.tolerance {
+                return iter + 1;
+            }
+
+            let beta = rsnew / rsold;
+            for i in 0..n {
+                p[i] = beta * p[i] + z[i];
+            }
+            rsold = rsnew;
+        }
+        self.max_iterations
     }
 }
