@@ -103,6 +103,9 @@ where
         let k_jj = self.kernel.get(j, j);
         let k_ij = self.kernel.get(i, j);
 
+        if k_ii + self.beta <= S::zero() || k_jj + self.beta <= S::zero() || k_ij + self.beta <= S::zero() {
+            return S::infinity();
+        }
         let log_ii = (k_ii + self.beta).ln();
         let log_jj = (k_jj + self.beta).ln();
         let log_ij = (k_ij + self.beta).ln();
@@ -219,6 +222,9 @@ where
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
         let k_ij = self.kernel.get(i, j);
+        if k_ij + self.beta <= S::zero() {
+            return S::infinity();
+        }
         let val = (-self.alpha * (k_ij + self.beta).ln()).max(S::zero());
         val.powf(self.p).max(self.min_dist)
     }
@@ -355,6 +361,9 @@ where
         let target_j = if pivots[pivot_idx] == i { j } else { i };
 
         let k_pj = self.kernel.get_from_pivot(pivot_idx, target_j);
+        if k_pj + self.beta <= S::zero() {
+            return S::infinity();
+        }
         let val = (-self.alpha * (k_pj + self.beta).ln()).max(S::zero());
         val.powf(self.p).max(self.min_dist)
     }

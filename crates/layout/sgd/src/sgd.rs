@@ -108,6 +108,9 @@ where
         M: Metric<D = Diff>,
     {
         for &(i, j, dij, dji, wij, wji) in &self.node_pairs {
+            if dij.is_infinite() || dji.is_infinite() || (wij <= S::zero() && wji <= S::zero()) {
+                continue;
+            }
             let mu_i = (eta * wij).min(S::one());
             let mu_j = (eta * wji).min(S::one());
             let delta = drawing.delta(i, j);
