@@ -25,7 +25,7 @@ pub enum InnerDistanceMatrix {
     Pivoted(PivotedDistanceMatrix<NodeIndex<u32>, f32>),
     Diffusion(NegLogSimDistance<NodeIndex<u32>, f32, DiffusionKernel<f32>>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<u32>, f32>),
-    Kernel(Box<KernelDistance<GaussianKernel<NodeIndex<u32>, InnerDistanceMatrix, f32>>>),
+    Kernel(Box<KernelDistance<GaussianKernel<NodeIndex<u32>, InnerDistanceMatrix, f32>, f32>>),
 }
 
 impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {

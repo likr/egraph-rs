@@ -12,6 +12,7 @@ pub struct NegLogSimDistanceBuilder<S> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
 }
 
 impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
@@ -20,6 +21,7 @@ impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
             alpha: S::one(),
             beta: S::zero(),
             p: S::from_f64(0.5).unwrap(),
+            min_dist: S::zero(),
         }
     }
 
@@ -35,6 +37,11 @@ impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
 
     pub fn p(mut self, p: S) -> Self {
         self.p = p;
+        self
+    }
+
+    pub fn min_dist(mut self, min_dist: S) -> Self {
+        self.min_dist = min_dist;
         self
     }
 
@@ -55,6 +62,7 @@ impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
             alpha: self.alpha,
             beta: self.beta,
             p: self.p,
+            min_dist: self.min_dist,
             node_indices,
         })
     }
@@ -73,6 +81,7 @@ pub struct NegLogSimDistance<N, S, K> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -99,7 +108,7 @@ where
 
         let two = S::from_f64(2.0).unwrap();
         let val = (self.alpha * (log_ii - two * log_ij + log_jj)).max(S::zero());
-        val.powf(self.p)
+        val.powf(self.p).max(self.min_dist)
     }
 
     fn shape(&self) -> (usize, usize) {
@@ -121,6 +130,7 @@ pub struct NegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
 }
 
 impl<S: Float + num_traits::FromPrimitive> NegLogDistanceBuilder<S> {
@@ -129,6 +139,7 @@ impl<S: Float + num_traits::FromPrimitive> NegLogDistanceBuilder<S> {
             alpha: S::one(),
             beta: S::zero(),
             p: S::from_f64(0.5).unwrap(),
+            min_dist: S::zero(),
         }
     }
 
@@ -144,6 +155,11 @@ impl<S: Float + num_traits::FromPrimitive> NegLogDistanceBuilder<S> {
 
     pub fn p(mut self, p: S) -> Self {
         self.p = p;
+        self
+    }
+
+    pub fn min_dist(mut self, min_dist: S) -> Self {
+        self.min_dist = min_dist;
         self
     }
 
@@ -164,6 +180,7 @@ impl<S: Float + num_traits::FromPrimitive> NegLogDistanceBuilder<S> {
             alpha: self.alpha,
             beta: self.beta,
             p: self.p,
+            min_dist: self.min_dist,
             node_indices,
         })
     }
@@ -182,6 +199,7 @@ pub struct NegLogDistance<N, S, K> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -200,7 +218,7 @@ where
     fn get_by_index(&self, i: usize, j: usize) -> S {
         let k_ij = self.kernel.get(i, j);
         let val = (-self.alpha * (k_ij + self.beta).ln()).max(S::zero());
-        val.powf(self.p)
+        val.powf(self.p).max(self.min_dist)
     }
 
     fn shape(&self) -> (usize, usize) {
@@ -222,6 +240,7 @@ pub struct PivotedNegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
 }
 
 impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
@@ -230,6 +249,7 @@ impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
             alpha: S::one(),
             beta: S::zero(),
             p: S::from_f64(0.5).unwrap(),
+            min_dist: S::zero(),
         }
     }
 
@@ -245,6 +265,11 @@ impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
 
     pub fn p(mut self, p: S) -> Self {
         self.p = p;
+        self
+    }
+
+    pub fn min_dist(mut self, min_dist: S) -> Self {
+        self.min_dist = min_dist;
         self
     }
 
@@ -269,6 +294,7 @@ impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
             alpha: self.alpha,
             beta: self.beta,
             p: self.p,
+            min_dist: self.min_dist,
             node_indices,
         })
     }
@@ -287,6 +313,7 @@ pub struct PivotedNegLogDistance<N, S, K> {
     alpha: S,
     beta: S,
     p: S,
+    min_dist: S,
     node_indices: HashMap<N, usize>,
 }
 
@@ -326,7 +353,7 @@ where
 
         let k_pj = self.kernel.get_from_pivot(pivot_idx, target_j);
         let val = (-self.alpha * (k_pj + self.beta).ln()).max(S::zero());
-        val.powf(self.p)
+        val.powf(self.p).max(self.min_dist)
     }
 
     fn shape(&self) -> (usize, usize) {

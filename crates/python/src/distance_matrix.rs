@@ -188,7 +188,12 @@ pub enum InnerDistanceMatrix {
     PivotedNegLog(PivotedNegLogDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>),
     Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
     KernelDistance(
-        Box<KernelDistance<GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>>>,
+        Box<
+            KernelDistance<
+                GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>,
+                FloatType,
+            >,
+        >,
     ),
 }
 
@@ -465,8 +470,10 @@ impl PyEmbeddingDistanceMatrix {
 #[pyclass]
 #[pyo3(name = "KernelDistance")]
 pub struct PyKernelDistance {
-    pub(crate) matrix:
-        KernelDistance<GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>>,
+    pub(crate) matrix: KernelDistance<
+        GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>,
+        FloatType,
+    >,
 }
 
 #[pymethods]

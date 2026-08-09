@@ -118,17 +118,29 @@ where
 /// A distance matrix wrapping a kernel, representing distance in the kernel space.
 /// d_K(i, j) = sqrt(K(i, i) + K(j, j) - 2 * K(i, j))
 #[derive(Debug, Clone)]
-pub struct KernelDistance<K> {
+pub struct KernelDistance<K, S> {
     pub kernel: K,
+    pub min_dist: S,
 }
 
-impl<K> KernelDistance<K> {
+impl<K, S> KernelDistance<K, S>
+where
+    S: DrawingValue,
+{
     pub fn new(kernel: K) -> Self {
-        Self { kernel }
+        Self {
+            kernel,
+            min_dist: S::zero(),
+        }
+    }
+
+    pub fn min_dist(mut self, min_dist: S) -> Self {
+        self.min_dist = min_dist;
+        self
     }
 }
 
-impl<N, S, K> Distance<N, S> for KernelDistance<K>
+impl<N, S, K> Distance<N, S> for KernelDistance<K, S>
 where
     K: Kernel<S>,
     S: DrawingValue,
@@ -142,7 +154,7 @@ where
         let k_jj = self.kernel.get(j, j);
         let k_ij = self.kernel.get(i, j);
         let diff = k_ii + k_jj - S::from_f32(2.0).unwrap() * k_ij;
-        diff.max(S::zero()).sqrt()
+        diff.max(S::zero()).sqrt().max(self.min_dist)
     }
 
     fn shape(&self) -> (usize, usize) {
