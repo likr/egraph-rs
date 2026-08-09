@@ -1,7 +1,7 @@
 use crate::FloatType;
 use petgraph_linalg_rdmds::solvers::{
-    CgSolver, CgSolverInstance, Ic0CgSolver, Ic0CgSolverInstance, JacobiCgSolver,
-    JacobiCgSolverInstance, LinearSolver, LinearSolverBuilder,
+    AmgCgSolver, AmgCgSolverInstance, CgSolver, CgSolverInstance, Ic0CgSolver, Ic0CgSolverInstance,
+    JacobiCgSolver, JacobiCgSolverInstance, LinearSolver, LinearSolverBuilder,
 };
 use petgraph_distance::SparseSymmetricMatrix;
 use ndarray::Array1;
@@ -61,17 +61,37 @@ impl PyIc0CgSolver {
     }
 }
 
+#[pyclass]
+#[pyo3(name = "AmgCgSolver")]
+#[derive(Clone)]
+pub struct PyAmgCgSolver {
+    pub solver: AmgCgSolver<FloatType>,
+}
+
+#[pymethods]
+impl PyAmgCgSolver {
+    #[new]
+    #[pyo3(signature = (max_iterations=100, tolerance=1e-4))]
+    fn new(max_iterations: usize, tolerance: FloatType) -> Self {
+        Self {
+            solver: AmgCgSolver { max_iterations, tolerance },
+        }
+    }
+}
+
 #[derive(FromPyObject)]
 pub enum PySolverEnum {
     Cg(PyCgSolver),
     JacobiCg(PyJacobiCgSolver),
     Ic0Cg(PyIc0CgSolver),
+    AmgCg(PyAmgCgSolver),
 }
 
 pub enum PySolverInstanceEnum {
     Cg(CgSolverInstance<FloatType>),
     JacobiCg(JacobiCgSolverInstance<FloatType>),
     Ic0Cg(Ic0CgSolverInstance<FloatType>),
+    AmgCg(AmgCgSolverInstance<FloatType>),
 }
 
 impl LinearSolverBuilder<FloatType> for PySolverEnum {
@@ -82,6 +102,7 @@ impl LinearSolverBuilder<FloatType> for PySolverEnum {
             PySolverEnum::Cg(s) => PySolverInstanceEnum::Cg(s.solver.build(matrix)),
             PySolverEnum::JacobiCg(s) => PySolverInstanceEnum::JacobiCg(s.solver.build(matrix)),
             PySolverEnum::Ic0Cg(s) => PySolverInstanceEnum::Ic0Cg(s.solver.build(matrix)),
+            PySolverEnum::AmgCg(s) => PySolverInstanceEnum::AmgCg(s.solver.build(matrix)),
         }
     }
 }
@@ -92,6 +113,7 @@ impl LinearSolver<FloatType> for PySolverInstanceEnum {
             PySolverInstanceEnum::Cg(s) => s.matrix(),
             PySolverInstanceEnum::JacobiCg(s) => s.matrix(),
             PySolverInstanceEnum::Ic0Cg(s) => s.matrix(),
+            PySolverInstanceEnum::AmgCg(s) => s.matrix(),
         }
     }
 
@@ -100,6 +122,7 @@ impl LinearSolver<FloatType> for PySolverInstanceEnum {
             PySolverInstanceEnum::Cg(s) => s.solve(b, x),
             PySolverInstanceEnum::JacobiCg(s) => s.solve(b, x),
             PySolverInstanceEnum::Ic0Cg(s) => s.solve(b, x),
+            PySolverInstanceEnum::AmgCg(s) => s.solve(b, x),
         }
     }
 }
@@ -108,5 +131,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCgSolver>()?;
     m.add_class::<PyJacobiCgSolver>()?;
     m.add_class::<PyIc0CgSolver>()?;
+    m.add_class::<PyAmgCgSolver>()?;
     Ok(())
 }

@@ -5,6 +5,7 @@ use num_traits::Float;
 use petgraph_distance::{Kernel, SparseSymmetricMatrix};
 use petgraph_drawing::DrawingValue;
 use petgraph_linalg_rdmds::compute_smallest_eigenvalues;
+use petgraph_linalg_rdmds::solvers::LinearSolverBuilder;
 use rand::Rng;
 
 /// Builder for LowRankDiffusionKernel
@@ -86,9 +87,9 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let solver = builder.build(shifted_laplacian);
         let result = compute_smallest_eigenvalues(
-            &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
             self.eigenvalue_tolerance,
@@ -125,9 +126,9 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let solver = builder.build(shifted_laplacian);
         let result = compute_smallest_eigenvalues(
-            &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
             self.eigenvalue_tolerance,
@@ -286,9 +287,9 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let solver = builder.build(shifted_laplacian);
         let result = compute_smallest_eigenvalues(
-            &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
             self.eigenvalue_tolerance,
@@ -325,9 +326,9 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let solver = builder.build(shifted_laplacian);
         let result = compute_smallest_eigenvalues(
-            &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
             self.eigenvalue_tolerance,
