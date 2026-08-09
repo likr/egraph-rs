@@ -1,8 +1,7 @@
 use crate::solvers::LinearSolver;
 use ndarray::{s, Array1, Array2, ArrayView2};
-use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::{Laplacian, SparseSymmetricMatrix, StandardLaplacian};
-use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_distance::SparseSymmetricMatrix;
+use petgraph_drawing::DrawingValue;
 use rand::Rng;
 
 pub struct EigendecompositionResult<S> {
@@ -45,7 +44,6 @@ where
 
 /// Computes smallest eigenvalues for Standard Laplacian.
 pub fn compute_smallest_eigenvalues<S, R, Solver>(
-    matrix: &SparseSymmetricMatrix<S>,
     n_target: usize,
     max_iterations: usize,
     tolerance: S,
@@ -57,6 +55,7 @@ where
     R: Rng,
     Solver: LinearSolver<S>,
 {
+    let matrix = solver.matrix();
     let n = matrix.dim();
 
     let mut eigenvalues = Array1::zeros(n_target + 1);
@@ -87,7 +86,7 @@ where
 
         for iter in 0..max_iterations {
             power_iter = iter + 1;
-            let cg_iters = solver.solve(matrix, &x_iter, &mut y);
+            let cg_iters = solver.solve(&x_iter, &mut y);
             total_cg_iters += cg_iters;
             let mut x_next_iter = y.clone();
 
@@ -125,7 +124,6 @@ where
 
 /// Computes smallest eigenvalues for Symmetric Normalized Laplacian.
 pub fn compute_smallest_eigenvalues_symmetric_normalized<S, R, Solver>(
-    matrix: &SparseSymmetricMatrix<S>,
     n_target: usize,
     max_iterations: usize,
     tolerance: S,
@@ -137,6 +135,7 @@ where
     R: Rng,
     Solver: LinearSolver<S>,
 {
+    let matrix = solver.matrix();
     let n = matrix.dim();
 
     let mut eigenvalues = Array1::zeros(n_target + 1);
@@ -167,7 +166,7 @@ where
 
         for iter in 0..max_iterations {
             power_iter = iter + 1;
-            let cg_iters = solver.solve(matrix, &x_iter, &mut y);
+            let cg_iters = solver.solve(&x_iter, &mut y);
             total_cg_iters += cg_iters;
             let mut x_next_iter = y.clone();
 
@@ -205,7 +204,6 @@ where
 
 /// Computes smallest eigenvalues for Random Walk Normalized Laplacian.
 pub fn compute_smallest_eigenvalues_random_walk_normalized<S, R, Solver>(
-    matrix: &SparseSymmetricMatrix<S>,
     degrees: &Array1<S>,
     n_target: usize,
     max_iterations: usize,
@@ -218,6 +216,7 @@ where
     R: Rng,
     Solver: LinearSolver<S>,
 {
+    let matrix = solver.matrix();
     let n = matrix.dim();
 
     let mut eigenvalues = Array1::zeros(n_target + 1);
@@ -252,7 +251,7 @@ where
             for i in 0..n {
                 d_x[i] *= degrees[i];
             }
-            let cg_iters = solver.solve(matrix, &d_x, &mut y);
+            let cg_iters = solver.solve(&d_x, &mut y);
             total_cg_iters += cg_iters;
             let mut x_next_iter = y.clone();
 
@@ -294,9 +293,7 @@ where
 }
 
 /// Computes d-dimensional spectral coordinates and eigenvalues.
-pub fn eigendecomposition<S, G, F, R, Solver>(
-    graph: G,
-    mut length: F,
+pub fn eigendecomposition<S, R, Solver>(
     shift: S,
     eigenvalue_max_iterations: usize,
     eigenvalue_tolerance: S,
@@ -306,19 +303,12 @@ pub fn eigendecomposition<S, G, F, R, Solver>(
 ) -> EigendecompositionResult<S>
 where
     S: DrawingValue + Default,
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
     R: Rng,
     Solver: LinearSolver<S>,
 {
-    let n = graph.node_count();
-    let laplacian = StandardLaplacian
-        .build(graph, &mut length)
-        .scale_and_shift(S::one(), -shift);
+    let n = solver.matrix().dim();
 
     let mut result = compute_smallest_eigenvalues(
-        &laplacian,
         d,
         eigenvalue_max_iterations,
         eigenvalue_tolerance,
@@ -349,9 +339,7 @@ where
 }
 
 /// Computes d-dimensional spectral coordinates and eigenvalues for Symmetric Normalized Laplacian.
-pub fn eigendecomposition_symmetric_normalized<S, G, F, R, Solver>(
-    graph: G,
-    mut length: F,
+pub fn eigendecomposition_symmetric_normalized<S, R, Solver>(
     shift: S,
     eigenvalue_max_iterations: usize,
     eigenvalue_tolerance: S,
@@ -361,19 +349,12 @@ pub fn eigendecomposition_symmetric_normalized<S, G, F, R, Solver>(
 ) -> EigendecompositionResult<S>
 where
     S: DrawingValue + Default,
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
     R: Rng,
     Solver: LinearSolver<S>,
 {
-    let n = graph.node_count();
-    let laplacian = petgraph_distance::SymmetricNormalizedLaplacian
-        .build(graph, &mut length)
-        .scale_and_shift(S::one(), -shift);
+    let n = solver.matrix().dim();
     
     let mut result = compute_smallest_eigenvalues_symmetric_normalized(
-        &laplacian,
         d,
         eigenvalue_max_iterations,
         eigenvalue_tolerance,
@@ -404,9 +385,7 @@ where
 }
 
 /// Computes d-dimensional spectral coordinates and eigenvalues for Random Walk Normalized Laplacian.
-pub fn eigendecomposition_random_walk_normalized<S, G, F, R, Solver>(
-    graph: G,
-    mut length: F,
+pub fn eigendecomposition_random_walk_normalized<S, R, Solver>(
     shift: S,
     eigenvalue_max_iterations: usize,
     eigenvalue_tolerance: S,
@@ -416,24 +395,18 @@ pub fn eigendecomposition_random_walk_normalized<S, G, F, R, Solver>(
 ) -> EigendecompositionResult<S>
 where
     S: DrawingValue + Default,
-    G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
-    G::NodeId: DrawingIndex,
-    F: FnMut(G::EdgeRef) -> S,
     R: Rng,
     Solver: LinearSolver<S>,
 {
-    let n = graph.node_count();
-    let laplacian = StandardLaplacian
-        .build(graph, &mut length)
-        .scale_and_shift(S::one(), -shift);
+    let matrix = solver.matrix();
+    let n = matrix.dim();
     
     let mut degrees = Array1::zeros(n);
     for i in 0..n {
-        degrees[i] = laplacian.diagonal()[i] + shift;
+        degrees[i] = matrix.diagonal()[i] + shift;
     }
 
     let mut result = compute_smallest_eigenvalues_random_walk_normalized(
-        &laplacian,
         &degrees,
         d,
         eigenvalue_max_iterations,

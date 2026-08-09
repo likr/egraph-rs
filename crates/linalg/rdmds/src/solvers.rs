@@ -3,11 +3,22 @@ use petgraph_distance::SparseSymmetricMatrix;
 use petgraph_drawing::DrawingValue;
 use std::collections::HashMap;
 
+/// Trait for building a solver, often caching preconditioners.
+pub trait LinearSolverBuilder<S> {
+    type Solver: LinearSolver<S>;
+    
+    /// Builds the linear solver, consuming the matrix.
+    fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver;
+}
+
 /// Trait for solving linear systems `A * x = b`.
 pub trait LinearSolver<S> {
+    /// Returns a reference to the internal matrix.
+    fn matrix(&self) -> &SparseSymmetricMatrix<S>;
+    
     /// Solves the system `matrix * x = b`.
     /// Returns the number of iterations taken.
-    fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize;
+    fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize;
 }
 
 /// Standard Conjugate Gradient without preconditioning.
@@ -17,17 +28,42 @@ pub struct CgSolver<S> {
     pub tolerance: S,
 }
 
-impl<S> LinearSolver<S> for CgSolver<S>
+pub struct CgSolverInstance<S> {
+    matrix: SparseSymmetricMatrix<S>,
+    max_iterations: usize,
+    tolerance: S,
+}
+
+impl<S> LinearSolverBuilder<S> for CgSolver<S>
 where
     S: DrawingValue + Default,
 {
-    fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
-        let n = matrix.dim();
+    type Solver = CgSolverInstance<S>;
+
+    fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver {
+        CgSolverInstance {
+            matrix,
+            max_iterations: self.max_iterations,
+            tolerance: self.tolerance,
+        }
+    }
+}
+
+impl<S> LinearSolver<S> for CgSolverInstance<S>
+where
+    S: DrawingValue + Default,
+{
+    fn matrix(&self) -> &SparseSymmetricMatrix<S> {
+        &self.matrix
+    }
+
+    fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize {
+        let n = self.matrix.dim();
         let mut r = Array1::zeros(n);
         let mut p = Array1::zeros(n);
         let mut q = Array1::zeros(n);
 
-        matrix.multiply_into(x, &mut r);
+        self.matrix.multiply_into(x, &mut r);
         for i in 0..n {
             r[i] = b[i] - r[i];
             p[i] = r[i];
@@ -39,7 +75,7 @@ where
         }
 
         for iter in 0..self.max_iterations {
-            matrix.multiply_into(&p, &mut q);
+            self.matrix.multiply_into(&p, &mut q);
             let alpha = rsold / p.dot(&q);
 
             for i in 0..n {
@@ -69,20 +105,45 @@ pub struct JacobiCgSolver<S> {
     pub tolerance: S,
 }
 
-impl<S> LinearSolver<S> for JacobiCgSolver<S>
+pub struct JacobiCgSolverInstance<S> {
+    matrix: SparseSymmetricMatrix<S>,
+    max_iterations: usize,
+    tolerance: S,
+}
+
+impl<S> LinearSolverBuilder<S> for JacobiCgSolver<S>
 where
     S: DrawingValue + Default,
 {
-    fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
-        let n = matrix.dim();
+    type Solver = JacobiCgSolverInstance<S>;
+
+    fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver {
+        JacobiCgSolverInstance {
+            matrix,
+            max_iterations: self.max_iterations,
+            tolerance: self.tolerance,
+        }
+    }
+}
+
+impl<S> LinearSolver<S> for JacobiCgSolverInstance<S>
+where
+    S: DrawingValue + Default,
+{
+    fn matrix(&self) -> &SparseSymmetricMatrix<S> {
+        &self.matrix
+    }
+
+    fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize {
+        let n = self.matrix.dim();
         let mut r = Array1::zeros(n);
         let mut z = Array1::zeros(n);
         let mut q = Array1::zeros(n);
 
-        matrix.multiply_into(x, &mut r);
+        self.matrix.multiply_into(x, &mut r);
         for i in 0..n {
             r[i] = b[i] - r[i];
-            let diag = matrix.diagonal()[i];
+            let diag = self.matrix.diagonal()[i];
             z[i] = if diag > S::zero() { r[i] / diag } else { r[i] };
         }
         let mut p = z.clone();
@@ -93,7 +154,7 @@ where
         }
 
         for iter in 0..self.max_iterations {
-            matrix.multiply_into(&p, &mut q);
+            self.matrix.multiply_into(&p, &mut q);
             let alpha = rsold / p.dot(&q);
 
             for i in 0..n {
@@ -102,7 +163,7 @@ where
             }
 
             for i in 0..n {
-                let diag = matrix.diagonal()[i];
+                let diag = self.matrix.diagonal()[i];
                 z[i] = if diag > S::zero() { r[i] / diag } else { r[i] };
             }
 
@@ -241,23 +302,50 @@ pub struct Ic0CgSolver<S> {
     pub tolerance: S,
 }
 
-impl<S> LinearSolver<S> for Ic0CgSolver<S>
+pub struct Ic0CgSolverInstance<S> {
+    matrix: SparseSymmetricMatrix<S>,
+    preconditioner: IncompleteCholeskyPreconditioner<S>,
+    max_iterations: usize,
+    tolerance: S,
+}
+
+impl<S> LinearSolverBuilder<S> for Ic0CgSolver<S>
 where
     S: DrawingValue + Default,
 {
-    fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
-        let preconditioner = IncompleteCholeskyPreconditioner::from_matrix(matrix);
-        let n = matrix.dim();
+    type Solver = Ic0CgSolverInstance<S>;
+
+    fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver {
+        let preconditioner = IncompleteCholeskyPreconditioner::from_matrix(&matrix);
+        Ic0CgSolverInstance {
+            matrix,
+            preconditioner,
+            max_iterations: self.max_iterations,
+            tolerance: self.tolerance,
+        }
+    }
+}
+
+impl<S> LinearSolver<S> for Ic0CgSolverInstance<S>
+where
+    S: DrawingValue + Default,
+{
+    fn matrix(&self) -> &SparseSymmetricMatrix<S> {
+        &self.matrix
+    }
+
+    fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize {
+        let n = self.matrix.dim();
         let mut r = Array1::zeros(n);
         let mut z = Array1::zeros(n);
         let mut q = Array1::zeros(n);
 
-        matrix.multiply_into(x, &mut r);
+        self.matrix.multiply_into(x, &mut r);
         for i in 0..n {
             r[i] = b[i] - r[i];
         }
 
-        preconditioner.apply(&r, &mut z);
+        self.preconditioner.apply(&r, &mut z);
         let mut p = z.clone();
         let mut rsold = r.dot(&z);
 
@@ -266,7 +354,7 @@ where
         }
 
         for iter in 0..self.max_iterations {
-            matrix.multiply_into(&p, &mut q);
+            self.matrix.multiply_into(&p, &mut q);
             let alpha = rsold / p.dot(&q);
 
             for i in 0..n {
@@ -274,7 +362,7 @@ where
                 r[i] -= alpha * q[i];
             }
 
-            preconditioner.apply(&r, &mut z);
+            self.preconditioner.apply(&r, &mut z);
 
             let rsnew = r.dot(&z);
             if rsnew < self.tolerance * self.tolerance {
@@ -298,23 +386,23 @@ pub struct AmgCgSolver<S> {
     pub tolerance: S,
 }
 
-impl<S> LinearSolver<S> for AmgCgSolver<S>
+pub struct AmgCgSolverInstance<S> {
+    matrix: SparseSymmetricMatrix<S>,
+    amg: crate::amg::AmgSolver<S>,
+    hierarchy: crate::amg::hierarchy::Hierarchy<S>,
+    max_iterations: usize,
+    tolerance: S,
+}
+
+impl<S> LinearSolverBuilder<S> for AmgCgSolver<S>
 where
     S: DrawingValue + Default,
 {
-    fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
-        let n = matrix.dim();
-        let mut r = Array1::zeros(n);
-        let mut z = Array1::zeros(n);
-        let mut q = Array1::zeros(n);
+    type Solver = AmgCgSolverInstance<S>;
 
-        matrix.multiply_into(x, &mut r);
-        for i in 0..n {
-            r[i] = b[i] - r[i];
-        }
-
+    fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver {
         let amg = crate::amg::AmgSolver::<S>::default();
-        let a_csr = crate::amg::matrix::CsrMatrix::from_symmetric(matrix);
+        let a_csr = crate::amg::matrix::CsrMatrix::from_symmetric(&matrix);
         let hierarchy = crate::amg::hierarchy::build_hierarchy(
             a_csr,
             amg.theta,
@@ -322,7 +410,36 @@ where
             amg.max_coarse_size,
         );
 
-        amg.apply_preconditioner(&hierarchy, &r, &mut z);
+        AmgCgSolverInstance {
+            matrix,
+            amg,
+            hierarchy,
+            max_iterations: self.max_iterations,
+            tolerance: self.tolerance,
+        }
+    }
+}
+
+impl<S> LinearSolver<S> for AmgCgSolverInstance<S>
+where
+    S: DrawingValue + Default,
+{
+    fn matrix(&self) -> &SparseSymmetricMatrix<S> {
+        &self.matrix
+    }
+
+    fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize {
+        let n = self.matrix.dim();
+        let mut r = Array1::zeros(n);
+        let mut z = Array1::zeros(n);
+        let mut q = Array1::zeros(n);
+
+        self.matrix.multiply_into(x, &mut r);
+        for i in 0..n {
+            r[i] = b[i] - r[i];
+        }
+
+        self.amg.apply_preconditioner(&self.hierarchy, &r, &mut z);
         let mut p = z.clone();
         let mut rsold = r.dot(&z);
 
@@ -331,7 +448,7 @@ where
         }
 
         for iter in 0..self.max_iterations {
-            matrix.multiply_into(&p, &mut q);
+            self.matrix.multiply_into(&p, &mut q);
             let alpha = rsold / p.dot(&q);
 
             for i in 0..n {
@@ -339,7 +456,7 @@ where
                 r[i] -= alpha * q[i];
             }
 
-            amg.apply_preconditioner(&hierarchy, &r, &mut z);
+            self.amg.apply_preconditioner(&self.hierarchy, &r, &mut z);
 
             let rsnew = r.dot(&z);
             if rsnew < self.tolerance * self.tolerance {

@@ -1,5 +1,8 @@
 use crate::FloatType;
-use petgraph_linalg_rdmds::solvers::{CgSolver, Ic0CgSolver, JacobiCgSolver, LinearSolver};
+use petgraph_linalg_rdmds::solvers::{
+    CgSolver, CgSolverInstance, Ic0CgSolver, Ic0CgSolverInstance, JacobiCgSolver,
+    JacobiCgSolverInstance, LinearSolver, LinearSolverBuilder,
+};
 use petgraph_distance::SparseSymmetricMatrix;
 use ndarray::Array1;
 use pyo3::prelude::*;
@@ -65,12 +68,38 @@ pub enum PySolverEnum {
     Ic0Cg(PyIc0CgSolver),
 }
 
-impl LinearSolver<FloatType> for PySolverEnum {
-    fn solve(&self, matrix: &SparseSymmetricMatrix<FloatType>, b: &Array1<FloatType>, x: &mut Array1<FloatType>) -> usize {
+pub enum PySolverInstanceEnum {
+    Cg(CgSolverInstance<FloatType>),
+    JacobiCg(JacobiCgSolverInstance<FloatType>),
+    Ic0Cg(Ic0CgSolverInstance<FloatType>),
+}
+
+impl LinearSolverBuilder<FloatType> for PySolverEnum {
+    type Solver = PySolverInstanceEnum;
+
+    fn build(&self, matrix: SparseSymmetricMatrix<FloatType>) -> Self::Solver {
         match self {
-            PySolverEnum::Cg(s) => s.solver.solve(matrix, b, x),
-            PySolverEnum::JacobiCg(s) => s.solver.solve(matrix, b, x),
-            PySolverEnum::Ic0Cg(s) => s.solver.solve(matrix, b, x),
+            PySolverEnum::Cg(s) => PySolverInstanceEnum::Cg(s.solver.build(matrix)),
+            PySolverEnum::JacobiCg(s) => PySolverInstanceEnum::JacobiCg(s.solver.build(matrix)),
+            PySolverEnum::Ic0Cg(s) => PySolverInstanceEnum::Ic0Cg(s.solver.build(matrix)),
+        }
+    }
+}
+
+impl LinearSolver<FloatType> for PySolverInstanceEnum {
+    fn matrix(&self) -> &SparseSymmetricMatrix<FloatType> {
+        match self {
+            PySolverInstanceEnum::Cg(s) => s.matrix(),
+            PySolverInstanceEnum::JacobiCg(s) => s.matrix(),
+            PySolverInstanceEnum::Ic0Cg(s) => s.matrix(),
+        }
+    }
+
+    fn solve(&self, b: &Array1<FloatType>, x: &mut Array1<FloatType>) -> usize {
+        match self {
+            PySolverInstanceEnum::Cg(s) => s.solve(b, x),
+            PySolverInstanceEnum::JacobiCg(s) => s.solve(b, x),
+            PySolverInstanceEnum::Ic0Cg(s) => s.solve(b, x),
         }
     }
 }
