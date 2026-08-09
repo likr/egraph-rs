@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 /// Builder for NegLogSimDistance
+#[derive(Clone)]
 pub struct NegLogSimDistanceBuilder<S> {
     alpha: S,
     beta: S,
@@ -126,6 +127,7 @@ where
 }
 
 /// Builder for NegLogDistance
+#[derive(Clone)]
 pub struct NegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,
@@ -236,6 +238,7 @@ where
 }
 
 /// Builder for PivotedNegLogDistance
+#[derive(Clone)]
 pub struct PivotedNegLogDistanceBuilder<S> {
     alpha: S,
     beta: S,

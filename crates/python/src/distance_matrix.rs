@@ -322,23 +322,57 @@ pub struct PyNegLogSimDistance {
 
 #[pymethods]
 impl PyNegLogSimDistance {
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "NegLogSimDistanceBuilder")]
+pub struct PyNegLogSimDistanceBuilder {
+    pub(crate) builder: NegLogSimDistanceBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyNegLogSimDistanceBuilder {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5, min_dist = 0.0))]
-    pub fn new(
+    fn new() -> Self {
+        Self {
+            builder: NegLogSimDistanceBuilder::new(),
+        }
+    }
+
+    fn alpha(mut slf: PyRefMut<'_, Self>, alpha: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().alpha(alpha);
+        slf
+    }
+
+    fn beta(mut slf: PyRefMut<'_, Self>, beta: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().beta(beta);
+        slf
+    }
+
+    fn p(mut slf: PyRefMut<'_, Self>, p: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().p(p);
+        slf
+    }
+
+    fn min_dist(mut slf: PyRefMut<'_, Self>, min_dist: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().min_dist(min_dist);
+        slf
+    }
+
+    fn build(
+        &self,
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
-        alpha: FloatType,
-        beta: FloatType,
-        p: FloatType,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
+    ) -> PyResult<PyNegLogSimDistance> {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => NegLogSimDistanceBuilder::new()
-                .alpha(alpha)
-                .beta(beta)
-                .p(p)
-                .min_dist(min_dist)
+            GraphType::Graph(native_graph) => self
+                .builder
+                .clone()
                 .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
@@ -347,12 +381,7 @@ impl PyNegLogSimDistance {
                 ))
             }
         };
-        Ok(Self { matrix })
-    }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix
-            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+        Ok(PyNegLogSimDistance { matrix })
     }
 }
 
@@ -364,23 +393,57 @@ pub struct PyNegLogDistance {
 
 #[pymethods]
 impl PyNegLogDistance {
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "NegLogDistanceBuilder")]
+pub struct PyNegLogDistanceBuilder {
+    pub(crate) builder: NegLogDistanceBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyNegLogDistanceBuilder {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5, min_dist = 0.0))]
-    pub fn new(
+    fn new() -> Self {
+        Self {
+            builder: NegLogDistanceBuilder::new(),
+        }
+    }
+
+    fn alpha(mut slf: PyRefMut<'_, Self>, alpha: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().alpha(alpha);
+        slf
+    }
+
+    fn beta(mut slf: PyRefMut<'_, Self>, beta: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().beta(beta);
+        slf
+    }
+
+    fn p(mut slf: PyRefMut<'_, Self>, p: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().p(p);
+        slf
+    }
+
+    fn min_dist(mut slf: PyRefMut<'_, Self>, min_dist: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().min_dist(min_dist);
+        slf
+    }
+
+    fn build(
+        &self,
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
-        alpha: FloatType,
-        beta: FloatType,
-        p: FloatType,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
+    ) -> PyResult<PyNegLogDistance> {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => NegLogDistanceBuilder::new()
-                .alpha(alpha)
-                .beta(beta)
-                .p(p)
-                .min_dist(min_dist)
+            GraphType::Graph(native_graph) => self
+                .builder
+                .clone()
                 .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
@@ -389,12 +452,7 @@ impl PyNegLogDistance {
                 ))
             }
         };
-        Ok(Self { matrix })
-    }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix
-            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+        Ok(PyNegLogDistance { matrix })
     }
 }
 
@@ -406,23 +464,57 @@ pub struct PyPivotedNegLogDistance {
 
 #[pymethods]
 impl PyPivotedNegLogDistance {
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "PivotedNegLogDistanceBuilder")]
+pub struct PyPivotedNegLogDistanceBuilder {
+    pub(crate) builder: PivotedNegLogDistanceBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyPivotedNegLogDistanceBuilder {
     #[new]
-    #[pyo3(signature = (graph, kernel, alpha = 1.0, beta = 0.0, p = 0.5, min_dist = 0.0))]
-    pub fn new(
+    fn new() -> Self {
+        Self {
+            builder: PivotedNegLogDistanceBuilder::new(),
+        }
+    }
+
+    fn alpha(mut slf: PyRefMut<'_, Self>, alpha: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().alpha(alpha);
+        slf
+    }
+
+    fn beta(mut slf: PyRefMut<'_, Self>, beta: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().beta(beta);
+        slf
+    }
+
+    fn p(mut slf: PyRefMut<'_, Self>, p: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().p(p);
+        slf
+    }
+
+    fn min_dist(mut slf: PyRefMut<'_, Self>, min_dist: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().min_dist(min_dist);
+        slf
+    }
+
+    fn build(
+        &self,
         graph: &PyGraphAdapter,
         kernel: &Bound<PyAny>,
-        alpha: FloatType,
-        beta: FloatType,
-        p: FloatType,
-        min_dist: FloatType,
-    ) -> PyResult<Self> {
+    ) -> PyResult<PyPivotedNegLogDistance> {
         let inner_kernel = extract_inner_pivoted_kernel(kernel)?;
         let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => PivotedNegLogDistanceBuilder::new()
-                .alpha(alpha)
-                .beta(beta)
-                .p(p)
-                .min_dist(min_dist)
+            GraphType::Graph(native_graph) => self
+                .builder
+                .clone()
                 .build(native_graph, inner_kernel)
                 .map_err(pyo3::exceptions::PyValueError::new_err)?,
             _ => {
@@ -431,12 +523,7 @@ impl PyPivotedNegLogDistance {
                 ))
             }
         };
-        Ok(Self { matrix })
-    }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix
-            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+        Ok(PyPivotedNegLogDistance { matrix })
     }
 }
 
