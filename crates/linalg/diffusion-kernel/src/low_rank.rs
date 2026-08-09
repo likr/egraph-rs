@@ -137,7 +137,7 @@ where
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
+        let result = rdmds.eigendecomposition_random_walk_normalized(graph, length, &builder, rng);
         
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
@@ -320,7 +320,7 @@ where
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
+        let result = rdmds.eigendecomposition_random_walk_normalized(graph, length, &builder, rng);
         
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
