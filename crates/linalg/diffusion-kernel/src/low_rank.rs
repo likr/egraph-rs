@@ -2,10 +2,10 @@
 
 use ndarray::{Array1, Array2, ScalarOperand};
 use num_traits::Float;
-use petgraph_distance::{Kernel, SparseSymmetricMatrix};
-use petgraph_drawing::DrawingValue;
-use petgraph_linalg_rdmds::compute_smallest_eigenvalues;
-use petgraph_linalg_rdmds::solvers::LinearSolverBuilder;
+use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_distance::Kernel;
+use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_linalg_rdmds::solvers::AmgCgSolver;
 use rand::Rng;
 
 /// Builder for LowRankDiffusionKernel
@@ -78,37 +78,35 @@ where
         self
     }
 
-    pub fn build_unnormalized_laplacian<R: Rng>(
+    pub fn build_laplacian<G, F, R>(
         self,
-        laplacian: &SparseSymmetricMatrix<S>,
+        graph: G,
+        length: F,
         rng: &mut R,
-    ) -> Result<LowRankDiffusionKernel<S>, String> {
-        let n = laplacian.dim();
+    ) -> Result<LowRankDiffusionKernel<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
-        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
-        let solver = builder.build(shifted_laplacian);
-        let result = compute_smallest_eigenvalues(
-            rank,
-            self.eigenvalue_max_iterations,
-            self.eigenvalue_tolerance,
-            &solver,
-            rng,
-        );
-        let all_eigenvalues = result.eigenvalues;
-        let all_eigenvectors = result.eigenvectors;
+        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
+        rdmds.d(rank)
+             .shift(self.shift)
+             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+             .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let mut eigenvalues = Array1::zeros(rank + 1);
-        let mut eigenvectors = Array2::zeros((n, rank + 1));
-
-        for k in 0..=rank {
-            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
-            eigenvalues[k] = lambda_est;
-            eigenvectors
-                .column_mut(k)
-                .assign(&all_eigenvectors.column(k));
+        let result = rdmds.eigendecomposition(graph, length, &builder, rng);
+        
+        let mut eigenvalues = result.eigenvalues;
+        for k in 0..rank {
+            eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
+        let eigenvectors = result.eigenvectors;
 
         Ok(LowRankDiffusionKernel::new(
             self.t,
@@ -117,50 +115,35 @@ where
         ))
     }
 
-    pub fn build_symmetric_normalized_laplacian<R: Rng>(
+    pub fn build_normalized_laplacian<G, F, R>(
         self,
-        laplacian: &SparseSymmetricMatrix<S>,
+        graph: G,
+        length: F,
         rng: &mut R,
-    ) -> Result<LowRankDiffusionKernel<S>, String> {
-        let n = laplacian.dim();
+    ) -> Result<LowRankDiffusionKernel<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
-        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
-        let solver = builder.build(shifted_laplacian);
-        let result = compute_smallest_eigenvalues(
-            rank,
-            self.eigenvalue_max_iterations,
-            self.eigenvalue_tolerance,
-            &solver,
-            rng,
-        );
-        let all_eigenvalues = result.eigenvalues;
-        let all_eigenvectors = result.eigenvectors;
+        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
+        rdmds.d(rank)
+             .shift(self.shift)
+             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+             .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let mut eigenvalues = Array1::zeros(rank + 1);
-        let mut eigenvectors = Array2::zeros((n, rank + 1));
-
-        for k in 0..=rank {
-            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
-            eigenvalues[k] = lambda_est;
-            eigenvectors
-                .column_mut(k)
-                .assign(&all_eigenvectors.column(k));
+        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
+        
+        let mut eigenvalues = result.eigenvalues;
+        for k in 0..rank {
+            eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
-
-        let stationary = laplacian.stationary_vector();
-        if stationary.len() == n {
-            for i in 0..n {
-                let stat = stationary[i];
-                if stat > S::zero() {
-                    let mut row = eigenvectors.row_mut(i);
-                    for j in 0..=rank {
-                        row[j] = row[j] / stat;
-                    }
-                }
-            }
-        }
+        let eigenvectors = result.eigenvectors;
 
         Ok(LowRankDiffusionKernel::new(
             self.t,
@@ -278,37 +261,35 @@ where
         self
     }
 
-    pub fn build_unnormalized_laplacian<R: Rng>(
+    pub fn build_laplacian<G, F, R>(
         self,
-        laplacian: &SparseSymmetricMatrix<S>,
+        graph: G,
+        length: F,
         rng: &mut R,
-    ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String> {
-        let n = laplacian.dim();
+    ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
-        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
-        let solver = builder.build(shifted_laplacian);
-        let result = compute_smallest_eigenvalues(
-            rank,
-            self.eigenvalue_max_iterations,
-            self.eigenvalue_tolerance,
-            &solver,
-            rng,
-        );
-        let all_eigenvalues = result.eigenvalues;
-        let all_eigenvectors = result.eigenvectors;
+        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
+        rdmds.d(rank)
+             .shift(self.shift)
+             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+             .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let mut eigenvalues = Array1::zeros(rank + 1);
-        let mut eigenvectors = Array2::zeros((n, rank + 1));
-
-        for k in 0..=rank {
-            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
-            eigenvalues[k] = lambda_est;
-            eigenvectors
-                .column_mut(k)
-                .assign(&all_eigenvectors.column(k));
+        let result = rdmds.eigendecomposition(graph, length, &builder, rng);
+        
+        let mut eigenvalues = result.eigenvalues;
+        for k in 0..rank {
+            eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
+        let eigenvectors = result.eigenvectors;
 
         Ok(LowRankMultiscaleDiffusionKernel::new(
             self.alpha,
@@ -317,50 +298,35 @@ where
         ))
     }
 
-    pub fn build_symmetric_normalized_laplacian<R: Rng>(
+    pub fn build_normalized_laplacian<G, F, R>(
         self,
-        laplacian: &SparseSymmetricMatrix<S>,
+        graph: G,
+        length: F,
         rng: &mut R,
-    ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String> {
-        let n = laplacian.dim();
+    ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+    {
+        let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
-        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let builder = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
-        let solver = builder.build(shifted_laplacian);
-        let result = compute_smallest_eigenvalues(
-            rank,
-            self.eigenvalue_max_iterations,
-            self.eigenvalue_tolerance,
-            &solver,
-            rng,
-        );
-        let all_eigenvalues = result.eigenvalues;
-        let all_eigenvectors = result.eigenvectors;
+        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
+        rdmds.d(rank)
+             .shift(self.shift)
+             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+             .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let mut eigenvalues = Array1::zeros(rank + 1);
-        let mut eigenvectors = Array2::zeros((n, rank + 1));
-
-        for k in 0..=rank {
-            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
-            eigenvalues[k] = lambda_est;
-            eigenvectors
-                .column_mut(k)
-                .assign(&all_eigenvectors.column(k));
+        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
+        
+        let mut eigenvalues = result.eigenvalues;
+        for k in 0..rank {
+            eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
-
-        let stationary = laplacian.stationary_vector();
-        if stationary.len() == n {
-            for i in 0..n {
-                let stat = stationary[i];
-                if stat > S::zero() {
-                    let mut row = eigenvectors.row_mut(i);
-                    for j in 0..=rank {
-                        row[j] = row[j] / stat;
-                    }
-                }
-            }
-        }
+        let eigenvectors = result.eigenvectors;
 
         Ok(LowRankMultiscaleDiffusionKernel::new(
             self.alpha,
