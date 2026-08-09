@@ -44,7 +44,7 @@ class TestTsNet(unittest.TestCase):
 
         # Create DiffusionKernel and DiffusionDistanceMatrix
         laplacian = eg.StandardLaplacian.build(graph, lambda _: 1.0)
-        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, rng)
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, eg.Ic0CgSolver(), rng)
         ddm = eg.DiffusionDistanceMatrix(graph, dk, 1e-3)
 
         ts_net = eg.TsNet()

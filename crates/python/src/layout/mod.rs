@@ -16,6 +16,7 @@ mod kamada_kawai;
 mod mds;
 mod overwrap_removal;
 mod rdmds;
+pub(crate) mod rdmds_solvers;
 pub(crate) mod sgd;
 mod stress_majorization;
 mod ts_net;
@@ -32,6 +33,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register various layout algorithm implementations
     mds::register(m)?;
     rdmds::register(m)?;
+    rdmds_solvers::register(m)?;
     kamada_kawai::register(m)?;
     overwrap_removal::register(m)?;
     stress_majorization::register(m)?;

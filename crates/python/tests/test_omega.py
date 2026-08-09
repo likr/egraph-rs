@@ -28,10 +28,10 @@ class TestOmega(unittest.TestCase):
 
         # Compute spectral embedding with RdMds
         rdmds = eg.RdMds()
-        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Create Omega instance with default parameters
-        sgd = eg.Omega().build(graph, embedding, rng)
+        sgd = eg.Omega().build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         # Verify the algorithm was created successfully
         self.assertIsNotNone(sgd)
@@ -40,7 +40,7 @@ class TestOmega(unittest.TestCase):
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
 
         # Test shuffle functionality
-        sgd.shuffle(rng)
+        sgd.shuffle(eg.Ic0CgSolver(), rng)
 
         # Test apply functionality
         sgd.apply(drawing, 0.1)
@@ -58,19 +58,19 @@ class TestOmega(unittest.TestCase):
 
         # Compute spectral embedding
         rdmds = eg.RdMds().d(3)
-        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Create Omega with custom configuration
         omega = eg.Omega().k(10).min_dist(1e-2)
 
         # Build SGD instance
-        sgd = omega.build(graph, embedding, rng)
+        sgd = omega.build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         self.assertIsNotNone(sgd)
 
         # Test with drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        sgd.shuffle(rng)
+        sgd.shuffle(eg.Ic0CgSolver(), rng)
         sgd.apply(drawing, 0.05)
 
     def test_omega_method_chaining(self):
@@ -84,10 +84,10 @@ class TestOmega(unittest.TestCase):
 
         # Compute embedding
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(graph, lambda edge_idx: 2.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 2.0, eg.Ic0CgSolver(), rng)
 
         # Test method chaining
-        sgd = eg.Omega().k(5).min_dist(5e-3).build(graph, embedding, rng)
+        sgd = eg.Omega().k(5).min_dist(5e-3).build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         self.assertIsNotNone(sgd)
 
@@ -109,10 +109,10 @@ class TestOmega(unittest.TestCase):
 
         # Compute embedding with weighted edges
         rdmds = eg.RdMds()
-        embedding = rdmds.embedding(graph, edge_weight, rng)
+        embedding = rdmds.embedding(graph, edge_weight, eg.Ic0CgSolver(), rng)
 
         # Build SGD with Omega
-        sgd = eg.Omega().build(graph, embedding, rng)
+        sgd = eg.Omega().build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
         sgd.apply(drawing, 0.1)
@@ -139,10 +139,10 @@ class TestOmega(unittest.TestCase):
 
         # Compute spectral embedding
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Create Omega with specific parameters
-        sgd = eg.Omega().k(5).min_dist(1e-3).build(graph, embedding, rng)
+        sgd = eg.Omega().k(5).min_dist(1e-3).build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         # Create initial drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
@@ -151,7 +151,7 @@ class TestOmega(unittest.TestCase):
         scheduler = sgd.scheduler(50, 0.1)
 
         def step(eta):
-            sgd.shuffle(rng)
+            sgd.shuffle(eg.Ic0CgSolver(), rng)
             sgd.apply(drawing, eta)
 
         scheduler.run(step)
@@ -171,12 +171,12 @@ class TestOmega(unittest.TestCase):
 
         # Compute embedding once
         rdmds = eg.RdMds()
-        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Test with different k values
         for k in [5, 10, 20, 30]:
             omega = eg.Omega().k(k)
-            sgd = omega.build(graph, embedding, rng)
+            sgd = omega.build(graph, embedding, eg.Ic0CgSolver(), rng)
             self.assertIsNotNone(sgd)
 
             drawing = eg.DrawingEuclidean2d.initial_placement(graph)
@@ -194,14 +194,14 @@ class TestOmega(unittest.TestCase):
 
         # Compute embedding once
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, rng)
+        embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Create multiple Omega instances with the same embedding
         omega1 = eg.Omega().k(10)
         omega2 = eg.Omega().k(20)
 
-        sgd1 = omega1.build(graph, embedding, rng)
-        sgd2 = omega2.build(graph, embedding, rng)
+        sgd1 = omega1.build(graph, embedding, eg.Ic0CgSolver(), rng)
+        sgd2 = omega2.build(graph, embedding, eg.Ic0CgSolver(), rng)
 
         # Both should work
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)

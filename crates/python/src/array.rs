@@ -14,6 +14,7 @@ use pyo3::types::PyType;
 /// Provides a 1-dimensional array interface with indexing, iteration, and basic operations.
 #[pyclass]
 #[pyo3(name = "Array1")]
+#[derive(Clone)]
 pub struct PyArray1 {
     pub(crate) array: Array1<FloatType>,
 }
@@ -185,6 +186,7 @@ impl PyArray1Iterator {
 /// Provides a 2-dimensional array interface with indexing, shape access, and basic operations.
 #[pyclass]
 #[pyo3(name = "Array2")]
+#[derive(Clone)]
 pub struct PyArray2 {
     pub(crate) array: Array2<FloatType>,
 }

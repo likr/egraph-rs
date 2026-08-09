@@ -19,7 +19,7 @@ def draw(nx_graph):
     scheduler = eg.SchedulerExponential(100)
 
     def step(eta):
-        sgd.shuffle(rng)
+        sgd.shuffle(eg.Ic0CgSolver(), rng)
         sgd.apply(drawing, eta)
     scheduler.run(step)
 
@@ -41,7 +41,7 @@ def draw_torus_2d(nx_graph):
     scheduler = eg.SchedulerExponential(100)
 
     def step(eta):
-        sgd.shuffle(rng)
+        sgd.shuffle(eg.Ic0CgSolver(), rng)
         sgd.apply(drawing, eta)
     scheduler.run(step)
 

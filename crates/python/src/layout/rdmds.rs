@@ -9,8 +9,19 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
+use crate::layout::rdmds_solvers::PySolverEnum;
 use petgraph_linalg_rdmds::RdMds;
 use pyo3::prelude::*;
+
+/// Result of an eigendecomposition computation
+#[pyclass(get_all)]
+#[pyo3(name = "EigendecompositionResult")]
+pub struct PyEigendecompositionResult {
+    pub eigenvectors: PyArray2,
+    pub eigenvalues: PyArray1,
+    pub cg_iterations: Vec<usize>,
+    pub power_iterations: Vec<usize>,
+}
 
 /// Python class for computing spectral embeddings using RdMds
 ///
@@ -95,16 +106,6 @@ impl PyRdMds {
         slf.into()
     }
 
-    /// Sets maximum iterations for conjugate gradient method
-    ///
-    /// :param cg_max_iterations: Maximum iterations for conjugate gradient method
-    /// :type cg_max_iterations: int
-    /// :return: Self for method chaining
-    /// :rtype: RdMds
-    fn cg_max_iterations(mut slf: PyRefMut<Self>, cg_max_iterations: usize) -> Py<Self> {
-        slf.rdmds.cg_max_iterations(cg_max_iterations);
-        slf.into()
-    }
 
     /// Sets convergence tolerance for eigenvalue computation
     ///
@@ -117,16 +118,6 @@ impl PyRdMds {
         slf.into()
     }
 
-    /// Sets convergence tolerance for conjugate gradient method
-    ///
-    /// :param cg_tolerance: Convergence tolerance for conjugate gradient method
-    /// :type cg_tolerance: float
-    /// :return: Self for method chaining
-    /// :rtype: RdMds
-    fn cg_tolerance(mut slf: PyRefMut<Self>, cg_tolerance: FloatType) -> Py<Self> {
-        slf.rdmds.cg_tolerance(cg_tolerance);
-        slf.into()
-    }
 
     /// Computes spectral coordinates (embedding) using the configured parameters
     ///
@@ -143,14 +134,18 @@ impl PyRdMds {
         &self,
         graph: &PyGraphAdapter,
         length: &Bound<PyAny>,
+        solver: PySolverEnum,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyArray2> {
         let coordinates = match graph.graph() {
-            GraphType::Graph(native_graph) => self.rdmds.embedding(
-                native_graph,
-                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                rng.get_mut(),
-            ),
+            GraphType::Graph(native_graph) => {
+                self.rdmds.embedding(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
             _ => panic!("unsupported graph type"),
         };
 
@@ -167,37 +162,180 @@ impl PyRdMds {
     /// :type length: callable
     /// :param rng: Random number generator for spectral coordinate computation
     /// :type rng: Rng
-    /// :return: A tuple containing (coordinates, eigenvalues) as Array2 and Array1
-    /// :rtype: tuple[Array2, Array1]
+    /// :return: The result of eigendecomposition
+    /// :rtype: EigendecompositionResult
     /// :raises: ValueError if the graph type is not supported
-    fn eigendecomposition(
+    fn embedding_symmetric_normalized(
         &self,
         graph: &PyGraphAdapter,
         length: &Bound<PyAny>,
+        solver: PySolverEnum,
         rng: &mut crate::rng::PyRng,
-    ) -> PyResult<(PyArray2, PyArray1)> {
-        let (coordinates, eigenvalues) = match graph.graph() {
-            GraphType::Graph(native_graph) => self.rdmds.eigendecomposition(
-                native_graph,
-                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                rng.get_mut(),
-            ),
+    ) -> PyResult<PyArray2> {
+        let coordinates = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.rdmds.embedding_symmetric_normalized(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
             _ => panic!("unsupported graph type"),
         };
 
         // Convert to f64 for compatibility with FloatType
         let converted_coords = coordinates.mapv(|v| v as FloatType);
+        Ok(PyArray2::new(converted_coords))
+    }
+
+    /// Computes spectral coordinates and eigenvalues using the configured parameters
+    ///
+    /// :param graph: The graph to compute embedding for
+    /// :type graph: Graph or DiGraph
+    /// :param length: A Python function that takes an edge index and returns its weight
+    /// :type length: callable
+    /// :param rng: Random number generator for spectral coordinate computation
+    /// :type rng: Rng
+    /// :return: The result of eigendecomposition
+    /// :rtype: EigendecompositionResult
+    /// :raises: ValueError if the graph type is not supported
+    fn embedding_random_walk_normalized(
+        &self,
+        graph: &PyGraphAdapter,
+        length: &Bound<PyAny>,
+        solver: PySolverEnum,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyArray2> {
+        let coordinates = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.rdmds.embedding_random_walk_normalized(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        };
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
+        Ok(PyArray2::new(converted_coords))
+    }
+
+    /// Computes spectral coordinates and eigenvalues using the configured parameters
+    ///
+    /// :param graph: The graph to compute embedding for
+    /// :type graph: Graph or DiGraph
+    /// :param length: A Python function that takes an edge index and returns its weight
+    /// :type length: callable
+    /// :param rng: Random number generator for spectral coordinate computation
+    /// :type rng: Rng
+    /// :return: The result of eigendecomposition
+    /// :rtype: EigendecompositionResult
+    /// :raises: ValueError if the graph type is not supported
+    fn eigendecomposition(
+        &self,
+        graph: &PyGraphAdapter,
+        length: &Bound<PyAny>,
+        solver: PySolverEnum,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyEigendecompositionResult> {
+        let result = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.rdmds.eigendecomposition(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        };
+        let coordinates = result.eigenvectors;
+        let eigenvalues = result.eigenvalues;
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
         let converted_eigenvals = eigenvalues.mapv(|v| v as FloatType);
 
-        Ok((
-            PyArray2::new(converted_coords),
-            PyArray1::new(converted_eigenvals),
-        ))
+        Ok(PyEigendecompositionResult {
+            eigenvectors: PyArray2::new(converted_coords),
+            eigenvalues: PyArray1::new(converted_eigenvals),
+            cg_iterations: result.cg_iterations,
+            power_iterations: result.power_iterations,
+        })
+    }
+    fn eigendecomposition_symmetric_normalized(
+        &self,
+        graph: &PyGraphAdapter,
+        length: &Bound<PyAny>,
+        solver: PySolverEnum,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyEigendecompositionResult> {
+        let result = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.rdmds.eigendecomposition_symmetric_normalized(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        };
+        let coordinates = result.eigenvectors;
+        let eigenvalues = result.eigenvalues;
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
+        let converted_eigenvals = eigenvalues.mapv(|v| v as FloatType);
+
+        Ok(PyEigendecompositionResult {
+            eigenvectors: PyArray2::new(converted_coords),
+            eigenvalues: PyArray1::new(converted_eigenvals),
+            cg_iterations: result.cg_iterations,
+            power_iterations: result.power_iterations,
+        })
+    }
+    fn eigendecomposition_random_walk_normalized(
+        &self,
+        graph: &PyGraphAdapter,
+        length: &Bound<PyAny>,
+        solver: PySolverEnum,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyEigendecompositionResult> {
+        let result = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.rdmds.eigendecomposition_random_walk_normalized(
+                    native_graph,
+                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                    &solver,
+                    rng.get_mut(),
+                )
+            }
+            _ => panic!("unsupported graph type"),
+        };
+        let coordinates = result.eigenvectors;
+        let eigenvalues = result.eigenvalues;
+
+        // Convert to f64 for compatibility with FloatType
+        let converted_coords = coordinates.mapv(|v| v as FloatType);
+        let converted_eigenvals = eigenvalues.mapv(|v| v as FloatType);
+
+        Ok(PyEigendecompositionResult {
+            eigenvectors: PyArray2::new(converted_coords),
+            eigenvalues: PyArray1::new(converted_eigenvals),
+            cg_iterations: result.cg_iterations,
+            power_iterations: result.power_iterations,
+        })
     }
 }
 
 /// Register RdMds class with the Python module
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyEigendecompositionResult>()?;
     m.add_class::<PyRdMds>()?;
     Ok(())
 }

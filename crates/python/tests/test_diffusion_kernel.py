@@ -42,7 +42,7 @@ class TestDiffusionKernel(unittest.TestCase):
     def test_element_access(self):
         """Test querying kernel matrix elements"""
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, self.rng)
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, self.eg.Ic0CgSolver(), rng)
 
         k_00 = dk.get(0, 0)
         k_11 = dk.get(1, 1)
@@ -175,7 +175,7 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
 
     def test_pivoted_diffusion_kernel(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.rng)
+        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.eg.Ic0CgSolver(), rng)
         self.assertEqual(pk.pivots(), [0, 1])
         self.assertGreater(pk.get_from_pivot(0, 0), 0.0)
 
@@ -193,7 +193,7 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
 
     def test_sparse_sgd_with_pivoted_neg_log_distance(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.rng)
+        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.eg.Ic0CgSolver(), rng)
         pnd = eg.PivotedNegLogDistance(self.graph, pk, 1.0, 0.0, 0.5)
 
         sparse_sgd = eg.SparseSgd()
@@ -205,7 +205,7 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         
         # Test full DiffusionKernel
-        dk = eg.DiffusionKernel(laplacian, 1.0, 10, self.rng)
+        dk = eg.DiffusionKernel(laplacian, 1.0, 10, self.eg.Ic0CgSolver(), rng)
         nld_dk = eg.NegLogDistance(self.graph, dk, 1.0, 0.0, 0.5)
         self.assertGreaterEqual(nld_dk.get(0, 1), 0.0)
 

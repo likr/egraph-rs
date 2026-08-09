@@ -131,7 +131,7 @@ class TestMultiscaleDiffusionKernel(unittest.TestCase):
         # Test using MultiscaleDiffusionDistanceMatrix with SGD
         sparse_sgd = eg.RandomPairSparseSgd()
         sgd_rng = eg.Rng.seed_from(100)
-        sgd_layout = sparse_sgd.build(self.graph, dist_matrix, sgd_rng)
+        sgd_layout = sparse_sgd.build(self.graph, dist_matrix, sgd_eg.Ic0CgSolver(), rng)
         self.assertIsNotNone(sgd_layout)
 
 

@@ -48,7 +48,7 @@ class TestSgd(unittest.TestCase):
                 scheduler = Scheduler(15)
 
                 def step(eta):
-                    sgd.shuffle(rng)
+                    sgd.shuffle(eg.Ic0CgSolver(), rng)
                     sgd.apply(drawing, eta)
 
                 scheduler.run(step)
@@ -59,11 +59,11 @@ class TestSgd(unittest.TestCase):
             for Scheduler in self._schedulers:
                 drawing = eg.DrawingEuclidean2d.initial_placement(graph)
                 rng = eg.Rng.seed_from(0)
-                sgd = eg.SparseSgd().build(graph, lambda _: 30, rng)
+                sgd = eg.SparseSgd().build(graph, lambda _: 30, eg.Ic0CgSolver(), rng)
                 scheduler = Scheduler(15)
 
                 def step(eta):
-                    sgd.shuffle(rng)
+                    sgd.shuffle(eg.Ic0CgSolver(), rng)
                     sgd.apply(drawing, eta)
 
                 scheduler.run(step)
@@ -78,7 +78,7 @@ class TestSgd(unittest.TestCase):
                 scheduler = Scheduler(15)
 
                 def step(eta):
-                    sgd.shuffle(rng)
+                    sgd.shuffle(eg.Ic0CgSolver(), rng)
                     sgd.apply(drawing, eta)
 
                 scheduler.run(step)
@@ -89,11 +89,11 @@ class TestSgd(unittest.TestCase):
             for Scheduler in self._schedulers:
                 drawing = eg.ClassicalMds(graph, lambda _: 30).run(3)
                 rng = eg.Rng.seed_from(0)
-                sgd = eg.SparseSgd().build(graph, lambda _: 30, rng)
+                sgd = eg.SparseSgd().build(graph, lambda _: 30, eg.Ic0CgSolver(), rng)
                 scheduler = Scheduler(15)
 
                 def step(eta):
-                    sgd.shuffle(rng)
+                    sgd.shuffle(eg.Ic0CgSolver(), rng)
                     sgd.apply(drawing, eta)
 
                 scheduler.run(step)
@@ -128,7 +128,7 @@ class TestSgd(unittest.TestCase):
             scheduler = Scheduler(10)
 
             def step(eta):
-                sgd.shuffle(rng)
+                sgd.shuffle(eg.Ic0CgSolver(), rng)
                 sgd.apply(drawing, eta)
 
             scheduler.run(step)

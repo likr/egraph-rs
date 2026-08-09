@@ -23,18 +23,18 @@ class TestRdMds(unittest.TestCase):
     def test_rdmds_default_parameters(self):
         """Test RdMds with default parameters"""
         rdmds = eg.RdMds()
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Check that embedding has correct shape (3 nodes, 2 dimensions)
-        self.assertEqual(embedding.shape, (3, 2))
+        self.assertEqual(result.eigenvectors.shape, (3, 2))
 
     def test_rdmds_custom_dimensions(self):
         """Test RdMds with custom number of dimensions"""
         rdmds = eg.RdMds().d(3)
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Check that embedding has correct shape (3 nodes, 3 dimensions)
-        self.assertEqual(embedding.shape, (3, 3))
+        self.assertEqual(result.eigenvectors.shape, (3, 3))
 
     def test_rdmds_method_chaining(self):
         """Test RdMds builder pattern with method chaining"""
@@ -48,18 +48,18 @@ class TestRdMds(unittest.TestCase):
             .cg_tolerance(1e-3)
         )
 
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
-        self.assertEqual(embedding.shape, (3, 2))
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
+        self.assertEqual(result.eigenvectors.shape, (3, 2))
 
     def test_rdmds_eigendecomposition(self):
         """Test RdMds eigendecomposition method"""
         rdmds = eg.RdMds().d(2)
-        embedding, eigenvalues = rdmds.eigendecomposition(
+        result = rdmds.eigendecomposition(
             self.graph, lambda i: 1.0, self.rng
         )
 
         # Check shapes
-        self.assertEqual(embedding.shape, (3, 2))
+        self.assertEqual(result.eigenvectors.shape, (3, 2))
         self.assertEqual(len(eigenvalues), 2)
 
         # Eigenvalues should be positive (non-zero eigenvalues of Laplacian)
@@ -81,9 +81,9 @@ class TestRdMds(unittest.TestCase):
 
         # Use edge weights
         edge_weights = [1.0, 2.0, 3.0]
-        embedding = rdmds.embedding(graph, lambda i: edge_weights[i], self.rng)
+        embedding = rdmds.embedding(graph, lambda i: edge_weights[i], self.eg.Ic0CgSolver(), rng)
 
-        self.assertEqual(embedding.shape, (3, 2))
+        self.assertEqual(result.eigenvectors.shape, (3, 2))
 
 
 class TestRdMdsOmegaIntegration(unittest.TestCase):
@@ -105,18 +105,18 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         """Test complete workflow: RdMds -> Omega -> SGD"""
         # Step 1: Compute spectral embedding with RdMds
         rdmds = eg.RdMds().d(2).shift(1e-3)
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Step 2: Generate node pairs with Omega
         omega = eg.Omega().k(10).min_dist(1e-3)
-        sgd = omega.build(self.graph, embedding, self.rng)
+        sgd = omega.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
 
         # Step 3: Apply SGD to a drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
 
         # Run a few SGD iterations
         for _ in range(10):
-            sgd.shuffle(self.rng)
+            sgd.shuffle(self.eg.Ic0CgSolver(), rng)
             sgd.apply(drawing, 0.1)
 
         # Verify that positions have been updated
@@ -126,14 +126,14 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
     def test_omega_with_custom_parameters(self):
         """Test Omega with custom k and min_dist parameters"""
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Test with different k values
         omega1 = eg.Omega().k(5).min_dist(1e-2)
-        sgd1 = omega1.build(self.graph, embedding, self.rng)
+        sgd1 = omega1.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
 
         omega2 = eg.Omega().k(20).min_dist(1e-4)
-        sgd2 = omega2.build(self.graph, embedding, self.rng)
+        sgd2 = omega2.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
 
         # Both should create valid SGD instances
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
@@ -144,16 +144,16 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         """Test that RdMds embedding can be reused for multiple Omega instances"""
         # Compute embedding once
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Create multiple Omega instances with the same embedding
         omega1 = eg.Omega().k(10)
         omega2 = eg.Omega().k(20)
         omega3 = eg.Omega().k(30)
 
-        sgd1 = omega1.build(self.graph, embedding, self.rng)
-        sgd2 = omega2.build(self.graph, embedding, self.rng)
-        sgd3 = omega3.build(self.graph, embedding, self.rng)
+        sgd1 = omega1.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
+        sgd2 = omega2.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
+        sgd3 = omega3.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
 
         # All should work with the same drawing
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
@@ -165,11 +165,11 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         """Test complete layout process with RdMds, Omega, and scheduler"""
         # Compute embedding
         rdmds = eg.RdMds().d(2)
-        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.rng)
+        embedding = rdmds.embedding(self.graph, lambda i: 1.0, self.eg.Ic0CgSolver(), rng)
 
         # Build SGD with Omega
         omega = eg.Omega().k(15)
-        sgd = omega.build(self.graph, embedding, self.rng)
+        sgd = omega.build(self.graph, embedding, self.eg.Ic0CgSolver(), rng)
 
         # Create drawing and scheduler
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
@@ -177,7 +177,7 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
 
         # Run layout optimization
         def step(eta):
-            sgd.shuffle(self.rng)
+            sgd.shuffle(self.eg.Ic0CgSolver(), rng)
             sgd.apply(drawing, eta)
 
         scheduler.run(step)

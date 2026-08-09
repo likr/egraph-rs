@@ -17,12 +17,12 @@ class TestRng(unittest.TestCase):
         """Test the default constructor that uses system entropy"""
         rng = eg.Rng()
         # We can't test the actual randomness, but we can ensure it doesn't crash
-        self.assertIsNotNone(rng)
+        self.assertIsNotNone(eg.Ic0CgSolver(), rng)
 
     def test_seed_constructor(self):
         """Test the seed-based constructor"""
         rng = eg.Rng.seed_from(42)
-        self.assertIsNotNone(rng)
+        self.assertIsNotNone(eg.Ic0CgSolver(), rng)
 
     def test_deterministic_results(self):
         """Test that the same seed produces deterministic results"""
@@ -113,11 +113,11 @@ class TestRng(unittest.TestCase):
         sgd2 = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         # Apply SGD with first shuffle
-        sgd1.shuffle(rng)
+        sgd1.shuffle(eg.Ic0CgSolver(), rng)
         sgd1.apply(drawing1, 0.1)
 
         # Apply SGD with second shuffle of the same RNG
-        sgd2.shuffle(rng)
+        sgd2.shuffle(eg.Ic0CgSolver(), rng)
         sgd2.apply(drawing2, 0.1)
 
         # Verify at least some positions after SGD are different
