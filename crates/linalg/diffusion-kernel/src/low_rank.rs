@@ -93,15 +93,19 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver {
+            max_iterations: self.cg_max_iterations,
+            tolerance: self.cg_tolerance,
+        };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
-        rdmds.d(rank)
-             .shift(self.shift)
-             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
-             .eigenvalue_tolerance(self.eigenvalue_tolerance);
+        rdmds
+            .d(rank)
+            .shift(self.shift)
+            .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+            .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
         let result = rdmds.eigendecomposition(graph, length, &builder, rng);
-        
+
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
@@ -130,12 +134,16 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver {
+            max_iterations: self.cg_max_iterations,
+            tolerance: self.cg_tolerance,
+        };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
-        rdmds.d(rank)
-             .shift(self.shift)
-             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
-             .eigenvalue_tolerance(self.eigenvalue_tolerance);
+        rdmds
+            .d(rank)
+            .shift(self.shift)
+            .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+            .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
         let mut degrees = Array1::<S>::zeros(n);
         let mut two_m = S::zero();
@@ -152,7 +160,7 @@ where
         }
 
         let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
-        
+
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
@@ -208,11 +216,11 @@ impl<S: Float> LowRankDiffusionKernel<S> {
     }
 }
 
-impl<S: Float + ScalarOperand> Kernel<S> for LowRankDiffusionKernel<S> {
+impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S> for LowRankDiffusionKernel<S> {
     fn get(&self, i: usize, j: usize) -> S {
         let n = self.n();
         assert!(i < n && j < n, "Index out of bounds");
-        let mut sum = S::zero();
+        let mut sum = S::one() / S::from_usize(n).unwrap();
         for k in 0..self.coefficients.len() {
             sum =
                 sum + self.coefficients[k] * self.eigenvectors[[i, k]] * self.eigenvectors[[j, k]];
@@ -310,15 +318,19 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver {
+            max_iterations: self.cg_max_iterations,
+            tolerance: self.cg_tolerance,
+        };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
-        rdmds.d(rank)
-             .shift(self.shift)
-             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
-             .eigenvalue_tolerance(self.eigenvalue_tolerance);
+        rdmds
+            .d(rank)
+            .shift(self.shift)
+            .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+            .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
         let result = rdmds.eigendecomposition(graph, length, &builder, rng);
-        
+
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
@@ -347,12 +359,16 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver {
+            max_iterations: self.cg_max_iterations,
+            tolerance: self.cg_tolerance,
+        };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
-        rdmds.d(rank)
-             .shift(self.shift)
-             .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
-             .eigenvalue_tolerance(self.eigenvalue_tolerance);
+        rdmds
+            .d(rank)
+            .shift(self.shift)
+            .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
+            .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
         let mut degrees = Array1::<S>::zeros(n);
         let mut two_m = S::zero();
@@ -369,7 +385,7 @@ where
         }
 
         let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
-        
+
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
@@ -407,6 +423,7 @@ where
 /// Low-rank spectral approximation of the multiscale diffusion kernel (I - alpha P)^{-1}.
 #[derive(Debug, Clone)]
 pub struct LowRankMultiscaleDiffusionKernel<S> {
+    alpha: S,
     eigenvectors: Array2<S>,
     coefficients: Array1<S>,
 }
@@ -420,17 +437,20 @@ impl<S: Float> LowRankMultiscaleDiffusionKernel<S> {
             coefficients[k] = one / ((one - alpha) + alpha * eigenvalues[k]);
         }
         Self {
+            alpha,
             eigenvectors,
             coefficients,
         }
     }
 }
 
-impl<S: Float + ScalarOperand> Kernel<S> for LowRankMultiscaleDiffusionKernel<S> {
+impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S>
+    for LowRankMultiscaleDiffusionKernel<S>
+{
     fn get(&self, i: usize, j: usize) -> S {
         let n = self.n();
         assert!(i < n && j < n, "Index out of bounds");
-        let mut sum = S::zero();
+        let mut sum = S::one() / (S::from_usize(n).unwrap() * (S::one() - self.alpha));
         for k in 0..self.coefficients.len() {
             sum =
                 sum + self.coefficients[k] * self.eigenvectors[[i, k]] * self.eigenvectors[[j, k]];

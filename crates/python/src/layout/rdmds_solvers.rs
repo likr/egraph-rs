@@ -1,10 +1,10 @@
 use crate::FloatType;
+use ndarray::Array1;
+use petgraph_distance::SparseSymmetricMatrix;
 use petgraph_linalg_rdmds::solvers::{
     AmgCgSolver, AmgCgSolverInstance, CgSolver, CgSolverInstance, Ic0CgSolver, Ic0CgSolverInstance,
     JacobiCgSolver, JacobiCgSolverInstance, LinearSolver, LinearSolverBuilder,
 };
-use petgraph_distance::SparseSymmetricMatrix;
-use ndarray::Array1;
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -20,7 +20,10 @@ impl PyCgSolver {
     #[pyo3(signature = (max_iterations=100, tolerance=1e-4))]
     fn new(max_iterations: usize, tolerance: FloatType) -> Self {
         Self {
-            solver: CgSolver { max_iterations, tolerance },
+            solver: CgSolver {
+                max_iterations,
+                tolerance,
+            },
         }
     }
 }
@@ -38,7 +41,10 @@ impl PyJacobiCgSolver {
     #[pyo3(signature = (max_iterations=100, tolerance=1e-4))]
     fn new(max_iterations: usize, tolerance: FloatType) -> Self {
         Self {
-            solver: JacobiCgSolver { max_iterations, tolerance },
+            solver: JacobiCgSolver {
+                max_iterations,
+                tolerance,
+            },
         }
     }
 }
@@ -56,7 +62,10 @@ impl PyIc0CgSolver {
     #[pyo3(signature = (max_iterations=100, tolerance=1e-4))]
     fn new(max_iterations: usize, tolerance: FloatType) -> Self {
         Self {
-            solver: Ic0CgSolver { max_iterations, tolerance },
+            solver: Ic0CgSolver {
+                max_iterations,
+                tolerance,
+            },
         }
     }
 }
@@ -74,7 +83,10 @@ impl PyAmgCgSolver {
     #[pyo3(signature = (max_iterations=100, tolerance=1e-4))]
     fn new(max_iterations: usize, tolerance: FloatType) -> Self {
         Self {
-            solver: AmgCgSolver { max_iterations, tolerance },
+            solver: AmgCgSolver {
+                max_iterations,
+                tolerance,
+            },
         }
     }
 }

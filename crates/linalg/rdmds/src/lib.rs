@@ -50,10 +50,9 @@ pub mod eigenvalue;
 pub mod rdmds;
 pub mod solvers;
 
-pub use eigenvalue::{
-    compute_smallest_eigenvalues, eigendecomposition,
-};
+pub use eigenvalue::{compute_smallest_eigenvalues, eigendecomposition};
 pub use rdmds::RdMds;
 pub use solvers::{
-    IncompleteCholeskyPreconditioner, LinearSolver, CgSolver, Ic0CgSolver, JacobiCgSolver, AmgCgSolver
+    AmgCgSolver, CgSolver, Ic0CgSolver, IncompleteCholeskyPreconditioner, JacobiCgSolver,
+    LinearSolver,
 };

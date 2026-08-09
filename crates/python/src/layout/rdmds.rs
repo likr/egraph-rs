@@ -3,13 +3,13 @@
 //! This module provides Python bindings for the RdMds algorithm,
 //! which computes spectral embeddings from graph Laplacian eigenvalues.
 
+use crate::layout::rdmds_solvers::PySolverEnum;
 use crate::{
     array::{PyArray1, PyArray2},
     graph::{GraphType, PyGraphAdapter},
     FloatType,
 };
 use petgraph::visit::EdgeRef;
-use crate::layout::rdmds_solvers::PySolverEnum;
 use petgraph_linalg_rdmds::RdMds;
 use pyo3::prelude::*;
 
@@ -106,7 +106,6 @@ impl PyRdMds {
         slf.into()
     }
 
-
     /// Sets convergence tolerance for eigenvalue computation
     ///
     /// :param eigenvalue_tolerance: Convergence tolerance for eigenvalue computation
@@ -117,7 +116,6 @@ impl PyRdMds {
         slf.rdmds.eigenvalue_tolerance(eigenvalue_tolerance);
         slf.into()
     }
-
 
     /// Computes spectral coordinates (embedding) using the configured parameters
     ///
@@ -138,14 +136,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyArray2> {
         let coordinates = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.embedding(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.embedding(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
 
@@ -173,14 +169,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyArray2> {
         let coordinates = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.embedding_symmetric_normalized(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.embedding_symmetric_normalized(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
 
@@ -208,14 +202,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyArray2> {
         let coordinates = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.embedding_random_walk_normalized(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.embedding_random_walk_normalized(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
 
@@ -243,14 +235,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyEigendecompositionResult> {
         let result = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.eigendecomposition(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.eigendecomposition(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
         let coordinates = result.eigenvectors;
@@ -275,14 +265,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyEigendecompositionResult> {
         let result = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.eigendecomposition_symmetric_normalized(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.eigendecomposition_symmetric_normalized(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
         let coordinates = result.eigenvectors;
@@ -307,14 +295,12 @@ impl PyRdMds {
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyEigendecompositionResult> {
         let result = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.rdmds.eigendecomposition_random_walk_normalized(
-                    native_graph,
-                    |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                    &solver,
-                    rng.get_mut(),
-                )
-            }
+            GraphType::Graph(native_graph) => self.rdmds.eigendecomposition_random_walk_normalized(
+                native_graph,
+                |e| length.call1((e.id().index(),)).unwrap().extract().unwrap(),
+                &solver,
+                rng.get_mut(),
+            ),
             _ => panic!("unsupported graph type"),
         };
         let coordinates = result.eigenvectors;

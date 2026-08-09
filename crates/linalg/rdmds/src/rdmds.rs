@@ -1,8 +1,8 @@
 //! RdMds (Resistance-distance MDS) implementation for computing spectral embeddings.
 
 use crate::eigenvalue::{
-    eigendecomposition, eigendecomposition_random_walk_normalized,
-    eigendecomposition_symmetric_normalized, EigendecompositionResult,
+    EigendecompositionResult, eigendecomposition, eigendecomposition_random_walk_normalized,
+    eigendecomposition_symmetric_normalized,
 };
 use crate::solvers::LinearSolverBuilder;
 use ndarray::{Array1, Array2};
@@ -70,7 +70,13 @@ where
     S: DrawingValue + Default,
 {
     /// Computes spectral coordinates (embedding) using the configured parameters for Standard Laplacian.
-    pub fn embedding<G, F, R, Builder>(&self, graph: G, length: F, builder: &Builder, rng: &mut R) -> Array2<S>
+    pub fn embedding<G, F, R, Builder>(
+        &self,
+        graph: G,
+        length: F,
+        builder: &Builder,
+        rng: &mut R,
+    ) -> Array2<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
@@ -88,7 +94,13 @@ where
     }
 
     /// Computes spectral coordinates (embedding) for Symmetric Normalized Laplacian.
-    pub fn embedding_symmetric_normalized<G, F, R, Builder>(&self, graph: G, length: F, builder: &Builder, rng: &mut R) -> Array2<S>
+    pub fn embedding_symmetric_normalized<G, F, R, Builder>(
+        &self,
+        graph: G,
+        length: F,
+        builder: &Builder,
+        rng: &mut R,
+    ) -> Array2<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
@@ -106,7 +118,13 @@ where
     }
 
     /// Computes spectral coordinates (embedding) for Random Walk Normalized Laplacian.
-    pub fn embedding_random_walk_normalized<G, F, R, Builder>(&self, graph: G, length: F, builder: &Builder, rng: &mut R) -> Array2<S>
+    pub fn embedding_random_walk_normalized<G, F, R, Builder>(
+        &self,
+        graph: G,
+        length: F,
+        builder: &Builder,
+        rng: &mut R,
+    ) -> Array2<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
@@ -114,7 +132,8 @@ where
         R: Rng,
         Builder: LinearSolverBuilder<S>,
     {
-        let mut result = self.eigendecomposition_random_walk_normalized(graph, length, builder, rng);
+        let mut result =
+            self.eigendecomposition_random_walk_normalized(graph, length, builder, rng);
         let d = result.eigenvalues.len();
         for dim in 0..d {
             let mut eigenvector = result.eigenvectors.column_mut(dim);
@@ -141,9 +160,9 @@ where
         let laplacian = petgraph_distance::StandardLaplacian
             .build(graph, &mut length)
             .scale_and_shift(S::one(), -self.shift);
-        
+
         let solver = builder.build(laplacian);
-        
+
         eigendecomposition(
             self.shift,
             self.eigenvalue_max_iterations,
@@ -172,9 +191,9 @@ where
         let laplacian = petgraph_distance::SymmetricNormalizedLaplacian
             .build(graph, &mut length)
             .scale_and_shift(S::one(), -self.shift);
-            
+
         let solver = builder.build(laplacian);
-        
+
         eigendecomposition_symmetric_normalized(
             self.shift,
             self.eigenvalue_max_iterations,
@@ -203,9 +222,9 @@ where
         let laplacian = petgraph_distance::StandardLaplacian
             .build(graph, &mut length)
             .scale_and_shift(S::one(), -self.shift);
-            
+
         let solver = builder.build(laplacian);
-        
+
         eigendecomposition_random_walk_normalized(
             self.shift,
             self.eigenvalue_max_iterations,

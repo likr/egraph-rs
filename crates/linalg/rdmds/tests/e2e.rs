@@ -1,11 +1,11 @@
+use egraph_dataset::dataset_1138_bus;
 use ndarray::{Array1, Array2};
 use petgraph::Graph;
 use petgraph::Undirected;
-use petgraph_linalg_rdmds::solvers::{AmgCgSolver, CgSolver, Ic0CgSolver, JacobiCgSolver};
 use petgraph_linalg_rdmds::RdMds;
+use petgraph_linalg_rdmds::solvers::{AmgCgSolver, CgSolver, Ic0CgSolver, JacobiCgSolver};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use egraph_dataset::dataset_1138_bus;
 
 // Computes the expected eigenvalues and eigenvectors using nalgebra.
 // Returns (eigenvalues, eigenvectors) where eigenvalues are sorted in ascending order.
@@ -18,7 +18,7 @@ fn compute_expected(
     let n = graph.node_count();
     let mut a = nalgebra::DMatrix::<f64>::zeros(n, n);
     let mut d_mat = nalgebra::DMatrix::<f64>::zeros(n, n);
-    
+
     for edge in graph.edge_indices() {
         let (u, v) = graph.edge_endpoints(edge).unwrap();
         let u_idx = u.index();
@@ -26,7 +26,7 @@ fn compute_expected(
         a[(u_idx, v_idx)] = 1.0;
         a[(v_idx, u_idx)] = 1.0;
     }
-    
+
     for i in 0..n {
         let mut degree = 0.0;
         for j in 0..n {
@@ -34,9 +34,9 @@ fn compute_expected(
         }
         d_mat[(i, i)] = degree;
     }
-    
+
     let l_std = &d_mat - &a;
-    
+
     let mut d_inv_sqrt = nalgebra::DMatrix::<f64>::zeros(n, n);
     let mut d_inv = nalgebra::DMatrix::<f64>::zeros(n, n);
     for i in 0..n {
@@ -45,9 +45,9 @@ fn compute_expected(
             d_inv[(i, i)] = 1.0 / d_mat[(i, i)];
         }
     }
-    
+
     let l_sym = &d_inv_sqrt * &l_std * &d_inv_sqrt;
-    
+
     let (evals, evecs) = match laplacian_type {
         "standard" => {
             let eig = nalgebra::SymmetricEigen::new(l_std);
@@ -74,20 +74,20 @@ fn compute_expected(
     // Sort eigenvalues and corresponding eigenvectors
     let mut indices: Vec<usize> = (0..n).collect();
     indices.sort_by(|&i, &j| evals[i].partial_cmp(&evals[j]).unwrap());
-    
+
     // We want `d` eigenvalues after the first one (which should be 0)
     let start_idx = 1;
-    
+
     let mut out_evals = Array1::zeros(d);
     let mut out_evecs = Array2::zeros((n, d));
-    
+
     for (k, i) in indices.iter().skip(start_idx).take(d).enumerate() {
         out_evals[k] = evals[*i];
         for j in 0..n {
             out_evecs[(j, k)] = evecs[(j, *i)];
         }
     }
-    
+
     // Normalize eigenvectors sign: make the first non-zero element positive
     for k in 0..d {
         for j in 0..n {
@@ -101,7 +101,7 @@ fn compute_expected(
             }
         }
     }
-    
+
     (out_evals, out_evecs)
 }
 
@@ -113,7 +113,7 @@ fn assert_eigendecomposition_match(
 ) {
     let d = expected_evals.len();
     let n = expected_evecs.shape()[0];
-    
+
     for i in 0..d {
         // Compare eigenvalue
         assert!(
@@ -123,7 +123,7 @@ fn assert_eigendecomposition_match(
             expected_evals[i],
             actual_evals[i]
         );
-        
+
         // Normalize actual eigenvector sign
         let mut actual_vec = actual_evecs.column(i).to_owned();
         for j in 0..n {
@@ -134,7 +134,7 @@ fn assert_eigendecomposition_match(
                 break;
             }
         }
-        
+
         // Compare eigenvector (using a looser tolerance since iterative methods might not be perfectly exact)
         for j in 0..n {
             assert!(
@@ -159,62 +159,116 @@ macro_rules! generate_solver_tests {
                 let graph = dataset_1138_bus();
                 let d = 5;
                 let (expected_evals, expected_evecs) = compute_expected(&graph, d, "standard");
-                
+
                 let mut rng = ChaCha8Rng::seed_from_u64(0);
                 let solver = $solver_expr;
                 let mut rdmds = RdMds::new();
-                rdmds.d(d)
+                rdmds
+                    .d(d)
                     .eigenvalue_tolerance(1e-6)
                     .eigenvalue_max_iterations(500);
-                
+
                 let result = rdmds.eigendecomposition(&graph, |_| 1.0, &solver, &mut rng);
                 println!("cg_iterations: {:?}", result.cg_iterations);
                 println!("power_iterations: {:?}", result.power_iterations);
-                assert_eigendecomposition_match(&expected_evals, &expected_evecs, &result.eigenvalues, &result.eigenvectors);
+                assert_eigendecomposition_match(
+                    &expected_evals,
+                    &expected_evecs,
+                    &result.eigenvalues,
+                    &result.eigenvectors,
+                );
             }
 
             #[test]
             fn test_symmetric_normalized() {
                 let graph = dataset_1138_bus();
                 let d = 5;
-                let (expected_evals, expected_evecs) = compute_expected(&graph, d, "symmetric_normalized");
-                
+                let (expected_evals, expected_evecs) =
+                    compute_expected(&graph, d, "symmetric_normalized");
+
                 let mut rng = ChaCha8Rng::seed_from_u64(0);
                 let solver = $solver_expr;
                 let mut rdmds = RdMds::new();
-                rdmds.d(d)
+                rdmds
+                    .d(d)
                     .eigenvalue_tolerance(1e-6)
                     .eigenvalue_max_iterations(500);
-                
-                let result = rdmds.eigendecomposition_symmetric_normalized(&graph, |_| 1.0, &solver, &mut rng);
+
+                let result = rdmds.eigendecomposition_symmetric_normalized(
+                    &graph,
+                    |_| 1.0,
+                    &solver,
+                    &mut rng,
+                );
                 println!("cg_iterations: {:?}", result.cg_iterations);
                 println!("power_iterations: {:?}", result.power_iterations);
-                assert_eigendecomposition_match(&expected_evals, &expected_evecs, &result.eigenvalues, &result.eigenvectors);
+                assert_eigendecomposition_match(
+                    &expected_evals,
+                    &expected_evecs,
+                    &result.eigenvalues,
+                    &result.eigenvectors,
+                );
             }
 
             #[test]
             fn test_random_walk_normalized() {
                 let graph = dataset_1138_bus();
                 let d = 5;
-                let (expected_evals, expected_evecs) = compute_expected(&graph, d, "random_walk_normalized");
-                
+                let (expected_evals, expected_evecs) =
+                    compute_expected(&graph, d, "random_walk_normalized");
+
                 let mut rng = ChaCha8Rng::seed_from_u64(0);
                 let solver = $solver_expr;
                 let mut rdmds = RdMds::new();
-                rdmds.d(d)
+                rdmds
+                    .d(d)
                     .eigenvalue_tolerance(1e-6)
                     .eigenvalue_max_iterations(500);
-                
-                let result = rdmds.eigendecomposition_random_walk_normalized(&graph, |_| 1.0, &solver, &mut rng);
+
+                let result = rdmds.eigendecomposition_random_walk_normalized(
+                    &graph,
+                    |_| 1.0,
+                    &solver,
+                    &mut rng,
+                );
                 println!("cg_iterations: {:?}", result.cg_iterations);
                 println!("power_iterations: {:?}", result.power_iterations);
-                assert_eigendecomposition_match(&expected_evals, &expected_evecs, &result.eigenvalues, &result.eigenvectors);
+                assert_eigendecomposition_match(
+                    &expected_evals,
+                    &expected_evecs,
+                    &result.eigenvalues,
+                    &result.eigenvectors,
+                );
             }
         }
     };
 }
 
-generate_solver_tests!(cg_solver, CgSolver { max_iterations: 100, tolerance: 1e-6 });
-generate_solver_tests!(jacobi_cg_solver, JacobiCgSolver { max_iterations: 100, tolerance: 1e-6 });
-generate_solver_tests!(ic0_cg_solver, Ic0CgSolver { max_iterations: 100, tolerance: 1e-6 });
-generate_solver_tests!(amg_cg_solver, AmgCgSolver { max_iterations: 100, tolerance: 1e-6 });
+generate_solver_tests!(
+    cg_solver,
+    CgSolver {
+        max_iterations: 100,
+        tolerance: 1e-6
+    }
+);
+generate_solver_tests!(
+    jacobi_cg_solver,
+    JacobiCgSolver {
+        max_iterations: 100,
+        tolerance: 1e-6
+    }
+);
+generate_solver_tests!(
+    ic0_cg_solver,
+    Ic0CgSolver {
+        max_iterations: 100,
+        tolerance: 1e-6
+    }
+);
+generate_solver_tests!(
+    amg_cg_solver,
+    AmgCgSolver {
+        max_iterations: 100,
+        tolerance: 1e-6
+    }
+);

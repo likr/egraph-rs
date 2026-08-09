@@ -10,7 +10,12 @@ pub fn jacobi_smooth<S>(
     omega: S,
     iterations: usize,
 ) where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + std::ops::SubAssign + Default,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + Default,
 {
     let n = a.rows;
     let diag = a.diagonal();

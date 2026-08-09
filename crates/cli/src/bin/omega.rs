@@ -44,8 +44,8 @@ use petgraph::prelude::*;
 use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_layout_omega::Omega;
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
-use petgraph_linalg_rdmds::RdMds;
 use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
+use petgraph_linalg_rdmds::RdMds;
 use rand::thread_rng;
 
 /// Command-line parameters for the Omega algorithm.

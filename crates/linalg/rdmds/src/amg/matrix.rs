@@ -1,7 +1,6 @@
 use ndarray::Array1;
 use petgraph_distance::SparseSymmetricMatrix;
 
-
 /// A general Compressed Sparse Row (CSR) matrix representation.
 #[derive(Debug, Clone)]
 pub struct CsrMatrix<S> {
@@ -172,7 +171,7 @@ where
     /// Matrix-matrix multiplication (SpGEMM). `self * other`.
     pub fn mul_csr(&self, other: &Self) -> Self {
         assert_eq!(self.cols, other.rows);
-        
+
         let mut indptr = vec![0; self.rows + 1];
         let mut indices = Vec::new();
         let mut data = Vec::new();

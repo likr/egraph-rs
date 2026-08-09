@@ -1,14 +1,15 @@
 use super::matrix::CsrMatrix;
 
-
 /// Computes the smoothed prolongator $P = (I - \omega D^{-1} A) P_0$
-pub fn smoothed_prolongator<S>(
-    a: &CsrMatrix<S>,
-    p0: &CsrMatrix<S>,
-    omega: S,
-) -> CsrMatrix<S>
+pub fn smoothed_prolongator<S>(a: &CsrMatrix<S>, p0: &CsrMatrix<S>, omega: S) -> CsrMatrix<S>
 where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + std::ops::SubAssign + Default + std::cmp::PartialOrd,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + Default
+        + std::cmp::PartialOrd,
 {
     // Compute D^{-1} A
     let mut d_inv_a = CsrMatrix::new(a.rows, a.cols);
@@ -34,7 +35,7 @@ where
     // Since we only need to multiply it by P0, we can do it directly:
     // P = P0 - \omega (D^{-1} A) P0
     // So P = P0 - ( \omega D^{-1} A ) * P0
-    
+
     // Scale D^{-1} A by \omega
     for d in &mut d_inv_a.data {
         *d = *d * omega;
@@ -45,7 +46,7 @@ where
     // Now P = P0 - scaled_d_inv_a_p0
     // Both P0 and scaled_d_inv_a_p0 have the same dimensions (rows = a.rows, cols = p0.cols)
     // We can add them up.
-    
+
     let mut indptr = vec![0; p0.rows + 1];
     let mut indices = Vec::new();
     let mut data = Vec::new();
@@ -83,7 +84,8 @@ where
         row_indices.sort_unstable();
         for &j in &row_indices {
             let val = row_values[j];
-            if val.abs() > S::from(1e-12).unwrap() { // filter tiny values
+            if val.abs() > S::from(1e-12).unwrap() {
+                // filter tiny values
                 indices.push(j);
                 data.push(val);
             }
@@ -103,7 +105,12 @@ where
 /// Estimates the spectral radius of $D^{-1} A$ using Gershgorin circle theorem.
 pub fn estimate_spectral_radius<S>(a: &CsrMatrix<S>) -> S
 where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + Default + std::cmp::PartialOrd,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + Default
+        + std::cmp::PartialOrd,
 {
     let diag = a.diagonal();
     let mut max_radius = S::zero();
@@ -122,7 +129,7 @@ where
             max_radius = row_sum;
         }
     }
-    
+
     // In many cases for Laplacians, max_radius is bounded by 2.0.
     // Gershgorin circle theorem says eigenvalues are in sum of absolute values of row entries.
     max_radius

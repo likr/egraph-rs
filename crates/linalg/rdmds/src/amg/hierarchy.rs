@@ -1,5 +1,5 @@
+use super::aggregation::{standard_aggregation, strength_of_connection, tentative_prolongator};
 use super::matrix::CsrMatrix;
-use super::aggregation::{strength_of_connection, standard_aggregation, tentative_prolongator};
 use super::prolongator::{estimate_spectral_radius, smoothed_prolongator};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,14 @@ pub fn build_hierarchy<S>(
     max_coarse_size: usize,
 ) -> Hierarchy<S>
 where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + std::ops::SubAssign + Default + std::cmp::PartialOrd + std::fmt::Debug,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + Default
+        + std::cmp::PartialOrd
+        + std::fmt::Debug,
 {
     let mut levels = Vec::new();
     let mut current_a = a_fine;

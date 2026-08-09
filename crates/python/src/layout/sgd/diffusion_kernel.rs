@@ -11,6 +11,7 @@ use petgraph_linalg_diffusion_kernel::{
     PivotedDiffusionKernelBuilder, PivotedKernel, PivotedMultiscaleDiffusionKernel,
     PivotedMultiscaleDiffusionKernelBuilder,
 };
+use petgraph::visit::EdgeRef;
 use pyo3::prelude::*;
 
 /// Python class for querying diffusion kernel matrix elements
@@ -301,29 +302,67 @@ impl PyLowRankDiffusionKernelBuilder {
         slf
     }
 
-    fn build_unnormalized_laplacian(
+    #[pyo3(name = "build_unnormalized_laplacian")]
+    fn build_laplacian(
         &self,
-        laplacian: &PyLaplacian,
+        graph: &crate::graph::PyGraphAdapter,
+        length: Py<PyAny>,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyLowRankDiffusionKernel> {
-        let kernel = self
-            .builder
-            .clone()
-            .build_unnormalized_laplacian(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let kernel = match graph.graph() {
+            crate::graph::GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                self.builder
+                    .clone()
+                    .build_laplacian(native_graph, length_fn, rng.get_mut())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
         Ok(PyLowRankDiffusionKernel { kernel })
     }
 
-    fn build_symmetric_normalized_laplacian(
+    #[pyo3(name = "build_symmetric_normalized_laplacian")]
+    fn build_normalized_laplacian(
         &self,
-        laplacian: &PyLaplacian,
+        graph: &crate::graph::PyGraphAdapter,
+        length: Py<PyAny>,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyLowRankDiffusionKernel> {
-        let kernel = self
-            .builder
-            .clone()
-            .build_symmetric_normalized_laplacian(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let kernel = match graph.graph() {
+            crate::graph::GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                self.builder
+                    .clone()
+                    .build_normalized_laplacian(native_graph, length_fn, rng.get_mut())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
         Ok(PyLowRankDiffusionKernel { kernel })
     }
 }
@@ -394,29 +433,67 @@ impl PyLowRankMultiscaleDiffusionKernelBuilder {
         slf
     }
 
-    fn build_unnormalized_laplacian(
+    #[pyo3(name = "build_unnormalized_laplacian")]
+    fn build_laplacian(
         &self,
-        laplacian: &PyLaplacian,
+        graph: &crate::graph::PyGraphAdapter,
+        length: Py<PyAny>,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyLowRankMultiscaleDiffusionKernel> {
-        let kernel = self
-            .builder
-            .clone()
-            .build_unnormalized_laplacian(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let kernel = match graph.graph() {
+            crate::graph::GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                self.builder
+                    .clone()
+                    .build_laplacian(native_graph, length_fn, rng.get_mut())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
         Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
     }
 
-    fn build_symmetric_normalized_laplacian(
+    #[pyo3(name = "build_symmetric_normalized_laplacian")]
+    fn build_normalized_laplacian(
         &self,
-        laplacian: &PyLaplacian,
+        graph: &crate::graph::PyGraphAdapter,
+        length: Py<PyAny>,
         rng: &mut crate::rng::PyRng,
     ) -> PyResult<PyLowRankMultiscaleDiffusionKernel> {
-        let kernel = self
-            .builder
-            .clone()
-            .build_symmetric_normalized_laplacian(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let kernel = match graph.graph() {
+            crate::graph::GraphType::Graph(native_graph) => {
+                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
+                    Python::attach(|py| {
+                        let result = length.call1(py, (edge.id().index(),));
+                        match result {
+                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
+                            Err(_) => 1.0,
+                        }
+                    })
+                };
+                self.builder
+                    .clone()
+                    .build_normalized_laplacian(native_graph, length_fn, rng.get_mut())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported graph type",
+                ))
+            }
+        };
         Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
     }
 }

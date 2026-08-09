@@ -1,5 +1,5 @@
 use crate::solvers::LinearSolver;
-use ndarray::{s, Array1, Array2, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView2, s};
 use petgraph_distance::SparseSymmetricMatrix;
 use petgraph_drawing::DrawingValue;
 use rand::Rng;
@@ -67,7 +67,7 @@ where
     eigenvectors
         .column_mut(0)
         .fill(S::one() / S::from_usize(n).unwrap().sqrt());
-    
+
     cg_iterations.push(0);
     power_iterations.push(0);
 
@@ -147,7 +147,7 @@ where
     let mut zero_vec = matrix.stationary_vector();
     normalize(&mut zero_vec);
     eigenvectors.column_mut(0).assign(&zero_vec);
-    
+
     cg_iterations.push(0);
     power_iterations.push(0);
 
@@ -176,7 +176,7 @@ where
 
             let numerator = x_next_iter.dot(&matrix.multiply(&x_next_iter));
             let denominator = x_next_iter.dot(&x_next_iter);
-            
+
             let lambda_est = numerator / denominator;
             let converged = (lambda_est - lambda_prev_est).abs() < tolerance;
 
@@ -228,7 +228,7 @@ where
     eigenvectors
         .column_mut(0)
         .fill(S::one() / S::from_usize(n).unwrap().sqrt());
-    
+
     cg_iterations.push(0);
     power_iterations.push(0);
 
@@ -266,7 +266,7 @@ where
             for i in 0..n {
                 denominator += x_next_iter[i] * x_next_iter[i] * degrees[i];
             }
-            
+
             let lambda_est = numerator / denominator;
             let converged = (lambda_est - lambda_prev_est).abs() < tolerance;
 
@@ -319,16 +319,16 @@ where
     for i in 0..=d {
         result.eigenvalues[i] -= shift;
     }
-    
+
     let mut final_eigenvalues = Array1::zeros(d);
     let mut final_eigenvectors = Array2::zeros((n, d));
 
     for i in 0..d {
         final_eigenvalues[i] = result.eigenvalues[i + 1];
-        final_eigenvectors.column_mut(i).assign(&result.eigenvectors.column(i + 1));
+        final_eigenvectors
+            .column_mut(i)
+            .assign(&result.eigenvectors.column(i + 1));
     }
-
-
 
     result.eigenvectors = final_eigenvectors;
     result.eigenvalues = final_eigenvalues;
@@ -353,7 +353,7 @@ where
     Solver: LinearSolver<S>,
 {
     let n = solver.matrix().dim();
-    
+
     let mut result = compute_smallest_eigenvalues_symmetric_normalized(
         d,
         eigenvalue_max_iterations,
@@ -365,16 +365,16 @@ where
     for i in 0..=d {
         result.eigenvalues[i] -= shift;
     }
-    
+
     let mut final_eigenvalues = Array1::zeros(d);
     let mut final_eigenvectors = Array2::zeros((n, d));
 
     for i in 0..d {
         final_eigenvalues[i] = result.eigenvalues[i + 1];
-        final_eigenvectors.column_mut(i).assign(&result.eigenvectors.column(i + 1));
+        final_eigenvectors
+            .column_mut(i)
+            .assign(&result.eigenvectors.column(i + 1));
     }
-
-
 
     result.eigenvectors = final_eigenvectors;
     result.eigenvalues = final_eigenvalues;
@@ -400,7 +400,7 @@ where
 {
     let matrix = solver.matrix();
     let n = matrix.dim();
-    
+
     let mut degrees = Array1::zeros(n);
     for i in 0..n {
         degrees[i] = matrix.diagonal()[i] + shift;
@@ -418,16 +418,16 @@ where
     for i in 0..=d {
         result.eigenvalues[i] -= shift;
     }
-    
+
     let mut final_eigenvalues = Array1::zeros(d);
     let mut final_eigenvectors = Array2::zeros((n, d));
 
     for i in 0..d {
         final_eigenvalues[i] = result.eigenvalues[i + 1];
-        final_eigenvectors.column_mut(i).assign(&result.eigenvectors.column(i + 1));
+        final_eigenvectors
+            .column_mut(i)
+            .assign(&result.eigenvectors.column(i + 1));
     }
-
-
 
     result.eigenvectors = final_eigenvectors;
     result.eigenvalues = final_eigenvalues;
@@ -437,8 +437,11 @@ where
     result
 }
 
-fn gram_schmidt_orthogonalize_weighted<S>(x: &mut Array1<S>, basis: &ArrayView2<S>, weights: &Array1<S>)
-where
+fn gram_schmidt_orthogonalize_weighted<S>(
+    x: &mut Array1<S>,
+    basis: &ArrayView2<S>,
+    weights: &Array1<S>,
+) where
     S: DrawingValue + Default,
 {
     let n = x.len();

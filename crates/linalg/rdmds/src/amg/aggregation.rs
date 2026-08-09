@@ -5,7 +5,12 @@ use super::matrix::CsrMatrix;
 /// $|A_{ij}| \ge \theta \max_{k \neq i} |A_{ik}|$
 pub fn strength_of_connection<S>(a: &CsrMatrix<S>, theta: S) -> CsrMatrix<S>
 where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + Default + std::cmp::PartialOrd,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + Default
+        + std::cmp::PartialOrd,
 {
     let mut indptr = vec![0; a.rows + 1];
     let mut indices = Vec::new();

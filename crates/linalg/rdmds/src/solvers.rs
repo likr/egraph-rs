@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// Trait for building a solver, often caching preconditioners.
 pub trait LinearSolverBuilder<S> {
     type Solver: LinearSolver<S>;
-    
+
     /// Builds the linear solver, consuming the matrix.
     fn build(&self, matrix: SparseSymmetricMatrix<S>) -> Self::Solver;
 }
@@ -15,7 +15,7 @@ pub trait LinearSolverBuilder<S> {
 pub trait LinearSolver<S> {
     /// Returns a reference to the internal matrix.
     fn matrix(&self) -> &SparseSymmetricMatrix<S>;
-    
+
     /// Solves the system `matrix * x = b`.
     /// Returns the number of iterations taken.
     fn solve(&self, b: &Array1<S>, x: &mut Array1<S>) -> usize;
@@ -271,7 +271,12 @@ where
             }
         }
 
-        Self { n, diagonal, row_entries, col_entries }
+        Self {
+            n,
+            diagonal,
+            row_entries,
+            col_entries,
+        }
     }
 
     pub fn apply(&self, r: &Array1<S>, z: &mut Array1<S>) {

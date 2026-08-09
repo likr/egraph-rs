@@ -5,10 +5,10 @@ pub mod prolongator;
 pub mod smoother;
 
 use ndarray::Array1;
-use petgraph_drawing::DrawingValue;
 use petgraph_distance::SparseSymmetricMatrix;
+use petgraph_drawing::DrawingValue;
 
-use hierarchy::{build_hierarchy, Hierarchy};
+use hierarchy::{Hierarchy, build_hierarchy};
 use matrix::CsrMatrix;
 use smoother::jacobi_smooth;
 
@@ -27,7 +27,13 @@ pub struct AmgSolver<S> {
 
 impl<S> Default for AmgSolver<S>
 where
-    S: num_traits::Float + num_traits::Zero + std::ops::AddAssign + std::ops::SubAssign + Default + std::cmp::PartialOrd + DrawingValue,
+    S: num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + Default
+        + std::cmp::PartialOrd
+        + DrawingValue,
 {
     fn default() -> Self {
         Self {
@@ -45,7 +51,15 @@ where
 
 impl<S> AmgSolver<S>
 where
-    S: Copy + num_traits::Float + num_traits::Zero + std::ops::AddAssign + std::ops::SubAssign + Default + std::cmp::PartialOrd + std::fmt::Debug + DrawingValue,
+    S: Copy
+        + num_traits::Float
+        + num_traits::Zero
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + Default
+        + std::cmp::PartialOrd
+        + std::fmt::Debug
+        + DrawingValue,
 {
     fn v_cycle(
         &self,
@@ -90,9 +104,19 @@ where
     }
 
     /// Solves the system using AMG as a standalone solver
-    pub fn solve(&self, matrix: &SparseSymmetricMatrix<S>, b: &Array1<S>, x: &mut Array1<S>) -> usize {
+    pub fn solve(
+        &self,
+        matrix: &SparseSymmetricMatrix<S>,
+        b: &Array1<S>,
+        x: &mut Array1<S>,
+    ) -> usize {
         let a_csr = CsrMatrix::from_symmetric(matrix);
-        let hierarchy = build_hierarchy(a_csr.clone(), self.theta, self.max_levels, self.max_coarse_size);
+        let hierarchy = build_hierarchy(
+            a_csr.clone(),
+            self.theta,
+            self.max_levels,
+            self.max_coarse_size,
+        );
 
         let mut r = Array1::zeros(a_csr.rows);
         a_csr.multiply_into(x, &mut r);
@@ -132,12 +156,7 @@ where
     }
 
     /// Solves the system `A * x = b` by applying a single V-cycle (used for preconditioning)
-    pub fn apply_preconditioner(
-        &self,
-        hierarchy: &Hierarchy<S>,
-        r: &Array1<S>,
-        z: &mut Array1<S>,
-    ) {
+    pub fn apply_preconditioner(&self, hierarchy: &Hierarchy<S>, r: &Array1<S>, z: &mut Array1<S>) {
         z.fill(S::zero());
         self.v_cycle(hierarchy, 0, r, z);
     }
