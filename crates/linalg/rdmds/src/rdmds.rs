@@ -5,7 +5,7 @@ use crate::eigenvalue::{
     eigendecomposition_symmetric_normalized,
 };
 use crate::solvers::LinearSolverBuilder;
-use ndarray::{Array1, Array2};
+use ndarray::Array2;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_distance::Laplacian;
 use petgraph_drawing::{DrawingIndex, DrawingValue};

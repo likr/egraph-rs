@@ -7,7 +7,7 @@ use petgraph_linalg_rdmds::solvers::{
 };
 use pyo3::prelude::*;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "CgSolver")]
 #[derive(Clone)]
 pub struct PyCgSolver {
@@ -28,7 +28,7 @@ impl PyCgSolver {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "JacobiCgSolver")]
 #[derive(Clone)]
 pub struct PyJacobiCgSolver {
@@ -49,7 +49,7 @@ impl PyJacobiCgSolver {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "Ic0CgSolver")]
 #[derive(Clone)]
 pub struct PyIc0CgSolver {
@@ -70,7 +70,7 @@ impl PyIc0CgSolver {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "AmgCgSolver")]
 #[derive(Clone)]
 pub struct PyAmgCgSolver {

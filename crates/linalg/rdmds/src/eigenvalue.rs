@@ -1,6 +1,5 @@
 use crate::solvers::LinearSolver;
 use ndarray::{Array1, Array2, ArrayView2, s};
-use petgraph_distance::SparseSymmetricMatrix;
 use petgraph_drawing::DrawingValue;
 use rand::Rng;
 

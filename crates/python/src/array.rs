@@ -12,7 +12,7 @@ use pyo3::types::PyType;
 /// Python wrapper for ndarray::Array1<FloatType>
 ///
 /// Provides a 1-dimensional array interface with indexing, iteration, and basic operations.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "Array1")]
 #[derive(Clone)]
 pub struct PyArray1 {
@@ -184,7 +184,7 @@ impl PyArray1Iterator {
 /// Python wrapper for ndarray::Array2<FloatType>
 ///
 /// Provides a 2-dimensional array interface with indexing, shape access, and basic operations.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "Array2")]
 #[derive(Clone)]
 pub struct PyArray2 {
