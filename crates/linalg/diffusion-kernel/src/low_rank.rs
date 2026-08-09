@@ -2,8 +2,8 @@
 
 use ndarray::{Array1, Array2, ScalarOperand};
 use num_traits::Float;
-use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::{Kernel, Laplacian};
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph_distance::Kernel;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 use rand::Rng;
@@ -137,8 +137,19 @@ where
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let laplacian = petgraph_distance::SymmetricNormalizedLaplacian.build(graph, &mut length);
-        let stationary = laplacian.stationary_vector();
+        let mut degrees = Array1::<S>::zeros(n);
+        let mut two_m = S::zero();
+        for node in graph.node_identifiers() {
+            for edge in graph.edges(node) {
+                let i = graph.to_index(edge.source());
+                let j = graph.to_index(edge.target());
+                let w = (&mut length)(edge);
+                if i != j {
+                    degrees[i] = degrees[i] + w;
+                    two_m = two_m + w;
+                }
+            }
+        }
 
         let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
         
@@ -148,14 +159,22 @@ where
         }
         let mut eigenvectors = result.eigenvectors;
 
-        if stationary.len() == n {
+        if two_m > S::zero() {
             for i in 0..n {
-                let stat = stationary[i];
+                let stat = (degrees[i] / two_m).sqrt();
                 if stat > S::zero() {
                     let mut row = eigenvectors.row_mut(i);
                     for j in 0..rank {
                         row[j] = row[j] / stat;
                     }
+                }
+            }
+        } else if n > 0 {
+            let inv_sqrt_n = S::one() / S::from_usize(n).unwrap().sqrt();
+            for i in 0..n {
+                let mut row = eigenvectors.row_mut(i);
+                for j in 0..rank {
+                    row[j] = row[j] / inv_sqrt_n;
                 }
             }
         }
@@ -335,8 +354,19 @@ where
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let laplacian = petgraph_distance::SymmetricNormalizedLaplacian.build(graph, &mut length);
-        let stationary = laplacian.stationary_vector();
+        let mut degrees = Array1::<S>::zeros(n);
+        let mut two_m = S::zero();
+        for node in graph.node_identifiers() {
+            for edge in graph.edges(node) {
+                let i = graph.to_index(edge.source());
+                let j = graph.to_index(edge.target());
+                let w = (&mut length)(edge);
+                if i != j {
+                    degrees[i] = degrees[i] + w;
+                    two_m = two_m + w;
+                }
+            }
+        }
 
         let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
         
@@ -346,14 +376,22 @@ where
         }
         let mut eigenvectors = result.eigenvectors;
 
-        if stationary.len() == n {
+        if two_m > S::zero() {
             for i in 0..n {
-                let stat = stationary[i];
+                let stat = (degrees[i] / two_m).sqrt();
                 if stat > S::zero() {
                     let mut row = eigenvectors.row_mut(i);
                     for j in 0..rank {
                         row[j] = row[j] / stat;
                     }
+                }
+            }
+        } else if n > 0 {
+            let inv_sqrt_n = S::one() / S::from_usize(n).unwrap().sqrt();
+            for i in 0..n {
+                let mut row = eigenvectors.row_mut(i);
+                for j in 0..rank {
+                    row[j] = row[j] / inv_sqrt_n;
                 }
             }
         }
