@@ -1,32 +1,29 @@
 //! RdMds (Resistance-distance MDS) implementation for computing spectral embeddings.
 
-use crate::eigenvalue::eigendecomposition;
+use crate::eigenvalue::{
+    eigendecomposition, eigendecomposition_random_walk_normalized,
+    eigendecomposition_symmetric_normalized, EigendecompositionResult,
+};
+use crate::solvers::LinearSolver;
 use ndarray::{Array1, Array2};
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::{Laplacian, StandardLaplacian};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;
 
 /// RdMds (Resistance-distance MDS) for computing spectral embeddings from graph Laplacians.
 #[derive(Debug, Clone)]
-pub struct RdMds<S, L = StandardLaplacian> {
+pub struct RdMds<S> {
     /// Number of spectral dimensions
     pub d: usize,
     /// Shift parameter for creating positive definite matrix L + cI
     pub shift: S,
     /// Maximum number of iterations for eigenvalue computation
     pub eigenvalue_max_iterations: usize,
-    /// Maximum number of iterations for CG method
-    pub cg_max_iterations: usize,
     /// Convergence tolerance for eigenvalue computation
     pub eigenvalue_tolerance: S,
-    /// Convergence tolerance for CG method
-    pub cg_tolerance: S,
-    /// The builder to construct the Laplacian matrix
-    pub laplacian_builder: L,
 }
 
-impl<S> RdMds<S, StandardLaplacian>
+impl<S> RdMds<S>
 where
     S: DrawingValue + Default,
 {
@@ -36,15 +33,12 @@ where
             d: 2,
             shift: S::from_f32(1e-3).unwrap(),
             eigenvalue_max_iterations: 1000,
-            cg_max_iterations: 100,
             eigenvalue_tolerance: S::from_f32(1e-1).unwrap(),
-            cg_tolerance: S::from_f32(1e-4).unwrap(),
-            laplacian_builder: StandardLaplacian,
         }
     }
 }
 
-impl<S, L> RdMds<S, L> {
+impl<S> RdMds<S> {
     /// Sets the number of spectral dimensions.
     pub fn d(&mut self, d: usize) -> &mut Self {
         self.d = d;
@@ -63,85 +57,154 @@ impl<S, L> RdMds<S, L> {
         self
     }
 
-    /// Sets maximum iterations for CG method.
-    pub fn cg_max_iterations(&mut self, cg_max_iterations: usize) -> &mut Self {
-        self.cg_max_iterations = cg_max_iterations;
-        self
-    }
-
     /// Sets convergence tolerance for eigenvalue computation.
     pub fn eigenvalue_tolerance(&mut self, eigenvalue_tolerance: S) -> &mut Self {
         self.eigenvalue_tolerance = eigenvalue_tolerance;
         self
     }
-
-    /// Sets convergence tolerance for CG method.
-    pub fn cg_tolerance(&mut self, cg_tolerance: S) -> &mut Self {
-        self.cg_tolerance = cg_tolerance;
-        self
-    }
-
-    /// Configures a custom Laplacian builder.
-    pub fn laplacian_builder<L2>(self, laplacian_builder: L2) -> RdMds<S, L2> {
-        RdMds {
-            d: self.d,
-            shift: self.shift,
-            eigenvalue_max_iterations: self.eigenvalue_max_iterations,
-            cg_max_iterations: self.cg_max_iterations,
-            eigenvalue_tolerance: self.eigenvalue_tolerance,
-            cg_tolerance: self.cg_tolerance,
-            laplacian_builder,
-        }
-    }
 }
 
-impl<S, L> RdMds<S, L>
+impl<S> RdMds<S>
 where
     S: DrawingValue + Default,
 {
-    /// Computes spectral coordinates (embedding) using the configured parameters.
-    pub fn embedding<G, F, R>(&self, graph: G, length: F, rng: &mut R) -> Array2<S>
+    /// Computes spectral coordinates (embedding) using the configured parameters for Standard Laplacian.
+    pub fn embedding<G, F, R, Solver>(&self, graph: G, length: F, solver: &Solver, rng: &mut R) -> Array2<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        L: Laplacian<G, S> + Copy,
+        Solver: LinearSolver<S>,
     {
-        let (embedding, _eigenvalues) = self.eigendecomposition(graph, length, rng);
-        embedding
+        let mut result = self.eigendecomposition(graph, length, solver, rng);
+        let d = result.eigenvalues.len();
+        for dim in 0..d {
+            let mut eigenvector = result.eigenvectors.column_mut(dim);
+            eigenvector /= result.eigenvalues[dim].max(S::zero()).sqrt();
+        }
+        result.eigenvectors
     }
 
-    /// Computes spectral coordinates and eigenvalues using the configured parameters.
-    pub fn eigendecomposition<G, F, R>(
+    /// Computes spectral coordinates (embedding) for Symmetric Normalized Laplacian.
+    pub fn embedding_symmetric_normalized<G, F, R, Solver>(&self, graph: G, length: F, solver: &Solver, rng: &mut R) -> Array2<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+        Solver: LinearSolver<S>,
+    {
+        let mut result = self.eigendecomposition_symmetric_normalized(graph, length, solver, rng);
+        let d = result.eigenvalues.len();
+        for dim in 0..d {
+            let mut eigenvector = result.eigenvectors.column_mut(dim);
+            eigenvector /= result.eigenvalues[dim].max(S::zero()).sqrt();
+        }
+        result.eigenvectors
+    }
+
+    /// Computes spectral coordinates (embedding) for Random Walk Normalized Laplacian.
+    pub fn embedding_random_walk_normalized<G, F, R, Solver>(&self, graph: G, length: F, solver: &Solver, rng: &mut R) -> Array2<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+        Solver: LinearSolver<S>,
+    {
+        let mut result = self.eigendecomposition_random_walk_normalized(graph, length, solver, rng);
+        let d = result.eigenvalues.len();
+        for dim in 0..d {
+            let mut eigenvector = result.eigenvectors.column_mut(dim);
+            eigenvector /= result.eigenvalues[dim].max(S::zero()).sqrt();
+        }
+        result.eigenvectors
+    }
+
+    /// Computes spectral coordinates and eigenvalues for Standard Laplacian.
+    pub fn eigendecomposition<G, F, R, Solver>(
         &self,
         graph: G,
         length: F,
+        solver: &Solver,
         rng: &mut R,
-    ) -> (Array2<S>, Array1<S>)
+    ) -> EigendecompositionResult<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
         G::NodeId: DrawingIndex,
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
-        L: Laplacian<G, S> + Copy,
+        Solver: LinearSolver<S>,
     {
         eigendecomposition(
             graph,
             length,
             self.shift,
             self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
             self.eigenvalue_tolerance,
-            self.cg_tolerance,
             self.d,
-            self.laplacian_builder,
+            solver,
+            rng,
+        )
+    }
+
+    /// Computes spectral coordinates and eigenvalues for Symmetric Normalized Laplacian.
+    pub fn eigendecomposition_symmetric_normalized<G, F, R, Solver>(
+        &self,
+        graph: G,
+        length: F,
+        solver: &Solver,
+        rng: &mut R,
+    ) -> EigendecompositionResult<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+        Solver: LinearSolver<S>,
+    {
+        eigendecomposition_symmetric_normalized(
+            graph,
+            length,
+            self.shift,
+            self.eigenvalue_max_iterations,
+            self.eigenvalue_tolerance,
+            self.d,
+            solver,
+            rng,
+        )
+    }
+
+    /// Computes spectral coordinates and eigenvalues for Random Walk Normalized Laplacian.
+    pub fn eigendecomposition_random_walk_normalized<G, F, R, Solver>(
+        &self,
+        graph: G,
+        length: F,
+        solver: &Solver,
+        rng: &mut R,
+    ) -> EigendecompositionResult<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable + NodeCount + Copy,
+        G::NodeId: DrawingIndex,
+        F: FnMut(G::EdgeRef) -> S,
+        R: Rng,
+        Solver: LinearSolver<S>,
+    {
+        eigendecomposition_random_walk_normalized(
+            graph,
+            length,
+            self.shift,
+            self.eigenvalue_max_iterations,
+            self.eigenvalue_tolerance,
+            self.d,
+            solver,
             rng,
         )
     }
 }
 
-impl<S> Default for RdMds<S, StandardLaplacian>
+impl<S> Default for RdMds<S>
 where
     S: DrawingValue + Default,
 {

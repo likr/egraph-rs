@@ -10,3 +10,8 @@ petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../distance" }
 rand = "0.8"
+
+[dev-dependencies]
+egraph-dataset = { path = "../../dataset", features = ["1138_bus"] }
+nalgebra = "0.35.0"
+rand_chacha = "0.3.1"

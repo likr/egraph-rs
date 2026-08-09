@@ -5,6 +5,7 @@ use ndarray::Array2;
 use petgraph::visit::{EdgeCount, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingIndex;
 use petgraph_linalg_rdmds::RdMds;
+use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::collections::HashMap;
@@ -94,14 +95,19 @@ where
         // The eigenvectors of the Laplacian provide the embedding for clustering
         // Use a seeded RNG for reproducibility
         let mut rng = StdRng::seed_from_u64(42);
-        let embedding = RdMds::new()
+        let mut embedding_algo = RdMds::new();
+        embedding_algo
             .d(self.k) // Use k dimensions for k-way clustering
             .shift(1e-3f32)
             .eigenvalue_max_iterations(1000)
-            .cg_max_iterations(100)
-            .eigenvalue_tolerance(1e-1)
-            .cg_tolerance(1e-4)
-            .embedding(&graph, |_| 1.0f32, &mut rng);
+            .eigenvalue_tolerance(1e-1);
+
+        let solver = Ic0CgSolver {
+            max_iterations: 100,
+            tolerance: 1e-4f32,
+        };
+
+        let embedding = embedding_algo.embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 
         // Convert embedding to f64 for linfa (linfa uses f64)
         let data_array =

@@ -45,6 +45,7 @@ use petgraph_drawing::DrawingEuclidean2d;
 use petgraph_layout_omega::Omega;
 use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 use petgraph_linalg_rdmds::RdMds;
+use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 use rand::thread_rng;
 
 /// Command-line parameters for the Omega algorithm.
@@ -221,13 +222,18 @@ fn layout(
     let mut rng = thread_rng();
 
     // Create SGD instance using Omega builder pattern with command-line parameters
-    let embedding = RdMds::new()
+    let mut embedding_algo = RdMds::new();
+    embedding_algo
         .d(params.d)
         .eigenvalue_max_iterations(params.eigenvalue_max_iterations)
-        .cg_max_iterations(params.cg_max_iterations)
-        .eigenvalue_tolerance(params.eigenvalue_tolerance)
-        .cg_tolerance(params.cg_tolerance)
-        .embedding(graph, |_| params.unit_edge_length, &mut rng);
+        .eigenvalue_tolerance(params.eigenvalue_tolerance);
+
+    let solver = Ic0CgSolver {
+        max_iterations: params.cg_max_iterations,
+        tolerance: params.cg_tolerance,
+    };
+
+    let embedding = embedding_algo.embedding(graph, |_| params.unit_edge_length, &solver, &mut rng);
     let mut sgd = Omega::new()
         .k(params.k)
         .min_dist(params.min_dist)

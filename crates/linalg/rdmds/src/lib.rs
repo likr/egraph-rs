@@ -12,6 +12,7 @@
 //! ```rust
 //! use petgraph::Graph;
 //! use petgraph_linalg_rdmds::RdMds;
+//! use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 //! use rand::thread_rng;
 //!
 //! // Create a graph
@@ -25,10 +26,12 @@
 //!
 //! // Compute spectral embedding
 //! let mut rng = thread_rng();
-//! let embedding = RdMds::new()
+//! let mut rdmds = RdMds::new();
+//! let solver = Ic0CgSolver { max_iterations: 100, tolerance: 1e-4 };
+//! let embedding = rdmds
 //!     .d(2)
 //!     .shift(1e-3f32)
-//!     .embedding(&graph, |_| 1.0f32, &mut rng);
+//!     .embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 //!
 //! // embedding is an Array2 where embedding.row(i) contains the 2D coordinate for node i
 //! println!("Embedding shape: {:?}", embedding.dim());
@@ -42,10 +45,14 @@
 //! where d is the number of spectral dimensions, |V| is the number of vertices,
 //! and |E| is the number of edges.
 
-mod eigenvalue;
-mod rdmds;
+pub mod eigenvalue;
+pub mod rdmds;
+pub mod solvers;
 
 pub use eigenvalue::{
-    IncompleteCholeskyPreconditioner, compute_smallest_eigenvalues, eigendecomposition,
+    compute_smallest_eigenvalues, eigendecomposition,
 };
 pub use rdmds::RdMds;
+pub use solvers::{
+    IncompleteCholeskyPreconditioner, LinearSolver, CgSolver, Ic0CgSolver, JacobiCgSolver, AmgCgSolver
+};

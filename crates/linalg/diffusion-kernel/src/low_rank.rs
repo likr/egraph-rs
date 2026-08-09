@@ -86,15 +86,17 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let result = compute_smallest_eigenvalues(
             &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
             self.eigenvalue_tolerance,
-            self.cg_tolerance,
+            &solver,
             rng,
         );
+        let all_eigenvalues = result.eigenvalues;
+        let all_eigenvectors = result.eigenvectors;
 
         let mut eigenvalues = Array1::zeros(rank + 1);
         let mut eigenvectors = Array2::zeros((n, rank + 1));
@@ -123,15 +125,17 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let result = compute_smallest_eigenvalues(
             &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
             self.eigenvalue_tolerance,
-            self.cg_tolerance,
+            &solver,
             rng,
         );
+        let all_eigenvalues = result.eigenvalues;
+        let all_eigenvectors = result.eigenvectors;
 
         let mut eigenvalues = Array1::zeros(rank + 1);
         let mut eigenvectors = Array2::zeros((n, rank + 1));
@@ -282,15 +286,17 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let result = compute_smallest_eigenvalues(
             &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
             self.eigenvalue_tolerance,
-            self.cg_tolerance,
+            &solver,
             rng,
         );
+        let all_eigenvalues = result.eigenvalues;
+        let all_eigenvectors = result.eigenvectors;
 
         let mut eigenvalues = Array1::zeros(rank + 1);
         let mut eigenvectors = Array2::zeros((n, rank + 1));
@@ -319,15 +325,17 @@ where
         let rank = self.rank.min(n.saturating_sub(1));
         let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
 
-        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+        let solver = petgraph_linalg_rdmds::solvers::Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let result = compute_smallest_eigenvalues(
             &shifted_laplacian,
             rank,
             self.eigenvalue_max_iterations,
-            self.cg_max_iterations,
             self.eigenvalue_tolerance,
-            self.cg_tolerance,
+            &solver,
             rng,
         );
+        let all_eigenvalues = result.eigenvalues;
+        let all_eigenvectors = result.eigenvectors;
 
         let mut eigenvalues = Array1::zeros(rank + 1);
         let mut eigenvectors = Array2::zeros((n, rank + 1));

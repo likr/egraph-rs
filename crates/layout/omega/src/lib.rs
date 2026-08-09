@@ -15,6 +15,7 @@
 //! ```rust
 //! use petgraph::Graph;
 //! use petgraph_linalg_rdmds::RdMds;
+//! use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 //! use petgraph_layout_omega::Omega;
 //! use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 //! use petgraph_drawing::DrawingEuclidean2d;
@@ -33,7 +34,8 @@
 //! let mut rng = thread_rng();
 //! let mut rdmds = RdMds::new();
 //! rdmds.d(2).shift(1e-3f32);
-//! let embedding = rdmds.embedding(&graph, |_| 1.0f32, &mut rng);
+//! let solver = Ic0CgSolver { max_iterations: 100, tolerance: 1e-4 };
+//! let embedding = rdmds.embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 //!
 //! // Step 2: Create SGD instance from embedding
 //! let mut omega = Omega::new();
@@ -66,6 +68,7 @@ mod tests {
     use super::*;
     use petgraph::Graph;
     use petgraph_linalg_rdmds::RdMds;
+    use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
     use rand::thread_rng;
 
     #[test]
@@ -82,10 +85,14 @@ mod tests {
         // Compute embedding with RdMds
         let mut rng = thread_rng();
         let mut rdmds = RdMds::new();
+        let solver = Ic0CgSolver {
+            max_iterations: 100,
+            tolerance: 1e-4,
+        };
         let embedding = rdmds
             .d(2)
             .shift(1e-3f32)
-            .embedding(&graph, |_| 1.0f32, &mut rng);
+            .embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 
         // Create Omega instance and build SGD
         let mut omega = Omega::new();
@@ -127,10 +134,14 @@ mod tests {
         // Compute embedding with RdMds
         let mut rng = thread_rng();
         let mut rdmds = RdMds::new();
+        let solver = Ic0CgSolver {
+            max_iterations: 100,
+            tolerance: 1e-4,
+        };
         let embedding = rdmds
             .d(2)
             .shift(1e-3f32)
-            .embedding(&graph, |_| 1.0f32, &mut rng);
+            .embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 
         // Create Omega instance with a specific min_dist
         let mut omega = Omega::new();
