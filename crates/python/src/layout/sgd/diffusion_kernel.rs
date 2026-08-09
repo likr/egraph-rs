@@ -101,30 +101,9 @@ pub struct PyLowRankDiffusionKernel {
 
 #[pymethods]
 impl PyLowRankDiffusionKernel {
-    /// Creates a new LowRankDiffusionKernel by computing smallest eigenvalues and eigenvectors
     #[new]
-    #[pyo3(signature = (laplacian, t, rank, rng))]
-    fn new(
-        laplacian: &PyLaplacian,
-        t: FloatType,
-        rank: usize,
-        rng: &mut crate::rng::PyRng,
-    ) -> PyResult<Self> {
-        let kernel = LowRankDiffusionKernelBuilder::new()
-            .t(t)
-            .rank(rank)
-            .build(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        Ok(PyLowRankDiffusionKernel { kernel })
-    }
-
-    /// Creates a LowRankDiffusionKernel directly from eigenvalues and eigenvectors
-    #[staticmethod]
-    fn new_from_eigen(
-        t: FloatType,
-        eigenvalues: &PyArray1,
-        eigenvectors: &PyArray2,
-    ) -> PyResult<Self> {
+    #[pyo3(signature = (t, eigenvalues, eigenvectors))]
+    fn new(t: FloatType, eigenvalues: &PyArray1, eigenvectors: &PyArray2) -> PyResult<Self> {
         let kernel = LowRankDiffusionKernel::new(
             t,
             eigenvalues.as_array().clone(),
@@ -153,30 +132,9 @@ pub struct PyLowRankMultiscaleDiffusionKernel {
 
 #[pymethods]
 impl PyLowRankMultiscaleDiffusionKernel {
-    /// Creates a new LowRankMultiscaleDiffusionKernel by computing smallest eigenvalues and eigenvectors
     #[new]
-    #[pyo3(signature = (laplacian, alpha, rank, rng))]
-    fn new(
-        laplacian: &PyLaplacian,
-        alpha: FloatType,
-        rank: usize,
-        rng: &mut crate::rng::PyRng,
-    ) -> PyResult<Self> {
-        let kernel = LowRankMultiscaleDiffusionKernelBuilder::new()
-            .alpha(alpha)
-            .rank(rank)
-            .build(&laplacian.matrix, rng.get_mut())
-            .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
-    }
-
-    /// Creates a LowRankMultiscaleDiffusionKernel directly from eigenvalues and eigenvectors
-    #[staticmethod]
-    fn new_from_eigen(
-        alpha: FloatType,
-        eigenvalues: &PyArray1,
-        eigenvectors: &PyArray2,
-    ) -> PyResult<Self> {
+    #[pyo3(signature = (alpha, eigenvalues, eigenvectors))]
+    fn new(alpha: FloatType, eigenvalues: &PyArray1, eigenvectors: &PyArray2) -> PyResult<Self> {
         let kernel = LowRankMultiscaleDiffusionKernel::new(
             alpha,
             eigenvalues.as_array().clone(),
@@ -274,5 +232,149 @@ impl PyPivotedMultiscaleDiffusionKernel {
     /// Queries element from pivot
     fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> FloatType {
         self.kernel.get_from_pivot(pivot_idx, j)
+    }
+}
+
+/// Builder for PyLowRankDiffusionKernel
+#[pyclass]
+#[pyo3(name = "LowRankDiffusionKernelBuilder")]
+pub struct PyLowRankDiffusionKernelBuilder {
+    pub(crate) builder: LowRankDiffusionKernelBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyLowRankDiffusionKernelBuilder {
+    #[new]
+    fn new() -> Self {
+        Self {
+            builder: LowRankDiffusionKernelBuilder::new(),
+        }
+    }
+
+    fn t(mut slf: PyRefMut<'_, Self>, t: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().t(t);
+        slf
+    }
+
+    fn rank(mut slf: PyRefMut<'_, Self>, rank: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().rank(rank);
+        slf
+    }
+
+    fn shift(mut slf: PyRefMut<'_, Self>, shift: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().shift(shift);
+        slf
+    }
+
+    fn eigenvalue_max_iterations(mut slf: PyRefMut<'_, Self>, eigenvalue_max_iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().eigenvalue_max_iterations(eigenvalue_max_iterations);
+        slf
+    }
+
+    fn cg_max_iterations(mut slf: PyRefMut<'_, Self>, cg_max_iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().cg_max_iterations(cg_max_iterations);
+        slf
+    }
+
+    fn eigenvalue_tolerance(mut slf: PyRefMut<'_, Self>, eigenvalue_tolerance: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().eigenvalue_tolerance(eigenvalue_tolerance);
+        slf
+    }
+
+    fn cg_tolerance(mut slf: PyRefMut<'_, Self>, cg_tolerance: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().cg_tolerance(cg_tolerance);
+        slf
+    }
+
+    fn build_unnormalized_laplacian(
+        &self,
+        laplacian: &PyLaplacian,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyLowRankDiffusionKernel> {
+        let kernel = self.builder.clone().build_unnormalized_laplacian(&laplacian.matrix, rng.get_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyLowRankDiffusionKernel { kernel })
+    }
+
+    fn build_symmetric_normalized_laplacian(
+        &self,
+        laplacian: &PyLaplacian,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyLowRankDiffusionKernel> {
+        let kernel = self.builder.clone().build_symmetric_normalized_laplacian(&laplacian.matrix, rng.get_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyLowRankDiffusionKernel { kernel })
+    }
+}
+
+/// Builder for PyLowRankMultiscaleDiffusionKernel
+#[pyclass]
+#[pyo3(name = "LowRankMultiscaleDiffusionKernelBuilder")]
+pub struct PyLowRankMultiscaleDiffusionKernelBuilder {
+    pub(crate) builder: LowRankMultiscaleDiffusionKernelBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyLowRankMultiscaleDiffusionKernelBuilder {
+    #[new]
+    fn new() -> Self {
+        Self {
+            builder: LowRankMultiscaleDiffusionKernelBuilder::new(),
+        }
+    }
+
+    fn alpha(mut slf: PyRefMut<'_, Self>, alpha: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().alpha(alpha);
+        slf
+    }
+
+    fn rank(mut slf: PyRefMut<'_, Self>, rank: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().rank(rank);
+        slf
+    }
+
+    fn shift(mut slf: PyRefMut<'_, Self>, shift: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().shift(shift);
+        slf
+    }
+
+    fn eigenvalue_max_iterations(mut slf: PyRefMut<'_, Self>, eigenvalue_max_iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().eigenvalue_max_iterations(eigenvalue_max_iterations);
+        slf
+    }
+
+    fn cg_max_iterations(mut slf: PyRefMut<'_, Self>, cg_max_iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().cg_max_iterations(cg_max_iterations);
+        slf
+    }
+
+    fn eigenvalue_tolerance(mut slf: PyRefMut<'_, Self>, eigenvalue_tolerance: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().eigenvalue_tolerance(eigenvalue_tolerance);
+        slf
+    }
+
+    fn cg_tolerance(mut slf: PyRefMut<'_, Self>, cg_tolerance: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().cg_tolerance(cg_tolerance);
+        slf
+    }
+
+    fn build_unnormalized_laplacian(
+        &self,
+        laplacian: &PyLaplacian,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyLowRankMultiscaleDiffusionKernel> {
+        let kernel = self.builder.clone().build_unnormalized_laplacian(&laplacian.matrix, rng.get_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
+    }
+
+    fn build_symmetric_normalized_laplacian(
+        &self,
+        laplacian: &PyLaplacian,
+        rng: &mut crate::rng::PyRng,
+    ) -> PyResult<PyLowRankMultiscaleDiffusionKernel> {
+        let kernel = self.builder.clone().build_symmetric_normalized_laplacian(&laplacian.matrix, rng.get_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
     }
 }
