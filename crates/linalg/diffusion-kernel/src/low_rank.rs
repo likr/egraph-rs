@@ -3,9 +3,9 @@
 use ndarray::{Array1, Array2, ScalarOperand};
 use num_traits::Float;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::Kernel;
+use petgraph_distance::{Kernel, Laplacian};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
-use petgraph_linalg_rdmds::solvers::AmgCgSolver;
+use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
 use rand::Rng;
 
 /// Builder for LowRankDiffusionKernel
@@ -93,7 +93,7 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
         rdmds.d(rank)
              .shift(self.shift)
@@ -118,7 +118,7 @@ where
     pub fn build_normalized_laplacian<G, F, R>(
         self,
         graph: G,
-        length: F,
+        mut length: F,
         rng: &mut R,
     ) -> Result<LowRankDiffusionKernel<S>, String>
     where
@@ -130,20 +130,35 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
         rdmds.d(rank)
              .shift(self.shift)
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let result = rdmds.eigendecomposition_random_walk_normalized(graph, length, &builder, rng);
+        let laplacian = petgraph_distance::SymmetricNormalizedLaplacian.build(graph, &mut length);
+        let stationary = laplacian.stationary_vector();
+
+        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
         
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
-        let eigenvectors = result.eigenvectors;
+        let mut eigenvectors = result.eigenvectors;
+
+        if stationary.len() == n {
+            for i in 0..n {
+                let stat = stationary[i];
+                if stat > S::zero() {
+                    let mut row = eigenvectors.row_mut(i);
+                    for j in 0..rank {
+                        row[j] = row[j] / stat;
+                    }
+                }
+            }
+        }
 
         Ok(LowRankDiffusionKernel::new(
             self.t,
@@ -276,7 +291,7 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
         rdmds.d(rank)
              .shift(self.shift)
@@ -301,7 +316,7 @@ where
     pub fn build_normalized_laplacian<G, F, R>(
         self,
         graph: G,
-        length: F,
+        mut length: F,
         rng: &mut R,
     ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String>
     where
@@ -313,20 +328,35 @@ where
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
-        let builder = AmgCgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
+        let builder = Ic0CgSolver { max_iterations: self.cg_max_iterations, tolerance: self.cg_tolerance };
         let mut rdmds = petgraph_linalg_rdmds::RdMds::new();
         rdmds.d(rank)
              .shift(self.shift)
              .eigenvalue_max_iterations(self.eigenvalue_max_iterations)
              .eigenvalue_tolerance(self.eigenvalue_tolerance);
 
-        let result = rdmds.eigendecomposition_random_walk_normalized(graph, length, &builder, rng);
+        let laplacian = petgraph_distance::SymmetricNormalizedLaplacian.build(graph, &mut length);
+        let stationary = laplacian.stationary_vector();
+
+        let result = rdmds.eigendecomposition_symmetric_normalized(graph, length, &builder, rng);
         
         let mut eigenvalues = result.eigenvalues;
         for k in 0..rank {
             eigenvalues[k] = eigenvalues[k].max(S::zero());
         }
-        let eigenvectors = result.eigenvectors;
+        let mut eigenvectors = result.eigenvectors;
+
+        if stationary.len() == n {
+            for i in 0..n {
+                let stat = stationary[i];
+                if stat > S::zero() {
+                    let mut row = eigenvectors.row_mut(i);
+                    for j in 0..rank {
+                        row[j] = row[j] / stat;
+                    }
+                }
+            }
+        }
 
         Ok(LowRankMultiscaleDiffusionKernel::new(
             self.alpha,
