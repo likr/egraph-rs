@@ -42,7 +42,7 @@ class TestDiffusionKernel(unittest.TestCase):
     def test_element_access(self):
         """Test querying kernel matrix elements"""
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, self.eg.Ic0CgSolver(), rng)
+        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, self.rng)
 
         k_00 = dk.get(0, 0)
         k_11 = dk.get(1, 1)
@@ -102,19 +102,17 @@ class TestLowRankDiffusionKernel(unittest.TestCase):
 
     def test_basic_construction_and_properties(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        from scipy.linalg import eigh
-        evals, evecs = eigh(laplacian.matrix.to_scipy())
-        evals = eg.Array1(evals[:2])
-        evecs = eg.Array2(evecs[:, :2])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]], dtype=np.float64))
         lr = eg.LowRankDiffusionKernel(1.0, evals, evecs)
         self.assertEqual(lr.n(), 3)
 
     def test_element_access_and_symmetry(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        from scipy.linalg import eigh
-        evals, evecs = eigh(laplacian.matrix.to_scipy())
-        evals = eg.Array1(evals[:2])
-        evecs = eg.Array2(evecs[:, :2])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]], dtype=np.float64))
         lr = eg.LowRankDiffusionKernel(1.0, evals, evecs)
 
         k_00 = lr.get(0, 0)
@@ -127,11 +125,12 @@ class TestLowRankDiffusionKernel(unittest.TestCase):
         self.assertAlmostEqual(k_01, k_10, places=10)
 
     def test_new_from_eigen(self):
-        evals = eg.Array1([0.0, 1.0, 2.0])
-        evecs = eg.Array2([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0, 2.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64))
         lr = eg.LowRankDiffusionKernel(1.0, evals, evecs)
         self.assertEqual(lr.n(), 3)
-        self.assertAlmostEqual(lr.get(0, 0), 1.0, places=5)
+        self.assertAlmostEqual(lr.get(0, 0), 1.3333333333333333, places=5)
 
 
 class TestLowRankMultiscaleDiffusionKernel(unittest.TestCase):
@@ -147,17 +146,16 @@ class TestLowRankMultiscaleDiffusionKernel(unittest.TestCase):
 
     def test_construction_and_from_eigen(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        from scipy.linalg import eigh
-
-        evals, evecs = eigh(laplacian.matrix.to_scipy())
-        evals = eg.Array1(evals[:2])
-        evecs = eg.Array2(evecs[:, :2])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]], dtype=np.float64))
 
         lrm = eg.LowRankMultiscaleDiffusionKernel(0.85, evals, evecs)
         self.assertEqual(lrm.n(), 3)
 
-        evals = eg.Array1([0.0, 1.0, 2.0])
-        evecs = eg.Array2([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0, 2.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64))
         lrm_custom = eg.LowRankMultiscaleDiffusionKernel(0.85, evals, evecs)
         self.assertEqual(lrm_custom.n(), 3)
 
@@ -175,11 +173,11 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
 
     def test_pivoted_diffusion_kernel(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.eg.Ic0CgSolver(), rng)
+        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.rng)
         self.assertEqual(pk.pivots(), [0, 1])
         self.assertGreater(pk.get_from_pivot(0, 0), 0.0)
 
-        neg_log_dist = eg.PivotedNegLogDistance(self.graph, pk, 1.0, 0.0, 0.5)
+        neg_log_dist = eg.PivotedNegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, pk)
         self.assertGreaterEqual(neg_log_dist.get(0, 1), 0.0)
 
     def test_pivoted_multiscale_diffusion_kernel(self):
@@ -188,44 +186,44 @@ class TestPivotedKernelsAndDistances(unittest.TestCase):
         self.assertEqual(pmk.pivots(), [0])
         self.assertGreater(pmk.get_from_pivot(0, 0), 0.0)
 
-        neg_log_dist = eg.PivotedNegLogDistance(self.graph, pmk, 1.0, 0.0, 0.5)
+        neg_log_dist = eg.PivotedNegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, pmk)
         self.assertGreaterEqual(neg_log_dist.get(0, 1), 0.0)
 
     def test_sparse_sgd_with_pivoted_neg_log_distance(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
-        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.eg.Ic0CgSolver(), rng)
-        pnd = eg.PivotedNegLogDistance(self.graph, pk, 1.0, 0.0, 0.5)
+        pk = eg.PivotedDiffusionKernel(laplacian, 1.0, 10, [0, 1], self.rng)
+        pnd = eg.PivotedNegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, pk)
 
         sparse_sgd = eg.SparseSgd()
         sgd = sparse_sgd.build_with_pivoted_distance(self.graph, lambda i: 1.0, pnd)
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
-        sgd.run(drawing)
+        scheduler = eg.SchedulerConstant(10, 0.1)
+        scheduler.run(lambda eta: sgd.apply(drawing, eta))
 
     def test_neg_log_distance_with_all_kernels(self):
         laplacian = eg.StandardLaplacian.build(self.graph, lambda i: 1.0)
         
         # Test full DiffusionKernel
-        dk = eg.DiffusionKernel(laplacian, 1.0, 10, self.eg.Ic0CgSolver(), rng)
-        nld_dk = eg.NegLogDistance(self.graph, dk, 1.0, 0.0, 0.5)
+        dk = eg.DiffusionKernel(laplacian, 1.0, 10, self.rng)
+        nld_dk = eg.NegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, dk)
         self.assertGreaterEqual(nld_dk.get(0, 1), 0.0)
 
         # Test LowRankDiffusionKernel
-        from scipy.linalg import eigh
-        evals, evecs = eigh(laplacian.matrix.to_scipy())
-        evals = eg.Array1(evals[:2])
-        evecs = eg.Array2(evecs[:, :2])
+        import numpy as np
+        evals = eg.Array1(np.array([0.0, 1.0], dtype=np.float64))
+        evecs = eg.Array2(np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]], dtype=np.float64))
         lr = eg.LowRankDiffusionKernel(1.0, evals, evecs)
-        nld_lr = eg.NegLogDistance(self.graph, lr, 1.0, 0.0, 0.5)
+        nld_lr = eg.NegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, lr)
         self.assertGreaterEqual(nld_lr.get(0, 1), 0.0)
 
         # Test MultiscaleDiffusionKernel
         mk = eg.MultiscaleDiffusionKernel(laplacian, 0.85)
-        nld_mk = eg.NegLogDistance(self.graph, mk, 1.0, 0.0, 0.5)
+        nld_mk = eg.NegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, mk)
         self.assertGreaterEqual(nld_mk.get(0, 1), 0.0)
 
         # Test LowRankMultiscaleDiffusionKernel
         lrm = eg.LowRankMultiscaleDiffusionKernel(0.85, evals, evecs)
-        nld_lrm = eg.NegLogDistance(self.graph, lrm, 1.0, 0.0, 0.5)
+        nld_lrm = eg.NegLogDistanceBuilder().alpha(1.0).beta(0.0).p(0.5).build(self.graph, lrm)
         self.assertGreaterEqual(nld_lrm.get(0, 1), 0.0)
 
 

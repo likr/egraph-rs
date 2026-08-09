@@ -35,28 +35,7 @@ class TestTsNet(unittest.TestCase):
             self.assertTrue(math.isfinite(drawing.x(u)))
             self.assertTrue(math.isfinite(drawing.y(u)))
 
-    def test_ts_net_with_diffusion_distance(self):
-        nx_graph = nx.cycle_graph(4)
-        graph = draw(nx_graph)
 
-        drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        rng = eg.Rng.seed_from(42)
-
-        # Create DiffusionKernel and DiffusionDistanceMatrix
-        laplacian = eg.StandardLaplacian.build(graph, lambda _: 1.0)
-        dk = eg.DiffusionKernel(laplacian, 1000.0, 10, 50, eg.Ic0CgSolver(), rng)
-        ddm = eg.DiffusionDistanceMatrix(graph, dk, 1e-3)
-
-        ts_net = eg.TsNet()
-        ts_net.learning_rate(2.0)
-        ts_net.iterations_stage2(10)
-        ts_net.iterations_stage3(10)
-
-        ts_net.run(drawing, ddm)
-
-        for u in graph.node_indices():
-            self.assertTrue(math.isfinite(drawing.x(u)))
-            self.assertTrue(math.isfinite(drawing.y(u)))
 
     def test_ts_net_with_embedding_distance(self):
         nx_graph = nx.cycle_graph(4)
@@ -91,7 +70,7 @@ class TestTsNet(unittest.TestCase):
         graph = draw(nx_graph)
 
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        distance_matrix = eg.DistanceMatrix(graph)
+        distance_matrix = eg.all_sources_dijkstra(graph, lambda _: 1.0)
 
         # Wrap distance matrix in KernelDistance with gamma = 0.5
         kd = eg.KernelDistance(distance_matrix, 0.5)

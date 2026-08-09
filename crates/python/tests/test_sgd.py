@@ -59,7 +59,7 @@ class TestSgd(unittest.TestCase):
             for Scheduler in self._schedulers:
                 drawing = eg.DrawingEuclidean2d.initial_placement(graph)
                 rng = eg.Rng.seed_from(0)
-                sgd = eg.SparseSgd().build(graph, lambda _: 30, eg.Ic0CgSolver(), rng)
+                sgd = eg.SparseSgd().build(graph, lambda _: 30, rng)
                 scheduler = Scheduler(15)
 
                 def step(eta):
@@ -89,7 +89,7 @@ class TestSgd(unittest.TestCase):
             for Scheduler in self._schedulers:
                 drawing = eg.ClassicalMds(graph, lambda _: 30).run(3)
                 rng = eg.Rng.seed_from(0)
-                sgd = eg.SparseSgd().build(graph, lambda _: 30, eg.Ic0CgSolver(), rng)
+                sgd = eg.SparseSgd().build(graph, lambda _: 30, rng)
                 scheduler = Scheduler(15)
 
                 def step(eta):

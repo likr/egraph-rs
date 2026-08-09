@@ -113,11 +113,11 @@ class TestRng(unittest.TestCase):
         sgd2 = eg.FullSgd().build(self._graph, lambda _: 1.0)
 
         # Apply SGD with first shuffle
-        sgd1.shuffle(eg.Ic0CgSolver(), rng)
+        sgd1.shuffle(rng)
         sgd1.apply(drawing1, 0.1)
 
         # Apply SGD with second shuffle of the same RNG
-        sgd2.shuffle(eg.Ic0CgSolver(), rng)
+        sgd2.shuffle(rng)
         sgd2.apply(drawing2, 0.1)
 
         # Verify at least some positions after SGD are different

@@ -629,8 +629,11 @@ impl PyStandardLaplacian {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDistanceMatrix>()?;
     m.add_class::<PyNegLogSimDistance>()?;
+    m.add_class::<PyNegLogSimDistanceBuilder>()?;
     m.add_class::<PyNegLogDistance>()?;
+    m.add_class::<PyNegLogDistanceBuilder>()?;
     m.add_class::<PyPivotedNegLogDistance>()?;
+    m.add_class::<PyPivotedNegLogDistanceBuilder>()?;
     m.add_class::<PyEmbeddingDistanceMatrix>()?;
     m.add_class::<PyKernelDistance>()?;
     m.add_class::<PyLaplacian>()?;

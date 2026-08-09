@@ -53,16 +53,11 @@ class TestRdMds(unittest.TestCase):
         """Test RdMds eigendecomposition method"""
         rdmds = eg.RdMds().d(2)
         result = rdmds.eigendecomposition(
-            self.graph, lambda i: 1.0, self.rng
-        )
-
-        # Check shapes
-        self.assertEqual(result.eigenvectors.shape, (3, 2))
             self.graph, lambda i: 1.0, eg.Ic0CgSolver(), self.rng
         )
 
         self.assertEqual(result.eigenvectors.shape, (3, 2))
-        self.assertEqual(result.eigenvalues.shape, (2,))
+        self.assertEqual(len(result.eigenvalues), 2)
         self.assertEqual(len(result.cg_iterations), 2)
         self.assertEqual(len(result.power_iterations), 2)
 
@@ -92,10 +87,11 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         result = rdmds.eigendecomposition(self.graph, lambda i: 1.0, eg.Ic0CgSolver(), self.rng)
         embedding = result.eigenvectors
 
-        omega = eg.OmegaBuilder().build()
-        matrix = omega.call(self.graph, embedding)
+        omega = eg.Omega()
+        sgd = omega.build(self.graph, embedding, self.rng)
         
-        self.assertEqual(matrix.shape, (5, 5))
+        drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
+        sgd.apply(drawing, 0.1)
 
     def test_omega_with_custom_parameters(self):
         """Test Omega with custom k and min_dist parameters"""
@@ -104,14 +100,14 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         embedding = result.eigenvectors
 
         omega = (
-            eg.OmegaBuilder()
+            eg.Omega()
             .k(2)
             .min_dist(0.5)
-            .build()
         )
-        matrix = omega.call(self.graph, embedding)
+        sgd = omega.build(self.graph, embedding, self.rng)
         
-        self.assertEqual(matrix.shape, (5, 5))
+        drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
+        sgd.apply(drawing, 0.1)
 
     def test_rdmds_reusable_embedding(self):
         """Test that RdMds embedding can be reused for multiple Omega instances"""
@@ -119,14 +115,19 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         result = rdmds.eigendecomposition(self.graph, lambda i: 1.0, eg.Ic0CgSolver(), self.rng)
         embedding = result.eigenvectors
 
-        omega1 = eg.OmegaBuilder().k(1).build()
-        matrix1 = omega1.call(self.graph, embedding)
+        omega1 = eg.Omega().k(10)
+        omega2 = eg.Omega().k(20)
+        omega3 = eg.Omega().k(30)
 
-        omega2 = eg.OmegaBuilder().k(3).build()
-        matrix2 = omega2.call(self.graph, embedding)
-        
-        self.assertEqual(matrix1.shape, (5, 5))
-        self.assertEqual(matrix2.shape, (5, 5))
+        sgd1 = omega1.build(self.graph, embedding, self.rng)
+        sgd2 = omega2.build(self.graph, embedding, self.rng)
+        sgd3 = omega3.build(self.graph, embedding, self.rng)
+
+        # All should work with the same drawing
+        drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
+        sgd1.apply(drawing, 0.1)
+        sgd2.apply(drawing, 0.1)
+        sgd3.apply(drawing, 0.1)
 
     def test_complete_layout_with_scheduler(self):
         """Test complete layout process with RdMds, Omega, and scheduler"""
@@ -136,13 +137,12 @@ class TestRdMdsOmegaIntegration(unittest.TestCase):
         embedding = result.eigenvectors
 
         # Build SGD with Omega
-        omega = eg.OmegaBuilder().k(3).build()
-        matrix = omega.call(self.graph, embedding)
-        sgd = eg.SgdBuilder().build(matrix)
+        omega = eg.Omega().k(15)
+        sgd = omega.build(self.graph, embedding, self.rng)
 
         # Create drawing and scheduler
         drawing = eg.DrawingEuclidean2d.initial_placement(self.graph)
-        scheduler = eg.Scheduler(50, 0.1)
+        scheduler = sgd.scheduler(50, 0.1)
 
         # Run layout optimization
         def step(eta):

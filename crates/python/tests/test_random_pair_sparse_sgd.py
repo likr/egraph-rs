@@ -24,13 +24,13 @@ class TestRandomPairSparseSgd(unittest.TestCase):
         distance_matrix = eg.all_sources_dijkstra(graph, lambda edge_idx: 1.0)
 
         # Build SGD instance with RandomPairSparseSgd
-        sgd = eg.RandomPairSparseSgd().k(5).build(graph, distance_matrix, eg.Ic0CgSolver(), rng)
+        sgd = eg.RandomPairSparseSgd().k(5).build(graph, distance_matrix, rng)
 
         self.assertIsNotNone(sgd)
 
         # Create drawing and apply forces
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        sgd.shuffle(eg.Ic0CgSolver(), rng)
+        sgd.shuffle(rng)
         sgd.apply(drawing, 0.1)
 
     def test_random_pair_sparse_sgd_with_embedding(self):
@@ -52,12 +52,12 @@ class TestRandomPairSparseSgd(unittest.TestCase):
         distance_matrix = eg.EmbeddingDistanceMatrix(graph, embedding, 1e-3)
 
         # Build SGD
-        sgd = eg.RandomPairSparseSgd().k(10).build(graph, distance_matrix, eg.Ic0CgSolver(), rng)
+        sgd = eg.RandomPairSparseSgd().k(10).build(graph, distance_matrix, rng)
 
         self.assertIsNotNone(sgd)
 
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        sgd.shuffle(eg.Ic0CgSolver(), rng)
+        sgd.shuffle(rng)
         sgd.apply(drawing, 0.1)
 
 
