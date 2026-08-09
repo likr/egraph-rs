@@ -8,6 +8,7 @@ use petgraph_linalg_rdmds::compute_smallest_eigenvalues;
 use rand::Rng;
 
 /// Builder for LowRankDiffusionKernel
+#[derive(Clone)]
 pub struct LowRankDiffusionKernelBuilder<S> {
     t: S,
     rank: usize,
@@ -76,7 +77,7 @@ where
         self
     }
 
-    pub fn build<R: Rng>(
+    pub fn build_unnormalized_laplacian<R: Rng>(
         self,
         laplacian: &SparseSymmetricMatrix<S>,
         rng: &mut R,
@@ -104,6 +105,56 @@ where
             eigenvectors
                 .column_mut(k)
                 .assign(&all_eigenvectors.column(k));
+        }
+
+        Ok(LowRankDiffusionKernel::new(
+            self.t,
+            eigenvalues,
+            eigenvectors,
+        ))
+    }
+
+    pub fn build_symmetric_normalized_laplacian<R: Rng>(
+        self,
+        laplacian: &SparseSymmetricMatrix<S>,
+        rng: &mut R,
+    ) -> Result<LowRankDiffusionKernel<S>, String> {
+        let n = laplacian.dim();
+        let rank = self.rank.min(n.saturating_sub(1));
+        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
+
+        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+            &shifted_laplacian,
+            rank,
+            self.eigenvalue_max_iterations,
+            self.cg_max_iterations,
+            self.eigenvalue_tolerance,
+            self.cg_tolerance,
+            rng,
+        );
+
+        let mut eigenvalues = Array1::zeros(rank + 1);
+        let mut eigenvectors = Array2::zeros((n, rank + 1));
+
+        for k in 0..=rank {
+            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
+            eigenvalues[k] = lambda_est;
+            eigenvectors
+                .column_mut(k)
+                .assign(&all_eigenvectors.column(k));
+        }
+
+        let stationary = laplacian.stationary_vector();
+        if stationary.len() == n {
+            for i in 0..n {
+                let stat = stationary[i];
+                if stat > S::zero() {
+                    let mut row = eigenvectors.row_mut(i);
+                    for j in 0..=rank {
+                        row[j] = row[j] / stat;
+                    }
+                }
+            }
         }
 
         Ok(LowRankDiffusionKernel::new(
@@ -153,6 +204,7 @@ impl<S: Float + ScalarOperand> Kernel<S> for LowRankDiffusionKernel<S> {
 }
 
 /// Builder for LowRankMultiscaleDiffusionKernel
+#[derive(Clone)]
 pub struct LowRankMultiscaleDiffusionKernelBuilder<S> {
     alpha: S,
     rank: usize,
@@ -221,7 +273,7 @@ where
         self
     }
 
-    pub fn build<R: Rng>(
+    pub fn build_unnormalized_laplacian<R: Rng>(
         self,
         laplacian: &SparseSymmetricMatrix<S>,
         rng: &mut R,
@@ -249,6 +301,56 @@ where
             eigenvectors
                 .column_mut(k)
                 .assign(&all_eigenvectors.column(k));
+        }
+
+        Ok(LowRankMultiscaleDiffusionKernel::new(
+            self.alpha,
+            eigenvalues,
+            eigenvectors,
+        ))
+    }
+
+    pub fn build_symmetric_normalized_laplacian<R: Rng>(
+        self,
+        laplacian: &SparseSymmetricMatrix<S>,
+        rng: &mut R,
+    ) -> Result<LowRankMultiscaleDiffusionKernel<S>, String> {
+        let n = laplacian.dim();
+        let rank = self.rank.min(n.saturating_sub(1));
+        let shifted_laplacian = laplacian.scale_and_shift(S::one(), -self.shift);
+
+        let (all_eigenvalues, all_eigenvectors) = compute_smallest_eigenvalues(
+            &shifted_laplacian,
+            rank,
+            self.eigenvalue_max_iterations,
+            self.cg_max_iterations,
+            self.eigenvalue_tolerance,
+            self.cg_tolerance,
+            rng,
+        );
+
+        let mut eigenvalues = Array1::zeros(rank + 1);
+        let mut eigenvectors = Array2::zeros((n, rank + 1));
+
+        for k in 0..=rank {
+            let lambda_est = (all_eigenvalues[k] - self.shift).max(S::zero());
+            eigenvalues[k] = lambda_est;
+            eigenvectors
+                .column_mut(k)
+                .assign(&all_eigenvectors.column(k));
+        }
+
+        let stationary = laplacian.stationary_vector();
+        if stationary.len() == n {
+            for i in 0..n {
+                let stat = stationary[i];
+                if stat > S::zero() {
+                    let mut row = eigenvectors.row_mut(i);
+                    for j in 0..=rank {
+                        row[j] = row[j] / stat;
+                    }
+                }
+            }
         }
 
         Ok(LowRankMultiscaleDiffusionKernel::new(
