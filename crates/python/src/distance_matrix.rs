@@ -4,15 +4,14 @@ use crate::{
 };
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
-use petgraph_linalg_kernel::EmbeddingKernel;
 use petgraph_linalg_kernel::{
-    DiffusionKernel, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
+    DiffusionKernel, Distance, EmbeddingKernel, EmbeddingKernelBuilder, ExponentialKernel,
+    ExponentialKernelBuilder, GaussianKernel, GaussianKernelBuilder, Kernel, KernelDistance,
+    KernelDistanceBuilder, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
     MultiscaleDiffusionKernel, NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance,
     NegLogSimDistanceBuilder, PivotedDiffusionKernel, PivotedKernel,
-    PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder,
-};
-use petgraph_linalg_kernel::{
-    Distance, ExponentialKernel, GaussianKernel, Kernel, KernelDistance, TKernel,
+    PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder, TKernel,
+    TKernelBuilder,
 };
 use pyo3::prelude::*;
 
@@ -516,6 +515,42 @@ impl PyEmbeddingKernel {
 }
 
 #[pyclass]
+#[pyo3(name = "EmbeddingKernelBuilder")]
+pub struct PyEmbeddingKernelBuilder {
+    pub(crate) builder: EmbeddingKernelBuilder,
+}
+
+#[pymethods]
+impl PyEmbeddingKernelBuilder {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            builder: EmbeddingKernelBuilder::new(),
+        }
+    }
+
+    pub fn build(
+        &self,
+        graph: &PyGraphAdapter,
+        embedding: &crate::array::PyArray2,
+    ) -> PyResult<PyEmbeddingKernel> {
+        let kernel = match graph.graph() {
+            GraphType::Graph(native_graph) => self
+                .builder
+                .clone()
+                .build(native_graph, embedding.as_array().clone())
+                .map_err(pyo3::exceptions::PyValueError::new_err)?,
+            GraphType::DiGraph(native_graph) => self
+                .builder
+                .clone()
+                .build(native_graph, embedding.as_array().clone())
+                .map_err(pyo3::exceptions::PyValueError::new_err)?,
+        };
+        Ok(PyEmbeddingKernel { kernel })
+    }
+}
+
+#[pyclass]
 #[pyo3(name = "GaussianKernel")]
 pub struct PyGaussianKernel {
     pub(crate) kernel: GaussianKernel<Box<InnerKernel>, FloatType>,
@@ -533,6 +568,38 @@ impl PyGaussianKernel {
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
         self.kernel.get(u, v)
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "GaussianKernelBuilder")]
+pub struct PyGaussianKernelBuilder {
+    pub(crate) builder: GaussianKernelBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyGaussianKernelBuilder {
+    #[new]
+    #[pyo3(signature = (gamma = 1.0))]
+    pub fn new(gamma: FloatType) -> Self {
+        Self {
+            builder: GaussianKernelBuilder::new(gamma),
+        }
+    }
+
+    pub fn gamma(mut slf: PyRefMut<'_, Self>, gamma: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().gamma(gamma);
+        slf
+    }
+
+    pub fn build(&self, kernel: &Bound<PyAny>) -> PyResult<PyGaussianKernel> {
+        let inner = extract_inner_kernel(kernel)?;
+        let kernel = self
+            .builder
+            .clone()
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyGaussianKernel { kernel })
     }
 }
 
@@ -558,6 +625,38 @@ impl PyExponentialKernel {
 }
 
 #[pyclass]
+#[pyo3(name = "ExponentialKernelBuilder")]
+pub struct PyExponentialKernelBuilder {
+    pub(crate) builder: ExponentialKernelBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyExponentialKernelBuilder {
+    #[new]
+    #[pyo3(signature = (gamma = 1.0))]
+    pub fn new(gamma: FloatType) -> Self {
+        Self {
+            builder: ExponentialKernelBuilder::new(gamma),
+        }
+    }
+
+    pub fn gamma(mut slf: PyRefMut<'_, Self>, gamma: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().gamma(gamma);
+        slf
+    }
+
+    pub fn build(&self, kernel: &Bound<PyAny>) -> PyResult<PyExponentialKernel> {
+        let inner = extract_inner_kernel(kernel)?;
+        let kernel = self
+            .builder
+            .clone()
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyExponentialKernel { kernel })
+    }
+}
+
+#[pyclass]
 #[pyo3(name = "TKernel")]
 pub struct PyTKernel {
     pub(crate) kernel: TKernel<Box<InnerKernel>, FloatType>,
@@ -579,6 +678,38 @@ impl PyTKernel {
 }
 
 #[pyclass]
+#[pyo3(name = "TKernelBuilder")]
+pub struct PyTKernelBuilder {
+    pub(crate) builder: TKernelBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyTKernelBuilder {
+    #[new]
+    #[pyo3(signature = (alpha = 1.0))]
+    pub fn new(alpha: FloatType) -> Self {
+        Self {
+            builder: TKernelBuilder::new(alpha),
+        }
+    }
+
+    pub fn alpha(mut slf: PyRefMut<'_, Self>, alpha: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().alpha(alpha);
+        slf
+    }
+
+    pub fn build(&self, kernel: &Bound<PyAny>) -> PyResult<PyTKernel> {
+        let inner = extract_inner_kernel(kernel)?;
+        let kernel = self
+            .builder
+            .clone()
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyTKernel { kernel })
+    }
+}
+
+#[pyclass]
 #[pyo3(name = "KernelDistance")]
 pub struct PyKernelDistance {
     pub(crate) matrix: KernelDistance<InnerKernel, FloatType>,
@@ -593,6 +724,38 @@ impl PyKernelDistance {
         let mut matrix = KernelDistance::new(inner);
         matrix.min_dist = min_dist;
         Ok(Self { matrix })
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "KernelDistanceBuilder")]
+pub struct PyKernelDistanceBuilder {
+    pub(crate) builder: KernelDistanceBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyKernelDistanceBuilder {
+    #[new]
+    #[pyo3(signature = (min_dist = 0.0))]
+    pub fn new(min_dist: FloatType) -> Self {
+        Self {
+            builder: KernelDistanceBuilder::new().min_dist(min_dist),
+        }
+    }
+
+    pub fn min_dist(mut slf: PyRefMut<'_, Self>, min_dist: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().min_dist(min_dist);
+        slf
+    }
+
+    pub fn build(&self, kernel: &Bound<PyAny>) -> PyResult<PyKernelDistance> {
+        let inner = extract_inner_kernel(kernel)?;
+        let matrix = self
+            .builder
+            .clone()
+            .build(inner)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyKernelDistance { matrix })
     }
 }
 
@@ -645,10 +808,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPivotedNegLogDistance>()?;
     m.add_class::<PyPivotedNegLogDistanceBuilder>()?;
     m.add_class::<PyEmbeddingKernel>()?;
+    m.add_class::<PyEmbeddingKernelBuilder>()?;
     m.add_class::<PyGaussianKernel>()?;
+    m.add_class::<PyGaussianKernelBuilder>()?;
     m.add_class::<PyExponentialKernel>()?;
+    m.add_class::<PyExponentialKernelBuilder>()?;
     m.add_class::<PyTKernel>()?;
+    m.add_class::<PyTKernelBuilder>()?;
     m.add_class::<PyKernelDistance>()?;
+    m.add_class::<PyKernelDistanceBuilder>()?;
     m.add_class::<PyLaplacian>()?;
     m.add_class::<PyStandardLaplacian>()?;
     Ok(())
