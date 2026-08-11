@@ -19,7 +19,7 @@ members = [
     "crates/layout/stress-majorization",
     "crates/linalg/distance",
     "crates/linalg/diffusion-kernel",
-    "crates/linalg/embedding-distance",
+    "crates/linalg/embedding-kernel",
     "crates/layout/ts-net",
     "crates/linalg/rdmds",
     "crates/python",

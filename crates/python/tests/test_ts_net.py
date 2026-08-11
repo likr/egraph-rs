@@ -52,7 +52,8 @@ class TestTsNet(unittest.TestCase):
             [0.0, 1.0, 1.0]
         ], dtype=np.float64)
         embedding = eg.Array2(emb_data)
-        edm = eg.EmbeddingDistanceMatrix(graph, embedding, 1e-3)
+        kernel = eg.EmbeddingKernel(graph, embedding)
+        edm = eg.KernelDistance(kernel, 1e-3)
 
         ts_net = eg.TsNet()
         ts_net.learning_rate(2.0)
@@ -70,10 +71,11 @@ class TestTsNet(unittest.TestCase):
         graph = draw(nx_graph)
 
         drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-        distance_matrix = eg.all_sources_dijkstra(graph, lambda _: 1.0)
-
-        # Wrap distance matrix in KernelDistance with gamma = 0.5
-        kd = eg.KernelDistance(distance_matrix, 0.5)
+        
+        laplacian = eg.StandardLaplacian.build(graph, lambda _: 1.0)
+        rng = eg.Rng.seed_from(123)
+        kernel = eg.DiffusionKernel(laplacian, 1.0, 10, rng)
+        kd = eg.KernelDistance(kernel, 0.5)
 
         ts_net = eg.TsNet()
         ts_net.learning_rate(2.0)

@@ -8,7 +8,7 @@ ndarray = "0.16"
 petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
 petgraph-distance = { path = "../../linalg/distance" }
-petgraph-linalg-embedding-distance = { path = "../../linalg/embedding-distance" }
+petgraph-linalg-embedding-kernel = { path = "../../linalg/embedding-kernel" }
 petgraph-layout-sgd = { path = "../sgd" }
 rand = "0.8"
 

@@ -28,7 +28,7 @@ petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-ts-net = { path = "../layout/ts-net" }
 petgraph-linalg-diffusion-kernel = { path = "../linalg/diffusion-kernel" }
-petgraph-linalg-embedding-distance = { path = "../linalg/embedding-distance" }
+petgraph-linalg-embedding-kernel = { path = "../linalg/embedding-kernel" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }

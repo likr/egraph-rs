@@ -64,14 +64,30 @@ pub struct DiffusionKernel<S> {
     matrix: Array2<S>,
 }
 
-impl<S: Float + ScalarOperand> Kernel<S> for DiffusionKernel<S> {
-    fn get(&self, i: usize, j: usize) -> S {
+impl<S: Float + ScalarOperand> Kernel<usize, S> for DiffusionKernel<S> {
+    fn get(&self, u: usize, v: usize) -> Option<S> {
+        if u < self.n && v < self.n {
+            Some(self.matrix[[u, v]])
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
         assert!(i < self.n && j < self.n, "Index out of bounds");
         self.matrix[[i, j]]
     }
 
-    fn n(&self) -> usize {
-        self.n
+    fn shape(&self) -> (usize, usize) {
+        (self.n, self.n)
+    }
+
+    fn row_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.n)
+    }
+
+    fn col_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.n)
     }
 }
 

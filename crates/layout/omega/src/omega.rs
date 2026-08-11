@@ -4,7 +4,8 @@ use ndarray::Array2;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingValue;
 use petgraph_layout_sgd::{RandomPairSparseSgd, Sgd};
-use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
+use petgraph_distance::KernelDistance;
+use petgraph_linalg_embedding_kernel::EmbeddingKernel;
 use rand::Rng;
 
 /// Omega builder for creating SGD instances from spectral embeddings.
@@ -47,7 +48,8 @@ where
         G::NodeId: petgraph_drawing::DrawingIndex + std::hash::Hash + Eq,
         R: Rng,
     {
-        let distance_matrix = EmbeddingDistanceMatrix::new(graph, embedding.clone(), self.min_dist);
+        let kernel = EmbeddingKernel::new(graph, embedding.clone());
+        let distance_matrix = KernelDistance::new(kernel).min_dist(self.min_dist);
         let mut random_pair_sgd = RandomPairSparseSgd::new();
         random_pair_sgd.k(self.k);
         random_pair_sgd.build(graph, &distance_matrix, rng)

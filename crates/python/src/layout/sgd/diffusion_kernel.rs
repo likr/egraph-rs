@@ -3,7 +3,7 @@ use crate::{
     distance_matrix::PyLaplacian,
     FloatType,
 };
-use petgraph_distance::Kernel;
+use petgraph_distance::{Distance, Kernel};
 use petgraph_linalg_diffusion_kernel::{
     DiffusionKernel, DiffusionKernelBuilder, LowRankDiffusionKernel, LowRankDiffusionKernelBuilder,
     LowRankMultiscaleDiffusionKernel, LowRankMultiscaleDiffusionKernelBuilder,
@@ -55,12 +55,12 @@ impl PyDiffusionKernel {
 
     /// Queries the (i, j) element of the diffusion kernel matrix
     fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j)
+        self.kernel.get(i, j).unwrap()
     }
 
     /// Returns the number of nodes in the graph
     fn n(&self) -> usize {
-        self.kernel.n()
+        self.kernel.shape().0
     }
 }
 
@@ -84,12 +84,12 @@ impl PyMultiscaleDiffusionKernel {
 
     /// Queries the multiscale diffusion kernel between nodes i and j
     fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j)
+        self.kernel.get(i, j).unwrap()
     }
 
     /// Returns the number of nodes in the graph
     fn n(&self) -> usize {
-        self.kernel.n()
+        self.kernel.shape().0
     }
 }
 
@@ -115,12 +115,12 @@ impl PyLowRankDiffusionKernel {
 
     /// Queries the (i, j) element of the low-rank heat kernel matrix
     fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j)
+        self.kernel.get(i, j).unwrap()
     }
 
     /// Returns the number of nodes in the graph
     fn n(&self) -> usize {
-        self.kernel.n()
+        self.kernel.shape().0
     }
 }
 
@@ -146,12 +146,12 @@ impl PyLowRankMultiscaleDiffusionKernel {
 
     /// Queries the (i, j) element of the low-rank multiscale kernel matrix
     fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j)
+        self.kernel.get(i, j).unwrap()
     }
 
     /// Returns the number of nodes in the graph
     fn n(&self) -> usize {
-        self.kernel.n()
+        self.kernel.shape().0
     }
 }
 

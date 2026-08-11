@@ -28,7 +28,7 @@ petgraph-layout-separation-constraints = { path = "../layout/separation-constrai
 petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
 petgraph-distance = { path = "../linalg/distance" }
 petgraph-linalg-diffusion-kernel = { path = "../linalg/diffusion-kernel" }
-petgraph-linalg-embedding-distance = { path = "../linalg/embedding-distance" }
+petgraph-linalg-embedding-kernel = { path = "../linalg/embedding-kernel" }
 petgraph-layout-ts-net = { path = "../layout/ts-net" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"

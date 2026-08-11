@@ -216,9 +216,18 @@ impl<S: Float> LowRankDiffusionKernel<S> {
     }
 }
 
-impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S> for LowRankDiffusionKernel<S> {
-    fn get(&self, i: usize, j: usize) -> S {
-        let n = self.n();
+impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<usize, S> for LowRankDiffusionKernel<S> {
+    fn get(&self, u: usize, v: usize) -> Option<S> {
+        let n = self.eigenvectors.nrows();
+        if u < n && v < n {
+            Some(self.get_by_index(u, v))
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
+        let n = self.eigenvectors.nrows();
         assert!(i < n && j < n, "Index out of bounds");
         let mut sum = S::one() / S::from_usize(n).unwrap();
         for k in 0..self.coefficients.len() {
@@ -228,8 +237,17 @@ impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S> for LowRank
         sum
     }
 
-    fn n(&self) -> usize {
-        self.eigenvectors.nrows()
+    fn shape(&self) -> (usize, usize) {
+        let n = self.eigenvectors.nrows();
+        (n, n)
+    }
+
+    fn row_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.eigenvectors.nrows())
+    }
+
+    fn col_index(&self, v: usize) -> Option<usize> {
+        Some(v).filter(|&j| j < self.eigenvectors.nrows())
     }
 }
 
@@ -444,11 +462,20 @@ impl<S: Float> LowRankMultiscaleDiffusionKernel<S> {
     }
 }
 
-impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S>
+impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<usize, S>
     for LowRankMultiscaleDiffusionKernel<S>
 {
-    fn get(&self, i: usize, j: usize) -> S {
-        let n = self.n();
+    fn get(&self, u: usize, v: usize) -> Option<S> {
+        let n = self.eigenvectors.nrows();
+        if u < n && v < n {
+            Some(self.get_by_index(u, v))
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
+        let n = self.eigenvectors.nrows();
         assert!(i < n && j < n, "Index out of bounds");
         let mut sum = S::one() / (S::from_usize(n).unwrap() * (S::one() - self.alpha));
         for k in 0..self.coefficients.len() {
@@ -458,7 +485,16 @@ impl<S: Float + ScalarOperand + num_traits::FromPrimitive> Kernel<S>
         sum
     }
 
-    fn n(&self) -> usize {
-        self.eigenvectors.nrows()
+    fn shape(&self) -> (usize, usize) {
+        let n = self.eigenvectors.nrows();
+        (n, n)
+    }
+
+    fn row_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.eigenvectors.nrows())
+    }
+
+    fn col_index(&self, v: usize) -> Option<usize> {
+        Some(v).filter(|&j| j < self.eigenvectors.nrows())
     }
 }

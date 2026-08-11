@@ -1,18 +1,19 @@
+use pyo3::prelude::*;
 use crate::{
     graph::{GraphType, IndexType, PyGraphAdapter},
     FloatType,
 };
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
-use petgraph_distance::{Distance, GaussianKernel, Kernel, KernelDistance};
+use petgraph_distance::{Distance, Kernel, KernelDistance, GaussianKernel, ExponentialKernel, TKernel};
 use petgraph_linalg_diffusion_kernel::{
     DiffusionKernel, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
     MultiscaleDiffusionKernel, NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance,
     NegLogSimDistanceBuilder, PivotedDiffusionKernel, PivotedKernel,
     PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder,
 };
-use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
-use pyo3::prelude::*;
+use petgraph_linalg_embedding_kernel::EmbeddingKernel;
+
 
 pub enum DistanceMatrixType {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
@@ -103,24 +104,91 @@ pub enum InnerKernel {
     LowRank(LowRankDiffusionKernel<FloatType>),
     LowRankMultiscale(LowRankMultiscaleDiffusionKernel<FloatType>),
     Multiscale(MultiscaleDiffusionKernel<FloatType>),
+    Embedding(EmbeddingKernel<NodeIndex<IndexType>, FloatType>),
+    Gaussian(GaussianKernel<Box<InnerKernel>, FloatType>),
+    Exponential(ExponentialKernel<Box<InnerKernel>, FloatType>),
+    T(TKernel<Box<InnerKernel>, FloatType>),
 }
 
-impl Kernel<FloatType> for InnerKernel {
-    fn get(&self, i: usize, j: usize) -> FloatType {
+impl InnerKernel {
+    fn get_by_index_internal(&self, i: usize, j: usize) -> FloatType {
         match self {
-            Self::Diffusion(k) => k.get(i, j),
-            Self::LowRank(k) => k.get(i, j),
-            Self::LowRankMultiscale(k) => k.get(i, j),
-            Self::Multiscale(k) => k.get(i, j),
+            Self::Diffusion(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::LowRank(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::LowRankMultiscale(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::Multiscale(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::Embedding(k) => Kernel::<NodeIndex<IndexType>, FloatType>::get_by_index(k, i, j),
+            Self::Gaussian(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::Exponential(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::T(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
         }
     }
-    fn n(&self) -> usize {
+
+    fn shape_internal(&self) -> (usize, usize) {
         match self {
-            Self::Diffusion(k) => k.n(),
-            Self::LowRank(k) => k.n(),
-            Self::LowRankMultiscale(k) => k.n(),
-            Self::Multiscale(k) => k.n(),
+            Self::Diffusion(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::LowRank(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::LowRankMultiscale(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::Multiscale(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::Embedding(k) => Kernel::<NodeIndex<IndexType>, FloatType>::shape(k),
+            Self::Gaussian(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::Exponential(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::T(k) => Kernel::<usize, FloatType>::shape(k),
         }
+    }
+}
+
+impl Kernel<usize, FloatType> for InnerKernel {
+    fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        let (r, c) = self.shape_internal();
+        if u < r && v < c {
+            Some(self.get_by_index_internal(u, v))
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> FloatType {
+        self.get_by_index_internal(i, j)
+    }
+
+    fn shape(&self) -> (usize, usize) {
+        self.shape_internal()
+    }
+
+    fn row_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.shape_internal().0)
+    }
+
+    fn col_index(&self, v: usize) -> Option<usize> {
+        Some(v).filter(|&j| j < self.shape_internal().1)
+    }
+}
+
+impl Kernel<NodeIndex<IndexType>, FloatType> for InnerKernel {
+    fn get(&self, u: NodeIndex<IndexType>, v: NodeIndex<IndexType>) -> Option<FloatType> {
+        let (r, c) = self.shape_internal();
+        if u.index() < r && v.index() < c {
+            Some(self.get_by_index_internal(u.index(), v.index()))
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> FloatType {
+        self.get_by_index_internal(i, j)
+    }
+
+    fn shape(&self) -> (usize, usize) {
+        self.shape_internal()
+    }
+
+    fn row_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
+        Some(u.index()).filter(|&i| i < self.shape_internal().0)
+    }
+
+    fn col_index(&self, v: NodeIndex<IndexType>) -> Option<usize> {
+        Some(v.index()).filter(|&j| j < self.shape_internal().1)
     }
 }
 
@@ -136,8 +204,17 @@ pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
     } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyMultiscaleDiffusionKernel>>()
     {
         Ok(InnerKernel::Multiscale(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<PyEmbeddingKernel>>() {
+        Ok(InnerKernel::Embedding(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<PyGaussianKernel>>() {
+        Ok(InnerKernel::Gaussian(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<PyExponentialKernel>>() {
+        Ok(InnerKernel::Exponential(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<PyTKernel>>() {
+        Ok(InnerKernel::T(k.kernel.clone()))
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
+
             "Unsupported kernel type",
         ))
     }
@@ -179,115 +256,6 @@ pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivo
     }
 }
 
-#[derive(Clone)]
-pub enum InnerDistanceMatrix {
-    Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    Pivoted(PivotedDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    NegLogSim(NegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
-    NegLog(NegLogDistance<NodeIndex<IndexType>, FloatType, InnerKernel>),
-    PivotedNegLog(PivotedNegLogDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>),
-    Embedding(EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>),
-    KernelDistance(
-        Box<
-            KernelDistance<
-                GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>,
-                FloatType,
-            >,
-        >,
-    ),
-}
-
-impl Distance<NodeIndex<IndexType>, FloatType> for InnerDistanceMatrix {
-    fn get(&self, u: NodeIndex<IndexType>, v: NodeIndex<IndexType>) -> Option<FloatType> {
-        match self {
-            Self::Full(d) => Distance::get(d, u, v),
-            Self::Pivoted(d) => Distance::get(d, u, v),
-            Self::NegLogSim(d) => Distance::get(d, u, v),
-            Self::NegLog(d) => Distance::get(d, u, v),
-            Self::PivotedNegLog(d) => Distance::get(d, u, v),
-            Self::Embedding(d) => Distance::get(d, u, v),
-            Self::KernelDistance(d) => Distance::get(d.as_ref(), u, v),
-        }
-    }
-
-    fn get_by_index(&self, i: usize, j: usize) -> FloatType {
-        match self {
-            Self::Full(d) => Distance::get_by_index(d, i, j),
-            Self::Pivoted(d) => Distance::get_by_index(d, i, j),
-            Self::NegLogSim(d) => Distance::get_by_index(d, i, j),
-            Self::NegLog(d) => Distance::get_by_index(d, i, j),
-            Self::PivotedNegLog(d) => Distance::get_by_index(d, i, j),
-            Self::Embedding(d) => Distance::get_by_index(d, i, j),
-            Self::KernelDistance(d) => {
-                Distance::<NodeIndex<IndexType>, FloatType>::get_by_index(d.as_ref(), i, j)
-            }
-        }
-    }
-
-    fn shape(&self) -> (usize, usize) {
-        match self {
-            Self::Full(d) => Distance::shape(d),
-            Self::Pivoted(d) => Distance::shape(d),
-            Self::NegLogSim(d) => Distance::shape(d),
-            Self::NegLog(d) => Distance::shape(d),
-            Self::PivotedNegLog(d) => Distance::shape(d),
-            Self::Embedding(d) => Distance::shape(d),
-            Self::KernelDistance(d) => {
-                Distance::<NodeIndex<IndexType>, FloatType>::shape(d.as_ref())
-            }
-        }
-    }
-
-    fn row_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
-        match self {
-            Self::Full(d) => Distance::row_index(d, u),
-            Self::Pivoted(d) => Distance::row_index(d, u),
-            Self::NegLogSim(d) => Distance::row_index(d, u),
-            Self::NegLog(d) => Distance::row_index(d, u),
-            Self::PivotedNegLog(d) => Distance::row_index(d, u),
-            Self::Embedding(d) => Distance::row_index(d, u),
-            Self::KernelDistance(d) => Distance::row_index(d.as_ref(), u),
-        }
-    }
-
-    fn col_index(&self, u: NodeIndex<IndexType>) -> Option<usize> {
-        match self {
-            Self::Full(d) => Distance::col_index(d, u),
-            Self::Pivoted(d) => Distance::col_index(d, u),
-            Self::NegLogSim(d) => Distance::col_index(d, u),
-            Self::NegLog(d) => Distance::col_index(d, u),
-            Self::PivotedNegLog(d) => Distance::col_index(d, u),
-            Self::Embedding(d) => Distance::col_index(d, u),
-            Self::KernelDistance(d) => Distance::col_index(d.as_ref(), u),
-        }
-    }
-}
-
-pub fn extract_inner_distance(distance_matrix: &Bound<PyAny>) -> PyResult<InnerDistanceMatrix> {
-    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
-        match dm.distance_matrix() {
-            DistanceMatrixType::Full(d) => Ok(InnerDistanceMatrix::Full(d.clone())),
-            DistanceMatrixType::Pivoted(d) => Ok(InnerDistanceMatrix::Pivoted(d.clone())),
-        }
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
-        Ok(InnerDistanceMatrix::NegLogSim(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
-        Ok(InnerDistanceMatrix::NegLog(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogDistance>>() {
-        Ok(InnerDistanceMatrix::PivotedNegLog(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
-        Ok(InnerDistanceMatrix::Embedding(dm.matrix.clone()))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
-        Ok(InnerDistanceMatrix::KernelDistance(Box::new(
-            dm.matrix.clone(),
-        )))
-    } else {
-        Err(pyo3::exceptions::PyTypeError::new_err(
-            "Unsupported distance matrix type for wrapping",
-        ))
-    }
-}
-
 pub fn with_distance<R>(
     distance_matrix: &Bound<PyAny>,
     f: impl FnOnce(&dyn Distance<NodeIndex<IndexType>, FloatType>) -> R,
@@ -302,8 +270,6 @@ pub fn with_distance<R>(
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogDistance>>() {
-        Ok(f(&dm.matrix))
-    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyEmbeddingDistanceMatrix>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
         Ok(f(&dm.matrix))
@@ -528,63 +494,115 @@ impl PyPivotedNegLogDistanceBuilder {
 }
 
 #[pyclass]
-#[pyo3(name = "EmbeddingDistanceMatrix")]
-pub struct PyEmbeddingDistanceMatrix {
-    pub(crate) matrix: EmbeddingDistanceMatrix<NodeIndex<IndexType>, FloatType>,
+#[pyo3(name = "EmbeddingKernel")]
+pub struct PyEmbeddingKernel {
+    pub(crate) kernel: EmbeddingKernel<NodeIndex<IndexType>, FloatType>,
 }
 
 #[pymethods]
-impl PyEmbeddingDistanceMatrix {
+impl PyEmbeddingKernel {
     #[new]
     pub fn new(
         graph: &PyGraphAdapter,
         embedding: &crate::array::PyArray2,
-        min_dist: FloatType,
     ) -> PyResult<Self> {
-        let matrix = match graph.graph() {
+        let kernel = match graph.graph() {
             GraphType::Graph(native_graph) => {
-                EmbeddingDistanceMatrix::new(native_graph, embedding.as_array().clone(), min_dist)
+                EmbeddingKernel::new(native_graph, embedding.as_array().clone())
             }
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
+            GraphType::DiGraph(native_graph) => {
+                EmbeddingKernel::new(native_graph, embedding.as_array().clone())
             }
         };
-        Ok(Self { matrix })
+        Ok(Self { kernel })
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix
-            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+        self.kernel.get(NodeIndex::new(u), NodeIndex::new(v))
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "GaussianKernel")]
+pub struct PyGaussianKernel {
+    pub(crate) kernel: GaussianKernel<Box<InnerKernel>, FloatType>,
+}
+
+#[pymethods]
+impl PyGaussianKernel {
+    #[new]
+    pub fn new(kernel: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
+        let inner = extract_inner_kernel(kernel)?;
+        Ok(Self {
+            kernel: GaussianKernel::new(Box::new(inner), gamma),
+        })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.kernel.get(u, v)
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "ExponentialKernel")]
+pub struct PyExponentialKernel {
+    pub(crate) kernel: ExponentialKernel<Box<InnerKernel>, FloatType>,
+}
+
+#[pymethods]
+impl PyExponentialKernel {
+    #[new]
+    pub fn new(kernel: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
+        let inner = extract_inner_kernel(kernel)?;
+        Ok(Self {
+            kernel: ExponentialKernel::new(Box::new(inner), gamma),
+        })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.kernel.get(u, v)
+    }
+}
+
+#[pyclass]
+#[pyo3(name = "TKernel")]
+pub struct PyTKernel {
+    pub(crate) kernel: TKernel<Box<InnerKernel>, FloatType>,
+}
+
+#[pymethods]
+impl PyTKernel {
+    #[new]
+    pub fn new(kernel: &Bound<PyAny>, dof: FloatType) -> PyResult<Self> {
+        let inner = extract_inner_kernel(kernel)?;
+        Ok(Self {
+            kernel: TKernel::new(Box::new(inner), dof),
+        })
+    }
+
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.kernel.get(u, v)
     }
 }
 
 #[pyclass]
 #[pyo3(name = "KernelDistance")]
 pub struct PyKernelDistance {
-    pub(crate) matrix: KernelDistance<
-        GaussianKernel<NodeIndex<IndexType>, InnerDistanceMatrix, FloatType>,
-        FloatType,
-    >,
+    pub(crate) matrix: KernelDistance<InnerKernel, FloatType>,
 }
 
 #[pymethods]
 impl PyKernelDistance {
     #[new]
-    #[pyo3(signature = (distance_matrix, gamma, min_dist = 0.0))]
-    pub fn new(distance_matrix: &Bound<PyAny>, gamma: FloatType, min_dist: FloatType) -> PyResult<Self> {
-        let inner = extract_inner_distance(distance_matrix)?;
-        let kernel = GaussianKernel::new(inner, gamma);
-        let matrix = KernelDistance::new(kernel).min_dist(min_dist);
+    #[pyo3(signature = (kernel, min_dist = 0.0))]
+    pub fn new(kernel: &Bound<PyAny>, min_dist: FloatType) -> PyResult<Self> {
+        let inner = extract_inner_kernel(kernel)?;
+        let mut matrix = KernelDistance::new(inner);
+        matrix.min_dist = min_dist;
         Ok(Self { matrix })
     }
-
-    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
-        self.matrix
-            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
-    }
 }
+
 
 use petgraph_distance::SparseSymmetricMatrix;
 
@@ -634,7 +652,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNegLogDistanceBuilder>()?;
     m.add_class::<PyPivotedNegLogDistance>()?;
     m.add_class::<PyPivotedNegLogDistanceBuilder>()?;
-    m.add_class::<PyEmbeddingDistanceMatrix>()?;
+    m.add_class::<PyEmbeddingKernel>()?;
+    m.add_class::<PyGaussianKernel>()?;
+    m.add_class::<PyExponentialKernel>()?;
+    m.add_class::<PyTKernel>()?;
     m.add_class::<PyKernelDistance>()?;
     m.add_class::<PyLaplacian>()?;
     m.add_class::<PyStandardLaplacian>()?;

@@ -49,7 +49,8 @@ class TestRandomPairSparseSgd(unittest.TestCase):
         embedding = rdmds.embedding(graph, lambda edge_idx: 1.0, eg.Ic0CgSolver(), rng)
 
         # Create EmbeddingDistanceMatrix
-        distance_matrix = eg.EmbeddingDistanceMatrix(graph, embedding, 1e-3)
+        kernel = eg.EmbeddingKernel(graph, embedding)
+        distance_matrix = eg.KernelDistance(kernel, 1e-3)
 
         # Build SGD
         sgd = eg.RandomPairSparseSgd().k(10).build(graph, distance_matrix, rng)

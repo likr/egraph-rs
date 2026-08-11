@@ -1,10 +1,10 @@
 [package]
-name = "petgraph-linalg-embedding-distance"
+name = "petgraph-linalg-embedding-kernel"
 version = "0.1.0"
 edition = "2021"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 license = "MIT"
-description = "Distance calculation based on coordinate embeddings"
+description = "Kernel calculation based on coordinate embeddings"
 repository = "https://github.com/likr/egraph-rs"
 
 [dependencies]

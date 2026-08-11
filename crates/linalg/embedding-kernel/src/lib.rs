@@ -1,29 +1,28 @@
-//! Distance matrix representation based on coordinate embeddings.
+//! Kernel matrix representation based on coordinate embeddings.
 
 use ndarray::{Array2, Zip};
 use petgraph::visit::IntoNodeIdentifiers;
-use petgraph_distance::Distance;
+use petgraph_distance::Kernel;
 use petgraph_drawing::DrawingValue;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-/// A distance matrix computed from Euclidean/spectral embedding coordinates.
+/// A kernel matrix computed from Euclidean/spectral embedding coordinates.
 ///
-/// d(i, j) = max(euclidean_distance(embedding[i], embedding[j]), min_dist)
+/// K(i, j) = dot_product(embedding[i], embedding[j])
 #[derive(Debug, Clone)]
-pub struct EmbeddingDistanceMatrix<N, S> {
-    embedding: Array2<S>,
-    node_indices: HashMap<N, usize>,
-    min_dist: S,
+pub struct EmbeddingKernel<N, S> {
+    pub embedding: Array2<S>,
+    pub node_indices: HashMap<N, usize>,
 }
 
-impl<N, S> EmbeddingDistanceMatrix<N, S>
+impl<N, S> EmbeddingKernel<N, S>
 where
     N: Eq + Hash + Copy,
     S: DrawingValue,
 {
-    /// Creates a new EmbeddingDistanceMatrix from coordinates and node mapping.
-    pub fn new<G>(graph: G, embedding: Array2<S>, min_dist: S) -> Self
+    /// Creates a new EmbeddingKernel from coordinates and node mapping.
+    pub fn new<G>(graph: G, embedding: Array2<S>) -> Self
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -36,12 +35,11 @@ where
         Self {
             embedding,
             node_indices,
-            min_dist,
         }
     }
 }
 
-impl<N, S> Distance<N, S> for EmbeddingDistanceMatrix<N, S>
+impl<N, S> Kernel<N, S> for EmbeddingKernel<N, S>
 where
     N: Eq + Hash + Copy,
     S: DrawingValue,
@@ -53,19 +51,15 @@ where
     }
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
-        if i == j {
-            return S::zero();
-        }
         let row_i = self.embedding.row(i);
         let row_j = self.embedding.row(j);
 
         let mut sum = S::zero();
         Zip::from(row_i).and(row_j).for_each(|&a, &b| {
-            let diff = a - b;
-            sum += diff * diff;
+            sum += a * b;
         });
 
-        sum.sqrt().max(self.min_dist)
+        sum
     }
 
     fn shape(&self) -> (usize, usize) {

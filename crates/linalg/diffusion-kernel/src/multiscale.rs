@@ -109,14 +109,30 @@ pub struct MultiscaleDiffusionKernel<S> {
     matrix: Array2<S>,
 }
 
-impl<S: Float> Kernel<S> for MultiscaleDiffusionKernel<S> {
-    fn get(&self, i: usize, j: usize) -> S {
+impl<S: Float> Kernel<usize, S> for MultiscaleDiffusionKernel<S> {
+    fn get(&self, u: usize, v: usize) -> Option<S> {
+        if u < self.n && v < self.n {
+            Some(self.get_by_index(u, v))
+        } else {
+            None
+        }
+    }
+
+    fn get_by_index(&self, i: usize, j: usize) -> S {
         assert!(i < self.n && j < self.n, "Index out of bounds");
         self.matrix[[i, j]]
     }
 
-    fn n(&self) -> usize {
-        self.n
+    fn shape(&self) -> (usize, usize) {
+        (self.n, self.n)
+    }
+
+    fn row_index(&self, u: usize) -> Option<usize> {
+        Some(u).filter(|&i| i < self.n)
+    }
+
+    fn col_index(&self, v: usize) -> Option<usize> {
+        Some(v).filter(|&j| j < self.n)
     }
 }
 

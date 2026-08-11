@@ -15,7 +15,7 @@ use petgraph_distance::{Distance, GaussianKernel, KernelDistance, SparseSymmetri
 use petgraph_linalg_diffusion_kernel::{
     DiffusionKernel, DiffusionKernelBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
 };
-use petgraph_linalg_embedding_distance::EmbeddingDistanceMatrix;
+use petgraph_linalg_embedding_kernel::EmbeddingKernel;
 use wasm_bindgen::prelude::*;
 
 /// Helper enum representing different types of distance matrices in WASM bindings.
@@ -24,8 +24,8 @@ pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<u32>, f32>),
     Pivoted(PivotedDistanceMatrix<NodeIndex<u32>, f32>),
     Diffusion(NegLogSimDistance<NodeIndex<u32>, f32, DiffusionKernel<f32>>),
-    Embedding(EmbeddingDistanceMatrix<NodeIndex<u32>, f32>),
-    Kernel(Box<KernelDistance<GaussianKernel<NodeIndex<u32>, InnerDistanceMatrix, f32>, f32>>),
+    Embedding(KernelDistance<EmbeddingKernel<NodeIndex<u32>, f32>, f32>),
+    Kernel(Box<KernelDistance<GaussianKernel<EmbeddingKernel<NodeIndex<u32>, f32>, f32>, f32>>),
 }
 
 impl Distance<NodeIndex<u32>, f32> for InnerDistanceMatrix {
@@ -143,12 +143,16 @@ impl JsDiffusionKernel {
     }
 
     pub fn get(&self, i: usize, j: usize) -> f32 {
-        petgraph_distance::Kernel::get(&self.kernel, i, j)
+        petgraph_distance::Kernel::get_by_index(&self.kernel, i, j)
     }
 
     #[wasm_bindgen]
-    pub fn n(&self) -> usize {
-        petgraph_distance::Kernel::n(&self.kernel)
+    pub fn shape(&self) -> js_sys::Array {
+        let (r, c) = petgraph_distance::Kernel::shape(&self.kernel);
+        let array = js_sys::Array::new();
+        array.push(&JsValue::from_f64(r as f64));
+        array.push(&JsValue::from_f64(c as f64));
+        array
     }
 }
 
@@ -222,18 +226,23 @@ impl JsDistanceMatrix {
         }
         let array = ndarray::Array2::from_shape_vec((n, d), coordinates.to_vec())
             .map_err(|e| JsError::new(&format!("Failed to create ndarray shape: {:?}", e)))?;
-        let matrix = EmbeddingDistanceMatrix::new(graph.graph(), array, min_dist);
+        let kernel = EmbeddingKernel::new(graph.graph(), array);
+        let matrix = KernelDistance::new(kernel).min_dist(min_dist);
         Ok(JsDistanceMatrix {
             inner: InnerDistanceMatrix::Embedding(matrix),
         })
     }
 
     #[wasm_bindgen(js_name = "kernel")]
-    pub fn kernel(distance_matrix: &JsDistanceMatrix, gamma: f32) -> JsDistanceMatrix {
-        let kernel = GaussianKernel::new(distance_matrix.inner.clone(), gamma);
-        let matrix = KernelDistance::new(kernel);
-        JsDistanceMatrix {
-            inner: InnerDistanceMatrix::Kernel(Box::new(matrix)),
+    pub fn kernel(distance_matrix: &JsDistanceMatrix, gamma: f32) -> Result<JsDistanceMatrix, JsError> {
+        if let InnerDistanceMatrix::Embedding(ref d) = distance_matrix.inner {
+            let kernel = GaussianKernel::new(d.kernel.clone(), gamma);
+            let matrix = KernelDistance::new(kernel).min_dist(d.min_dist);
+            Ok(JsDistanceMatrix {
+                inner: InnerDistanceMatrix::Kernel(Box::new(matrix)),
+            })
+        } else {
+            Err(JsError::new("Only Embedding matrix can be used for Gaussian kernel in wasm"))
         }
     }
 }

@@ -90,7 +90,7 @@ impl<N, S, K> Distance<N, S> for NegLogSimDistance<N, S, K>
 where
     N: Eq + Hash + Copy,
     S: Float + num_traits::FromPrimitive,
-    K: Kernel<S>,
+    K: Kernel<usize, S>,
 {
     fn get(&self, u: N, v: N) -> Option<S> {
         let i = self.row_index(u)?;
@@ -99,9 +99,9 @@ where
     }
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
-        let k_ii = self.kernel.get(i, i);
-        let k_jj = self.kernel.get(j, j);
-        let k_ij = self.kernel.get(i, j);
+        let k_ii = self.kernel.get_by_index(i, i);
+        let k_jj = self.kernel.get_by_index(j, j);
+        let k_ij = self.kernel.get_by_index(i, j);
 
         if k_ii + self.beta <= S::zero() || k_jj + self.beta <= S::zero() || k_ij + self.beta <= S::zero() {
             return S::infinity();
@@ -116,7 +116,7 @@ where
     }
 
     fn shape(&self) -> (usize, usize) {
-        let n = self.kernel.n();
+        let n = self.kernel.shape().0;
         (n, n)
     }
 
@@ -212,7 +212,7 @@ impl<N, S, K> Distance<N, S> for NegLogDistance<N, S, K>
 where
     N: Eq + Hash + Copy,
     S: Float,
-    K: Kernel<S>,
+    K: Kernel<usize, S>,
 {
     fn get(&self, u: N, v: N) -> Option<S> {
         let i = self.row_index(u)?;
@@ -221,7 +221,7 @@ where
     }
 
     fn get_by_index(&self, i: usize, j: usize) -> S {
-        let k_ij = self.kernel.get(i, j);
+        let k_ij = self.kernel.get_by_index(i, j);
         if k_ij + self.beta <= S::zero() {
             return S::infinity();
         }
@@ -230,7 +230,7 @@ where
     }
 
     fn shape(&self) -> (usize, usize) {
-        let n = self.kernel.n();
+        let n = self.kernel.shape().0;
         (n, n)
     }
 
