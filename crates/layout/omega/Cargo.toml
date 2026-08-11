@@ -7,10 +7,8 @@ edition = "2024"
 ndarray = "0.16"
 petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
-petgraph-distance = { path = "../../linalg/distance" }
-petgraph-linalg-embedding-kernel = { path = "../../linalg/embedding-kernel" }
+petgraph-linalg-kernel = { path = "../../linalg/kernel" }
 petgraph-layout-sgd = { path = "../sgd" }
 rand = "0.8"
 
 [dev-dependencies]
-petgraph-linalg-rdmds = { path = "../../linalg/rdmds" }

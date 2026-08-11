@@ -4,8 +4,8 @@ use ndarray::Array2;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingValue;
 use petgraph_layout_sgd::{RandomPairSparseSgd, Sgd};
-use petgraph_distance::KernelDistance;
-use petgraph_linalg_embedding_kernel::EmbeddingKernel;
+use petgraph_linalg_kernel::EmbeddingKernel;
+use petgraph_linalg_kernel::KernelDistance;
 use rand::Rng;
 
 /// Omega builder for creating SGD instances from spectral embeddings.

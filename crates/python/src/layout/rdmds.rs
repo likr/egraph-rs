@@ -10,7 +10,7 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
-use petgraph_linalg_rdmds::RdMds;
+use petgraph_linalg_kernel::RdMds;
 use pyo3::prelude::*;
 
 /// Result of an eigendecomposition computation

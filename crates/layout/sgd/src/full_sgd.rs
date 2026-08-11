@@ -1,8 +1,8 @@
 use crate::Sgd;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
 use petgraph_algorithm_shortest_path::all_sources_dijkstra;
-use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_linalg_kernel::Distance;
 
 /// Builder for creating Full SGD instances.
 ///

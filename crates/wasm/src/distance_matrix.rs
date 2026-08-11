@@ -11,11 +11,11 @@ use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{
     all_sources_dijkstra, FullDistanceMatrix, PivotedDistanceMatrix,
 };
-use petgraph_distance::{Distance, GaussianKernel, KernelDistance, SparseSymmetricMatrix};
-use petgraph_linalg_diffusion_kernel::{
+use petgraph_linalg_kernel::EmbeddingKernel;
+use petgraph_linalg_kernel::{
     DiffusionKernel, DiffusionKernelBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
 };
-use petgraph_linalg_embedding_kernel::EmbeddingKernel;
+use petgraph_linalg_kernel::{Distance, GaussianKernel, KernelDistance, SparseSymmetricMatrix};
 use wasm_bindgen::prelude::*;
 
 /// Helper enum representing different types of distance matrices in WASM bindings.
@@ -143,12 +143,12 @@ impl JsDiffusionKernel {
     }
 
     pub fn get(&self, i: usize, j: usize) -> f32 {
-        petgraph_distance::Kernel::get_by_index(&self.kernel, i, j)
+        petgraph_linalg_kernel::Kernel::get_by_index(&self.kernel, i, j)
     }
 
     #[wasm_bindgen]
     pub fn shape(&self) -> js_sys::Array {
-        let (r, c) = petgraph_distance::Kernel::shape(&self.kernel);
+        let (r, c) = petgraph_linalg_kernel::Kernel::shape(&self.kernel);
         let array = js_sys::Array::new();
         array.push(&JsValue::from_f64(r as f64));
         array.push(&JsValue::from_f64(c as f64));
@@ -234,7 +234,10 @@ impl JsDistanceMatrix {
     }
 
     #[wasm_bindgen(js_name = "kernel")]
-    pub fn kernel(distance_matrix: &JsDistanceMatrix, gamma: f32) -> Result<JsDistanceMatrix, JsError> {
+    pub fn kernel(
+        distance_matrix: &JsDistanceMatrix,
+        gamma: f32,
+    ) -> Result<JsDistanceMatrix, JsError> {
         if let InnerDistanceMatrix::Embedding(ref d) = distance_matrix.inner {
             let kernel = GaussianKernel::new(d.kernel.clone(), gamma);
             let matrix = KernelDistance::new(kernel).min_dist(d.min_dist);
@@ -242,7 +245,9 @@ impl JsDistanceMatrix {
                 inner: InnerDistanceMatrix::Kernel(Box::new(matrix)),
             })
         } else {
-            Err(JsError::new("Only Embedding matrix can be used for Gaussian kernel in wasm"))
+            Err(JsError::new(
+                "Only Embedding matrix can be used for Gaussian kernel in wasm",
+            ))
         }
     }
 }

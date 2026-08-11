@@ -7,7 +7,7 @@ edition = "2018"
 ndarray = "0.16"
 ordered-float = "3.0"
 petgraph = "0.8"
-petgraph-distance = { path = "../../linalg/distance" }
+petgraph-linalg-kernel = { path = "../../linalg/kernel" }
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }

@@ -1,19 +1,20 @@
-use pyo3::prelude::*;
 use crate::{
     graph::{GraphType, IndexType, PyGraphAdapter},
     FloatType,
 };
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
-use petgraph_distance::{Distance, Kernel, KernelDistance, GaussianKernel, ExponentialKernel, TKernel};
-use petgraph_linalg_diffusion_kernel::{
+use petgraph_linalg_kernel::EmbeddingKernel;
+use petgraph_linalg_kernel::{
     DiffusionKernel, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
     MultiscaleDiffusionKernel, NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance,
     NegLogSimDistanceBuilder, PivotedDiffusionKernel, PivotedKernel,
     PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder,
 };
-use petgraph_linalg_embedding_kernel::EmbeddingKernel;
-
+use petgraph_linalg_kernel::{
+    Distance, ExponentialKernel, GaussianKernel, Kernel, KernelDistance, TKernel,
+};
+use pyo3::prelude::*;
 
 pub enum DistanceMatrixType {
     Full(FullDistanceMatrix<NodeIndex<IndexType>, FloatType>),
@@ -214,7 +215,6 @@ pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
         Ok(InnerKernel::T(k.kernel.clone()))
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
-
             "Unsupported kernel type",
         ))
     }
@@ -400,11 +400,7 @@ impl PyNegLogDistanceBuilder {
         slf
     }
 
-    fn build(
-        &self,
-        graph: &PyGraphAdapter,
-        kernel: &Bound<PyAny>,
-    ) -> PyResult<PyNegLogDistance> {
+    fn build(&self, graph: &PyGraphAdapter, kernel: &Bound<PyAny>) -> PyResult<PyNegLogDistance> {
         let inner_kernel = extract_inner_kernel(kernel)?;
         let matrix = match graph.graph() {
             GraphType::Graph(native_graph) => self
@@ -502,10 +498,7 @@ pub struct PyEmbeddingKernel {
 #[pymethods]
 impl PyEmbeddingKernel {
     #[new]
-    pub fn new(
-        graph: &PyGraphAdapter,
-        embedding: &crate::array::PyArray2,
-    ) -> PyResult<Self> {
+    pub fn new(graph: &PyGraphAdapter, embedding: &crate::array::PyArray2) -> PyResult<Self> {
         let kernel = match graph.graph() {
             GraphType::Graph(native_graph) => {
                 EmbeddingKernel::new(native_graph, embedding.as_array().clone())
@@ -603,8 +596,7 @@ impl PyKernelDistance {
     }
 }
 
-
-use petgraph_distance::SparseSymmetricMatrix;
+use petgraph_linalg_kernel::SparseSymmetricMatrix;
 
 #[pyclass(from_py_object)]
 #[pyo3(name = "Laplacian")]

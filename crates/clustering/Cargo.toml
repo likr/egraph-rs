@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 petgraph = "0.8"
-petgraph-linalg-rdmds = { path = "../linalg/rdmds" }
+petgraph-linalg-kernel = { path = "../linalg/kernel" }
 petgraph-drawing = { path = "../drawing" }
 ndarray = "0.16"
 rand = "0.8"

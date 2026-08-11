@@ -1,0 +1,15 @@
+[package]
+name = "petgraph-linalg-kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
+license = "MIT"
+description = "Distance and kernel metrics, including diffusion and embedding kernels"
+repository = "https://github.com/likr/egraph-rs"
+
+[dependencies]
+ndarray = "0.16"
+num-traits = "0.2"
+petgraph = "0.8"
+petgraph-drawing = { path = "../../drawing" }
+rand = "0.8"

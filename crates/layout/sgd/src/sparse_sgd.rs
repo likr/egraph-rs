@@ -5,8 +5,8 @@ use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIn
 use petgraph_algorithm_shortest_path::{
     dijkstra_with_distance_matrix, multi_source_dijkstra, PivotedDistanceMatrix,
 };
-use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_linalg_kernel::Distance;
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
 
@@ -116,14 +116,14 @@ impl SparseSgd {
         &self,
         graph: G,
         length: F,
-        distance_matrix: &petgraph_linalg_diffusion_kernel::PivotedNegLogDistance<G::NodeId, S, K>,
+        distance_matrix: &petgraph_linalg_kernel::PivotedNegLogDistance<G::NodeId, S, K>,
     ) -> Sgd<S>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
         S: DrawingValue,
-        K: petgraph_linalg_diffusion_kernel::PivotedKernel<S>,
+        K: petgraph_linalg_kernel::PivotedKernel<S>,
     {
         let nodes = graph.node_identifiers().collect::<Vec<_>>();
         let pivot_nodes = distance_matrix

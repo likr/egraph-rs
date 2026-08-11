@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use num_traits::Float;
-use petgraph_distance::Distance;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
+use petgraph_linalg_kernel::Distance;
 
 /// tsNET graph layout algorithm.
 ///

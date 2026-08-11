@@ -14,8 +14,8 @@
 //!
 //! ```rust
 //! use petgraph::Graph;
-//! use petgraph_linalg_rdmds::RdMds;
-//! use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
+//! use petgraph_linalg_kernel::RdMds;
+//! use petgraph_linalg_kernel::solvers::Ic0CgSolver;
 //! use petgraph_layout_omega::Omega;
 //! use petgraph_layout_sgd::{Scheduler, SchedulerExponential};
 //! use petgraph_drawing::DrawingEuclidean2d;
@@ -67,8 +67,8 @@ pub use omega::Omega;
 mod tests {
     use super::*;
     use petgraph::Graph;
-    use petgraph_linalg_rdmds::RdMds;
-    use petgraph_linalg_rdmds::solvers::Ic0CgSolver;
+    use petgraph_linalg_kernel::RdMds;
+    use petgraph_linalg_kernel::solvers::Ic0CgSolver;
     use rand::thread_rng;
 
     #[test]

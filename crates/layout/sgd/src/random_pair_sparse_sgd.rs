@@ -1,7 +1,7 @@
 use crate::Sgd;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_distance::Distance;
 use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_linalg_kernel::Distance;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 

@@ -144,7 +144,7 @@ where
     }
 }
 
-impl<N, S> petgraph_distance::Distance<N, S> for FullDistanceMatrix<N, S>
+impl<N, S> petgraph_linalg_kernel::Distance<N, S> for FullDistanceMatrix<N, S>
 where
     N: Eq + Hash + Copy,
     S: NdFloat,
@@ -274,7 +274,7 @@ where
     }
 }
 
-impl<N, S> petgraph_distance::Distance<N, S> for PivotedDistanceMatrix<N, S>
+impl<N, S> petgraph_linalg_kernel::Distance<N, S> for PivotedDistanceMatrix<N, S>
 where
     N: Eq + Hash + Copy,
     S: NdFloat,
