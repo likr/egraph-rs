@@ -9,7 +9,7 @@
 /// - ClassicalMds: The standard MDS algorithm that computes a full distance matrix
 /// - PivotMds: An efficient approximation that uses a subset of nodes as pivots
 use crate::{
-    distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
+    distance_matrix::with_distance,
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
     FloatType,
@@ -65,17 +65,14 @@ impl PyClassicalMds {
     /// Creates a new ClassicalMds instance from a distance matrix
     ///
     /// :param d: A pre-computed matrix of distances between nodes
-    /// :type d: DistanceMatrix
+    /// :type d: DistanceMatrix or KernelDistance or NegLogDistance or NegLogSimDistance
     /// :return: A new ClassicalMds instance
     /// :rtype: ClassicalMds
     #[staticmethod]
-    fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
-        match d.distance_matrix() {
-            DistanceMatrixType::Full(d) => Self {
-                mds: ClassicalMds::new_with_distance_matrix(d),
-            },
-            _ => panic!("unsupported distance matrix type"),
-        }
+    fn new_with_distance_matrix(d: &Bound<PyAny>) -> PyResult<Self> {
+        with_distance(d, |distance_matrix| Self {
+            mds: ClassicalMds::new_with_distance_matrix(distance_matrix),
+        })
     }
 
     /// Runs the Classical MDS algorithm to generate a layout in the specified dimension
@@ -176,19 +173,14 @@ impl PyPivotMds {
     /// Creates a new PivotMds instance from a distance matrix
     ///
     /// :param d: A pre-computed matrix of distances between nodes
-    /// :type d: DistanceMatrix
+    /// :type d: DistanceMatrix or KernelDistance or NegLogDistance or NegLogSimDistance or PivotedNegLogDistance
     /// :return: A new PivotMds instance
     /// :rtype: PivotMds
     #[staticmethod]
-    fn new_with_distance_matrix(d: &PyDistanceMatrix) -> Self {
-        match d.distance_matrix() {
-            DistanceMatrixType::Full(d) => Self {
-                mds: PivotMds::new_with_distance_matrix(d),
-            },
-            DistanceMatrixType::Pivoted(d) => Self {
-                mds: PivotMds::new_with_distance_matrix(d),
-            },
-        }
+    fn new_with_distance_matrix(d: &Bound<PyAny>) -> PyResult<Self> {
+        with_distance(d, |distance_matrix| Self {
+            mds: PivotMds::new_with_distance_matrix(distance_matrix),
+        })
     }
 
     /// Runs the Pivot MDS algorithm to generate a layout in the specified dimension

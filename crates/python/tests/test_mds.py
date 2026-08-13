@@ -61,6 +61,17 @@ class TestQualityMetrics(unittest.TestCase):
             drawing = mds.run_2d()
             check_drawing_2d(graph, drawing)
 
+    def test_pivot_mds_2d_with_kernel_distance(self):
+        for graph in self._graphs:
+            rng = eg.Rng.seed_from(42)
+            rdmds = eg.RdMds().d(2)
+            embedding = rdmds.embedding(graph, lambda e: 1.0, eg.Ic0CgSolver(), rng)
+            kernel = eg.EmbeddingKernelBuilder().build(graph, embedding)
+            d = eg.KernelDistanceBuilder().build(kernel)
+            mds = eg.PivotMds.new_with_distance_matrix(d)
+            drawing = mds.run_2d()
+            check_drawing_2d(graph, drawing)
+
     def test_classical_mds_3d(self):
         for graph in self._graphs:
             mds = eg.ClassicalMds(graph, lambda _: 30)

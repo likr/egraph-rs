@@ -185,3 +185,28 @@ fn test_pivot_mds_various_dimensions() {
         }
     }
 }
+
+#[test]
+fn test_pivot_mds_with_kernel_distance() {
+    use petgraph_linalg_kernel::{EmbeddingKernelBuilder, KernelDistanceBuilder};
+
+    let mut graph = Graph::new_undirected();
+    let n1 = graph.add_node(());
+    let n2 = graph.add_node(());
+    let n3 = graph.add_node(());
+    graph.add_edge(n1, n2, ());
+    graph.add_edge(n2, n3, ());
+
+    let embedding = ndarray::Array2::<f32>::zeros((3, 2));
+    let kernel = EmbeddingKernelBuilder::new()
+        .build(&graph, embedding)
+        .unwrap();
+    let distance = KernelDistanceBuilder::new().build(kernel).unwrap();
+
+    let mds = PivotMds::new_with_distance_matrix(&distance);
+    let drawing = mds.run_2d();
+    for u in graph.node_indices() {
+        assert!(drawing.x(u).unwrap().is_finite());
+        assert!(drawing.y(u).unwrap().is_finite());
+    }
+}

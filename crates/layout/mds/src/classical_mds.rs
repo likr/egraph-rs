@@ -1,8 +1,9 @@
 use crate::{double_centering::double_centering, eigendecomposition::eigendecomposition};
 use ndarray::prelude::*;
 use petgraph::visit::{IntoEdges, IntoNodeIdentifiers};
-use petgraph_algorithm_shortest_path::{all_sources_dijkstra, DistanceMatrix, FullDistanceMatrix};
+use petgraph_algorithm_shortest_path::all_sources_dijkstra;
 use petgraph_drawing::{Drawing, DrawingEuclidean, DrawingEuclidean2d, DrawingIndex, DrawingValue};
+use petgraph_linalg_kernel::Distance;
 
 /// Classical Multidimensional Scaling (CMDS) implementation.
 ///
@@ -79,7 +80,8 @@ where
         N: Copy,
     {
         let distance_matrix = all_sources_dijkstra(graph, length);
-        Self::new_with_distance_matrix(&distance_matrix)
+        let indices = graph.node_identifiers().collect::<Vec<_>>();
+        Self::new_with_distance_matrix_and_indices(&distance_matrix, &indices)
     }
 
     /// Creates a new Classical MDS instance from a pre-computed distance matrix.
@@ -94,28 +96,54 @@ where
     /// # Type Parameters
     ///
     /// * `N2`: Node index type of the distance matrix
+    /// * `D`: Distance matrix type
     ///
     /// # Returns
     ///
     /// A new `ClassicalMds` instance ready to compute a layout
-    pub fn new_with_distance_matrix<N2>(distance_matrix: &FullDistanceMatrix<N2, S>) -> Self
+    pub fn new_with_distance_matrix<D>(distance_matrix: &D) -> Self
+    where
+        petgraph::graph::NodeIndex: Into<N>,
+        D: Distance<petgraph::graph::NodeIndex, S> + ?Sized,
+    {
+        let indices = (0..distance_matrix.shape().0)
+            .map(petgraph::graph::node_index)
+            .collect::<Vec<_>>();
+        Self::new_with_distance_matrix_and_indices(distance_matrix, &indices)
+    }
+
+    /// Creates a new Classical MDS instance from a pre-computed distance matrix and explicit node indices.
+    ///
+    /// # Parameters
+    ///
+    /// * `distance_matrix`: A matrix containing distances between all pairs of nodes
+    /// * `indices`: A slice of node identifiers for the matrix
+    ///
+    /// # Type Parameters
+    ///
+    /// * `N2`: Node index type of the distance matrix
+    /// * `D`: Distance matrix type
+    ///
+    /// # Returns
+    ///
+    /// A new `ClassicalMds` instance ready to compute a layout
+    pub fn new_with_distance_matrix_and_indices<N2, D>(distance_matrix: &D, indices: &[N2]) -> Self
     where
         N2: DrawingIndex + Copy + Into<N>,
+        D: Distance<N2, S> + ?Sized,
     {
         let (n, m) = distance_matrix.shape();
         let mut delta = Array2::zeros((n, m));
         for i in 0..n {
             for j in 0..m {
-                delta[[i, j]] = distance_matrix.get_by_index(i, j).powi(2);
+                let dij = distance_matrix.get_by_index(i, j);
+                delta[[i, j]] = dij * dij;
             }
         }
         let b = double_centering(&delta);
         Self {
             eps: (1e-3).into(),
-            indices: distance_matrix
-                .row_indices()
-                .map(|u| u.into())
-                .collect::<Vec<_>>(),
+            indices: indices.iter().map(|&u| u.into()).collect::<Vec<_>>(),
             b,
         }
     }
