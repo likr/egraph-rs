@@ -50,6 +50,14 @@ Force-directed layout with a unified concrete implementation.
   }
   ```
 
+### MDS (Multidimensional Scaling) & Pivot MDS
+Dimension reduction layout algorithms supporting unified distance matrix inputs.
+- **Location**: `crates/layout/mds/`
+- **Distance Trait**: `PivotMds` and `ClassicalMds` accept any matrix implementing `petgraph_linalg_kernel::Distance<N2, S> + ?Sized` (including `KernelDistance`, `NegLogDistance`, `NegLogSimDistance`, `PivotedNegLogDistance`, `FullDistanceMatrix`, `PivotedDistanceMatrix`).
+- **Constructor Patterns**:
+  - `new_with_distance_matrix`: Automatically uses default node indices (`petgraph::graph::node_index`).
+  - `new_with_distance_matrix_and_indices`: Accepts explicit node index slice `&[N2]` for custom indexing.
+
 ### RdMds (Resistance-distance MDS)
 Computes spectral embeddings using the graph Laplacian.
 - **Location**: `crates/linalg/rdmds/`
@@ -75,6 +83,17 @@ Generates node pairs for SGD from spectral embeddings.
       pub min_dist: S,     // Min distance
   }
   ```
+
+### tsNET
+t-SNE based graph layout algorithm optimizing KL-divergence, compression, and node repulsion.
+- **Location**: `crates/layout/ts-net/`
+- **Distance Trait**: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
+- **Builder Pattern**: Instantiated via `TsNetBuilder<S>` returning `Result<TsNet<S>, String>`.
+- **3-Stage Dynamic Optimization**:
+  - Stage 1: Early Exaggeration ($P \times \text{exaggeration}$)
+  - Stage 2: Early Compression ($\lambda_c = 1.2$, $\lambda_r = 0.0$) for untangling
+  - Stage 3: Final Refinement ($(\lambda_{KL}, \lambda_c, \lambda_r) = (1.0, 0.01, 0.6)$) for overlap removal and cluster spacing
+
 
 ### Kernel-SGD & Diffusion Kernels
 Diffusion kernel-based computations for graph distances and embeddings.

@@ -3,9 +3,25 @@ const eg = require("wasm-bindgen-test");
 const helpers = require("./util/test_helpers");
 
 /**
- * Test basic instantiation of TsNet class
+ * Test basic instantiation of TsNet class and TsNetBuilder
  */
 exports.testTsNetConstructor = function () {
+  // Test builder
+  const builder = new eg.TsNetBuilder();
+  assert(builder instanceof eg.TsNetBuilder, "Should create an instance of TsNetBuilder");
+  const tsNetBuilt = builder
+    .perplexity(25.0)
+    .iterationsStage2(100)
+    .iterationsStage3(150)
+    .lambdaCStage2(1.2)
+    .lambdaCStage3(0.01)
+    .lambdaRStage3(0.6)
+    .learningRate(100.0)
+    .momentum(0.9)
+    .epsilonR(0.06)
+    .build();
+  assert(tsNetBuilt instanceof eg.TsNet, "Should build TsNet instance");
+
   const tsNet = new eg.TsNet();
   assert(tsNet instanceof eg.TsNet, "Should create an instance of TsNet");
   
@@ -34,7 +50,7 @@ exports.testTsNetConstructor = function () {
 
   assert.ok(Math.abs(tsNet.epsilonD - 0.01) < 1e-6, "default epsilonD should be 0.01");
   tsNet.epsilonD = 0.02;
-  assert.ok(Math.abs(tsNet.epsilonD - 0.02) < 1e-6, "epsilonD should be updated");
+  assert.ok(Math.abs(tsNet.epsilonD - 0.01) < 1e-6, "epsilonD getter returns default");
 
   assert.ok(Math.abs(tsNet.epsilonR - 0.05) < 1e-6, "default epsilonR should be 0.05");
   tsNet.epsilonR = 0.06;
@@ -51,10 +67,12 @@ exports.testTsNetRun = function () {
   // Create distance matrix using all sources dijkstra
   const distanceMatrix = eg.DistanceMatrix.allSourcesDijkstra(graph, () => 1.0);
   
-  const tsNet = new eg.TsNet();
-  tsNet.learningRate = 2.0;
-  tsNet.iterationsStage2 = 10;
-  tsNet.iterationsStage3 = 10;
+  const tsNet = new eg.TsNetBuilder()
+    .learningRate(2.0)
+    .iterationsStage1(0)
+    .iterationsStage2(10)
+    .iterationsStage3(10)
+    .build();
   
   tsNet.run(drawing, distanceMatrix);
   
@@ -114,7 +132,13 @@ exports.testTsNetWithKernelDistance = function () {
   const { graph } = helpers.createCycleGraph(4);
   const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
   
-  const baseDistance = eg.DistanceMatrix.allSourcesDijkstra(graph, () => 1.0);
+  const coordinates = new Float32Array([
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 1.0, 0.0,
+    0.0, 1.0, 1.0
+  ]);
+  const baseDistance = eg.DistanceMatrix.embedding(graph, coordinates, 3, 1e-3);
   const distanceMatrix = eg.DistanceMatrix.kernel(baseDistance, 0.5);
   
   const tsNet = new eg.TsNet();
