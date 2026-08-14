@@ -256,3 +256,57 @@ exports.testFitTsNetRun = function () {
   helpers.verifyFiniteCoordinates2d(drawing, graph);
 };
 
+/**
+ * Test basic instantiation of LTsNet class and LTsNetBuilder
+ */
+exports.testLTsNetConstructor = function () {
+  const builder = new eg.LTsNetBuilder();
+  assert(builder instanceof eg.LTsNetBuilder, "Should create an instance of LTsNetBuilder");
+  const lTsNetBuilt = builder
+    .intervals(20)
+    .interpolationPoints(3)
+    .perplexity(25.0)
+    .k(50)
+    .iterationsStage2(100)
+    .iterationsStage3(150)
+    .lambdaCStage2(1.2)
+    .lambdaCStage3(0.01)
+    .lambdaRStage3(0.6)
+    .learningRate(100.0)
+    .momentum(0.9)
+    .epsilonR(0.06)
+    .build();
+  assert(lTsNetBuilt instanceof eg.LTsNet, "Should build LTsNet instance");
+
+  const lTsNet = new eg.LTsNet();
+  assert(lTsNet instanceof eg.LTsNet, "Should create an instance of LTsNet");
+  assert.strictEqual(lTsNet.perplexity, 40.0, "default perplexity should be 40");
+  assert.strictEqual(lTsNet.intervals, 25, "default intervals should be 25");
+  assert.strictEqual(lTsNet.interpolationPoints, 3, "default interpolationPoints should be 3");
+};
+
+/**
+ * Test running LTsNet on graph
+ */
+exports.testLTsNetRun = function () {
+  const { graph } = helpers.createCycleGraph(6);
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const rng = eg.Rng.seedFrom(BigInt(42));
+
+  const lTsNet = new eg.LTsNetBuilder()
+    .intervals(10)
+    .interpolationPoints(3)
+    .perplexity(2.0)
+    .k(4)
+    .learningRate(2.0)
+    .iterationsStage1(10)
+    .iterationsStage2(10)
+    .iterationsStage3(10)
+    .build();
+
+  lTsNet.run(drawing, graph, rng);
+
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
+};
+
+

@@ -33,6 +33,12 @@ extern "C" {
 
     #[wasm_bindgen(js_name = "testFitTsNetRun")]
     fn test_fit_ts_net_run();
+
+    #[wasm_bindgen(js_name = "testLTsNetConstructor")]
+    fn test_l_ts_net_constructor();
+
+    #[wasm_bindgen(js_name = "testLTsNetRun")]
+    fn test_l_ts_net_run();
 }
 
 #[wasm_bindgen_test]
@@ -78,4 +84,14 @@ pub fn fit_ts_net_constructor() {
 #[wasm_bindgen_test]
 pub fn fit_ts_net_run() {
     test_fit_ts_net_run();
+}
+
+#[wasm_bindgen_test]
+pub fn l_ts_net_constructor() {
+    test_l_ts_net_constructor();
+}
+
+#[wasm_bindgen_test]
+pub fn l_ts_net_run() {
+    test_l_ts_net_run();
 }

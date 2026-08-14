@@ -84,7 +84,7 @@ Generates node pairs for SGD from spectral embeddings.
   }
   ```
 
-### tsNET, BH-tsNET & FIt-tsNET
+### tsNET, BH-tsNET, FIt-tsNET & L-tsNET
 t-SNE based graph layout algorithms optimizing KL-divergence, compression, and node repulsion.
 - **Location**: `crates/layout/ts-net/`
 - **tsNET**:
@@ -102,6 +102,12 @@ t-SNE based graph layout algorithms optimizing KL-divergence, compression, and n
   - C1: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for low-dimensional Student-$t$ KL repulsion.
   - C2: $O(N \log N)$ 2D Quadtree spatial approximation for entropy gradient.
   - Builder Pattern: Instantiated via `FitTsNetBuilder<S>` returning `Result<FitTsNet<S>, String>`.
+- **L-tsNET**:
+  - Linear-time $O(N)$ and space $O(N + M)$ algorithm for large graphs.
+  - C0: $O(N)$ Partial BFS for $k$-nearest neighbors with random tie-breaking.
+  - C1: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for Student-$t$ KL repulsion.
+  - C2: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for entropy gradient using reformulated $h_1, h_2, h_3$.
+  - Builder Pattern: Instantiated via `LTsNetBuilder<S>` returning `Result<LTsNet<S>, String>`.
 
 
 ### Kernel-SGD & Diffusion Kernels

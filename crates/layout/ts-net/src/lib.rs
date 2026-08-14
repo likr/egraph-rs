@@ -1,9 +1,10 @@
-//! # tsNET, BH-tsNET & FIt-tsNET Graph Layout Algorithms
+//! # tsNET, BH-tsNET, FIt-tsNET & L-tsNET Graph Layout Algorithms
 //!
-//! This crate provides the `TsNet`, `BhTsNet`, and `FitTsNet` layout algorithms:
+//! This crate provides the `TsNet`, `BhTsNet`, `FitTsNet`, and `LTsNet` layout algorithms:
 //! - `TsNet`: Full-matrix t-SNE-based graph layout optimizing KL divergence, early compression, and entropy.
 //! - `BhTsNet`: Accelerated O(N log N) Barnes-Hut tsNET combining Partial BFS and Quadtree spatial approximations.
 //! - `FitTsNet`: Accelerated O(N log N) Fast Interpolation tsNET combining Partial BFS, 2D FFT interpolation for KL divergence, and Quadtree for entropy.
+//! - `LTsNet`: Linear-time O(N) L-tsNET extending 2D FFT interpolation to both KL divergence and entropy gradients.
 //!
 //! ## References
 //!
@@ -18,6 +19,8 @@ pub mod fft;
 pub mod fit_interpolation;
 pub mod fit_ts_net;
 pub mod fit_ts_net_builder;
+pub mod l_ts_net;
+pub mod l_ts_net_builder;
 pub mod partial_bfs;
 pub mod quadtree;
 mod ts_net;
@@ -27,6 +30,8 @@ pub use bh_ts_net::BhTsNet;
 pub use bh_ts_net_builder::BhTsNetBuilder;
 pub use fit_ts_net::FitTsNet;
 pub use fit_ts_net_builder::FitTsNetBuilder;
+pub use l_ts_net::LTsNet;
+pub use l_ts_net_builder::LTsNetBuilder;
 pub use ts_net::TsNet;
 pub use ts_net_builder::TsNetBuilder;
 
@@ -157,6 +162,46 @@ mod tests {
     }
 
     #[test]
+    fn test_l_ts_net_builder_defaults() {
+        let builder = LTsNetBuilder::<f32>::new();
+        let l_ts_net = builder.build().expect("default builder should be valid");
+        assert_eq!(l_ts_net.intervals, 25);
+        assert_eq!(l_ts_net.interpolation_points, 3);
+        assert_eq!(l_ts_net.perplexity, 40.0);
+        assert_eq!(l_ts_net.k, 120);
+        assert_eq!(l_ts_net.iterations_stage1, 250);
+        assert_eq!(l_ts_net.exaggeration, 4.0);
+        assert_eq!(l_ts_net.iterations_stage2, 250);
+        assert_eq!(l_ts_net.lambda_c_stage2, 1.2);
+        assert_eq!(l_ts_net.iterations_stage3, 250);
+        assert_eq!(l_ts_net.lambda_c_stage3, 0.01);
+        assert_eq!(l_ts_net.lambda_r_stage3, 0.6);
+        assert_eq!(l_ts_net.learning_rate, 200.0);
+        assert_eq!(l_ts_net.momentum, 0.8);
+        assert_eq!(l_ts_net.power, 2.0);
+        assert_eq!(l_ts_net.epsilon_r, 0.05);
+    }
+
+    #[test]
+    fn test_l_ts_net_builder_validation() {
+        assert!(LTsNetBuilder::<f32>::new().intervals(0).build().is_err());
+        assert!(LTsNetBuilder::<f32>::new()
+            .interpolation_points(0)
+            .build()
+            .is_err());
+        assert!(LTsNetBuilder::<f32>::new()
+            .perplexity(-1.0)
+            .build()
+            .is_err());
+        assert!(LTsNetBuilder::<f32>::new().k(0).build().is_err());
+        assert!(LTsNetBuilder::<f32>::new()
+            .learning_rate(0.0)
+            .build()
+            .is_err());
+        assert!(LTsNetBuilder::<f32>::new().momentum(1.0).build().is_err());
+    }
+
+    #[test]
     fn test_fft_roundtrip() {
         use crate::fft::{fft_1d, fft_2d, Complex};
 
@@ -282,6 +327,43 @@ mod tests {
             .expect("valid builder configuration");
 
         fit_ts_net.run(&mut coordinates, &graph, &mut rng);
+
+        for &u in &[a, b, c, d] {
+            let x = coordinates.x(u).unwrap();
+            let y = coordinates.y(u).unwrap();
+            assert!(x.is_finite());
+            assert!(y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_l_ts_net_basic() {
+        let mut graph = Graph::new_undirected();
+        let a = graph.add_node(());
+        let b = graph.add_node(());
+        let c = graph.add_node(());
+        let d = graph.add_node(());
+        graph.add_edge(a, b, ());
+        graph.add_edge(b, c, ());
+        graph.add_edge(c, d, ());
+        graph.add_edge(d, a, ());
+
+        let mut coordinates = DrawingEuclidean2d::initial_placement(&graph);
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let l_ts_net = LTsNetBuilder::new()
+            .intervals(10)
+            .interpolation_points(3)
+            .perplexity(2.0f32)
+            .k(3)
+            .learning_rate(2.0f32)
+            .iterations_stage1(10)
+            .iterations_stage2(10)
+            .iterations_stage3(10)
+            .build()
+            .expect("valid builder configuration");
+
+        l_ts_net.run(&mut coordinates, &graph, &mut rng);
 
         for &u in &[a, b, c, d] {
             let x = coordinates.x(u).unwrap();
