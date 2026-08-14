@@ -84,15 +84,18 @@ Generates node pairs for SGD from spectral embeddings.
   }
   ```
 
-### tsNET
-t-SNE based graph layout algorithm optimizing KL-divergence, compression, and node repulsion.
+### tsNET & BH-tsNET
+t-SNE based graph layout algorithms optimizing KL-divergence, compression, and node repulsion.
 - **Location**: `crates/layout/ts-net/`
-- **Distance Trait**: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
-- **Builder Pattern**: Instantiated via `TsNetBuilder<S>` returning `Result<TsNet<S>, String>`.
-- **3-Stage Dynamic Optimization**:
-  - Stage 1: Early Exaggeration ($P \times \text{exaggeration}$)
-  - Stage 2: Early Compression ($\lambda_c = 1.2$, $\lambda_r = 0.0$) for untangling
-  - Stage 3: Final Refinement ($(\lambda_{KL}, \lambda_c, \lambda_r) = (1.0, 0.01, 0.6)$) for overlap removal and cluster spacing
+- **tsNET**:
+  - Distance Trait: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
+  - Builder Pattern: Instantiated via `TsNetBuilder<S>` returning `Result<TsNet<S>, String>`.
+  - 3-Stage Dynamic Optimization: Early exaggeration, early compression ($\lambda_c = 1.2$), and final refinement ($(\lambda_{KL}, \lambda_c, \lambda_r) = (1.0, 0.01, 0.6)$).
+- **BH-tsNET**:
+  - Barnes-Hut accelerated $O(N \log N)$ algorithm for large graphs.
+  - C0: $O(N)$ Partial BFS for $k$-nearest neighbors with random tie-breaking.
+  - C1 & C2: 2D Quadtree spatial approximation for KL divergence repulsion and entropy gradients.
+  - Builder Pattern: Instantiated via `BhTsNetBuilder<S>` returning `Result<BhTsNet<S>, String>`.
 
 
 ### Kernel-SGD & Diffusion Kernels

@@ -1,9 +1,15 @@
-//! tsNET layout algorithm bindings for Python
+//! tsNET and BH-tsNET layout algorithm bindings for Python
 //!
-//! This module provides Python bindings for the tsNET graph layout algorithm and its builder.
+//! This module provides Python bindings for the tsNET and BH-tsNET graph layout algorithms and their builders.
 
-use crate::{distance_matrix::with_distance, drawing::PyDrawingEuclidean2d, FloatType};
-use petgraph_layout_ts_net::{TsNet, TsNetBuilder};
+use crate::{
+    distance_matrix::with_distance,
+    drawing::PyDrawingEuclidean2d,
+    graph::{GraphType, PyGraphAdapter},
+    rng::PyRng,
+    FloatType,
+};
+use petgraph_layout_ts_net::{BhTsNet, BhTsNetBuilder, TsNet, TsNetBuilder};
 use pyo3::prelude::*;
 
 /// Python class for constructing and configuring the `TsNet` algorithm via the Builder pattern.
@@ -272,9 +278,228 @@ impl PyTsNet {
     }
 }
 
-/// Registers TsNet and TsNetBuilder classes with the Python module.
+/// Python class for constructing and configuring the `BhTsNet` algorithm via the Builder pattern.
+#[pyclass(from_py_object)]
+#[pyo3(name = "BhTsNetBuilder")]
+#[derive(Clone)]
+pub struct PyBhTsNetBuilder {
+    pub(crate) builder: BhTsNetBuilder<FloatType>,
+}
+
+impl Default for PyBhTsNetBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[pymethods]
+impl PyBhTsNetBuilder {
+    /// Creates a new `BhTsNetBuilder` with default hyperparameters.
+    ///
+    /// :return: A new BhTsNetBuilder instance
+    /// :rtype: BhTsNetBuilder
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            builder: BhTsNetBuilder::new(),
+        }
+    }
+
+    /// Sets the target perplexity (default: 40.0).
+    pub fn perplexity(mut slf: PyRefMut<'_, Self>, perplexity: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().perplexity(perplexity);
+        slf
+    }
+
+    /// Sets the Barnes-Hut opening angle threshold theta (default: 0.5).
+    pub fn theta(mut slf: PyRefMut<'_, Self>, theta: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().theta(theta);
+        slf
+    }
+
+    /// Sets the number of nearest neighbors `k` for Partial BFS. Defaults to `3 * perplexity`.
+    pub fn k(mut slf: PyRefMut<'_, Self>, k: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().k(k);
+        slf
+    }
+
+    /// Sets the number of iterations for Stage 1 (early exaggeration).
+    pub fn iterations_stage1(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().iterations_stage1(iterations);
+        slf
+    }
+
+    /// Sets the exaggeration factor for Stage 1.
+    pub fn exaggeration(
+        mut slf: PyRefMut<'_, Self>,
+        exaggeration: FloatType,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().exaggeration(exaggeration);
+        slf
+    }
+
+    /// Sets the number of iterations for Stage 2 (early compression / untangling).
+    pub fn iterations_stage2(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().iterations_stage2(iterations);
+        slf
+    }
+
+    /// Sets the compression penalty parameter lambda_c for Stage 2.
+    pub fn lambda_c_stage2(mut slf: PyRefMut<'_, Self>, lambda_c: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().lambda_c_stage2(lambda_c);
+        slf
+    }
+
+    /// Sets the number of iterations for Stage 3 (final refinement).
+    pub fn iterations_stage3(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().iterations_stage3(iterations);
+        slf
+    }
+
+    /// Sets the compression penalty parameter lambda_c for Stage 3.
+    pub fn lambda_c_stage3(mut slf: PyRefMut<'_, Self>, lambda_c: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().lambda_c_stage3(lambda_c);
+        slf
+    }
+
+    /// Sets the repulsion penalty parameter lambda_r for Stage 3.
+    pub fn lambda_r_stage3(mut slf: PyRefMut<'_, Self>, lambda_r: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().lambda_r_stage3(lambda_r);
+        slf
+    }
+
+    /// Sets the repulsion penalty parameter lambda_r for Stage 3 (alias).
+    pub fn lambda_r(slf: PyRefMut<'_, Self>, lambda_r: FloatType) -> PyRefMut<'_, Self> {
+        Self::lambda_r_stage3(slf, lambda_r)
+    }
+
+    /// Sets the learning rate for gradient descent.
+    pub fn learning_rate(
+        mut slf: PyRefMut<'_, Self>,
+        learning_rate: FloatType,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().learning_rate(learning_rate);
+        slf
+    }
+
+    /// Sets the momentum parameter for gradient descent.
+    pub fn momentum(mut slf: PyRefMut<'_, Self>, momentum: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().momentum(momentum);
+        slf
+    }
+
+    /// Sets the power exponent for distance matrix.
+    pub fn power(mut slf: PyRefMut<'_, Self>, power: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().power(power);
+        slf
+    }
+
+    /// Sets the repulsion parameter epsilon_r to prevent division by zero.
+    pub fn epsilon_r(mut slf: PyRefMut<'_, Self>, epsilon_r: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().epsilon_r(epsilon_r);
+        slf
+    }
+
+    /// Sets the maximum number of binary search iterations for finding sigma_i.
+    pub fn sigma_iters(mut slf: PyRefMut<'_, Self>, sigma_iters: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().sigma_iters(sigma_iters);
+        slf
+    }
+
+    /// Sets the tolerance threshold for perplexity binary search convergence.
+    pub fn sigma_tolerance(
+        mut slf: PyRefMut<'_, Self>,
+        sigma_tolerance: FloatType,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().sigma_tolerance(sigma_tolerance);
+        slf
+    }
+
+    /// Builds a configured `BhTsNet` layout instance.
+    ///
+    /// :return: A new configured BhTsNet instance
+    /// :rtype: BhTsNet
+    pub fn build(&self) -> PyResult<PyBhTsNet> {
+        let bh_ts_net = self
+            .builder
+            .clone()
+            .build()
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(PyBhTsNet { bh_ts_net })
+    }
+}
+
+/// Python class for the BH-tsNET (Barnes-Hut tsNET) layout algorithm.
+///
+/// Reduces the time complexity to O(N log N) using Partial BFS and Quadtree Barnes-Hut spatial force approximation.
+#[pyclass]
+#[pyo3(name = "BhTsNet")]
+pub struct PyBhTsNet {
+    bh_ts_net: BhTsNet<FloatType>,
+}
+
+impl Default for PyBhTsNet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[pymethods]
+impl PyBhTsNet {
+    /// Creates a new `BhTsNet` instance with default parameters.
+    ///
+    /// :return: A new BhTsNet instance
+    /// :rtype: BhTsNet
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            bh_ts_net: BhTsNet::new(),
+        }
+    }
+
+    /// Creates a new `BhTsNetBuilder` instance.
+    ///
+    /// :return: A new BhTsNetBuilder instance
+    /// :rtype: BhTsNetBuilder
+    #[staticmethod]
+    pub fn builder() -> PyBhTsNetBuilder {
+        PyBhTsNetBuilder::new()
+    }
+
+    /// Runs the BH-tsNET layout algorithm on the drawing using the provided graph and RNG.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param graph: The input graph
+    /// :type graph: Graph
+    /// :param rng: Random number generator for tie-breaking
+    /// :type rng: Rng
+    /// :return: None
+    /// :rtype: None
+    pub fn run(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        graph: &PyGraphAdapter,
+        rng: &mut PyRng,
+    ) -> PyResult<()> {
+        match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                self.bh_ts_net
+                    .run(drawing.drawing_mut(), native_graph, rng.get_mut());
+                Ok(())
+            }
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(
+                "unsupported graph type for BhTsNet",
+            )),
+        }
+    }
+}
+
+/// Registers TsNet, TsNetBuilder, BhTsNet, and BhTsNetBuilder classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTsNetBuilder>()?;
     m.add_class::<PyTsNet>()?;
+    m.add_class::<PyBhTsNetBuilder>()?;
+    m.add_class::<PyBhTsNet>()?;
     Ok(())
 }

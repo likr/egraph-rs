@@ -150,3 +150,53 @@ exports.testTsNetWithKernelDistance = function () {
   
   helpers.verifyFiniteCoordinates2d(drawing, graph);
 };
+
+/**
+ * Test basic instantiation of BhTsNet class and BhTsNetBuilder
+ */
+exports.testBhTsNetConstructor = function () {
+  const builder = new eg.BhTsNetBuilder();
+  assert(builder instanceof eg.BhTsNetBuilder, "Should create an instance of BhTsNetBuilder");
+  const bhTsNetBuilt = builder
+    .perplexity(25.0)
+    .theta(0.6)
+    .k(50)
+    .iterationsStage2(100)
+    .iterationsStage3(150)
+    .lambdaCStage2(1.2)
+    .lambdaCStage3(0.01)
+    .lambdaRStage3(0.6)
+    .learningRate(100.0)
+    .momentum(0.9)
+    .epsilonR(0.06)
+    .build();
+  assert(bhTsNetBuilt instanceof eg.BhTsNet, "Should build BhTsNet instance");
+
+  const bhTsNet = new eg.BhTsNet();
+  assert(bhTsNet instanceof eg.BhTsNet, "Should create an instance of BhTsNet");
+  assert.strictEqual(bhTsNet.perplexity, 40.0, "default perplexity should be 40");
+  assert.strictEqual(bhTsNet.theta, 0.5, "default theta should be 0.5");
+};
+
+/**
+ * Test running BhTsNet on graph
+ */
+exports.testBhTsNetRun = function () {
+  const { graph } = helpers.createCycleGraph(6);
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const rng = eg.Rng.seedFrom(BigInt(42));
+
+  const bhTsNet = new eg.BhTsNetBuilder()
+    .perplexity(2.0)
+    .k(4)
+    .theta(0.5)
+    .learningRate(2.0)
+    .iterationsStage1(10)
+    .iterationsStage2(10)
+    .iterationsStage3(10)
+    .build();
+
+  bhTsNet.run(drawing, graph, rng);
+
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
+};

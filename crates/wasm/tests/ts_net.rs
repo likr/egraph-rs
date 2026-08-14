@@ -21,6 +21,12 @@ extern "C" {
 
     #[wasm_bindgen(js_name = "testTsNetWithKernelDistance")]
     fn test_ts_net_with_kernel_distance();
+
+    #[wasm_bindgen(js_name = "testBhTsNetConstructor")]
+    fn test_bh_ts_net_constructor();
+
+    #[wasm_bindgen(js_name = "testBhTsNetRun")]
+    fn test_bh_ts_net_run();
 }
 
 #[wasm_bindgen_test]
@@ -46,4 +52,14 @@ pub fn ts_net_with_embedding_distance() {
 #[wasm_bindgen_test]
 pub fn ts_net_with_kernel_distance() {
     test_ts_net_with_kernel_distance();
+}
+
+#[wasm_bindgen_test]
+pub fn bh_ts_net_constructor() {
+    test_bh_ts_net_constructor();
+}
+
+#[wasm_bindgen_test]
+pub fn bh_ts_net_run() {
+    test_bh_ts_net_run();
 }
