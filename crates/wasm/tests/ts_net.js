@@ -200,3 +200,59 @@ exports.testBhTsNetRun = function () {
 
   helpers.verifyFiniteCoordinates2d(drawing, graph);
 };
+
+/**
+ * Test basic instantiation of FitTsNet class and FitTsNetBuilder
+ */
+exports.testFitTsNetConstructor = function () {
+  const builder = new eg.FitTsNetBuilder();
+  assert(builder instanceof eg.FitTsNetBuilder, "Should create an instance of FitTsNetBuilder");
+  const fitTsNetBuilt = builder
+    .intervals(20)
+    .interpolationPoints(3)
+    .perplexity(25.0)
+    .theta(0.6)
+    .k(50)
+    .iterationsStage2(100)
+    .iterationsStage3(150)
+    .lambdaCStage2(1.2)
+    .lambdaCStage3(0.01)
+    .lambdaRStage3(0.6)
+    .learningRate(100.0)
+    .momentum(0.9)
+    .epsilonR(0.06)
+    .build();
+  assert(fitTsNetBuilt instanceof eg.FitTsNet, "Should build FitTsNet instance");
+
+  const fitTsNet = new eg.FitTsNet();
+  assert(fitTsNet instanceof eg.FitTsNet, "Should create an instance of FitTsNet");
+  assert.strictEqual(fitTsNet.perplexity, 40.0, "default perplexity should be 40");
+  assert.strictEqual(fitTsNet.intervals, 25, "default intervals should be 25");
+  assert.strictEqual(fitTsNet.interpolationPoints, 3, "default interpolationPoints should be 3");
+};
+
+/**
+ * Test running FitTsNet on graph
+ */
+exports.testFitTsNetRun = function () {
+  const { graph } = helpers.createCycleGraph(6);
+  const drawing = eg.DrawingEuclidean2d.initialPlacement(graph);
+  const rng = eg.Rng.seedFrom(BigInt(42));
+
+  const fitTsNet = new eg.FitTsNetBuilder()
+    .intervals(10)
+    .interpolationPoints(3)
+    .perplexity(2.0)
+    .k(4)
+    .theta(0.5)
+    .learningRate(2.0)
+    .iterationsStage1(10)
+    .iterationsStage2(10)
+    .iterationsStage3(10)
+    .build();
+
+  fitTsNet.run(drawing, graph, rng);
+
+  helpers.verifyFiniteCoordinates2d(drawing, graph);
+};
+

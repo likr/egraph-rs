@@ -19,6 +19,7 @@ use petgraph_linalg_kernel::{Distance, GaussianKernel, KernelDistance, SparseSym
 use wasm_bindgen::prelude::*;
 
 /// Helper enum representing different types of distance matrices in WASM bindings.
+#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub enum InnerDistanceMatrix {
     Full(FullDistanceMatrix<NodeIndex<u32>, f32>),
