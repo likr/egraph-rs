@@ -27,5 +27,6 @@ petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-separation-constraints = { path = "../layout/separation-constraints" }
 petgraph-linalg-kernel = { path = "../linalg/kernel" }
 petgraph-layout-ts-net = { path = "../layout/ts-net" }
+petgraph-layout-gumap = { path = "../layout/gumap" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"

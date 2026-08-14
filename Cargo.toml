@@ -19,6 +19,7 @@ members = [
     "crates/layout/stress-majorization",
     "crates/linalg/kernel",
     "crates/layout/ts-net",
+    "crates/layout/gumap",
     "crates/python",
     "crates/quality-metrics",
     "crates/wasm",

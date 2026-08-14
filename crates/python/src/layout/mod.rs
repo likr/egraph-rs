@@ -12,6 +12,7 @@
 /// - `overwrap_removal`: Algorithms to remove overlaps between nodes
 /// - `stress_majorization`: Stress majorization layout algorithm
 /// - `sgd`: Stochastic Gradient Descent based layout algorithms
+mod gumap;
 mod kamada_kawai;
 mod mds;
 mod overwrap_removal;
@@ -39,5 +40,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     stress_majorization::register(m)?;
     sgd::register(m)?;
     ts_net::register(m)?;
+    gumap::register(m)?;
     Ok(())
 }

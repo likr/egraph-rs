@@ -27,6 +27,7 @@ petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
 petgraph-layout-sgd = { path = "../layout/sgd" }
 petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
 petgraph-layout-ts-net = { path = "../layout/ts-net" }
+petgraph-layout-gumap = { path = "../layout/gumap" }
 petgraph-quality-metrics = { path = "../quality-metrics" }
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }

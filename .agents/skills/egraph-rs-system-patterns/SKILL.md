@@ -109,6 +109,17 @@ t-SNE based graph layout algorithms optimizing KL-divergence, compression, and n
   - C2: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for entropy gradient using reformulated $h_1, h_2, h_3$.
   - Builder Pattern: Instantiated via `LTsNetBuilder<S>` returning `Result<LTsNet<S>, String>`.
 
+### GUMAP (Graph UMAP)
+Graph layout algorithm adapting Uniform Manifold Approximation and Projection (UMAP) to networks.
+- **Location**: `crates/layout/gumap/`
+- **Distance Trait**: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
+- **Fuzzy Simplicial Set**:
+  - High-dimensional $k$-nearest neighbor search, local distance scale $\rho_i = \min_{j \in kNN(i)} d_{ij}$, and binary search for $\sigma_i$ targeting $\log_2(k)$.
+  - Fuzzy set union symmetrization: $p_{ij} = p_{j|i} + p_{i|j} - p_{j|i} p_{i|j}$.
+- **Curve Fitting**: Low-dimensional parameter estimation for $(a, b)$ via Levenberg-Marquardt non-linear least squares fit of $\psi(d)$ from `min_dist` and `spread`.
+- **SGD Optimization**: Probabilistic edge sampling for attractive forces and negative sampling for repulsive forces with linear learning rate decay.
+- **Builder Pattern**: Instantiated via `GuMapBuilder<S>` returning `Result<GuMap<S>, String>`.
+
 
 ### Kernel-SGD & Diffusion Kernels
 Diffusion kernel-based computations for graph distances and embeddings.
