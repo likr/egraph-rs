@@ -20,6 +20,17 @@ class TestTsNet(unittest.TestCase):
         ts_net = builder.build()
         self.assertIsNotNone(ts_net)
 
+    def test_ts_net_builder_new_star(self):
+        builder = eg.TsNetBuilder.new_star()
+        ts_net = builder.build()
+        self.assertIsNotNone(ts_net)
+
+        ts_net_star = eg.TsNet.new_star()
+        self.assertIsNotNone(ts_net_star)
+
+        builder_star = eg.TsNet.builder_star()
+        self.assertIsNotNone(builder_star.build())
+
     def test_ts_net_with_distance_matrix(self):
         # Create a simple cycle graph of size 4
         nx_graph = nx.cycle_graph(4)
@@ -32,12 +43,14 @@ class TestTsNet(unittest.TestCase):
         ts_net = (
             eg.TsNetBuilder()
             .learning_rate(2.0)
-            .iterations_stage1(0)
-            .iterations_stage2(10)
-            .iterations_stage3(10)
-            .lambda_c_stage2(1.2)
-            .lambda_c_stage3(0.01)
-            .lambda_r_stage3(0.6)
+            .n_epochs(20)
+            .initial_l_c(1.2)
+            .final_l_c(0.01)
+            .initial_l_r(0.0)
+            .final_l_r(0.6)
+            .r_eps(0.05)
+            .autostop(1e-7)
+            .window_size(40)
             .build()
         )
 
@@ -72,8 +85,7 @@ class TestTsNet(unittest.TestCase):
         ts_net = (
             eg.TsNetBuilder()
             .learning_rate(2.0)
-            .iterations_stage2(10)
-            .iterations_stage3(10)
+            .n_epochs(20)
             .build()
         )
 
@@ -97,8 +109,9 @@ class TestTsNet(unittest.TestCase):
         ts_net = (
             eg.TsNet.builder()
             .learning_rate(2.0)
-            .iterations_stage2(10)
-            .iterations_stage3(10)
+            .n_epochs(20)
+            .autostop(1e-7)
+            .window_size(40)
             .build()
         )
 
@@ -112,6 +125,18 @@ class TestTsNet(unittest.TestCase):
         builder = eg.TsNetBuilder().perplexity(-1.0)
         with self.assertRaises(ValueError):
             builder.build()
+
+        builder_epochs = eg.TsNetBuilder().n_epochs(0)
+        with self.assertRaises(ValueError):
+            builder_epochs.build()
+
+        builder_autostop = eg.TsNetBuilder().autostop(-1.0)
+        with self.assertRaises(ValueError):
+            builder_autostop.build()
+
+        builder_ws = eg.TsNetBuilder().window_size(0)
+        with self.assertRaises(ValueError):
+            builder_ws.build()
 
 
 if __name__ == "__main__":

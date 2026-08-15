@@ -3,11 +3,13 @@ use ndarray::Array2;
 use num_traits::Float;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 use petgraph_linalg_kernel::Distance;
+use std::collections::VecDeque;
 
 /// tsNET graph layout algorithm.
 ///
-/// This structure implements the tsNET layout algorithm by optimizing a t-SNE-like
-/// cost function with early compression and repulsion terms.
+/// This structure implements the tsNET layout algorithm by faithfully porting the reference
+/// implementation (HanKruiger/tsNET) which optimizes a t-SNE-like objective function with early
+/// compression and repulsion terms.
 ///
 /// # References
 ///
@@ -17,32 +19,46 @@ use petgraph_linalg_kernel::Distance;
 pub struct TsNet<S> {
     /// Target perplexity for t-SNE probability distribution
     pub perplexity: S,
-    /// Number of iterations for Stage 1 (early exaggeration)
-    pub iterations_stage1: usize,
-    /// Exaggeration factor for Stage 1
-    pub exaggeration: S,
-    /// Number of iterations for Stage 2 (early compression / untangling)
-    pub iterations_stage2: usize,
-    /// Compression weight lambda_c for Stage 2
-    pub lambda_c_stage2: S,
-    /// Number of iterations for Stage 3 (final adjustment / refinement)
-    pub iterations_stage3: usize,
-    /// Compression weight lambda_c for Stage 3
-    pub lambda_c_stage3: S,
-    /// Repulsion weight lambda_r for Stage 3
-    pub lambda_r_stage3: S,
-    /// Learning rate for momentum-based gradient descent
-    pub learning_rate: S,
-    /// Momentum parameter in `[0, 1)`
-    pub momentum: S,
-    /// Power exponent for input space distance matrix (default: 2.0)
-    pub power: S,
-    /// Repulsion offset parameter to prevent division by zero
-    pub epsilon_r: S,
+    /// Total number of epochs (iterations)
+    pub n_epochs: usize,
+    /// Initial learning rate
+    pub initial_lr: S,
+    /// Final learning rate
+    pub final_lr: S,
+    /// Epoch at which learning rate switches
+    pub lr_switch: Option<usize>,
+    /// Initial momentum
+    pub initial_momentum: S,
+    /// Final momentum
+    pub final_momentum: S,
+    /// Epoch at which momentum switches
+    pub momentum_switch: Option<usize>,
+    /// Initial KL divergence weight
+    pub initial_l_kl: Option<S>,
+    /// Final KL divergence weight
+    pub final_l_kl: Option<S>,
+    /// Epoch at which lambda_kl switches
+    pub l_kl_switch: Option<usize>,
+    /// Initial compression weight
+    pub initial_l_c: Option<S>,
+    /// Final compression weight
+    pub final_l_c: Option<S>,
+    /// Epoch at which lambda_c switches
+    pub l_c_switch: Option<usize>,
+    /// Initial repulsion weight
+    pub initial_l_r: Option<S>,
+    /// Final repulsion weight
+    pub final_l_r: Option<S>,
+    /// Epoch at which lambda_r switches
+    pub l_r_switch: Option<usize>,
+    /// Repulsion offset parameter
+    pub r_eps: S,
     /// Maximum number of binary search iterations for sigma_i
     pub sigma_iters: usize,
-    /// Tolerance threshold for perplexity binary search convergence
-    pub sigma_tolerance: S,
+    /// Autostop convergence tolerance threshold
+    pub autostop: S,
+    /// Sliding window size for autostop convergence checking
+    pub window_size: usize,
 }
 
 impl<S> TsNet<S>
@@ -54,9 +70,14 @@ where
         + Default
         + ndarray::ScalarOperand,
 {
-    /// Creates a new `TsNet` instance with default hyperparameters.
+    /// Creates a new `TsNet` instance with default hyperparameters matching `tsnet.py` (tsNET).
     pub fn new() -> Self {
         TsNetBuilder::new().build().unwrap()
+    }
+
+    /// Creates a new `TsNet` instance with tsNET* hyperparameters (`initial_l_c = 0.1`).
+    pub fn new_star() -> Self {
+        TsNetBuilder::new_star().build().unwrap()
     }
 
     /// Creates a new `TsNetBuilder` for configuring hyperparameters.
@@ -64,12 +85,12 @@ where
         TsNetBuilder::new()
     }
 
+    /// Creates a new `TsNetBuilder` initialized with tsNET* hyperparameters.
+    pub fn builder_star() -> TsNetBuilder<S> {
+        TsNetBuilder::new_star()
+    }
+
     /// Runs the tsNET layout algorithm on the provided drawing using the distance matrix.
-    ///
-    /// The algorithm operates in 3 distinct dynamic optimization stages:
-    /// - **Stage 1 (Early Exaggeration)**: Amplifies joint probabilities to separate distinct clusters.
-    /// - **Stage 2 (Early Compression)**: Applies strong compression force ($\lambda_c = 1.2$) to untangle large graph structures.
-    /// - **Stage 3 (Final Refinement)**: Applies balanced compression ($\lambda_c = 0.01$) and repulsion ($\lambda_r = 0.6$) to push apart overlapping nodes.
     #[allow(clippy::needless_range_loop)]
     pub fn run<N, D>(&self, drawing: &mut DrawingEuclidean2d<N, S>, distance_matrix: &D)
     where
@@ -81,95 +102,113 @@ where
             return;
         }
 
-        // Clamp perplexity to at most N - 1 - 0.01 and at least 1.0 to ensure valid entropy target
+        // Step 1: Preprocess distance matrix:
+        // Symmetrize, zero the diagonal, and normalize by max finite distance matching distance_matrix.py
+        let mut max_d = S::zero();
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
+                    let d = distance_matrix.get_by_index(i, j);
+                    if d.is_finite() && d > max_d {
+                        max_d = d;
+                    }
+                }
+            }
+        }
+        if max_d <= S::zero() {
+            max_d = S::one();
+        }
+
+        let mut x_mat = Array2::zeros((n, n));
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dij = distance_matrix.get_by_index(i, j);
+                let dji = distance_matrix.get_by_index(j, i);
+                let d_sym = (dij + dji) / S::from_f32(2.0).unwrap();
+                let d_norm = (d_sym / max_d).max(S::zero());
+                x_mat[[i, j]] = d_norm;
+                x_mat[[j, i]] = d_norm;
+            }
+        }
+
+        // Step 2: Binary search on node standard deviations sigma_i matching thesne.py: find_sigma
         let perplexity = self
             .perplexity
             .min(S::from_usize(n - 1).unwrap() - S::from_f32(0.01).unwrap())
             .max(S::one());
         let entropy_target = perplexity.ln();
-        let power = self.power;
+        let eps = S::from_f32(1e-16).unwrap();
+        let sqrt_eps = S::from_f32(1e-8).unwrap();
 
-        // Step 2: Compute high-dimensional probability distribution P via binary search
-        let mut p = Array2::zeros((n, n));
-
+        let mut p_conditional = Array2::zeros((n, n));
         for i in 0..n {
-            let mut beta = S::one();
-            let mut beta_min = S::zero();
-            let mut beta_max = S::from_f32(1e12).unwrap();
+            let mut sigma = S::one();
+            let mut sig_min = sqrt_eps;
+            let mut sig_max = S::infinity();
 
             for _ in 0..self.sigma_iters {
-                let mut max_neg_dp = S::neg_infinity();
+                let two_sigma_sq = S::from_f32(2.0).unwrap() * sigma * sigma;
+                let mut max_exp = S::neg_infinity();
+                let mut exps = vec![S::zero(); n];
 
-                // Find maximum exponent for numerical stability (log-sum-exp trick)
                 for j in 0..n {
                     if i != j {
-                        let d = distance_matrix.get_by_index(i, j);
-                        let dp = d.powf(power);
-                        let neg_dp = -beta * dp;
-                        if neg_dp > max_neg_dp {
-                            max_neg_dp = neg_dp;
+                        let d = x_mat[[i, j]];
+                        let dp = d * d;
+                        let val = -dp / two_sigma_sq;
+                        exps[j] = val;
+                        if val > max_exp {
+                            max_exp = val;
                         }
                     }
                 }
 
-                // Compute unnormalized Gaussian kernel weights
                 let mut sum_w = S::zero();
                 let mut weights = vec![S::zero(); n];
                 for j in 0..n {
                     if i != j {
-                        let d = distance_matrix.get_by_index(i, j);
-                        let dp = d.powf(power);
-                        let w = (-beta * dp - max_neg_dp).exp();
+                        let w = (exps[j] - max_exp).exp();
                         weights[j] = w;
                         sum_w += w;
                     }
                 }
 
-                sum_w = sum_w.max(S::from_f32(1e-12).unwrap());
+                sum_w = sum_w.max(eps);
 
-                // Compute conditional expectation of powered distance
-                let mut sum_dp_p = S::zero();
+                // Compute conditional probabilities and Shannon entropy
+                let mut entropy = S::zero();
                 for j in 0..n {
                     if i != j {
-                        let prob = weights[j] / sum_w;
-                        let d = distance_matrix.get_by_index(i, j);
-                        let dp = d.powf(power);
-                        sum_dp_p += prob * dp;
+                        let prob = (weights[j] / sum_w).max(eps);
+                        entropy -= prob * prob.ln();
                     }
                 }
 
-                // Calculate Shannon entropy in nats
-                let h = beta * sum_dp_p + max_neg_dp + sum_w.ln();
-                let h_diff = h - entropy_target;
-
-                if h_diff.abs() < self.sigma_tolerance {
-                    break;
-                }
-
-                if h_diff > S::zero() {
-                    // Entropy is too high; distribution is too uniform -> increase beta (decrease sigma)
-                    beta_min = beta;
-                    if beta_max == S::from_f32(1e12).unwrap() {
-                        beta *= S::from_f32(2.0).unwrap();
-                    } else {
-                        beta = (beta_min + beta_max) / S::from_f32(2.0).unwrap();
-                    }
+                if entropy < entropy_target {
+                    sig_min = sigma;
                 } else {
-                    // Entropy is too low; distribution is too peaky -> decrease beta (increase sigma)
-                    beta_max = beta;
-                    beta = (beta_min + beta_max) / S::from_f32(2.0).unwrap();
+                    sig_max = sigma;
+                }
+
+                if sig_max.is_infinite() {
+                    sigma *= S::from_f32(2.0).unwrap();
+                } else {
+                    sigma = (sig_min + sig_max) / S::from_f32(2.0).unwrap();
                 }
             }
 
-            // Compute final normalized conditional probabilities for node i
-            let mut max_neg_dp = S::neg_infinity();
+            // Compute final conditional probabilities for node i with the converged sigma
+            let two_sigma_sq = S::from_f32(2.0).unwrap() * sigma * sigma;
+            let mut max_exp = S::neg_infinity();
+            let mut exps = vec![S::zero(); n];
             for j in 0..n {
                 if i != j {
-                    let d = distance_matrix.get_by_index(i, j);
-                    let dp = d.powf(power);
-                    let neg_dp = -beta * dp;
-                    if neg_dp > max_neg_dp {
-                        max_neg_dp = neg_dp;
+                    let d = x_mat[[i, j]];
+                    let dp = d * d;
+                    let val = -dp / two_sigma_sq;
+                    exps[j] = val;
+                    if val > max_exp {
+                        max_exp = val;
                     }
                 }
             }
@@ -178,161 +217,145 @@ where
             let mut weights = vec![S::zero(); n];
             for j in 0..n {
                 if i != j {
-                    let d = distance_matrix.get_by_index(i, j);
-                    let dp = d.powf(power);
-                    let w = (-beta * dp - max_neg_dp).exp();
+                    let w = (exps[j] - max_exp).exp();
                     weights[j] = w;
                     sum_w += w;
                 }
             }
-
-            sum_w = sum_w.max(S::from_f32(1e-12).unwrap());
+            sum_w = sum_w.max(eps);
             for j in 0..n {
                 if i != j {
-                    p[[i, j]] = weights[j] / sum_w;
+                    p_conditional[[i, j]] = weights[j] / sum_w;
                 }
             }
         }
 
-        // Convert conditional probabilities to symmetrized joint probabilities P
+        // Symmetrized joint probabilities P_ij = (p_{j|i} + p_{i|j}) / (2N)
+        let two_n_s = S::from_usize(2 * n).unwrap();
         let mut p_joint = Array2::zeros((n, n));
         for i in 0..n {
             for j in 0..n {
                 if i != j {
-                    p_joint[[i, j]] = (p[[i, j]] + p[[j, i]]) / S::from_usize(2 * n).unwrap();
+                    p_joint[[i, j]] = (p_conditional[[i, j]] + p_conditional[[j, i]]) / two_n_s;
                 }
             }
         }
 
         let mut velocity = Array2::zeros((n, 2));
 
-        // Step 4 & 5: Three-stage dynamic optimization using momentum gradient descent
-        // Stage 1: Early Exaggeration
-        if self.iterations_stage1 > 0 {
-            let p_exaggerated = &p_joint * self.exaggeration;
-            self.optimize_stage(
-                drawing,
-                &p_exaggerated,
-                &mut velocity,
-                self.iterations_stage1,
-                S::one(),
-                S::from_f32(0.1).unwrap(),
-                S::zero(),
-            );
-        }
+        // Step 3: Gradient descent optimization loop matching thesne.py
+        let default_switch = self.n_epochs / 2;
+        let lr_switch = self.lr_switch.unwrap_or(default_switch);
+        let momentum_switch = self.momentum_switch.unwrap_or(default_switch);
+        let l_kl_switch = self.l_kl_switch.unwrap_or(default_switch);
+        let l_c_switch = self.l_c_switch.unwrap_or(default_switch);
+        let l_r_switch = self.l_r_switch.unwrap_or(default_switch);
 
-        // Stage 2: Early Compression (Untangling)
-        if self.iterations_stage2 > 0 {
-            self.optimize_stage(
-                drawing,
-                &p_joint,
-                &mut velocity,
-                self.iterations_stage2,
-                S::one(),
-                self.lambda_c_stage2,
-                S::zero(),
-            );
-        }
+        let n_s = S::from_usize(n).unwrap();
+        let n_sq_s = S::from_usize(n * n).unwrap();
+        let four_s = S::from_f32(4.0).unwrap();
+        let r_eps = self.r_eps;
 
-        // Stage 3: Final Refinement
-        if self.iterations_stage3 > 0 {
-            self.optimize_stage(
-                drawing,
-                &p_joint,
-                &mut velocity,
-                self.iterations_stage3,
-                S::one(),
-                self.lambda_c_stage3,
-                self.lambda_r_stage3,
-            );
-        }
-    }
+        let mut stepsize_history = VecDeque::with_capacity(self.window_size);
 
-    /// Performs gradient descent optimization for a specific stage with given loss weights.
-    #[allow(clippy::too_many_arguments)]
-    fn optimize_stage<N>(
-        &self,
-        drawing: &mut DrawingEuclidean2d<N, S>,
-        p_matrix: &Array2<S>,
-        velocity: &mut Array2<S>,
-        iterations: usize,
-        lambda_kl: S,
-        lambda_c: S,
-        lambda_r: S,
-    ) where
-        N: Copy + Eq + std::hash::Hash + DrawingIndex,
-    {
-        let n = drawing.len();
-        let learning_rate = self.learning_rate;
-        let momentum = self.momentum;
-        let epsilon_r = self.epsilon_r;
-        let l_sum = (lambda_kl + lambda_c + lambda_r).max(S::from_f32(1e-12).unwrap());
+        for epoch in 0..self.n_epochs {
+            let lr = if epoch < lr_switch {
+                self.initial_lr
+            } else {
+                self.final_lr
+            };
+            let momentum = if epoch < momentum_switch {
+                self.initial_momentum
+            } else {
+                self.final_momentum
+            };
+            let l_kl = if epoch < l_kl_switch {
+                self.initial_l_kl
+            } else {
+                self.final_l_kl
+            };
+            let l_c = if epoch < l_c_switch {
+                self.initial_l_c
+            } else {
+                self.final_l_c
+            };
+            let l_r = if epoch < l_r_switch {
+                self.initial_l_r
+            } else {
+                self.final_l_r
+            };
 
-        for _ in 0..iterations {
-            // Step 3: Compute Cauchy-distributed low-dimensional similarities Q
+            let w_kl = l_kl.unwrap_or(S::zero());
+            let w_c = l_c.unwrap_or(S::zero());
+            let w_r = l_r.unwrap_or(S::zero());
+            let l_sum = (w_kl + w_c + w_r).max(S::from_f32(1e-12).unwrap());
+
+            // Compute Cauchy-distributed low-dimensional similarities Q
             let mut w_out = Array2::zeros((n, n));
-            let mut z_q = S::zero();
+            let mut sum_w = S::zero();
 
             for i in 0..n {
                 let yi_0 = drawing.raw_entry(i).0;
                 let yi_1 = drawing.raw_entry(i).1;
-                for j in 0..n {
-                    if i != j {
-                        let yj_0 = drawing.raw_entry(j).0;
-                        let yj_1 = drawing.raw_entry(j).1;
-                        let dx = yi_0 - yj_0;
-                        let dy = yi_1 - yj_1;
-                        let dist2 = dx * dx + dy * dy;
-                        let w = S::one() / (S::one() + dist2);
-                        w_out[[i, j]] = w;
-                        z_q += w;
-                    }
+                for j in (i + 1)..n {
+                    let yj_0 = drawing.raw_entry(j).0;
+                    let yj_1 = drawing.raw_entry(j).1;
+                    let dx = yi_0 - yj_0;
+                    let dy = yi_1 - yj_1;
+                    let dist2 = dx * dx + dy * dy;
+                    let w = S::one() / (S::one() + dist2);
+                    w_out[[i, j]] = w;
+                    w_out[[j, i]] = w;
+                    sum_w += w + w;
                 }
             }
 
-            z_q = z_q.max(S::from_f32(1e-12).unwrap());
+            sum_w = sum_w.max(eps);
 
             let mut q = Array2::zeros((n, n));
             for i in 0..n {
                 for j in 0..n {
                     if i != j {
-                        q[[i, j]] = w_out[[i, j]] / z_q;
+                        q[[i, j]] = w_out[[i, j]] / sum_w;
                     }
                 }
             }
 
-            // Step 4: Compute gradients for KL divergence, compression, and repulsion
+            // Compute analytical gradients:
+            // 1. KL Divergence term: 4 * sum_j (P_ij - Q_ij) * w_out_ij * (y_i - y_j)
+            // 2. Compression term: (1 / N) * y_i
+            // 3. Repulsion term: - (1 / N^2) * sum_j (y_i - y_j) / (||y_i - y_j|| * (||y_i - y_j|| + r_eps))
             let mut gradients = Array2::zeros((n, 2));
 
             for i in 0..n {
                 let yi_0 = drawing.raw_entry(i).0;
                 let yi_1 = drawing.raw_entry(i).1;
 
-                // 1. KL Divergence term gradient: 4 * sum_j (p_ij - q_ij) * w_out_ij * (y_i - y_j)
                 let mut grad_kl_0 = S::zero();
                 let mut grad_kl_1 = S::zero();
-                for j in 0..n {
-                    if i != j {
-                        let yj_0 = drawing.raw_entry(j).0;
-                        let yj_1 = drawing.raw_entry(j).1;
-                        let dx = yi_0 - yj_0;
-                        let dy = yi_1 - yj_1;
-                        let factor = S::from_f32(4.0).unwrap()
-                            * (p_matrix[[i, j]] - q[[i, j]])
-                            * w_out[[i, j]];
-                        grad_kl_0 += factor * dx;
-                        grad_kl_1 += factor * dy;
+                if w_kl > S::zero() {
+                    for j in 0..n {
+                        if i != j {
+                            let yj_0 = drawing.raw_entry(j).0;
+                            let yj_1 = drawing.raw_entry(j).1;
+                            let dx = yi_0 - yj_0;
+                            let dy = yi_1 - yj_1;
+                            let factor = four_s * (p_joint[[i, j]] - q[[i, j]]) * w_out[[i, j]];
+                            grad_kl_0 += factor * dx;
+                            grad_kl_1 += factor * dy;
+                        }
                     }
                 }
 
-                // 2. Compression term gradient: (1 / N) * y_i
-                let grad_c_0 = yi_0 / S::from_usize(n).unwrap();
-                let grad_c_1 = yi_1 / S::from_usize(n).unwrap();
+                let (grad_c_0, grad_c_1) = if w_c > S::zero() {
+                    (yi_0 / n_s, yi_1 / n_s)
+                } else {
+                    (S::zero(), S::zero())
+                };
 
-                // 3. Repulsion term gradient: - (1 / N^2) * sum_j (y_i - y_j) / (||y_i - y_j|| * (||y_i - y_j|| + eps_r))
                 let mut grad_r_0 = S::zero();
                 let mut grad_r_1 = S::zero();
-                if lambda_r > S::zero() {
+                if w_r > S::zero() {
                     for j in 0..n {
                         if i != j {
                             let yj_0 = drawing.raw_entry(j).0;
@@ -340,9 +363,8 @@ where
                             let dx = yi_0 - yj_0;
                             let dy = yi_1 - yj_1;
                             let dist = (dx * dx + dy * dy).sqrt();
-                            if dist > S::from_f32(1e-6).unwrap() {
-                                let factor = -S::one()
-                                    / (S::from_usize(n * n).unwrap() * dist * (dist + epsilon_r));
+                            if dist > S::from_f32(1e-12).unwrap() {
+                                let factor = -S::one() / (n_sq_s * dist * (dist + r_eps));
                                 grad_r_0 += factor * dx;
                                 grad_r_1 += factor * dy;
                             }
@@ -351,28 +373,78 @@ where
                 }
 
                 // Total normalized gradient
-                let g0 =
-                    (lambda_kl * grad_kl_0 + lambda_c * grad_c_0 + lambda_r * grad_r_0) / l_sum;
-                let g1 =
-                    (lambda_kl * grad_kl_1 + lambda_c * grad_c_1 + lambda_r * grad_r_1) / l_sum;
+                let g0 = (w_kl * grad_kl_0 + w_c * grad_c_0 + w_r * grad_r_0) / l_sum;
+                let g1 = (w_kl * grad_kl_1 + w_c * grad_c_1 + w_r * grad_r_1) / l_sum;
 
                 gradients[[i, 0]] = if g0.is_finite() { g0 } else { S::zero() };
                 gradients[[i, 1]] = if g1.is_finite() { g1 } else { S::zero() };
             }
 
             // Update positions and velocities with momentum
+            let mut sum_v_norm = S::zero();
             for i in 0..n {
-                velocity[[i, 0]] = momentum * velocity[[i, 0]] - learning_rate * gradients[[i, 0]];
-                velocity[[i, 1]] = momentum * velocity[[i, 1]] - learning_rate * gradients[[i, 1]];
+                velocity[[i, 0]] = momentum * velocity[[i, 0]] - lr * gradients[[i, 0]];
+                velocity[[i, 1]] = momentum * velocity[[i, 1]] - lr * gradients[[i, 1]];
 
-                let new_x = drawing.raw_entry(i).0 + velocity[[i, 0]];
-                let new_y = drawing.raw_entry(i).1 + velocity[[i, 1]];
+                let vx = velocity[[i, 0]];
+                let vy = velocity[[i, 1]];
+                sum_v_norm += (vx * vx + vy * vy).sqrt();
+
+                let new_x = drawing.raw_entry(i).0 + vx;
+                let new_y = drawing.raw_entry(i).1 + vy;
 
                 if new_x.is_finite() {
                     drawing.raw_entry_mut(i).0 = new_x;
                 }
                 if new_y.is_finite() {
                     drawing.raw_entry_mut(i).1 = new_y;
+                }
+            }
+
+            // Normalized stepsize computation and sliding window convergence check matching thesne.py
+            if self.autostop > S::zero() {
+                let mut min_x = S::infinity();
+                let mut max_x = S::neg_infinity();
+                let mut min_y = S::infinity();
+                let mut max_y = S::neg_infinity();
+                for i in 0..n {
+                    let x = drawing.raw_entry(i).0;
+                    let y = drawing.raw_entry(i).1;
+                    if x < min_x {
+                        min_x = x;
+                    }
+                    if x > max_x {
+                        max_x = x;
+                    }
+                    if y < min_y {
+                        min_y = y;
+                    }
+                    if y > max_y {
+                        max_y = y;
+                    }
+                }
+                let range_x = (max_x - min_x).max(eps);
+                let range_y = (max_y - min_y).max(eps);
+                let range_max = range_x.max(range_y);
+
+                let stepsize = sum_v_norm / (n_s * lr * range_max);
+
+                if stepsize_history.len() >= self.window_size {
+                    stepsize_history.pop_front();
+                }
+                stepsize_history.push_back(stepsize);
+
+                if epoch >= self.window_size && stepsize_history.len() == self.window_size {
+                    let mut max_recent_step = S::zero();
+                    for &s in &stepsize_history {
+                        if s > max_recent_step {
+                            max_recent_step = s;
+                        }
+                    }
+                    if max_recent_step < self.autostop {
+                        // Layout has converged early
+                        break;
+                    }
                 }
             }
         }

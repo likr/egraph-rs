@@ -4,6 +4,7 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
+use petgraph_linalg_kernel::Kernel;
 use petgraph_linalg_kernel::{
     DiffusionKernel, DiffusionKernelBuilder, LowRankDiffusionKernel, LowRankDiffusionKernelBuilder,
     LowRankMultiscaleDiffusionKernel, LowRankMultiscaleDiffusionKernelBuilder,
@@ -11,7 +12,6 @@ use petgraph_linalg_kernel::{
     PivotedDiffusionKernelBuilder, PivotedKernel, PivotedMultiscaleDiffusionKernel,
     PivotedMultiscaleDiffusionKernelBuilder,
 };
-use petgraph_linalg_kernel::{Distance, Kernel};
 use pyo3::prelude::*;
 
 /// Python class for querying diffusion kernel matrix elements

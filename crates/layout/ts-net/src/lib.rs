@@ -48,40 +48,91 @@ mod tests {
     fn test_ts_net_builder_defaults() {
         let builder = TsNetBuilder::<f32>::new();
         let ts_net = builder.build().expect("default builder should be valid");
-        assert_eq!(ts_net.perplexity, 30.0);
-        assert_eq!(ts_net.iterations_stage1, 250);
-        assert_eq!(ts_net.exaggeration, 4.0);
-        assert_eq!(ts_net.iterations_stage2, 250);
-        assert_eq!(ts_net.lambda_c_stage2, 1.2);
-        assert_eq!(ts_net.iterations_stage3, 250);
-        assert_eq!(ts_net.lambda_c_stage3, 0.01);
-        assert_eq!(ts_net.lambda_r_stage3, 0.6);
-        assert_eq!(ts_net.learning_rate, 200.0);
-        assert_eq!(ts_net.momentum, 0.8);
-        assert_eq!(ts_net.power, 2.0);
-        assert_eq!(ts_net.epsilon_r, 0.05);
+        assert_eq!(ts_net.perplexity, 40.0);
+        assert_eq!(ts_net.n_epochs, 5000);
+        assert_eq!(ts_net.initial_lr, 50.0);
+        assert_eq!(ts_net.final_lr, 50.0);
+        assert_eq!(ts_net.lr_switch, None);
+        assert_eq!(ts_net.initial_momentum, 0.5);
+        assert_eq!(ts_net.final_momentum, 0.5);
+        assert_eq!(ts_net.momentum_switch, None);
+        assert_eq!(ts_net.initial_l_kl, Some(1.0));
+        assert_eq!(ts_net.final_l_kl, Some(1.0));
+        assert_eq!(ts_net.l_kl_switch, None);
+        assert_eq!(ts_net.initial_l_c, Some(1.2));
+        assert_eq!(ts_net.final_l_c, Some(0.01));
+        assert_eq!(ts_net.l_c_switch, None);
+        assert_eq!(ts_net.initial_l_r, Some(0.0));
+        assert_eq!(ts_net.final_l_r, Some(0.6));
+        assert_eq!(ts_net.l_r_switch, None);
+        assert_eq!(ts_net.r_eps, 0.05);
+        assert_eq!(ts_net.sigma_iters, 50);
+        assert_eq!(ts_net.autostop, 1e-7);
+        assert_eq!(ts_net.window_size, 40);
+    }
+
+    #[test]
+    fn test_ts_net_builder_new_star() {
+        let builder = TsNetBuilder::<f32>::new_star();
+        let ts_net = builder.build().expect("star builder should be valid");
+        assert_eq!(ts_net.initial_l_c, Some(0.1));
+        assert_eq!(ts_net.perplexity, 40.0);
+        assert_eq!(ts_net.n_epochs, 5000);
+        assert_eq!(ts_net.initial_l_r, Some(0.0));
+        assert_eq!(ts_net.final_l_r, Some(0.6));
     }
 
     #[test]
     fn test_ts_net_builder_validation() {
         assert!(TsNetBuilder::<f32>::new().perplexity(-1.0).build().is_err());
+        assert!(TsNetBuilder::<f32>::new().n_epochs(0).build().is_err());
+        assert!(TsNetBuilder::<f32>::new().initial_lr(0.0).build().is_err());
+        assert!(TsNetBuilder::<f32>::new().final_lr(0.0).build().is_err());
         assert!(TsNetBuilder::<f32>::new()
             .learning_rate(0.0)
             .build()
             .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .initial_momentum(1.0)
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .initial_momentum(-0.1)
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .final_momentum(1.0)
+            .build()
+            .is_err());
         assert!(TsNetBuilder::<f32>::new().momentum(1.0).build().is_err());
-        assert!(TsNetBuilder::<f32>::new().momentum(-0.1).build().is_err());
-        assert!(TsNetBuilder::<f32>::new().power(0.0).build().is_err());
-        assert!(TsNetBuilder::<f32>::new().epsilon_r(0.0).build().is_err());
         assert!(TsNetBuilder::<f32>::new()
-            .exaggeration(0.5)
+            .initial_l_kl(Some(-0.1))
             .build()
             .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .final_l_kl(Some(-0.1))
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .initial_l_c(Some(-0.1))
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .final_l_c(Some(-0.1))
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .initial_l_r(Some(-0.1))
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new()
+            .final_l_r(Some(-0.1))
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f32>::new().r_eps(0.0).build().is_err());
         assert!(TsNetBuilder::<f32>::new().sigma_iters(0).build().is_err());
-        assert!(TsNetBuilder::<f32>::new()
-            .sigma_tolerance(0.0)
-            .build()
-            .is_err());
+        assert!(TsNetBuilder::<f32>::new().autostop(-1.0).build().is_err());
+        assert!(TsNetBuilder::<f32>::new().window_size(0).build().is_err());
     }
 
     #[test]
@@ -248,9 +299,7 @@ mod tests {
 
         let ts_net = TsNetBuilder::new()
             .learning_rate(2.0f32)
-            .iterations_stage1(10)
-            .iterations_stage2(10)
-            .iterations_stage3(10)
+            .n_epochs(30)
             .build()
             .expect("valid builder configuration");
 

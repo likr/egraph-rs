@@ -5,23 +5,35 @@ use petgraph_drawing::DrawingValue;
 /// Builder for constructing a `TsNet` graph layout instance with customized hyperparameters.
 ///
 /// `TsNetBuilder` implements the Builder pattern with explicit validation to ensure
-/// all numerical parameters lie within their valid theoretical ranges.
+/// all numerical parameters lie within their valid theoretical ranges according to `thesne.py`.
+///
+/// # References
+///
+/// Kruiger, J. F., Rauber, P. E., Martins, R. M., Kerren, A., Kobourov, S., & Telea, A. C. (2017).
+/// Graph Layouts by t-SNE. *Computer Graphics Forum*, 36(3), 283-294.
 #[derive(Debug, Clone)]
 pub struct TsNetBuilder<S> {
     pub perplexity: S,
-    pub iterations_stage1: usize,
-    pub exaggeration: S,
-    pub iterations_stage2: usize,
-    pub lambda_c_stage2: S,
-    pub iterations_stage3: usize,
-    pub lambda_c_stage3: S,
-    pub lambda_r_stage3: S,
-    pub learning_rate: S,
-    pub momentum: S,
-    pub power: S,
-    pub epsilon_r: S,
+    pub n_epochs: usize,
+    pub initial_lr: S,
+    pub final_lr: S,
+    pub lr_switch: Option<usize>,
+    pub initial_momentum: S,
+    pub final_momentum: S,
+    pub momentum_switch: Option<usize>,
+    pub initial_l_kl: Option<S>,
+    pub final_l_kl: Option<S>,
+    pub l_kl_switch: Option<usize>,
+    pub initial_l_c: Option<S>,
+    pub final_l_c: Option<S>,
+    pub l_c_switch: Option<usize>,
+    pub initial_l_r: Option<S>,
+    pub final_l_r: Option<S>,
+    pub l_r_switch: Option<usize>,
+    pub r_eps: S,
     pub sigma_iters: usize,
-    pub sigma_tolerance: S,
+    pub autostop: S,
+    pub window_size: usize,
 }
 
 impl<S> TsNetBuilder<S>
@@ -33,23 +45,38 @@ where
         + Default
         + ndarray::ScalarOperand,
 {
-    /// Creates a new `TsNetBuilder` initialized with default hyperparameters.
+    /// Creates a new `TsNetBuilder` initialized with default hyperparameters matching `tsnet.py` (tsNET).
     pub fn new() -> Self {
         Self {
-            perplexity: S::from_f32(30.0).unwrap(),
-            iterations_stage1: 250,
-            exaggeration: S::from_f32(4.0).unwrap(),
-            iterations_stage2: 250,
-            lambda_c_stage2: S::from_f32(1.2).unwrap(),
-            iterations_stage3: 250,
-            lambda_c_stage3: S::from_f32(0.01).unwrap(),
-            lambda_r_stage3: S::from_f32(0.6).unwrap(),
-            learning_rate: S::from_f32(200.0).unwrap(),
-            momentum: S::from_f32(0.8).unwrap(),
-            power: S::from_f32(2.0).unwrap(),
-            epsilon_r: S::from_f32(0.05).unwrap(),
+            perplexity: S::from_f32(40.0).unwrap(),
+            n_epochs: 5000,
+            initial_lr: S::from_f32(50.0).unwrap(),
+            final_lr: S::from_f32(50.0).unwrap(),
+            lr_switch: None,
+            initial_momentum: S::from_f32(0.5).unwrap(),
+            final_momentum: S::from_f32(0.5).unwrap(),
+            momentum_switch: None,
+            initial_l_kl: Some(S::from_f32(1.0).unwrap()),
+            final_l_kl: Some(S::from_f32(1.0).unwrap()),
+            l_kl_switch: None,
+            initial_l_c: Some(S::from_f32(1.2).unwrap()),
+            final_l_c: Some(S::from_f32(0.01).unwrap()),
+            l_c_switch: None,
+            initial_l_r: Some(S::from_f32(0.0).unwrap()),
+            final_l_r: Some(S::from_f32(0.6).unwrap()),
+            l_r_switch: None,
+            r_eps: S::from_f32(0.05).unwrap(),
             sigma_iters: 50,
-            sigma_tolerance: S::from_f32(1e-5).unwrap(),
+            autostop: S::from_f32(1e-7).unwrap(),
+            window_size: 40,
+        }
+    }
+
+    /// Creates a new `TsNetBuilder` initialized with tsNET* hyperparameters (`initial_l_c = 0.1`).
+    pub fn new_star() -> Self {
+        Self {
+            initial_l_c: Some(S::from_f32(0.1).unwrap()),
+            ..Self::new()
         }
     }
 
@@ -59,69 +86,119 @@ where
         self
     }
 
-    /// Sets the number of iterations for Stage 1 (early exaggeration).
-    pub fn iterations_stage1(mut self, iterations: usize) -> Self {
-        self.iterations_stage1 = iterations;
+    /// Sets the total number of epochs (iterations).
+    pub fn n_epochs(mut self, n_epochs: usize) -> Self {
+        self.n_epochs = n_epochs;
         self
     }
 
-    /// Sets the early exaggeration multiplier for Stage 1.
-    pub fn exaggeration(mut self, exaggeration: S) -> Self {
-        self.exaggeration = exaggeration;
+    /// Sets the initial learning rate.
+    pub fn initial_lr(mut self, initial_lr: S) -> Self {
+        self.initial_lr = initial_lr;
         self
     }
 
-    /// Sets the number of iterations for Stage 2 (early compression / untangling).
-    pub fn iterations_stage2(mut self, iterations: usize) -> Self {
-        self.iterations_stage2 = iterations;
+    /// Sets the final learning rate.
+    pub fn final_lr(mut self, final_lr: S) -> Self {
+        self.final_lr = final_lr;
         self
     }
 
-    /// Sets the compression penalty coefficient lambda_c for Stage 2.
-    pub fn lambda_c_stage2(mut self, lambda_c: S) -> Self {
-        self.lambda_c_stage2 = lambda_c;
+    /// Sets the epoch at which the learning rate switches from `initial_lr` to `final_lr`.
+    pub fn lr_switch(mut self, lr_switch: Option<usize>) -> Self {
+        self.lr_switch = lr_switch;
         self
     }
 
-    /// Sets the number of iterations for Stage 3 (final adjustment / refinement).
-    pub fn iterations_stage3(mut self, iterations: usize) -> Self {
-        self.iterations_stage3 = iterations;
-        self
-    }
-
-    /// Sets the compression penalty coefficient lambda_c for Stage 3.
-    pub fn lambda_c_stage3(mut self, lambda_c: S) -> Self {
-        self.lambda_c_stage3 = lambda_c;
-        self
-    }
-
-    /// Sets the repulsion penalty coefficient lambda_r for Stage 3.
-    pub fn lambda_r_stage3(mut self, lambda_r: S) -> Self {
-        self.lambda_r_stage3 = lambda_r;
-        self
-    }
-
-    /// Sets the learning rate for momentum-based gradient descent.
+    /// Sets both the initial and final learning rate to the same value.
     pub fn learning_rate(mut self, learning_rate: S) -> Self {
-        self.learning_rate = learning_rate;
+        self.initial_lr = learning_rate;
+        self.final_lr = learning_rate;
         self
     }
 
-    /// Sets the momentum parameter (must be in `[0, 1)`).
+    /// Sets the initial momentum parameter.
+    pub fn initial_momentum(mut self, initial_momentum: S) -> Self {
+        self.initial_momentum = initial_momentum;
+        self
+    }
+
+    /// Sets the final momentum parameter.
+    pub fn final_momentum(mut self, final_momentum: S) -> Self {
+        self.final_momentum = final_momentum;
+        self
+    }
+
+    /// Sets the epoch at which momentum switches from `initial_momentum` to `final_momentum`.
+    pub fn momentum_switch(mut self, momentum_switch: Option<usize>) -> Self {
+        self.momentum_switch = momentum_switch;
+        self
+    }
+
+    /// Sets both the initial and final momentum parameter to the same value.
     pub fn momentum(mut self, momentum: S) -> Self {
-        self.momentum = momentum;
+        self.initial_momentum = momentum;
+        self.final_momentum = momentum;
         self
     }
 
-    /// Sets the power exponent applied to graph distances (default is 2.0 for standard Gaussian).
-    pub fn power(mut self, power: S) -> Self {
-        self.power = power;
+    /// Sets the initial KL divergence weight.
+    pub fn initial_l_kl(mut self, initial_l_kl: Option<S>) -> Self {
+        self.initial_l_kl = initial_l_kl;
         self
     }
 
-    /// Sets the repulsion offset epsilon_r to prevent division by zero in repulsion force.
-    pub fn epsilon_r(mut self, epsilon_r: S) -> Self {
-        self.epsilon_r = epsilon_r;
+    /// Sets the final KL divergence weight.
+    pub fn final_l_kl(mut self, final_l_kl: Option<S>) -> Self {
+        self.final_l_kl = final_l_kl;
+        self
+    }
+
+    /// Sets the epoch at which lambda_kl switches.
+    pub fn l_kl_switch(mut self, l_kl_switch: Option<usize>) -> Self {
+        self.l_kl_switch = l_kl_switch;
+        self
+    }
+
+    /// Sets the initial compression weight.
+    pub fn initial_l_c(mut self, initial_l_c: Option<S>) -> Self {
+        self.initial_l_c = initial_l_c;
+        self
+    }
+
+    /// Sets the final compression weight.
+    pub fn final_l_c(mut self, final_l_c: Option<S>) -> Self {
+        self.final_l_c = final_l_c;
+        self
+    }
+
+    /// Sets the epoch at which lambda_c switches.
+    pub fn l_c_switch(mut self, l_c_switch: Option<usize>) -> Self {
+        self.l_c_switch = l_c_switch;
+        self
+    }
+
+    /// Sets the initial repulsion weight.
+    pub fn initial_l_r(mut self, initial_l_r: Option<S>) -> Self {
+        self.initial_l_r = initial_l_r;
+        self
+    }
+
+    /// Sets the final repulsion weight.
+    pub fn final_l_r(mut self, final_l_r: Option<S>) -> Self {
+        self.final_l_r = final_l_r;
+        self
+    }
+
+    /// Sets the epoch at which lambda_r switches.
+    pub fn l_r_switch(mut self, l_r_switch: Option<usize>) -> Self {
+        self.l_r_switch = l_r_switch;
+        self
+    }
+
+    /// Sets the repulsion offset parameter `r_eps` to prevent division by zero in repulsion force.
+    pub fn r_eps(mut self, r_eps: S) -> Self {
+        self.r_eps = r_eps;
         self
     }
 
@@ -131,9 +208,15 @@ where
         self
     }
 
-    /// Sets the tolerance threshold for perplexity binary search convergence.
-    pub fn sigma_tolerance(mut self, sigma_tolerance: S) -> Self {
-        self.sigma_tolerance = sigma_tolerance;
+    /// Sets the autostop convergence tolerance threshold.
+    pub fn autostop(mut self, autostop: S) -> Self {
+        self.autostop = autostop;
+        self
+    }
+
+    /// Sets the sliding window size for checking autostop convergence.
+    pub fn window_size(mut self, window_size: usize) -> Self {
+        self.window_size = window_size;
         self
     }
 
@@ -142,52 +225,86 @@ where
         if self.perplexity <= S::zero() {
             return Err("perplexity must be positive".to_string());
         }
-        if self.exaggeration < S::one() {
-            return Err("exaggeration must be at least 1.0".to_string());
+        if self.n_epochs == 0 {
+            return Err("n_epochs must be greater than 0".to_string());
         }
-        if self.learning_rate <= S::zero() {
-            return Err("learning_rate must be positive".to_string());
+        if self.initial_lr <= S::zero() {
+            return Err("initial_lr must be positive".to_string());
         }
-        if self.momentum < S::zero() || self.momentum >= S::one() {
-            return Err("momentum must be in the range [0.0, 1.0)".to_string());
+        if self.final_lr <= S::zero() {
+            return Err("final_lr must be positive".to_string());
         }
-        if self.power <= S::zero() {
-            return Err("power must be positive".to_string());
+        if self.initial_momentum < S::zero() || self.initial_momentum >= S::one() {
+            return Err("initial_momentum must be in the range [0.0, 1.0)".to_string());
         }
-        if self.epsilon_r <= S::zero() {
-            return Err("epsilon_r must be positive".to_string());
+        if self.final_momentum < S::zero() || self.final_momentum >= S::one() {
+            return Err("final_momentum must be in the range [0.0, 1.0)".to_string());
         }
-        if self.lambda_c_stage2 < S::zero() {
-            return Err("lambda_c_stage2 must be non-negative".to_string());
+        if let Some(l_kl) = self.initial_l_kl {
+            if l_kl < S::zero() {
+                return Err("initial_l_kl must be non-negative".to_string());
+            }
         }
-        if self.lambda_c_stage3 < S::zero() {
-            return Err("lambda_c_stage3 must be non-negative".to_string());
+        if let Some(l_kl) = self.final_l_kl {
+            if l_kl < S::zero() {
+                return Err("final_l_kl must be non-negative".to_string());
+            }
         }
-        if self.lambda_r_stage3 < S::zero() {
-            return Err("lambda_r_stage3 must be non-negative".to_string());
+        if let Some(l_c) = self.initial_l_c {
+            if l_c < S::zero() {
+                return Err("initial_l_c must be non-negative".to_string());
+            }
+        }
+        if let Some(l_c) = self.final_l_c {
+            if l_c < S::zero() {
+                return Err("final_l_c must be non-negative".to_string());
+            }
+        }
+        if let Some(l_r) = self.initial_l_r {
+            if l_r < S::zero() {
+                return Err("initial_l_r must be non-negative".to_string());
+            }
+        }
+        if let Some(l_r) = self.final_l_r {
+            if l_r < S::zero() {
+                return Err("final_l_r must be non-negative".to_string());
+            }
+        }
+        if self.r_eps <= S::zero() {
+            return Err("r_eps must be positive".to_string());
         }
         if self.sigma_iters == 0 {
             return Err("sigma_iters must be greater than 0".to_string());
         }
-        if self.sigma_tolerance <= S::zero() {
-            return Err("sigma_tolerance must be positive".to_string());
+        if self.autostop < S::zero() {
+            return Err("autostop must be non-negative".to_string());
+        }
+        if self.window_size == 0 {
+            return Err("window_size must be greater than 0".to_string());
         }
 
         Ok(TsNet {
             perplexity: self.perplexity,
-            iterations_stage1: self.iterations_stage1,
-            exaggeration: self.exaggeration,
-            iterations_stage2: self.iterations_stage2,
-            lambda_c_stage2: self.lambda_c_stage2,
-            iterations_stage3: self.iterations_stage3,
-            lambda_c_stage3: self.lambda_c_stage3,
-            lambda_r_stage3: self.lambda_r_stage3,
-            learning_rate: self.learning_rate,
-            momentum: self.momentum,
-            power: self.power,
-            epsilon_r: self.epsilon_r,
+            n_epochs: self.n_epochs,
+            initial_lr: self.initial_lr,
+            final_lr: self.final_lr,
+            lr_switch: self.lr_switch,
+            initial_momentum: self.initial_momentum,
+            final_momentum: self.final_momentum,
+            momentum_switch: self.momentum_switch,
+            initial_l_kl: self.initial_l_kl,
+            final_l_kl: self.final_l_kl,
+            l_kl_switch: self.l_kl_switch,
+            initial_l_c: self.initial_l_c,
+            final_l_c: self.final_l_c,
+            l_c_switch: self.l_c_switch,
+            initial_l_r: self.initial_l_r,
+            final_l_r: self.final_l_r,
+            l_r_switch: self.l_r_switch,
+            r_eps: self.r_eps,
             sigma_iters: self.sigma_iters,
-            sigma_tolerance: self.sigma_tolerance,
+            autostop: self.autostop,
+            window_size: self.window_size,
         })
     }
 }

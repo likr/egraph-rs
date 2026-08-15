@@ -39,6 +39,17 @@ impl PyTsNetBuilder {
         }
     }
 
+    /// Creates a new `TsNetBuilder` initialized with tsNET* hyperparameters (`initial_l_c = 0.1`).
+    ///
+    /// :return: A new TsNetBuilder instance for tsNET*
+    /// :rtype: TsNetBuilder
+    #[staticmethod]
+    pub fn new_star() -> Self {
+        Self {
+            builder: TsNetBuilder::new_star(),
+        }
+    }
+
     /// Sets the target perplexity.
     ///
     /// :param perplexity: Target perplexity for t-SNE probability distribution
@@ -50,92 +61,51 @@ impl PyTsNetBuilder {
         slf
     }
 
-    /// Sets the number of iterations for Stage 1 (early exaggeration).
+    /// Sets the total number of epochs (iterations).
     ///
-    /// :param iterations: Number of iterations
-    /// :type iterations: int
+    /// :param n_epochs: Number of epochs
+    /// :type n_epochs: int
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn iterations_stage1(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().iterations_stage1(iterations);
+    pub fn n_epochs(mut slf: PyRefMut<'_, Self>, n_epochs: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().n_epochs(n_epochs);
         slf
     }
 
-    /// Sets the exaggeration factor for Stage 1.
+    /// Sets the initial learning rate.
     ///
-    /// :param exaggeration: Exaggeration factor
-    /// :type exaggeration: float
+    /// :param initial_lr: Initial learning rate
+    /// :type initial_lr: float
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn exaggeration(
-        mut slf: PyRefMut<'_, Self>,
-        exaggeration: FloatType,
-    ) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().exaggeration(exaggeration);
+    pub fn initial_lr(mut slf: PyRefMut<'_, Self>, initial_lr: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().initial_lr(initial_lr);
         slf
     }
 
-    /// Sets the number of iterations for Stage 2 (early compression / untangling).
+    /// Sets the final learning rate.
     ///
-    /// :param iterations: Number of iterations
-    /// :type iterations: int
+    /// :param final_lr: Final learning rate
+    /// :type final_lr: float
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn iterations_stage2(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().iterations_stage2(iterations);
+    pub fn final_lr(mut slf: PyRefMut<'_, Self>, final_lr: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().final_lr(final_lr);
         slf
     }
 
-    /// Sets the compression penalty parameter lambda_c for Stage 2.
+    /// Sets the epoch at which learning rate switches from `initial_lr` to `final_lr`.
     ///
-    /// :param lambda_c: Compression penalty parameter
-    /// :type lambda_c: float
+    /// :param lr_switch: Switch epoch index (or None for n_epochs / 2)
+    /// :type lr_switch: int or None
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn lambda_c_stage2(mut slf: PyRefMut<'_, Self>, lambda_c: FloatType) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().lambda_c_stage2(lambda_c);
+    pub fn lr_switch(mut slf: PyRefMut<'_, Self>, lr_switch: Option<usize>) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().lr_switch(lr_switch);
         slf
     }
 
-    /// Sets the number of iterations for Stage 3 (final refinement).
-    ///
-    /// :param iterations: Number of iterations
-    /// :type iterations: int
-    /// :return: Self for method chaining
-    /// :rtype: TsNetBuilder
-    pub fn iterations_stage3(mut slf: PyRefMut<'_, Self>, iterations: usize) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().iterations_stage3(iterations);
-        slf
-    }
-
-    /// Sets the compression penalty parameter lambda_c for Stage 3.
-    ///
-    /// :param lambda_c: Compression penalty parameter
-    /// :type lambda_c: float
-    /// :return: Self for method chaining
-    /// :rtype: TsNetBuilder
-    pub fn lambda_c_stage3(mut slf: PyRefMut<'_, Self>, lambda_c: FloatType) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().lambda_c_stage3(lambda_c);
-        slf
-    }
-
-    /// Sets the repulsion penalty parameter lambda_r for Stage 3.
-    ///
-    /// :param lambda_r: Repulsion penalty parameter
-    /// :type lambda_r: float
-    /// :return: Self for method chaining
-    /// :rtype: TsNetBuilder
-    pub fn lambda_r_stage3(mut slf: PyRefMut<'_, Self>, lambda_r: FloatType) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().lambda_r_stage3(lambda_r);
-        slf
-    }
-
-    /// Sets the repulsion penalty parameter lambda_r for Stage 3 (alias for backward compatibility).
-    pub fn lambda_r(slf: PyRefMut<'_, Self>, lambda_r: FloatType) -> PyRefMut<'_, Self> {
-        Self::lambda_r_stage3(slf, lambda_r)
-    }
-
-    /// Sets the learning rate for gradient descent.
+    /// Sets both the initial and final learning rate to the same value.
     ///
     /// :param learning_rate: Learning rate value
     /// :type learning_rate: float
@@ -149,7 +119,49 @@ impl PyTsNetBuilder {
         slf
     }
 
-    /// Sets the momentum parameter for gradient descent.
+    /// Sets the initial momentum parameter.
+    ///
+    /// :param initial_momentum: Initial momentum in `[0, 1)`
+    /// :type initial_momentum: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn initial_momentum(
+        mut slf: PyRefMut<'_, Self>,
+        initial_momentum: FloatType,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().initial_momentum(initial_momentum);
+        slf
+    }
+
+    /// Sets the final momentum parameter.
+    ///
+    /// :param final_momentum: Final momentum in `[0, 1)`
+    /// :type final_momentum: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn final_momentum(
+        mut slf: PyRefMut<'_, Self>,
+        final_momentum: FloatType,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().final_momentum(final_momentum);
+        slf
+    }
+
+    /// Sets the epoch at which momentum switches.
+    ///
+    /// :param momentum_switch: Switch epoch index (or None for n_epochs / 2)
+    /// :type momentum_switch: int or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn momentum_switch(
+        mut slf: PyRefMut<'_, Self>,
+        momentum_switch: Option<usize>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().momentum_switch(momentum_switch);
+        slf
+    }
+
+    /// Sets both the initial and final momentum parameter to the same value.
     ///
     /// :param momentum: Momentum parameter in `[0, 1)`
     /// :type momentum: float
@@ -160,25 +172,140 @@ impl PyTsNetBuilder {
         slf
     }
 
-    /// Sets the power exponent for distance matrix.
+    /// Sets the initial KL divergence weight.
     ///
-    /// :param power: Power exponent value (e.g. 2.0)
-    /// :type power: float
+    /// :param initial_l_kl: Initial weight for KL divergence term (or None)
+    /// :type initial_l_kl: float or None
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn power(mut slf: PyRefMut<'_, Self>, power: FloatType) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().power(power);
+    pub fn initial_l_kl(
+        mut slf: PyRefMut<'_, Self>,
+        initial_l_kl: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().initial_l_kl(initial_l_kl);
         slf
     }
 
-    /// Sets the repulsion parameter epsilon_r to prevent division by zero.
+    /// Sets the final KL divergence weight.
     ///
-    /// :param epsilon_r: Repulsion parameter offset
-    /// :type epsilon_r: float
+    /// :param final_l_kl: Final weight for KL divergence term (or None)
+    /// :type final_l_kl: float or None
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn epsilon_r(mut slf: PyRefMut<'_, Self>, epsilon_r: FloatType) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().epsilon_r(epsilon_r);
+    pub fn final_l_kl(
+        mut slf: PyRefMut<'_, Self>,
+        final_l_kl: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().final_l_kl(final_l_kl);
+        slf
+    }
+
+    /// Sets the epoch at which lambda_kl switches.
+    ///
+    /// :param l_kl_switch: Switch epoch index (or None for n_epochs / 2)
+    /// :type l_kl_switch: int or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn l_kl_switch(
+        mut slf: PyRefMut<'_, Self>,
+        l_kl_switch: Option<usize>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().l_kl_switch(l_kl_switch);
+        slf
+    }
+
+    /// Sets the initial compression weight.
+    ///
+    /// :param initial_l_c: Initial compression weight (or None)
+    /// :type initial_l_c: float or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn initial_l_c(
+        mut slf: PyRefMut<'_, Self>,
+        initial_l_c: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().initial_l_c(initial_l_c);
+        slf
+    }
+
+    /// Sets the final compression weight.
+    ///
+    /// :param final_l_c: Final compression weight (or None)
+    /// :type final_l_c: float or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn final_l_c(
+        mut slf: PyRefMut<'_, Self>,
+        final_l_c: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().final_l_c(final_l_c);
+        slf
+    }
+
+    /// Sets the epoch at which lambda_c switches.
+    ///
+    /// :param l_c_switch: Switch epoch index (or None for n_epochs / 2)
+    /// :type l_c_switch: int or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn l_c_switch(
+        mut slf: PyRefMut<'_, Self>,
+        l_c_switch: Option<usize>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().l_c_switch(l_c_switch);
+        slf
+    }
+
+    /// Sets the initial repulsion weight.
+    ///
+    /// :param initial_l_r: Initial repulsion weight (or None)
+    /// :type initial_l_r: float or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn initial_l_r(
+        mut slf: PyRefMut<'_, Self>,
+        initial_l_r: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().initial_l_r(initial_l_r);
+        slf
+    }
+
+    /// Sets the final repulsion weight.
+    ///
+    /// :param final_l_r: Final repulsion weight (or None)
+    /// :type final_l_r: float or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn final_l_r(
+        mut slf: PyRefMut<'_, Self>,
+        final_l_r: Option<FloatType>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().final_l_r(final_l_r);
+        slf
+    }
+
+    /// Sets the epoch at which lambda_r switches.
+    ///
+    /// :param l_r_switch: Switch epoch index (or None for n_epochs / 2)
+    /// :type l_r_switch: int or None
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn l_r_switch(
+        mut slf: PyRefMut<'_, Self>,
+        l_r_switch: Option<usize>,
+    ) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().l_r_switch(l_r_switch);
+        slf
+    }
+
+    /// Sets the repulsion offset parameter `r_eps` to prevent division by zero in repulsion force.
+    ///
+    /// :param r_eps: Repulsion parameter offset
+    /// :type r_eps: float
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn r_eps(mut slf: PyRefMut<'_, Self>, r_eps: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().r_eps(r_eps);
         slf
     }
 
@@ -193,17 +320,25 @@ impl PyTsNetBuilder {
         slf
     }
 
-    /// Sets the tolerance threshold for perplexity binary search convergence.
+    /// Sets the autostop convergence tolerance threshold.
     ///
-    /// :param sigma_tolerance: Convergence tolerance
-    /// :type sigma_tolerance: float
+    /// :param autostop: Autostop convergence tolerance
+    /// :type autostop: float
     /// :return: Self for method chaining
     /// :rtype: TsNetBuilder
-    pub fn sigma_tolerance(
-        mut slf: PyRefMut<'_, Self>,
-        sigma_tolerance: FloatType,
-    ) -> PyRefMut<'_, Self> {
-        slf.builder = slf.builder.clone().sigma_tolerance(sigma_tolerance);
+    pub fn autostop(mut slf: PyRefMut<'_, Self>, autostop: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().autostop(autostop);
+        slf
+    }
+
+    /// Sets the sliding window size for checking autostop convergence.
+    ///
+    /// :param window_size: Window size in epochs
+    /// :type window_size: int
+    /// :return: Self for method chaining
+    /// :rtype: TsNetBuilder
+    pub fn window_size(mut slf: PyRefMut<'_, Self>, window_size: usize) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().window_size(window_size);
         slf
     }
 
@@ -250,6 +385,17 @@ impl PyTsNet {
         }
     }
 
+    /// Creates a new `TsNet` instance with tsNET* parameters (`initial_l_c = 0.1`).
+    ///
+    /// :return: A new TsNet instance for tsNET*
+    /// :rtype: TsNet
+    #[staticmethod]
+    pub fn new_star() -> Self {
+        Self {
+            ts_net: TsNet::new_star(),
+        }
+    }
+
     /// Creates a new `TsNetBuilder` instance.
     ///
     /// :return: A new TsNetBuilder instance
@@ -257,6 +403,15 @@ impl PyTsNet {
     #[staticmethod]
     pub fn builder() -> PyTsNetBuilder {
         PyTsNetBuilder::new()
+    }
+
+    /// Creates a new `TsNetBuilder` instance with tsNET* hyperparameters.
+    ///
+    /// :return: A new TsNetBuilder instance for tsNET*
+    /// :rtype: TsNetBuilder
+    #[staticmethod]
+    pub fn builder_star() -> PyTsNetBuilder {
+        PyTsNetBuilder::new_star()
     }
 
     /// Runs the tsNET layout algorithm on the drawing using the provided distance matrix.
