@@ -32,6 +32,10 @@ pub use fit_ts_net::FitTsNet;
 pub use fit_ts_net_builder::FitTsNetBuilder;
 pub use l_ts_net::LTsNet;
 pub use l_ts_net_builder::LTsNetBuilder;
+pub use partial_bfs::{
+    compute_knn_probabilities, compute_knn_probabilities_with_params,
+    compute_partial_bfs_probabilities, SparseP,
+};
 pub use ts_net::TsNet;
 pub use ts_net_builder::TsNetBuilder;
 
