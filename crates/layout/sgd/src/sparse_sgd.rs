@@ -125,12 +125,50 @@ impl SparseSgd {
         S: DrawingValue,
         K: petgraph_linalg_kernel::PivotedKernel<S>,
     {
+        self.build_with_pivoted_kernel_distance(
+            graph,
+            length,
+            distance_matrix.pivots(),
+            distance_matrix,
+        )
+    }
+
+    pub fn build_with_pivoted_neg_log_sim_distance<G, F, K, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &petgraph_linalg_kernel::PivotedNegLogSimDistance<G::NodeId, S, K>,
+    ) -> Sgd<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+        K: petgraph_linalg_kernel::PivotedKernel<S>,
+    {
+        self.build_with_pivoted_kernel_distance(
+            graph,
+            length,
+            distance_matrix.pivots(),
+            distance_matrix,
+        )
+    }
+
+    fn build_with_pivoted_kernel_distance<G, F, S>(
+        &self,
+        graph: G,
+        length: F,
+        pivots: &[usize],
+        distance_matrix: &dyn Distance<G::NodeId, S>,
+    ) -> Sgd<S>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+    {
         let nodes = graph.node_identifiers().collect::<Vec<_>>();
-        let pivot_nodes = distance_matrix
-            .pivots()
-            .iter()
-            .map(|&idx| nodes[idx])
-            .collect::<Vec<_>>();
+        let pivot_nodes = pivots.iter().map(|&idx| nodes[idx]).collect::<Vec<_>>();
         self.build_with_pivot_and_distance_matrix(graph, length, &pivot_nodes, distance_matrix)
     }
 
@@ -186,6 +224,9 @@ impl SparseSgd {
             edges.insert((i, j));
             edges.insert((j, i));
         }
+        if h == 0 {
+            return Sgd::new(node_pairs);
+        }
 
         let r = (0..n)
             .map(|j| {
@@ -211,6 +252,9 @@ impl SparseSgd {
                     continue;
                 }
                 let dpi = distance_matrix.get(u, nodes[i]).unwrap_or(S::infinity());
+                if !dpi.is_finite() || dpi <= S::zero() {
+                    continue;
+                }
                 let wpi = S::one() / (dpi * dpi);
                 let spi = S::from_usize(
                     r_nodes[k]
@@ -343,4 +387,73 @@ where
         }
     }
     n - 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use petgraph_linalg_kernel::{
+        PivotedBandPassDiffusionKernelBuilder, PivotedDiffusionKernelBuilder,
+        PivotedNegLogSimDistanceBuilder, SparseSymmetricMatrix,
+    };
+    use rand::{rngs::StdRng, SeedableRng};
+
+    fn cycle_graph(n: usize) -> UnGraph<(), ()> {
+        let mut g = UnGraph::new_undirected();
+        let nodes: Vec<_> = (0..n).map(|_| g.add_node(())).collect();
+        for i in 0..n {
+            g.add_edge(nodes[i], nodes[(i + 1) % n], ());
+        }
+        g
+    }
+
+    #[test]
+    fn test_sparse_sgd_with_pivoted_neg_log_sim_distance() {
+        let g = cycle_graph(8);
+        let lap = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g, |_| 1.0_f64);
+        let pivots = vec![0usize, 4usize];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let bp_kernel = PivotedBandPassDiffusionKernelBuilder::dog(
+            &lap,
+            0.5_f64,
+            4.0_f64,
+            0.5_f64,
+            0.05_f64,
+            20,
+            pivots.clone(),
+        )
+        .num_hutchinson(Some(16))
+        .build(&mut rng)
+        .unwrap();
+        let bp_dist = PivotedNegLogSimDistanceBuilder::new()
+            .build(&g, bp_kernel)
+            .unwrap();
+        let bp_sgd = SparseSgd::new()
+            .h(2)
+            .build_with_pivoted_neg_log_sim_distance(&g, |_| 1.0_f64, &bp_dist);
+        assert!(!bp_sgd.node_pairs().is_empty());
+        for &(_, _, d1, d2, w1, w2) in bp_sgd.node_pairs() {
+            assert!(d1.is_finite() && d2.is_finite());
+            assert!(w1.is_finite() && w2.is_finite());
+            assert!(d1 > 0.0 && d2 > 0.0);
+        }
+
+        let diff_kernel = PivotedDiffusionKernelBuilder::new(&lap, 2.0_f64, 20, pivots)
+            .num_hutchinson(Some(16))
+            .build(&mut rng)
+            .unwrap();
+        let diff_dist = PivotedNegLogSimDistanceBuilder::new()
+            .build(&g, diff_kernel)
+            .unwrap();
+        let diff_sgd = SparseSgd::new()
+            .h(2)
+            .build_with_pivoted_neg_log_sim_distance(&g, |_| 1.0_f64, &diff_dist);
+        assert!(!diff_sgd.node_pairs().is_empty());
+        for &(_, _, d1, d2, w1, w2) in diff_sgd.node_pairs() {
+            assert!(d1.is_finite() && d2.is_finite());
+            assert!(w1.is_finite() && w2.is_finite());
+        }
+    }
 }
