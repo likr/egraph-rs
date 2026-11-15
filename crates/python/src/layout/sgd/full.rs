@@ -22,13 +22,52 @@ impl PyFullSgd {
         }
     }
 
-    fn build(&self, graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PySgd {
-        PySgd::new_with_sgd(match graph.graph() {
-            GraphType::Graph(native_graph) => self.builder.build(native_graph, |e| {
-                f.call1((e.id().index(),)).unwrap().extract().unwrap()
-            }),
+    #[pyo3(signature = (graph, f=None))]
+    fn build(&self, graph: &PyGraphAdapter, f: Option<&Bound<PyAny>>) -> PyResult<PySgd> {
+        let edge_len = crate::graph::EdgeLength::from_py(f)?;
+        let sgd = match graph.graph() {
+            GraphType::Graph(native_graph) => self
+                .builder
+                .build(native_graph, |e| edge_len.eval(e.id().index())),
             _ => panic!("unsupported graph type"),
-        })
+        };
+        Ok(PySgd::new_with_sgd(sgd))
+    }
+
+    #[pyo3(signature = (n, d, w=None))]
+    fn build_with_numpy(
+        &self,
+        n: usize,
+        d: numpy::PyReadonlyArray2<'_, crate::FloatType>,
+        w: Option<numpy::PyReadonlyArray2<'_, crate::FloatType>>,
+    ) -> PyResult<PySgd> {
+        let d_view = d.as_array();
+        if d_view.dim() != (n, n) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "distance matrix shape {:?} does not match expected ({}, {})",
+                d_view.dim(),
+                n,
+                n
+            )));
+        }
+        let w_view = match &w {
+            Some(w_arr) => {
+                let view = w_arr.as_array();
+                if view.dim() != (n, n) {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "weight matrix shape {:?} does not match expected ({}, {})",
+                        view.dim(),
+                        n,
+                        n
+                    )));
+                }
+                Some(view)
+            }
+            None => None,
+        };
+        Ok(PySgd::new_with_sgd(
+            self.builder.build_with_arrays(n, d_view, w_view),
+        ))
     }
 
     fn build_with_distance_matrix(&self, d: &Bound<PyAny>) -> PyResult<PySgd> {

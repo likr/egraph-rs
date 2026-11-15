@@ -408,6 +408,23 @@ impl PyGraph {
         })
         .add_subclass(Self)
     }
+
+    /// Create an undirected graph with `num_nodes` nodes and edges from an `(M, 2)` NumPy array.
+    #[staticmethod]
+    pub fn from_edges_numpy(
+        py: Python<'_>,
+        num_nodes: usize,
+        edges: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<Self>> {
+        let native_graph = super::build_graph_from_edges_numpy::<Undirected>(py, num_nodes, edges)?;
+        Py::new(
+            py,
+            PyClassInitializer::from(PyGraphAdapter {
+                graph: GraphType::Graph(native_graph),
+            })
+            .add_subclass(Self),
+        )
+    }
 }
 
 /// Python class for directed graphs
@@ -432,6 +449,23 @@ impl PyDiGraph {
             )),
         })
         .add_subclass(Self)
+    }
+
+    /// Create a directed graph with `num_nodes` nodes and edges from an `(M, 2)` NumPy array.
+    #[staticmethod]
+    pub fn from_edges_numpy(
+        py: Python<'_>,
+        num_nodes: usize,
+        edges: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<Self>> {
+        let native_graph = super::build_graph_from_edges_numpy::<Directed>(py, num_nodes, edges)?;
+        Py::new(
+            py,
+            PyClassInitializer::from(PyGraphAdapter {
+                graph: GraphType::DiGraph(native_graph),
+            })
+            .add_subclass(Self),
+        )
     }
 }
 

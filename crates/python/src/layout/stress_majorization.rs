@@ -82,21 +82,24 @@ impl PyStressMajorization {
     /// :return: A new StressMajorization instance
     /// :rtype: StressMajorization
     #[new]
+    #[pyo3(signature = (graph, drawing, f=None))]
     fn new(
         graph: &PyGraphAdapter,
         drawing: &PyDrawingEuclidean2d,
-        f: &Bound<PyAny>,
-    ) -> PyStressMajorization {
-        PyStressMajorization {
-            stress_majorization: match graph.graph() {
-                GraphType::Graph(native_graph) => {
-                    StressMajorization::new(native_graph, drawing.drawing(), |e| {
-                        f.call1((e.id().index(),)).unwrap().extract().unwrap()
-                    })
-                }
-                _ => panic!("unsupported graph type"),
-            },
-        }
+        f: Option<&Bound<PyAny>>,
+    ) -> PyResult<PyStressMajorization> {
+        let edge_len = crate::graph::EdgeLength::from_py(f)?;
+        let stress_majorization = match graph.graph() {
+            GraphType::Graph(native_graph) => {
+                StressMajorization::new(native_graph, drawing.drawing(), |e| {
+                    edge_len.eval(e.id().index())
+                })
+            }
+            _ => panic!("unsupported graph type"),
+        };
+        Ok(PyStressMajorization {
+            stress_majorization,
+        })
     }
 
     /// Creates a new StressMajorization instance from a distance matrix
@@ -167,6 +170,25 @@ impl PyStressMajorization {
     pub fn update_weight(&mut self, f: &Bound<PyAny>) {
         self.stress_majorization
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+    }
+
+    /// Update stress majorization weights from an `(N, N)` float64 NumPy matrix.
+    pub fn update_weight_from_numpy(
+        &mut self,
+        w: numpy::PyReadonlyArray2<'_, crate::FloatType>,
+    ) -> PyResult<()> {
+        let w_view = w.as_array();
+        let n = self.stress_majorization.n();
+        if w_view.dim() != (n, n) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "weight matrix shape {:?} does not match expected ({}, {})",
+                w_view.dim(),
+                n,
+                n
+            )));
+        }
+        self.stress_majorization.update_weight_from_array(w_view);
+        Ok(())
     }
 
     /// Gets the convergence threshold (epsilon)

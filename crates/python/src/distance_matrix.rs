@@ -96,6 +96,113 @@ impl PyDistanceMatrix {
             }
         }
     }
+
+    /// Create a full distance matrix from an `(N, N)` float64 NumPy array.
+    #[staticmethod]
+    pub fn from_numpy(
+        graph: &PyGraphAdapter,
+        array: numpy::PyReadonlyArray2<'_, FloatType>,
+    ) -> PyResult<Self> {
+        let view = array.as_array();
+        let n = match graph.graph() {
+            GraphType::Graph(g) => g.node_count(),
+            GraphType::DiGraph(g) => g.node_count(),
+        };
+        if view.dim() != (n, n) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "array shape {:?} does not match expected ({}, {})",
+                view.dim(),
+                n,
+                n
+            )));
+        }
+        let owned = view.to_owned();
+        let distance_matrix = match graph.graph() {
+            GraphType::Graph(g) => DistanceMatrixType::Full(
+                petgraph_algorithm_shortest_path::FullDistanceMatrix::from_array(g, owned),
+            ),
+            GraphType::DiGraph(g) => DistanceMatrixType::Full(
+                petgraph_algorithm_shortest_path::FullDistanceMatrix::from_array(g, owned),
+            ),
+        };
+        Ok(Self { distance_matrix })
+    }
+
+    /// Create a pivoted distance matrix from pivot node indices and a `(P, N)` float64 NumPy array.
+    #[staticmethod]
+    pub fn from_pivoted_numpy(
+        graph: &PyGraphAdapter,
+        pivots: Vec<usize>,
+        array: numpy::PyReadonlyArray2<'_, FloatType>,
+    ) -> PyResult<Self> {
+        let view = array.as_array();
+        let n = match graph.graph() {
+            GraphType::Graph(g) => g.node_count(),
+            GraphType::DiGraph(g) => g.node_count(),
+        };
+        if view.dim() != (pivots.len(), n) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "array shape {:?} does not match expected ({}, {})",
+                view.dim(),
+                pivots.len(),
+                n
+            )));
+        }
+        let mut seen = std::collections::HashSet::with_capacity(pivots.len());
+        let mut pivot_ids = Vec::with_capacity(pivots.len());
+        for &p in &pivots {
+            if p > IndexType::MAX as usize {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "pivot index {} exceeds IndexType capacity",
+                    p
+                )));
+            }
+            let pid = node_index::<IndexType>(p);
+            let exists = match graph.graph() {
+                GraphType::Graph(g) => g.node_weight(pid).is_some(),
+                GraphType::DiGraph(g) => g.node_weight(pid).is_some(),
+            };
+            if !exists {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "pivot index {} does not exist in graph",
+                    p
+                )));
+            }
+            if !seen.insert(p) {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "duplicate pivot index {}",
+                    p
+                )));
+            }
+            pivot_ids.push(pid);
+        }
+        let owned = view.to_owned();
+        let distance_matrix = match graph.graph() {
+            GraphType::Graph(g) => DistanceMatrixType::Pivoted(
+                petgraph_algorithm_shortest_path::PivotedDistanceMatrix::from_array(
+                    g, pivot_ids, owned,
+                ),
+            ),
+            GraphType::DiGraph(g) => DistanceMatrixType::Pivoted(
+                petgraph_algorithm_shortest_path::PivotedDistanceMatrix::from_array(
+                    g, pivot_ids, owned,
+                ),
+            ),
+        };
+        Ok(Self { distance_matrix })
+    }
+
+    /// Export the distance matrix as a 2D float64 NumPy array matching `shape()`.
+    pub fn to_numpy<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, numpy::PyArray2<FloatType>>> {
+        use numpy::ToPyArray;
+        match &self.distance_matrix {
+            DistanceMatrixType::Full(dm) => Ok(dm.as_array().to_pyarray(py)),
+            DistanceMatrixType::Pivoted(dm) => Ok(dm.as_array().to_pyarray(py)),
+        }
+    }
 }
 
 #[derive(Clone)]

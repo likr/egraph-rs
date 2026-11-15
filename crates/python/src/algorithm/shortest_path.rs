@@ -45,16 +45,19 @@ fn py_all_sources_bfs(graph: &PyGraphAdapter, unit_edge_length: FloatType) -> Py
 /// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "all_sources_dijkstra")]
-fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {
+#[pyo3(signature = (graph, f=None))]
+fn py_all_sources_dijkstra(
+    graph: &PyGraphAdapter,
+    f: Option<&Bound<PyAny>>,
+) -> PyResult<PyDistanceMatrix> {
+    let edge_len = crate::graph::EdgeLength::from_py(f)?;
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => all_sources_dijkstra(g, |e| {
-            f.call1((e.id().index(),)).unwrap().extract().unwrap()
-        }),
-        GraphType::DiGraph(g) => all_sources_dijkstra(g, |e| {
-            f.call1((e.id().index(),)).unwrap().extract().unwrap()
-        }),
+        GraphType::Graph(g) => all_sources_dijkstra(g, |e| edge_len.eval(e.id().index())),
+        GraphType::DiGraph(g) => all_sources_dijkstra(g, |e| edge_len.eval(e.id().index())),
     };
-    PyDistanceMatrix::new_with_full_distance_matrix(distance_matrix)
+    Ok(PyDistanceMatrix::new_with_full_distance_matrix(
+        distance_matrix,
+    ))
 }
 
 /// Computes shortest paths from all nodes to all other nodes using the Warshall-Floyd algorithm
@@ -71,16 +74,19 @@ fn py_all_sources_dijkstra(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistan
 /// :rtype: DistanceMatrix
 #[pyfunction]
 #[pyo3(name = "warshall_floyd")]
-fn py_warshall_floyd(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyDistanceMatrix {
+#[pyo3(signature = (graph, f=None))]
+fn py_warshall_floyd(
+    graph: &PyGraphAdapter,
+    f: Option<&Bound<PyAny>>,
+) -> PyResult<PyDistanceMatrix> {
+    let edge_len = crate::graph::EdgeLength::from_py(f)?;
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => warshall_floyd(g, |e| {
-            f.call1((e.id().index(),)).unwrap().extract().unwrap()
-        }),
-        GraphType::DiGraph(g) => warshall_floyd(g, |e| {
-            f.call1((e.id().index(),)).unwrap().extract().unwrap()
-        }),
+        GraphType::Graph(g) => warshall_floyd(g, |e| edge_len.eval(e.id().index())),
+        GraphType::DiGraph(g) => warshall_floyd(g, |e| edge_len.eval(e.id().index())),
     };
-    PyDistanceMatrix::new_with_full_distance_matrix(distance_matrix)
+    Ok(PyDistanceMatrix::new_with_full_distance_matrix(
+        distance_matrix,
+    ))
 }
 
 /// Python wrapper for the WeightedEdgeLength calculator
