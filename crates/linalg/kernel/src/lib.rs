@@ -147,4 +147,9 @@ pub trait PivotedKernel<S> {
 
     /// Queries the (pivot_idx, j) element of the kernel matrix, where `pivot_idx` is the index into the `pivots()` array.
     fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> S;
+
+    /// Returns the diagonal element `K(j, j)` if available (e.g. via Hutchinson estimation).
+    fn diagonal(&self, _j: usize) -> Option<S> {
+        None
+    }
 }

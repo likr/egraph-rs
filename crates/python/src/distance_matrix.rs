@@ -5,13 +5,14 @@ use crate::{
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
 use petgraph_linalg_kernel::{
-    DiffusionKernel, Distance, EmbeddingKernel, EmbeddingKernelBuilder, ExponentialKernel,
-    ExponentialKernelBuilder, GaussianKernel, GaussianKernelBuilder, Kernel, KernelDistance,
-    KernelDistanceBuilder, LowRankDiffusionKernel, LowRankMultiscaleDiffusionKernel,
-    MultiscaleDiffusionKernel, NegLogDistance, NegLogDistanceBuilder, NegLogSimDistance,
-    NegLogSimDistanceBuilder, PivotedDiffusionKernel, PivotedKernel,
-    PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder, TKernel,
-    TKernelBuilder,
+    BandPassDiffusionKernel, DiffusionKernel, Distance, EmbeddingKernel, EmbeddingKernelBuilder,
+    ExponentialKernel, ExponentialKernelBuilder, GaussianKernel, GaussianKernelBuilder, Kernel,
+    KernelDistance, KernelDistanceBuilder, LowRankDiffusionKernel,
+    LowRankMultiscaleDiffusionKernel, MultiscaleDiffusionKernel, NegLogDistance,
+    NegLogDistanceBuilder, NegLogSimDistance, NegLogSimDistanceBuilder,
+    PivotedBandPassDiffusionKernel, PivotedDiffusionKernel, PivotedKernel,
+    PivotedMultiscaleDiffusionKernel, PivotedNegLogDistance, PivotedNegLogDistanceBuilder,
+    PivotedNegLogSimDistance, PivotedNegLogSimDistanceBuilder, TKernel, TKernelBuilder,
 };
 use pyo3::prelude::*;
 
@@ -205,9 +206,52 @@ impl PyDistanceMatrix {
     }
 }
 
+/// Edge length abstraction allowing optional/constant edge weights without acquiring the GIL.
+pub(crate) enum EdgeLengthFn {
+    Constant(FloatType),
+    Callable(Py<PyAny>),
+}
+
+impl EdgeLengthFn {
+    pub(crate) fn from_bound(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let Some(bound) = obj else {
+            return Ok(Self::Constant(1.0));
+        };
+        if bound.is_none() {
+            return Ok(Self::Constant(1.0));
+        }
+        if bound.is_instance_of::<pyo3::types::PyBool>() {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "edge length must be callable, float, or None, not bool",
+            ));
+        }
+        if let Ok(val) = bound.extract::<FloatType>() {
+            return Ok(Self::Constant(val));
+        }
+        if bound.is_callable() {
+            return Ok(Self::Callable(bound.clone().unbind()));
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "edge length must be callable, float, or None",
+        ))
+    }
+
+    pub(crate) fn eval(&self, edge_idx: usize) -> FloatType {
+        match self {
+            Self::Constant(v) => *v,
+            Self::Callable(func) => Python::attach(|py| {
+                func.call1(py, (edge_idx,))
+                    .and_then(|value| value.extract::<FloatType>(py))
+                    .unwrap_or(1.0)
+            }),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum InnerKernel {
     Diffusion(DiffusionKernel<FloatType>),
+    BandPass(BandPassDiffusionKernel<FloatType>),
     LowRank(LowRankDiffusionKernel<FloatType>),
     LowRankMultiscale(LowRankMultiscaleDiffusionKernel<FloatType>),
     Multiscale(MultiscaleDiffusionKernel<FloatType>),
@@ -221,6 +265,7 @@ impl InnerKernel {
     fn get_by_index_internal(&self, i: usize, j: usize) -> FloatType {
         match self {
             Self::Diffusion(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
+            Self::BandPass(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
             Self::LowRank(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
             Self::LowRankMultiscale(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
             Self::Multiscale(k) => Kernel::<usize, FloatType>::get_by_index(k, i, j),
@@ -234,6 +279,7 @@ impl InnerKernel {
     fn shape_internal(&self) -> (usize, usize) {
         match self {
             Self::Diffusion(k) => Kernel::<usize, FloatType>::shape(k),
+            Self::BandPass(k) => Kernel::<usize, FloatType>::shape(k),
             Self::LowRank(k) => Kernel::<usize, FloatType>::shape(k),
             Self::LowRankMultiscale(k) => Kernel::<usize, FloatType>::shape(k),
             Self::Multiscale(k) => Kernel::<usize, FloatType>::shape(k),
@@ -302,6 +348,8 @@ impl Kernel<NodeIndex<IndexType>, FloatType> for InnerKernel {
 pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
     if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyDiffusionKernel>>() {
         Ok(InnerKernel::Diffusion(k.kernel.clone()))
+    } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyBandPassDiffusionKernel>>() {
+        Ok(InnerKernel::BandPass(k.kernel.clone()))
     } else if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyLowRankDiffusionKernel>>() {
         Ok(InnerKernel::LowRank(k.kernel.clone()))
     } else if let Ok(k) =
@@ -329,6 +377,7 @@ pub fn extract_inner_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerKernel> {
 #[derive(Clone)]
 pub enum InnerPivotedKernel {
     Diffusion(PivotedDiffusionKernel<FloatType>),
+    BandPass(PivotedBandPassDiffusionKernel<FloatType>),
     Multiscale(PivotedMultiscaleDiffusionKernel<FloatType>),
 }
 
@@ -336,6 +385,7 @@ impl PivotedKernel<FloatType> for InnerPivotedKernel {
     fn pivots(&self) -> &[usize] {
         match self {
             Self::Diffusion(k) => k.pivots(),
+            Self::BandPass(k) => k.pivots(),
             Self::Multiscale(k) => k.pivots(),
         }
     }
@@ -343,7 +393,16 @@ impl PivotedKernel<FloatType> for InnerPivotedKernel {
     fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> FloatType {
         match self {
             Self::Diffusion(k) => k.get_from_pivot(pivot_idx, j),
+            Self::BandPass(k) => k.get_from_pivot(pivot_idx, j),
             Self::Multiscale(k) => k.get_from_pivot(pivot_idx, j),
+        }
+    }
+
+    fn diagonal(&self, j: usize) -> Option<FloatType> {
+        match self {
+            Self::Diffusion(k) => k.diagonal(j),
+            Self::BandPass(k) => k.diagonal(j),
+            Self::Multiscale(k) => k.diagonal(j),
         }
     }
 }
@@ -351,6 +410,10 @@ impl PivotedKernel<FloatType> for InnerPivotedKernel {
 pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivotedKernel> {
     if let Ok(k) = kernel.extract::<PyRef<crate::layout::sgd::PyPivotedDiffusionKernel>>() {
         Ok(InnerPivotedKernel::Diffusion(k.kernel.clone()))
+    } else if let Ok(k) =
+        kernel.extract::<PyRef<crate::layout::sgd::PyPivotedBandPassDiffusionKernel>>()
+    {
+        Ok(InnerPivotedKernel::BandPass(k.kernel.clone()))
     } else if let Ok(k) =
         kernel.extract::<PyRef<crate::layout::sgd::PyPivotedMultiscaleDiffusionKernel>>()
     {
@@ -376,6 +439,8 @@ pub fn with_distance<R>(
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogSimDistance>>() {
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
         Ok(f(&dm.matrix))
@@ -592,6 +657,125 @@ impl PyPivotedNegLogDistanceBuilder {
             }
         };
         Ok(PyPivotedNegLogDistance { matrix })
+    }
+}
+
+fn build_pivoted_neg_log_sim_distance(
+    builder: PivotedNegLogSimDistanceBuilder<FloatType>,
+    graph: &PyGraphAdapter,
+    kernel: &Bound<PyAny>,
+) -> PyResult<PyPivotedNegLogSimDistance> {
+    let inner_kernel = extract_inner_pivoted_kernel(kernel)?;
+    let matrix = match graph.graph() {
+        GraphType::Graph(native_graph) => builder
+            .build(native_graph, inner_kernel)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?,
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Unsupported graph type",
+            ))
+        }
+    };
+    Ok(PyPivotedNegLogSimDistance { matrix })
+}
+
+/// Pivoted distance matrix of shape `(N, h)` computed from normalized negative log similarity.
+#[pyclass]
+#[pyo3(name = "PivotedNegLogSimDistance")]
+pub struct PyPivotedNegLogSimDistance {
+    pub(crate) matrix:
+        PivotedNegLogSimDistance<NodeIndex<IndexType>, FloatType, InnerPivotedKernel>,
+}
+
+#[pymethods]
+impl PyPivotedNegLogSimDistance {
+    /// Creates a new `PivotedNegLogSimDistance` from a graph and pivoted kernel.
+    #[new]
+    #[pyo3(signature = (graph, kernel, epsilon = 1e-12, scale = 1.0, power = 0.5))]
+    pub fn new(
+        graph: &PyGraphAdapter,
+        kernel: &Bound<PyAny>,
+        epsilon: FloatType,
+        scale: FloatType,
+        power: FloatType,
+    ) -> PyResult<Self> {
+        let builder = PivotedNegLogSimDistanceBuilder::new()
+            .epsilon(epsilon)
+            .scale(scale)
+            .power(power);
+        build_pivoted_neg_log_sim_distance(builder, graph, kernel)
+    }
+
+    /// Returns the distance between node `u` and node `v` when one of them is a pivot, else `None`.
+    pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
+        self.matrix
+            .get(node_index::<IndexType>(u), node_index::<IndexType>(v))
+    }
+
+    /// Returns the distance for row node index `j` and pivot column index `pivot_idx`.
+    pub fn get_by_index(&self, j: usize, pivot_idx: usize) -> PyResult<FloatType> {
+        let (n, h) = self.matrix.shape();
+        if j >= n || pivot_idx >= h {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({j}, {pivot_idx}) out of bounds for shape ({n}, {h})"
+            )));
+        }
+        Ok(self.matrix.get_by_index(j, pivot_idx))
+    }
+
+    /// Returns the `(N, h)` matrix shape.
+    pub fn shape(&self) -> (usize, usize) {
+        self.matrix.shape()
+    }
+
+    /// Returns the list of pivot node indices.
+    pub fn pivots(&self) -> Vec<usize> {
+        self.matrix.pivots().to_vec()
+    }
+}
+
+/// Builder for [`PivotedNegLogSimDistance`].
+#[pyclass]
+#[pyo3(name = "PivotedNegLogSimDistanceBuilder")]
+pub struct PyPivotedNegLogSimDistanceBuilder {
+    pub(crate) builder: PivotedNegLogSimDistanceBuilder<FloatType>,
+}
+
+#[pymethods]
+impl PyPivotedNegLogSimDistanceBuilder {
+    /// Creates a new `PivotedNegLogSimDistanceBuilder` with default parameters.
+    #[new]
+    fn new() -> Self {
+        Self {
+            builder: PivotedNegLogSimDistanceBuilder::new(),
+        }
+    }
+
+    /// Sets the positivity clamping floor `epsilon`.
+    fn epsilon(mut slf: PyRefMut<'_, Self>, epsilon: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().epsilon(epsilon);
+        slf
+    }
+
+    /// Sets the distance multiplier `scale`.
+    fn scale(mut slf: PyRefMut<'_, Self>, scale: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().scale(scale);
+        slf
+    }
+
+    /// Sets the power exponent `power`.
+    fn power(mut slf: PyRefMut<'_, Self>, power: FloatType) -> PyRefMut<'_, Self> {
+        slf.builder = slf.builder.clone().power(power);
+        slf
+    }
+
+    /// Builds a `PivotedNegLogSimDistance` for `graph` and `kernel`.
+    fn build(
+        &self,
+        graph: &PyGraphAdapter,
+        kernel: &Bound<PyAny>,
+    ) -> PyResult<PyPivotedNegLogSimDistance> {
+        build_pivoted_neg_log_sim_distance(self.builder.clone(), graph, kernel)
     }
 }
 
@@ -868,6 +1052,7 @@ impl PyKernelDistanceBuilder {
 
 use petgraph_linalg_kernel::SparseSymmetricMatrix;
 
+/// Sparse symmetric graph Laplacian matrix.
 #[pyclass(from_py_object)]
 #[pyo3(name = "Laplacian")]
 #[derive(Clone)]
@@ -875,34 +1060,92 @@ pub struct PyLaplacian {
     pub(crate) matrix: SparseSymmetricMatrix<FloatType>,
 }
 
+fn build_graph_laplacian(
+    graph: &PyGraphAdapter,
+    length: Option<&Bound<'_, PyAny>>,
+    normalized: bool,
+) -> PyResult<PyLaplacian> {
+    let edge_length = EdgeLengthFn::from_bound(length)?;
+    let length_fn =
+        |edge: petgraph::graph::EdgeReference<'_, Py<PyAny>>| edge_length.eval(edge.id().index());
+    let matrix = match graph.graph() {
+        GraphType::Graph(native_graph) => {
+            if normalized {
+                SparseSymmetricMatrix::symmetric_normalized_laplacian(native_graph, length_fn)
+            } else {
+                SparseSymmetricMatrix::standard_laplacian(native_graph, length_fn)
+            }
+        }
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Unsupported graph type",
+            ))
+        }
+    };
+    Ok(PyLaplacian { matrix })
+}
+
+#[pymethods]
+impl PyLaplacian {
+    /// Builds an unnormalized combinatorial Laplacian matrix (`L = D - W`).
+    #[staticmethod]
+    #[pyo3(signature = (graph, length = None))]
+    pub fn standard(
+        graph: &PyGraphAdapter,
+        length: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyLaplacian> {
+        build_graph_laplacian(graph, length, false)
+    }
+
+    /// Builds a symmetric normalized Laplacian matrix (`L_sym = I - D^{-1/2} W D^{-1/2}`).
+    #[staticmethod]
+    #[pyo3(signature = (graph, length = None))]
+    pub fn symmetric_normalized(
+        graph: &PyGraphAdapter,
+        length: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyLaplacian> {
+        build_graph_laplacian(graph, length, true)
+    }
+
+    /// Returns the number of nodes in the Laplacian matrix.
+    pub fn n(&self) -> usize {
+        self.matrix.n
+    }
+}
+
+/// Builder namespace for constructing unnormalized combinatorial Laplacians.
 #[pyclass]
 #[pyo3(name = "StandardLaplacian")]
 pub struct PyStandardLaplacian;
 
 #[pymethods]
 impl PyStandardLaplacian {
+    /// Builds an unnormalized combinatorial Laplacian matrix (`L = D - W`).
     #[staticmethod]
-    pub fn build(graph: &PyGraphAdapter, length: Py<PyAny>) -> PyResult<PyLaplacian> {
-        let matrix = match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                let length_fn = |edge: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
-                    Python::attach(|py| {
-                        let result = length.call1(py, (edge.id().index(),));
-                        match result {
-                            Ok(value) => value.extract::<FloatType>(py).unwrap_or(1.0),
-                            Err(_) => 1.0,
-                        }
-                    })
-                };
-                SparseSymmetricMatrix::standard_laplacian(native_graph, length_fn)
-            }
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported graph type",
-                ))
-            }
-        };
-        Ok(PyLaplacian { matrix })
+    #[pyo3(signature = (graph, length = None))]
+    pub fn build(
+        graph: &PyGraphAdapter,
+        length: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyLaplacian> {
+        build_graph_laplacian(graph, length, false)
+    }
+}
+
+/// Builder namespace for constructing symmetric normalized graph Laplacians.
+#[pyclass]
+#[pyo3(name = "SymmetricNormalizedLaplacian")]
+pub struct PySymmetricNormalizedLaplacian;
+
+#[pymethods]
+impl PySymmetricNormalizedLaplacian {
+    /// Builds a symmetric normalized Laplacian matrix (`L_sym = I - D^{-1/2} W D^{-1/2}`).
+    #[staticmethod]
+    #[pyo3(signature = (graph, length = None))]
+    pub fn build(
+        graph: &PyGraphAdapter,
+        length: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyLaplacian> {
+        build_graph_laplacian(graph, length, true)
     }
 }
 
@@ -914,6 +1157,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNegLogDistanceBuilder>()?;
     m.add_class::<PyPivotedNegLogDistance>()?;
     m.add_class::<PyPivotedNegLogDistanceBuilder>()?;
+    m.add_class::<PyPivotedNegLogSimDistance>()?;
+    m.add_class::<PyPivotedNegLogSimDistanceBuilder>()?;
     m.add_class::<PyEmbeddingKernel>()?;
     m.add_class::<PyEmbeddingKernelBuilder>()?;
     m.add_class::<PyGaussianKernel>()?;
@@ -926,5 +1171,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKernelDistanceBuilder>()?;
     m.add_class::<PyLaplacian>()?;
     m.add_class::<PyStandardLaplacian>()?;
+    m.add_class::<PySymmetricNormalizedLaplacian>()?;
     Ok(())
 }
