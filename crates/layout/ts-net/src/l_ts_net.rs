@@ -1,11 +1,13 @@
 use crate::{
     fit_interpolation::{compute_fit_entropy_gradient, compute_fit_kl_repulsion},
     l_ts_net_builder::LTsNetBuilder,
-    partial_bfs::compute_partial_bfs_probabilities,
+    partial_bfs::{compute_knn_probabilities_with_params, compute_partial_bfs_probabilities},
 };
 use num_traits::Float;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
+use petgraph_drawing::{
+    Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d,
+};
 use rand::prelude::*;
 
 /// L-tsNET (Linear-tsNET) graph layout algorithm.
@@ -50,7 +52,6 @@ where
     }
 
     /// Executes the L-tsNET layout algorithm on the graph and drawing.
-    #[allow(clippy::needless_range_loop)]
     pub fn run<G, N, R>(&self, drawing: &mut DrawingEuclidean2d<N, S>, graph: G, rng: &mut R)
     where
         G: IntoNeighbors + IntoNodeIdentifiers + NodeCount + NodeIndexable,
@@ -63,13 +64,6 @@ where
             return;
         }
 
-        // Extract coordinates from drawing
-        let mut points: Vec<[S; 2]> = Vec::with_capacity(n);
-        for i in 0..n {
-            let entry = drawing.raw_entry(i);
-            points.push([entry.0, entry.1]);
-        }
-
         // Step 1 (C0): Compute sparse symmetrized joint probabilities P via Partial BFS in O(N)
         let sparse_p = compute_partial_bfs_probabilities(
             graph,
@@ -80,6 +74,49 @@ where
             self.sigma_tolerance,
             rng,
         );
+
+        self.run_from_sparse_p(drawing, &sparse_p);
+    }
+
+    /// Executes the L-tsNET layout algorithm using precomputed k-nearest neighbors.
+    pub fn run_with_knn<D>(&self, drawing: &mut D, knn: &[Vec<(usize, S)>])
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        let n = drawing.len();
+        if n < 2 {
+            return;
+        }
+
+        let sparse_p = compute_knn_probabilities_with_params(
+            n,
+            knn,
+            self.perplexity,
+            self.power,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        );
+
+        self.run_from_sparse_p(drawing, &sparse_p);
+    }
+
+    /// Runs the 3-stage L-tsNET optimization loop from precomputed sparse joint probabilities `P`.
+    #[allow(clippy::needless_range_loop)]
+    pub(crate) fn run_from_sparse_p<D>(&self, drawing: &mut D, sparse_p: &[Vec<(usize, S)>])
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        let n = drawing.len();
+        if n < 2 {
+            return;
+        }
+
+        // Extract coordinates from drawing
+        let mut points: Vec<[S; 2]> = Vec::with_capacity(n);
+        for i in 0..n {
+            let entry = drawing.raw_entry(i);
+            points.push([entry.0, entry.1]);
+        }
 
         let mut velocities = vec![[S::zero(), S::zero()]; n];
         let n_s = S::from_usize(n).unwrap();
@@ -124,18 +161,20 @@ where
                 for i in 0..n {
                     let xi = points[i][0];
                     let yi = points[i][1];
-                    for &(j, p_ij) in &sparse_p[i] {
-                        if i == j {
-                            continue;
+                    if let Some(row) = sparse_p.get(i) {
+                        for &(j, p_ij) in row {
+                            if i == j || j >= n {
+                                continue;
+                            }
+                            let dx = xi - points[j][0];
+                            let dy = yi - points[j][1];
+                            let dist_sq = dx * dx + dy * dy;
+                            let q_unnorm = S::one() / (S::one() + dist_sq);
+                            let p_eff = p_ij * exaggeration;
+                            let mult = p_eff * q_unnorm;
+                            attr_forces[i][0] += mult * dx;
+                            attr_forces[i][1] += mult * dy;
                         }
-                        let dx = xi - points[j][0];
-                        let dy = yi - points[j][1];
-                        let dist_sq = dx * dx + dy * dy;
-                        let q_unnorm = S::one() / (S::one() + dist_sq);
-                        let p_eff = p_ij * exaggeration;
-                        let mult = p_eff * q_unnorm;
-                        attr_forces[i][0] += mult * dx;
-                        attr_forces[i][1] += mult * dy;
                     }
                 }
 

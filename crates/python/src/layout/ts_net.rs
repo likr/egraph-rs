@@ -9,8 +9,139 @@ use crate::{
     rng::PyRng,
     FloatType,
 };
+use numpy::{PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
 use petgraph_layout_ts_net::{BhTsNet, BhTsNetBuilder, TsNet, TsNetBuilder};
 use pyo3::prelude::*;
+
+fn build_knn_rows_from_view<'a, T, F>(
+    indices: numpy::ndarray::ArrayView2<'a, T>,
+    distances: numpy::ndarray::ArrayView2<'a, FloatType>,
+    n: usize,
+    mut convert_idx: F,
+) -> PyResult<Vec<Vec<(usize, FloatType)>>>
+where
+    T: Copy,
+    F: FnMut(T) -> PyResult<usize>,
+{
+    let (rows, cols) = indices.dim();
+    if rows != n {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "knn_indices row count ({}) must match drawing node count ({})",
+            rows, n
+        )));
+    }
+    if distances.dim() != (rows, cols) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "knn_distances shape {:?} must match knn_indices shape {:?}",
+            distances.dim(),
+            (rows, cols)
+        )));
+    }
+
+    let mut knn = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut row = Vec::with_capacity(cols);
+        for j_pos in 0..cols {
+            let idx = convert_idx(indices[[i, j_pos]])?;
+            if idx >= n {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_indices[{}, {}] = {} is out of range for drawing with {} nodes",
+                    i, j_pos, idx, n
+                )));
+            }
+            let dist = distances[[i, j_pos]];
+            if !dist.is_finite() || dist < 0.0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_distances[{}, {}] = {} must be finite and non-negative",
+                    i, j_pos, dist
+                )));
+            }
+            row.push((idx, dist));
+        }
+        knn.push(row);
+    }
+    Ok(knn)
+}
+
+fn check_2d_array(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<()> {
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
+        if untyped.ndim() != 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "{} must be a 2D array, got {}D",
+                name,
+                untyped.ndim()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn extract_knn_rows(
+    n: usize,
+    knn_indices: &Bound<'_, PyAny>,
+    knn_distances: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<(usize, FloatType)>>> {
+    check_2d_array(knn_indices, "knn_indices")?;
+    check_2d_array(knn_distances, "knn_distances")?;
+
+    let dist_arr = knn_distances
+        .extract::<PyReadonlyArray2<'_, FloatType>>()
+        .map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("knn_distances must be a 2D float64 numpy array")
+        })?;
+    let dist_view = dist_arr.as_array();
+
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, i64>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, |v| {
+            usize::try_from(v).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_indices must contain non-negative integers, got {}",
+                    v
+                ))
+            })
+        });
+    }
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, i32>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, |v| {
+            usize::try_from(v).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_indices must contain non-negative integers, got {}",
+                    v
+                ))
+            })
+        });
+    }
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, usize>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, Ok);
+    }
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, isize>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, |v| {
+            usize::try_from(v).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_indices must contain non-negative integers, got {}",
+                    v
+                ))
+            })
+        });
+    }
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, u64>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, |v| {
+            usize::try_from(v).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "knn_indices value {} overflows usize",
+                    v
+                ))
+            })
+        });
+    }
+    if let Ok(arr) = knn_indices.extract::<PyReadonlyArray2<'_, u32>>() {
+        return build_knn_rows_from_view(arr.as_array(), dist_view, n, |v| Ok(v as usize));
+    }
+
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "knn_indices must be a 2D numpy integer array (int64, int32, or uintp/usize)",
+    ))
+}
 
 /// Python class for constructing and configuring the `TsNet` algorithm via the Builder pattern.
 #[pyclass(from_py_object)]
@@ -648,6 +779,28 @@ impl PyBhTsNet {
             )),
         }
     }
+
+    /// Runs the BH-tsNET layout algorithm on the drawing using precomputed k-nearest neighbors.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param knn_indices: 2D integer array of shape (n, k) containing neighbor node indices
+    /// :type knn_indices: numpy.ndarray
+    /// :param knn_distances: 2D float64 array of shape (n, k) containing neighbor distances
+    /// :type knn_distances: numpy.ndarray
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (drawing, knn_indices, knn_distances))]
+    pub fn run_with_knn(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        knn_indices: &Bound<'_, PyAny>,
+        knn_distances: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
+        self.bh_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
+        Ok(())
+    }
 }
 
 /// Python class for constructing and configuring the `FitTsNet` algorithm via the Builder pattern.
@@ -883,6 +1036,28 @@ impl PyFitTsNet {
             )),
         }
     }
+
+    /// Runs the FIt-tsNET layout algorithm on the drawing using precomputed k-nearest neighbors.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param knn_indices: 2D integer array of shape (n, k) containing neighbor node indices
+    /// :type knn_indices: numpy.ndarray
+    /// :param knn_distances: 2D float64 array of shape (n, k) containing neighbor distances
+    /// :type knn_distances: numpy.ndarray
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (drawing, knn_indices, knn_distances))]
+    pub fn run_with_knn(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        knn_indices: &Bound<'_, PyAny>,
+        knn_distances: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
+        self.fit_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
+        Ok(())
+    }
 }
 
 /// Python class for constructing and configuring the `LTsNet` algorithm via the Builder pattern.
@@ -1111,6 +1286,28 @@ impl PyLTsNet {
                 "unsupported graph type for LTsNet",
             )),
         }
+    }
+
+    /// Runs the L-tsNET layout algorithm on the drawing using precomputed k-nearest neighbors.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param knn_indices: 2D integer array of shape (n, k) containing neighbor node indices
+    /// :type knn_indices: numpy.ndarray
+    /// :param knn_distances: 2D float64 array of shape (n, k) containing neighbor distances
+    /// :type knn_distances: numpy.ndarray
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (drawing, knn_indices, knn_distances))]
+    pub fn run_with_knn(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        knn_indices: &Bound<'_, PyAny>,
+        knn_distances: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
+        self.l_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
+        Ok(())
     }
 }
 
