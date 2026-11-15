@@ -170,6 +170,23 @@ where
     }
 }
 
+fn collect_node_index_map<G, N>(graph: G) -> (Vec<N>, HashMap<N, usize>)
+where
+    G: IntoNodeIdentifiers,
+    G::NodeId: Into<N>,
+    N: Eq + Hash + Copy,
+{
+    let indices = graph
+        .node_identifiers()
+        .map(|u| u.into())
+        .collect::<Vec<_>>();
+    let mut index_map = HashMap::with_capacity(indices.len());
+    for (i, &u) in indices.iter().enumerate() {
+        index_map.insert(u, i);
+    }
+    (indices, index_map)
+}
+
 impl<N, S> FullDistanceMatrix<N, S>
 where
     N: Eq + Hash,
@@ -181,20 +198,46 @@ where
         G::NodeId: Into<N>,
         N: Copy,
     {
-        let indices = graph
-            .node_identifiers()
-            .map(|u| u.into())
-            .collect::<Vec<_>>();
-        let mut index_map = HashMap::new();
-        for (i, &u) in indices.iter().enumerate() {
-            index_map.insert(u, i);
-        }
+        let (indices, index_map) = collect_node_index_map(graph);
         let n = indices.len();
         Self {
             indices,
             index_map,
             d: Array::from_elem((n, n), S::infinity()),
         }
+    }
+
+    /// Creates a `FullDistanceMatrix` backed by a pre-computed 2D array of shape `(n, n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `array.dim() != (n, n)`, where `n` is the number of nodes in `graph`.
+    pub fn from_array<G>(graph: G, array: Array2<S>) -> Self
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Into<N>,
+        N: Copy,
+    {
+        let (indices, index_map) = collect_node_index_map(graph);
+        let n = indices.len();
+        assert_eq!(
+            array.dim(),
+            (n, n),
+            "FullDistanceMatrix::from_array: expected shape ({}, {}), got {:?}",
+            n,
+            n,
+            array.dim()
+        );
+        Self {
+            indices,
+            index_map,
+            d: array,
+        }
+    }
+
+    /// Returns a reference to the underlying `(n, n)` distance array.
+    pub fn as_array(&self) -> &Array2<S> {
+        &self.d
     }
 
     fn index(&self, u: N, v: N) -> Option<(usize, usize)> {
@@ -334,18 +377,11 @@ where
         N: Copy,
     {
         let row_indices = sources.iter().map(|&u| u.into()).collect::<Vec<_>>();
-        let mut row_index_map = HashMap::new();
+        let mut row_index_map = HashMap::with_capacity(row_indices.len());
         for (i, &u) in row_indices.iter().enumerate() {
             row_index_map.insert(u, i);
         }
-        let col_indices = graph
-            .node_identifiers()
-            .map(|u| u.into())
-            .collect::<Vec<_>>();
-        let mut col_index_map = HashMap::new();
-        for (i, &u) in col_indices.iter().enumerate() {
-            col_index_map.insert(u, i);
-        }
+        let (col_indices, col_index_map) = collect_node_index_map(graph);
         let d = Array::from_elem((row_indices.len(), col_indices.len()), S::infinity());
         Self {
             row_indices,
@@ -354,6 +390,51 @@ where
             col_index_map,
             d,
         }
+    }
+
+    /// Creates a `PivotedDistanceMatrix` backed by a pre-computed 2D array of shape `(pivots.len(), n)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `array.dim() != (pivots.len(), n)`, where `n` is the number of nodes in `graph`,
+    /// or if any pivot node is not present in `graph`.
+    pub fn from_array<G>(graph: G, pivots: Vec<G::NodeId>, array: Array2<S>) -> Self
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Into<N>,
+        N: Copy,
+    {
+        let (col_indices, col_index_map) = collect_node_index_map(graph);
+        let n = col_indices.len();
+        let row_indices = pivots.into_iter().map(|u| u.into()).collect::<Vec<_>>();
+        let mut row_index_map = HashMap::with_capacity(row_indices.len());
+        for (i, &u) in row_indices.iter().enumerate() {
+            assert!(
+                col_index_map.contains_key(&u),
+                "PivotedDistanceMatrix::from_array: pivot node not found in graph"
+            );
+            row_index_map.insert(u, i);
+        }
+        assert_eq!(
+            array.dim(),
+            (row_indices.len(), n),
+            "PivotedDistanceMatrix::from_array: expected shape ({}, {}), got {:?}",
+            row_indices.len(),
+            n,
+            array.dim()
+        );
+        Self {
+            row_indices,
+            row_index_map,
+            col_indices,
+            col_index_map,
+            d: array,
+        }
+    }
+
+    /// Returns a reference to the underlying `(pivots.len(), n)` distance array.
+    pub fn as_array(&self) -> &Array2<S> {
+        &self.d
     }
 
     /// Adds a new row to the `PivotedDistanceMatrix` corresponding to the node identifier `u`.
@@ -379,5 +460,69 @@ where
             .get(&u)
             .zip(self.col_index_map.get(&v))
             .map(|(&i, &j)| (i, j))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::{NodeIndex, UnGraph};
+
+    #[test]
+    fn test_full_distance_matrix_from_and_as_array() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let _n1 = g.add_node(());
+        let n2 = g.add_node(());
+
+        let arr = arr2(&[[0.0, 1.0, 2.0], [1.0, 0.0, 1.5], [2.0, 1.5, 0.0]]);
+        let dm: FullDistanceMatrix<NodeIndex, f64> =
+            FullDistanceMatrix::from_array(&g, arr.clone());
+        assert_eq!(dm.shape(), (3, 3));
+        assert_eq!(dm.as_array(), &arr);
+        assert_eq!(dm.get(n0, n2), Some(2.0));
+        assert_eq!(dm.get_by_index(1, 2), 1.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "FullDistanceMatrix::from_array")]
+    fn test_full_distance_matrix_from_array_bad_shape() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        g.add_node(());
+        g.add_node(());
+        let arr = arr2(&[[0.0, 1.0, 2.0], [1.0, 0.0, 1.5]]);
+        let _: FullDistanceMatrix<NodeIndex, f64> = FullDistanceMatrix::from_array(&g, arr);
+    }
+
+    #[test]
+    fn test_pivoted_distance_matrix_from_and_as_array() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+
+        let pivots = vec![n2, n0];
+        let arr = arr2(&[[2.0, 1.5, 0.0], [0.0, 1.0, 2.0]]);
+        let dm: PivotedDistanceMatrix<NodeIndex, f64> =
+            PivotedDistanceMatrix::from_array(&g, pivots.clone(), arr.clone());
+        assert_eq!(dm.shape(), (2, 3));
+        assert_eq!(dm.pivots(), &pivots);
+        assert_eq!(dm.as_array(), &arr);
+        assert_eq!(dm.get(n2, n1), Some(1.5));
+        assert_eq!(dm.get(n0, n2), Some(2.0));
+        assert_eq!(dm.get(n1, n0), None);
+        assert_eq!(dm.get_by_index(0, 1), 1.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "PivotedDistanceMatrix::from_array")]
+    fn test_pivoted_distance_matrix_from_array_bad_shape() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let _n2 = g.add_node(());
+        let arr = arr2(&[[0.0, 1.0], [1.0, 0.0], [2.0, 1.5]]);
+        let _: PivotedDistanceMatrix<NodeIndex, f64> =
+            PivotedDistanceMatrix::from_array(&g, vec![n0, n1], arr);
     }
 }

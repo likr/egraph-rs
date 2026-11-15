@@ -18,9 +18,210 @@
 /// and edges, querying neighbors, finding paths, and traversal.
 mod graph_base;
 
+use crate::FloatType;
 use graph_base::*;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2};
+use petgraph::graph::node_index;
 use petgraph::prelude::*;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBool;
+
+/// Edge-length evaluator supporting `None` (`1.0`), a Python numeric constant,
+/// or a Python callable accepting an edge index.
+pub(crate) enum EdgeLength {
+    Constant(FloatType),
+    Callable(Py<PyAny>),
+}
+
+impl EdgeLength {
+    pub(crate) fn from_py(f: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        match f {
+            None => Ok(Self::Constant(1.0)),
+            Some(obj) if obj.is_none() => Ok(Self::Constant(1.0)),
+            Some(obj) => {
+                if obj.is_instance_of::<PyBool>() {
+                    return Err(PyTypeError::new_err(
+                        "f must be None, a number, or a callable, not bool",
+                    ));
+                }
+                if !obj.is_callable() {
+                    if let Ok(val) = obj.extract::<FloatType>() {
+                        return Ok(Self::Constant(val));
+                    }
+                }
+                if obj.is_callable() {
+                    return Ok(Self::Callable(obj.clone().unbind()));
+                }
+                Err(PyTypeError::new_err(
+                    "f must be None, a number, or a callable",
+                ))
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn eval(&self, edge_idx: usize) -> FloatType {
+        match self {
+            Self::Constant(c) => *c,
+            Self::Callable(func) => Python::attach(|py| {
+                func.call1(py, (edge_idx,))
+                    .expect("edge length callable failed")
+                    .extract::<FloatType>(py)
+                    .expect("edge length callable must return a float")
+            }),
+        }
+    }
+}
+
+fn convert_edges_2col<T>(arr: PyReadonlyArray2<'_, T>) -> PyResult<Vec<(usize, usize)>>
+where
+    T: Copy + numpy::Element + TryInto<usize>,
+{
+    let view = arr.as_array();
+    let [m, cols] = [view.nrows(), view.ncols()];
+    if cols != 2 {
+        return Err(PyValueError::new_err(format!(
+            "edges must have shape (M, 2), got ({}, {})",
+            m, cols
+        )));
+    }
+    let mut out = Vec::with_capacity(m);
+    for row in view.rows() {
+        let u = row[0].try_into().map_err(|_| {
+            PyValueError::new_err("edge node indices must be non-negative and fit in usize")
+        })?;
+        let v = row[1].try_into().map_err(|_| {
+            PyValueError::new_err("edge node indices must be non-negative and fit in usize")
+        })?;
+        out.push((u, v));
+    }
+    Ok(out)
+}
+
+pub(crate) fn extract_edges_2col(edges: &Bound<'_, PyAny>) -> PyResult<Vec<(usize, usize)>> {
+    if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, usize>>() {
+        return convert_edges_2col(arr);
+    }
+    if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i64>>() {
+        return convert_edges_2col(arr);
+    }
+    if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, u64>>() {
+        return convert_edges_2col(arr);
+    }
+    if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i32>>() {
+        return convert_edges_2col(arr);
+    }
+    if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, u32>>() {
+        return convert_edges_2col(arr);
+    }
+    Err(PyTypeError::new_err(
+        "edges must be a 2D integer numpy array of shape (M, 2) with dtype uintp/uint64/int64/int32/uint32",
+    ))
+}
+
+fn convert_index_array_1d<T>(arr: PyReadonlyArray1<'_, T>, name: &str) -> PyResult<Vec<usize>>
+where
+    T: Copy + numpy::Element + TryInto<usize>,
+{
+    let view = arr.as_array();
+    let mut out = Vec::with_capacity(view.len());
+    for &val in view.iter() {
+        let idx = val.try_into().map_err(|_| {
+            PyValueError::new_err(format!(
+                "{} indices must be non-negative and fit in usize",
+                name
+            ))
+        })?;
+        out.push(idx);
+    }
+    Ok(out)
+}
+
+pub(crate) fn extract_index_array_1d(arr: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
+    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, usize>>() {
+        return convert_index_array_1d(a, name);
+    }
+    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, i64>>() {
+        return convert_index_array_1d(a, name);
+    }
+    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, u64>>() {
+        return convert_index_array_1d(a, name);
+    }
+    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, i32>>() {
+        return convert_index_array_1d(a, name);
+    }
+    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, u32>>() {
+        return convert_index_array_1d(a, name);
+    }
+    Err(PyTypeError::new_err(format!(
+        "{} must be a 1D integer numpy array with dtype uintp/uint64/int64/int32/uint32",
+        name
+    )))
+}
+
+pub(crate) fn build_graph_from_edges_numpy<Ty: petgraph::EdgeType>(
+    py: Python<'_>,
+    num_nodes: usize,
+    edges: &Bound<'_, PyAny>,
+) -> PyResult<Graph<Node, Edge, Ty, IndexType>> {
+    if num_nodes > IndexType::MAX as usize {
+        return Err(PyValueError::new_err(format!(
+            "num_nodes ({}) exceeds maximum index capacity ({})",
+            num_nodes,
+            IndexType::MAX
+        )));
+    }
+    let pairs = extract_edges_2col(edges)?;
+    for &(u, v) in &pairs {
+        if u >= num_nodes || v >= num_nodes {
+            return Err(PyValueError::new_err(format!(
+                "edge ({}, {}) out of bounds for graph with {} nodes",
+                u, v, num_nodes
+            )));
+        }
+    }
+    let mut graph = Graph::<Node, Edge, Ty, IndexType>::with_capacity(num_nodes, pairs.len());
+    for _ in 0..num_nodes {
+        graph.add_node(py.None());
+    }
+    for (u, v) in pairs {
+        graph.add_edge(
+            node_index::<IndexType>(u),
+            node_index::<IndexType>(v),
+            py.None(),
+        );
+    }
+    Ok(graph)
+}
+
+fn add_edges_to_graph<Ty: petgraph::EdgeType>(
+    py: Python<'_>,
+    graph: &mut Graph<Node, Edge, Ty, IndexType>,
+    pairs: &[(usize, usize)],
+) -> PyResult<()> {
+    for &(u, v) in pairs {
+        if u > IndexType::MAX as usize
+            || v > IndexType::MAX as usize
+            || graph.node_weight(node_index::<IndexType>(u)).is_none()
+            || graph.node_weight(node_index::<IndexType>(v)).is_none()
+        {
+            return Err(PyValueError::new_err(format!(
+                "edge ({}, {}) references non-existent node",
+                u, v
+            )));
+        }
+    }
+    graph.reserve_edges(pairs.len());
+    for &(u, v) in pairs {
+        graph.add_edge(
+            node_index::<IndexType>(u),
+            node_index::<IndexType>(v),
+            py.None(),
+        );
+    }
+    Ok(())
+}
 
 /// Type alias for node data in a graph, which can be any Python object
 pub type Node = Py<PyAny>;
@@ -84,6 +285,18 @@ impl PyGraphAdapter {
 
 #[pymethods]
 impl PyGraphAdapter {
+    /// Add edges in bulk from an `(M, 2)` integer NumPy array with `None` edge weights.
+    pub fn add_edges_from_numpy(
+        &mut self,
+        py: Python<'_>,
+        edges: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let pairs = extract_edges_2col(edges)?;
+        match &mut self.graph {
+            GraphType::Graph(g) => add_edges_to_graph(py, g, &pairs),
+            GraphType::DiGraph(g) => add_edges_to_graph(py, g, &pairs),
+        }
+    }
     /// Returns the number of nodes in the graph
     ///
     /// :return: The number of nodes in the graph

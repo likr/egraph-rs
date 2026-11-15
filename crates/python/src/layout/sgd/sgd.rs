@@ -131,6 +131,90 @@ impl PySgd {
             .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
     }
 
+    /// Build an `Sgd` instance from parallel 1D NumPy arrays `(sources, targets, distances, weights)`.
+    #[staticmethod]
+    pub fn from_numpy_pairs(
+        sources: &Bound<'_, PyAny>,
+        targets: &Bound<'_, PyAny>,
+        distances: numpy::PyReadonlyArray1<'_, crate::FloatType>,
+        weights: numpy::PyReadonlyArray1<'_, crate::FloatType>,
+    ) -> PyResult<PySgd> {
+        let src = crate::graph::extract_index_array_1d(sources, "sources")?;
+        let tgt = crate::graph::extract_index_array_1d(targets, "targets")?;
+        let d_view = distances.as_array();
+        let w_view = weights.as_array();
+        let len = src.len();
+        if tgt.len() != len || d_view.len() != len || w_view.len() != len {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "array lengths must match: sources={}, targets={}, distances={}, weights={}",
+                len,
+                tgt.len(),
+                d_view.len(),
+                w_view.len()
+            )));
+        }
+        let mut pairs = Vec::with_capacity(len);
+        for (((&u, &v), &d), &w) in src
+            .iter()
+            .zip(tgt.iter())
+            .zip(d_view.iter())
+            .zip(w_view.iter())
+        {
+            pairs.push((u, v, d, d, w, w));
+        }
+        Ok(PySgd::new_with_sgd(
+            petgraph_layout_sgd::Sgd::from_node_pairs(pairs),
+        ))
+    }
+
+    /// Update SGD pair weights from an `(N, N)` float64 NumPy matrix.
+    pub fn update_weight_from_numpy(
+        &mut self,
+        w: numpy::PyReadonlyArray2<'_, crate::FloatType>,
+    ) -> PyResult<()> {
+        let w_view = w.as_array();
+        if w_view.nrows() != w_view.ncols() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "weight matrix must be square, got {:?}",
+                w_view.dim()
+            )));
+        }
+        self.sgd.update_weight_from_array(w_view);
+        Ok(())
+    }
+
+    /// Update SGD pair distances (and optionally weights) from `(N, N)` float64 NumPy matrices.
+    #[pyo3(signature = (d, w=None))]
+    pub fn update_distance_from_numpy(
+        &mut self,
+        d: numpy::PyReadonlyArray2<'_, crate::FloatType>,
+        w: Option<numpy::PyReadonlyArray2<'_, crate::FloatType>>,
+    ) -> PyResult<()> {
+        let d_view = d.as_array();
+        if d_view.nrows() != d_view.ncols() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "distance matrix must be square, got {:?}",
+                d_view.dim()
+            )));
+        }
+        let w_view = match &w {
+            Some(w_arr) => {
+                let view = w_arr.as_array();
+                if view.dim() != d_view.dim() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "weight matrix shape {:?} does not match distance matrix shape {:?}",
+                        view.dim(),
+                        d_view.dim()
+                    )));
+                }
+                Some(view)
+            }
+            None => None,
+        };
+        self.sgd.update_distance_from_array(d_view, w_view);
+        Ok(())
+    }
+
     /// Creates an default scheduler from this SGD instance
     ///
     /// :param t_max: The maximum number of iterations

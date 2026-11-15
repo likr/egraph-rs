@@ -384,6 +384,32 @@ where
         }
     }
 
+    /// Returns the number of nodes in this stress majorization instance.
+    pub fn n(&self) -> usize {
+        self.x_x.len() + 1
+    }
+
+    fn rebuild_laplacian_and_stress(&mut self) {
+        let n = self.x_x.len() + 1;
+        for i in 0..n - 1 {
+            self.l_w[[i, i]] = S::zero();
+        }
+        for j in 1..n - 1 {
+            for i in 0..j {
+                let wij = self.w[[i, j]];
+                self.l_w[[i, j]] = -wij;
+                self.l_w[[j, i]] = -wij;
+                self.l_w[[i, i]] += wij;
+                self.l_w[[j, j]] += wij;
+            }
+        }
+        for i in 0..n - 1 {
+            let j = n - 1;
+            self.l_w[[i, i]] += self.w[[i, j]];
+        }
+        self.stress = stress(&self.x_x, &self.x_y, &self.w, &self.d);
+    }
+
     /// Updates the weights used in the stress calculation.
     ///
     /// This allows customizing how different pairs of nodes contribute to the overall
@@ -406,23 +432,32 @@ where
             }
         }
 
-        for i in 0..n - 1 {
-            self.l_w[[i, i]] = S::zero();
-        }
-        for j in 1..n - 1 {
+        self.rebuild_laplacian_and_stress();
+    }
+
+    /// Updates the weights from an `(n, n)` array and rebuilds the reduced Laplacian `l_w`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `w.dim() != (n, n)`.
+    pub fn update_weight_from_array(&mut self, w: ndarray::ArrayView2<S>) {
+        let n = self.x_x.len() + 1;
+        assert_eq!(
+            w.dim(),
+            (n, n),
+            "StressMajorization::update_weight_from_array: expected shape ({}, {}), got {:?}",
+            n,
+            n,
+            w.dim()
+        );
+        for j in 1..n {
             for i in 0..j {
-                let wij = self.w[[i, j]];
-                self.l_w[[i, j]] = -wij;
-                self.l_w[[j, i]] = -wij;
-                self.l_w[[i, i]] += wij;
-                self.l_w[[j, j]] += wij;
+                let wij = w[[i, j]];
+                self.w[[i, j]] = wij;
+                self.w[[j, i]] = wij;
             }
         }
-        for i in 0..n - 1 {
-            let j = n - 1;
-            self.l_w[[i, i]] += self.w[[i, j]];
-        }
-        self.stress = stress(&self.x_x, &self.x_y, &self.w, &self.d);
+        self.rebuild_laplacian_and_stress();
     }
 }
 
@@ -496,4 +531,48 @@ fn test_stress_majorization_parameters() {
     // Check updated values
     assert_eq!(stress_majorization.epsilon, 1e-6);
     assert_eq!(stress_majorization.max_iterations, 200);
+}
+
+#[test]
+fn test_stress_majorization_update_weight_from_array() {
+    use petgraph::Graph;
+
+    let mut graph = Graph::new_undirected();
+    let n0 = graph.add_node(());
+    let n1 = graph.add_node(());
+    let n2 = graph.add_node(());
+    let n3 = graph.add_node(());
+    graph.add_edge(n0, n1, ());
+    graph.add_edge(n1, n2, ());
+    graph.add_edge(n2, n3, ());
+    graph.add_edge(n3, n0, ());
+
+    let mut coords_fn = DrawingEuclidean2d::initial_placement(&graph);
+    let mut coords_arr = coords_fn.clone();
+
+    let mut sm_fn = StressMajorization::new(&graph, &coords_fn, |_| 1.0f64);
+    let mut sm_arr = StressMajorization::new(&graph, &coords_arr, |_| 1.0f64);
+
+    let weights = arr2(&[
+        [0.0, 2.0, 0.5, 1.5],
+        [2.0, 0.0, 3.0, 0.25],
+        [0.5, 3.0, 0.0, 4.0],
+        [1.5, 0.25, 4.0, 0.0],
+    ]);
+
+    sm_fn.update_weight(|i, j, _, _| weights[[i, j]]);
+    sm_arr.update_weight_from_array(weights.view());
+
+    assert_eq!(sm_fn.w, sm_arr.w);
+    assert_eq!(sm_fn.l_w, sm_arr.l_w);
+    assert!((sm_fn.stress - sm_arr.stress).abs() < 1e-12);
+
+    let diff_fn = sm_fn.apply(&mut coords_fn);
+    let diff_arr = sm_arr.apply(&mut coords_arr);
+    assert!((diff_fn - diff_arr).abs() < 1e-12);
+
+    for u in [n0, n1, n2, n3] {
+        assert!((coords_fn.x(u).unwrap() - coords_arr.x(u).unwrap()).abs() < 1e-12);
+        assert!((coords_fn.y(u).unwrap() - coords_arr.y(u).unwrap()).abs() < 1e-12);
+    }
 }

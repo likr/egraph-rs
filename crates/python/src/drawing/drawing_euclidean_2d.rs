@@ -214,4 +214,47 @@ impl PyDrawingEuclidean2d {
 
         Ok(PyDrawing::new_drawing_euclidean_2d(drawing))
     }
+
+    /// Create a 2D Euclidean drawing from a graph and an `(N, 2)` float64 NumPy array.
+    #[staticmethod]
+    pub fn from_numpy(
+        graph: &PyGraphAdapter,
+        coords: numpy::PyReadonlyArray2<'_, FloatType>,
+    ) -> PyResult<Py<PyAny>> {
+        let view = coords.as_array();
+        let n = match graph.graph() {
+            GraphType::Graph(g) => g.node_count(),
+            GraphType::DiGraph(g) => g.node_count(),
+        };
+        if view.dim() != (n, 2) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "coords shape {:?} does not match expected ({}, 2)",
+                view.dim(),
+                n
+            )));
+        }
+        let mut drawing = match graph.graph() {
+            GraphType::Graph(native_graph) => DrawingEuclidean2d::new(native_graph),
+            GraphType::DiGraph(native_graph) => DrawingEuclidean2d::new(native_graph),
+        };
+        for i in 0..n {
+            let entry = drawing.raw_entry_mut(i);
+            entry.0 = view[[i, 0]];
+            entry.1 = view[[i, 1]];
+        }
+        Ok(PyDrawing::new_drawing_euclidean_2d(drawing))
+    }
+
+    /// Export coordinates as an `(N, 2)` float64 NumPy array.
+    pub fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray2<FloatType>> {
+        let drawing = self.drawing();
+        let n = drawing.len();
+        let mut arr = ndarray::Array2::<FloatType>::zeros((n, 2));
+        for i in 0..n {
+            let entry = drawing.raw_entry(i);
+            arr[[i, 0]] = entry.0;
+            arr[[i, 1]] = entry.1;
+        }
+        numpy::PyArray2::from_array(py, &arr)
+    }
 }
