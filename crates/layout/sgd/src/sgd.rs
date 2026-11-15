@@ -1,3 +1,4 @@
+use ndarray::ArrayView2;
 use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 use rand::prelude::*;
 
@@ -28,6 +29,11 @@ where
     /// A new SGD instance ready for layout optimization
     pub fn new(node_pairs: Vec<(usize, usize, S, S, S, S)>) -> Self {
         Self { node_pairs }
+    }
+
+    /// Creates a new SGD instance from explicit `(i, j, dij, dji, wij, wji)` node pairs.
+    pub fn from_node_pairs(node_pairs: Vec<(usize, usize, S, S, S, S)>) -> Self {
+        Self::new(node_pairs)
     }
 
     /// Returns a reference to the node pairs used in the SGD algorithm.
@@ -162,5 +168,94 @@ where
             p.4 = weight(i, j, dij, wij);
             p.5 = weight(j, i, dji, wji);
         }
+    }
+
+    fn validate_pair_bounds(&self, n: usize) {
+        for &(i, j, _, _, _, _) in &self.node_pairs {
+            assert!(
+                i < n && j < n,
+                "Sgd: pair ({}, {}) out of bounds for matrix size {}",
+                i,
+                j,
+                n
+            );
+        }
+    }
+
+    /// Updates weights for all node pairs from an `(n, n)` weight matrix.
+    ///
+    /// Sets `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
+    pub fn update_weight_from_array(&mut self, w: ArrayView2<S>) {
+        let (rows, cols) = w.dim();
+        assert_eq!(
+            rows, cols,
+            "Sgd::update_weight_from_array: expected square matrix, got ({}, {})",
+            rows, cols
+        );
+        self.validate_pair_bounds(rows);
+        for p in &mut self.node_pairs {
+            p.4 = w[[p.0, p.1]];
+            p.5 = w[[p.1, p.0]];
+        }
+    }
+
+    /// Updates target distances (and optionally weights) from `(n, n)` matrices.
+    ///
+    /// Sets `pair.2 = d[[pair.0, pair.1]]`, `pair.3 = d[[pair.1, pair.0]]`,
+    /// and when `w` is `Some`, updates `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
+    pub fn update_distance_from_array(&mut self, d: ArrayView2<S>, w: Option<ArrayView2<S>>) {
+        let (rows, cols) = d.dim();
+        assert_eq!(
+            rows, cols,
+            "Sgd::update_distance_from_array: expected square distance matrix, got ({}, {})",
+            rows, cols
+        );
+        if let Some(w_arr) = w {
+            assert_eq!(
+                w_arr.dim(),
+                (rows, cols),
+                "Sgd::update_distance_from_array: weight matrix shape {:?} does not match distance matrix shape ({}, {})",
+                w_arr.dim(),
+                rows,
+                cols
+            );
+        }
+        self.validate_pair_bounds(rows);
+        for p in &mut self.node_pairs {
+            p.2 = d[[p.0, p.1]];
+            p.3 = d[[p.1, p.0]];
+            if let Some(w_arr) = w {
+                p.4 = w_arr[[p.0, p.1]];
+                p.5 = w_arr[[p.1, p.0]];
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::arr2;
+
+    #[test]
+    fn test_sgd_from_node_pairs_and_bulk_updates() {
+        let pairs = vec![(0, 1, 1.0, 1.0, 1.0, 1.0), (1, 2, 2.0, 2.0, 0.25, 0.25)];
+        let mut sgd = Sgd::from_node_pairs(pairs);
+        assert_eq!(sgd.node_pairs().len(), 2);
+
+        let w = arr2(&[[0.0, 2.0, 0.0], [3.0, 0.0, 4.0], [0.0, 5.0, 0.0]]);
+        sgd.update_weight_from_array(w.view());
+        assert_eq!(sgd.node_pairs()[0], (0, 1, 1.0, 1.0, 2.0, 3.0));
+        assert_eq!(sgd.node_pairs()[1], (1, 2, 2.0, 2.0, 4.0, 5.0));
+
+        let d = arr2(&[[0.0, 10.0, 0.0], [11.0, 0.0, 12.0], [0.0, 13.0, 0.0]]);
+        sgd.update_distance_from_array(d.view(), None);
+        assert_eq!(sgd.node_pairs()[0], (0, 1, 10.0, 11.0, 2.0, 3.0));
+        assert_eq!(sgd.node_pairs()[1], (1, 2, 12.0, 13.0, 4.0, 5.0));
+
+        let w2 = arr2(&[[0.0, 0.5, 0.0], [0.6, 0.0, 0.7], [0.0, 0.8, 0.0]]);
+        sgd.update_distance_from_array(d.view(), Some(w2.view()));
+        assert_eq!(sgd.node_pairs()[0], (0, 1, 10.0, 11.0, 0.5, 0.6));
+        assert_eq!(sgd.node_pairs()[1], (1, 2, 12.0, 13.0, 0.7, 0.8));
     }
 }
