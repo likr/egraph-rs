@@ -35,6 +35,16 @@ where
 
     /// Inserts a point into the quadtree node.
     pub fn insert(&mut self, point_idx: usize, x: S, y: S, points: &[[S; 2]]) {
+        self.insert_with_depth(point_idx, x, y, points, 0);
+    }
+
+    fn insert_with_depth(&mut self, point_idx: usize, x: S, y: S, points: &[[S; 2]], depth: usize) {
+        const MAX_DEPTH: usize = 32;
+
+        if !x.is_finite() || !y.is_finite() {
+            return;
+        }
+
         if self.count == 0 {
             self.point_index = Some(point_idx);
             self.count = 1;
@@ -53,12 +63,23 @@ where
         // If this is a leaf node containing a single point, subdivide into 4 quadrants
         if self.children.is_none() {
             if let Some(existing_idx) = self.point_index.take() {
-                // If existing point is almost identical in coordinates to new point, avoid infinite recursion
+                // Stop subdividing when points overlap, depth hits MAX_DEPTH, or cell width
+                // drops below floating-point resolution around center (prevents infinite recursion).
                 let ex = points[existing_idx][0];
                 let ey = points[existing_idx][1];
                 let dist_sq = (ex - x) * (ex - x) + (ey - y) * (ey - y);
-                if dist_sq < S::from_f32(1e-12).unwrap() {
-                    // Points overlap, keep both count but do not subdivide infinitely
+                let quarter_w = self.width / S::from_f32(4.0).unwrap();
+                let quarter_h = self.height / S::from_f32(4.0).unwrap();
+                let unsplitable = depth >= MAX_DEPTH
+                    || !dist_sq.is_finite()
+                    || dist_sq < S::from_f32(1e-12).unwrap()
+                    || quarter_w <= S::zero()
+                    || quarter_h <= S::zero()
+                    || self.center_x - quarter_w == self.center_x
+                    || self.center_x + quarter_w == self.center_x
+                    || self.center_y - quarter_h == self.center_y
+                    || self.center_y + quarter_h == self.center_y;
+                if unsplitable {
                     self.point_index = Some(existing_idx);
                     return;
                 }
@@ -66,16 +87,19 @@ where
                 self.subdivide();
                 let child_idx = self.child_quadrant(ex, ey);
                 if let Some(ref mut children) = self.children {
-                    children[child_idx].insert(existing_idx, ex, ey, points);
+                    children[child_idx].insert_with_depth(existing_idx, ex, ey, points, depth + 1);
                 }
             } else {
+                if depth >= MAX_DEPTH {
+                    return;
+                }
                 self.subdivide();
             }
         }
 
         let child_idx = self.child_quadrant(x, y);
         if let Some(ref mut children) = self.children {
-            children[child_idx].insert(point_idx, x, y, points);
+            children[child_idx].insert_with_depth(point_idx, x, y, points, depth + 1);
         }
     }
 
@@ -279,5 +303,17 @@ where
         }
 
         Self { root }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quadtree_terminates_on_sub_ulp_f32_points() {
+        let points: Vec<[f32; 2]> = vec![[100.0, -100.0], [100.00001, -100.0], [0.0, 0.0]];
+        let tree = Quadtree::build(&points);
+        assert_eq!(tree.root.count, 3);
     }
 }

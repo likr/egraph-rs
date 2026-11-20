@@ -571,18 +571,18 @@ mod tests {
         }
     }
 
-    fn build_two_cluster_knn(
-        n_per_cluster: usize,
-    ) -> (
+    type ClusterKnnFixture = (
         petgraph::Graph<(), (), petgraph::Undirected>,
         Vec<petgraph::graph::NodeIndex>,
         Vec<Vec<(usize, f32)>>,
-    ) {
+    );
+
+    fn build_two_cluster_knn(n_per_cluster: usize) -> ClusterKnnFixture {
         let n = 2 * n_per_cluster;
         let mut graph = Graph::new_undirected();
         let nodes: Vec<_> = (0..n).map(|_| graph.add_node(())).collect();
         let mut knn = vec![Vec::new(); n];
-        for i in 0..n {
+        for (i, row) in knn.iter_mut().enumerate() {
             let same_start = if i < n_per_cluster { 0 } else { n_per_cluster };
             for j in 0..n {
                 if i == j {
@@ -590,7 +590,7 @@ mod tests {
                 }
                 let in_same = j >= same_start && j < same_start + n_per_cluster;
                 let dist = if in_same { 0.1f32 } else { 5.0f32 };
-                knn[i].push((j, dist));
+                row.push((j, dist));
             }
         }
         (graph, nodes, knn)
@@ -741,5 +741,170 @@ mod tests {
         l.run_with_knn(&mut d1, &[vec![]]);
         assert!(d1.x(n0).unwrap().is_finite());
         assert!(d1.y(n0).unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_fit_and_l_ts_net_default_250_iters_bounded() {
+        let (graph, nodes, knn) = build_two_cluster_knn(5);
+
+        let fit = FitTsNetBuilder::new().perplexity(3.0f32).build().unwrap();
+        assert_eq!(fit.iterations_stage1, 250);
+        assert_eq!(fit.iterations_stage2, 250);
+        assert_eq!(fit.iterations_stage3, 250);
+
+        let mut fit_drawing = DrawingEuclidean2d::initial_placement(&graph);
+        fit.run_with_knn(&mut fit_drawing, &knn);
+        for &u in &nodes {
+            let x = fit_drawing.x(u).unwrap();
+            let y = fit_drawing.y(u).unwrap();
+            assert!(x.is_finite() && x.abs() < 1e3, "FitTsNet unbounded x={x}");
+            assert!(y.is_finite() && y.abs() < 1e3, "FitTsNet unbounded y={y}");
+        }
+
+        let l = LTsNetBuilder::new().perplexity(3.0f32).build().unwrap();
+        let mut l_drawing = DrawingEuclidean2d::initial_placement(&graph);
+        l.run_with_knn(&mut l_drawing, &knn);
+        for &u in &nodes {
+            let x = l_drawing.x(u).unwrap();
+            let y = l_drawing.y(u).unwrap();
+            assert!(x.is_finite() && x.abs() < 1e3, "LTsNet unbounded x={x}");
+            assert!(y.is_finite() && y.abs() < 1e3, "LTsNet unbounded y={y}");
+        }
+    }
+
+    fn evaluate_layout_quality(
+        drawing: &DrawingEuclidean2d<petgraph::graph::NodeIndex, f64>,
+        nodes: &[petgraph::graph::NodeIndex],
+        edges: &[(usize, usize)],
+    ) -> (f64, f64, f64) {
+        let n = nodes.len();
+        let mut max_abs = 0.0f64;
+        let pts: Vec<[f64; 2]> = nodes
+            .iter()
+            .map(|&u| {
+                let x = drawing.x(u).unwrap();
+                let y = drawing.y(u).unwrap();
+                assert!(x.is_finite() && y.is_finite(), "non-finite coordinate");
+                max_abs = max_abs.max(x.abs()).max(y.abs());
+                [x, y]
+            })
+            .collect();
+        let mean_edge = edges
+            .iter()
+            .map(|&(u, v)| {
+                let dx = pts[u][0] - pts[v][0];
+                let dy = pts[u][1] - pts[v][1];
+                (dx * dx + dy * dy).sqrt()
+            })
+            .sum::<f64>()
+            / edges.len() as f64;
+        let mut total_all = 0.0f64;
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
+                    let dx = pts[i][0] - pts[j][0];
+                    let dy = pts[i][1] - pts[j][1];
+                    total_all += (dx * dx + dy * dy).sqrt();
+                }
+            }
+        }
+        let mean_all = total_all / (n * (n - 1)) as f64;
+        (max_abs, mean_edge, mean_all)
+    }
+
+    #[test]
+    fn test_bh_fit_l_ts_net_grid_5x5_and_cycle_30_compact_and_coherent() {
+        // grid_5x5 (n=25)
+        let mut grid_graph = Graph::new_undirected();
+        let grid_nodes: Vec<_> = (0..25).map(|_| grid_graph.add_node(())).collect();
+        let mut grid_edges = Vec::new();
+        for r in 0..5 {
+            for c in 0..5 {
+                let u = r * 5 + c;
+                if c + 1 < 5 {
+                    grid_graph.add_edge(grid_nodes[u], grid_nodes[u + 1], ());
+                    grid_edges.push((u, u + 1));
+                }
+                if r + 1 < 5 {
+                    grid_graph.add_edge(grid_nodes[u], grid_nodes[u + 5], ());
+                    grid_edges.push((u, u + 5));
+                }
+            }
+        }
+
+        // cycle_30 (n=30)
+        let mut cycle_graph = Graph::new_undirected();
+        let cycle_nodes: Vec<_> = (0..30).map(|_| cycle_graph.add_node(())).collect();
+        let mut cycle_edges = Vec::new();
+        for i in 0..30 {
+            let j = (i + 1) % 30;
+            cycle_graph.add_edge(cycle_nodes[i], cycle_nodes[j], ());
+            cycle_edges.push((i, j));
+        }
+
+        for (label, graph, nodes, edges, perp, large_init) in [
+            (
+                "grid_5x5",
+                &grid_graph,
+                &grid_nodes,
+                &grid_edges,
+                8.0f64,
+                false,
+            ),
+            (
+                "cycle_30",
+                &cycle_graph,
+                &cycle_nodes,
+                &cycle_edges,
+                10.0f64,
+                false,
+            ),
+            (
+                "cycle_30_large_init",
+                &cycle_graph,
+                &cycle_nodes,
+                &cycle_edges,
+                10.0f64,
+                true,
+            ),
+        ] {
+            let init_drawing = |g: &Graph<(), (), petgraph::Undirected>| {
+                let mut d = DrawingEuclidean2d::<_, f64>::initial_placement(g);
+                if large_init {
+                    for (idx, &u) in nodes.iter().enumerate() {
+                        d.set_x(u, (idx as f64 - 14.5) * 1000.0);
+                        d.set_y(u, ((idx % 5) as f64 - 2.0) * 500.0);
+                    }
+                }
+                d
+            };
+
+            let bh = BhTsNetBuilder::new().perplexity(perp).build().unwrap();
+            let mut d_bh = init_drawing(graph);
+            bh.run(&mut d_bh, graph, &mut StdRng::seed_from_u64(42));
+            let (max_abs, me, ma) = evaluate_layout_quality(&d_bh, nodes, edges);
+            assert!(
+                max_abs < 100.0 && me < 0.6 * ma,
+                "{label} BhTsNet failed: max_abs={max_abs:.2}, edge={me:.2}, all={ma:.2}"
+            );
+
+            let fit = FitTsNetBuilder::new().perplexity(perp).build().unwrap();
+            let mut d_fit = init_drawing(graph);
+            fit.run(&mut d_fit, graph, &mut StdRng::seed_from_u64(42));
+            let (max_abs, me, ma) = evaluate_layout_quality(&d_fit, nodes, edges);
+            assert!(
+                max_abs < 100.0 && me < 0.6 * ma,
+                "{label} FitTsNet failed: max_abs={max_abs:.2}, edge={me:.2}, all={ma:.2}"
+            );
+
+            let l = LTsNetBuilder::new().perplexity(perp).build().unwrap();
+            let mut d_l = init_drawing(graph);
+            l.run(&mut d_l, graph, &mut StdRng::seed_from_u64(42));
+            let (max_abs, me, ma) = evaluate_layout_quality(&d_l, nodes, edges);
+            assert!(
+                max_abs < 100.0 && me < 0.6 * ma,
+                "{label} LTsNet failed: max_abs={max_abs:.2}, edge={me:.2}, all={ma:.2}"
+            );
+        }
     }
 }

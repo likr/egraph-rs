@@ -148,12 +148,40 @@ where
             ),
         ];
 
+        let mut prev_stage_lr = self.learning_rate;
         for &(iters, exaggeration, lambda_kl, lambda_c, lambda_r) in &stages {
             if iters == 0 {
                 continue;
             }
 
             let lambda_sum = (lambda_kl + lambda_c + lambda_r).max(S::from_f32(1e-12).unwrap());
+            // Cap step size on small graphs so momentum GD stays within the compression
+            // quadratic stability bound eta * (lambda_c / (lambda_sum * n)) < 2 * (1 + m).
+            let mut stage_lr = if lambda_c > S::zero() {
+                let max_stable_lr =
+                    (S::one() + self.momentum) * S::from_f32(0.85).unwrap() * lambda_sum * n_s
+                        / lambda_c;
+                self.learning_rate.min(max_stable_lr)
+            } else {
+                self.learning_rate
+            };
+            // In Stage 3 (repulsion refinement with relaxed compression), all tsNET gradient terms
+            // scale as O(1/n); align step size with TsNet (lr <= 50) and O(n) scaling to avoid
+            // 10x-30x overshoot on small/sparse graphs.
+            if lambda_r > S::zero() {
+                let tsnet_lr_cap = S::from_f32(50.0)
+                    .unwrap()
+                    .min(S::from_f32(2.0).unwrap() * n_s);
+                stage_lr = stage_lr.min(tsnet_lr_cap);
+            }
+            if stage_lr < prev_stage_lr {
+                let vel_scale = stage_lr / prev_stage_lr;
+                for v in &mut velocities {
+                    v[0] *= vel_scale;
+                    v[1] *= vel_scale;
+                }
+            }
+            prev_stage_lr = stage_lr;
 
             for _ in 0..iters {
                 // Phase A1: Compute exact sparse attraction forces in O(N)
@@ -230,11 +258,9 @@ where
                         (lambda_kl * grad_kl_y + lambda_c * grad_c_y + lambda_r * grad_r_y)
                             / lambda_sum;
 
-                    // Momentum step: v = momentum * v - learning_rate * grad
-                    velocities[i][0] =
-                        self.momentum * velocities[i][0] - self.learning_rate * grad_x;
-                    velocities[i][1] =
-                        self.momentum * velocities[i][1] - self.learning_rate * grad_y;
+                    // Momentum step: v = momentum * v - stage_lr * grad
+                    velocities[i][0] = self.momentum * velocities[i][0] - stage_lr * grad_x;
+                    velocities[i][1] = self.momentum * velocities[i][1] - stage_lr * grad_y;
 
                     let new_x = points[i][0] + velocities[i][0];
                     let new_y = points[i][1] + velocities[i][1];
