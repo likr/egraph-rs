@@ -1,15 +1,10 @@
 use crate::*;
+use ndarray::Array1;
 use ndarray::ScalarOperand;
-use ndarray::{Array1, Array2, ArrayView1};
 use num_traits::Float;
-use petgraph::{
-    graph::IndexType,
-    prelude::NodeIndex,
-    visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable},
-};
+use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::{DrawingIndex, DrawingValue};
 use rand::Rng;
-use std::hash::Hash;
 
 /// Builder for LowRankMultiscaleDiffusionKernel
 #[derive(Clone)]
@@ -81,6 +76,14 @@ where
         self
     }
 
+    fn validate_alpha(&self) -> Result<(), String> {
+        // (I - alpha P)^{-1} diverges at alpha = 1.0 and requires 0 <= alpha < 1 for a valid damping kernel.
+        if !self.alpha.is_finite() || self.alpha < S::zero() || self.alpha >= S::one() {
+            return Err("alpha must be finite and in [0, 1)".to_string());
+        }
+        Ok(())
+    }
+
     pub fn build_laplacian<G, F, R>(
         self,
         graph: G,
@@ -93,6 +96,7 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
+        self.validate_alpha()?;
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -134,6 +138,7 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
+        self.validate_alpha()?;
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -154,10 +159,10 @@ where
             for edge in graph.edges(node) {
                 let i = graph.to_index(edge.source());
                 let j = graph.to_index(edge.target());
-                let w = (&mut length)(edge);
+                let w = length(edge);
                 if i != j {
-                    degrees[i] = degrees[i] + w;
-                    two_m = two_m + w;
+                    degrees[i] += w;
+                    two_m += w;
                 }
             }
         }
@@ -176,7 +181,7 @@ where
                 if stat > S::zero() {
                     let mut row = eigenvectors.row_mut(i);
                     for j in 0..rank {
-                        row[j] = row[j] / stat;
+                        row[j] /= stat;
                     }
                 }
             }
@@ -185,7 +190,7 @@ where
             for i in 0..n {
                 let mut row = eigenvectors.row_mut(i);
                 for j in 0..rank {
-                    row[j] = row[j] / inv_sqrt_n;
+                    row[j] /= inv_sqrt_n;
                 }
             }
         }
@@ -195,5 +200,48 @@ where
             eigenvalues,
             eigenvectors,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_low_rank_multiscale_builder_rejects_invalid_alpha() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        g.add_edge(n1, n2, ());
+        g.add_edge(n2, n0, ());
+
+        let mut rng = StdRng::seed_from_u64(7);
+        for bad_alpha in [1.0, 1.5, -0.1, f64::NAN, f64::INFINITY] {
+            let err_lap = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .alpha(bad_alpha)
+                .rank(2)
+                .build_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_lap.contains("alpha"));
+
+            let err_norm = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .alpha(bad_alpha)
+                .rank(2)
+                .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_norm.contains("alpha"));
+        }
+
+        let ok = LowRankMultiscaleDiffusionKernelBuilder::new()
+            .alpha(0.0)
+            .rank(2)
+            .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
+            .unwrap();
+        assert!(ok.get(0, 1).unwrap().is_finite());
     }
 }

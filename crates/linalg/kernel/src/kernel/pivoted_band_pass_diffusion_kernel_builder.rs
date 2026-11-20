@@ -169,9 +169,7 @@ mod tests {
 
         for (p_idx, &p) in pivoted.pivots().iter().enumerate() {
             for j in 0..6 {
-                assert!(
-                    (pivoted.get_from_pivot(p_idx, j) - full.get_by_index(p, j)).abs() < 1e-8
-                );
+                assert!((pivoted.get_from_pivot(p_idx, j) - full.get_by_index(p, j)).abs() < 1e-8);
             }
         }
 
@@ -183,7 +181,10 @@ mod tests {
             mean_err += (est - exact).abs();
         }
         mean_err /= 6.0;
-        assert!(mean_err < 0.08, "Hutchinson mean error too large: {mean_err}");
+        assert!(
+            mean_err < 0.08,
+            "Hutchinson mean error too large: {mean_err}"
+        );
 
         // DC component of dog kernel should equal 1.0 on stationary vector
         let u1 = lap.stationary_vector();

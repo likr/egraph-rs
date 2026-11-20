@@ -55,7 +55,11 @@ where
         }
         let k_pj = self.kernel.get_from_pivot(p_idx, j);
         let k_pp = self.kernel.get_from_pivot(p_idx, pivot_node);
-        let k_jj = self.kernel.diagonal(j).unwrap_or_else(S::one);
+        let k_jj = if let Some(&j_p_idx) = self.pivot_indices.get(&j) {
+            self.kernel.get_from_pivot(j_p_idx, j)
+        } else {
+            self.kernel.diagonal(j).unwrap_or_else(S::one)
+        };
 
         let denom = (k_pp.max(self.epsilon) * k_jj.max(self.epsilon)).sqrt();
         let sim = k_pj.max(self.epsilon) / denom;
@@ -221,11 +225,12 @@ mod tests {
                     (d_piv - d_full).abs() < 0.08,
                     "mismatch at j={j}, p={p}: pivoted={d_piv}, full={d_full}"
                 );
-                // Symmetric get(pivot, node) and get(node, pivot)
+                // Symmetric get(pivot, node) and get(node, pivot), including pivot-pivot pairs
                 assert_eq!(pivoted_dist.get(nodes[j], nodes[p]), Some(d_piv));
-                if !pivots.contains(&j) {
-                    assert_eq!(pivoted_dist.get(nodes[p], nodes[j]), Some(d_piv));
-                }
+                assert!(
+                    (pivoted_dist.get(nodes[p], nodes[j]).unwrap() - d_piv).abs() < 1e-12,
+                    "asymmetry at pivot pair ({p}, {j})"
+                );
             }
         }
         // Non-pivot pair returns None

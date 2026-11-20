@@ -51,11 +51,7 @@ where
         + ScalarOperand
         + num_traits::FromPrimitive,
 {
-    pub fn new(
-        laplacian: &'a SparseSymmetricMatrix<S>,
-        terms: Vec<(S, S)>,
-        degree: usize,
-    ) -> Self {
+    pub fn new(laplacian: &'a SparseSymmetricMatrix<S>, terms: Vec<(S, S)>, degree: usize) -> Self {
         Self {
             laplacian,
             terms,
