@@ -77,9 +77,25 @@ class TestBandPassAndPivotedSim(unittest.TestCase):
             self.assertTrue(math.isfinite(k_none.get(0, i)))
             self.assertAlmostEqual(k_none.get(0, i), k_fn.get(0, i), places=10)
 
-        lrms_builder = eg.LowRankMultiscaleDiffusionKernelBuilder().alpha(1.0).rank(4)
+        lrms_builder = eg.LowRankMultiscaleDiffusionKernelBuilder().alpha(0.85).rank(4)
         k_ms = lrms_builder.build_unnormalized_laplacian(g, None, eg.Rng.seed_from(7))
         self.assertTrue(math.isfinite(k_ms.get(0, 1)))
+
+        for bad_alpha in (1.0, 1.2, -0.1, float("nan")):
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().alpha(
+                    bad_alpha
+                ).rank(4).build_unnormalized_laplacian(g, None, eg.Rng.seed_from(7))
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().alpha(
+                    bad_alpha
+                ).rank(4).build_symmetric_normalized_laplacian(g, None, eg.Rng.seed_from(7))
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernel(
+                    bad_alpha,
+                    eg.Array1(np.array([0.0, 1.0], dtype=np.float64)),
+                    eg.Array2(np.eye(2, dtype=np.float64)),
+                )
 
     def test_bandpass_diffusion_kernel_new_dog_and_builder(self):
         n = 8

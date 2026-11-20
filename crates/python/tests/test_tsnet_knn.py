@@ -259,6 +259,64 @@ class TestTsNetKnnInjection(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     algo.run_with_knn(d, valid_idx, valid_dist.astype(np.float32))
 
+    def test_default_tsnet_variants_grid_and_cycle_pivot_mds_init(self):
+        # grid_5x5 and cycle_30 with both initial_placement and PivotMds initialization
+        grid = eg.Graph()
+        grid_nodes = [grid.add_node(i) for i in range(25)]
+        grid_edges = []
+        for r in range(5):
+            for c in range(5):
+                u = r * 5 + c
+                if c + 1 < 5:
+                    grid.add_edge(grid_nodes[u], grid_nodes[u + 1], 1.0)
+                    grid_edges.append((u, u + 1))
+                if r + 1 < 5:
+                    grid.add_edge(grid_nodes[u], grid_nodes[u + 5], 1.0)
+                    grid_edges.append((u, u + 5))
+
+        cycle = eg.Graph()
+        cycle_nodes = [cycle.add_node(i) for i in range(30)]
+        cycle_edges = [(i, (i + 1) % 30) for i in range(30)]
+        for u, v in cycle_edges:
+            cycle.add_edge(cycle_nodes[u], cycle_nodes[v], 1.0)
+
+        for gname, graph, n, edges, perp in [
+            ("grid_5x5", grid, 25, grid_edges, 8.0),
+            ("cycle_30", cycle, 30, cycle_edges, 10.0),
+        ]:
+            for init_mode in ("initial_placement", "pivot_mds"):
+                for cls_name, cls in [
+                    ("BhTsNet", eg.BhTsNet),
+                    ("FitTsNet", eg.FitTsNet),
+                    ("LTsNet", eg.LTsNet),
+                ]:
+                    with self.subTest(graph=gname, init=init_mode, algo=cls_name):
+                        if init_mode == "initial_placement":
+                            drawing = eg.DrawingEuclidean2d.initial_placement(graph)
+                        else:
+                            drawing = eg.PivotMds(
+                                graph, lambda _: 1.0, list(range(n))
+                            ).run_2d()
+                        algo = cls.builder().perplexity(perp).build()
+                        algo.run(drawing, graph, eg.Rng.seed_from(42))
+                        pts = np.array(
+                            [[drawing.x(i), drawing.y(i)] for i in range(n)],
+                            dtype=np.float64,
+                        )
+                        self.assertTrue(np.all(np.isfinite(pts)))
+                        max_abs = float(np.max(np.abs(pts)))
+                        mean_edge = float(
+                            np.mean(
+                                [np.linalg.norm(pts[u] - pts[v]) for u, v in edges]
+                            )
+                        )
+                        diff = pts[:, None, :] - pts[None, :, :]
+                        mean_all = float(
+                            np.sum(np.linalg.norm(diff, axis=-1)) / (n * (n - 1))
+                        )
+                        self.assertLess(max_abs, 100.0)
+                        self.assertLess(mean_edge, 0.6 * mean_all)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -182,6 +182,11 @@ impl PyLowRankMultiscaleDiffusionKernel {
     #[new]
     #[pyo3(signature = (alpha, eigenvalues, eigenvectors))]
     fn new(alpha: FloatType, eigenvalues: &PyArray1, eigenvectors: &PyArray2) -> PyResult<Self> {
+        if !alpha.is_finite() || !(0.0..1.0).contains(&alpha) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "alpha must be finite and in [0, 1)",
+            ));
+        }
         let kernel = LowRankMultiscaleDiffusionKernel::new(
             alpha,
             eigenvalues.as_array().clone(),
@@ -337,6 +342,7 @@ impl PyBandPassDiffusionKernel {
 
     /// Creates a DC-retained 3-term Difference-of-Gaussians `BandPassDiffusionKernel`.
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (laplacian, t1, t2, alpha, beta_floor, degree, rng = None, lambda_max = None))]
     fn dog(
         laplacian: &PyLaplacian,
@@ -513,6 +519,7 @@ impl PyPivotedBandPassDiffusionKernel {
 
     /// Creates a DC-retained 3-term Difference-of-Gaussians `PivotedBandPassDiffusionKernel`.
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (laplacian, t1, t2, alpha, beta_floor, degree, pivots, rng = None, num_hutchinson = Some(32), lambda_max = None))]
     fn dog(
         laplacian: &PyLaplacian,
@@ -601,6 +608,7 @@ impl PyPivotedBandPassDiffusionKernelBuilder {
 
     /// Creates a builder configured for a DC-retained 3-term Difference-of-Gaussians pivoted kernel.
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (t1, t2, alpha, beta_floor, degree = 30, pivots = None, lambda_max = None, num_hutchinson = Some(32)))]
     fn dog(
         t1: FloatType,
