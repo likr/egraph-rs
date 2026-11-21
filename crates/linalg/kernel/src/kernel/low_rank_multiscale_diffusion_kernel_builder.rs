@@ -76,10 +76,19 @@ where
         self
     }
 
-    fn validate_alpha(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), String> {
         // (I - alpha P)^{-1} diverges at alpha = 1.0 and requires 0 <= alpha < 1 for a valid damping kernel.
         if !self.alpha.is_finite() || self.alpha < S::zero() || self.alpha >= S::one() {
             return Err("alpha must be finite and in [0, 1)".to_string());
+        }
+        if !self.shift.is_finite() || self.shift <= S::zero() {
+            return Err("shift must be finite and > 0".to_string());
+        }
+        if !self.eigenvalue_tolerance.is_finite() || self.eigenvalue_tolerance <= S::zero() {
+            return Err("eigenvalue_tolerance must be finite and > 0".to_string());
+        }
+        if !self.cg_tolerance.is_finite() || self.cg_tolerance <= S::zero() {
+            return Err("cg_tolerance must be finite and > 0".to_string());
         }
         Ok(())
     }
@@ -96,7 +105,7 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        self.validate_alpha()?;
+        self.validate()?;
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -138,7 +147,7 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
-        self.validate_alpha()?;
+        self.validate()?;
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -243,5 +252,47 @@ mod tests {
             .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
             .unwrap();
         assert!(ok.get(0, 1).unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_low_rank_multiscale_builder_rejects_invalid_shift_and_tolerances() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        g.add_edge(n1, n2, ());
+        g.add_edge(n2, n0, ());
+
+        let mut rng = StdRng::seed_from_u64(7);
+        for bad_val in [0.0, -1e-3, f64::NAN, f64::INFINITY] {
+            let err_shift = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .shift(bad_val)
+                .rank(2)
+                .build_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_shift.contains("shift"));
+
+            let err_shift_norm = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .shift(bad_val)
+                .rank(2)
+                .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_shift_norm.contains("shift"));
+
+            let err_eig = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .eigenvalue_tolerance(bad_val)
+                .rank(2)
+                .build_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_eig.contains("eigenvalue_tolerance"));
+
+            let err_cg = LowRankMultiscaleDiffusionKernelBuilder::new()
+                .cg_tolerance(bad_val)
+                .rank(2)
+                .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_cg.contains("cg_tolerance"));
+        }
     }
 }
