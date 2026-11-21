@@ -24,6 +24,25 @@ impl EmbeddingKernelBuilder {
         N: Eq + Hash + Copy,
         S: DrawingValue,
     {
-        Ok(EmbeddingKernel::new(graph, embedding))
+        EmbeddingKernel::try_new(graph, embedding)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+    use petgraph::graph::{NodeIndex, UnGraph};
+
+    #[test]
+    fn test_embedding_kernel_builder_rejects_row_mismatch() {
+        let mut g10 = UnGraph::<(), ()>::new_undirected();
+        for _ in 0..10 {
+            g10.add_node(());
+        }
+        let err = EmbeddingKernelBuilder::new()
+            .build::<_, NodeIndex, f64>(&g10, Array2::<f64>::zeros((2, 2)))
+            .unwrap_err();
+        assert!(err.contains("must match graph node count"));
     }
 }

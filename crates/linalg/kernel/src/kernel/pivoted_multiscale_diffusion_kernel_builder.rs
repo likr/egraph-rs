@@ -43,6 +43,9 @@ impl<'a, S: Float + num_traits::FromPrimitive + std::ops::AddAssign + Default>
     }
 
     pub fn build(self) -> Result<PivotedMultiscaleDiffusionKernel<S>, String> {
+        if !self.alpha.is_finite() || self.alpha < S::zero() || self.alpha >= S::one() {
+            return Err("alpha must be finite and in [0, 1)".to_string());
+        }
         let n = self.matrix.dim();
         let m = self.pivots.len();
         let degrees = compute_degrees(self.matrix);
@@ -84,5 +87,31 @@ impl<'a, S: Float + num_traits::FromPrimitive + std::ops::AddAssign + Default>
             pivots: self.pivots,
             vectors: pivot_vectors,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+
+    #[test]
+    fn test_pivoted_multiscale_diffusion_kernel_builder_rejects_invalid_alpha() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        let lap = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g, |_| 1.0_f64);
+        for bad_alpha in [-0.1, 1.0, f64::NAN, f64::INFINITY] {
+            let err = PivotedMultiscaleDiffusionKernelBuilder::new(&lap, bad_alpha, vec![0])
+                .build()
+                .unwrap_err();
+            assert!(err.contains("alpha"));
+        }
+        assert!(
+            PivotedMultiscaleDiffusionKernelBuilder::new(&lap, 0.0, vec![0])
+                .build()
+                .is_ok()
+        );
     }
 }

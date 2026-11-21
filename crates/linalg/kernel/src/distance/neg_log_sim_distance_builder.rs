@@ -54,12 +54,33 @@ impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
         N: Eq + Hash + Copy,
+        K: Kernel<usize, S>,
     {
+        if !self.alpha.is_finite() || self.alpha < S::zero() {
+            return Err("alpha must be finite and non-negative".to_string());
+        }
+        if !self.beta.is_finite() || self.beta < S::zero() {
+            return Err("beta must be finite and non-negative".to_string());
+        }
+        if !self.p.is_finite() || self.p < S::zero() {
+            return Err("p must be finite and non-negative".to_string());
+        }
+        if !self.min_dist.is_finite() || self.min_dist < S::zero() {
+            return Err("min_dist must be finite and non-negative".to_string());
+        }
+
         let node_indices: HashMap<N, usize> = graph
             .node_identifiers()
             .enumerate()
             .map(|(i, node_id)| (node_id.into(), i))
             .collect();
+        let n = node_indices.len();
+        let (rows, cols) = kernel.shape();
+        if rows != n || cols != n {
+            return Err(format!(
+                "Kernel shape ({rows}, {cols}) must match graph node count ({n})"
+            ));
+        }
 
         Ok(NegLogSimDistance {
             kernel,
@@ -75,5 +96,39 @@ impl<S: Float + num_traits::FromPrimitive> NegLogSimDistanceBuilder<S> {
 impl<S: Float + num_traits::FromPrimitive> Default for NegLogSimDistanceBuilder<S> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::{NodeIndex, UnGraph};
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_neg_log_sim_distance_builder_rejects_mismatch_and_invalid_params() {
+        let mut g4 = UnGraph::<(), ()>::new_undirected();
+        let n4: Vec<_> = (0..4).map(|_| g4.add_node(())).collect();
+        for i in 0..3 {
+            g4.add_edge(n4[i], n4[i + 1], ());
+        }
+        let mut g10 = UnGraph::<(), ()>::new_undirected();
+        for _ in 0..10 {
+            g10.add_node(());
+        }
+        let lap4 = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g4, |_| 1.0_f64);
+        let mut rng = StdRng::seed_from_u64(1);
+        let dk4 = DiffusionKernelBuilder::new(&lap4, 1.0, 10)
+            .build(&mut rng)
+            .unwrap();
+
+        assert!(NegLogSimDistanceBuilder::new()
+            .build::<_, NodeIndex, _>(&g10, dk4.clone())
+            .is_err());
+        assert!(NegLogSimDistanceBuilder::new()
+            .alpha(f64::NAN)
+            .build::<_, NodeIndex, _>(&g4, dk4)
+            .is_err());
     }
 }

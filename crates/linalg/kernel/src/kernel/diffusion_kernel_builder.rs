@@ -43,6 +43,9 @@ where
     }
 
     pub fn build<R: Rng>(self, rng: &mut R) -> Result<DiffusionKernel<S>, String> {
+        if !self.t.is_finite() || self.t < S::zero() {
+            return Err("t must be finite and >= 0".to_string());
+        }
         let lambda_max = match self.lambda_max {
             Some(l) => {
                 if !l.is_finite() || l <= S::zero() {
@@ -68,5 +71,32 @@ where
         let matrix = chebyshev_approximation(self.laplacian, self.t, self.degree, lambda_max, &eye);
 
         Ok(DiffusionKernel { n, matrix })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_diffusion_kernel_builder_rejects_invalid_t() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        let lap = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g, |_| 1.0_f64);
+        let mut rng = StdRng::seed_from_u64(1);
+        for bad_t in [-1.0, f64::NAN, f64::INFINITY] {
+            let err = DiffusionKernelBuilder::new(&lap, bad_t, 10)
+                .build(&mut rng)
+                .unwrap_err();
+            assert!(err.contains("t"));
+        }
+        assert!(DiffusionKernelBuilder::new(&lap, 0.0, 10)
+            .build(&mut rng)
+            .is_ok());
     }
 }

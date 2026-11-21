@@ -26,7 +26,19 @@ where
     S: DrawingValue,
 {
     /// Creates a new EmbeddingKernel from coordinates and node mapping.
+    ///
+    /// Panics if `embedding.nrows()` does not match the number of nodes in `graph`.
     pub fn new<G>(graph: G, embedding: Array2<S>) -> Self
+    where
+        G: IntoNodeIdentifiers,
+        G::NodeId: Into<N>,
+    {
+        Self::try_new(graph, embedding).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Creates a new EmbeddingKernel, returning an error if `embedding.nrows()` does not match
+    /// the graph node count.
+    pub fn try_new<G>(graph: G, embedding: Array2<S>) -> Result<Self, String>
     where
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
@@ -36,10 +48,17 @@ where
             .enumerate()
             .map(|(i, node_id)| (node_id.into(), i))
             .collect();
-        Self {
+        if embedding.nrows() != node_indices.len() {
+            return Err(format!(
+                "Embedding row count ({}) must match graph node count ({})",
+                embedding.nrows(),
+                node_indices.len()
+            ));
+        }
+        Ok(Self {
             embedding,
             node_indices,
-        }
+        })
     }
 }
 

@@ -93,6 +93,9 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
+        if !self.t.is_finite() || self.t < S::zero() {
+            return Err("t must be finite and >= 0".to_string());
+        }
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -134,6 +137,9 @@ where
         F: FnMut(G::EdgeRef) -> S,
         R: Rng,
     {
+        if !self.t.is_finite() || self.t < S::zero() {
+            return Err("t must be finite and >= 0".to_string());
+        }
         let n = graph.node_count();
         let rank = self.rank.min(n.saturating_sub(1));
 
@@ -195,5 +201,41 @@ where
             eigenvalues,
             eigenvectors,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_low_rank_diffusion_kernel_builder_rejects_invalid_t() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        g.add_edge(n1, n2, ());
+        g.add_edge(n2, n0, ());
+
+        let mut rng = StdRng::seed_from_u64(7);
+        for bad_t in [-1.0, f64::NAN, f64::INFINITY] {
+            let err_lap = LowRankDiffusionKernelBuilder::new()
+                .t(bad_t)
+                .rank(2)
+                .build_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_lap.contains("t"));
+
+            let err_norm = LowRankDiffusionKernelBuilder::new()
+                .t(bad_t)
+                .rank(2)
+                .build_normalized_laplacian(&g, |_| 1.0, &mut rng)
+                .unwrap_err();
+            assert!(err_norm.contains("t"));
+        }
     }
 }

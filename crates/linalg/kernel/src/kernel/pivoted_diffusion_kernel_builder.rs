@@ -151,6 +151,9 @@ where
     }
 
     pub fn build<R: Rng>(self, rng: &mut R) -> Result<PivotedDiffusionKernel<S>, String> {
+        if !self.t.is_finite() || self.t < S::zero() {
+            return Err("t must be finite and >= 0".to_string());
+        }
         let n = self.laplacian.dim();
         for &p in &self.pivots {
             if p >= n {
@@ -186,5 +189,32 @@ where
             vectors: pivot_vectors,
             diagonal,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_pivoted_diffusion_kernel_builder_rejects_invalid_t() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        let lap = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g, |_| 1.0_f64);
+        let mut rng = StdRng::seed_from_u64(1);
+        for bad_t in [-1.0, f64::NAN, f64::INFINITY] {
+            let err = PivotedDiffusionKernelBuilder::new(&lap, bad_t, 10, vec![0])
+                .build(&mut rng)
+                .unwrap_err();
+            assert!(err.contains("t"));
+        }
+        assert!(PivotedDiffusionKernelBuilder::new(&lap, 0.0, 10, vec![0])
+            .build(&mut rng)
+            .is_ok());
     }
 }
