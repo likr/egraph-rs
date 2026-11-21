@@ -152,4 +152,9 @@ pub trait PivotedKernel<S> {
     fn diagonal(&self, _j: usize) -> Option<S> {
         None
     }
+
+    /// Returns the number of nodes in the underlying graph if known.
+    fn node_count(&self) -> Option<usize> {
+        None
+    }
 }

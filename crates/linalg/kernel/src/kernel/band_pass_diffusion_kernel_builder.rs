@@ -57,6 +57,9 @@ pub fn multiscale_heat_terms<S: Float>(terms: &[(S, S)]) -> Result<Vec<(S, S)>, 
 }
 
 pub(crate) fn validate_terms<S: Float>(terms: &[(S, S)]) -> Result<(), String> {
+    if terms.is_empty() {
+        return Err("BandPass terms must not be empty".to_string());
+    }
     for &(c, t) in terms {
         if !c.is_finite() || !t.is_finite() {
             return Err("BandPass terms must be finite".to_string());
@@ -161,14 +164,13 @@ where
         }
 
         let n = self.laplacian.dim();
+        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng)?;
         if n == 0 {
             return Ok(BandPassDiffusionKernel {
                 n: 0,
                 matrix: Array2::zeros((0, 0)),
             });
         }
-
-        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng);
 
         let mut eye = Array2::zeros((n, n));
         for i in 0..n {

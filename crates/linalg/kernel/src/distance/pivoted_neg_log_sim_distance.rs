@@ -141,6 +141,13 @@ impl<S: Float + num_traits::FromPrimitive> PivotedNegLogSimDistanceBuilder<S> {
             .map(|(i, node_id)| (node_id.into(), i))
             .collect();
         let n = node_indices.len();
+        if let Some(kn) = kernel.node_count() {
+            if kn != n {
+                return Err(format!(
+                    "Kernel node count ({kn}) must match graph node count ({n})"
+                ));
+            }
+        }
 
         let mut pivot_indices = HashMap::new();
         for (p_idx, &p_node) in kernel.pivots().iter().enumerate() {
@@ -285,5 +292,30 @@ mod tests {
             let d = dist_bp.get_by_index(j, 0);
             assert!(d.is_finite() && d >= 0.0);
         }
+    }
+
+    #[test]
+    fn test_pivoted_distance_rejects_mismatched_graph_node_count() {
+        let mut g6 = UnGraph::<(), ()>::new_undirected();
+        let n6: Vec<_> = (0..6).map(|_| g6.add_node(())).collect();
+        for i in 0..5 {
+            g6.add_edge(n6[i], n6[i + 1], ());
+        }
+        let mut g10 = UnGraph::<(), ()>::new_undirected();
+        let n10: Vec<_> = (0..10).map(|_| g10.add_node(())).collect();
+        for i in 0..9 {
+            g10.add_edge(n10[i], n10[i + 1], ());
+        }
+        let lap6 = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g6, |_| 1.0_f64);
+        let mut rng = StdRng::seed_from_u64(1);
+        let pk6 = PivotedDiffusionKernelBuilder::new(&lap6, 0.5, 10, vec![0])
+            .build(&mut rng)
+            .unwrap();
+        assert!(PivotedNegLogSimDistanceBuilder::new()
+            .build::<_, petgraph::graph::NodeIndex, _>(&g10, pk6.clone())
+            .is_err());
+        assert!(PivotedNegLogDistanceBuilder::new()
+            .build::<_, petgraph::graph::NodeIndex, _>(&g10, pk6)
+            .is_err());
     }
 }

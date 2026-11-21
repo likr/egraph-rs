@@ -58,12 +58,39 @@ impl<S: Float + num_traits::FromPrimitive> PivotedNegLogDistanceBuilder<S> {
         G: IntoNodeIdentifiers,
         G::NodeId: Into<N>,
         N: Eq + Hash + Copy,
+        K: PivotedKernel<S>,
     {
+        if !self.alpha.is_finite() || self.alpha < S::zero() {
+            return Err("alpha must be finite and non-negative".to_string());
+        }
+        if !self.beta.is_finite() || self.beta < S::zero() {
+            return Err("beta must be finite and non-negative".to_string());
+        }
+        if !self.p.is_finite() || self.p < S::zero() {
+            return Err("p must be finite and non-negative".to_string());
+        }
+        if !self.min_dist.is_finite() || self.min_dist < S::zero() {
+            return Err("min_dist must be finite and non-negative".to_string());
+        }
+
         let node_indices: HashMap<N, usize> = graph
             .node_identifiers()
             .enumerate()
             .map(|(i, node_id)| (node_id.into(), i))
             .collect();
+        let n = node_indices.len();
+        if let Some(kn) = kernel.node_count() {
+            if kn != n {
+                return Err(format!(
+                    "Kernel node count ({kn}) must match graph node count ({n})"
+                ));
+            }
+        }
+        for &p_node in kernel.pivots() {
+            if p_node >= n {
+                return Err("Pivot index out of bounds".to_string());
+            }
+        }
 
         Ok(PivotedNegLogDistance {
             kernel,

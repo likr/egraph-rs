@@ -44,8 +44,19 @@ where
 
     pub fn build<R: Rng>(self, rng: &mut R) -> Result<DiffusionKernel<S>, String> {
         let lambda_max = match self.lambda_max {
-            Some(l) => l,
-            None => estimate_lambda_max(self.laplacian, rng, 100, S::from_f64(1e-4).unwrap()),
+            Some(l) => {
+                if !l.is_finite() || l <= S::zero() {
+                    return Err("lambda_max must be finite and positive".to_string());
+                }
+                l
+            }
+            None => {
+                if self.laplacian.dim() == 0 {
+                    S::one()
+                } else {
+                    estimate_lambda_max(self.laplacian, rng, 100, S::from_f64(1e-4).unwrap())
+                }
+            }
         };
 
         let n = self.laplacian.dim();

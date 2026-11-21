@@ -22,18 +22,28 @@ pub(crate) fn resolve_lambda_max<S, R>(
     laplacian: &SparseSymmetricMatrix<S>,
     lambda_max: Option<S>,
     rng: &mut R,
-) -> S
+) -> Result<S, String>
 where
     S: Float + std::iter::Sum + std::ops::AddAssign + Default + ScalarOperand,
     R: Rng,
 {
     match lambda_max {
-        Some(l) => l,
+        Some(l) => {
+            if !l.is_finite() || l <= S::zero() {
+                return Err("lambda_max must be finite and positive".to_string());
+            }
+            Ok(l)
+        }
         None => {
             if laplacian.dim() == 0 {
-                S::one()
+                Ok(S::one())
             } else {
-                estimate_lambda_max(laplacian, rng, 100, S::from(1e-4).unwrap())
+                Ok(estimate_lambda_max(
+                    laplacian,
+                    rng,
+                    100,
+                    S::from(1e-4).unwrap(),
+                ))
             }
         }
     }
@@ -148,7 +158,7 @@ where
             }
         }
 
-        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng);
+        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng)?;
 
         let pivot_vectors = build_pivot_vectors_with(n, &self.pivots, |e| {
             chebyshev_approximation_vec(self.laplacian, self.t, self.degree, lambda_max, e)

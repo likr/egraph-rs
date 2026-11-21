@@ -22,4 +22,11 @@ impl<S: Float + ScalarOperand> PivotedKernel<S> for PivotedBandPassDiffusionKern
     fn diagonal(&self, j: usize) -> Option<S> {
         self.diagonal.as_ref().and_then(|d| d.get(j).copied())
     }
+
+    fn node_count(&self) -> Option<usize> {
+        self.vectors
+            .first()
+            .map(|v| v.len())
+            .or_else(|| self.diagonal.as_ref().map(|d| d.len()))
+    }
 }

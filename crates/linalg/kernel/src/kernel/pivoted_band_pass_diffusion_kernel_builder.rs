@@ -128,7 +128,7 @@ where
             }
         }
 
-        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng);
+        let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng)?;
 
         let mut pivot_vectors = build_pivot_vectors_with(n, &self.pivots, |e| {
             chebyshev_bandpass_approximation_vec(
@@ -387,5 +387,47 @@ mod tests {
         )
         .build(&mut rng)
         .is_err());
+    }
+
+    #[test]
+    fn test_bandpass_rejects_invalid_lambda_max_and_empty_terms() {
+        let lap = sample_graph_laplacian();
+        let mut rng = StdRng::seed_from_u64(1);
+        for bad_lmax in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                BandPassDiffusionKernelBuilder::dog(&lap, 0.5, 2.0, 0.5, 0.05, 10)
+                    .lambda_max(bad_lmax)
+                    .build(&mut rng)
+                    .is_err()
+            );
+            assert!(PivotedBandPassDiffusionKernelBuilder::dog(
+                &lap,
+                0.5,
+                2.0,
+                0.5,
+                0.05,
+                10,
+                vec![0]
+            )
+            .lambda_max(bad_lmax)
+            .build(&mut rng)
+            .is_err());
+            assert!(DiffusionKernelBuilder::new(&lap, 1.0, 10)
+                .lambda_max(bad_lmax)
+                .build(&mut rng)
+                .is_err());
+            assert!(PivotedDiffusionKernelBuilder::new(&lap, 1.0, 10, vec![0])
+                .lambda_max(bad_lmax)
+                .build(&mut rng)
+                .is_err());
+        }
+        assert!(BandPassDiffusionKernelBuilder::new(&lap, vec![], 10)
+            .build(&mut rng)
+            .is_err());
+        assert!(
+            PivotedBandPassDiffusionKernelBuilder::new(&lap, vec![], 10, vec![0])
+                .build(&mut rng)
+                .is_err()
+        );
     }
 }

@@ -24,4 +24,8 @@ impl<S: Float> PivotedKernel<S> for PivotedMultiscaleDiffusionKernel<S> {
     fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> S {
         self.vectors[pivot_idx][j]
     }
+
+    fn node_count(&self) -> Option<usize> {
+        self.vectors.first().map(|v| v.len())
+    }
 }
