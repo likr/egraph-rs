@@ -139,7 +139,11 @@ impl PyWeightedEdgeLength {
     /// :return: The calculated edge weight
     /// :rtype: int
     fn __call__(&self, edge_index: usize) -> PyResult<usize> {
-        Ok(self.calculator.edge_weight(edge_index))
+        self.calculator.try_edge_weight(edge_index).ok_or_else(|| {
+            pyo3::exceptions::PyIndexError::new_err(format!(
+                "Edge index {edge_index} out of bounds"
+            ))
+        })
     }
 }
 

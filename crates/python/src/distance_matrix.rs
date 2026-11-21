@@ -991,9 +991,10 @@ impl PyGaussianKernel {
     #[new]
     pub fn new(kernel: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
         let inner = extract_inner_kernel(kernel)?;
-        Ok(Self {
-            kernel: GaussianKernel::new(Box::new(inner), gamma),
-        })
+        let kernel = GaussianKernelBuilder::new(gamma)
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self { kernel })
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
@@ -1044,9 +1045,10 @@ impl PyExponentialKernel {
     #[new]
     pub fn new(kernel: &Bound<PyAny>, gamma: FloatType) -> PyResult<Self> {
         let inner = extract_inner_kernel(kernel)?;
-        Ok(Self {
-            kernel: ExponentialKernel::new(Box::new(inner), gamma),
-        })
+        let kernel = ExponentialKernelBuilder::new(gamma)
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self { kernel })
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
@@ -1097,9 +1099,10 @@ impl PyTKernel {
     #[new]
     pub fn new(kernel: &Bound<PyAny>, dof: FloatType) -> PyResult<Self> {
         let inner = extract_inner_kernel(kernel)?;
-        Ok(Self {
-            kernel: TKernel::new(Box::new(inner), dof),
-        })
+        let kernel = TKernelBuilder::new(dof)
+            .build(Box::new(inner))
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self { kernel })
     }
 
     pub fn get(&self, u: usize, v: usize) -> Option<FloatType> {
@@ -1151,8 +1154,10 @@ impl PyKernelDistance {
     #[pyo3(signature = (kernel, min_dist = 0.0))]
     pub fn new(kernel: &Bound<PyAny>, min_dist: FloatType) -> PyResult<Self> {
         let inner = extract_inner_kernel(kernel)?;
-        let mut matrix = KernelDistance::new(inner);
-        matrix.min_dist = min_dist;
+        let matrix = KernelDistanceBuilder::new()
+            .min_dist(min_dist)
+            .build(inner)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(Self { matrix })
     }
 }

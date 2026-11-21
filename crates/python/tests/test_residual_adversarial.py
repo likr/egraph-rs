@@ -277,6 +277,82 @@ class TestResidualAdversarialHardening(unittest.TestCase):
             with self.assertRaises(ValueError):
                 eg.LowRankMultiscaleDiffusionKernelBuilder().cg_tolerance(bad_val).build_symmetric_normalized_laplacian(g3)
 
+    # R7: GaussianKernel, ExponentialKernel, TKernel, KernelDistance & LowRank array validation
+    def test_r7_remaining_kernels_and_kernel_distance_reject_invalid_params(self):
+        g3 = self._path3()
+        lap3 = eg.Laplacian.symmetric_normalized(g3)
+        dk3 = eg.DiffusionKernel(lap3, 1.0, 10, eg.Rng.seed_from(1))
+
+        # Valid boundary gamma=0.0 and min_dist=0.0 remain accepted
+        self.assertTrue(math.isfinite(eg.GaussianKernel(dk3, 0.0).get(0, 1)))
+        self.assertTrue(math.isfinite(eg.ExponentialKernel(dk3, 0.0).get(0, 1)))
+        self.assertIsNotNone(eg.KernelDistance(dk3, 0.0))
+
+        for bad_gamma in [-1.0, float("nan"), float("inf"), float("-inf")]:
+            with self.assertRaises(ValueError):
+                eg.GaussianKernel(dk3, bad_gamma)
+            with self.assertRaises(ValueError):
+                eg.GaussianKernelBuilder(bad_gamma).build(dk3)
+            with self.assertRaises(ValueError):
+                eg.ExponentialKernel(dk3, bad_gamma)
+            with self.assertRaises(ValueError):
+                eg.ExponentialKernelBuilder(bad_gamma).build(dk3)
+
+        for bad_alpha in [0.0, -1.0, float("nan"), float("inf"), float("-inf")]:
+            with self.assertRaises(ValueError):
+                eg.TKernel(dk3, bad_alpha)
+            with self.assertRaises(ValueError):
+                eg.TKernelBuilder(bad_alpha).build(dk3)
+
+        for bad_min_dist in [-1.0, float("nan"), float("inf"), float("-inf")]:
+            with self.assertRaises(ValueError):
+                eg.KernelDistance(dk3, bad_min_dist)
+            with self.assertRaises(ValueError):
+                eg.KernelDistanceBuilder(bad_min_dist).build(dk3)
+
+        nan_evals = eg.Array1(np.array([float("nan")], dtype=np.float64))
+        inf_evals = eg.Array1(np.array([float("inf")], dtype=np.float64))
+        ok_evecs = eg.Array2(np.ones((3, 1), dtype=np.float64))
+        ok_evals = eg.Array1(np.array([0.5], dtype=np.float64))
+        nan_evecs = eg.Array2(np.full((3, 1), float("nan"), dtype=np.float64))
+        inf_evecs = eg.Array2(np.full((3, 1), float("inf"), dtype=np.float64))
+        for evals, evecs in [
+            (nan_evals, ok_evecs),
+            (inf_evals, ok_evecs),
+            (ok_evals, nan_evecs),
+            (ok_evals, inf_evecs),
+        ]:
+            with self.assertRaises(ValueError):
+                eg.LowRankDiffusionKernel(1.0, evals, evecs)
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernel(0.5, evals, evecs)
+
+    # R8: WeightedEdgeLength OOB & self-looped graph safety
+    def test_r8_weighted_edge_length_oob_and_self_loop_no_panic(self):
+        g3 = self._path3()
+        wel = eg.WeightedEdgeLength(g3)
+        with self.assertRaises(IndexError):
+            wel(99)
+
+        g_loop = eg.Graph.from_edges_numpy(
+            3, np.array([[0, 0], [0, 1], [1, 2]], dtype=np.int64)
+        )
+        wel_loop = eg.WeightedEdgeLength(g_loop)
+        self.assertEqual(wel_loop(0), 0)
+        self.assertEqual(wel_loop(1), 3)
+        self.assertEqual(wel_loop(2), 3)
+        with self.assertRaises(IndexError):
+            wel_loop(99)
+        dm = eg.all_sources_dijkstra(g_loop, wel_loop)
+        self.assertTrue(math.isfinite(dm.get_by_index(0, 2)))
+
+        g_rem = self._path3()
+        g_rem.remove_edge(0)
+        wel_rem = eg.WeightedEdgeLength(g_rem)
+        self.assertEqual(wel_rem(0), 2)
+        with self.assertRaises(IndexError):
+            wel_rem(1)
+
 
 if __name__ == "__main__":
     unittest.main()

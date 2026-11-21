@@ -176,6 +176,16 @@ impl PyLowRankDiffusionKernel {
                 eigvecs.ncols()
             )));
         }
+        if !eigvals.iter().all(|v| v.is_finite()) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eigenvalues must contain only finite values",
+            ));
+        }
+        if !eigvecs.iter().all(|v| v.is_finite()) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eigenvectors must contain only finite values",
+            ));
+        }
         let kernel = LowRankDiffusionKernel::new(t, eigvals.clone(), eigvecs.clone());
         Ok(PyLowRankDiffusionKernel { kernel })
     }
@@ -221,6 +231,16 @@ impl PyLowRankMultiscaleDiffusionKernel {
                 eigvals.len(),
                 eigvecs.ncols()
             )));
+        }
+        if !eigvals.iter().all(|v| v.is_finite()) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eigenvalues must contain only finite values",
+            ));
+        }
+        if !eigvecs.iter().all(|v| v.is_finite()) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eigenvectors must contain only finite values",
+            ));
         }
         let kernel = LowRankMultiscaleDiffusionKernel::new(alpha, eigvals.clone(), eigvecs.clone());
         Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
