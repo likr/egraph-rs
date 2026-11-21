@@ -6,10 +6,11 @@ use crate::{
 use petgraph::visit::EdgeRef;
 use petgraph_linalg_kernel::Kernel;
 use petgraph_linalg_kernel::{
-    dog_bandpass_terms, BandPassDiffusionKernel, BandPassDiffusionKernelBuilder, DiffusionKernel,
-    DiffusionKernelBuilder, LowRankDiffusionKernel, LowRankDiffusionKernelBuilder,
-    LowRankMultiscaleDiffusionKernel, LowRankMultiscaleDiffusionKernelBuilder,
-    MultiscaleDiffusionKernel, MultiscaleDiffusionKernelBuilder, PivotedBandPassDiffusionKernel,
+    dog_bandpass_terms, multiscale_heat_terms, BandPassDiffusionKernel,
+    BandPassDiffusionKernelBuilder, DiffusionKernel, DiffusionKernelBuilder,
+    LowRankDiffusionKernel, LowRankDiffusionKernelBuilder, LowRankMultiscaleDiffusionKernel,
+    LowRankMultiscaleDiffusionKernelBuilder, MultiscaleDiffusionKernel,
+    MultiscaleDiffusionKernelBuilder, PivotedBandPassDiffusionKernel,
     PivotedBandPassDiffusionKernelBuilder, PivotedDiffusionKernel, PivotedDiffusionKernelBuilder,
     PivotedKernel, PivotedMultiscaleDiffusionKernel, PivotedMultiscaleDiffusionKernelBuilder,
 };
@@ -274,9 +275,11 @@ fn build_bandpass_kernel(
     terms: Vec<(FloatType, FloatType)>,
     degree: usize,
     lambda_max: Option<FloatType>,
+    off_diagonal_floor: FloatType,
     rng: Option<&mut crate::rng::PyRng>,
 ) -> PyResult<PyBandPassDiffusionKernel> {
-    let mut builder = BandPassDiffusionKernelBuilder::new(&laplacian.matrix, terms, degree);
+    let mut builder = BandPassDiffusionKernelBuilder::new(&laplacian.matrix, terms, degree)
+        .off_diagonal_floor(off_diagonal_floor);
     if let Some(lm) = lambda_max {
         builder = builder.lambda_max(lm);
     }
@@ -285,6 +288,7 @@ fn build_bandpass_kernel(
     Ok(PyBandPassDiffusionKernel { kernel })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_pivoted_bandpass_kernel(
     laplacian: &PyLaplacian,
     terms: Vec<(FloatType, FloatType)>,
@@ -292,11 +296,13 @@ fn build_pivoted_bandpass_kernel(
     pivots: Vec<usize>,
     lambda_max: Option<FloatType>,
     num_hutchinson: Option<usize>,
+    off_diagonal_floor: FloatType,
     rng: Option<&mut crate::rng::PyRng>,
 ) -> PyResult<PyPivotedBandPassDiffusionKernel> {
     let mut builder =
         PivotedBandPassDiffusionKernelBuilder::new(&laplacian.matrix, terms, degree, pivots)
-            .num_hutchinson(num_hutchinson);
+            .num_hutchinson(num_hutchinson)
+            .off_diagonal_floor(off_diagonal_floor);
     if let Some(lm) = lambda_max {
         builder = builder.lambda_max(lm);
     }
@@ -316,31 +322,47 @@ pub struct PyBandPassDiffusionKernel {
 impl PyBandPassDiffusionKernel {
     /// Creates a new `BandPassDiffusionKernel` from `(coeff, t)` terms.
     #[new]
-    #[pyo3(signature = (laplacian, terms, degree, rng = None, lambda_max = None))]
+    #[pyo3(signature = (laplacian, terms, degree, rng = None, lambda_max = None, off_diagonal_floor = 0.0))]
     fn new(
         laplacian: &PyLaplacian,
         terms: Vec<(FloatType, FloatType)>,
         degree: usize,
         rng: Option<&mut crate::rng::PyRng>,
         lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
     ) -> PyResult<Self> {
-        build_bandpass_kernel(laplacian, terms, degree, lambda_max, rng)
+        build_bandpass_kernel(
+            laplacian,
+            terms,
+            degree,
+            lambda_max,
+            off_diagonal_floor,
+            rng,
+        )
     }
 
     /// Creates a new `BandPassDiffusionKernel` with externally provided `lambda_max`.
     #[staticmethod]
-    #[pyo3(signature = (laplacian, terms, degree, lambda_max, rng = None))]
+    #[pyo3(signature = (laplacian, terms, degree, lambda_max, rng = None, off_diagonal_floor = 0.0))]
     fn new_with_lambda_max(
         laplacian: &PyLaplacian,
         terms: Vec<(FloatType, FloatType)>,
         degree: usize,
         lambda_max: FloatType,
         rng: Option<&mut crate::rng::PyRng>,
+        off_diagonal_floor: FloatType,
     ) -> PyResult<Self> {
-        build_bandpass_kernel(laplacian, terms, degree, Some(lambda_max), rng)
+        build_bandpass_kernel(
+            laplacian,
+            terms,
+            degree,
+            Some(lambda_max),
+            off_diagonal_floor,
+            rng,
+        )
     }
 
-    /// Creates a DC-retained 3-term Difference-of-Gaussians `BandPassDiffusionKernel`.
+    /// Creates a Difference-of-Gaussians `BandPassDiffusionKernel` with uniform rank-1 `beta_floor`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (laplacian, t1, t2, alpha, beta_floor, degree, rng = None, lambda_max = None))]
@@ -356,7 +378,30 @@ impl PyBandPassDiffusionKernel {
     ) -> PyResult<Self> {
         let terms = dog_bandpass_terms(t1, t2, alpha, beta_floor)
             .map_err(pyo3::exceptions::PyValueError::new_err)?;
-        build_bandpass_kernel(laplacian, terms, degree, lambda_max, rng)
+        build_bandpass_kernel(laplacian, terms, degree, lambda_max, beta_floor, rng)
+    }
+
+    /// Creates a positive-coefficient multi-scale heat `BandPassDiffusionKernel`.
+    #[staticmethod]
+    #[pyo3(signature = (laplacian, terms, degree, rng = None, lambda_max = None, off_diagonal_floor = 0.0))]
+    fn multiscale_heat(
+        laplacian: &PyLaplacian,
+        terms: Vec<(FloatType, FloatType)>,
+        degree: usize,
+        rng: Option<&mut crate::rng::PyRng>,
+        lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
+    ) -> PyResult<Self> {
+        let validated =
+            multiscale_heat_terms(&terms).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        build_bandpass_kernel(
+            laplacian,
+            validated,
+            degree,
+            lambda_max,
+            off_diagonal_floor,
+            rng,
+        )
     }
 
     /// Queries the `(i, j)` element of the band-pass kernel matrix.
@@ -382,26 +427,29 @@ pub struct PyBandPassDiffusionKernelBuilder {
     terms: Vec<(FloatType, FloatType)>,
     degree: usize,
     lambda_max: Option<FloatType>,
+    off_diagonal_floor: FloatType,
 }
 
 #[pymethods]
 impl PyBandPassDiffusionKernelBuilder {
     /// Creates a new `BandPassDiffusionKernelBuilder`.
     #[new]
-    #[pyo3(signature = (terms = None, degree = 30, lambda_max = None))]
+    #[pyo3(signature = (terms = None, degree = 30, lambda_max = None, off_diagonal_floor = 0.0))]
     fn new(
         terms: Option<Vec<(FloatType, FloatType)>>,
         degree: usize,
         lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
     ) -> Self {
         Self {
             terms: terms.unwrap_or_default(),
             degree,
             lambda_max,
+            off_diagonal_floor,
         }
     }
 
-    /// Creates a builder configured for a DC-retained 3-term Difference-of-Gaussians kernel.
+    /// Creates a builder configured for a Difference-of-Gaussians kernel with uniform `beta_floor`.
     #[staticmethod]
     #[pyo3(signature = (t1, t2, alpha, beta_floor, degree = 30, lambda_max = None))]
     fn dog(
@@ -418,6 +466,26 @@ impl PyBandPassDiffusionKernelBuilder {
             terms,
             degree,
             lambda_max,
+            off_diagonal_floor: beta_floor,
+        })
+    }
+
+    /// Creates a builder configured for a positive-coefficient multi-scale heat kernel.
+    #[staticmethod]
+    #[pyo3(signature = (terms, degree = 30, lambda_max = None, off_diagonal_floor = 0.0))]
+    fn multiscale_heat(
+        terms: Vec<(FloatType, FloatType)>,
+        degree: usize,
+        lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
+    ) -> PyResult<Self> {
+        let validated =
+            multiscale_heat_terms(&terms).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self {
+            terms: validated,
+            degree,
+            lambda_max,
+            off_diagonal_floor,
         })
     }
 
@@ -445,6 +513,12 @@ impl PyBandPassDiffusionKernelBuilder {
         slf
     }
 
+    /// Sets the uniform rank-1 floor added to every kernel entry (`K + floor * 1 1^T`).
+    fn off_diagonal_floor(mut slf: PyRefMut<'_, Self>, floor: FloatType) -> PyRefMut<'_, Self> {
+        slf.off_diagonal_floor = floor;
+        slf
+    }
+
     /// Builds a `BandPassDiffusionKernel` for `laplacian`.
     #[pyo3(signature = (laplacian, rng = None))]
     fn build(
@@ -457,6 +531,7 @@ impl PyBandPassDiffusionKernelBuilder {
             self.terms.clone(),
             self.degree,
             self.lambda_max,
+            self.off_diagonal_floor,
             rng,
         )
     }
@@ -473,7 +548,8 @@ pub struct PyPivotedBandPassDiffusionKernel {
 impl PyPivotedBandPassDiffusionKernel {
     /// Creates a new `PivotedBandPassDiffusionKernel` from `(coeff, t)` terms.
     #[new]
-    #[pyo3(signature = (laplacian, terms, degree, pivots, rng = None, num_hutchinson = Some(32), lambda_max = None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (laplacian, terms, degree, pivots, rng = None, num_hutchinson = Some(32), lambda_max = None, off_diagonal_floor = 0.0))]
     fn new(
         laplacian: &PyLaplacian,
         terms: Vec<(FloatType, FloatType)>,
@@ -482,6 +558,7 @@ impl PyPivotedBandPassDiffusionKernel {
         rng: Option<&mut crate::rng::PyRng>,
         num_hutchinson: Option<usize>,
         lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
     ) -> PyResult<Self> {
         build_pivoted_bandpass_kernel(
             laplacian,
@@ -490,13 +567,15 @@ impl PyPivotedBandPassDiffusionKernel {
             pivots,
             lambda_max,
             num_hutchinson,
+            off_diagonal_floor,
             rng,
         )
     }
 
     /// Creates a new `PivotedBandPassDiffusionKernel` with externally provided `lambda_max`.
     #[staticmethod]
-    #[pyo3(signature = (laplacian, terms, degree, pivots, lambda_max, rng = None, num_hutchinson = Some(32)))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (laplacian, terms, degree, pivots, lambda_max, rng = None, num_hutchinson = Some(32), off_diagonal_floor = 0.0))]
     fn new_with_lambda_max(
         laplacian: &PyLaplacian,
         terms: Vec<(FloatType, FloatType)>,
@@ -505,6 +584,7 @@ impl PyPivotedBandPassDiffusionKernel {
         lambda_max: FloatType,
         rng: Option<&mut crate::rng::PyRng>,
         num_hutchinson: Option<usize>,
+        off_diagonal_floor: FloatType,
     ) -> PyResult<Self> {
         build_pivoted_bandpass_kernel(
             laplacian,
@@ -513,11 +593,12 @@ impl PyPivotedBandPassDiffusionKernel {
             pivots,
             Some(lambda_max),
             num_hutchinson,
+            off_diagonal_floor,
             rng,
         )
     }
 
-    /// Creates a DC-retained 3-term Difference-of-Gaussians `PivotedBandPassDiffusionKernel`.
+    /// Creates a Difference-of-Gaussians `PivotedBandPassDiffusionKernel` with uniform `beta_floor`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (laplacian, t1, t2, alpha, beta_floor, degree, pivots, rng = None, num_hutchinson = Some(32), lambda_max = None))]
@@ -542,6 +623,35 @@ impl PyPivotedBandPassDiffusionKernel {
             pivots,
             lambda_max,
             num_hutchinson,
+            beta_floor,
+            rng,
+        )
+    }
+
+    /// Creates a positive-coefficient multi-scale heat `PivotedBandPassDiffusionKernel`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (laplacian, terms, degree, pivots, rng = None, num_hutchinson = Some(32), lambda_max = None, off_diagonal_floor = 0.0))]
+    fn multiscale_heat(
+        laplacian: &PyLaplacian,
+        terms: Vec<(FloatType, FloatType)>,
+        degree: usize,
+        pivots: Vec<usize>,
+        rng: Option<&mut crate::rng::PyRng>,
+        num_hutchinson: Option<usize>,
+        lambda_max: Option<FloatType>,
+        off_diagonal_floor: FloatType,
+    ) -> PyResult<Self> {
+        let validated =
+            multiscale_heat_terms(&terms).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        build_pivoted_bandpass_kernel(
+            laplacian,
+            validated,
+            degree,
+            pivots,
+            lambda_max,
+            num_hutchinson,
+            off_diagonal_floor,
             rng,
         )
     }
@@ -583,19 +693,21 @@ pub struct PyPivotedBandPassDiffusionKernelBuilder {
     pivots: Vec<usize>,
     lambda_max: Option<FloatType>,
     num_hutchinson: Option<usize>,
+    off_diagonal_floor: FloatType,
 }
 
 #[pymethods]
 impl PyPivotedBandPassDiffusionKernelBuilder {
     /// Creates a new `PivotedBandPassDiffusionKernelBuilder` (default `num_hutchinson=32`).
     #[new]
-    #[pyo3(signature = (terms = None, degree = 30, pivots = None, lambda_max = None, num_hutchinson = Some(32)))]
+    #[pyo3(signature = (terms = None, degree = 30, pivots = None, lambda_max = None, num_hutchinson = Some(32), off_diagonal_floor = 0.0))]
     fn new(
         terms: Option<Vec<(FloatType, FloatType)>>,
         degree: usize,
         pivots: Option<Vec<usize>>,
         lambda_max: Option<FloatType>,
         num_hutchinson: Option<usize>,
+        off_diagonal_floor: FloatType,
     ) -> Self {
         Self {
             terms: terms.unwrap_or_default(),
@@ -603,10 +715,11 @@ impl PyPivotedBandPassDiffusionKernelBuilder {
             pivots: pivots.unwrap_or_default(),
             lambda_max,
             num_hutchinson,
+            off_diagonal_floor,
         }
     }
 
-    /// Creates a builder configured for a DC-retained 3-term Difference-of-Gaussians pivoted kernel.
+    /// Creates a builder configured for a Difference-of-Gaussians pivoted kernel with uniform `beta_floor`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (t1, t2, alpha, beta_floor, degree = 30, pivots = None, lambda_max = None, num_hutchinson = Some(32)))]
@@ -628,6 +741,30 @@ impl PyPivotedBandPassDiffusionKernelBuilder {
             pivots: pivots.unwrap_or_default(),
             lambda_max,
             num_hutchinson,
+            off_diagonal_floor: beta_floor,
+        })
+    }
+
+    /// Creates a builder configured for a positive-coefficient multi-scale heat pivoted kernel.
+    #[staticmethod]
+    #[pyo3(signature = (terms, degree = 30, pivots = None, lambda_max = None, num_hutchinson = Some(32), off_diagonal_floor = 0.0))]
+    fn multiscale_heat(
+        terms: Vec<(FloatType, FloatType)>,
+        degree: usize,
+        pivots: Option<Vec<usize>>,
+        lambda_max: Option<FloatType>,
+        num_hutchinson: Option<usize>,
+        off_diagonal_floor: FloatType,
+    ) -> PyResult<Self> {
+        let validated =
+            multiscale_heat_terms(&terms).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(Self {
+            terms: validated,
+            degree,
+            pivots: pivots.unwrap_or_default(),
+            lambda_max,
+            num_hutchinson,
+            off_diagonal_floor,
         })
     }
 
@@ -670,6 +807,12 @@ impl PyPivotedBandPassDiffusionKernelBuilder {
         slf
     }
 
+    /// Sets the uniform rank-1 floor added to every kernel entry (`K + floor * 1 1^T`).
+    fn off_diagonal_floor(mut slf: PyRefMut<'_, Self>, floor: FloatType) -> PyRefMut<'_, Self> {
+        slf.off_diagonal_floor = floor;
+        slf
+    }
+
     /// Builds a `PivotedBandPassDiffusionKernel` for `laplacian`.
     #[pyo3(signature = (laplacian, rng = None))]
     fn build(
@@ -684,6 +827,7 @@ impl PyPivotedBandPassDiffusionKernelBuilder {
             self.pivots.clone(),
             self.lambda_max,
             self.num_hutchinson,
+            self.off_diagonal_floor,
             rng,
         )
     }

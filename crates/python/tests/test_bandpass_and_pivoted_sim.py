@@ -118,10 +118,8 @@ class TestBandPassAndPivotedSim(unittest.TestCase):
         self.assertAlmostEqual(k_bp_lmax.get(0, 1), expected[0, 1], delta=1e-3)
 
         t1, t2, alpha, beta_floor = 0.5, 4.0, 0.5, 0.05
-        c1 = (1.0 - beta_floor) / (1.0 - alpha)
-        c2 = -alpha * c1
-        dog_terms = [(c1, t1), (c2, t2), (beta_floor, 0.0)]
-        expected_dog = exact_bandpass_matrix(lap_dense, dog_terms)
+        dog_terms = [(1.0 - beta_floor, t1), (-alpha * (1.0 - beta_floor), t2)]
+        expected_dog = exact_bandpass_matrix(lap_dense, dog_terms) + beta_floor
 
         k_dog = eg.BandPassDiffusionKernel.dog(
             lap, t1, t2, alpha, beta_floor, 25, rng=eg.Rng.seed_from(42)
@@ -136,8 +134,64 @@ class TestBandPassAndPivotedSim(unittest.TestCase):
                 self.assertAlmostEqual(k_dog.get(i, j), expected_dog[i, j], delta=1e-3)
                 self.assertAlmostEqual(k_dog_built.get(i, j), expected_dog[i, j], delta=1e-3)
 
+        # Zero-DC DoG (alpha = 1.0) is supported without division-by-(1 - alpha) singularity
+        k_dog_alpha1 = eg.BandPassDiffusionKernel.dog(
+            lap, t1, t2, 1.0, beta_floor, 25, rng=eg.Rng.seed_from(42)
+        )
+        expected_dog_alpha1 = (
+            exact_bandpass_matrix(
+                lap_dense, [(1.0 - beta_floor, t1), (-(1.0 - beta_floor), t2)]
+            )
+            + beta_floor
+        )
+        for i in range(n):
+            for j in range(n):
+                self.assertAlmostEqual(
+                    k_dog_alpha1.get(i, j), expected_dog_alpha1[i, j], delta=1e-3
+                )
+
+        # off_diagonal_floor lifts off-diagonals uniformly without a zero-time identity spike
+        k_floored = (
+            eg.BandPassDiffusionKernelBuilder(
+                [(0.95, t1), (-0.475, t2)], degree=25, lambda_max=2.0
+            )
+            .off_diagonal_floor(beta_floor)
+            .build(lap, rng=eg.Rng.seed_from(42))
+        )
+        self.assertAlmostEqual(k_floored.get(0, 3), expected_dog[0, 3], delta=1e-3)
+
+        # Positive 2-scale and 3-scale multiscale_heat constructors
+        for ms_terms in (
+            [(0.6, 0.5), (0.4, 2.0)],
+            [(0.5, 0.5), (0.3, 2.0), (0.2, 8.0)],
+        ):
+            k_ms = eg.BandPassDiffusionKernel.multiscale_heat(
+                lap, ms_terms, 25, rng=eg.Rng.seed_from(42)
+            )
+            k_ms_built = (
+                eg.BandPassDiffusionKernelBuilder.multiscale_heat(ms_terms, degree=25)
+                .lambda_max(2.0)
+                .build(lap, rng=eg.Rng.seed_from(42))
+            )
+            expected_ms = exact_bandpass_matrix(lap_dense, ms_terms)
+            for i in range(n):
+                for j in range(n):
+                    self.assertGreater(k_ms.get(i, j), 0.0)
+                    self.assertAlmostEqual(k_ms.get(i, j), expected_ms[i, j], delta=1e-3)
+                    self.assertAlmostEqual(k_ms_built.get(i, j), expected_ms[i, j], delta=1e-3)
+
+        # Invalid parameters raise ValueError
+        for bad_args in (
+            (lap, 0.0, t2, alpha, beta_floor, 20),
+            (lap, t1, -1.0, alpha, beta_floor, 20),
+            (lap, t1, t2, -0.1, beta_floor, 20),
+            (lap, t1, t2, alpha, -0.05, 20),
+            (lap, t1, t2, alpha, 1.0, 20),
+        ):
+            with self.assertRaises(ValueError):
+                eg.BandPassDiffusionKernel.dog(*bad_args)
         with self.assertRaises(ValueError):
-            eg.BandPassDiffusionKernel.dog(lap, t1, t2, 1.0, beta_floor, 20)
+            eg.BandPassDiffusionKernel.multiscale_heat(lap, [(-0.1, 0.5)], 20)
 
     def test_pivoted_bandpass_and_hutchinson_diagonal(self):
         n = 8
@@ -198,6 +252,30 @@ class TestBandPassAndPivotedSim(unittest.TestCase):
             num_hutchinson=None,
         )
         self.assertIsNone(pivoted_bp_no_hutch.diagonal(0))
+
+        # Pivoted multiscale_heat + off_diagonal_floor parity
+        ms_terms = [(0.5, 0.5), (0.3, 2.0), (0.2, 8.0)]
+        full_ms = eg.BandPassDiffusionKernel.multiscale_heat(
+            lap, ms_terms, 25, rng=eg.Rng.seed_from(9), off_diagonal_floor=0.05
+        )
+        piv_ms = eg.PivotedBandPassDiffusionKernel.multiscale_heat(
+            lap, ms_terms, 25, pivots, rng=eg.Rng.seed_from(9), off_diagonal_floor=0.05
+        )
+        piv_ms_builder = (
+            eg.PivotedBandPassDiffusionKernelBuilder.multiscale_heat(
+                ms_terms, degree=25, pivots=pivots
+            )
+            .off_diagonal_floor(0.05)
+            .build(lap, rng=eg.Rng.seed_from(9))
+        )
+        for p_idx, p in enumerate(pivots):
+            for j in range(n):
+                self.assertAlmostEqual(
+                    piv_ms.get_from_pivot(p_idx, j), full_ms.get(p, j), delta=1e-3
+                )
+                self.assertAlmostEqual(
+                    piv_ms_builder.get_from_pivot(p_idx, j), full_ms.get(p, j), delta=1e-3
+                )
 
         with self.assertRaises(IndexError):
             pivoted_bp.get_from_pivot(0, n)
