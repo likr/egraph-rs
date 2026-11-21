@@ -1,6 +1,15 @@
-use crate::{fuzzy_simplicial_set::compute_fuzzy_simplicial_set, gumap_builder::GuMapBuilder};
+use crate::{
+    fuzzy_simplicial_set::{
+        compute_fuzzy_simplicial_set, compute_fuzzy_simplicial_set_from_csr,
+        compute_fuzzy_simplicial_set_from_knn, try_compute_fuzzy_simplicial_set_from_knn,
+        SparseEdge,
+    },
+    gumap_builder::GuMapBuilder,
+};
 use num_traits::Float;
-use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
+use petgraph_drawing::{
+    Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue, MetricEuclidean2d,
+};
 use petgraph_linalg_kernel::Distance;
 use rand::prelude::*;
 
@@ -38,7 +47,6 @@ where
     }
 
     /// Executes the GUMAP layout algorithm on the drawing using the provided distance matrix and RNG.
-    #[allow(clippy::needless_range_loop)]
     pub fn run<N, D, R>(
         &self,
         drawing: &mut DrawingEuclidean2d<N, S>,
@@ -47,6 +55,99 @@ where
     ) where
         N: Copy + Eq + std::hash::Hash + DrawingIndex,
         D: Distance<N, S> + ?Sized,
+        R: Rng + ?Sized,
+    {
+        let n = drawing.len();
+        if n < 2 {
+            return;
+        }
+        let edges = compute_fuzzy_simplicial_set(
+            distance_matrix,
+            n,
+            self.k,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        );
+        self.run_from_edges(drawing, &edges, rng);
+    }
+
+    /// Executes the GUMAP layout algorithm using precomputed k-nearest neighbor lists `(neighbor_idx, distance)`.
+    ///
+    /// Uses all valid deduplicated neighbors per row (`m_i`) with target sum `log2(m_i)`.
+    pub fn run_with_knn<D, R>(&self, drawing: &mut D, knn: &[Vec<(usize, S)>], rng: &mut R)
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+        R: Rng + ?Sized,
+    {
+        let n = drawing.len();
+        if n < 2 {
+            return;
+        }
+        let edges =
+            compute_fuzzy_simplicial_set_from_knn(n, knn, self.sigma_iters, self.sigma_tolerance);
+        self.run_from_edges(drawing, &edges, rng);
+    }
+
+    /// Validating variant of [`GuMap::run_with_knn`] that checks `knn.len() == drawing.len()`,
+    /// in-bounds neighbor indices, and finite non-negative distances.
+    pub fn try_run_with_knn<D, R>(
+        &self,
+        drawing: &mut D,
+        knn: &[Vec<(usize, S)>],
+        rng: &mut R,
+    ) -> Result<(), String>
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+        R: Rng + ?Sized,
+    {
+        let n = drawing.len();
+        let edges = try_compute_fuzzy_simplicial_set_from_knn(
+            n,
+            knn,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        )?;
+        if n < 2 {
+            return Ok(());
+        }
+        self.run_from_edges(drawing, &edges, rng);
+        Ok(())
+    }
+
+    /// Executes the GUMAP layout algorithm using variable-length CSR k-NN arrays
+    /// `(indptr, indices, distances)`.
+    pub fn try_run_with_csr_knn<D, R>(
+        &self,
+        drawing: &mut D,
+        indptr: &[usize],
+        indices: &[usize],
+        distances: &[S],
+        rng: &mut R,
+    ) -> Result<(), String>
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+        R: Rng + ?Sized,
+    {
+        let n = drawing.len();
+        let edges = compute_fuzzy_simplicial_set_from_csr(
+            n,
+            indptr,
+            indices,
+            distances,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        )?;
+        if n < 2 {
+            return Ok(());
+        }
+        self.run_from_edges(drawing, &edges, rng);
+        Ok(())
+    }
+
+    #[allow(clippy::needless_range_loop)]
+    pub(crate) fn run_from_edges<D, R>(&self, drawing: &mut D, edges: &[SparseEdge<S>], rng: &mut R)
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
         R: Rng + ?Sized,
     {
         let n = drawing.len();
@@ -74,15 +175,6 @@ where
             }
         }
 
-        // Step 2: Compute high-dimensional fuzzy simplicial set (symmetrized probabilities)
-        let edges = compute_fuzzy_simplicial_set(
-            distance_matrix,
-            n,
-            self.k,
-            self.sigma_iters,
-            self.sigma_tolerance,
-        );
-
         if edges.is_empty() {
             return;
         }
@@ -102,7 +194,7 @@ where
             let epoch_s = S::from_usize(epoch).unwrap();
             let alpha = self.learning_rate * (S::one() - epoch_s / n_epochs_s);
 
-            for edge in &edges {
+            for edge in edges {
                 // Probabilistic edge sampling based on weight
                 let p_edge: f64 = edge.weight.to_f64().unwrap_or(1.0);
                 if rng.gen::<f64>() > p_edge {
