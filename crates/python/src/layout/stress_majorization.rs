@@ -38,6 +38,7 @@ use crate::{
     FloatType,
 };
 use petgraph::visit::EdgeRef;
+use petgraph_drawing::Drawing;
 use petgraph_layout_stress_majorization::StressMajorization;
 use pyo3::{prelude::*, types::PyType};
 
@@ -91,10 +92,18 @@ impl PyStressMajorization {
         let edge_len = crate::graph::EdgeLength::from_py(f)?;
         let stress_majorization = match graph.graph() {
             GraphType::Graph(native_graph) => {
+                if drawing.drawing().len() != native_graph.node_count() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "drawing length ({}) does not match graph node count ({})",
+                        drawing.drawing().len(),
+                        native_graph.node_count()
+                    )));
+                }
                 let resolved_len = edge_len.resolve_for_graph(native_graph, true)?;
-                StressMajorization::new(native_graph, drawing.drawing(), |e| {
+                StressMajorization::try_new(native_graph, drawing.drawing(), |e| {
                     resolved_len.get(e.id().index())
                 })
+                .map_err(pyo3::exceptions::PyValueError::new_err)?
             }
             _ => {
                 return Err(pyo3::exceptions::PyTypeError::new_err(
@@ -124,15 +133,21 @@ impl PyStressMajorization {
         _cls: &Bound<PyType>,
         drawing: &PyDrawingEuclidean2d,
         distance_matrix: &PyDistanceMatrix,
-    ) -> PyStressMajorization {
+    ) -> PyResult<PyStressMajorization> {
         match distance_matrix.distance_matrix() {
-            DistanceMatrixType::Full(distance_matrix) => PyStressMajorization {
-                stress_majorization: StressMajorization::new_with_distance_matrix(
+            DistanceMatrixType::Full(distance_matrix) => {
+                let stress_majorization = StressMajorization::try_new_with_distance_matrix(
                     drawing.drawing(),
                     distance_matrix,
-                ),
-            },
-            _ => unimplemented!(),
+                )
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                Ok(PyStressMajorization {
+                    stress_majorization,
+                })
+            }
+            DistanceMatrixType::Pivoted(_) => Err(pyo3::exceptions::PyTypeError::new_err(
+                "Expected a full (N, N) distance matrix, not a pivoted DistanceMatrix",
+            )),
         }
     }
 
@@ -145,8 +160,10 @@ impl PyStressMajorization {
     /// :type drawing: DrawingEuclidean2d
     /// :return: The new stress value after the iteration (lower is better)
     /// :rtype: float
-    fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> FloatType {
-        self.stress_majorization.apply(drawing.drawing_mut())
+    fn apply(&mut self, drawing: &mut PyDrawingEuclidean2d) -> PyResult<FloatType> {
+        self.stress_majorization
+            .try_apply(drawing.drawing_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Runs the stress majorization algorithm until convergence
@@ -159,8 +176,10 @@ impl PyStressMajorization {
     /// :type drawing: DrawingEuclidean2d
     /// :return: None
     /// :rtype: None
-    pub fn run(&mut self, drawing: &mut PyDrawingEuclidean2d) {
-        self.stress_majorization.run(drawing.drawing_mut())
+    pub fn run(&mut self, drawing: &mut PyDrawingEuclidean2d) -> PyResult<()> {
+        self.stress_majorization
+            .try_run(drawing.drawing_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Updates the weight matrix using a Python function
@@ -172,9 +191,26 @@ impl PyStressMajorization {
     /// :type f: callable
     /// :return: None
     /// :rtype: None
-    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) -> PyResult<()> {
+        if !f.is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err("f must be callable"));
+        }
         self.stress_majorization
-            .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+            .try_update_weight(|i, j, dij, wij| {
+                let res = f.call1((i, j, dij, wij))?;
+                if res.is_instance_of::<pyo3::types::PyBool>() {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "weight callback must return a float, not bool",
+                    ));
+                }
+                let val: FloatType = res.extract()?;
+                if !val.is_finite() || val < 0.0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "weight for pair ({i}, {j}) must be finite and non-negative, got {val}"
+                    )));
+                }
+                Ok(val)
+            })
     }
 
     /// Update stress majorization weights from an `(N, N)` float64 NumPy matrix.
@@ -183,17 +219,9 @@ impl PyStressMajorization {
         w: numpy::PyReadonlyArray2<'_, crate::FloatType>,
     ) -> PyResult<()> {
         let w_view = w.as_array();
-        let n = self.stress_majorization.n();
-        if w_view.dim() != (n, n) {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "weight matrix shape {:?} does not match expected ({}, {})",
-                w_view.dim(),
-                n,
-                n
-            )));
-        }
-        self.stress_majorization.update_weight_from_array(w_view);
-        Ok(())
+        self.stress_majorization
+            .try_update_weight_from_array(w_view)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Gets the convergence threshold (epsilon)
@@ -216,8 +244,14 @@ impl PyStressMajorization {
     /// :return: None
     /// :rtype: None
     #[setter]
-    pub fn set_epsilon(&mut self, value: FloatType) {
+    pub fn set_epsilon(&mut self, value: FloatType) -> PyResult<()> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "epsilon must be finite and positive",
+            ));
+        }
         self.stress_majorization.epsilon = value;
+        Ok(())
     }
 
     /// Gets the maximum number of iterations

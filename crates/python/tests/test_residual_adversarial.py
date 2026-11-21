@@ -172,6 +172,111 @@ class TestResidualAdversarialHardening(unittest.TestCase):
         self.assertTrue(math.isfinite(eg.ideal_edge_lengths(g3, d3, dm_zero)))
         self.assertTrue(math.isfinite(eg.ideal_edge_lengths(g3, d3, dm_nan)))
 
+    # R5: StressMajorization empty/singleton, mismatched shapes, pivoted matrix, bad callbacks, NaN guards
+    def test_r5_stress_majorization_no_panics_on_empty_mismatch_pivoted_or_bad_callback(self):
+        g0 = eg.Graph()
+        d0 = eg.DrawingEuclidean2d.initial_placement(g0)
+        dm0 = eg.DistanceMatrix.from_numpy(g0, np.zeros((0, 0), dtype=np.float64))
+        sm0 = eg.StressMajorization(g0, d0)
+        self.assertEqual(sm0.apply(d0), 0.0)
+        sm0.run(d0)
+        sm0_dm = eg.StressMajorization.with_distance_matrix(d0, dm0)
+        sm0_dm.run(d0)
+
+        g1 = eg.Graph()
+        g1.add_node(0)
+        d1 = eg.DrawingEuclidean2d.initial_placement(g1)
+        dm1 = eg.DistanceMatrix.from_numpy(g1, np.zeros((1, 1), dtype=np.float64))
+        sm1 = eg.StressMajorization(g1, d1)
+        self.assertEqual(sm1.apply(d1), 0.0)
+        sm1.run(d1)
+        sm1_dm = eg.StressMajorization.with_distance_matrix(d1, dm1)
+        sm1_dm.run(d1)
+
+        g2 = eg.Graph()
+        n2 = [g2.add_node(i) for i in range(2)]
+        g2.add_edge(n2[0], n2[1], 1.0)
+        d2 = eg.DrawingEuclidean2d.initial_placement(g2)
+        dm2 = eg.DistanceMatrix.from_numpy(g2, np.ones((2, 2), dtype=np.float64))
+
+        g3 = self._path3()
+        d3 = eg.DrawingEuclidean2d.initial_placement(g3)
+        dm_piv3 = eg.DistanceMatrix.from_pivoted_numpy(g3, [0], np.ones((1, 3), dtype=np.float64))
+
+        with self.assertRaises(ValueError):
+            eg.StressMajorization(g3, d2)
+        with self.assertRaises(ValueError):
+            eg.StressMajorization.with_distance_matrix(d3, dm2)
+        with self.assertRaises((TypeError, ValueError)):
+            eg.StressMajorization.with_distance_matrix(d3, dm_piv3)
+
+        d3_nan = eg.DrawingEuclidean2d.initial_placement(g3)
+        d3_nan.set_x(0, float("nan"))
+        with self.assertRaises(ValueError):
+            eg.StressMajorization(g3, d3_nan)
+
+        sm3 = eg.StressMajorization(g3, d3)
+        with self.assertRaises(ValueError):
+            sm3.apply(d2)
+        with self.assertRaises(ValueError):
+            sm3.run(d2)
+        with self.assertRaises(ValueError):
+            sm3.apply(d3_nan)
+        with self.assertRaises(ValueError):
+            sm3.run(d3_nan)
+        with self.assertRaises(TypeError):
+            sm3.update_weight("not_callable")
+        with self.assertRaises(TypeError):
+            sm3.update_weight(lambda i, j, d, w: "bad")
+        with self.assertRaises(TypeError):
+            sm3.update_weight(lambda i, j, d, w: True)
+        with self.assertRaises(ZeroDivisionError):
+            sm3.update_weight(lambda i, j, d, w: 1.0 / 0.0)
+        for bad_w in [-1.0, float("nan"), float("inf")]:
+            with self.assertRaises(ValueError):
+                sm3.update_weight(lambda i, j, d, w, v=bad_w: v)
+            w_arr = np.ones((3, 3), dtype=np.float64)
+            w_arr[0, 1] = bad_w
+            with self.assertRaises(ValueError):
+                sm3.update_weight_from_numpy(w_arr)
+        for bad_eps in [0.0, -1e-4, float("nan"), float("inf")]:
+            with self.assertRaises(ValueError):
+                sm3.epsilon = bad_eps
+
+        # Disconnected graph keeps finite coordinates and diff
+        g_disc = eg.Graph()
+        dn = [g_disc.add_node(i) for i in range(4)]
+        g_disc.add_edge(dn[0], dn[1], 1.0)
+        g_disc.add_edge(dn[2], dn[3], 1.0)
+        d_disc = eg.DrawingEuclidean2d.initial_placement(g_disc)
+        sm_disc = eg.StressMajorization(g_disc, d_disc)
+        self.assertTrue(math.isfinite(sm_disc.apply(d_disc)))
+        sm_disc.run(d_disc)
+        for u in range(4):
+            self.assertTrue(math.isfinite(d_disc.x(u)))
+            self.assertTrue(math.isfinite(d_disc.y(u)))
+
+    # R6: LowRank*DiffusionKernelBuilder shift & tolerance validation
+    def test_r6_low_rank_builders_reject_invalid_shift_and_tolerances(self):
+        g3 = self._path3()
+        for bad_val in [float("nan"), float("inf"), 0.0, -1.0]:
+            with self.assertRaises(ValueError):
+                eg.LowRankDiffusionKernelBuilder().shift(bad_val).build_unnormalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankDiffusionKernelBuilder().shift(bad_val).build_symmetric_normalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().shift(bad_val).build_unnormalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().shift(bad_val).build_symmetric_normalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankDiffusionKernelBuilder().eigenvalue_tolerance(bad_val).build_unnormalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankDiffusionKernelBuilder().cg_tolerance(bad_val).build_symmetric_normalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().eigenvalue_tolerance(bad_val).build_unnormalized_laplacian(g3)
+            with self.assertRaises(ValueError):
+                eg.LowRankMultiscaleDiffusionKernelBuilder().cg_tolerance(bad_val).build_symmetric_normalized_laplacian(g3)
+
 
 if __name__ == "__main__":
     unittest.main()
