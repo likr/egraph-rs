@@ -30,11 +30,17 @@ where
     S: DrawingValue,
 {
     let n = drawing.len();
+    if n <= 1 {
+        return S::zero();
+    }
     let mut cx = S::zero();
     let mut cy = S::zero();
     for i in 0..n {
         let xi = drawing.raw_entry(i).0;
         let yi = drawing.raw_entry(i).1;
+        if !xi.is_finite() || !yi.is_finite() {
+            return S::zero();
+        }
         cx += xi;
         cy += yi;
     }
@@ -54,7 +60,49 @@ where
 
     let tr = xx + yy;
     let det = xx * yy - xy * xy;
-    let sigma1 = ((tr + (tr * tr - det * (4.).into()).sqrt()) / (2.).into()).sqrt();
-    let sigma2 = ((tr - (tr * tr - det * (4.).into()).sqrt()) / (2.).into()).sqrt();
+    // Clamp numerical roundoff below 0 on collinear or degenerate zero-span drawings.
+    let disc = (tr * tr - det * (4.).into()).max(S::zero());
+    let sqrt_disc = disc.sqrt();
+    let lam1 = (tr + sqrt_disc) / (2.).into();
+    let lam2 = ((tr - sqrt_disc) / (2.).into()).max(S::zero());
+    if !lam1.is_finite() || lam1 <= S::zero() {
+        return S::zero();
+    }
+    let sigma1 = lam1.sqrt();
+    let sigma2 = lam2.sqrt();
+    if !sigma1.is_finite() || sigma1 <= S::zero() || !sigma2.is_finite() {
+        return S::zero();
+    }
     sigma2 / sigma1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::{NodeIndex, UnGraph};
+    use petgraph_drawing::MetricEuclidean2d;
+
+    #[test]
+    fn test_aspect_ratio_degenerate_cases_return_zero() {
+        let g0 = UnGraph::<(), ()>::new_undirected();
+        let d0 = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g0);
+        assert_eq!(aspect_ratio(&d0), 0.0);
+
+        let mut g1 = UnGraph::<(), ()>::new_undirected();
+        g1.add_node(());
+        let d1 = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g1);
+        assert_eq!(aspect_ratio(&d1), 0.0);
+
+        let mut g3 = UnGraph::<(), ()>::new_undirected();
+        let nodes: Vec<_> = (0..3).map(|_| g3.add_node(())).collect();
+        let mut d_zero = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g3);
+        for &u in &nodes {
+            *d_zero.position_mut(u).unwrap() = MetricEuclidean2d(0.0, 0.0);
+        }
+        assert_eq!(aspect_ratio(&d_zero), 0.0);
+
+        let mut d_nan = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g3);
+        *d_nan.position_mut(nodes[0]).unwrap() = MetricEuclidean2d(f64::NAN, 0.0);
+        assert_eq!(aspect_ratio(&d_nan), 0.0);
+    }
 }

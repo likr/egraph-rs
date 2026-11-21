@@ -48,9 +48,41 @@ where
     for e in graph.edge_references() {
         let u = e.source();
         let v = e.target();
+        let Some(l) = d.get(u, v) else {
+            continue;
+        };
+        if !l.is_finite() || l <= S::zero() {
+            continue;
+        }
         let delta = drawing.delta(drawing.index(u), drawing.index(v));
-        let l = d.get(u, v).unwrap();
-        s += ((delta.norm() - l) / l).powi(2);
+        let norm = delta.norm();
+        if !norm.is_finite() {
+            continue;
+        }
+        s += ((norm - l) / l).powi(2);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+    use petgraph::graph::{NodeIndex, UnGraph};
+    use petgraph_drawing::DrawingEuclidean2d;
+
+    #[test]
+    fn test_ideal_edge_lengths_skips_zero_and_nonfinite_target_distances() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        let d = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g);
+
+        let dm_zero = FullDistanceMatrix::from_array(&g, Array2::zeros((2, 2)));
+        assert_eq!(ideal_edge_lengths(&g, &d, &dm_zero), 0.0);
+
+        let dm_nan = FullDistanceMatrix::from_array(&g, Array2::from_elem((2, 2), f64::NAN));
+        assert_eq!(ideal_edge_lengths(&g, &d, &dm_nan), 0.0);
+    }
 }

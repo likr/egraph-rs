@@ -47,12 +47,43 @@ where
     let mut s = S::zero();
     for j in 1..n {
         for i in 0..j {
+            let dij = d.get_by_index(i, j);
+            if !dij.is_finite() || dij <= S::zero() {
+                continue;
+            }
             let delta = drawing.delta(i, j);
             let norm = delta.norm();
-            let dij = d.get_by_index(i, j);
+            if !norm.is_finite() {
+                continue;
+            }
             let e = (norm - dij) / dij;
             s += e * e;
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+    use petgraph::graph::{NodeIndex, UnGraph};
+    use petgraph_drawing::DrawingEuclidean2d;
+
+    #[test]
+    fn test_stress_skips_zero_and_nonfinite_target_distances() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        for _ in 0..3 {
+            g.add_node(());
+        }
+        let d = DrawingEuclidean2d::<NodeIndex, f64>::initial_placement(&g);
+        let dm_zero = FullDistanceMatrix::from_array(&g, Array2::zeros((3, 3)));
+        assert_eq!(stress(&d, &dm_zero), 0.0);
+
+        let dm_nan = FullDistanceMatrix::from_array(&g, Array2::from_elem((3, 3), f64::NAN));
+        assert_eq!(stress(&d, &dm_nan), 0.0);
+
+        let dm_inf = FullDistanceMatrix::from_array(&g, Array2::from_elem((3, 3), f64::INFINITY));
+        assert_eq!(stress(&d, &dm_inf), 0.0);
+    }
 }
