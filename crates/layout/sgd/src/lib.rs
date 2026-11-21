@@ -27,4 +27,4 @@ pub use full_sgd::FullSgd;
 pub use random_pair_sparse_sgd::RandomPairSparseSgd;
 pub use scheduler::*;
 pub use sgd::Sgd;
-pub use sparse_sgd::SparseSgd;
+pub use sparse_sgd::{BarrierBuildStats, BarrierSymmetry, SparseSgd};

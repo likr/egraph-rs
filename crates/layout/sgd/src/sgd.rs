@@ -2,6 +2,12 @@ use ndarray::ArrayView2;
 use petgraph_drawing::{Delta, Drawing, DrawingValue, Metric};
 use rand::prelude::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PairSlot {
+    Spring(usize),
+    Hinge(usize),
+}
+
 /// Stochastic Gradient Descent (SGD) implementation for graph layout algorithms.
 ///
 /// This struct holds node pairs for SGD-based graph layout.
@@ -11,9 +17,14 @@ use rand::prelude::*;
 /// The type parameter `S` represents the scalar type used for calculations
 /// (typically `f32` or `f64`).
 pub struct Sgd<S> {
-    /// List of node pairs to be considered during layout optimization.
+    /// List of two-sided spring node pairs to be considered during layout optimization.
     /// Each tuple contains (i, j, distance_ij, distance_ji, weight_ij, weight_ji)
     node_pairs: Vec<(usize, usize, S, S, S, S)>,
+    /// List of one-sided hinge repulsion pairs that exert force strictly when `norm < d_target`.
+    hinge_pairs: Vec<(usize, usize, S, S, S, S)>,
+    /// Interleaved shuffle schedule populated only when `hinge_pairs` is non-empty so that
+    /// spring-only callers incur zero extra allocation and preserve legacy RNG streams.
+    schedule: Vec<PairSlot>,
 }
 
 impl<S> Sgd<S>
@@ -28,12 +39,53 @@ where
     /// # Returns
     /// A new SGD instance ready for layout optimization
     pub fn new(node_pairs: Vec<(usize, usize, S, S, S, S)>) -> Self {
-        Self { node_pairs }
+        Self {
+            node_pairs,
+            hinge_pairs: Vec::new(),
+            schedule: Vec::new(),
+        }
     }
 
     /// Creates a new SGD instance from explicit `(i, j, dij, dji, wij, wji)` node pairs.
     pub fn from_node_pairs(node_pairs: Vec<(usize, usize, S, S, S, S)>) -> Self {
         Self::new(node_pairs)
+    }
+
+    /// Creates a new SGD instance combining two-sided spring pairs and one-sided hinge pairs.
+    pub fn new_with_hinge_pairs(
+        node_pairs: Vec<(usize, usize, S, S, S, S)>,
+        hinge_pairs: Vec<(usize, usize, S, S, S, S)>,
+    ) -> Self {
+        let mut sgd = Self {
+            node_pairs,
+            hinge_pairs,
+            schedule: Vec::new(),
+        };
+        if !sgd.hinge_pairs.is_empty() {
+            sgd.rebuild_schedule();
+        }
+        sgd
+    }
+
+    /// Appends one-sided hinge repulsion pairs `(i, j, dij, dji, wij, wji)` to this instance.
+    pub fn add_hinge_pairs<I>(&mut self, pairs: I)
+    where
+        I: IntoIterator<Item = (usize, usize, S, S, S, S)>,
+    {
+        self.hinge_pairs.extend(pairs);
+        if !self.hinge_pairs.is_empty() {
+            self.rebuild_schedule();
+        }
+    }
+
+    fn rebuild_schedule(&mut self) {
+        self.schedule.clear();
+        self.schedule
+            .reserve(self.node_pairs.len() + self.hinge_pairs.len());
+        self.schedule
+            .extend((0..self.node_pairs.len()).map(PairSlot::Spring));
+        self.schedule
+            .extend((0..self.hinge_pairs.len()).map(PairSlot::Hinge));
     }
 
     /// Returns a reference to the node pairs used in the SGD algorithm.
@@ -44,6 +96,16 @@ where
     /// - `(wij, wji)`: Weights for the forces from i to j and j to i
     pub fn node_pairs(&self) -> &Vec<(usize, usize, S, S, S, S)> {
         &self.node_pairs
+    }
+
+    /// Returns a slice of the one-sided hinge repulsion pairs.
+    pub fn hinge_pairs(&self) -> &[(usize, usize, S, S, S, S)] {
+        &self.hinge_pairs
+    }
+
+    /// Returns the total number of active pairs (spring pairs plus hinge pairs).
+    pub fn total_pair_count(&self) -> usize {
+        self.node_pairs.len() + self.hinge_pairs.len()
     }
 
     /// Creates a scheduler with parameters suitable for this SGD instance.
@@ -62,13 +124,13 @@ where
         T::init(t_max, eta_min, eta_max)
     }
 
-    /// Calculates eta_min and eta_max from the current weight distribution.
+    /// Calculates eta_min and eta_max from the current weight distribution across spring and hinge pairs.
     fn calculate_eta_bounds(&self, epsilon: S) -> (S, S) {
         let mut w_min = S::infinity();
         let mut w_max = S::zero();
-        for &(_, _, _, _, wij, wji) in &self.node_pairs {
+        for &(_, _, _, _, wij, wji) in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
             for w in [wij, wji] {
-                if w == S::zero() {
+                if !w.is_finite() || w <= S::zero() {
                     continue;
                 }
                 if w < w_min {
@@ -78,6 +140,9 @@ where
                     w_max = w;
                 }
             }
+        }
+        if w_max <= S::zero() || !w_min.is_finite() {
+            return (S::zero(), S::zero());
         }
         let eta_max = S::one() / w_min;
         let eta_min = epsilon / w_max;
@@ -90,7 +155,81 @@ where
     /// getting stuck in local minima. This method randomizes the order using
     /// the provided random number generator.
     pub fn shuffle<R: Rng>(&mut self, rng: &mut R) {
-        self.node_pairs.shuffle(rng);
+        if self.hinge_pairs.is_empty() {
+            self.node_pairs.shuffle(rng);
+        } else {
+            self.schedule.shuffle(rng);
+        }
+    }
+
+    #[inline]
+    fn apply_spring_pair<Diff, D, M>(drawing: &mut D, eta: S, pair: (usize, usize, S, S, S, S))
+    where
+        D: Drawing<Item = M>,
+        Diff: Delta<S = S>,
+        M: Metric<D = Diff>,
+    {
+        let (i, j, dij, dji, wij, wji) = pair;
+        if dij.is_infinite() || dji.is_infinite() || (wij <= S::zero() && wji <= S::zero()) {
+            return;
+        }
+        let mu_i = (eta * wij).min(S::one());
+        let mu_j = (eta * wji).min(S::one());
+        let delta = drawing.delta(i, j);
+        let norm = delta.norm();
+        if norm > S::zero() {
+            let r_i = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
+            let r_j = S::from_f32(0.5).unwrap() * (norm - dji) / norm;
+            *drawing.raw_entry_mut(i) += delta.clone() * -r_i * mu_i;
+            *drawing.raw_entry_mut(j) += delta * r_j * mu_j;
+        }
+    }
+
+    #[inline]
+    fn apply_hinge_pair<Diff, D, M>(drawing: &mut D, eta: S, pair: (usize, usize, S, S, S, S))
+    where
+        D: Drawing<Item = M>,
+        Diff: Delta<S = S>,
+        M: Metric<D = Diff>,
+    {
+        let (i, j, dij, dji, wij, wji) = pair;
+        if !dij.is_finite()
+            || !dji.is_finite()
+            || dij <= S::zero()
+            || dji <= S::zero()
+            || (wij <= S::zero() && wji <= S::zero())
+        {
+            return;
+        }
+        let delta = drawing.delta(i, j);
+        let norm = delta.norm();
+        // Hinge barriers exert strictly repulsive force when 0 < ||x_i - x_j|| < d_target
+        // and exact zero force once the target separation is satisfied.
+        if !norm.is_finite() || norm <= S::zero() {
+            return;
+        }
+        let update_i = wij > S::zero() && norm < dij;
+        let update_j = wji > S::zero() && norm < dji;
+        if !update_i && !update_j {
+            return;
+        }
+        let half = S::from_f32(0.5).unwrap();
+        if update_i && update_j {
+            let mu_i = (eta * wij).min(S::one());
+            let r_i = half * (norm - dij) / norm;
+            *drawing.raw_entry_mut(i) += delta.clone() * -r_i * mu_i;
+            let mu_j = (eta * wji).min(S::one());
+            let r_j = half * (norm - dji) / norm;
+            *drawing.raw_entry_mut(j) += delta * r_j * mu_j;
+        } else if update_i {
+            let mu_i = (eta * wij).min(S::one());
+            let r_i = half * (norm - dij) / norm;
+            *drawing.raw_entry_mut(i) += delta * -r_i * mu_i;
+        } else {
+            let mu_j = (eta * wji).min(S::one());
+            let r_j = half * (norm - dji) / norm;
+            *drawing.raw_entry_mut(j) += delta * r_j * mu_j;
+        }
     }
 
     /// Applies the SGD force calculations to the drawing, moving nodes toward their optimal positions.
@@ -113,19 +252,20 @@ where
         Diff: Delta<S = S>,
         M: Metric<D = Diff>,
     {
-        for &(i, j, dij, dji, wij, wji) in &self.node_pairs {
-            if dij.is_infinite() || dji.is_infinite() || (wij <= S::zero() && wji <= S::zero()) {
-                continue;
+        if self.hinge_pairs.is_empty() {
+            for &pair in &self.node_pairs {
+                Self::apply_spring_pair(drawing, eta, pair);
             }
-            let mu_i = (eta * wij).min(S::one());
-            let mu_j = (eta * wji).min(S::one());
-            let delta = drawing.delta(i, j);
-            let norm = delta.norm();
-            if norm > S::zero() {
-                let r_i = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
-                let r_j = S::from_f32(0.5).unwrap() * (norm - dji) / norm;
-                *drawing.raw_entry_mut(i) += delta.clone() * -r_i * mu_i;
-                *drawing.raw_entry_mut(j) += delta.clone() * r_j * mu_j;
+        } else {
+            for &slot in &self.schedule {
+                match slot {
+                    PairSlot::Spring(idx) => {
+                        Self::apply_spring_pair(drawing, eta, self.node_pairs[idx])
+                    }
+                    PairSlot::Hinge(idx) => {
+                        Self::apply_hinge_pair(drawing, eta, self.hinge_pairs[idx])
+                    }
+                }
             }
         }
     }
@@ -143,7 +283,11 @@ where
         F: FnMut(usize, usize, S, S) -> S,
         S: Copy,
     {
-        for p in &mut self.node_pairs {
+        for p in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+        {
             let (i, j, dij, dji, wij, wji) = *p;
             p.2 = distance(i, j, dij, wij);
             p.3 = distance(j, i, dji, wji);
@@ -163,7 +307,11 @@ where
         F: FnMut(usize, usize, S, S) -> S,
         S: Copy,
     {
-        for p in &mut self.node_pairs {
+        for p in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+        {
             let (i, j, dij, dji, wij, wji) = *p;
             p.4 = weight(i, j, dij, wij);
             p.5 = weight(j, i, dji, wji);
@@ -171,7 +319,7 @@ where
     }
 
     fn validate_pair_bounds(&self, n: usize) {
-        for &(i, j, _, _, _, _) in &self.node_pairs {
+        for &(i, j, _, _, _, _) in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
             assert!(
                 i < n && j < n,
                 "Sgd: pair ({}, {}) out of bounds for matrix size {}",
@@ -193,7 +341,11 @@ where
             rows, cols
         );
         self.validate_pair_bounds(rows);
-        for p in &mut self.node_pairs {
+        for p in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+        {
             p.4 = w[[p.0, p.1]];
             p.5 = w[[p.1, p.0]];
         }
@@ -221,7 +373,11 @@ where
             );
         }
         self.validate_pair_bounds(rows);
-        for p in &mut self.node_pairs {
+        for p in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+        {
             p.2 = d[[p.0, p.1]];
             p.3 = d[[p.1, p.0]];
             if let Some(w_arr) = w {
@@ -236,6 +392,8 @@ where
 mod tests {
     use super::*;
     use ndarray::arr2;
+    use petgraph::graph::UnGraph;
+    use petgraph_drawing::DrawingEuclidean2d;
 
     #[test]
     fn test_sgd_from_node_pairs_and_bulk_updates() {
@@ -257,5 +415,98 @@ mod tests {
         sgd.update_distance_from_array(d.view(), Some(w2.view()));
         assert_eq!(sgd.node_pairs()[0], (0, 1, 10.0, 11.0, 0.5, 0.6));
         assert_eq!(sgd.node_pairs()[1], (1, 2, 12.0, 13.0, 0.7, 0.8));
+    }
+
+    #[test]
+    fn test_sgd_hinge_zero_force_when_separated_and_repels_when_too_close() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let u = g.add_node(());
+        let v = g.add_node(());
+
+        // Case 1: ||x_0 - x_1|| = 3.0 >= d_target = 2.0 -> exact zero displacement
+        let mut drawing_far = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        drawing_far.raw_entry_mut(0).0 = 0.0;
+        drawing_far.raw_entry_mut(0).1 = 0.0;
+        drawing_far.raw_entry_mut(1).0 = 3.0;
+        drawing_far.raw_entry_mut(1).1 = 0.0;
+        let sgd = Sgd::new_with_hinge_pairs(vec![], vec![(0, 1, 2.0, 2.0, 1.0, 1.0)]);
+        assert_eq!(sgd.total_pair_count(), 1);
+        assert!(sgd.node_pairs().is_empty());
+        assert_eq!(sgd.hinge_pairs().len(), 1);
+        sgd.apply(&mut drawing_far, 0.5);
+        assert_eq!(drawing_far.x(u).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert_eq!(drawing_far.y(u).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert_eq!(drawing_far.x(v).unwrap().to_bits(), 3.0_f64.to_bits());
+        assert_eq!(drawing_far.y(v).unwrap().to_bits(), 0.0_f64.to_bits());
+
+        // Case 2: Exact boundary ||x_0 - x_1|| == d_target -> exact zero displacement
+        drawing_far.raw_entry_mut(1).0 = 2.0;
+        sgd.apply(&mut drawing_far, 0.5);
+        assert_eq!(drawing_far.x(u).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert_eq!(drawing_far.x(v).unwrap().to_bits(), 2.0_f64.to_bits());
+
+        // Case 3: ||x_0 - x_1|| = 0.5 < d_target = 2.0 -> repels symmetrically outward
+        let mut drawing_close = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        drawing_close.raw_entry_mut(0).0 = 0.0;
+        drawing_close.raw_entry_mut(0).1 = 0.0;
+        drawing_close.raw_entry_mut(1).0 = 0.5;
+        drawing_close.raw_entry_mut(1).1 = 0.0;
+        sgd.apply(&mut drawing_close, 0.5);
+        assert!(drawing_close.x(u).unwrap() < 0.0);
+        assert!(drawing_close.x(v).unwrap() > 0.5);
+        assert_eq!(drawing_close.y(u).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert_eq!(drawing_close.y(v).unwrap().to_bits(), 0.0_f64.to_bits());
+
+        // Case 4: Asymmetric hinge (wij = 0, wji = 1) moves only j
+        let mut drawing_asym = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        drawing_asym.raw_entry_mut(0).0 = 0.0;
+        drawing_asym.raw_entry_mut(0).1 = 0.0;
+        drawing_asym.raw_entry_mut(1).0 = 0.5;
+        drawing_asym.raw_entry_mut(1).1 = 0.0;
+        let sgd_asym = Sgd::new_with_hinge_pairs(vec![], vec![(0, 1, 2.0, 2.0, 0.0, 1.0)]);
+        sgd_asym.apply(&mut drawing_asym, 0.5);
+        assert_eq!(drawing_asym.x(u).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert!(drawing_asym.x(v).unwrap() > 0.5);
+    }
+
+    #[test]
+    fn test_sgd_mixed_spring_and_hinge_behavior_and_eta_bounds() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+
+        let mut drawing = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        // (0, 1) is stretched spring (dist 4.0 > target 1.0 -> pulls inward)
+        // (0, 2) is separated hinge (dist 5.0 > target 2.0 -> exact zero force on node 2)
+        drawing.raw_entry_mut(0).0 = 0.0;
+        drawing.raw_entry_mut(0).1 = 0.0;
+        drawing.raw_entry_mut(1).0 = 4.0;
+        drawing.raw_entry_mut(1).1 = 0.0;
+        drawing.raw_entry_mut(2).0 = 0.0;
+        drawing.raw_entry_mut(2).1 = 5.0;
+
+        let mut sgd = Sgd::new(vec![(0, 1, 1.0, 1.0, 1.0, 1.0)]);
+        sgd.add_hinge_pairs(vec![(0, 2, 2.0, 2.0, 0.25, 0.25)]);
+        assert_eq!(sgd.total_pair_count(), 2);
+
+        let (eta_min, eta_max) = sgd.calculate_eta_bounds(0.01_f64);
+        assert!((eta_min - 0.01_f64).abs() < 1e-12);
+        assert!((eta_max - 4.0_f64).abs() < 1e-12);
+
+        let mut rng = StdRng::seed_from_u64(42);
+        sgd.shuffle(&mut rng);
+        sgd.apply(&mut drawing, 0.5);
+
+        assert!(drawing.x(n0).unwrap() > 0.0);
+        assert!(drawing.x(n1).unwrap() < 4.0);
+        assert_eq!(drawing.x(n2).unwrap().to_bits(), 0.0_f64.to_bits());
+        assert_eq!(drawing.y(n2).unwrap().to_bits(), 5.0_f64.to_bits());
+
+        // Guard when no positive finite weights exist
+        let empty_sgd = Sgd::<f64>::new(vec![]);
+        assert_eq!(empty_sgd.calculate_eta_bounds(0.01), (0.0, 0.0));
+        let zero_w = Sgd::new(vec![(0, 1, 1.0_f64, 1.0, 0.0, 0.0)]);
+        assert_eq!(zero_w.calculate_eta_bounds(0.01), (0.0, 0.0));
     }
 }
