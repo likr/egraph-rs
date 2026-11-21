@@ -60,7 +60,25 @@ impl FullSgd {
     where
         S: DrawingValue,
     {
-        let n = d.shape().0;
+        self.try_build_with_distance_matrix(d)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Fallible variant of [`FullSgd::build_with_distance_matrix`] that rejects non-square matrices.
+    pub fn try_build_with_distance_matrix<N, S>(
+        &self,
+        d: &dyn Distance<N, S>,
+    ) -> Result<Sgd<S>, String>
+    where
+        S: DrawingValue,
+    {
+        let (rows, cols) = d.shape();
+        if rows != cols {
+            return Err(format!(
+                "FullSgd requires a square (N, N) distance matrix, got shape ({rows}, {cols})"
+            ));
+        }
+        let n = rows;
         let mut node_pairs = vec![];
         for j in 1..n {
             for i in 0..j {
@@ -69,7 +87,7 @@ impl FullSgd {
                 node_pairs.push((i, j, dij, dij, wij, wij));
             }
         }
-        Sgd::new(node_pairs)
+        Ok(Sgd::new(node_pairs))
     }
 
     /// Creates a new SGD instance from pre-computed `(n, n)` distance and optional weight arrays.
