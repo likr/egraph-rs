@@ -111,6 +111,9 @@ pub fn conjugate_gradient<S: DrawingValue>(
     epsilon: S,
 ) {
     let n = b.len();
+    if n == 0 {
+        return;
+    }
     let mut dx = Array1::zeros(n);
     let mut d = Array1::zeros(n);
     delta_f(a, b, x, &mut dx);
@@ -118,22 +121,48 @@ pub fn conjugate_gradient<S: DrawingValue>(
         d[i] = -dx[i];
     }
     let mut dx_norm0 = dx.dot(&dx);
+    // Exit early before line_search if the residual is already zero/converged (avoids 0/0 division on singular/exact inputs).
+    if !dx_norm0.is_finite() || dx_norm0 < epsilon || dx_norm0 == S::zero() {
+        return;
+    }
     for _ in 0..n {
         let alpha = line_search(a, &dx, &d);
+        if !alpha.is_finite() || (0..n).any(|i| !(x[i] + alpha * d[i]).is_finite()) {
+            break;
+        }
         for i in 0..n {
             x[i] += alpha * d[i];
         }
         delta_f(a, b, x, &mut dx);
         let dx_norm = dx.dot(&dx);
-        if dx_norm < epsilon {
+        if !dx_norm.is_finite() || dx_norm < epsilon || dx_norm0 == S::zero() {
             break;
         }
         let beta = dx_norm / dx_norm0;
+        if !beta.is_finite() {
+            break;
+        }
         dx_norm0 = dx_norm;
         for i in 0..n {
             d[i] = beta * d[i] - dx[i];
         }
     }
+}
+
+/// Validates that all coordinates in the drawing are finite.
+fn validate_finite_drawing<N: DrawingIndex, S: DrawingValue>(
+    drawing: &DrawingEuclidean2d<N, S>,
+) -> Result<(), String> {
+    for i in 0..drawing.len() {
+        let entry = drawing.raw_entry(i);
+        if !entry.0.is_finite() || !entry.1.is_finite() {
+            return Err(format!(
+                "StressMajorization: drawing coordinate at node index {} must be finite",
+                i
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Computes the stress value for the current layout.
@@ -152,26 +181,35 @@ pub fn conjugate_gradient<S: DrawingValue>(
 ///
 /// The stress value
 fn stress<S: DrawingValue>(x: &Array1<S>, y: &Array1<S>, w: &Array2<S>, d: &Array2<S>) -> S {
-    let n = x.len() + 1;
+    let n = w.nrows();
+    if n <= 1 {
+        return S::zero();
+    }
     let mut s = S::zero();
     for j in 1..n - 1 {
         for i in 0..j {
+            let dij = d[[i, j]];
+            let wij = w[[i, j]];
+            if !dij.is_finite() || !wij.is_finite() || wij == S::zero() {
+                continue;
+            }
             let dx = x[i] - x[j];
             let dy = y[i] - y[j];
             let norm = (dx * dx + dy * dy).sqrt();
-            let dij = d[[i, j]];
-            let wij = w[[i, j]];
             let e = norm - dij;
             s += wij * e * e;
         }
     }
     for i in 0..n - 1 {
         let j = n - 1;
+        let dij = d[[i, j]];
+        let wij = w[[i, j]];
+        if !dij.is_finite() || !wij.is_finite() || wij == S::zero() {
+            continue;
+        }
         let dx = x[i];
         let dy = y[i];
         let norm = (dx * dx + dy * dy).sqrt();
-        let dij = d[[i, j]];
-        let wij = w[[i, j]];
         let e = norm - dij;
         s += wij * e * e;
     }
@@ -217,8 +255,31 @@ where
         G::NodeId: DrawingIndex + Ord,
         F: FnMut(G::EdgeRef) -> S,
     {
+        Self::try_new(graph, drawing, length).unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Fallible variant of [`StressMajorization::new`] validating node count and finite coordinates.
+    pub fn try_new<G, F>(
+        graph: G,
+        drawing: &DrawingEuclidean2d<G::NodeId, S>,
+        length: F,
+    ) -> Result<Self, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeCount,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+    {
+        let graph_n = graph.node_count();
+        let drawing_n = drawing.len();
+        if graph_n != drawing_n {
+            return Err(format!(
+                "StressMajorization::try_new: graph node count ({}) does not match drawing length ({})",
+                graph_n, drawing_n
+            ));
+        }
+        validate_finite_drawing(drawing)?;
         let d = all_sources_dijkstra(graph, length);
-        StressMajorization::new_with_distance_matrix(drawing, &d)
+        Self::try_new_with_distance_matrix(drawing, &d)
     }
 
     /// Creates a new `StressMajorization` instance using a pre-computed distance matrix.
@@ -241,7 +302,52 @@ where
     where
         N: DrawingIndex,
     {
+        Self::try_new_with_distance_matrix(drawing, distance_matrix)
+            .unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Fallible variant of [`StressMajorization::new_with_distance_matrix`] validating shapes,
+    /// finite drawing coordinates, and handling `n <= 1` without `0usize - 1` underflow.
+    pub fn try_new_with_distance_matrix<N>(
+        drawing: &DrawingEuclidean2d<N, S>,
+        distance_matrix: &FullDistanceMatrix<N, S>,
+    ) -> Result<Self, String>
+    where
+        N: DrawingIndex,
+    {
         let n = drawing.len();
+        let (rows, cols) = distance_matrix.shape();
+        if rows != cols {
+            return Err(format!(
+                "StressMajorization::try_new_with_distance_matrix: expected square distance matrix, got shape ({}, {})",
+                rows, cols
+            ));
+        }
+        if rows != n {
+            return Err(format!(
+                "StressMajorization::try_new_with_distance_matrix: drawing length ({}) does not match distance matrix size ({})",
+                n, rows
+            ));
+        }
+        validate_finite_drawing(drawing)?;
+
+        let epsilon = S::from_f64(1e-4).unwrap();
+        let max_iterations = 100; // Default value
+        if n == 0 {
+            return Ok(StressMajorization {
+                b: Array1::zeros(0),
+                d: Array2::zeros((0, 0)),
+                l_w: Array2::zeros((0, 0)),
+                l_z: Array2::zeros((0, 0)),
+                w: Array2::zeros((0, 0)),
+                x_x: Array1::zeros(0),
+                x_y: Array1::zeros(0),
+                stress: S::zero(),
+                epsilon,
+                max_iterations,
+            });
+        }
+
         let mut d = Array2::zeros((n, n));
         let w = Array2::zeros((n, n));
         let l_w = Array2::zeros((n - 1, n - 1));
@@ -257,8 +363,6 @@ where
             }
         }
 
-        let epsilon = S::from_f64(1e-4).unwrap();
-        let max_iterations = 100; // Default value
         let l_z = Array2::zeros((n - 1, n - 1));
         let b = Array1::zeros(n - 1);
         let mut sm = StressMajorization {
@@ -273,8 +377,19 @@ where
             epsilon,
             max_iterations,
         };
-        sm.update_weight(|_, _, dij, _| S::one() / (dij * dij));
-        sm
+        sm.update_weight(|_, _, dij, _| {
+            if dij.is_finite() && dij > S::zero() {
+                let w = S::one() / (dij * dij);
+                if w.is_finite() {
+                    w
+                } else {
+                    S::zero()
+                }
+            } else {
+                S::zero()
+            }
+        });
+        Ok(sm)
     }
 
     /// Performs a single iteration of the stress majorization algorithm.
@@ -292,24 +407,51 @@ where
     where
         N: DrawingIndex,
     {
-        let n = drawing.len();
+        self.try_apply(drawing).unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Fallible variant of [`StressMajorization::apply`] validating drawing length and finite coordinates.
+    pub fn try_apply<N>(&mut self, drawing: &mut DrawingEuclidean2d<N, S>) -> Result<S, String>
+    where
+        N: DrawingIndex,
+    {
+        let n = self.n();
+        if drawing.len() != n {
+            return Err(format!(
+                "StressMajorization::try_apply: drawing length ({}) does not match instance node count ({})",
+                drawing.len(),
+                n
+            ));
+        }
+        validate_finite_drawing(drawing)?;
+        if n <= 1 {
+            return Ok(S::zero());
+        }
+
         let StressMajorization {
             b, d, l_w, l_z, w, ..
         } = self;
+        let MetricEuclidean2d(ref_x, ref_y) = *drawing.raw_entry(n - 1);
         for i in 0..n {
-            let MetricEuclidean2d(x, y) = *drawing.raw_entry(n - 1);
-            drawing.raw_entry_mut(i).0 -= x;
-            drawing.raw_entry_mut(i).1 -= y;
+            drawing.raw_entry_mut(i).0 -= ref_x;
+            drawing.raw_entry_mut(i).1 -= ref_y;
         }
+        let min_norm = S::from_f64(1e-4).unwrap();
         for i in 1..n - 1 {
             for j in 0..i {
-                let dx = drawing.raw_entry(i).0 - drawing.raw_entry(j).0;
-                let dy = drawing.raw_entry(i).1 - drawing.raw_entry(j).1;
-                let norm = (dx * dx + dy * dy).sqrt();
-                let lij = if norm < S::from_f64(1e-4).unwrap() {
+                let wij = w[[i, j]];
+                let dij = d[[i, j]];
+                let lij = if !wij.is_finite() || !dij.is_finite() || wij == S::zero() {
                     S::zero()
                 } else {
-                    -w[[i, j]] * d[[i, j]] / norm
+                    let dx = drawing.raw_entry(i).0 - drawing.raw_entry(j).0;
+                    let dy = drawing.raw_entry(i).1 - drawing.raw_entry(j).1;
+                    let norm = (dx * dx + dy * dy).sqrt();
+                    if norm < min_norm {
+                        S::zero()
+                    } else {
+                        -wij * dij / norm
+                    }
                 };
                 l_z[[i, j]] = lij;
                 l_z[[j, i]] = lij;
@@ -323,14 +465,16 @@ where
                 }
             }
             let j = n - 1;
-            let dx = drawing.raw_entry(i).0;
-            let dy = drawing.raw_entry(i).1;
-            let norm = (dx * dx + dy * dy).sqrt();
-            s -= if norm < S::from_f64(1e-4).unwrap() {
-                S::zero()
-            } else {
-                -w[[i, j]] * d[[i, j]] / norm
-            };
+            let wij = w[[i, j]];
+            let dij = d[[i, j]];
+            if wij.is_finite() && dij.is_finite() && wij != S::zero() {
+                let dx = drawing.raw_entry(i).0;
+                let dy = drawing.raw_entry(i).1;
+                let norm = (dx * dx + dy * dy).sqrt();
+                if norm >= min_norm {
+                    s -= -wij * dij / norm;
+                }
+            }
             l_z[[i, i]] = s;
         }
 
@@ -354,14 +498,18 @@ where
         }
         conjugate_gradient(l_w, b, &mut self.x_y, self.epsilon);
 
-        let stress = stress(&self.x_x, &self.x_y, w, d);
-        let diff = (self.stress - stress) / self.stress;
-        self.stress = stress;
+        let new_stress = stress(&self.x_x, &self.x_y, w, d);
+        let diff = if self.stress.is_finite() && self.stress > S::zero() && new_stress.is_finite() {
+            (self.stress - new_stress) / self.stress
+        } else {
+            S::zero()
+        };
+        self.stress = new_stress;
         for i in 0..n - 1 {
             drawing.raw_entry_mut(i).0 = self.x_x[i];
             drawing.raw_entry_mut(i).1 = self.x_y[i];
         }
-        diff
+        Ok(diff)
     }
 
     /// Runs the stress majorization algorithm until convergence.
@@ -377,26 +525,53 @@ where
     where
         N: DrawingIndex,
     {
+        self.try_run(coordinates)
+            .unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Fallible variant of [`StressMajorization::run`] validating drawing length and finite coordinates.
+    pub fn try_run<N>(&mut self, coordinates: &mut DrawingEuclidean2d<N, S>) -> Result<(), String>
+    where
+        N: DrawingIndex,
+    {
+        let n = self.n();
+        if coordinates.len() != n {
+            return Err(format!(
+                "StressMajorization::try_run: drawing length ({}) does not match instance node count ({})",
+                coordinates.len(),
+                n
+            ));
+        }
+        validate_finite_drawing(coordinates)?;
+        if n <= 1 {
+            return Ok(());
+        }
         for _ in 0..self.max_iterations {
-            if self.apply(coordinates) < self.epsilon {
+            if self.try_apply(coordinates)? < self.epsilon {
                 break;
             }
         }
+        Ok(())
     }
 
     /// Returns the number of nodes in this stress majorization instance.
     pub fn n(&self) -> usize {
-        self.x_x.len() + 1
+        self.d.nrows()
     }
 
     fn rebuild_laplacian_and_stress(&mut self) {
-        let n = self.x_x.len() + 1;
+        let n = self.n();
+        if n <= 1 {
+            self.stress = S::zero();
+            return;
+        }
         for i in 0..n - 1 {
             self.l_w[[i, i]] = S::zero();
         }
         for j in 1..n - 1 {
             for i in 0..j {
-                let wij = self.w[[i, j]];
+                let raw = self.w[[i, j]];
+                let wij = if raw.is_finite() { raw } else { S::zero() };
                 self.l_w[[i, j]] = -wij;
                 self.l_w[[j, i]] = -wij;
                 self.l_w[[i, i]] += wij;
@@ -405,7 +580,9 @@ where
         }
         for i in 0..n - 1 {
             let j = n - 1;
-            self.l_w[[i, i]] += self.w[[i, j]];
+            let raw = self.w[[i, j]];
+            let wij = if raw.is_finite() { raw } else { S::zero() };
+            self.l_w[[i, i]] += wij;
         }
         self.stress = stress(&self.x_x, &self.x_y, &self.w, &self.d);
     }
@@ -422,34 +599,65 @@ where
     where
         F: FnMut(usize, usize, S, S) -> S,
     {
-        let n = self.x_x.len() + 1;
+        let _ = self.try_update_weight::<std::convert::Infallible, _>(|i, j, dij, wij| {
+            Ok(weight(i, j, dij, wij))
+        });
+    }
 
+    /// Fallible variant of [`StressMajorization::update_weight`] propagating callback errors
+    /// without partial updates.
+    pub fn try_update_weight<E, F>(&mut self, mut weight: F) -> Result<(), E>
+    where
+        F: FnMut(usize, usize, S, S) -> Result<S, E>,
+    {
+        let n = self.n();
+        if n <= 1 {
+            self.rebuild_laplacian_and_stress();
+            return Ok(());
+        }
+
+        let mut updates = Vec::with_capacity(n * (n - 1) / 2);
         for j in 1..n {
             for i in 0..j {
-                let wij = weight(i, j, self.d[[i, j]], self.w[[i, j]]);
-                self.w[[i, j]] = wij;
-                self.w[[j, i]] = wij;
+                let wij = weight(i, j, self.d[[i, j]], self.w[[i, j]])?;
+                updates.push((i, j, wij));
             }
+        }
+        for (i, j, wij) in updates {
+            self.w[[i, j]] = wij;
+            self.w[[j, i]] = wij;
         }
 
         self.rebuild_laplacian_and_stress();
+        Ok(())
     }
 
-    /// Updates the weights from an `(n, n)` array and rebuilds the reduced Laplacian `l_w`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `w.dim() != (n, n)`.
-    pub fn update_weight_from_array(&mut self, w: ndarray::ArrayView2<S>) {
-        let n = self.x_x.len() + 1;
-        assert_eq!(
-            w.dim(),
-            (n, n),
-            "StressMajorization::update_weight_from_array: expected shape ({}, {}), got {:?}",
-            n,
-            n,
-            w.dim()
-        );
+    /// Fallible variant of [`StressMajorization::update_weight_from_array`] validating shape
+    /// and finite non-negative weights without partial updates.
+    pub fn try_update_weight_from_array(
+        &mut self,
+        w: ndarray::ArrayView2<S>,
+    ) -> Result<(), String> {
+        let n = self.n();
+        if w.dim() != (n, n) {
+            return Err(format!(
+                "StressMajorization::update_weight_from_array: expected shape ({}, {}), got {:?}",
+                n,
+                n,
+                w.dim()
+            ));
+        }
+        for j in 1..n {
+            for i in 0..j {
+                let wij = w[[i, j]];
+                if !wij.is_finite() || wij < S::zero() {
+                    return Err(format!(
+                        "StressMajorization::update_weight_from_array: weight at ({}, {}) must be finite and non-negative",
+                        i, j
+                    ));
+                }
+            }
+        }
         for j in 1..n {
             for i in 0..j {
                 let wij = w[[i, j]];
@@ -458,6 +666,17 @@ where
             }
         }
         self.rebuild_laplacian_and_stress();
+        Ok(())
+    }
+
+    /// Updates the weights from an `(n, n)` array and rebuilds the reduced Laplacian `l_w`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `w.dim() != (n, n)` or any off-diagonal weight is non-finite or negative.
+    pub fn update_weight_from_array(&mut self, w: ndarray::ArrayView2<S>) {
+        self.try_update_weight_from_array(w)
+            .unwrap_or_else(|e| panic!("{}", e));
     }
 }
 
@@ -575,4 +794,122 @@ fn test_stress_majorization_update_weight_from_array() {
         assert!((coords_fn.x(u).unwrap() - coords_arr.x(u).unwrap()).abs() < 1e-12);
         assert!((coords_fn.y(u).unwrap() - coords_arr.y(u).unwrap()).abs() < 1e-12);
     }
+}
+
+#[test]
+fn test_stress_majorization_empty_and_singleton_graphs() {
+    use petgraph::graph::UnGraph;
+
+    // n == 0: no 0usize - 1 underflow, n() == 0, apply/run/update_weight are clean no-ops.
+    let g0: UnGraph<(), ()> = UnGraph::new_undirected();
+    let mut d0: DrawingEuclidean2d<_, f64> = DrawingEuclidean2d::initial_placement(&g0);
+    let dm0 = FullDistanceMatrix::from_array(&g0, Array2::zeros((0, 0)));
+    let mut sm0 = StressMajorization::try_new(&g0, &d0, |_| 1.0).unwrap();
+    assert_eq!(sm0.n(), 0);
+    assert_eq!(sm0.try_apply(&mut d0).unwrap(), 0.0);
+    sm0.try_run(&mut d0).unwrap();
+    sm0.try_update_weight::<&str, _>(|_, _, _, w| Ok(w))
+        .unwrap();
+    let mut sm0_dm = StressMajorization::try_new_with_distance_matrix(&d0, &dm0).unwrap();
+    assert_eq!(sm0_dm.n(), 0);
+    sm0_dm.try_run(&mut d0).unwrap();
+
+    // n == 1: singleton graph works cleanly with n() == 1.
+    let mut g1: UnGraph<(), ()> = UnGraph::new_undirected();
+    let u0 = g1.add_node(());
+    let mut d1: DrawingEuclidean2d<_, f64> = DrawingEuclidean2d::initial_placement(&g1);
+    let orig_pos = (d1.x(u0).unwrap(), d1.y(u0).unwrap());
+    let dm1 = FullDistanceMatrix::from_array(&g1, Array2::zeros((1, 1)));
+    let mut sm1 = StressMajorization::try_new(&g1, &d1, |_| 1.0).unwrap();
+    assert_eq!(sm1.n(), 1);
+    assert_eq!(sm1.try_apply(&mut d1).unwrap(), 0.0);
+    sm1.try_run(&mut d1).unwrap();
+    assert_eq!((d1.x(u0).unwrap(), d1.y(u0).unwrap()), orig_pos);
+    let mut sm1_dm = StressMajorization::try_new_with_distance_matrix(&d1, &dm1).unwrap();
+    assert_eq!(sm1_dm.n(), 1);
+    sm1_dm.try_run(&mut d1).unwrap();
+}
+
+#[test]
+fn test_stress_majorization_fallible_validation_and_atomic_update() {
+    use petgraph::graph::UnGraph;
+
+    let mut g2: UnGraph<(), ()> = UnGraph::new_undirected();
+    let a = g2.add_node(());
+    let b = g2.add_node(());
+    g2.add_edge(a, b, ());
+    let mut d2: DrawingEuclidean2d<_, f64> = DrawingEuclidean2d::initial_placement(&g2);
+    let dm2 = FullDistanceMatrix::from_array(&g2, arr2(&[[0.0, 1.0], [1.0, 0.0]]));
+
+    let mut g3: UnGraph<(), ()> = UnGraph::new_undirected();
+    let n0 = g3.add_node(());
+    let n1 = g3.add_node(());
+    let n2 = g3.add_node(());
+    g3.add_edge(n0, n1, ());
+    g3.add_edge(n1, n2, ());
+    let mut d3: DrawingEuclidean2d<_, f64> = DrawingEuclidean2d::initial_placement(&g3);
+
+    // Mismatched graph/drawing/matrix sizes return Err without panicking.
+    assert!(StressMajorization::try_new(&g3, &d2, |_| 1.0).is_err());
+    assert!(StressMajorization::try_new_with_distance_matrix(&d3, &dm2).is_err());
+
+    let mut sm3 = StressMajorization::try_new(&g3, &d3, |_| 1.0).unwrap();
+    assert!(sm3.try_apply(&mut d2).is_err());
+    assert!(sm3.try_run(&mut d2).is_err());
+
+    // Non-finite drawing coordinates are rejected.
+    let mut d3_nan = d3.clone();
+    d3_nan.raw_entry_mut(0).0 = f64::NAN;
+    assert!(StressMajorization::try_new(&g3, &d3_nan, |_| 1.0).is_err());
+    assert!(sm3.try_apply(&mut d3_nan).is_err());
+    assert!(sm3.try_run(&mut d3_nan).is_err());
+
+    // try_update_weight leaves weights unchanged when callback errors partway through.
+    let before_w = sm3.w.clone();
+    let mut calls = 0usize;
+    let err = sm3.try_update_weight(|_, _, _, _| {
+        calls += 1;
+        if calls == 2 {
+            Err("boom")
+        } else {
+            Ok(42.0)
+        }
+    });
+    assert_eq!(err, Err("boom"));
+    assert_eq!(sm3.w, before_w);
+
+    // try_update_weight_from_array rejects bad shape, NaN, and negative weights atomically.
+    assert!(sm3
+        .try_update_weight_from_array(Array2::zeros((2, 2)).view())
+        .is_err());
+    assert!(sm3
+        .try_update_weight_from_array(
+            arr2(&[[0.0, -1.0, 1.0], [-1.0, 0.0, 1.0], [1.0, 1.0, 0.0]]).view()
+        )
+        .is_err());
+    assert!(sm3
+        .try_update_weight_from_array(
+            arr2(&[[0.0, f64::NAN, 1.0], [f64::NAN, 0.0, 1.0], [1.0, 1.0, 0.0]]).view()
+        )
+        .is_err());
+    assert_eq!(sm3.w, before_w);
+
+    // Disconnected graph remains finite across apply/run (no 0.0 * inf = NaN).
+    let mut g_disc: UnGraph<(), ()> = UnGraph::new_undirected();
+    let c0 = g_disc.add_node(());
+    let c1 = g_disc.add_node(());
+    let c2 = g_disc.add_node(());
+    let c3 = g_disc.add_node(());
+    g_disc.add_edge(c0, c1, ());
+    g_disc.add_edge(c2, c3, ());
+    let mut d_disc: DrawingEuclidean2d<_, f64> = DrawingEuclidean2d::initial_placement(&g_disc);
+    let mut sm_disc = StressMajorization::try_new(&g_disc, &d_disc, |_| 1.0).unwrap();
+    let diff = sm_disc.try_apply(&mut d_disc).unwrap();
+    assert!(diff.is_finite());
+    sm_disc.try_run(&mut d_disc).unwrap();
+    for u in [c0, c1, c2, c3] {
+        assert!(d_disc.x(u).unwrap().is_finite());
+        assert!(d_disc.y(u).unwrap().is_finite());
+    }
+    let _ = &mut d3;
 }
