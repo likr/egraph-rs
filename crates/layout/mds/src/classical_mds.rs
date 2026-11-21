@@ -134,10 +134,37 @@ where
     {
         let (n, m) = distance_matrix.shape();
         let mut delta = Array2::zeros((n, m));
+        let mut max_finite_sq = S::zero();
+        let mut has_nonfinite = false;
         for i in 0..n {
             for j in 0..m {
                 let dij = distance_matrix.get_by_index(i, j);
-                delta[[i, j]] = dij * dij;
+                if dij.is_finite() {
+                    let sq = dij * dij;
+                    if sq.is_finite() {
+                        delta[[i, j]] = sq;
+                        if sq > max_finite_sq {
+                            max_finite_sq = sq;
+                        }
+                        continue;
+                    }
+                }
+                delta[[i, j]] = S::infinity();
+                has_nonfinite = true;
+            }
+        }
+        if has_nonfinite {
+            let denom = S::from_usize((n * m).max(1) * 4).unwrap();
+            let safe_cap = S::max_value() / denom;
+            let fallback_sq = if max_finite_sq > S::zero() {
+                (max_finite_sq * S::from_f64(4.0).unwrap()).min(safe_cap)
+            } else {
+                S::one()
+            };
+            for val in delta.iter_mut() {
+                if !val.is_finite() {
+                    *val = fallback_sq;
+                }
             }
         }
         let b = double_centering(&delta);
@@ -160,6 +187,10 @@ where
     where
         N: Copy,
     {
+        let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
+        if self.b.nrows() == 0 || self.b.ncols() == 0 {
+            return drawing;
+        }
         let (mut e, v) = eigendecomposition(&self.b, 2, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
@@ -171,7 +202,6 @@ where
         }
 
         let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
             if let Some(p) = drawing.position_mut(u) {
                 p.0 = xy[[i, 0]];
@@ -197,6 +227,10 @@ where
     where
         N: Copy,
     {
+        let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
+        if self.b.nrows() == 0 || self.b.ncols() == 0 || d == 0 {
+            return drawing;
+        }
         let (mut e, v) = eigendecomposition(&self.b, d, self.eps);
 
         // Filter out negative or very small eigenvalues to avoid NaN values
@@ -208,7 +242,6 @@ where
         }
 
         let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.sqrt())));
-        let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {
             if let Some(p) = drawing.position_mut(u) {
                 for j in 0..d {

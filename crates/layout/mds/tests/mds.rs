@@ -459,3 +459,43 @@ fn test_pivot_mds_edge_cases() {
         }
     }
 }
+
+#[test]
+fn test_pivot_mds_disconnected_graph_and_k1() {
+    let mut g = Graph::new_undirected();
+    let n0 = g.add_node(());
+    let n1 = g.add_node(());
+    let n2 = g.add_node(());
+    let n3 = g.add_node(());
+    g.add_edge(n0, n1, ());
+    g.add_edge(n2, n3, ());
+
+    // Single pivot (k=1) on connected 5-node path must be finite
+    let mut gp = Graph::new_undirected();
+    let pn: Vec<_> = (0..5).map(|_| gp.add_node(())).collect();
+    for i in 0..4 {
+        gp.add_edge(pn[i], pn[i + 1], ());
+    }
+    let mds_k1 = PivotMds::<_, f64>::new(&gp, |_| 1.0, &[pn[0]]);
+    let d_k1 = mds_k1.run_2d();
+    for &u in &pn {
+        assert!(d_k1.x(u).unwrap().is_finite());
+        assert!(d_k1.y(u).unwrap().is_finite());
+    }
+
+    // Disconnected graph must produce finite coordinates
+    let mds_disc = PivotMds::<_, f64>::new(&g, |_| 1.0, &[n0, n2]);
+    let d_disc = mds_disc.run_2d();
+    for &u in &[n0, n1, n2, n3] {
+        assert!(d_disc.x(u).unwrap().is_finite());
+        assert!(d_disc.y(u).unwrap().is_finite());
+    }
+
+    // ClassicalMds on disconnected graph must also produce finite coordinates
+    let cmds_disc = ClassicalMds::<_, f64>::new(&g, |_| 1.0);
+    let dc_disc = cmds_disc.run_2d();
+    for &u in &[n0, n1, n2, n3] {
+        assert!(dc_disc.x(u).unwrap().is_finite());
+        assert!(dc_disc.y(u).unwrap().is_finite());
+    }
+}

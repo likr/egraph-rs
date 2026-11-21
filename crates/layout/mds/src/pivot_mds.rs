@@ -143,10 +143,39 @@ where
     {
         let (n, m) = distance_matrix.shape();
         let mut delta = Array2::zeros((m, n));
+        let mut max_finite_sq = S::zero();
+        let mut has_nonfinite = false;
         for i in 0..n {
             for j in 0..m {
                 let dij = distance_matrix.get_by_index(i, j);
-                delta[[j, i]] = dij * dij;
+                if dij.is_finite() {
+                    let sq = dij * dij;
+                    if sq.is_finite() {
+                        delta[[j, i]] = sq;
+                        if sq > max_finite_sq {
+                            max_finite_sq = sq;
+                        }
+                        continue;
+                    }
+                }
+                delta[[j, i]] = S::infinity();
+                has_nonfinite = true;
+            }
+        }
+        if has_nonfinite {
+            // Replace unreachable (infinite) cross-component squared distances with a bounded
+            // finite fallback so double centering never evaluates inf - inf = NaN.
+            let denom = S::from_usize((n * m).max(1) * 4).unwrap();
+            let safe_cap = S::max_value() / denom;
+            let fallback_sq = if max_finite_sq > S::zero() {
+                (max_finite_sq * S::from_f64(4.0).unwrap()).min(safe_cap)
+            } else {
+                S::one()
+            };
+            for val in delta.iter_mut() {
+                if !val.is_finite() {
+                    *val = fallback_sq;
+                }
             }
         }
         let c = double_centering(&delta);
