@@ -246,6 +246,31 @@ class TestGuMap(unittest.TestCase):
         with self.assertRaises(TypeError):
             gumap.run_with_knn_csr(d4, indptr, indices, distances.astype(np.float32), rng)
 
+    def test_gumap_rejects_nan_inf_builder_and_nonfinite_drawing(self):
+        for setter in ("learning_rate", "min_dist", "spread", "a", "b"):
+            with self.assertRaises(ValueError):
+                builder = eg.GuMapBuilder()
+                getattr(builder, setter)(float("nan"))
+                builder.build()
+            with self.assertRaises(ValueError):
+                builder = eg.GuMapBuilder()
+                getattr(builder, setter)(float("inf"))
+                builder.build()
+
+        g = draw(nx.path_graph(4))
+        dist = eg.all_sources_bfs(g, 1.0)
+        gumap = eg.GuMapBuilder().n_epochs(5).build()
+        rng = eg.Rng.seed_from(5)
+
+        d_nan = eg.DrawingEuclidean2d.initial_placement(g)
+        d_nan.set_x(0, float("nan"))
+        with self.assertRaises(ValueError):
+            gumap.run(d_nan, dist, rng)
+
+        d_small = eg.DrawingEuclidean2d.initial_placement(draw(nx.path_graph(2)))
+        with self.assertRaises(ValueError):
+            gumap.run(d_small, dist, rng)
+
 
 if __name__ == "__main__":
     unittest.main()

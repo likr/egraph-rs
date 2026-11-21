@@ -431,8 +431,10 @@ impl PyTsNet {
         distance_matrix: &Bound<PyAny>,
     ) -> PyResult<()> {
         with_distance(distance_matrix, |d| {
-            self.ts_net.run(drawing.drawing_mut(), &d);
-        })
+            self.ts_net
+                .try_run(drawing.drawing_mut(), &d)
+                .map_err(pyo3::exceptions::PyValueError::new_err)
+        })?
     }
 }
 
@@ -641,11 +643,10 @@ impl PyBhTsNet {
         rng: &mut PyRng,
     ) -> PyResult<()> {
         match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.bh_ts_net
-                    .run(drawing.drawing_mut(), native_graph, rng.get_mut());
-                Ok(())
-            }
+            GraphType::Graph(native_graph) => self
+                .bh_ts_net
+                .try_run(drawing.drawing_mut(), native_graph, rng.get_mut())
+                .map_err(pyo3::exceptions::PyValueError::new_err),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "unsupported graph type for BhTsNet",
             )),
@@ -670,8 +671,9 @@ impl PyBhTsNet {
         knn_distances: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
-        self.bh_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
-        Ok(())
+        self.bh_ts_net
+            .try_run_with_knn(drawing.drawing_mut(), &knn)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Runs the BH-tsNET layout algorithm on the drawing using variable-length CSR k-nearest
@@ -939,11 +941,10 @@ impl PyFitTsNet {
         rng: &mut PyRng,
     ) -> PyResult<()> {
         match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.fit_ts_net
-                    .run(drawing.drawing_mut(), native_graph, rng.get_mut());
-                Ok(())
-            }
+            GraphType::Graph(native_graph) => self
+                .fit_ts_net
+                .try_run(drawing.drawing_mut(), native_graph, rng.get_mut())
+                .map_err(pyo3::exceptions::PyValueError::new_err),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "unsupported graph type for FitTsNet",
             )),
@@ -968,8 +969,9 @@ impl PyFitTsNet {
         knn_distances: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
-        self.fit_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
-        Ok(())
+        self.fit_ts_net
+            .try_run_with_knn(drawing.drawing_mut(), &knn)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Runs the FIt-tsNET layout algorithm on the drawing using variable-length CSR k-nearest
@@ -1231,11 +1233,10 @@ impl PyLTsNet {
         rng: &mut PyRng,
     ) -> PyResult<()> {
         match graph.graph() {
-            GraphType::Graph(native_graph) => {
-                self.l_ts_net
-                    .run(drawing.drawing_mut(), native_graph, rng.get_mut());
-                Ok(())
-            }
+            GraphType::Graph(native_graph) => self
+                .l_ts_net
+                .try_run(drawing.drawing_mut(), native_graph, rng.get_mut())
+                .map_err(pyo3::exceptions::PyValueError::new_err),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "unsupported graph type for LTsNet",
             )),
@@ -1260,8 +1261,9 @@ impl PyLTsNet {
         knn_distances: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
-        self.l_ts_net.run_with_knn(drawing.drawing_mut(), &knn);
-        Ok(())
+        self.l_ts_net
+            .try_run_with_knn(drawing.drawing_mut(), &knn)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Runs the L-tsNET layout algorithm on the drawing using variable-length CSR k-nearest

@@ -1,7 +1,7 @@
 use crate::{
     distance_matrix::{
-        with_distance, DistanceMatrixType, EdgeLengthFn, PyDistanceMatrix, PyPivotedNegLogDistance,
-        PyPivotedNegLogSimDistance,
+        distance_node_count, with_distance, DistanceMatrixType, EdgeLengthFn, PyDistanceMatrix,
+        PyPivotedNegLogDistance, PyPivotedNegLogSimDistance,
     },
     graph::{GraphType, PyGraphAdapter},
     layout::{
@@ -338,6 +338,13 @@ impl PySparseSgd {
 
         match graph.graph() {
             GraphType::Graph(native_graph) => {
+                let dm_n = distance_node_count(d_bound)?;
+                let g_n = native_graph.node_count();
+                if dm_n != g_n {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "distance matrix node count ({dm_n}) must match graph node count ({g_n})"
+                    )));
+                }
                 let pivot_nodes = collect_pivot_nodes(native_graph, &pivot_vec)?;
                 let sgd = with_distance(d_bound, |distance| {
                     self.builder.build_with_pivot_and_distance_matrix(
@@ -385,27 +392,28 @@ impl PySparseSgd {
         };
 
         if let Ok(dm) = d_bound.extract::<PyRef<PyPivotedNegLogSimDistance>>() {
-            let sgd = self.builder.build_with_pivoted_neg_log_sim_distance(
-                native_graph,
-                len_closure,
-                &dm.matrix,
-            );
+            let sgd = self
+                .builder
+                .try_build_with_pivoted_neg_log_sim_distance(native_graph, len_closure, &dm.matrix)
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
             Ok(PySgd::new_with_sgd(sgd))
         } else if let Ok(dm) = d_bound.extract::<PyRef<PyPivotedNegLogDistance>>() {
-            let sgd = self.builder.build_with_pivoted_neg_log_distance(
-                native_graph,
-                len_closure,
-                &dm.matrix,
-            );
+            let sgd = self
+                .builder
+                .try_build_with_pivoted_neg_log_distance(native_graph, len_closure, &dm.matrix)
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
             Ok(PySgd::new_with_sgd(sgd))
         } else if let Ok(dm) = d_bound.extract::<PyRef<PyDistanceMatrix>>() {
             match dm.distance_matrix() {
                 DistanceMatrixType::Pivoted(pivoted_dm) => {
-                    let sgd = self.builder.build_with_pivoted_distance_matrix(
-                        native_graph,
-                        len_closure,
-                        pivoted_dm,
-                    );
+                    let sgd = self
+                        .builder
+                        .try_build_with_pivoted_distance_matrix(
+                            native_graph,
+                            len_closure,
+                            pivoted_dm,
+                        )
+                        .map_err(pyo3::exceptions::PyValueError::new_err)?;
                     Ok(PySgd::new_with_sgd(sgd))
                 }
                 _ => Err(pyo3::exceptions::PyTypeError::new_err(

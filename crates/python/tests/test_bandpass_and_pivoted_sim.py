@@ -359,6 +359,50 @@ class TestBandPassAndPivotedSim(unittest.TestCase):
             spread = sum(x * x + y * y for x, y in coords)
             self.assertGreater(spread, 1e-6)
 
+    @unittest.skipUnless(HAS_BANDPASS, "BandPassDiffusionKernel not built")
+    def test_bandpass_invalid_lambda_max_and_kernel_oob_index_error(self):
+        n = 5
+        g = build_cycle_graph(n)
+        lap = eg.Laplacian.symmetric_normalized(g)
+        rng = eg.Rng.seed_from(3)
+
+        for bad_lmax in (0.0, -1.0, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                eg.BandPassDiffusionKernelBuilder(
+                    terms=[(1.0, 1.0)], degree=5
+                ).lambda_max(bad_lmax).build(lap)
+            with self.assertRaises(ValueError):
+                eg.PivotedBandPassDiffusionKernelBuilder(
+                    terms=[(1.0, 1.0)], degree=5, pivots=[0]
+                ).lambda_max(bad_lmax).build(lap, rng)
+
+        with self.assertRaises(ValueError):
+            eg.BandPassDiffusionKernelBuilder(terms=[], degree=5).build(lap)
+        with self.assertRaises(ValueError):
+            eg.PivotedBandPassDiffusionKernelBuilder(
+                terms=[], degree=5, pivots=[0]
+            ).build(lap, rng)
+
+        dk = eg.DiffusionKernel(lap, 0.5, 6, rng)
+        with self.assertRaises(IndexError):
+            dk.get(0, 99)
+
+        mk = eg.MultiscaleDiffusionKernel(lap, 0.5)
+        with self.assertRaises(IndexError):
+            mk.get(99, 0)
+
+        pdk = eg.PivotedDiffusionKernel(lap, 0.5, 6, [0, 2], rng)
+        with self.assertRaises(IndexError):
+            pdk.get_from_pivot(9, 0)
+        with self.assertRaises(IndexError):
+            pdk.get_from_pivot(0, 99)
+
+        pmk = eg.PivotedMultiscaleDiffusionKernel(lap, 0.5, [0, 2])
+        with self.assertRaises(IndexError):
+            pmk.get_from_pivot(9, 0)
+        with self.assertRaises(IndexError):
+            pmk.get_from_pivot(0, 99)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -216,5 +216,137 @@ class TestPySparseSgdBarrier(unittest.TestCase):
             builder.build_barrier_from_landmark_tables(path, np.zeros((5, 1), dtype=np.float32))
 
 
+class TestAdversarialSgdAndSparseSgd(unittest.TestCase):
+    def test_sparse_sgd_disconnected_and_zero_weight_no_panic(self):
+        rng = eg.Rng.seed_from(7)
+        g_disc = make_graph(4, [(0, 1), (2, 3)])
+        sgd_disc = eg.SparseSgd().h(3).build(g_disc, lambda _: 1.0, rng)
+        d_disc = eg.DrawingEuclidean2d.initial_placement(g_disc)
+        sgd_disc.scheduler(5, 0.1).run(lambda eta: (sgd_disc.shuffle(rng), sgd_disc.apply(d_disc, eta)))
+        for i in range(4):
+            self.assertTrue(math.isfinite(d_disc.x(i)))
+            self.assertTrue(math.isfinite(d_disc.y(i)))
+
+        g_path = make_graph(4, [(0, 1), (1, 2), (2, 3)])
+        sgd_zero = eg.SparseSgd().h(3).build(g_path, lambda _: 0.0, rng)
+        d_zero = eg.DrawingEuclidean2d.initial_placement(g_path)
+        sgd_zero.scheduler(5, 0.1).run(lambda eta: (sgd_zero.shuffle(rng), sgd_zero.apply(d_zero, eta)))
+        for i in range(4):
+            self.assertTrue(math.isfinite(d_zero.x(i)))
+            self.assertTrue(math.isfinite(d_zero.y(i)))
+
+    def test_sparse_sgd_duplicate_pivots_and_barrier_n0_n1_validation(self):
+        rng = eg.Rng.seed_from(11)
+        path = make_graph(4, [(0, 1), (1, 2), (2, 3)])
+        dist = eg.all_sources_bfs(path, 1.0)
+        sgd_dup = eg.SparseSgd().h(2).build_with_pivot_and_distance_matrix(path, [0, 0, 2], dist)
+        d = eg.DrawingEuclidean2d.initial_placement(path)
+        sgd_dup.scheduler(5, 0.1).run(lambda eta: (sgd_dup.shuffle(rng), sgd_dup.apply(d, eta)))
+        for i in range(4):
+            self.assertTrue(math.isfinite(d.x(i)))
+            self.assertTrue(math.isfinite(d.y(i)))
+
+        barrier = eg.SparseSgd.barrier(h=2, delta_rel=0.35)
+        g0 = make_graph(0, [])
+        sgd0 = barrier.build_barrier_from_landmark_tables(g0, np.zeros((0, 0), dtype=np.float64))
+        self.assertIsNotNone(sgd0)
+        with self.assertRaises(ValueError):
+            barrier.build_barrier_from_landmark_tables(g0, np.zeros((3, 1), dtype=np.float64))
+
+        g1 = make_graph(1, [])
+        sgd1 = barrier.build_barrier_from_landmark_tables(g1, np.zeros((1, 1), dtype=np.float64))
+        self.assertIsNotNone(sgd1)
+        with self.assertRaises(ValueError):
+            barrier.build_barrier_from_landmark_tables(g1, np.zeros((1, 0), dtype=np.float64))
+        with self.assertRaises(ValueError):
+            barrier.build_barrier_from_landmark_tables(
+                g1, np.array([[float("nan")]], dtype=np.float64)
+            )
+
+    def test_sparse_sgd_mismatched_pivoted_distance_raises(self):
+        rng = eg.Rng.seed_from(13)
+        g6 = make_graph(6, [(i, i + 1) for i in range(5)])
+        g10 = make_graph(10, [(i, i + 1) for i in range(9)])
+        lap6 = eg.Laplacian.symmetric_normalized(g6)
+        pk6 = eg.PivotedDiffusionKernel(lap6, 0.5, 8, [0, 2], rng)
+        dist_sim_6 = eg.PivotedNegLogSimDistanceBuilder().build(g6, pk6)
+        with self.assertRaises(ValueError):
+            eg.PivotedNegLogSimDistanceBuilder().build(g10, pk6)
+        with self.assertRaises(ValueError):
+            eg.PivotedNegLogDistanceBuilder().build(g10, pk6)
+        with self.assertRaises(ValueError):
+            eg.SparseSgd().h(2).build_with_pivoted_distance(g10, dist_sim_6)
+
+    def test_sgd_empty_small_tmax_schedulers_and_oob_updates(self):
+        rng = eg.Rng.seed_from(19)
+        sgd_empty = eg.Sgd.from_numpy_pairs(
+            np.array([], dtype=np.int64),
+            np.array([], dtype=np.int64),
+            np.array([], dtype=np.float64),
+            np.array([], dtype=np.float64),
+        )
+        for sched in (
+            sgd_empty.scheduler(10, 0.1),
+            sgd_empty.scheduler_linear(10, 0.1),
+            sgd_empty.scheduler_quadratic(10, 0.1),
+            sgd_empty.scheduler_reciprocal(10, 0.1),
+            eg.SchedulerExponential(1, 1.0, 0.1),
+            eg.SchedulerLinear(0, 1.0, 0.1),
+            eg.SchedulerQuadratic(1, 1.0, 0.1),
+            eg.SchedulerReciprocal(1, 1.0, 0.1),
+        ):
+            etas = []
+            sched.run(lambda eta: etas.append(eta))
+            self.assertTrue(all(math.isfinite(e) and e >= 0.0 for e in etas))
+
+        g2 = make_graph(2, [(0, 1)])
+        d2 = eg.DrawingEuclidean2d.initial_placement(g2)
+        d2.set_x(0, 0.0)
+        d2.set_y(0, 0.0)
+        d2.set_x(1, 1.0)
+        d2.set_y(1, 0.0)
+        sgd = eg.Sgd.from_numpy_pairs(
+            np.array([0], dtype=np.int64),
+            np.array([1], dtype=np.int64),
+            np.array([2.0], dtype=np.float64),
+            np.array([1.0], dtype=np.float64),
+        )
+        sgd.apply(d2, float("nan"))
+        sgd.apply(d2, 0.0)
+        self.assertEqual(d2.x(0), 0.0)
+        self.assertEqual(d2.x(1), 1.0)
+
+        g1_small = make_graph(1, [])
+        d1_small = eg.DrawingEuclidean2d.initial_placement(g1_small)
+        with self.assertRaises(ValueError):
+            sgd.apply(d1_small, 0.1)
+        with self.assertRaises(TypeError):
+            sgd.update_distance("not_callable")
+        with self.assertRaises(TypeError):
+            sgd.update_weight("not_callable")
+        with self.assertRaises(ZeroDivisionError):
+            sgd.update_distance(lambda i, j, d, w: 1.0 / 0.0)
+        with self.assertRaises(ZeroDivisionError):
+            sgd.update_weight(lambda i, j, d, w: 1.0 / 0.0)
+        with self.assertRaises(ValueError):
+            sgd.update_weight_from_numpy(np.zeros((1, 1), dtype=np.float64))
+        with self.assertRaises(ValueError):
+            sgd.update_distance_from_numpy(np.zeros((1, 1), dtype=np.float64))
+        with self.assertRaises(ValueError):
+            eg.Sgd.from_numpy_pairs(
+                np.array([[0]], dtype=np.int64),
+                np.array([1], dtype=np.int64),
+                np.array([1.0], dtype=np.float64),
+                np.array([1.0], dtype=np.float64),
+            )
+        with self.assertRaises(ValueError):
+            eg.Sgd.from_numpy_pairs(
+                np.array([0], dtype=np.int64),
+                np.array([1], dtype=np.int64),
+                np.array([float("nan")], dtype=np.float64),
+                np.array([1.0], dtype=np.float64),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

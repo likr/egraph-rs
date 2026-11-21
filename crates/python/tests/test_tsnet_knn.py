@@ -620,5 +620,75 @@ class TestTsNetKnnAdaptive(unittest.TestCase):
                     )
 
 
+class TestTsNetAdversarial(unittest.TestCase):
+    def test_builders_reject_nan_and_inf(self):
+        for builder_cls in (
+            eg.TsNetBuilder,
+            eg.BhTsNetBuilder,
+            eg.FitTsNetBuilder,
+            eg.LTsNetBuilder,
+        ):
+            with self.assertRaises(ValueError):
+                b = builder_cls()
+                b.perplexity(float("nan"))
+                b.build()
+            with self.assertRaises(ValueError):
+                b = builder_cls()
+                b.learning_rate(float("inf"))
+                b.build()
+            with self.assertRaises(ValueError):
+                b = builder_cls()
+                b.momentum(float("nan"))
+                b.build()
+
+    def test_tsnet_nonfinite_drawing_and_knn_validation(self):
+        rng = eg.Rng.seed_from(42)
+        g = make_graph(4)
+        for i in range(3):
+            g.add_edge(i, i + 1, i)
+        g_other = make_graph(2)
+        d_other = eg.DrawingEuclidean2d.initial_placement(g_other)
+
+        for builder_cls in (eg.BhTsNetBuilder, eg.FitTsNetBuilder, eg.LTsNetBuilder):
+            algo = (
+                builder_cls()
+                .perplexity(2.0)
+                .iterations_stage1(2)
+                .iterations_stage2(2)
+                .iterations_stage3(2)
+                .build()
+            )
+            d_nan = eg.DrawingEuclidean2d.initial_placement(g)
+            d_nan.set_x(0, float("nan"))
+            with self.assertRaises(ValueError):
+                algo.run(d_nan, g, rng)
+            with self.assertRaises(ValueError):
+                algo.run(d_other, g, rng)
+
+            indptr = np.array([0, 1, 2, 3, 4], dtype=np.int64)
+            bad_indices = np.array([99, 0, 1, 2], dtype=np.int64)
+            good_indices = np.array([1, 0, 1, 2], dtype=np.int64)
+            dists = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
+            bad_dists = np.array([-0.5, 1.0, 1.0, 1.0], dtype=np.float64)
+            perps = np.array([1.5, 1.5, 1.5, 1.5], dtype=np.float64)
+
+            d_clean = eg.DrawingEuclidean2d.initial_placement(g)
+            with self.assertRaises(ValueError):
+                algo.run_with_knn_adaptive(d_clean, indptr, bad_indices, dists, perps)
+            with self.assertRaises(ValueError):
+                algo.run_with_knn_adaptive(d_clean, indptr, good_indices, bad_dists, perps)
+            with self.assertRaises(ValueError):
+                algo.run_with_knn_adaptive(d_nan, indptr, good_indices, dists, perps)
+
+        ts_net = eg.TsNetBuilder().perplexity(2.0).n_epochs(5).build()
+        dist = eg.all_sources_bfs(g, 1.0)
+        d_nan = eg.DrawingEuclidean2d.initial_placement(g)
+        d_nan.set_y(1, float("inf"))
+        with self.assertRaises(ValueError):
+            ts_net.run(d_nan, dist)
+        with self.assertRaises(ValueError):
+            ts_net.run(d_other, dist)
+
+
 if __name__ == "__main__":
     unittest.main()

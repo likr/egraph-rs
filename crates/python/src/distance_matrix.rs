@@ -405,6 +405,14 @@ impl PivotedKernel<FloatType> for InnerPivotedKernel {
             Self::Multiscale(k) => k.diagonal(j),
         }
     }
+
+    fn node_count(&self) -> Option<usize> {
+        match self {
+            Self::Diffusion(k) => k.node_count(),
+            Self::BandPass(k) => k.node_count(),
+            Self::Multiscale(k) => k.node_count(),
+        }
+    }
 }
 
 pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivotedKernel> {
@@ -421,6 +429,29 @@ pub fn extract_inner_pivoted_kernel(kernel: &Bound<PyAny>) -> PyResult<InnerPivo
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
             "Unsupported pivoted kernel type",
+        ))
+    }
+}
+
+pub fn distance_node_count(distance_matrix: &Bound<PyAny>) -> PyResult<usize> {
+    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
+        match dm.distance_matrix() {
+            DistanceMatrixType::Full(d) => Ok(Distance::shape(d).0),
+            DistanceMatrixType::Pivoted(d) => Ok(Distance::shape(d).1),
+        }
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
+        Ok(dm.matrix.shape().0)
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
+        Ok(dm.matrix.shape().0)
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogDistance>>() {
+        Ok(dm.matrix.shape().0)
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyPivotedNegLogSimDistance>>() {
+        Ok(dm.matrix.shape().0)
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
+        Ok(Distance::<NodeIndex<IndexType>, FloatType>::shape(&dm.matrix).0)
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported distance matrix type",
         ))
     }
 }

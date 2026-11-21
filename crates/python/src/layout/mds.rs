@@ -51,14 +51,30 @@ impl PyClassicalMds {
     /// :return: A new ClassicalMds instance
     /// :rtype: ClassicalMds
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyClassicalMds {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>) -> PyResult<PyClassicalMds> {
+        use petgraph::visit::EdgeIndexable;
+        if !f.is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err("f must be callable"));
+        }
         match graph.graph() {
-            GraphType::Graph(native_graph) => PyClassicalMds {
-                mds: ClassicalMds::new(native_graph, |e| {
-                    f.call1((e.id().index(),)).unwrap().extract().unwrap()
-                }),
-            },
-            _ => panic!("unsupported graph type"),
+            GraphType::Graph(native_graph) => {
+                let mut edge_lengths = vec![0.0 as FloatType; native_graph.edge_bound()];
+                for e in native_graph.edge_references() {
+                    let val: FloatType = f.call1((e.id().index(),))?.extract()?;
+                    if !val.is_finite() || val < 0.0 {
+                        return Err(pyo3::exceptions::PyValueError::new_err(
+                            "edge length must be finite and non-negative",
+                        ));
+                    }
+                    edge_lengths[e.id().index()] = val;
+                }
+                Ok(PyClassicalMds {
+                    mds: ClassicalMds::new(native_graph, |e| edge_lengths[e.id().index()]),
+                })
+            }
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(
+                "unsupported graph type for ClassicalMds",
+            )),
         }
     }
 
@@ -111,8 +127,14 @@ impl PyClassicalMds {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_eps(&mut self, value: FloatType) {
+    fn set_eps(&mut self, value: FloatType) -> PyResult<()> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eps must be finite and positive",
+            ));
+        }
         self.mds.eps = value;
+        Ok(())
     }
 }
 
@@ -154,19 +176,45 @@ impl PyPivotMds {
     /// :return: A new PivotMds instance
     /// :rtype: PivotMds
     #[new]
-    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyPivotMds {
+    fn new(graph: &PyGraphAdapter, f: &Bound<PyAny>, pivot: Vec<usize>) -> PyResult<PyPivotMds> {
+        use petgraph::visit::EdgeIndexable;
+        if !f.is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err("f must be callable"));
+        }
         match graph.graph() {
             GraphType::Graph(native_graph) => {
-                let pivot = pivot.into_iter().map(node_index).collect::<Vec<_>>();
-                PyPivotMds {
+                let mut pivot_indices = Vec::with_capacity(pivot.len());
+                for p in pivot {
+                    if p > crate::graph::IndexType::MAX as usize
+                        || native_graph.node_weight(node_index(p)).is_none()
+                    {
+                        return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                            "pivot index {p} out of bounds for graph"
+                        )));
+                    }
+                    pivot_indices.push(node_index(p));
+                }
+                let mut edge_lengths = vec![0.0 as FloatType; native_graph.edge_bound()];
+                for e in native_graph.edge_references() {
+                    let val: FloatType = f.call1((e.id().index(),))?.extract()?;
+                    if !val.is_finite() || val < 0.0 {
+                        return Err(pyo3::exceptions::PyValueError::new_err(
+                            "edge length must be finite and non-negative",
+                        ));
+                    }
+                    edge_lengths[e.id().index()] = val;
+                }
+                Ok(PyPivotMds {
                     mds: PivotMds::new(
                         native_graph,
-                        |e| f.call1((e.id().index(),)).unwrap().extract().unwrap(),
-                        &pivot,
+                        |e| edge_lengths[e.id().index()],
+                        &pivot_indices,
                     ),
-                }
+                })
             }
-            _ => panic!("unsupported graph type"),
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(
+                "unsupported graph type for PivotMds",
+            )),
         }
     }
 
@@ -219,8 +267,14 @@ impl PyPivotMds {
     /// :return: None
     /// :rtype: None
     #[setter]
-    fn set_eps(&mut self, value: FloatType) {
+    fn set_eps(&mut self, value: FloatType) -> PyResult<()> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "eps must be finite and positive",
+            ));
+        }
         self.mds.eps = value;
+        Ok(())
     }
 }
 

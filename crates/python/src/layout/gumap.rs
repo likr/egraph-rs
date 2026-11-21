@@ -232,8 +232,10 @@ impl PyGuMap {
         rng: &mut PyRng,
     ) -> PyResult<()> {
         with_distance(distance_matrix, |d| {
-            self.gumap.run(drawing.drawing_mut(), &d, rng.get_mut());
-        })
+            self.gumap
+                .try_run(drawing.drawing_mut(), &d, rng.get_mut())
+                .map_err(pyo3::exceptions::PyValueError::new_err)
+        })?
     }
 
     /// Runs the GUMAP layout algorithm on the drawing using precomputed k-nearest neighbors and RNG.
@@ -258,8 +260,8 @@ impl PyGuMap {
     ) -> PyResult<()> {
         let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
         self.gumap
-            .run_with_knn(drawing.drawing_mut(), &knn, rng.get_mut());
-        Ok(())
+            .try_run_with_knn(drawing.drawing_mut(), &knn, rng.get_mut())
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Runs the GUMAP layout algorithm on the drawing using variable-length CSR k-nearest neighbors and RNG.

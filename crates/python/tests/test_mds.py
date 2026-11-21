@@ -85,6 +85,41 @@ class TestQualityMetrics(unittest.TestCase):
             drawing = mds.run(3)
             check_drawing_3d(graph, drawing)
 
+    def test_mds_error_handling_and_disconnected(self):
+        dg = eg.DiGraph()
+        n0 = dg.add_node(0)
+        n1 = dg.add_node(1)
+        dg.add_edge(n0, n1, 0)
+        with self.assertRaises(TypeError):
+            eg.ClassicalMds(dg, lambda _: 1.0)
+        with self.assertRaises(TypeError):
+            eg.PivotMds(dg, lambda _: 1.0, [0])
+
+        g_disc = eg.Graph()
+        nodes = [g_disc.add_node(i) for i in range(4)]
+        g_disc.add_edge(nodes[0], nodes[1], 0)
+        g_disc.add_edge(nodes[2], nodes[3], 1)
+
+        with self.assertRaises(TypeError):
+            eg.PivotMds(g_disc, "not_callable", [0])
+        with self.assertRaises(ValueError):
+            eg.PivotMds(g_disc, lambda _: -1.0, [0])
+        with self.assertRaises(ValueError):
+            eg.ClassicalMds(g_disc, lambda _: float("nan"))
+        with self.assertRaises(IndexError):
+            eg.PivotMds(g_disc, lambda _: 1.0, [99])
+
+        mds_disc = eg.PivotMds(g_disc, lambda _: 1.0, [0])
+        with self.assertRaises(ValueError):
+            mds_disc.eps = float("nan")
+        drawing_2d = mds_disc.run_2d()
+        check_drawing_2d(g_disc, drawing_2d)
+
+        cmds_disc = eg.ClassicalMds(g_disc, lambda _: 1.0)
+        with self.assertRaises(ValueError):
+            cmds_disc.eps = 0.0
+        check_drawing_2d(g_disc, cmds_disc.run_2d())
+
 
 if __name__ == '__main__':
     unittest.main()

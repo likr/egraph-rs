@@ -101,8 +101,13 @@ impl PyDiffusionKernel {
     }
 
     /// Queries the (i, j) element of the diffusion kernel matrix
-    fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j).unwrap()
+    fn get(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        let (rows, cols) = self.kernel.shape();
+        self.kernel.get(i, j).ok_or_else(|| {
+            pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({i}, {j}) out of bounds for kernel shape ({rows}, {cols})"
+            ))
+        })
     }
 
     /// Returns the number of nodes in the graph
@@ -130,8 +135,13 @@ impl PyMultiscaleDiffusionKernel {
     }
 
     /// Queries the multiscale diffusion kernel between nodes i and j
-    fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j).unwrap()
+    fn get(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        let (rows, cols) = self.kernel.shape();
+        self.kernel.get(i, j).ok_or_else(|| {
+            pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({i}, {j}) out of bounds for kernel shape ({rows}, {cols})"
+            ))
+        })
     }
 
     /// Returns the number of nodes in the graph
@@ -152,17 +162,30 @@ impl PyLowRankDiffusionKernel {
     #[new]
     #[pyo3(signature = (t, eigenvalues, eigenvectors))]
     fn new(t: FloatType, eigenvalues: &PyArray1, eigenvectors: &PyArray2) -> PyResult<Self> {
-        let kernel = LowRankDiffusionKernel::new(
-            t,
-            eigenvalues.as_array().clone(),
-            eigenvectors.as_array().clone(),
-        );
+        if !t.is_finite() {
+            return Err(pyo3::exceptions::PyValueError::new_err("t must be finite"));
+        }
+        let eigvals = eigenvalues.as_array();
+        let eigvecs = eigenvectors.as_array();
+        if eigvals.len() != eigvecs.ncols() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "eigenvalues length ({}) must match eigenvectors columns ({})",
+                eigvals.len(),
+                eigvecs.ncols()
+            )));
+        }
+        let kernel = LowRankDiffusionKernel::new(t, eigvals.clone(), eigvecs.clone());
         Ok(PyLowRankDiffusionKernel { kernel })
     }
 
     /// Queries the (i, j) element of the low-rank heat kernel matrix
-    fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j).unwrap()
+    fn get(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        let (rows, cols) = self.kernel.shape();
+        self.kernel.get(i, j).ok_or_else(|| {
+            pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({i}, {j}) out of bounds for kernel shape ({rows}, {cols})"
+            ))
+        })
     }
 
     /// Returns the number of nodes in the graph
@@ -188,17 +211,27 @@ impl PyLowRankMultiscaleDiffusionKernel {
                 "alpha must be finite and in [0, 1)",
             ));
         }
-        let kernel = LowRankMultiscaleDiffusionKernel::new(
-            alpha,
-            eigenvalues.as_array().clone(),
-            eigenvectors.as_array().clone(),
-        );
+        let eigvals = eigenvalues.as_array();
+        let eigvecs = eigenvectors.as_array();
+        if eigvals.len() != eigvecs.ncols() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "eigenvalues length ({}) must match eigenvectors columns ({})",
+                eigvals.len(),
+                eigvecs.ncols()
+            )));
+        }
+        let kernel = LowRankMultiscaleDiffusionKernel::new(alpha, eigvals.clone(), eigvecs.clone());
         Ok(PyLowRankMultiscaleDiffusionKernel { kernel })
     }
 
     /// Queries the (i, j) element of the low-rank multiscale kernel matrix
-    fn get(&self, i: usize, j: usize) -> FloatType {
-        self.kernel.get(i, j).unwrap()
+    fn get(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        let (rows, cols) = self.kernel.shape();
+        self.kernel.get(i, j).ok_or_else(|| {
+            pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({i}, {j}) out of bounds for kernel shape ({rows}, {cols})"
+            ))
+        })
     }
 
     /// Returns the number of nodes in the graph
@@ -260,8 +293,15 @@ impl PyPivotedDiffusionKernel {
     }
 
     /// Queries element from pivot
-    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> FloatType {
-        self.kernel.get_from_pivot(pivot_idx, j)
+    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> PyResult<FloatType> {
+        let n = self.kernel.vectors.first().map_or(0, |v| v.len());
+        if pivot_idx >= self.kernel.pivots().len() || j >= n {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({pivot_idx}, {j}) out of bounds for pivoted kernel shape ({}, {n})",
+                self.kernel.pivots().len(),
+            )));
+        }
+        Ok(self.kernel.get_from_pivot(pivot_idx, j))
     }
 
     /// Returns the estimated diagonal entry `K[j, j]` if Hutchinson estimation was enabled
@@ -857,8 +897,15 @@ impl PyPivotedMultiscaleDiffusionKernel {
     }
 
     /// Queries element from pivot
-    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> FloatType {
-        self.kernel.get_from_pivot(pivot_idx, j)
+    fn get_from_pivot(&self, pivot_idx: usize, j: usize) -> PyResult<FloatType> {
+        let n = self.kernel.vectors.first().map_or(0, |v| v.len());
+        if pivot_idx >= self.kernel.pivots().len() || j >= n {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({pivot_idx}, {j}) out of bounds for pivoted kernel shape ({}, {n})",
+                self.kernel.pivots().len(),
+            )));
+        }
+        Ok(self.kernel.get_from_pivot(pivot_idx, j))
     }
 
     /// Returns diagonal entry if available (always `None` for multiscale pivoted kernels).

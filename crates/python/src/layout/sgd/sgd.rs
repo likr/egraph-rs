@@ -8,6 +8,7 @@ use crate::layout::sgd::schedulers::{
     PySchedulerReciprocal,
 };
 use crate::FloatType;
+use petgraph_drawing::Drawing;
 use petgraph_layout_sgd::{
     SchedulerConstant, SchedulerExponential, SchedulerLinear, SchedulerQuadratic,
     SchedulerReciprocal, Sgd,
@@ -148,48 +149,76 @@ impl PySgd {
     /// :type eta: float
     /// :return: None
     /// :rtype: None
-    fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: FloatType) {
+    fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: FloatType) -> PyResult<()> {
         let drawing_type = drawing.borrow().drawing_type();
         Python::attach(|_py| match drawing_type {
             DrawingType::Euclidean2d => {
                 let mut drawing = drawing
                     .clone()
                     .cast::<PyDrawingEuclidean2d>()
-                    .unwrap()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingEuclidean2d")
+                    })?
                     .borrow_mut();
-                self.sgd.apply(drawing.drawing_mut(), eta)
+                self.sgd
+                    .try_validate_bounds(drawing.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(drawing.drawing_mut(), eta);
+                Ok(())
             }
             DrawingType::Euclidean => {
                 let mut drawing = drawing
                     .clone()
                     .cast::<PyDrawingEuclidean>()
-                    .unwrap()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingEuclidean")
+                    })?
                     .borrow_mut();
-                self.sgd.apply(drawing.drawing_mut(), eta)
+                self.sgd
+                    .try_validate_bounds(drawing.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(drawing.drawing_mut(), eta);
+                Ok(())
             }
             DrawingType::Hyperbolic2d => {
                 let mut drawing = drawing
                     .clone()
                     .cast::<PyDrawingHyperbolic2d>()
-                    .unwrap()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingHyperbolic2d")
+                    })?
                     .borrow_mut();
-                self.sgd.apply(drawing.drawing_mut(), eta)
+                self.sgd
+                    .try_validate_bounds(drawing.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(drawing.drawing_mut(), eta);
+                Ok(())
             }
             DrawingType::Spherical2d => {
                 let mut drawing = drawing
                     .clone()
                     .cast::<PyDrawingSpherical2d>()
-                    .unwrap()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingSpherical2d")
+                    })?
                     .borrow_mut();
-                self.sgd.apply(drawing.drawing_mut(), eta)
+                self.sgd
+                    .try_validate_bounds(drawing.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(drawing.drawing_mut(), eta);
+                Ok(())
             }
             DrawingType::Torus2d => {
                 let mut drawing = drawing
                     .clone()
                     .cast::<PyDrawingTorus2d>()
-                    .unwrap()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err("invalid DrawingTorus2d"))?
                     .borrow_mut();
-                self.sgd.apply(drawing.drawing_mut(), eta)
+                self.sgd
+                    .try_validate_bounds(drawing.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(drawing.drawing_mut(), eta);
+                Ok(())
             }
         })
     }
@@ -200,9 +229,12 @@ impl PySgd {
     /// :type f: callable
     /// :return: None
     /// :rtype: None
-    pub fn update_distance(&mut self, f: &Bound<PyAny>) {
+    pub fn update_distance(&mut self, f: &Bound<PyAny>) -> PyResult<()> {
+        if !f.is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err("f must be callable"));
+        }
         self.sgd
-            .update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+            .try_update_distance(|i, j, dij, wij| f.call1((i, j, dij, wij))?.extract::<FloatType>())
     }
 
     /// Updates the weight matrix using a Python function
@@ -211,42 +243,25 @@ impl PySgd {
     /// :type f: callable
     /// :return: None
     /// :rtype: None
-    pub fn update_weight(&mut self, f: &Bound<PyAny>) {
+    pub fn update_weight(&mut self, f: &Bound<PyAny>) -> PyResult<()> {
+        if !f.is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err("f must be callable"));
+        }
         self.sgd
-            .update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij)).unwrap().extract().unwrap())
+            .try_update_weight(|i, j, dij, wij| f.call1((i, j, dij, wij))?.extract::<FloatType>())
     }
 
     /// Build an `Sgd` instance from parallel 1D NumPy arrays `(sources, targets, distances, weights)`.
     #[staticmethod]
+    #[pyo3(signature = (sources, targets, distances, weights, n_nodes=None))]
     pub fn from_numpy_pairs(
         sources: &Bound<'_, PyAny>,
         targets: &Bound<'_, PyAny>,
-        distances: numpy::PyReadonlyArray1<'_, crate::FloatType>,
-        weights: numpy::PyReadonlyArray1<'_, crate::FloatType>,
+        distances: &Bound<'_, PyAny>,
+        weights: &Bound<'_, PyAny>,
+        n_nodes: Option<usize>,
     ) -> PyResult<PySgd> {
-        let src = crate::graph::extract_index_array_1d(sources, "sources")?;
-        let tgt = crate::graph::extract_index_array_1d(targets, "targets")?;
-        let d_view = distances.as_array();
-        let w_view = weights.as_array();
-        let len = src.len();
-        if tgt.len() != len || d_view.len() != len || w_view.len() != len {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "array lengths must match: sources={}, targets={}, distances={}, weights={}",
-                len,
-                tgt.len(),
-                d_view.len(),
-                w_view.len()
-            )));
-        }
-        let mut pairs = Vec::with_capacity(len);
-        for (((&u, &v), &d), &w) in src
-            .iter()
-            .zip(tgt.iter())
-            .zip(d_view.iter())
-            .zip(w_view.iter())
-        {
-            pairs.push((u, v, d, d, w, w));
-        }
+        let pairs = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
         Ok(PySgd::new_with_sgd(
             petgraph_layout_sgd::Sgd::from_node_pairs(pairs),
         ))
@@ -396,14 +411,9 @@ impl PySgd {
         w: numpy::PyReadonlyArray2<'_, crate::FloatType>,
     ) -> PyResult<()> {
         let w_view = w.as_array();
-        if w_view.nrows() != w_view.ncols() {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "weight matrix must be square, got {:?}",
-                w_view.dim()
-            )));
-        }
-        self.sgd.update_weight_from_array(w_view);
-        Ok(())
+        self.sgd
+            .try_update_weight_from_array(w_view)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Update SGD pair distances (and optionally weights) from `(N, N)` float64 NumPy matrices.
@@ -414,28 +424,10 @@ impl PySgd {
         w: Option<numpy::PyReadonlyArray2<'_, crate::FloatType>>,
     ) -> PyResult<()> {
         let d_view = d.as_array();
-        if d_view.nrows() != d_view.ncols() {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "distance matrix must be square, got {:?}",
-                d_view.dim()
-            )));
-        }
-        let w_view = match &w {
-            Some(w_arr) => {
-                let view = w_arr.as_array();
-                if view.dim() != d_view.dim() {
-                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "weight matrix shape {:?} does not match distance matrix shape {:?}",
-                        view.dim(),
-                        d_view.dim()
-                    )));
-                }
-                Some(view)
-            }
-            None => None,
-        };
-        self.sgd.update_distance_from_array(d_view, w_view);
-        Ok(())
+        let w_view = w.as_ref().map(|arr| arr.as_array());
+        self.sgd
+            .try_update_distance_from_array(d_view, w_view)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Creates an default scheduler from this SGD instance
