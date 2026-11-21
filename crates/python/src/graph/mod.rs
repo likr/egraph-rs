@@ -20,7 +20,7 @@ mod graph_base;
 
 use crate::FloatType;
 use graph_base::*;
-use numpy::{PyReadonlyArray1, PyReadonlyArray2};
+use numpy::PyReadonlyArray2;
 use petgraph::graph::node_index;
 use petgraph::prelude::*;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -150,46 +150,6 @@ pub(crate) fn extract_edges_2col(edges: &Bound<'_, PyAny>) -> PyResult<Vec<(usiz
     Err(PyTypeError::new_err(
         "edges must be a 2D integer numpy array of shape (M, 2) with dtype uintp/uint64/int64/int32/uint32",
     ))
-}
-
-fn convert_index_array_1d<T>(arr: PyReadonlyArray1<'_, T>, name: &str) -> PyResult<Vec<usize>>
-where
-    T: Copy + numpy::Element + TryInto<usize>,
-{
-    let view = arr.as_array();
-    let mut out = Vec::with_capacity(view.len());
-    for &val in view.iter() {
-        let idx = val.try_into().map_err(|_| {
-            PyValueError::new_err(format!(
-                "{} indices must be non-negative and fit in usize",
-                name
-            ))
-        })?;
-        out.push(idx);
-    }
-    Ok(out)
-}
-
-pub(crate) fn extract_index_array_1d(arr: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
-    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, usize>>() {
-        return convert_index_array_1d(a, name);
-    }
-    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, i64>>() {
-        return convert_index_array_1d(a, name);
-    }
-    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, u64>>() {
-        return convert_index_array_1d(a, name);
-    }
-    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, i32>>() {
-        return convert_index_array_1d(a, name);
-    }
-    if let Ok(a) = arr.extract::<PyReadonlyArray1<'_, u32>>() {
-        return convert_index_array_1d(a, name);
-    }
-    Err(PyTypeError::new_err(format!(
-        "{} must be a 1D integer numpy array with dtype uintp/uint64/int64/int32/uint32",
-        name
-    )))
 }
 
 pub(crate) fn build_graph_from_edges_numpy<Ty: petgraph::EdgeType>(
