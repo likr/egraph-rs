@@ -1,7 +1,10 @@
 use crate::{
     fit_interpolation::{compute_fit_entropy_gradient, compute_fit_kl_repulsion},
     l_ts_net_builder::LTsNetBuilder,
-    partial_bfs::{compute_knn_probabilities_with_params, compute_partial_bfs_probabilities},
+    partial_bfs::{
+        compute_knn_probabilities_from_csr, compute_knn_probabilities_with_params,
+        compute_knn_probabilities_with_perplexities, compute_partial_bfs_probabilities,
+    },
 };
 use num_traits::Float;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, NodeCount, NodeIndexable};
@@ -98,6 +101,76 @@ where
         );
 
         self.run_from_sparse_p(drawing, &sparse_p);
+    }
+
+    /// Executes the L-tsNET layout algorithm using precomputed k-NN rows and per-node perplexities.
+    pub fn try_run_with_knn_adaptive<D>(
+        &self,
+        drawing: &mut D,
+        knn: &[Vec<(usize, S)>],
+        perplexities: &[S],
+    ) -> Result<(), String>
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        let n = drawing.len();
+        let sparse_p = compute_knn_probabilities_with_perplexities(
+            n,
+            knn,
+            perplexities,
+            self.power,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        )?;
+        if n < 2 {
+            return Ok(());
+        }
+        self.run_from_sparse_p(drawing, &sparse_p);
+        Ok(())
+    }
+
+    /// Executes the L-tsNET layout algorithm using CSR k-NN arrays and per-node perplexities.
+    pub fn try_run_with_csr_knn_adaptive<D>(
+        &self,
+        drawing: &mut D,
+        indptr: &[usize],
+        indices: &[usize],
+        distances: &[S],
+        perplexities: &[S],
+    ) -> Result<(), String>
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        let n = drawing.len();
+        let sparse_p = compute_knn_probabilities_from_csr(
+            n,
+            indptr,
+            indices,
+            distances,
+            perplexities,
+            self.power,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        )?;
+        if n < 2 {
+            return Ok(());
+        }
+        self.run_from_sparse_p(drawing, &sparse_p);
+        Ok(())
+    }
+
+    /// Executes the L-tsNET layout algorithm using precomputed k-NN rows and per-node perplexities,
+    /// panicking if inputs fail validation.
+    pub fn run_with_knn_adaptive<D>(
+        &self,
+        drawing: &mut D,
+        knn: &[Vec<(usize, S)>],
+        perplexities: &[S],
+    ) where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        self.try_run_with_knn_adaptive(drawing, knn, perplexities)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Runs the 3-stage L-tsNET optimization loop from precomputed sparse joint probabilities `P`.
