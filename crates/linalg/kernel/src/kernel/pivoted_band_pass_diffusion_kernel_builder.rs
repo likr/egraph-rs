@@ -1,4 +1,6 @@
-use crate::kernel::band_pass_diffusion_kernel_builder::{dog_bandpass_terms, validate_terms};
+use crate::kernel::band_pass_diffusion_kernel_builder::{
+    dog_bandpass_terms, multiscale_heat_terms, validate_terms,
+};
 use crate::kernel::pivoted_diffusion_kernel_builder::{
     build_pivot_vectors_with, compute_hutchinson_diagonal_with, resolve_lambda_max,
 };
@@ -15,6 +17,8 @@ pub struct PivotedBandPassDiffusionKernelBuilder<'a, S> {
     pub pivots: Vec<usize>,
     pub lambda_max: Option<S>,
     pub num_hutchinson: Option<usize>,
+    /// Uniform rank-1 positive shift `+ off_diagonal_floor * 1 1^T` applied to all entries.
+    pub off_diagonal_floor: S,
     error: Option<String>,
 }
 
@@ -40,11 +44,12 @@ where
             pivots,
             lambda_max: None,
             num_hutchinson: Some(32),
+            off_diagonal_floor: S::zero(),
             error: None,
         }
     }
 
-    /// Convenience constructor for a DC-retained 3-term Difference-of-Gaussians pivoted kernel.
+    /// Convenience constructor for a Difference-of-Gaussians pivoted kernel with uniform `beta_floor` shift.
     pub fn dog(
         laplacian: &'a SparseSymmetricMatrix<S>,
         t1: S,
@@ -55,7 +60,7 @@ where
         pivots: Vec<usize>,
     ) -> Self {
         match dog_bandpass_terms(t1, t2, alpha, beta_floor) {
-            Ok(terms) => Self::new(laplacian, terms, degree, pivots),
+            Ok(terms) => Self::new(laplacian, terms, degree, pivots).off_diagonal_floor(beta_floor),
             Err(err) => Self {
                 laplacian,
                 terms: Vec::new(),
@@ -63,6 +68,29 @@ where
                 pivots,
                 lambda_max: None,
                 num_hutchinson: Some(32),
+                off_diagonal_floor: S::zero(),
+                error: Some(err),
+            },
+        }
+    }
+
+    /// Convenience constructor for a positive-coefficient multi-scale heat pivoted kernel.
+    pub fn multiscale_heat(
+        laplacian: &'a SparseSymmetricMatrix<S>,
+        terms: Vec<(S, S)>,
+        degree: usize,
+        pivots: Vec<usize>,
+    ) -> Self {
+        match multiscale_heat_terms(&terms) {
+            Ok(validated) => Self::new(laplacian, validated, degree, pivots),
+            Err(err) => Self {
+                laplacian,
+                terms: Vec::new(),
+                degree,
+                pivots,
+                lambda_max: None,
+                num_hutchinson: Some(32),
+                off_diagonal_floor: S::zero(),
                 error: Some(err),
             },
         }
@@ -78,11 +106,20 @@ where
         self
     }
 
+    /// Sets the uniform rank-1 floor added to every kernel entry (`K_eff = K + floor * 1 1^T`).
+    pub fn off_diagonal_floor(mut self, floor: S) -> Self {
+        self.off_diagonal_floor = floor;
+        self
+    }
+
     pub fn build<R: Rng>(self, rng: &mut R) -> Result<PivotedBandPassDiffusionKernel<S>, String> {
         if let Some(err) = self.error {
             return Err(err);
         }
         validate_terms(&self.terms)?;
+        if !self.off_diagonal_floor.is_finite() || self.off_diagonal_floor < S::zero() {
+            return Err("off_diagonal_floor must be finite and >= 0".to_string());
+        }
 
         let n = self.laplacian.dim();
         for &p in &self.pivots {
@@ -93,7 +130,7 @@ where
 
         let lambda_max = resolve_lambda_max(self.laplacian, self.lambda_max, rng);
 
-        let pivot_vectors = build_pivot_vectors_with(n, &self.pivots, |e| {
+        let mut pivot_vectors = build_pivot_vectors_with(n, &self.pivots, |e| {
             chebyshev_bandpass_approximation_vec(
                 self.laplacian,
                 &self.terms,
@@ -109,7 +146,7 @@ where
             .map(|&(c, _)| c)
             .fold(S::zero(), |acc, c| acc + c);
 
-        let diagonal = compute_hutchinson_diagonal_with(
+        let mut diagonal = compute_hutchinson_diagonal_with(
             self.laplacian,
             self.num_hutchinson,
             g_hat_0,
@@ -125,6 +162,18 @@ where
                 )
             },
         );
+
+        // Apply uniform rank-1 floor after Chebyshev evaluation so both pivot columns and
+        // diagonal estimates match `K_eff = K_bp + floor * 1 1^T` without a t=0 identity spike.
+        if self.off_diagonal_floor > S::zero() {
+            let floor = self.off_diagonal_floor;
+            for vec in &mut pivot_vectors {
+                vec.mapv_inplace(|x| x + floor);
+            }
+            if let Some(ref mut diag) = diagonal {
+                diag.mapv_inplace(|x| x + floor);
+            }
+        }
 
         Ok(PivotedBandPassDiffusionKernel {
             pivots: self.pivots,
@@ -153,15 +202,17 @@ mod tests {
     #[test]
     fn test_bandpass_and_pivoted_consistency_and_hutchinson() {
         let lap = sample_graph_laplacian();
+        let beta = 0.1;
+        let alpha = 0.75;
         let mut rng1 = StdRng::seed_from_u64(42);
-        let full = BandPassDiffusionKernelBuilder::dog(&lap, 0.4, 2.0, 0.75, 0.1, 25)
+        let full = BandPassDiffusionKernelBuilder::dog(&lap, 0.4, 2.0, alpha, beta, 25)
             .lambda_max(2.0)
             .build(&mut rng1)
             .unwrap();
 
         let mut rng2 = StdRng::seed_from_u64(42);
         let pivoted =
-            PivotedBandPassDiffusionKernelBuilder::dog(&lap, 0.4, 2.0, 0.75, 0.1, 25, vec![0, 3])
+            PivotedBandPassDiffusionKernelBuilder::dog(&lap, 0.4, 2.0, alpha, beta, 25, vec![0, 3])
                 .lambda_max(2.0)
                 .num_hutchinson(Some(512))
                 .build(&mut rng2)
@@ -170,6 +221,20 @@ mod tests {
         for (p_idx, &p) in pivoted.pivots().iter().enumerate() {
             for j in 0..6 {
                 assert!((pivoted.get_from_pivot(p_idx, j) - full.get_by_index(p, j)).abs() < 1e-8);
+            }
+        }
+
+        // Verify off_diagonal_floor lifts off-diagonal entries uniformly relative to beta=0
+        let mut rng3 = StdRng::seed_from_u64(42);
+        let unshifted = BandPassDiffusionKernelBuilder::dog(&lap, 0.4, 2.0, alpha, 0.0, 25)
+            .lambda_max(2.0)
+            .build(&mut rng3)
+            .unwrap();
+        for i in 0..6 {
+            for j in 0..6 {
+                let expected = (1.0 - beta) * unshifted.get_by_index(i, j) + beta;
+                assert!((full.get_by_index(i, j) - expected).abs() < 1e-10);
+                assert!(full.get_by_index(i, j) > 0.0);
             }
         }
 
@@ -186,11 +251,13 @@ mod tests {
             "Hutchinson mean error too large: {mean_err}"
         );
 
-        // DC component of dog kernel should equal 1.0 on stationary vector
+        // Stationary vector action under K_eff = (1 - beta) * K_dog + beta * 1 1^T
         let u1 = lap.stationary_vector();
+        let u1_sum = u1.sum();
         let ku1 = full.matrix.dot(&u1);
         for j in 0..6 {
-            assert!((ku1[j] - u1[j]).abs() < 1e-8);
+            let expected = (1.0 - beta) * (1.0 - alpha) * u1[j] + beta * u1_sum;
+            assert!((ku1[j] - expected).abs() < 1e-8);
         }
     }
 
@@ -225,18 +292,100 @@ mod tests {
     }
 
     #[test]
-    fn test_dog_rejects_alpha_one() {
+    fn test_dog_supports_alpha_one_and_validates_params() {
         let lap = sample_graph_laplacian();
         let mut rng = StdRng::seed_from_u64(1);
+
+        let terms = dog_bandpass_terms(0.5, 2.0, 1.0, 0.15).unwrap();
+        assert_eq!(terms.len(), 2);
+        assert!(terms.iter().all(|&(_, t)| t > 0.0));
+        assert!((terms[0].0 - 0.85).abs() < 1e-12);
+        assert!((terms[1].0 + 0.85).abs() < 1e-12);
+
+        for &beta in &[0.0, 0.15] {
+            let full = BandPassDiffusionKernelBuilder::dog(&lap, 0.5, 2.0, 1.0, beta, 25)
+                .lambda_max(2.0)
+                .build(&mut rng)
+                .unwrap();
+            let pivoted = PivotedBandPassDiffusionKernelBuilder::dog(
+                &lap,
+                0.5,
+                2.0,
+                1.0,
+                beta,
+                25,
+                vec![0, 2],
+            )
+            .lambda_max(2.0)
+            .build(&mut rng)
+            .unwrap();
+            for (p_idx, &p) in pivoted.pivots().iter().enumerate() {
+                for j in 0..6 {
+                    assert!(
+                        (pivoted.get_from_pivot(p_idx, j) - full.get_by_index(p, j)).abs() < 1e-8
+                    );
+                }
+            }
+        }
+
+        // Invalid parameters should be rejected cleanly
+        assert!(dog_bandpass_terms(0.0, 2.0, 1.0, 0.1).is_err());
+        assert!(dog_bandpass_terms(0.5, -1.0, 1.0, 0.1).is_err());
+        assert!(dog_bandpass_terms(0.5, 2.0, -0.1, 0.1).is_err());
+        assert!(dog_bandpass_terms(0.5, 2.0, 1.0, -0.01).is_err());
+        assert!(dog_bandpass_terms(0.5, 2.0, 1.0, 1.0).is_err());
+        assert!(dog_bandpass_terms(f64::NAN, 2.0, 1.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn test_multiscale_heat_2_and_3_scales() {
+        let lap = sample_graph_laplacian();
+        let mut rng = StdRng::seed_from_u64(13);
+
+        for terms in [
+            vec![(0.6, 0.5), (0.4, 2.0)],
+            vec![(0.5, 0.5), (0.3, 2.0), (0.2, 8.0)],
+        ] {
+            let full = BandPassDiffusionKernelBuilder::multiscale_heat(&lap, terms.clone(), 25)
+                .lambda_max(2.0)
+                .build(&mut rng)
+                .unwrap();
+            let pivoted = PivotedBandPassDiffusionKernelBuilder::multiscale_heat(
+                &lap,
+                terms.clone(),
+                25,
+                vec![0, 3],
+            )
+            .lambda_max(2.0)
+            .build(&mut rng)
+            .unwrap();
+
+            for (p_idx, &p) in pivoted.pivots().iter().enumerate() {
+                for j in 0..6 {
+                    let val = full.get_by_index(p, j);
+                    assert!(val > 0.0, "multiscale heat entry ({p}, {j}) must be > 0");
+                    assert!((pivoted.get_from_pivot(p_idx, j) - val).abs() < 1e-8);
+                }
+            }
+        }
+
         assert!(
-            BandPassDiffusionKernelBuilder::dog(&lap, 0.5, 2.0, 1.0, 0.1, 20)
+            BandPassDiffusionKernelBuilder::multiscale_heat(&lap, vec![], 20)
                 .build(&mut rng)
                 .is_err()
         );
         assert!(
-            PivotedBandPassDiffusionKernelBuilder::dog(&lap, 0.5, 2.0, 1.0, 0.1, 20, vec![0])
+            BandPassDiffusionKernelBuilder::multiscale_heat(&lap, vec![(-0.1, 0.5)], 20)
                 .build(&mut rng)
                 .is_err()
         );
+        assert!(PivotedBandPassDiffusionKernelBuilder::multiscale_heat(
+            &lap,
+            vec![(0.5, 0.0)],
+            20,
+            vec![0]
+        )
+        .build(&mut rng)
+        .is_err());
     }
 }
