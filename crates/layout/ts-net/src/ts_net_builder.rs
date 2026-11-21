@@ -222,62 +222,68 @@ where
 
     /// Validates the hyperparameters and builds a new `TsNet` instance.
     pub fn build(self) -> Result<TsNet<S>, String> {
-        if self.perplexity <= S::zero() {
-            return Err("perplexity must be positive".to_string());
+        if !self.perplexity.is_finite() || self.perplexity <= S::zero() {
+            return Err("perplexity must be finite and positive".to_string());
         }
         if self.n_epochs == 0 {
             return Err("n_epochs must be greater than 0".to_string());
         }
-        if self.initial_lr <= S::zero() {
-            return Err("initial_lr must be positive".to_string());
+        if !self.initial_lr.is_finite() || self.initial_lr <= S::zero() {
+            return Err("initial_lr must be finite and positive".to_string());
         }
-        if self.final_lr <= S::zero() {
-            return Err("final_lr must be positive".to_string());
+        if !self.final_lr.is_finite() || self.final_lr <= S::zero() {
+            return Err("final_lr must be finite and positive".to_string());
         }
-        if self.initial_momentum < S::zero() || self.initial_momentum >= S::one() {
-            return Err("initial_momentum must be in the range [0.0, 1.0)".to_string());
+        if !self.initial_momentum.is_finite()
+            || self.initial_momentum < S::zero()
+            || self.initial_momentum >= S::one()
+        {
+            return Err("initial_momentum must be finite and in the range [0.0, 1.0)".to_string());
         }
-        if self.final_momentum < S::zero() || self.final_momentum >= S::one() {
-            return Err("final_momentum must be in the range [0.0, 1.0)".to_string());
+        if !self.final_momentum.is_finite()
+            || self.final_momentum < S::zero()
+            || self.final_momentum >= S::one()
+        {
+            return Err("final_momentum must be finite and in the range [0.0, 1.0)".to_string());
         }
         if let Some(l_kl) = self.initial_l_kl {
-            if l_kl < S::zero() {
-                return Err("initial_l_kl must be non-negative".to_string());
+            if !l_kl.is_finite() || l_kl < S::zero() {
+                return Err("initial_l_kl must be finite and non-negative".to_string());
             }
         }
         if let Some(l_kl) = self.final_l_kl {
-            if l_kl < S::zero() {
-                return Err("final_l_kl must be non-negative".to_string());
+            if !l_kl.is_finite() || l_kl < S::zero() {
+                return Err("final_l_kl must be finite and non-negative".to_string());
             }
         }
         if let Some(l_c) = self.initial_l_c {
-            if l_c < S::zero() {
-                return Err("initial_l_c must be non-negative".to_string());
+            if !l_c.is_finite() || l_c < S::zero() {
+                return Err("initial_l_c must be finite and non-negative".to_string());
             }
         }
         if let Some(l_c) = self.final_l_c {
-            if l_c < S::zero() {
-                return Err("final_l_c must be non-negative".to_string());
+            if !l_c.is_finite() || l_c < S::zero() {
+                return Err("final_l_c must be finite and non-negative".to_string());
             }
         }
         if let Some(l_r) = self.initial_l_r {
-            if l_r < S::zero() {
-                return Err("initial_l_r must be non-negative".to_string());
+            if !l_r.is_finite() || l_r < S::zero() {
+                return Err("initial_l_r must be finite and non-negative".to_string());
             }
         }
         if let Some(l_r) = self.final_l_r {
-            if l_r < S::zero() {
-                return Err("final_l_r must be non-negative".to_string());
+            if !l_r.is_finite() || l_r < S::zero() {
+                return Err("final_l_r must be finite and non-negative".to_string());
             }
         }
-        if self.r_eps <= S::zero() {
-            return Err("r_eps must be positive".to_string());
+        if !self.r_eps.is_finite() || self.r_eps <= S::zero() {
+            return Err("r_eps must be finite and positive".to_string());
         }
         if self.sigma_iters == 0 {
             return Err("sigma_iters must be greater than 0".to_string());
         }
-        if self.autostop < S::zero() {
-            return Err("autostop must be non-negative".to_string());
+        if !self.autostop.is_finite() || self.autostop < S::zero() {
+            return Err("autostop must be finite and non-negative".to_string());
         }
         if self.window_size == 0 {
             return Err("window_size must be greater than 0".to_string());

@@ -1218,4 +1218,57 @@ mod tests {
             .try_run_with_knn_adaptive(&mut d3, &[vec![], vec![]], &[1.0, 1.0, 1.0])
             .is_err());
     }
+
+    #[test]
+    fn test_tsnet_builders_reject_nan_and_inf() {
+        assert!(BhTsNetBuilder::<f64>::new()
+            .perplexity(f64::NAN)
+            .build()
+            .is_err());
+        assert!(BhTsNetBuilder::<f64>::new()
+            .learning_rate(f64::INFINITY)
+            .build()
+            .is_err());
+        assert!(FitTsNetBuilder::<f64>::new()
+            .momentum(f64::NAN)
+            .build()
+            .is_err());
+        assert!(LTsNetBuilder::<f64>::new()
+            .perplexity(f64::NAN)
+            .build()
+            .is_err());
+        assert!(TsNetBuilder::<f64>::new()
+            .perplexity(f64::NAN)
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn test_tsnet_try_run_with_knn_adaptive_rejects_bad_indices_and_distances() {
+        let mut g: Graph<(), (), petgraph::Undirected> = Graph::new_undirected();
+        for _ in 0..3 {
+            g.add_node(());
+        }
+        let mut d = DrawingEuclidean2d::<petgraph::graph::NodeIndex, f64>::initial_placement(&g);
+        let fit = FitTsNetBuilder::new().perplexity(2.0f64).build().unwrap();
+        let perps = [1.5, 1.5, 1.5];
+        // Out-of-bounds neighbor index
+        assert!(fit
+            .try_run_with_knn_adaptive(&mut d, &[vec![(3, 1.0)], vec![], vec![]], &perps)
+            .is_err());
+        // Negative / NaN distance
+        assert!(fit
+            .try_run_with_knn_adaptive(&mut d, &[vec![(1, -0.1)], vec![], vec![]], &perps)
+            .is_err());
+        assert!(fit
+            .try_run_with_knn_adaptive(&mut d, &[vec![(1, f64::NAN)], vec![], vec![]], &perps)
+            .is_err());
+        // Non-finite drawing coordinate rejected cleanly
+        {
+            use petgraph_drawing::Drawing;
+            d.raw_entry_mut(0).0 = f64::INFINITY;
+        }
+        let mut rng = StdRng::seed_from_u64(42);
+        assert!(fit.try_run(&mut d, &g, &mut rng).is_err());
+    }
 }

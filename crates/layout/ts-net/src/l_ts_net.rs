@@ -4,6 +4,7 @@ use crate::{
     partial_bfs::{
         compute_knn_probabilities_from_csr, compute_knn_probabilities_with_params,
         compute_knn_probabilities_with_perplexities, compute_partial_bfs_probabilities,
+        validate_finite_drawing,
     },
 };
 use num_traits::Float;
@@ -54,8 +55,14 @@ where
         LTsNetBuilder::new().build().unwrap()
     }
 
-    /// Executes the L-tsNET layout algorithm on the graph and drawing.
-    pub fn run<G, N, R>(&self, drawing: &mut DrawingEuclidean2d<N, S>, graph: G, rng: &mut R)
+    /// Executes the L-tsNET layout algorithm on the graph and drawing, returning an error on
+    /// node count mismatch or non-finite drawing coordinates.
+    pub fn try_run<G, N, R>(
+        &self,
+        drawing: &mut DrawingEuclidean2d<N, S>,
+        graph: G,
+        rng: &mut R,
+    ) -> Result<(), String>
     where
         G: IntoNeighbors + IntoNodeIdentifiers + NodeCount + NodeIndexable,
         G::NodeId: Copy + Eq + std::hash::Hash + DrawingIndex,
@@ -63,8 +70,15 @@ where
         R: Rng + ?Sized,
     {
         let n = drawing.len();
+        let g_n = graph.node_count();
+        if n != g_n {
+            return Err(format!(
+                "drawing node count ({n}) must match graph node count ({g_n})"
+            ));
+        }
+        validate_finite_drawing(drawing)?;
         if n < 2 {
-            return;
+            return Ok(());
         }
 
         // Step 1 (C0): Compute sparse symmetrized joint probabilities P via Partial BFS in O(N)
@@ -79,16 +93,40 @@ where
         );
 
         self.run_from_sparse_p(drawing, &sparse_p);
+        Ok(())
     }
 
-    /// Executes the L-tsNET layout algorithm using precomputed k-nearest neighbors.
-    pub fn run_with_knn<D>(&self, drawing: &mut D, knn: &[Vec<(usize, S)>])
+    /// Executes the L-tsNET layout algorithm on the graph and drawing.
+    pub fn run<G, N, R>(&self, drawing: &mut DrawingEuclidean2d<N, S>, graph: G, rng: &mut R)
+    where
+        G: IntoNeighbors + IntoNodeIdentifiers + NodeCount + NodeIndexable,
+        G::NodeId: Copy + Eq + std::hash::Hash + DrawingIndex,
+        N: Copy + Eq + std::hash::Hash + DrawingIndex,
+        R: Rng + ?Sized,
+    {
+        self.try_run(drawing, graph, rng)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    /// Validating variant of [`LTsNet::run_with_knn`] checking drawing coordinates and `knn.len() == drawing.len()`.
+    pub fn try_run_with_knn<D>(
+        &self,
+        drawing: &mut D,
+        knn: &[Vec<(usize, S)>],
+    ) -> Result<(), String>
     where
         D: Drawing<Item = MetricEuclidean2d<S>>,
     {
         let n = drawing.len();
+        if knn.len() != n {
+            return Err(format!(
+                "knn row count ({}) must match drawing node count ({n})",
+                knn.len()
+            ));
+        }
+        validate_finite_drawing(drawing)?;
         if n < 2 {
-            return;
+            return Ok(());
         }
 
         let sparse_p = compute_knn_probabilities_with_params(
@@ -101,6 +139,16 @@ where
         );
 
         self.run_from_sparse_p(drawing, &sparse_p);
+        Ok(())
+    }
+
+    /// Executes the L-tsNET layout algorithm using precomputed k-nearest neighbors.
+    pub fn run_with_knn<D>(&self, drawing: &mut D, knn: &[Vec<(usize, S)>])
+    where
+        D: Drawing<Item = MetricEuclidean2d<S>>,
+    {
+        self.try_run_with_knn(drawing, knn)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Executes the L-tsNET layout algorithm using precomputed k-NN rows and per-node perplexities.
@@ -113,6 +161,7 @@ where
     where
         D: Drawing<Item = MetricEuclidean2d<S>>,
     {
+        validate_finite_drawing(drawing)?;
         let n = drawing.len();
         let sparse_p = compute_knn_probabilities_with_perplexities(
             n,
@@ -141,6 +190,7 @@ where
     where
         D: Drawing<Item = MetricEuclidean2d<S>>,
     {
+        validate_finite_drawing(drawing)?;
         let n = drawing.len();
         let sparse_p = compute_knn_probabilities_from_csr(
             n,
@@ -353,9 +403,11 @@ where
                 // Recenter coordinates to origin
                 mean_x /= n_s;
                 mean_y /= n_s;
-                for p in &mut points {
-                    p[0] -= mean_x;
-                    p[1] -= mean_y;
+                if mean_x.is_finite() && mean_y.is_finite() {
+                    for p in &mut points {
+                        p[0] -= mean_x;
+                        p[1] -= mean_y;
+                    }
                 }
             }
         }

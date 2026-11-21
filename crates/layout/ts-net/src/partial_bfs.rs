@@ -1,11 +1,27 @@
 use num_traits::Float;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, NodeCount, NodeIndexable};
-use petgraph_drawing::{DrawingIndex, DrawingValue};
+use petgraph_drawing::{Drawing, DrawingIndex, DrawingValue, MetricEuclidean2d};
 use rand::prelude::*;
 use std::collections::HashMap;
 
 /// Sparse symmetric joint probability matrix P stored as adjacency rows `(neighbor_idx, p_ij)`.
 pub type SparseP<S> = Vec<Vec<(usize, S)>>;
+
+pub(crate) fn validate_finite_drawing<D, S>(drawing: &D) -> Result<(), String>
+where
+    D: Drawing<Item = MetricEuclidean2d<S>>,
+    S: Float,
+{
+    for i in 0..drawing.len() {
+        let entry = drawing.raw_entry(i);
+        if !entry.0.is_finite() || !entry.1.is_finite() {
+            return Err(format!(
+                "drawing coordinate at node index {i} must be finite"
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Validates that `perplexities` has length `n` and contains only finite, strictly positive values.
 fn validate_perplexities<S: Float>(n: usize, perplexities: &[S]) -> Result<(), String> {
@@ -165,6 +181,20 @@ where
         ));
     }
     validate_perplexities(n, perplexities)?;
+    for (i, row) in knn.iter().enumerate() {
+        for &(j, d) in row {
+            if j >= n {
+                return Err(format!(
+                    "knn[{i}] neighbor index {j} is out of range for {n} nodes"
+                ));
+            }
+            if !d.is_finite() || d < S::zero() {
+                return Err(format!(
+                    "knn[{i}] distance to neighbor {j} must be finite and non-negative"
+                ));
+            }
+        }
+    }
     if n < 2 {
         return Ok(vec![Vec::new(); n]);
     }
@@ -823,16 +853,7 @@ mod tests {
     #[test]
     fn test_compute_knn_probabilities_with_perplexities_matches_scalar_uniform() {
         let knn: Vec<Vec<(usize, f64)>> = vec![
-            vec![
-                (0, 0.0),
-                (99, 0.2),
-                (1, 3.0),
-                (1, 0.4),
-                (2, f64::NAN),
-                (2, 1.2),
-                (3, 2.5),
-                (4, 4.0),
-            ],
+            vec![(0, 0.0), (1, 3.0), (1, 0.4), (2, 1.2), (3, 2.5), (4, 4.0)],
             vec![(0, 0.4), (2, 0.8), (3, 1.5)],
             vec![(1, 0.8), (3, 1.1)],
             vec![(2, 1.1)],
@@ -847,6 +868,41 @@ mod tests {
             compute_knn_probabilities_with_perplexities(n, &knn, &perplexities, 2.0, 50, 1e-5)
                 .expect("valid adaptive perplexity input");
         assert_sparse_p_bit_equal(&actual, &expected, "uniform_perplexities_vs_scalar");
+
+        // Reject out-of-range neighbor indices, non-finite distances, and negative distances
+        let mut bad_oob = knn.clone();
+        bad_oob[0].push((99, 0.2));
+        assert!(compute_knn_probabilities_with_perplexities(
+            n,
+            &bad_oob,
+            &perplexities,
+            2.0,
+            50,
+            1e-5
+        )
+        .is_err());
+        let mut bad_nan = knn.clone();
+        bad_nan[0].push((2, f64::NAN));
+        assert!(compute_knn_probabilities_with_perplexities(
+            n,
+            &bad_nan,
+            &perplexities,
+            2.0,
+            50,
+            1e-5
+        )
+        .is_err());
+        let mut bad_neg = knn;
+        bad_neg[0].push((2, -0.5));
+        assert!(compute_knn_probabilities_with_perplexities(
+            n,
+            &bad_neg,
+            &perplexities,
+            2.0,
+            50,
+            1e-5
+        )
+        .is_err());
     }
 
     #[test]

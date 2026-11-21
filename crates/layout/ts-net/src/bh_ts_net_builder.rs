@@ -147,46 +147,46 @@ where
 
     /// Validates the hyperparameters and builds a new `BhTsNet` instance.
     pub fn build(self) -> Result<BhTsNet<S>, String> {
-        if self.perplexity <= S::zero() {
-            return Err("perplexity must be positive".to_string());
+        if !self.perplexity.is_finite() || self.perplexity <= S::zero() {
+            return Err("perplexity must be finite and positive".to_string());
         }
-        if self.theta <= S::zero() {
-            return Err("theta must be positive".to_string());
+        if !self.theta.is_finite() || self.theta <= S::zero() {
+            return Err("theta must be finite and positive".to_string());
         }
         if let Some(k_val) = self.k {
             if k_val == 0 {
                 return Err("k must be greater than 0".to_string());
             }
         }
-        if self.exaggeration < S::one() {
-            return Err("exaggeration must be at least 1.0".to_string());
+        if !self.exaggeration.is_finite() || self.exaggeration < S::one() {
+            return Err("exaggeration must be finite and at least 1.0".to_string());
         }
-        if self.learning_rate <= S::zero() {
-            return Err("learning_rate must be positive".to_string());
+        if !self.learning_rate.is_finite() || self.learning_rate <= S::zero() {
+            return Err("learning_rate must be finite and positive".to_string());
         }
-        if self.momentum < S::zero() || self.momentum >= S::one() {
-            return Err("momentum must be in the range [0.0, 1.0)".to_string());
+        if !self.momentum.is_finite() || self.momentum < S::zero() || self.momentum >= S::one() {
+            return Err("momentum must be finite and in the range [0.0, 1.0)".to_string());
         }
-        if self.power <= S::zero() {
-            return Err("power must be positive".to_string());
+        if !self.power.is_finite() || self.power <= S::zero() {
+            return Err("power must be finite and positive".to_string());
         }
-        if self.epsilon_r <= S::zero() {
-            return Err("epsilon_r must be positive".to_string());
+        if !self.epsilon_r.is_finite() || self.epsilon_r <= S::zero() {
+            return Err("epsilon_r must be finite and positive".to_string());
         }
-        if self.lambda_c_stage2 < S::zero() {
-            return Err("lambda_c_stage2 must be non-negative".to_string());
+        if !self.lambda_c_stage2.is_finite() || self.lambda_c_stage2 < S::zero() {
+            return Err("lambda_c_stage2 must be finite and non-negative".to_string());
         }
-        if self.lambda_c_stage3 < S::zero() {
-            return Err("lambda_c_stage3 must be non-negative".to_string());
+        if !self.lambda_c_stage3.is_finite() || self.lambda_c_stage3 < S::zero() {
+            return Err("lambda_c_stage3 must be finite and non-negative".to_string());
         }
-        if self.lambda_r_stage3 < S::zero() {
-            return Err("lambda_r_stage3 must be non-negative".to_string());
+        if !self.lambda_r_stage3.is_finite() || self.lambda_r_stage3 < S::zero() {
+            return Err("lambda_r_stage3 must be finite and non-negative".to_string());
         }
         if self.sigma_iters == 0 {
             return Err("sigma_iters must be greater than 0".to_string());
         }
-        if self.sigma_tolerance <= S::zero() {
-            return Err("sigma_tolerance must be positive".to_string());
+        if !self.sigma_tolerance.is_finite() || self.sigma_tolerance <= S::zero() {
+            return Err("sigma_tolerance must be finite and positive".to_string());
         }
 
         let effective_k = match self.k {

@@ -1,4 +1,4 @@
-use crate::TsNetBuilder;
+use crate::{partial_bfs::validate_finite_drawing, TsNetBuilder};
 use ndarray::Array2;
 use num_traits::Float;
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
@@ -90,16 +90,28 @@ where
         TsNetBuilder::new_star()
     }
 
-    /// Runs the tsNET layout algorithm on the provided drawing using the distance matrix.
+    /// Runs the tsNET layout algorithm on the provided drawing using the distance matrix,
+    /// returning an error on shape mismatch or non-finite drawing coordinates.
     #[allow(clippy::needless_range_loop)]
-    pub fn run<N, D>(&self, drawing: &mut DrawingEuclidean2d<N, S>, distance_matrix: &D)
+    pub fn try_run<N, D>(
+        &self,
+        drawing: &mut DrawingEuclidean2d<N, S>,
+        distance_matrix: &D,
+    ) -> Result<(), String>
     where
         N: Copy + Eq + std::hash::Hash + DrawingIndex,
         D: Distance<N, S> + ?Sized,
     {
         let n = drawing.len();
+        let (dm_rows, dm_cols) = distance_matrix.shape();
+        if dm_rows != n || dm_cols != n {
+            return Err(format!(
+                "distance matrix shape ({dm_rows}, {dm_cols}) must match drawing node count ({n}, {n})"
+            ));
+        }
+        validate_finite_drawing(drawing)?;
         if n < 2 {
-            return;
+            return Ok(());
         }
 
         // Step 1: Preprocess distance matrix:
@@ -124,7 +136,11 @@ where
             for j in (i + 1)..n {
                 let dij = distance_matrix.get_by_index(i, j);
                 let dji = distance_matrix.get_by_index(j, i);
-                let d_sym = (dij + dji) / S::from_f32(2.0).unwrap();
+                let d_sym = if dij.is_finite() && dji.is_finite() {
+                    (dij + dji) / S::from_f32(2.0).unwrap()
+                } else {
+                    max_d
+                };
                 let d_norm = (d_sym / max_d).max(S::zero());
                 x_mat[[i, j]] = d_norm;
                 x_mat[[j, i]] = d_norm;
@@ -448,6 +464,17 @@ where
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Runs the tsNET layout algorithm on the provided drawing using the distance matrix.
+    pub fn run<N, D>(&self, drawing: &mut DrawingEuclidean2d<N, S>, distance_matrix: &D)
+    where
+        N: Copy + Eq + std::hash::Hash + DrawingIndex,
+        D: Distance<N, S> + ?Sized,
+    {
+        self.try_run(drawing, distance_matrix)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 }
 
