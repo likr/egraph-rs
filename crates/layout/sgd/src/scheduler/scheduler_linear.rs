@@ -37,12 +37,21 @@ where
     /// # Returns
     /// A new SchedulerLinear instance
     fn init(t_max: usize, eta_min: S, eta_max: S) -> Self {
-        Self {
-            t: 0,
-            t_max,
-            a: eta_max,
-            b: (eta_max - eta_min) / S::from_usize(t_max - 1).unwrap(),
+        if !eta_min.is_finite() || !eta_max.is_finite() {
+            return Self {
+                t: 0,
+                t_max,
+                a: S::zero(),
+                b: S::zero(),
+            };
         }
+        let a = eta_max;
+        let b = if t_max <= 1 {
+            S::zero()
+        } else {
+            (eta_max - eta_min) / S::from_usize(t_max - 1).unwrap()
+        };
+        Self { t: 0, t_max, a, b }
     }
 
     /// Performs a single step of the scheduling process.

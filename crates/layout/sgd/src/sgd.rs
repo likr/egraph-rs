@@ -141,11 +141,15 @@ where
                 }
             }
         }
-        if w_max <= S::zero() || !w_min.is_finite() {
+        if !epsilon.is_finite() || epsilon <= S::zero() || w_max <= S::zero() || !w_min.is_finite()
+        {
             return (S::zero(), S::zero());
         }
         let eta_max = S::one() / w_min;
         let eta_min = epsilon / w_max;
+        if !eta_min.is_finite() || !eta_max.is_finite() {
+            return (S::zero(), S::zero());
+        }
         (eta_min, eta_max)
     }
 
@@ -170,14 +174,25 @@ where
         M: Metric<D = Diff>,
     {
         let (i, j, dij, dji, wij, wji) = pair;
-        if dij.is_infinite() || dji.is_infinite() || (wij <= S::zero() && wji <= S::zero()) {
+        if !dij.is_finite() || !dji.is_finite() {
             return;
         }
-        let mu_i = (eta * wij).min(S::one());
-        let mu_j = (eta * wji).min(S::one());
+        let mu_i = if wij.is_finite() && wij > S::zero() {
+            (eta * wij).min(S::one())
+        } else {
+            S::zero()
+        };
+        let mu_j = if wji.is_finite() && wji > S::zero() {
+            (eta * wji).min(S::one())
+        } else {
+            S::zero()
+        };
+        if mu_i <= S::zero() && mu_j <= S::zero() {
+            return;
+        }
         let delta = drawing.delta(i, j);
         let norm = delta.norm();
-        if norm > S::zero() {
+        if norm.is_finite() && norm > S::zero() {
             let r_i = S::from_f32(0.5).unwrap() * (norm - dij) / norm;
             let r_j = S::from_f32(0.5).unwrap() * (norm - dji) / norm;
             *drawing.raw_entry_mut(i) += delta.clone() * -r_i * mu_i;
@@ -252,6 +267,9 @@ where
         Diff: Delta<S = S>,
         M: Metric<D = Diff>,
     {
+        if !eta.is_finite() || eta <= S::zero() {
+            return;
+        }
         if self.hinge_pairs.is_empty() {
             for &pair in &self.node_pairs {
                 Self::apply_spring_pair(drawing, eta, pair);
@@ -294,6 +312,31 @@ where
         }
     }
 
+    /// Fallible variant of [`Sgd::update_distance`] propagating errors without partial updates.
+    pub fn try_update_distance<E, F>(&mut self, mut distance: F) -> Result<(), E>
+    where
+        F: FnMut(usize, usize, S, S) -> Result<S, E>,
+        S: Copy,
+    {
+        let mut updates = Vec::with_capacity(self.node_pairs.len() + self.hinge_pairs.len());
+        for p in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
+            let (i, j, dij, dji, wij, wji) = *p;
+            let new_dij = distance(i, j, dij, wij)?;
+            let new_dji = distance(j, i, dji, wji)?;
+            updates.push((new_dij, new_dji));
+        }
+        for (p, (new_dij, new_dji)) in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+            .zip(updates)
+        {
+            p.2 = new_dij;
+            p.3 = new_dji;
+        }
+        Ok(())
+    }
+
     /// Updates the weights for all node pairs using the provided function.
     ///
     /// Weights control how strongly each node pair affects the layout. Higher weights
@@ -318,29 +361,50 @@ where
         }
     }
 
-    fn validate_pair_bounds(&self, n: usize) {
-        for &(i, j, _, _, _, _) in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
-            assert!(
-                i < n && j < n,
-                "Sgd: pair ({}, {}) out of bounds for matrix size {}",
-                i,
-                j,
-                n
-            );
+    /// Fallible variant of [`Sgd::update_weight`] propagating errors without partial updates.
+    pub fn try_update_weight<E, F>(&mut self, mut weight: F) -> Result<(), E>
+    where
+        F: FnMut(usize, usize, S, S) -> Result<S, E>,
+        S: Copy,
+    {
+        let mut updates = Vec::with_capacity(self.node_pairs.len() + self.hinge_pairs.len());
+        for p in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
+            let (i, j, dij, dji, wij, wji) = *p;
+            let new_wij = weight(i, j, dij, wij)?;
+            let new_wji = weight(j, i, dji, wji)?;
+            updates.push((new_wij, new_wji));
         }
+        for (p, (new_wij, new_wji)) in self
+            .node_pairs
+            .iter_mut()
+            .chain(self.hinge_pairs.iter_mut())
+            .zip(updates)
+        {
+            p.4 = new_wij;
+            p.5 = new_wji;
+        }
+        Ok(())
     }
 
-    /// Updates weights for all node pairs from an `(n, n)` weight matrix.
-    ///
-    /// Sets `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
-    pub fn update_weight_from_array(&mut self, w: ArrayView2<S>) {
+    /// Validates that all spring and hinge pair indices are strictly less than `n`.
+    pub fn try_validate_bounds(&self, n: usize) -> Result<(), String> {
+        for &(i, j, _, _, _, _) in self.node_pairs.iter().chain(self.hinge_pairs.iter()) {
+            if i >= n || j >= n {
+                return Err(format!("Sgd: pair ({i}, {j}) out of bounds for size {n}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Updates weights for all node pairs from an `(n, n)` weight matrix, returning an error on shape or bounds mismatch.
+    pub fn try_update_weight_from_array(&mut self, w: ArrayView2<S>) -> Result<(), String> {
         let (rows, cols) = w.dim();
-        assert_eq!(
-            rows, cols,
-            "Sgd::update_weight_from_array: expected square matrix, got ({}, {})",
-            rows, cols
-        );
-        self.validate_pair_bounds(rows);
+        if rows != cols {
+            return Err(format!(
+                "Sgd::update_weight_from_array: expected square matrix, got ({rows}, {cols})"
+            ));
+        }
+        self.try_validate_bounds(rows)?;
         for p in self
             .node_pairs
             .iter_mut()
@@ -349,30 +413,38 @@ where
             p.4 = w[[p.0, p.1]];
             p.5 = w[[p.1, p.0]];
         }
+        Ok(())
     }
 
-    /// Updates target distances (and optionally weights) from `(n, n)` matrices.
+    /// Updates weights for all node pairs from an `(n, n)` weight matrix.
     ///
-    /// Sets `pair.2 = d[[pair.0, pair.1]]`, `pair.3 = d[[pair.1, pair.0]]`,
-    /// and when `w` is `Some`, updates `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
-    pub fn update_distance_from_array(&mut self, d: ArrayView2<S>, w: Option<ArrayView2<S>>) {
+    /// Sets `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
+    pub fn update_weight_from_array(&mut self, w: ArrayView2<S>) {
+        self.try_update_weight_from_array(w)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    /// Updates target distances (and optionally weights) from `(n, n)` matrices, returning an error on shape or bounds mismatch.
+    pub fn try_update_distance_from_array(
+        &mut self,
+        d: ArrayView2<S>,
+        w: Option<ArrayView2<S>>,
+    ) -> Result<(), String> {
         let (rows, cols) = d.dim();
-        assert_eq!(
-            rows, cols,
-            "Sgd::update_distance_from_array: expected square distance matrix, got ({}, {})",
-            rows, cols
-        );
-        if let Some(w_arr) = w {
-            assert_eq!(
-                w_arr.dim(),
-                (rows, cols),
-                "Sgd::update_distance_from_array: weight matrix shape {:?} does not match distance matrix shape ({}, {})",
-                w_arr.dim(),
-                rows,
-                cols
-            );
+        if rows != cols {
+            return Err(format!(
+                "Sgd::update_distance_from_array: expected square distance matrix, got ({rows}, {cols})"
+            ));
         }
-        self.validate_pair_bounds(rows);
+        if let Some(w_arr) = w {
+            if w_arr.dim() != (rows, cols) {
+                return Err(format!(
+                    "Sgd::update_distance_from_array: weight matrix shape {:?} does not match distance matrix shape ({rows}, {cols})",
+                    w_arr.dim()
+                ));
+            }
+        }
+        self.try_validate_bounds(rows)?;
         for p in self
             .node_pairs
             .iter_mut()
@@ -385,6 +457,16 @@ where
                 p.5 = w_arr[[p.1, p.0]];
             }
         }
+        Ok(())
+    }
+
+    /// Updates target distances (and optionally weights) from `(n, n)` matrices.
+    ///
+    /// Sets `pair.2 = d[[pair.0, pair.1]]`, `pair.3 = d[[pair.1, pair.0]]`,
+    /// and when `w` is `Some`, updates `pair.4 = w[[pair.0, pair.1]]` and `pair.5 = w[[pair.1, pair.0]]`.
+    pub fn update_distance_from_array(&mut self, d: ArrayView2<S>, w: Option<ArrayView2<S>>) {
+        self.try_update_distance_from_array(d, w)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 }
 
@@ -508,5 +590,46 @@ mod tests {
         assert_eq!(empty_sgd.calculate_eta_bounds(0.01), (0.0, 0.0));
         let zero_w = Sgd::new(vec![(0, 1, 1.0_f64, 1.0, 0.0, 0.0)]);
         assert_eq!(zero_w.calculate_eta_bounds(0.01), (0.0, 0.0));
+    }
+
+    #[test]
+    fn test_sgd_schedulers_empty_pairs_and_small_tmax_finite() {
+        use crate::{
+            Scheduler, SchedulerConstant, SchedulerExponential, SchedulerLinear,
+            SchedulerQuadratic, SchedulerReciprocal,
+        };
+
+        let empty_sgd = Sgd::<f64>::new(vec![]);
+        for t_max in [0usize, 1, 5] {
+            let mut c: SchedulerConstant<f64> = empty_sgd.scheduler(t_max, 0.01);
+            let mut l: SchedulerLinear<f64> = empty_sgd.scheduler(t_max, 0.01);
+            let mut q: SchedulerQuadratic<f64> = empty_sgd.scheduler(t_max, 0.01);
+            let mut e: SchedulerExponential<f64> = empty_sgd.scheduler(t_max, 0.01);
+            let mut r: SchedulerReciprocal<f64> = empty_sgd.scheduler(t_max, 0.01);
+            c.run(&mut |eta| assert!(eta.is_finite()));
+            l.run(&mut |eta| assert!(eta.is_finite()));
+            q.run(&mut |eta| assert!(eta.is_finite()));
+            e.run(&mut |eta| assert!(eta.is_finite()));
+            r.run(&mut |eta| assert!(eta.is_finite()));
+        }
+
+        // t_max=1 on non-empty Sgd with SchedulerLinear must not emit NaN
+        let sgd = Sgd::new(vec![(0, 1, 1.0_f64, 1.0, 1.0, 1.0)]);
+        let mut lin1: SchedulerLinear<f64> = sgd.scheduler(1, 0.01);
+        let mut seen = Vec::new();
+        lin1.run(&mut |eta| seen.push(eta));
+        assert_eq!(seen.len(), 1);
+        assert!(seen[0].is_finite());
+
+        // apply(drawing, NaN) must be a no-op
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let u = g.add_node(());
+        let v = g.add_node(());
+        let mut d = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        d.raw_entry_mut(0).0 = 0.0;
+        d.raw_entry_mut(1).0 = 3.0;
+        sgd.apply(&mut d, f64::NAN);
+        assert_eq!(d.x(u).unwrap(), 0.0);
+        assert_eq!(d.x(v).unwrap(), 3.0);
     }
 }

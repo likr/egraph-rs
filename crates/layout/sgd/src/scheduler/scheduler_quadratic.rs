@@ -39,8 +39,20 @@ where
     /// # Returns
     /// A new SchedulerQuadratic instance
     fn init(t_max: usize, eta_min: S, eta_max: S) -> Self {
+        if !eta_min.is_finite()
+            || !eta_max.is_finite()
+            || eta_min <= S::zero()
+            || eta_max <= S::zero()
+        {
+            return Self {
+                t: 0,
+                t_max,
+                a: S::zero(),
+                b: S::zero(),
+            };
+        }
         let a = eta_max;
-        let b = if t_max == 1 {
+        let b = if t_max <= 1 {
             S::zero()
         } else {
             (S::one() + (eta_min / eta_max).sqrt()) / S::from_usize(t_max - 1).unwrap()

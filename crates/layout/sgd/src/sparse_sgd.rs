@@ -266,10 +266,28 @@ impl SparseSgd {
         S: DrawingValue,
         K: petgraph_linalg_kernel::PivotedKernel<S>,
     {
-        self.build_with_pivoted_kernel_distance(
+        self.try_build_with_pivoted_neg_log_distance(graph, length, distance_matrix)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_build_with_pivoted_neg_log_distance<G, F, K, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &petgraph_linalg_kernel::PivotedNegLogDistance<G::NodeId, S, K>,
+    ) -> Result<Sgd<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+        K: petgraph_linalg_kernel::PivotedKernel<S>,
+    {
+        self.try_build_with_pivoted_kernel_distance(
             graph,
             length,
             distance_matrix.pivots(),
+            distance_matrix.shape().0,
             distance_matrix,
         )
     }
@@ -287,21 +305,40 @@ impl SparseSgd {
         S: DrawingValue,
         K: petgraph_linalg_kernel::PivotedKernel<S>,
     {
-        self.build_with_pivoted_kernel_distance(
+        self.try_build_with_pivoted_neg_log_sim_distance(graph, length, distance_matrix)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_build_with_pivoted_neg_log_sim_distance<G, F, K, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &petgraph_linalg_kernel::PivotedNegLogSimDistance<G::NodeId, S, K>,
+    ) -> Result<Sgd<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+        K: petgraph_linalg_kernel::PivotedKernel<S>,
+    {
+        self.try_build_with_pivoted_kernel_distance(
             graph,
             length,
             distance_matrix.pivots(),
+            distance_matrix.shape().0,
             distance_matrix,
         )
     }
 
-    fn build_with_pivoted_kernel_distance<G, F, S>(
+    fn try_build_with_pivoted_kernel_distance<G, F, S>(
         &self,
         graph: G,
         length: F,
         pivots: &[usize],
+        dist_node_count: usize,
         distance_matrix: &dyn Distance<G::NodeId, S>,
-    ) -> Sgd<S>
+    ) -> Result<Sgd<S>, String>
     where
         G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
         G::NodeId: DrawingIndex + Ord,
@@ -309,8 +346,22 @@ impl SparseSgd {
         S: DrawingValue,
     {
         let nodes = graph.node_identifiers().collect::<Vec<_>>();
-        let pivot_nodes = pivots.iter().map(|&idx| nodes[idx]).collect::<Vec<_>>();
-        self.build_with_pivot_and_distance_matrix(graph, length, &pivot_nodes, distance_matrix)
+        let n = nodes.len();
+        if dist_node_count != n {
+            return Err(format!(
+                "distance matrix node count ({dist_node_count}) must match graph node count ({n})"
+            ));
+        }
+        let mut pivot_nodes = Vec::with_capacity(pivots.len());
+        for &idx in pivots {
+            let Some(&node) = nodes.get(idx) else {
+                return Err(format!(
+                    "pivot index {idx} is out of bounds for graph with {n} nodes"
+                ));
+            };
+            pivot_nodes.push(node);
+        }
+        Ok(self.build_with_pivot_and_distance_matrix(graph, length, &pivot_nodes, distance_matrix))
     }
 
     pub fn build_with_pivoted_distance_matrix<G, F, S>(
@@ -325,12 +376,42 @@ impl SparseSgd {
         F: FnMut(G::EdgeRef) -> S,
         S: DrawingValue,
     {
-        self.build_with_pivot_and_distance_matrix(
+        self.try_build_with_pivoted_distance_matrix(graph, length, distance_matrix)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_build_with_pivoted_distance_matrix<G, F, S>(
+        &self,
+        graph: G,
+        length: F,
+        distance_matrix: &PivotedDistanceMatrix<G::NodeId, S>,
+    ) -> Result<Sgd<S>, String>
+    where
+        G: IntoEdges + IntoNodeIdentifiers + NodeIndexable,
+        G::NodeId: DrawingIndex + Ord,
+        F: FnMut(G::EdgeRef) -> S,
+        S: DrawingValue,
+    {
+        let nodes = graph.node_identifiers().collect::<Vec<_>>();
+        let n = nodes.len();
+        let dist_n = distance_matrix.shape().1;
+        if dist_n != n {
+            return Err(format!(
+                "pivoted distance matrix node count ({dist_n}) must match graph node count ({n})"
+            ));
+        }
+        let node_set: HashSet<G::NodeId> = nodes.into_iter().collect();
+        for &p in distance_matrix.pivots() {
+            if !node_set.contains(&p) {
+                return Err("pivoted distance matrix contains pivot not in graph".to_string());
+            }
+        }
+        Ok(self.build_with_pivot_and_distance_matrix(
             graph,
             length,
             distance_matrix.pivots(),
             distance_matrix,
-        )
+        ))
     }
 
     pub fn build_with_pivot_and_distance_matrix<G, F, S>(
@@ -353,6 +434,15 @@ impl SparseSgd {
             .map(|(i, &u)| (u, i))
             .collect::<HashMap<_, _>>();
         let n = indices.len();
+        // Deduplicate pivots preserving first-seen order so duplicate pivots never overwrite
+        // `pivot_slot` or leak 2-hop pairs into Tier 3 hinge repulsion.
+        let mut seen_pivots = HashSet::with_capacity(pivot.len());
+        let unique_pivots: Vec<G::NodeId> = pivot
+            .iter()
+            .copied()
+            .filter(|u| seen_pivots.insert(*u))
+            .collect();
+        let pivot = &unique_pivots;
         let h = pivot.len();
         let is_legacy = !self.calibrate_one_hop
             && self.max_2hop_per_node == 0
@@ -721,34 +811,30 @@ impl SparseSgd {
         }
 
         let n = graph.node_count();
-        if n > 0 {
-            if d_ms.nrows() != n {
+        if d_ms.nrows() != n {
+            return Err(format!(
+                "d_ms row count ({}) must match node count ({n})",
+                d_ms.nrows()
+            ));
+        }
+        if n > 0 && d_ms.ncols() == 0 {
+            return Err("d_ms must have at least 1 landmark column when n > 0".to_string());
+        }
+        if d_ms.iter().any(|&v| !v.is_finite()) {
+            return Err("d_ms must contain only finite float64 values".to_string());
+        }
+        if let Some(dc) = d_coarse {
+            if dc.nrows() != n {
                 return Err(format!(
-                    "d_ms row count ({}) must match node count ({n})",
-                    d_ms.nrows()
+                    "d_coarse row count ({}) must match node count ({n})",
+                    dc.nrows()
                 ));
             }
-            if n > 1 && d_ms.ncols() == 0 {
-                return Err("d_ms must have at least 1 landmark column when n > 1".to_string());
+            if n > 0 && dc.ncols() == 0 {
+                return Err("d_coarse must have at least 1 landmark column when n > 0".to_string());
             }
-            if d_ms.iter().any(|&v| !v.is_finite()) {
-                return Err("d_ms must contain only finite float64 values".to_string());
-            }
-            if let Some(dc) = d_coarse {
-                if dc.nrows() != n {
-                    return Err(format!(
-                        "d_coarse row count ({}) must match node count ({n})",
-                        dc.nrows()
-                    ));
-                }
-                if n > 1 && dc.ncols() == 0 {
-                    return Err(
-                        "d_coarse must have at least 1 landmark column when n > 1".to_string()
-                    );
-                }
-                if dc.iter().any(|&v| !v.is_finite()) {
-                    return Err("d_coarse must contain only finite float64 values".to_string());
-                }
+            if dc.iter().any(|&v| !v.is_finite()) {
+                return Err("d_coarse must contain only finite float64 values".to_string());
             }
         }
         for &p in pivots {
@@ -758,6 +844,13 @@ impl SparseSgd {
                 ));
             }
         }
+        let mut seen_pivots = HashSet::with_capacity(pivots.len());
+        let unique_pivots: Vec<usize> = pivots
+            .iter()
+            .copied()
+            .filter(|&p| seen_pivots.insert(p))
+            .collect();
+        let pivots = unique_pivots.as_slice();
 
         if n <= 1 {
             let (perplexity_val, per_node_neg_used, perplexity_source) = match neg_per_node {
@@ -986,6 +1079,9 @@ where
     let nodes = graph.node_identifiers().collect::<Vec<_>>();
     let mut length = length;
     let n = indices.len();
+    if n == 0 || h == 0 {
+        return (vec![], PivotedDistanceMatrix::empty(graph));
+    }
     let mut pivot = vec![];
     pivot.push(nodes[rng.gen_range(0..n)]);
     let mut distance_matrix = PivotedDistanceMatrix::empty(graph);
@@ -1279,22 +1375,61 @@ where
     S: DrawingValue,
 {
     let n = values.len();
-    let mut s = 0.0;
-    for i in 0..n {
-        s += values[i].to_f32().unwrap();
+    assert!(n > 0, "proportional_sampling requires non-empty values");
+
+    // On disconnected graphs, unreachable nodes have +inf distance; sample uniformly among
+    // them so pivots naturally cover separate connected components without range overflow.
+    let inf_indices: Vec<usize> = values
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| (v.is_infinite() && *v > S::zero()).then_some(i))
+        .collect();
+    if !inf_indices.is_empty() {
+        return inf_indices[rng.gen_range(0..inf_indices.len())];
     }
-    if s == 0.0 {
-        panic!("could not choose pivot");
+
+    let mut s = 0.0_f32;
+    let mut pos_count = 0usize;
+    let mut last_pos = n - 1;
+    for i in 0..n {
+        if let Some(v) = values[i].to_f32() {
+            if v.is_finite() && v > 0.0 {
+                s += v;
+                pos_count += 1;
+                last_pos = i;
+            }
+        }
+    }
+    if !s.is_finite() {
+        let mut pick = rng.gen_range(0..pos_count);
+        for i in 0..n {
+            if let Some(v) = values[i].to_f32() {
+                if v.is_finite() && v > 0.0 {
+                    if pick == 0 {
+                        return i;
+                    }
+                    pick -= 1;
+                }
+            }
+        }
+        return last_pos;
+    }
+    if s <= 0.0 {
+        return rng.gen_range(0..n);
     }
     let x = rng.gen_range(0.0..s);
     s = 0.0;
     for i in 0..n {
-        s += values[i].to_f32().unwrap();
-        if x < s {
-            return i;
+        if let Some(v) = values[i].to_f32() {
+            if v.is_finite() && v > 0.0 {
+                s += v;
+                if x < s {
+                    return i;
+                }
+            }
         }
     }
-    n - 1
+    last_pos
 }
 
 #[cfg(test)]
@@ -1503,6 +1638,91 @@ mod tests {
             .is_err());
         assert!(SparseSgd::barrier()
             .build_barrier_from_landmark_tables(&g, d_ms.view(), None, &[10], Some(4))
+            .is_err());
+    }
+
+    #[test]
+    fn test_sparse_sgd_disconnected_and_zero_weight_graphs_no_panic() {
+        let mut g_disc = UnGraph::<(), ()>::new_undirected();
+        let dn: Vec<_> = (0..5).map(|_| g_disc.add_node(())).collect();
+        g_disc.add_edge(dn[0], dn[1], ());
+        g_disc.add_edge(dn[2], dn[3], ());
+        let mut rng = StdRng::seed_from_u64(42);
+        let sgd_legacy = SparseSgd::new().h(4).build(&g_disc, |_| 1.0_f64, &mut rng);
+        assert!(!sgd_legacy.node_pairs().is_empty());
+        let sgd_barrier = SparseSgd::barrier()
+            .h(4)
+            .build(&g_disc, |_| 1.0_f64, &mut rng);
+        assert!(!sgd_barrier.node_pairs().is_empty());
+
+        let g_cycle = cycle_graph(5);
+        let sgd_zero = SparseSgd::new().h(3).build(&g_cycle, |_| 0.0_f64, &mut rng);
+        assert_eq!(sgd_zero.node_pairs().len(), 5);
+    }
+
+    #[test]
+    fn test_sparse_sgd_barrier_duplicate_pivots_preserve_2hop_partition() {
+        let g = cycle_graph(6);
+        let nodes: Vec<_> = g.node_indices().collect();
+        let sgd_unique = SparseSgd::barrier()
+            .h(1)
+            .max_2hop_per_node(4)
+            .build_with_pivot(&g, |_| 1.0_f64, &[nodes[0]]);
+        let sgd_dup = SparseSgd::barrier()
+            .h(2)
+            .max_2hop_per_node(4)
+            .build_with_pivot(&g, |_| 1.0_f64, &[nodes[0], nodes[0]]);
+        assert_eq!(sgd_dup.node_pairs().len(), sgd_unique.node_pairs().len());
+        assert_eq!(sgd_dup.hinge_pairs().len(), sgd_unique.hinge_pairs().len());
+    }
+
+    #[test]
+    fn test_build_barrier_from_landmark_tables_n0_and_n1_validation() {
+        let empty = UnGraph::<(), ()>::new_undirected();
+        let bad_rows = Array2::from_elem((3, 1), f64::NAN);
+        assert!(SparseSgd::barrier()
+            .build_barrier_from_landmark_tables(&empty, bad_rows.view(), None, &[], None)
+            .is_err());
+
+        let ok_empty = Array2::<f64>::zeros((0, 0));
+        assert!(SparseSgd::barrier()
+            .build_barrier_from_landmark_tables(&empty, ok_empty.view(), None, &[], None)
+            .is_ok());
+
+        let mut single = UnGraph::<(), ()>::new_undirected();
+        single.add_node(());
+        let bad_n1 = Array2::<f64>::zeros((1, 0));
+        assert!(SparseSgd::barrier()
+            .build_barrier_from_landmark_tables(&single, bad_n1.view(), None, &[], None)
+            .is_err());
+        let ok_n1 = Array2::<f64>::zeros((1, 1));
+        assert!(SparseSgd::barrier()
+            .build_barrier_from_landmark_tables(&single, ok_n1.view(), None, &[], None)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_sparse_sgd_try_build_with_mismatched_pivoted_distance_returns_err() {
+        let g3 = cycle_graph(3);
+        let g10 = cycle_graph(10);
+        let lap10 = SparseSymmetricMatrix::symmetric_normalized_laplacian(&g10, |_| 1.0_f64);
+        let mut rng = StdRng::seed_from_u64(1);
+        let pk10 = PivotedBandPassDiffusionKernelBuilder::dog(
+            &lap10,
+            0.5_f64,
+            2.0_f64,
+            0.5_f64,
+            0.05_f64,
+            10,
+            vec![8, 9],
+        )
+        .build(&mut rng)
+        .unwrap();
+        let dist10 = PivotedNegLogSimDistanceBuilder::new()
+            .build(&g10, pk10)
+            .unwrap();
+        assert!(SparseSgd::barrier()
+            .try_build_with_pivoted_neg_log_sim_distance(&g3, |_| 1.0_f64, &dist10)
             .is_err());
     }
 }
