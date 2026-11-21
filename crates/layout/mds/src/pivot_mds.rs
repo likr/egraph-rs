@@ -175,20 +175,30 @@ where
         N: Copy,
         S: Default,
     {
-        let ct_c = self.c.t().dot(&self.c);
-        let (mut e, v) = eigendecomposition(&ct_c, 2, self.eps);
-
-        // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = (1e-10).into();
-        for i in 0..e.len() {
-            if e[i] < epsilon {
-                e[i] = S::zero();
-            }
+        let n = self.c.nrows();
+        let k = self.c.ncols();
+        let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
+        if n == 0 || k == 0 {
+            return drawing;
         }
 
-        let xy = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(S::zero()).sqrt())));
+        let ct_c = self.c.t().dot(&self.c);
+        let (e, v) = eigendecomposition(&ct_c, 2, self.eps);
+
+        // Zero out non-positive or tiny eigenvalues to avoid NaN/Inf when taking e^(-1/4).
+        // Scale by (n / k)^(1/4) * e^(-1/4) so C * V * diag(weights) approximates U * Sigma^(1/2).
+        let epsilon: S = (1e-10).into();
+        let scale = S::from_f64((n as f64 / k as f64).powf(0.25)).unwrap();
+        let weights = e.mapv(|val| {
+            if val > epsilon {
+                scale / val.sqrt().sqrt()
+            } else {
+                S::zero()
+            }
+        });
+
+        let xy = v.dot(&Array2::from_diag(&weights));
         let xy = self.c.dot(&xy);
-        let mut drawing = DrawingEuclidean2d::from_node_indices(&self.indices);
         for (i, &u) in self.indices.iter().enumerate() {
             if let Some(p) = drawing.position_mut(u) {
                 p.0 = xy[[i, 0]];
@@ -215,20 +225,30 @@ where
         N: Copy,
         S: Default,
     {
-        let ct_c = self.c.t().dot(&self.c);
-        let (mut e, v) = eigendecomposition(&ct_c, d, self.eps);
-
-        // Filter out negative or very small eigenvalues to avoid NaN values
-        let epsilon = (1e-10).into();
-        for i in 0..e.len() {
-            if e[i] < epsilon {
-                e[i] = S::zero();
-            }
+        let n = self.c.nrows();
+        let k = self.c.ncols();
+        let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
+        if n == 0 || k == 0 || d == 0 {
+            return drawing;
         }
 
-        let x = v.dot(&Array2::from_diag(&e.mapv(|v| v.max(S::zero()).sqrt())));
+        let ct_c = self.c.t().dot(&self.c);
+        let (e, v) = eigendecomposition(&ct_c, d, self.eps);
+
+        // Zero out non-positive or tiny eigenvalues to avoid NaN/Inf when taking e^(-1/4).
+        // Scale by (n / k)^(1/4) * e^(-1/4) so C * V * diag(weights) approximates U * Sigma^(1/2).
+        let epsilon: S = (1e-10).into();
+        let scale = S::from_f64((n as f64 / k as f64).powf(0.25)).unwrap();
+        let weights = e.mapv(|val| {
+            if val > epsilon {
+                scale / val.sqrt().sqrt()
+            } else {
+                S::zero()
+            }
+        });
+
+        let x = v.dot(&Array2::from_diag(&weights));
         let x = self.c.dot(&x);
-        let mut drawing = DrawingEuclidean::from_node_indices(&self.indices, d);
         for (i, &u) in self.indices.iter().enumerate() {
             if let Some(p) = drawing.position_mut(u) {
                 for j in 0..d {

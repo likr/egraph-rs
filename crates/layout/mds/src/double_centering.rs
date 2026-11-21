@@ -28,6 +28,9 @@ use petgraph_drawing::DrawingValue;
 pub fn double_centering<S: DrawingValue>(delta: &Array2<S>) -> Array2<S> {
     let n = delta.shape()[0];
     let k = delta.shape()[1];
+    if n == 0 || k == 0 {
+        return Array::zeros((n, k));
+    }
     let sum_col = delta.mean_axis(Axis(1)).unwrap();
     let sum_row = delta.mean_axis(Axis(0)).unwrap();
     let sum_all = sum_col.mean().unwrap();
