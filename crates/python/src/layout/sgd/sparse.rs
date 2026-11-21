@@ -248,8 +248,9 @@ impl PySparseSgd {
 
         let sgd = match graph.graph() {
             GraphType::Graph(native_graph) => {
+                let resolved_len = edge_length.resolve_for_graph(native_graph)?;
                 let len_closure =
-                    |e: petgraph::graph::EdgeReference<Py<PyAny>>| edge_length.eval(e.id().index());
+                    |e: petgraph::graph::EdgeReference<Py<PyAny>>| resolved_len.get(e.id().index());
                 match rng_opt {
                     Some(mut r) => self.builder.build(native_graph, len_closure, r.get_mut()),
                     None => {
@@ -294,9 +295,10 @@ impl PySparseSgd {
         let sgd = match graph.graph() {
             GraphType::Graph(native_graph) => {
                 let pivot_nodes = collect_pivot_nodes(native_graph, &pivot_vec)?;
+                let resolved_len = edge_length.resolve_for_graph(native_graph)?;
                 self.builder.build_with_pivot(
                     native_graph,
-                    |e| edge_length.eval(e.id().index()),
+                    |e| resolved_len.get(e.id().index()),
                     &pivot_nodes,
                 )
             }
@@ -346,10 +348,11 @@ impl PySparseSgd {
                     )));
                 }
                 let pivot_nodes = collect_pivot_nodes(native_graph, &pivot_vec)?;
+                let resolved_len = edge_length.resolve_for_graph(native_graph)?;
                 let sgd = with_distance(d_bound, |distance| {
                     self.builder.build_with_pivot_and_distance_matrix(
                         native_graph,
-                        |e| edge_length.eval(e.id().index()),
+                        |e| resolved_len.get(e.id().index()),
                         &pivot_nodes,
                         distance,
                     )
@@ -387,8 +390,9 @@ impl PySparseSgd {
                 "unsupported graph type",
             ));
         };
+        let resolved_len = edge_length.resolve_for_graph(native_graph)?;
         let len_closure = |e: petgraph::graph::EdgeReference<Py<PyAny>>| -> FloatType {
-            edge_length.eval(e.id().index())
+            resolved_len.get(e.id().index())
         };
 
         if let Ok(dm) = d_bound.extract::<PyRef<PyPivotedNegLogSimDistance>>() {

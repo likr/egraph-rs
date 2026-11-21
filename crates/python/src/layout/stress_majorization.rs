@@ -91,11 +91,16 @@ impl PyStressMajorization {
         let edge_len = crate::graph::EdgeLength::from_py(f)?;
         let stress_majorization = match graph.graph() {
             GraphType::Graph(native_graph) => {
+                let resolved_len = edge_len.resolve_for_graph(native_graph, true)?;
                 StressMajorization::new(native_graph, drawing.drawing(), |e| {
-                    edge_len.eval(e.id().index())
+                    resolved_len.get(e.id().index())
                 })
             }
-            _ => panic!("unsupported graph type"),
+            _ => {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "unsupported graph type for StressMajorization",
+                ))
+            }
         };
         Ok(PyStressMajorization {
             stress_majorization,

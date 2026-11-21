@@ -9,7 +9,7 @@
 /// - ClassicalMds: The standard MDS algorithm that computes a full distance matrix
 /// - PivotMds: An efficient approximation that uses a subset of nodes as pivots
 use crate::{
-    distance_matrix::with_distance,
+    distance_matrix::{with_full_distance, with_pivot_mds_distance},
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
     FloatType,
@@ -86,9 +86,11 @@ impl PyClassicalMds {
     /// :rtype: ClassicalMds
     #[staticmethod]
     fn new_with_distance_matrix(d: &Bound<PyAny>) -> PyResult<Self> {
-        with_distance(d, |distance_matrix| Self {
-            mds: ClassicalMds::new_with_distance_matrix(distance_matrix),
-        })
+        let mds = with_full_distance(d, |distance_matrix| {
+            ClassicalMds::try_new_with_distance_matrix(distance_matrix)
+                .map_err(pyo3::exceptions::PyValueError::new_err)
+        })??;
+        Ok(Self { mds })
     }
 
     /// Runs the Classical MDS algorithm to generate a layout in the specified dimension
@@ -226,7 +228,7 @@ impl PyPivotMds {
     /// :rtype: PivotMds
     #[staticmethod]
     fn new_with_distance_matrix(d: &Bound<PyAny>) -> PyResult<Self> {
-        with_distance(d, |distance_matrix| Self {
+        with_pivot_mds_distance(d, |distance_matrix| Self {
             mds: PivotMds::new_with_distance_matrix(distance_matrix),
         })
     }

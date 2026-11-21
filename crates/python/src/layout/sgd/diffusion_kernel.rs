@@ -162,8 +162,10 @@ impl PyLowRankDiffusionKernel {
     #[new]
     #[pyo3(signature = (t, eigenvalues, eigenvectors))]
     fn new(t: FloatType, eigenvalues: &PyArray1, eigenvectors: &PyArray2) -> PyResult<Self> {
-        if !t.is_finite() {
-            return Err(pyo3::exceptions::PyValueError::new_err("t must be finite"));
+        if !t.is_finite() || t < 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "t must be finite and >= 0",
+            ));
         }
         let eigvals = eigenvalues.as_array();
         let eigvecs = eigenvectors.as_array();
@@ -1023,10 +1025,12 @@ where
     ) -> Result<K, String>,
 {
     let (edge_length, rng_opt) = resolve_length_and_rng(length, rng)?;
-    let mut length_closure =
-        |edge: petgraph::graph::EdgeReference<'_, Py<PyAny>>| edge_length.eval(edge.id().index());
     match graph.graph() {
         crate::graph::GraphType::Graph(native_graph) => {
+            let resolved_len = edge_length.resolve_for_graph(native_graph)?;
+            let mut length_closure = |edge: petgraph::graph::EdgeReference<'_, Py<PyAny>>| {
+                resolved_len.get(edge.id().index())
+            };
             with_optional_rng_ref_mut(rng_opt, |r| build_fn(native_graph, &mut length_closure, r))
                 .map_err(pyo3::exceptions::PyValueError::new_err)
         }

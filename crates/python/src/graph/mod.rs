@@ -27,6 +27,22 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
+/// Pre-resolved edge lengths avoiding GIL acquisition inside graph traversal loops.
+pub(crate) enum ResolvedEdgeLengths {
+    Constant(FloatType),
+    PerEdge(Vec<FloatType>),
+}
+
+impl ResolvedEdgeLengths {
+    #[inline]
+    pub(crate) fn get(&self, edge_idx: usize) -> FloatType {
+        match self {
+            Self::Constant(c) => *c,
+            Self::PerEdge(v) => v[edge_idx],
+        }
+    }
+}
+
 /// Edge-length evaluator supporting `None` (`1.0`), a Python numeric constant,
 /// or a Python callable accepting an edge index.
 pub(crate) enum EdgeLength {
@@ -60,15 +76,31 @@ impl EdgeLength {
         }
     }
 
-    #[inline]
-    pub(crate) fn eval(&self, edge_idx: usize) -> FloatType {
+    pub(crate) fn resolve_for_graph<Ty: petgraph::EdgeType>(
+        &self,
+        graph: &Graph<Node, Edge, Ty, IndexType>,
+        require_non_negative: bool,
+    ) -> PyResult<ResolvedEdgeLengths> {
+        use petgraph::visit::{EdgeIndexable, EdgeRef};
+        let validate = |val: FloatType| -> PyResult<FloatType> {
+            if !val.is_finite() || (require_non_negative && val < 0.0) {
+                return Err(PyValueError::new_err(if require_non_negative {
+                    "edge length must be finite and non-negative"
+                } else {
+                    "edge length must be finite"
+                }));
+            }
+            Ok(val)
+        };
         match self {
-            Self::Constant(c) => *c,
+            Self::Constant(c) => Ok(ResolvedEdgeLengths::Constant(validate(*c)?)),
             Self::Callable(func) => Python::attach(|py| {
-                func.call1(py, (edge_idx,))
-                    .expect("edge length callable failed")
-                    .extract::<FloatType>(py)
-                    .expect("edge length callable must return a float")
+                let mut lengths = vec![0.0 as FloatType; graph.edge_bound()];
+                for e in graph.edge_references() {
+                    let val: FloatType = func.call1(py, (e.id().index(),))?.extract(py)?;
+                    lengths[e.id().index()] = validate(val)?;
+                }
+                Ok(ResolvedEdgeLengths::PerEdge(lengths))
             }),
         }
     }

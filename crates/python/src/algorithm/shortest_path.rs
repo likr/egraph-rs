@@ -52,8 +52,14 @@ fn py_all_sources_dijkstra(
 ) -> PyResult<PyDistanceMatrix> {
     let edge_len = crate::graph::EdgeLength::from_py(f)?;
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => all_sources_dijkstra(g, |e| edge_len.eval(e.id().index())),
-        GraphType::DiGraph(g) => all_sources_dijkstra(g, |e| edge_len.eval(e.id().index())),
+        GraphType::Graph(g) => {
+            let resolved_len = edge_len.resolve_for_graph(g, true)?;
+            all_sources_dijkstra(g, |e| resolved_len.get(e.id().index()))
+        }
+        GraphType::DiGraph(g) => {
+            let resolved_len = edge_len.resolve_for_graph(g, true)?;
+            all_sources_dijkstra(g, |e| resolved_len.get(e.id().index()))
+        }
     };
     Ok(PyDistanceMatrix::new_with_full_distance_matrix(
         distance_matrix,
@@ -81,8 +87,14 @@ fn py_warshall_floyd(
 ) -> PyResult<PyDistanceMatrix> {
     let edge_len = crate::graph::EdgeLength::from_py(f)?;
     let distance_matrix = match graph.graph() {
-        GraphType::Graph(g) => warshall_floyd(g, |e| edge_len.eval(e.id().index())),
-        GraphType::DiGraph(g) => warshall_floyd(g, |e| edge_len.eval(e.id().index())),
+        GraphType::Graph(g) => {
+            let resolved_len = edge_len.resolve_for_graph(g, false)?;
+            warshall_floyd(g, |e| resolved_len.get(e.id().index()))
+        }
+        GraphType::DiGraph(g) => {
+            let resolved_len = edge_len.resolve_for_graph(g, false)?;
+            warshall_floyd(g, |e| resolved_len.get(e.id().index()))
+        }
     };
     Ok(PyDistanceMatrix::new_with_full_distance_matrix(
         distance_matrix,

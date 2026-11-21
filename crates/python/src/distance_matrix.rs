@@ -80,11 +80,17 @@ impl PyDistanceMatrix {
         }
     }
 
-    pub fn get_by_index(&self, i: usize, j: usize) -> FloatType {
-        match &self.distance_matrix {
+    pub fn get_by_index(&self, i: usize, j: usize) -> PyResult<FloatType> {
+        let (rows, cols) = self.shape();
+        if i >= rows || j >= cols {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "Index ({i}, {j}) out of bounds for distance matrix shape ({rows}, {cols})"
+            )));
+        }
+        Ok(match &self.distance_matrix {
             DistanceMatrixType::Full(dm) => DistanceMatrix::get_by_index(dm, i, j),
             DistanceMatrixType::Pivoted(dm) => DistanceMatrix::get_by_index(dm, i, j),
-        }
+        })
     }
 
     pub fn set(&mut self, u: usize, v: usize, d: FloatType) -> Option<()> {
@@ -225,8 +231,15 @@ impl EdgeLengthFn {
                 "edge length must be callable, float, or None, not bool",
             ));
         }
-        if let Ok(val) = bound.extract::<FloatType>() {
-            return Ok(Self::Constant(val));
+        if !bound.is_callable() {
+            if let Ok(val) = bound.extract::<FloatType>() {
+                if !val.is_finite() || val < 0.0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "edge length must be finite and non-negative",
+                    ));
+                }
+                return Ok(Self::Constant(val));
+            }
         }
         if bound.is_callable() {
             return Ok(Self::Callable(bound.clone().unbind()));
@@ -236,13 +249,32 @@ impl EdgeLengthFn {
         ))
     }
 
-    pub(crate) fn eval(&self, edge_idx: usize) -> FloatType {
+    pub(crate) fn resolve_for_graph(
+        &self,
+        graph: &petgraph::graph::UnGraph<Py<PyAny>, Py<PyAny>, IndexType>,
+    ) -> PyResult<crate::graph::ResolvedEdgeLengths> {
+        use petgraph::visit::EdgeIndexable;
         match self {
-            Self::Constant(v) => *v,
+            Self::Constant(v) => {
+                if !v.is_finite() || *v < 0.0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "edge length must be finite and non-negative",
+                    ));
+                }
+                Ok(crate::graph::ResolvedEdgeLengths::Constant(*v))
+            }
             Self::Callable(func) => Python::attach(|py| {
-                func.call1(py, (edge_idx,))
-                    .and_then(|value| value.extract::<FloatType>(py))
-                    .unwrap_or(1.0)
+                let mut lengths = vec![0.0 as FloatType; graph.edge_bound()];
+                for e in graph.edge_references() {
+                    let val: FloatType = func.call1(py, (e.id().index(),))?.extract(py)?;
+                    if !val.is_finite() || val < 0.0 {
+                        return Err(pyo3::exceptions::PyValueError::new_err(
+                            "edge length must be finite and non-negative",
+                        ));
+                    }
+                    lengths[e.id().index()] = val;
+                }
+                Ok(crate::graph::ResolvedEdgeLengths::PerEdge(lengths))
             }),
         }
     }
@@ -475,6 +507,80 @@ pub fn with_distance<R>(
         Ok(f(&dm.matrix))
     } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
         Ok(f(&dm.matrix))
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported distance matrix type",
+        ))
+    }
+}
+
+pub fn with_full_distance<R>(
+    distance_matrix: &Bound<PyAny>,
+    f: impl FnOnce(&dyn Distance<NodeIndex<IndexType>, FloatType>) -> R,
+) -> PyResult<R> {
+    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
+        match dm.distance_matrix() {
+            DistanceMatrixType::Full(d) => {
+                let (rows, cols) = Distance::shape(d);
+                if rows != cols {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "Expected square (N, N) distance matrix, got shape ({rows}, {cols})"
+                    )));
+                }
+                Ok(f(d))
+            }
+            DistanceMatrixType::Pivoted(_) => Err(pyo3::exceptions::PyTypeError::new_err(
+                "Expected a full (N, N) distance matrix, not a pivoted DistanceMatrix",
+            )),
+        }
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if distance_matrix
+        .extract::<PyRef<PyPivotedNegLogDistance>>()
+        .is_ok()
+        || distance_matrix
+            .extract::<PyRef<PyPivotedNegLogSimDistance>>()
+            .is_ok()
+    {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Expected a full (N, N) distance matrix, not a pivoted distance matrix",
+        ))
+    } else {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Unsupported distance matrix type",
+        ))
+    }
+}
+
+pub fn with_pivot_mds_distance<R>(
+    distance_matrix: &Bound<PyAny>,
+    f: impl FnOnce(&dyn Distance<NodeIndex<IndexType>, FloatType>) -> R,
+) -> PyResult<R> {
+    if let Ok(dm) = distance_matrix.extract::<PyRef<PyDistanceMatrix>>() {
+        match dm.distance_matrix() {
+            DistanceMatrixType::Full(d) => Ok(f(d)),
+            DistanceMatrixType::Pivoted(d) => Ok(f(d)),
+        }
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogSimDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyNegLogDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if let Ok(dm) = distance_matrix.extract::<PyRef<PyKernelDistance>>() {
+        Ok(f(&dm.matrix))
+    } else if distance_matrix
+        .extract::<PyRef<PyPivotedNegLogDistance>>()
+        .is_ok()
+        || distance_matrix
+            .extract::<PyRef<PyPivotedNegLogSimDistance>>()
+            .is_ok()
+    {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "PivotMds requires a full (N, N) or (h, N) PivotedDistanceMatrix, not PivotedNegLogSimDistance/PivotedNegLogDistance",
+        ))
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
             "Unsupported distance matrix type",
@@ -822,10 +928,12 @@ impl PyEmbeddingKernel {
     pub fn new(graph: &PyGraphAdapter, embedding: &crate::array::PyArray2) -> PyResult<Self> {
         let kernel = match graph.graph() {
             GraphType::Graph(native_graph) => {
-                EmbeddingKernel::new(native_graph, embedding.as_array().clone())
+                EmbeddingKernel::try_new(native_graph, embedding.as_array().clone())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
             }
             GraphType::DiGraph(native_graph) => {
-                EmbeddingKernel::new(native_graph, embedding.as_array().clone())
+                EmbeddingKernel::try_new(native_graph, embedding.as_array().clone())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?
             }
         };
         Ok(Self { kernel })
@@ -1097,10 +1205,12 @@ fn build_graph_laplacian(
     normalized: bool,
 ) -> PyResult<PyLaplacian> {
     let edge_length = EdgeLengthFn::from_bound(length)?;
-    let length_fn =
-        |edge: petgraph::graph::EdgeReference<'_, Py<PyAny>>| edge_length.eval(edge.id().index());
     let matrix = match graph.graph() {
         GraphType::Graph(native_graph) => {
+            let resolved_len = edge_length.resolve_for_graph(native_graph)?;
+            let length_fn = |edge: petgraph::graph::EdgeReference<'_, Py<PyAny>>| {
+                resolved_len.get(edge.id().index())
+            };
             if normalized {
                 SparseSymmetricMatrix::symmetric_normalized_laplacian(native_graph, length_fn)
             } else {
