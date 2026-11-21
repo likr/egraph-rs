@@ -1,8 +1,7 @@
 use crate::{
     fuzzy_simplicial_set::{
         compute_fuzzy_simplicial_set, compute_fuzzy_simplicial_set_from_csr,
-        compute_fuzzy_simplicial_set_from_knn, try_compute_fuzzy_simplicial_set_from_knn,
-        SparseEdge,
+        try_compute_fuzzy_simplicial_set_from_knn, SparseEdge,
     },
     gumap_builder::GuMapBuilder,
 };
@@ -32,6 +31,22 @@ pub struct GuMap<S> {
     pub sigma_tolerance: S,
 }
 
+fn validate_finite_drawing<D, S>(drawing: &D) -> Result<(), String>
+where
+    D: Drawing<Item = MetricEuclidean2d<S>>,
+    S: Float,
+{
+    for i in 0..drawing.len() {
+        let entry = drawing.raw_entry(i);
+        if !entry.0.is_finite() || !entry.1.is_finite() {
+            return Err(format!(
+                "drawing coordinate at node index {i} must be finite"
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl<S> GuMap<S>
 where
     S: DrawingValue + Float + std::iter::Sum + std::ops::AddAssign + Default,
@@ -46,6 +61,40 @@ where
         GuMapBuilder::new().build().unwrap()
     }
 
+    /// Validating variant of [`GuMap::run`] checking distance matrix shape and finite drawing coordinates.
+    pub fn try_run<N, D, R>(
+        &self,
+        drawing: &mut DrawingEuclidean2d<N, S>,
+        distance_matrix: &D,
+        rng: &mut R,
+    ) -> Result<(), String>
+    where
+        N: Copy + Eq + std::hash::Hash + DrawingIndex,
+        D: Distance<N, S> + ?Sized,
+        R: Rng + ?Sized,
+    {
+        let n = drawing.len();
+        let (dm_rows, dm_cols) = distance_matrix.shape();
+        if dm_rows != n || dm_cols != n {
+            return Err(format!(
+                "distance matrix shape ({dm_rows}, {dm_cols}) must match drawing node count ({n}, {n})"
+            ));
+        }
+        validate_finite_drawing(drawing)?;
+        if n < 2 {
+            return Ok(());
+        }
+        let edges = compute_fuzzy_simplicial_set(
+            distance_matrix,
+            n,
+            self.k,
+            self.sigma_iters,
+            self.sigma_tolerance,
+        );
+        self.run_from_edges(drawing, &edges, rng);
+        Ok(())
+    }
+
     /// Executes the GUMAP layout algorithm on the drawing using the provided distance matrix and RNG.
     pub fn run<N, D, R>(
         &self,
@@ -57,18 +106,8 @@ where
         D: Distance<N, S> + ?Sized,
         R: Rng + ?Sized,
     {
-        let n = drawing.len();
-        if n < 2 {
-            return;
-        }
-        let edges = compute_fuzzy_simplicial_set(
-            distance_matrix,
-            n,
-            self.k,
-            self.sigma_iters,
-            self.sigma_tolerance,
-        );
-        self.run_from_edges(drawing, &edges, rng);
+        self.try_run(drawing, distance_matrix, rng)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Executes the GUMAP layout algorithm using precomputed k-nearest neighbor lists `(neighbor_idx, distance)`.
@@ -79,17 +118,12 @@ where
         D: Drawing<Item = MetricEuclidean2d<S>>,
         R: Rng + ?Sized,
     {
-        let n = drawing.len();
-        if n < 2 {
-            return;
-        }
-        let edges =
-            compute_fuzzy_simplicial_set_from_knn(n, knn, self.sigma_iters, self.sigma_tolerance);
-        self.run_from_edges(drawing, &edges, rng);
+        self.try_run_with_knn(drawing, knn, rng)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Validating variant of [`GuMap::run_with_knn`] that checks `knn.len() == drawing.len()`,
-    /// in-bounds neighbor indices, and finite non-negative distances.
+    /// finite drawing coordinates, in-bounds neighbor indices, and finite non-negative distances.
     pub fn try_run_with_knn<D, R>(
         &self,
         drawing: &mut D,
@@ -100,6 +134,7 @@ where
         D: Drawing<Item = MetricEuclidean2d<S>>,
         R: Rng + ?Sized,
     {
+        validate_finite_drawing(drawing)?;
         let n = drawing.len();
         let edges = try_compute_fuzzy_simplicial_set_from_knn(
             n,
@@ -128,6 +163,7 @@ where
         D: Drawing<Item = MetricEuclidean2d<S>>,
         R: Rng + ?Sized,
     {
+        validate_finite_drawing(drawing)?;
         let n = drawing.len();
         let edges = compute_fuzzy_simplicial_set_from_csr(
             n,

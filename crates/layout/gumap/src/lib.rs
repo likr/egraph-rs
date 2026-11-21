@@ -334,4 +334,31 @@ mod tests {
             .try_run_with_knn(&mut d1, &[vec![(0, f64::INFINITY)]], &mut rng)
             .is_err());
     }
+
+    #[test]
+    fn test_gumap_builder_rejects_nan_and_inf() {
+        assert!(GuMapBuilder::<f64>::new()
+            .min_dist(f64::NAN)
+            .build()
+            .is_err());
+        assert!(GuMapBuilder::<f64>::new().spread(f64::NAN).build().is_err());
+        assert!(GuMapBuilder::<f64>::new()
+            .learning_rate(f64::NAN)
+            .build()
+            .is_err());
+        assert!(GuMapBuilder::<f64>::new()
+            .learning_rate(f64::INFINITY)
+            .build()
+            .is_err());
+        assert!(GuMapBuilder::<f64>::new()
+            .a(f64::NAN)
+            .b(1.0)
+            .build()
+            .is_err());
+        assert!(GuMapBuilder::<f64>::new()
+            .a(1.0)
+            .b(f64::INFINITY)
+            .build()
+            .is_err());
+    }
 }

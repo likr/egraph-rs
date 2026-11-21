@@ -102,11 +102,11 @@ where
         if self.k == 0 {
             return Err("k must be greater than 0".to_string());
         }
-        if self.min_dist <= S::zero() {
-            return Err("min_dist must be positive".to_string());
+        if !self.min_dist.is_finite() || self.min_dist <= S::zero() {
+            return Err("min_dist must be finite and positive".to_string());
         }
-        if self.spread <= S::zero() {
-            return Err("spread must be positive".to_string());
+        if !self.spread.is_finite() || self.spread <= S::zero() {
+            return Err("spread must be finite and positive".to_string());
         }
         if self.n_epochs == 0 {
             return Err("n_epochs must be greater than 0".to_string());
@@ -114,14 +114,24 @@ where
         if self.negative_sample_rate == 0 {
             return Err("negative_sample_rate must be greater than 0".to_string());
         }
-        if self.learning_rate <= S::zero() {
-            return Err("learning_rate must be positive".to_string());
+        if !self.learning_rate.is_finite() || self.learning_rate <= S::zero() {
+            return Err("learning_rate must be finite and positive".to_string());
         }
         if self.sigma_iters == 0 {
             return Err("sigma_iters must be greater than 0".to_string());
         }
-        if self.sigma_tolerance <= S::zero() {
-            return Err("sigma_tolerance must be positive".to_string());
+        if !self.sigma_tolerance.is_finite() || self.sigma_tolerance <= S::zero() {
+            return Err("sigma_tolerance must be finite and positive".to_string());
+        }
+        if let Some(a_val) = self.a {
+            if !a_val.is_finite() || a_val <= S::zero() {
+                return Err("a must be finite and positive".to_string());
+            }
+        }
+        if let Some(b_val) = self.b {
+            if !b_val.is_finite() || b_val <= S::zero() {
+                return Err("b must be finite and positive".to_string());
+            }
         }
 
         let (fitted_a, fitted_b) = if self.a.is_none() || self.b.is_none() {
@@ -133,11 +143,11 @@ where
         let effective_a = self.a.unwrap_or(fitted_a);
         let effective_b = self.b.unwrap_or(fitted_b);
 
-        if effective_a <= S::zero() {
-            return Err("a must be positive".to_string());
+        if !effective_a.is_finite() || effective_a <= S::zero() {
+            return Err("a must be finite and positive".to_string());
         }
-        if effective_b <= S::zero() {
-            return Err("b must be positive".to_string());
+        if !effective_b.is_finite() || effective_b <= S::zero() {
+            return Err("b must be finite and positive".to_string());
         }
 
         Ok(GuMap {
