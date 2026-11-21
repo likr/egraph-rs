@@ -106,10 +106,25 @@ where
         petgraph::graph::NodeIndex: Into<N>,
         D: Distance<petgraph::graph::NodeIndex, S> + ?Sized,
     {
-        let indices = (0..distance_matrix.shape().0)
+        Self::try_new_with_distance_matrix(distance_matrix).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Fallible variant of [`ClassicalMds::new_with_distance_matrix`] that rejects non-square matrices.
+    pub fn try_new_with_distance_matrix<D>(distance_matrix: &D) -> Result<Self, String>
+    where
+        petgraph::graph::NodeIndex: Into<N>,
+        D: Distance<petgraph::graph::NodeIndex, S> + ?Sized,
+    {
+        let (rows, cols) = distance_matrix.shape();
+        if rows != cols {
+            return Err(format!(
+                "ClassicalMds requires a square (N, N) distance matrix, got shape ({rows}, {cols})"
+            ));
+        }
+        let indices = (0..rows)
             .map(petgraph::graph::node_index)
             .collect::<Vec<_>>();
-        Self::new_with_distance_matrix_and_indices(distance_matrix, &indices)
+        Self::try_new_with_distance_matrix_and_indices(distance_matrix, &indices)
     }
 
     /// Creates a new Classical MDS instance from a pre-computed distance matrix and explicit node indices.
@@ -132,7 +147,31 @@ where
         N2: DrawingIndex + Copy + Into<N>,
         D: Distance<N2, S> + ?Sized,
     {
+        Self::try_new_with_distance_matrix_and_indices(distance_matrix, indices)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Fallible variant of [`ClassicalMds::new_with_distance_matrix_and_indices`].
+    pub fn try_new_with_distance_matrix_and_indices<N2, D>(
+        distance_matrix: &D,
+        indices: &[N2],
+    ) -> Result<Self, String>
+    where
+        N2: DrawingIndex + Copy + Into<N>,
+        D: Distance<N2, S> + ?Sized,
+    {
         let (n, m) = distance_matrix.shape();
+        if n != m {
+            return Err(format!(
+                "ClassicalMds requires a square (N, N) distance matrix, got shape ({n}, {m})"
+            ));
+        }
+        if indices.len() != n {
+            return Err(format!(
+                "indices length ({}) must match distance matrix dimension ({n})",
+                indices.len()
+            ));
+        }
         let mut delta = Array2::zeros((n, m));
         let mut max_finite_sq = S::zero();
         let mut has_nonfinite = false;
@@ -168,11 +207,11 @@ where
             }
         }
         let b = double_centering(&delta);
-        Self {
+        Ok(Self {
             eps: (1e-3).into(),
             indices: indices.iter().map(|&u| u.into()).collect::<Vec<_>>(),
             b,
-        }
+        })
     }
 
     /// Computes a 2D layout of the graph using Classical MDS.
