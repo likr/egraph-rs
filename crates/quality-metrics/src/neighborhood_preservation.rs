@@ -48,10 +48,18 @@ where
     }
 
     let n = drawing.len();
+    if n <= 1 || graph_edges.is_empty() {
+        return S::zero();
+    }
     let mut points = Array2::zeros((n, 2));
     for i in 0..n {
-        points[[i, 0]] = drawing.raw_entry(i).0;
-        points[[i, 1]] = drawing.raw_entry(i).1;
+        let x = drawing.raw_entry(i).0;
+        let y = drawing.raw_entry(i).1;
+        if !x.is_finite() || !y.is_finite() {
+            return S::zero();
+        }
+        points[[i, 0]] = x;
+        points[[i, 1]] = y;
     }
     let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
 
@@ -77,6 +85,9 @@ where
         }
     }
 
+    if cup == 0 {
+        return S::zero();
+    }
     S::from_usize(cap).unwrap() / S::from_usize(cup).unwrap()
 }
 
@@ -128,8 +139,13 @@ where
 
     let mut points = Array2::zeros((n, 2));
     for i in 0..n {
-        points[[i, 0]] = drawing.raw_entry(i).0;
-        points[[i, 1]] = drawing.raw_entry(i).1;
+        let x = drawing.raw_entry(i).0;
+        let y = drawing.raw_entry(i).1;
+        if !x.is_finite() || !y.is_finite() {
+            return S::zero();
+        }
+        points[[i, 0]] = x;
+        points[[i, 1]] = y;
     }
     let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
 
@@ -206,5 +222,21 @@ mod tests {
 
         let score: f32 = neighborhood_preservation_2hop(&graph, &drawing);
         assert!((score - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_neighborhood_preservation_edgeless_and_empty_finite() {
+        let empty = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        let d_empty = DrawingEuclidean2d::<_, f64>::initial_placement(&empty);
+        assert_eq!(neighborhood_preservation(&empty, &d_empty), 0.0);
+
+        let mut g_edgeless = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        for _ in 0..4 {
+            g_edgeless.add_node(());
+        }
+        let d_edgeless = DrawingEuclidean2d::<_, f64>::initial_placement(&g_edgeless);
+        let score = neighborhood_preservation(&g_edgeless, &d_edgeless);
+        assert!(score.is_finite());
+        assert_eq!(score, 0.0);
     }
 }

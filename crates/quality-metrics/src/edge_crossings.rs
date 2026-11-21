@@ -33,6 +33,32 @@ struct Line<S> {
 ///
 /// `true` if the line segments intersect, `false` otherwise
 fn cross<S: DrawingValue>(line1: &Line<S>, line2: &Line<S>) -> bool {
+    if !line1.x1.is_finite()
+        || !line1.y1.is_finite()
+        || !line1.x2.is_finite()
+        || !line1.y2.is_finite()
+        || !line2.x1.is_finite()
+        || !line2.y1.is_finite()
+        || !line2.x2.is_finite()
+        || !line2.y2.is_finite()
+    {
+        return false;
+    }
+
+    // Reject disjoint bounding boxes first so non-finite or collinear disjoint segments
+    // never report false-positive crossings.
+    let min_x1 = line1.x1.min(line1.x2);
+    let max_x1 = line1.x1.max(line1.x2);
+    let min_y1 = line1.y1.min(line1.y2);
+    let max_y1 = line1.y1.max(line1.y2);
+    let min_x2 = line2.x1.min(line2.x2);
+    let max_x2 = line2.x1.max(line2.x2);
+    let min_y2 = line2.y1.min(line2.y2);
+    let max_y2 = line2.y1.max(line2.y2);
+    if max_x1 < min_x2 || max_x2 < min_x1 || max_y1 < min_y2 || max_y2 < min_y1 {
+        return false;
+    }
+
     let dx1 = line1.x2 - line1.x1;
     let dy1 = line1.y2 - line1.y1;
     let dx2 = line2.x2 - line2.x1;
@@ -48,37 +74,16 @@ fn cross<S: DrawingValue>(line1: &Line<S>, line2: &Line<S>) -> bool {
     let s2 = dx2 * (line1.y1 - line2.y1) - dy2 * (line1.x1 - line2.x1);
     let t2 = dx2 * (line1.y2 - line2.y1) - dy2 * (line1.x2 - line2.x1);
 
-    if s2 * t2 > S::zero() {
-        return false;
-    }
-
-    true
+    s2 * t2 <= S::zero()
 }
 
 pub type CrossingEdges<S> = Vec<(S, S, S, S, S, S, S, S)>;
 
-/// Identifies all edge crossings in a graph layout in Euclidean 2D space.
-///
-/// This function examines all pairs of edges in the graph and determines which
-/// ones intersect in the 2D drawing. Edges sharing a common endpoint are not
-/// considered to be crossing.
-///
-/// # Parameters
-///
-/// * `graph`: The graph structure to evaluate
-/// * `drawing`: The 2D Euclidean layout of the graph
-///
-/// # Returns
-///
-/// A `CrossingEdges` collection containing the coordinates of all crossing edge pairs.
-///
-/// # Type Parameters
-///
-/// * `G`: A graph type that implements the required traits
-pub fn crossing_edges<G, S>(
+/// Validating variant of [`crossing_edges`] returning an error when an edge endpoint is missing from `drawing`.
+pub fn try_crossing_edges<G, S>(
     graph: G,
     drawing: &DrawingEuclidean2d<G::NodeId, S>,
-) -> CrossingEdges<S>
+) -> Result<CrossingEdges<S>, String>
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -88,7 +93,10 @@ where
     for e in graph.edge_references() {
         let u = e.source();
         let v = e.target();
-        for &(p, q) in drawing.edge_segments(u, v).unwrap().iter() {
+        let segs = drawing
+            .edge_segments(u, v)
+            .ok_or_else(|| "graph edge endpoint not found in drawing".to_string())?;
+        for &(p, q) in segs.iter() {
             let MetricEuclidean2d(x1, y1) = p;
             let MetricEuclidean2d(x2, y2) = q;
             edges.push((u, v, x1, y1, x2, y2));
@@ -125,30 +133,26 @@ where
             }
         }
     }
-    crossing_edges
+    Ok(crossing_edges)
 }
 
-/// Identifies all edge crossings in a graph layout in torus 2D space.
-///
-/// Similar to `crossing_edges`, but for drawings on a torus (a space that wraps around
-/// at the boundaries). This is useful for layouts that use periodic boundary conditions.
-///
-/// # Parameters
-///
-/// * `graph`: The graph structure to evaluate
-/// * `drawing`: The 2D torus layout of the graph
-///
-/// # Returns
-///
-/// A `CrossingEdges` collection containing the coordinates of all crossing edge pairs.
-///
-/// # Type Parameters
-///
-/// * `G`: A graph type that implements the required traits
-pub fn crossing_edges_torus<G, S>(
+pub fn crossing_edges<G, S>(
+    graph: G,
+    drawing: &DrawingEuclidean2d<G::NodeId, S>,
+) -> CrossingEdges<S>
+where
+    G: IntoEdgeReferences,
+    G::NodeId: DrawingIndex,
+    S: DrawingValue,
+{
+    try_crossing_edges(graph, drawing).unwrap_or_else(|e| panic!("{}", e))
+}
+
+/// Validating variant of [`crossing_edges_torus`] returning an error when an edge endpoint is missing from `drawing`.
+pub fn try_crossing_edges_torus<G, S>(
     graph: G,
     drawing: &DrawingTorus2d<G::NodeId, S>,
-) -> CrossingEdges<S>
+) -> Result<CrossingEdges<S>, String>
 where
     G: IntoEdgeReferences,
     G::NodeId: DrawingIndex,
@@ -158,7 +162,10 @@ where
     for e in graph.edge_references() {
         let u = e.source();
         let v = e.target();
-        for &(p, q) in drawing.edge_segments(u, v).unwrap().iter() {
+        let segs = drawing
+            .edge_segments(u, v)
+            .ok_or_else(|| "graph edge endpoint not found in drawing".to_string())?;
+        for &(p, q) in segs.iter() {
             edges.push((u, v, p.0 .0, p.1 .0, q.0 .0, q.1 .0));
         }
     }
@@ -193,7 +200,64 @@ where
             }
         }
     }
-    crossing_edges
+    Ok(crossing_edges)
+}
+
+/// Identifies all edge crossings in a graph layout in torus 2D space.
+///
+/// Similar to `crossing_edges`, but for drawings on a torus (a space that wraps around
+/// at the boundaries). This is useful for layouts that use periodic boundary conditions.
+///
+/// # Parameters
+///
+/// * `graph`: The graph structure to evaluate
+/// * `drawing`: The 2D torus layout of the graph
+///
+/// # Returns
+///
+/// A `CrossingEdges` collection containing the coordinates of all crossing edge pairs.
+///
+/// # Type Parameters
+///
+/// * `G`: A graph type that implements the required traits
+pub fn crossing_edges_torus<G, S>(
+    graph: G,
+    drawing: &DrawingTorus2d<G::NodeId, S>,
+) -> CrossingEdges<S>
+where
+    G: IntoEdgeReferences,
+    G::NodeId: DrawingIndex,
+    S: DrawingValue,
+{
+    try_crossing_edges_torus(graph, drawing).unwrap_or_else(|e| panic!("{}", e))
+}
+
+/// Validating variant of [`crossing_number`].
+pub fn try_crossing_number<G, S>(
+    graph: G,
+    drawing: &DrawingEuclidean2d<G::NodeId, S>,
+) -> Result<S, String>
+where
+    G: IntoEdgeReferences,
+    G::NodeId: DrawingIndex,
+    S: DrawingValue,
+{
+    let crossing_edges = try_crossing_edges(graph, drawing)?;
+    Ok(crossing_number_with_crossing_edges(&crossing_edges))
+}
+
+/// Validating variant of [`crossing_angle`].
+pub fn try_crossing_angle<G, S>(
+    graph: G,
+    drawing: &DrawingEuclidean2d<G::NodeId, S>,
+) -> Result<S, String>
+where
+    G: IntoEdgeReferences,
+    G::NodeId: DrawingIndex,
+    S: DrawingValue,
+{
+    let crossing_edges = try_crossing_edges(graph, drawing)?;
+    Ok(crossing_angle_with_crossing_edges(&crossing_edges))
 }
 
 /// Calculates the crossing number for a graph layout in Euclidean 2D space.
@@ -296,4 +360,41 @@ pub fn crossing_angle_with_crossing_edges<S: DrawingValue>(crossing_edges: &Cros
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph_drawing::Drawing;
+
+    #[test]
+    fn test_cross_rejects_nonfinite_and_collinear_disjoint() {
+        let mut g = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        let n3 = g.add_node(());
+        g.add_edge(n0, n1, ());
+        g.add_edge(n2, n3, ());
+
+        let mut d_collinear = DrawingEuclidean2d::initial_placement(&g);
+        *d_collinear.position_mut(n0).unwrap() = MetricEuclidean2d(0.0_f64, 0.0);
+        *d_collinear.position_mut(n1).unwrap() = MetricEuclidean2d(1.0, 0.0);
+        *d_collinear.position_mut(n2).unwrap() = MetricEuclidean2d(2.0, 0.0);
+        *d_collinear.position_mut(n3).unwrap() = MetricEuclidean2d(3.0, 0.0);
+        assert_eq!(crossing_number(&g, &d_collinear), 0.0);
+
+        let mut d_nan = DrawingEuclidean2d::initial_placement(&g);
+        *d_nan.position_mut(n0).unwrap() = MetricEuclidean2d(f64::NAN, 0.0);
+        *d_nan.position_mut(n1).unwrap() = MetricEuclidean2d(1.0, 0.0);
+        *d_nan.position_mut(n2).unwrap() = MetricEuclidean2d(2.0, 1.0);
+        *d_nan.position_mut(n3).unwrap() = MetricEuclidean2d(3.0, 1.0);
+        assert_eq!(crossing_number(&g, &d_nan), 0.0);
+
+        let mut g2 = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        g2.add_node(());
+        g2.add_node(());
+        let d2 = DrawingEuclidean2d::<_, f64>::initial_placement(&g2);
+        assert!(try_crossing_number(&g, &d2).is_err());
+    }
 }

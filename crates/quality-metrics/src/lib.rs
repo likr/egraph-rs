@@ -69,7 +69,8 @@ pub use angular_resolution::angular_resolution;
 pub use aspect_ratio::aspect_ratio;
 pub use edge_crossings::{
     crossing_angle, crossing_angle_with_crossing_edges, crossing_edges, crossing_edges_torus,
-    crossing_number, crossing_number_with_crossing_edges, CrossingEdges,
+    crossing_number, crossing_number_with_crossing_edges, try_crossing_angle, try_crossing_edges,
+    try_crossing_edges_torus, try_crossing_number, CrossingEdges,
 };
 pub use gabriel_graph_property::gabriel_graph_property;
 pub use ideal_edge_lengths::ideal_edge_lengths;
