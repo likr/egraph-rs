@@ -2,6 +2,7 @@ use crate::drawing::{
     DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d,
     PyDrawingSpherical2d, PyDrawingTorus2d,
 };
+use crate::layout::knn::{extract_f64_array_1d, extract_index_array_1d_with_isize};
 use crate::layout::sgd::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
@@ -12,6 +13,90 @@ use petgraph_layout_sgd::{
     SchedulerReciprocal, Sgd,
 };
 use pyo3::prelude::*;
+
+type SgdPairTuple = (usize, usize, FloatType, FloatType, FloatType, FloatType);
+
+fn extract_validated_pairs_1d(
+    sources: &Bound<'_, PyAny>,
+    targets: &Bound<'_, PyAny>,
+    distances: &Bound<'_, PyAny>,
+    weights: &Bound<'_, PyAny>,
+    n_nodes: Option<usize>,
+    prefix: &str,
+) -> PyResult<Vec<SgdPairTuple>> {
+    let src_name = if prefix.is_empty() {
+        "sources".to_string()
+    } else {
+        format!("{prefix}_sources")
+    };
+    let tgt_name = if prefix.is_empty() {
+        "targets".to_string()
+    } else {
+        format!("{prefix}_targets")
+    };
+    let dist_name = if prefix.is_empty() {
+        "distances".to_string()
+    } else {
+        format!("{prefix}_distances")
+    };
+    let wt_name = if prefix.is_empty() {
+        "weights".to_string()
+    } else {
+        format!("{prefix}_weights")
+    };
+
+    let src = extract_index_array_1d_with_isize(sources, &src_name)?;
+    let tgt = extract_index_array_1d_with_isize(targets, &tgt_name)?;
+    let d_arr = extract_f64_array_1d(distances, &dist_name)?;
+    let w_arr = extract_f64_array_1d(weights, &wt_name)?;
+    let d_view = d_arr.as_array();
+    let w_view = w_arr.as_array();
+
+    let len = src.len();
+    if tgt.len() != len || d_view.len() != len || w_view.len() != len {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "array lengths must match: {src_name}={}, {tgt_name}={}, {dist_name}={}, {wt_name}={}",
+            len,
+            tgt.len(),
+            d_view.len(),
+            w_view.len()
+        )));
+    }
+
+    let mut pairs = Vec::with_capacity(len);
+    for (idx, (((&u, &v), &d), &w)) in src
+        .iter()
+        .zip(tgt.iter())
+        .zip(d_view.iter())
+        .zip(w_view.iter())
+        .enumerate()
+    {
+        if let Some(n) = n_nodes {
+            if u >= n || v >= n {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "pair index ({u}, {v}) at position {idx} is out of bounds for n_nodes={n}"
+                )));
+            }
+        }
+        if u == v {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "self-loop pair ({u}, {u}) at position {idx} is not allowed"
+            )));
+        }
+        if !d.is_finite() || d <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "{dist_name}[{idx}] must be finite and > 0, got {d}"
+            )));
+        }
+        if !w.is_finite() || w <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "{wt_name}[{idx}] must be finite and > 0, got {w}"
+            )));
+        }
+        pairs.push((u, v, d, d, w, w));
+    }
+    Ok(pairs)
+}
 
 #[pyclass]
 #[pyo3(name = "Sgd")]
@@ -165,6 +250,144 @@ impl PySgd {
         Ok(PySgd::new_with_sgd(
             petgraph_layout_sgd::Sgd::from_node_pairs(pairs),
         ))
+    }
+
+    /// Build an `Sgd` instance containing only one-sided hinge repulsion pairs from NumPy arrays.
+    ///
+    /// Hinge pairs exert repulsion strictly when `0 < ||x_i - x_j|| < distance` and zero
+    /// attractive force when `||x_i - x_j|| >= distance`.
+    ///
+    /// :param sources: 1D integer array of source node indices
+    /// :type sources: numpy.ndarray
+    /// :param targets: 1D integer array of target node indices
+    /// :type targets: numpy.ndarray
+    /// :param distances: 1D float64 array of target barrier distances (`> 0`, finite)
+    /// :type distances: numpy.ndarray
+    /// :param weights: 1D float64 array of pair weights (`> 0`, finite)
+    /// :type weights: numpy.ndarray
+    /// :param n_nodes: Optional node count for bounds checking
+    /// :type n_nodes: int or None
+    /// :return: A new `Sgd` instance with one-sided hinge pairs
+    /// :rtype: Sgd
+    #[staticmethod]
+    #[pyo3(signature = (sources, targets, distances, weights, n_nodes=None))]
+    pub fn from_numpy_hinge_pairs(
+        sources: &Bound<'_, PyAny>,
+        targets: &Bound<'_, PyAny>,
+        distances: &Bound<'_, PyAny>,
+        weights: &Bound<'_, PyAny>,
+        n_nodes: Option<usize>,
+    ) -> PyResult<PySgd> {
+        let hinges = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
+        Ok(PySgd::new_with_sgd(Sgd::new_with_hinge_pairs(
+            Vec::new(),
+            hinges,
+        )))
+    }
+
+    /// Build an `Sgd` instance combining two-sided spring pairs and one-sided hinge pairs.
+    ///
+    /// :param sources: 1D integer array of spring source node indices
+    /// :type sources: numpy.ndarray
+    /// :param targets: 1D integer array of spring target node indices
+    /// :type targets: numpy.ndarray
+    /// :param distances: 1D float64 array of spring target distances (`> 0`, finite)
+    /// :type distances: numpy.ndarray
+    /// :param weights: 1D float64 array of spring weights (`> 0`, finite)
+    /// :type weights: numpy.ndarray
+    /// :param hinge_sources: 1D integer array of hinge source node indices
+    /// :type hinge_sources: numpy.ndarray
+    /// :param hinge_targets: 1D integer array of hinge target node indices
+    /// :type hinge_targets: numpy.ndarray
+    /// :param hinge_distances: 1D float64 array of hinge barrier distances (`> 0`, finite)
+    /// :type hinge_distances: numpy.ndarray
+    /// :param hinge_weights: 1D float64 array of hinge weights (`> 0`, finite)
+    /// :type hinge_weights: numpy.ndarray
+    /// :param n_nodes: Optional node count for bounds checking
+    /// :type n_nodes: int or None
+    /// :return: A new `Sgd` instance with spring and hinge pairs
+    /// :rtype: Sgd
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        sources,
+        targets,
+        distances,
+        weights,
+        hinge_sources,
+        hinge_targets,
+        hinge_distances,
+        hinge_weights,
+        n_nodes=None
+    ))]
+    pub fn from_numpy_pairs_with_hinges(
+        sources: &Bound<'_, PyAny>,
+        targets: &Bound<'_, PyAny>,
+        distances: &Bound<'_, PyAny>,
+        weights: &Bound<'_, PyAny>,
+        hinge_sources: &Bound<'_, PyAny>,
+        hinge_targets: &Bound<'_, PyAny>,
+        hinge_distances: &Bound<'_, PyAny>,
+        hinge_weights: &Bound<'_, PyAny>,
+        n_nodes: Option<usize>,
+    ) -> PyResult<PySgd> {
+        let springs =
+            extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
+        let hinges = extract_validated_pairs_1d(
+            hinge_sources,
+            hinge_targets,
+            hinge_distances,
+            hinge_weights,
+            n_nodes,
+            "hinge",
+        )?;
+        Ok(PySgd::new_with_sgd(Sgd::new_with_hinge_pairs(
+            springs, hinges,
+        )))
+    }
+
+    /// Append validated one-sided hinge repulsion pairs from 1D NumPy arrays.
+    ///
+    /// :param sources: 1D integer array of source node indices
+    /// :type sources: numpy.ndarray
+    /// :param targets: 1D integer array of target node indices
+    /// :type targets: numpy.ndarray
+    /// :param distances: 1D float64 array of barrier target distances (`> 0`, finite)
+    /// :type distances: numpy.ndarray
+    /// :param weights: 1D float64 array of hinge pair weights (`> 0`, finite)
+    /// :type weights: numpy.ndarray
+    /// :param n_nodes: Optional node count for bounds checking
+    /// :type n_nodes: int or None
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (sources, targets, distances, weights, n_nodes=None))]
+    pub fn add_hinge_pairs_from_numpy(
+        &mut self,
+        sources: &Bound<'_, PyAny>,
+        targets: &Bound<'_, PyAny>,
+        distances: &Bound<'_, PyAny>,
+        weights: &Bound<'_, PyAny>,
+        n_nodes: Option<usize>,
+    ) -> PyResult<()> {
+        let hinges = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
+        self.sgd.add_hinge_pairs(hinges);
+        Ok(())
+    }
+
+    /// Return the number of two-sided spring pairs in this `Sgd` instance.
+    ///
+    /// :return: Number of two-sided spring pairs
+    /// :rtype: int
+    pub fn node_pair_count(&self) -> usize {
+        self.sgd.node_pairs().len()
+    }
+
+    /// Return the number of one-sided hinge repulsion pairs in this `Sgd` instance.
+    ///
+    /// :return: Number of one-sided hinge pairs
+    /// :rtype: int
+    pub fn hinge_pair_count(&self) -> usize {
+        self.sgd.hinge_pairs().len()
     }
 
     /// Update SGD pair weights from an `(N, N)` float64 NumPy matrix.

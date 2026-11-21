@@ -14,6 +14,7 @@
 /// - `sgd`: Stochastic Gradient Descent based layout algorithms
 mod gumap;
 mod kamada_kawai;
+pub(crate) mod knn;
 mod mds;
 mod overwrap_removal;
 mod rdmds;

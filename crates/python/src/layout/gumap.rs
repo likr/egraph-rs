@@ -2,7 +2,15 @@
 //!
 //! This module provides Python bindings for the GUMAP (Graph UMAP) graph layout algorithm and its builder.
 
-use crate::{distance_matrix::with_distance, drawing::PyDrawingEuclidean2d, rng::PyRng, FloatType};
+use crate::{
+    distance_matrix::with_distance,
+    drawing::PyDrawingEuclidean2d,
+    layout::knn::{
+        extract_f64_array_1d, extract_index_array_1d_with_isize, extract_knn_rows, f64_array_as_cow,
+    },
+    rng::PyRng,
+    FloatType,
+};
 use petgraph_layout_gumap::{GuMap, GuMapBuilder};
 use pyo3::prelude::*;
 
@@ -226,6 +234,70 @@ impl PyGuMap {
         with_distance(distance_matrix, |d| {
             self.gumap.run(drawing.drawing_mut(), &d, rng.get_mut());
         })
+    }
+
+    /// Runs the GUMAP layout algorithm on the drawing using precomputed k-nearest neighbors and RNG.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param knn_indices: 2D integer array of shape (n, k) containing neighbor node indices
+    /// :type knn_indices: numpy.ndarray
+    /// :param knn_distances: 2D float64 array of shape (n, k) containing neighbor distances
+    /// :type knn_distances: numpy.ndarray
+    /// :param rng: Random number generator for SGD sampling
+    /// :type rng: Rng
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (drawing, knn_indices, knn_distances, rng))]
+    pub fn run_with_knn(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        knn_indices: &Bound<'_, PyAny>,
+        knn_distances: &Bound<'_, PyAny>,
+        rng: &mut PyRng,
+    ) -> PyResult<()> {
+        let knn = extract_knn_rows(drawing.len(), knn_indices, knn_distances)?;
+        self.gumap
+            .run_with_knn(drawing.drawing_mut(), &knn, rng.get_mut());
+        Ok(())
+    }
+
+    /// Runs the GUMAP layout algorithm on the drawing using variable-length CSR k-nearest neighbors and RNG.
+    ///
+    /// :param drawing: The drawing to update with optimized node coordinates
+    /// :type drawing: DrawingEuclidean2d
+    /// :param indptr: 1D integer array of length n + 1 containing CSR row pointers
+    /// :type indptr: numpy.ndarray
+    /// :param indices: 1D integer array containing neighbor node indices
+    /// :type indices: numpy.ndarray
+    /// :param distances: 1D float64 array containing neighbor distances
+    /// :type distances: numpy.ndarray
+    /// :param rng: Random number generator for SGD sampling
+    /// :type rng: Rng
+    /// :return: None
+    /// :rtype: None
+    #[pyo3(signature = (drawing, indptr, indices, distances, rng))]
+    pub fn run_with_knn_csr(
+        &self,
+        drawing: &mut PyDrawingEuclidean2d,
+        indptr: &Bound<'_, PyAny>,
+        indices: &Bound<'_, PyAny>,
+        distances: &Bound<'_, PyAny>,
+        rng: &mut PyRng,
+    ) -> PyResult<()> {
+        let indptr_vec = extract_index_array_1d_with_isize(indptr, "indptr")?;
+        let indices_vec = extract_index_array_1d_with_isize(indices, "indices")?;
+        let dist_arr = extract_f64_array_1d(distances, "distances")?;
+        let dist_cow = f64_array_as_cow(&dist_arr);
+        self.gumap
+            .try_run_with_csr_knn(
+                drawing.drawing_mut(),
+                &indptr_vec,
+                &indices_vec,
+                &dist_cow,
+                rng.get_mut(),
+            )
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 }
 

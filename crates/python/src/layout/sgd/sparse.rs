@@ -4,14 +4,45 @@ use crate::{
         PyPivotedNegLogSimDistance,
     },
     graph::{GraphType, PyGraphAdapter},
-    layout::sgd::PySgd,
+    layout::{
+        knn::{extract_f64_array_2d, extract_index_array_1d_with_isize},
+        sgd::PySgd,
+    },
     rng::PyRng,
     FloatType,
 };
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
-use petgraph_layout_sgd::SparseSgd;
-use pyo3::prelude::*;
+use petgraph_layout_sgd::{BarrierSymmetry, SparseSgd};
+use pyo3::{prelude::*, types::PyDict};
 use rand::SeedableRng;
+
+fn parse_barrier_sym(value: &str) -> PyResult<BarrierSymmetry> {
+    match value {
+        "sym_max" => Ok(BarrierSymmetry::SymMax),
+        "sym_avg" => Ok(BarrierSymmetry::SymAvg),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "barrier_sym must be 'sym_max' or 'sym_avg', got {value:?}"
+        ))),
+    }
+}
+
+fn validate_nonneg_finite(name: &str, value: f64) -> PyResult<f64> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{name} must be finite and >= 0, got {value}"
+        )));
+    }
+    Ok(value)
+}
+
+fn validate_pos_finite(name: &str, value: f64) -> PyResult<f64> {
+    if !value.is_finite() || value <= 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{name} must be finite and > 0, got {value}"
+        )));
+    }
+    Ok(value)
+}
 
 fn merge_edge_length_arg<'py>(
     f: Option<&Bound<'py, PyAny>>,
@@ -60,9 +91,131 @@ impl PySparseSgd {
         }
     }
 
+    /// Creates a `SparseSgd` preset configured with 1-hop calibration, hub-safe 2-hop
+    /// registration, relative-margin barrier spacing, and one-sided hinge repulsion.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        h = 64,
+        calibrate_one_hop = true,
+        max_2hop_per_node = 32,
+        hinge_repulsion = true,
+        delta_rel = 0.25,
+        barrier_sym = "sym_max",
+        omega_1 = 1.0,
+        omega_2 = 1.0,
+        gamma_non2 = 1.0,
+        min_ratio = 0.5,
+        eps_dist = 1e-6,
+        seed = 42
+    ))]
+    pub fn barrier(
+        h: usize,
+        calibrate_one_hop: bool,
+        max_2hop_per_node: usize,
+        hinge_repulsion: bool,
+        delta_rel: f64,
+        barrier_sym: &str,
+        omega_1: f64,
+        omega_2: f64,
+        gamma_non2: f64,
+        min_ratio: f64,
+        eps_dist: f64,
+        seed: u64,
+    ) -> PyResult<Self> {
+        let sym = parse_barrier_sym(barrier_sym)?;
+        let mut builder = SparseSgd::barrier();
+        builder
+            .h(h)
+            .calibrate_one_hop(calibrate_one_hop)
+            .max_2hop_per_node(max_2hop_per_node)
+            .hinge_repulsion(hinge_repulsion)
+            .delta_rel(validate_nonneg_finite("delta_rel", delta_rel)?)
+            .barrier_sym(sym)
+            .omega_1(validate_nonneg_finite("omega_1", omega_1)?)
+            .omega_2(validate_nonneg_finite("omega_2", omega_2)?)
+            .gamma_non2(validate_nonneg_finite("gamma_non2", gamma_non2)?)
+            .min_ratio(validate_nonneg_finite("min_ratio", min_ratio)?)
+            .eps_dist(validate_pos_finite("eps_dist", eps_dist)?)
+            .seed(seed);
+        Ok(Self { builder })
+    }
+
     /// Sets the number of pivot nodes `h`.
     fn h(mut slf: PyRefMut<Self>, h: usize) -> Py<Self> {
         slf.builder.h(h);
+        slf.into()
+    }
+
+    /// Enables or disables 1-hop anchor calibration against the distance oracle.
+    pub fn calibrate_one_hop(mut slf: PyRefMut<Self>, enabled: bool) -> Py<Self> {
+        slf.builder.calibrate_one_hop(enabled);
+        slf.into()
+    }
+
+    /// Sets the hub-safe maximum 2-hop pairs registered per node (`0` disables 2-hop pairs).
+    pub fn max_2hop_per_node(mut slf: PyRefMut<Self>, cap: usize) -> Py<Self> {
+        slf.builder.max_2hop_per_node(cap);
+        slf.into()
+    }
+
+    /// Enables or disables one-sided hinge repulsion on Tier 3 barrier pairs.
+    pub fn hinge_repulsion(mut slf: PyRefMut<Self>, enabled: bool) -> Py<Self> {
+        slf.builder.hinge_repulsion(enabled);
+        slf.into()
+    }
+
+    /// Sets the relative margin barrier multiplier `delta_rel >= 0`.
+    pub fn delta_rel(mut slf: PyRefMut<Self>, delta_rel: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .delta_rel(validate_nonneg_finite("delta_rel", delta_rel)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the symmetrization rule (`"sym_max"` or `"sym_avg"`) for `R_pair(u, v)`.
+    pub fn barrier_sym(mut slf: PyRefMut<Self>, barrier_sym: &str) -> PyResult<Py<Self>> {
+        slf.builder.barrier_sym(parse_barrier_sym(barrier_sym)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the Tier 1 (1-hop) spring weight multiplier `omega_1 >= 0`.
+    pub fn omega_1(mut slf: PyRefMut<Self>, omega_1: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .omega_1(validate_nonneg_finite("omega_1", omega_1)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the Tier 2 (2-hop) spring weight multiplier `omega_2 >= 0`.
+    pub fn omega_2(mut slf: PyRefMut<Self>, omega_2: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .omega_2(validate_nonneg_finite("omega_2", omega_2)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the Tier 3 (non-2-hop) weight multiplier `gamma_non2 >= 0`.
+    pub fn gamma_non2(mut slf: PyRefMut<Self>, gamma_non2: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .gamma_non2(validate_nonneg_finite("gamma_non2", gamma_non2)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the relative distance floor multiplier `min_ratio >= 0`.
+    pub fn min_ratio(mut slf: PyRefMut<Self>, min_ratio: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .min_ratio(validate_nonneg_finite("min_ratio", min_ratio)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the minimum pairwise target distance clamp `eps_dist > 0`.
+    pub fn eps_dist(mut slf: PyRefMut<Self>, eps_dist: f64) -> PyResult<Py<Self>> {
+        slf.builder
+            .eps_dist(validate_pos_finite("eps_dist", eps_dist)?);
+        Ok(slf.into())
+    }
+
+    /// Sets the deterministic RNG seed used for 2-hop subsampling and non-2-hop sampling.
+    pub fn seed(mut slf: PyRefMut<Self>, seed: u64) -> Py<Self> {
+        slf.builder.seed(seed);
         slf.into()
     }
 
@@ -264,5 +417,68 @@ impl PySparseSgd {
                 "Expected PivotedNegLogSimDistance, PivotedNegLogDistance, or PivotedDistanceMatrix",
             ))
         }
+    }
+
+    /// Builds a 3-tier Sparse Barrier `Sgd` schedule directly from `(N, k_lm)` Varadhan landmark tables.
+    ///
+    /// :param graph: Undirected input graph
+    /// :type graph: Graph
+    /// :param d_ms: 2D float64 array of shape `(n_nodes, k_lm)` with multi-scale landmark distances
+    /// :type d_ms: numpy.ndarray
+    /// :param d_coarse: Optional 2D float64 array of shape `(n_nodes, k_lm)` with coarse scaffold distances
+    /// :type d_coarse: numpy.ndarray or None
+    /// :param pivots: Optional 1D integer array of pivot node indices for global repulsion coverage
+    /// :type pivots: numpy.ndarray or None
+    /// :param neg_per_node: Optional explicit non-2-hop pairs per node (`None` uses adaptive 2-hop perplexity in `[8, 32]`)
+    /// :type neg_per_node: int or None
+    /// :return: Tuple `(sgd, stats)` where `stats` is a dict of pair counts and calibrated parameters
+    /// :rtype: tuple[Sgd, dict]
+    #[pyo3(signature = (graph, d_ms, d_coarse=None, pivots=None, neg_per_node=None))]
+    pub fn build_barrier_from_landmark_tables(
+        &self,
+        py: Python<'_>,
+        graph: &PyGraphAdapter,
+        d_ms: &Bound<'_, PyAny>,
+        d_coarse: Option<&Bound<'_, PyAny>>,
+        pivots: Option<&Bound<'_, PyAny>>,
+        neg_per_node: Option<usize>,
+    ) -> PyResult<(PySgd, Py<PyDict>)> {
+        let GraphType::Graph(native_graph) = graph.graph() else {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "unsupported graph type",
+            ));
+        };
+        let d_ms_arr = extract_f64_array_2d(d_ms, "d_ms")?;
+        let d_coarse_arr = match d_coarse {
+            Some(dc) => Some(extract_f64_array_2d(dc, "d_coarse")?),
+            None => None,
+        };
+        let pivots_vec = match pivots {
+            Some(p) => extract_index_array_1d_with_isize(p, "pivots")?,
+            None => Vec::new(),
+        };
+
+        let (sgd, stats) = self
+            .builder
+            .build_barrier_from_landmark_tables(
+                native_graph,
+                d_ms_arr.as_array(),
+                d_coarse_arr.as_ref().map(|a| a.as_array()),
+                &pivots_vec,
+                neg_per_node,
+            )
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+
+        let dict = PyDict::new(py);
+        dict.set_item("n_pairs_1hop", stats.n_pairs_1hop)?;
+        dict.set_item("n_pairs_2hop", stats.n_pairs_2hop)?;
+        dict.set_item("n_pairs_non2", stats.n_pairs_non2)?;
+        dict.set_item("n_pairs_hinge", stats.n_pairs_hinge)?;
+        dict.set_item("n_pairs_two_sided", stats.n_pairs_two_sided)?;
+        dict.set_item("perplexity_val", stats.perplexity_val)?;
+        dict.set_item("per_node_neg_used", stats.per_node_neg_used)?;
+        dict.set_item("perplexity_source", stats.perplexity_source)?;
+        dict.set_item("d_floor", stats.d_floor)?;
+        Ok((PySgd::new_with_sgd(sgd), dict.unbind()))
     }
 }
