@@ -907,4 +907,69 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_l_ts_net_entropy_repels_two_points_like_bh_ts_net() {
+        let mut graph: Graph<(), (), petgraph::Undirected> = Graph::new_undirected();
+        let n0 = graph.add_node(());
+        let n1 = graph.add_node(());
+        let knn: Vec<Vec<(usize, f64)>> = vec![Vec::new(); 2];
+
+        let mut d_l = DrawingEuclidean2d::<_, f64>::initial_placement(&graph);
+        d_l.set_x(n0, -2.0);
+        d_l.set_y(n0, 0.0);
+        d_l.set_x(n1, 2.0);
+        d_l.set_y(n1, 0.0);
+
+        let mut d_bh = DrawingEuclidean2d::<_, f64>::initial_placement(&graph);
+        d_bh.set_x(n0, -2.0);
+        d_bh.set_y(n0, 0.0);
+        d_bh.set_x(n1, 2.0);
+        d_bh.set_y(n1, 0.0);
+
+        let l_ts_net = LTsNetBuilder::new()
+            .perplexity(1.0f64)
+            .intervals(25)
+            .interpolation_points(3)
+            .iterations_stage1(0)
+            .iterations_stage2(0)
+            .iterations_stage3(5)
+            .lambda_c_stage3(0.0)
+            .lambda_r_stage3(10.0)
+            .learning_rate(2.0)
+            .momentum(0.0)
+            .build()
+            .unwrap();
+        l_ts_net.run_with_knn(&mut d_l, &knn);
+
+        let bh_ts_net = BhTsNetBuilder::new()
+            .perplexity(1.0f64)
+            .theta(0.5)
+            .iterations_stage1(0)
+            .iterations_stage2(0)
+            .iterations_stage3(5)
+            .lambda_c_stage3(0.0)
+            .lambda_r_stage3(10.0)
+            .learning_rate(2.0)
+            .momentum(0.0)
+            .build()
+            .unwrap();
+        bh_ts_net.run_with_knn(&mut d_bh, &knn);
+
+        let l_sep = d_l.x(n1).unwrap() - d_l.x(n0).unwrap();
+        let bh_sep = d_bh.x(n1).unwrap() - d_bh.x(n0).unwrap();
+        assert!(
+            l_sep > 4.0,
+            "LTsNet entropy should repel points apart from 4.0, got {l_sep}"
+        );
+        assert!(
+            bh_sep > 4.0,
+            "BhTsNet entropy should repel points apart from 4.0, got {bh_sep}"
+        );
+        let rel_diff = (l_sep - bh_sep).abs() / bh_sep;
+        assert!(
+            rel_diff < 0.05,
+            "LTsNet separation ({l_sep}) diverged from BhTsNet ({bh_sep}), rel_diff={rel_diff}"
+        );
+    }
 }

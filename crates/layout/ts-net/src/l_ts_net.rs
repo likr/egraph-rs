@@ -238,14 +238,15 @@ where
                     let grad_c_x = xi / n_s;
                     let grad_c_y = yi / n_s;
 
-                    // Entropy gradient = - (1 / N^2) * (h_2 - x_i * h_1)
+                    // Entropy gradient = (1 / N^2) * (h_2 - x_i * h_1);
+                    // compute_fit_entropy_gradient already includes the repulsive gradient sign.
                     let grad_r_x = if lambda_r > S::zero() {
-                        -ent_grad_raw[i][0] / n_sq_s
+                        ent_grad_raw[i][0] / n_sq_s
                     } else {
                         S::zero()
                     };
                     let grad_r_y = if lambda_r > S::zero() {
-                        -ent_grad_raw[i][1] / n_sq_s
+                        ent_grad_raw[i][1] / n_sq_s
                     } else {
                         S::zero()
                     };

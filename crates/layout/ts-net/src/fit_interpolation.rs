@@ -612,4 +612,88 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_compute_fit_entropy_gradient_matches_quadtree_and_exact_tsnet() {
+        use crate::quadtree::Quadtree;
+
+        let pts = [
+            [-5.0, -3.0],
+            [-2.5, 2.2],
+            [-0.4, -0.8],
+            [0.5, 4.1],
+            [2.4, -2.9],
+            [4.5, 1.3],
+            [5.8, -1.2],
+            [-4.2, 4.6],
+        ];
+        let n = pts.len();
+        let n_sq = (n * n) as f64;
+        let epsilon_r = 0.05;
+
+        let fft_raw = compute_fit_entropy_gradient(&pts, 25, 3, epsilon_r);
+        let tree = Quadtree::build(&pts);
+
+        for (i, p) in pts.iter().enumerate() {
+            let fft_grad = [fft_raw[i][0] / n_sq, fft_raw[i][1] / n_sq];
+
+            let mut rep_x = 0.0;
+            let mut rep_y = 0.0;
+            tree.root
+                .compute_entropy_repulsion(i, p[0], p[1], 0.0, epsilon_r, &mut rep_x, &mut rep_y);
+            let bh_grad = [-rep_x / n_sq, -rep_y / n_sq];
+
+            let mut exact_tsnet = [0.0; 2];
+            let mut exact_fft_kernel = [0.0; 2];
+            for (j, q) in pts.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                let dx = p[0] - q[0];
+                let dy = p[1] - q[1];
+                let d_sq = dx * dx + dy * dy;
+                let d = d_sq.sqrt();
+                assert!(d >= 2.0, "test fixture requires pairwise distances >= 2.0");
+
+                let tsnet_factor = -1.0 / (n_sq * d * (d + epsilon_r));
+                exact_tsnet[0] += tsnet_factor * dx;
+                exact_tsnet[1] += tsnet_factor * dy;
+
+                let kernel_factor = -1.0 / (n_sq * (epsilon_r + d_sq));
+                exact_fft_kernel[0] += kernel_factor * dx;
+                exact_fft_kernel[1] += kernel_factor * dy;
+            }
+
+            let norm_fft = (fft_grad[0].powi(2) + fft_grad[1].powi(2)).sqrt();
+            let norm_bh = (bh_grad[0].powi(2) + bh_grad[1].powi(2)).sqrt();
+            let norm_tsnet = (exact_tsnet[0].powi(2) + exact_tsnet[1].powi(2)).sqrt();
+            let norm_kernel = (exact_fft_kernel[0].powi(2) + exact_fft_kernel[1].powi(2)).sqrt();
+
+            let cos_bh =
+                (fft_grad[0] * bh_grad[0] + fft_grad[1] * bh_grad[1]) / (norm_fft * norm_bh);
+            let cos_tsnet = (fft_grad[0] * exact_tsnet[0] + fft_grad[1] * exact_tsnet[1])
+                / (norm_fft * norm_tsnet);
+            assert!(
+                cos_bh > 0.99 && cos_tsnet > 0.99,
+                "point {i}: sign/direction mismatch cos_bh={cos_bh}, cos_tsnet={cos_tsnet}"
+            );
+
+            let rel_err_bh =
+                ((fft_grad[0] - bh_grad[0]).powi(2) + (fft_grad[1] - bh_grad[1]).powi(2)).sqrt()
+                    / norm_bh;
+            assert!(
+                rel_err_bh < 0.05,
+                "point {i}: relative error vs Quadtree too large: {rel_err_bh}"
+            );
+
+            let rel_err_kernel = ((fft_grad[0] - exact_fft_kernel[0]).powi(2)
+                + (fft_grad[1] - exact_fft_kernel[1]).powi(2))
+            .sqrt()
+                / norm_kernel;
+            assert!(
+                rel_err_kernel < 1e-3,
+                "point {i}: relative error vs exact 1/(eps+d^2) kernel: {rel_err_kernel}"
+            );
+        }
+    }
 }
