@@ -56,7 +56,7 @@ Two parallel authors **MUST NEVER** edit the same file in the same wave. Treat t
 - Top-level registry files (`crates/python/src/lib.rs`, `crates/wasm/src/lib.rs`, `crates/python/python/egraph/_core.pyi`, `crates/wasm/pkg/index.d.ts`)
 
 ### Cross-Lane API Signature Lock
-Before launching parallel Python + WASM binding waves (or any paired cross-target implementation), pin the exact function names, argument order, default parameter values, return types, and error/validation contracts on the board first. Locking these interfaces upfront prevents cross-target drift and eliminates late rework across Python (`snake_case`) and WASM (`camelCase`) bindings.
+Before launching parallel Python + WASM binding waves (or any paired cross-target implementation), pin the exact Rust, Python (`snake_case`), and WASM/TypeScript (`camelCase`) class names, method vs property/getter distinction, argument order, default parameter/seed/dtype contracts (e.g., `seed=42`, `target_std=None` vs `null`/`undefined`, zero-`serde` WASM wrapper classes), return shapes, and error/validation behavior on the board first. Locking these interfaces upfront prevents cross-target drift and eliminates late rework. In `parity_harness.py`, compare k-NN neighbor sets using row-wise sorted `(col, dist)` pairs when embedding distances can tie up to 1 ULP across FMA/libm targets.
 
 ### Disjoint Ownership Matrix by Milestone (`docs/V6_RELEASE_PLAN.md`)
 
@@ -86,4 +86,4 @@ Before launching parallel Python + WASM binding waves (or any paired cross-targe
    - Run integrated `./scripts/verify.sh --all --build-wasm` before opening the next milestone wave.
    - Clean merged worktrees with `./scripts/worktree.sh clean <slug> --delete-branch` (or pass `--force` only after confirming clean worktree status and verifying cherry-picked commits landed on the integration branch).
 4. **Long-running command heartbeat (Swarm Rule)**:
-   - Workers MUST post a brief `[interim]` status update on the swarm message board before starting any command expected to take `>60s` (e.g., `--rust`, `--python`, `--wasm`, `--all`, or long builds) so `monitor` does not emit false `[stall]` alerts.
+   - Workers MUST post a brief `@coordinator [interim] <phase>` update on the swarm message board before starting any command expected to take `>60s` (e.g., `--rust`, `--python`, `--wasm`, `--all`, full DKE benchmark runs, or long builds) so `monitor` does not emit false `[stall]` alerts.

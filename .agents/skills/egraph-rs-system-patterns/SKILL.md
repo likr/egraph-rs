@@ -184,3 +184,14 @@ Diffusion kernel-based computations for graph distances and embeddings.
 - **`SweepLineCrossings` vs `sampled_crossing_number` (`egraph-spatial` / `egraph-metrics`)**:
   - `SweepLineCrossings` runs in exact $O((|E| + K)\log |E|)$ time using a compact `FastU64Hasher`-backed `PairSet` (`pack_pair`) and zero `Vec<CrossingPair>` allocation on count/angle paths, remaining fast up to $K \sim 10^6\text{--}10^7$ crossings.
   - On ultra-dense hairball layouts where $K \sim 10^8$ or larger (e.g., `GION_3`, `bcsstk31`), exact enumeration is lower-bounded by $\Omega(K)$; use $O(M)$ `sampled_crossing_number` (deterministic `DeterministicRng`) instead of exact sweep-line counting.
+
+## Spectral Linear Algebra & Neighborhood Primitives (`egraph-linalg` & `egraph-neighborhood`)
+
+- **`ChebyshevWorkspace` 16-Column Tiled Recurrence & Tail Truncation (`egraph-linalg`)**:
+  - Evaluates $\sum_k c_k T_k(\tilde{L}) V$ using cache-line-aligned `CHEBYSHEV_TILE_COLS = 16` (`{16, 8, 4, 1, tail}`) with `as_chunks::<W>()` and pre-validated CSR indices, eliminating per-nonzero `Option` bounds branches without `unsafe`.
+  - `effective_chebyshev_len(coeffs, 1e-12)` trims trailing coefficients whose $\ell_1$ sum is $\le 10^{-12}$, provably bounding spectral operator-norm truncation error by $\le 10^{-12}$ while cutting coarse heat/JL passes significantly.
+- **Shifted $\tilde{L}$ Reuse & Single-Pass DoG-Varadhan (`egraph-linalg` / `egraph-neighborhood`)**:
+  - `ChebyshevWorkspace::apply_batch_dual`, `compute_kernel_jl_embedding_shifted`, and `compute_dual_jl_squared_norms_shifted` operate directly on the zero-diagonal shifted Laplacian $\tilde{L} = \frac{2}{\lambda_{\max}} L_{\mathrm{sym}} - I$ and generate Rademacher probes per tile without allocating $(N, d_{\mathrm{JL}})$ matrices when only row squared norms are needed.
+  - `compute_regularized_dog_varadhan_landmarks` constructs $L_{\mathrm{sym}}$, $\tilde{L}$, and MaxMin landmarks once and fuses fine DoG + coarse scaffold (`deg_c = max(d, 75)` for explicit `degree`, `max(deg_fine, adaptive(t_coarse))` otherwise) across shared degrees `0..=deg_fine`.
+- **Unweighted `CsrGraph<W>` Scalar Convention**:
+  - `egraph-linalg` functions require `W: Scalar` on `CsrGraph<W>`, whereas `egraph-neighborhood::extract_1hop_2hop_csr` emits canonical unweighted `CsrGraph<f64>` (`weights: None`) graphs compatible across both `egraph-linalg` and Python/WASM bindings.

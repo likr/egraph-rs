@@ -44,18 +44,18 @@ jobs:
         run: |
           PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
           eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
-          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -- -D warnings
+          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -p egraph-linalg -p egraph-neighborhood -- -D warnings
 
       - name: Run release workspace tests
         run: |
           cargo test --release --workspace
-          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial
+          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-linalg -p egraph-neighborhood
 
       - name: Check single-thread invariants and dependency hygiene
         run: |
           test -f clippy.toml
           grep -q "std::thread::spawn" clippy.toml
-          for crate in egraph-core egraph-ffi egraph-petgraph egraph-spatial egraph-metrics; do
+          for crate in egraph-core egraph-ffi egraph-petgraph egraph-spatial egraph-metrics egraph-linalg egraph-neighborhood; do
             if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$crate dependency tree pulls forbidden crate"
               exit 1
