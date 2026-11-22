@@ -11,6 +11,18 @@ pub mod sgd;
 pub mod stress_majorization;
 pub mod ts_net;
 
+pub use gumap::{GuMapConfig, GuMapSolver};
+pub use kamada_kawai::{KamadaKawaiConfig, KamadaKawaiSolver};
+pub use refiner::{
+    SpatialIntruderRefiner, SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,
+};
+pub use sgd::{
+    BarrierSymmetry, SgdScheduleConfig, SgdScheduleKind, SgdSolver, SparseBarrierConfig,
+    SparseBarrierStats, StreamingNegativeConfig,
+};
+pub use stress_majorization::{PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver};
+pub use ts_net::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
+
 /// Returns the crate version string.
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
