@@ -1,178 +1,782 @@
-//! This crate provides utility functions for reading and writing graph data
-//! in JSON format, specifically designed for use within the `egraph-rs`
-//! command-line tools. It handles serialization and deserialization
-//! between `petgraph` graph structures (with optional node/edge data)
-//! and a simple JSON representation that includes node positions.
+//! Modernized single-threaded command-line interface library for `egraph`.
+//!
+//! Exposes [`Cli`], [`Commands`], and execution entrypoints for `layout`,
+//! `metrics`, `cluster`, and `bench` subcommands backed exclusively by the
+//! `egraph` facade crate.
 
-use petgraph::prelude::*;
-use petgraph_drawing::DrawingEuclidean2d;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{BufReader, BufWriter},
+pub mod io;
+
+use std::path::PathBuf;
+use std::time::Instant;
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use egraph::prelude::{
+    CoreError, CsrGraph, DeterministicRng, DogVaradhanConfig, FieldLayoutSolver, ForceAtlas2Config,
+    ForceAtlas2Solver, GuMapConfig, GuMapSolver, IbUmapConfig, IterativeSolver, KMeansConfig,
+    KamadaKawaiConfig, KamadaKawaiSolver, LabelPropagationConfig, Layout2d, LouvainConfig,
+    MetricConfig, MetricReport, MetricTarget, PacmapGraphConfig, PivotMdsConfig, PrismConfig,
+    PrismOverlapRemoval, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
+    SpatialIntruderRefiner, SpatialRefinerConfig, SpectralClusteringConfig,
+    StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver,
+    YifanHuConfig, YifanHuSolver, evaluate_metrics, kmeans_plus_plus, koren_spectral_init,
+    label_propagation, louvain, normalize_layout_2d, pivot_mds, spectral_clustering,
 };
+use serde::Serialize;
 
-/// Represents node data for serialization/deserialization.
-#[derive(Clone, Serialize, Deserialize)]
-struct NodeData<N> {
-    id: String,
-    x: Option<f32>,
-    y: Option<f32>,
-    data: Option<N>,
+use crate::io::{CliError, CliResult, load_layout_from_path, resolve_graph, write_json_output};
+
+/// Top-level `egraph` CLI parser.
+#[derive(Debug, Parser)]
+#[command(
+    name = "egraph",
+    version,
+    about = "Single-threaded pure-Rust graph drawing, quality metrics, clustering, and benchmarking CLI"
+)]
+pub struct Cli {
+    /// Subcommand to execute.
+    #[command(subcommand)]
+    pub command: Commands,
 }
 
-/// Represents link (edge) data for serialization/deserialization.
-#[derive(Clone, Serialize, Deserialize)]
-struct LinkData<E> {
-    source: String,
-    target: String,
-    data: Option<E>,
+/// Supported CLI subcommands.
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Compute a 2D graph layout and output coordinates + execution stats as JSON.
+    Layout(LayoutArgs),
+    /// Evaluate quality metrics on a graph and an existing 2D JSON layout.
+    Metrics(MetricsArgs),
+    /// Cluster a graph using Louvain, spectral clustering, label propagation, or K-Means++.
+    Cluster(ClusterArgs),
+    /// Run a reproducible layout + metrics timing benchmark.
+    Bench(BenchArgs),
 }
 
-/// Represents the overall graph structure for serialization/deserialization.
-#[derive(Clone, Serialize, Deserialize)]
-struct GraphData<N, E> {
-    nodes: Vec<NodeData<N>>,
-    links: Vec<LinkData<E>>,
+/// Supported layout algorithms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayoutMethod {
+    /// Pure 1+2-Hop adaptive Fit-tsNET (`TsNetSolver::from_graph_pure_2hop`).
+    #[value(name = "tsnet-pure2hop")]
+    TsnetPure2hop,
+    /// Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD (`SgdSolver::sparse_barrier_dog`).
+    #[value(name = "sgd-barrier-dog")]
+    SgdBarrierDog,
+    /// Full all-pairs shortest-path SGD (`SgdSolver::full`).
+    #[value(name = "sgd-full")]
+    SgdFull,
+    /// SNAP-tFDP streaming edge-attached negative SGD (`SgdSolver::snap_t_fdp`).
+    #[value(name = "sgd-snap")]
+    SgdSnap,
+    /// 3-tier PaCMAP-Graph SGD (`SgdSolver::pacmap_graph`).
+    #[value(name = "sgd-pacmap")]
+    SgdPacmap,
+    /// Graph UMAP (`GuMapSolver::from_graph_dog`).
+    #[value(name = "gumap")]
+    Gumap,
+    /// Interpolation-FFT bounded Student-t FDP (`FieldLayoutSolver::t_fdp`).
+    #[value(name = "tfdp")]
+    Tfdp,
+    /// Interpolation-FFT batch Graph UMAP (`FieldLayoutSolver::ib_umap`).
+    #[value(name = "ibumap")]
+    Ibumap,
+    /// Barnes-Hut ForceAtlas2 (`ForceAtlas2Solver`).
+    #[value(name = "fa2")]
+    Fa2,
+    /// Multilevel Yifan Hu (`YifanHuSolver`).
+    #[value(name = "yifanhu")]
+    YifanHu,
+    /// Stress Majorization (`StressMajorizationSolver`).
+    #[value(name = "stress")]
+    Stress,
+    /// Kamada-Kawai (`KamadaKawaiSolver`).
+    #[value(name = "kk")]
+    Kk,
 }
 
-/// Type alias for an undirected graph using `petgraph::Graph`.
-type UndirectedGraph<N, E> = Graph<Option<N>, Option<E>, Undirected>;
-/// Type alias for a 2D Euclidean drawing using `petgraph_drawing::DrawingEuclidean2d`.
-type Drawing2D = DrawingEuclidean2d<NodeIndex, f32>;
+/// Supported layout initialization methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InitMethod {
+    /// Normalized Core-First MaxMin PivotMDS (`pivot_mds`).
+    #[value(name = "pivot-mds")]
+    PivotMds,
+    /// Koren degree-normalized spectral initialization (`koren_spectral_init`).
+    #[value(name = "koren")]
+    Koren,
+    /// Deterministic uniform/Gaussian random initialization (`DeterministicRng`).
+    #[value(name = "random")]
+    Random,
+}
 
-/// Reads a graph and its drawing information from a JSON file.
-///
-/// The JSON file is expected to follow the `GraphData` structure.
-/// It deserializes node and edge data of types `N` and `E` respectively.
-/// Initial node positions (if present in the JSON) are used to populate the `Drawing2D`.
-///
-/// # Arguments
-///
-/// * `input_path` - Path to the input JSON file.
-///
-/// # Returns
-///
-/// A tuple containing the `UndirectedGraph<N, E>` and its corresponding `Drawing2D`.
-///
-/// # Panics
-///
-/// Panics if the file cannot be opened or if JSON deserialization fails.
-pub fn read_graph<N: Clone + DeserializeOwned, E: Clone + DeserializeOwned>(
-    input_path: &str,
-) -> (UndirectedGraph<N, E>, HashMap<String, NodeIndex>, Drawing2D) {
-    let file = File::open(input_path).unwrap();
-    let reader = BufReader::new(file);
-    let input_graph: GraphData<N, E> = serde_json::from_reader(reader).unwrap();
+/// Supported clustering methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterMethod {
+    /// Two-phase multi-level Louvain modularity maximization.
+    #[value(name = "louvain")]
+    Louvain,
+    /// Ng-Jordan-Weiss spectral clustering.
+    #[value(name = "spectral")]
+    Spectral,
+    /// Asynchronous deterministic Label Propagation.
+    #[value(name = "label-prop")]
+    LabelProp,
+    /// K-Means++ over normalized 2D PivotMDS coordinates.
+    #[value(name = "kmeans")]
+    Kmeans,
+}
 
-    let mut graph = Graph::new_undirected();
-    let mut node_ids = HashMap::new();
-    for node in input_graph.nodes.iter() {
-        node_ids.insert(node.id.clone(), graph.add_node(node.data.clone()));
-    }
-    for link in input_graph.links.iter() {
-        graph.add_edge(
-            node_ids[&link.source],
-            node_ids[&link.target],
-            link.data.clone(),
-        );
-    }
-    let mut drawing = DrawingEuclidean2d::initial_placement(&graph);
-    for node in input_graph.nodes.iter() {
-        let u = node_ids[&node.id];
-        if let Some(x) = node.x {
-            drawing.set_x(u, x);
+/// Arguments for `egraph layout`.
+#[derive(Debug, Args)]
+pub struct LayoutArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name (`1138_bus`, `3_elt`, `dwt_1005`, `dwt_2680`, `poli`, `qh882`, `uspower_grid`, `karate`, `lesmis`).
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Layout algorithm to execute.
+    #[arg(long, value_enum, default_value_t = LayoutMethod::TsnetPure2hop)]
+    pub method: LayoutMethod,
+    /// Initial layout placement strategy.
+    #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
+    pub init: InitMethod,
+    /// Apply post-layout 2D spatial intruder refinement (`SpatialIntruderRefiner`).
+    #[arg(long, default_value_t = false)]
+    pub refine: bool,
+    /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`).
+    #[arg(long, default_value_t = false)]
+    pub prism: bool,
+    /// Uniform node half-extent radius used when `--prism` is enabled.
+    #[arg(long, default_value_t = 0.05)]
+    pub prism_radius: f64,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph metrics`.
+#[derive(Debug, Args)]
+pub struct MetricsArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Input 2D coordinates JSON file.
+    #[arg(long, value_name = "FILE")]
+    pub layout: PathBuf,
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,np1,np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,ideal-edge-lengths,all`).
+    #[arg(long, default_value = "sns,crossings,np1,np2")]
+    pub targets: String,
+    /// Number of BFS pivot sources for `sampled-sns`.
+    #[arg(long, default_value_t = 32)]
+    pub num_pivots: usize,
+    /// Number of edge-pair samples for `sampled-crossings`.
+    #[arg(long, default_value_t = 4096)]
+    pub num_samples: usize,
+    /// Ideal edge length fallback for unweighted graphs.
+    #[arg(long, default_value_t = 1.0)]
+    pub ideal_edge_length: f64,
+    /// Deterministic RNG seed for sampled metrics.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph cluster`.
+#[derive(Debug, Args)]
+pub struct ClusterArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Clustering algorithm to execute.
+    #[arg(long, value_enum, default_value_t = ClusterMethod::Louvain)]
+    pub method: ClusterMethod,
+    /// Target number of clusters (used by `spectral` and `kmeans`).
+    #[arg(long, default_value_t = 2)]
+    pub k: usize,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph bench`.
+#[derive(Debug, Args)]
+pub struct BenchArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Layout algorithm to benchmark.
+    #[arg(long, value_enum, default_value_t = LayoutMethod::TsnetPure2hop)]
+    pub method: LayoutMethod,
+    /// Initial layout placement strategy.
+    #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
+    pub init: InitMethod,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// JSON output payload for `egraph layout`.
+#[derive(Debug, Serialize)]
+pub struct LayoutOutput {
+    pub source: String,
+    pub method: LayoutMethod,
+    pub init: InitMethod,
+    pub seed: u64,
+    pub num_nodes: usize,
+    pub num_edges: usize,
+    pub refined: bool,
+    pub prism_applied: bool,
+    pub prism_overlaps_remaining: Option<usize>,
+    pub elapsed_ms: f64,
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+    pub coords: Vec<[f64; 2]>,
+}
+
+/// JSON output payload for `egraph metrics`.
+#[derive(Debug, Serialize)]
+pub struct MetricsOutput {
+    pub source: String,
+    pub num_nodes: usize,
+    pub num_edges: usize,
+    pub elapsed_ms: f64,
+    pub scale_normalized_stress: Option<f64>,
+    pub sampled_scale_normalized_stress: Option<f64>,
+    pub crossing_number: Option<usize>,
+    pub crossing_angle: Option<f64>,
+    pub sampled_crossing_number: Option<f64>,
+    pub neighborhood_preservation_1hop: Option<f64>,
+    pub neighborhood_preservation_2hop: Option<f64>,
+    pub gabriel_graph_property: Option<f64>,
+    pub node_resolution: Option<f64>,
+    pub relative_neighborhood_preservation: Option<f64>,
+    pub gabriel_graph_preservation: Option<f64>,
+    pub aspect_ratio: Option<f64>,
+    pub angular_resolution: Option<f64>,
+    pub ideal_edge_lengths: Option<f64>,
+}
+
+impl MetricsOutput {
+    fn from_report(
+        source: String,
+        num_nodes: usize,
+        num_edges: usize,
+        elapsed_ms: f64,
+        report: MetricReport,
+    ) -> Self {
+        Self {
+            source,
+            num_nodes,
+            num_edges,
+            elapsed_ms,
+            scale_normalized_stress: report.scale_normalized_stress,
+            sampled_scale_normalized_stress: report.sampled_scale_normalized_stress,
+            crossing_number: report.crossing_number,
+            crossing_angle: report.crossing_angle,
+            sampled_crossing_number: report.sampled_crossing_number,
+            neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
+            neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
+            gabriel_graph_property: report.gabriel_graph_property,
+            node_resolution: report.node_resolution,
+            relative_neighborhood_preservation: report.relative_neighborhood_preservation,
+            gabriel_graph_preservation: report.gabriel_graph_preservation,
+            aspect_ratio: report.aspect_ratio,
+            angular_resolution: report.angular_resolution,
+            ideal_edge_lengths: report.ideal_edge_lengths,
         }
-        if let Some(y) = node.y {
-            drawing.set_y(u, y);
-        }
     }
-    (graph, node_ids, drawing)
 }
 
-/// Writes a graph and its drawing information to a JSON file.
-///
-/// Serializes the graph structure and node positions into the `GraphData` format.
-/// Node and edge data types `N` and `E` must implement `Serialize`.
-///
-/// # Arguments
-///
-/// * `graph` - The `UndirectedGraph<N, E>` to write.
-/// * `drawing` - The `Drawing2D` containing node positions.
-/// * `output_path` - Path to the output JSON file.
-///
-/// # Panics
-///
-/// Panics if the file cannot be created or if JSON serialization fails.
-pub fn write_graph<N: Clone + Serialize, E: Clone + Serialize>(
-    graph: &UndirectedGraph<N, E>,
-    drawing: &Drawing2D,
-    output_path: &str,
-) {
-    let output = GraphData {
-        nodes: graph
-            .node_indices()
-            .map(|u| NodeData {
-                id: u.index().to_string(),
-                x: Some(drawing.x(u).unwrap()),
-                y: Some(drawing.y(u).unwrap()),
-                data: graph[u].clone(),
-            })
-            .collect::<Vec<_>>(),
-        links: graph
-            .edge_indices()
-            .map(|e| {
-                let (source, target) = graph.edge_endpoints(e).unwrap();
-                LinkData {
-                    source: source.index().to_string(),
-                    target: target.index().to_string(),
-                    data: graph[e].clone(),
-                }
-            })
-            .collect::<Vec<_>>(),
+/// JSON output payload for `egraph cluster`.
+#[derive(Debug, Serialize)]
+pub struct ClusterOutput {
+    pub source: String,
+    pub method: ClusterMethod,
+    pub seed: u64,
+    pub num_nodes: usize,
+    pub num_edges: usize,
+    pub num_clusters: usize,
+    pub modularity: Option<f64>,
+    pub inertia: Option<f64>,
+    pub elapsed_ms: f64,
+    pub labels: Vec<u32>,
+}
+
+/// JSON output payload for `egraph bench`.
+#[derive(Debug, Serialize)]
+pub struct BenchOutput {
+    pub source: String,
+    pub method: LayoutMethod,
+    pub init: InitMethod,
+    pub seed: u64,
+    pub num_nodes: usize,
+    pub num_edges: usize,
+    pub init_ms: f64,
+    pub layout_ms: f64,
+    pub metrics_ms: f64,
+    pub total_ms: f64,
+    pub scale_normalized_stress: Option<f64>,
+    pub sampled_scale_normalized_stress: Option<f64>,
+    pub crossing_number: Option<usize>,
+    pub neighborhood_preservation_1hop: Option<f64>,
+    pub neighborhood_preservation_2hop: Option<f64>,
+}
+
+/// Parses and executes the CLI from process arguments.
+pub fn run_cli() -> CliResult<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Layout(args) => {
+            let out = execute_layout(&args)?;
+            write_json_output(&out, args.output.as_deref())
+        }
+        Commands::Metrics(args) => {
+            let out = execute_metrics(&args)?;
+            write_json_output(&out, args.output.as_deref())
+        }
+        Commands::Cluster(args) => {
+            let out = execute_cluster(&args)?;
+            write_json_output(&out, args.output.as_deref())
+        }
+        Commands::Bench(args) => {
+            let out = execute_bench(&args)?;
+            write_json_output(&out, args.output.as_deref())
+        }
+    }
+}
+
+/// Builds an initial 2D layout using the requested [`InitMethod`].
+pub fn build_initial_layout(
+    graph: &CsrGraph<f64>,
+    init: InitMethod,
+    seed: u64,
+) -> CliResult<Layout2d<f64>> {
+    let n = graph.num_nodes();
+    match init {
+        InitMethod::PivotMds => {
+            let cfg = PivotMdsConfig {
+                seed,
+                ..PivotMdsConfig::default()
+            };
+            Ok(pivot_mds(graph, &cfg)?)
+        }
+        InitMethod::Koren => Ok(koren_spectral_init(graph, Some(1.0), 1e-6, 500, seed)?),
+        InitMethod::Random => {
+            let mut rng = DeterministicRng::from_seed_u64(seed);
+            let mut xs = Vec::with_capacity(n);
+            let mut ys = Vec::with_capacity(n);
+            for _ in 0..n {
+                xs.push(rng.next_f64() * 2.0 - 1.0);
+                ys.push(rng.next_f64() * 2.0 - 1.0);
+            }
+            let mut layout = Layout2d::from_xy(xs, ys)?;
+            normalize_layout_2d(&mut layout, 1.0, seed)?;
+            Ok(layout)
+        }
+    }
+}
+
+/// Runs the selected layout solver in-place on `layout`.
+pub fn run_layout_method(
+    graph: &CsrGraph<f64>,
+    layout: &mut Layout2d<f64>,
+    method: LayoutMethod,
+    seed: u64,
+) -> CliResult<()> {
+    match method {
+        LayoutMethod::TsnetPure2hop => {
+            let cfg = TsNetConfig {
+                seed,
+                ..TsNetConfig::pure_2hop()
+            };
+            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::SgdBarrierDog => {
+            let dog_cfg = DogVaradhanConfig {
+                seed,
+                ..DogVaradhanConfig::default()
+            };
+            let barrier_cfg = SparseBarrierConfig {
+                seed,
+                ..SparseBarrierConfig::default()
+            };
+            let (mut solver, _barrier_stats, _dog_stats) =
+                SgdSolver::sparse_barrier_dog(graph, &dog_cfg, &barrier_cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::SgdFull => {
+            let mut solver = SgdSolver::full(graph, SgdScheduleConfig::default(), seed)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::SgdSnap => {
+            let cfg = SnapTFdpConfig {
+                seed,
+                ..SnapTFdpConfig::default()
+            };
+            let mut solver = SgdSolver::snap_t_fdp(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::SgdPacmap => {
+            let cfg = PacmapGraphConfig {
+                seed,
+                ..PacmapGraphConfig::default()
+            };
+            let mut solver = SgdSolver::pacmap_graph(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Gumap => {
+            let dog_cfg = DogVaradhanConfig {
+                seed,
+                ..DogVaradhanConfig::default()
+            };
+            let g_cfg = GuMapConfig {
+                seed,
+                ..GuMapConfig::default()
+            };
+            let mut solver = GuMapSolver::from_graph_dog(graph, 32, &dog_cfg, g_cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Tfdp => {
+            let cfg = TFdpConfig {
+                seed,
+                ..TFdpConfig::default()
+            };
+            let mut solver = FieldLayoutSolver::t_fdp(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Ibumap => {
+            let dog_cfg = DogVaradhanConfig {
+                seed,
+                ..DogVaradhanConfig::default()
+            };
+            let cfg = IbUmapConfig {
+                seed,
+                ..IbUmapConfig::default()
+            };
+            let mut solver = FieldLayoutSolver::ib_umap(graph, 32, &dog_cfg, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fa2 => {
+            let cfg = ForceAtlas2Config {
+                seed,
+                ..ForceAtlas2Config::default()
+            };
+            let mut solver = ForceAtlas2Solver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::YifanHu => {
+            let cfg = YifanHuConfig {
+                seed,
+                ..YifanHuConfig::default()
+            };
+            let mut solver = YifanHuSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Stress => {
+            let mut solver =
+                StressMajorizationSolver::from_graph(graph, StressMajorizationConfig::default())?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Kk => {
+            let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
+            solver.run(layout)?;
+        }
+    }
+    Ok(())
+}
+
+/// Executes the `layout` subcommand and returns the structured JSON output.
+pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
+    let t0 = Instant::now();
+    let (graph, embedded_layout, source) =
+        resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
+
+    let mut layout = match embedded_layout {
+        Some(l) => l,
+        None => build_initial_layout(&graph, args.init, args.seed)?,
     };
 
-    let file = File::create(output_path).unwrap();
-    let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &output).unwrap();
+    run_layout_method(&graph, &mut layout, args.method, args.seed)?;
+
+    if args.refine {
+        let ref_cfg = SpatialRefinerConfig {
+            seed: args.seed,
+            ..SpatialRefinerConfig::default()
+        };
+        let mut refiner = SpatialIntruderRefiner::new(&graph, ref_cfg)?;
+        refiner.run(&mut layout)?;
+    }
+
+    let mut prism_overlaps_remaining = None;
+    if args.prism {
+        if !args.prism_radius.is_finite() || args.prism_radius < 0.0 {
+            return Err(CliError::Core(CoreError::invalid_input(
+                "prism-radius must be finite and >= 0.0",
+            )));
+        }
+        let prism_cfg = PrismConfig {
+            seed: args.seed,
+            ..PrismConfig::default()
+        };
+        let radii = vec![args.prism_radius; graph.num_nodes()];
+        let mut prism = PrismOverlapRemoval::from_radii(radii, prism_cfg)?;
+        prism.run(&mut layout)?;
+        prism_overlaps_remaining = Some(prism.last_overlap_count());
+    }
+
+    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let x = layout.x().to_vec();
+    let y = layout.y().to_vec();
+    let coords = x.iter().zip(y.iter()).map(|(&xi, &yi)| [xi, yi]).collect();
+
+    Ok(LayoutOutput {
+        source,
+        method: args.method,
+        init: args.init,
+        seed: args.seed,
+        num_nodes: graph.num_nodes(),
+        num_edges: graph.num_edges(),
+        refined: args.refine,
+        prism_applied: args.prism,
+        prism_overlaps_remaining,
+        elapsed_ms,
+        x,
+        y,
+        coords,
+    })
 }
 
-/// Writes node positions to a JSON file in a simplified format.
-///
-/// Creates a JSON object where keys are node IDs (as strings) and values are
-/// coordinate arrays [x, y]. This provides a cleaner output format focused
-/// solely on node positions without graph structure or metadata.
-///
-/// # Arguments
-///
-/// * `graph` - The `UndirectedGraph<N, E>` containing the nodes.
-/// * `drawing` - The `Drawing2D` containing node positions.
-/// * `output_path` - Path to the output JSON file.
-///
-/// # Output Format
-///
-/// ```json
-/// {
-///   "0": [1.23, 4.56],
-///   "1": [2.34, 5.67],
-///   "2": [3.45, 6.78]
-/// }
-/// ```
-///
-/// # Panics
-///
-/// Panics if the file cannot be created or if JSON serialization fails.
-pub fn write_pos(node_ids: &HashMap<String, NodeIndex>, drawing: &Drawing2D, output_path: &str) {
-    let positions = node_ids
-        .iter()
-        .map(|(id, &u)| {
-            let pos = [drawing.x(u).unwrap(), drawing.y(u).unwrap()];
-            (id, pos)
-        })
-        .collect::<HashMap<_, _>>();
+/// Parses comma-separated metric target names into [`MetricTarget`] values.
+pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
+    let mut targets = Vec::new();
+    for raw in spec.split(',') {
+        let token = raw.trim().to_ascii_lowercase().replace('_', "-");
+        if token.is_empty() {
+            continue;
+        }
+        match token.as_str() {
+            "all" => {
+                return Ok(vec![
+                    MetricTarget::ScaleNormalizedStress,
+                    MetricTarget::SampledScaleNormalizedStress,
+                    MetricTarget::CrossingNumber,
+                    MetricTarget::CrossingAngle,
+                    MetricTarget::SampledCrossingNumber,
+                    MetricTarget::NeighborhoodPreservation1Hop,
+                    MetricTarget::NeighborhoodPreservation2Hop,
+                    MetricTarget::GabrielGraphProperty,
+                    MetricTarget::NodeResolution,
+                    MetricTarget::RelativeNeighborhoodPreservation,
+                    MetricTarget::GabrielGraphPreservation,
+                    MetricTarget::AspectRatio,
+                    MetricTarget::AngularResolution,
+                    MetricTarget::IdealEdgeLengths,
+                ]);
+            }
+            "sns" | "scale-normalized-stress" => targets.push(MetricTarget::ScaleNormalizedStress),
+            "sampled-sns" | "sampled-scale-normalized-stress" => {
+                targets.push(MetricTarget::SampledScaleNormalizedStress);
+            }
+            "crossings" | "crossing-number" => targets.push(MetricTarget::CrossingNumber),
+            "crossing-angle" => targets.push(MetricTarget::CrossingAngle),
+            "sampled-crossings" | "sampled-crossing-number" => {
+                targets.push(MetricTarget::SampledCrossingNumber);
+            }
+            "np1" | "neighborhood-preservation-1hop" => {
+                targets.push(MetricTarget::NeighborhoodPreservation1Hop);
+            }
+            "np2" | "neighborhood-preservation-2hop" => {
+                targets.push(MetricTarget::NeighborhoodPreservation2Hop);
+            }
+            "gabriel" | "gabriel-graph-property" => {
+                targets.push(MetricTarget::GabrielGraphProperty);
+            }
+            "node-resolution" => targets.push(MetricTarget::NodeResolution),
+            "drng" | "relative-neighborhood-preservation" => {
+                targets.push(MetricTarget::RelativeNeighborhoodPreservation);
+            }
+            "dgg" | "gabriel-graph-preservation" => {
+                targets.push(MetricTarget::GabrielGraphPreservation);
+            }
+            "aspect-ratio" => targets.push(MetricTarget::AspectRatio),
+            "angular-resolution" => targets.push(MetricTarget::AngularResolution),
+            "ideal-edge-lengths" => targets.push(MetricTarget::IdealEdgeLengths),
+            other => {
+                return Err(CliError::InvalidInput(format!(
+                    "unknown metric target '{other}'"
+                )));
+            }
+        }
+    }
+    Ok(targets)
+}
 
-    let file = File::create(output_path).unwrap();
-    let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &positions).unwrap();
+/// Executes the `metrics` subcommand and returns the structured JSON output.
+pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
+    let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
+    let layout = load_layout_from_path(&args.layout, graph.num_nodes())?;
+    let targets = parse_metric_targets(&args.targets)?;
+    let cfg = MetricConfig {
+        sns_num_pivots: args.num_pivots,
+        sns_seed: args.seed,
+        crossing_num_samples: args.num_samples,
+        crossing_seed: args.seed,
+        ideal_edge_length: args.ideal_edge_length,
+    };
+    cfg.validate()?;
+
+    let t0 = Instant::now();
+    let report = evaluate_metrics(&graph, &layout, &targets, &cfg)?;
+    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(MetricsOutput::from_report(
+        source,
+        graph.num_nodes(),
+        graph.num_edges(),
+        elapsed_ms,
+        report,
+    ))
+}
+
+/// Executes the `cluster` subcommand and returns the structured JSON output.
+pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
+    let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
+
+    let t0 = Instant::now();
+    let (labels, num_clusters, modularity, inertia) = match args.method {
+        ClusterMethod::Louvain => {
+            let cfg = LouvainConfig {
+                seed: args.seed,
+                ..LouvainConfig::default()
+            };
+            let res = louvain(&graph, &cfg)?;
+            (res.labels, res.num_communities, Some(res.modularity), None)
+        }
+        ClusterMethod::Spectral => {
+            let cfg = SpectralClusteringConfig {
+                k: args.k,
+                seed: args.seed,
+                ..SpectralClusteringConfig::default()
+            };
+            let labels = spectral_clustering(&graph, &cfg)?;
+            let count = count_distinct_labels(&labels);
+            (labels, count, None, None)
+        }
+        ClusterMethod::LabelProp => {
+            let cfg = LabelPropagationConfig {
+                seed: args.seed,
+                ..LabelPropagationConfig::default()
+            };
+            let labels = label_propagation(&graph, &cfg)?;
+            let count = count_distinct_labels(&labels);
+            (labels, count, None, None)
+        }
+        ClusterMethod::Kmeans => {
+            let layout = build_initial_layout(&graph, InitMethod::PivotMds, args.seed)?;
+            let points = layout.to_interleaved();
+            let cfg = KMeansConfig {
+                k: args.k,
+                seed: args.seed,
+                ..KMeansConfig::default()
+            };
+            let res = kmeans_plus_plus(&points, graph.num_nodes(), 2, &cfg)?;
+            let count = count_distinct_labels(&res.labels);
+            (res.labels, count, None, Some(res.inertia))
+        }
+    };
+    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(ClusterOutput {
+        source,
+        method: args.method,
+        seed: args.seed,
+        num_nodes: graph.num_nodes(),
+        num_edges: graph.num_edges(),
+        num_clusters,
+        modularity,
+        inertia,
+        elapsed_ms,
+        labels,
+    })
+}
+
+fn count_distinct_labels(labels: &[u32]) -> usize {
+    let mut sorted = labels.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    sorted.len()
+}
+
+/// Executes the `bench` subcommand and returns the structured benchmark output.
+pub fn execute_bench(args: &BenchArgs) -> CliResult<BenchOutput> {
+    let total_t0 = Instant::now();
+    let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
+
+    let init_t0 = Instant::now();
+    let mut layout = build_initial_layout(&graph, args.init, args.seed)?;
+    let init_ms = init_t0.elapsed().as_secs_f64() * 1000.0;
+
+    let layout_t0 = Instant::now();
+    run_layout_method(&graph, &mut layout, args.method, args.seed)?;
+    let layout_ms = layout_t0.elapsed().as_secs_f64() * 1000.0;
+
+    let metrics_t0 = Instant::now();
+    let mut targets = vec![
+        MetricTarget::NeighborhoodPreservation1Hop,
+        MetricTarget::NeighborhoodPreservation2Hop,
+    ];
+    if graph.num_nodes() <= 2000 {
+        targets.push(MetricTarget::ScaleNormalizedStress);
+        targets.push(MetricTarget::CrossingNumber);
+    } else {
+        targets.push(MetricTarget::SampledScaleNormalizedStress);
+    }
+    let m_cfg = MetricConfig {
+        sns_seed: args.seed,
+        crossing_seed: args.seed,
+        ..MetricConfig::default()
+    };
+    let report = evaluate_metrics(&graph, &layout, &targets, &m_cfg)?;
+    let metrics_ms = metrics_t0.elapsed().as_secs_f64() * 1000.0;
+    let total_ms = total_t0.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(BenchOutput {
+        source,
+        method: args.method,
+        init: args.init,
+        seed: args.seed,
+        num_nodes: graph.num_nodes(),
+        num_edges: graph.num_edges(),
+        init_ms,
+        layout_ms,
+        metrics_ms,
+        total_ms,
+        scale_normalized_stress: report.scale_normalized_stress,
+        sampled_scale_normalized_stress: report.sampled_scale_normalized_stress,
+        crossing_number: report.crossing_number,
+        neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
+        neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
+    })
 }

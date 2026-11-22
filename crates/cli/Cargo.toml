@@ -1,17 +1,17 @@
 [package]
 name = "egraph-cli"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line graph layout, metrics, clustering, and benchmarking tool for egraph-rs."
+
+[[bin]]
+name = "egraph"
+path = "src/main.rs"
 
 [dependencies]
-argparse = "0.2.2"
-petgraph = "0.8"
-petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
-petgraph-drawing = { path = "../drawing" }
-petgraph-layout-omega = { path = "../layout/omega" }
-petgraph-layout-sgd = { path = "../layout/sgd" }
-petgraph-linalg-kernel = { path = "../linalg/kernel" }
-petgraph-quality-metrics = { path = "../quality-metrics" }
-rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+clap.workspace = true
+egraph = { workspace = true, features = ["layout", "metrics", "clustering", "dataset", "delaunay"] }
+serde.workspace = true
+serde_json.workspace = true
