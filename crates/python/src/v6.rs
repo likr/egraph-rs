@@ -1,7 +1,12 @@
-//! v6 zero-copy `CsrGraph` and `Layout2d` Python bindings backed by `egraph-core` and `egraph-ffi`.
+//! v6 zero-copy `CsrGraph`, `Layout2d`, metrics, and spatial bindings backed by
+//! `egraph-core`, `egraph-ffi`, `egraph-metrics`, and `egraph-spatial`.
 
-use egraph_core::CsrGraph;
+use std::collections::BTreeMap;
+
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d};
 use egraph_ffi::{ErrorKind, FfiError, InterleavedLayout2d, build_csr_f64, build_edges_f64};
+use egraph_metrics::{MetricConfig, MetricTarget};
+use egraph_spatial::Delaunay2d;
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{
     Element, PyArray1, PyArray2, PyArrayDescr, PyArrayDescrMethods, PyReadonlyArray1,
@@ -20,6 +25,18 @@ fn ffi_error_to_py(err: FfiError) -> PyErr {
         | ErrorKind::NonFiniteValue
         | ErrorKind::UnsupportedOperation
         | ErrorKind::NumericalBreakdown => PyValueError::new_err(err.message),
+    }
+}
+
+fn core_error_to_py(err: CoreError) -> PyErr {
+    match err {
+        CoreError::IndexOutOfBounds { .. } => PyIndexError::new_err(err.to_string()),
+        CoreError::InvalidInput(_)
+        | CoreError::DimensionMismatch { .. }
+        | CoreError::InvalidCsr(_)
+        | CoreError::NonFiniteValue { .. }
+        | CoreError::UnsupportedOperation(_)
+        | CoreError::NumericalBreakdown(_) => PyValueError::new_err(err.to_string()),
     }
 }
 
@@ -376,6 +393,57 @@ fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<us
         .map_err(|_| PyValueError::new_err(format!("{name} value {val} exceeds usize capacity")))
 }
 
+#[derive(Clone, Copy)]
+struct StrictUsize(usize);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for StrictUsize {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        extract_non_negative_usize(&ob, "integer argument").map(Self)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StrictU64(u64);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for StrictU64 {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if ob.is_instance_of::<PyBool>() {
+            return Err(PyTypeError::new_err("seed must be an integer, not bool"));
+        }
+        let val = ob
+            .extract::<i128>()
+            .map_err(|_| PyTypeError::new_err("seed must be an integer"))?;
+        if val < 0 {
+            return Err(PyValueError::new_err(format!(
+                "seed must be non-negative, got {val}"
+            )));
+        }
+        u64::try_from(val)
+            .map(Self)
+            .map_err(|_| PyValueError::new_err(format!("seed value {val} exceeds u64 capacity")))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StrictF64(f64);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for StrictF64 {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if ob.is_instance_of::<PyBool>() {
+            return Err(PyTypeError::new_err("coordinate must be float, not bool"));
+        }
+        ob.extract::<f64>()
+            .map(Self)
+            .map_err(|_| PyTypeError::new_err("coordinate must be numeric"))
+    }
+}
+
 /// Compact `u32`-indexed Compressed Sparse Row (`CsrGraph`) graph representation.
 ///
 /// Stores vertex neighborhoods in flat CSR arrays with optional `float64` edge weights,
@@ -385,6 +453,12 @@ fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<us
 #[derive(Clone)]
 pub struct PyCsrGraph {
     inner: CsrGraph<f64>,
+}
+
+impl PyCsrGraph {
+    pub(crate) fn inner(&self) -> &CsrGraph<f64> {
+        &self.inner
+    }
 }
 
 #[pymethods]
@@ -609,9 +683,98 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
     }
 }
 
-enum Layout2dInner {
+pub(crate) enum Layout2dInner {
     F64(InterleavedLayout2d<f64>),
     F32(InterleavedLayout2d<f32>),
+}
+
+impl PyLayout2d {
+    pub(crate) fn inner(&self) -> &Layout2dInner {
+        &self.inner
+    }
+}
+
+macro_rules! dispatch_layout2d {
+    ($py:expr, $layout:expr, |$soa:ident| $body:expr) => {
+        $py.detach(|| match $layout.inner() {
+            Layout2dInner::F64(buf) => {
+                let $soa = buf.to_layout2d();
+                $body
+            }
+            Layout2dInner::F32(buf) => {
+                let $soa = buf.to_layout2d();
+                $body
+            }
+        })
+        .map_err(core_error_to_py)
+    };
+}
+
+fn layout_f32_to_f64(layout: &Layout2d<f32>) -> Layout2d<f64> {
+    let x: Vec<f64> = layout.x().iter().map(|&v| f64::from(v)).collect();
+    let y: Vec<f64> = layout.y().iter().map(|&v| f64::from(v)).collect();
+    // Lengths from an existing `Layout2d<f32>` are guaranteed equal.
+    Layout2d::from_xy(x, y).unwrap_or_else(|_| Layout2d::zeros(0))
+}
+
+fn parse_metric_target(raw: &str) -> PyResult<MetricTarget> {
+    let normalized: String = raw
+        .trim()
+        .chars()
+        .filter(|c| *c != '_' && *c != '-')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    match normalized.as_str() {
+        "scalenormalizedstress" | "sns" => Ok(MetricTarget::ScaleNormalizedStress),
+        "sampledscalenormalizedstress" | "sampledsns" => {
+            Ok(MetricTarget::SampledScaleNormalizedStress)
+        }
+        "crossingnumber" | "sweepcrossingnumber" => Ok(MetricTarget::CrossingNumber),
+        "crossingangle" | "sweepcrossingangle" => Ok(MetricTarget::CrossingAngle),
+        "sampledcrossingnumber" | "sampledcrossing" => Ok(MetricTarget::SampledCrossingNumber),
+        "neighborhoodpreservation1hop" | "neighborhoodpreservation" | "np1" => {
+            Ok(MetricTarget::NeighborhoodPreservation1Hop)
+        }
+        "neighborhoodpreservation2hop" | "neighborhoodpreservation2hopv6" | "np2" => {
+            Ok(MetricTarget::NeighborhoodPreservation2Hop)
+        }
+        "gabrielgraphproperty" | "gabrielgraphpropertyv6" | "gabrielproperty" => {
+            Ok(MetricTarget::GabrielGraphProperty)
+        }
+        "noderesolution" | "noderesolutionv6" => Ok(MetricTarget::NodeResolution),
+        "relativeneighborhoodpreservation" | "drng" | "drngpreservation" => {
+            Ok(MetricTarget::RelativeNeighborhoodPreservation)
+        }
+        "gabrielgraphpreservation" | "dgg" | "dggpreservation" => {
+            Ok(MetricTarget::GabrielGraphPreservation)
+        }
+        "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
+        "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
+        "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
+        _ => Err(PyValueError::new_err(format!(
+            "unknown metric target {raw:?}"
+        ))),
+    }
+}
+
+fn extract_metric_targets(targets: &Bound<'_, PyAny>) -> PyResult<Vec<MetricTarget>> {
+    if is_non_sequence_container(targets) {
+        return Err(PyTypeError::new_err(
+            "targets must be a sequence or iterable of metric target strings",
+        ));
+    }
+    let iter = targets.try_iter().map_err(|_| {
+        PyTypeError::new_err("targets must be a sequence or iterable of metric target strings")
+    })?;
+    let mut parsed = Vec::new();
+    for item_res in iter {
+        let item = item_res?;
+        let raw = item
+            .extract::<String>()
+            .map_err(|_| PyTypeError::new_err("metric target entries must be strings"))?;
+        parsed.push(parse_metric_target(&raw)?);
+    }
+    Ok(parsed)
 }
 
 fn extract_interleaved_f64_from_view(
@@ -873,16 +1036,475 @@ impl PyLayout2d {
     }
 }
 
-/// Register the v6 zero-copy `CsrGraph` and `Layout2d` classes on the Python extension module.
+pub(crate) fn v6_crossing_number_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::crossing_number(g, &soa).map(|c| c as f64)
+    })
+}
+
+pub(crate) fn v6_crossing_angle_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| egraph_metrics::crossing_angle(g, &soa))
+}
+
+pub(crate) fn v6_neighborhood_preservation_1hop_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::neighborhood_preservation_1hop(g, &soa)
+    })
+}
+
+pub(crate) fn v6_neighborhood_preservation_2hop_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::neighborhood_preservation_2hop(g, &soa)
+    })
+}
+
+pub(crate) fn v6_gabriel_graph_property_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::gabriel_graph_property(g, &soa)
+    })
+}
+
+pub(crate) fn v6_node_resolution_impl(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+    dispatch_layout2d!(py, layout, |soa| egraph_metrics::node_resolution(&soa))
+}
+
+pub(crate) fn v6_aspect_ratio_impl(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+    dispatch_layout2d!(py, layout, |soa| egraph_metrics::aspect_ratio(&soa))
+}
+
+pub(crate) fn v6_angular_resolution_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::angular_resolution(g, &soa)
+    })
+}
+
+pub(crate) fn v6_ideal_edge_lengths_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::ideal_edge_lengths(g, &soa)
+    })
+}
+
+/// Compute closed-form Scale-Normalized Stress (`SNS`) in `[0.0, 1.0]` over `graph` and `layout`.
+///
+/// Uses unweighted BFS hop distances with inverse-squared weights `w_ij = 1 / d_ij^2` and
+/// analytical optimal coordinate rescaling so uniform scaling leaves the metric invariant.
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn scale_normalized_stress(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::scale_normalized_stress(g, &soa)
+    })
+}
+
+/// Compute O(kN) pivot-sampled Scale-Normalized Stress (`SNS`) from `num_pivots` deterministic BFS sources.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_pivots = StrictUsize(64), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_pivots=64, seed=42)"
+)]
+fn sampled_scale_normalized_stress(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_pivots: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let pivots = num_pivots.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::sampled_scale_normalized_stress(g, &soa, pivots, seed_val)
+    })
+}
+
+/// Count exact non-adjacent edge crossings using the O((|E| + K) log |E|) sweep-line detector.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn sweep_crossing_number(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_crossing_number_impl(py, graph, layout)
+}
+
+/// Compute the sweep-line crossing-angle penalty `sum cos^2(theta)` over all crossing edge pairs.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn sweep_crossing_angle(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_crossing_angle_impl(py, graph, layout)
+}
+
+/// Estimate total edge crossings in O(num_samples) time via deterministic edge-pair sampling.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_samples = StrictUsize(10000), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_samples=10000, seed=42)"
+)]
+fn sampled_crossing_number(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_samples: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let samples = num_samples.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::sampled_crossing_number(g, &soa, samples, seed_val)
+    })
+}
+
+/// Count crossing edge sub-segments on the periodic unit torus `[0, 1)^2`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn torus_crossing_number(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::crossing_edges_torus(g, &soa).map(|pairs| pairs.len() as f64)
+    })
+}
+
+/// Compute 1-hop neighborhood preservation (`NP1`) in `[0.0, 1.0]` backed by `StaticKdTree`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn neighborhood_preservation_1hop(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    v6_neighborhood_preservation_1hop_impl(py, graph, layout)
+}
+
+/// Compute 2-hop neighborhood preservation (`NP2`) in `[0.0, 1.0]` backed by `StaticKdTree`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn neighborhood_preservation_2hop_v6(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    v6_neighborhood_preservation_2hop_impl(py, graph, layout)
+}
+
+/// Compute the undirected angle in `[0.0, pi]` radians between 2D vectors `(x1, y1)` and `(x2, y2)`.
+///
+/// Returns `None` if either vector is non-finite or has zero length.
+#[pyfunction]
+fn edge_angle(x1: StrictF64, y1: StrictF64, x2: StrictF64, y2: StrictF64) -> Option<f64> {
+    egraph_metrics::edge_angle(x1.0, y1.0, x2.0, y2.0)
+}
+
+/// Compute PRISM layout-preservation distortion `(sigma_dist, sigma_disp)` between
+/// `original_layout` and `adjusted_layout`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn prism_distortion(
+    py: Python<'_>,
+    original_layout: &PyLayout2d,
+    adjusted_layout: &PyLayout2d,
+) -> PyResult<(f64, f64)> {
+    let res = py
+        .detach(
+            || match (original_layout.inner(), adjusted_layout.inner()) {
+                (Layout2dInner::F64(orig), Layout2dInner::F64(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion(&o, &a)
+                }
+                (Layout2dInner::F32(orig), Layout2dInner::F32(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion(&o, &a)
+                }
+                (Layout2dInner::F64(orig), Layout2dInner::F32(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = layout_f32_to_f64(&adj.to_layout2d());
+                    egraph_metrics::prism_distortion(&o, &a)
+                }
+                (Layout2dInner::F32(orig), Layout2dInner::F64(adj)) => {
+                    let o = layout_f32_to_f64(&orig.to_layout2d());
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion(&o, &a)
+                }
+            },
+        )
+        .map_err(core_error_to_py)?;
+    Ok((res.sigma_dist, res.sigma_disp))
+}
+
+/// Compute shape-based Relative Neighborhood Graph preservation (`dRNG`) in `[0.0, 1.0]`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn drng_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::relative_neighborhood_preservation(g, &soa)
+    })
+}
+
+/// Compute shape-based Gabriel Graph preservation (`dGG`) in `[0.0, 1.0]`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn dgg_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::gabriel_graph_preservation(g, &soa)
+    })
+}
+
+/// Compute Gabriel graph property violation sum over `graph` and `layout`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn gabriel_graph_property_v6(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<f64> {
+    v6_gabriel_graph_property_impl(py, graph, layout)
+}
+
+/// Compute hinge node-resolution violation penalty for `layout`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn node_resolution_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_node_resolution_impl(py, layout)
+}
+
+/// Compute PCA singular-value aspect ratio `sigma_2 / sigma_1` in `[0.0, 1.0]` for `layout`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn aspect_ratio_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_aspect_ratio_impl(py, layout)
+}
+
+/// Compute exponential angular-resolution penalty across incident edge pairs at each vertex.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn angular_resolution_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_angular_resolution_impl(py, graph, layout)
+}
+
+/// Compute relative squared ideal edge-length error using edge weights (or `1.0` if unweighted).
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    v6_ideal_edge_lengths_impl(py, graph, layout)
+}
+
+/// Selectively evaluate requested quality metrics on `(graph, layout)` without running unrequested passes.
+///
+/// Supported target names and aliases include `"scale_normalized_stress"` (`"sns"`),
+/// `"sampled_scale_normalized_stress"` (`"sampled_sns"`), `"crossing_number"`,
+/// `"crossing_angle"`, `"sampled_crossing_number"`, `"neighborhood_preservation_1hop"`
+/// (`"np1"`), `"neighborhood_preservation_2hop"` (`"np2"`), `"gabriel_graph_property"`,
+/// `"node_resolution"`, `"relative_neighborhood_preservation"` (`"drng"`),
+/// `"gabriel_graph_preservation"` (`"dgg"`), `"aspect_ratio"`, `"angular_resolution"`,
+/// and `"ideal_edge_lengths"`.
+///
+/// Releases the Python GIL during computation and returns a dict keyed by canonical
+/// `MetricReport` snake_case field names.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(10000), seed = StrictU64(42)),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=10000, seed=42)"
+)]
+fn evaluate_metrics(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    targets: &Bound<'_, PyAny>,
+    num_pivots: StrictUsize,
+    num_samples: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<BTreeMap<String, f64>> {
+    let target_list = extract_metric_targets(targets)?;
+    let config = MetricConfig {
+        sns_num_pivots: num_pivots.0,
+        sns_seed: seed.0,
+        crossing_num_samples: num_samples.0,
+        crossing_seed: seed.0,
+        ideal_edge_length: 1.0,
+    };
+    let g = graph.inner();
+    let report = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::evaluate_metrics(g, &soa, &target_list, &config)
+    })?;
+
+    let mut out = BTreeMap::new();
+    if let Some(v) = report.scale_normalized_stress {
+        out.insert("scale_normalized_stress".to_owned(), v);
+    }
+    if let Some(v) = report.sampled_scale_normalized_stress {
+        out.insert("sampled_scale_normalized_stress".to_owned(), v);
+    }
+    if let Some(v) = report.crossing_number {
+        out.insert("crossing_number".to_owned(), v as f64);
+    }
+    if let Some(v) = report.crossing_angle {
+        out.insert("crossing_angle".to_owned(), v);
+    }
+    if let Some(v) = report.sampled_crossing_number {
+        out.insert("sampled_crossing_number".to_owned(), v);
+    }
+    if let Some(v) = report.neighborhood_preservation_1hop {
+        out.insert("neighborhood_preservation_1hop".to_owned(), v);
+    }
+    if let Some(v) = report.neighborhood_preservation_2hop {
+        out.insert("neighborhood_preservation_2hop".to_owned(), v);
+    }
+    if let Some(v) = report.gabriel_graph_property {
+        out.insert("gabriel_graph_property".to_owned(), v);
+    }
+    if let Some(v) = report.node_resolution {
+        out.insert("node_resolution".to_owned(), v);
+    }
+    if let Some(v) = report.relative_neighborhood_preservation {
+        out.insert("relative_neighborhood_preservation".to_owned(), v);
+    }
+    if let Some(v) = report.gabriel_graph_preservation {
+        out.insert("gabriel_graph_preservation".to_owned(), v);
+    }
+    if let Some(v) = report.aspect_ratio {
+        out.insert("aspect_ratio".to_owned(), v);
+    }
+    if let Some(v) = report.angular_resolution {
+        out.insert("angular_resolution".to_owned(), v);
+    }
+    if let Some(v) = report.ideal_edge_lengths {
+        out.insert("ideal_edge_lengths".to_owned(), v);
+    }
+    Ok(out)
+}
+
+type DelaunayArrays<'py> = (Bound<'py, PyArray2<u32>>, Bound<'py, PyArray2<u32>>);
+
+/// Compute the deterministic 2D Delaunay triangulation of `layout`.
+///
+/// Returns `(edges, triangles)` as `uint32` NumPy arrays with shapes `(E, 2)` and `(T, 3)`.
+/// Deduplicates coincident vertices deterministically and handles collinear layouts without
+/// panicking. Releases the Python GIL during computation.
+#[pyfunction]
+fn delaunay_triangulation<'py>(
+    py: Python<'py>,
+    layout: &PyLayout2d,
+) -> PyResult<DelaunayArrays<'py>> {
+    let (flat_edges, e_len, flat_tris, t_len) = py
+        .detach(|| -> CoreResult<(Vec<u32>, usize, Vec<u32>, usize)> {
+            let dt = match layout.inner() {
+                Layout2dInner::F64(buf) => Delaunay2d::triangulate(&buf.to_layout2d())?,
+                Layout2dInner::F32(buf) => Delaunay2d::triangulate(&buf.to_layout2d())?,
+            };
+            let edges = dt.edges();
+            let mut flat_edges = Vec::with_capacity(edges.len() * 2);
+            for &(u, v) in edges {
+                flat_edges.push(u);
+                flat_edges.push(v);
+            }
+            let tris = dt.triangles();
+            let mut flat_tris = Vec::with_capacity(tris.len() * 3);
+            for &[a, b, c] in tris {
+                flat_tris.push(a);
+                flat_tris.push(b);
+                flat_tris.push(c);
+            }
+            Ok((flat_edges, edges.len(), flat_tris, tris.len()))
+        })
+        .map_err(core_error_to_py)?;
+
+    let edges_arr = Array2::from_shape_vec((e_len, 2), flat_edges)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let tris_arr = Array2::from_shape_vec((t_len, 3), flat_tris)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        PyArray2::from_owned_array(py, edges_arr),
+        PyArray2::from_owned_array(py, tris_arr),
+    ))
+}
+
+/// Register the v6 zero-copy `CsrGraph`, `Layout2d`, metrics, and spatial functions on the Python extension module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCsrGraph>()?;
     m.add_class::<PyLayout2d>()?;
+    m.add_function(wrap_pyfunction!(scale_normalized_stress, m)?)?;
+    m.add_function(wrap_pyfunction!(sampled_scale_normalized_stress, m)?)?;
+    m.add_function(wrap_pyfunction!(sweep_crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(sweep_crossing_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(sampled_crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(torus_crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(neighborhood_preservation_1hop, m)?)?;
+    m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(edge_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(prism_distortion, m)?)?;
+    m.add_function(wrap_pyfunction!(drng_preservation, m)?)?;
+    m.add_function(wrap_pyfunction!(dgg_preservation, m)?)?;
+    m.add_function(wrap_pyfunction!(gabriel_graph_property_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(node_resolution_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(aspect_ratio_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(angular_resolution_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(ideal_edge_lengths_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate_metrics, m)?)?;
+    m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ScalarDtype;
+    use super::{MetricTarget, ScalarDtype, parse_metric_target};
 
     #[test]
     fn test_scalar_dtype_parsing() {
@@ -893,5 +1515,38 @@ mod tests {
         assert!(ScalarDtype::from_name("int32").is_none());
         assert_eq!(ScalarDtype::F64.as_str(), "float64");
         assert_eq!(ScalarDtype::F32.as_str(), "float32");
+    }
+
+    #[test]
+    fn test_metric_target_aliases() {
+        assert_eq!(
+            parse_metric_target("sns").unwrap(),
+            MetricTarget::ScaleNormalizedStress
+        );
+        assert_eq!(
+            parse_metric_target("ScaleNormalizedStress").unwrap(),
+            MetricTarget::ScaleNormalizedStress
+        );
+        assert_eq!(
+            parse_metric_target("sampled_sns").unwrap(),
+            MetricTarget::SampledScaleNormalizedStress
+        );
+        assert_eq!(
+            parse_metric_target("np1").unwrap(),
+            MetricTarget::NeighborhoodPreservation1Hop
+        );
+        assert_eq!(
+            parse_metric_target("np2").unwrap(),
+            MetricTarget::NeighborhoodPreservation2Hop
+        );
+        assert_eq!(
+            parse_metric_target("drng").unwrap(),
+            MetricTarget::RelativeNeighborhoodPreservation
+        );
+        assert_eq!(
+            parse_metric_target("dgg").unwrap(),
+            MetricTarget::GabrielGraphPreservation
+        );
+        assert!(parse_metric_target("not_a_metric").is_err());
     }
 }
