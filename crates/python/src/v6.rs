@@ -1,5 +1,6 @@
-//! v6 zero-copy `CsrGraph`, `Layout2d`, metrics, and spatial bindings backed by
-//! `egraph-core`, `egraph-ffi`, `egraph-metrics`, and `egraph-spatial`.
+//! v6 zero-copy `CsrGraph`, `Layout2d`, metrics, spatial, linear algebra, and
+//! neighborhood bindings backed by `egraph-core`, `egraph-ffi`, `egraph-linalg`,
+//! `egraph-metrics`, `egraph-neighborhood`, and `egraph-spatial`.
 
 use std::collections::BTreeMap;
 
@@ -15,6 +16,9 @@ use numpy::{
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyType};
+
+#[path = "v6_m2.rs"]
+mod v6_m2;
 
 fn ffi_error_to_py(err: FfiError) -> PyErr {
     match err.kind {
@@ -1497,6 +1501,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ideal_edge_lengths_v6, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
+    v6_m2::register_m2(m)?;
     Ok(())
 }
 

@@ -9,6 +9,13 @@ _IndexArrayLike = npt.NDArray[np.integer[Any]] | Sequence[int]
 _EdgeArrayLike = npt.NDArray[np.integer[Any]] | Sequence[tuple[int, int]] | Sequence[Sequence[int]]
 _WeightArrayLike = npt.NDArray[np.floating[Any]] | npt.NDArray[np.integer[Any]] | Sequence[float]
 _CoordArrayLike = npt.NDArray[np.floating[Any]] | Sequence[Sequence[float]]
+_MatrixArrayLike = npt.NDArray[np.floating[Any]] | npt.NDArray[np.integer[Any]] | Sequence[Sequence[float]]
+_VectorArrayLike = (
+    npt.NDArray[np.floating[Any]]
+    | npt.NDArray[np.integer[Any]]
+    | Sequence[float]
+    | Sequence[Sequence[float]]
+)
 _DtypeLike = str | np.dtype[Any] | type[np.floating[Any]]
 
 class CsrGraph:
@@ -52,6 +59,63 @@ class Layout2d:
     def dtype(self) -> str: ...
     def is_all_finite(self) -> bool: ...
     def coords(self, copy: bool = False) -> npt.NDArray[Any]: ...
+    def __repr__(self) -> str: ...
+
+class KnnGraph:
+    @staticmethod
+    def from_csr(
+        num_nodes: int,
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        distances: _WeightArrayLike,
+    ) -> KnnGraph: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def nnz(self) -> int: ...
+    def indptr(self) -> npt.NDArray[np.uintp]: ...
+    def indices(self) -> npt.NDArray[np.uint32]: ...
+    def distances(self) -> npt.NDArray[np.float64]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class SparseProbabilities:
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def nnz(self) -> int: ...
+    def indptr(self) -> npt.NDArray[np.uintp]: ...
+    def indices(self) -> npt.NDArray[np.uint32]: ...
+    def values(self) -> npt.NDArray[np.float64]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class DogVaradhanLandmarks:
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_landmarks(self) -> int: ...
+    def landmarks(self) -> npt.NDArray[np.uint32]: ...
+    def table(self) -> npt.NDArray[np.float64]: ...
+    def coarse_table(self) -> npt.NDArray[np.float64] | None: ...
+    @property
+    def t1(self) -> float: ...
+    @property
+    def t2(self) -> float: ...
+    @property
+    def alpha(self) -> float: ...
+    @property
+    def delta_psd(self) -> float: ...
+    @property
+    def beta_eff(self) -> float: ...
+    @property
+    def beta_auto(self) -> float: ...
+    @property
+    def used_coarse_scaffold(self) -> bool: ...
+    def alt_distances(
+        self, u: _IndexArrayLike, v: _IndexArrayLike
+    ) -> npt.NDArray[np.float64]: ...
+    def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
 class GraphAdapter:
@@ -1410,6 +1474,136 @@ def evaluate_metrics(
 def delaunay_triangulation(
     layout: Layout2d,
 ) -> tuple[npt.NDArray[np.uint32], npt.NDArray[np.uint32]]: ...
+def select_maxmin_sp_pivots(
+    graph: CsrGraph,
+    num_pivots: int = 50,
+    *,
+    seed: int = 42,
+    min_degree: int = 2,
+) -> npt.NDArray[np.uint32]: ...
+def pivot_mds_init(
+    graph: CsrGraph,
+    *,
+    num_pivots: int = 50,
+    seed: int = 42,
+    min_degree: int = 2,
+    target_std: float | None = 1.0,
+    dtype: _DtypeLike = "float64",
+) -> Layout2d: ...
+def koren_spectral_init(
+    graph: CsrGraph,
+    *,
+    target_std: float | None = 1.0,
+    tol: float = 1e-4,
+    max_iters: int = 300,
+    seed: int = 42,
+    dtype: _DtypeLike = "float64",
+) -> Layout2d: ...
+def smallest_laplacian_eigenpairs(
+    graph: CsrGraph,
+    n_modes: int = 16,
+    *,
+    tol: float = 1e-4,
+    max_iters: int = 300,
+    seed: int = 42,
+) -> tuple[
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    bool,
+]: ...
+def spectral_moment_stats(graph: CsrGraph) -> dict[str, float]: ...
+def chebyshev_heat_spmv(
+    graph: CsrGraph,
+    vectors: _VectorArrayLike,
+    t: float,
+    *,
+    degree: int | None = None,
+    lambda_max: float = 2.0,
+) -> npt.NDArray[np.float64]: ...
+def chebyshev_dog_jl_embedding(
+    graph: CsrGraph,
+    *,
+    t1: float | None = None,
+    t2: float | None = None,
+    alpha: float | None = None,
+    degree: int = 25,
+    jl_dim: int = 64,
+    seed: int = 42,
+    degree_normalize: bool = True,
+    eps_psd: float = 1e-4,
+) -> npt.NDArray[np.float64]: ...
+def extract_1hop_2hop_csr(graph: CsrGraph) -> tuple[CsrGraph, CsrGraph]: ...
+def build_pure_2hop_knn(
+    graph: CsrGraph,
+) -> tuple[KnnGraph, npt.NDArray[np.uint32], dict[str, Any]]: ...
+def compute_2hop_neighborhood_sizes(graph: CsrGraph) -> npt.NDArray[np.uint32]: ...
+def compute_nodewise_2hop_perplexities(
+    graph: CsrGraph,
+    *,
+    c: float = 0.9,
+    min_perplexity: float = 5.0,
+    max_perplexity: float = 1200.0,
+) -> npt.NDArray[np.float64]: ...
+def compute_median_2hop_perplexity(
+    graph: CsrGraph,
+    *,
+    c: float = 1.5,
+    min_perplexity: float = 15.0,
+    max_perplexity: float = 1200.0,
+) -> float: ...
+def build_hybrid_adaptive_knn(
+    graph: CsrGraph,
+    coords: _MatrixArrayLike,
+    perplexities: _WeightArrayLike | float,
+    *,
+    k_factor: float = 3.0,
+    k: int | None = None,
+    margin_gap: float = 0.1,
+    coarse_dim: int = 10,
+    rerank_factor: int = 16,
+    max_row_k: int | None = None,
+) -> tuple[KnnGraph, dict[str, Any]]: ...
+def partial_bfs_knn(
+    graph: CsrGraph,
+    k: int = 30,
+    *,
+    seed: int = 42,
+) -> KnnGraph: ...
+def compute_knn_probabilities(
+    knn: KnnGraph,
+    perplexities: _WeightArrayLike | float,
+    *,
+    power: float = 2.0,
+    sigma_iters: int = 50,
+    sigma_tolerance: float = 1e-5,
+    row_normalize: bool = False,
+) -> SparseProbabilities: ...
+def compute_fuzzy_simplicial_set(
+    knn: KnnGraph,
+    *,
+    sigma_iters: int = 64,
+    sigma_tolerance: float = 1e-5,
+) -> SparseProbabilities: ...
+def find_ab_params(min_dist: float = 0.1, spread: float = 1.0) -> tuple[float, float]: ...
+def compute_horvitz_thompson_gamma(
+    gamma_non2: float, num_nodes: int, neg_per_node: int
+) -> float: ...
+def compute_regularized_dog_varadhan_landmarks(
+    graph: CsrGraph,
+    *,
+    degree: int = 25,
+    num_landmarks: int = 64,
+    seed: int = 42,
+    degree_normalize: bool = True,
+    p_exp: float = 0.5,
+    eps_psd: float = 1e-4,
+    t_coarse: float = 48.0,
+    t1: float | None = None,
+    t2: float | None = None,
+    alpha: float | None = None,
+    beta_floor: float | None = None,
+) -> DogVaradhanLandmarks: ...
 def py_coarsen(
     graph: GraphAdapter,
     node_group_func: Callable[[int], int],

@@ -12,7 +12,9 @@ crate-type = ["cdylib"]
 [dependencies]
 egraph-core.workspace = true
 egraph-ffi.workspace = true
+egraph-linalg.workspace = true
 egraph-metrics.workspace = true
+egraph-neighborhood.workspace = true
 egraph-spatial = { workspace = true, features = ["delaunay"] }
 pyo3.workspace = true
 numpy.workspace = true
