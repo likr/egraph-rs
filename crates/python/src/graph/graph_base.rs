@@ -1,8 +1,8 @@
 use crate::graph::{Edge, GraphType, IndexType, Node, PyGraphAdapter};
 use petgraph::{
+    EdgeType,
     graph::{edge_index, node_index},
     prelude::*,
-    EdgeType,
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 

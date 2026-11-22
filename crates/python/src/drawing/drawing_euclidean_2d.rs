@@ -1,8 +1,8 @@
 use crate::{
+    FloatType,
     array::PyArray2,
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
-    FloatType,
 };
 use pyo3::Py;
 

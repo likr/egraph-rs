@@ -3,6 +3,7 @@
 //! This module provides Python bindings for the tsNET and BH-tsNET graph layout algorithms and their builders.
 
 use crate::{
+    FloatType,
     distance_matrix::with_distance,
     drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
@@ -10,7 +11,6 @@ use crate::{
         extract_f64_array_1d, extract_index_array_1d_with_isize, extract_knn_rows, f64_array_as_cow,
     },
     rng::PyRng,
-    FloatType,
 };
 use petgraph_layout_ts_net::{BhTsNet, BhTsNetBuilder, TsNet, TsNetBuilder};
 use pyo3::prelude::*;

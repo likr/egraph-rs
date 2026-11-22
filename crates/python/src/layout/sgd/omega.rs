@@ -4,10 +4,10 @@
 //! which generates node pairs for SGD from precomputed spectral embeddings.
 
 use crate::{
+    FloatType,
     array::PyArray2,
     graph::{GraphType, PyGraphAdapter},
     layout::sgd::PySgd,
-    FloatType,
 };
 use petgraph_layout_omega::Omega;
 use pyo3::prelude::*;

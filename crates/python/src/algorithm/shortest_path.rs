@@ -1,11 +1,11 @@
 use crate::{
+    FloatType,
     distance_matrix::PyDistanceMatrix,
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{
-    all_sources_bfs, all_sources_dijkstra, warshall_floyd, WeightedEdgeLength,
+    WeightedEdgeLength, all_sources_bfs, all_sources_dijkstra, warshall_floyd,
 };
 use pyo3::prelude::*;
 

@@ -1,3 +1,4 @@
+use crate::FloatType;
 use crate::drawing::{
     DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d,
     PyDrawingSpherical2d, PyDrawingTorus2d,
@@ -7,7 +8,6 @@ use crate::layout::sgd::schedulers::{
     PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
     PySchedulerReciprocal,
 };
-use crate::FloatType;
 use petgraph_drawing::Drawing;
 use petgraph_layout_sgd::{
     SchedulerConstant, SchedulerExponential, SchedulerLinear, SchedulerQuadratic,
@@ -72,12 +72,12 @@ fn extract_validated_pairs_1d(
         .zip(w_view.iter())
         .enumerate()
     {
-        if let Some(n) = n_nodes {
-            if u >= n || v >= n {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "pair index ({u}, {v}) at position {idx} is out of bounds for n_nodes={n}"
-                )));
-            }
+        if let Some(n) = n_nodes
+            && (u >= n || v >= n)
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "pair index ({u}, {v}) at position {idx} is out of bounds for n_nodes={n}"
+            )));
         }
         if u == v {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(

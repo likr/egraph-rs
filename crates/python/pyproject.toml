@@ -1,13 +1,13 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "egraph"
 dynamic = ["version"]
-description = "High-performance graph drawing and layout library powered by Rust"
+description = "High-performance single-threaded graph drawing and layout library powered by Rust"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Yosuke Onoue", email = "onoue@likr-lab.com" }
@@ -28,6 +28,9 @@ keywords = [
     "mds",
     "community-detection"
 ]
+dependencies = [
+    "numpy>=1.26",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -35,15 +38,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Scientific/Engineering :: Information Analysis",
@@ -59,21 +58,29 @@ Issues = "https://github.com/likr/egraph-rs/issues"
 Changelog = "https://github.com/likr/egraph-rs/releases"
 
 [project.optional-dependencies]
+interop = [
+    "scipy>=1.11",
+    "networkx>=3.0",
+    "igraph>=0.11",
+]
+viz = [
+    "matplotlib>=3.7",
+    "networkx>=3.0",
+]
 dev = [
-    "pytest>=7.0",
-    "maturin>=1.0",
+    "pytest>=8.0",
+    "mypy>=1.11",
+    "scipy>=1.11",
+    "maturin>=1.7,<2.0",
 ]
 docs = [
     "sphinx>=8.0",
     "sphinx-rtd-theme>=2.0",
 ]
-viz = [
-    "networkx>=2.5",
-    "matplotlib>=3.3",
-]
 
 [tool.maturin]
-module-name = "egraph"
+python-source = "python"
+module-name = "egraph._core"
 features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]

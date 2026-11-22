@@ -8,9 +8,9 @@
 /// The implementation allows both running the entire algorithm at once, or
 /// stepping through it node by node for more fine-grained control.
 use crate::{
+    FloatType,
     drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_layout_kamada_kawai::KamadaKawai;

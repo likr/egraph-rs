@@ -56,14 +56,14 @@ where
 }
 
 pub(crate) fn check_2d_array(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<()> {
-    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
-        if untyped.ndim() != 2 {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "{} must be a 2D array, got {}D",
-                name,
-                untyped.ndim()
-            )));
-        }
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>()
+        && untyped.ndim() != 2
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{} must be a 2D array, got {}D",
+            name,
+            untyped.ndim()
+        )));
     }
     Ok(())
 }
@@ -136,14 +136,14 @@ pub(crate) fn extract_knn_rows(
 }
 
 pub(crate) fn check_1d_array(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<()> {
-    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
-        if untyped.ndim() != 1 {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "{} must be a 1D array, got {}D",
-                name,
-                untyped.ndim()
-            )));
-        }
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>()
+        && untyped.ndim() != 1
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{} must be a 1D array, got {}D",
+            name,
+            untyped.ndim()
+        )));
     }
     Ok(())
 }

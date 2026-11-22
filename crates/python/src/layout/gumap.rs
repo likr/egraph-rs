@@ -3,13 +3,13 @@
 //! This module provides Python bindings for the GUMAP (Graph UMAP) graph layout algorithm and its builder.
 
 use crate::{
+    FloatType,
     distance_matrix::with_distance,
     drawing::PyDrawingEuclidean2d,
     layout::knn::{
         extract_f64_array_1d, extract_index_array_1d_with_isize, extract_knn_rows, f64_array_as_cow,
     },
     rng::PyRng,
-    FloatType,
 };
 use petgraph_layout_gumap::{GuMap, GuMapBuilder};
 use pyo3::prelude::*;

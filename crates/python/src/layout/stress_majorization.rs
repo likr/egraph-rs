@@ -32,10 +32,10 @@
 /// sm.run(drawing)
 /// ```
 use crate::{
+    FloatType,
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::PyDrawingEuclidean2d,
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_drawing::Drawing;
@@ -108,7 +108,7 @@ impl PyStressMajorization {
             _ => {
                 return Err(pyo3::exceptions::PyTypeError::new_err(
                     "unsupported graph type for StressMajorization",
-                ))
+                ));
             }
         };
         Ok(PyStressMajorization {

@@ -1,7 +1,8 @@
 use crate::{
+    FloatType,
     distance_matrix::{
-        distance_node_count, with_distance, DistanceMatrixType, EdgeLengthFn, PyDistanceMatrix,
-        PyPivotedNegLogDistance, PyPivotedNegLogSimDistance,
+        DistanceMatrixType, EdgeLengthFn, PyDistanceMatrix, PyPivotedNegLogDistance,
+        PyPivotedNegLogSimDistance, distance_node_count, with_distance,
     },
     graph::{GraphType, PyGraphAdapter},
     layout::{
@@ -9,7 +10,6 @@ use crate::{
         sgd::PySgd,
     },
     rng::PyRng,
-    FloatType,
 };
 use petgraph::visit::{EdgeRef, IntoNodeIdentifiers};
 use petgraph_layout_sgd::{BarrierSymmetry, SparseSgd};
@@ -262,7 +262,7 @@ impl PySparseSgd {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "unsupported graph type",
-                ))
+                ));
             }
         };
         Ok(PySgd::new_with_sgd(sgd))
@@ -288,7 +288,7 @@ impl PySparseSgd {
             (None, None, _) => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "pivot argument is required",
-                ))
+                ));
             }
         };
 
@@ -305,7 +305,7 @@ impl PySparseSgd {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "unsupported graph type",
-                ))
+                ));
             }
         };
         Ok(PySgd::new_with_sgd(sgd))

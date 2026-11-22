@@ -14,19 +14,18 @@
 /// - Node resolution: How evenly distributed the nodes are in the drawing space
 /// - Gabriel graph property: A measure of whether the layout respects theoretical constraints
 use crate::{
+    FloatType,
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph_algorithm_shortest_path::DistanceMatrix;
 use petgraph_drawing::Drawing;
 use petgraph_quality_metrics::{
-    angular_resolution, aspect_ratio, crossing_angle_with_crossing_edges,
+    CrossingEdges, angular_resolution, aspect_ratio, crossing_angle_with_crossing_edges,
     crossing_number_with_crossing_edges, gabriel_graph_property, ideal_edge_lengths,
     neighborhood_preservation, neighborhood_preservation_2hop, node_resolution, stress,
     try_crossing_angle, try_crossing_edges, try_crossing_edges_torus, try_crossing_number,
-    CrossingEdges,
 };
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -114,7 +113,7 @@ fn py_crossing_edges(
             _ => {
                 return Err(PyNotImplementedError::new_err(
                     "unsupported drawing type for crossing_edges",
-                ))
+                ));
             }
         };
         Ok(PyCrossingEdges { crossing_edges })

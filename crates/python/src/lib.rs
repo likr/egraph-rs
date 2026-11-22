@@ -8,6 +8,7 @@
 //!
 //! # Module Organization
 //!
+//! - `v6`: v6 zero-copy `CsrGraph` and `Layout2d` bindings backed by `egraph-core` and `egraph-ffi`
 //! - `graph`: Graph data structures (Graph, DiGraph)
 //! - `drawing`: Drawing spaces (Euclidean, Hyperbolic, Spherical, Torus)
 //! - `distance_matrix`: Distance matrix operations
@@ -28,16 +29,18 @@ mod graph;
 mod layout;
 mod quality_metrics;
 mod rng;
+mod v6;
 
 /// Standard floating-point precision type used in python bindings.
 pub type FloatType = f64;
 
-/// Creates and initializes the egraph Python module.
+/// Creates and initializes the `egraph._core` Python extension module.
 ///
-/// This function is the main entry point for the Python module. It registers all submodules
-/// and their associated classes and functions.
+/// Registers the v6 zero-copy core types (`CsrGraph`, `Layout2d`) alongside the legacy
+/// graph drawing modules for incremental milestone migration.
 #[pymodule]
-fn egraph(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    v6::register(m)?;
     graph::register(m)?;
     drawing::register(m)?;
     distance_matrix::register(m)?;

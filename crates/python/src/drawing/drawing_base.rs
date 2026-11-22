@@ -1,7 +1,7 @@
 use crate::{
+    FloatType,
     drawing::{PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingSpherical2d, PyDrawingTorus2d},
     graph::NodeId,
-    FloatType,
 };
 use petgraph_drawing::{
     DrawingEuclidean, DrawingEuclidean2d, DrawingHyperbolic2d, DrawingSpherical2d, DrawingTorus2d,

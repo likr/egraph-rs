@@ -5,9 +5,9 @@
 
 use crate::layout::rdmds_solvers::PySolverEnum;
 use crate::{
+    FloatType,
     array::{PyArray1, PyArray2},
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_linalg_kernel::RdMds;

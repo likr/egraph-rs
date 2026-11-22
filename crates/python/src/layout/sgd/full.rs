@@ -34,7 +34,7 @@ impl PyFullSgd {
             _ => {
                 return Err(pyo3::exceptions::PyTypeError::new_err(
                     "unsupported graph type for FullSgd",
-                ))
+                ));
             }
         };
         Ok(PySgd::new_with_sgd(sgd))

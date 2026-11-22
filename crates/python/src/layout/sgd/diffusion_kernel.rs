@@ -1,18 +1,18 @@
 use crate::{
+    FloatType,
     array::{PyArray1, PyArray2},
     distance_matrix::{EdgeLengthFn, PyLaplacian},
-    FloatType,
 };
 use petgraph::visit::EdgeRef;
 use petgraph_linalg_kernel::Kernel;
 use petgraph_linalg_kernel::{
-    dog_bandpass_terms, multiscale_heat_terms, BandPassDiffusionKernel,
-    BandPassDiffusionKernelBuilder, DiffusionKernel, DiffusionKernelBuilder,
-    LowRankDiffusionKernel, LowRankDiffusionKernelBuilder, LowRankMultiscaleDiffusionKernel,
-    LowRankMultiscaleDiffusionKernelBuilder, MultiscaleDiffusionKernel,
-    MultiscaleDiffusionKernelBuilder, PivotedBandPassDiffusionKernel,
+    BandPassDiffusionKernel, BandPassDiffusionKernelBuilder, DiffusionKernel,
+    DiffusionKernelBuilder, LowRankDiffusionKernel, LowRankDiffusionKernelBuilder,
+    LowRankMultiscaleDiffusionKernel, LowRankMultiscaleDiffusionKernelBuilder,
+    MultiscaleDiffusionKernel, MultiscaleDiffusionKernelBuilder, PivotedBandPassDiffusionKernel,
     PivotedBandPassDiffusionKernelBuilder, PivotedDiffusionKernel, PivotedDiffusionKernelBuilder,
     PivotedKernel, PivotedMultiscaleDiffusionKernel, PivotedMultiscaleDiffusionKernelBuilder,
+    dog_bandpass_terms, multiscale_heat_terms,
 };
 use pyo3::prelude::*;
 use rand::SeedableRng;
@@ -53,10 +53,10 @@ fn resolve_length_and_rng<'py>(
             Some(rng_bound.borrow_mut()),
         ));
     }
-    if let Some(first) = length {
-        if let Ok(rng_bound) = first.cast::<crate::rng::PyRng>() {
-            return Ok((EdgeLengthFn::Constant(1.0), Some(rng_bound.borrow_mut())));
-        }
+    if let Some(first) = length
+        && let Ok(rng_bound) = first.cast::<crate::rng::PyRng>()
+    {
+        return Ok((EdgeLengthFn::Constant(1.0), Some(rng_bound.borrow_mut())));
     }
     Ok((EdgeLengthFn::from_bound(length)?, None))
 }

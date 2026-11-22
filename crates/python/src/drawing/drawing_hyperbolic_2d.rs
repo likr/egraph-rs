@@ -5,9 +5,9 @@
 /// which can be useful for visualizing hierarchical data or graphs with
 /// exponential growth patterns.
 use crate::{
+    FloatType,
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingHyperbolic2d};

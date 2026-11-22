@@ -6,9 +6,9 @@
 /// It's particularly useful for visualizing networks with periodic structures
 /// or to eliminate boundary effects in layouts.
 use crate::{
+    FloatType,
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
-    FloatType,
 };
 
 type Point2D = (FloatType, FloatType);
@@ -156,7 +156,7 @@ impl PyDrawingTorus2d {
             .map(|segments| {
                 segments
                     .iter()
-                    .map(|&(p, q)| ((p.0 .0, p.1 .0), (q.0 .0, q.1 .0)))
+                    .map(|&(p, q)| ((p.0.0, p.1.0), (q.0.0, q.1.0)))
                     .collect::<Vec<_>>()
             })
     }

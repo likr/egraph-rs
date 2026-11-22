@@ -3,7 +3,7 @@
 /// This module provides a Python binding for N-dimensional Euclidean drawings.
 /// These drawings place nodes in an N-dimensional Euclidean space, where each node
 /// has coordinates in each dimension.
-use crate::{drawing::PyDrawing, graph::NodeId, FloatType};
+use crate::{FloatType, drawing::PyDrawing, graph::NodeId};
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingEuclidean};
 use pyo3::prelude::*;

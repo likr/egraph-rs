@@ -8,12 +8,12 @@ use petgraph_layout_overwrap_removal::OverwrapRemoval;
 use pyo3::prelude::*;
 
 use crate::{
+    FloatType,
     drawing::{
         PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d, PyDrawingSpherical2d,
         PyDrawingTorus2d,
     },
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 
 /// Python class for the overwrap removal algorithm

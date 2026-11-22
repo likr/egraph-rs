@@ -5,9 +5,9 @@
 /// longitude and latitude coordinates similar to those used in geographic
 /// coordinate systems.
 use crate::{
+    FloatType,
     drawing::PyDrawing,
     graph::{GraphType, NodeId, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::graph::node_index;
 use petgraph_drawing::{Drawing, DrawingSpherical2d};

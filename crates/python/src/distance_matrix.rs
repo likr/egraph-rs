@@ -1,6 +1,6 @@
 use crate::{
-    graph::{GraphType, IndexType, PyGraphAdapter},
     FloatType,
+    graph::{GraphType, IndexType, PyGraphAdapter},
 };
 use petgraph::{graph::NodeIndex, stable_graph::node_index, visit::EdgeRef};
 use petgraph_algorithm_shortest_path::{DistanceMatrix, FullDistanceMatrix, PivotedDistanceMatrix};
@@ -231,15 +231,15 @@ impl EdgeLengthFn {
                 "edge length must be callable, float, or None, not bool",
             ));
         }
-        if !bound.is_callable() {
-            if let Ok(val) = bound.extract::<FloatType>() {
-                if !val.is_finite() || val < 0.0 {
-                    return Err(pyo3::exceptions::PyValueError::new_err(
-                        "edge length must be finite and non-negative",
-                    ));
-                }
-                return Ok(Self::Constant(val));
+        if !bound.is_callable()
+            && let Ok(val) = bound.extract::<FloatType>()
+        {
+            if !val.is_finite() || val < 0.0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "edge length must be finite and non-negative",
+                ));
             }
+            return Ok(Self::Constant(val));
         }
         if bound.is_callable() {
             return Ok(Self::Callable(bound.clone().unbind()));
@@ -652,7 +652,7 @@ impl PyNegLogSimDistanceBuilder {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Unsupported graph type",
-                ))
+                ));
             }
         };
         Ok(PyNegLogSimDistance { matrix })
@@ -719,7 +719,7 @@ impl PyNegLogDistanceBuilder {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Unsupported graph type",
-                ))
+                ));
             }
         };
         Ok(PyNegLogDistance { matrix })
@@ -790,7 +790,7 @@ impl PyPivotedNegLogDistanceBuilder {
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "Unsupported graph type",
-                ))
+                ));
             }
         };
         Ok(PyPivotedNegLogDistance { matrix })
@@ -810,7 +810,7 @@ fn build_pivoted_neg_log_sim_distance(
         _ => {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Unsupported graph type",
-            ))
+            ));
         }
     };
     Ok(PyPivotedNegLogSimDistance { matrix })
@@ -1225,7 +1225,7 @@ fn build_graph_laplacian(
         _ => {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Unsupported graph type",
-            ))
+            ));
         }
     };
     Ok(PyLaplacian { matrix })

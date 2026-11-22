@@ -61,10 +61,10 @@ impl EdgeLength {
                         "f must be None, a number, or a callable, not bool",
                     ));
                 }
-                if !obj.is_callable() {
-                    if let Ok(val) = obj.extract::<FloatType>() {
-                        return Ok(Self::Constant(val));
-                    }
+                if !obj.is_callable()
+                    && let Ok(val) = obj.extract::<FloatType>()
+                {
+                    return Ok(Self::Constant(val));
                 }
                 if obj.is_callable() {
                     return Ok(Self::Callable(obj.clone().unbind()));

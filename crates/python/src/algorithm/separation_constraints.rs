@@ -1,10 +1,11 @@
+use crate::FloatType;
 use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::{GraphType, PyGraphAdapter};
-use crate::FloatType;
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
-    generate_layered_constraints, project_1d, project_clustered_rectangle_no_overlap_constraints,
-    project_rectangle_no_overlap_constraints_2d, Constraint,
+    Constraint, generate_layered_constraints, project_1d,
+    project_clustered_rectangle_no_overlap_constraints,
+    project_rectangle_no_overlap_constraints_2d,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

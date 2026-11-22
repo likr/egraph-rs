@@ -9,10 +9,10 @@
 /// - ClassicalMds: The standard MDS algorithm that computes a full distance matrix
 /// - PivotMds: An efficient approximation that uses a subset of nodes as pivots
 use crate::{
+    FloatType,
     distance_matrix::{with_full_distance, with_pivot_mds_distance},
     drawing::PyDrawing,
     graph::{GraphType, PyGraphAdapter},
-    FloatType,
 };
 use petgraph::{graph::node_index, stable_graph::NodeIndex, visit::EdgeRef};
 use petgraph_layout_mds::{ClassicalMds, PivotMds};

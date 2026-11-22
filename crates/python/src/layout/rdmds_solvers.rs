@@ -1,10 +1,10 @@
 use crate::FloatType;
 use ndarray::Array1;
+use petgraph_linalg_kernel::SparseSymmetricMatrix;
 use petgraph_linalg_kernel::solvers::{
     AmgCgSolver, AmgCgSolverInstance, CgSolver, CgSolverInstance, Ic0CgSolver, Ic0CgSolverInstance,
     JacobiCgSolver, JacobiCgSolverInstance, LinearSolver, LinearSolverBuilder,
 };
-use petgraph_linalg_kernel::SparseSymmetricMatrix;
 use pyo3::prelude::*;
 
 #[pyclass(from_py_object)]
