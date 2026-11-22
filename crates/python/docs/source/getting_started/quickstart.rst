@@ -1,150 +1,134 @@
 Quick Start
 ===========
 
-This guide will help you create your first graph visualization with egraph in just a few minutes.
+This guide shows how to build a ``CsrGraph``, run v6 layout solvers, inspect zero-copy NumPy coordinates, and evaluate layout quality metrics.
 
-Your First Graph Layout
------------------------
+Your First v6 Graph Layout (``CsrGraph`` + ``TsNetSolver.pure_2hop``)
+----------------------------------------------------------------------
 
-Here's a minimal example that creates a simple graph and applies a layout algorithm:
+Here is a minimal example creating a cycle graph directly from CSR arrays, initializing with normalized PivotMDS, optimizing with Track A ``TsNetSolver.pure_2hop``, and evaluating quality metrics:
+
+.. testcode:: python
+
+    import numpy as np
+    import egraph as eg
+
+    # Create a 6-node cycle graph (0 - 1 - 2 - 3 - 4 - 5 - 0) from CSR arrays
+    indptr = np.array([0, 2, 4, 6, 8, 10, 12], dtype=np.uint32)
+    indices = np.array([1, 5, 0, 2, 1, 3, 2, 4, 3, 5, 4, 0], dtype=np.uint32)
+    graph = eg.CsrGraph.from_csr(indptr, indices)
+
+    # Initialize 2D layout using normalized PivotMDS
+    layout = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
+
+    # Optimize with Track A Pure 1+2-Hop Adaptive tsNET
+    solver = eg.TsNetSolver.pure_2hop(
+        graph,
+        backend="fft",
+        iterations_stage1=30,
+        iterations_stage2=30,
+        iterations_stage3=40,
+        seed=42,
+    )
+    solver.run(layout)
+
+    # Access coordinates via a zero-copy NumPy view (shape: (6, 2))
+    coords = layout.coords(copy=False)
+    assert coords.shape == (6, 2)
+    assert layout.is_all_finite()
+
+    # Selectively evaluate SNS, NP2, and crossing number
+    report = eg.evaluate_metrics(graph, layout, ["sns", "np2", "crossing_number"])
+    print("Metric keys:", sorted(report.keys()))
+
+.. testoutput:: python
+
+    Metric keys: ['crossing_number', 'neighborhood_preservation_2hop', 'scale_normalized_stress']
+
+Using Track B (``SgdSolver.sparse_barrier_dog``) and ``TFdpSolver``
+-------------------------------------------------------------------
+
+You can switch solvers on the same ``CsrGraph`` and ``Layout2d`` buffer, including ``dtype="float32"`` for large-scale memory efficiency:
 
 .. testcode:: python
 
     import egraph as eg
 
-    # Create a simple graph with 5 nodes
-    graph = eg.Graph()
-    
-    # Add nodes
-    n0 = graph.add_node(0)
-    n1 = graph.add_node(1)
-    n2 = graph.add_node(2)
-    n3 = graph.add_node(3)
-    n4 = graph.add_node(4)
-    
-    # Add edges to form a simple network
-    graph.add_edge(n0, n1, (0, 1))
-    graph.add_edge(n1, n2, (1, 2))
-    graph.add_edge(n2, n3, (2, 3))
-    graph.add_edge(n3, n4, (3, 4))
-    graph.add_edge(n4, n0, (4, 0))
-    
-    # Create an initial 2D drawing with random positions
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Apply Stress Majorization layout algorithm
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    # Get the final positions
-    positions = {i: (drawing.x(i), drawing.y(i)) for i in range(5)}
-    # print("Node positions:", positions)
+    edges = [(i, (i + 1) % 10) for i in range(10)] + [(0, 5), (2, 7)]
+    graph = eg.CsrGraph.from_edges(10, edges, directed=False, sanitize=True)
 
-This example:
+    # Track B: Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD
+    layout_b = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
+    barrier = eg.SgdSolver.sparse_barrier_dog(graph, seed=42)
+    barrier.run(layout_b)
+    stats = barrier.dog_stats()
+    assert stats is not None and layout_b.is_all_finite()
 
-1. Creates a graph with 5 nodes
-2. Connects them in a pentagon shape
-3. Initializes random positions for the nodes
-4. Applies the Stress Majorization algorithm to optimize the layout
-5. Extracts the final node positions
+    # M4: Bounded Student-t FDP with ibFFT repulsion (float32)
+    layout_f32 = eg.pivot_mds_init(graph, num_pivots=6, seed=42, dtype="float32")
+    tfdp = eg.TFdpSolver(graph, backend="ibfft", total_iterations=50, seed=42, dtype="float32")
+    tfdp.run(layout_f32)
+    assert layout_f32.dtype == "float32" and layout_f32.is_all_finite()
+    print("Track B & t-FDP complete")
 
-Working with NetworkX
----------------------
+.. testoutput:: python
 
-egraph integrates seamlessly with NetworkX, a popular Python graph library:
+    Track B & t-FDP complete
 
-.. testcode:: python
+Working with NetworkX and SciPy CSR (``egraph.interop``)
+--------------------------------------------------------
+
+In v6, use ``egraph.interop`` to convert NetworkX graphs, SciPy CSR matrices, or igraph objects directly into ``CsrGraph`` without storing Python objects in Rust:
+
+.. code-block:: python
 
     import networkx as nx
+    import scipy.sparse as sp
     import egraph as eg
-    import matplotlib.pyplot as plt
+    from egraph.interop import from_networkx, from_scipy_csr
 
-    # Create a graph using NetworkX
+    # Convert a NetworkX graph to CsrGraph
     nx_graph = nx.karate_club_graph()
-    
-    # Convert to egraph format
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    # Create initial drawing
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Apply layout algorithm
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    # Extract positions for NetworkX visualization
-    pos = {node: (drawing.x(idx), drawing.y(idx)) 
-           for node, idx in indices.items()}
-    
-    # Visualize with matplotlib
-    nx.draw(nx_graph, pos, with_labels=True, node_color='lightblue', 
-            node_size=500, font_size=10)
-    # plt.savefig('karate_club.png')
-    # plt.show()
+    graph = from_networkx(nx_graph)
 
-Using Different Layout Algorithms
-----------------------------------
+    # Or convert a SciPy CSR adjacency matrix directly
+    adj = sp.csr_matrix(nx.to_scipy_sparse_array(nx_graph, format="csr", dtype=float))
+    graph_sp = from_scipy_csr(adj)
 
-egraph provides several layout algorithms. Here's how to use SGD (Stochastic Gradient Descent):
+    layout = eg.pivot_mds_init(graph_sp, num_pivots=16, seed=42)
+    eg.TsNetSolver.pure_2hop(graph_sp, seed=42).run(layout)
+
+    coords = layout.coords(copy=False)
+    pos = {node: (float(coords[i, 0]), float(coords[i, 1])) for i, node in enumerate(nx_graph.nodes())}
+    print(eg.evaluate_metrics(graph_sp, layout, ["sns", "np2"]))
+
+Cooperative Stepping
+--------------------
+
+Every v6 solver exposes ``step(layout)`` and ``run_steps(layout, steps)`` for progress tracking or incremental updates:
 
 .. testcode:: python
 
     import egraph as eg
 
-    # Create a graph (same as before)
-    graph = eg.Graph()
-    indices = [graph.add_node(i) for i in range(5)]
-    graph.add_edge(indices[0], indices[1], (0, 1))
-    graph.add_edge(indices[1], indices[2], (1, 2))
-    graph.add_edge(indices[2], indices[3], (2, 3))
-    graph.add_edge(indices[3], indices[4], (3, 4))
-    graph.add_edge(indices[4], indices[0], (4, 0))
-    
-    # Create initial drawing
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Create random number generator for reproducibility
-    rng = eg.Rng.seed_from(42)
-    
-    # Use SGD layout algorithm
-    sgd = eg.FullSgd().build(graph, lambda _: 1.0)
-    
-    # Create a scheduler to control the optimization process
-    scheduler = sgd.scheduler(100, 0.1)  # 100 iterations
-    
-    # Define the optimization step
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    
-    # Run the optimization
-    scheduler.run(step)
-    
-    # Get final positions
-    positions = {i: (drawing.x(i), drawing.y(i)) for i in range(5)}
-    # print("Final positions:", positions)
+    graph = eg.CsrGraph.from_edges(8, [(i, (i + 1) % 8) for i in range(8)])
+    layout = eg.pivot_mds_init(graph, num_pivots=4, seed=42)
+    fa2 = eg.ForceAtlas2Solver(graph, iterations=20, seed=42)
 
-Key Concepts
-------------
+    fa2.run_steps(layout, 10)
+    assert fa2.iteration == 10 and not fa2.is_finished
+    fa2.run(layout)
+    assert fa2.is_finished
+    print("Finished iterations:", fa2.iteration)
 
-**Graph**: The data structure representing nodes and edges
+.. testoutput:: python
 
-**Drawing**: Stores the positions of nodes in a specific geometric space (Euclidean, Hyperbolic, Spherical, or Torus)
-
-**Layout Algorithm**: Optimizes node positions to create an aesthetically pleasing visualization
-
-**Scheduler**: Controls the optimization process for iterative algorithms like SGD
+    Finished iterations: 20
 
 Next Steps
 ----------
 
-Now that you've created your first graph layout, explore:
-
-* :doc:`overview` - Learn more about egraph's features and capabilities
-* :doc:`../tutorial/01_graph_basics` - Deep dive into graph creation and manipulation
-* :doc:`../examples/index` - See more examples of different layout algorithms
+* :doc:`overview` - Review v6 architecture and features
+* :doc:`migration_v6` - Migrate from v5 / legacy alpha APIs
+* :doc:`../examples/index` - Explore Track A, Track B, PRISM, FDEB, and manifold examples
+* :doc:`../api/index` - Full API reference

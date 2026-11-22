@@ -1,4 +1,7 @@
 [build]
   base = "crates/python"
   publish = "docs/_build/html"
-  command = "rustup toolchain install stable && pip install . && make -C docs html"
+  command = "rustup toolchain install stable && python -m pip install -r docs/requirements.txt && python -m pip install --no-build-isolation . && python -m sphinx -b html docs/source docs/_build/html"
+
+[build.environment]
+  PYTHON_VERSION = "3.13"

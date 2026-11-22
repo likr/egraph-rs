@@ -75,9 +75,11 @@ Kamada-Kawai is a spring-based algorithm that treats edges as springs.
     drawing = eg.DrawingEuclidean2d.initial_placement(graph)
     kk = eg.KamadaKawai(graph, lambda _: 100)
     kk.run(drawing)
-    
+    print(f"Kamada-Kawai layout for {graph.node_count()} nodes complete")
 
 .. testoutput:: python
+
+    Kamada-Kawai layout for 6 nodes complete
 
 
 SGD (Stochastic Gradient Descent)
@@ -186,7 +188,7 @@ Uses spectral coordinates for initialization, combining spectral methods with SG
     rng = eg.Rng.seed_from(42)
     # Step 1: Compute spectral embedding with RdMds
     rdmds = eg.RdMds().d(2)
-    embedding = rdmds.embedding(graph, lambda _: 1.0, rng)
+    embedding = rdmds.embedding(graph, lambda _: 1.0, eg.CgSolver(), rng)
 
     # Step 2: Create Omega instance and build SGD
     sgd = eg.Omega().k(30).build(graph, embedding, rng)
@@ -232,9 +234,11 @@ Uses eigendecomposition for exact distance preservation.
     # Apply Classical MDS
     mds = eg.ClassicalMds(graph, lambda _: 1.0)
     drawing = mds.run(2)
-    
+    print("ClassicalMds layout complete")
 
 .. testoutput:: python
+
+    ClassicalMds layout complete
 
 
 PivotMds
@@ -316,9 +320,11 @@ All algorithms accept a length function to customize edge lengths:
     drawing = eg.DrawingEuclidean2d.initial_placement(graph)
     sm = eg.StressMajorization(graph, drawing, edge_length)
     sm.run(drawing)
-    
+    print("Custom edge lengths applied")
 
 .. testoutput:: python
+
+    Custom edge lengths applied
 
 
 Next Steps

@@ -1,15 +1,20 @@
 API Reference
-============================
+=============
 
-This section provides detailed documentation for all modules and classes in the egraph library.
+This section provides detailed documentation for all modules, classes, and functions in ``egraph`` v6.
 
 .. toctree::
    :maxdepth: 2
 
    graph
    drawing
+   interop
    layout
-   algorithm
+   clustering
+   layering_constraints
+   linalg_neighborhood
    quality_metrics
+   dataset
+   algorithm
    distance_matrix
    rng

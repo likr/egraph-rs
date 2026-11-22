@@ -1,7 +1,7 @@
 Welcome to egraph documentation
 ===============================
 
-**egraph** is a Python library for graph visualization and layout algorithms, providing efficient implementations of various graph algorithms in Rust with Python bindings.
+**egraph** is a high-performance, strictly single-threaded Python library for graph visualization and layout algorithms, powered by pure CPU Rust (`abi3-py310`).
 
 .. toctree::
    :maxdepth: 3
@@ -15,16 +15,18 @@ Welcome to egraph documentation
 Features
 --------
 
-* Graph data structures (Graph, DiGraph)
-* Drawing spaces (Euclidean, Hyperbolic, Spherical, Torus)
-* Layout algorithms:
-   * Stochastic Gradient Descent (SGD)
-   * Multidimensional Scaling (MDS)
-   * Stress Majorization
-   * Kamada-Kawai
-   * Overlap Removal
-* Quality metrics for evaluating layout effectiveness
-* Integration with NetworkX
+* Zero-copy graph and coordinate buffers (``CsrGraph``, ``Layout2d``, ``LayoutNd``, ``ManifoldLayout2d``)
+* Ecosystem interoperability via ``egraph.interop`` (SciPy CSR, NetworkX, igraph)
+* Drawing spaces (Euclidean 2D/nD, Poincare Hyperbolic disk, Spherical, 2D Torus)
+* SOTA & unified layout solvers:
+
+  * **Track A**: ``TsNetSolver`` (Pure 1+2-Hop & Hybrid Adaptive tsNET with ``ibFFT`` / Barnes-Hut / Exact)
+  * **Track B**: ``SgdSolver.sparse_barrier_dog``, ``GuMapSolver``, and 2D ``SpatialIntruderRefiner``
+  * **Unified Force & Multilevel Models**: ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``ForceAtlas2Solver``, ``YifanHuSolver``
+  * **Classical & Post-Processing**: ``StressMajorizationSolver``, ``KamadaKawaiSolver``, ``PrismOverlapRemoval``, ``FdebSolver``, DAG layering, and separation constraints
+
+* Community detection and coarsening (``kmeans_plus_plus``, ``spectral_clustering``, ``louvain_communities``, ``label_propagation``, ``coarsen_graph``)
+* Selective quality metrics (``evaluate_metrics``, Scale-Normalized Stress ``SNS``, sweep-line crossings, ``NP1``/``NP2``, ``PRISM`` distortion, ``dRNG``/``dGG``)
 
 Indices and tables
 ==================

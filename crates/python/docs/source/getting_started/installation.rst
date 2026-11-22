@@ -10,34 +10,37 @@ The easiest way to install egraph is using pip:
 
 .. code-block:: bash
 
-    pip install egraph
+    pip install --pre "egraph==6.0.0a4"
 
-This will install the latest stable version of egraph from PyPI.
+To include optional interoperability and visualization dependencies (SciPy, NetworkX, igraph, matplotlib):
+
+.. code-block:: bash
+
+    pip install --pre "egraph[interop,viz]==6.0.0a4"
 
 Requirements
 ------------
 
 egraph requires:
 
-* Python 3.6 or later
-* NumPy (automatically installed as a dependency)
+* **Python**: 3.10 or later (``abi3-py310`` wheel)
+* **NumPy**: ``>= 1.26`` (automatically installed as a required dependency)
+
+egraph is implemented in strictly single-threaded pure CPU Rust with deterministic seeded execution (no ``rayon``, ``std::thread``, or C/Fortran FFI dependencies).
 
 Optional Dependencies
 ---------------------
 
-For visualization and working with examples, you may want to install:
+Optional extras defined in ``pyproject.toml``:
 
-.. code-block:: bash
-
-    pip install matplotlib networkx
-
-* **matplotlib**: For creating visualizations of graph layouts
-* **networkx**: For creating and manipulating graphs, and for using built-in graph datasets
+* ``interop``: ``scipy>=1.11``, ``networkx>=3.0``, ``igraph>=0.11``
+* ``viz``: ``matplotlib>=3.7``, ``networkx>=3.0``
+* ``docs``: ``sphinx>=8.0``, ``sphinx-rtd-theme>=2.0``
 
 Development Installation
 ------------------------
 
-If you want to contribute to egraph or use the latest development version, you can install from source:
+If you want to contribute to egraph or build from source:
 
 .. code-block:: bash
 
@@ -46,27 +49,36 @@ If you want to contribute to egraph or use the latest development version, you c
     cd egraph-rs/crates/python
 
     # Install in development mode
-    pip install maturin
-    maturin develop
+    pip install "maturin>=1.7,<2.0" "numpy>=1.26"
+    maturin develop --release
 
 This requires:
 
 * Rust toolchain (install from https://rustup.rs/)
-* maturin (Python package for building Rust extensions)
+* ``maturin>=1.7,<2.0`` (Python package for building Rust extensions)
 
 Verifying Installation
 ----------------------
 
 To verify that egraph is installed correctly, run:
 
-.. code-block:: python
+.. testcode:: python
 
     import egraph as eg
-    print(eg.__version__)
 
-You should see the version number printed without any errors.
+    g = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2), (2, 0)])
+    assert g.num_nodes == 3 and g.num_edges == 3
+    print("egraph ready:", g.num_nodes, g.num_edges)
+
+.. testoutput:: python
+
+    egraph ready: 3 3
 
 Next Steps
 ----------
 
-Now that you have egraph installed, proceed to the :doc:`quickstart` guide to learn how to use it.
+Now that you have egraph installed, proceed to:
+
+* :doc:`quickstart` - Create your first v6 graph layout
+* :doc:`overview` - Explore v6 capabilities
+* :doc:`migration_v6` - Migrate from v5 / legacy alpha APIs to v6

@@ -47,8 +47,8 @@ For more control, you can create a StressMajorization instance from a distance m
 
 .. testcode:: python
 
-    # Create a distance matrix
-    distance_matrix = eg.DistanceMatrix(graph)
+    # Compute an all-pairs BFS distance matrix
+    distance_matrix = eg.all_sources_bfs(graph, 1.0)
     
     # Optionally, modify distances
     for i in range(graph.node_count()):

@@ -307,6 +307,23 @@ Customizing Visualization
 Choosing the Right Drawing Space
 ---------------------------------
 
+In v6, use :class:`egraph.Layout2d` for Euclidean 2D layouts and :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic"``, ``"spherical"``, ``"torus"``) with :meth:`egraph.SgdSolver.run_manifold`.
+
+.. testcode:: python
+
+    import egraph as eg
+
+    graph = eg.CsrGraph.from_edges(6, [(i, (i + 1) % 6) for i in range(6)])
+    manifold = eg.ManifoldLayout2d.zeros("hyperbolic", graph.num_nodes)
+    sgd = eg.SgdSolver.full(graph, t_max=30, seed=42)
+    sgd.run_manifold(manifold)
+    assert manifold.coords().shape == (6, 2)
+    print("Manifold layout kind:", manifold.kind)
+
+.. testoutput:: python
+
+    Manifold layout kind: hyperbolic
+
 **Euclidean 2D**
 - Most common choice
 - Good for general-purpose visualization

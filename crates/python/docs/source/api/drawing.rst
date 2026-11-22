@@ -1,11 +1,14 @@
 Drawing Module
-===========================
+==============
 
-This module provides drawing implementations for different geometric spaces.
+This module provides zero-copy SoA coordinate buffers (``Layout2d``, ``LayoutNd``, ``ManifoldLayout2d``) and legacy drawing types.
 
 .. toctree::
    :maxdepth: 1
 
+   drawing/layout_2d
+   drawing/layout_nd
+   drawing/manifold_layout_2d
    drawing/drawing_euclidean_2d
    drawing/drawing_euclidean
    drawing/drawing_spherical_2d

@@ -20,7 +20,7 @@ SchedulerLinear
    :show-inheritance:
 
 SchedulerQuadratic
------------------
+------------------
 
 .. autoclass:: egraph.SchedulerQuadratic
    :members:
@@ -28,7 +28,7 @@ SchedulerQuadratic
    :show-inheritance:
 
 SchedulerExponential
--------------------
+--------------------
 
 .. autoclass:: egraph.SchedulerExponential
    :members:
@@ -36,7 +36,7 @@ SchedulerExponential
    :show-inheritance:
 
 SchedulerReciprocal
-------------------
+-------------------
 
 .. autoclass:: egraph.SchedulerReciprocal
    :members:

@@ -1,11 +1,17 @@
 Examples
 ========
 
-This section provides practical examples demonstrating various features of egraph.
+This section provides practical examples demonstrating ``egraph`` v6 and legacy features.
 
 .. toctree::
    :maxdepth: 2
 
+   track_a_tsnet
+   track_b_sparse_barrier
+   unified_force_models
+   prism_overlap_removal
+   fdeb
+   manifold_layouts
    sgd
    stress_majorization
    kamada_kawai
@@ -18,57 +24,62 @@ This section provides practical examples demonstrating various features of egrap
 Overview
 --------
 
-These examples demonstrate real-world usage of egraph's features. Each example is self-contained and can be run independently.
+Each example is self-contained and verified by Sphinx ``doctest``.
 
-Layout Algorithms
------------------
+v6 Solvers & Workflows
+----------------------
 
-* :doc:`sgd` - Stochastic Gradient Descent for fast, scalable layouts
-* :doc:`stress_majorization` - High-quality layouts through stress minimization
-* :doc:`kamada_kawai` - Spring-based layout algorithm
+* :doc:`track_a_tsnet` - Track A Pure 1+2-Hop Adaptive tsNET (``TsNetSolver.pure_2hop``)
+* :doc:`track_b_sparse_barrier` - Track B Regularized DoG 3-Tier Sparse Barrier SGD, ``GuMapSolver``, and ``SpatialIntruderRefiner``
+* :doc:`unified_force_models` - ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``ForceAtlas2Solver``, and ``YifanHuSolver``
+* :doc:`prism_overlap_removal` - $O(N \log N)$ Delaunay PRISM overlap removal and ``prism_distortion``
+* :doc:`fdeb` - Cooperative Force-Directed Edge Bundling (``FdebSolver``)
+* :doc:`manifold_layouts` - Non-Euclidean ``ManifoldLayout2d`` (Hyperbolic, Spherical, Torus)
 
-Advanced Drawing Spaces
-------------------------
+Classic & Legacy Examples
+-------------------------
 
+* :doc:`sgd` - Stochastic Gradient Descent (legacy ``SparseSgd`` / ``FullSgd``)
+* :doc:`stress_majorization` - Stress Majorization
+* :doc:`kamada_kawai` - Kamada-Kawai
 * :doc:`sgd_3d` - Three-dimensional graph layouts
-* :doc:`sgd_hyperbolic_2d` - Hyperbolic space for hierarchical graphs
-* :doc:`sgd_spherical_2d` - Spherical layouts for global networks
-* :doc:`sgd_torus` - Torus layouts with periodic boundaries
-
-Specialized Features
---------------------
-
-* :doc:`overwrap_removal` - Eliminate node overlaps while preserving structure
+* :doc:`sgd_hyperbolic_2d` - Hyperbolic 2D SGD (legacy drawing)
+* :doc:`sgd_spherical_2d` - Spherical 2D SGD (legacy drawing)
+* :doc:`sgd_torus` - Torus 2D SGD (legacy drawing)
+* :doc:`overwrap_removal` - Legacy overlap removal (superseded by :doc:`prism_overlap_removal`)
 
 Quick Example
 -------------
 
-Here's a simple example of creating a graph and applying a layout algorithm:
-
 .. testcode:: python
 
-    import networkx as nx
     import egraph as eg
-    
-    # Create a graph from NetworkX
-    nx_graph = nx.les_miserables_graph()
-    graph = eg.Graph()
-    indices = {}
-    for u in nx_graph.nodes:
-        indices[u] = graph.add_node(u)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    # Create an initial drawing
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Apply a layout algorithm
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    # Extract node positions
-    pos = {u: (drawing.x(i), drawing.y(i)) for u, i in indices.items()}
-    
-    # Visualize with NetworkX
-    import matplotlib.pyplot as plt
-    nx.draw(nx_graph, pos)
+
+    # Create a 4x4 grid graph via CsrGraph.from_edges
+    edges = []
+    for r in range(4):
+        for c in range(4):
+            u = r * 4 + c
+            if c + 1 < 4:
+                edges.append((u, u + 1))
+            if r + 1 < 4:
+                edges.append((u, u + 4))
+
+    graph = eg.CsrGraph.from_edges(16, edges)
+    layout = eg.pivot_mds_init(graph, num_pivots=8, seed=42)
+    eg.TsNetSolver.pure_2hop(
+        graph,
+        iterations_stage1=20,
+        iterations_stage2=20,
+        iterations_stage3=30,
+        seed=42,
+    ).run(layout)
+
+    report = eg.evaluate_metrics(graph, layout, ["sns", "np2", "crossing_number"])
+    assert layout.is_all_finite()
+    assert 0.0 <= report["neighborhood_preservation_2hop"] <= 1.0
+    print("Quick example complete")
+
+.. testoutput:: python
+
+    Quick example complete

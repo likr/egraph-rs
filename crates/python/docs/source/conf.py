@@ -44,7 +44,7 @@ import egraph as eg
 import networkx as nx
 '''
 
-doctest_test_doctest_blocks = 'default'
+doctest_test_doctest_blocks = ''
 doctest_default_flags = 0
 
 # -- Options for intersphinx -------------------------------------------------

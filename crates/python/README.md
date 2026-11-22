@@ -1,257 +1,153 @@
-# egraph - Python Graph Drawing Library
+# egraph - High-Performance Graph Drawing Library
 
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://egraph-py-docs.netlify.app/)
-[![Python Version](https://img.shields.io/badge/python-3.6+-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version: 6.0.0-alpha**
+**Version: 6.0.0-alpha.4**
 
-A high-performance graph drawing and layout library for Python, powered by Rust. egraph provides a comprehensive suite of graph algorithms, layout techniques, and visualization tools for network analysis and visualization.
+**egraph** is a fast, strictly single-threaded graph drawing and layout library for Python powered by pure CPU Rust (`abi3-py310`). It provides zero-copy Compressed Sparse Row (`CsrGraph`) and Structure-of-Arrays (`Layout2d`, `LayoutNd`, `ManifoldLayout2d`) bindings, deterministic seeded execution, and SOTA neighborhood-preserving and force-directed layouts.
 
-## Features
+## Key Features
 
-### Graph Data Structures
-
-- **Undirected Graphs** (`Graph`): Standard undirected graph with node and edge data
-- **Directed Graphs** (`DiGraph`): Directed graph with full edge direction support
-- **NetworkX Integration**: Seamless conversion to/from NetworkX graphs
-
-### Layout Algorithms
-
-- **SGD-based Layouts**: Stochastic Gradient Descent with multiple variants
-  - Full SGD: Complete pairwise distance optimization
-  - Sparse SGD: Efficient layout for large graphs
-  - Distance-Adjusted SGD: Adaptive distance-based optimization
-  - Omega: Spectral coordinates with SGD refinement
-- **Classical Algorithms**:
-  - MDS (Multidimensional Scaling): Classical and Pivot-based variants
-  - Stress Majorization: Iterative stress minimization
-  - Kamada-Kawai: Spring-based force-directed layout
-- **Specialized Layouts**:
-  - Overlap Removal: Eliminate node overlaps while preserving structure
-  - Separation Constraints: Hierarchical layouts with constraints
-
-### Drawing Spaces
-
-- **Euclidean**: 2D and n-dimensional Cartesian coordinates
-- **Spherical**: Layout on sphere surface
-- **Hyperbolic**: Hyperbolic space visualization
-- **Torus**: Toroidal surface layouts
-
-### Community Detection
-
-- **Louvain**: Modularity-based community detection
-- **Label Propagation**: Fast community detection via label spreading
-- **Spectral Clustering**: Eigenvalue-based clustering
-- **InfoMap**: Information-theoretic community detection
-- **Graph Coarsening**: Hierarchical graph simplification
-
-### Graph Algorithms
-
-- **Shortest Path**: Dijkstra's algorithm with custom edge weights
-- **Triangulation**: Delaunay triangulation
-- **Layering**: Hierarchical graph layering with cycle removal
-- **Connected Components**: Component detection and analysis
-
-### Quality Metrics
-
-- **Stress**: Layout quality measurement
-- **Edge Crossings**: Crossing number calculation
-- **Angular Resolution**: Angle distribution analysis
-- **Node Overlap**: Overlap detection and quantification
+- **Zero-Copy CSR & SoA Buffers**: `CsrGraph.from_csr`, `CsrGraph.from_edges`, `Layout2d` (`float64` default and first-class `dtype="float32"`), `LayoutNd`, and `ManifoldLayout2d` (Poincare hyperbolic disk, spherical, 2D torus).
+- **Ecosystem Interop (`egraph.interop`)**: Direct conversion helpers `from_scipy_csr`, `to_scipy_csr`, `from_networkx`, `to_networkx`, and `from_igraph`.
+- **Track A (Pure 1+2-Hop & Hybrid Adaptive tsNET)**: `TsNetSolver.pure_2hop`, `TsNetSolver.from_knn`, `TsNetSolver.from_probabilities`, and `TsNetSolver.from_graph_partial_bfs` with `ibFFT` / Barnes-Hut / Exact backends.
+- **Track B (Regularized Chebyshev DoG + 3-Tier Sparse Barrier SGD & GuMap)**: `SgdSolver.sparse_barrier_dog`, `GuMapSolver.from_graph_dog`, and 2D `StaticKdTree` `SpatialIntruderRefiner`.
+- **Unified Force & Multilevel Models**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp`, `SgdSolver.pacmap_graph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, and `FdebSolver`.
+- **Overlap Removal & Constraints**: $O(N \log N)$ Delaunay `PrismOverlapRemoval`, `SeparationConstraint` 1D/2D projection, and DAG layering (`cycle_edges`, `remove_cycles`, `assign_layers`, `generate_layered_constraints`).
+- **Community Detection & Coarsening**: `kmeans_plus_plus`, `spectral_clustering`, `louvain_communities`, `label_propagation`, `coarsen_graph`, and `project_clustered_layout`.
+- **Selective Quality Metrics**: `evaluate_metrics` supporting closed-form & pivot-sampled Scale-Normalized Stress (`scale_normalized_stress`), sweep-line crossing counts (`sweep_crossing_number`), `StaticKdTree` `NP1` / `NP2`, `prism_distortion`, `drng_preservation`, and `dgg_preservation`.
+- **Strictly Single-Threaded & Deterministic**: Pure CPU Rust with explicit `seed` parameters (`seed=42` default), zero `rayon`, zero `std::thread`, and zero C/Fortran FFI dependencies.
 
 ## Installation
 
-### Alpha Release Installation
-
-Since this is an alpha release, installation requires building from source:
-
-```bash
-# Clone the repository
-git clone https://github.com/likr/egraph-rs.git
-cd egraph-rs/crates/python
-
-# Install with pip (requires Rust toolchain)
-pip install maturin
-maturin develop --release
-```
-
 ### Requirements
 
-- **Python**: 3.6 or higher
-- **Rust**: Latest stable Rust toolchain (for building from source)
-- **Optional**: NumPy for array operations
+- **Python**: `>= 3.10` (`abi3-py310`)
+- **Required**: `numpy >= 1.26`
+- **Optional extras**:
+  - `interop`: `scipy >= 1.11`, `networkx >= 3.0`, `igraph >= 0.11`
+  - `viz`: `matplotlib >= 3.7`, `networkx >= 3.0`
+  - `docs`: `sphinx >= 8.0`, `sphinx-rtd-theme >= 2.0`
 
-## Quick Start
+### Installing from PyPI (Pre-release)
 
-```python
-import egraph as eg
-import networkx as nx
-
-# Create a graph
-graph = eg.Graph()
-nodes = [graph.add_node() for _ in range(10)]
-for i in range(9):
-    graph.add_edge(nodes[i], nodes[i + 1])
-
-# Apply a layout algorithm
-drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-rng = eg.Rng.seed_from(42)
-
-# Use SGD layout
-sgd = eg.FullSgd().build(graph, lambda i: 1.0, rng)
-scheduler = sgd.scheduler_exponential(100)
-
-def step(eta):
-    sgd.shuffle(rng)
-    sgd.apply(drawing, eta)
-
-scheduler.run(step)
-
-# Get node positions
-positions = {i: (drawing.x(i), drawing.y(i)) for i in range(graph.node_count())}
-print(positions)
-
-# Convert to NetworkX for visualization
-nx_graph = nx.Graph()
-indices = {}
-for u in range(graph.node_count()):
-    indices[u] = nx_graph.add_node(u)
-
-for edge_idx in range(graph.edge_count()):
-    u, v = graph.edge_endpoints(edge_idx)
-    nx_graph.add_edge(indices[u], indices[v])
-
-# Use with matplotlib
-import matplotlib.pyplot as plt
-nx.draw(nx_graph, pos=positions, with_labels=True)
-plt.show()
+```bash
+pip install --pre "egraph==6.0.0a4"
+# With SciPy/NetworkX/matplotlib support:
+pip install --pre "egraph[interop,viz]==6.0.0a4"
 ```
-
-## Documentation
-
-Full documentation is available at: **https://egraph-py-docs.netlify.app/**
-
-The documentation includes:
-
-- **Getting Started Guide**: Installation and basic usage
-- **Tutorials**: Step-by-step guides for common tasks
-- **API Reference**: Complete API documentation with examples
-- **Examples**: Real-world usage examples
-
-## Key Capabilities
-
-### Multiple Layout Algorithms
-
-```python
-# Classical MDS
-mds = eg.ClassicalMds(graph, lambda i: 1.0)
-drawing = mds.run(2)
-
-# Stress Majorization
-sm = eg.StressMajorization(graph, lambda i: 1.0)
-drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-sm.run(drawing, 100)
-
-# Kamada-Kawai
-kk = eg.KamadaKawai(graph, lambda i: 1.0)
-drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-kk.run(drawing)
-```
-
-### Community Detection
-
-```python
-# Louvain algorithm
-louvain = eg.Louvain()
-communities = louvain.detect(graph)
-
-# Get community assignments
-for node_id in range(graph.node_count()):
-    community_id = communities.community(node_id)
-    print(f"Node {node_id} -> Community {community_id}")
-```
-
-### Different Drawing Spaces
-
-```python
-# Spherical layout
-drawing_spherical = eg.DrawingSpherical2d.initial_placement(graph)
-sgd.apply(drawing_spherical, 0.1)
-
-# Hyperbolic layout
-drawing_hyperbolic = eg.DrawingHyperbolic2d.initial_placement(graph)
-sgd.apply(drawing_hyperbolic, 0.1)
-```
-
-## Development
 
 ### Building from Source
 
 ```bash
-# Install development dependencies
-pip install maturin pytest
-
-# Build in development mode
-maturin develop
-
-# Run tests
-python -m pytest tests/
-
-# Build documentation
-cd docs
-make html
+git clone https://github.com/likr/egraph-rs.git
+cd egraph-rs/crates/python
+pip install "maturin>=1.7,<2.0" "numpy>=1.26"
+maturin develop --release
 ```
 
-### Running Tests
+## Quick Start
+
+### 1. CSR Construction, Track A (`TsNetSolver.pure_2hop`), and `evaluate_metrics`
+
+```python
+import numpy as np
+import egraph as eg
+
+# Build an undirected cycle graph (0 - 1 - 2 - 3 - 4 - 5 - 0) via CSR arrays
+indptr = np.array([0, 2, 4, 6, 8, 10, 12], dtype=np.uint32)
+indices = np.array([1, 5, 0, 2, 1, 3, 2, 4, 3, 5, 4, 0], dtype=np.uint32)
+graph = eg.CsrGraph.from_csr(indptr, indices)
+
+# Initialize layout with normalized PivotMDS
+layout = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
+
+# Optimize with Track A Pure 1+2-Hop Adaptive tsNET
+solver = eg.TsNetSolver.pure_2hop(graph, backend="fft", seed=42)
+solver.run(layout)
+
+# Zero-copy NumPy view (shape: (N, 2))
+coords = layout.coords(copy=False)
+print("Coordinates shape:", coords.shape)
+
+# Evaluate Scale-Normalized Stress (SNS), 2-hop NP2, and crossings
+metrics = eg.evaluate_metrics(graph, layout, ["sns", "np2", "crossing_number"])
+print(metrics)
+```
+
+### 2. SciPy CSR & NetworkX Interoperability (`egraph.interop`)
+
+```python
+import networkx as nx
+import scipy.sparse as sp
+import egraph as eg
+from egraph.interop import from_networkx, from_scipy_csr
+
+# From NetworkX
+nx_graph = nx.karate_club_graph()
+g_nx = from_networkx(nx_graph)
+
+# From SciPy CSR matrix
+adj_csr = nx.to_scipy_sparse_array(nx_graph, format="csr", dtype=float)
+g_sp = from_scipy_csr(sp.csr_matrix(adj_csr))
+
+layout = eg.pivot_mds_init(g_sp, num_pivots=16, seed=42)
+eg.TsNetSolver.pure_2hop(g_sp, seed=42).run(layout)
+print(eg.evaluate_metrics(g_sp, layout, ["sns", "np2"]))
+```
+
+### 3. Track B (`SgdSolver.sparse_barrier_dog`), `SgdSolver.snap_t_fdp`, and `PrismOverlapRemoval`
+
+```python
+import numpy as np
+import egraph as eg
+
+edges = [(i, (i + 1) % 12) for i in range(12)] + [(0, 6), (3, 9)]
+graph = eg.CsrGraph.from_edges(12, edges)
+
+# Track B: Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD
+layout_b = eg.pivot_mds_init(graph, num_pivots=8, seed=42)
+barrier_sgd = eg.SgdSolver.sparse_barrier_dog(graph, seed=42)
+barrier_sgd.run(layout_b)
+print("DoG barrier stats:", barrier_sgd.dog_stats())
+
+# M4: SNAP-tFDP (low-memory edge-incident negative sampling)
+layout_snap = eg.pivot_mds_init(graph, num_pivots=8, seed=42)
+snap = eg.SgdSolver.snap_t_fdp(graph, iterations=200, seed=42)
+snap.run(layout_snap)
+
+# Overlap removal with O(N log N) PRISM
+radii = np.full(graph.num_nodes, 0.25, dtype=np.float64)
+prism = eg.PrismOverlapRemoval.from_radii(radii, padding=0.05, seed=42)
+prism.run(layout_snap)
+print("Remaining overlaps:", prism.last_overlap_count)
+```
+
+## Migration from v5 / Legacy Alpha
+
+See [docs/MIGRATION_V6.md](../../docs/MIGRATION_V6.md) for a complete guide covering:
+
+1. Host object weights removal -> `CsrGraph` + `egraph.interop` + host-side arrays
+2. `OverwrapRemoval` -> `PrismOverlapRemoval`
+3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver` (`pure_2hop`)
+4. `stress` (`NS`) -> `scale_normalized_stress` (`SNS`) / `evaluate_metrics`
+5. WASM pure ESM, `fromCsr`, `coordsView()`, and `runProgressive`
+
+## Documentation & Development
+
+Full documentation is available at **https://egraph-py-docs.netlify.app/**.
 
 ```bash
-# Run all tests
-make python-test
+# Run Python unit tests, mypy --strict, and stubtest from repo root
+./scripts/verify.sh --python
 
-# Run specific test module
-make python-test-module MODULE=test_sgd
-
-# Run doctests
-make python-doctest
+# Build Sphinx HTML and doctests locally
+python -m sphinx -b html crates/python/docs/source crates/python/docs/_build/html
+python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/doctest
 ```
-
-## Performance
-
-egraph is built on Rust, providing:
-
-- **High Performance**: Native speed for graph algorithms
-- **Memory Efficiency**: Optimized memory usage for large graphs
-- **Parallel Processing**: Multi-threaded algorithms where applicable
-- **Type Safety**: Rust's type system prevents common errors
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
-
-## Citation
-
-If you use egraph in your research, please cite:
-
-```bibtex
-@software{egraph,
-  title = {egraph: High-Performance Graph Drawing Library},
-  author = {Yosuke Onoue},
-  year = {2025},
-  url = {https://github.com/likr/egraph-rs}
-}
-```
-
-## Acknowledgments
-
-egraph builds upon research in graph drawing and network visualization, incorporating algorithms from the graph drawing community.
-
-## Links
-
-- **Documentation**: https://egraph-py-docs.netlify.app/
-- **GitHub Repository**: https://github.com/likr/egraph-rs
-- **Issue Tracker**: https://github.com/likr/egraph-rs/issues

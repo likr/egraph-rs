@@ -1,160 +1,162 @@
 # egraph
 
-egraph is a fast graph drawing library implemented in Rust and WebAssembly.
+Fast, strictly single-threaded graph drawing and layout library implemented in pure Rust and WebAssembly (`wasm-bindgen`), distributed as a pure ESM package sharing a single `.wasm` binary across browsers, bundlers, and Node.js 18+.
 
 ## Install
 
-```shell-session
-$ npm install egraph
+```bash
+npm install egraph
 ```
 
-## Usage
+## Architecture Highlights (v6)
 
-```javascript
-import { Graph } from 'egraph'
+- **Pure ESM & Single `.wasm`**: Modern `"exports"` entrypoints for browsers/bundlers (`./pkg/index.js`) and Node.js 18+ (`./pkg/egraph_wasm.node.js`), sharing a single `wasm-opt -Oz` optimized `.wasm` binary.
+- **Strictly Single-Threaded**: Pure CPU Rust with deterministic seeded execution (`seed = 42` default), zero `rayon`, zero `std::thread`, zero Web Workers, and zero `SharedArrayBuffer`.
+- **Zero-Copy Linear Memory Views**: `Layout2d.coordsView()` returns a cached `Float32Array` view directly over WebAssembly linear memory and automatically refreshes when `memory.grow` detaches the underlying `ArrayBuffer`.
+- **Cooperative `requestAnimationFrame` Execution**: All iterative solvers implement `step()`, `runSteps(layout, k)`, and `run(layout)`, plus `runProgressive(solver, layout, onFrame, options?)` for responsive 60fps browser rendering.
+
+## Quick Start (Browser / Bundler ESM)
+
+```js
+import init, {
+  CsrGraph,
+  Layout2d,
+  TsNetSolver,
+  evaluateMetrics,
+  pivotMdsInit,
+  runProgressive,
+} from "egraph";
+
+await init();
+
+// Build an undirected CSR graph (0 - 1 - 2 - 3 - 0)
+const indptr = new Uint32Array([0, 2, 4, 6, 8]);
+const indices = new Uint32Array([1, 3, 0, 2, 1, 3, 2, 0]);
+const graph = CsrGraph.fromCsr(indptr, indices);
+
+// Initialize with normalized PivotMDS (f32 Layout2d)
+const layout = pivotMdsInit(graph, 4, 42);
+
+// Run Track A Pure 1+2-Hop Adaptive tsNET progressively in requestAnimationFrame
+const solver = TsNetSolver.pure2Hop(graph, {
+  backend: "fft",
+  seed: 42,
+});
+
+await runProgressive(
+  solver,
+  layout,
+  ({ iteration, totalIterations }) => {
+    const xy = layout.coordsView(); // Zero-copy Float32Array [x0, y0, x1, y1, ...]
+    console.log(`frame ${iteration}/${totalIterations}, node0=(${xy[0]}, ${xy[1]})`);
+  },
+  { frameBudgetMs: 10 },
+);
+
+// Selectively evaluate quality metrics
+const report = evaluateMetrics(graph, layout, ["sns", "np2", "crossingNumber"]);
+console.log(report.toRecord());
+```
+
+## Node.js 18+ ESM
+
+The same `"egraph"` import automatically resolves to the Node ESM loader via `"exports"`:
+
+```js
+import init, { CsrGraph, TFdpSolver, pivotMdsInit } from "egraph";
+
+await init();
+
+const graph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 3, 3, 0]));
+const layout = pivotMdsInit(graph, 4, 42);
+const solver = new TFdpSolver(graph, { backend: "ibfft", totalIterations: 200, seed: 42 });
+solver.run(layout);
+
+const xy = layout.coordsView();
+console.log(Array.from(xy));
+```
+
+## Solver Examples
+
+### Track A: `TsNetSolver.pure2Hop`
+
+```js
+const solver = TsNetSolver.pure2Hop(graph, {
+  backend: "fft",
+  perplexityC: 0.9,
+  seed: 42,
+});
+solver.run(layout);
+```
+
+### Track B & Unified Force Models: `TFdpSolver`, `ForceAtlas2Solver`, `GuMapSolver`
+
+```js
 import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce
-} from 'egraph/layout/force-directed'
+  ForceAtlas2Solver,
+  GuMapSolver,
+  SgdSolver,
+  TFdpSolver,
+} from "egraph";
 
-// creating a graph
-const graph = new Graph()
+// t-FDP with ibFFT repulsion
+const tfdp = new TFdpSolver(graph, {
+  backend: "ibfft",
+  totalIterations: 200,
+  seed: 42,
+});
+tfdp.run(layout);
 
-// adding vertices
-graph.addNode(0)
-graph.addNode(1)
-graph.addNode(2)
+// ForceAtlas2 (Barnes-Hut)
+const fa2 = new ForceAtlas2Solver(graph, {
+  iterations: 200,
+  useBarnesHut: true,
+  theta: 0.5,
+  seed: 42,
+});
+fa2.run(layout);
 
-// adding edges
-graph.addEdge(0, 1)
-graph.addEdge(0, 2)
-graph.addEdge(1, 2)
+// GuMap from regularized Chebyshev DoG landmarks
+const gumap = GuMapSolver.fromGraphDog(graph, {
+  nEpochs: 200,
+  minDist: 0.1,
+  spread: 1.0,
+  seed: 42,
+});
+gumap.run(layout);
 
-// creating forces
-const manyBodyForce = new ManyBodyForce()
-const linkForce = new LinkForce()
-const centerForce = new CenterForce()
-
-// creating simulation
-const simulation = new Simulation()
-simulation.add(manyBodyForce)
-simulation.add(linkForce)
-simulation.add(centerForce)
-
-// position calculation
-const layout = simulation.start(graph)
-
-// printing result
-for (const u of graph.nodes()) {
-  console.log(layout.nodes[u])
-}
+// Regularized DoG 3-tier Sparse Barrier SGD
+const barrierSgd = SgdSolver.sparseBarrierDog(graph, { seed: 42 });
+barrierSgd.run(layout);
 ```
 
-egraph-wasm is implemented using wasm-bindgen.
-For more detailed usage, please read [wasm-bindgen document](https://rustwasm.github.io/wasm-bindgen/).
+### Overlap Removal (`PrismOverlapRemoval`)
 
-## Examples
+```js
+import { PrismOverlapRemoval, prismDistortion } from "egraph";
 
-### Drawing SVG with React.js
+const original = Layout2d.fromCoords(layout.coordsView());
+const radii = new Float32Array(graph.numNodes()).fill(0.25);
+const prism = PrismOverlapRemoval.fromRadii(radii, {
+  maxIterations: 50,
+  padding: 0.05,
+  seed: 42,
+});
+prism.run(layout);
 
-```javascript
-import React from 'react'
-import { render } from 'react-dom'
-import { Graph } from 'egraph'
-import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce
-} from 'egraph/layout/force-directed'
-
-const graph = new Graph()
-graph.addNode(0)
-graph.addNode(1)
-graph.addNode(2)
-graph.addEdge(0, 1)
-graph.addEdge(0, 2)
-graph.addEdge(1, 2)
-
-const manyBodyForce = new ManyBodyForce()
-const linkForce = new LinkForce()
-linkForce.distance = () => 200
-const centerForce = new CenterForce()
-
-const simulation = new Simulation()
-simulation.add(manyBodyForce)
-simulation.add(linkForce)
-simulation.add(centerForce)
-
-const layout = simulation.start(graph)
-
-const width = 600
-const height = 400
-render(
-  <div>
-    <svg width={width} height={height}>
-      <g transform={`translate(${width / 2},${height / 2})`}>
-        <g>
-          {Array.from(graph.edges()).map(([u, v]) => {
-            const { x: x0, y: y0 } = positions[u]
-            const { x: x1, y: y1 } = positions[v]
-            return (
-              <g key={e}>
-                <path d={`M ${x0} ${y0} L ${x1} ${y1}`} stroke='#000' />
-              </g>
-            )
-          })}
-        </g>
-        <g>
-          {Array.from(graph.nodes()).map((u) => {
-            const { x, y } = positions[u]
-            return (
-              <g key={i} transform={`translate(${x},${y})`}>
-                <circle r='10' fill='#000' />
-              </g>
-            )
-          })}
-        </g>
-      </g>
-    </svg>
-  </div>,
-  document.querySelector('#display')
-)
+const distortion = prismDistortion(original, layout);
+console.log(prism.lastOverlapCount, distortion.sigmaDist, distortion.sigmaDisp);
 ```
 
-### Loading JSON
+## Migration from v5 / Legacy Alpha
 
-```javascript
-import { Graph } from 'egraph'
-import {
-  Simulation,
-  ManyBodyForce,
-  LinkForce,
-  CenterForce
-} from 'egraph/layout/force-directed'
-;(async () => {
-  const request = await fetch('miserables.json')
-  const data = await request.json()
+See [docs/MIGRATION_V6.md](../../docs/MIGRATION_V6.md) for a complete v5/legacy-alpha to v6 migration guide, including:
 
-  const { Graph } = mod
-  const graph = new Graph()
-  for (const node of data.nodes) {
-    graph.addNode(node.id, node)
-  }
-  for (const link of data.links) {
-    graph.addEdge(link.source, link.target, link)
-  }
-
-  for (const u of graph.nodes()) {
-    console.log(graph.node(u))
-  }
-  for (const [u, v] of graph.edges()) {
-    console.log(graph.edge(u, v))
-  }
-})()
-```
+1. Replacing `Graph` host object weights with `CsrGraph.fromCsr` / `CsrGraph.fromEdgeList` and host-side arrays
+2. Migrating `OverwrapRemoval` to `PrismOverlapRemoval`
+3. Consolidating `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` into `TsNetSolver.pure2Hop`
+4. Replacing `stress` (`NS`) with Scale-Normalized Stress (`scaleNormalizedStress` / `evaluateMetrics`)
+5. Migrating from `egraph/dist/web/egraph_wasm` to pure ESM, `coordsView()`, and `runProgressive`
 
 ## License
 

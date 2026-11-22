@@ -1,7 +1,11 @@
-Overwrap Removal
-=================
+Overwrap Removal (Legacy)
+=========================
 
-This example demonstrates how to use the Overwrap Removal algorithm to resolve node overlaps in a graph layout.
+.. note::
+
+   ``OverwrapRemoval`` is legacy in v6. For new code, use :doc:`prism_overlap_removal` (:class:`egraph.PrismOverlapRemoval`), which provides $O(N \log N)$ Delaunay triangulation and bounded conjugate-gradient projection.
+
+This example demonstrates how to use the legacy Overwrap Removal algorithm to resolve node overlaps in a graph layout.
 
 Basic Overwrap Removal Example
 ----------------------------------
