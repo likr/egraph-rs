@@ -54,14 +54,14 @@ const DEFAULT_RANDOM_PAIRS_PER_NODE: usize = 30;
 const DEFAULT_OMEGA_MIN_DIST: f64 = 1e-3;
 const DEFAULT_GUMAP_MAX_2HOP: usize = 32;
 
-fn normalize_enum_token(raw: &str) -> String {
+pub(crate) fn normalize_enum_token(raw: &str) -> String {
     raw.chars()
         .filter(|ch| !matches!(ch, '_' | '-' | ' '))
         .map(|ch| ch.to_ascii_lowercase())
         .collect()
 }
 
-fn solver_status_str(status: SolverStatus) -> &'static str {
+pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
     match status {
         SolverStatus::Initialized => "initialized",
         SolverStatus::Running => "running",
@@ -108,8 +108,9 @@ fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, JsError> {
         "quadratic" => Ok(SgdScheduleKind::Quadratic),
         "reciprocal" => Ok(SgdScheduleKind::Reciprocal),
         "constant" => Ok(SgdScheduleKind::Constant),
+        "squared" => Ok(SgdScheduleKind::Squared),
         _ => Err(JsError::new(&format!(
-            "unknown SgdScheduleKind {raw:?}; expected 'exponential', 'linear', 'quadratic', 'reciprocal', or 'constant'"
+            "unknown SgdScheduleKind {raw:?}; expected 'exponential', 'linear', 'quadratic', 'reciprocal', 'constant', or 'squared'"
         ))),
     }
 }
@@ -124,7 +125,7 @@ fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsError> {
     }
 }
 
-fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
+pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
     if let Some(num) = val.as_f64() {
         let ord = parse_non_negative_usize(num, "ibfftOrder")?;
         return InterpolationOrder::from_order(ord).map_err(core_err_to_js);
@@ -143,19 +144,19 @@ fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
     ))
 }
 
-fn is_plain_js_object(val: &JsValue) -> bool {
+pub(crate) fn is_plain_js_object(val: &JsValue) -> bool {
     val.is_object()
         && !js_sys::Array::is_array(val)
         && !js_sys::ArrayBuffer::is_view(val)
         && !val.is_function()
 }
 
-fn get_prop(obj: &JsValue, key: &str) -> Result<JsValue, JsError> {
+pub(crate) fn get_prop(obj: &JsValue, key: &str) -> Result<JsValue, JsError> {
     js_sys::Reflect::get(obj, &JsValue::from_str(key))
         .map_err(|err| JsError::new(&format!("failed to read options.{key}: {err:?}")))
 }
 
-fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsError> {
+pub(crate) fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
@@ -166,7 +167,7 @@ fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsE
     parse_non_negative_usize(num, key)
 }
 
-fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsError> {
+pub(crate) fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
@@ -177,7 +178,7 @@ fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsErr
     parse_non_negative_usize(num, key).map(Some)
 }
 
-fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsError> {
+pub(crate) fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
@@ -186,7 +187,7 @@ fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsError> 
         .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
 }
 
-fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsError> {
+pub(crate) fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
@@ -196,7 +197,7 @@ fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsError> 
         .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
 }
 
-fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsError> {
+pub(crate) fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
@@ -205,7 +206,7 @@ fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsErro
         .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
 }
 
-fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsError> {
+pub(crate) fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsError> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
@@ -215,7 +216,7 @@ fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsError> 
         .ok_or_else(|| JsError::new(&format!("options.{key} must be a string")))
 }
 
-fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsError> {
+pub(crate) fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsError> {
     let val = get_prop(obj, "seed")?;
     if val.is_undefined() || val.is_null() {
         return parse_seed_u64(None);
@@ -226,7 +227,7 @@ fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsError> {
     parse_seed_u64(Some(num))
 }
 
-fn reject_extra_args_with_options(has_extra: bool) -> Result<(), JsError> {
+pub(crate) fn reject_extra_args_with_options(has_extra: bool) -> Result<(), JsError> {
     if has_extra {
         return Err(JsError::new(
             "unexpected trailing positional argument when passing an options object",
@@ -253,7 +254,7 @@ fn validate_layout_for_solver(
     Ok(())
 }
 
-fn step_layout_in_place<S: IterativeSolver<f32>>(
+pub(crate) fn step_layout_in_place<S: IterativeSolver<f32>>(
     solver: &mut S,
     layout: &mut JsLayout2d,
 ) -> Result<String, JsError> {
@@ -266,7 +267,7 @@ fn step_layout_in_place<S: IterativeSolver<f32>>(
     Ok(solver_status_str(status).to_owned())
 }
 
-fn run_steps_layout_in_place<S: IterativeSolver<f32>>(
+pub(crate) fn run_steps_layout_in_place<S: IterativeSolver<f32>>(
     expected_nodes: usize,
     solver: &mut S,
     layout: &mut JsLayout2d,
@@ -286,7 +287,7 @@ fn run_steps_layout_in_place<S: IterativeSolver<f32>>(
     Ok(solver_status_str(status).to_owned())
 }
 
-fn run_layout_in_place<S: IterativeSolver<f32>>(
+pub(crate) fn run_layout_in_place<S: IterativeSolver<f32>>(
     expected_nodes: usize,
     solver: &mut S,
     layout: &mut JsLayout2d,
@@ -1334,7 +1335,7 @@ fn parse_sparse_barrier_config(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn parse_dog_config_from_options_or_args(
+pub(crate) fn parse_dog_config_from_options_or_args(
     maybe_options: &JsValue,
     seed: u64,
     degree: Option<f64>,
@@ -1413,12 +1414,21 @@ fn parse_dog_config_from_options_or_args(
 }
 
 /// Cooperative SoA `u32` SGD solver supporting 3-tier sparse barrier, streaming negatives,
-/// Euclidean `Layout2d` (`f32`), and non-Euclidean `ManifoldLayout2d` (`f32`).
+/// SNAP-tFDP, PaCMAP-Graph, `(SGD)^2`, Euclidean `Layout2d` (`f32`), and non-Euclidean `ManifoldLayout2d` (`f32`).
 #[wasm_bindgen(js_name = SgdSolver)]
 #[derive(Debug, Clone)]
 pub struct JsSgdSolver {
     inner: SgdSolver<f32>,
     barrier_stats: Option<SparseBarrierStats>,
+}
+
+impl JsSgdSolver {
+    pub(crate) fn from_inner(inner: SgdSolver<f32>) -> Self {
+        Self {
+            inner,
+            barrier_stats: None,
+        }
+    }
 }
 
 #[wasm_bindgen(js_class = SgdSolver)]
@@ -1855,6 +1865,23 @@ impl JsSgdSolver {
             inner,
             barrier_stats: None,
         })
+    }
+
+    /// Constructs a compact-memory edge-incident negative sampling `SNAP-tFDP` solver.
+    #[wasm_bindgen(js_name = snapTFdp)]
+    pub fn snap_t_fdp(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_m4::sgd_snap_t_fdp(graph, options)
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` (`NB` / `MN` / `FP`) Adam layout solver.
+    #[wasm_bindgen(js_name = pacmapGraph)]
+    pub fn pacmap_graph(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_m4::sgd_pacmap_graph(graph, options)
+    }
+
+    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` solver.
+    pub fn sgd2(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_m4::sgd_sgd2(graph, options)
     }
 
     /// Executes one Euclidean SGD iteration on `layout` in place.

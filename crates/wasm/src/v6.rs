@@ -3,6 +3,7 @@
 
 pub use crate::v6_m2::*;
 pub use crate::v6_m3::*;
+pub use crate::v6_m4::*;
 
 use egraph_core::{CoreError, CsrGraph, Layout2d};
 use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};

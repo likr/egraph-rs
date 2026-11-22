@@ -98,7 +98,25 @@ const requiredM3 = [
   "spectralClustering",
 ];
 
-const missingExports = [...requiredCoreAndM1, ...requiredM2, ...requiredM3].filter(
+const requiredM4 = [
+  "FdebSolver",
+  "ForceAtlas2Solver",
+  "IbUmapSolver",
+  "PrismOverlapRemoval",
+  "SeparationConstraint",
+  "TFdpSolver",
+  "YifanHuSolver",
+  "assignLayers",
+  "cycleEdges",
+  "generateLayeredConstraints",
+  "project1d",
+  "projectClusteredRectangleNoOverlap2d",
+  "projectLayoutAxis",
+  "projectRectangleNoOverlap2d",
+  "removeCycles",
+];
+
+const missingExports = [...requiredCoreAndM1, ...requiredM2, ...requiredM3, ...requiredM4].filter(
   (name) => !exportedNames.has(name),
 );
 if (missingExports.length > 0) {
@@ -362,8 +380,11 @@ for (const [pattern, replacement] of m2DtsReplacements) {
 const m3TypeDecls = `export type SolverStatus = "initialized" | "running" | "converged" | "completed";
 export type ManifoldKind = "hyperbolic" | "spherical" | "torus";
 export type TsNetBackend = "exact" | "barnes_hut" | "fft" | "linear_fft";
-export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant";
+export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant" | "squared";
 export type BarrierSymmetry = "sym_max" | "sym_avg";
+export type FieldRepulsionBackend = "ibfft" | "barnes_hut" | "exact";
+export type LayeringMethod = "longestPath" | "longest_path" | "networkSimplex" | "network_simplex";
+export type LayoutAxis = 0 | 1 | "x" | "y";
 
 export interface TsNetOptions {
   backend?: TsNetBackend | null;
@@ -506,6 +527,143 @@ export interface KamadaKawaiOptions {
   maxOuterIters?: number | null;
 }
 
+export interface TFdpOptions {
+  backend?: FieldRepulsionBackend | string | null;
+  totalIterations?: number | null;
+  learningRate?: number | null;
+  momentum?: number | null;
+  theta?: number | null;
+  alpha?: number | null;
+  gamma?: number | null;
+  rhoStart?: number | null;
+  rhoEnd?: number | null;
+  rhoPower?: number | null;
+  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  ibfftIntervals?: number | null;
+  ibfftMinGridDim?: number | null;
+  ibfftMaxGridDim?: number | null;
+  seed?: number | null;
+}
+
+export interface IbUmapOptions {
+  max2hopPerNode?: number | null;
+  backend?: FieldRepulsionBackend | string | null;
+  nEpochs?: number | null;
+  learningRate?: number | null;
+  minDist?: number | null;
+  spread?: number | null;
+  a?: number | null;
+  b?: number | null;
+  cK?: number | null;
+  tauScale?: number | null;
+  hubDamping?: boolean | null;
+  theta?: number | null;
+  sigmaIters?: number | null;
+  sigmaTolerance?: number | null;
+  degrees?: Uint32Array | number[] | null;
+  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  ibfftIntervals?: number | null;
+  ibfftMinGridDim?: number | null;
+  ibfftMaxGridDim?: number | null;
+  degree?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  jlDim?: number | null;
+  degreeNormalize?: boolean | null;
+  pExp?: number | null;
+  epsPsd?: number | null;
+  tCoarse?: number | null;
+  t1?: number | null;
+  t2?: number | null;
+  alpha?: number | null;
+  betaFloor?: number | null;
+  seed?: number | null;
+}
+
+export interface SnapTFdpOptions {
+  iterations?: number | null;
+  negativesPerEdge?: number | null;
+  learningRate?: number | null;
+  alpha?: number | null;
+  repulsionScale?: number | null;
+  rhoStart?: number | null;
+  rhoEnd?: number | null;
+  rhoPower?: number | null;
+  seed?: number | null;
+}
+
+export interface PacmapGraphOptions {
+  nNeighbors?: number | null;
+  mnRatio?: number | null;
+  fpRatio?: number | null;
+  phase1Iters?: number | null;
+  phase2Iters?: number | null;
+  phase3Iters?: number | null;
+  learningRate?: number | null;
+  seed?: number | null;
+}
+
+export interface Sgd2Options {
+  tMax?: number | null;
+  eps?: number | null;
+  stepScale?: number | null;
+  batchSize?: number | null;
+  damping?: number | null;
+  seed?: number | null;
+}
+
+export interface ForceAtlas2Options {
+  iterations?: number | null;
+  theta?: number | null;
+  useBarnesHut?: boolean | null;
+  linlogMode?: boolean | null;
+  strongGravity?: boolean | null;
+  gravity?: number | null;
+  scalingRatio?: number | null;
+  edgeWeightInfluence?: number | null;
+  outboundAttractionDistribution?: boolean | null;
+  jitterTolerance?: number | null;
+  seed?: number | null;
+}
+
+export interface YifanHuOptions {
+  maxIterationsPerLevel?: number | null;
+  stepSize?: number | null;
+  stepRatio?: number | null;
+  relativeStrength?: number | null;
+  optimalDistance?: number | null;
+  theta?: number | null;
+  minCoarsenSize?: number | null;
+  minCoarsenRatio?: number | null;
+  convergenceTolerance?: number | null;
+  seed?: number | null;
+}
+
+export interface PrismOptions {
+  maxIterations?: number | null;
+  maxScaleFactor?: number | null;
+  cgMaxIters?: number | null;
+  cgTolerance?: number | null;
+  padding?: number | null;
+  seed?: number | null;
+}
+
+export interface SeparationConstraintLike {
+  left: number;
+  right: number;
+  gap: number;
+}
+
+export interface FdebOptions {
+  cycles?: number | null;
+  s0?: number | null;
+  i0?: number | null;
+  sStep?: number | null;
+  iStep?: number | null;
+  springK?: number | null;
+  minimumEdgeCompatibility?: number | null;
+}
+
 `;
 
 if (!indexDts.includes("export class CoarsenedGraphResult {")) {
@@ -619,6 +777,93 @@ for (const [pattern, replacement] of m3DtsReplacements) {
   const updated = indexDts.replace(pattern, replacement);
   if (updated === indexDts) {
     throw new Error(`Failed to refine M3 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
+
+const m4DtsReplacements = [
+  [
+    /(export class TFdpSolver \{[\s\S]*?)static fromKnn\([^;]+\): TFdpSolver;/,
+    "$1static fromKnn(indptr: Uint32Array | number[], indices: Uint32Array | number[], weightsOrOptions?: Float64Array | Float32Array | number[] | TFdpOptions | null, options?: TFdpOptions | null): TFdpSolver;",
+  ],
+  [
+    /(export class TFdpSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: TFdpOptions | null);",
+  ],
+  [
+    /(export class IbUmapSolver \{[\s\S]*?)static fromFuzzySet\([^;]+\): IbUmapSolver;/,
+    "$1static fromFuzzySet(probs: SparseProbabilities, degreesOrOptions?: Uint32Array | number[] | IbUmapOptions | null, options?: IbUmapOptions | null): IbUmapSolver;",
+  ],
+  [
+    /(export class IbUmapSolver \{[\s\S]*?)static fromKnn\([^;]+\): IbUmapSolver;/,
+    "$1static fromKnn(knn: KnnGraph, options?: IbUmapOptions | null): IbUmapSolver;",
+  ],
+  [
+    /(export class IbUmapSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: IbUmapOptions | null);",
+  ],
+  [
+    /static snapTFdp\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static snapTFdp(graph: CsrGraph, options?: SnapTFdpOptions | null): SgdSolver;",
+  ],
+  [
+    /static pacmapGraph\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static pacmapGraph(graph: CsrGraph, options?: PacmapGraphOptions | null): SgdSolver;",
+  ],
+  [
+    /static sgd2\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static sgd2(graph: CsrGraph, options?: Sgd2Options | null): SgdSolver;",
+  ],
+  [
+    /(export class ForceAtlas2Solver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: ForceAtlas2Options | null);",
+  ],
+  [
+    /(export class YifanHuSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: YifanHuOptions | null);",
+  ],
+  [
+    /static fromRadii\(radii: Float32Array \| number\[\], options: any\): PrismOverlapRemoval;/,
+    "static fromRadii(radii: Float32Array | number[], options?: PrismOptions | null): PrismOverlapRemoval;",
+  ],
+  [
+    /(export class PrismOverlapRemoval \{[\s\S]*?)constructor\(half_widths: Float32Array \| number\[\], half_heights: Float32Array \| number\[\], options: any\);/,
+    "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: PrismOptions | null);",
+  ],
+  [
+    /export function project1d\(coords: Float32Array, constraints: any\): Float32Array;/,
+    "export function project1d(coords: Float32Array, constraints: readonly (SeparationConstraint | SeparationConstraintLike)[]): Float32Array;",
+  ],
+  [
+    /export function projectLayoutAxis\(layout: Layout2d, axis: any, constraints: any\): void;/,
+    "export function projectLayoutAxis(layout: Layout2d, axis: LayoutAxis, constraints: readonly (SeparationConstraint | SeparationConstraintLike)[]): void;",
+  ],
+  [
+    /export function generateLayeredConstraints\(graph: CsrGraph, layers: Uint32Array \| number\[\], min_layer_distance\?: number \| null\): SeparationConstraint\[\];/,
+    "export function generateLayeredConstraints(graph: CsrGraph, layers: Uint32Array | number[], minLayerDistance?: number | null): SeparationConstraint[];",
+  ],
+  [
+    /export function projectRectangleNoOverlap2d\(layout: Layout2d, half_widths: Float32Array \| number\[\], half_heights: Float32Array \| number\[\]\): void;/,
+    "export function projectRectangleNoOverlap2d(layout: Layout2d, halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): void;",
+  ],
+  [
+    /export function projectClusteredRectangleNoOverlap2d\(layout: Layout2d, cluster_ids: Uint32Array \| number\[\], half_widths: Float32Array \| number\[\], half_heights: Float32Array \| number\[\]\): void;/,
+    "export function projectClusteredRectangleNoOverlap2d(layout: Layout2d, clusterIds: Uint32Array | number[], halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): void;",
+  ],
+  [
+    /export function assignLayers\(graph: CsrGraph, method\?: string \| null\): Uint32Array;/,
+    "export function assignLayers(graph: CsrGraph, method?: LayeringMethod | string | null): Uint32Array;",
+  ],
+  [
+    /(export class FdebSolver \{[\s\S]*?)constructor\(graph: CsrGraph, layout: Layout2d, options: any\);/,
+    "$1constructor(graph: CsrGraph, layout: Layout2d, options?: FdebOptions | null);",
+  ],
+];
+
+for (const [pattern, replacement] of m4DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine M4 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
   }
   indexDts = updated;
 }
