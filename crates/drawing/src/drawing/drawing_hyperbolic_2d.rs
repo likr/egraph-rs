@@ -120,11 +120,9 @@ where
         let mut drawing = Self::new(graph);
         let n = drawing.len();
         let d = S::PI() * S::from_usize(2).unwrap() / S::from_usize(n).unwrap();
-        for i in 0..n {
-            drawing.coordinates[i].0 =
-                S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).cos();
-            drawing.coordinates[i].1 =
-                S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).sin();
+        for (i, coord) in drawing.coordinates.iter_mut().enumerate() {
+            coord.0 = S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).cos();
+            coord.1 = S::from_f32(0.5).unwrap() * (S::from_usize(i).unwrap() * d).sin();
         }
         drawing
     }

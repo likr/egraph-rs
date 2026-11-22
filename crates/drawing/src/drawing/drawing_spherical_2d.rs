@@ -121,9 +121,9 @@ where
         let mut drawing = Self::new(graph);
         let n = drawing.len();
         let d = S::PI() * S::from_usize(2).unwrap() / S::from_usize(n).unwrap();
-        for i in 0..n {
-            drawing.coordinates[i].0 = d * S::from_usize(i).unwrap();
-            drawing.coordinates[i].1 = S::PI() / S::from_usize(4).unwrap();
+        for (i, coord) in drawing.coordinates.iter_mut().enumerate() {
+            coord.0 = d * S::from_usize(i).unwrap();
+            coord.1 = S::PI() / S::from_usize(4).unwrap();
         }
         drawing
     }

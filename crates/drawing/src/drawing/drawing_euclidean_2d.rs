@@ -82,17 +82,17 @@ where
         let mut r = S::neg_infinity();
         let mut t = S::infinity();
         let mut b = S::neg_infinity();
-        for i in 0..self.len() {
-            l = l.min(self.coordinates[i].0);
-            r = r.max(self.coordinates[i].0);
-            t = t.min(self.coordinates[i].1);
-            b = b.max(self.coordinates[i].1);
+        for coord in &self.coordinates {
+            l = l.min(coord.0);
+            r = r.max(coord.0);
+            t = t.min(coord.1);
+            b = b.max(coord.1);
         }
         let w = r - l;
         let h = b - t;
-        for i in 0..self.len() {
-            self.coordinates[i].0 -= l + w / S::from_f32(2.).unwrap();
-            self.coordinates[i].1 -= t + h / S::from_f32(2.).unwrap();
+        for coord in &mut self.coordinates {
+            coord.0 -= l + w / S::from_f32(2.).unwrap();
+            coord.1 -= t + h / S::from_f32(2.).unwrap();
         }
     }
 
@@ -100,9 +100,9 @@ where
     where
         S: Default,
     {
-        for i in 0..self.len() {
-            self.coordinates[i].0 = clamp(self.coordinates[i].0, x0, x1);
-            self.coordinates[i].1 = clamp(self.coordinates[i].1, y0, y1);
+        for coord in &mut self.coordinates {
+            coord.0 = clamp(coord.0, x0, x1);
+            coord.1 = clamp(coord.1, y0, y1);
         }
     }
 
