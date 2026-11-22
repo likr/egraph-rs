@@ -122,10 +122,7 @@ fn same_sign_nonzero(a: f64, b: f64) -> bool {
 }
 
 #[inline]
-fn segments_cross(a: &Seg, b: &Seg) -> bool {
-    if a.shares_endpoint(b) {
-        return false;
-    }
+fn segments_geometrically_intersect(a: &Seg, b: &Seg) -> bool {
     if a.x_max < b.x_min || b.x_max < a.x_min || a.y_max < b.y_min || b.y_max < a.y_min {
         return false;
     }
@@ -143,6 +140,27 @@ fn segments_cross(a: &Seg, b: &Seg) -> bool {
     let s2 = dx2 * (a.y1 - b.y1) - dy2 * (a.x1 - b.x1);
     let t2 = dx2 * (a.y2 - b.y1) - dy2 * (a.x2 - b.x1);
     !same_sign_nonzero(s2, t2)
+}
+
+#[inline]
+fn segments_cross(a: &Seg, b: &Seg) -> bool {
+    if a.shares_endpoint(b) {
+        return false;
+    }
+    segments_geometrically_intersect(a, b)
+}
+
+#[inline]
+fn seg_y_err(s: &Seg, x: f64) -> f64 {
+    let x_scale = x.abs().max(s.x1.abs()).max(s.x2.abs());
+    let y_scale = s.y1.abs().max(s.y2.abs());
+    32.0 * f64::EPSILON * (s.slope.abs() * x_scale + y_scale + 1.0)
+}
+
+#[inline]
+fn within_band(seed: &Seg, other: &Seg, x_evt: f64, eps_y: f64) -> bool {
+    let tol = 2.0 * eps_y + seg_y_err(seed, x_evt) + seg_y_err(other, x_evt);
+    (other.y_at(x_evt) - seed.y_at(x_evt)).abs() <= tol
 }
 
 #[inline]
@@ -755,7 +773,14 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
         }
     }
 
+    let mut max_seg_y_err = 0.0_f64;
     let eps_y = 1e-10 * max_coord + 1e-12;
+    for s in segs {
+        if s.u != s.v && !s.is_vertical {
+            max_seg_y_err =
+                max_seg_y_err.max(seg_y_err(s, s.x_max).min((s.y_max - s.y_min) + eps_y));
+        }
+    }
     let mut reported: HashSet<(usize, usize)> = HashSet::new();
 
     // 1. Check vertical-vs-vertical crossings via 1D sweep grouped by exact x coordinate.
@@ -827,7 +852,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
     let mut end_batch: Vec<usize> = Vec::new();
     let mut vert_batch: Vec<usize> = Vec::new();
     let mut touched_edges: Vec<usize> = Vec::new();
-    let mut scratch = BandScratch::default();
+    let mut scratch = BandScratch::new(segs.len(), (max_coord * 1e-11).max(1e-12));
 
     while let Some(Reverse(first)) = events.peek().copied() {
         let x_evt = first.x;
@@ -853,7 +878,6 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
                         e1,
                         e2,
                         x_evt,
-                        eps_y,
                         segs,
                         &mut tree,
                         &mut events,
@@ -889,12 +913,19 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
             );
         }
 
-        // Check vertical segments against active non-vertical segments in [y_min - eps_y, y_max + eps_y].
+        // Check vertical segments against active non-vertical segments, accounting for slope ULP drift.
+        let vert_margin = eps_y + max_seg_y_err;
         for &v_idx in &vert_batch {
             let v_seg = &segs[v_idx];
-            let lo = v_seg.y_min - eps_y;
-            let hi = v_seg.y_max + eps_y;
+            let lo = v_seg.y_min - vert_margin;
+            let hi = v_seg.y_max + vert_margin;
             if let Some(mut cur_edge) = tree.lower_bound_y(lo, x_evt, segs) {
+                while let Some(prev) = tree.prev_edge(cur_edge) {
+                    if segs[prev].y_at(x_evt) < lo {
+                        break;
+                    }
+                    cur_edge = prev;
+                }
                 loop {
                     let s_cur = &segs[cur_edge];
                     if s_cur.y_at(x_evt) > hi {
@@ -911,7 +942,14 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
             }
         }
 
-        // Remove all segments ending at x_evt and check newly adjacent (prev, next) pairs.
+        // Remove ending segments, collect surviving touched peers, and enforce post-x_evt
+        // slope order across each local cluster so shared-coord ties never block future pairs.
+        scratch.surviving_touched.clear();
+        for &e in &touched_edges {
+            if tree.is_active(e) {
+                scratch.surviving_touched.push(e);
+            }
+        }
         for &edge in &end_batch {
             let (prev, next) = tree.remove_by_edge(edge);
             if let (Some(p), Some(n)) = (prev, next) {
@@ -924,25 +962,60 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
                     &mut reported,
                     &scratch.processed_int_at_x,
                 );
+                scratch.surviving_touched.push(p);
+                scratch.surviving_touched.push(n);
             }
+        }
+        if !scratch.surviving_touched.is_empty() {
+            reorder_surviving_bands_at_x(
+                x_evt,
+                eps_y,
+                segs,
+                &mut tree,
+                &mut events,
+                &mut reported,
+                &mut scratch,
+            );
         }
     }
 
     finalize_pairs(&reported, segs)
 }
 
-#[derive(Default)]
 struct BandScratch {
-    touched_ys: Vec<f64>,
-    bands: Vec<(f64, f64)>,
+    dt_probe: f64,
     cluster: Vec<(usize, usize)>,
     hub_buf: Vec<(usize, usize)>,
     rest_buf: Vec<(usize, usize)>,
     cur_buf: Vec<(usize, usize)>,
     band_edges: Vec<usize>,
     band_nodes: Vec<u32>,
+    surviving_touched: Vec<usize>,
+    visited_stamp: Vec<u64>,
+    visited_err: Vec<f64>,
+    stamp: u64,
     processed_int_at_x: HashSet<(usize, usize)>,
     last_int_x: f64,
+}
+
+impl BandScratch {
+    fn new(num_edges: usize, dt_probe: f64) -> Self {
+        Self {
+            dt_probe,
+            cluster: Vec::new(),
+            hub_buf: Vec::new(),
+            rest_buf: Vec::new(),
+            cur_buf: Vec::new(),
+            band_edges: Vec::new(),
+            band_nodes: Vec::new(),
+            surviving_touched: Vec::new(),
+            visited_stamp: vec![0; num_edges],
+            visited_err: vec![0.0; num_edges],
+            stamp: 0,
+            processed_int_at_x: HashSet::new(),
+            last_int_x: f64::NAN,
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -950,7 +1023,6 @@ fn handle_intersection(
     e1: usize,
     e2: usize,
     x_evt: f64,
-    eps_y: f64,
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
@@ -1002,18 +1074,12 @@ fn handle_intersection(
         return;
     }
 
-    // Multi-way intersection or 1-ULP tie: sort the local band [e1..=e2] by post-crossing slope.
-    let y_mid = segs[e1].y_at(x_evt);
+    // Multi-way intersection or 1-ULP tie: sort [e1..=e2] by scale-safe linearized post-x_evt order.
     scratch.band_nodes.clear();
     scratch.band_edges.clear();
     let mut cur_edge = e1;
-    let mut steps = 0usize;
     let span = r2 - r1;
-    while steps <= span {
-        let s_cur = &segs[cur_edge];
-        if (s_cur.y_at(x_evt) - y_mid).abs() > eps_y * 100.0 && cur_edge != e2 {
-            break;
-        }
+    for _ in 0..=span {
         scratch.band_nodes.push(tree.node_of_edge[cur_edge]);
         scratch.band_edges.push(cur_edge);
         if cur_edge == e2 {
@@ -1023,7 +1089,6 @@ fn handle_intersection(
             break;
         };
         cur_edge = nx;
-        steps += 1;
     }
 
     if scratch.band_edges.last() != Some(&e2) {
@@ -1041,11 +1106,11 @@ fn handle_intersection(
     }
     check_band_pairs(x_evt, segs, events, reported, scratch);
 
-    let x_probe = x_evt + eps_y.min(1e-9);
+    let dt = scratch.dt_probe;
     scratch.band_edges.sort_unstable_by(|&a, &b| {
-        segs[a]
-            .y_at(x_probe)
-            .total_cmp(&segs[b].y_at(x_probe))
+        let ya = segs[a].y_at(x_evt) + segs[a].slope * dt;
+        let yb = segs[b].y_at(x_evt) + segs[b].slope * dt;
+        ya.total_cmp(&yb)
             .then_with(|| segs[a].slope.total_cmp(&segs[b].slope))
             .then_with(|| a.cmp(&b))
     });
@@ -1096,6 +1161,37 @@ fn handle_intersection(
     }
 }
 
+fn collect_band_around_seed(
+    seed: usize,
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    tree: &ActiveSegmentTree,
+    out_edges: &mut Vec<usize>,
+) {
+    out_edges.clear();
+    let s_seed = &segs[seed];
+    let mut left_most = seed;
+    let mut cur = seed;
+    while let Some(prev) = tree.prev_edge(cur) {
+        if !within_band(s_seed, &segs[prev], x_evt, eps_y) {
+            break;
+        }
+        left_most = prev;
+        cur = prev;
+    }
+
+    out_edges.push(left_most);
+    let mut cur_r = left_most;
+    while let Some(nx) = tree.next_edge(cur_r) {
+        if !within_band(s_seed, &segs[nx], x_evt, eps_y) {
+            break;
+        }
+        out_edges.push(nx);
+        cur_r = nx;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn check_eps_bands_at_x(
     touched_edges: &[usize],
@@ -1107,64 +1203,29 @@ fn check_eps_bands_at_x(
     reported: &mut HashSet<(usize, usize)>,
     scratch: &mut BandScratch,
 ) {
-    scratch.touched_ys.clear();
-    for &edge in touched_edges {
-        if tree.is_active(edge) {
-            scratch.touched_ys.push(segs[edge].y_at(x_evt));
-        }
-    }
-    if scratch.touched_ys.is_empty() {
-        return;
-    }
-    scratch.touched_ys.sort_unstable_by(f64::total_cmp);
+    scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
+    let cur_stamp = scratch.stamp;
 
-    // Merge overlapping [y - 2*eps_y, y + 2*eps_y] intervals so each degenerate cluster
-    // at `x_evt` is collected and scanned once even with bridged hubs or co-located stars.
-    let margin = 2.0 * eps_y;
-    scratch.bands.clear();
-    for &y in &scratch.touched_ys {
-        let lo = y - margin;
-        let hi = y + margin;
-        if let Some(last) = scratch.bands.last_mut()
-            && lo <= last.1
+    for &seed in touched_edges {
+        if !tree.is_active(seed) {
+            continue;
+        }
+        let seed_err = seg_y_err(&segs[seed], x_evt);
+        if scratch.visited_stamp[seed] == cur_stamp && seed_err <= scratch.visited_err[seed] + eps_y
         {
-            last.1 = last.1.max(hi);
-        } else {
-            scratch.bands.push((lo, hi));
-        }
-    }
-
-    for band_idx in 0..scratch.bands.len() {
-        let (band_lo, band_hi) = scratch.bands[band_idx];
-        let Some(mut cur_edge) = tree.lower_bound_y(band_lo, x_evt, segs) else {
-            continue;
-        };
-        while let Some(prev) = tree.prev_edge(cur_edge) {
-            if segs[prev].y_at(x_evt) < band_lo {
-                break;
-            }
-            cur_edge = prev;
-        }
-
-        scratch.cluster.clear();
-        let mut pos = 0usize;
-        loop {
-            if segs[cur_edge].y_at(x_evt) > band_hi {
-                break;
-            }
-            scratch.cluster.push((pos, cur_edge));
-            pos += 1;
-            let Some(nx) = tree.next_edge(cur_edge) else {
-                break;
-            };
-            cur_edge = nx;
-        }
-        if scratch.cluster.is_empty() {
             continue;
         }
 
-        let first_edge = scratch.cluster[0].1;
-        let last_edge = scratch.cluster[scratch.cluster.len() - 1].1;
+        collect_band_around_seed(seed, x_evt, eps_y, segs, tree, &mut scratch.band_edges);
+        for &e in &scratch.band_edges {
+            if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
+                scratch.visited_stamp[e] = cur_stamp;
+                scratch.visited_err[e] = seed_err;
+            }
+        }
+
+        let first_edge = scratch.band_edges[0];
+        let last_edge = scratch.band_edges[scratch.band_edges.len() - 1];
         if let Some(left) = tree.prev_edge(first_edge) {
             check_adjacent_and_schedule(
                 left,
@@ -1188,8 +1249,125 @@ fn check_eps_bands_at_x(
             );
         }
 
-        if scratch.cluster.len() >= 2 {
+        if scratch.band_edges.len() >= 2 {
+            scratch.cluster.clear();
+            for (pos, &e) in scratch.band_edges.iter().enumerate() {
+                scratch.cluster.push((pos, e));
+            }
             check_band_pairs(x_evt, segs, events, reported, scratch);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reorder_surviving_bands_at_x(
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    tree: &mut ActiveSegmentTree,
+    events: &mut BinaryHeap<Reverse<SweepEvent>>,
+    reported: &mut HashSet<(usize, usize)>,
+    scratch: &mut BandScratch,
+) {
+    scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
+    let cur_stamp = scratch.stamp;
+    let dt = scratch.dt_probe;
+
+    for idx in 0..scratch.surviving_touched.len() {
+        let seed = scratch.surviving_touched[idx];
+        if !tree.is_active(seed) {
+            continue;
+        }
+        let seed_err = seg_y_err(&segs[seed], x_evt);
+        if scratch.visited_stamp[seed] == cur_stamp && seed_err <= scratch.visited_err[seed] + eps_y
+        {
+            continue;
+        }
+
+        collect_band_around_seed(seed, x_evt, eps_y, segs, tree, &mut scratch.band_edges);
+        for &e in &scratch.band_edges {
+            if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
+                scratch.visited_stamp[e] = cur_stamp;
+                scratch.visited_err[e] = seed_err;
+            }
+        }
+        if scratch.band_edges.len() < 2 {
+            continue;
+        }
+
+        let is_sorted = scratch.band_edges.windows(2).all(|w| {
+            let ya = segs[w[0]].y_at(x_evt) + segs[w[0]].slope * dt;
+            let yb = segs[w[1]].y_at(x_evt) + segs[w[1]].slope * dt;
+            ya.total_cmp(&yb)
+                .then_with(|| segs[w[0]].slope.total_cmp(&segs[w[1]].slope))
+                .then_with(|| w[0].cmp(&w[1]))
+                != Ordering::Greater
+        });
+        if is_sorted {
+            continue;
+        }
+
+        // Check all band pairs before permuting so near-coincident crossings are never lost.
+        scratch.cluster.clear();
+        scratch.band_nodes.clear();
+        for (pos, &e) in scratch.band_edges.iter().enumerate() {
+            scratch.cluster.push((pos, e));
+            scratch.band_nodes.push(tree.node_of_edge[e]);
+        }
+        check_band_pairs(x_evt, segs, events, reported, scratch);
+
+        scratch.band_edges.sort_unstable_by(|&a, &b| {
+            let ya = segs[a].y_at(x_evt) + segs[a].slope * dt;
+            let yb = segs[b].y_at(x_evt) + segs[b].slope * dt;
+            ya.total_cmp(&yb)
+                .then_with(|| segs[a].slope.total_cmp(&segs[b].slope))
+                .then_with(|| a.cmp(&b))
+        });
+
+        for (&node_id, &edge_id) in scratch.band_nodes.iter().zip(scratch.band_edges.iter()) {
+            tree.nodes[node_id as usize].edge_idx = edge_id;
+            tree.node_of_edge[edge_id] = node_id;
+        }
+
+        if let (Some(&first_e), Some(&last_e)) =
+            (scratch.band_edges.first(), scratch.band_edges.last())
+        {
+            if let Some(left) = tree.prev_edge(first_e) {
+                check_adjacent_and_schedule(
+                    left,
+                    first_e,
+                    x_evt,
+                    segs,
+                    events,
+                    reported,
+                    &scratch.processed_int_at_x,
+                );
+            }
+            if let Some(right) = tree.next_edge(last_e) {
+                check_adjacent_and_schedule(
+                    last_e,
+                    right,
+                    x_evt,
+                    segs,
+                    events,
+                    reported,
+                    &scratch.processed_int_at_x,
+                );
+            }
+        }
+        for win in scratch.band_edges.windows(2) {
+            scratch
+                .processed_int_at_x
+                .insert(ordered_pair(win[0], win[1]));
+            check_adjacent_and_schedule(
+                win[0],
+                win[1],
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
         }
     }
 }
@@ -1221,7 +1399,7 @@ fn check_band_pairs(
                     scratch.rest_buf.push((pos, e));
                 }
             }
-            // Segments in `hub_buf` share `hub_v`, so internal pairs cannot cross.
+            // Segments in `hub_buf` share `hub_v` at the cluster point and cannot report crossings.
             for &(pos_h, edge_h) in &scratch.hub_buf {
                 for &(pos_r, edge_r) in &scratch.rest_buf {
                     let (lo, hi) = if pos_h < pos_r {
@@ -1317,24 +1495,30 @@ fn check_adjacent_and_schedule(
 ) {
     let s_lo = &segs[lower];
     let s_hi = &segs[upper];
-    if segments_cross(s_lo, s_hi) {
-        let pair = ordered_pair(lower, upper);
+    if !segments_geometrically_intersect(s_lo, s_hi) {
+        return;
+    }
+    let pair = ordered_pair(lower, upper);
+    if !s_lo.shares_endpoint(s_hi) {
         reported.insert(pair);
-        if s_lo.x2 > sweep_x
-            && s_hi.x2 > sweep_x
-            && s_lo.slope > s_hi.slope
-            && let Some(x_int) = intersection_x(s_lo, s_hi)
-        {
-            let x_push = x_int.max(sweep_x);
-            if x_push > sweep_x || !processed_int_at_x.contains(&pair) {
-                events.push(Reverse(SweepEvent {
-                    x: x_push,
-                    kind: EventKind::Intersection {
-                        e1: lower,
-                        e2: upper,
-                    },
-                }));
-            }
+    }
+    // Schedule interior swaps even when segments share graph vertex IDs (e.g. wrapped torus pieces)
+    // so sweep order stays valid past interior crossings, while skipping shared right tips.
+    if s_lo.x2 > sweep_x
+        && s_hi.x2 > sweep_x
+        && s_lo.slope > s_hi.slope
+        && !(s_lo.x2 == s_hi.x2 && s_lo.y2 == s_hi.y2)
+        && let Some(x_int) = intersection_x(s_lo, s_hi)
+    {
+        let x_push = x_int.max(sweep_x);
+        if x_push > sweep_x || !processed_int_at_x.contains(&pair) {
+            events.push(Reverse(SweepEvent {
+                x: x_push,
+                kind: EventKind::Intersection {
+                    e1: lower,
+                    e2: upper,
+                },
+            }));
         }
     }
 }
@@ -1413,10 +1597,8 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
         } else {
             (y0 * x1_w - y1_w * x0 + x0) / denom
         };
-        return Ok(vec![
-            [x0, y0, x2_cross, 0.0],
-            [x2_cross, torus_max, x1_w, y1_w],
-        ]);
+        let xw = wrap_torus_coord(x2_cross);
+        return Ok(vec![[x0, y0, xw, 0.0], [xw, torus_max, x1_w, y1_w]]);
     }
 
     if best_dy == 0 {
@@ -1431,10 +1613,8 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
         } else {
             (x0 * y1_w - x1_w * y0 + y0) / denom
         };
-        return Ok(vec![
-            [x0, y0, 0.0, y2_cross],
-            [torus_max, y2_cross, x1_w, y1_w],
-        ]);
+        let yw = wrap_torus_coord(y2_cross);
+        return Ok(vec![[x0, y0, 0.0, yw], [torus_max, yw, x1_w, y1_w]]);
     }
 
     let (x0, y0, x1_w, y1_w) = if px < qx {
@@ -1458,29 +1638,37 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
 
     if opp {
         if x2_cross < 0.0 {
+            let yw = wrap_torus_coord(y2_cross);
+            let xw = wrap_torus_coord(x2_cross + 1.0);
             Ok(vec![
-                [x0, y0, 0.0, y2_cross],
-                [torus_max, y2_cross, x2_cross + 1.0, torus_max],
-                [x2_cross + 1.0, 0.0, x1_w, y1_w],
+                [x0, y0, 0.0, yw],
+                [torus_max, yw, xw, torus_max],
+                [xw, 0.0, x1_w, y1_w],
             ])
         } else {
+            let xw = wrap_torus_coord(x2_cross);
+            let yw = wrap_torus_coord(y2_cross + 1.0);
             Ok(vec![
-                [x0, y0, x2_cross, torus_max],
-                [x2_cross, 0.0, 0.0, y2_cross + 1.0],
-                [torus_max, y2_cross + 1.0, x1_w, y1_w],
+                [x0, y0, xw, torus_max],
+                [xw, 0.0, 0.0, yw],
+                [torus_max, yw, x1_w, y1_w],
             ])
         }
     } else if y2_cross < 0.0 {
+        let xw = wrap_torus_coord(x2_cross);
+        let yw = wrap_torus_coord(y2_cross + 1.0);
         Ok(vec![
-            [x0, y0, x2_cross, 0.0],
-            [x2_cross, torus_max, 0.0, y2_cross + 1.0],
-            [torus_max, y2_cross + 1.0, x1_w, y1_w],
+            [x0, y0, xw, 0.0],
+            [xw, torus_max, 0.0, yw],
+            [torus_max, yw, x1_w, y1_w],
         ])
     } else {
+        let yw = wrap_torus_coord(y2_cross);
+        let xw = wrap_torus_coord(x2_cross + 1.0);
         Ok(vec![
-            [x0, y0, 0.0, y2_cross],
-            [torus_max, y2_cross, x2_cross + 1.0, 0.0],
-            [x2_cross + 1.0, torus_max, x1_w, y1_w],
+            [x0, y0, 0.0, yw],
+            [torus_max, yw, xw, 0.0],
+            [xw, torus_max, x1_w, y1_w],
         ])
     }
 }
@@ -1557,7 +1745,15 @@ pub fn torus_crossing_edges_from_edges<S: Scalar>(
             });
         }
     }
-    out.sort_unstable_by_key(|c| (c.edge_a, c.edge_b));
+    out.sort_unstable_by(|a, b| {
+        a.edge_a
+            .cmp(&b.edge_a)
+            .then_with(|| a.edge_b.cmp(&b.edge_b))
+            .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
+            .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+            .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
+            .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+    });
     Ok(out)
 }
 
@@ -1892,5 +2088,306 @@ mod tests {
             sampled_crossing_number_edges(&[(0, 1)], &layout, 0, &mut r1),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_sweep_line_large_tiny_steep_scales_and_repros() {
+        // 1. Large 1e8 scale: multi-way x_probe must not underflow to x_evt.
+        let large_layout = Layout2d::from_xy(
+            vec![
+                1e8 + 1.0,
+                1e8 + 5.0,
+                1e8,
+                1e8 + 5.0,
+                1e8 + 3.0,
+                1e8 + 4.0,
+                1e8 + 5.0,
+                1e8 + 4.0,
+            ],
+            vec![
+                1e8 + 3.0,
+                1e8 + 5.0,
+                1e8,
+                1e8 + 6.0,
+                1e8 + 6.0,
+                1e8 + 3.0,
+                1e8 + 2.0,
+                1e8 + 3.0,
+            ],
+        )
+        .unwrap();
+        let large_edges = vec![(0, 1), (2, 3), (4, 5), (6, 7)];
+        assert_matches_brute_force("large_1e8_repro", &large_edges, &large_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&large_edges, &large_layout).unwrap(),
+            4
+        );
+
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(1000 + seed);
+            let n = 25usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| 1e8 + rng.gen_range_usize(11) as f64)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| 1e8 + rng.gen_range_usize(11) as f64)
+                .collect();
+            let l = Layout2d::from_xy(xs, ys).unwrap();
+            let mut es = Vec::new();
+            for _ in 0..45 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                es.push((u, v));
+            }
+            assert_matches_brute_force(&format!("large_1e8_seed_{seed}"), &es, &l);
+        }
+
+        // 2. Tiny 1e-8 scale: co-located Start/End ULP tie and post-end_batch slope ordering.
+        let mut tx = vec![0.0; 29];
+        let mut ty = vec![0.0; 29];
+        let coords = [
+            (10usize, (2e-8, 6e-8)),
+            (14, (5e-8, 0.0)),
+            (3, (0.0, 3e-8)),
+            (24, (3e-8, 4e-8)),
+            (25, (2e-8, 2e-8)),
+            (6, (4e-8, 5e-8)),
+            (13, (6e-8, 3e-8)),
+            (28, (3e-8, 4e-8)),
+            (2, (5e-8, 2e-8)),
+            (9, (1e-8, 3e-8)),
+            (1, (4e-8, 6e-8)),
+            (11, (1e-8, 3e-8)),
+        ];
+        for (idx, (x, y)) in coords {
+            tx[idx] = x;
+            ty[idx] = y;
+        }
+        let tiny_layout = Layout2d::from_xy(tx, ty).unwrap();
+        let tiny_edges = vec![
+            (10, 14),
+            (3, 24),
+            (24, 25),
+            (3, 6),
+            (13, 28),
+            (2, 9),
+            (1, 11),
+        ];
+        assert_matches_brute_force("tiny_1e-8_repro", &tiny_edges, &tiny_layout);
+
+        // Also test `(k as f64) * 1e-8` construction (1-ULP difference on 6e-8) matching qa-m1's seed 13.
+        let mut sx = vec![0.0; 29];
+        let mut sy = vec![0.0; 29];
+        let scaled = [
+            (10usize, (2, 6)),
+            (14, (5, 0)),
+            (3, (0, 3)),
+            (24, (3, 4)),
+            (25, (2, 2)),
+            (6, (4, 5)),
+            (13, (6, 3)),
+            (28, (3, 4)),
+            (2, (5, 2)),
+            (9, (1, 3)),
+            (1, (4, 6)),
+            (11, (1, 3)),
+        ];
+        for (idx, (ix, iy)) in scaled {
+            sx[idx] = (ix as f64) * 1e-8;
+            sy[idx] = (iy as f64) * 1e-8;
+        }
+        let tiny_scaled_layout = Layout2d::from_xy(sx, sy).unwrap();
+        assert_matches_brute_force("tiny_1e-8_scaled_repro", &tiny_edges, &tiny_scaled_layout);
+
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(2000 + seed);
+            let n = 30usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 1e-8)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 1e-8)
+                .collect();
+            let l = Layout2d::from_xy(xs, ys).unwrap();
+            let mut es = Vec::new();
+            for _ in 0..50 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                es.push((u, v));
+            }
+            assert_matches_brute_force(&format!("tiny_1e-8_seed_{seed}"), &es, &l);
+        }
+
+        // 3. Steep-slope x=100, dx=1e-8 ULP drift repro + stress seeds.
+        let steep_layout = Layout2d::from_xy(
+            vec![
+                100.0 + 2e-8,
+                100.0 + 3e-8,
+                100.0,
+                100.0 + 2e-8,
+                100.0 + 1e-8,
+                100.0 + 3e-8,
+            ],
+            vec![3.5, 9.0, 6.0, 3.5, 1.5, 5.5],
+        )
+        .unwrap();
+        let steep_edges = vec![(0, 1), (2, 3), (4, 5), (5, 4)];
+        assert_matches_brute_force("steep_slope_repro", &steep_edges, &steep_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&steep_edges, &steep_layout).unwrap(),
+            5
+        );
+
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(3000 + seed);
+            let n = 20usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| 100.0 + (rng.gen_range_usize(7) as f64) * 1e-8)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(20) as f64) * 0.5)
+                .collect();
+            let l = Layout2d::from_xy(xs, ys).unwrap();
+            let mut es = Vec::new();
+            for _ in 0..40 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                es.push((u, v));
+            }
+            assert_matches_brute_force(&format!("steep_slope_seed_{seed}"), &es, &l);
+        }
+    }
+
+    #[test]
+    fn test_torus_edge_segments_bounds_and_crossing_parity() {
+        // Explicit check that shared-vertex wrapped pieces swap inside (0, 1)^2 and never distort
+        // subsequent crossings with unrelated edges, and all split coordinates stay in [0, 1)^2.
+        let adj_wrap_layout = Layout2d::from_xy(
+            vec![0.1, 0.9, 0.95, 0.92, 0.92],
+            vec![0.2, 0.85, 0.15, 0.4, 0.89],
+        )
+        .unwrap();
+        let adj_wrap_edges = vec![(0, 1), (0, 2), (3, 4)];
+        for extreme in [
+            (0.48_f64, 0.95, 0.99, 0.01),
+            (0.02, 0.98, 0.99, 0.48),
+            (0.45, 0.05, 0.96, 0.98),
+        ] {
+            for p in torus_edge_segments(extreme.0, extreme.1, extreme.2, extreme.3).unwrap() {
+                for coord in p {
+                    assert!(
+                        coord.is_finite() && (0.0..1.0).contains(&coord),
+                        "extreme torus segment coord out of [0, 1): {p:?}"
+                    );
+                }
+            }
+        }
+        for &(u, v) in &adj_wrap_edges {
+            let pieces = torus_edge_segments(
+                adj_wrap_layout.x()[u as usize],
+                adj_wrap_layout.y()[u as usize],
+                adj_wrap_layout.x()[v as usize],
+                adj_wrap_layout.y()[v as usize],
+            )
+            .unwrap();
+            for p in pieces {
+                for coord in p {
+                    assert!(
+                        coord.is_finite() && (0.0..1.0).contains(&coord),
+                        "torus segment coord out of [0, 1): {p:?}"
+                    );
+                }
+            }
+        }
+        let got_adj = torus_crossing_edges_from_edges(&adj_wrap_edges, &adj_wrap_layout).unwrap();
+        assert!(!got_adj.is_empty());
+
+        // Compare torus_crossing_edges_from_edges against O(|S|^2) brute force across 30 random seeds.
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(4000 + seed);
+            let n = 18usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(33) as f64) / 33.0)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(33) as f64) / 33.0)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..32 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v {
+                    edges.push((u, v));
+                }
+            }
+
+            let mut sub_segs = Vec::new();
+            let mut orig_edge = Vec::new();
+            for (eid, &(u, v)) in edges.iter().enumerate() {
+                let pieces = torus_edge_segments(
+                    layout.x()[u as usize],
+                    layout.y()[u as usize],
+                    layout.x()[v as usize],
+                    layout.y()[v as usize],
+                )
+                .unwrap();
+                for p in pieces {
+                    for coord in p {
+                        assert!(
+                            coord.is_finite() && (0.0..1.0).contains(&coord),
+                            "seed {seed}: torus segment coord out of [0, 1): {p:?}"
+                        );
+                    }
+                    let id = sub_segs.len();
+                    sub_segs.push(Seg::from_endpoints(id, u, v, p[0], p[1], p[2], p[3]));
+                    orig_edge.push(eid);
+                }
+            }
+
+            let mut expected = Vec::new();
+            for i in 0..sub_segs.len() {
+                for j in (i + 1)..sub_segs.len() {
+                    if segments_cross(&sub_segs[i], &sub_segs[j]) {
+                        let ea = orig_edge[i];
+                        let eb = orig_edge[j];
+                        let sa = &sub_segs[i];
+                        let sb = &sub_segs[j];
+                        if ea <= eb {
+                            expected.push(TorusCrossing {
+                                edge_a: ea,
+                                edge_b: eb,
+                                seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
+                                seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
+                            });
+                        } else {
+                            expected.push(TorusCrossing {
+                                edge_a: eb,
+                                edge_b: ea,
+                                seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
+                                seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
+                            });
+                        }
+                    }
+                }
+            }
+            expected.sort_unstable_by(|a, b| {
+                a.edge_a
+                    .cmp(&b.edge_a)
+                    .then_with(|| a.edge_b.cmp(&b.edge_b))
+                    .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
+                    .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+                    .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
+                    .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+            });
+
+            let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
+            assert_eq!(
+                got.len(),
+                expected.len(),
+                "torus seed {seed}: count mismatch"
+            );
+            assert_eq!(got, expected, "torus seed {seed}: pair mismatch");
+        }
     }
 }

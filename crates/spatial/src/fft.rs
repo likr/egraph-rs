@@ -209,8 +209,7 @@ impl Fft2dWorkspace {
         }
 
         self.fft_2d_calls += 1;
-        let row_slot = self.ensure_plan(width);
-        let col_slot = self.ensure_plan(height);
+        let (row_slot, col_slot) = self.ensure_plan_pair(width, height);
 
         // Transform rows using cached row twiddles.
         if width > 1 {
@@ -265,6 +264,41 @@ impl Fft2dWorkspace {
             *s *= k;
         }
         self.fft_2d(signal, width, height, true)
+    }
+
+    fn ensure_plan_pair(&mut self, width: usize, height: usize) -> (usize, usize) {
+        if width == height {
+            let slot = self.ensure_plan(width);
+            return (slot, slot);
+        }
+        if self.plans[0].len == width {
+            if self.plans[1].len != height {
+                self.plans[1].configure(height);
+            }
+            self.next_plan_slot = 0;
+            return (0, 1);
+        }
+        if self.plans[1].len == width {
+            if self.plans[0].len != height {
+                self.plans[0].configure(height);
+            }
+            self.next_plan_slot = 1;
+            return (1, 0);
+        }
+        if self.plans[0].len == height {
+            self.plans[1].configure(width);
+            self.next_plan_slot = 0;
+            return (1, 0);
+        }
+        if self.plans[1].len == height {
+            self.plans[0].configure(width);
+            self.next_plan_slot = 1;
+            return (0, 1);
+        }
+        self.plans[0].configure(width);
+        self.plans[1].configure(height);
+        self.next_plan_slot = 0;
+        (0, 1)
     }
 
     fn ensure_plan(&mut self, len: usize) -> usize {
@@ -451,5 +485,54 @@ mod tests {
             ws.fft_2d(&mut [Complex64::ZERO; 8], 4, 4, false),
             Err(CoreError::DimensionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn test_fft_2d_plan_slot_shrink_and_growth_roundtrip() {
+        let mut ws = Fft2dWorkspace::new();
+
+        let run_roundtrip = |ws: &mut Fft2dWorkspace, w: usize, h: usize| {
+            let n = w * h;
+            let input: Vec<Complex64> = (0..n)
+                .map(|i| {
+                    Complex64::new(
+                        ((i * 13 % 29) as f64 - 14.0) * 0.05,
+                        ((i * 7 % 23) as f64 - 11.0) * 0.03,
+                    )
+                })
+                .collect();
+            let mut buf = input.clone();
+            ws.fft_2d(&mut buf, w, h, false).unwrap();
+            ws.fft_2d(&mut buf, w, h, true).unwrap();
+            for (idx, (a, b)) in buf.iter().zip(input.iter()).enumerate() {
+                assert!(
+                    (a.re - b.re).abs() < 1e-11 && (a.im - b.im).abs() < 1e-11,
+                    "roundtrip mismatch at ({w}x{h}) idx={idx}: got=({}, {}), expected=({}, {})",
+                    a.re,
+                    a.im,
+                    b.re,
+                    b.im
+                );
+            }
+        };
+
+        // Repros for plan-slot eviction when width hits slot 0 and height misses into slot 0.
+        run_roundtrip(&mut ws, 16, 8);
+        run_roundtrip(&mut ws, 16, 4);
+        run_roundtrip(&mut ws, 8, 16);
+        run_roundtrip(&mut ws, 8, 32);
+        run_roundtrip(&mut ws, 32, 64);
+        run_roundtrip(&mut ws, 16, 64);
+
+        // Large FitField2d shrink sequence (512x256 -> 512x128).
+        let mut big = vec![Complex64::new(0.25, -0.5); 512 * 256];
+        ws.fft_2d(&mut big, 512, 256, false).unwrap();
+        let mut small = vec![Complex64::new(0.125, 0.25); 512 * 128];
+        let small_orig = small.clone();
+        ws.fft_2d(&mut small, 512, 128, false).unwrap();
+        ws.fft_2d(&mut small, 512, 128, true).unwrap();
+        for (a, b) in small.iter().zip(small_orig.iter()) {
+            assert!((a.re - b.re).abs() < 1e-10 && (a.im - b.im).abs() < 1e-10);
+        }
     }
 }
