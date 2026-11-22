@@ -2,6 +2,7 @@
 //! `egraph-spatial` bindings.
 
 pub use crate::v6_m2::*;
+pub use crate::v6_m3::*;
 
 use egraph_core::{CoreError, CsrGraph, Layout2d};
 use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};
@@ -24,7 +25,7 @@ const DEFAULT_SEED: u64 = 42;
 // allowing JS callers to pass numeric seeds like `42` without requiring `BigInt`.
 const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
 
-fn ffi_err_to_js(err: FfiError) -> JsError {
+pub(crate) fn ffi_err_to_js(err: FfiError) -> JsError {
     JsError::new(&err.to_string())
 }
 

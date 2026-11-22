@@ -76,7 +76,29 @@ const requiredM2 = [
   "computeRegularizedDogVaradhanLandmarks",
 ];
 
-const missingExports = [...requiredCoreAndM1, ...requiredM2].filter(
+const requiredM3 = [
+  "CoarsenedGraphResult",
+  "GuMapSolver",
+  "KMeansResult",
+  "KamadaKawaiSolver",
+  "LouvainResult",
+  "ManifoldLayout2d",
+  "SgdSolver",
+  "SparseBarrierStats",
+  "SpatialIntruderRefiner",
+  "SpatialRefinerRoundStats",
+  "SpatialRefinerStats",
+  "StressMajorizationSolver",
+  "TsNetSolver",
+  "coarsenGraph",
+  "kmeansPlusPlus",
+  "labelPropagation",
+  "louvainCommunities",
+  "projectClusteredLayout",
+  "spectralClustering",
+];
+
+const missingExports = [...requiredCoreAndM1, ...requiredM2, ...requiredM3].filter(
   (name) => !exportedNames.has(name),
 );
 if (missingExports.length > 0) {
@@ -333,6 +355,270 @@ for (const [pattern, replacement] of m2DtsReplacements) {
   const updated = indexDts.replace(pattern, replacement);
   if (updated === indexDts) {
     throw new Error(`Failed to refine M2 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
+
+const m3TypeDecls = `export type SolverStatus = "initialized" | "running" | "converged" | "completed";
+export type ManifoldKind = "hyperbolic" | "spherical" | "torus";
+export type TsNetBackend = "exact" | "barnes_hut" | "fft" | "linear_fft";
+export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant";
+export type BarrierSymmetry = "sym_max" | "sym_avg";
+
+export interface TsNetOptions {
+  backend?: TsNetBackend | null;
+  iterationsStage1?: number | null;
+  iterationsStage2?: number | null;
+  iterationsStage3?: number | null;
+  learningRate?: number | null;
+  perplexityC?: number | null;
+  minPerplexity?: number | null;
+  maxPerplexity?: number | null;
+  exaggeration?: number | null;
+  lambdaCStage1?: number | null;
+  lambdaCStage2?: number | null;
+  lambdaCStage3?: number | null;
+  lambdaRStage3?: number | null;
+  momentum?: number | null;
+  epsilonR?: number | null;
+  theta?: number | null;
+  power?: number | null;
+  sigmaIters?: number | null;
+  sigmaTolerance?: number | null;
+  rowNormalize?: boolean | null;
+  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  ibfftIntervals?: number | null;
+  ibfftMinGridDim?: number | null;
+  ibfftMaxGridDim?: number | null;
+  seed?: number | null;
+}
+
+export interface SgdScheduleOptions {
+  tMax?: number | null;
+  eps?: number | null;
+  kind?: SgdScheduleKind | null;
+  stepScale?: number | null;
+  seed?: number | null;
+}
+
+export interface RandomPairSgdOptions extends SgdScheduleOptions {
+  pairsPerNode?: number | null;
+}
+
+export interface OmegaSgdOptions extends SgdScheduleOptions {
+  k?: number | null;
+  minDist?: number | null;
+}
+
+export interface StreamingNegativeOptions extends SgdScheduleOptions {
+  negativesPerNode?: number | null;
+  targetDistance?: number | null;
+  weight?: number | null;
+  hingeOnly?: boolean | null;
+}
+
+export interface SparseBarrierOptions extends SgdScheduleOptions {
+  max2hopPerNode?: number | null;
+  hingeRepulsion?: boolean | null;
+  deltaRel?: number | null;
+  barrierSym?: BarrierSymmetry | null;
+  omega1?: number | null;
+  omega2?: number | null;
+  gammaNon2?: number | null;
+  htRepulsion?: boolean | null;
+  minRatio?: number | null;
+  epsDist?: number | null;
+  negPerNode?: number | null;
+  numPivots?: number | null;
+  corePivots?: boolean | null;
+}
+
+export interface SparseBarrierDogOptions extends SparseBarrierOptions {
+  degree?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  jlDim?: number | null;
+  degreeNormalize?: boolean | null;
+  pExp?: number | null;
+  epsPsd?: number | null;
+  tCoarse?: number | null;
+  t1?: number | null;
+  t2?: number | null;
+  alpha?: number | null;
+  betaFloor?: number | null;
+}
+
+export interface GuMapOptions {
+  nEpochs?: number | null;
+  negativeSampleRate?: number | null;
+  learningRate?: number | null;
+  minDist?: number | null;
+  spread?: number | null;
+  a?: number | null;
+  b?: number | null;
+  sigmaIters?: number | null;
+  sigmaTolerance?: number | null;
+  seed?: number | null;
+}
+
+export interface GuMapDogOptions extends GuMapOptions {
+  max2hopPerNode?: number | null;
+  degree?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  jlDim?: number | null;
+  degreeNormalize?: boolean | null;
+  pExp?: number | null;
+  epsPsd?: number | null;
+  tCoarse?: number | null;
+  t1?: number | null;
+  t2?: number | null;
+  alpha?: number | null;
+  betaFloor?: number | null;
+}
+
+export interface SpatialRefinerOptions {
+  rounds?: number | null;
+  kCap?: number | null;
+  marginScale?: number | null;
+  wAnchor?: number | null;
+  wFn?: number | null;
+  wFp?: number | null;
+  fnShrink?: number | null;
+  roundDecay?: number | null;
+  tMax?: number | null;
+  eps?: number | null;
+  hingeFp?: boolean | null;
+  seed?: number | null;
+}
+
+export interface StressMajorizationOptions {
+  epsilon?: number | null;
+  maxIterations?: number | null;
+  pcgTolerance?: number | null;
+  pcgMaxIterations?: number | null;
+  minNorm?: number | null;
+}
+
+export interface KamadaKawaiOptions {
+  eps?: number | null;
+  maxInnerIters?: number | null;
+  maxOuterIters?: number | null;
+}
+
+`;
+
+if (!indexDts.includes("export class CoarsenedGraphResult {")) {
+  throw new Error(`Missing M3 CoarsenedGraphResult declaration in ${wasmDtsPath}`);
+}
+indexDts = indexDts.replace(
+  "export class CoarsenedGraphResult {",
+  `${m3TypeDecls}export class CoarsenedGraphResult {`,
+);
+
+const m3DtsReplacements = [
+  [
+    /static fromFuzzySet\([^;]+\): GuMapSolver;/,
+    "static fromFuzzySet(probs: SparseProbabilities, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null): GuMapSolver;",
+  ],
+  [
+    /static fromGraphDog\([^;]+\): GuMapSolver;/,
+    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, nEpochsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): GuMapSolver;",
+  ],
+  [
+    /static fromKnn\([^;]+\): GuMapSolver;/,
+    "static fromKnn(knn: KnnGraph, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null): GuMapSolver;",
+  ],
+  [
+    /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
+    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxOuterIters?: number | null): KamadaKawaiSolver;",
+  ],
+  [
+    /static fromGraph\(graph: CsrGraph, eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
+    "static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxOuterIters?: number | null): KamadaKawaiSolver;",
+  ],
+  [
+    /static fromPairsWithHinges\([^;]+\): SgdSolver;/,
+    "static fromPairsWithHinges(numNodes: number, springSrc: Uint32Array | number[], springTgt: Uint32Array | number[], springDij: Float32Array | number[], springDji: Float32Array | number[], springWij: Float32Array | number[], springWji: Float32Array | number[], hingeSrc: Uint32Array | number[], hingeTgt: Uint32Array | number[], hingeDij: Float32Array | number[], hingeDji: Float32Array | number[], hingeWij: Float32Array | number[], hingeWji: Float32Array | number[], tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static fromPairs\([^;]+\): SgdSolver;/,
+    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji: Float32Array | number[], wij: Float32Array | number[], wji: Float32Array | number[], tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static full\([^;]+\): SgdSolver;/,
+    "static full(graph: CsrGraph, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static omega\([^;]+\): SgdSolver;/,
+    "static omega(graph: CsrGraph, embedding: Float64Array | number[], dims: number, kOrOptions?: number | OmegaSgdOptions | null, minDist?: number | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static randomPair\([^;]+\): SgdSolver;/,
+    "static randomPair(graph: CsrGraph, pairsPerNodeOrOptions?: number | RandomPairSgdOptions | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static sparseBarrierDog\([^;]+\): SgdSolver;/,
+    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): SgdSolver;",
+  ],
+  [
+    /static sparseBarrierFromLandmarks\([^;]+\): SgdSolver;/,
+    "static sparseBarrierFromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, pivots?: Uint32Array | number[] | null, max2hopOrOptions?: number | SparseBarrierOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /static streamingNegatives\([^;]+\): SgdSolver;/,
+    "static streamingNegatives(graph: CsrGraph, negativesOrOptions?: number | StreamingNegativeOptions | null, targetDistance?: number | null, weight?: number | null, hingeOnly?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /constructor\(graph: CsrGraph, rounds_or_options: any[^;]*\);/,
+    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null);",
+  ],
+  [
+    /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
+    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
+  ],
+  [
+    /static fromGraph\(graph: CsrGraph, epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
+    "static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
+  ],
+  [
+    /static fromKnn\([^;]+\): TsNetSolver;/,
+    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null): TsNetSolver;",
+  ],
+  [
+    /static fromProbabilities\([^;]+\): TsNetSolver;/,
+    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null): TsNetSolver;",
+  ],
+  [
+    /static pure2Hop\([^;]+\): TsNetSolver;/,
+    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null): TsNetSolver;",
+  ],
+  [
+    /export function kmeansPlusPlus\([^;]+\): KMeansResult;/,
+    "export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, k?: number | null, maxIters?: number | null, tol?: number | null, nInit?: number | null, seed?: number | null): KMeansResult;",
+  ],
+  [
+    /export function labelPropagation\([^;]+\): Uint32Array;/,
+    "export function labelPropagation(graph: CsrGraph, maxIters?: number | null, seed?: number | null): Uint32Array;",
+  ],
+  [
+    /export function louvainCommunities\([^;]+\): LouvainResult;/,
+    "export function louvainCommunities(graph: CsrGraph, maxPasses?: number | null, resolution?: number | null, minModularityGain?: number | null, seed?: number | null): LouvainResult;",
+  ],
+  [
+    /export function projectClusteredLayout\([^;]+\): Layout2d;/,
+    "export function projectClusteredLayout(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], spreadRadius?: number | null, seed?: number | null): Layout2d;",
+  ],
+  [
+    /export function spectralClustering\([^;]+\): Uint32Array;/,
+    "export function spectralClustering(graph: CsrGraph, k?: number | null, maxEigenIters?: number | null, eigenTol?: number | null, kmeansMaxIters?: number | null, kmeansTol?: number | null, seed?: number | null): Uint32Array;",
+  ],
+];
+
+for (const [pattern, replacement] of m3DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine M3 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
   }
   indexDts = updated;
 }

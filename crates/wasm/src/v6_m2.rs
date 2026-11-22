@@ -49,14 +49,21 @@ const DEFAULT_VARADHAN_LANDMARKS: usize = 64;
 const DEFAULT_P_EXP: f64 = 0.5;
 const DEFAULT_T_COARSE: f64 = 48.0;
 
-fn parse_optional_usize(value: Option<f64>, default: usize, name: &str) -> Result<usize, JsError> {
+pub(crate) fn parse_optional_usize(
+    value: Option<f64>,
+    default: usize,
+    name: &str,
+) -> Result<usize, JsError> {
     match value {
         None => Ok(default),
         Some(v) => parse_non_negative_usize(v, name),
     }
 }
 
-fn parse_opt_usize_param(value: Option<f64>, name: &str) -> Result<Option<usize>, JsError> {
+pub(crate) fn parse_opt_usize_param(
+    value: Option<f64>,
+    name: &str,
+) -> Result<Option<usize>, JsError> {
     value.map(|v| parse_non_negative_usize(v, name)).transpose()
 }
 
@@ -208,6 +215,13 @@ impl JsSparseProbabilities {
 pub struct JsDogVaradhanLandmarks {
     inner: DogVaradhanLandmarks,
     stats: DogVaradhanStats,
+}
+
+impl JsDogVaradhanLandmarks {
+    /// Returns a shared reference to the underlying `egraph_neighborhood::DogVaradhanLandmarks`.
+    pub fn inner(&self) -> &DogVaradhanLandmarks {
+        &self.inner
+    }
 }
 
 #[wasm_bindgen(js_class = DogVaradhanLandmarks)]

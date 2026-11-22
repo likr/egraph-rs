@@ -47,9 +47,28 @@ const {
   sampledCrossingNumber,
   sampledScaleNormalizedStress,
   scaleNormalizedStress,
+  CoarsenedGraphResult,
+  GuMapSolver,
+  KMeansResult,
+  KamadaKawaiSolver,
+  LouvainResult,
+  ManifoldLayout2d,
+  SgdSolver,
+  SparseBarrierStats,
+  SpatialIntruderRefiner,
+  SpatialRefinerRoundStats,
+  SpatialRefinerStats,
+  StressMajorizationSolver,
+  TsNetSolver,
+  coarsenGraph,
+  kmeansPlusPlus,
+  labelPropagation,
+  louvainCommunities,
+  projectClusteredLayout,
   selectMaxminSpPivots,
   setPanicHook,
   smallestLaplacianEigenpairs,
+  spectralClustering,
   spectralMomentStats,
   sweepCrossingAngle,
   sweepCrossingNumber,
@@ -660,7 +679,276 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(!dtsText.includes("target_std: any"));
 }
 
-// 9. Verify legacy exports remain available when compiled with default `full` feature
+// 9. Verify M3 clustering, coarsening, ManifoldLayout2d, and cooperative f32 solvers
+{
+  const expectedM3 = [
+    "CoarsenedGraphResult",
+    "GuMapSolver",
+    "KMeansResult",
+    "KamadaKawaiSolver",
+    "LouvainResult",
+    "ManifoldLayout2d",
+    "SgdSolver",
+    "SparseBarrierStats",
+    "SpatialIntruderRefiner",
+    "SpatialRefinerRoundStats",
+    "SpatialRefinerStats",
+    "StressMajorizationSolver",
+    "TsNetSolver",
+    "coarsenGraph",
+    "kmeansPlusPlus",
+    "labelPropagation",
+    "louvainCommunities",
+    "projectClusteredLayout",
+    "spectralClustering",
+  ];
+  for (const name of expectedM3) {
+    assert.equal(typeof eg[name], "function", `missing M3 runtime export: ${name}`);
+  }
+
+  const indexJsText = await readFile(new URL("../pkg/index.js", import.meta.url), "utf8");
+  for (const name of expectedM3) {
+    assert(indexJsText.includes(name), `missing M3 export in pkg/index.js: ${name}`);
+  }
+
+  const dtsText = await readFile(new URL("../pkg/index.d.ts", import.meta.url), "utf8");
+  assert(dtsText.includes("export interface TsNetOptions {"));
+  assert(dtsText.includes("export interface SparseBarrierDogOptions extends SparseBarrierOptions {"));
+  assert(dtsText.includes("static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null"));
+  assert(dtsText.includes("static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null"));
+  assert(dtsText.includes("static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null"));
+  assert(dtsText.includes("constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null"));
+  assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null"));
+  assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null"));
+  assert(dtsText.includes("export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number"));
+  assert(dtsText.includes("export function louvainCommunities(graph: CsrGraph, maxPasses?: number | null"));
+  assert(!dtsText.includes("_or_options: any"));
+  assert(!dtsText.includes("n_epochs_or_options"));
+  assert(!dtsText.includes("max_2hop_or_options"));
+
+  // Helper graphs: 12-node 2-clique barbell and 4x4 grid (16 nodes)
+  const makeBarbell = (k) => {
+    const edges = [];
+    for (const off of [0, k]) {
+      for (let i = 0; i < k; i++) {
+        for (let j = i + 1; j < k; j++) {
+          edges.push(off + i, off + j);
+        }
+      }
+    }
+    edges.push(k - 1, k);
+    return eg.CsrGraph.fromEdgeList(k * 2, new Uint32Array(edges), null, false, true);
+  };
+  const makeGrid = (rows, cols) => {
+    const edges = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const u = r * cols + c;
+        if (c + 1 < cols) edges.push(u, u + 1);
+        if (r + 1 < rows) edges.push(u, u + cols);
+      }
+    }
+    return eg.CsrGraph.fromEdgeList(rows * cols, new Uint32Array(edges), null, false, true);
+  };
+  const makeCircleCoords = (n, radius = 1.0) => {
+    const out = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const ang = (2 * Math.PI * i) / Math.max(n, 1);
+      out[2 * i] = radius * Math.cos(ang);
+      out[2 * i + 1] = radius * Math.sin(ang);
+    }
+    return out;
+  };
+
+  // Clustering & coarsening smoke check
+  const km = kmeansPlusPlus(
+    new Float64Array([
+      10, 10, 10.2, 9.8, 9.8, 10.1,
+      -10, -10, -9.9, -10.2, -10.1, -9.8,
+    ]),
+    6,
+    2,
+    2,
+    100,
+    1e-4,
+    2,
+    42,
+  );
+  assert(km instanceof KMeansResult);
+  assert.equal(km.k, 2);
+  assert.equal(km.dims, 2);
+  assert.equal(km.converged, true);
+  const kmLabels = km.labels();
+  assert.equal(kmLabels.length, 6);
+  assert.equal(kmLabels[0], kmLabels[1]);
+  assert.equal(kmLabels[3], kmLabels[4]);
+  assert.notEqual(kmLabels[0], kmLabels[3]);
+  assert.equal(km.centroids().length, 4);
+  km.free();
+
+  const barbell = makeBarbell(6);
+  const specLabels = spectralClustering(barbell, 2, 300, 1e-4, 100, 1e-4, 42);
+  assert.equal(specLabels.length, 12);
+  assert.notEqual(specLabels[0], specLabels[11]);
+
+  const louv = louvainCommunities(barbell, 50, 1.0, 1e-7, 42);
+  assert(louv instanceof LouvainResult);
+  assert(louv.numCommunities >= 2);
+  assert(louv.modularity > 0.2);
+  assert(louv.passes >= 1);
+  const louvLabels = louv.labels();
+  assert.equal(louvLabels.length, 12);
+  louv.free();
+
+  const lpaLabels = labelPropagation(barbell, 50, 42);
+  assert.equal(lpaLabels.length, 12);
+
+  const coarse = coarsenGraph(barbell, louvLabels);
+  assert(coarse instanceof CoarsenedGraphResult);
+  const coarseGraph = coarse.graph();
+  assert.equal(coarseGraph.numNodes(), coarse.numClusters);
+  assert.equal(coarse.nodeToCoarse().length, 12);
+  assert.equal(coarse.coarseSizes().reduce((a, b) => a + b, 0), 12);
+
+  const coarseLayout = eg.Layout2d.fromCoords(makeCircleCoords(coarse.numClusters, 2.0));
+  const fineProjected = projectClusteredLayout(coarseLayout, coarse.nodeToCoarse(), 0.25, 42);
+  assert.equal(fineProjected.len(), 12);
+  assert(fineProjected.isAllFinite());
+  coarseLayout.free();
+  fineProjected.free();
+  coarseGraph.free();
+  coarse.free();
+  barbell.free();
+
+  // Layout solvers + in-place buffer mutation + step == run parity
+  const grid = makeGrid(4, 4);
+
+  // TsNetSolver.pure2Hop (also verifying totalFft2dCalls on linear_fft)
+  const tsOpts = {
+    backend: "linear_fft",
+    iterationsStage1: 4,
+    iterationsStage2: 4,
+    iterationsStage3: 4,
+    theta: 0.5,
+    seed: 11,
+  };
+  const tsRunSolver = TsNetSolver.pure2Hop(grid, tsOpts);
+  const tsStepSolver = TsNetSolver.pure2Hop(grid, tsOpts);
+  const tsRunLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
+  const tsStepLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
+  const ptrBefore = tsStepLayout.coordsPtr();
+  const lenBefore = tsStepLayout.coordsLen();
+  assert.equal(tsRunSolver.run(tsRunLayout), "completed");
+  while (!tsStepSolver.isFinished) {
+    tsStepSolver.step(tsStepLayout);
+  }
+  assert.equal(tsStepSolver.status, "completed");
+  assert.equal(tsStepLayout.coordsPtr(), ptrBefore);
+  assert.equal(tsStepLayout.coordsLen(), lenBefore);
+  assert.equal(typeof tsRunSolver.totalFft2dCalls, "number");
+  assert(tsRunSolver.totalFft2dCalls > 0);
+  assert.deepEqual(Array.from(tsStepLayout.coordsView()), Array.from(tsRunLayout.coordsView()));
+  tsRunSolver.free();
+  tsStepSolver.free();
+  tsRunLayout.free();
+  tsStepLayout.free();
+
+  // SgdSolver.sparseBarrierDog + Typed SparseBarrierStats + in-place coordsView mutation
+  const sgdSolver = SgdSolver.sparseBarrierDog(grid, {
+    max2hopPerNode: 16,
+    tMax: 8,
+    degree: 6,
+    numLandmarks: 8,
+    seed: 19,
+  });
+  const sgdStats = sgdSolver.stats();
+  assert(sgdStats instanceof SparseBarrierStats);
+  assert(sgdStats.nPairs1hop > 0);
+  assert.equal(typeof sgdStats.perplexitySource, "string");
+  const sgdLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.5));
+  const sgdViewBefore = sgdLayout.coordsView();
+  const sgdPtrBefore = sgdLayout.coordsPtr();
+  assert.equal(sgdSolver.run(sgdLayout), "completed");
+  assert.equal(sgdLayout.coordsPtr(), sgdPtrBefore);
+  assert(sgdLayout.isAllFinite());
+  assert.equal(sgdViewBefore.length, 32);
+  sgdStats.free();
+  sgdSolver.free();
+  sgdLayout.free();
+
+  // ManifoldLayout2d across all 3 manifolds + SgdSolver.runManifold
+  for (const kind of ["hyperbolic", "spherical", "torus"]) {
+    const ml = ManifoldLayout2d.fromCoords(kind, makeCircleCoords(16, 0.35));
+    assert.equal(ml.kind, kind);
+    assert.equal(ml.len(), 16);
+    assert(ml.isAllFinite());
+    const manifoldSgd = SgdSolver.full(grid, { tMax: 4, seed: 23 });
+    assert.equal(manifoldSgd.stats(), undefined);
+    assert.equal(manifoldSgd.runManifold(ml), "completed");
+    assert(ml.isAllFinite());
+    assert(ml.geodesicDistance(0, 15) >= 0);
+    manifoldSgd.free();
+    ml.free();
+  }
+
+  // GuMapSolver.fromGraphDog
+  const gumap = GuMapSolver.fromGraphDog(grid, {
+    max2hopPerNode: 16,
+    nEpochs: 8,
+    degree: 6,
+    numLandmarks: 8,
+    seed: 31,
+  });
+  const gumapLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
+  assert.equal(gumap.run(gumapLayout), "completed");
+  assert(gumap.numEdges > 0);
+  assert(gumap.a > 0 && gumap.b > 0);
+  assert(gumapLayout.isAllFinite());
+  gumap.free();
+
+  // SpatialIntruderRefiner + Typed SpatialRefinerStats
+  const refiner = new SpatialIntruderRefiner(grid, { rounds: 2, tMax: 4, seed: 37 });
+  assert.equal(refiner.run(gumapLayout), "completed");
+  const refStats = refiner.stats();
+  assert(refStats instanceof SpatialRefinerStats);
+  assert.equal(refStats.roundsExecuted, 2);
+  const rounds = refStats.roundStats();
+  assert.equal(rounds.length, 2);
+  assert(rounds[0] instanceof SpatialRefinerRoundStats);
+  rounds.forEach((r) => r.free());
+  refStats.free();
+  refiner.free();
+  gumapLayout.free();
+
+  // StressMajorizationSolver.fromGraph
+  const sm = StressMajorizationSolver.fromGraph(grid, { maxIterations: 12, epsilon: 1e-5 });
+  const smLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 2.0));
+  const stressBefore = sm.computeStress(smLayout);
+  const smStatus = sm.run(smLayout);
+  assert(smStatus === "converged" || smStatus === "completed");
+  assert(sm.lastStress <= stressBefore + 1e-6);
+  assert(smLayout.isAllFinite());
+  sm.free();
+  smLayout.free();
+
+  // KamadaKawaiSolver.fromGraph
+  const kk = KamadaKawaiSolver.fromGraph(grid, { eps: 1e-3, maxInnerIters: 40, maxOuterIters: 4 });
+  const kkLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 2.0));
+  const kkStatus = kk.run(kkLayout);
+  assert(kkStatus === "converged" || kkStatus === "completed");
+  assert(kkLayout.isAllFinite());
+  kk.free();
+  kkLayout.free();
+
+  // Adversarial error checks raise recoverable JS Errors (no WASM traps)
+  const dirGraph = eg.CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]), null, true, true);
+  assert.throws(() => louvainCommunities(dirGraph), Error);
+  assert.throws(() => ManifoldLayout2d.zeros("hyperbolic_invalid", 4), Error);
+  dirGraph.free();
+  grid.free();
+}
+
+// 10. Verify legacy exports remain available when compiled with default `full` feature
 if (typeof eg.Graph === "function") {
   const legacyGraph = new eg.Graph();
   const u = legacyGraph.addNode(0);

@@ -26,6 +26,7 @@ pub mod rng;
 
 pub mod v6;
 mod v6_m2;
+mod v6_m3;
 
 use wasm_bindgen::prelude::*;
 
