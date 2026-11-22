@@ -1,0 +1,10 @@
+[package]
+name = "egraph-neighborhood"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial.workspace = true
+egraph-linalg.workspace = true
