@@ -22,9 +22,11 @@ members = [
     "crates/linalg/kernel",
     "crates/layout/ts-net",
     "crates/layout/gumap",
+    "crates/metrics",
     "crates/petgraph",
     "crates/python",
     "crates/quality-metrics",
+    "crates/spatial",
     "crates/wasm",
 ]
 
@@ -44,7 +46,10 @@ pyo3 = { version = "0.28", features = ["abi3-py310", "extension-module"] }
 numpy = "0.28"
 egraph-core = { path = "crates/core" }
 egraph-ffi = { path = "crates/ffi" }
+egraph-metrics = { path = "crates/metrics" }
 egraph-petgraph = { path = "crates/petgraph" }
+egraph-spatial = { path = "crates/spatial" }
+spade = "2.2"
 
 [profile.release]
 opt-level = 3
