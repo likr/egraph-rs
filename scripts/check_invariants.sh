@@ -68,6 +68,10 @@ fail_hard() {
 
 cd "$REPO_ROOT"
 
+if [[ ! -f "$REPO_ROOT/Cargo.lock" ]]; then
+  cargo generate-lockfile >/dev/null 2>&1 || cargo metadata --format-version 1 >/dev/null 2>&1 || true
+fi
+
 WORKSPACE_PKGS="$(cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' || true)"
 
 has_workspace_pkg() {
@@ -83,8 +87,24 @@ check_cargo_tree_crate() {
   local policy="$2"
   shift 2
 
-  local tree_out forbidden
-  tree_out="$(cargo tree --edges normal -e features "$@" 2>&1 || true)"
+  local tree_out tree_err err_file rc=0 forbidden
+  err_file="$(mktemp)"
+  if tree_out="$(cargo tree --quiet --edges normal -e features "$@" 2>"$err_file")"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  tree_err="$(cat "$err_file" 2>/dev/null || true)"
+  rm -f "$err_file"
+
+  if [[ "$rc" -ne 0 ]]; then
+    fail_hard "$label cargo tree failed (exit $rc):"
+    if [[ -n "$tree_err" ]]; then
+      printf '%s\n' "$tree_err" | sed 's/^/       /'
+    fi
+    return 0
+  fi
+
   forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_RE" || true)"
   if [[ -n "$forbidden" ]]; then
     if [[ "$policy" == "hard" ]]; then
@@ -102,8 +122,24 @@ check_cargo_tree_legacy_crate() {
   local label="$1"
   shift
 
-  local tree_out forbidden getrandom_hits
-  tree_out="$(cargo tree --edges normal -e features "$@" 2>&1 || true)"
+  local tree_out tree_err err_file rc=0 forbidden getrandom_hits
+  err_file="$(mktemp)"
+  if tree_out="$(cargo tree --quiet --edges normal -e features "$@" 2>"$err_file")"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  tree_err="$(cat "$err_file" 2>/dev/null || true)"
+  rm -f "$err_file"
+
+  if [[ "$rc" -ne 0 ]]; then
+    fail_hard "$label cargo tree failed (exit $rc):"
+    if [[ -n "$tree_err" ]]; then
+      printf '%s\n' "$tree_err" | sed 's/^/       /'
+    fi
+    return 0
+  fi
+
   forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_NO_GETRANDOM_RE" || true)"
   if [[ -n "$forbidden" ]]; then
     fail_hard "$label dependency tree pulls forbidden crates (rayon/linfa/wgpu):"
