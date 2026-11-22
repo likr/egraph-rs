@@ -1,0 +1,9 @@
+disallowed-methods = [
+    { path = "std::thread::spawn", reason = "egraph-rs is strictly single-threaded; do not spawn OS threads" },
+    { path = "std::thread::scope", reason = "egraph-rs is strictly single-threaded; do not spawn scoped OS threads" },
+]
+
+disallowed-types = [
+    { path = "std::thread::Builder", reason = "egraph-rs is strictly single-threaded; do not construct thread builders" },
+    { path = "std::thread::JoinHandle", reason = "egraph-rs is strictly single-threaded; do not manage OS threads" },
+]

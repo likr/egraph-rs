@@ -1,51 +1,54 @@
 ---
 name: egraph-rs-verification
-description: Commands and procedures to format, lint, and run tests for Rust, WebAssembly, Python, and JS/TS in the egraph-rs project.
+description: Commands and procedures to format, lint, check single-thread/WASM invariants, and run tiered tests for Rust, WebAssembly, Python, and JS/TS in the egraph-rs project.
 ---
 
-# Verification and Testing Guide for egraph-rs
+# Verification and Testing Guide for `egraph-rs`
 
-This skill contains all the commands to check formatting, lint code, and run test suites within the `egraph-rs` workspace.
+This skill defines the tiered verification harness across Native Rust, Python (PyO3), and WebAssembly (`wasm-bindgen` / Node / Browser) in `egraph-rs`.
 
-## Quick Reference Commands
+## 1. Tiered Verification Runner (`scripts/verify.sh`)
 
-| Language/Target | Action | Command |
-| :--- | :--- | :--- |
-| **Rust** | Check | `make check` |
-| **Rust** | Format | `make fmt` (runs `cargo fmt --all`) |
-| **Rust** | Lint | `make lint` (or `cargo clippy --no-deps --all-targets -p <crate> -- -D warnings`) |
-| **Rust** | All Tests | `make test` (runs `cargo test --workspace`) |
-| **Rust** | Crate Tests | `make test-crate CRATE=<crate-name>` |
-| **Rust** | Specific Test | `cargo test -p <crate-name> <test-name>` |
-| **Rust** | Ignored / Accuracy Test | `cargo test -p <crate-name> --test <test-name> -- --ignored --nocapture` |
-| **WASM** | All Tests | `wasm-pack test --node crates/wasm` (or `npx --yes wasm-pack test --node crates/wasm`) |
-| **WASM** | Specific Test | `wasm-pack test --node crates/wasm --test <test-name>` |
+Always prefer `./scripts/verify.sh` over raw `cargo`/`maturin`/`unittest` invocations. It automatically sets:
+- `RUST_FONTCONFIG_DLOPEN=1`
+- Single-thread guards (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `RAYON_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`)
+- `RUSTC_WRAPPER=sccache` (shared compilation cache across git worktrees)
+- `CARGO_BUILD_JOBS` throttled by `EGRAPH_PARALLEL_WORKERS` (`1->8`, `2->5`, `3->4`, `>=4->2`)
+- Isolated worktree-local `$REPO_ROOT/.venv` (`uv`-managed Python 3.12)
+- `cargo nextest run` when installed
 
-| **WASM** | Build | `npm run wasm-build` |
-| **Python** | Build | `make python-build` (or `VIRTUAL_ENV=/path/to/.venv maturin develop --release` from `crates/python`) |
-| **Python** | All Tests | `make python-test` (or `python -m unittest discover -s tests` from `crates/python`) |
-| **Python** | Module Tests | `make python-test-module MODULE=<module>` |
-| **Python** | Specific Case | Run from `crates/python`: `python -m unittest tests.test_<module>.TestClass.test_method` |
-| **Python** | Build Docs | `make python-docs` |
-| **Python** | Doctests | `make python-doctest` |
-| **JS/TS** | Format | `npx prettier --write .` |
-| **Examples** | Run | `npm start` |
+| Tier | Command | When to Run |
+|---|---|---|
+| **Tier 0 (`--fast`)** | `./scripts/verify.sh --fast [--crate <name>] [--json-summary <path>]` | After every local edit in a worktree (checks `rustfmt`, `clippy -D warnings` + `clippy.toml`, `nextest` on changed/`--crate` packages, `std::thread` scan). |
+| **Tier 1 (`--rust`)** | `./scripts/verify.sh --rust [--strict]` | Before merging a Rust crate branch (full workspace `fmt --check`, `clippy`, `nextest --workspace`; `--strict` includes legacy `petgraph-linalg-kernel`). |
+| **Tier 1 (`--python`)** | `./scripts/verify.sh --python [--test <module>] [--release]` | After editing `crates/python` or Rust code exposed to Python (rebuilds into local `.venv`, runs `unittest`, runs `mypy` if `_core.pyi` exists). |
+| **Tier 1 (`--wasm`)** | `./scripts/verify.sh --wasm [--test <name>] [--build-wasm]` | After editing `crates/wasm` or core WASM-facing crates (`wasm32` check + `wasm-pack test --node`; `--build-wasm` adds release bundle + `wasm-opt -Oz` + gzip size check). |
+| **Tier 2 (`--invariants`)** | `./scripts/verify.sh --invariants [--strict]` | Checks `cargo tree` (`rayon`/`linfa`/`wgpu` absence), `std::thread`/`thread_rng` scans, `wasm32` compile, `.wasm <= 600 KiB` gzip budget, and packaging metadata. (`--mode report` tolerates legacy `v6-alpha` bloat; `--mode strict` is required for v6 crates.) |
+| **Tier 2 (`--parity`)** | `./scripts/verify.sh --parity` | Runs `scripts/parity_harness.py` (deterministic fixtures, adversarial `NaN`/error checks, optional Node.js WASM cross-check). |
+| **Tier 3 (`--all`)** | `./scripts/verify.sh --all [--build-wasm] [--strict]` | Milestone gate / Verifier sign-off / Pre-PR integration check. |
 
-## Mandatory Steps Before Completion
+## 2. Quick Reference Commands (Makefile & Direct)
+
+| Target / Action | Command |
+|---|---|
+| Provision local `.venv` | `make venv-setup` (or `./scripts/setup_venv.sh`) |
+| Tier 0 fast gate | `make verify-fast` or `make verify-fast CRATE=<crate>` |
+| Full tiered suite | `make verify-all` |
+| Invariant report / strict | `make invariants` / `make invariants-strict` |
+| Cross-target parity | `make parity` |
+| Worktree create / list / clean | `make worktree-create NAME=<slug>` / `make worktree-list` / `make worktree-clean NAME=<slug>` |
+| `sccache` hit stats | `make sccache-stats` |
+| Rust format / lint / test | `make fmt` / `make lint` / `make test` / `make test-crate CRATE=<name>` |
+| WASM check / build / test / size | `make wasm-check` / `make wasm-build` / `make wasm-test` / `make wasm-size` |
+| Python build / test / module | `make python-build` / `make python-test` / `make python-test-module MODULE=<mod>` |
+| Python docs / doctest | `make python-docs` / `make python-doctest` |
+| JS/TS format / examples | `npx prettier --write .` / `npm start` |
+
+## 3. Mandatory Steps Before Completion
 
 Whenever a task is ready to be completed:
-1. Run `cargo fmt --all` (and verify with `cargo fmt --all -- --check`).
-2. Run `cargo clippy --no-deps --all-targets -p <crate> -- -D warnings` on `egraph-python` and all modified crates to ensure 0 warnings or errors (note: `petgraph-linalg-kernel` retains pre-existing baseline clippy warnings from `origin/feature/multiscale-diffusion-distance`, whereas `egraph-python` and all modified layout/metric crates must be clean).
-3. Run `cargo test --workspace` to ensure all workspace tests pass.
-4. Run `python -m unittest discover -s tests` inside `crates/python` (and WASM tests when applicable) after rebuilding with `VIRTUAL_ENV=/path/to/.venv maturin develop --release`.
-
-## Git Command Precautions
-- **Always use `--no-pager`**: When querying Git history or diffs in CLI (e.g. `git diff`, `git log`, `git show`), prefix with `git --no-pager` to prevent terminal lockups or interactive page-hangs.
-  - Correct: `git --no-pager diff`
-  - Correct: `git --no-pager log`
-
-## System Dependencies & Environment Variables
-
-- **`RUST_FONTCONFIG_DLOPEN=1`**: When checking, building, or testing crates in the workspace, you may encounter compile-time failures from `yeslogic-fontconfig-sys` if the system lacks `fontconfig` libraries. Setting `RUST_FONTCONFIG_DLOPEN=1` bypasses the compile-time link checks by dynamically loading the library at runtime.
-  - Example: `RUST_FONTCONFIG_DLOPEN=1 cargo test --workspace`
-
+1. Run `cargo fmt --all` and verify clean formatting (`cargo fmt --all -- --check`).
+2. Run `./scripts/verify.sh --fast` (or `--rust` / `--python` / `--wasm` / `--all` matching scope; note legacy `petgraph-linalg-kernel` clippy warnings require `--strict` to surface).
+3. Verify `clippy.toml` (`std::thread` forbidden) and `./scripts/check_invariants.sh` produce zero new violations.
+4. For Python binding changes, verify inside the worktree's isolated `.venv` (never pollute `/Users/likr/diffusion-kernel-experiments/.venv` from an unmerged worktree).
+5. Always pass `--no-pager` on `git diff`, `git log`, and `git show` commands.

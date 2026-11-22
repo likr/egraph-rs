@@ -1,64 +1,30 @@
-# Technical Context: egraph-rs
+# Technical Context: `egraph-rs`
 
-This reference document outlines the technical environment, folder architecture, bindings layout, and system constraints for `egraph-rs`.
+This reference document outlines the technical environment, folder architecture, toolchain, and constraints for `egraph-rs` (active roadmap: `docs/V6_RELEASE_PLAN.md`, target `v6.0.0-alpha.4`).
 
 ## Technologies Used
 
 ### Core Technologies
-- **Rust (2021 Edition)**: Primary implementation language
-- **Cargo**: Build system and package manager
-- **WebAssembly/wasm-bindgen**: For JavaScript integration
-- **PyO3**: For Python bindings
+- **Rust (`rustc 1.100+`, transitioning mixed `2018`/`2021`/`2024` editions to uniform `2024` in M0)**: Primary implementation language.
+- **Cargo + `sccache` + `cargo-nextest`**: Dependency management, cached parallel compilation across worktrees, and fast test runner.
+- **PyO3 + `maturin` + `uv` (Python `>=3.10`, `abi3-py310`)**: Isolated per-worktree `.venv` Python bindings with `numpy`, `scipy`, `pytest`, `mypy`, `ruff`.
+- **WebAssembly (`wasm32-unknown-unknown`, `wasm-bindgen`, `wasm-pack`, `binaryen`/`wasm-opt`) + Node.js / ESM**: Browser and Node.js WASM integration targeting a single-binary ESM bundle (`<= 600 KiB` gzip).
 
-### Development Tools
-- **cargo fmt**: Code formatting
-- **cargo clippy**: Linting and static analysis
-- **cargo test**: Testing framework
-- **npm/Node.js**: For JavaScript-related development
-- **prettier**: For JavaScript/TypeScript formatting
+### Key Directories
+- `crates/` — Rust workspace crates (transitioning in M0–M5 toward the 9-crate v6 DAG + `egraph` facade + `egraph-ffi` + `egraph-cli` + `egraph-python` + `egraph-wasm`).
+- `scripts/` — Worktree, venv, invariant-check, tiered verification, and cross-target parity harness scripts.
+- `docs/` — Release and migration plans (`docs/V6_RELEASE_PLAN.md`).
+- `js/dataset`, `js/examples` — JavaScript/ESM datasets and Vite interactive examples.
+- `.agents/` — Workspace knowledge index (`AGENTS.md`) and agent skills (`skills/*`).
 
-## Key Directories
+## Hard Architectural Constraints
 
-| Directory                | Contents                                                    |
-| ------------------------ | ----------------------------------------------------------- |
-| `crates/algorithm`       | Graph algorithm implementations                             |
-| `crates/clustering`      | Community detection algorithms                              |
-| `crates/dataset`         | Graph dataset loaders and utilities                         |
-| `crates/drawing`         | Drawing implementations for various spaces                  |
-| `crates/edge-bundling`   | Force-directed edge bundling                                |
-| `crates/layout`          | Layout algorithms (SGD variants including Omega, MDS, tsNET, GUMAP, etc.) |
-| `crates/linalg`          | Diffusion/BandPass kernels, unified distances, RdMds        |
-| `crates/python`          | Python bindings (PyO3)                                      |
-| `crates/quality-metrics` | Drawing quality evaluation metrics                          |
-| `crates/wasm`            | WebAssembly bindings (wasm-bindgen)                         |
-| `js/dataset`             | JavaScript dataset files                                    |
-| `js/examples`            | JavaScript usage examples                                   |
-| `.agents/skills`         | Workspace agent skills (guidelines and context)             |
-
-## WebAssembly Bindings Structure
-
-The WebAssembly bindings (`crates/wasm`) provide JavaScript-friendly interfaces:
-
-### Module Structure
-- **src/lib.rs**: Entry point that exports all WASM modules.
-- **src/graph/**: Graph data structures and operations (directed and undirected).
-- **src/drawing/**: Graph drawing implementations for various geometric spaces (Euclidean, Hyperbolic, Spherical, Torus).
-- **src/layout/**: Layout algorithms (Kamada-Kawai, MDS, Stress Majorization, Overlap Removal, SGD).
-- **src/edge_bundling.rs**: Force-directed edge bundling.
-- **src/clustering.rs**: Graph clustering and coarsening.
-- **src/quality_metrics.rs**: Layout quality metrics.
-- **src/rng.rs**: Seed-controlled random number generation.
-
-### JavaScript API Features
-- **Naming**: Uses camelCase for JavaScript interface methods (e.g., `addNode`, `removeEdge`).
-- **JSDoc-style comments**: Document parameters and return types.
-- **Error Handling**: Failures return Rust `Result`s which translate to JS exceptions.
-- **Callbacks**: Supporting JS functions passed as callbacks (e.g. edge length calculators).
-
-## Technical Constraints
-
-1. **Cross-Language Compatibility**: Must maintain identical algorithmic results across Rust, Python, and JavaScript.
-2. **Memory Management**: Handle references carefully, especially within the WebAssembly boundary where large graphs can cause buffer bottlenecks.
-3. **Performance**: Layout computations must run efficiently on large datasets.
-4. **API Stability**: Minimize breaking changes to public APIs.
-5. **Fallible Validation at Binding Boundaries**: Validate non-finite parameters, shape mismatches, and out-of-bounds indices via `Result` / `PyValueError` instead of panicking.
+1. **Strictly Single-Threaded Plain CPU Execution**:
+   - No `rayon`, no `std::thread`, no Web Workers / `SharedArrayBuffer` requirement, no GPU (`CUDA` / `WebGPU` / `wgpu`), and no C/Fortran FFI dependencies in core crates.
+   - `ndarray` must use `default-features = false` so `rayon` is never activated transitively.
+   - Runtime thread-pool caps (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `RAYON_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`) are enforced by `scripts/verify.sh`.
+2. **Equal First-Class Native / Python / WASM Parity**:
+   - Deterministic `u64`-seeded RNGs everywhere (`thread_rng` / `from_entropy` forbidden in core `src/`).
+   - Cooperative `step()` / `run_steps(k)` execution for non-blocking single-thread browser rendering.
+   - Fallible boundary validation (`Result` / `PyValueError` / `JsError` — never panicking or poisoning WASM instances).
+   - System dependency guard: `RUST_FONTCONFIG_DLOPEN=1` required when building/testing crates that transitively reference `fontconfig`.
