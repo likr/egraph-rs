@@ -53,10 +53,10 @@ import scipy.sparse as sp
 import egraph as eg
 from egraph.interop import from_networkx, from_scipy_csr
 
-# Option A: Direct NetworkX interop (keep labels in a host list)
+# Option A: Direct NetworkX interop (keep node IDs in `nodes`)
 nx_graph = nx.karate_club_graph()
-node_labels = [str(n) for n in nx_graph.nodes()]
-graph = from_networkx(nx_graph)
+graph, nodes = from_networkx(nx_graph)
+node_labels = [str(n) for n in nodes]
 
 # Option B: Direct SciPy CSR matrix interop
 adj_csr = sp.csr_matrix(nx.to_scipy_sparse_array(nx_graph, format="csr", dtype=float))

@@ -26,4 +26,4 @@ Summary of Key Changes
 
 5. **Non-Euclidean & Unified Force Models**
 
-   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d`, and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` + :meth:`egraph.SgdSolver.run_manifold`. Legacy ``InfoMap`` has been removed.
+   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d`, and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` + :meth:`egraph.SgdSolver.run_manifold`. ``InfoMap`` is excluded from the v6 API (``egraph-clustering``).

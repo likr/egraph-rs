@@ -8,7 +8,7 @@ use egraph::{
     core as egraph_core, dataset as egraph_dataset, metrics as egraph_metrics,
     spatial as egraph_spatial,
 };
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
 use egraph_ffi::{ErrorKind, FfiError, InterleavedLayout2d, build_csr_f64, build_edges_f64};
 use egraph_metrics::{MetricConfig, MetricTarget};
 use egraph_spatial::{Delaunay2d, RectangleOverlapSweep};
@@ -571,6 +571,20 @@ impl PyCsrGraph {
         Ok(Self { inner })
     }
 
+    /// Alias for :meth:`CsrGraph.from_edges` matching WASM `CsrGraph.fromEdgeList`.
+    #[staticmethod]
+    #[pyo3(signature = (num_nodes, edges, weights = None, *, directed = false, sanitize = true))]
+    fn from_edge_list(
+        py: Python<'_>,
+        num_nodes: &Bound<'_, PyAny>,
+        edges: &Bound<'_, PyAny>,
+        weights: Option<&Bound<'_, PyAny>>,
+        directed: bool,
+        sanitize: bool,
+    ) -> PyResult<Self> {
+        Self::from_edges(py, num_nodes, edges, weights, directed, sanitize)
+    }
+
     /// Number of vertices in the graph.
     #[getter]
     fn num_nodes(&self) -> usize {
@@ -1017,6 +1031,42 @@ impl PyLayout2d {
         Ok(Self { inner })
     }
 
+    /// Create a deterministically initialized `Layout2d` for `n` vertices using `seed` (default `42`).
+    #[staticmethod]
+    #[pyo3(
+        signature = (n, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(n, seed=42, dtype='float64')"
+    )]
+    fn init(n: &Bound<'_, PyAny>, seed: StrictU64, dtype: ScalarDtype) -> PyResult<Self> {
+        let n_usize = extract_non_negative_usize(n, "n")?;
+        let mut rng = DeterministicRng::from_seed_u64(seed.0);
+        let inner = match dtype {
+            ScalarDtype::F64 => {
+                let mut coords = Vec::with_capacity(n_usize.saturating_mul(2));
+                for _ in 0..n_usize {
+                    coords.push(rng.next_f64() - 0.5);
+                    coords.push(rng.next_f64() - 0.5);
+                }
+                Layout2dInner::F64(
+                    InterleavedLayout2d::<f64>::from_interleaved(&coords)
+                        .map_err(ffi_error_to_py)?,
+                )
+            }
+            ScalarDtype::F32 => {
+                let mut coords = Vec::with_capacity(n_usize.saturating_mul(2));
+                for _ in 0..n_usize {
+                    coords.push((rng.next_f64() - 0.5) as f32);
+                    coords.push((rng.next_f64() - 0.5) as f32);
+                }
+                Layout2dInner::F32(
+                    InterleavedLayout2d::<f32>::from_interleaved(&coords)
+                        .map_err(ffi_error_to_py)?,
+                )
+            }
+        };
+        Ok(Self { inner })
+    }
+
     /// Create a `Layout2d` from an `(N, 2)` coordinate array or sequence of `(x, y)` pairs.
     ///
     /// Preserves `float32` precision when passed a `float32` NumPy array, and uses `float64`
@@ -1032,6 +1082,12 @@ impl PyLayout2d {
             Layout2dInner::F64(buf) => buf.len(),
             Layout2dInner::F32(buf) => buf.len(),
         }
+    }
+
+    /// Number of vertices in the layout.
+    #[getter]
+    fn num_nodes(&self) -> usize {
+        self.__len__()
     }
 
     /// Return `True` if the layout contains zero vertices.
@@ -1144,6 +1200,22 @@ impl PyLayout2d {
         match &self.inner {
             Layout2dInner::F64(buf) => buf.is_all_finite(),
             Layout2dInner::F32(buf) => buf.is_all_finite(),
+        }
+    }
+
+    /// Return a freshly allocated `(N, 2)` NumPy array copy of coordinates.
+    fn copy_coords<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner {
+            Layout2dInner::F64(buf) => {
+                let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                Ok(PyArray2::from_owned_array(py, arr).into_any())
+            }
+            Layout2dInner::F32(buf) => {
+                let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                Ok(PyArray2::from_owned_array(py, arr).into_any())
+            }
         }
     }
 
@@ -1521,8 +1593,8 @@ fn scale_normalized_stress(
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, *, num_pivots = StrictUsize(64), seed = StrictU64(42)),
-    text_signature = "(graph, layout, *, num_pivots=64, seed=42)"
+    signature = (graph, layout, *, num_pivots = StrictUsize(32), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_pivots=32, seed=42)"
 )]
 fn sampled_scale_normalized_stress(
     py: Python<'_>,
@@ -1560,8 +1632,8 @@ fn sweep_crossing_angle(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d)
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, *, num_samples = StrictUsize(10000), seed = StrictU64(42)),
-    text_signature = "(graph, layout, *, num_samples=10000, seed=42)"
+    signature = (graph, layout, *, num_samples = StrictUsize(4096), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_samples=4096, seed=42)"
 )]
 fn sampled_crossing_number(
     py: Python<'_>,
@@ -1740,8 +1812,8 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(10000), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0)),
-    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=10000, seed=42, ideal_edge_length=1.0)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(32), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0)),
+    text_signature = "(graph, layout, targets, *, num_pivots=32, num_samples=4096, seed=42, ideal_edge_length=1.0)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(

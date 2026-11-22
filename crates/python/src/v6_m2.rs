@@ -1387,13 +1387,13 @@ fn compute_horvitz_thompson_gamma(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, *, degree = StrictUsize(25), num_landmarks = StrictUsize(64), seed = StrictU64(42), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None),
-    text_signature = "(graph, *, degree=25, num_landmarks=64, seed=42, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None)"
+    signature = (graph, *, degree = None, num_landmarks = StrictUsize(64), seed = StrictU64(42), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None),
+    text_signature = "(graph, *, degree=None, num_landmarks=64, seed=42, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None)"
 )]
 fn compute_regularized_dog_varadhan_landmarks(
     py: Python<'_>,
     graph: &PyCsrGraph,
-    degree: StrictUsize,
+    degree: Option<StrictUsize>,
     num_landmarks: StrictUsize,
     seed: StrictU64,
     degree_normalize: bool,
@@ -1410,7 +1410,7 @@ fn compute_regularized_dog_varadhan_landmarks(
         t2: t2.map(|v| v.0),
         alpha: alpha.map(|v| v.0),
         beta_floor: beta_floor.map(|v| v.0),
-        degree: Some(degree.0),
+        degree: degree.map(|d| d.0),
         n_landmarks: num_landmarks.0,
         eps_psd: eps_psd.0,
         degree_normalize,

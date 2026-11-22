@@ -344,7 +344,7 @@ fn neighborhood_2hop_hybrid_knn_probabilities_fuzzy_and_varadhan() {
     .expect("varadhan default");
     let lm2 = js_compute_regularized_dog_varadhan_landmarks(
         &g,
-        Some(25.0),
+        None,
         Some(64.0),
         Some(42.0),
         Some(true),
@@ -357,6 +357,22 @@ fn neighborhood_2hop_hybrid_knn_probabilities_fuzzy_and_varadhan() {
         None,
     )
     .expect("varadhan explicit");
+    let lm_deg25 = js_compute_regularized_dog_varadhan_landmarks(
+        &g,
+        Some(25.0),
+        Some(64.0),
+        Some(42.0),
+        Some(true),
+        Some(0.5),
+        Some(1e-4),
+        Some(48.0),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("varadhan explicit degree=25");
+    assert_eq!(lm_deg25.num_nodes(), 13);
     assert_eq!(lm1.num_nodes(), 13);
     assert_eq!(lm1.num_landmarks(), 13); // min(64, 13)
     assert_eq!(lm1.landmarks(), lm2.landmarks());

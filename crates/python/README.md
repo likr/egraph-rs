@@ -87,7 +87,7 @@ from egraph.interop import from_networkx, from_scipy_csr
 
 # From NetworkX
 nx_graph = nx.karate_club_graph()
-g_nx = from_networkx(nx_graph)
+g_nx, _nodes = from_networkx(nx_graph)
 
 # From SciPy CSR matrix
 adj_csr = nx.to_scipy_sparse_array(nx_graph, format="csr", dtype=float)

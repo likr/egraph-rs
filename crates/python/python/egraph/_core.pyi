@@ -248,6 +248,15 @@ class CsrGraph:
         directed: bool = False,
         sanitize: bool = True,
     ) -> CsrGraph: ...
+    @staticmethod
+    def from_edge_list(
+        num_nodes: int,
+        edges: _EdgeArrayLike,
+        weights: _WeightArrayLike | None = None,
+        *,
+        directed: bool = False,
+        sanitize: bool = True,
+    ) -> CsrGraph: ...
     @property
     def num_nodes(self) -> int: ...
     @property
@@ -272,8 +281,12 @@ class Layout2d:
     @staticmethod
     def zeros(n: int, dtype: _DtypeLike = "float64") -> Layout2d: ...
     @staticmethod
+    def init(n: int, seed: int = 42, dtype: _DtypeLike = "float64") -> Layout2d: ...
+    @staticmethod
     def from_coords(coords: _CoordArrayLike) -> Layout2d: ...
     def __len__(self) -> int: ...
+    @property
+    def num_nodes(self) -> int: ...
     def is_empty(self) -> bool: ...
     def x(self, i: int) -> float: ...
     def y(self, i: int) -> float: ...
@@ -283,6 +296,7 @@ class Layout2d:
     @property
     def dtype(self) -> str: ...
     def is_all_finite(self) -> bool: ...
+    def copy_coords(self) -> npt.NDArray[Any]: ...
     def coords(self, copy: bool = False) -> npt.NDArray[Any]: ...
     def __repr__(self) -> str: ...
 
@@ -1796,7 +1810,7 @@ def sampled_scale_normalized_stress(
     graph: CsrGraph,
     layout: Layout2d,
     *,
-    num_pivots: int = 64,
+    num_pivots: int = 32,
     seed: int = 42,
 ) -> float: ...
 def sweep_crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
@@ -1805,7 +1819,7 @@ def sampled_crossing_number(
     graph: CsrGraph,
     layout: Layout2d,
     *,
-    num_samples: int = 10000,
+    num_samples: int = 4096,
     seed: int = 42,
 ) -> float: ...
 def torus_crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
@@ -1850,8 +1864,8 @@ def evaluate_metrics(
     layout: Layout2d,
     targets: Iterable[str],
     *,
-    num_pivots: int = 64,
-    num_samples: int = 10000,
+    num_pivots: int = 32,
+    num_samples: int = 4096,
     seed: int = 42,
     ideal_edge_length: float = 1.0,
 ) -> dict[str, float]: ...
@@ -1986,7 +2000,7 @@ def compute_horvitz_thompson_gamma(
 def compute_regularized_dog_varadhan_landmarks(
     graph: CsrGraph,
     *,
-    degree: int = 25,
+    degree: int | None = None,
     num_landmarks: int = 64,
     seed: int = 42,
     degree_normalize: bool = True,
@@ -2004,14 +2018,26 @@ class ManifoldLayout2d:
     @staticmethod
     def zeros(kind: str, n: int, dtype: _DtypeLike = "float64") -> ManifoldLayout2d: ...
     @staticmethod
+    def hyperbolic_poincare(
+        n: int, dtype: _DtypeLike = "float64"
+    ) -> ManifoldLayout2d: ...
+    @staticmethod
+    def spherical(n: int, dtype: _DtypeLike = "float64") -> ManifoldLayout2d: ...
+    @staticmethod
+    def torus_2d(n: int, dtype: _DtypeLike = "float64") -> ManifoldLayout2d: ...
+    @staticmethod
     def from_layout(kind: str, layout: Layout2d) -> ManifoldLayout2d: ...
     @staticmethod
     def from_coords(kind: str, coords: _CoordArrayLike) -> ManifoldLayout2d: ...
     @property
     def kind(self) -> str: ...
     @property
+    def manifold(self) -> str: ...
+    @property
     def dtype(self) -> str: ...
     def len(self) -> int: ...
+    @property
+    def num_nodes(self) -> int: ...
     def is_empty(self) -> bool: ...
     def __len__(self) -> int: ...
     def x(self, i: int) -> float: ...
@@ -2257,7 +2283,7 @@ class SgdSolver:
     def sparse_barrier_dog(
         graph: CsrGraph,
         *,
-        degree: int | None = 25,
+        degree: int | None = None,
         num_landmarks: int = 64,
         degree_normalize: bool = True,
         p_exp: float = 0.5,
@@ -2438,7 +2464,7 @@ class GuMapSolver:
         graph: CsrGraph,
         max_2hop_per_node: int = 32,
         *,
-        degree: int | None = 25,
+        degree: int | None = None,
         num_landmarks: int = 64,
         degree_normalize: bool = True,
         p_exp: float = 0.5,
@@ -2749,7 +2775,7 @@ class IbUmapSolver:
         graph: CsrGraph,
         *,
         max_2hop_per_node: int = 30,
-        degree: int | None = 25,
+        degree: int | None = None,
         num_landmarks: int = 64,
         min_degree: int = 2,
         jl_dim: int = 64,

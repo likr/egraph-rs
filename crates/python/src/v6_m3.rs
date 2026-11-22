@@ -737,6 +737,53 @@ impl PyManifoldLayout2d {
         Ok(Self { inner })
     }
 
+    /// Create a zero-initialized Poincaré disk `ManifoldLayout2d` for `n` vertices.
+    #[staticmethod]
+    #[pyo3(signature = (n, dtype = ScalarDtype::F64), text_signature = "(n, dtype='float64')")]
+    fn hyperbolic_poincare(n: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
+        let inner = match dtype {
+            ScalarDtype::F64 => ManifoldLayout2dInner::F64(ManifoldLayout2d::zeros(
+                ManifoldKind::HyperbolicPoincare,
+                n.0,
+            )),
+            ScalarDtype::F32 => ManifoldLayout2dInner::F32(ManifoldLayout2d::zeros(
+                ManifoldKind::HyperbolicPoincare,
+                n.0,
+            )),
+        };
+        Ok(Self { inner })
+    }
+
+    /// Create a zero-initialized spherical `ManifoldLayout2d` for `n` vertices.
+    #[staticmethod]
+    #[pyo3(signature = (n, dtype = ScalarDtype::F64), text_signature = "(n, dtype='float64')")]
+    fn spherical(n: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
+        let inner = match dtype {
+            ScalarDtype::F64 => {
+                ManifoldLayout2dInner::F64(ManifoldLayout2d::zeros(ManifoldKind::Spherical, n.0))
+            }
+            ScalarDtype::F32 => {
+                ManifoldLayout2dInner::F32(ManifoldLayout2d::zeros(ManifoldKind::Spherical, n.0))
+            }
+        };
+        Ok(Self { inner })
+    }
+
+    /// Create a zero-initialized flat unit torus `ManifoldLayout2d` for `n` vertices.
+    #[staticmethod]
+    #[pyo3(signature = (n, dtype = ScalarDtype::F64), text_signature = "(n, dtype='float64')")]
+    fn torus_2d(n: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
+        let inner = match dtype {
+            ScalarDtype::F64 => {
+                ManifoldLayout2dInner::F64(ManifoldLayout2d::zeros(ManifoldKind::Torus2d, n.0))
+            }
+            ScalarDtype::F32 => {
+                ManifoldLayout2dInner::F32(ManifoldLayout2d::zeros(ManifoldKind::Torus2d, n.0))
+            }
+        };
+        Ok(Self { inner })
+    }
+
     /// Wrap an existing Euclidean `Layout2d` and project all points onto manifold `kind`.
     #[staticmethod]
     #[pyo3(signature = (kind, layout), text_signature = "(kind, layout)")]
@@ -781,6 +828,12 @@ impl PyManifoldLayout2d {
         }
     }
 
+    /// Alias for `kind` matching WASM `ManifoldLayout2d.manifold`.
+    #[getter]
+    fn manifold(&self) -> &'static str {
+        self.kind()
+    }
+
     /// Scalar coordinate precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
@@ -793,6 +846,12 @@ impl PyManifoldLayout2d {
             ManifoldLayout2dInner::F64(m) => m.len(),
             ManifoldLayout2dInner::F32(m) => m.len(),
         }
+    }
+
+    /// Number of vertices in the manifold layout.
+    #[getter]
+    fn num_nodes(&self) -> usize {
+        self.len()
     }
 
     /// Return `True` if the manifold layout contains zero vertices.
@@ -2197,7 +2256,7 @@ impl PySgdSolver {
         signature = (
             graph,
             *,
-            degree = Some(StrictUsize(25)),
+            degree = None,
             num_landmarks = StrictUsize(64),
             degree_normalize = true,
             p_exp = StrictF64(0.5),
@@ -2229,7 +2288,7 @@ impl PySgdSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, degree=25, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
     )]
     fn sparse_barrier_dog(
         py: Python<'_>,
@@ -2917,7 +2976,7 @@ impl PyGuMapSolver {
             graph,
             max_2hop_per_node = StrictUsize(32),
             *,
-            degree = Some(StrictUsize(25)),
+            degree = None,
             num_landmarks = StrictUsize(64),
             degree_normalize = true,
             p_exp = StrictF64(0.5),
@@ -2941,7 +3000,7 @@ impl PyGuMapSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, max_2hop_per_node=32, *, degree=25, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+        text_signature = "(graph, max_2hop_per_node=32, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
     )]
     fn from_graph_dog(
         py: Python<'_>,

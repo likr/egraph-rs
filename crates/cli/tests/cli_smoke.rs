@@ -293,3 +293,32 @@ fn cli_supports_all_layout_methods_and_datasets() {
         assert!(val["num_nodes"].as_u64().expect("num_nodes") > 0);
     }
 }
+
+#[test]
+fn cli_rejects_invalid_prism_radius_fast() {
+    let bin = env!("CARGO_BIN_EXE_egraph");
+    for bad_radius in ["0.0", "-0.1", "NaN", "inf"] {
+        let t0 = std::time::Instant::now();
+        let output = Command::new(bin)
+            .args([
+                "layout",
+                "--dataset",
+                "karate",
+                "--method",
+                "tsnet-pure2hop",
+                "--prism",
+                "--prism-radius",
+                bad_radius,
+            ])
+            .output()
+            .expect("execute egraph binary");
+        assert!(
+            !output.status.success(),
+            "expected non-zero exit for --prism-radius {bad_radius}"
+        );
+        assert!(
+            t0.elapsed().as_secs_f64() < 5.0,
+            "expected fast rejection for --prism-radius {bad_radius}"
+        );
+    }
+}

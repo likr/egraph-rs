@@ -89,18 +89,26 @@ In v6, use ``egraph.interop`` to convert NetworkX graphs, SciPy CSR matrices, or
 
     # Convert a NetworkX graph to CsrGraph
     nx_graph = nx.karate_club_graph()
-    graph = from_networkx(nx_graph)
+    graph, nodes = from_networkx(nx_graph)
+    assert graph.num_nodes == len(nodes) == 34
 
     # Or convert a SciPy CSR adjacency matrix directly
     adj = sp.csr_matrix(nx.to_scipy_sparse_array(nx_graph, format="csr", dtype=float))
     graph_sp = from_scipy_csr(adj)
+    assert graph.num_edges == graph_sp.num_edges
 
-    layout = eg.pivot_mds_init(graph_sp, num_pivots=16, seed=42)
-    eg.TsNetSolver.pure_2hop(graph_sp, seed=42).run(layout)
+    layout = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
+    eg.TsNetSolver.pure_2hop(
+        graph,
+        iterations_stage1=30,
+        iterations_stage2=30,
+        iterations_stage3=40,
+        seed=42,
+    ).run(layout)
 
     coords = layout.coords(copy=False)
-    pos = {node: (float(coords[i, 0]), float(coords[i, 1])) for i, node in enumerate(nx_graph.nodes())}
-    report = eg.evaluate_metrics(graph_sp, layout, ["sns", "np2"])
+    pos = {node: (float(coords[i, 0]), float(coords[i, 1])) for i, node in enumerate(nodes)}
+    report = eg.evaluate_metrics(graph, layout, ["sns", "np2"])
     print("Interop nodes:", len(pos), "keys:", sorted(report.keys()))
 
 .. testoutput:: python

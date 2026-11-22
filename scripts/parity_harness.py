@@ -3600,6 +3600,7 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     l2_empty = eg.Layout2d.zeros(0, dtype="float32")
     assert l2_empty.is_empty() is True
     l2_py = eg.Layout2d.zeros(4, dtype="float32")
+    assert l2_py.num_nodes == 4
     assert l2_py.is_empty() is False
     l2_py.set_x(0, 1.0)
     l2_py.set_y(0, -1.0)
@@ -3609,7 +3610,11 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     assert math.isclose(l2_x1, 3.5, rel_tol=1e-6)
     assert math.isclose(l2_y1, 2.5, rel_tol=1e-6)
     l2_py.normalize_std(target_std=1.5)
-    l2_norm_coords = l2_py.coords(copy=True)
+    l2_norm_coords = l2_py.copy_coords()
+
+    l2_init_py = eg.Layout2d.init(5, seed=42, dtype="float32")
+    assert l2_init_py.num_nodes == 5
+    l2_init_coords_py = l2_init_py.copy_coords()
 
     nd_zero = eg.LayoutNd.zeros(3, 4, dtype="float32")
     assert nd_zero.num_nodes == 3 and nd_zero.dim == 4 and nd_zero.is_all_finite() and not nd_zero.is_empty()
@@ -3618,6 +3623,13 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     assert nd_py.num_nodes == 3 and nd_py.dim == 4 and nd_py.is_all_finite()
 
     # 3. ManifoldLayout2d M5 methods & geodesic helpers
+    ml_hyp_py = eg.ManifoldLayout2d.hyperbolic_poincare(2, dtype="float32")
+    ml_sph_py = eg.ManifoldLayout2d.spherical(2, dtype="float32")
+    ml_tor_py = eg.ManifoldLayout2d.torus_2d(2, dtype="float32")
+    assert ml_hyp_py.manifold == "hyperbolic" and ml_hyp_py.num_nodes == 2
+    assert ml_sph_py.manifold == "spherical" and ml_sph_py.num_nodes == 2
+    assert ml_tor_py.manifold == "torus" and ml_tor_py.num_nodes == 2
+
     ml_py = eg.ManifoldLayout2d.zeros("hyperbolic", 2, dtype="float32")
     ml_py.set_point(0, 0.1, 0.2)
     ml_py.set_point(1, -0.1, 0.05)
@@ -3633,7 +3645,7 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     ]
 
     # 4. Spatial & Metrics M5
-    g_grid = eg.CsrGraph.from_edges(
+    g_grid = eg.CsrGraph.from_edge_list(
         9,
         [(r * 3 + c, r * 3 + c + 1) for r in range(3) for c in range(2)]
         + [(r * 3 + c, (r + 1) * 3 + c) for r in range(2) for c in range(3)],
@@ -3665,6 +3677,11 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     eval_iel_py = eg.evaluate_metrics(
         g_grid, l_grid, ["sns", "ideal_edge_lengths"], num_pivots=4, num_samples=64, seed=42, ideal_edge_length=1.5
     )
+    eval_default_py = eg.evaluate_metrics(
+        g_grid, l_grid, ["sampled_sns", "sampled_crossing_number"]
+    )
+    sampled_sns_default_py = float(eg.sampled_scale_normalized_stress(g_grid, l_grid))
+    sampled_cr_default_py = float(eg.sampled_crossing_number(g_grid, l_grid))
     l_grid_adj = eg.Layout2d.from_coords(grid_coords_f32 + np.array([0.05, -0.03], dtype=np.float32))
     pd_edges_py = eg.prism_distortion_with_edges(l_grid, l_grid_adj, gg_py)
 
@@ -3721,7 +3738,6 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     l_ib_py = eg.Layout2d.from_coords(init16_f32)
     ib_py = eg.IbUmapSolver(
         g16,
-        degree=12,
         num_landmarks=8,
         min_degree=1,
         jl_dim=8,
@@ -3740,9 +3756,14 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     )
     ib_py.run(l_ib_py)
 
-    sgd_dog_py = eg.SgdSolver.sparse_barrier_dog(g16, degree=25, t_max=4, seed=42, min_degree=1, jl_dim=8, dtype="float32")
+    lm_dog_default_py = eg.compute_regularized_dog_varadhan_landmarks(g16)
+    sgd_dog_py = eg.SgdSolver.sparse_barrier_dog(g16, t_max=4, seed=42, min_degree=1, jl_dim=8, dtype="float32")
     dog_stats_py = sgd_dog_py.dog_stats()
     assert dog_stats_py is not None
+    l_sgd_dog_py = eg.Layout2d.from_coords(init16_f32)
+    sgd_dog_py.run(l_sgd_dog_py)
+
+    gm_dog_py = eg.GuMapSolver.from_graph_dog(g16, min_degree=1, jl_dim=8, n_epochs=4, seed=42, dtype="float32")
 
     l_fdeb_py = eg.Layout2d.from_coords(init16_f32)
     fdeb_py = eg.FdebSolver(g16, l_fdeb_py, cycles=2, i0=4, dtype="float32")
@@ -3807,13 +3828,17 @@ const karate = mod.loadDataset("karate");
 const l2Empty = mod.Layout2d.zeros(0);
 assert.equal(l2Empty.isEmpty(), true);
 const l2 = mod.Layout2d.zeros(4);
+assert.equal(l2.numNodes, 4);
 assert.equal(l2.isEmpty(), false);
 l2.setX(0, 1.0); l2.setY(0, -1.0);
 l2.setX(1, 3.5); l2.setY(1, 2.5);
 const l2x1 = l2.x(1);
 const l2y1 = l2.y(1);
 l2.normalizeStd(1.5);
-const l2NormCoords = Array.from(l2.coordsView());
+const l2NormCoords = Array.from(l2.copyCoords());
+const l2Init = mod.Layout2d.init(5, 42);
+assert.equal(l2Init.numNodes, 5);
+const l2InitCoords = Array.from(l2Init.copyCoords());
 
 const ndZero = mod.LayoutNd.zeros(3, 4);
 assert.equal(ndZero.numNodes, 3);
@@ -3823,6 +3848,15 @@ assert.equal(ndZero.isEmpty(), false);
 const lNd = mod.LayoutNd.fromCoords(3, 4, new Float32Array(spec.nd_coords));
 const ndCoords = Array.from(lNd.copyCoords());
 
+const mlHyp = mod.ManifoldLayout2d.hyperbolicPoincare(2);
+const mlSph = mod.ManifoldLayout2d.spherical(2);
+const mlTor = mod.ManifoldLayout2d.torus2d(2);
+assert.equal(mlHyp.manifold, 'hyperbolic');
+assert.equal(mlHyp.numNodes, 2);
+assert.equal(mlSph.manifold, 'spherical');
+assert.equal(mlSph.numNodes, 2);
+assert.equal(mlTor.manifold, 'torus');
+assert.equal(mlTor.numNodes, 2);
 const ml = mod.ManifoldLayout2d.hyperbolicPoincare(2);
 ml.setPoint(0, 0.1, 0.2);
 ml.setPoint(1, -0.1, 0.05);
@@ -3864,6 +3898,9 @@ const sssp = Array.from(mod.bfsSingleSource(gGrid, 0, 2.0));
 const snsDist = mod.scaleNormalizedStressFromDistances(lGrid, apsp);
 const ielUnit = mod.idealEdgeLengthsWithUnit(gGrid, lGrid, 1.5);
 const evalRep = mod.evaluateMetrics(gGrid, lGrid, ['sns', 'idealEdgeLengths'], 4, 64, 42, 1.5);
+const evalDefRep = mod.evaluateMetrics(gGrid, lGrid, ['sampled_sns', 'sampled_crossing_number']);
+const sampledSnsDef = mod.sampledScaleNormalizedStress(gGrid, lGrid);
+const sampledCrDef = mod.sampledCrossingNumber(gGrid, lGrid);
 const lGridAdj = mod.Layout2d.fromCoords(new Float32Array(spec.grid_coords.map((v, i) => v + (i % 2 === 0 ? 0.05 : -0.03))));
 const pdEdges = mod.prismDistortionWithEdges(lGrid, lGridAdj, new Uint32Array(gg));
 
@@ -3916,7 +3953,6 @@ tfdpKnn.run(lTfdpKnn);
 
 const lIb = mod.Layout2d.fromCoords(init16);
 const ib = new mod.IbUmapSolver(g16, {
-  degree: 12,
   numLandmarks: 8,
   minDegree: 1,
   jlDim: 8,
@@ -3934,9 +3970,14 @@ const ib = new mod.IbUmapSolver(g16, {
 });
 ib.run(lIb);
 
-const sgdDog = mod.SgdSolver.sparseBarrierDog(g16, { degree: 25, tMax: 4, seed: 42, minDegree: 1, jlDim: 8 });
+const lmDogDef = mod.computeRegularizedDogVaradhanLandmarks(g16);
+const sgdDog = mod.SgdSolver.sparseBarrierDog(g16, { tMax: 4, seed: 42, minDegree: 1, jlDim: 8 });
 const dogStats = sgdDog.dogStats();
-assert.ok(dogStats && dogStats.degree > 0);
+assert.ok(dogStats && dogStats.degree >= 40);
+const lSgdDog = mod.Layout2d.fromCoords(init16);
+sgdDog.run(lSgdDog);
+
+const gmDog = mod.GuMapSolver.fromGraphDog(g16, { minDegree: 1, jlDim: 8, nEpochs: 4, seed: 42 });
 
 const lFdeb = mod.Layout2d.fromCoords(init16);
 const fdeb = new mod.FdebSolver(g16, lFdeb, { cycles: 2, i0: 4 });
@@ -3945,7 +3986,7 @@ fdeb.run();
 const out = {
   disc: { nnz: gDisc.nnz(), isW: gDisc.isWeighted(), deg2: gDisc.degree(2), nbr2: Array.from(gDisc.neighbors(2)), subN: sub.numNodes(), subE: sub.numEdges(), lccN: lccG.numNodes(), lccIds: Array.from(lcc.originalNodeIds()) },
   karate: { n: karate.numNodes(), e: karate.numEdges() },
-  l2: { x1: l2x1, y1: l2y1, normCoords: l2NormCoords },
+  l2: { x1: l2x1, y1: l2y1, normCoords: l2NormCoords, initCoords: l2InitCoords },
   ndCoords,
   ml: { x0: mlx0, y0: mly0, td: Array.from(td), coords: mlCoords, geoDists },
   delCsr: { n: delCsr.numNodes(), e: delCsr.numEdges() },
@@ -3962,6 +4003,7 @@ const out = {
   ielUnit,
   evalIel: evalRep.idealEdgeLengths,
   evalSns: evalRep.scaleNormalizedStress,
+  evalDef: { sns: evalDefRep.sampledScaleNormalizedStress, cr: evalDefRep.sampledCrossingNumber, snsStandalone: sampledSnsDef, crStandalone: sampledCrDef },
   pdEdges: [pdEdges.sigmaDist, pdEdges.sigmaDisp],
   cmdsCoords,
   rdCoords,
@@ -3975,21 +4017,24 @@ const out = {
   floor: { d1: Array.from(d1), d2: Array.from(d2), d3: Array.from(d3), val: floorVal },
   tsPartial: { coords: Array.from(lTs.coordsView()), ffts: fftStats.totalFft2dCalls, pFfts: fftStats.particleForwardFfts, progFrames: progFrames.length },
   tfdpKnnCoords: Array.from(lTfdpKnn.coordsView()),
-  ib: { a: ib.a, b: ib.b, numEdges: ib.numEdges, ffts: ib.totalFft2dCalls, coords: Array.from(lIb.coordsView()) },
+  ib: { a: ib.a, b: ib.b, ab: Array.from(ib.ab), numEdges: ib.numEdges, ffts: ib.totalFft2dCalls, coords: Array.from(lIb.coordsView()) },
+  lmDogDef: { table: Array.from(lmDogDef.table()), t1: lmDogDef.t1, t2: lmDogDef.t2, alpha: lmDogDef.alpha },
   dogStats: { degree: dogStats.degree, numLandmarks: dogStats.numLandmarks, t1: dogStats.t1, t2: dogStats.t2, alpha: dogStats.alpha },
+  sgdDogCoords: Array.from(lSgdDog.coordsView()),
+  gmAb: Array.from(gmDog.ab),
   fdeb: { offsets: Array.from(fdeb.edgeOffsets()), points: Array.from(fdeb.points()) },
 };
 
 for (const c of ce) c.free?.();
 for (const tc of cet) tc.free?.();
-cs.free?.(); evalRep.free?.(); pdEdges.free?.();
-fdeb.free?.(); lFdeb.free?.(); dogStats.free?.(); sgdDog.free?.();
+cs.free?.(); evalRep.free?.(); evalDefRep.free?.(); pdEdges.free?.();
+fdeb.free?.(); lFdeb.free?.(); gmDog.free?.(); lmDogDef.free?.(); lSgdDog.free?.(); dogStats.free?.(); sgdDog.free?.();
 ib.free?.(); lIb.free?.(); tfdpKnn.free?.(); lTfdpKnn.free?.(); knnObj.free?.();
 fftStats.free?.(); tsPartial.free?.(); tsPartialProg.free?.(); lTs.free?.(); lTsProg.free?.();
 prio.free?.(); symProbs.free?.(); rowProbs.free?.(); rerank.free?.(); repNd.free?.();
 diffEmb.free?.(); resEmb.free?.(); rd.free?.(); cmds.free?.(); g16.free?.();
 lGridAdj.free?.(); lX.free?.(); gX.free?.(); lRect.free?.(); delCsr.free?.(); lGrid.free?.(); gGrid.free?.();
-ml.free?.(); lNd.free?.(); ndZero.free?.(); l2.free?.(); l2Empty.free?.();
+ml.free?.(); mlHyp.free?.(); mlSph.free?.(); mlTor.free?.(); lNd.free?.(); ndZero.free?.(); l2Init.free?.(); l2.free?.(); l2Empty.free?.();
 karate.free?.(); lccG.free?.(); lcc.free?.(); sub.free?.(); gDisc.free?.();
 
 console.log(JSON.stringify(out));
@@ -4025,6 +4070,7 @@ console.log(JSON.stringify(out));
 
     check_close("Layout2d.x/y", [l2_x1, l2_y1], [ws["l2"]["x1"], ws["l2"]["y1"]], 1e-6)
     check_close("Layout2d.normalize_std", l2_norm_coords, ws["l2"]["normCoords"], 1e-5)
+    check_close("Layout2d.init", l2_init_coords_py, ws["l2"]["initCoords"], 1e-6)
     check_close("LayoutNd.from_coords", nd_py.coords(copy=True), ws["ndCoords"], 1e-6)
 
     check_close("ManifoldLayout2d.x/y", [ml_x0, ml_y0], [ws["ml"]["x0"], ws["ml"]["y0"]], 1e-6)
@@ -4048,6 +4094,10 @@ console.log(JSON.stringify(out));
     check_close("ideal_edge_lengths_with_unit", [iel_unit_py], [ws["ielUnit"]], 1e-5)
     check_close("evaluate_metrics/ideal_edge_lengths", [eval_iel_py["ideal_edge_lengths"]], [ws["evalIel"]], 1e-5)
     check_close("evaluate_metrics/sns", [eval_iel_py["scale_normalized_stress"]], [ws["evalSns"]], 1e-5)
+    check_close("evaluate_metrics/default_sampled_sns", [eval_default_py["sampled_scale_normalized_stress"]], [ws["evalDef"]["sns"]], 1e-12, is_f32=False)
+    check_close("evaluate_metrics/default_sampled_crossing", [eval_default_py["sampled_crossing_number"]], [ws["evalDef"]["cr"]], 1e-12, is_f32=False)
+    check_close("sampled_scale_normalized_stress/default", [sampled_sns_default_py], [ws["evalDef"]["snsStandalone"]], 1e-12, is_f32=False)
+    check_close("sampled_crossing_number/default", [sampled_cr_default_py], [ws["evalDef"]["crStandalone"]], 1e-12, is_f32=False)
     check_close("prism_distortion_with_edges", pd_edges_py, ws["pdEdges"], 1e-5)
 
     check_close("classical_mds_2d", cmds_py.coords(copy=True), ws["cmdsCoords"], 1e-5)
@@ -4089,11 +4139,15 @@ console.log(JSON.stringify(out));
     check_close("TFdpSolver.from_knn(KnnGraph)", l_tfdp_knn_py.coords(copy=True), ws["tfdpKnnCoords"], 1e-4)
     assert ib_py.num_edges == ws["ib"]["numEdges"]
     assert ib_py.total_fft_2d_calls == ws["ib"]["ffts"]
-    check_close("IbUmapSolver.ab", ib_py.ab, [ws["ib"]["a"], ws["ib"]["b"]], 1e-12, is_f32=False)
+    check_close("IbUmapSolver.ab", ib_py.ab, ws["ib"]["ab"], 1e-12, is_f32=False)
     check_close("IbUmapSolver.coords", l_ib_py.coords(copy=True), ws["ib"]["coords"], 1e-4)
-    assert dog_stats_py["degree"] == ws["dogStats"]["degree"]
+    check_close("compute_regularized_dog_varadhan_landmarks/default_table", lm_dog_default_py.table(), ws["lmDogDef"]["table"], 1e-12, is_f32=False)
+    check_close("compute_regularized_dog_varadhan_landmarks/default_scalars", [lm_dog_default_py.t1, lm_dog_default_py.t2, lm_dog_default_py.alpha], [ws["lmDogDef"]["t1"], ws["lmDogDef"]["t2"], ws["lmDogDef"]["alpha"]], 1e-12, is_f32=False)
+    assert dog_stats_py["degree"] == ws["dogStats"]["degree"] >= 40
     assert dog_stats_py["n_landmarks"] == ws["dogStats"]["numLandmarks"]
     check_close("SgdSolver.dog_stats", [dog_stats_py["t1"], dog_stats_py["t2"], dog_stats_py["alpha"]], [ws["dogStats"]["t1"], ws["dogStats"]["t2"], ws["dogStats"]["alpha"]], 1e-12, is_f32=False)
+    check_close("SgdSolver.sparse_barrier_dog/default_coords", l_sgd_dog_py.coords(copy=True), ws["sgdDogCoords"], 1e-4)
+    check_close("GuMapSolver.from_graph_dog/default_ab", gm_dog_py.ab, ws["gmAb"], 1e-12, is_f32=False)
     assert list(fdeb_py.edge_offsets()) == ws["fdeb"]["offsets"]
     check_close("FdebSolver.points", fdeb_py.points(), ws["fdeb"]["points"], 1e-4)
 

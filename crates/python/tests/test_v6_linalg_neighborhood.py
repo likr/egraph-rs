@@ -687,7 +687,7 @@ class TestV6LinalgAndNeighborhood(unittest.TestCase):
         self.assertIsNone(sig_hybrid.parameters["max_row_k"].default)
 
         sig_dog = inspect.signature(eg.compute_regularized_dog_varadhan_landmarks)
-        self.assertEqual(sig_dog.parameters["degree"].default, 25)
+        self.assertIsNone(sig_dog.parameters["degree"].default)
         self.assertEqual(sig_dog.parameters["num_landmarks"].default, 64)
         self.assertEqual(sig_dog.parameters["t_coarse"].default, 48.0)
 

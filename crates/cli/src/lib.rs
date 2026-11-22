@@ -509,6 +509,11 @@ pub fn run_layout_method(
 
 /// Executes the `layout` subcommand and returns the structured JSON output.
 pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
+    if args.prism && (!args.prism_radius.is_finite() || args.prism_radius <= 0.0) {
+        return Err(CliError::Core(CoreError::invalid_input(
+            "prism-radius must be finite and > 0.0",
+        )));
+    }
     let t0 = Instant::now();
     let (graph, embedded_layout, source) =
         resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
@@ -531,11 +536,6 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
 
     let mut prism_overlaps_remaining = None;
     if args.prism {
-        if !args.prism_radius.is_finite() || args.prism_radius < 0.0 {
-            return Err(CliError::Core(CoreError::invalid_input(
-                "prism-radius must be finite and >= 0.0",
-            )));
-        }
         let prism_cfg = PrismConfig {
             seed: args.seed,
             ..PrismConfig::default()

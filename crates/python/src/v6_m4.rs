@@ -500,7 +500,7 @@ impl PyIbUmapSolver {
             graph,
             *,
             max_2hop_per_node = StrictUsize(30),
-            degree = Some(StrictUsize(25)),
+            degree = None,
             num_landmarks = StrictUsize(64),
             min_degree = StrictUsize(2),
             jl_dim = StrictUsize(64),
@@ -530,7 +530,7 @@ impl PyIbUmapSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, max_2hop_per_node=30, degree=25, num_landmarks=64, min_degree=2, jl_dim=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, *, max_2hop_per_node=30, degree=None, num_landmarks=64, min_degree=2, jl_dim=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,

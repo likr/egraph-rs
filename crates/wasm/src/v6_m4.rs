@@ -542,6 +542,13 @@ impl JsIbUmapSolver {
     pub fn b(&self) -> f64 {
         self.inner.ab().map_or(0.0, |(_, b)| b)
     }
+
+    /// Returns the resolved UMAP curve parameters `[a, b]`.
+    #[wasm_bindgen(getter)]
+    pub fn ab(&self) -> Vec<f64> {
+        let (a, b) = self.inner.ab().unwrap_or((0.0, 0.0));
+        vec![a, b]
+    }
 }
 
 // ============================================================================

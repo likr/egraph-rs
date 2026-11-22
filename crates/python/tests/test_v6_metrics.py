@@ -552,14 +552,14 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
 
         # Check inspect.signature defaults and non-empty docstrings.
         sig_sns = inspect.signature(eg.sampled_scale_normalized_stress)
-        self.assertEqual(sig_sns.parameters["num_pivots"].default, 64)
+        self.assertEqual(sig_sns.parameters["num_pivots"].default, 32)
         self.assertEqual(sig_sns.parameters["seed"].default, 42)
         sig_cr = inspect.signature(eg.sampled_crossing_number)
-        self.assertEqual(sig_cr.parameters["num_samples"].default, 10000)
+        self.assertEqual(sig_cr.parameters["num_samples"].default, 4096)
         self.assertEqual(sig_cr.parameters["seed"].default, 42)
         sig_ev = inspect.signature(eg.evaluate_metrics)
-        self.assertEqual(sig_ev.parameters["num_pivots"].default, 64)
-        self.assertEqual(sig_ev.parameters["num_samples"].default, 10000)
+        self.assertEqual(sig_ev.parameters["num_pivots"].default, 32)
+        self.assertEqual(sig_ev.parameters["num_samples"].default, 4096)
         self.assertEqual(sig_ev.parameters["seed"].default, 42)
 
         for name in (

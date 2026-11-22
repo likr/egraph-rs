@@ -3,15 +3,16 @@
 #![cfg(target_arch = "wasm32")]
 
 use egraph_wasm::v6::{
-    JsCsrGraph, JsGuMapSolver, JsLayout2d, JsLayoutNd, JsManifoldLayout2d, JsSgdSolver,
-    JsTFdpSolver, JsTsNetSolver, js_all_pairs_bfs, js_apply_relative_distance_floor,
+    JsCsrGraph, JsGuMapSolver, JsIbUmapSolver, JsLayout2d, JsLayoutNd, JsManifoldLayout2d,
+    JsSgdSolver, JsTFdpSolver, JsTsNetSolver, js_all_pairs_bfs, js_apply_relative_distance_floor,
     js_bfs_single_source, js_build_gumap_12hop_priority_csr, js_build_pure_2hop_knn,
     js_build_rerank_knn, js_classical_mds_2d, js_compute_diffusion_embedding,
-    js_compute_resistance_embedding, js_crossing_edges, js_crossing_edges_torus,
-    js_crossing_summary, js_evaluate_metrics, js_gabriel_graph_edges,
-    js_graph_row_normalized_probabilities, js_ideal_edge_lengths_with_unit, js_load_dataset,
-    js_normalize_layout_2d, js_parse_csr_csv, js_poincare_distance, js_prism_distortion_with_edges,
-    js_rd_mds, js_rectangle_overlaps, js_relative_neighborhood_edges, js_representative_mds,
+    js_compute_regularized_dog_varadhan_landmarks, js_compute_resistance_embedding,
+    js_crossing_edges, js_crossing_edges_torus, js_crossing_summary, js_evaluate_metrics,
+    js_gabriel_graph_edges, js_graph_row_normalized_probabilities, js_ideal_edge_lengths_with_unit,
+    js_load_dataset, js_normalize_layout_2d, js_parse_csr_csv, js_poincare_distance,
+    js_prism_distortion_with_edges, js_rd_mds, js_rectangle_overlaps,
+    js_relative_neighborhood_edges, js_representative_mds,
     js_scale_normalized_stress_from_distances, js_spherical_distance, js_symmetrize_row_normalized,
     js_torus_distance, js_wrap_torus_point,
 };
@@ -472,4 +473,30 @@ fn solvers_m5_parity_apis() {
     )
     .unwrap();
     assert!(gm_pos.num_edges() > 0);
+    let gm_ab = gm_pos.ab();
+    assert_eq!(gm_ab.len(), 2);
+    assert!((gm_ab[0] - gm_pos.a()).abs() < 1e-12);
+    assert!((gm_ab[1] - gm_pos.b()).abs() < 1e-12);
+
+    let ib = JsIbUmapSolver::new(
+        &grid,
+        &make_opts(&[
+            ("backend", JsValue::from_str("exact")),
+            ("nEpochs", JsValue::from_f64(3.0)),
+            ("minDegree", JsValue::from_f64(1.0)),
+            ("jlDim", JsValue::from_f64(8.0)),
+        ]),
+    )
+    .unwrap();
+    let ib_ab = ib.ab();
+    assert_eq!(ib_ab.len(), 2);
+    assert!((ib_ab[0] - ib.a()).abs() < 1e-12);
+    assert!((ib_ab[1] - ib.b()).abs() < 1e-12);
+
+    // Default degree=None in computeRegularizedDogVaradhanLandmarks matches adaptive degree >= 40
+    let lm_def = js_compute_regularized_dog_varadhan_landmarks(
+        &grid, None, None, None, None, None, None, None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(lm_def.num_nodes(), 16);
 }

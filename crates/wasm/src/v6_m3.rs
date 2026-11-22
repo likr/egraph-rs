@@ -2715,6 +2715,13 @@ impl JsGuMapSolver {
         self.inner.ab().1
     }
 
+    /// Returns the resolved UMAP curve parameters `[a, b]`.
+    #[wasm_bindgen(getter)]
+    pub fn ab(&self) -> Vec<f64> {
+        let (a, b) = self.inner.ab();
+        vec![a, b]
+    }
+
     /// Returns the solver lifecycle status string.
     #[wasm_bindgen(getter)]
     pub fn status(&self) -> String {

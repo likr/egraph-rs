@@ -38,6 +38,12 @@ class TestV6CoreM5Parity(unittest.TestCase):
         with self.assertRaises(IndexError):
             g.neighbors(5)
 
+        g_edge_list = eg.CsrGraph.from_edge_list(
+            5, [(0, 1), (1, 2), (2, 0), (3, 4)], weights=[2.0, 3.0, 4.0, 5.0]
+        )
+        np.testing.assert_array_equal(g_edge_list.indptr(), g.indptr())
+        np.testing.assert_array_equal(g_edge_list.indices(), g.indices())
+
         sub = g.induced_subgraph([0, 1, 2])
         self.assertEqual(sub.num_nodes, 3)
         self.assertEqual(sub.num_edges, 3)
@@ -52,7 +58,17 @@ class TestV6CoreM5Parity(unittest.TestCase):
             self.assertTrue(empty.is_empty())
 
             layout = eg.Layout2d.zeros(4, dtype=dtype)
+            self.assertEqual(layout.num_nodes, 4)
             self.assertFalse(layout.is_empty())
+
+            l_init = eg.Layout2d.init(5, seed=42, dtype=dtype)
+            self.assertEqual(l_init.num_nodes, 5)
+            self.assertEqual(l_init.dtype, dtype)
+            self.assertTrue(l_init.is_all_finite())
+            copied = l_init.copy_coords()
+            self.assertEqual(copied.shape, (5, 2))
+            copied[0, 0] = 999.0
+            self.assertNotAlmostEqual(l_init.x(0), 999.0)
             layout.set_x(1, 3.5)
             layout.set_y(1, -2.5)
             self.assertAlmostEqual(layout.x(1), 3.5, places=5)
@@ -86,6 +102,17 @@ class TestV6CoreM5Parity(unittest.TestCase):
 
     def test_manifold_layout_and_distances(self) -> None:
         for dtype in ("float64", "float32"):
+            hyp = eg.ManifoldLayout2d.hyperbolic_poincare(3, dtype=dtype)
+            self.assertEqual(hyp.manifold, "hyperbolic")
+            self.assertEqual(hyp.num_nodes, 3)
+            self.assertEqual(hyp.dtype, dtype)
+            sph = eg.ManifoldLayout2d.spherical(2, dtype=dtype)
+            self.assertEqual(sph.manifold, "spherical")
+            self.assertEqual(sph.num_nodes, 2)
+            tor = eg.ManifoldLayout2d.torus_2d(2, dtype=dtype)
+            self.assertEqual(tor.manifold, "torus")
+            self.assertEqual(tor.num_nodes, 2)
+
             m = eg.ManifoldLayout2d.zeros("hyperbolic", 3, dtype=dtype)
             m.set_point(0, 0.1, 0.2)
             m.set_point(1, -0.15, 0.25)
@@ -310,3 +337,29 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
             self.assertIsNotNone(ibumap.ab)
             ibumap.step(layout)
             self.assertGreater(ibumap.total_fft_2d_calls, 0)
+
+        # Default degree=None alignment across DoG APIs and 32/4096 metric defaults
+        import inspect
+
+        self.assertIsNone(inspect.signature(eg.compute_regularized_dog_varadhan_landmarks).parameters["degree"].default)
+        self.assertIsNone(inspect.signature(eg.SgdSolver.sparse_barrier_dog).parameters["degree"].default)
+        self.assertIsNone(inspect.signature(eg.GuMapSolver.from_graph_dog).parameters["degree"].default)
+        self.assertIsNone(inspect.signature(eg.IbUmapSolver).parameters["degree"].default)
+
+        lm_default = eg.compute_regularized_dog_varadhan_landmarks(g)
+        self.assertEqual(lm_default.num_nodes, 9)
+        sgd_default = eg.SgdSolver.sparse_barrier_dog(g, min_degree=1, jl_dim=8, t_max=3)
+        d_stats = sgd_default.dog_stats()
+        assert d_stats is not None
+        self.assertGreaterEqual(d_stats["degree"], 40)
+        gm_default = eg.GuMapSolver.from_graph_dog(g, min_degree=1, jl_dim=8, n_epochs=3)
+        self.assertEqual(len(gm_default.ab), 2)
+        ib_default = eg.IbUmapSolver(g, min_degree=1, jl_dim=8, backend="exact", n_epochs=3)
+        self.assertIsNotNone(ib_default.ab)
+
+        l_m = eg.pivot_mds_init(g, num_pivots=5, seed=42)
+        ev_def = eg.evaluate_metrics(g, l_m, ["sampled_sns", "sampled_crossing_number"])
+        ev_exp = eg.evaluate_metrics(
+            g, l_m, ["sampled_sns", "sampled_crossing_number"], num_pivots=32, num_samples=4096, seed=42
+        )
+        self.assertEqual(ev_def, ev_exp)

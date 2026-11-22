@@ -870,7 +870,7 @@ pub fn js_compute_regularized_dog_varadhan_landmarks(
     alpha: Option<f64>,
     beta_floor: Option<f64>,
 ) -> Result<JsDogVaradhanLandmarks, JsError> {
-    let deg = parse_optional_usize(degree, DEFAULT_DOG_DEGREE, "degree")?;
+    let deg = parse_opt_usize_param(degree, "degree")?;
     let n_landmarks =
         parse_optional_usize(num_landmarks, DEFAULT_VARADHAN_LANDMARKS, "numLandmarks")?;
     let seed_u64 = parse_seed_u64(seed)?;
@@ -879,7 +879,7 @@ pub fn js_compute_regularized_dog_varadhan_landmarks(
         t2,
         alpha,
         beta_floor,
-        degree: Some(deg),
+        degree: deg,
         n_landmarks,
         degree_normalize: degree_normalize.unwrap_or(true),
         p_exp: p_exp.unwrap_or(DEFAULT_P_EXP),
