@@ -32,6 +32,6 @@ pub use delaunay::Delaunay2d;
 pub use fft::{Complex64, Fft2dWorkspace};
 pub use fit_field::{FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats};
 pub use ibfft::{IbFft2d, IbFftConfig, IbFftGridSpec, InterpolationOrder};
-pub use kdtree::StaticKdTree;
+pub use kdtree::{KdQueryScratch, StaticKdTree};
 pub use overlap::{Rect2d, RectangleOverlapSweep};
 pub use quadtree::ArenaQuadtree2d;

@@ -58,6 +58,23 @@ impl PartialOrd for Candidate {
     }
 }
 
+/// Reusable scratch workspace for [`StaticKdTree`] $k$-NN queries without per-query allocations.
+#[derive(Debug, Clone, Default)]
+pub struct KdQueryScratch {
+    heap: BinaryHeap<Candidate>,
+    stack: Vec<(u32, f64)>,
+}
+
+impl KdQueryScratch {
+    /// Allocates scratch buffers pre-sized for `k`-nearest queries.
+    pub fn with_capacity(k: usize) -> Self {
+        Self {
+            heap: BinaryHeap::with_capacity(k),
+            stack: Vec::with_capacity(64),
+        }
+    }
+}
+
 /// Flat static median-split KD-tree in $D$ dimensions.
 ///
 /// Distance computations and bounding-box pruning always execute in `f64` regardless of
@@ -205,12 +222,24 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         k: usize,
         out: &mut Vec<(usize, f64)>,
     ) -> CoreResult<()> {
+        let mut scratch = KdQueryScratch::with_capacity(k);
+        self.k_nearest_with_scratch(query, k, &mut scratch, out)
+    }
+
+    /// Reuses `scratch` and `out` to return the `k` nearest points `(index, dist_sq)` to `query`.
+    pub fn k_nearest_with_scratch(
+        &self,
+        query: &[S; D],
+        k: usize,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
         let q = convert_query(query)?;
         out.clear();
         if k == 0 || self.nodes.is_empty() {
             return Ok(());
         }
-        self.knn_search(&q, k, None, out);
+        self.knn_search_with_scratch(&q, k, None, scratch, out);
         Ok(())
     }
 
@@ -232,12 +261,24 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         k: usize,
         out: &mut Vec<(usize, f64)>,
     ) -> CoreResult<()> {
+        let mut scratch = KdQueryScratch::with_capacity(k);
+        self.k_nearest_excluding_self_with_scratch(point_idx, k, &mut scratch, out)
+    }
+
+    /// Reuses `scratch` and `out` to return the `k` nearest points to `point_idx` excluding `point_idx`.
+    pub fn k_nearest_excluding_self_with_scratch(
+        &self,
+        point_idx: usize,
+        k: usize,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
         let q = self.point(point_idx)?;
         out.clear();
         if k == 0 || self.len() <= 1 {
             return Ok(());
         }
-        self.knn_search(&q, k, Some(point_idx as u32), out);
+        self.knn_search_with_scratch(&q, k, Some(point_idx as u32), scratch, out);
         Ok(())
     }
 
@@ -459,21 +500,22 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         node_idx
     }
 
-    fn knn_search(
+    fn knn_search_with_scratch(
         &self,
         q: &[f64; D],
         k: usize,
         exclude: Option<u32>,
+        scratch: &mut KdQueryScratch,
         out: &mut Vec<(usize, f64)>,
     ) {
-        let mut heap: BinaryHeap<Candidate> = BinaryHeap::with_capacity(k);
-        let mut stack: Vec<(u32, f64)> = Vec::with_capacity(64);
-        stack.push((0, 0.0));
+        scratch.heap.clear();
+        scratch.stack.clear();
+        scratch.stack.push((0, 0.0));
 
-        while let Some((node_idx, b_dist)) = stack.pop() {
-            if heap.len() == k {
+        while let Some((node_idx, b_dist)) = scratch.stack.pop() {
+            if scratch.heap.len() == k {
                 // Use strict `>` so tied distances in adjacent boxes are always explored.
-                if let Some(&worst) = heap.peek()
+                if let Some(&worst) = scratch.heap.peek()
                     && b_dist > worst.dist_sq
                 {
                     continue;
@@ -491,13 +533,13 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
                         dist_sq: d2,
                         index: entry.index,
                     };
-                    if heap.len() < k {
-                        heap.push(cand);
-                    } else if let Some(&worst) = heap.peek()
+                    if scratch.heap.len() < k {
+                        scratch.heap.push(cand);
+                    } else if let Some(&worst) = scratch.heap.peek()
                         && cand < worst
                     {
-                        heap.pop();
-                        heap.push(cand);
+                        scratch.heap.pop();
+                        scratch.heap.push(cand);
                     }
                 }
                 continue;
@@ -507,31 +549,35 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
             let right = node.right as usize;
             let dl = box_dist_sq(q, &self.nodes[left]);
             let dr = box_dist_sq(q, &self.nodes[right]);
-            let thresh = if heap.len() == k {
-                heap.peek().map_or(f64::INFINITY, |w| w.dist_sq)
+            let thresh = if scratch.heap.len() == k {
+                scratch.heap.peek().map_or(f64::INFINITY, |w| w.dist_sq)
             } else {
                 f64::INFINITY
             };
 
             if q[node.split_dim] <= node.split_val {
                 if dr <= thresh {
-                    stack.push((right as u32, dr));
+                    scratch.stack.push((right as u32, dr));
                 }
                 if dl <= thresh {
-                    stack.push((left as u32, dl));
+                    scratch.stack.push((left as u32, dl));
                 }
             } else {
                 if dl <= thresh {
-                    stack.push((left as u32, dl));
+                    scratch.stack.push((left as u32, dl));
                 }
                 if dr <= thresh {
-                    stack.push((right as u32, dr));
+                    scratch.stack.push((right as u32, dr));
                 }
             }
         }
 
-        let sorted = heap.into_sorted_vec();
-        out.extend(sorted.into_iter().map(|c| (c.index as usize, c.dist_sq)));
+        // Drain heap into `out` and reverse so `scratch.heap` retains its backing allocation.
+        out.clear();
+        while let Some(c) = scratch.heap.pop() {
+            out.push((c.index as usize, c.dist_sq));
+        }
+        out.reverse();
     }
 }
 
@@ -731,5 +777,42 @@ mod tests {
             single.nearest_excluding_self(1),
             Err(CoreError::IndexOutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn test_kdtree_scratch_reuse_parity() {
+        let mut pts = Vec::with_capacity(65);
+        for i in 0..65usize {
+            let x = ((i * 37) % 19) as f64 * 0.25;
+            let y = ((i * 53) % 17) as f64 * 0.25;
+            pts.push([x, y]);
+        }
+        let tree = StaticKdTree::<2, f64>::build(&pts).unwrap();
+        let mut scratch = KdQueryScratch::with_capacity(1);
+        let mut out_scratch = Vec::new();
+        let mut out_direct = Vec::new();
+
+        for &k in &[1usize, 5, 32, 16, 0, 64] {
+            for i in 0..pts.len() {
+                tree.k_nearest_excluding_self_into(i, k, &mut out_direct)
+                    .unwrap();
+                tree.k_nearest_excluding_self_with_scratch(i, k, &mut scratch, &mut out_scratch)
+                    .unwrap();
+                assert_eq!(out_direct.len(), out_scratch.len());
+                for (a, b) in out_direct.iter().zip(out_scratch.iter()) {
+                    assert_eq!(a.0, b.0);
+                    assert_eq!(a.1.to_bits(), b.1.to_bits());
+                }
+            }
+            tree.k_nearest_into(&[1.25, 2.0], k, &mut out_direct)
+                .unwrap();
+            tree.k_nearest_with_scratch(&[1.25, 2.0], k, &mut scratch, &mut out_scratch)
+                .unwrap();
+            assert_eq!(out_direct.len(), out_scratch.len());
+            for (a, b) in out_direct.iter().zip(out_scratch.iter()) {
+                assert_eq!(a.0, b.0);
+                assert_eq!(a.1.to_bits(), b.1.to_bits());
+            }
+        }
     }
 }

@@ -72,25 +72,58 @@ impl DeterministicRng {
         ((self.next_u32() >> 8) as f32) * SCALE
     }
 
-    /// Samples a uniformly distributed `usize` in `[0, upper_exclusive)` without modulo bias.
+    /// Samples a uniformly distributed `u32` in `[0, upper_exclusive)` using Lemire's
+    /// unbiased nearly-divisionless multiply-high algorithm.
     ///
     /// # Panics
     ///
     /// Panics if `upper_exclusive == 0`.
-    pub fn gen_range_usize(&mut self, upper_exclusive: usize) -> usize {
+    #[inline]
+    pub fn gen_range_u32(&mut self, upper_exclusive: u32) -> u32 {
         assert!(upper_exclusive > 0, "upper_exclusive must be > 0");
         if upper_exclusive == 1 {
             return 0;
         }
-        let range = upper_exclusive as u128;
-        // Exact multiple of `range` below 2^64 eliminates modulo bias identically on 32/64-bit targets.
-        let zone = ((1u128 << 64) / range) * range;
-        loop {
-            let v = self.next_u64();
-            if (v as u128) < zone {
-                return (v as u128 % range) as usize;
+        let s = upper_exclusive as u64;
+        let mut m = (self.next_u32() as u64) * s;
+        let mut l = m as u32;
+        if l < upper_exclusive {
+            let t = upper_exclusive.wrapping_neg() % upper_exclusive;
+            while l < t {
+                m = (self.next_u32() as u64) * s;
+                l = m as u32;
             }
         }
+        (m >> 32) as u32
+    }
+
+    /// Samples a uniformly distributed `usize` in `[0, upper_exclusive)` without modulo bias.
+    ///
+    /// Uses 32-bit Lemire range sampling whenever `upper_exclusive <= u32::MAX` for bit-exact
+    /// parity across `wasm32` and 64-bit native targets, falling back to 64-bit Lemire for
+    /// larger bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `upper_exclusive == 0`.
+    #[inline]
+    pub fn gen_range_usize(&mut self, upper_exclusive: usize) -> usize {
+        assert!(upper_exclusive > 0, "upper_exclusive must be > 0");
+        if let Ok(upper_u32) = u32::try_from(upper_exclusive) {
+            return self.gen_range_u32(upper_u32) as usize;
+        }
+        let upper_u64 = upper_exclusive as u64;
+        let s = upper_u64 as u128;
+        let mut m = (self.next_u64() as u128) * s;
+        let mut l = m as u64;
+        if l < upper_u64 {
+            let t = upper_u64.wrapping_neg() % upper_u64;
+            while l < t {
+                m = (self.next_u64() as u128) * s;
+                l = m as u64;
+            }
+        }
+        (m >> 64) as usize
     }
 
     /// Performs an in-place Fisher-Yates shuffle using unbiased range sampling.
@@ -180,5 +213,26 @@ mod tests {
     fn test_gen_range_zero_panics() {
         let mut rng = DeterministicRng::from_seed_u64(1);
         let _ = rng.gen_range_usize(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "upper_exclusive must be > 0")]
+    fn test_gen_range_u32_zero_panics() {
+        let mut rng = DeterministicRng::from_seed_u64(1);
+        let _ = rng.gen_range_u32(0);
+    }
+
+    #[test]
+    fn test_gen_range_u32_and_usize_parity() {
+        for &bound in &[1u32, 2, 7, 13, 255, 16_384, 1_000_003] {
+            let mut r_u32 = DeterministicRng::from_seed_u64(12345);
+            let mut r_usize = DeterministicRng::from_seed_u64(12345);
+            for _ in 0..256 {
+                let a = r_u32.gen_range_u32(bound);
+                let b = r_usize.gen_range_usize(bound as usize);
+                assert!(a < bound);
+                assert_eq!(a as usize, b);
+            }
+        }
     }
 }
