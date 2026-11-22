@@ -68,28 +68,66 @@ fail_hard() {
 
 cd "$REPO_ROOT"
 
-# 1. Dependency tree gate (rayon / linfa / wgpu)
-TREE_CRATES=()
+WORKSPACE_PKGS="$(cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' || true)"
+
+has_workspace_pkg() {
+  printf '%s\n' "$WORKSPACE_PKGS" | grep -qx "$1"
+}
+
+FORBIDDEN_RE='(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'
+
+check_cargo_tree_crate() {
+  local label="$1"
+  local policy="$2"
+  shift 2
+
+  local tree_out forbidden
+  tree_out="$(cargo tree --edges normal -e features "$@" 2>&1 || true)"
+  forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_RE" || true)"
+  if [[ -n "$forbidden" ]]; then
+    if [[ "$policy" == "hard" ]]; then
+      fail_hard "$label dependency tree pulls forbidden crates:"
+    else
+      warn_legacy "$label dependency tree pulls forbidden crates:"
+    fi
+    printf '%s\n' "$forbidden" | sed 's/^/       /'
+  else
+    pass "$label dependency tree is free of rayon/linfa/getrandom/wgpu"
+  fi
+}
+
+# 1. Dependency tree gate (rayon / linfa / getrandom / wgpu)
+# Pure-Rust v6 core/adapter crates and `egraph-wasm --no-default-features` ALWAYS fail_hard.
+# Full/legacy `egraph-wasm` and `egraph-python` stay on warn_legacy until M1/M3 removes `linfa`.
 if [[ -n "$TARGET_CRATE" ]]; then
-  TREE_CRATES+=("$TARGET_CRATE")
+  case "$TARGET_CRATE" in
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset)
+      check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
+      ;;
+    egraph-wasm)
+      check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+      check_cargo_tree_crate "egraph-wasm (full)" "legacy" -p egraph-wasm
+      ;;
+    *)
+      check_cargo_tree_crate "$TARGET_CRATE" "legacy" -p "$TARGET_CRATE"
+      ;;
+  esac
 else
-  for candidate in egraph-wasm egraph-python egraph; do
-    if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if '$candidate' in pkgs else 1)"; then
-      TREE_CRATES+=("$candidate")
+  for strict_crate in egraph-core egraph-ffi egraph-petgraph; do
+    if has_workspace_pkg "$strict_crate"; then
+      check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
+    fi
+  done
+  if has_workspace_pkg "egraph-wasm"; then
+    check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+    check_cargo_tree_crate "egraph-wasm (full)" "legacy" -p egraph-wasm
+  fi
+  for legacy_crate in egraph-python egraph; do
+    if has_workspace_pkg "$legacy_crate"; then
+      check_cargo_tree_crate "$legacy_crate" "legacy" -p "$legacy_crate"
     fi
   done
 fi
-
-for crate in ${TREE_CRATES[@]+"${TREE_CRATES[@]}"}; do
-  TREE_OUT="$(cargo tree -p "$crate" -e features 2>&1 || true)"
-  FORBIDDEN="$(printf '%s\n' "$TREE_OUT" | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)' || true)"
-  if [[ -n "$FORBIDDEN" ]]; then
-    warn_legacy "$crate dependency tree pulls forbidden crates:"
-    printf '%s\n' "$FORBIDDEN" | sed 's/^/       /'
-  else
-    pass "$crate dependency tree is free of rayon/linfa/wgpu"
-  fi
-done
 
 # 2. Static source scan for OS threads / GPU / rayon / non-deterministic RNG
 if [[ -d "$REPO_ROOT/crates" ]]; then
@@ -117,12 +155,20 @@ fi
 
 # 3. wasm32-unknown-unknown cross-compilation check
 WASM_CHECK_CRATE="${TARGET_CRATE:-egraph-wasm}"
-if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if '$WASM_CHECK_CRATE' in pkgs else 1)"; then
+if has_workspace_pkg "$WASM_CHECK_CRATE"; then
   if cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown >/dev/null 2>&1; then
     pass "$WASM_CHECK_CRATE compiles cleanly for wasm32-unknown-unknown"
   else
     fail_hard "$WASM_CHECK_CRATE failed cargo check --target wasm32-unknown-unknown"
     cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown || true
+  fi
+  if [[ "$WASM_CHECK_CRATE" == "egraph-wasm" ]]; then
+    if cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "egraph-wasm (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "egraph-wasm (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown || true
+    fi
   fi
 fi
 
@@ -155,29 +201,113 @@ fi
 
 # 5. Cross-target packaging metadata check
 PKG_ISSUES="$(python3 - "$REPO_ROOT" <<'PY'
-import pathlib, json, re, sys
+import json
+import pathlib
+import re
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
+
 root = pathlib.Path(sys.argv[1])
 issues = []
 
+
+def load_toml(path: pathlib.Path) -> dict:
+    txt = path.read_text(encoding="utf-8")
+    if tomllib is not None:
+        return tomllib.loads(txt)
+    # Minimal fallback for Python < 3.11 without tomllib
+    data = {"_raw": txt}
+    ws_ver = re.search(r'^\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', txt, re.M | re.S)
+    if ws_ver:
+        data.setdefault("workspace", {}).setdefault("package", {})["version"] = ws_ver.group(1)
+    pkg_sec = re.search(r'^\[package\][^\[]*', txt, re.M | re.S)
+    if pkg_sec:
+        sec = pkg_sec.group(0)
+        if re.search(r'^version\.workspace\s*=\s*true', sec, re.M) or re.search(r'^version\s*=\s*\{\s*workspace\s*=\s*true', sec, re.M):
+            data.setdefault("package", {})["version"] = {"workspace": True}
+        else:
+            m = re.search(r'^version\s*=\s*"([^"]+)"', sec, re.M)
+            if m:
+                data.setdefault("package", {})["version"] = m.group(1)
+    return data
+
+
+root_cargo_path = root / "Cargo.toml"
+ws_version = None
+ws_deps = {}
+if root_cargo_path.exists():
+    root_data = load_toml(root_cargo_path)
+    ws_version = root_data.get("workspace", {}).get("package", {}).get("version")
+    ws_deps = root_data.get("workspace", {}).get("dependencies", {})
+
+
+def resolve_cargo_version(cargo_path: pathlib.Path) -> str | None:
+    data = load_toml(cargo_path)
+    ver = data.get("package", {}).get("version")
+    if isinstance(ver, dict) and ver.get("workspace") is True:
+        return ws_version
+    if isinstance(ver, str):
+        return ver
+    return None
+
+
+for sub in ("core", "ffi", "petgraph", "dataset"):
+    sub_toml = root / "crates" / sub / "Cargo.toml"
+    if sub_toml.exists() and ws_version:
+        sub_ver = resolve_cargo_version(sub_toml)
+        if sub_ver != ws_version:
+            issues.append(f"crates/{sub}/Cargo.toml version ({sub_ver}) != workspace version ({ws_version})")
+
 py_toml = root / "crates" / "python" / "Cargo.toml"
 py_proj = root / "crates" / "python" / "pyproject.toml"
-wasm_toml = root / "crates" / "wasm" / "Cargo.toml"
-wasm_pkg = root / "crates" / "wasm" / "package.json"
-
 if py_toml.exists() and py_proj.exists():
-    t_txt = py_toml.read_text()
-    p_txt = py_proj.read_text()
-    if "abi3-py37" in t_txt and '>=3.6' in p_txt:
-        issues.append("Python abi3-py37 conflicts with requires-python >=3.6")
-    if '"numpy"' not in p_txt and "'numpy'" not in p_txt and "numpy>=" not in p_txt:
+    py_cargo_data = load_toml(py_toml)
+    py_cargo_ver = resolve_cargo_version(py_toml)
+    if ws_version and py_cargo_ver != ws_version:
+        issues.append(f"crates/python/Cargo.toml version ({py_cargo_ver}) != workspace version ({ws_version})")
+
+    if tomllib is not None:
+        pyo3_spec = py_cargo_data.get("dependencies", {}).get("pyo3")
+        pyo3_features = []
+        if isinstance(pyo3_spec, dict):
+            pyo3_features.extend(pyo3_spec.get("features", []))
+            if pyo3_spec.get("workspace") is True and isinstance(ws_deps.get("pyo3"), dict):
+                pyo3_features.extend(ws_deps["pyo3"].get("features", []))
+        pyproj_data = load_toml(py_proj)
+        req_py = str(pyproj_data.get("project", {}).get("requires-python", ""))
+        proj_deps = pyproj_data.get("project", {}).get("dependencies", [])
+    else:
+        t_txt = py_toml.read_text(encoding="utf-8")
+        r_txt = root_cargo_path.read_text(encoding="utf-8") if root_cargo_path.exists() else ""
+        p_txt = py_proj.read_text(encoding="utf-8")
+        pyo3_features = re.findall(r'abi3-py\d+', t_txt + ("\n" + r_txt if "pyo3.workspace" in t_txt else ""))
+        m_req = re.search(r'^requires-python\s*=\s*"([^"]+)"', p_txt, re.M)
+        req_py = m_req.group(1) if m_req else ""
+        m_deps = re.search(r'^dependencies\s*=\s*\[([^\]]*)\]', p_txt, re.M | re.S)
+        proj_deps = re.findall(r'"([^"]+)"', m_deps.group(1)) if m_deps else []
+
+    if any(f in pyo3_features for f in ("abi3-py37", "abi3-py38", "abi3-py39")) or "abi3-py310" not in pyo3_features:
+        issues.append(f"Python pyo3 abi3 features ({pyo3_features}) must enable abi3-py310")
+    if not req_py.startswith(">=3.10"):
+        issues.append(f"crates/python/pyproject.toml requires-python ({req_py!r}) must be '>=3.10'")
+    if not any(re.match(r"^\s*numpy(\b|[<>=!~])", str(d)) for d in proj_deps):
         issues.append("crates/python/pyproject.toml omits runtime numpy dependency")
 
+wasm_toml = root / "crates" / "wasm" / "Cargo.toml"
+wasm_pkg = root / "crates" / "wasm" / "package.json"
 if wasm_toml.exists() and wasm_pkg.exists():
-    wt = wasm_toml.read_text()
-    wp = json.loads(wasm_pkg.read_text())
-    m = re.search(r'^version\s*=\s*"([^"]+)"', wt, re.M)
-    if m and m.group(1) != wp.get("version"):
-        issues.append(f"WASM Cargo.toml version ({m.group(1)}) != package.json version ({wp.get('version')})")
+    wasm_cargo_ver = resolve_cargo_version(wasm_toml)
+    wasm_pkg_ver = json.loads(wasm_pkg.read_text(encoding="utf-8")).get("version")
+    if ws_version and wasm_cargo_ver != ws_version:
+        issues.append(f"crates/wasm/Cargo.toml version ({wasm_cargo_ver}) != workspace version ({ws_version})")
+    if ws_version and wasm_pkg_ver != ws_version:
+        issues.append(f"crates/wasm/package.json version ({wasm_pkg_ver}) != workspace version ({ws_version})")
+    if wasm_cargo_ver != wasm_pkg_ver:
+        issues.append(f"WASM Cargo.toml version ({wasm_cargo_ver}) != package.json version ({wasm_pkg_ver})")
 
 for i in issues:
     print(i)

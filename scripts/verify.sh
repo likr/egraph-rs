@@ -24,7 +24,7 @@ Options:
   --release                Build Python bindings with maturin develop --release (default)
   --dev-py                 Build Python bindings in debug mode (maturin develop without --release)
   --debug-rust             Run --rust workspace tests in debug mode instead of --release
-  --build-wasm             Also run wasm-pack build --target web --release + wasm-opt -Oz + size check
+  --build-wasm             Also run wasm-pack build --target web --profile wasm-release + assemble_pkg.mjs + wasm-opt -Oz + size check
   --strict                 Strict mode for invariants & workspace-wide clippy -D warnings
   --json-summary <path>    Write machine-readable JSON summary to <path>
 EOF
@@ -348,7 +348,10 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
   if [[ "$BUILD_WASM" -eq 1 ]]; then
     run_step "wasm_build_release" bash -c "
       set -euo pipefail
-      wasm-pack build --target web --release -d pkg '$REPO_ROOT/crates/wasm'
+      wasm-pack build --target web --no-opt --profile wasm-release -d pkg '$REPO_ROOT/crates/wasm'
+      if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
+        node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
+      fi
       if command -v wasm-opt >/dev/null 2>&1 && [[ -f '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' ]]; then
         wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
           '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' \
