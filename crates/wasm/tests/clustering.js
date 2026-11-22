@@ -139,8 +139,7 @@ exports.testBasicCoarsening = function () {
 
   console.log("Group Map as Object:", groupMapObj);
 
-  // For now, skip the verification that would fail
-  // verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
+  verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
 
   // Verify that the coarsened graph has the expected number of nodes
   assert.strictEqual(
@@ -149,12 +148,12 @@ exports.testBasicCoarsening = function () {
     "Coarsened graph should have 2 nodes"
   );
 
-  // Skip edge verification for now
   // Verify that there are edges between the coarsened nodes
-  // assert(
-  //   coarsenedGraph.hasEdge(groupMapObj["0"], groupMapObj["1"]),
-  //   "Coarsened graph should have an edge between group 0 and group 1"
-  // );
+  assert(
+    coarsenedGraph.containsEdge(groupMapObj["0"], groupMapObj["1"]) ||
+      coarsenedGraph.containsEdge(groupMapObj["1"], groupMapObj["0"]),
+    "Coarsened graph should have an edge between group 0 and group 1"
+  );
 
   // Verify that the node weights contain the expected information
   for (const u of coarsenedGraph.nodeIndices()) {
@@ -284,8 +283,7 @@ exports.testComplexGraphCoarsening = function () {
 
   console.log("Complex Graph - Group Map as Object:", groupMapObj);
 
-  // For now, skip the verification that would fail
-  // verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
+  verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
 
   // Verify that there are exactly 4 nodes in the coarsened graph (4 quadrants)
   assert.strictEqual(
@@ -294,29 +292,28 @@ exports.testComplexGraphCoarsening = function () {
     "Coarsened graph should have 4 nodes"
   );
 
-  // Skip edge verification for now
   // Verify that the coarsened graph has the expected edges
   // Each quadrant should be connected to its adjacent quadrants
-  // assert(
-  //   coarsenedGraph.hasEdge(groupMap["0"], groupMap["1"]) ||
-  //     coarsenedGraph.hasEdge(groupMap["1"], groupMap["0"]),
-  //   "Coarsened graph should have an edge between quadrants 0 and 1"
-  // );
-  // assert(
-  //   coarsenedGraph.hasEdge(groupMap["0"], groupMap["2"]) ||
-  //     coarsenedGraph.hasEdge(groupMap["2"], groupMap["0"]),
-  //   "Coarsened graph should have an edge between quadrants 0 and 2"
-  // );
-  // assert(
-  //   coarsenedGraph.hasEdge(groupMap["1"], groupMap["3"]) ||
-  //     coarsenedGraph.hasEdge(groupMap["3"], groupMap["1"]),
-  //   "Coarsened graph should have an edge between quadrants 1 and 3"
-  // );
-  // assert(
-  //   coarsenedGraph.hasEdge(groupMap["2"], groupMap["3"]) ||
-  //     coarsenedGraph.hasEdge(groupMap["3"], groupMap["2"]),
-  //   "Coarsened graph should have an edge between quadrants 2 and 3"
-  // );
+  assert(
+    coarsenedGraph.containsEdge(groupMapObj["0"], groupMapObj["1"]) ||
+      coarsenedGraph.containsEdge(groupMapObj["1"], groupMapObj["0"]),
+    "Coarsened graph should have an edge between quadrants 0 and 1"
+  );
+  assert(
+    coarsenedGraph.containsEdge(groupMapObj["0"], groupMapObj["2"]) ||
+      coarsenedGraph.containsEdge(groupMapObj["2"], groupMapObj["0"]),
+    "Coarsened graph should have an edge between quadrants 0 and 2"
+  );
+  assert(
+    coarsenedGraph.containsEdge(groupMapObj["1"], groupMapObj["3"]) ||
+      coarsenedGraph.containsEdge(groupMapObj["3"], groupMapObj["1"]),
+    "Coarsened graph should have an edge between quadrants 1 and 3"
+  );
+  assert(
+    coarsenedGraph.containsEdge(groupMapObj["2"], groupMapObj["3"]) ||
+      coarsenedGraph.containsEdge(groupMapObj["3"], groupMapObj["2"]),
+    "Coarsened graph should have an edge between quadrants 2 and 3"
+  );
 
   // Verify that the node weights contain the expected information
   for (const u of coarsenedGraph.nodeIndices()) {
@@ -450,8 +447,7 @@ exports.testCustomNodeAndEdgeMerging = function () {
 
   console.log("Custom Node - Group Map as Object:", groupMapObj);
 
-  // For now, skip the verification that would fail
-  // verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
+  verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
 
   // Verify that there are exactly 2 nodes in the coarsened graph (2 groups)
   assert.strictEqual(
@@ -461,23 +457,22 @@ exports.testCustomNodeAndEdgeMerging = function () {
   );
 
   // Verify that the node weights contain the expected information
-  // Check if the group map keys exist before trying to access them
-  if (groupMap.has(0) && groupMap.has(1)) {
-    const group0Node = coarsenedGraph.nodeWeight(groupMap.get(0));
-    const group1Node = coarsenedGraph.nodeWeight(groupMap.get(1));
+  const g0Id = groupMapObj["0"];
+  const g1Id = groupMapObj["1"];
+  assert(
+    g0Id !== undefined && g1Id !== undefined,
+    "Group map keys 0 and 1 must exist"
+  );
+  const group0Node = coarsenedGraph.nodeWeight(g0Id);
+  const group1Node = coarsenedGraph.nodeWeight(g1Id);
 
-    // Group 0 should have sum = 10 + 20 + 30 = 60, avg = 20
-    assert.strictEqual(group0Node.sum, 60, "Group 0 node sum should be 60");
-    assert.strictEqual(group0Node.avg, 20, "Group 0 node average should be 20");
+  // Group 0 should have sum = 10 + 20 + 30 = 60, avg = 20
+  assert.strictEqual(group0Node.sum, 60, "Group 0 node sum should be 60");
+  assert.strictEqual(group0Node.avg, 20, "Group 0 node average should be 20");
 
-    // Group 1 should have sum = 40 + 50 + 60 = 150, avg = 50
-    assert.strictEqual(group1Node.sum, 150, "Group 1 node sum should be 150");
-    assert.strictEqual(group1Node.avg, 50, "Group 1 node average should be 50");
-  } else {
-    console.log(
-      "Group map keys 0 and 1 not found, skipping node weight verification"
-    );
-  }
+  // Group 1 should have sum = 40 + 50 + 60 = 150, avg = 50
+  assert.strictEqual(group1Node.sum, 150, "Group 1 node sum should be 150");
+  assert.strictEqual(group1Node.avg, 50, "Group 1 node average should be 50");
 
   // Verify that the edge weights contain the expected information
   // There should be one edge between the two groups
@@ -635,8 +630,7 @@ exports.testClusteringIntegration = function () {
 
   console.log("Integration - Group Map as Object:", groupMapObj);
 
-  // For now, skip the verification that would fail
-  // verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
+  verifyCoarsenedGraphStructure(graph, coarsenedGraph, groupMapObj, groupFn);
 
   // Verify that there are exactly 5 nodes in the coarsened graph (5 clusters)
   assert.strictEqual(

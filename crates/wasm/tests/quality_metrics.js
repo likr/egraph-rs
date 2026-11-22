@@ -96,16 +96,9 @@ exports.testCrossingNumber = function () {
   const crossingNumberWithCrossing = eg.crossingNumber(graph, drawing);
 
   // Verify that there is at least one crossing
-  // If the test still fails, we'll skip it with a comment explaining why
-  if (crossingNumberWithCrossing === 0) {
-    console.log(
-      "Warning: Expected crossing edges did not produce a crossing in Euclidean space"
-    );
-  }
-  // Just check that it's a finite number for now
   assert(
-    Number.isFinite(crossingNumberWithCrossing),
-    "Crossing number should be a finite number"
+    Number.isFinite(crossingNumberWithCrossing) && crossingNumberWithCrossing >= 1,
+    `Crossing number should be >= 1 for crossing edges in Euclidean space, got ${crossingNumberWithCrossing}`
   );
 };
 
@@ -125,18 +118,19 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
   // Create a torus drawing
   const drawing = eg.DrawingTorus2d.initialPlacement(graph);
 
-  // Set positions to create a layout with no edge crossings
-  // node1 -- node2
-  //  |       |
-  // node3 -- node4
-  drawing.setX(0, 0.25);
-  drawing.setY(0, 0.25);
-  drawing.setX(1, 0.75);
-  drawing.setY(1, 0.25);
-  drawing.setX(2, 0.25);
-  drawing.setY(2, 0.75);
-  drawing.setX(3, 0.75);
-  drawing.setY(3, 0.75);
+  // Set positions inside a < 0.5 quadrant of the unit torus so shortest periodic
+  // geodesics avoid antipodal wraparound ties:
+  // node0 (0.2, 0.2) -- node1 (0.6, 0.2)
+  //  |                    |
+  // node2 (0.2, 0.6) -- node3 (0.6, 0.6)
+  drawing.setX(0, 0.2);
+  drawing.setY(0, 0.2);
+  drawing.setX(1, 0.6);
+  drawing.setY(1, 0.2);
+  drawing.setX(2, 0.2);
+  drawing.setY(2, 0.6);
+  drawing.setX(3, 0.6);
+  drawing.setY(3, 0.6);
 
   // Add edges to form a cycle without crossings
   graph.addEdge(nodes[0], nodes[1], {});
@@ -164,16 +158,9 @@ exports.testCrossingNumberWithDrawingTorus2d = function () {
   );
 
   // Verify that there is at least one crossing
-  // If the test still fails, we'll skip it with a comment explaining why
-  if (crossingNumberWithCrossing === 0) {
-    console.log(
-      "Warning: Expected crossing edges did not produce a crossing in torus space"
-    );
-  }
-  // Just check that it's a finite number for now
   assert(
-    Number.isFinite(crossingNumberWithCrossing),
-    "Crossing number should be a finite number"
+    Number.isFinite(crossingNumberWithCrossing) && crossingNumberWithCrossing >= 1,
+    `Crossing number should be >= 1 for crossing edges in torus space, got ${crossingNumberWithCrossing}`
   );
 };
 

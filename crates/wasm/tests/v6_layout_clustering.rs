@@ -302,13 +302,61 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         ]);
 
         let mut s_run = JsTsNetSolver::pure_2hop(
-            &grid, &opts, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None,
+            &grid,
+            &opts,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
         )
         .expect("tsnet pure2Hop");
         let mut s_step = JsTsNetSolver::pure_2hop(
-            &grid, &opts, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None,
+            &grid,
+            &opts,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
         )
         .expect("tsnet pure2Hop step");
 
@@ -366,6 +414,10 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         None,
         None,
         Some(42.0),
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
     )
     .unwrap();
     let s_probs = JsTsNetSolver::from_probabilities(
@@ -384,6 +436,10 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         None,
         None,
         Some(42.0),
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
     )
     .unwrap();
     assert_eq!(s_knn.num_nodes(), 16);
@@ -414,6 +470,10 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
             None,
             None,
             None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
         )
         .is_err()
     );
@@ -442,6 +502,10 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
             None,
             None,
             None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
         )
         .is_err()
     );
@@ -463,11 +527,13 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     let mut s_run = JsSgdSolver::sparse_barrier_dog(
         &grid, &dog_opts, None, None, None, None, None, None, None, None, None, None, None, None,
         None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        None, None,
     )
     .expect("sparseBarrierDog");
     let mut s_step = JsSgdSolver::sparse_barrier_dog(
         &grid, &dog_opts, None, None, None, None, None, None, None, None, None, None, None, None,
         None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        None, None,
     )
     .expect("sparseBarrierDog step");
     let st = s_run.stats().expect("barrier stats");
@@ -576,9 +642,9 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
         &[0],
         &[1],
         &[1.0],
-        &[1.0],
-        &[1.0],
-        &[1.0],
+        Some(vec![1.0]),
+        Some(vec![1.0]),
+        Some(vec![1.0]),
         &JsValue::from_f64(5.0),
         None,
         None,
@@ -665,12 +731,16 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .expect("GuMap.fromGraphDog");
     let mut g_step = JsGuMapSolver::from_graph_dog(
         &grid,
         &gm_opts,
         &JsValue::UNDEFINED,
+        None,
+        None,
         None,
         None,
         None,
@@ -725,6 +795,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     let g_fuz = JsGuMapSolver::from_fuzzy_set(
         &fuzzy,
         &JsValue::from_f64(5.0),
+        None,
+        None,
         None,
         None,
         None,

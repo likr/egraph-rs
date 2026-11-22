@@ -157,13 +157,15 @@ fn t_fdp_solver_all_backends_from_knn_and_step_eq_run() {
         ("backend", JsValue::from_str("exact")),
         ("totalIterations", JsValue::from_f64(8.0)),
     ]);
+    let indptr_js: JsValue = js_sys::Uint32Array::from(&indptr[..]).into();
+    let indices_js: JsValue = js_sys::Uint32Array::from(&indices[..]).into();
     let mut k_default =
-        JsTFdpSolver::from_knn(&indptr, &indices, &JsValue::UNDEFINED, &knn_opts).unwrap();
+        JsTFdpSolver::from_knn(&indptr_js, &indices_js, &JsValue::UNDEFINED, &knn_opts).unwrap();
     let mut k_opts_short =
-        JsTFdpSolver::from_knn(&indptr, &indices, &knn_opts, &JsValue::UNDEFINED).unwrap();
+        JsTFdpSolver::from_knn(&indptr_js, &indices_js, &knn_opts, &JsValue::UNDEFINED).unwrap();
     let weights_arr = js_sys::Float64Array::from(&[0.5_f64, 0.5, 1.0, 1.0][..]);
     let mut k_weighted =
-        JsTFdpSolver::from_knn(&indptr, &indices, &weights_arr, &knn_opts).unwrap();
+        JsTFdpSolver::from_knn(&indptr_js, &indices_js, &weights_arr, &knn_opts).unwrap();
     let mut l3_a = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 2.0, 0.0]).unwrap();
     let mut l3_b = l3_a.clone();
     let mut l3_c = l3_a.clone();
@@ -183,7 +185,16 @@ fn t_fdp_solver_all_backends_from_knn_and_step_eq_run() {
     );
     assert!(JsTFdpSolver::new(&grid, &JsValue::from_str("bad")).is_err());
     assert!(JsTFdpSolver::new(&grid, &make_opts(&[("alpha", JsValue::from_f64(0.0))])).is_err());
-    assert!(JsTFdpSolver::from_knn(&[], &[], &JsValue::UNDEFINED, &JsValue::UNDEFINED).is_err());
+    let empty_u32: JsValue = js_sys::Uint32Array::new_with_length(0).into();
+    assert!(
+        JsTFdpSolver::from_knn(
+            &empty_u32,
+            &empty_u32,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED
+        )
+        .is_err()
+    );
     let mut bad_layout = JsLayout2d::zeros(2.0).unwrap();
     assert!(k_default.step(&mut bad_layout).is_err());
 }

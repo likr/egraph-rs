@@ -114,8 +114,16 @@ fn neighborhood_proximity_geometry_and_prism() {
 fn selective_evaluate_metrics_and_adversarial_errors() {
     let (grid, layout) = make_grid_4x4();
     let targets = js_sys::Array::of3(&"sns".into(), &"np2".into(), &"aspectRatio".into());
-    let report = js_evaluate_metrics(&grid, &layout, &targets, Some(8.0), Some(64.0), Some(42.0))
-        .expect("selective report");
+    let report = js_evaluate_metrics(
+        &grid,
+        &layout,
+        &targets,
+        Some(8.0),
+        Some(64.0),
+        Some(42.0),
+        None,
+    )
+    .expect("selective report");
 
     assert!(report.scale_normalized_stress().is_some());
     assert!(report.neighborhood_preservation_2hop().is_some());
@@ -162,12 +170,21 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
 
     // Bad targets
     assert!(
-        js_evaluate_metrics(&grid, &layout, &JsValue::from_str("sns"), None, None, None).is_err()
+        js_evaluate_metrics(
+            &grid,
+            &layout,
+            &JsValue::from_str("sns"),
+            None,
+            None,
+            None,
+            None
+        )
+        .is_err()
     );
     let bad_target = js_sys::Array::of1(&"nonExistentMetric".into());
-    assert!(js_evaluate_metrics(&grid, &layout, &bad_target, None, None, None).is_err());
+    assert!(js_evaluate_metrics(&grid, &layout, &bad_target, None, None, None, None).is_err());
     let non_str_target = js_sys::Array::of1(&JsValue::from_f64(123.0));
-    assert!(js_evaluate_metrics(&grid, &layout, &non_str_target, None, None, None).is_err());
+    assert!(js_evaluate_metrics(&grid, &layout, &non_str_target, None, None, None, None).is_err());
 }
 
 #[cfg(feature = "delaunay")]
