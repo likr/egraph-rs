@@ -25,6 +25,7 @@ const INNER_MAJORIZATION_ITERS: usize = 1;
 const OVERLAP_WEIGHT_BOOST: f64 = 16.0;
 const SSOR_OMEGA: f64 = 1.2;
 const OVERLAP_MICRO_DIST_RATIO: f64 = 1e-4;
+const STALL_NO_IMPROVE_STREAK: usize = 8;
 
 /// Hyperparameters for [`PrismOverlapRemoval`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -977,6 +978,8 @@ pub struct PrismOverlapRemoval<S: Scalar = f64> {
     knn_out: Vec<(usize, f64)>,
     iter: usize,
     last_overlap_count: usize,
+    best_overlap_count: usize,
+    no_improve_streak: usize,
     status: SolverStatus,
     _marker: PhantomData<S>,
 }
@@ -1072,6 +1075,8 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             knn_out: Vec::with_capacity(K_FALLBACK_NEIGHBORS),
             iter: 0,
             last_overlap_count: 0,
+            best_overlap_count: usize::MAX,
+            no_improve_streak: 0,
             status,
             _marker: PhantomData,
         })
@@ -1498,8 +1503,15 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
 
         if self.active_overlaps.is_empty() {
             self.last_overlap_count = 0;
+            self.best_overlap_count = 0;
+            self.no_improve_streak = 0;
             self.status = SolverStatus::Converged;
             return Ok(self.status);
+        }
+
+        if self.iter == 0 {
+            self.best_overlap_count = self.active_overlaps.len();
+            self.no_improve_streak = 0;
         }
 
         {
@@ -1557,6 +1569,45 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
         );
         self.last_overlap_count = self.active_overlaps.len();
         self.iter += 1;
+
+        if self.last_overlap_count < self.best_overlap_count {
+            self.best_overlap_count = self.last_overlap_count;
+            self.no_improve_streak = 0;
+        } else if !self.active_overlaps.is_empty() {
+            self.no_improve_streak += 1;
+        }
+
+        // Fall back to deterministic 2D scanline QPSC projection if PRISM stalls/oscillates
+        // (e.g. extreme aspect-ratio limit cycles) or reaches max_iterations with residual overlaps.
+        if !self.active_overlaps.is_empty()
+            && (self.no_improve_streak >= STALL_NO_IMPROVE_STREAK
+                || self.iter >= self.config.max_iterations)
+        {
+            crate::constraints::project_rectangle_no_overlap_2d(
+                layout,
+                &self.eff_hw_s,
+                &self.eff_hh_s,
+            )?;
+            let xs = layout.x();
+            let ys = layout.y();
+            for i in 0..n {
+                self.last_out_x[i] = xs[i].to_f64();
+                self.last_out_y[i] = ys[i].to_f64();
+            }
+            sap_find_overlaps(
+                layout.x(),
+                layout.y(),
+                &self.eff_hw_s,
+                &self.eff_hh_s,
+                &mut self.sap_bounds,
+                &mut self.sap_order,
+                &mut self.sap_sorted,
+                &mut self.active_overlaps,
+            );
+            self.last_overlap_count = self.active_overlaps.len();
+            self.best_overlap_count = self.best_overlap_count.min(self.last_overlap_count);
+            self.no_improve_streak = 0;
+        }
 
         self.status = if self.last_overlap_count == 0 {
             SolverStatus::Converged
