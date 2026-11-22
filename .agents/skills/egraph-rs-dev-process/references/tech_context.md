@@ -26,7 +26,8 @@ This reference document outlines the technical environment, folder architecture,
 | `crates/dataset`         | Graph dataset loaders and utilities                         |
 | `crates/drawing`         | Drawing implementations for various spaces                  |
 | `crates/edge-bundling`   | Force-directed edge bundling                                |
-| `crates/layout`          | Layout algorithms (SGD variants including Omega, MDS, etc.) |
+| `crates/layout`          | Layout algorithms (SGD variants including Omega, MDS, tsNET, GUMAP, etc.) |
+| `crates/linalg`          | Diffusion/BandPass kernels, unified distances, RdMds        |
 | `crates/python`          | Python bindings (PyO3)                                      |
 | `crates/quality-metrics` | Drawing quality evaluation metrics                          |
 | `crates/wasm`            | WebAssembly bindings (wasm-bindgen)                         |
@@ -60,3 +61,4 @@ The WebAssembly bindings (`crates/wasm`) provide JavaScript-friendly interfaces:
 2. **Memory Management**: Handle references carefully, especially within the WebAssembly boundary where large graphs can cause buffer bottlenecks.
 3. **Performance**: Layout computations must run efficiently on large datasets.
 4. **API Stability**: Minimize breaking changes to public APIs.
+5. **Fallible Validation at Binding Boundaries**: Validate non-finite parameters, shape mismatches, and out-of-bounds indices via `Result` / `PyValueError` instead of panicking.

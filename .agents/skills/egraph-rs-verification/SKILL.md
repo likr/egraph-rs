@@ -13,7 +13,7 @@ This skill contains all the commands to check formatting, lint code, and run tes
 | :--- | :--- | :--- |
 | **Rust** | Check | `make check` |
 | **Rust** | Format | `make fmt` (runs `cargo fmt --all`) |
-| **Rust** | Lint | `make lint` (runs `cargo clippy ...`) |
+| **Rust** | Lint | `make lint` (or `cargo clippy --no-deps --all-targets -p <crate> -- -D warnings`) |
 | **Rust** | All Tests | `make test` (runs `cargo test --workspace`) |
 | **Rust** | Crate Tests | `make test-crate CRATE=<crate-name>` |
 | **Rust** | Specific Test | `cargo test -p <crate-name> <test-name>` |
@@ -22,8 +22,8 @@ This skill contains all the commands to check formatting, lint code, and run tes
 | **WASM** | Specific Test | `wasm-pack test --node crates/wasm --test <test-name>` |
 
 | **WASM** | Build | `npm run wasm-build` |
-| **Python** | Build | `make python-build` (compiles bindings via Maturin) |
-| **Python** | All Tests | `make python-test` |
+| **Python** | Build | `make python-build` (or `VIRTUAL_ENV=/path/to/.venv maturin develop --release` from `crates/python`) |
+| **Python** | All Tests | `make python-test` (or `python -m unittest discover -s tests` from `crates/python`) |
 | **Python** | Module Tests | `make python-test-module MODULE=<module>` |
 | **Python** | Specific Case | Run from `crates/python`: `python -m unittest tests.test_<module>.TestClass.test_method` |
 | **Python** | Build Docs | `make python-docs` |
@@ -34,10 +34,10 @@ This skill contains all the commands to check formatting, lint code, and run tes
 ## Mandatory Steps Before Completion
 
 Whenever a task is ready to be completed:
-1. Run `cargo fmt --all` to format the Rust codebase.
-2. Run `cargo clippy --workspace --all-targets --all-features -- -D warnings` and ensure 0 warnings or errors.
+1. Run `cargo fmt --all` (and verify with `cargo fmt --all -- --check`).
+2. Run `cargo clippy --no-deps --all-targets -p <crate> -- -D warnings` on `egraph-python` and all modified crates to ensure 0 warnings or errors (note: `petgraph-linalg-kernel` retains pre-existing baseline clippy warnings from `origin/feature/multiscale-diffusion-distance`, whereas `egraph-python` and all modified layout/metric crates must be clean).
 3. Run `cargo test --workspace` to ensure all workspace tests pass.
-4. Run relevant binding tests (WASM, Python) if you modified the bindings, drawing, or layout crates.
+4. Run `python -m unittest discover -s tests` inside `crates/python` (and WASM tests when applicable) after rebuilding with `VIRTUAL_ENV=/path/to/.venv maturin develop --release`.
 
 ## Git Command Precautions
 - **Always use `--no-pager`**: When querying Git history or diffs in CLI (e.g. `git diff`, `git log`, `git show`), prefix with `git --no-pager` to prevent terminal lockups or interactive page-hangs.

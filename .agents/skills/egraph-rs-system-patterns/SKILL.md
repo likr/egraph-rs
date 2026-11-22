@@ -19,6 +19,7 @@ This skill details the architectural design and algorithms used across the `egra
   - linalg (RdMds - Resistance-distance MDS for spectral embeddings)
   - quality-metrics (layout evaluation)
   - language bindings (Python, WebAssembly)
+  - Hardened edge-case validation across `quality-metrics` (NaN/collinear `crossing_number`, degenerate `aspect_ratio`, edgeless `neighborhood_preservation`), `WeightedEdgeLength` (indexed by edge ID with fallible lookup), and PyO3 bindings (`PyResult`/`PyValueError` instead of panics).
 
 - **Key Patterns**
   - Builder, Strategy, Adapter, Visitor, Factory Methods
@@ -49,6 +50,11 @@ Force-directed layout with a unified concrete implementation.
       fn is_finished(&self) -> bool;
   }
   ```
+- **One-Sided Hinge Repulsion & Barrier Sparse SGD**:
+  - `Sgd::new_with_hinge_pairs(springs, hinges)` pairs standard two-sided spring pairs with one-sided hinge repulsion pairs that exert force strictly when $0 < \|x_i - x_j\| < d_{\mathrm{barrier}}$.
+  - PyO3 NumPy constructors: `Sgd.from_numpy_pairs`, `Sgd.from_numpy_hinge_pairs`, and `Sgd.from_numpy_pairs_with_hinges`.
+  - `SparseSgd::barrier()` builder configures 3-tier barrier construction (`calibrate_one_hop`, `max_2hop_per_node`, `hinge_repulsion`, `delta_rel`, `barrier_sym`, `omega_1`, `omega_2`, `gamma_non2`, `min_ratio`, `eps_dist`, `seed`) and constructs pairs via `build_barrier_from_landmark_tables`.
+- **Fallible Validation**: `FullSgd` and `StressMajorization` provide fallible square-matrix validation and `try_*` APIs with $n \le 1$ and NaN/Inf guards.
 
 ### MDS (Multidimensional Scaling) & Pivot MDS
 Dimension reduction layout algorithms supporting unified distance matrix inputs.
@@ -57,6 +63,9 @@ Dimension reduction layout algorithms supporting unified distance matrix inputs.
 - **Constructor Patterns**:
   - `new_with_distance_matrix`: Automatically uses default node indices (`petgraph::graph::node_index`).
   - `new_with_distance_matrix_and_indices`: Accepts explicit node index slice `&[N2]` for custom indexing.
+- **Scaling & Validation**:
+  - `PivotMds` computes $(n/k)^{1/4} C V \mathrm{diag}(e^{-1/4}) \approx U \Sigma^{1/2}$ with zero-eigenvalue and disconnected-graph finite-coordinate guards (preventing historical $U \Sigma^2$ scale explosion).
+  - `ClassicalMds` provides fallible square-matrix validation.
 
 ### RdMds (Resistance-distance MDS)
 Computes spectral embeddings using the graph Laplacian.
@@ -87,6 +96,10 @@ Generates node pairs for SGD from spectral embeddings.
 ### tsNET, BH-tsNET, FIt-tsNET & L-tsNET
 t-SNE based graph layout algorithms optimizing KL-divergence, compression, and node repulsion.
 - **Location**: `crates/layout/ts-net/`
+- **Shared Acceleration & Validation**:
+  - `partial_bfs` reuses `visited_stamp` and layer buffers across nodes to maintain true $O(N \cdot k \cdot \bar{d})$ complexity without per-node $O(N)$ allocations.
+  - Per-node adaptive perplexity and variable-length CSR $k$-NN inputs are supported via `try_run_with_csr_knn_adaptive` in Rust and exposed on `BhTsNet`, `FitTsNet`, and `LTsNet` in PyO3 via `run_with_knn` and `run_with_knn_adaptive(drawing, indptr, indices, distances, perplexities)`.
+  - Builders and runners reject non-finite parameters, invalid $k$-NN entries, and non-finite or mismatched drawings.
 - **tsNET**:
   - Distance Trait: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
   - Builder Pattern: Instantiated via `TsNetBuilder<S>` returning `Result<TsNet<S>, String>`.
@@ -106,13 +119,14 @@ t-SNE based graph layout algorithms optimizing KL-divergence, compression, and n
   - Linear-time $O(N)$ and space $O(N + M)$ algorithm for large graphs.
   - C0: $O(N)$ Partial BFS for $k$-nearest neighbors with random tie-breaking.
   - C1: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for Student-$t$ KL repulsion.
-  - C2: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for entropy gradient using reformulated $h_1, h_2, h_3$.
+  - C2: $O(N)$ 2D FFT-accelerated polynomial grid interpolation for entropy gradient using reformulated $h_1, h_2, h_3$ (Stage 3 sign matches `BhTsNet` / `FitTsNet` repulsion without double negation).
   - Builder Pattern: Instantiated via `LTsNetBuilder<S>` returning `Result<LTsNet<S>, String>`.
 
 ### GUMAP (Graph UMAP)
 Graph layout algorithm adapting Uniform Manifold Approximation and Projection (UMAP) to networks.
 - **Location**: `crates/layout/gumap/`
 - **Distance Trait**: Generic over `petgraph_linalg_kernel::Distance<N, S> + ?Sized`.
+- **Sparse $k$-NN Input**: Supports `run_with_knn` and variable-length CSR `run_with_knn_csr` (`try_run_with_csr_knn`) with deterministic edge ordering (eliminating $O(N^2)$ full pairwise search) and strict non-finite/mismatched-drawing validation.
 - **Fuzzy Simplicial Set**:
   - High-dimensional $k$-nearest neighbor search, local distance scale $\rho_i = \min_{j \in kNN(i)} d_{ij}$, and binary search for $\sigma_i$ targeting $\log_2(k)$.
   - Fuzzy set union symmetrization: $p_{ij} = p_{j|i} + p_{i|j} - p_{j|i} p_{i|j}$.
@@ -123,7 +137,10 @@ Graph layout algorithm adapting Uniform Manifold Approximation and Projection (U
 
 ### Kernel-SGD & Diffusion Kernels
 Diffusion kernel-based computations for graph distances and embeddings.
-- **Location**: `crates/linalg/diffusion-kernel/` and `crates/linalg/distance/`
+- **Location**: `crates/linalg/kernel/`
+- **BandPass & Multiscale Kernels**:
+  - `BandPassDiffusionKernel` and `PivotedBandPassDiffusionKernel` use a uniform rank-1 `off_diagonal_floor` instead of zero-time `(beta_floor, 0.0) = I`, ensuring strictly positive off-diagonal similarity support.
+  - Supports positive-coefficient multi-scale heat combinations via `multiscale_heat` / `multiscale_heat_terms`.
 - **Core Architectural Rules**:
   1. **Builder Pattern**: All kernel and distance structs must be instantiated using the Builder pattern (e.g., `DiffusionKernelBuilder`). Builders must return `Result<T, String>` to ensure explicit error handling instead of silent fallbacks.
   2. **Explicit RNG**: Never instantiate internal `thread_rng()` within library functions. Random Number Generators (`&mut R` where `R: rand::Rng`) must be explicitly passed into builders/methods to guarantee determinism.
