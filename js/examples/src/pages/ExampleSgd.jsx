@@ -1,82 +1,70 @@
-import React, { useEffect, useRef } from "react";
-import * as d3 from "d3";
-import {
-  Graph,
-  DrawingEuclidean2d as Drawing,
-  FullSgd as Sgd,
-  Rng,
-} from "egraph/dist/web/egraph_wasm";
-import { Wrapper } from "../wrapper";
+import { useEffect, useRef, useState } from "react";
+import { Layout2d, SgdSolver, runProgressive } from "egraph";
+import { GraphCanvas } from "../components/GraphCanvas";
+import { loadMiserablesGraph } from "../graphUtils";
 
 export function ExampleSgd() {
-  const rendererRef = useRef();
+  const sceneRef = useRef(null);
+  const [tick, setTick] = useState(0);
+  const [status, setStatus] = useState("initializing...");
 
   useEffect(() => {
+    const ac = new AbortController();
+    let graph = null;
+    let layout = null;
+    let solver = null;
+
     (async () => {
-      const response = await fetch("/data/miserables.json");
-      const data = await response.json();
-
-      const color = d3.scaleOrdinal(d3.schemeCategory10);
-      const graph = new Graph();
-      const indices = new Map();
-      for (const node of data.nodes) {
-        node.fillColor = color(node.group);
-        indices.set(node.id, graph.addNode(node));
-      }
-      for (const link of data.links) {
-        const { source, target } = link;
-        graph.addEdge(indices.get(source), indices.get(target), link);
-      }
-
-      const rng = Rng.seedFrom(1n);
-      const drawing = Drawing.initialPlacement(graph);
-      const sgd = new Sgd(graph, () => 100);
-      const scheduler = sgd.scheduler(100, 0.1);
-
-      const draw = () => {
-        if (!rendererRef.current || scheduler.isFinished()) {
+      try {
+        const loaded = await loadMiserablesGraph();
+        if (ac.signal.aborted) {
+          loaded.graph.free();
           return;
         }
-        scheduler.step((eta) => {
-          sgd.shuffle(rng);
-          sgd.applyWithDrawingEuclidean2d(drawing, eta);
-        });
-        drawing.centralize();
-        for (const u of graph.nodeIndices()) {
-          const node = graph.nodeWeight(u);
-          node.x = drawing.x(u);
-          node.y = drawing.y(u);
-        }
-        rendererRef.current.update();
-        window.requestAnimationFrame(draw);
-      };
+        graph = loaded.graph;
+        layout = Layout2d.init(loaded.numNodes, 1);
+        solver = SgdSolver.full(graph, { tMax: 100, eps: 0.1, seed: 1 });
+        sceneRef.current = {
+          coords: layout.coordsView(),
+          numNodes: loaded.numNodes,
+          nodes: loaded.nodes,
+          links: loaded.links,
+          nodeRadius: 5,
+        };
+        setTick((t) => t + 1);
 
-      rendererRef.current.load(data);
-      rendererRef.current.focus(0, 0);
-      draw();
+        await runProgressive(
+          solver,
+          layout,
+          (ctx) => {
+            sceneRef.current.coords = layout.coordsView();
+            setStatus(`SGD: iteration ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
+            setTick((t) => t + 1);
+          },
+          { frameBudgetMs: 10, signal: ac.signal },
+        );
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setStatus(`Error: ${err.message}`);
+        }
+      }
     })();
+
+    return () => {
+      ac.abort();
+      solver?.free();
+      layout?.free();
+      graph?.free();
+    };
   }, []);
 
   return (
-    <Wrapper
-      onResize={(width, height) => {
-        rendererRef.current.width = width;
-        rendererRef.current.height = height;
-      }}
-    >
-      <eg-renderer
-        ref={rendererRef}
-        default-node-width="10"
-        default-node-height="10"
-        default-node-stroke-color="#fff"
-        default-node-stroke-width="1.5"
-        default-node-type="circle"
-        default-link-stroke-color="#999"
-        default-link-stroke-opacity="0.6"
-        node-id-property="id"
-        node-label-property="name"
-        no-auto-centering
-      />
-    </Wrapper>
+    <div>
+      <div className="graph-status-bar">
+        <span className="tag is-info is-medium">Full SGD (v6 CsrGraph + runProgressive)</span>
+        <span className="tag is-light">{status}</span>
+      </div>
+      <GraphCanvas sceneRef={sceneRef} tick={tick} />
+    </div>
   );
 }

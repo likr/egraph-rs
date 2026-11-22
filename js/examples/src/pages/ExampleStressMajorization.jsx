@@ -1,76 +1,75 @@
-import React, { useEffect, useRef } from "react";
-import * as d3 from "d3";
-import {
-  DrawingEuclidean2d as Drawing,
-  Graph,
-  StressMajorization,
-} from "egraph/dist/web/egraph_wasm";
-import { Wrapper } from "../wrapper";
+import { useEffect, useRef, useState } from "react";
+import { Layout2d, StressMajorizationSolver, runProgressive } from "egraph";
+import { GraphCanvas } from "../components/GraphCanvas";
+import { loadMiserablesGraph } from "../graphUtils";
 
 export function ExampleStressMajorization() {
-  const rendererRef = useRef();
+  const sceneRef = useRef(null);
+  const [tick, setTick] = useState(0);
+  const [status, setStatus] = useState("initializing...");
 
   useEffect(() => {
+    const ac = new AbortController();
+    let graph = null;
+    let layout = null;
+    let solver = null;
+
     (async () => {
-      const response = await fetch("/data/miserables.json");
-      const data = await response.json();
+      try {
+        const loaded = await loadMiserablesGraph();
+        if (ac.signal.aborted) {
+          loaded.graph.free();
+          return;
+        }
+        graph = loaded.graph;
+        layout = Layout2d.init(loaded.numNodes, 7);
+        solver = StressMajorizationSolver.fromGraph(graph, {
+          epsilon: 1e-5,
+          maxIterations: 100,
+        });
+        sceneRef.current = {
+          coords: layout.coordsView(),
+          numNodes: loaded.numNodes,
+          nodes: loaded.nodes,
+          links: loaded.links,
+          nodeRadius: 5,
+        };
+        setTick((t) => t + 1);
 
-      const color = d3.scaleOrdinal(d3.schemeCategory10);
-      const graph = new Graph();
-      const indices = new Map();
-      for (const node of data.nodes) {
-        node.fillColor = color(node.group);
-        indices.set(node.id, graph.addNode(node));
-      }
-      for (const link of data.links) {
-        link.strokeWidth = Math.sqrt(link.value);
-        const { source, target } = link;
-        graph.addEdge(indices.get(source), indices.get(target), link);
-      }
-
-      const drawing = Drawing.initialPlacement(graph);
-      const stressMajorization = new StressMajorization(graph, drawing, () => ({
-        distance: 100,
-      }));
-      rendererRef.current.load(data);
-      rendererRef.current.focus(0, 0);
-      function draw() {
-        if (stressMajorization.apply(drawing) > 1e-5) {
-          drawing.centralize();
-          for (const u of graph.nodeIndices()) {
-            const node = graph.nodeWeight(u);
-            node.x = drawing.x(u);
-            node.y = drawing.y(u);
-          }
-          rendererRef.current.update();
-          requestAnimationFrame(draw);
+        await runProgressive(
+          solver,
+          layout,
+          (ctx) => {
+            sceneRef.current.coords = layout.coordsView();
+            const stress = solver.lastStress();
+            const stressStr = typeof stress === "number" ? `, stress=${stress.toFixed(2)}` : "";
+            setStatus(`Stress Majorization: step ${ctx.iteration}/${ctx.totalIterations} (${ctx.status}${stressStr})`);
+            setTick((t) => t + 1);
+          },
+          { frameBudgetMs: 10, signal: ac.signal },
+        );
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setStatus(`Error: ${err.message}`);
         }
       }
-      draw();
     })();
+
+    return () => {
+      ac.abort();
+      solver?.free();
+      layout?.free();
+      graph?.free();
+    };
   }, []);
 
   return (
-    <Wrapper
-      onResize={(width, height) => {
-        rendererRef.current.width = width;
-        rendererRef.current.height = height;
-      }}
-    >
-      <eg-renderer
-        ref={rendererRef}
-        transition-duration="100"
-        default-node-width="10"
-        default-node-height="10"
-        default-node-stroke-color="#fff"
-        default-node-stroke-width="1.5"
-        default-node-type="circle"
-        default-link-stroke-color="#999"
-        default-link-stroke-opacity="0.6"
-        node-id-property="id"
-        node-label-property="name"
-        no-auto-centering
-      />
-    </Wrapper>
+    <div>
+      <div className="graph-status-bar">
+        <span className="tag is-info is-medium">Stress Majorization (v6 CsrGraph + runProgressive)</span>
+        <span className="tag is-light">{status}</span>
+      </div>
+      <GraphCanvas sceneRef={sceneRef} tick={tick} />
+    </div>
   );
 }

@@ -1,61 +1,58 @@
-import React, { useEffect, useRef } from "react";
-import * as d3 from "d3";
-import { Graph, ClassicalMds } from "egraph/dist/web/egraph_wasm";
-import { Wrapper } from "../wrapper";
+import { useEffect, useRef, useState } from "react";
+import { classicalMds2d, normalizeLayout2d } from "egraph";
+import { GraphCanvas } from "../components/GraphCanvas";
+import { loadMiserablesGraph } from "../graphUtils";
 
 export function ExampleMds() {
-  const rendererRef = useRef();
+  const sceneRef = useRef(null);
+  const [tick, setTick] = useState(0);
+  const [status, setStatus] = useState("computing Classical MDS...");
 
   useEffect(() => {
+    let cancelled = false;
+    let graph = null;
+    let layout = null;
+
     (async () => {
-      const response = await fetch("/data/miserables.json");
-      const data = await response.json();
-      const color = d3.scaleOrdinal(d3.schemeCategory10);
-      const graph = new Graph();
-      const indices = new Map();
-      for (const node of data.nodes) {
-        node.fillColor = color(node.group);
-        indices.set(node.id, graph.addNode(node));
+      try {
+        const loaded = await loadMiserablesGraph();
+        if (cancelled) {
+          loaded.graph.free();
+          return;
+        }
+        graph = loaded.graph;
+        const t0 = performance.now();
+        layout = classicalMds2d(graph);
+        normalizeLayout2d(layout, 1.0, 42);
+        const dt = (performance.now() - t0).toFixed(2);
+        sceneRef.current = {
+          coords: layout.coordsView(),
+          numNodes: loaded.numNodes,
+          nodes: loaded.nodes,
+          links: loaded.links,
+          nodeRadius: 5,
+        };
+        setStatus(`Classical MDS completed in ${dt} ms (${loaded.numNodes} nodes)`);
+        setTick((t) => t + 1);
+      } catch (err) {
+        setStatus(`Error: ${err.message}`);
       }
-      for (const link of data.links) {
-        link.strokeWidth = Math.sqrt(link.value);
-        const { source, target } = link;
-        graph.addEdge(indices.get(source), indices.get(target), link);
-      }
-
-      const drawing = new ClassicalMds(graph, () => 100).run2d();
-      for (const u of graph.nodeIndices()) {
-        const node = graph.nodeWeight(u);
-        node.x = drawing.x(u);
-        node.y = drawing.y(u);
-      }
-
-      rendererRef.current.load(data);
-      rendererRef.current.focus(0, 0);
     })();
+
+    return () => {
+      cancelled = true;
+      layout?.free();
+      graph?.free();
+    };
   }, []);
 
   return (
-    <Wrapper
-      onResize={(width, height) => {
-        rendererRef.current.width = width;
-        rendererRef.current.height = height;
-      }}
-    >
-      <eg-renderer
-        ref={rendererRef}
-        transition-duration="1000"
-        default-node-width="10"
-        default-node-height="10"
-        default-node-stroke-color="#fff"
-        default-node-stroke-width="1.5"
-        default-node-type="circle"
-        default-link-stroke-color="#999"
-        default-link-stroke-opacity="0.6"
-        node-id-property="id"
-        node-label-property="name"
-        no-auto-centering
-      />
-    </Wrapper>
+    <div>
+      <div className="graph-status-bar">
+        <span className="tag is-info is-medium">Classical MDS (v6 classicalMds2d)</span>
+        <span className="tag is-light">{status}</span>
+      </div>
+      <GraphCanvas sceneRef={sceneRef} tick={tick} />
+    </div>
   );
 }

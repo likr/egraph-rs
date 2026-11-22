@@ -1,16 +1,20 @@
 import { createRoot } from "react-dom/client";
-import { BrowserRouter as Router, Route, Link } from "react-router-dom";
+import { BrowserRouter as Router, Link, Route, Routes } from "react-router-dom";
 import {
-  Home,
   ExampleEdgeBundling,
-  ExampleKamadaKawai,
+  ExampleForceAtlas2,
+  ExampleGuMap,
   ExampleHyperbolicGeometry,
+  ExampleKamadaKawai,
   ExampleMds,
+  ExamplePrismOverlapRemoval,
   ExampleSgd,
   ExampleSphericalGeometry,
   ExampleStressMajorization,
+  ExampleTFdp,
   ExampleTorus,
-  ExampleOverwrapRemoval,
+  ExampleTsNetTrackA,
+  Home,
 } from "./pages";
 
 createRoot(document.getElementById("content")).render(
@@ -21,7 +25,7 @@ createRoot(document.getElementById("content")).render(
           <div className="container">
             <div className="navbar-brand">
               <Link to="/" className="navbar-item">
-                <h1>Egraph Examples</h1>
+                <strong>egraph v6 Examples</strong>
               </Link>
             </div>
           </div>
@@ -29,27 +33,25 @@ createRoot(document.getElementById("content")).render(
       </header>
       <section className="section">
         <div className="container">
-          <Route path="/" component={Home} exact />
-          <Route path="/edge-bundling" component={ExampleEdgeBundling} />
-          <Route
-            path="/hyperbolic-geometry"
-            component={ExampleHyperbolicGeometry}
-          />
-          <Route path="/kamada-kawai" component={ExampleKamadaKawai} />
-          <Route path="/mds" component={ExampleMds} />
-          <Route path="/overwrap-removal" component={ExampleOverwrapRemoval} />
-          <Route path="/sgd" component={ExampleSgd} />
-          <Route
-            path="/spherical-geometry"
-            component={ExampleSphericalGeometry}
-          />
-          <Route
-            path="/stress-majorization"
-            component={ExampleStressMajorization}
-          />
-          <Route path="/torus-geometry" component={ExampleTorus} />
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/tsnet-track-a" element={<ExampleTsNetTrackA />} />
+            <Route path="/t-fdp" element={<ExampleTFdp />} />
+            <Route path="/force-atlas2" element={<ExampleForceAtlas2 />} />
+            <Route path="/gumap" element={<ExampleGuMap />} />
+            <Route path="/edge-bundling" element={<ExampleEdgeBundling />} />
+            <Route path="/hyperbolic-geometry" element={<ExampleHyperbolicGeometry />} />
+            <Route path="/kamada-kawai" element={<ExampleKamadaKawai />} />
+            <Route path="/mds" element={<ExampleMds />} />
+            <Route path="/prism-overlap-removal" element={<ExamplePrismOverlapRemoval />} />
+            <Route path="/overwrap-removal" element={<ExamplePrismOverlapRemoval />} />
+            <Route path="/sgd" element={<ExampleSgd />} />
+            <Route path="/spherical-geometry" element={<ExampleSphericalGeometry />} />
+            <Route path="/stress-majorization" element={<ExampleStressMajorization />} />
+            <Route path="/torus-geometry" element={<ExampleTorus />} />
+          </Routes>
         </div>
       </section>
     </div>
-  </Router>
+  </Router>,
 );

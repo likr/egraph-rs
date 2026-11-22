@@ -1,40 +1,37 @@
-import React from "react";
 import { Link } from "react-router-dom";
 
-export class Home extends React.Component {
-  render() {
-    return (
-      <div>
-        <ul>
-          <li>
-            <Link to="/kamada-kawai">KamadaKawai</Link>
+const demos = [
+  { to: "/tsnet-track-a", title: "Track A: TsNetSolver.pure2Hop (FFT + Adaptive k-NN)", isNew: true },
+  { to: "/t-fdp", title: "t-FDP: TFdpSolver (ibfft + PivotMDS)", isNew: true },
+  { to: "/force-atlas2", title: "ForceAtlas2 (Barnes-Hut + runProgressive)", isNew: true },
+  { to: "/gumap", title: "GuMap (GuMapSolver.fromGraphDog + runProgressive)", isNew: true },
+  { to: "/sgd", title: "Full SGD (SgdSolver.full + runProgressive)" },
+  { to: "/kamada-kawai", title: "Kamada-Kawai (KamadaKawaiSolver.fromGraph + runProgressive)" },
+  { to: "/stress-majorization", title: "Stress Majorization (StressMajorizationSolver + runProgressive)" },
+  { to: "/mds", title: "Classical MDS (classicalMds2d + normalizeLayout2d)" },
+  { to: "/edge-bundling", title: "Force-Directed Edge Bundling (FdebSolver + runProgressive)" },
+  { to: "/prism-overlap-removal", title: "PRISM Overlap Removal (PrismOverlapRemoval + runProgressive)" },
+  { to: "/hyperbolic-geometry", title: "Hyperbolic Geometry (ManifoldLayout2d + Poincaré Disk)" },
+  { to: "/spherical-geometry", title: "Spherical Geometry (ManifoldLayout2d + Azimuthal Globe)" },
+  { to: "/torus-geometry", title: "Torus 2D Geometry (ManifoldLayout2d + Tiled Torus)" },
+];
+
+export function Home() {
+  return (
+    <div className="content">
+      <h2 className="title is-4">egraph v6 WebAssembly Layout Demos</h2>
+      <p className="subtitle is-6">
+        Single-threaded Rust + WebAssembly layouts using zero-copy <code>Layout2d.coordsView()</code> and{" "}
+        <code>runProgressive()</code> frame-budgeted scheduling.
+      </p>
+      <ul>
+        {demos.map((demo) => (
+          <li key={demo.to}>
+            <Link to={demo.to}>{demo.title}</Link>{" "}
+            {demo.isNew && <span className="tag is-primary is-light is-small">v6</span>}
           </li>
-          <li>
-            <Link to="/stress-majorization">StressMajorization</Link>
-          </li>
-          <li>
-            <Link to="/sgd">SGD</Link>
-          </li>
-          <li>
-            <Link to="/mds">MDS</Link>
-          </li>
-          <li>
-            <Link to="/hyperbolic-geometry">Hyperbolic Geometry</Link>
-          </li>
-          <li>
-            <Link to="/spherical-geometry">Spherical Geometry</Link>
-          </li>
-          <li>
-            <Link to="/torus-geometry">Torus Geometry</Link>
-          </li>
-          <li>
-            <Link to="/edge-bundling">Edge-bundling</Link>
-          </li>
-          <li>
-            <Link to="/overwrap-removal">Overwrap Removal</Link>
-          </li>
-        </ul>
-      </div>
-    );
-  }
+        ))}
+      </ul>
+    </div>
+  );
 }

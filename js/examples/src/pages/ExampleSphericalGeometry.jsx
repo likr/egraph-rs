@@ -1,138 +1,124 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
-import {
-  DrawingSpherical2d as Drawing,
-  Graph,
-  FullSgd as Sgd,
-  Rng,
-} from "egraph/dist/web/egraph_wasm";
-
-async function fetchData() {
-  const response = await fetch("/data/miserables.json");
-  const data = await response.json();
-  const color = d3.scaleOrdinal(d3.schemeCategory10);
-  for (const node of data.nodes) {
-    node.fillColor = color(node.group);
-  }
-  for (const link of data.links) {
-    link.strokeWidth = Math.sqrt(link.value);
-  }
-  return data;
-}
-
-function layout(data) {
-  const graph = new Graph();
-  const indices = new Map();
-  for (const node of data.nodes) {
-    indices.set(node.id, graph.addNode(node));
-  }
-  for (const link of data.links) {
-    const { source, target } = link;
-    graph.addEdge(indices.get(source), indices.get(target), link);
-  }
-
-  const rng = Rng.seedFrom(4n);
-  const drawing = Drawing.initialPlacement(graph);
-  const sgd = new Sgd(graph, () => 1);
-  const scheduler = sgd.scheduler(100, 0.1);
-  scheduler.run((eta) => {
-    sgd.shuffle(rng);
-    sgd.applyWithDrawingSpherical2d(drawing, eta);
-  });
-
-  for (const u of graph.nodeIndices()) {
-    const node = graph.nodeWeight(u);
-    node.lon = (180 * (drawing.lon(u) - Math.PI)) / Math.PI;
-    node.lat = (180 * (drawing.lat(u) - Math.PI / 2)) / Math.PI;
-  }
-}
+import { ManifoldLayout2d, SgdSolver, runProgressive } from "egraph";
+import { createManifoldRunner, loadMiserablesGraph } from "../graphUtils";
 
 export function ExampleSphericalGeometry() {
   const svgRef = useRef();
   const [rotate, setRotate] = useState([0, 0]);
-  const [data, setData] = useState({ nodes: [], links: [] });
+  const [scene, setScene] = useState({ nodes: [], links: [] });
+  const [status, setStatus] = useState("initializing...");
   const displayR = 500;
   const margin = 50;
 
   useEffect(() => {
-    (async () => {
-      const data = await fetchData();
-      layout(data);
-      setData(data);
-    })();
-  }, []);
-
-  useEffect(() => {
     const drag = d3.drag().on("drag", (event) => {
-      setRotate((rotate) => [rotate[0] - event.dx, rotate[1] - event.dy]);
+      setRotate((prev) => [prev[0] - event.dx * 0.5, prev[1] - event.dy * 0.5]);
     });
     d3.select(svgRef.current).call(drag);
   }, []);
 
-  const size = (displayR + margin) * 2;
+  useEffect(() => {
+    const ac = new AbortController();
+    let graph = null;
+    let manifold = null;
+    let solver = null;
 
-  const projection = d3.geoAzimuthalEquidistant().rotate(rotate);
+    (async () => {
+      try {
+        const loaded = await loadMiserablesGraph();
+        if (ac.signal.aborted) {
+          loaded.graph.free();
+          return;
+        }
+        graph = loaded.graph;
+        manifold = ManifoldLayout2d.spherical(loaded.numNodes);
+        for (let i = 0; i < loaded.numNodes; i++) {
+          const lon = (2 * Math.PI * i) / loaded.numNodes;
+          const colat = Math.PI * (0.25 + 0.5 * ((i % 7) / 7));
+          manifold.setPoint(i, lon, colat);
+        }
+        solver = SgdSolver.full(graph, { tMax: 80, eps: 0.1, seed: 4 });
+        const runner = createManifoldRunner(solver);
+
+        const syncFrame = (ctx) => {
+          const raw = manifold.coords();
+          const nodes = loaded.nodes.map((node, i) => ({
+            ...node,
+            lon: (180 * (raw[2 * i] - Math.PI)) / Math.PI,
+            lat: (180 * (Math.PI / 2 - raw[2 * i + 1])) / Math.PI,
+          }));
+          setScene({ nodes, links: loaded.links });
+          setStatus(`Spherical SGD: ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
+        };
+
+        await runProgressive(runner, manifold, syncFrame, {
+          frameBudgetMs: 10,
+          signal: ac.signal,
+        });
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setStatus(`Error: ${err.message}`);
+        }
+      }
+    })();
+
+    return () => {
+      ac.abort();
+      solver?.free();
+      manifold?.free();
+      graph?.free();
+    };
+  }, []);
+
+  const size = (displayR + margin) * 2;
+  const projection = d3.geoAzimuthalEquidistant().rotate(rotate).translate([displayR, displayR]).scale(155);
   const path = d3.geoPath(projection);
+
   return (
     <div>
-      <svg
-        ref={svgRef}
-        style={{ cursor: "move" }}
-        viewBox={`${-margin} ${-margin} ${size} ${size}`}
-      >
-        <g>
+      <div className="graph-status-bar">
+        <span className="tag is-info is-medium">Spherical Geometry (ManifoldLayout2d + runProgressive)</span>
+        <span className="tag is-light">{status}</span>
+        <span className="tag is-white">Drag globe to rotate</span>
+      </div>
+      <div className="graph-canvas-wrap">
+        <svg ref={svgRef} style={{ cursor: "move" }} viewBox={`${-margin} ${-margin} ${size} ${size}`}>
           <g>
-            <path
-              d={path(d3.geoGraticule10())}
-              fill="none"
-              stroke="#888"
-              opacity="0.3"
-            />
-          </g>
-          <g>
-            {data.links.map((link) => {
+            <path d={path(d3.geoGraticule10())} fill="none" stroke="#888" opacity="0.3" />
+            {scene.links.map((link) => {
+              const s = scene.nodes[link.source];
+              const t = scene.nodes[link.target];
+              if (!s || !t) return null;
               return (
-                <g key={`${link.source}:${link.target}`}>
-                  <path
-                    d={path({
-                      type: "LineString",
-                      coordinates: [
-                        [
-                          data.nodes[link.source].lon,
-                          data.nodes[link.source].lat,
-                        ],
-                        [
-                          data.nodes[link.target].lon,
-                          data.nodes[link.target].lat,
-                        ],
-                      ],
-                    })}
-                    fill="none"
-                    stroke="#999"
-                    strokeWidth={link.strokeWidth}
-                    opacity="0.6"
-                  />
-                </g>
+                <path
+                  key={`${link.source}:${link.target}`}
+                  d={path({
+                    type: "LineString",
+                    coordinates: [
+                      [s.lon, s.lat],
+                      [t.lon, t.lat],
+                    ],
+                  })}
+                  fill="none"
+                  stroke="#999"
+                  strokeWidth={link.strokeWidth}
+                  opacity="0.55"
+                />
               );
             })}
-            {data.nodes.map((node) => {
-              return (
-                <g key={node.id}>
-                  <path
-                    d={path({
-                      type: "Point",
-                      coordinates: [node.lon, node.lat],
-                    })}
-                    fill={node.fillColor}
-                    stroke="#fff"
-                    strokeWidth="1.5"
-                  />
-                </g>
-              );
-            })}
+            {scene.nodes.map((node) => (
+              <path
+                key={node.id}
+                d={path({ type: "Point", coordinates: [node.lon, node.lat] })}
+                fill={node.color}
+                stroke="#fff"
+                strokeWidth="1.5"
+              />
+            ))}
           </g>
-        </g>
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 }
