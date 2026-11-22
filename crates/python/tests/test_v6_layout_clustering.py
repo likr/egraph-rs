@@ -519,11 +519,10 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assertTrue(st_clean["round_stats"][0]["skipped"])
         np.testing.assert_array_equal(l_clean.coords(copy=True), clean)
 
-        # Folded intruder (far corner node 8 placed next to node 0) is pushed apart and improves NP2
+        # Folded intruder (far corner node 8 placed next to node 0) is pushed apart
         folded = clean.copy()
         folded[8] = np.array([0.08, 0.08], dtype=np.float64)
         dist_before = float(np.hypot(folded[0, 0] - folded[8, 0], folded[0, 1] - folded[8, 1]))
-        np2_before = eg.neighborhood_preservation_2hop_v6(g, eg.Layout2d.from_coords(folded))
 
         for dtype_str in ("float64", "float32"):
             r_run = eg.SpatialIntruderRefiner(g, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
@@ -537,13 +536,37 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
             while not r_step.is_finished:
                 r_step.step(lf_step)
             np.testing.assert_array_equal(lf_run.coords(copy=True), lf_step.coords(copy=True))
-            if dtype_str == "float64":
-                after = lf_run.coords(copy=True)
-                dist_after = float(np.hypot(after[0, 0] - after[8, 0], after[0, 1] - after[8, 1]))
-                self.assertGreater(dist_after, dist_before * 2.0)
-                np2_after = eg.neighborhood_preservation_2hop_v6(g, lf_run)
-                self.assertGreater(np2_after, np2_before)
-                self.assertGreater(r_run.stats()["n_fp_total"], 0)
+            after = lf_run.coords(copy=True)
+            dist_after = float(np.hypot(after[0, 0] - after[8, 0], after[0, 1] - after[8, 1]))
+            self.assertGreater(dist_after, dist_before * 2.0)
+            self.assertGreater(r_run.stats()["n_fp_total"], 0)
+
+        # Folded 2x8 strip layout improves 2-hop neighborhood preservation
+        g_strip = _make_grid(2, 8)
+        strip_folded = np.array(
+            [
+                [float(c), float(r)] if c < 4 else [float(7 - c) + 0.12, float(r) + 0.12]
+                for r in range(2)
+                for c in range(8)
+            ],
+            dtype=np.float64,
+        )
+        strip_np2_before = eg.neighborhood_preservation_2hop_v6(g_strip, eg.Layout2d.from_coords(strip_folded))
+        for dtype_str in ("float64", "float32"):
+            rs_run = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
+            rs_step = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
+            strip_typed = _to_float_array(strip_folded, dtype_str)
+            ls_run = eg.Layout2d.from_coords(strip_typed)
+            ls_step = eg.Layout2d.from_coords(strip_typed)
+            st_strip = rs_run.run(ls_run)
+            self.assertIn(st_strip, ("converged", "completed"))
+            rs_step.run_steps(ls_step, 1)
+            while not rs_step.is_finished:
+                rs_step.step(ls_step)
+            np.testing.assert_array_equal(ls_run.coords(copy=True), ls_step.coords(copy=True))
+            self.assertGreater(rs_run.stats()["n_fp_total"], 0)
+            np2_after = eg.neighborhood_preservation_2hop_v6(g_strip, ls_run)
+            self.assertGreater(np2_after, strip_np2_before + 0.1)
 
         self.assert_no_panic_raises((ValueError,), lambda: eg.SpatialIntruderRefiner(g, k_cap=0))
         self.assert_no_panic_raises((TypeError,), lambda: eg.SpatialIntruderRefiner(g, hinge_fp=1))  # type: ignore[arg-type]
