@@ -413,13 +413,17 @@ pub fn project_psd_spectral_filter(
     Ok((terms_psd, delta_psd, h_min))
 }
 
-/// Zero-allocation-per-call 3-vector workspace (`t_prev`, `t_curr`, `t_next`) for Chebyshev
-/// SpMV / SpMM recurrence and Rademacher JL spectral embeddings.
+const CHEBYSHEV_TILE_COLS: usize = 8;
+
+/// Zero-allocation-per-call tiled workspace (`t_prev`, `t_curr`, `t_next`, and L2-resident
+/// 8-column tile accumulators) for fused Chebyshev SpMV / SpMM recurrences and JL embeddings.
 #[derive(Debug, Clone, Default)]
 pub struct ChebyshevWorkspace {
     t_prev: Vec<f64>,
     t_curr: Vec<f64>,
     t_next: Vec<f64>,
+    out_a_tile: Vec<f64>,
+    out_b_tile: Vec<f64>,
 }
 
 impl ChebyshevWorkspace {
@@ -428,12 +432,14 @@ impl ChebyshevWorkspace {
         Self::default()
     }
 
-    /// Creates a [`ChebyshevWorkspace`] pre-allocated for `capacity` scalar entries (`n * ncols`).
+    /// Creates a [`ChebyshevWorkspace`] pre-allocated for `capacity` scalar entries.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             t_prev: vec![0.0; capacity],
             t_curr: vec![0.0; capacity],
             t_next: vec![0.0; capacity],
+            out_a_tile: Vec::new(),
+            out_b_tile: Vec::new(),
         }
     }
 
@@ -448,6 +454,351 @@ impl ChebyshevWorkspace {
         if self.t_next.len() < len {
             self.t_next.resize(len, 0.0);
         }
+    }
+
+    #[inline]
+    fn ensure_tile_out(&mut self, len: usize, need_b: bool) {
+        if self.out_a_tile.len() < len {
+            self.out_a_tile.resize(len, 0.0);
+        }
+        if need_b && self.out_b_tile.len() < len {
+            self.out_b_tile.resize(len, 0.0);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fused_step_const<const W: usize>(
+        mat: &CsrMatrix,
+        unshifted_scale: Option<f64>,
+        prev: &[f64],
+        curr: &[f64],
+        next: &mut [f64],
+        ca: f64,
+        mut out_a: Option<&mut [f64]>,
+        cb: f64,
+        mut out_b: Option<&mut [f64]>,
+        is_k1: bool,
+    ) -> CoreResult<()> {
+        let n = mat.num_nodes();
+        let len = n
+            .checked_mul(W)
+            .ok_or_else(|| CoreError::invalid_input("ChebyshevWorkspace tile size overflow"))?;
+        if curr.len() < len || next.len() < len || (!is_k1 && prev.len() < len) {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                curr.len().min(next.len()),
+                "ChebyshevWorkspace::fused_step_const",
+            ));
+        }
+        if let Some(oa) = out_a.as_deref()
+            && oa.len() < len
+        {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                oa.len(),
+                "ChebyshevWorkspace::fused_step_const::out_a",
+            ));
+        }
+        if let Some(ob) = out_b.as_deref()
+            && ob.len() < len
+        {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                ob.len(),
+                "ChebyshevWorkspace::fused_step_const::out_b",
+            ));
+        }
+
+        let indptr = mat.indptr();
+        let indices = mat.indices();
+        let values = mat.values();
+        let curr = &curr[..len];
+        let next = &mut next[..len];
+
+        for row in 0..n {
+            let start = indptr[row] as usize;
+            let end = indptr[row + 1] as usize;
+            let mut acc = [0.0_f64; W];
+            for (&col_u32, &mval) in indices[start..end].iter().zip(&values[start..end]) {
+                let x_off = (col_u32 as usize) * W;
+                if let Some(x_row) = curr.get(x_off..x_off + W) {
+                    for j in 0..W {
+                        acc[j] += mval * x_row[j];
+                    }
+                }
+            }
+
+            let row_off = row * W;
+            let mut nxt = [0.0_f64; W];
+            if let Some(alpha) = unshifted_scale {
+                let curr_row = &curr[row_off..row_off + W];
+                if is_k1 {
+                    for j in 0..W {
+                        nxt[j] = alpha * acc[j] - curr_row[j];
+                    }
+                } else {
+                    let prev_row = &prev[row_off..row_off + W];
+                    for j in 0..W {
+                        nxt[j] = 2.0 * (alpha * acc[j] - curr_row[j]) - prev_row[j];
+                    }
+                }
+            } else if is_k1 {
+                nxt = acc;
+            } else {
+                let prev_row = &prev[row_off..row_off + W];
+                for j in 0..W {
+                    nxt[j] = 2.0 * acc[j] - prev_row[j];
+                }
+            }
+
+            next[row_off..row_off + W].copy_from_slice(&nxt);
+            if let Some(oa) = out_a.as_deref_mut() {
+                let row_oa = &mut oa[row_off..row_off + W];
+                for j in 0..W {
+                    row_oa[j] += ca * nxt[j];
+                }
+            }
+            if let Some(ob) = out_b.as_deref_mut() {
+                let row_ob = &mut ob[row_off..row_off + W];
+                for j in 0..W {
+                    row_ob[j] += cb * nxt[j];
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fused_step_tail(
+        mat: &CsrMatrix,
+        unshifted_scale: Option<f64>,
+        prev: &[f64],
+        curr: &[f64],
+        next: &mut [f64],
+        ca: f64,
+        mut out_a: Option<&mut [f64]>,
+        cb: f64,
+        mut out_b: Option<&mut [f64]>,
+        w: usize,
+        is_k1: bool,
+    ) -> CoreResult<()> {
+        if w == 0 || w > CHEBYSHEV_TILE_COLS {
+            return Err(CoreError::invalid_input(format!(
+                "ChebyshevWorkspace tile width must be in 1..={CHEBYSHEV_TILE_COLS}, got {w}"
+            )));
+        }
+        let n = mat.num_nodes();
+        let len = n
+            .checked_mul(w)
+            .ok_or_else(|| CoreError::invalid_input("ChebyshevWorkspace tile size overflow"))?;
+        if curr.len() < len || next.len() < len || (!is_k1 && prev.len() < len) {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                curr.len().min(next.len()),
+                "ChebyshevWorkspace::fused_step_tail",
+            ));
+        }
+        if let Some(oa) = out_a.as_deref()
+            && oa.len() < len
+        {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                oa.len(),
+                "ChebyshevWorkspace::fused_step_tail::out_a",
+            ));
+        }
+        if let Some(ob) = out_b.as_deref()
+            && ob.len() < len
+        {
+            return Err(CoreError::dimension_mismatch(
+                len,
+                ob.len(),
+                "ChebyshevWorkspace::fused_step_tail::out_b",
+            ));
+        }
+
+        let indptr = mat.indptr();
+        let indices = mat.indices();
+        let values = mat.values();
+        let curr = &curr[..len];
+        let next = &mut next[..len];
+
+        for row in 0..n {
+            let start = indptr[row] as usize;
+            let end = indptr[row + 1] as usize;
+            let mut acc = [0.0_f64; CHEBYSHEV_TILE_COLS];
+            for (&col_u32, &mval) in indices[start..end].iter().zip(&values[start..end]) {
+                let x_off = (col_u32 as usize) * w;
+                if let Some(x_row) = curr.get(x_off..x_off + w) {
+                    for j in 0..w {
+                        acc[j] += mval * x_row[j];
+                    }
+                }
+            }
+
+            let row_off = row * w;
+            let mut nxt = [0.0_f64; CHEBYSHEV_TILE_COLS];
+            if let Some(alpha) = unshifted_scale {
+                let curr_row = &curr[row_off..row_off + w];
+                if is_k1 {
+                    for j in 0..w {
+                        nxt[j] = alpha * acc[j] - curr_row[j];
+                    }
+                } else {
+                    let prev_row = &prev[row_off..row_off + w];
+                    for j in 0..w {
+                        nxt[j] = 2.0 * (alpha * acc[j] - curr_row[j]) - prev_row[j];
+                    }
+                }
+            } else if is_k1 {
+                nxt[..w].copy_from_slice(&acc[..w]);
+            } else {
+                let prev_row = &prev[row_off..row_off + w];
+                for j in 0..w {
+                    nxt[j] = 2.0 * acc[j] - prev_row[j];
+                }
+            }
+
+            next[row_off..row_off + w].copy_from_slice(&nxt[..w]);
+            if let Some(oa) = out_a.as_deref_mut() {
+                let row_oa = &mut oa[row_off..row_off + w];
+                for j in 0..w {
+                    row_oa[j] += ca * nxt[j];
+                }
+            }
+            if let Some(ob) = out_b.as_deref_mut() {
+                let row_ob = &mut ob[row_off..row_off + w];
+                for j in 0..w {
+                    row_ob[j] += cb * nxt[j];
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    fn dispatch_fused_step(
+        mat: &CsrMatrix,
+        unshifted_scale: Option<f64>,
+        prev: &[f64],
+        curr: &[f64],
+        next: &mut [f64],
+        ca: f64,
+        out_a: Option<&mut [f64]>,
+        cb: f64,
+        out_b: Option<&mut [f64]>,
+        w: usize,
+        is_k1: bool,
+    ) -> CoreResult<()> {
+        match w {
+            8 => Self::fused_step_const::<8>(
+                mat,
+                unshifted_scale,
+                prev,
+                curr,
+                next,
+                ca,
+                out_a,
+                cb,
+                out_b,
+                is_k1,
+            ),
+            1 => Self::fused_step_const::<1>(
+                mat,
+                unshifted_scale,
+                prev,
+                curr,
+                next,
+                ca,
+                out_a,
+                cb,
+                out_b,
+                is_k1,
+            ),
+            _ => Self::fused_step_tail(
+                mat,
+                unshifted_scale,
+                prev,
+                curr,
+                next,
+                ca,
+                out_a,
+                cb,
+                out_b,
+                w,
+                is_k1,
+            ),
+        }
+    }
+
+    fn run_tile_degrees(
+        &mut self,
+        mat: &CsrMatrix,
+        unshifted_scale: Option<f64>,
+        coeffs_a: &[f64],
+        coeffs_b: Option<&[f64]>,
+        w: usize,
+    ) -> CoreResult<()> {
+        let n = mat.num_nodes();
+        let tile_len = n * w;
+        let max_len = coeffs_a.len().max(coeffs_b.map_or(0, |b| b.len()));
+        if max_len <= 1 || n == 0 || w == 0 {
+            return Ok(());
+        }
+
+        let ca1 = coeffs_a.get(1).copied().unwrap_or(0.0);
+        let cb1 = coeffs_b.and_then(|cb| cb.get(1).copied()).unwrap_or(0.0);
+        Self::dispatch_fused_step(
+            mat,
+            unshifted_scale,
+            &[],
+            &self.t_prev[..tile_len],
+            &mut self.t_curr[..tile_len],
+            ca1,
+            if ca1 != 0.0 {
+                Some(&mut self.out_a_tile[..tile_len])
+            } else {
+                None
+            },
+            cb1,
+            if coeffs_b.is_some() && cb1 != 0.0 {
+                Some(&mut self.out_b_tile[..tile_len])
+            } else {
+                None
+            },
+            w,
+            true,
+        )?;
+
+        for k in 2..max_len {
+            let ca = coeffs_a.get(k).copied().unwrap_or(0.0);
+            let cb = coeffs_b.and_then(|b| b.get(k).copied()).unwrap_or(0.0);
+            Self::dispatch_fused_step(
+                mat,
+                unshifted_scale,
+                &self.t_prev[..tile_len],
+                &self.t_curr[..tile_len],
+                &mut self.t_next[..tile_len],
+                ca,
+                if ca != 0.0 {
+                    Some(&mut self.out_a_tile[..tile_len])
+                } else {
+                    None
+                },
+                cb,
+                if coeffs_b.is_some() && cb != 0.0 {
+                    Some(&mut self.out_b_tile[..tile_len])
+                } else {
+                    None
+                },
+                w,
+                false,
+            )?;
+            std::mem::swap(&mut self.t_prev, &mut self.t_curr);
+            std::mem::swap(&mut self.t_curr, &mut self.t_next);
+        }
+        Ok(())
     }
 
     /// Evaluates $\sum_{k=0}^{d} c_k T_k(\tilde{L}) v$ into `out` using a pre-shifted matrix
@@ -472,7 +823,24 @@ impl ChebyshevWorkspace {
         out: &mut [f64],
         ncols: usize,
     ) -> CoreResult<()> {
-        self.apply_batch_impl(l_tilde, None, coeffs, v, out, ncols)
+        self.apply_batch_dual_impl(l_tilde, None, coeffs, None, v, out, None, ncols)
+    }
+
+    /// Evaluates two Chebyshev polynomials sharing the same pre-shifted matrix $\tilde{L}$ and
+    /// input matrix `v` in a single L2-cache-resident 8-column-tiled recurrence pass:
+    /// `out_a = sum_k coeffs_a[k] T_k(L_tilde) V` and optionally `out_b = sum_k coeffs_b[k] T_k(L_tilde) V`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_batch_dual(
+        &mut self,
+        l_tilde: &CsrMatrix,
+        coeffs_a: &[f64],
+        coeffs_b: Option<&[f64]>,
+        v: &[f64],
+        out_a: &mut [f64],
+        out_b: Option<&mut [f64]>,
+        ncols: usize,
+    ) -> CoreResult<()> {
+        self.apply_batch_dual_impl(l_tilde, None, coeffs_a, coeffs_b, v, out_a, out_b, ncols)
     }
 
     /// Evaluates $\sum_{k=0}^{d} c_k T_k(\frac{2}{\lambda_{\max}} L - I) v$ directly from `L`
@@ -509,23 +877,51 @@ impl ChebyshevWorkspace {
                 "lambda_max must be strictly positive",
             ));
         }
-        self.apply_batch_impl(l_sym, Some(2.0 / lambda_max), coeffs, v, out, ncols)
+        self.apply_batch_dual_impl(
+            l_sym,
+            Some(2.0 / lambda_max),
+            coeffs,
+            None,
+            v,
+            out,
+            None,
+            ncols,
+        )
     }
 
-    fn apply_batch_impl(
+    #[allow(clippy::too_many_arguments)]
+    fn apply_batch_dual_impl(
         &mut self,
         mat: &CsrMatrix,
         unshifted_scale: Option<f64>,
-        coeffs: &[f64],
+        coeffs_a: &[f64],
+        coeffs_b: Option<&[f64]>,
         v: &[f64],
-        out: &mut [f64],
+        out_a: &mut [f64],
+        mut out_b: Option<&mut [f64]>,
         ncols: usize,
     ) -> CoreResult<()> {
-        if coeffs.is_empty() {
+        if coeffs_a.is_empty() {
             return Err(CoreError::invalid_input(
                 "Chebyshev coefficients must not be empty",
             ));
         }
+        match (coeffs_b, out_b.as_deref()) {
+            (Some(cb), Some(_)) => {
+                if cb.is_empty() {
+                    return Err(CoreError::invalid_input(
+                        "Chebyshev secondary coefficients must not be empty",
+                    ));
+                }
+            }
+            (None, None) => {}
+            _ => {
+                return Err(CoreError::invalid_input(
+                    "coeffs_b and out_b must both be Some or both be None",
+                ));
+            }
+        }
+
         let n = mat.num_nodes();
         let total = n
             .checked_mul(ncols)
@@ -537,67 +933,135 @@ impl ChebyshevWorkspace {
                 "ChebyshevWorkspace::v",
             ));
         }
-        if out.len() != total {
+        if out_a.len() != total {
             return Err(CoreError::dimension_mismatch(
                 total,
-                out.len(),
-                "ChebyshevWorkspace::out",
+                out_a.len(),
+                "ChebyshevWorkspace::out_a",
+            ));
+        }
+        if let Some(ob) = out_b.as_deref()
+            && ob.len() != total
+        {
+            return Err(CoreError::dimension_mismatch(
+                total,
+                ob.len(),
+                "ChebyshevWorkspace::out_b",
             ));
         }
         if total == 0 {
             return Ok(());
         }
 
-        self.ensure_len(total);
-        self.t_prev[..total].copy_from_slice(v);
-        self.run_recurrence_from_t_prev(mat, unshifted_scale, coeffs, out, ncols)
-    }
+        let max_len = coeffs_a.len().max(coeffs_b.map_or(0, |b| b.len()));
+        let ca0 = coeffs_a[0];
+        let cb0_opt = coeffs_b.map(|cb| cb[0]);
 
-    fn run_recurrence_from_t_prev(
-        &mut self,
-        mat: &CsrMatrix,
-        unshifted_scale: Option<f64>,
-        coeffs: &[f64],
-        out: &mut [f64],
-        ncols: usize,
-    ) -> CoreResult<()> {
-        let total = mat.num_nodes() * ncols;
-        let c0 = coeffs[0];
-        for i in 0..total {
-            out[i] = c0 * self.t_prev[i];
-        }
-        if coeffs.len() == 1 {
+        if ncols == 1 {
+            self.ensure_len(n);
+            self.t_prev[..n].copy_from_slice(v);
+            for i in 0..n {
+                out_a[i] = ca0 * v[i];
+            }
+            if let (Some(cb0), Some(ob)) = (cb0_opt, out_b.as_deref_mut()) {
+                for i in 0..n {
+                    ob[i] = cb0 * v[i];
+                }
+            }
+            if max_len == 1 {
+                return Ok(());
+            }
+            let ca1 = coeffs_a.get(1).copied().unwrap_or(0.0);
+            let cb1 = coeffs_b.and_then(|cb| cb.get(1).copied()).unwrap_or(0.0);
+            Self::fused_step_const::<1>(
+                mat,
+                unshifted_scale,
+                &[],
+                &self.t_prev[..n],
+                &mut self.t_curr[..n],
+                ca1,
+                (ca1 != 0.0).then_some(&mut out_a[..n]),
+                cb1,
+                if cb1 != 0.0 {
+                    out_b.as_deref_mut()
+                } else {
+                    None
+                },
+                true,
+            )?;
+            for k in 2..max_len {
+                let ca = coeffs_a.get(k).copied().unwrap_or(0.0);
+                let cb = coeffs_b.and_then(|b| b.get(k).copied()).unwrap_or(0.0);
+                Self::fused_step_const::<1>(
+                    mat,
+                    unshifted_scale,
+                    &self.t_prev[..n],
+                    &self.t_curr[..n],
+                    &mut self.t_next[..n],
+                    ca,
+                    (ca != 0.0).then_some(&mut out_a[..n]),
+                    cb,
+                    if cb != 0.0 {
+                        out_b.as_deref_mut()
+                    } else {
+                        None
+                    },
+                    false,
+                )?;
+                std::mem::swap(&mut self.t_prev, &mut self.t_curr);
+                std::mem::swap(&mut self.t_curr, &mut self.t_next);
+            }
             return Ok(());
         }
 
-        mat.spmm(&self.t_prev[..total], &mut self.t_curr[..total], ncols)?;
-        if let Some(alpha) = unshifted_scale {
-            for i in 0..total {
-                self.t_curr[i] = alpha * self.t_curr[i] - self.t_prev[i];
-            }
-        }
-        let c1 = coeffs[1];
-        for i in 0..total {
-            out[i] += c1 * self.t_curr[i];
-        }
+        let max_tile_len = n * ncols.min(CHEBYSHEV_TILE_COLS);
+        self.ensure_len(max_tile_len);
+        self.ensure_tile_out(max_tile_len, coeffs_b.is_some());
 
-        for &ck in &coeffs[2..] {
-            mat.spmm(&self.t_curr[..total], &mut self.t_next[..total], ncols)?;
-            if let Some(alpha) = unshifted_scale {
-                for i in 0..total {
-                    self.t_next[i] =
-                        2.0 * (alpha * self.t_next[i] - self.t_curr[i]) - self.t_prev[i];
+        for col_start in (0..ncols).step_by(CHEBYSHEV_TILE_COLS) {
+            let w = (ncols - col_start).min(CHEBYSHEV_TILE_COLS);
+            let tile_len = n * w;
+
+            if let Some(cb0) = cb0_opt {
+                for row in 0..n {
+                    let src = &v[row * ncols + col_start..row * ncols + col_start + w];
+                    let prev_dst = &mut self.t_prev[row * w..row * w + w];
+                    let oa_dst = &mut self.out_a_tile[row * w..row * w + w];
+                    let ob_dst = &mut self.out_b_tile[row * w..row * w + w];
+                    for j in 0..w {
+                        let val = src[j];
+                        prev_dst[j] = val;
+                        oa_dst[j] = ca0 * val;
+                        ob_dst[j] = cb0 * val;
+                    }
                 }
             } else {
-                for i in 0..total {
-                    self.t_next[i] = 2.0 * self.t_next[i] - self.t_prev[i];
+                for row in 0..n {
+                    let src = &v[row * ncols + col_start..row * ncols + col_start + w];
+                    let prev_dst = &mut self.t_prev[row * w..row * w + w];
+                    let oa_dst = &mut self.out_a_tile[row * w..row * w + w];
+                    for j in 0..w {
+                        let val = src[j];
+                        prev_dst[j] = val;
+                        oa_dst[j] = ca0 * val;
+                    }
                 }
             }
-            for i in 0..total {
-                out[i] += ck * self.t_next[i];
+
+            self.run_tile_degrees(mat, unshifted_scale, coeffs_a, coeffs_b, w)?;
+
+            for row in 0..n {
+                let oa_src = &self.out_a_tile[row * w..row * w + w];
+                out_a[row * ncols + col_start..row * ncols + col_start + w].copy_from_slice(oa_src);
             }
-            std::mem::swap(&mut self.t_prev, &mut self.t_curr);
-            std::mem::swap(&mut self.t_curr, &mut self.t_next);
+            if let Some(ob) = out_b.as_deref_mut() {
+                for row in 0..n {
+                    let ob_src = &self.out_b_tile[row * w..row * w + w];
+                    ob[row * ncols + col_start..row * ncols + col_start + w]
+                        .copy_from_slice(ob_src);
+                }
+            }
+            let _ = tile_len;
         }
         Ok(())
     }
@@ -637,6 +1101,41 @@ impl ChebyshevWorkspace {
         Ok(out)
     }
 
+    /// Computes a Johnson-Lindenstrauss spectral embedding using a pre-shifted matrix
+    /// $\tilde{L} = \frac{2}{\lambda_{\max}} L_{\mathrm{sym}} - I$ in L2-resident 8-column tiles.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_kernel_jl_embedding_shifted(
+        &mut self,
+        l_tilde: &CsrMatrix,
+        terms: &[(f64, f64)],
+        lambda_max: f64,
+        degree: usize,
+        jl_dim: usize,
+        seed: u64,
+        inv_sqrt_deg: Option<&[f64]>,
+    ) -> CoreResult<Vec<f64>> {
+        let n = l_tilde.num_nodes();
+        if jl_dim == 0 {
+            return Err(CoreError::invalid_input("jl_dim must be >= 1"));
+        }
+        let total = n
+            .checked_mul(jl_dim)
+            .ok_or_else(|| CoreError::invalid_input("JL embedding size overflow"))?;
+        let mut out = vec![0.0_f64; total];
+        self.compute_kernel_jl_embedding_impl(
+            l_tilde,
+            None,
+            terms,
+            lambda_max,
+            degree,
+            jl_dim,
+            seed,
+            inv_sqrt_deg,
+            &mut out,
+        )?;
+        Ok(out)
+    }
+
     /// In-place variant of [`ChebyshevWorkspace::compute_kernel_jl_embedding`] writing into a
     /// pre-allocated row-major `(n, jl_dim)` buffer `out`.
     #[allow(clippy::too_many_arguments)]
@@ -651,10 +1150,46 @@ impl ChebyshevWorkspace {
         inv_sqrt_deg: Option<&[f64]>,
         out: &mut [f64],
     ) -> CoreResult<()> {
+        if !lambda_max.is_finite() {
+            return Err(CoreError::non_finite(
+                "ChebyshevWorkspace::compute_kernel_jl_embedding_into::lambda_max",
+            ));
+        }
+        if lambda_max <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "lambda_max must be strictly positive",
+            ));
+        }
+        self.compute_kernel_jl_embedding_impl(
+            l_sym,
+            Some(2.0 / lambda_max),
+            terms,
+            lambda_max,
+            degree,
+            jl_dim,
+            seed,
+            inv_sqrt_deg,
+            out,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compute_kernel_jl_embedding_impl(
+        &mut self,
+        mat: &CsrMatrix,
+        unshifted_scale: Option<f64>,
+        terms: &[(f64, f64)],
+        lambda_max: f64,
+        degree: usize,
+        jl_dim: usize,
+        seed: u64,
+        inv_sqrt_deg: Option<&[f64]>,
+        out: &mut [f64],
+    ) -> CoreResult<()> {
         if jl_dim == 0 {
             return Err(CoreError::invalid_input("jl_dim must be >= 1"));
         }
-        let n = l_sym.num_nodes();
+        let n = mat.num_nodes();
         let total = n
             .checked_mul(jl_dim)
             .ok_or_else(|| CoreError::invalid_input("JL embedding size overflow"))?;
@@ -680,10 +1215,9 @@ impl ChebyshevWorkspace {
             return Ok(());
         }
 
-        self.ensure_len(total);
         let mut rng = DeterministicRng::from_seed_u64(seed);
         let scale = 1.0 / (jl_dim as f64).sqrt();
-        for dst in &mut self.t_prev[..total] {
+        for dst in &mut out[..total] {
             *dst = if (rng.next_u64() & 1) == 0 {
                 scale
             } else {
@@ -691,17 +1225,141 @@ impl ChebyshevWorkspace {
             };
         }
 
-        self.run_recurrence_from_t_prev(l_sym, Some(2.0 / lambda_max), &coeffs, out, jl_dim)?;
+        let max_tile_len = n * jl_dim.min(CHEBYSHEV_TILE_COLS);
+        self.ensure_len(max_tile_len);
+        self.ensure_tile_out(max_tile_len, false);
 
-        if let Some(inv_d) = inv_sqrt_deg {
-            for (i, &d_val) in inv_d.iter().enumerate() {
-                let row = &mut out[i * jl_dim..(i + 1) * jl_dim];
-                for entry in row {
-                    *entry *= d_val;
+        let c0 = coeffs[0];
+        for col_start in (0..jl_dim).step_by(CHEBYSHEV_TILE_COLS) {
+            let w = (jl_dim - col_start).min(CHEBYSHEV_TILE_COLS);
+            for row in 0..n {
+                let z_src = &out[row * jl_dim + col_start..row * jl_dim + col_start + w];
+                let prev_dst = &mut self.t_prev[row * w..row * w + w];
+                let oa_dst = &mut self.out_a_tile[row * w..row * w + w];
+                for j in 0..w {
+                    let val = z_src[j];
+                    prev_dst[j] = val;
+                    oa_dst[j] = c0 * val;
+                }
+            }
+
+            self.run_tile_degrees(mat, unshifted_scale, &coeffs, None, w)?;
+
+            if let Some(inv_d) = inv_sqrt_deg {
+                for (row, &d_val) in inv_d.iter().enumerate() {
+                    let oa_src = &self.out_a_tile[row * w..row * w + w];
+                    let dst = &mut out[row * jl_dim + col_start..row * jl_dim + col_start + w];
+                    for j in 0..w {
+                        dst[j] = d_val * oa_src[j];
+                    }
+                }
+            } else {
+                for row in 0..n {
+                    let oa_src = &self.out_a_tile[row * w..row * w + w];
+                    out[row * jl_dim + col_start..row * jl_dim + col_start + w]
+                        .copy_from_slice(oa_src);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Estimates row diagonal entries $\|Y_i\|_2^2$ for one or two spectral filters
+    /// ($Y_a = \sqrt{h_a}(L_{\mathrm{sym}}) Z$, optionally $Y_b = \sqrt{h_b}(L_{\mathrm{sym}}) Z$)
+    /// using a pre-shifted matrix $\tilde{L} = \frac{2}{\lambda_{\max}} L_{\mathrm{sym}} - I$.
+    ///
+    /// Generates Rademacher $\pm 1/\sqrt{d}$ probes directly per 8-column tile via
+    /// [`DeterministicRng::from_seed_u64`] without allocating any `(n, jl_dim)` matrices.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn compute_dual_jl_squared_norms_shifted(
+        &mut self,
+        l_tilde: &CsrMatrix,
+        terms_a: &[(f64, f64)],
+        degree_a: usize,
+        terms_b: Option<(&[(f64, f64)], usize)>,
+        lambda_max: f64,
+        jl_dim: usize,
+        seed: u64,
+    ) -> CoreResult<(Vec<f64>, Option<Vec<f64>>)> {
+        if jl_dim == 0 {
+            return Err(CoreError::invalid_input("jl_dim must be >= 1"));
+        }
+        let coeffs_a = compute_chebyshev_sqrt_filter_coefficients(terms_a, lambda_max, degree_a)?;
+        let coeffs_b = match terms_b {
+            Some((tb, deg_b)) => Some(compute_chebyshev_sqrt_filter_coefficients(
+                tb, lambda_max, deg_b,
+            )?),
+            None => None,
+        };
+
+        let n = l_tilde.num_nodes();
+        if n == 0 {
+            return Ok((Vec::new(), coeffs_b.as_ref().map(|_| Vec::new())));
+        }
+
+        let mut norms_a = vec![0.0_f64; n];
+        let mut norms_b = coeffs_b.as_ref().map(|_| vec![0.0_f64; n]);
+
+        let max_tile_len = n
+            .checked_mul(jl_dim.min(CHEBYSHEV_TILE_COLS))
+            .ok_or_else(|| CoreError::invalid_input("JL tile size overflow"))?;
+        self.ensure_len(max_tile_len);
+        self.ensure_tile_out(max_tile_len, coeffs_b.is_some());
+
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let scale = 1.0 / (jl_dim as f64).sqrt();
+        let ca0 = coeffs_a[0];
+        let cb0_opt = coeffs_b.as_ref().map(|cb| cb[0]);
+
+        for col_start in (0..jl_dim).step_by(CHEBYSHEV_TILE_COLS) {
+            let w = (jl_dim - col_start).min(CHEBYSHEV_TILE_COLS);
+            let tile_len = n * w;
+            if let Some(cb0) = cb0_opt {
+                for idx in 0..tile_len {
+                    let val = if (rng.next_u64() & 1) == 0 {
+                        scale
+                    } else {
+                        -scale
+                    };
+                    self.t_prev[idx] = val;
+                    self.out_a_tile[idx] = ca0 * val;
+                    self.out_b_tile[idx] = cb0 * val;
+                }
+            } else {
+                for idx in 0..tile_len {
+                    let val = if (rng.next_u64() & 1) == 0 {
+                        scale
+                    } else {
+                        -scale
+                    };
+                    self.t_prev[idx] = val;
+                    self.out_a_tile[idx] = ca0 * val;
+                }
+            }
+
+            self.run_tile_degrees(l_tilde, None, &coeffs_a, coeffs_b.as_deref(), w)?;
+
+            for (row, norm_a) in norms_a.iter_mut().enumerate() {
+                let oa = &self.out_a_tile[row * w..row * w + w];
+                let mut sq = 0.0_f64;
+                for &val in oa {
+                    sq += val * val;
+                }
+                *norm_a += sq;
+            }
+            if let Some(nb) = norms_b.as_deref_mut() {
+                for (row, norm_b) in nb.iter_mut().enumerate() {
+                    let ob = &self.out_b_tile[row * w..row * w + w];
+                    let mut sq = 0.0_f64;
+                    for &val in ob {
+                        sq += val * val;
+                    }
+                    *norm_b += sq;
+                }
+            }
+        }
+
+        Ok((norms_a, norms_b))
     }
 }
 
@@ -932,7 +1590,7 @@ impl ChebyshevDogKernel {
         let l_tilde = l_sym.scale_and_shift(2.0 / config.lambda_max, -1.0)?;
 
         let n_probes = config.jl_dim.max(k_lm_actual);
-        let mut ws = ChebyshevWorkspace::with_capacity(n * n_probes);
+        let mut ws = ChebyshevWorkspace::with_capacity(n * n_probes.min(CHEBYSHEV_TILE_COLS));
 
         let mut e_lm = vec![0.0_f64; n * k_lm_actual];
         for (col, &lm) in landmarks.iter().enumerate() {
@@ -941,8 +1599,8 @@ impl ChebyshevDogKernel {
         let mut k_plus_lm = vec![0.0_f64; n * k_lm_actual];
         ws.apply_batch(&l_tilde, &coeffs_h, &e_lm, &mut k_plus_lm, k_lm_actual)?;
 
-        let jl_embedding = ws.compute_kernel_jl_embedding(
-            &l_sym,
+        let jl_embedding = ws.compute_kernel_jl_embedding_shifted(
+            &l_tilde,
             &terms_psd,
             config.lambda_max,
             degree,
@@ -1494,6 +2152,159 @@ mod tests {
                 .unwrap()
                 .landmarks(),
             &[0]
+        );
+    }
+
+    #[test]
+    fn test_tiled_apply_batch_dual_and_shifted_jl_norms() {
+        let edges: Vec<(u32, u32)> = (0..15)
+            .map(|i| (i, i + 1))
+            .chain([(0, 15), (0, 8), (4, 12), (2, 10)])
+            .collect();
+        let g = CsrGraph::<f64>::from_edges(16, &edges, None, false, false).unwrap();
+        let (l_sym, inv_sqrt_deg) = symmetric_normalized_laplacian(&g);
+        let l_tilde = crate::csr_matrix::shifted_normalized_laplacian(&l_sym, 2.0).unwrap();
+
+        let coeffs_a = compute_chebyshev_bandpass_coefficients(&[(1.0, 0.8)], 2.0, 25).unwrap();
+        let coeffs_b = compute_chebyshev_bandpass_coefficients(&[(1.0, 12.0)], 2.0, 75).unwrap();
+        let mut ws = ChebyshevWorkspace::new();
+
+        // Check ncols in {1, 8, 13} covering scalar, full tile, and partial trailing tile.
+        for ncols in [1usize, 8, 13] {
+            let mut v = vec![0.0_f64; 16 * ncols];
+            for r in 0..16 {
+                for c in 0..ncols {
+                    v[r * ncols + c] = ((r * 7 + c * 3) as f64 * 0.37).sin();
+                }
+            }
+            let mut out_a_dual = vec![0.0_f64; 16 * ncols];
+            let mut out_b_dual = vec![0.0_f64; 16 * ncols];
+            ws.apply_batch_dual(
+                &l_tilde,
+                &coeffs_a,
+                Some(&coeffs_b),
+                &v,
+                &mut out_a_dual,
+                Some(&mut out_b_dual),
+                ncols,
+            )
+            .unwrap();
+
+            let mut out_a_ref = vec![0.0_f64; 16 * ncols];
+            let mut out_b_ref = vec![0.0_f64; 16 * ncols];
+            ws.apply_batch_with_lambda_max(&l_sym, 2.0, &coeffs_a, &v, &mut out_a_ref, ncols)
+                .unwrap();
+            ws.apply_batch_with_lambda_max(&l_sym, 2.0, &coeffs_b, &v, &mut out_b_ref, ncols)
+                .unwrap();
+
+            for i in 0..(16 * ncols) {
+                assert!((out_a_dual[i] - out_a_ref[i]).abs() < 1e-12);
+                assert!((out_b_dual[i] - out_b_ref[i]).abs() < 1e-12);
+            }
+        }
+
+        // Verify swapped polynomial lengths (coeffs_a longer than coeffs_b).
+        let mut v13 = vec![0.5_f64; 16 * 13];
+        v13[0] = 1.75;
+        let mut out_long = vec![0.0_f64; 16 * 13];
+        let mut out_short = vec![0.0_f64; 16 * 13];
+        ws.apply_batch_dual(
+            &l_tilde,
+            &coeffs_b,
+            Some(&coeffs_a),
+            &v13,
+            &mut out_long,
+            Some(&mut out_short),
+            13,
+        )
+        .unwrap();
+        let mut ref_short = vec![0.0_f64; 16 * 13];
+        ws.apply_batch(&l_tilde, &coeffs_a, &v13, &mut ref_short, 13)
+            .unwrap();
+        for (&got, &exp) in out_short.iter().zip(ref_short.iter()) {
+            assert!((got - exp).abs() < 1e-12);
+        }
+
+        // Verify shifted JL embedding matches unshifted JL embedding across tile widths.
+        let terms_a = [(1.0, 0.8)];
+        let terms_b = [(1.0, 12.0)];
+        for jl_dim in [1usize, 5, 8, 13, 32] {
+            let emb_unshifted = ws
+                .compute_kernel_jl_embedding(
+                    &l_sym,
+                    &terms_a,
+                    2.0,
+                    25,
+                    jl_dim,
+                    99,
+                    Some(&inv_sqrt_deg),
+                )
+                .unwrap();
+            let emb_shifted = ws
+                .compute_kernel_jl_embedding_shifted(
+                    &l_tilde,
+                    &terms_a,
+                    2.0,
+                    25,
+                    jl_dim,
+                    99,
+                    Some(&inv_sqrt_deg),
+                )
+                .unwrap();
+            for (&a, &b) in emb_unshifted.iter().zip(emb_shifted.iter()) {
+                assert!((a - b).abs() < 1e-12);
+            }
+        }
+
+        // Verify compute_dual_jl_squared_norms_shifted accuracy and single-vs-dual consistency.
+        let (norms_a_only, none_b) = ws
+            .compute_dual_jl_squared_norms_shifted(&l_tilde, &terms_a, 25, None, 2.0, 13, 42)
+            .unwrap();
+        assert!(none_b.is_none());
+        let (norms_a_dual, norms_b_dual) = ws
+            .compute_dual_jl_squared_norms_shifted(
+                &l_tilde,
+                &terms_a,
+                25,
+                Some((&terms_b, 75)),
+                2.0,
+                13,
+                42,
+            )
+            .unwrap();
+        let norms_b_dual = norms_b_dual.unwrap();
+        let (norms_b_only, _) = ws
+            .compute_dual_jl_squared_norms_shifted(&l_tilde, &terms_b, 75, None, 2.0, 13, 42)
+            .unwrap();
+        for i in 0..16 {
+            assert!((norms_a_only[i] - norms_a_dual[i]).abs() < 1e-14);
+            assert!((norms_b_only[i] - norms_b_dual[i]).abs() < 1e-14);
+            assert!(norms_a_dual[i] > 0.0 && norms_b_dual[i] > 0.0);
+        }
+        // For jl_dim <= 8, tile order equals row-major order so norms match exact JL row norms.
+        let emb_7 = ws
+            .compute_kernel_jl_embedding_shifted(&l_tilde, &terms_a, 2.0, 25, 7, 42, None)
+            .unwrap();
+        let (norms_7, _) = ws
+            .compute_dual_jl_squared_norms_shifted(&l_tilde, &terms_a, 25, None, 2.0, 7, 42)
+            .unwrap();
+        for i in 0..16 {
+            let row_sq: f64 = emb_7[i * 7..(i + 1) * 7].iter().map(|&x| x * x).sum();
+            assert!((norms_7[i] - row_sq).abs() < 1e-12);
+        }
+
+        // Mismatched coeffs_b / out_b must return an error cleanly.
+        assert!(
+            ws.apply_batch_dual(
+                &l_tilde,
+                &coeffs_a,
+                Some(&coeffs_b),
+                &v13,
+                &mut out_long,
+                None,
+                13
+            )
+            .is_err()
         );
     }
 }
