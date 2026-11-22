@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-ndarray = "0.16"
+ndarray.workspace = true
 ordered-float = "3.0"
 petgraph = "0.8"
 petgraph-linalg-kernel = { path = "../../linalg/kernel" }

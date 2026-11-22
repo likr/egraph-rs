@@ -23,7 +23,7 @@ egraph = { workspace = true, features = [
 egraph-ffi.workspace = true
 pyo3.workspace = true
 numpy.workspace = true
-ndarray = { version = "0.16", default-features = false }
+ndarray.workspace = true
 petgraph = "0.8"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-algorithm-layering = { path = "../algorithm/layering" }

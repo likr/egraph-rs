@@ -8,7 +8,7 @@ description = "Distance and kernel metrics, including diffusion and embedding ke
 repository = "https://github.com/likr/egraph-rs"
 
 [dependencies]
-ndarray = "0.16"
+ndarray.workspace = true
 num-traits = "0.2"
 petgraph = "0.8"
 petgraph-drawing = { path = "../../drawing" }
