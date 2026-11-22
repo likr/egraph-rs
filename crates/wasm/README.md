@@ -150,7 +150,7 @@ console.log(prism.lastOverlapCount, distortion.sigmaDist, distortion.sigmaDisp);
 
 ## Migration from v5 / Legacy Alpha
 
-See [docs/MIGRATION_V6.md](../../docs/MIGRATION_V6.md) for a complete v5/legacy-alpha to v6 migration guide, including:
+See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete v5/legacy-alpha to v6 migration guide, including:
 
 1. Replacing `Graph` host object weights with `CsrGraph.fromCsr` / `CsrGraph.fromEdgeList` and host-side arrays
 2. Migrating `OverwrapRemoval` to `PrismOverlapRemoval`

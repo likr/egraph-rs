@@ -127,7 +127,7 @@ print("Remaining overlaps:", prism.last_overlap_count)
 
 ## Migration from v5 / Legacy Alpha
 
-See [docs/MIGRATION_V6.md](../../docs/MIGRATION_V6.md) for a complete guide covering:
+See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete guide covering:
 
 1. Host object weights removal -> `CsrGraph` + `egraph.interop` + host-side arrays
 2. `OverwrapRemoval` -> `PrismOverlapRemoval`
@@ -150,4 +150,4 @@ python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/likr/egraph-rs/blob/master/LICENSE) file for details.
