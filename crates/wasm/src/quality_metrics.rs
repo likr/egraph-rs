@@ -9,7 +9,7 @@ use crate::{
     drawing::{JsDrawingEuclidean2d, JsDrawingTorus2d},
     graph::JsGraph,
 };
-use petgraph_algorithm_shortest_path::warshall_floyd;
+use petgraph_algorithm_shortest_path::all_sources_bfs;
 use petgraph_quality_metrics::{
     crossing_edges, crossing_edges_torus, crossing_number_with_crossing_edges,
     neighborhood_preservation, neighborhood_preservation_2hop, stress,
@@ -26,7 +26,7 @@ use wasm_bindgen::prelude::*;
 /// graph-theoretic distances.
 #[wasm_bindgen(js_name = stress)]
 pub fn js_stress(graph: &JsGraph, drawing: &JsDrawingEuclidean2d) -> f32 {
-    let distance = warshall_floyd(graph.graph(), &mut |_| 1.0);
+    let distance = all_sources_bfs(graph.graph(), 1.0);
     stress(drawing.drawing(), &distance)
 }
 
