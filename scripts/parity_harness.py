@@ -619,6 +619,10 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "select_maxmin_sp_pivots"):
         results.extend(run_v6_m2_python_checks(eg))
 
+    # 7. M3 clustering, ManifoldLayout2d & layout solver checks
+    if hasattr(eg, "TsNetSolver"):
+        results.extend(run_v6_m3_python_checks(eg))
+
     return results
 
 
@@ -821,6 +825,277 @@ def run_v6_m2_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     results.append({
         "case": "v6_m2_adversarial_non_panic",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t1, 4),
+    })
+    return results
+
+
+def _make_m3_asymmetric_coords(n: int, scale: float = 1.0) -> list[tuple[float, float]]:
+    """Generate deterministic non-symmetric 2D coordinates without gradient ties."""
+    return [
+        (
+            scale * (0.7 * math.cos(0.83 * float(i) + 0.15) + 0.11 * float(i) / max(n, 1)),
+            scale * (0.6 * math.sin(1.13 * float(i) - 0.21) - 0.09 * float(i) / max(n, 1)),
+        )
+        for i in range(n)
+    ]
+
+
+def run_v6_m3_python_checks(eg: Any) -> list[dict[str, Any]]:
+    """Run deterministic, f32/f64, step()==run(), manifold & adversarial checks for M3 Python APIs."""
+    import numpy as np
+
+    results: list[dict[str, Any]] = []
+    t0 = time.perf_counter()
+
+    # 1. Clustering & coarsening (KMeans++, Spectral, Louvain, LPA, Coarsen, Project)
+    pts_km = np.array(
+        [
+            [10.0, 10.0],
+            [10.2, 9.8],
+            [9.8, 10.1],
+            [-10.0, -10.0],
+            [-9.9, -10.2],
+            [-10.1, -9.8],
+        ],
+        dtype=np.float64,
+    )
+    km64 = eg.kmeans_plus_plus(pts_km, k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
+    km32 = eg.kmeans_plus_plus(pts_km.astype(np.float32), k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
+    assert np.array_equal(km64["labels"], np.array([0, 0, 0, 1, 1, 1], dtype=np.uint32))
+    assert np.array_equal(km64["labels"], km32["labels"])
+    assert bool(km64["converged"]) and float(km64["inertia"]) < 1.0
+
+    # 12-node 2-clique barbell for clustering separation checks
+    bb12_edges = [
+        (i, j) for off in (0, 6) for i in range(off, off + 6) for j in range(i + 1, off + 6)
+    ] + [(5, 6)]
+    g_bb12 = eg.CsrGraph.from_edges(12, bb12_edges, directed=False, sanitize=True)
+
+    sp1 = eg.spectral_clustering(g_bb12, k=2, seed=42)
+    sp2 = eg.spectral_clustering(g_bb12, k=2, seed=42)
+    assert np.array_equal(sp1, sp2) and np.array_equal(sp1, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+
+    lv = eg.louvain_communities(g_bb12, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)
+    assert lv["num_communities"] == 2 and float(lv["modularity"]) > 0.35
+    assert np.array_equal(lv["labels"], np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+
+    lpa = eg.label_propagation(g_bb12, max_iters=100, seed=42)
+    assert np.array_equal(lpa, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+
+    coarse_g, n2c, sizes, num_clusters = eg.coarsen_graph(g_bb12, [100] * 6 + [999] * 6)
+    assert num_clusters == 2 and coarse_g.num_nodes == 2 and coarse_g.num_edges == 1
+    assert np.array_equal(n2c, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+    assert np.array_equal(sizes, np.array([6, 6], dtype=np.uint32))
+
+    coarse_base = np.array([[-2.0, 0.0], [2.0, 0.0]], dtype=np.float64)
+    for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+        cl = eg.Layout2d.from_coords(coarse_base.astype(np_dtype))
+        proj1 = eg.project_clustered_layout(cl, n2c, spread_radius=0.2, seed=42)
+        proj2 = eg.project_clustered_layout(cl, n2c, spread_radius=0.2, seed=42)
+        assert proj1.dtype == dtype_name and len(proj1) == 12 and proj1.is_all_finite()
+        assert np.array_equal(proj1.coords(copy=True), proj2.coords(copy=True))
+
+    # 2. ManifoldLayout2d across all 3 geometries in float64 & float32
+    manifold_coords = {
+        "hyperbolic": np.array([[0.0, 0.0], [0.5, 0.0], [3.0, 4.0]], dtype=np.float64),
+        "spherical": np.array([[-0.3, -0.2], [0.2, math.pi / 2.0], [0.2 + math.pi / 2.0, math.pi / 2.0]], dtype=np.float64),
+        "torus": np.array([[1.95, -0.95], [0.05, 0.95], [0.5, 0.5]], dtype=np.float64),
+    }
+    for kind, base_arr in manifold_coords.items():
+        for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            ml = eg.ManifoldLayout2d.from_coords(kind, base_arr.astype(np_dtype))
+            assert ml.kind == kind and ml.dtype == dtype_name and ml.len() == 3
+            ml.project_all()
+            c = ml.coords()
+            assert np.all(np.isfinite(c))
+            if kind == "hyperbolic":
+                assert np.all(c[:, 0] ** 2 + c[:, 1] ** 2 < 1.0)
+                assert abs(ml.geodesic_distance(0, 1) - 2.0 * math.atanh(0.5)) < 1e-5
+            elif kind == "spherical":
+                assert np.all((c[:, 0] >= 0.0) & (c[:, 0] < 2.0 * math.pi))
+                assert np.all((c[:, 1] >= 0.0) & (c[:, 1] <= math.pi))
+                assert abs(ml.geodesic_distance(1, 2) - math.pi / 2.0) < 1e-5
+            else:
+                assert np.all((c >= 0.0) & (c < 1.0))
+                assert abs(ml.geodesic_distance(0, 1) - math.hypot(0.1, 0.1)) < 1e-5
+            back = ml.to_layout()
+            ml2 = eg.ManifoldLayout2d.from_layout(kind, back)
+            assert np.allclose(ml2.coords(), c)
+
+    # 3. All 6 Euclidean solvers + SgdSolver manifold stepping (step == run bit-exact in f64 & f32)
+    g16_edges = [
+        (r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)
+    ] + [
+        (r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)
+    ]
+    g16 = eg.CsrGraph.from_edges(16, g16_edges, directed=False, sanitize=True)
+    init16 = np.array(_make_m3_asymmetric_coords(16, scale=0.8), dtype=np.float64)
+    emb16 = eg.chebyshev_dog_jl_embedding(g16, degree=15, jl_dim=8, seed=42)
+
+    for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+        init_typed = init16.astype(np_dtype)
+
+        # TsNetSolver.pure_2hop (all 4 backends)
+        for backend in ("fft", "linear_fft", "barnes_hut", "exact"):
+            ts_r = eg.TsNetSolver.pure_2hop(
+                g16, backend=backend, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+            )
+            ts_s = eg.TsNetSolver.pure_2hop(
+                g16, backend=backend, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+            )
+            lr = eg.Layout2d.from_coords(init_typed)
+            ls = eg.Layout2d.from_coords(init_typed)
+            assert ts_r.run(lr) == "completed"
+            assert ts_s.run_steps(ls, 5) == "running"
+            while not ts_s.is_finished:
+                ts_s.step(ls)
+            assert ts_s.status == "completed"
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True))
+
+        # SgdSolver variants
+        sgd_builders: list[tuple[str, Callable[[], Any]]] = [
+            ("full", lambda dt=dtype_name: eg.SgdSolver.full(g16, t_max=10, seed=42, dtype=dt)),
+            ("sparse_barrier_dog", lambda dt=dtype_name: eg.SgdSolver.sparse_barrier_dog(g16, degree=15, num_landmarks=8, t_max=10, seed=42, dtype=dt)),
+            ("random_pair", lambda dt=dtype_name: eg.SgdSolver.random_pair(g16, pairs_per_node=4, t_max=10, seed=42, dtype=dt)),
+            ("omega", lambda dt=dtype_name: eg.SgdSolver.omega(g16, emb16, k=4, t_max=10, seed=42, dtype=dt)),
+            ("streaming_negatives", lambda dt=dtype_name: eg.SgdSolver.streaming_negatives(g16, negatives_per_node=3, t_max=10, seed=42, dtype=dt)),
+            (
+                "from_pairs_with_hinges",
+                lambda dt=dtype_name: eg.SgdSolver.from_pairs_with_hinges(
+                    16,
+                    [e[0] for e in g16_edges],
+                    [e[1] for e in g16_edges],
+                    [1.0] * len(g16_edges),
+                    [1.0] * len(g16_edges),
+                    [1.0] * len(g16_edges),
+                    [1.0] * len(g16_edges),
+                    [0, 1],
+                    [15, 14],
+                    [3.0, 3.0],
+                    [3.0, 3.0],
+                    [1.0, 1.0],
+                    [1.0, 1.0],
+                    t_max=10,
+                    seed=42,
+                    dtype=dt,
+                ),
+            ),
+        ]
+        for s_name, mk_solver in sgd_builders:
+            sr = mk_solver()
+            ss = mk_solver()
+            lr = eg.Layout2d.from_coords(init_typed)
+            ls = eg.Layout2d.from_coords(init_typed)
+            assert sr.run(lr) == "completed", f"SgdSolver.{s_name} did not complete"
+            assert ss.run_steps(ls, 4) == "running"
+            while not ss.is_finished:
+                ss.step(ls)
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), f"SgdSolver.{s_name} step != run"
+
+        # SgdSolver manifold stepping (all 3 manifolds)
+        for kind in ("hyperbolic", "spherical", "torus"):
+            mr = eg.SgdSolver.full(g16, t_max=8, seed=42, dtype=dtype_name)
+            ms = eg.SgdSolver.full(g16, t_max=8, seed=42, dtype=dtype_name)
+            mlr = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
+            mls = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
+            assert mr.run_manifold(mlr) == "completed"
+            assert ms.run_steps_manifold(mls, 3) == "running"
+            while not ms.is_finished:
+                ms.step_manifold(mls)
+            assert np.array_equal(mlr.coords(), mls.coords())
+
+        # GuMapSolver.from_graph_dog
+        gmr = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_name)
+        gms = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_name)
+        glr = eg.Layout2d.from_coords(init_typed)
+        gls = eg.Layout2d.from_coords(init_typed)
+        assert gmr.run(glr) == "completed"
+        assert gms.run_steps(gls, 5) == "running"
+        while not gms.is_finished:
+            gms.step(gls)
+        assert np.array_equal(glr.coords(copy=True), gls.coords(copy=True))
+
+        # SpatialIntruderRefiner on folded 3x3 grid
+        g9 = eg.CsrGraph.from_edges(
+            9,
+            [(r * 3 + c, r * 3 + c + 1) for r in range(3) for c in range(2)]
+            + [(r * 3 + c, (r + 1) * 3 + c) for r in range(2) for c in range(3)],
+            directed=False,
+            sanitize=True,
+        )
+        folded9 = np.array([[float(c), float(r)] for r in range(3) for c in range(3)], dtype=np.float64)
+        folded9[8] = np.array([0.08, 0.08], dtype=np.float64)
+        rf_r = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
+        rf_s = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
+        rlr = eg.Layout2d.from_coords(folded9.astype(np_dtype))
+        rls = eg.Layout2d.from_coords(folded9.astype(np_dtype))
+        assert rf_r.run(rlr) in ("converged", "completed")
+        rf_s.step(rls)
+        rf_s.run(rls)
+        assert np.array_equal(rlr.coords(copy=True), rls.coords(copy=True))
+        assert rf_r.stats()["n_fp_total"] > 0
+
+        # StressMajorizationSolver.from_graph
+        sm_r = eg.StressMajorizationSolver.from_graph(g16, max_iterations=15, epsilon=1e-6, dtype=dtype_name)
+        sm_s = eg.StressMajorizationSolver.from_graph(g16, max_iterations=15, epsilon=1e-6, dtype=dtype_name)
+        slr = eg.Layout2d.from_coords(init_typed)
+        sls = eg.Layout2d.from_coords(init_typed)
+        assert sm_r.run(slr) in ("converged", "completed")
+        sm_s.run_steps(sls, 4)
+        while not sm_s.is_finished:
+            sm_s.step(sls)
+        assert np.array_equal(slr.coords(copy=True), sls.coords(copy=True))
+
+        # KamadaKawaiSolver.from_graph
+        kk_r = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
+        kk_s = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
+        init9 = np.array(_make_m3_asymmetric_coords(9, scale=1.2), dtype=np.float64).astype(np_dtype)
+        klr = eg.Layout2d.from_coords(init9)
+        kls = eg.Layout2d.from_coords(init9)
+        assert kk_r.run(klr) in ("converged", "completed")
+        kk_s.run_steps(kls, 4)
+        while not kk_s.is_finished:
+            kk_s.step(kls)
+        assert np.array_equal(klr.coords(copy=True), kls.coords(copy=True))
+
+    results.append({
+        "case": "v6_m3_layout_and_clustering",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+    })
+
+    # 4. Adversarial M3 Python checks (never PanicException)
+    t1 = time.perf_counter()
+    g_dir = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2)], directed=True, sanitize=True)
+    l_nan = eg.Layout2d.zeros(12)
+    l_nan.coords(copy=False)[0, 0] = float("nan")
+    sm_chk = eg.StressMajorizationSolver.from_graph(g_bb12, max_iterations=5)
+    kk_chk = eg.KamadaKawaiSolver.from_graph(g_bb12, max_outer_iters=5)
+    m3_bad: list[tuple[str, Callable[[], Any]]] = [
+        ("kmeans_plus_plus/k_zero", lambda: eg.kmeans_plus_plus(pts_km, k=0)),
+        ("kmeans_plus_plus/k_gt_n", lambda: eg.kmeans_plus_plus(pts_km, k=10)),
+        ("spectral_clustering/directed", lambda: eg.spectral_clustering(g_dir, k=2)),
+        ("louvain_communities/directed", lambda: eg.louvain_communities(g_dir)),
+        ("label_propagation/directed", lambda: eg.label_propagation(g_dir)),
+        ("coarsen_graph/directed", lambda: eg.coarsen_graph(g_dir, [0, 1, 1])),
+        ("project_clustered_layout/oob", lambda: eg.project_clustered_layout(eg.Layout2d.zeros(2), [0, 2])),
+        ("ManifoldLayout2d/bad_kind", lambda: eg.ManifoldLayout2d.zeros("euclidean", 3)),
+        ("ManifoldLayout2d/nan", lambda: eg.ManifoldLayout2d.from_coords("torus", [[float("nan"), 0.0]])),
+        ("TsNetSolver/bad_backend", lambda: eg.TsNetSolver.pure_2hop(g16, backend="bad")),
+        ("SgdSolver/bad_schedule", lambda: eg.SgdSolver.full(g16, schedule="cosine")),
+        ("SgdSolver/oob_pair", lambda: eg.SgdSolver.from_pairs(2, [0], [5], [1.0])),
+        ("GuMapSolver/neg_min_dist", lambda: eg.GuMapSolver.from_graph_dog(g16, min_dist=-0.1)),
+        ("SpatialIntruderRefiner/k_cap_zero", lambda: eg.SpatialIntruderRefiner(g16, k_cap=0)),
+        ("StressMajorizationSolver/nan_layout", lambda: sm_chk.step(l_nan)),
+        ("KamadaKawaiSolver/dim_mismatch", lambda: kk_chk.step(eg.Layout2d.zeros(3))),
+    ]
+    for label, fn in m3_bad:
+        _assert_non_panic_error(label, fn)
+
+    results.append({
+        "case": "v6_m3_adversarial_non_panic",
         "status": "pass",
         "elapsed_sec": round(time.perf_counter() - t1, 4),
     })
@@ -1150,6 +1425,113 @@ if (typeof mod.selectMaxminSpPivots === 'function') {{
   lPmdsUnnorm.free?.();
   lPmds.free?.();
   g16.free?.();
+}}
+
+if (typeof mod.TsNetSolver === 'function') {{
+  const m3Symbols = [
+    'CoarsenedGraphResult',
+    'GuMapSolver',
+    'KMeansResult',
+    'KamadaKawaiSolver',
+    'LouvainResult',
+    'ManifoldLayout2d',
+    'SgdSolver',
+    'SparseBarrierStats',
+    'SpatialIntruderRefiner',
+    'SpatialRefinerRoundStats',
+    'SpatialRefinerStats',
+    'StressMajorizationSolver',
+    'TsNetSolver',
+    'coarsenGraph',
+    'kmeansPlusPlus',
+    'labelPropagation',
+    'louvainCommunities',
+    'projectClusteredLayout',
+    'spectralClustering',
+  ];
+  for (const sym of m3Symbols) {{
+    assert.equal(typeof indexMod[sym], 'function', `index.js must export ${{sym}}`);
+    assert.equal(typeof mod[sym], 'function', `node entry must export ${{sym}}`);
+  }}
+
+  const bbEdges = [];
+  for (const off of [0, 6]) {{
+    for (let i = 0; i < 6; i += 1) {{
+      for (let j = i + 1; j < 6; j += 1) bbEdges.push(off + i, off + j);
+    }}
+  }}
+  bbEdges.push(5, 6);
+  const bb = CsrGraph.fromEdgeList(12, new Uint32Array(bbEdges));
+  const km = mod.kmeansPlusPlus([10, 10, 10.2, 9.8, 9.8, 10.1, -10, -10, -9.9, -10.2, -10.1, -9.8], 6, 2, 2, 100, 1e-4, 3, 42);
+  assert.deepEqual(Array.from(km.labels()), [0, 0, 0, 1, 1, 1]);
+  assert.deepEqual(Array.from(mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42)), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  const lv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
+  assert.equal(lv.numCommunities, 2);
+  assert.deepEqual(Array.from(mod.labelPropagation(bb, 100, 42)), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
+  assert.equal(coarse.numClusters, 2);
+  const cl = Layout2d.fromCoords(new Float32Array([-2, 0, 2, 0]));
+  const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), 0.2, 42);
+  assert.equal(proj.len(), 12);
+  proj.free?.();
+  cl.free?.();
+  coarse.free?.();
+  lv.free?.();
+  km.free?.();
+
+  const g16Edges = [];
+  for (let r = 0; r < 4; r += 1) {{
+    for (let c = 0; c < 4; c += 1) {{
+      const u = r * 4 + c;
+      if (c + 1 < 4) g16Edges.push(u, u + 1);
+      if (r + 1 < 4) g16Edges.push(u, u + 4);
+    }}
+  }}
+  const g16 = CsrGraph.fromEdgeList(16, new Uint32Array(g16Edges));
+  const initArr = new Float32Array(32);
+  for (let i = 0; i < 16; i += 1) {{
+    initArr[2 * i] = 0.7 * Math.cos(0.83 * i + 0.15) + 0.11 * i / 16.0;
+    initArr[2 * i + 1] = 0.6 * Math.sin(1.13 * i - 0.21) - 0.09 * i / 16.0;
+  }}
+
+  const tsR = mod.TsNetSolver.pure2Hop(g16, {{ backend: 'fft', iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }});
+  const tsS = mod.TsNetSolver.pure2Hop(g16, {{ backend: 'fft', iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }});
+  const lR = Layout2d.fromCoords(initArr);
+  const lS = Layout2d.fromCoords(initArr);
+  assert.equal(tsR.run(lR), 'completed');
+  tsS.runSteps(lS, 5);
+  while (!tsS.isFinished) tsS.step(lS);
+  assert.deepEqual(Array.from(lR.coordsView()), Array.from(lS.coordsView()));
+  tsR.free?.();
+  tsS.free?.();
+  lR.free?.();
+  lS.free?.();
+
+  const ml = mod.ManifoldLayout2d.fromCoords('torus', new Float32Array([1.2, -0.1, 0.9, 0.2]));
+  assert.equal(ml.kind, 'torus');
+  ml.projectAll();
+  assert.ok(ml.geodesicDistance(0, 1) >= 0);
+  ml.free?.();
+
+  const sgdR = mod.SgdSolver.sparseBarrierDog(g16, {{ degree: 15, numLandmarks: 8, tMax: 8, seed: 42 }});
+  const sgdL = Layout2d.fromCoords(initArr);
+  assert.equal(sgdR.run(sgdL), 'completed');
+  assert.ok(sgdL.isAllFinite());
+  sgdR.free?.();
+  sgdL.free?.();
+
+  const dirG = CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]), null, true, true);
+  let threwDir = false;
+  try {{
+    mod.spectralClustering(dirG, 2);
+  }} catch (err) {{
+    assert.ok(!(err instanceof WebAssembly.RuntimeError));
+    threwDir = true;
+  }}
+  assert.ok(threwDir, 'spectralClustering must reject directed graphs');
+  dirG.free?.();
+  g16.free?.();
+  bb.free?.();
 }}
 
 console.log('WASM_NODE_PARITY_OK');
@@ -1706,6 +2088,529 @@ console.log(JSON.stringify(out));
     }]
 
 
+def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
+    """Verify Python float32/float64 <-> WASM f32 parity (< 1e-4) across M3 APIs."""
+    import numpy as np
+
+    if not hasattr(eg, "TsNetSolver"):
+        return []
+    node_entry = wasm_pkg / "egraph_wasm.node.js"
+    index_entry = wasm_pkg / "index.js"
+    if not index_entry.exists():
+        return []
+
+    t0 = time.perf_counter()
+
+    # 1. Clustering & coarsening fixtures (12-node barbell)
+    pts_km = np.array(
+        [
+            [10.0, 10.0],
+            [10.2, 9.8],
+            [9.8, 10.1],
+            [-10.0, -10.0],
+            [-9.9, -10.2],
+            [-10.1, -9.8],
+        ],
+        dtype=np.float64,
+    )
+    km_py = eg.kmeans_plus_plus(pts_km, k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
+
+    bb_edges = [
+        (i, j) for off in (0, 6) for i in range(off, off + 6) for j in range(i + 1, off + 6)
+    ] + [(5, 6)]
+    g_bb = eg.CsrGraph.from_edges(12, bb_edges, directed=False, sanitize=True)
+    spec_py = eg.spectral_clustering(g_bb, k=2, max_eigen_iters=300, eigen_tol=1e-4, kmeans_max_iters=100, kmeans_tol=1e-4, seed=42)
+    louv_py = eg.louvain_communities(g_bb, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)
+    lpa_py = eg.label_propagation(g_bb, max_iters=100, seed=42)
+    cg_py, n2c_py, sizes_py, nclust_py = eg.coarsen_graph(g_bb, [100] * 6 + [999] * 6)
+    coarse_coords_f32 = np.array([[-2.0, 0.0], [2.0, 0.0]], dtype=np.float32)
+    proj_py32 = eg.project_clustered_layout(
+        eg.Layout2d.from_coords(coarse_coords_f32), n2c_py, spread_radius=0.2, seed=42
+    ).coords(copy=True)
+    proj_py64 = eg.project_clustered_layout(
+        eg.Layout2d.from_coords(coarse_coords_f32.astype(np.float64)), n2c_py, spread_radius=0.2, seed=42
+    ).coords(copy=True)
+
+    # 2. ManifoldLayout2d & SgdSolver manifold stepping (all 3 manifolds)
+    g16_edges = [
+        (r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)
+    ] + [
+        (r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)
+    ]
+    g16 = eg.CsrGraph.from_edges(16, g16_edges, directed=False, sanitize=True)
+    init16_f32 = np.array(_make_m3_asymmetric_coords(16, scale=0.8), dtype=np.float32)
+    init16_f64 = init16_f32.astype(np.float64)
+    gumap_init16_f32 = (init16_f32 * 5.0).astype(np.float32)
+    gumap_init16_f64 = gumap_init16_f32.astype(np.float64)
+    emb16 = eg.chebyshev_dog_jl_embedding(g16, degree=15, jl_dim=8, seed=42)
+
+    man_init_f32 = (init16_f32 * 0.25).astype(np.float32)
+    man_py32: dict[str, dict[str, Any]] = {}
+    man_py64: dict[str, dict[str, Any]] = {}
+    for kind in ("hyperbolic", "spherical", "torus"):
+        # Unit [0, 1)^2 torus has geodesic diameter sqrt(0.5) ~ 0.707, so unscaled
+        # g16 shortest-path targets (up to 6.0) require smaller step_scale to avoid
+        # discontinuous wraps across the |dx| = 0.5 cut between native FMA and WASM.
+        m_step_scale = 0.02 if kind == "torus" else 1.0
+        ml32 = eg.ManifoldLayout2d.from_coords(kind, man_init_f32)
+        sgd_m32 = eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32")
+        sgd_m32.run_manifold(ml32)
+        man_py32[kind] = {
+            "coords": ml32.coords(),
+            "dist": float(ml32.geodesic_distance(0, 15)),
+        }
+        ml64 = eg.ManifoldLayout2d.from_coords(kind, man_init_f32.astype(np.float64))
+        sgd_m64 = eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64")
+        sgd_m64.run_manifold(ml64)
+        man_py64[kind] = {
+            "coords": ml64.coords(),
+            "dist": float(ml64.geodesic_distance(0, 15)),
+        }
+
+    # 3. All 6 Euclidean solvers in Python float32 & float64
+    g9_edges = [
+        (r * 3 + c, r * 3 + c + 1) for r in range(3) for c in range(2)
+    ] + [
+        (r * 3 + c, (r + 1) * 3 + c) for r in range(2) for c in range(3)
+    ]
+    g9 = eg.CsrGraph.from_edges(9, g9_edges, directed=False, sanitize=True)
+    folded9_f32 = np.array([[float(c), float(r)] for r in range(3) for c in range(3)], dtype=np.float32)
+    folded9_f32[8] = np.array([0.08, 0.08], dtype=np.float32)
+    init9_f32 = np.array(_make_m3_asymmetric_coords(9, scale=1.2), dtype=np.float32)
+
+    hinge_s_src = [e[0] for e in g16_edges]
+    hinge_s_tgt = [e[1] for e in g16_edges]
+    hinge_s_ones = [1.0] * len(g16_edges)
+
+    def run_py_solvers(dtype_name: str) -> dict[str, Any]:
+        c16 = init16_f32 if dtype_name == "float32" else init16_f64
+        c9_fold = folded9_f32 if dtype_name == "float32" else folded9_f32.astype(np.float64)
+        c9_init = init9_f32 if dtype_name == "float32" else init9_f32.astype(np.float64)
+
+        out: dict[str, Any] = {}
+        for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
+            l = eg.Layout2d.from_coords(c16)
+            sv = eg.TsNetSolver.pure_2hop(
+                g16, backend=bk, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+            )
+            sv.run(l)
+            out[f"tsnet_{bk}"] = l.coords(copy=True)
+            out[f"tsnet_{bk}_ffts"] = int(sv.total_fft_2d_calls)
+
+        sgd_map = {
+            "sgd_full": eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=1.0, seed=42, dtype=dtype_name),
+            "sgd_dog": eg.SgdSolver.sparse_barrier_dog(g16, degree=15, num_landmarks=8, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_rp": eg.SgdSolver.random_pair(g16, pairs_per_node=4, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_omega": eg.SgdSolver.omega(g16, emb16, k=4, min_dist=1e-3, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_stream": eg.SgdSolver.streaming_negatives(g16, negatives_per_node=3, target_distance=2.0, weight=0.25, hinge_only=True, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_hinges": eg.SgdSolver.from_pairs_with_hinges(
+                16,
+                hinge_s_src,
+                hinge_s_tgt,
+                hinge_s_ones,
+                hinge_s_ones,
+                hinge_s_ones,
+                hinge_s_ones,
+                [0, 1],
+                [15, 14],
+                [3.0, 3.0],
+                [3.0, 3.0],
+                [1.0, 1.0],
+                [1.0, 1.0],
+                t_max=10,
+                eps=0.01,
+                seed=42,
+                dtype=dtype_name,
+            ),
+        }
+        for k, sv in sgd_map.items():
+            l = eg.Layout2d.from_coords(c16)
+            sv.run(l)
+            out[k] = l.coords(copy=True)
+            out[f"{k}_springs"] = int(sv.num_springs)
+            out[f"{k}_hinges"] = int(sv.num_hinges)
+
+        # Use UMAP-scale initialization and moderate lr=0.2 so native/WASM f32 stay
+        # away from the d^2 -> 0 repulsive gradient clamp discontinuity across 15 epochs.
+        l_gm = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
+        gm = eg.GuMapSolver.from_graph_dog(
+            g16,
+            max_2hop_per_node=16,
+            degree=15,
+            num_landmarks=8,
+            n_epochs=15,
+            learning_rate=0.2,
+            seed=42,
+            dtype=dtype_name,
+        )
+        gm.run(l_gm)
+        out["gumap"] = l_gm.coords(copy=True)
+        out["gumap_edges"] = int(gm.num_edges)
+
+        l_rf = eg.Layout2d.from_coords(c9_fold)
+        rf = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
+        rf.run(l_rf)
+        out["refiner"] = l_rf.coords(copy=True)
+        out["refiner_fp"] = int(rf.stats()["n_fp_total"])
+
+        l_sm = eg.Layout2d.from_coords(c16)
+        sm = eg.StressMajorizationSolver.from_graph(g16, max_iterations=15, epsilon=1e-6, dtype=dtype_name)
+        sm.run(l_sm)
+        out["sm"] = l_sm.coords(copy=True)
+        out["sm_stress"] = float(sm.last_stress or 0.0)
+
+        l_kk = eg.Layout2d.from_coords(c9_init)
+        kk = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
+        kk.run(l_kk)
+        out["kk"] = l_kk.coords(copy=True)
+        return out
+
+    py32 = run_py_solvers("float32")
+    py64 = run_py_solvers("float64")
+
+    node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
+    wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
+    spec_payload = {
+        "pts_km": [float(v) for v in pts_km.ravel()],
+        "bb_edges": [int(v) for edge in bb_edges for v in edge],
+        "g16_edges": [int(v) for edge in g16_edges for v in edge],
+        "g9_edges": [int(v) for edge in g9_edges for v in edge],
+        "coarse_coords": [float(v) for v in coarse_coords_f32.ravel()],
+        "init16": [float(v) for v in init16_f32.ravel()],
+        "gumap_init16": [float(v) for v in gumap_init16_f32.ravel()],
+        "man_init16": [float(v) for v in man_init_f32.ravel()],
+        "emb16": [float(v) for v in emb16.ravel()],
+        "folded9": [float(v) for v in folded9_f32.ravel()],
+        "init9": [float(v) for v in init9_f32.ravel()],
+        "hinge_src": hinge_s_src,
+        "hinge_tgt": hinge_s_tgt,
+        "hinge_ones": hinge_s_ones,
+    }
+
+    node_script = """
+import { readFile } from 'node:fs/promises';
+
+const nodeUrl = process.argv[1];
+const wasmPath = process.argv[2];
+const spec = JSON.parse(process.argv[3]);
+
+const mod = await import(nodeUrl);
+if (typeof mod.default === 'function') {
+  try {
+    const probe = mod.CsrGraph.fromCsr(new Uint32Array([0, 1, 2]), new Uint32Array([1, 0]));
+    probe.free?.();
+  } catch (_e) {
+    await mod.default(await readFile(wasmPath));
+  }
+}
+
+if (typeof mod.TsNetSolver !== 'function') {
+  console.log(JSON.stringify({ m3_available: false }));
+  process.exit(0);
+}
+
+const km = mod.kmeansPlusPlus(new Float64Array(spec.pts_km), 6, 2, 2, 100, 1e-4, 3, 42);
+const bb = mod.CsrGraph.fromEdgeList(12, new Uint32Array(spec.bb_edges));
+const specLabels = Array.from(mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42));
+const louv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
+const lpaLabels = Array.from(mod.labelPropagation(bb, 100, 42));
+const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
+const cg = coarse.graph();
+const cl = mod.Layout2d.fromCoords(new Float32Array(spec.coarse_coords));
+const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), 0.2, 42);
+const projCoords = Array.from(proj.coordsView());
+
+const g16 = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges));
+const g9 = mod.CsrGraph.fromEdgeList(9, new Uint32Array(spec.g9_edges));
+const init16 = new Float32Array(spec.init16);
+const gumapInit16 = new Float32Array(spec.gumap_init16);
+const manInit = new Float32Array(spec.man_init16);
+const emb16 = new Float64Array(spec.emb16);
+const folded9 = new Float32Array(spec.folded9);
+const init9 = new Float32Array(spec.init9);
+
+const manifolds = {};
+for (const kind of ['hyperbolic', 'spherical', 'torus']) {
+  const mStepScale = kind === 'torus' ? 0.02 : 1.0;
+  const mlRun = mod.ManifoldLayout2d.fromCoords(kind, manInit);
+  const mlStep = mod.ManifoldLayout2d.fromCoords(kind, manInit);
+  const sRun = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+  const sStep = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+  sRun.runManifold(mlRun);
+  sStep.runStepsManifold(mlStep, 4);
+  while (!sStep.isFinished) sStep.stepManifold(mlStep);
+  const cRun = Array.from(mlRun.coords());
+  const cStep = Array.from(mlStep.coords());
+  if (JSON.stringify(cRun) !== JSON.stringify(cStep)) {
+    throw new Error(`WASM SgdSolver.stepManifold != runManifold for ${kind}`);
+  }
+  manifolds[kind] = { coords: cRun, dist: mlRun.geodesicDistance(0, 15) };
+  mlRun.free?.();
+  mlStep.free?.();
+  sRun.free?.();
+  sStep.free?.();
+}
+
+const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
+  const sR = mkSolver();
+  const sS = mkSolver();
+  const lR = mod.Layout2d.fromCoords(initCoords);
+  const lS = mod.Layout2d.fromCoords(initCoords);
+  sR.run(lR);
+  sS.runSteps(lS, stepChunk);
+  while (!sS.isFinished) sS.step(lS);
+  const cR = Array.from(lR.coordsView());
+  const cS = Array.from(lS.coordsView());
+  if (JSON.stringify(cR) !== JSON.stringify(cS)) {
+    throw new Error('WASM step() != run()');
+  }
+  lR.free?.();
+  lS.free?.();
+  return { coords: cR, solverRun: sR, solverStep: sS };
+};
+
+const solvers = {};
+for (const bk of ['fft', 'linear_fft', 'barnes_hut', 'exact']) {
+  const res = runPairAndCheckStep(
+    () => mod.TsNetSolver.pure2Hop(g16, { backend: bk, iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }),
+    init16,
+    5,
+  );
+  solvers[`tsnet_${bk}`] = res.coords;
+  solvers[`tsnet_${bk}_ffts`] = res.solverRun.totalFft2dCalls;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+const sgdSpecs = [
+  ['sgd_full', () => mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: 1.0, seed: 42 })],
+  ['sgd_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, tMax: 10, eps: 0.01, seed: 42 })],
+  ['sgd_rp', () => mod.SgdSolver.randomPair(g16, { pairsPerNode: 4, tMax: 10, eps: 0.01, seed: 42 })],
+  ['sgd_omega', () => mod.SgdSolver.omega(g16, emb16, 8, { k: 4, minDist: 1e-3, tMax: 10, eps: 0.01, seed: 42 })],
+  ['sgd_stream', () => mod.SgdSolver.streamingNegatives(g16, { negativesPerNode: 3, targetDistance: 2.0, weight: 0.25, hingeOnly: true, tMax: 10, eps: 0.01, seed: 42 })],
+  [
+    'sgd_hinges',
+    () =>
+      mod.SgdSolver.fromPairsWithHinges(
+        16,
+        new Uint32Array(spec.hinge_src),
+        new Uint32Array(spec.hinge_tgt),
+        new Float32Array(spec.hinge_ones),
+        new Float32Array(spec.hinge_ones),
+        new Float32Array(spec.hinge_ones),
+        new Float32Array(spec.hinge_ones),
+        new Uint32Array([0, 1]),
+        new Uint32Array([15, 14]),
+        new Float32Array([3.0, 3.0]),
+        new Float32Array([3.0, 3.0]),
+        new Float32Array([1.0, 1.0]),
+        new Float32Array([1.0, 1.0]),
+        { tMax: 10, eps: 0.01, seed: 42 },
+      ),
+  ],
+];
+for (const [k, mk] of sgdSpecs) {
+  const res = runPairAndCheckStep(mk, init16, 4);
+  solvers[k] = res.coords;
+  solvers[`${k}_springs`] = res.solverRun.numSprings;
+  solvers[`${k}_hinges`] = res.solverRun.numHinges;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
+    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, nEpochs: 15, learningRate: 0.2, seed: 42 }),
+    gumapInit16,
+    5,
+  );
+  solvers.gumap = res.coords;
+  solvers.gumap_edges = res.solverRun.numEdges;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
+    () => new mod.SpatialIntruderRefiner(g9, { rounds: 3, kCap: 32, tMax: 10, seed: 42 }),
+    folded9,
+    1,
+  );
+  solvers.refiner = res.coords;
+  const st = res.solverRun.stats();
+  solvers.refiner_fp = st.nFpTotal;
+  st.free?.();
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
+    () => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 15, epsilon: 1e-6 }),
+    init16,
+    4,
+  );
+  solvers.sm = res.coords;
+  solvers.sm_stress = res.solverRun.lastStress ?? 0.0;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
+    () => mod.KamadaKawaiSolver.fromGraph(g9, { eps: 1e-3, maxInnerIters: 40, maxOuterIters: 20 }),
+    init9,
+    4,
+  );
+  solvers.kk = res.coords;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+const out = {
+  m3_available: true,
+  km: {
+    labels: Array.from(km.labels()),
+    centroids: Array.from(km.centroids()),
+    inertia: km.inertia,
+    iterations: km.iterations,
+    converged: km.converged,
+  },
+  spectral: specLabels,
+  louvain: {
+    labels: Array.from(louv.labels()),
+    numCommunities: louv.numCommunities,
+    modularity: louv.modularity,
+    passes: louv.passes,
+  },
+  lpa: lpaLabels,
+  coarsen: {
+    numNodes: cg.numNodes(),
+    numEdges: cg.numEdges(),
+    weights: Array.from(cg.weights() ?? []),
+    nodeToCoarse: Array.from(coarse.nodeToCoarse()),
+    coarseSizes: Array.from(coarse.coarseSizes()),
+    numClusters: coarse.numClusters,
+  },
+  projCoords,
+  manifolds,
+  solvers,
+};
+
+g9.free?.();
+g16.free?.();
+proj.free?.();
+cl.free?.();
+cg.free?.();
+coarse.free?.();
+louv.free?.();
+km.free?.();
+bb.free?.();
+
+console.log(JSON.stringify(out));
+"""
+    raw_out = subprocess.check_output(
+        ["node", "--input-type=module", "-e", node_script, node_url, wasm_path, json.dumps(spec_payload)],
+        text=True,
+    )
+    ws = json.loads(raw_out.strip().splitlines()[-1])
+    if not ws.get("m3_available", False):
+        return [{
+            "case": "cross_target_m3_py_vs_wasm",
+            "status": "skipped_no_wasm_m3",
+            "elapsed_sec": round(time.perf_counter() - t0, 4),
+        }]
+
+    max_f32_diff = 0.0
+    max_f64_diff = 0.0
+
+    def check_close(label: str, a: Any, b: Any, tol: float, is_f32: bool = True) -> None:
+        nonlocal max_f32_diff, max_f64_diff
+        arr_a = np.asarray(a, dtype=np.float64).ravel()
+        arr_b = np.asarray(b, dtype=np.float64).ravel()
+        assert arr_a.shape == arr_b.shape, f"{label}: shape mismatch {arr_a.shape} vs {arr_b.shape}"
+        diff = float(np.max(np.abs(arr_a - arr_b))) if arr_a.size else 0.0
+        if is_f32:
+            max_f32_diff = max(max_f32_diff, diff)
+        else:
+            max_f64_diff = max(max_f64_diff, diff)
+        assert diff < tol, f"{label}: diff={diff} >= {tol}"
+
+    # Clustering & coarsen exact/f64 checks
+    assert list(km_py["labels"]) == ws["km"]["labels"]
+    assert bool(km_py["converged"]) == bool(ws["km"]["converged"])
+    assert int(km_py["iterations"]) == int(ws["km"]["iterations"])
+    check_close("kmeans/centroids", km_py["centroids"], ws["km"]["centroids"], 1e-12, is_f32=False)
+    check_close("kmeans/inertia", [km_py["inertia"]], [ws["km"]["inertia"]], 1e-12, is_f32=False)
+    assert list(spec_py) == ws["spectral"]
+    assert list(louv_py["labels"]) == ws["louvain"]["labels"]
+    assert int(louv_py["num_communities"]) == int(ws["louvain"]["numCommunities"])
+    assert int(louv_py["passes"]) == int(ws["louvain"]["passes"])
+    check_close("louvain/modularity", [louv_py["modularity"]], [ws["louvain"]["modularity"]], 1e-12, is_f32=False)
+    assert list(lpa_py) == ws["lpa"]
+    assert cg_py.num_nodes == ws["coarsen"]["numNodes"]
+    assert cg_py.num_edges == ws["coarsen"]["numEdges"]
+    assert list(n2c_py) == ws["coarsen"]["nodeToCoarse"]
+    assert list(sizes_py) == ws["coarsen"]["coarseSizes"]
+    assert nclust_py == ws["coarsen"]["numClusters"]
+    check_close("project_clustered_layout/f32", proj_py32, ws["projCoords"], 1e-4)
+    check_close("project_clustered_layout/f64_vs_f32", proj_py64, ws["projCoords"], 1e-3, is_f32=False)
+
+    # ManifoldLayout2d & SgdSolver manifold parity
+    for kind in ("hyperbolic", "spherical", "torus"):
+        check_close(f"manifold_{kind}/coords_f32", man_py32[kind]["coords"], ws["manifolds"][kind]["coords"], 1e-4)
+        check_close(f"manifold_{kind}/dist_f32", [man_py32[kind]["dist"]], [ws["manifolds"][kind]["dist"]], 1e-4)
+        check_close(f"manifold_{kind}/coords_f64_vs_f32", man_py64[kind]["coords"], ws["manifolds"][kind]["coords"], 1e-3, is_f32=False)
+
+    # Euclidean solver parity: Python float32 vs WASM f32 (< 1e-4) and Python float64 sanity
+    ws_sol = ws["solvers"]
+    for key in (
+        "tsnet_fft",
+        "tsnet_linear_fft",
+        "tsnet_barnes_hut",
+        "tsnet_exact",
+        "sgd_full",
+        "sgd_dog",
+        "sgd_rp",
+        "sgd_omega",
+        "sgd_stream",
+        "sgd_hinges",
+        "gumap",
+        "refiner",
+        "sm",
+        "kk",
+    ):
+        check_close(f"{key}/f32_vs_wasm", py32[key], ws_sol[key], 1e-4)
+        # Verify Python float64 stays finite and matches float32 within scale-relative tolerance
+        arr64 = np.asarray(py64[key], dtype=np.float64).ravel()
+        arr32 = np.asarray(py32[key], dtype=np.float64).ravel()
+        assert np.all(np.isfinite(arr64)), f"{key}/f64_vs_f32: non-finite float64 output"
+        rel_scale = max(1.0, float(np.max(np.abs(arr64))))
+        rel_diff = float(np.max(np.abs(arr64 - arr32))) / rel_scale if arr64.size else 0.0
+        max_f64_diff = max(max_f64_diff, rel_diff)
+        assert rel_diff < 5e-3, (
+            f"{key}/f64_vs_f32: rel_diff={rel_diff} >= 5e-3 "
+            f"(abs={float(np.max(np.abs(arr64 - arr32)))}, scale={rel_scale})"
+        )
+
+    for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
+        assert py32[f"tsnet_{bk}_ffts"] == ws_sol[f"tsnet_{bk}_ffts"]
+    for sk in ("sgd_full", "sgd_dog", "sgd_rp", "sgd_omega", "sgd_stream", "sgd_hinges"):
+        assert py32[f"{sk}_springs"] == ws_sol[f"{sk}_springs"]
+        assert py32[f"{sk}_hinges"] == ws_sol[f"{sk}_hinges"]
+    assert py32["gumap_edges"] == ws_sol["gumap_edges"]
+    assert py32["refiner_fp"] == ws_sol["refiner_fp"]
+    check_close("sm_stress/f32_vs_wasm", [py32["sm_stress"]], [ws_sol["sm_stress"]], 1e-4)
+
+    return [{
+        "case": "cross_target_m3_py_vs_wasm",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+        "max_f32_diff": round(max_f32_diff, 12),
+        "max_f64_diff": round(max_f64_diff, 12),
+    }]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="egraph cross-target parity harness")
     parser.add_argument("--wasm-pkg", type=pathlib.Path, default=None, help="Path to built v6 WASM pkg/")
@@ -1729,6 +2634,7 @@ def main() -> int:
         if eg_mod is not None:
             results.extend(run_cross_target_m1_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m2_parity(eg_mod, args.wasm_pkg))
+            results.extend(run_cross_target_m3_parity(eg_mod, args.wasm_pkg))
 
     print(f"{'CASE':<40} {'STATUS':<24} {'ELAPSED(s)':>10}")
     print("-" * 78)

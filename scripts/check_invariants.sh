@@ -75,6 +75,8 @@ has_workspace_pkg() {
 }
 
 FORBIDDEN_RE='(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'
+FORBIDDEN_NO_GETRANDOM_RE='(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)'
+GETRANDOM_RE='(^|[^[:alnum:]_-])getrandom([^[:alnum:]_-]|$)'
 
 check_cargo_tree_crate() {
   local label="$1"
@@ -96,12 +98,37 @@ check_cargo_tree_crate() {
   fi
 }
 
+check_cargo_tree_legacy_crate() {
+  local label="$1"
+  shift
+
+  local tree_out forbidden getrandom_hits
+  tree_out="$(cargo tree --edges normal -e features "$@" 2>&1 || true)"
+  forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_NO_GETRANDOM_RE" || true)"
+  if [[ -n "$forbidden" ]]; then
+    fail_hard "$label dependency tree pulls forbidden crates (rayon/linfa/wgpu):"
+    printf '%s\n' "$forbidden" | sed 's/^/       /'
+  else
+    pass "$label dependency tree is free of rayon/linfa/wgpu"
+  fi
+
+  getrandom_hits="$(printf '%s\n' "$tree_out" | grep -E "$GETRANDOM_RE" || true)"
+  if [[ -n "$getrandom_hits" ]]; then
+    warn_legacy "$label dependency tree pulls legacy getrandom:"
+    printf '%s\n' "$getrandom_hits" | sed 's/^/       /'
+  else
+    pass "$label dependency tree is free of getrandom"
+  fi
+}
+
 # 1. Dependency tree gate (rayon / linfa / getrandom / wgpu)
-# Pure-Rust v6 core/spatial/metrics/adapter crates and `egraph-wasm --no-default-features` ALWAYS fail_hard.
-# Full/legacy `egraph-wasm` and `egraph-python` stay on warn_legacy until M1/M3 removes `linfa`.
+# Pure-Rust v6 core/spatial/metrics/linalg/neighborhood/clustering/layout crates and
+# `egraph-wasm --no-default-features` ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
+# Legacy-featured crates (`petgraph-clustering`, `egraph-wasm` full, `egraph-python`, `egraph`)
+# fail_hard on rayon/linfa/wgpu and warn_legacy ONLY on legacy `getrandom`.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset|egraph-metrics|egraph-linalg|egraph-neighborhood)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset|egraph-metrics|egraph-linalg|egraph-neighborhood|egraph-clustering|egraph-layout)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
     egraph-spatial)
@@ -110,14 +137,17 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
     egraph-wasm)
       check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-      check_cargo_tree_crate "egraph-wasm (full)" "legacy" -p egraph-wasm
+      check_cargo_tree_legacy_crate "egraph-wasm (full)" -p egraph-wasm
+      ;;
+    petgraph-clustering|egraph-python|egraph)
+      check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
       ;;
     *)
       check_cargo_tree_crate "$TARGET_CRATE" "legacy" -p "$TARGET_CRATE"
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-metrics egraph-linalg egraph-neighborhood; do
+  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-metrics egraph-linalg egraph-neighborhood egraph-clustering egraph-layout; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
@@ -128,11 +158,11 @@ else
   fi
   if has_workspace_pkg "egraph-wasm"; then
     check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-    check_cargo_tree_crate "egraph-wasm (full)" "legacy" -p egraph-wasm
+    check_cargo_tree_legacy_crate "egraph-wasm (full)" -p egraph-wasm
   fi
-  for legacy_crate in egraph-python egraph; do
+  for legacy_crate in petgraph-clustering egraph-python egraph; do
     if has_workspace_pkg "$legacy_crate"; then
-      check_cargo_tree_crate "$legacy_crate" "legacy" -p "$legacy_crate"
+      check_cargo_tree_legacy_crate "$legacy_crate" -p "$legacy_crate"
     fi
   done
 fi
@@ -278,7 +308,7 @@ def resolve_cargo_version(cargo_path: pathlib.Path) -> str | None:
     return None
 
 
-for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics", "linalg", "neighborhood"):
+for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics", "linalg", "neighborhood", "cluster", "layout"):
     sub_toml = root / "crates" / sub / "Cargo.toml"
     if sub_toml.exists() and ws_version:
         sub_ver = resolve_cargo_version(sub_toml)
