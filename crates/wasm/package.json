@@ -43,7 +43,11 @@
   },
   "scripts": {
     "build": "wasm-pack build --no-opt --target web --profile wasm-release -d pkg . && node scripts/assemble_pkg.mjs && wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int pkg/egraph_wasm_bg.wasm -o pkg/egraph_wasm_bg.wasm",
+    "docs": "typedoc",
     "test:smoke": "node tests/node_esm_smoke.mjs"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.20"
   },
   "engines": {
     "node": ">=18.0.0"
