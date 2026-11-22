@@ -3,9 +3,9 @@
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 use egraph_linalg::{
-    ChebyshevDogConfig, ChebyshevDogKernel, ChebyshevWorkspace, SpectralMomentStats,
-    adaptive_chebyshev_degree, compute_chebyshev_bandpass_coefficients,
-    symmetric_normalized_laplacian,
+    ChebyshevWorkspace, SpectralMomentStats, adaptive_chebyshev_degree, build_dog_terms,
+    compute_chebyshev_bandpass_coefficients, project_psd_spectral_filter, select_maxmin_sp_pivots,
+    spectral_moment_stats, symmetric_normalized_laplacian,
 };
 
 /// Computes R3 parameter-free Horvitz-Thompson repulsion density scaling:
@@ -261,8 +261,9 @@ fn build_varadhan_table(
 }
 
 /// Computes pure $O(|E| + \mathrm{deg}\cdot k \cdot |E|)$ regularized DoG Varadhan landmark
-/// tables combining `egraph-linalg`'s R1/R2 [`ChebyshevDogKernel`], JL diagonal estimation,
-/// `beta_auto` positivity shift, and an optional coarse heat scaffold at `config.t_coarse` (`48.0`).
+/// tables combining `egraph-linalg`'s R1/R2 PSD-projected DoG filter, single-pass dual tiled
+/// Chebyshev SpMM + JL diagonal estimation, `beta_auto` positivity shift, and an optional
+/// coarse heat scaffold at `config.t_coarse` (`48.0`).
 pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
     graph: &CsrGraph<W>,
     config: &DogVaradhanConfig,
@@ -294,38 +295,64 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
             config.eps_sim
         )));
     }
+    if config.n_landmarks == 0 {
+        return Err(CoreError::invalid_input("n_landmarks must be >= 1"));
+    }
+    if config.jl_dim == 0 {
+        return Err(CoreError::invalid_input("jl_dim must be >= 1"));
+    }
+    if !config.eps_psd.is_finite() || config.eps_psd < 0.0 {
+        return Err(CoreError::invalid_input("eps_psd must be finite and >= 0"));
+    }
+    if !config.lambda_max.is_finite() || config.lambda_max <= 0.0 {
+        return Err(CoreError::invalid_input(
+            "lambda_max must be finite and > 0",
+        ));
+    }
+    if let Some(bf) = config.beta_floor
+        && (!bf.is_finite() || !(0.0..1.0).contains(&bf))
+    {
+        return Err(CoreError::invalid_input(
+            "beta_floor must be finite and in [0.0, 1.0)",
+        ));
+    }
+    if let Some(deg) = config.degree
+        && deg == 0
+    {
+        return Err(CoreError::invalid_input("degree must be >= 1"));
+    }
 
-    let dog_cfg = ChebyshevDogConfig {
-        t1: config.t1,
-        t2: config.t2,
-        alpha: config.alpha,
-        beta_floor: config.beta_floor,
-        degree: config.degree,
-        n_landmarks: config.n_landmarks,
-        min_degree: config.min_degree,
-        jl_dim: config.jl_dim,
-        eps_psd: config.eps_psd,
-        lambda_max: config.lambda_max,
-        seed: config.seed,
-    };
+    let moment_stats = spectral_moment_stats(graph);
+    let s = moment_stats.sigma_lambda;
+    let t1 = config.t1.unwrap_or(1.0 / (1.0 + s));
+    let t2 = config.t2.unwrap_or(4.0 / (1.0 + s));
+    let alpha = config.alpha.unwrap_or((1.0 - s).max(0.0));
+    let base_terms = build_dog_terms(t1, t2, alpha, 0.0)?;
 
-    let kernel = ChebyshevDogKernel::build(graph, &dog_cfg)?;
-    let n = kernel.num_nodes();
-    let k_lm = kernel.num_landmarks();
+    let deg_fine = config
+        .degree
+        .unwrap_or_else(|| adaptive_chebyshev_degree(t1.max(t2)));
+    let (terms_psd, delta_psd, h_min) =
+        project_psd_spectral_filter(&base_terms, config.lambda_max, deg_fine, config.eps_psd)?;
+    let coeffs_fine =
+        compute_chebyshev_bandpass_coefficients(&terms_psd, config.lambda_max, deg_fine)?;
 
+    let n = graph.num_nodes();
     if n == 0 {
+        let beta_auto = 1e-4;
+        let beta_eff = config.beta_floor.unwrap_or(beta_auto);
         let stats = DogVaradhanStats {
-            moment_stats: *kernel.moment_stats(),
-            t1: kernel.t1(),
-            t2: kernel.t2(),
-            alpha: kernel.alpha(),
-            degree: kernel.degree(),
-            delta_psd: kernel.delta_psd(),
-            h_min: kernel.h_min(),
+            moment_stats,
+            t1,
+            t2,
+            alpha,
+            degree: deg_fine,
+            delta_psd,
+            h_min,
             k_min: 0.0,
             k_med: 0.0,
-            beta_auto: kernel.beta_auto(),
-            beta_eff: kernel.beta_eff(),
+            beta_auto,
+            beta_eff,
             n_landmarks: 0,
             t_coarse: config.t_coarse,
             used_coarse_scaffold: false,
@@ -342,18 +369,20 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
     }
 
     if n == 1 {
+        let beta_auto = 1e-4;
+        let beta_eff = config.beta_floor.unwrap_or(beta_auto);
         let stats = DogVaradhanStats {
-            moment_stats: *kernel.moment_stats(),
-            t1: kernel.t1(),
-            t2: kernel.t2(),
-            alpha: kernel.alpha(),
-            degree: kernel.degree(),
-            delta_psd: kernel.delta_psd(),
-            h_min: kernel.h_min(),
+            moment_stats,
+            t1,
+            t2,
+            alpha,
+            degree: deg_fine,
+            delta_psd,
+            h_min,
             k_min: 1.0,
             k_med: 1.0,
-            beta_auto: kernel.beta_auto(),
-            beta_eff: kernel.beta_eff(),
+            beta_auto,
+            beta_eff,
             n_landmarks: 1,
             t_coarse: config.t_coarse,
             used_coarse_scaffold: false,
@@ -361,7 +390,7 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
         return Ok((
             DogVaradhanLandmarks {
                 num_nodes: 1,
-                landmarks: kernel.landmarks().to_vec(),
+                landmarks: vec![0],
                 d_dog: vec![0.0],
                 d_coarse: None,
             },
@@ -369,23 +398,71 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
         ));
     }
 
-    let d_dog =
-        kernel.varadhan_landmark_table(config.p_exp, config.degree_normalize, config.eps_sim)?;
+    let k_lm = config.n_landmarks.min(n);
+    let landmarks = select_maxmin_sp_pivots(graph, k_lm, config.seed, config.min_degree)?;
+    let k_lm_actual = landmarks.len();
 
-    let beta_eff = kernel.beta_eff();
-    let inv_one_minus_beta = 1.0 / (1.0 - beta_eff);
-    let k_eff_mat = kernel.landmark_kernel_matrix();
+    let (l_sym, _) = symmetric_normalized_laplacian(graph);
+    let l_tilde = l_sym.scale_and_shift(2.0 / config.lambda_max, -1.0)?;
+
+    let use_coarse = t1.max(t2) < 32.0 && config.t_coarse > 0.0;
+    let deg_c = match config.degree {
+        Some(d) => d.max(75),
+        None => deg_fine.max(adaptive_chebyshev_degree(config.t_coarse)),
+    };
+    let coarse_terms = [(1.0, config.t_coarse)];
+    let coeffs_c_opt = if use_coarse {
+        Some(compute_chebyshev_bandpass_coefficients(
+            &coarse_terms,
+            config.lambda_max,
+            deg_c,
+        )?)
+    } else {
+        None
+    };
+
+    let mut e_lm = vec![0.0_f64; n * k_lm_actual];
+    for (col, &lm) in landmarks.iter().enumerate() {
+        e_lm[(lm as usize) * k_lm_actual + col] = 1.0;
+    }
+
+    let mut ws = ChebyshevWorkspace::with_capacity(n * k_lm_actual.min(8));
+    let mut k_plus_lm = vec![0.0_f64; n * k_lm_actual];
+    let mut k_c_opt = if use_coarse {
+        Some(vec![0.0_f64; n * k_lm_actual])
+    } else {
+        None
+    };
+    ws.apply_batch_dual(
+        &l_tilde,
+        &coeffs_fine,
+        coeffs_c_opt.as_deref(),
+        &e_lm,
+        &mut k_plus_lm,
+        k_c_opt.as_deref_mut(),
+        k_lm_actual,
+    )?;
+
+    let n_probes = config.jl_dim.max(k_lm_actual);
+    let (mut k_u_plus, k_u_c_opt) = ws.compute_dual_jl_squared_norms_shifted(
+        &l_tilde,
+        &terms_psd,
+        deg_fine,
+        use_coarse.then_some((&coarse_terms[..], deg_c)),
+        config.lambda_max,
+        n_probes,
+        config.seed,
+    )?;
+
     let mut k_min = f64::INFINITY;
-    for &val in k_eff_mat {
-        let raw = (val - beta_eff) * inv_one_minus_beta;
-        if raw < k_min {
-            k_min = raw;
+    for &val in &k_plus_lm {
+        if val < k_min {
+            k_min = val;
         }
     }
-    let mut k_p_plus = Vec::with_capacity(k_lm);
-    for (col, &lm) in kernel.landmarks().iter().enumerate() {
-        let eff_val = k_eff_mat[(lm as usize) * k_lm + col];
-        k_p_plus.push((eff_val - beta_eff) * inv_one_minus_beta);
+    let mut k_p_plus = Vec::with_capacity(k_lm_actual);
+    for (col, &lm) in landmarks.iter().enumerate() {
+        k_p_plus.push(k_plus_lm[(lm as usize) * k_lm_actual + col]);
     }
     k_p_plus.sort_by(f64::total_cmp);
     let k_med = if k_p_plus.is_empty() {
@@ -397,73 +474,53 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
         0.5 * (k_p_plus[mid - 1] + k_p_plus[mid])
     };
 
-    let d_coarse = if kernel.t1().max(kernel.t2()) < 32.0 && config.t_coarse > 0.0 {
-        let (l_sym, _) = symmetric_normalized_laplacian(graph);
-        let deg_c = kernel
-            .degree()
-            .max(adaptive_chebyshev_degree(config.t_coarse));
-        let coarse_terms = [(1.0, config.t_coarse)];
-        let coeffs_c =
-            compute_chebyshev_bandpass_coefficients(&coarse_terms, config.lambda_max, deg_c)?;
+    let denom_beta = (1.0 - k_min).max(1e-12);
+    let beta_auto = ((0.02 * k_med - k_min).max(0.0) / denom_beta).clamp(1e-4, 0.5);
+    let beta_eff = config.beta_floor.unwrap_or(beta_auto);
 
-        let n_probes_c = kernel.jl_dim().clamp(1, 64);
-        let mut ws = ChebyshevWorkspace::with_capacity(n * k_lm.max(n_probes_c));
-        let mut e_lm = vec![0.0_f64; n * k_lm];
-        for (col, &lm) in kernel.landmarks().iter().enumerate() {
-            e_lm[(lm as usize) * k_lm + col] = 1.0;
-        }
-        let mut k_c = vec![0.0_f64; n * k_lm];
-        ws.apply_batch_with_lambda_max(
-            &l_sym,
-            config.lambda_max,
-            &coeffs_c,
-            &e_lm,
-            &mut k_c,
-            k_lm,
-        )?;
+    let one_minus_beta = 1.0 - beta_eff;
+    for val in &mut k_plus_lm {
+        *val = one_minus_beta * (*val) + beta_eff;
+    }
+    for val in &mut k_u_plus {
+        *val = one_minus_beta * (*val) + beta_eff;
+    }
+    let mut k_p_eff = Vec::with_capacity(k_lm_actual);
+    for (col, &lm) in landmarks.iter().enumerate() {
+        k_p_eff.push(k_plus_lm[(lm as usize) * k_lm_actual + col]);
+    }
+    let d_dog = build_varadhan_table(&k_plus_lm, &k_u_plus, &k_p_eff, t1, config);
 
-        let y_c = ws.compute_kernel_jl_embedding(
-            &l_sym,
-            &coarse_terms,
-            config.lambda_max,
-            deg_c,
-            n_probes_c,
-            config.seed.wrapping_add(1),
-            None,
-        )?;
-        let mut k_u_c = Vec::with_capacity(n);
-        for i in 0..n {
-            let row = &y_c[i * n_probes_c..(i + 1) * n_probes_c];
-            k_u_c.push(row.iter().map(|&v| v * v).sum());
+    let d_coarse = match (k_c_opt, k_u_c_opt) {
+        (Some(k_c), Some(k_u_c)) => {
+            let mut k_p_c = Vec::with_capacity(k_lm_actual);
+            for (col, &lm) in landmarks.iter().enumerate() {
+                k_p_c.push(k_c[(lm as usize) * k_lm_actual + col]);
+            }
+            Some(build_varadhan_table(
+                &k_c,
+                &k_u_c,
+                &k_p_c,
+                config.t_coarse,
+                config,
+            ))
         }
-        let mut k_p_c = Vec::with_capacity(k_lm);
-        for (col, &lm) in kernel.landmarks().iter().enumerate() {
-            k_p_c.push(k_c[(lm as usize) * k_lm + col]);
-        }
-        Some(build_varadhan_table(
-            &k_c,
-            &k_u_c,
-            &k_p_c,
-            config.t_coarse,
-            config,
-        ))
-    } else {
-        None
+        _ => None,
     };
 
     let stats = DogVaradhanStats {
-        moment_stats: *kernel.moment_stats(),
-        t1: kernel.t1(),
-        t2: kernel.t2(),
-        alpha: kernel.alpha(),
-        degree: kernel.degree(),
-        delta_psd: kernel.delta_psd(),
-        h_min: kernel.h_min(),
+        moment_stats,
+        t1,
+        t2,
+        alpha,
+        degree: deg_fine,
+        delta_psd,
+        h_min,
         k_min,
         k_med,
-        beta_auto: kernel.beta_auto(),
+        beta_auto,
         beta_eff,
-        n_landmarks: k_lm,
+        n_landmarks: k_lm_actual,
         t_coarse: config.t_coarse,
         used_coarse_scaffold: d_coarse.is_some(),
     };
@@ -471,7 +528,7 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
     Ok((
         DogVaradhanLandmarks {
             num_nodes: n,
-            landmarks: kernel.landmarks().to_vec(),
+            landmarks,
             d_dog,
             d_coarse,
         },
@@ -629,5 +686,26 @@ mod tests {
         let mut bad_cfg2 = cfg;
         bad_cfg2.t_coarse = f64::NAN;
         assert!(compute_regularized_dog_varadhan_landmarks(&g, &bad_cfg2).is_err());
+
+        // Fine DoG table and beta_auto must match identically whether coarse scaffold is enabled or disabled.
+        let cfg_fine_only = DogVaradhanConfig {
+            degree: Some(25),
+            t_coarse: 0.0,
+            ..cfg
+        };
+        let cfg_dual = DogVaradhanConfig {
+            degree: Some(25),
+            t_coarse: 48.0,
+            ..cfg
+        };
+        let (lm_f, st_f) = compute_regularized_dog_varadhan_landmarks(&g, &cfg_fine_only).unwrap();
+        let (lm_d, st_d) = compute_regularized_dog_varadhan_landmarks(&g, &cfg_dual).unwrap();
+        assert_eq!(lm_f.landmarks(), lm_d.landmarks());
+        assert!((st_f.beta_auto - st_d.beta_auto).abs() < 1e-14);
+        for (&a, &b) in lm_f.d_dog().iter().zip(lm_d.d_dog().iter()) {
+            assert!((a - b).abs() < 1e-13);
+        }
+        assert!(lm_f.d_coarse().is_none());
+        assert!(lm_d.d_coarse().is_some());
     }
 }
