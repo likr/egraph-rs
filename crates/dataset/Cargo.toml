@@ -1,7 +1,8 @@
 [package]
 name = "egraph-dataset"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [features]
 1138_bus = []
@@ -15,4 +16,5 @@ karate = []
 lesmis = []
 
 [dependencies]
-petgraph = "0.8"
+egraph-core.workspace = true
+petgraph.workspace = true
