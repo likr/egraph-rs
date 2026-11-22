@@ -592,3 +592,84 @@ fn test_fdeb_step_vs_run_collinear_zero_length_and_bundling() {
         Err(CoreError::DimensionMismatch { .. })
     ));
 }
+
+fn naive_overlap_count_f32(layout: &Layout2d<f32>, hw: &[f32], hh: &[f32]) -> usize {
+    let n = layout.len();
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut count = 0usize;
+    for i in 0..n {
+        let ax_min = xs[i] - hw[i];
+        let ax_max = xs[i] + hw[i];
+        let ay_min = ys[i] - hh[i];
+        let ay_max = ys[i] + hh[i];
+        for j in (i + 1)..n {
+            let bx_min = xs[j] - hw[j];
+            let bx_max = xs[j] + hw[j];
+            let by_min = ys[j] - hh[j];
+            let by_max = ys[j] + hh[j];
+            if ax_min < bx_max && bx_min < ax_max && ay_min < by_max && by_min < ay_max {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn test_prism_f32_large_coordinate_offsets_converge_zero_overlaps() {
+    // Regression test for Bug #2: f32 layouts at coordinate offsets 5000.0 and 1_000_000.0
+    // must converge with 0 overlaps across 20 random seeds (both Delaunay and StaticKdTree fallback).
+    let n = 50usize;
+    let hw = vec![0.5_f32; n];
+    let hh = vec![0.5_f32; n];
+
+    for &offset in &[5_000.0_f32, 1_000_000.0_f32] {
+        for seed in 0..20u64 {
+            let mut rng = DeterministicRng::from_seed_u64(5_000 + seed);
+            let mut x = Vec::with_capacity(n);
+            let mut y = Vec::with_capacity(n);
+            for _ in 0..n {
+                x.push(offset + (rng.next_f64() as f32 * 4.0 - 2.0));
+                y.push(-offset + (rng.next_f64() as f32 * 4.0 - 2.0));
+            }
+            let mut layout = Layout2d::from_xy(x, y).unwrap();
+            let mut solver =
+                PrismOverlapRemoval::new(hw.clone(), hh.clone(), PrismConfig::default()).unwrap();
+            let status = solver.run(&mut layout).unwrap();
+            assert_eq!(
+                status,
+                SolverStatus::Converged,
+                "PRISM f32 did not converge at offset={offset} seed={seed}: iters={} overlaps={}",
+                solver.iteration(),
+                solver.last_overlap_count()
+            );
+            assert_eq!(solver.last_overlap_count(), 0);
+            assert_eq!(
+                naive_overlap_count_f32(&layout, &hw, &hh),
+                0,
+                "naive O(N^2) overlap check failed at offset={offset} seed={seed}"
+            );
+            assert!(!RectangleOverlapSweep::has_layout_overlaps(&layout, &hw, &hh).unwrap());
+        }
+    }
+
+    // Also verify project_rectangle_no_overlap_2d with non-power-of-two f32 extents at 1_000_000.0.
+    let hw_nonpow = vec![0.3_f32; n];
+    let hh_nonpow = vec![0.3_f32; n];
+    for &offset in &[5_000.0_f32, 1_000_000.0_f32] {
+        let mut rng = DeterministicRng::from_seed_u64(777);
+        let mut x = Vec::with_capacity(n);
+        let mut y = Vec::with_capacity(n);
+        for _ in 0..n {
+            x.push(offset + (rng.next_f64() as f32 * 4.0 - 2.0));
+            y.push(-offset + (rng.next_f64() as f32 * 4.0 - 2.0));
+        }
+        let mut layout = Layout2d::from_xy(x, y).unwrap();
+        project_rectangle_no_overlap_2d(&mut layout, &hw_nonpow, &hh_nonpow).unwrap();
+        assert_eq!(naive_overlap_count_f32(&layout, &hw_nonpow, &hh_nonpow), 0);
+        assert!(
+            !RectangleOverlapSweep::has_layout_overlaps(&layout, &hw_nonpow, &hh_nonpow).unwrap()
+        );
+    }
+}

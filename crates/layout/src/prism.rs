@@ -1137,10 +1137,11 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             }
             if j - i > 1 {
                 moved = true;
+                let coord_ulp = base_x.abs().max(base_y.abs()) * S::EPSILON.to_f64();
                 for k in (i + 1)..j {
                     let idx = self.sort_pts[k].2 as usize;
                     let extent = self.eff_hw_f64[idx].max(self.eff_hh_f64[idx]).max(1e-2);
-                    let jitter_scale = extent * 0.05;
+                    let jitter_scale = (extent * 0.05).max(4.0 * coord_ulp);
                     let angle = self.rng.next_f64() * std::f64::consts::TAU;
                     let radius = jitter_scale * (0.25 + 0.75 * self.rng.next_f64());
                     let (sin_a, cos_a) = angle.sin_cos();
@@ -1230,7 +1231,13 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             if dist < MIN_EDGE_DIST {
                 let angle = self.rng.next_f64() * std::f64::consts::TAU;
                 let (sin_a, cos_a) = angle.sin_cos();
-                let eps = extent.max(1e-2) * 1e-3;
+                let coord_ulp = xs[u]
+                    .abs()
+                    .max(xs[v].abs())
+                    .max(ys[u].abs())
+                    .max(ys[v].abs())
+                    * S::EPSILON.to_f64();
+                let eps = (extent.max(1e-2) * 1e-3).max(4.0 * coord_ulp);
                 dx = eps * cos_a;
                 dy = eps * sin_a;
                 dist = eps;
@@ -1241,28 +1248,55 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             let adx = dx.abs();
             let ady = dy.abs();
 
-            let (s_ij, is_overlapping) = if req_x > 0.0 && req_y > 0.0 && adx < req_x && ady < req_y
-            {
-                let tx = if adx > 1e-12 {
-                    (req_x * sep_eps) / adx
+            // Check overlap both in f64 and in S (e.g., f32 rounding of `x +/- half_extent`).
+            let xu_s = S::from_f64(xs[u]);
+            let xv_s = S::from_f64(xs[v]);
+            let yu_s = S::from_f64(ys[u]);
+            let yv_s = S::from_f64(ys[v]);
+            let hw_u_s = self.eff_hw_s[u];
+            let hw_v_s = self.eff_hw_s[v];
+            let hh_u_s = self.eff_hh_s[u];
+            let hh_v_s = self.eff_hh_s[v];
+            let overlaps_in_s = (xu_s - hw_u_s) < (xv_s + hw_v_s)
+                && (xv_s - hw_v_s) < (xu_s + hw_u_s)
+                && (yu_s - hh_u_s) < (yv_s + hh_v_s)
+                && (yv_s - hh_v_s) < (yu_s + hh_u_s);
+
+            let (s_ij, is_overlapping) =
+                if req_x > 0.0 && req_y > 0.0 && ((adx < req_x && ady < req_y) || overlaps_in_s) {
+                    let ulp_margin_x =
+                        (xs[u].abs().max(xs[v].abs()) + req_x) * (8.0 * S::EPSILON.to_f64());
+                    let ulp_margin_y =
+                        (ys[u].abs().max(ys[v].abs()) + req_y) * (8.0 * S::EPSILON.to_f64());
+                    let target_x = req_x * sep_eps + ulp_margin_x;
+                    let target_y = req_y * sep_eps + ulp_margin_y;
+                    let tx = if adx > 1e-12 {
+                        target_x / adx
+                    } else {
+                        f64::INFINITY
+                    };
+                    let ty = if ady > 1e-12 {
+                        target_y / ady
+                    } else {
+                        f64::INFINITY
+                    };
+                    (tx.min(ty).max(1.0).min(s_max), true)
                 } else {
-                    f64::INFINITY
+                    (1.0, false)
                 };
-                let ty = if ady > 1e-12 {
-                    (req_y * sep_eps) / ady
-                } else {
-                    f64::INFINITY
-                };
-                (tx.min(ty).max(1.0).min(s_max), true)
-            } else {
-                (1.0, false)
-            };
 
             // Collapsed micro-distance guard: overlapping near-coincident vertices (e.g., from
             // t-FDP leaf collapse) start at least `extent * 1e-4` instead of spending ~50 rounds
-            // expanding geometrically from ~1e-9.
+            // expanding geometrically from ~1e-9, and never smaller than S-coordinate ULP resolution.
             let eff_dist = if is_overlapping {
+                let coord_ulp = xs[u]
+                    .abs()
+                    .max(xs[v].abs())
+                    .max(ys[u].abs())
+                    .max(ys[v].abs())
+                    * S::EPSILON.to_f64();
                 dist.max(extent * OVERLAP_MICRO_DIST_RATIO)
+                    .max(2.0 * coord_ulp)
             } else {
                 dist
             };

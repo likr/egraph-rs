@@ -891,7 +891,8 @@ fn generate_x_pass_constraints<S: Scalar>(
                 let xu = xs[u].to_f64();
                 let req_x = hw_v + half_widths[u].to_f64();
                 if xu - xv >= req_x {
-                    let gap = S::from_f64(req_x * ulp_scale + ulp_abs);
+                    let pair_ulp = ulp_abs * (1.0 + xu.abs().max(xv.abs()));
+                    let gap = S::from_f64(req_x * ulp_scale + pair_ulp);
                     out.push(SeparationConstraint::new(v as u32, u as u32, gap));
                     break;
                 }
@@ -901,7 +902,8 @@ fn generate_x_pass_constraints<S: Scalar>(
                 let xu = xs[u].to_f64();
                 let req_x = hw_v + half_widths[u].to_f64();
                 if xv - xu >= req_x {
-                    let gap = S::from_f64(req_x * ulp_scale + ulp_abs);
+                    let pair_ulp = ulp_abs * (1.0 + xu.abs().max(xv.abs()));
+                    let gap = S::from_f64(req_x * ulp_scale + pair_ulp);
                     out.push(SeparationConstraint::new(u as u32, v as u32, gap));
                     break;
                 }
@@ -921,7 +923,8 @@ fn generate_x_pass_constraints<S: Scalar>(
         let oy = req_y - (ys[i].to_f64() - ys[j].to_f64()).abs();
         if ox <= oy || force_all_overlaps {
             emitted_overlap = true;
-            let gap = S::from_f64(req_x * ulp_scale + ulp_abs);
+            let pair_ulp = ulp_abs * (1.0 + xs[i].to_f64().abs().max(xs[j].to_f64().abs()));
+            let gap = S::from_f64(req_x * ulp_scale + pair_ulp);
             let ord = xs[i]
                 .to_f64()
                 .total_cmp(&xs[j].to_f64())
@@ -987,20 +990,24 @@ fn generate_y_pass_constraints<S: Scalar>(
 
             for &(_, u) in scanline.range(key..).skip(1) {
                 if (xs[u].to_f64() - xv).abs() < hw_v + half_widths[u].to_f64() {
+                    let yu = ys[u].to_f64();
                     let req_y = hh_v + half_heights[u].to_f64();
-                    let gap = S::from_f64(req_y * ulp_scale + ulp_abs);
+                    let pair_ulp = ulp_abs * (1.0 + yu.abs().max(yv.abs()));
+                    let gap = S::from_f64(req_y * ulp_scale + pair_ulp);
                     out.push(SeparationConstraint::new(v as u32, u as u32, gap));
-                    if ys[u].to_f64() - yv >= req_y {
+                    if yu - yv >= req_y {
                         break;
                     }
                 }
             }
             for &(_, u) in scanline.range(..key).rev() {
                 if (xs[u].to_f64() - xv).abs() < hw_v + half_widths[u].to_f64() {
+                    let yu = ys[u].to_f64();
                     let req_y = hh_v + half_heights[u].to_f64();
-                    let gap = S::from_f64(req_y * ulp_scale + ulp_abs);
+                    let pair_ulp = ulp_abs * (1.0 + yu.abs().max(yv.abs()));
+                    let gap = S::from_f64(req_y * ulp_scale + pair_ulp);
                     out.push(SeparationConstraint::new(u as u32, v as u32, gap));
-                    if yv - ys[u].to_f64() >= req_y {
+                    if yv - yu >= req_y {
                         break;
                     }
                 }
@@ -1015,7 +1022,8 @@ fn generate_y_pass_constraints<S: Scalar>(
         if req_y <= 0.0 {
             continue;
         }
-        let gap = S::from_f64(req_y * ulp_scale + ulp_abs);
+        let pair_ulp = ulp_abs * (1.0 + ys[i].to_f64().abs().max(ys[j].to_f64().abs()));
+        let gap = S::from_f64(req_y * ulp_scale + pair_ulp);
         let ord = ys[i]
             .to_f64()
             .total_cmp(&ys[j].to_f64())

@@ -1282,14 +1282,13 @@ fn build_coarse_csr(
     stamp.resize_and_clear(coarse_n);
     let mut edge_acc = vec![0.0_f64; coarse_n];
     let mut row_nbrs: Vec<u32> = Vec::new();
-    let mut out_indptr = Vec::with_capacity(coarse_n + 1);
-    out_indptr.push(0u32);
-    let mut out_indices = Vec::new();
-    let mut out_weights = Vec::new();
+    let mut deg = vec![0u32; coarse_n];
+    let mut upper_edges: Vec<(u32, u32, f64)> = Vec::new();
 
+    // Sum each undirected coarse edge once in canonical (c < cv) order so both (c, cv) and (cv, c)
+    // receive bit-identical f64 weights without non-associative 1-ULP drift.
     for c in 0..coarse_n {
         stamp.clear();
-        stamp.mark(c);
         row_nbrs.clear();
 
         let start = group_indptr[c];
@@ -1300,7 +1299,7 @@ fn build_coarse_csr(
             let weights = fine.neighbor_weights(u);
             for (pos, &v_u32) in nbrs.iter().enumerate() {
                 let cv = coarse_of[v_u32 as usize] as usize;
-                if cv == c {
+                if cv <= c {
                     continue;
                 }
                 let w = weights.map_or(1.0, |ws| ws[pos]);
@@ -1314,13 +1313,44 @@ fn build_coarse_csr(
         }
 
         row_nbrs.sort_unstable();
+        let c_u32 = c as u32;
         for &cv_u32 in &row_nbrs {
-            out_indices.push(cv_u32);
-            out_weights.push(edge_acc[cv_u32 as usize]);
+            let w = edge_acc[cv_u32 as usize];
+            upper_edges.push((c_u32, cv_u32, w));
+            deg[c] += 1;
+            deg[cv_u32 as usize] += 1;
         }
-        let ptr = u32::try_from(out_indices.len())
-            .map_err(|_| CoreError::invalid_csr("coarse edge count exceeds u32::MAX"))?;
-        out_indptr.push(ptr);
+    }
+
+    let mut out_indptr = Vec::with_capacity(coarse_n + 1);
+    out_indptr.push(0u32);
+    let mut total_nnz = 0u32;
+    for &d in &deg {
+        total_nnz = total_nnz
+            .checked_add(d)
+            .ok_or_else(|| CoreError::invalid_csr("coarse edge count exceeds u32::MAX"))?;
+        out_indptr.push(total_nnz);
+    }
+
+    let nnz = total_nnz as usize;
+    let mut out_indices = vec![0u32; nnz];
+    let mut out_weights = vec![0.0_f64; nnz];
+    let mut write_pos = out_indptr[..coarse_n].to_vec();
+
+    // Since `upper_edges` is ordered by ascending `c` and then ascending `cv` (`c < cv`),
+    // appending `cv` to row `c` and `c` to row `cv` yields strictly sorted column indices per row.
+    for &(c_u32, cv_u32, w) in &upper_edges {
+        let c = c_u32 as usize;
+        let cv = cv_u32 as usize;
+        let p_c = write_pos[c] as usize;
+        out_indices[p_c] = cv_u32;
+        out_weights[p_c] = w;
+        write_pos[c] = (p_c + 1) as u32;
+
+        let p_cv = write_pos[cv] as usize;
+        out_indices[p_cv] = c_u32;
+        out_weights[p_cv] = w;
+        write_pos[cv] = (p_cv + 1) as u32;
     }
 
     CsrGraph::from_csr(&out_indptr, &out_indices, Some(&out_weights), false, false)
