@@ -717,7 +717,7 @@ fn layout_f32_to_f64(layout: &Layout2d<f32>) -> Layout2d<f64> {
     Layout2d::from_xy(x, y).unwrap_or_else(|_| Layout2d::zeros(0))
 }
 
-fn parse_metric_target(raw: &str) -> PyResult<MetricTarget> {
+fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
     let normalized: String = raw
         .trim()
         .chars()
@@ -751,9 +751,7 @@ fn parse_metric_target(raw: &str) -> PyResult<MetricTarget> {
         "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
         "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
         "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
-        _ => Err(PyValueError::new_err(format!(
-            "unknown metric target {raw:?}"
-        ))),
+        _ => Err(format!("unknown metric target {raw:?}")),
     }
 }
 
@@ -772,7 +770,7 @@ fn extract_metric_targets(targets: &Bound<'_, PyAny>) -> PyResult<Vec<MetricTarg
         let raw = item
             .extract::<String>()
             .map_err(|_| PyTypeError::new_err("metric target entries must be strings"))?;
-        parsed.push(parse_metric_target(&raw)?);
+        parsed.push(parse_metric_target(&raw).map_err(PyValueError::new_err)?);
     }
     Ok(parsed)
 }
