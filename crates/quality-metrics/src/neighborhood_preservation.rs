@@ -1,9 +1,25 @@
-use linfa::Float;
-use linfa_nn::{distance::L2Dist, BallTree, NearestNeighbour};
-use ndarray::prelude::*;
+use egraph_spatial::StaticKdTree;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNeighbors, NodeIndexable};
 use petgraph_drawing::{Drawing, DrawingEuclidean2d, DrawingIndex, DrawingValue};
 use std::collections::HashSet;
+
+fn build_kdtree<N, S>(drawing: &DrawingEuclidean2d<N, S>) -> Option<StaticKdTree<2, f64>>
+where
+    N: DrawingIndex,
+    S: DrawingValue,
+{
+    let n = drawing.len();
+    let mut points = Vec::with_capacity(n);
+    for i in 0..n {
+        let entry = drawing.raw_entry(i);
+        let (x, y) = (entry.0, entry.1);
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        points.push([x.into(), y.into()]);
+    }
+    StaticKdTree::<2, f64>::build(&points).ok()
+}
 
 /// Calculates the neighborhood preservation metric for a graph layout.
 ///
@@ -37,7 +53,7 @@ pub fn neighborhood_preservation<G, S>(graph: G, drawing: &DrawingEuclidean2d<G:
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,
     G::NodeId: DrawingIndex,
-    S: DrawingValue + Float,
+    S: DrawingValue,
 {
     let mut graph_edges = HashSet::new();
     for e in graph.edge_references() {
@@ -51,31 +67,26 @@ where
     if n <= 1 || graph_edges.is_empty() {
         return S::zero();
     }
-    let mut points = Array2::zeros((n, 2));
-    for i in 0..n {
-        let x = drawing.raw_entry(i).0;
-        let y = drawing.raw_entry(i).1;
-        if !x.is_finite() || !y.is_finite() {
-            return S::zero();
-        }
-        points[[i, 0]] = x;
-        points[[i, 1]] = y;
-    }
-    let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
+    let Some(nn) = build_kdtree(drawing) else {
+        return S::zero();
+    };
 
     let mut cap = 0;
     let mut cup = graph_edges.len();
+    let mut neighbors = Vec::new();
     for i in 0..n {
         let u = *drawing.node_id(i);
-        let x = drawing.raw_entry(i).0;
-        let y = drawing.raw_entry(i).1;
         let d = graph.neighbors(u).count();
-        let query = arr1(&[x, y]);
-        let neighbors = nn.k_nearest(query.view(), d + 1).unwrap();
-        for &(_, j) in neighbors.iter() {
-            if i == j {
-                continue;
-            }
+        if d == 0 {
+            continue;
+        }
+        if nn
+            .k_nearest_excluding_self_into(i, d, &mut neighbors)
+            .is_err()
+        {
+            return S::zero();
+        }
+        for &(j, _) in &neighbors {
             let v = *drawing.node_id(j);
             if graph_edges.contains(&(graph.to_index(u), graph.to_index(v))) {
                 cap += 1;
@@ -120,7 +131,7 @@ pub fn neighborhood_preservation_2hop<G, S>(
 where
     G: IntoEdgeReferences + IntoNeighbors + NodeIndexable,
     G::NodeId: DrawingIndex,
-    S: DrawingValue + Float,
+    S: DrawingValue,
 {
     let n = drawing.len();
     if n == 0 {
@@ -137,19 +148,12 @@ where
         }
     }
 
-    let mut points = Array2::zeros((n, 2));
-    for i in 0..n {
-        let x = drawing.raw_entry(i).0;
-        let y = drawing.raw_entry(i).1;
-        if !x.is_finite() || !y.is_finite() {
-            return S::zero();
-        }
-        points[[i, 0]] = x;
-        points[[i, 1]] = y;
-    }
-    let nn = BallTree::new().from_batch(&points, L2Dist).unwrap();
+    let Some(nn) = build_kdtree(drawing) else {
+        return S::zero();
+    };
 
     let mut sum_jaccard = S::zero();
+    let mut spatial_neighbors = Vec::new();
 
     for i in 0..n {
         let mut ng_2 = HashSet::new();
@@ -168,16 +172,15 @@ where
             continue;
         }
 
-        let x = drawing.raw_entry(i).0;
-        let y = drawing.raw_entry(i).1;
-        let query = arr1(&[x, y]);
-        let spatial_neighbors = nn.k_nearest(query.view(), k + 1).unwrap();
+        if nn
+            .k_nearest_excluding_self_into(i, k, &mut spatial_neighbors)
+            .is_err()
+        {
+            return S::zero();
+        }
 
         let mut intersection_count = 0;
-        for &(_, j) in spatial_neighbors.iter() {
-            if i == j {
-                continue;
-            }
+        for &(j, _) in &spatial_neighbors {
             if ng_2.contains(&j) {
                 intersection_count += 1;
             }
@@ -238,5 +241,51 @@ mod tests {
         let score = neighborhood_preservation(&g_edgeless, &d_edgeless);
         assert!(score.is_finite());
         assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_neighborhood_preservation_exact_duplicates_isolated_and_nonfinite() {
+        // Star graph of 5 nodes: optimal placement yields 1.0, suboptimal yields < 1.0.
+        let mut star = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        let nodes: Vec<_> = (0..5).map(|_| star.add_node(())).collect();
+        for &leaf in &nodes[1..] {
+            star.add_edge(nodes[0], leaf, ());
+        }
+        let mut d_opt = DrawingEuclidean2d::<_, f32>::initial_placement(&star);
+        *d_opt.position_mut(nodes[0]).unwrap() = MetricEuclidean2d(0.0, 0.0);
+        *d_opt.position_mut(nodes[1]).unwrap() = MetricEuclidean2d(1.0, 0.0);
+        *d_opt.position_mut(nodes[2]).unwrap() = MetricEuclidean2d(0.0, 1.0);
+        *d_opt.position_mut(nodes[3]).unwrap() = MetricEuclidean2d(-1.0, 0.0);
+        *d_opt.position_mut(nodes[4]).unwrap() = MetricEuclidean2d(0.0, -1.0);
+        assert_eq!(neighborhood_preservation(&star, &d_opt), 1.0);
+        assert_eq!(neighborhood_preservation_2hop(&star, &d_opt), 1.0);
+
+        // Collapsed duplicates with an isolated node (degree 0): self must always be excluded
+        // even when > d + 1 points share the same coordinates.
+        let mut g = petgraph::graph::UnGraph::<(), ()>::new_undirected();
+        let g_nodes: Vec<_> = (0..5).map(|_| g.add_node(())).collect();
+        g.add_edge(g_nodes[0], g_nodes[1], ());
+        g.add_edge(g_nodes[2], g_nodes[3], ());
+        // g_nodes[4] is isolated (degree 0).
+        let mut d_dup = DrawingEuclidean2d::<_, f64>::initial_placement(&g);
+        for &u in &g_nodes {
+            *d_dup.position_mut(u).unwrap() = MetricEuclidean2d(0.0, 0.0);
+        }
+        // 1-hop: i=0 -> neighbor 1 (match); i=1 -> neighbor 0 (match);
+        // i=2 -> neighbor 0 (miss); i=3 -> neighbor 0 (miss); i=4 -> d=0 (skipped).
+        // graph_edges.len() = 4, cap = 2, cup = 4 + 2 = 6 -> 2/6.
+        let np1 = neighborhood_preservation(&g, &d_dup);
+        assert!((np1 - (2.0 / 6.0)).abs() < 1e-12, "np1={}", np1);
+
+        // 2-hop with collapsed coordinates: deterministic index tie-breaking, Jaccard in [0, 1].
+        // i=0 -> {1} (1.0), i=1 -> {0} (1.0), i=2 -> {0} vs {3} (0.0), i=3 -> {0} vs {2} (0.0), i=4 -> isolated (1.0).
+        let np2 = neighborhood_preservation_2hop(&g, &d_dup);
+        assert!((np2 - (3.0 / 5.0)).abs() < 1e-12, "np2={}", np2);
+
+        // Non-finite coordinates return 0.0 cleanly for both metrics.
+        let mut d_nan = d_dup.clone();
+        *d_nan.position_mut(g_nodes[0]).unwrap() = MetricEuclidean2d(f64::NAN, 0.0);
+        assert_eq!(neighborhood_preservation(&g, &d_nan), 0.0);
+        assert_eq!(neighborhood_preservation_2hop(&g, &d_nan), 0.0);
     }
 }
