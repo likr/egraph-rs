@@ -55,6 +55,9 @@ Two parallel authors **MUST NEVER** edit the same file in the same wave. Treat t
 - `crates/egraph-core/src/**`, `crates/egraph-ffi/src/**`
 - Top-level registry files (`crates/python/src/lib.rs`, `crates/wasm/src/lib.rs`, `crates/python/python/egraph/_core.pyi`, `crates/wasm/pkg/index.d.ts`)
 
+### Cross-Lane API Signature Lock
+Before launching parallel Python + WASM binding waves (or any paired cross-target implementation), pin the exact function names, argument order, default parameter values, return types, and error/validation contracts on the board first. Locking these interfaces upfront prevents cross-target drift and eliminates late rework across Python (`snake_case`) and WASM (`camelCase`) bindings.
+
 ### Disjoint Ownership Matrix by Milestone (`docs/V6_RELEASE_PLAN.md`)
 
 | Milestone | Serialized First (Owner A) | Parallel Fan-Out Lanes (Disjoint Crates/Files) | Independent Verifier Lane |

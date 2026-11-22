@@ -44,23 +44,31 @@ jobs:
         run: |
           PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
           eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
-          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -- -D warnings
+          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -- -D warnings
 
       - name: Run release workspace tests
         run: |
           cargo test --release --workspace
-          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset
+          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial
 
       - name: Check single-thread invariants and dependency hygiene
         run: |
           test -f clippy.toml
           grep -q "std::thread::spawn" clippy.toml
-          for crate in egraph-core egraph-ffi egraph-petgraph; do
+          for crate in egraph-core egraph-ffi egraph-petgraph egraph-spatial egraph-metrics; do
             if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$crate dependency tree pulls forbidden crate"
               exit 1
             fi
           done
+          if cargo tree -p petgraph-quality-metrics --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::petgraph-quality-metrics dependency tree pulls rayon/linfa/wgpu"
+            exit 1
+          fi
+          if cargo tree -p egraph-spatial --features delaunay --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::egraph-spatial --features delaunay dependency tree pulls forbidden crate"
+            exit 1
+          fi
           if cargo tree -p egraph-wasm --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
             echo "::error::egraph-wasm --no-default-features pulls forbidden crate"
             exit 1

@@ -178,3 +178,9 @@ Diffusion kernel-based computations for graph distances and embeddings.
 
 - **Delaunay Triangulation**:
   - Uses the `spade` library to calculate 2D Euclidean triangulation.
+
+## Spatial Structures & Quality Metrics
+
+- **`SweepLineCrossings` vs `sampled_crossing_number` (`egraph-spatial` / `egraph-metrics`)**:
+  - `SweepLineCrossings` runs in exact $O((|E| + K)\log |E|)$ time using a compact `FastU64Hasher`-backed `PairSet` (`pack_pair`) and zero `Vec<CrossingPair>` allocation on count/angle paths, remaining fast up to $K \sim 10^6\text{--}10^7$ crossings.
+  - On ultra-dense hairball layouts where $K \sim 10^8$ or larger (e.g., `GION_3`, `bcsstk31`), exact enumeration is lower-bounded by $\Omega(K)$; use $O(M)$ `sampled_crossing_number` (deterministic `DeterministicRng`) instead of exact sweep-line counting.

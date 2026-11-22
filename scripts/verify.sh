@@ -278,10 +278,23 @@ if [[ "$RUN_FAST" -eq 1 ]]; then
   fi
 
   for c in ${FAST_CRATES[@]+"${FAST_CRATES[@]}"}; do
-    if [[ "$c" != "petgraph-linalg-kernel" || "$STRICT" -eq 1 ]]; then
-      run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
-    fi
-    run_step "test_$c" run_cargo_test_args -p "$c"
+    case "$c" in
+      egraph-python)
+        run_step "clippy_$c" cargo clippy --no-deps --all-targets -p egraph-python -- -D warnings
+        echo "[verify] Skipping standalone Rust test run for egraph-python (cdylib extension-module); run ./scripts/verify.sh --python"
+        ;;
+      egraph-wasm)
+        run_step "wasm32_check_$c" cargo check -p egraph-wasm --target wasm32-unknown-unknown
+        run_step "clippy_$c" cargo clippy --no-deps --all-targets -p egraph-wasm -- -D warnings
+        echo "[verify] Skipping standalone host test run for egraph-wasm (cdylib); run ./scripts/verify.sh --wasm"
+        ;;
+      *)
+        if [[ "$c" != "petgraph-linalg-kernel" || "$STRICT" -eq 1 ]]; then
+          run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
+        fi
+        run_step "test_$c" run_cargo_test_args -p "$c"
+        ;;
+    esac
   done
 
   run_step "thread_scan" bash -c "
@@ -309,6 +322,9 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_step "rust_workspace_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --workspace
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-dataset' in pkgs else 1)"; then
     run_step "rust_dataset_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-dataset
+  fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-spatial' in pkgs else 1)"; then
+    run_step "rust_spatial_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-spatial
   fi
 fi
 
