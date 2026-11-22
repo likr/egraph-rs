@@ -4,10 +4,14 @@
 
 use std::collections::BTreeMap;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d};
+use egraph::{
+    core as egraph_core, dataset as egraph_dataset, metrics as egraph_metrics,
+    spatial as egraph_spatial,
+};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd};
 use egraph_ffi::{ErrorKind, FfiError, InterleavedLayout2d, build_csr_f64, build_edges_f64};
 use egraph_metrics::{MetricConfig, MetricTarget};
-use egraph_spatial::Delaunay2d;
+use egraph_spatial::{Delaunay2d, RectangleOverlapSweep};
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{
     Element, PyArray1, PyArray2, PyArrayDescr, PyArrayDescrMethods, PyReadonlyArray1,
@@ -579,10 +583,49 @@ impl PyCsrGraph {
         self.inner.num_edges()
     }
 
+    /// Number of stored CSR half-edge entries (`indices().len()`).
+    #[getter]
+    fn nnz(&self) -> usize {
+        self.inner.nnz()
+    }
+
     /// Whether the graph is directed.
     #[getter]
     fn is_directed(&self) -> bool {
         self.inner.is_directed()
+    }
+
+    /// Whether explicit edge weights are stored.
+    #[getter]
+    fn is_weighted(&self) -> bool {
+        self.inner.is_weighted()
+    }
+
+    /// Return the degree (outgoing degree for directed graphs) of vertex `u`.
+    #[pyo3(signature = (u), text_signature = "($self, u)")]
+    fn degree(&self, u: StrictUsize) -> PyResult<usize> {
+        self.inner.try_degree(u.0).map_err(core_error_to_py)
+    }
+
+    /// Return a `uint32` NumPy copy of neighbor vertex IDs adjacent to `u`.
+    #[pyo3(signature = (u), text_signature = "($self, u)")]
+    fn neighbors<'py>(
+        &self,
+        py: Python<'py>,
+        u: StrictUsize,
+    ) -> PyResult<Bound<'py, PyArray1<u32>>> {
+        let slice = self.inner.try_neighbors(u.0).map_err(core_error_to_py)?;
+        Ok(PyArray1::from_slice(py, slice))
+    }
+
+    /// Extract the induced subgraph on `nodes` (with compact `0..len(nodes)` vertex IDs).
+    #[pyo3(signature = (nodes), text_signature = "($self, nodes)")]
+    fn induced_subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let nodes_vec = extract_u32_1d(nodes, "nodes")?;
+        let sub = py
+            .detach(|| self.inner.induced_subgraph(&nodes_vec))
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner: sub })
     }
 
     /// Return a `uint32` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
@@ -991,6 +1034,102 @@ impl PyLayout2d {
         }
     }
 
+    /// Return `True` if the layout contains zero vertices.
+    fn is_empty(&self) -> bool {
+        self.__len__() == 0
+    }
+
+    /// Return the `x` coordinate of vertex `i`.
+    #[pyo3(signature = (i), text_signature = "($self, i)")]
+    fn x(&self, i: StrictUsize) -> PyResult<f64> {
+        match &self.inner {
+            Layout2dInner::F64(buf) => buf.x(i.0).map_err(ffi_error_to_py),
+            Layout2dInner::F32(buf) => buf.x(i.0).map(f64::from).map_err(ffi_error_to_py),
+        }
+    }
+
+    /// Return the `y` coordinate of vertex `i`.
+    #[pyo3(signature = (i), text_signature = "($self, i)")]
+    fn y(&self, i: StrictUsize) -> PyResult<f64> {
+        match &self.inner {
+            Layout2dInner::F64(buf) => buf.y(i.0).map_err(ffi_error_to_py),
+            Layout2dInner::F32(buf) => buf.y(i.0).map(f64::from).map_err(ffi_error_to_py),
+        }
+    }
+
+    /// Set the `x` coordinate of vertex `i`.
+    #[pyo3(signature = (i, v), text_signature = "($self, i, v)")]
+    fn set_x(&mut self, i: StrictUsize, v: StrictF64) -> PyResult<()> {
+        if !v.0.is_finite() {
+            return Err(PyValueError::new_err("Layout2d.set_x value must be finite"));
+        }
+        match &mut self.inner {
+            Layout2dInner::F64(buf) => buf.set_x(i.0, v.0).map_err(ffi_error_to_py),
+            Layout2dInner::F32(buf) => {
+                let vf = v.0 as f32;
+                if !vf.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "Layout2d.set_x value {} overflows float32",
+                        v.0
+                    )));
+                }
+                buf.set_x(i.0, vf).map_err(ffi_error_to_py)
+            }
+        }
+    }
+
+    /// Set the `y` coordinate of vertex `i`.
+    #[pyo3(signature = (i, v), text_signature = "($self, i, v)")]
+    fn set_y(&mut self, i: StrictUsize, v: StrictF64) -> PyResult<()> {
+        if !v.0.is_finite() {
+            return Err(PyValueError::new_err("Layout2d.set_y value must be finite"));
+        }
+        match &mut self.inner {
+            Layout2dInner::F64(buf) => buf.set_y(i.0, v.0).map_err(ffi_error_to_py),
+            Layout2dInner::F32(buf) => {
+                let vf = v.0 as f32;
+                if !vf.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "Layout2d.set_y value {} overflows float32",
+                        v.0
+                    )));
+                }
+                buf.set_y(i.0, vf).map_err(ffi_error_to_py)
+            }
+        }
+    }
+
+    /// Center coordinates at zero mean and scale isotropically in place to `target_std`.
+    #[pyo3(signature = (target_std = StrictF64(1.0)), text_signature = "($self, target_std=1.0)")]
+    fn normalize_std(&mut self, target_std: StrictF64) -> PyResult<()> {
+        match &mut self.inner {
+            Layout2dInner::F64(buf) => {
+                let mut soa = buf.to_layout2d();
+                soa.center_and_normalize_to_std(target_std.0)
+                    .map_err(core_error_to_py)?;
+                buf.copy_from_layout2d(&soa).map_err(ffi_error_to_py)
+            }
+            Layout2dInner::F32(buf) => {
+                if !target_std.0.is_finite() || target_std.0 <= 0.0 {
+                    return Err(PyValueError::new_err(
+                        "target_std must be finite and strictly positive",
+                    ));
+                }
+                let t32 = target_std.0 as f32;
+                if !t32.is_finite() || t32 <= 0.0 {
+                    return Err(PyValueError::new_err(format!(
+                        "target_std {} is out of range for float32",
+                        target_std.0
+                    )));
+                }
+                let mut soa = buf.to_layout2d();
+                soa.center_and_normalize_to_std(t32)
+                    .map_err(core_error_to_py)?;
+                buf.copy_from_layout2d(&soa).map_err(ffi_error_to_py)
+            }
+        }
+    }
+
     /// Scalar coordinate precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
@@ -1061,6 +1200,219 @@ impl PyLayout2d {
     /// Return a concise string representation of the `Layout2d`.
     fn __repr__(&self) -> String {
         format!("Layout2d(len={}, dtype='{}')", self.__len__(), self.dtype())
+    }
+}
+
+pub(crate) enum LayoutNdInner {
+    F64(LayoutNd<f64>),
+    F32(LayoutNd<f32>),
+}
+
+/// Arbitrary-dimensional node coordinate buffer backed by `LayoutNd` with zero-copy NumPy views.
+#[pyclass(name = "LayoutNd", module = "egraph._core")]
+pub struct PyLayoutNd {
+    inner: LayoutNdInner,
+}
+
+impl PyLayoutNd {
+    pub(super) fn from_f64_nd(nd: LayoutNd<f64>) -> Self {
+        Self {
+            inner: LayoutNdInner::F64(nd),
+        }
+    }
+
+    pub(super) fn from_f32_nd(nd: LayoutNd<f32>) -> Self {
+        Self {
+            inner: LayoutNdInner::F32(nd),
+        }
+    }
+}
+
+fn extract_layout_nd_inner(coords: &Bound<'_, PyAny>) -> PyResult<LayoutNdInner> {
+    if let Ok(untyped) = coords.cast::<PyUntypedArray>() {
+        if untyped.ndim() != 2 {
+            return Err(PyValueError::new_err(format!(
+                "coords must be a 2D array of shape (N, D), got {}D",
+                untyped.ndim()
+            )));
+        }
+        let shape = untyped.shape();
+        let n = shape[0];
+        let dim = shape[1];
+        if dim == 0 {
+            return Err(PyValueError::new_err("LayoutNd dims must be >= 1"));
+        }
+        if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f64>>() {
+            let mut flat = Vec::with_capacity(n.saturating_mul(dim));
+            for (r_idx, row) in arr.as_array().rows().into_iter().enumerate() {
+                for &v in row.iter() {
+                    if !v.is_finite() {
+                        return Err(PyValueError::new_err(format!(
+                            "coords contains non-finite value at row {r_idx}"
+                        )));
+                    }
+                    flat.push(v);
+                }
+            }
+            return LayoutNd::from_flat(n, dim, flat)
+                .map(LayoutNdInner::F64)
+                .map_err(core_error_to_py);
+        }
+        if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f32>>() {
+            let mut flat = Vec::with_capacity(n.saturating_mul(dim));
+            for (r_idx, row) in arr.as_array().rows().into_iter().enumerate() {
+                for &v in row.iter() {
+                    if !v.is_finite() {
+                        return Err(PyValueError::new_err(format!(
+                            "coords contains non-finite value at row {r_idx}"
+                        )));
+                    }
+                    flat.push(v);
+                }
+            }
+            return LayoutNd::from_flat(n, dim, flat)
+                .map(LayoutNdInner::F32)
+                .map_err(core_error_to_py);
+        }
+        return Err(PyTypeError::new_err(
+            "coords NumPy array must have dtype float64 or float32",
+        ));
+    }
+
+    let (flat, nrows, ncols) = v6_m2::extract_f64_2d(coords, "coords")?;
+    LayoutNd::from_flat(nrows, ncols, flat)
+        .map(LayoutNdInner::F64)
+        .map_err(core_error_to_py)
+}
+
+#[pymethods]
+impl PyLayoutNd {
+    /// Create a zero-initialized `LayoutNd` for `n` vertices in `dim` dimensions.
+    #[staticmethod]
+    #[pyo3(
+        signature = (n, dim, dtype = ScalarDtype::F64),
+        text_signature = "(n, dim, dtype='float64')"
+    )]
+    fn zeros(n: StrictUsize, dim: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
+        let inner = match dtype {
+            ScalarDtype::F64 => LayoutNd::<f64>::zeros(n.0, dim.0)
+                .map(LayoutNdInner::F64)
+                .map_err(core_error_to_py)?,
+            ScalarDtype::F32 => LayoutNd::<f32>::zeros(n.0, dim.0)
+                .map(LayoutNdInner::F32)
+                .map_err(core_error_to_py)?,
+        };
+        Ok(Self { inner })
+    }
+
+    /// Create a `LayoutNd` from an `(N, D)` coordinate array or nested sequence.
+    #[staticmethod]
+    #[pyo3(signature = (coords), text_signature = "(coords)")]
+    fn from_coords(coords: &Bound<'_, PyAny>) -> PyResult<Self> {
+        extract_layout_nd_inner(coords).map(|inner| Self { inner })
+    }
+
+    /// Number of vertices in the layout.
+    #[getter]
+    fn num_nodes(&self) -> usize {
+        match &self.inner {
+            LayoutNdInner::F64(nd) => nd.num_nodes(),
+            LayoutNdInner::F32(nd) => nd.num_nodes(),
+        }
+    }
+
+    /// Embedding dimensionality `D`.
+    #[getter]
+    fn dim(&self) -> usize {
+        match &self.inner {
+            LayoutNdInner::F64(nd) => nd.dims(),
+            LayoutNdInner::F32(nd) => nd.dims(),
+        }
+    }
+
+    /// Scalar coordinate precision (`"float64"` or `"float32"`).
+    #[getter]
+    fn dtype(&self) -> &'static str {
+        match &self.inner {
+            LayoutNdInner::F64(_) => ScalarDtype::F64.as_str(),
+            LayoutNdInner::F32(_) => ScalarDtype::F32.as_str(),
+        }
+    }
+
+    /// Return the number of vertices in the layout.
+    fn __len__(&self) -> usize {
+        self.num_nodes()
+    }
+
+    /// Return `True` if the layout contains zero vertices.
+    fn is_empty(&self) -> bool {
+        self.num_nodes() == 0
+    }
+
+    /// Return `True` if every coordinate in the layout is finite.
+    fn is_all_finite(&self) -> bool {
+        match &self.inner {
+            LayoutNdInner::F64(nd) => nd.is_all_finite(),
+            LayoutNdInner::F32(nd) => nd.is_all_finite(),
+        }
+    }
+
+    /// Return an `(N, D)` NumPy array of coordinates (zero-copy view when `copy=False`).
+    #[pyo3(signature = (copy = false), text_signature = "($self, copy=False)")]
+    fn coords<'py>(slf: Bound<'py, Self>, copy: bool) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        if copy {
+            let borrowed = slf.borrow();
+            return match &borrowed.inner {
+                LayoutNdInner::F64(nd) => {
+                    let arr =
+                        Array2::from_shape_vec((nd.num_nodes(), nd.dims()), nd.coords().to_vec())
+                            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(PyArray2::from_owned_array(py, arr).into_any())
+                }
+                LayoutNdInner::F32(nd) => {
+                    let arr =
+                        Array2::from_shape_vec((nd.num_nodes(), nd.dims()), nd.coords().to_vec())
+                            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(PyArray2::from_owned_array(py, arr).into_any())
+                }
+            };
+        }
+
+        let container = slf.clone().into_any();
+        let mut borrowed = slf.borrow_mut();
+        match &mut borrowed.inner {
+            LayoutNdInner::F64(nd) => {
+                let n = nd.num_nodes();
+                let d = nd.dims();
+                let view = ArrayViewMut2::from_shape((n, d), nd.coords_mut())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                // SAFETY: `container` is `slf` (`PyLayoutNd`), registered as the NumPy array's
+                // `base` object so the backing `LayoutNd` buffer outlives any view, and
+                // `LayoutNd` never reallocates its coordinate `Vec` after creation.
+                Ok(unsafe { PyArray2::borrow_from_array(&view, container) }.into_any())
+            }
+            LayoutNdInner::F32(nd) => {
+                let n = nd.num_nodes();
+                let d = nd.dims();
+                let view = ArrayViewMut2::from_shape((n, d), nd.coords_mut())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                // SAFETY: `container` is `slf` (`PyLayoutNd`), registered as the NumPy array's
+                // `base` object so the backing `LayoutNd` buffer outlives any view, and
+                // `LayoutNd` never reallocates its coordinate `Vec` after creation.
+                Ok(unsafe { PyArray2::borrow_from_array(&view, container) }.into_any())
+            }
+        }
+    }
+
+    /// Return a concise string representation of the `LayoutNd`.
+    fn __repr__(&self) -> String {
+        format!(
+            "LayoutNd(num_nodes={}, dim={}, dtype='{}')",
+            self.num_nodes(),
+            self.dim(),
+            self.dtype()
+        )
     }
 }
 
@@ -1388,9 +1740,10 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(10000), seed = StrictU64(42)),
-    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=10000, seed=42)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(10000), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0)),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=10000, seed=42, ideal_edge_length=1.0)"
 )]
+#[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(
     py: Python<'_>,
     graph: &PyCsrGraph,
@@ -1399,6 +1752,7 @@ fn evaluate_metrics(
     num_pivots: StrictUsize,
     num_samples: StrictUsize,
     seed: StrictU64,
+    ideal_edge_length: StrictF64,
 ) -> PyResult<BTreeMap<String, f64>> {
     let target_list = extract_metric_targets(targets)?;
     let config = MetricConfig {
@@ -1406,7 +1760,7 @@ fn evaluate_metrics(
         sns_seed: seed.0,
         crossing_num_samples: num_samples.0,
         crossing_seed: seed.0,
-        ideal_edge_length: 1.0,
+        ideal_edge_length: ideal_edge_length.0,
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
@@ -1459,6 +1813,262 @@ fn evaluate_metrics(
     Ok(out)
 }
 
+/// Evaluate relative squared ideal edge-length error against uniform `unit_edge_length`.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, unit_edge_length = StrictF64(1.0)),
+    text_signature = "(graph, layout, unit_edge_length=1.0)"
+)]
+fn ideal_edge_lengths_with_unit(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    unit_edge_length: StrictF64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let unit = unit_edge_length.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::ideal_edge_lengths_with_unit(g, &soa, unit)
+    })
+}
+
+pub(crate) fn v6_crossing_edges_impl(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<Vec<Py<PyDict>>> {
+    let g = graph.inner();
+    let pairs = dispatch_layout2d!(py, layout, |soa| egraph_metrics::crossing_edges(g, &soa))?;
+    let mut out = Vec::with_capacity(pairs.len());
+    for pair in pairs {
+        let dict = PyDict::new(py);
+        dict.set_item("edge_a", pair.edge_a)?;
+        dict.set_item("edge_b", pair.edge_b)?;
+        dict.set_item("u1", pair.u1)?;
+        dict.set_item("v1", pair.v1)?;
+        dict.set_item("u2", pair.u2)?;
+        dict.set_item("v2", pair.v2)?;
+        dict.set_item("angle_rad", pair.angle_rad)?;
+        dict.set_item("cos_sq", pair.cos_sq)?;
+        out.push(dict.unbind());
+    }
+    Ok(out)
+}
+
+/// Find all crossing edge sub-segment pairs for `graph` laid out on the unit torus `[0, 1)^2`.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crossing_edges_torus(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<Vec<Py<PyDict>>> {
+    let g = graph.inner();
+    let pairs = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::crossing_edges_torus(g, &soa)
+    })?;
+    let mut out = Vec::with_capacity(pairs.len());
+    for pair in pairs {
+        let dict = PyDict::new(py);
+        dict.set_item("edge_a", pair.edge_a)?;
+        dict.set_item("edge_b", pair.edge_b)?;
+        dict.set_item("seg_a", pair.seg_a.to_vec())?;
+        dict.set_item("seg_b", pair.seg_b.to_vec())?;
+        out.push(dict.unbind());
+    }
+    Ok(out)
+}
+
+/// Compute crossing count and crossing-angle summary statistics in a single sweep pass.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crossing_summary(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<Py<PyDict>> {
+    let g = graph.inner();
+    let summary = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::crossing_summary(g, &soa)
+    })?;
+    let dict = PyDict::new(py);
+    dict.set_item("count", summary.count)?;
+    dict.set_item("angle_cos_sq_sum", summary.angle_cos_sq_sum)?;
+    dict.set_item("min_angle_rad", summary.min_angle_rad)?;
+    Ok(dict.unbind())
+}
+
+fn pairs_to_u32_array2<'py>(
+    py: Python<'py>,
+    pairs: Vec<(u32, u32)>,
+) -> PyResult<Bound<'py, PyArray2<u32>>> {
+    let m = pairs.len();
+    let mut flat = Vec::with_capacity(m * 2);
+    for (u, v) in pairs {
+        flat.push(u);
+        flat.push(v);
+    }
+    let arr =
+        Array2::from_shape_vec((m, 2), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyArray2::from_owned_array(py, arr))
+}
+
+/// Extract exact undirected Gabriel Graph edges `(u, v)` (`u < v`) as a `(E, 2)` `uint32` NumPy array.
+#[pyfunction]
+#[pyo3(signature = (layout), text_signature = "(layout)")]
+fn gabriel_graph_edges<'py>(
+    py: Python<'py>,
+    layout: &PyLayout2d,
+) -> PyResult<Bound<'py, PyArray2<u32>>> {
+    let edges = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::gabriel_graph_edges(&soa)
+    })?;
+    pairs_to_u32_array2(py, edges)
+}
+
+/// Extract exact undirected Relative Neighborhood Graph edges `(u, v)` (`u < v`) as a `(E, 2)` `uint32` NumPy array.
+#[pyfunction]
+#[pyo3(signature = (layout), text_signature = "(layout)")]
+fn relative_neighborhood_edges<'py>(
+    py: Python<'py>,
+    layout: &PyLayout2d,
+) -> PyResult<Bound<'py, PyArray2<u32>>> {
+    let edges = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::relative_neighborhood_edges(&soa)
+    })?;
+    pairs_to_u32_array2(py, edges)
+}
+
+/// Compute an all-pairs shortest-path `(N, N)` `float64` distance matrix via BFS.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, unit_edge_length = StrictF64(1.0)),
+    text_signature = "(graph, unit_edge_length=1.0)"
+)]
+fn all_pairs_bfs<'py>(
+    py: Python<'py>,
+    graph: &PyCsrGraph,
+    unit_edge_length: StrictF64,
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let g = graph.inner();
+    let n = g.num_nodes();
+    let unit = unit_edge_length.0;
+    let dists = py
+        .detach(|| egraph_metrics::all_pairs_bfs(g, unit))
+        .map_err(core_error_to_py)?;
+    let arr =
+        Array2::from_shape_vec((n, n), dists).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyArray2::from_owned_array(py, arr))
+}
+
+/// Compute single-source BFS shortest-path distances from `source` as a `(N,)` `float64` NumPy array.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, source, unit_edge_length = StrictF64(1.0)),
+    text_signature = "(graph, source, unit_edge_length=1.0)"
+)]
+fn bfs_single_source<'py>(
+    py: Python<'py>,
+    graph: &PyCsrGraph,
+    source: StrictUsize,
+    unit_edge_length: StrictF64,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let g = graph.inner();
+    let src = source.0;
+    let unit = unit_edge_length.0;
+    let dists = py
+        .detach(|| -> CoreResult<Vec<f64>> {
+            let mut scratch = egraph_metrics::BfsScratch::new(g.num_nodes());
+            let slice = egraph_metrics::bfs_single_source(g, src, unit, &mut scratch)?;
+            Ok(slice.to_vec())
+        })
+        .map_err(core_error_to_py)?;
+    Ok(PyArray1::from_vec(py, dists))
+}
+
+/// Compute closed-form Scale-Normalized Stress (`SNS`) from an `(N, N)` distance matrix and optional weights.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, distances, weights = None),
+    text_signature = "(layout, distances, weights=None)"
+)]
+fn scale_normalized_stress_from_distances(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    distances: &Bound<'_, PyAny>,
+    weights: Option<&Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let (dists_flat, d_rows, d_cols) = v6_m2::extract_f64_2d_raw(distances, "distances")?;
+    if d_rows != d_cols {
+        return Err(PyValueError::new_err(format!(
+            "distances must be square (N, N), got ({d_rows}, {d_cols})"
+        )));
+    }
+    let weights_flat = match weights {
+        Some(w_obj) if !w_obj.is_none() => {
+            let (wf, w_rows, w_cols) = v6_m2::extract_f64_2d_raw(w_obj, "weights")?;
+            if w_rows != w_cols || w_rows != d_rows {
+                return Err(PyValueError::new_err(format!(
+                    "weights shape ({w_rows}, {w_cols}) does not match distances shape ({d_rows}, {d_cols})"
+                )));
+            }
+            Some(wf)
+        }
+        _ => None,
+    };
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::scale_normalized_stress_from_distances(
+            &soa,
+            &dists_flat,
+            weights_flat.as_deref(),
+        )
+    })
+}
+
+/// Compute PRISM layout-preservation distortion `(sigma_dist, sigma_disp)` using explicit proximity edges.
+#[pyfunction]
+#[pyo3(
+    signature = (original_layout, adjusted_layout, edges),
+    text_signature = "(original_layout, adjusted_layout, edges)"
+)]
+fn prism_distortion_with_edges(
+    py: Python<'_>,
+    original_layout: &PyLayout2d,
+    adjusted_layout: &PyLayout2d,
+    edges: &Bound<'_, PyAny>,
+) -> PyResult<(f64, f64)> {
+    let flat = extract_flat_edges(edges)?;
+    let (pair_chunks, _) = flat.as_chunks::<2>();
+    let pairs: Vec<(u32, u32)> = pair_chunks.iter().map(|&[u, v]| (u, v)).collect();
+    let res = py
+        .detach(
+            || match (original_layout.inner(), adjusted_layout.inner()) {
+                (Layout2dInner::F64(orig), Layout2dInner::F64(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion_with_edges(&o, &a, &pairs)
+                }
+                (Layout2dInner::F32(orig), Layout2dInner::F32(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion_with_edges(&o, &a, &pairs)
+                }
+                (Layout2dInner::F64(orig), Layout2dInner::F32(adj)) => {
+                    let o = orig.to_layout2d();
+                    let a = layout_f32_to_f64(&adj.to_layout2d());
+                    egraph_metrics::prism_distortion_with_edges(&o, &a, &pairs)
+                }
+                (Layout2dInner::F32(orig), Layout2dInner::F64(adj)) => {
+                    let o = layout_f32_to_f64(&orig.to_layout2d());
+                    let a = adj.to_layout2d();
+                    egraph_metrics::prism_distortion_with_edges(&o, &a, &pairs)
+                }
+            },
+        )
+        .map_err(core_error_to_py)?;
+    Ok((res.sigma_dist, res.sigma_disp))
+}
+
 type DelaunayArrays<'py> = (Bound<'py, PyArray2<u32>>, Bound<'py, PyArray2<u32>>);
 
 /// Compute the deterministic 2D Delaunay triangulation of `layout`.
@@ -1504,10 +2114,117 @@ fn delaunay_triangulation<'py>(
     ))
 }
 
-/// Register the v6 zero-copy `CsrGraph`, `Layout2d`, metrics, and spatial functions on the Python extension module.
+/// Compute the deterministic 2D Delaunay triangulation of `layout` and return an undirected `CsrGraph`.
+#[pyfunction]
+#[pyo3(signature = (layout), text_signature = "(layout)")]
+fn delaunay_to_csr(py: Python<'_>, layout: &PyLayout2d) -> PyResult<PyCsrGraph> {
+    let csr = dispatch_layout2d!(py, layout, |soa| Delaunay2d::triangulate(&soa)?.to_csr())?;
+    Ok(PyCsrGraph::from_csr_graph(csr))
+}
+
+/// Find all strictly overlapping axis-aligned rectangle pairs `(i, j)` (`i < j`) as a `(K, 2)` `uint32` array.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, half_widths, half_heights),
+    text_signature = "(layout, half_widths, half_heights)"
+)]
+fn rectangle_overlaps<'py>(
+    py: Python<'py>,
+    layout: &PyLayout2d,
+    half_widths: &Bound<'_, PyAny>,
+    half_heights: &Bound<'_, PyAny>,
+) -> PyResult<Bound<'py, PyArray2<u32>>> {
+    let hw_f64 = v6_m2::extract_f64_1d(half_widths, "half_widths")?;
+    let hh_f64 = v6_m2::extract_f64_1d(half_heights, "half_heights")?;
+    let pairs = py
+        .detach(|| -> CoreResult<Vec<(usize, usize)>> {
+            match layout.inner() {
+                Layout2dInner::F64(buf) => RectangleOverlapSweep::find_layout_overlaps(
+                    &buf.to_layout2d(),
+                    &hw_f64,
+                    &hh_f64,
+                ),
+                Layout2dInner::F32(buf) => {
+                    let hw32: Vec<f32> = hw_f64.iter().map(|&v| v as f32).collect();
+                    let hh32: Vec<f32> = hh_f64.iter().map(|&v| v as f32).collect();
+                    if hw32.iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite("rectangle_overlaps::half_widths"));
+                    }
+                    if hh32.iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite("rectangle_overlaps::half_heights"));
+                    }
+                    RectangleOverlapSweep::find_layout_overlaps(&buf.to_layout2d(), &hw32, &hh32)
+                }
+            }
+        })
+        .map_err(core_error_to_py)?;
+    let mut flat = Vec::with_capacity(pairs.len() * 2);
+    for (i, j) in &pairs {
+        let iu = u32::try_from(*i)
+            .map_err(|_| PyValueError::new_err(format!("rectangle index {i} exceeds u32")))?;
+        let ju = u32::try_from(*j)
+            .map_err(|_| PyValueError::new_err(format!("rectangle index {j} exceeds u32")))?;
+        flat.push(iu);
+        flat.push(ju);
+    }
+    let arr = Array2::from_shape_vec((pairs.len(), 2), flat)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyArray2::from_owned_array(py, arr))
+}
+
+/// Load a built-in SuiteSparse / classic benchmark dataset as an undirected `CsrGraph`.
+#[pyfunction]
+#[pyo3(signature = (name), text_signature = "(name)")]
+fn load_dataset(py: Python<'_>, name: &str) -> PyResult<PyCsrGraph> {
+    let key: String = name
+        .trim()
+        .chars()
+        .filter(|c| *c != '_' && *c != '-' && *c != ' ')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    let csr = py.detach(|| -> CoreResult<CsrGraph<f64>> {
+        match key.as_str() {
+            "1138bus" => Ok(egraph_dataset::dataset_1138_bus_csr()),
+            "3elt" => Ok(egraph_dataset::dataset_3_elt_csr()),
+            "dwt1005" => Ok(egraph_dataset::dataset_dwt_1005_csr()),
+            "dwt2680" => Ok(egraph_dataset::dataset_dwt_2680_csr()),
+            "poli" => Ok(egraph_dataset::dataset_poli_csr()),
+            "qh882" => Ok(egraph_dataset::dataset_qh882_csr()),
+            "uspowergrid" => Ok(egraph_dataset::dataset_uspower_grid_csr()),
+            "karate" => Ok(egraph_dataset::dataset_karate_csr()),
+            "lesmis" => Ok(egraph_dataset::dataset_lesmis_csr()),
+            _ => Err(CoreError::invalid_input(format!(
+                "unknown dataset {name:?}; expected one of '1138_bus', '3_elt', 'dwt_1005', 'dwt_2680', 'poli', 'qh882', 'uspower_grid', 'karate', 'lesmis'"
+            ))),
+        }
+    })
+    .map_err(core_error_to_py)?;
+    Ok(PyCsrGraph::from_csr_graph(csr))
+}
+
+/// Parse an edge-list CSV string (`num_nodes,num_edges` header followed by `u,v` lines) into a `CsrGraph`.
+#[pyfunction]
+#[pyo3(
+    signature = (csv, *, directed = false, sanitize = true),
+    text_signature = "(csv, *, directed=False, sanitize=True)"
+)]
+fn parse_csr_csv(
+    py: Python<'_>,
+    csv: &str,
+    directed: bool,
+    sanitize: bool,
+) -> PyResult<PyCsrGraph> {
+    let csr = py
+        .detach(|| egraph_dataset::parse_csr_csv(csv, directed, sanitize))
+        .map_err(core_error_to_py)?;
+    Ok(PyCsrGraph::from_csr_graph(csr))
+}
+
+/// Register the v6 zero-copy `CsrGraph`, `Layout2d`, `LayoutNd`, metrics, dataset, and spatial functions on the Python extension module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCsrGraph>()?;
     m.add_class::<PyLayout2d>()?;
+    m.add_class::<PyLayoutNd>()?;
     m.add_function(wrap_pyfunction!(scale_normalized_stress, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_scale_normalized_stress, m)?)?;
     m.add_function(wrap_pyfunction!(sweep_crossing_number, m)?)?;
@@ -1518,6 +2235,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop_v6, m)?)?;
     m.add_function(wrap_pyfunction!(edge_angle, m)?)?;
     m.add_function(wrap_pyfunction!(prism_distortion, m)?)?;
+    m.add_function(wrap_pyfunction!(prism_distortion_with_edges, m)?)?;
     m.add_function(wrap_pyfunction!(drng_preservation, m)?)?;
     m.add_function(wrap_pyfunction!(dgg_preservation, m)?)?;
     m.add_function(wrap_pyfunction!(gabriel_graph_property_v6, m)?)?;
@@ -1525,8 +2243,20 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(aspect_ratio_v6, m)?)?;
     m.add_function(wrap_pyfunction!(angular_resolution_v6, m)?)?;
     m.add_function(wrap_pyfunction!(ideal_edge_lengths_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(ideal_edge_lengths_with_unit, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_edges_torus, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_summary, m)?)?;
+    m.add_function(wrap_pyfunction!(gabriel_graph_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(relative_neighborhood_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_bfs, m)?)?;
+    m.add_function(wrap_pyfunction!(bfs_single_source, m)?)?;
+    m.add_function(wrap_pyfunction!(scale_normalized_stress_from_distances, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
+    m.add_function(wrap_pyfunction!(delaunay_to_csr, m)?)?;
+    m.add_function(wrap_pyfunction!(rectangle_overlaps, m)?)?;
+    m.add_function(wrap_pyfunction!(load_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_csr_csv, m)?)?;
     v6_m2::register_m2(m)?;
     v6_m3::register_m3(m)?;
     v6_m4::register_m4(m)?;

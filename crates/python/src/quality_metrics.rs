@@ -20,9 +20,10 @@ use crate::{
     graph::{GraphType, PyGraphAdapter},
     v6::{
         PyCsrGraph, PyLayout2d, v6_angular_resolution_impl, v6_aspect_ratio_impl,
-        v6_crossing_angle_impl, v6_crossing_number_impl, v6_gabriel_graph_property_impl,
-        v6_ideal_edge_lengths_impl, v6_neighborhood_preservation_1hop_impl,
-        v6_neighborhood_preservation_2hop_impl, v6_node_resolution_impl,
+        v6_crossing_angle_impl, v6_crossing_edges_impl, v6_crossing_number_impl,
+        v6_gabriel_graph_property_impl, v6_ideal_edge_lengths_impl,
+        v6_neighborhood_preservation_1hop_impl, v6_neighborhood_preservation_2hop_impl,
+        v6_node_resolution_impl,
     },
 };
 use petgraph_algorithm_shortest_path::DistanceMatrix;
@@ -109,55 +110,73 @@ pub struct PyCrossingEdges {
 /// :raises: NotImplementedError if the drawing type is not supported
 #[pyfunction]
 #[pyo3(name = "crossing_edges")]
-fn py_crossing_edges(
-    graph: &PyGraphAdapter,
-    drawing: &Bound<PyDrawing>,
-) -> PyResult<PyCrossingEdges> {
-    Python::attach(|_py| {
-        let drawing_type = drawing.borrow().drawing_type();
-        let crossing_edges = match drawing_type {
-            DrawingType::Euclidean2d => {
-                let drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingEuclidean2d>()
-                    .map_err(|e| PyTypeError::new_err(e.to_string()))?
-                    .borrow();
-                match graph.graph() {
-                    GraphType::Graph(native_graph) => {
-                        try_crossing_edges(native_graph, drawing.drawing())
-                            .map_err(PyValueError::new_err)?
-                    }
-                    GraphType::DiGraph(native_graph) => {
-                        try_crossing_edges(native_graph, drawing.drawing())
-                            .map_err(PyValueError::new_err)?
-                    }
+fn py_crossing_edges<'py>(
+    py: Python<'py>,
+    graph: &Bound<'py, PyAny>,
+    drawing: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Ok(csr) = graph.cast::<PyCsrGraph>() {
+        let layout = drawing.cast::<PyLayout2d>().map_err(|_| {
+            PyTypeError::new_err("crossing_edges(CsrGraph, layout) expects a Layout2d drawing")
+        })?;
+        let list = v6_crossing_edges_impl(py, &csr.borrow(), &layout.borrow())?;
+        return Ok(pyo3::types::PyList::new(py, list)?.into_any());
+    }
+    let graph = graph.cast::<PyGraphAdapter>().map_err(|_| {
+        PyTypeError::new_err(
+            "crossing_edges expects (CsrGraph, Layout2d) or legacy (Graph, Drawing)",
+        )
+    })?;
+    let drawing = drawing.cast::<PyDrawing>().map_err(|_| {
+        PyTypeError::new_err(
+            "crossing_edges expects (CsrGraph, Layout2d) or legacy (Graph, Drawing)",
+        )
+    })?;
+    let graph_borrowed = graph.borrow();
+    let drawing_type = drawing.borrow().drawing_type();
+    let crossing_edges = match drawing_type {
+        DrawingType::Euclidean2d => {
+            let drawing = drawing
+                .clone()
+                .cast::<PyDrawingEuclidean2d>()
+                .map_err(|e| PyTypeError::new_err(e.to_string()))?
+                .borrow();
+            match graph_borrowed.graph() {
+                GraphType::Graph(native_graph) => {
+                    try_crossing_edges(native_graph, drawing.drawing())
+                        .map_err(PyValueError::new_err)?
+                }
+                GraphType::DiGraph(native_graph) => {
+                    try_crossing_edges(native_graph, drawing.drawing())
+                        .map_err(PyValueError::new_err)?
                 }
             }
-            DrawingType::Torus2d => {
-                let drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingTorus2d>()
-                    .map_err(|e| PyTypeError::new_err(e.to_string()))?
-                    .borrow();
-                match graph.graph() {
-                    GraphType::Graph(native_graph) => {
-                        try_crossing_edges_torus(native_graph, drawing.drawing())
-                            .map_err(PyValueError::new_err)?
-                    }
-                    GraphType::DiGraph(native_graph) => {
-                        try_crossing_edges_torus(native_graph, drawing.drawing())
-                            .map_err(PyValueError::new_err)?
-                    }
+        }
+        DrawingType::Torus2d => {
+            let drawing = drawing
+                .clone()
+                .cast::<PyDrawingTorus2d>()
+                .map_err(|e| PyTypeError::new_err(e.to_string()))?
+                .borrow();
+            match graph_borrowed.graph() {
+                GraphType::Graph(native_graph) => {
+                    try_crossing_edges_torus(native_graph, drawing.drawing())
+                        .map_err(PyValueError::new_err)?
+                }
+                GraphType::DiGraph(native_graph) => {
+                    try_crossing_edges_torus(native_graph, drawing.drawing())
+                        .map_err(PyValueError::new_err)?
                 }
             }
-            _ => {
-                return Err(PyNotImplementedError::new_err(
-                    "unsupported drawing type for crossing_edges",
-                ));
-            }
-        };
-        Ok(PyCrossingEdges { crossing_edges })
-    })
+        }
+        _ => {
+            return Err(PyNotImplementedError::new_err(
+                "unsupported drawing type for crossing_edges",
+            ));
+        }
+    };
+    let py_obj = Py::new(py, PyCrossingEdges { crossing_edges })?;
+    Ok(py_obj.into_bound(py).into_any())
 }
 
 /// Computes the angular resolution of a graph drawing

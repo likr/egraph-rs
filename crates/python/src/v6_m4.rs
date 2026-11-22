@@ -1,6 +1,10 @@
 //! M4 v6 cooperative field-layout, compact SGD, continuous FDP, PRISM overlap removal,
 //! separation constraint, layering, and FDEB edge bundling bindings backed by `egraph-layout`.
 
+use egraph::{
+    core as egraph_core, layout as egraph_layout, neighborhood as egraph_neighborhood,
+    spatial as egraph_spatial,
+};
 use egraph_core::{CoreError, CoreResult, IterativeSolver, SolverStatus};
 use egraph_layout::{
     ConstraintProjector, FdebConfig, FdebSolver, FieldLayoutSolver, FieldRepulsionBackend,
@@ -14,7 +18,7 @@ use egraph_layout::{
     remove_cycles as layout_remove_cycles,
 };
 use egraph_neighborhood::{DogVaradhanConfig, KnnGraph};
-use egraph_spatial::IbFftConfig;
+use egraph_spatial::{IbFftConfig, InterpolationOrder};
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -62,6 +66,22 @@ impl_dual_solver!(PrismInner, PrismOverlapRemoval);
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
+fn build_ibfft_config(
+    ibfft_order: usize,
+    ibfft_intervals: usize,
+    ibfft_min_grid_dim: usize,
+    ibfft_max_grid_dim: usize,
+) -> PyResult<IbFftConfig> {
+    let order = InterpolationOrder::from_order(ibfft_order).map_err(core_error_to_py)?;
+    Ok(IbFftConfig {
+        order,
+        intervals: ibfft_intervals,
+        min_grid_dim: ibfft_min_grid_dim,
+        max_grid_dim: ibfft_max_grid_dim,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_t_fdp_config(
     backend: &str,
     total_iterations: usize,
@@ -73,9 +93,19 @@ fn build_t_fdp_config(
     rho_start: f64,
     rho_end: f64,
     rho_power: f64,
+    ibfft_order: usize,
+    ibfft_intervals: usize,
+    ibfft_min_grid_dim: usize,
+    ibfft_max_grid_dim: usize,
     seed: u64,
 ) -> PyResult<TFdpConfig> {
     let parsed_backend = parse_field_backend(backend).map_err(PyValueError::new_err)?;
+    let ibfft = build_ibfft_config(
+        ibfft_order,
+        ibfft_intervals,
+        ibfft_min_grid_dim,
+        ibfft_max_grid_dim,
+    )?;
     let cfg = TFdpConfig {
         backend: parsed_backend,
         total_iterations,
@@ -89,7 +119,7 @@ fn build_t_fdp_config(
             end_weight: rho_end,
             power: rho_power,
         },
-        ibfft: IbFftConfig::default(),
+        ibfft,
         seed,
     };
     cfg.validate().map_err(core_error_to_py)?;
@@ -109,9 +139,19 @@ fn build_ib_umap_config(
     tau_scale: f64,
     hub_damping: bool,
     theta: f64,
+    ibfft_order: usize,
+    ibfft_intervals: usize,
+    ibfft_min_grid_dim: usize,
+    ibfft_max_grid_dim: usize,
     seed: u64,
 ) -> PyResult<egraph_layout::IbUmapConfig> {
     let parsed_backend = parse_field_backend(backend).map_err(PyValueError::new_err)?;
+    let ibfft = build_ibfft_config(
+        ibfft_order,
+        ibfft_intervals,
+        ibfft_min_grid_dim,
+        ibfft_max_grid_dim,
+    )?;
     let cfg = egraph_layout::IbUmapConfig {
         backend: parsed_backend,
         n_epochs,
@@ -124,7 +164,7 @@ fn build_ib_umap_config(
         tau_scale,
         hub_damping,
         theta,
-        ibfft: IbFftConfig::default(),
+        ibfft,
         seed,
     };
     cfg.validate().map_err(core_error_to_py)?;
@@ -159,10 +199,14 @@ impl PyTFdpSolver {
             rho_start = StrictF64(1.0),
             rho_end = StrictF64(0.1),
             rho_power = StrictF64(1.0),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -177,6 +221,10 @@ impl PyTFdpSolver {
         rho_start: StrictF64,
         rho_end: StrictF64,
         rho_power: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -191,6 +239,10 @@ impl PyTFdpSolver {
             rho_start.0,
             rho_end.0,
             rho_power.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
             seed.0,
         )?;
         let g = graph.inner();
@@ -226,10 +278,14 @@ impl PyTFdpSolver {
             rho_start = StrictF64(1.0),
             rho_end = StrictF64(0.1),
             rho_power = StrictF64(1.0),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn_or_indptr, indices=None, weights=None, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, seed=42, dtype='float64')"
+        text_signature = "(knn_or_indptr, indices=None, weights=None, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -246,6 +302,10 @@ impl PyTFdpSolver {
         rho_start: StrictF64,
         rho_end: StrictF64,
         rho_power: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -260,6 +320,10 @@ impl PyTFdpSolver {
             rho_start.0,
             rho_end.0,
             rho_power.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
             seed.0,
         )?;
 
@@ -386,6 +450,24 @@ impl PyTFdpSolver {
         }
     }
 
+    /// Number of attractive edges in the `TFdpSolver`.
+    #[getter]
+    fn num_edges(&self) -> usize {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.num_edges(),
+            FieldLayoutInner::F32(s) => s.num_edges(),
+        }
+    }
+
+    /// Cumulative number of 2D FFT transforms executed across all steps.
+    #[getter]
+    fn total_fft_2d_calls(&self) -> u64 {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.total_fft_2d_calls(),
+            FieldLayoutInner::F32(s) => s.total_fft_2d_calls(),
+        }
+    }
+
     /// Return a concise string representation of the `TFdpSolver`.
     fn __repr__(&self) -> String {
         format!(
@@ -418,6 +500,18 @@ impl PyIbUmapSolver {
             graph,
             *,
             max_2hop_per_node = StrictUsize(30),
+            degree = Some(StrictUsize(25)),
+            num_landmarks = StrictUsize(64),
+            min_degree = StrictUsize(2),
+            jl_dim = StrictUsize(64),
+            degree_normalize = true,
+            p_exp = StrictF64(0.5),
+            eps_psd = StrictF64(1e-4),
+            t_coarse = StrictF64(48.0),
+            t1 = None,
+            t2 = None,
+            alpha = None,
+            beta_floor = None,
             backend = "ibfft",
             n_epochs = StrictUsize(200),
             learning_rate = StrictF64(1.0),
@@ -429,15 +523,31 @@ impl PyIbUmapSolver {
             tau_scale = StrictF64(4.0),
             hub_damping = true,
             theta = StrictF64(0.5),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, max_2hop_per_node=30, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, seed=42, dtype='float64')"
+        text_signature = "(graph, *, max_2hop_per_node=30, degree=25, num_landmarks=64, min_degree=2, jl_dim=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
         max_2hop_per_node: StrictUsize,
+        degree: Option<StrictUsize>,
+        num_landmarks: StrictUsize,
+        min_degree: StrictUsize,
+        jl_dim: StrictUsize,
+        degree_normalize: bool,
+        p_exp: StrictF64,
+        eps_psd: StrictF64,
+        t_coarse: StrictF64,
+        t1: Option<StrictF64>,
+        t2: Option<StrictF64>,
+        alpha: Option<StrictF64>,
+        beta_floor: Option<StrictF64>,
         backend: &str,
         n_epochs: StrictUsize,
         learning_rate: StrictF64,
@@ -449,6 +559,10 @@ impl PyIbUmapSolver {
         tau_scale: StrictF64,
         hub_damping: bool,
         theta: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -464,9 +578,25 @@ impl PyIbUmapSolver {
             tau_scale.0,
             hub_damping,
             theta.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
             seed.0,
         )?;
         let dog_cfg = DogVaradhanConfig {
+            t1: t1.map(|v| v.0),
+            t2: t2.map(|v| v.0),
+            alpha: alpha.map(|v| v.0),
+            beta_floor: beta_floor.map(|v| v.0),
+            degree: degree.map(|v| v.0),
+            n_landmarks: num_landmarks.0,
+            min_degree: min_degree.0,
+            jl_dim: jl_dim.0,
+            eps_psd: eps_psd.0,
+            degree_normalize,
+            p_exp: p_exp.0,
+            t_coarse: t_coarse.0,
             seed: seed.0,
             ..DogVaradhanConfig::default()
         };
@@ -506,10 +636,14 @@ impl PyIbUmapSolver {
             tau_scale = StrictF64(4.0),
             hub_damping = true,
             theta = StrictF64(0.5),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn, *, sigma_iters=64, sigma_tol=1e-5, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, seed=42, dtype='float64')"
+        text_signature = "(knn, *, sigma_iters=64, sigma_tol=1e-5, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -527,6 +661,10 @@ impl PyIbUmapSolver {
         tau_scale: StrictF64,
         hub_damping: bool,
         theta: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -542,6 +680,10 @@ impl PyIbUmapSolver {
             tau_scale.0,
             hub_damping,
             theta.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
             seed.0,
         )?;
         let knn_ref = knn.inner();
@@ -585,10 +727,14 @@ impl PyIbUmapSolver {
             tau_scale = StrictF64(4.0),
             hub_damping = true,
             theta = StrictF64(0.5),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(probs, *, degrees=None, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, seed=42, dtype='float64')"
+        text_signature = "(probs, *, degrees=None, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_fuzzy_set(
         py: Python<'_>,
@@ -605,6 +751,10 @@ impl PyIbUmapSolver {
         tau_scale: StrictF64,
         hub_damping: bool,
         theta: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -620,6 +770,10 @@ impl PyIbUmapSolver {
             tau_scale.0,
             hub_damping,
             theta.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
             seed.0,
         )?;
         let degs_opt = match degrees {
@@ -714,6 +868,51 @@ impl PyIbUmapSolver {
         match &self.inner {
             FieldLayoutInner::F64(s) => s.current_rho(),
             FieldLayoutInner::F32(s) => s.current_rho(),
+        }
+    }
+
+    /// Number of attractive edges in the `IbUmapSolver`.
+    #[getter]
+    fn num_edges(&self) -> usize {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.num_edges(),
+            FieldLayoutInner::F32(s) => s.num_edges(),
+        }
+    }
+
+    /// Cumulative number of 2D FFT transforms executed across all steps.
+    #[getter]
+    fn total_fft_2d_calls(&self) -> u64 {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.total_fft_2d_calls(),
+            FieldLayoutInner::F32(s) => s.total_fft_2d_calls(),
+        }
+    }
+
+    /// Fitted or explicit attractive kernel `a` parameter, or `None` if unavailable.
+    #[getter]
+    fn a(&self) -> Option<f64> {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.ab().map(|(a, _)| a),
+            FieldLayoutInner::F32(s) => s.ab().map(|(a, _)| a),
+        }
+    }
+
+    /// Fitted or explicit attractive kernel `b` parameter, or `None` if unavailable.
+    #[getter]
+    fn b(&self) -> Option<f64> {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.ab().map(|(_, b)| b),
+            FieldLayoutInner::F32(s) => s.ab().map(|(_, b)| b),
+        }
+    }
+
+    /// Fitted or explicit `(a, b)` kernel parameters, or `None` if unavailable.
+    #[getter]
+    fn ab(&self) -> Option<(f64, f64)> {
+        match &self.inner {
+            FieldLayoutInner::F64(s) => s.ab(),
+            FieldLayoutInner::F32(s) => s.ab(),
         }
     }
 

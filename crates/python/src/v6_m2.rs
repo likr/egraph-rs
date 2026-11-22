@@ -2,12 +2,16 @@
 //! fuzzy simplicial set, and regularized DoG Varadhan landmark bindings backed by
 //! `egraph-linalg` and `egraph-neighborhood`.
 
+use egraph::{core as egraph_core, linalg as egraph_linalg, neighborhood as egraph_neighborhood};
 use egraph_core::{CoreError, CoreResult, Layout2d};
 use egraph_ffi::InterleavedLayout2d;
 use egraph_linalg::{
     ChebyshevWorkspace, PivotMdsConfig, SpectralMomentStats, adaptive_chebyshev_degree,
-    build_dog_terms, compute_chebyshev_bandpass_coefficients, koren_spectral_init as linalg_koren,
-    pivot_mds as linalg_pivot_mds, project_psd_spectral_filter,
+    build_dog_terms, classical_mds_2d as linalg_classical_mds_2d,
+    compute_chebyshev_bandpass_coefficients, koren_spectral_init as linalg_koren,
+    normalize_layout_2d as linalg_normalize_layout_2d, pivot_mds as linalg_pivot_mds,
+    project_psd_spectral_filter, rd_mds as linalg_rd_mds,
+    representative_mds as linalg_representative_mds,
     select_maxmin_sp_pivots as linalg_select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs as linalg_smallest_eigenpairs,
     spectral_moment_stats as linalg_spectral_moment_stats, symmetric_normalized_laplacian,
@@ -15,17 +19,23 @@ use egraph_linalg::{
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph, KnnStats,
     PerplexityConfig, SparseProbabilities, SymmetrizationMode,
+    apply_relative_distance_floor as nb_apply_relative_distance_floor,
+    build_gumap_12hop_priority_csr as nb_build_gumap_12hop_priority_csr,
     build_hybrid_adaptive_knn as nb_build_hybrid_adaptive_knn,
-    build_pure_2hop_knn as nb_build_pure_2hop_knn,
+    build_pure_2hop_knn as nb_build_pure_2hop_knn, build_rerank_knn as nb_build_rerank_knn,
     compute_2hop_neighborhood_sizes as nb_compute_2hop_neighborhood_sizes,
+    compute_diffusion_embedding as nb_compute_diffusion_embedding,
     compute_fuzzy_simplicial_set as nb_compute_fuzzy_simplicial_set,
     compute_horvitz_thompson_gamma as nb_compute_horvitz_thompson_gamma,
     compute_knn_probabilities as nb_compute_knn_probabilities,
     compute_median_2hop_perplexity as nb_compute_median_2hop_perplexity,
     compute_nodewise_2hop_perplexities as nb_compute_nodewise_2hop_perplexities,
     compute_regularized_dog_varadhan_landmarks as nb_compute_regularized_dog_varadhan_landmarks,
+    compute_resistance_embedding as nb_compute_resistance_embedding,
     extract_1hop_2hop_csr as nb_extract_1hop_2hop_csr, find_ab_params as nb_find_ab_params,
+    graph_row_normalized_probabilities as nb_graph_row_normalized_probabilities,
     partial_bfs_knn as nb_partial_bfs_knn,
+    symmetrize_row_normalized as nb_symmetrize_row_normalized,
 };
 use numpy::ndarray::{Array2, ArrayView1, ArrayView2};
 use numpy::{
@@ -36,9 +46,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict};
 
 use super::{
-    Layout2dInner, PyCsrGraph, PyLayout2d, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_non_negative_usize, extract_optional_weights_1d, extract_u32_1d,
-    is_non_sequence_container,
+    Layout2dInner, PyCsrGraph, PyLayout2d, PyLayoutNd, ScalarDtype, StrictF64, StrictU64,
+    StrictUsize, core_error_to_py, extract_non_negative_usize, extract_optional_weights_1d,
+    extract_u32_1d, is_non_sequence_container,
 };
 
 fn convert_int_slice_to_usize<T, F>(view: ArrayView1<'_, T>, mut convert: F) -> PyResult<Vec<usize>>
@@ -302,6 +312,111 @@ pub(super) fn extract_f64_2d(
                     "{name} contains non-finite value at row {nrows}"
                 )));
             }
+            flat.push(val);
+            row_len += 1;
+        }
+        match ncols {
+            None => ncols = Some(row_len),
+            Some(expected) if row_len != expected => {
+                return Err(PyValueError::new_err(format!(
+                    "{name} has ragged row {nrows}: expected {expected} columns, got {row_len}"
+                )));
+            }
+            Some(_) => {}
+        }
+        nrows += 1;
+    }
+
+    Ok((flat, nrows, ncols.unwrap_or(0)))
+}
+
+fn convert_numeric_view2_raw<T, F>(
+    view: ArrayView2<'_, T>,
+    mut to_f64: F,
+) -> (Vec<f64>, usize, usize)
+where
+    T: Copy,
+    F: FnMut(T) -> f64,
+{
+    let nrows = view.nrows();
+    let ncols = view.ncols();
+    let mut flat = Vec::with_capacity(nrows.saturating_mul(ncols));
+    for row in view.rows() {
+        for &val in row.iter() {
+            flat.push(to_f64(val));
+        }
+    }
+    (flat, nrows, ncols)
+}
+
+pub(super) fn extract_f64_2d_raw(
+    obj: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<(Vec<f64>, usize, usize)> {
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
+        if untyped.ndim() != 2 {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a 2D numeric array, got {}D",
+                untyped.ndim()
+            )));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, f64>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), |v| v));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, f32>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), f64::from));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i64>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), |v| v as f64));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i32>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), f64::from));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u64>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), |v| v as f64));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u32>>() {
+            return Ok(convert_numeric_view2_raw(arr.as_array(), f64::from));
+        }
+        return Err(PyTypeError::new_err(format!(
+            "{name} NumPy array must have a numeric dtype"
+        )));
+    }
+    if is_non_sequence_container(obj) {
+        return Err(PyTypeError::new_err(format!(
+            "{name} must be a 2D numeric array or sequence of sequences"
+        )));
+    }
+    let outer = obj.try_iter().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "{name} must be a 2D numeric array or sequence of sequences"
+        ))
+    })?;
+    let mut flat = Vec::new();
+    let mut nrows = 0usize;
+    let mut ncols: Option<usize> = None;
+
+    for row_res in outer {
+        let row = row_res?;
+        if is_non_sequence_container(&row) {
+            return Err(PyTypeError::new_err(format!(
+                "{name} rows must be numeric sequences"
+            )));
+        }
+        let inner = row
+            .try_iter()
+            .map_err(|_| PyTypeError::new_err(format!("{name} rows must be numeric sequences")))?;
+        let mut row_len = 0usize;
+        for elem_res in inner {
+            let elem = elem_res?;
+            if elem.is_instance_of::<PyBool>() {
+                return Err(PyTypeError::new_err(format!(
+                    "{name} entries must be numeric, not bool"
+                )));
+            }
+            let val = elem
+                .extract::<f64>()
+                .map_err(|_| PyTypeError::new_err(format!("{name} entries must be numeric")))?;
             flat.push(val);
             row_len += 1;
         }
@@ -1311,6 +1426,313 @@ fn compute_regularized_dog_varadhan_landmarks(
     Ok(PyDogVaradhanLandmarks { inner, stats })
 }
 
+/// Compute a 2D `Layout2d` via zero-guarded Classical MDS from all-pairs shortest paths.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, *, dtype = ScalarDtype::F64),
+    text_signature = "(graph, *, dtype='float64')"
+)]
+fn classical_mds_2d(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    dtype: ScalarDtype,
+) -> PyResult<PyLayout2d> {
+    let g = graph.inner();
+    py.detach(|| match dtype {
+        ScalarDtype::F64 => linalg_classical_mds_2d::<f64, f64>(g).map(wrap_layout_f64),
+        ScalarDtype::F32 => linalg_classical_mds_2d::<f64, f32>(g).map(wrap_layout_f32),
+    })
+    .map_err(core_error_to_py)
+}
+
+/// Compute a `dims`-dimensional `LayoutNd` via zero-guarded Resistance-distance MDS (`RdMds`).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(
+    signature = (graph, dims = StrictUsize(2), *, eig_eps = StrictF64(1e-10), tol = StrictF64(1e-6), max_iters = StrictUsize(1000), seed = StrictU64(42), dtype = ScalarDtype::F64),
+    text_signature = "(graph, dims=2, *, eig_eps=1e-10, tol=1e-6, max_iters=1000, seed=42, dtype='float64')"
+)]
+fn rd_mds(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    dims: StrictUsize,
+    eig_eps: StrictF64,
+    tol: StrictF64,
+    max_iters: StrictUsize,
+    seed: StrictU64,
+    dtype: ScalarDtype,
+) -> PyResult<PyLayoutNd> {
+    let g = graph.inner();
+    py.detach(|| match dtype {
+        ScalarDtype::F64 => {
+            linalg_rd_mds::<f64, f64>(g, dims.0, eig_eps.0, tol.0, max_iters.0, seed.0)
+                .map(PyLayoutNd::from_f64_nd)
+        }
+        ScalarDtype::F32 => {
+            linalg_rd_mds::<f64, f32>(g, dims.0, eig_eps.0, tol.0, max_iters.0, seed.0)
+                .map(PyLayoutNd::from_f32_nd)
+        }
+    })
+    .map_err(core_error_to_py)
+}
+
+/// Sanitize non-finite entries, center, and normalize a `Layout2d` in place to `target_std`.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, *, target_std = StrictF64(1.0), seed = StrictU64(42)),
+    text_signature = "(layout, *, target_std=1.0, seed=42)"
+)]
+fn normalize_layout_2d(
+    py: Python<'_>,
+    layout: &Bound<'_, PyLayout2d>,
+    target_std: StrictF64,
+    seed: StrictU64,
+) -> PyResult<()> {
+    let t_std = target_std.0;
+    let seed_val = seed.0;
+    let mut borrowed = layout.try_borrow_mut()?;
+    match borrowed.inner_mut() {
+        Layout2dInner::F64(buf) => {
+            let mut soa = buf.to_layout2d();
+            py.detach(|| linalg_normalize_layout_2d(&mut soa, t_std, seed_val))
+                .map_err(core_error_to_py)?;
+            buf.copy_from_layout2d(&soa).map_err(super::ffi_error_to_py)
+        }
+        Layout2dInner::F32(buf) => {
+            let mut soa = buf.to_layout2d();
+            py.detach(|| linalg_normalize_layout_2d(&mut soa, t_std, seed_val))
+                .map_err(core_error_to_py)?;
+            buf.copy_from_layout2d(&soa).map_err(super::ffi_error_to_py)
+        }
+    }
+}
+
+/// Compute a `dims`-dimensional `LayoutNd` via Representative/Landmark MDS from an `(N, R)` distance matrix.
+#[pyfunction]
+#[pyo3(
+    signature = (distances_to_reps, dims = StrictUsize(2), *, dtype = ScalarDtype::F64),
+    text_signature = "(distances_to_reps, dims=2, *, dtype='float64')"
+)]
+fn representative_mds(
+    py: Python<'_>,
+    distances_to_reps: &Bound<'_, PyAny>,
+    dims: StrictUsize,
+    dtype: ScalarDtype,
+) -> PyResult<PyLayoutNd> {
+    let (flat, n_nodes, n_reps) = extract_f64_2d_raw(distances_to_reps, "distances_to_reps")?;
+    py.detach(|| match dtype {
+        ScalarDtype::F64 => linalg_representative_mds::<f64>(&flat, n_nodes, n_reps, dims.0)
+            .map(PyLayoutNd::from_f64_nd),
+        ScalarDtype::F32 => linalg_representative_mds::<f32>(&flat, n_nodes, n_reps, dims.0)
+            .map(PyLayoutNd::from_f32_nd),
+    })
+    .map_err(core_error_to_py)
+}
+
+type ResistanceEmbeddingPy<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>);
+type DiffusionEmbeddingPy<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>, f64);
+
+/// Compute effective-resistance spectral embedding `(coords, lambdas_kept)`.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, dim = StrictUsize(16), *, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42), eig_eps = StrictF64(1e-10)),
+    text_signature = "(graph, dim=16, *, tol=1e-4, max_iters=300, seed=42, eig_eps=1e-10)"
+)]
+fn compute_resistance_embedding<'py>(
+    py: Python<'py>,
+    graph: &PyCsrGraph,
+    dim: StrictUsize,
+    tol: StrictF64,
+    max_iters: StrictUsize,
+    seed: StrictU64,
+    eig_eps: StrictF64,
+) -> PyResult<ResistanceEmbeddingPy<'py>> {
+    let g = graph.inner();
+    let n = g.num_nodes();
+    let (coords, lambdas) = py
+        .detach(|| nb_compute_resistance_embedding(g, dim.0, tol.0, max_iters.0, seed.0, eig_eps.0))
+        .map_err(core_error_to_py)?;
+    let k = lambdas.len();
+    let arr =
+        Array2::from_shape_vec((n, k), coords).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        PyArray2::from_owned_array(py, arr),
+        PyArray1::from_vec(py, lambdas),
+    ))
+}
+
+/// Compute heat-diffusion spectral embedding `(coords, lambdas, t_used)`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(
+    signature = (graph, dim = StrictUsize(16), *, p = StrictF64(0.5), t = None, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42)),
+    text_signature = "(graph, dim=16, *, p=0.5, t=None, tol=1e-4, max_iters=300, seed=42)"
+)]
+fn compute_diffusion_embedding<'py>(
+    py: Python<'py>,
+    graph: &PyCsrGraph,
+    dim: StrictUsize,
+    p: StrictF64,
+    t: Option<StrictF64>,
+    tol: StrictF64,
+    max_iters: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<DiffusionEmbeddingPy<'py>> {
+    let g = graph.inner();
+    let n = g.num_nodes();
+    let t_opt = t.map(|v| v.0);
+    let (coords, lambdas, t_used) = py
+        .detach(|| nb_compute_diffusion_embedding(g, dim.0, p.0, t_opt, tol.0, max_iters.0, seed.0))
+        .map_err(core_error_to_py)?;
+    let k = lambdas.len();
+    let arr =
+        Array2::from_shape_vec((n, k), coords).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        PyArray2::from_owned_array(py, arr),
+        PyArray1::from_vec(py, lambdas),
+        t_used,
+    ))
+}
+
+/// Construct a 2-stage coarse `StaticKdTree` + full-dimensional Euclidean reranked `KnnGraph`.
+#[pyfunction]
+#[pyo3(
+    signature = (coords, k = StrictUsize(15), *, coarse_dim = StrictUsize(10), rerank_factor = StrictUsize(16)),
+    text_signature = "(coords, k=15, *, coarse_dim=10, rerank_factor=16)"
+)]
+fn build_rerank_knn(
+    py: Python<'_>,
+    coords: &Bound<'_, PyAny>,
+    k: StrictUsize,
+    coarse_dim: StrictUsize,
+    rerank_factor: StrictUsize,
+) -> PyResult<PyKnnGraph> {
+    let (flat, n_nodes, dim) = extract_f64_2d(coords, "coords")?;
+    let knn = py
+        .detach(|| nb_build_rerank_knn(&flat, n_nodes, dim, k.0, coarse_dim.0, rerank_factor.0))
+        .map_err(core_error_to_py)?;
+    Ok(PyKnnGraph { inner: knn })
+}
+
+/// Compute row-normalized symmetrized graph probabilities `P = (D^{-1} A + A^T D^{-1}) / (2N)`.
+#[pyfunction]
+#[pyo3(signature = (graph), text_signature = "(graph)")]
+fn graph_row_normalized_probabilities(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+) -> PyResult<PySparseProbabilities> {
+    let g = graph.inner();
+    let probs = py
+        .detach(|| nb_graph_row_normalized_probabilities(g))
+        .map_err(core_error_to_py)?;
+    Ok(PySparseProbabilities { inner: probs })
+}
+
+/// Compute row-normalized symmetrized joint probabilities from raw directed CSR affinities.
+#[pyfunction]
+#[pyo3(
+    signature = (num_nodes, indptr, indices, weights),
+    text_signature = "(num_nodes, indptr, indices, weights)"
+)]
+fn symmetrize_row_normalized(
+    py: Python<'_>,
+    num_nodes: StrictUsize,
+    indptr: &Bound<'_, PyAny>,
+    indices: &Bound<'_, PyAny>,
+    weights: &Bound<'_, PyAny>,
+) -> PyResult<PySparseProbabilities> {
+    let indptr_vec = extract_usize_1d(indptr, "indptr")?;
+    let indices_vec = extract_u32_1d(indices, "indices")?;
+    let weights_vec = extract_f64_1d(weights, "weights")?;
+    let probs = py
+        .detach(|| {
+            nb_symmetrize_row_normalized(num_nodes.0, &indptr_vec, &indices_vec, &weights_vec)
+        })
+        .map_err(core_error_to_py)?;
+    Ok(PySparseProbabilities { inner: probs })
+}
+
+/// Build a sorted symmetric CSR `KnnGraph` from 1-hop and 2-hop pair distances enforcing `d1 < tier2_margin * d2`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(
+    signature = (num_nodes, u1, v1, d1, u2, v2, d2, *, tier2_margin = StrictF64(1.1)),
+    text_signature = "(num_nodes, u1, v1, d1, u2, v2, d2, *, tier2_margin=1.1)"
+)]
+fn build_gumap_12hop_priority_csr(
+    py: Python<'_>,
+    num_nodes: StrictUsize,
+    u1: &Bound<'_, PyAny>,
+    v1: &Bound<'_, PyAny>,
+    d1: &Bound<'_, PyAny>,
+    u2: &Bound<'_, PyAny>,
+    v2: &Bound<'_, PyAny>,
+    d2: &Bound<'_, PyAny>,
+    tier2_margin: StrictF64,
+) -> PyResult<PyKnnGraph> {
+    let u1_v = extract_u32_1d(u1, "u1")?;
+    let v1_v = extract_u32_1d(v1, "v1")?;
+    let d1_v = extract_f64_1d(d1, "d1")?;
+    let u2_v = extract_u32_1d(u2, "u2")?;
+    let v2_v = extract_u32_1d(v2, "v2")?;
+    let d2_v = extract_f64_1d(d2, "d2")?;
+    let margin = tier2_margin.0;
+    let knn = py
+        .detach(|| {
+            nb_build_gumap_12hop_priority_csr(
+                num_nodes.0,
+                &u1_v,
+                &v1_v,
+                &d1_v,
+                &u2_v,
+                &v2_v,
+                &d2_v,
+                margin,
+            )
+        })
+        .map_err(core_error_to_py)?;
+    Ok(PyKnnGraph { inner: knn })
+}
+
+type DistanceFloorReturn<'py> = (
+    Bound<'py, PyArray1<f64>>,
+    Bound<'py, PyArray1<f64>>,
+    Bound<'py, PyArray1<f64>>,
+    f64,
+);
+
+/// Apply relative distance floor `max(eps_dist, min_ratio * median_pos(d1))` to `(d1, d2, d3)`.
+///
+/// Returns `(d1_clamped, d2_clamped, d3_clamped, d_floor)`.
+#[pyfunction]
+#[pyo3(
+    signature = (d1, d2, d3, *, eps_dist = StrictF64(1e-6), min_ratio = StrictF64(0.5)),
+    text_signature = "(d1, d2, d3, *, eps_dist=1e-6, min_ratio=0.5)"
+)]
+fn apply_relative_distance_floor<'py>(
+    py: Python<'py>,
+    d1: &Bound<'_, PyAny>,
+    d2: &Bound<'_, PyAny>,
+    d3: &Bound<'_, PyAny>,
+    eps_dist: StrictF64,
+    min_ratio: StrictF64,
+) -> PyResult<DistanceFloorReturn<'py>> {
+    let mut d1_v = extract_f64_1d(d1, "d1")?;
+    let mut d2_v = extract_f64_1d(d2, "d2")?;
+    let mut d3_v = extract_f64_1d(d3, "d3")?;
+    let eps = eps_dist.0;
+    let ratio = min_ratio.0;
+    let d_floor = py
+        .detach(|| nb_apply_relative_distance_floor(&mut d1_v, &mut d2_v, &mut d3_v, eps, ratio))
+        .map_err(core_error_to_py)?;
+    Ok((
+        PyArray1::from_vec(py, d1_v),
+        PyArray1::from_vec(py, d2_v),
+        PyArray1::from_vec(py, d3_v),
+        d_floor,
+    ))
+}
+
 /// Register M2 `egraph-linalg` and `egraph-neighborhood` classes and functions on `egraph._core`.
 pub(super) fn register_m2(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKnnGraph>()?;
@@ -1319,19 +1741,30 @@ pub(super) fn register_m2(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(select_maxmin_sp_pivots, m)?)?;
     m.add_function(wrap_pyfunction!(pivot_mds_init, m)?)?;
     m.add_function(wrap_pyfunction!(koren_spectral_init, m)?)?;
+    m.add_function(wrap_pyfunction!(classical_mds_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(rd_mds, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_layout_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(representative_mds, m)?)?;
     m.add_function(wrap_pyfunction!(smallest_laplacian_eigenpairs, m)?)?;
     m.add_function(wrap_pyfunction!(spectral_moment_stats, m)?)?;
     m.add_function(wrap_pyfunction!(chebyshev_heat_spmv, m)?)?;
     m.add_function(wrap_pyfunction!(chebyshev_dog_jl_embedding, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_resistance_embedding, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_diffusion_embedding, m)?)?;
     m.add_function(wrap_pyfunction!(extract_1hop_2hop_csr, m)?)?;
     m.add_function(wrap_pyfunction!(build_pure_2hop_knn, m)?)?;
+    m.add_function(wrap_pyfunction!(build_rerank_knn, m)?)?;
     m.add_function(wrap_pyfunction!(compute_2hop_neighborhood_sizes, m)?)?;
     m.add_function(wrap_pyfunction!(compute_nodewise_2hop_perplexities, m)?)?;
     m.add_function(wrap_pyfunction!(compute_median_2hop_perplexity, m)?)?;
     m.add_function(wrap_pyfunction!(build_hybrid_adaptive_knn, m)?)?;
     m.add_function(wrap_pyfunction!(partial_bfs_knn, m)?)?;
     m.add_function(wrap_pyfunction!(compute_knn_probabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_row_normalized_probabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(symmetrize_row_normalized, m)?)?;
     m.add_function(wrap_pyfunction!(compute_fuzzy_simplicial_set, m)?)?;
+    m.add_function(wrap_pyfunction!(build_gumap_12hop_priority_csr, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_relative_distance_floor, m)?)?;
     m.add_function(wrap_pyfunction!(find_ab_params, m)?)?;
     m.add_function(wrap_pyfunction!(compute_horvitz_thompson_gamma, m)?)?;
     m.add_function(wrap_pyfunction!(

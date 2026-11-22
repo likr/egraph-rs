@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, Sequence, overload
+from typing import Any, Callable, Iterable, Sequence, final, overload
+from typing_extensions import disjoint_base
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +19,216 @@ _VectorArrayLike = (
 )
 _DtypeLike = str | np.dtype[Any] | type[np.floating[Any]]
 
+__all__ = [
+    "AmgCgSolver",
+    "Array1",
+    "Array2",
+    "BandPassDiffusionKernel",
+    "BandPassDiffusionKernelBuilder",
+    "BhTsNet",
+    "BhTsNetBuilder",
+    "CgSolver",
+    "ClassicalMds",
+    "Constraint",
+    "CsrGraph",
+    "DiGraph",
+    "DiffusionKernel",
+    "DistanceMatrix",
+    "DogVaradhanLandmarks",
+    "Drawing",
+    "DrawingEuclidean",
+    "DrawingEuclidean2d",
+    "DrawingHyperbolic2d",
+    "DrawingSpherical2d",
+    "DrawingTorus2d",
+    "EigendecompositionResult",
+    "EmbeddingKernel",
+    "EmbeddingKernelBuilder",
+    "ExponentialKernel",
+    "ExponentialKernelBuilder",
+    "FdebSolver",
+    "FitTsNet",
+    "FitTsNetBuilder",
+    "ForceAtlas2Solver",
+    "FullSgd",
+    "GaussianKernel",
+    "GaussianKernelBuilder",
+    "Graph",
+    "GraphAdapter",
+    "GuMap",
+    "GuMapBuilder",
+    "GuMapSolver",
+    "IbUmapSolver",
+    "Ic0CgSolver",
+    "InfoMap",
+    "JacobiCgSolver",
+    "KamadaKawai",
+    "KamadaKawaiSolver",
+    "KernelDistance",
+    "KernelDistanceBuilder",
+    "KnnGraph",
+    "LTsNet",
+    "LTsNetBuilder",
+    "LabelPropagation",
+    "Laplacian",
+    "Layout2d",
+    "LayoutNd",
+    "LongestPath",
+    "Louvain",
+    "LowRankDiffusionKernel",
+    "LowRankDiffusionKernelBuilder",
+    "LowRankMultiscaleDiffusionKernel",
+    "LowRankMultiscaleDiffusionKernelBuilder",
+    "ManifoldLayout2d",
+    "MultiscaleDiffusionKernel",
+    "NegLogDistance",
+    "NegLogDistanceBuilder",
+    "NegLogSimDistance",
+    "NegLogSimDistanceBuilder",
+    "Omega",
+    "OverwrapRemoval",
+    "PivotMds",
+    "PivotedBandPassDiffusionKernel",
+    "PivotedBandPassDiffusionKernelBuilder",
+    "PivotedDiffusionKernel",
+    "PivotedMultiscaleDiffusionKernel",
+    "PivotedNegLogDistance",
+    "PivotedNegLogDistanceBuilder",
+    "PivotedNegLogSimDistance",
+    "PivotedNegLogSimDistanceBuilder",
+    "PrismOverlapRemoval",
+    "PyArray1Iterator",
+    "RandomPairSparseSgd",
+    "RdMds",
+    "Rng",
+    "SchedulerConstant",
+    "SchedulerExponential",
+    "SchedulerLinear",
+    "SchedulerQuadratic",
+    "SchedulerReciprocal",
+    "SeparationConstraint",
+    "Sgd",
+    "SgdSolver",
+    "SparseProbabilities",
+    "SparseSgd",
+    "SpatialIntruderRefiner",
+    "SpectralClustering",
+    "StandardLaplacian",
+    "StressMajorization",
+    "StressMajorizationSolver",
+    "SymmetricNormalizedLaplacian",
+    "TFdpSolver",
+    "TKernel",
+    "TKernelBuilder",
+    "TsNet",
+    "TsNetBuilder",
+    "TsNetSolver",
+    "WeightedEdgeLength",
+    "YifanHuSolver",
+    "all_pairs_bfs",
+    "all_sources_bfs",
+    "all_sources_dijkstra",
+    "angular_resolution",
+    "angular_resolution_v6",
+    "apply_relative_distance_floor",
+    "aspect_ratio",
+    "aspect_ratio_v6",
+    "assign_layers",
+    "bfs_single_source",
+    "build_gumap_12hop_priority_csr",
+    "build_hybrid_adaptive_knn",
+    "build_pure_2hop_knn",
+    "build_rerank_knn",
+    "chebyshev_dog_jl_embedding",
+    "chebyshev_heat_spmv",
+    "classical_mds_2d",
+    "coarsen_graph",
+    "compute_2hop_neighborhood_sizes",
+    "compute_diffusion_embedding",
+    "compute_fuzzy_simplicial_set",
+    "compute_horvitz_thompson_gamma",
+    "compute_knn_probabilities",
+    "compute_median_2hop_perplexity",
+    "compute_nodewise_2hop_perplexities",
+    "compute_regularized_dog_varadhan_landmarks",
+    "compute_resistance_embedding",
+    "crossing_angle",
+    "crossing_angle_with_crossing_edges",
+    "crossing_edges",
+    "crossing_edges_torus",
+    "crossing_number",
+    "crossing_number_with_crossing_edges",
+    "crossing_summary",
+    "cycle_edges",
+    "delaunay_to_csr",
+    "delaunay_triangulation",
+    "dgg_preservation",
+    "drng_preservation",
+    "edge_angle",
+    "evaluate_metrics",
+    "extract_1hop_2hop_csr",
+    "find_ab_params",
+    "gabriel_graph_edges",
+    "gabriel_graph_property",
+    "gabriel_graph_property_v6",
+    "generate_layered_constraints",
+    "graph_row_normalized_probabilities",
+    "ideal_edge_lengths",
+    "ideal_edge_lengths_v6",
+    "ideal_edge_lengths_with_unit",
+    "kmeans_plus_plus",
+    "koren_spectral_init",
+    "label_propagation",
+    "load_dataset",
+    "louvain_communities",
+    "neighborhood_preservation",
+    "neighborhood_preservation_1hop",
+    "neighborhood_preservation_2hop",
+    "neighborhood_preservation_2hop_v6",
+    "node_resolution",
+    "node_resolution_v6",
+    "normalize_layout_2d",
+    "parse_csr_csv",
+    "partial_bfs_knn",
+    "pivot_mds_init",
+    "poincare_distance",
+    "prism_distortion",
+    "prism_distortion_with_edges",
+    "project_1d",
+    "project_clustered_layout",
+    "project_clustered_rectangle_no_overlap_2d",
+    "project_clustered_rectangle_no_overlap_constraints",
+    "project_layout_axis",
+    "project_rectangle_no_overlap_2d",
+    "project_rectangle_no_overlap_constraints_2d",
+    "py_coarsen",
+    "rd_mds",
+    "rectangle_overlaps",
+    "relative_neighborhood_edges",
+    "remove_cycle",
+    "remove_cycles",
+    "representative_mds",
+    "sampled_crossing_number",
+    "sampled_scale_normalized_stress",
+    "scale_normalized_stress",
+    "scale_normalized_stress_from_distances",
+    "select_maxmin_sp_pivots",
+    "smallest_laplacian_eigenpairs",
+    "spectral_clustering",
+    "spectral_moment_stats",
+    "spherical_distance",
+    "stress",
+    "sweep_crossing_angle",
+    "sweep_crossing_number",
+    "symmetrize_row_normalized",
+    "torus_crossing_number",
+    "torus_distance",
+    "triangulation",
+    "warshall_floyd",
+    "wrap_torus_point",
+]
+
+@final
 class CsrGraph:
     @staticmethod
     def from_csr(
@@ -42,25 +253,58 @@ class CsrGraph:
     @property
     def num_edges(self) -> int: ...
     @property
+    def nnz(self) -> int: ...
+    @property
     def is_directed(self) -> bool: ...
+    @property
+    def is_weighted(self) -> bool: ...
+    def degree(self, u: int) -> int: ...
+    def neighbors(self, u: int) -> npt.NDArray[np.uint32]: ...
+    def induced_subgraph(self, nodes: _IndexArrayLike) -> CsrGraph: ...
     def indptr(self) -> npt.NDArray[np.uint32]: ...
     def indices(self) -> npt.NDArray[np.uint32]: ...
     def weights(self) -> npt.NDArray[np.float64] | None: ...
     def largest_connected_component(self) -> tuple[CsrGraph, npt.NDArray[np.uint32]]: ...
     def __repr__(self) -> str: ...
 
+@final
 class Layout2d:
     @staticmethod
     def zeros(n: int, dtype: _DtypeLike = "float64") -> Layout2d: ...
     @staticmethod
     def from_coords(coords: _CoordArrayLike) -> Layout2d: ...
     def __len__(self) -> int: ...
+    def is_empty(self) -> bool: ...
+    def x(self, i: int) -> float: ...
+    def y(self, i: int) -> float: ...
+    def set_x(self, i: int, v: float) -> None: ...
+    def set_y(self, i: int, v: float) -> None: ...
+    def normalize_std(self, target_std: float = 1.0) -> None: ...
     @property
     def dtype(self) -> str: ...
     def is_all_finite(self) -> bool: ...
     def coords(self, copy: bool = False) -> npt.NDArray[Any]: ...
     def __repr__(self) -> str: ...
 
+@final
+class LayoutNd:
+    @staticmethod
+    def zeros(n: int, dim: int, dtype: _DtypeLike = "float64") -> LayoutNd: ...
+    @staticmethod
+    def from_coords(coords: _CoordArrayLike) -> LayoutNd: ...
+    def __len__(self) -> int: ...
+    def is_empty(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dim(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def is_all_finite(self) -> bool: ...
+    def coords(self, copy: bool = False) -> npt.NDArray[Any]: ...
+    def __repr__(self) -> str: ...
+
+@final
 class KnnGraph:
     @staticmethod
     def from_csr(
@@ -79,6 +323,7 @@ class KnnGraph:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+@final
 class SparseProbabilities:
     @property
     def num_nodes(self) -> int: ...
@@ -90,6 +335,7 @@ class SparseProbabilities:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+@final
 class DogVaradhanLandmarks:
     @property
     def num_nodes(self) -> int: ...
@@ -118,6 +364,7 @@ class DogVaradhanLandmarks:
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+@disjoint_base
 class GraphAdapter:
     def add_edges_from_numpy(self, edges: npt.NDArray[np.integer[Any]]) -> None: ...
     def node_count(self) -> int: ...
@@ -149,22 +396,26 @@ class GraphAdapter:
         edge_map: Callable[[int, Any], Any],
     ) -> GraphAdapter: ...
 
+@final
 class Graph(GraphAdapter):
-    def __init__(self) -> None: ...
+    def __new__(cls) -> Graph: ...
     @staticmethod
     def from_edges_numpy(
         num_nodes: int, edges: npt.NDArray[np.integer[Any]]
     ) -> Graph: ...
 
+@final
 class DiGraph(GraphAdapter):
-    def __init__(self) -> None: ...
+    def __new__(cls) -> DiGraph: ...
     @staticmethod
     def from_edges_numpy(
         num_nodes: int, edges: npt.NDArray[np.integer[Any]]
     ) -> DiGraph: ...
 
+@disjoint_base
 class Drawing: ...
 
+@final
 class DrawingEuclidean2d(Drawing):
     def x(self, u: int) -> float | None: ...
     def y(self, u: int) -> float | None: ...
@@ -188,11 +439,13 @@ class DrawingEuclidean2d(Drawing):
     ) -> DrawingEuclidean2d: ...
     def to_numpy(self) -> npt.NDArray[np.float64]: ...
 
+@final
 class DrawingEuclidean(Drawing):
     def get(self, u: int, d: int) -> float | None: ...
     def set(self, u: int, d: int, value: float) -> None: ...
     def len(self) -> int: ...
 
+@final
 class DrawingHyperbolic2d(Drawing):
     def x(self, u: int) -> float | None: ...
     def y(self, u: int) -> float | None: ...
@@ -203,6 +456,7 @@ class DrawingHyperbolic2d(Drawing):
     def initial_placement(graph: GraphAdapter) -> DrawingHyperbolic2d: ...
     def recenter(self, u: int) -> None: ...
 
+@final
 class DrawingSpherical2d(Drawing):
     def lon(self, u: int) -> float | None: ...
     def lat(self, u: int) -> float | None: ...
@@ -212,6 +466,7 @@ class DrawingSpherical2d(Drawing):
     @staticmethod
     def initial_placement(graph: GraphAdapter) -> DrawingSpherical2d: ...
 
+@final
 class DrawingTorus2d(Drawing):
     def x(self, u: int) -> float | None: ...
     def y(self, u: int) -> float | None: ...
@@ -225,29 +480,33 @@ class DrawingTorus2d(Drawing):
     @staticmethod
     def initial_placement(graph: GraphAdapter) -> DrawingTorus2d: ...
 
+@final
 class Rng:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> Rng: ...
     @classmethod
     def seed_from(cls, seed: int) -> Rng: ...
 
+@final
 class PyArray1Iterator:
     def __iter__(self) -> PyArray1Iterator: ...
     def __next__(self) -> float: ...
 
+@final
 class Array1:
-    def __init__(self, array: npt.NDArray[np.float64] | None = None) -> None: ...
+    def __new__(cls, array: npt.NDArray[np.float64] | None = None) -> Array1: ...
     @classmethod
     def from_numpy(cls, array: npt.NDArray[np.float64]) -> Array1: ...
     def to_numpy(self) -> npt.NDArray[np.float64]: ...
     def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> float: ...
-    def __setitem__(self, index: int, value: float) -> None: ...
+    def __getitem__(self, index: int, /) -> float: ...
+    def __setitem__(self, index: int, value: float, /) -> None: ...
     def __repr__(self) -> str: ...
     def __iter__(self) -> PyArray1Iterator: ...
     def to_list(self) -> list[float]: ...
 
+@final
 class Array2:
-    def __init__(self, array: npt.NDArray[np.float64] | None = None) -> None: ...
+    def __new__(cls, array: npt.NDArray[np.float64] | None = None) -> Array2: ...
     @classmethod
     def from_numpy(cls, array: npt.NDArray[np.float64]) -> Array2: ...
     def to_numpy(self) -> npt.NDArray[np.float64]: ...
@@ -257,13 +516,14 @@ class Array2:
     def nrows(self) -> int: ...
     @property
     def ncols(self) -> int: ...
-    def __getitem__(self, index: tuple[int, int]) -> float: ...
-    def __setitem__(self, index: tuple[int, int], value: float) -> None: ...
+    def __getitem__(self, index: tuple[int, int], /) -> float: ...
+    def __setitem__(self, index: tuple[int, int], value: float, /) -> None: ...
     def __repr__(self) -> str: ...
     def row(self, index: int) -> Array1: ...
     def column(self, index: int) -> Array1: ...
     def to_list(self) -> list[list[float]]: ...
 
+@final
 class DistanceMatrix:
     def shape(self) -> tuple[int, int]: ...
     def pivots(self) -> list[int] | None: ...
@@ -282,55 +542,63 @@ class DistanceMatrix:
     ) -> DistanceMatrix: ...
     def to_numpy(self) -> npt.NDArray[np.float64]: ...
 
+@final
 class NegLogSimDistance:
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class NegLogSimDistanceBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> NegLogSimDistanceBuilder: ...
     def alpha(self, alpha: float) -> NegLogSimDistanceBuilder: ...
     def beta(self, beta: float) -> NegLogSimDistanceBuilder: ...
     def p(self, p: float) -> NegLogSimDistanceBuilder: ...
     def min_dist(self, min_dist: float) -> NegLogSimDistanceBuilder: ...
     def build(self, graph: GraphAdapter, kernel: Any) -> NegLogSimDistance: ...
 
+@final
 class NegLogDistance:
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class NegLogDistanceBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> NegLogDistanceBuilder: ...
     def alpha(self, alpha: float) -> NegLogDistanceBuilder: ...
     def beta(self, beta: float) -> NegLogDistanceBuilder: ...
     def p(self, p: float) -> NegLogDistanceBuilder: ...
     def min_dist(self, min_dist: float) -> NegLogDistanceBuilder: ...
     def build(self, graph: GraphAdapter, kernel: Any) -> NegLogDistance: ...
 
+@final
 class PivotedNegLogDistance:
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class PivotedNegLogDistanceBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> PivotedNegLogDistanceBuilder: ...
     def alpha(self, alpha: float) -> PivotedNegLogDistanceBuilder: ...
     def beta(self, beta: float) -> PivotedNegLogDistanceBuilder: ...
     def p(self, p: float) -> PivotedNegLogDistanceBuilder: ...
     def min_dist(self, min_dist: float) -> PivotedNegLogDistanceBuilder: ...
     def build(self, graph: GraphAdapter, kernel: Any) -> PivotedNegLogDistance: ...
 
+@final
 class PivotedNegLogSimDistance:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: GraphAdapter,
         kernel: Any,
         epsilon: float = 1e-12,
         scale: float = 1.0,
         power: float = 0.5,
-    ) -> None: ...
+    ) -> PivotedNegLogSimDistance: ...
     def get(self, u: int, v: int) -> float | None: ...
     def get_by_index(self, j: int, pivot_idx: int) -> float: ...
     def shape(self) -> tuple[int, int]: ...
     def pivots(self) -> list[int]: ...
 
+@final
 class PivotedNegLogSimDistanceBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> PivotedNegLogSimDistanceBuilder: ...
     def epsilon(self, epsilon: float) -> PivotedNegLogSimDistanceBuilder: ...
     def scale(self, scale: float) -> PivotedNegLogSimDistanceBuilder: ...
     def power(self, power: float) -> PivotedNegLogSimDistanceBuilder: ...
@@ -338,49 +606,60 @@ class PivotedNegLogSimDistanceBuilder:
         self, graph: GraphAdapter, kernel: Any
     ) -> PivotedNegLogSimDistance: ...
 
+@final
 class EmbeddingKernel:
-    def __init__(self, graph: GraphAdapter, embedding: Array2) -> None: ...
+    def __new__(cls, graph: GraphAdapter, embedding: Array2) -> EmbeddingKernel: ...
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class EmbeddingKernelBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> EmbeddingKernelBuilder: ...
     def build(self, graph: GraphAdapter, embedding: Array2) -> EmbeddingKernel: ...
 
+@final
 class GaussianKernel:
-    def __init__(self, kernel: Any, gamma: float) -> None: ...
+    def __new__(cls, kernel: Any, gamma: float) -> GaussianKernel: ...
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class GaussianKernelBuilder:
-    def __init__(self, gamma: float = 1.0) -> None: ...
+    def __new__(cls, gamma: float = 1.0) -> GaussianKernelBuilder: ...
     def gamma(self, gamma: float) -> GaussianKernelBuilder: ...
     def build(self, kernel: Any) -> GaussianKernel: ...
 
+@final
 class ExponentialKernel:
-    def __init__(self, kernel: Any, gamma: float) -> None: ...
+    def __new__(cls, kernel: Any, gamma: float) -> ExponentialKernel: ...
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class ExponentialKernelBuilder:
-    def __init__(self, gamma: float = 1.0) -> None: ...
+    def __new__(cls, gamma: float = 1.0) -> ExponentialKernelBuilder: ...
     def gamma(self, gamma: float) -> ExponentialKernelBuilder: ...
     def build(self, kernel: Any) -> ExponentialKernel: ...
 
+@final
 class TKernel:
-    def __init__(self, kernel: Any, dof: float) -> None: ...
+    def __new__(cls, kernel: Any, dof: float) -> TKernel: ...
     def get(self, u: int, v: int) -> float | None: ...
 
+@final
 class TKernelBuilder:
-    def __init__(self, alpha: float = 1.0) -> None: ...
+    def __new__(cls, alpha: float = 1.0) -> TKernelBuilder: ...
     def alpha(self, alpha: float) -> TKernelBuilder: ...
     def build(self, kernel: Any) -> TKernel: ...
 
+@final
 class KernelDistance:
-    def __init__(self, kernel: Any, min_dist: float = 0.0) -> None: ...
+    def __new__(cls, kernel: Any, min_dist: float = 0.0) -> KernelDistance: ...
 
+@final
 class KernelDistanceBuilder:
-    def __init__(self, min_dist: float = 0.0) -> None: ...
+    def __new__(cls, min_dist: float = 0.0) -> KernelDistanceBuilder: ...
     def min_dist(self, min_dist: float) -> KernelDistanceBuilder: ...
     def build(self, kernel: Any) -> KernelDistance: ...
 
+@final
 class Laplacian:
     @staticmethod
     def standard(
@@ -392,18 +671,21 @@ class Laplacian:
     ) -> Laplacian: ...
     def n(self) -> int: ...
 
+@final
 class StandardLaplacian:
     @staticmethod
     def build(graph: GraphAdapter, length: Any = None) -> Laplacian: ...
 
+@final
 class SymmetricNormalizedLaplacian:
     @staticmethod
     def build(graph: GraphAdapter, length: Any = None) -> Laplacian: ...
 
+@final
 class DiffusionKernel:
-    def __init__(
-        self, laplacian: Laplacian, t: float, degree: int, rng: Rng
-    ) -> None: ...
+    def __new__(
+        cls, laplacian: Laplacian, t: float, degree: int, rng: Rng
+    ) -> DiffusionKernel: ...
     @staticmethod
     def new_with_lambda_max(
         laplacian: Laplacian, t: float, degree: int, lambda_max: float, rng: Rng
@@ -411,35 +693,39 @@ class DiffusionKernel:
     def get(self, i: int, j: int) -> float: ...
     def n(self) -> int: ...
 
+@final
 class MultiscaleDiffusionKernel:
-    def __init__(self, laplacian: Laplacian, alpha: float) -> None: ...
+    def __new__(cls, laplacian: Laplacian, alpha: float) -> MultiscaleDiffusionKernel: ...
     def get(self, i: int, j: int) -> float: ...
     def n(self) -> int: ...
 
+@final
 class LowRankDiffusionKernel:
-    def __init__(
-        self, t: float, eigenvalues: Array1, eigenvectors: Array2
-    ) -> None: ...
+    def __new__(
+        cls, t: float, eigenvalues: Array1, eigenvectors: Array2
+    ) -> LowRankDiffusionKernel: ...
     def get(self, i: int, j: int) -> float: ...
     def n(self) -> int: ...
 
+@final
 class LowRankMultiscaleDiffusionKernel:
-    def __init__(
-        self, alpha: float, eigenvalues: Array1, eigenvectors: Array2
-    ) -> None: ...
+    def __new__(
+        cls, alpha: float, eigenvalues: Array1, eigenvectors: Array2
+    ) -> LowRankMultiscaleDiffusionKernel: ...
     def get(self, i: int, j: int) -> float: ...
     def n(self) -> int: ...
 
+@final
 class PivotedDiffusionKernel:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         laplacian: Laplacian,
         t: float,
         degree: int,
         pivots: list[int],
         rng: Rng,
         num_hutchinson: int | None = None,
-    ) -> None: ...
+    ) -> PivotedDiffusionKernel: ...
     @staticmethod
     def new_with_lambda_max(
         laplacian: Laplacian,
@@ -454,16 +740,17 @@ class PivotedDiffusionKernel:
     def get_from_pivot(self, pivot_idx: int, j: int) -> float: ...
     def diagonal(self, j: int) -> float | None: ...
 
+@final
 class BandPassDiffusionKernel:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         laplacian: Laplacian,
         terms: list[tuple[float, float]],
         degree: int,
         rng: Rng | None = None,
         lambda_max: float | None = None,
         off_diagonal_floor: float = 0.0,
-    ) -> None: ...
+    ) -> BandPassDiffusionKernel: ...
     @staticmethod
     def new_with_lambda_max(
         laplacian: Laplacian,
@@ -496,14 +783,15 @@ class BandPassDiffusionKernel:
     def get(self, i: int, j: int) -> float: ...
     def n(self) -> int: ...
 
+@final
 class BandPassDiffusionKernelBuilder:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         terms: list[tuple[float, float]] | None = None,
         degree: int = 30,
         lambda_max: float | None = None,
         off_diagonal_floor: float = 0.0,
-    ) -> None: ...
+    ) -> BandPassDiffusionKernelBuilder: ...
     @staticmethod
     def dog(
         t1: float,
@@ -534,18 +822,19 @@ class BandPassDiffusionKernelBuilder:
         self, laplacian: Laplacian, rng: Rng | None = None
     ) -> BandPassDiffusionKernel: ...
 
+@final
 class PivotedBandPassDiffusionKernel:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         laplacian: Laplacian,
         terms: list[tuple[float, float]],
         degree: int,
         pivots: list[int],
         rng: Rng | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         lambda_max: float | None = None,
         off_diagonal_floor: float = 0.0,
-    ) -> None: ...
+    ) -> PivotedBandPassDiffusionKernel: ...
     @staticmethod
     def new_with_lambda_max(
         laplacian: Laplacian,
@@ -554,7 +843,7 @@ class PivotedBandPassDiffusionKernel:
         pivots: list[int],
         lambda_max: float,
         rng: Rng | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         off_diagonal_floor: float = 0.0,
     ) -> PivotedBandPassDiffusionKernel: ...
     @staticmethod
@@ -567,7 +856,7 @@ class PivotedBandPassDiffusionKernel:
         degree: int,
         pivots: list[int],
         rng: Rng | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         lambda_max: float | None = None,
     ) -> PivotedBandPassDiffusionKernel: ...
     @staticmethod
@@ -577,7 +866,7 @@ class PivotedBandPassDiffusionKernel:
         degree: int,
         pivots: list[int],
         rng: Rng | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         lambda_max: float | None = None,
         off_diagonal_floor: float = 0.0,
     ) -> PivotedBandPassDiffusionKernel: ...
@@ -586,16 +875,17 @@ class PivotedBandPassDiffusionKernel:
     def diagonal(self, j: int) -> float | None: ...
     def n(self) -> int: ...
 
+@final
 class PivotedBandPassDiffusionKernelBuilder:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         terms: list[tuple[float, float]] | None = None,
         degree: int = 30,
         pivots: list[int] | None = None,
         lambda_max: float | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         off_diagonal_floor: float = 0.0,
-    ) -> None: ...
+    ) -> PivotedBandPassDiffusionKernelBuilder: ...
     @staticmethod
     def dog(
         t1: float,
@@ -605,7 +895,7 @@ class PivotedBandPassDiffusionKernelBuilder:
         degree: int = 30,
         pivots: list[int] | None = None,
         lambda_max: float | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
     ) -> PivotedBandPassDiffusionKernelBuilder: ...
     @staticmethod
     def multiscale_heat(
@@ -613,7 +903,7 @@ class PivotedBandPassDiffusionKernelBuilder:
         degree: int = 30,
         pivots: list[int] | None = None,
         lambda_max: float | None = None,
-        num_hutchinson: int | None = 32,
+        num_hutchinson: int | None = ...,
         off_diagonal_floor: float = 0.0,
     ) -> PivotedBandPassDiffusionKernelBuilder: ...
     def terms(
@@ -636,16 +926,18 @@ class PivotedBandPassDiffusionKernelBuilder:
         self, laplacian: Laplacian, rng: Rng | None = None
     ) -> PivotedBandPassDiffusionKernel: ...
 
+@final
 class PivotedMultiscaleDiffusionKernel:
-    def __init__(
-        self, laplacian: Laplacian, alpha: float, pivots: list[int]
-    ) -> None: ...
+    def __new__(
+        cls, laplacian: Laplacian, alpha: float, pivots: list[int]
+    ) -> PivotedMultiscaleDiffusionKernel: ...
     def pivots(self) -> list[int]: ...
     def get_from_pivot(self, pivot_idx: int, j: int) -> float: ...
     def diagonal(self, j: int) -> float | None: ...
 
+@final
 class LowRankDiffusionKernelBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LowRankDiffusionKernelBuilder: ...
     def t(self, t: float) -> LowRankDiffusionKernelBuilder: ...
     def rank(self, rank: int) -> LowRankDiffusionKernelBuilder: ...
     def shift(self, shift: float) -> LowRankDiffusionKernelBuilder: ...
@@ -672,8 +964,9 @@ class LowRankDiffusionKernelBuilder:
         rng: Rng | None = None,
     ) -> LowRankDiffusionKernel: ...
 
+@final
 class LowRankMultiscaleDiffusionKernelBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LowRankMultiscaleDiffusionKernelBuilder: ...
     def alpha(self, alpha: float) -> LowRankMultiscaleDiffusionKernelBuilder: ...
     def rank(self, rank: int) -> LowRankMultiscaleDiffusionKernelBuilder: ...
     def shift(self, shift: float) -> LowRankMultiscaleDiffusionKernelBuilder: ...
@@ -702,8 +995,9 @@ class LowRankMultiscaleDiffusionKernelBuilder:
         rng: Rng | None = None,
     ) -> LowRankMultiscaleDiffusionKernel: ...
 
+@final
 class ClassicalMds:
-    def __init__(self, graph: GraphAdapter, f: Callable[[int], float]) -> None: ...
+    def __new__(cls, graph: GraphAdapter, f: Callable[[int], float]) -> ClassicalMds: ...
     @staticmethod
     def new_with_distance_matrix(d: Any) -> ClassicalMds: ...
     def run(self, d: int) -> DrawingEuclidean: ...
@@ -713,10 +1007,11 @@ class ClassicalMds:
     @eps.setter
     def eps(self, value: float) -> None: ...
 
+@final
 class PivotMds:
-    def __init__(
-        self, graph: GraphAdapter, f: Callable[[int], float], pivot: list[int]
-    ) -> None: ...
+    def __new__(
+        cls, graph: GraphAdapter, f: Callable[[int], float], pivot: list[int]
+    ) -> PivotMds: ...
     @staticmethod
     def new_with_distance_matrix(d: Any) -> PivotMds: ...
     def run(self, d: int) -> DrawingEuclidean: ...
@@ -726,26 +1021,31 @@ class PivotMds:
     @eps.setter
     def eps(self, value: float) -> None: ...
 
+@final
 class CgSolver:
-    def __init__(
-        self, max_iterations: int = 100, tolerance: float = 1e-4
-    ) -> None: ...
+    def __new__(
+        cls, max_iterations: int = 100, tolerance: float = 1e-4
+    ) -> CgSolver: ...
 
+@final
 class JacobiCgSolver:
-    def __init__(
-        self, max_iterations: int = 100, tolerance: float = 1e-4
-    ) -> None: ...
+    def __new__(
+        cls, max_iterations: int = 100, tolerance: float = 1e-4
+    ) -> JacobiCgSolver: ...
 
+@final
 class Ic0CgSolver:
-    def __init__(
-        self, max_iterations: int = 100, tolerance: float = 1e-4
-    ) -> None: ...
+    def __new__(
+        cls, max_iterations: int = 100, tolerance: float = 1e-4
+    ) -> Ic0CgSolver: ...
 
+@final
 class AmgCgSolver:
-    def __init__(
-        self, max_iterations: int = 100, tolerance: float = 1e-4
-    ) -> None: ...
+    def __new__(
+        cls, max_iterations: int = 100, tolerance: float = 1e-4
+    ) -> AmgCgSolver: ...
 
+@final
 class EigendecompositionResult:
     @property
     def eigenvectors(self) -> Array2: ...
@@ -756,8 +1056,9 @@ class EigendecompositionResult:
     @property
     def power_iterations(self) -> list[int]: ...
 
+@final
 class RdMds:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> RdMds: ...
     def d(self, d: int) -> RdMds: ...
     def shift(self, shift: float) -> RdMds: ...
     def eigenvalue_max_iterations(
@@ -807,8 +1108,9 @@ class RdMds:
         rng: Rng,
     ) -> EigendecompositionResult: ...
 
+@final
 class KamadaKawai:
-    def __init__(self, graph: GraphAdapter, f: Callable[[int], float]) -> None: ...
+    def __new__(cls, graph: GraphAdapter, f: Callable[[int], float]) -> KamadaKawai: ...
     def select_node(self, drawing: DrawingEuclidean2d) -> int | None: ...
     def apply_to_node(self, m: int, drawing: DrawingEuclidean2d) -> None: ...
     def run(self, drawing: DrawingEuclidean2d) -> None: ...
@@ -817,8 +1119,9 @@ class KamadaKawai:
     @eps.setter
     def eps(self, value: float) -> None: ...
 
+@final
 class OverwrapRemoval:
-    def __init__(self, graph: GraphAdapter, f: Callable[[int], float]) -> None: ...
+    def __new__(cls, graph: GraphAdapter, f: Callable[[int], float]) -> OverwrapRemoval: ...
     def apply_with_drawing_euclidean_2d(
         self, drawing: DrawingEuclidean2d
     ) -> None: ...
@@ -843,13 +1146,14 @@ class OverwrapRemoval:
     @min_distance.setter
     def min_distance(self, value: float) -> None: ...
 
+@final
 class StressMajorization:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: GraphAdapter,
         drawing: DrawingEuclidean2d,
         f: Any = None,
-    ) -> None: ...
+    ) -> StressMajorization: ...
     @classmethod
     def with_distance_matrix(
         cls, drawing: DrawingEuclidean2d, distance_matrix: DistanceMatrix
@@ -869,66 +1173,72 @@ class StressMajorization:
     @max_iterations.setter
     def max_iterations(self, value: int) -> None: ...
 
+@final
 class SchedulerConstant:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         t_max: int,
         eta_min: float | None = None,
         eta_max: float | None = None,
-    ) -> None: ...
+    ) -> SchedulerConstant: ...
     def run(self, f: Callable[[float], Any]) -> None: ...
     def step(self, f: Callable[[float], Any]) -> None: ...
     def is_finished(self) -> bool: ...
 
+@final
 class SchedulerLinear:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         t_max: int,
         eta_min: float | None = None,
         eta_max: float | None = None,
-    ) -> None: ...
+    ) -> SchedulerLinear: ...
     def run(self, f: Callable[[float], Any]) -> None: ...
     def step(self, f: Callable[[float], Any]) -> None: ...
     def is_finished(self) -> bool: ...
 
+@final
 class SchedulerQuadratic:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         t_max: int,
         eta_min: float | None = None,
         eta_max: float | None = None,
-    ) -> None: ...
+    ) -> SchedulerQuadratic: ...
     def run(self, f: Callable[[float], Any]) -> None: ...
     def step(self, f: Callable[[float], Any]) -> None: ...
     def is_finished(self) -> bool: ...
 
+@final
 class SchedulerExponential:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         t_max: int,
         eta_min: float | None = None,
         eta_max: float | None = None,
-    ) -> None: ...
+    ) -> SchedulerExponential: ...
     def run(self, f: Callable[[float], Any]) -> None: ...
     def step(self, f: Callable[[float], Any]) -> None: ...
     def is_finished(self) -> bool: ...
 
+@final
 class SchedulerReciprocal:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         t_max: int,
         eta_min: float | None = None,
         eta_max: float | None = None,
-    ) -> None: ...
+    ) -> SchedulerReciprocal: ...
     def run(self, f: Callable[[float], Any]) -> None: ...
     def step(self, f: Callable[[float], Any]) -> None: ...
     def is_finished(self) -> bool: ...
 
+@final
 class Sgd:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         node_pairs: list[tuple[int, int, float, float, float, float]],
-    ) -> None: ...
+    ) -> Sgd: ...
     def shuffle(self, rng: Rng) -> None: ...
     def apply(self, drawing: Drawing, eta: float) -> None: ...
     def update_distance(
@@ -998,8 +1308,9 @@ class Sgd:
         self, t_max: int, epsilon: float
     ) -> SchedulerReciprocal: ...
 
+@final
 class FullSgd:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> FullSgd: ...
     def build(self, graph: GraphAdapter, f: Any = None) -> Sgd: ...
     def build_with_numpy(
         self,
@@ -1009,8 +1320,9 @@ class FullSgd:
     ) -> Sgd: ...
     def build_with_distance_matrix(self, d: Any) -> Sgd: ...
 
+@final
 class SparseSgd:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> SparseSgd: ...
     @staticmethod
     def barrier(
         h: int = 64,
@@ -1080,23 +1392,26 @@ class SparseSgd:
         neg_per_node: int | None = None,
     ) -> tuple[Sgd, dict[str, Any]]: ...
 
+@final
 class RandomPairSparseSgd:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> RandomPairSparseSgd: ...
     def k(self, k: int) -> RandomPairSparseSgd: ...
     def build(
         self, graph: GraphAdapter, distance_matrix: Any, rng: Rng
     ) -> Sgd: ...
 
+@final
 class Omega:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> Omega: ...
     def k(self, k: int) -> Omega: ...
     def min_dist(self, min_dist: float) -> Omega: ...
     def build(
         self, graph: GraphAdapter, embedding: Array2, rng: Rng
     ) -> Sgd: ...
 
+@final
 class TsNetBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> TsNetBuilder: ...
     @staticmethod
     def new_star() -> TsNetBuilder: ...
     def perplexity(self, perplexity: float) -> TsNetBuilder: ...
@@ -1124,8 +1439,9 @@ class TsNetBuilder:
     def window_size(self, window_size: int) -> TsNetBuilder: ...
     def build(self) -> TsNet: ...
 
+@final
 class TsNet:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> TsNet: ...
     @staticmethod
     def new_star() -> TsNet: ...
     @staticmethod
@@ -1134,8 +1450,9 @@ class TsNet:
     def builder_star() -> TsNetBuilder: ...
     def run(self, drawing: DrawingEuclidean2d, distance_matrix: Any) -> None: ...
 
+@final
 class BhTsNetBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> BhTsNetBuilder: ...
     def perplexity(self, perplexity: float) -> BhTsNetBuilder: ...
     def theta(self, theta: float) -> BhTsNetBuilder: ...
     def k(self, k: int) -> BhTsNetBuilder: ...
@@ -1155,8 +1472,9 @@ class BhTsNetBuilder:
     def sigma_tolerance(self, sigma_tolerance: float) -> BhTsNetBuilder: ...
     def build(self) -> BhTsNet: ...
 
+@final
 class BhTsNet:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> BhTsNet: ...
     @staticmethod
     def builder() -> BhTsNetBuilder: ...
     def run(
@@ -1177,8 +1495,9 @@ class BhTsNet:
         perplexities: npt.NDArray[np.float64],
     ) -> None: ...
 
+@final
 class FitTsNetBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> FitTsNetBuilder: ...
     def intervals(self, intervals: int) -> FitTsNetBuilder: ...
     def interpolation_points(
         self, interpolation_points: int
@@ -1202,8 +1521,9 @@ class FitTsNetBuilder:
     def sigma_tolerance(self, sigma_tolerance: float) -> FitTsNetBuilder: ...
     def build(self) -> FitTsNet: ...
 
+@final
 class FitTsNet:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> FitTsNet: ...
     @staticmethod
     def builder() -> FitTsNetBuilder: ...
     def run(
@@ -1224,8 +1544,9 @@ class FitTsNet:
         perplexities: npt.NDArray[np.float64],
     ) -> None: ...
 
+@final
 class LTsNetBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LTsNetBuilder: ...
     def intervals(self, intervals: int) -> LTsNetBuilder: ...
     def interpolation_points(
         self, interpolation_points: int
@@ -1248,8 +1569,9 @@ class LTsNetBuilder:
     def sigma_tolerance(self, sigma_tolerance: float) -> LTsNetBuilder: ...
     def build(self) -> LTsNet: ...
 
+@final
 class LTsNet:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LTsNet: ...
     @staticmethod
     def builder() -> LTsNetBuilder: ...
     def run(
@@ -1270,8 +1592,9 @@ class LTsNet:
         perplexities: npt.NDArray[np.float64],
     ) -> None: ...
 
+@final
 class GuMapBuilder:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> GuMapBuilder: ...
     def k(self, k: int) -> GuMapBuilder: ...
     def min_dist(self, min_dist: float) -> GuMapBuilder: ...
     def spread(self, spread: float) -> GuMapBuilder: ...
@@ -1286,8 +1609,9 @@ class GuMapBuilder:
     def sigma_tolerance(self, sigma_tolerance: float) -> GuMapBuilder: ...
     def build(self) -> GuMap: ...
 
+@final
 class GuMap:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> GuMap: ...
     @staticmethod
     def builder() -> GuMapBuilder: ...
     def run(
@@ -1309,16 +1633,19 @@ class GuMap:
         rng: Rng,
     ) -> None: ...
 
+@final
 class WeightedEdgeLength:
-    def __init__(self, graph: GraphAdapter) -> None: ...
+    def __new__(cls, graph: GraphAdapter) -> WeightedEdgeLength: ...
     def __call__(self, edge_index: int) -> int: ...
 
+@final
 class LongestPath:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LongestPath: ...
     def assign_layers(self, graph: GraphAdapter) -> dict[int, int]: ...
 
+@final
 class Constraint:
-    def __init__(self, left: int, right: int, gap: float) -> None: ...
+    def __new__(cls, left: int, right: int, gap: float) -> Constraint: ...
     @property
     def left(self) -> int: ...
     @property
@@ -1326,22 +1653,24 @@ class Constraint:
     @property
     def gap(self) -> float: ...
 
-class CrossingEdges: ...
-
+@final
 class Louvain:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> Louvain: ...
     def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
+@final
 class LabelPropagation:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> LabelPropagation: ...
     def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
+@final
 class SpectralClustering:
-    def __init__(self, k: int) -> None: ...
+    def __new__(cls, k: int) -> SpectralClustering: ...
     def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
+@final
 class InfoMap:
-    def __init__(self) -> None: ...
+    def __new__(cls) -> InfoMap: ...
     def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
 def all_sources_bfs(
@@ -1361,24 +1690,33 @@ def remove_cycle(graph: GraphAdapter) -> None: ...
 def triangulation(drawing: DrawingEuclidean2d) -> GraphAdapter: ...
 @overload
 def project_1d(
-    drawing: DrawingEuclidean2d, dimension: int, constraints: list[Constraint]
+    target: DrawingEuclidean2d, arg2: int, arg3: list[Constraint]
 ) -> None: ...
 @overload
 def project_1d(
-    coords: _WeightArrayLike, constraints: Sequence[SeparationConstraint]
+    target: _WeightArrayLike,
+    arg2: Sequence[SeparationConstraint],
+    arg3: None = None,
 ) -> npt.NDArray[Any]: ...
 def project_rectangle_no_overlap_constraints_2d(
     drawing: DrawingEuclidean2d, size_fn: Callable[[int, int], float]
 ) -> None: ...
 @overload
 def generate_layered_constraints(
-    graph: GraphAdapter, gap: float
+    graph: GraphAdapter, layers_or_gap: float
+) -> list[Constraint]: ...
+@overload
+def generate_layered_constraints(
+    graph: GraphAdapter, *, gap: float
 ) -> list[Constraint]: ...
 @overload
 def generate_layered_constraints(
     graph: CsrGraph,
-    layers: _IndexArrayLike,
-    min_layer_distance: float = 1.0,
+    layers_or_gap: _IndexArrayLike | None = None,
+    min_layer_distance: float = ...,
+    *,
+    layers: _IndexArrayLike | None = None,
+    gap: float | None = None,
 ) -> list[SeparationConstraint]: ...
 def project_clustered_rectangle_no_overlap_constraints(
     graph: GraphAdapter,
@@ -1386,7 +1724,10 @@ def project_clustered_rectangle_no_overlap_constraints(
     cluster_id_fn: Callable[[int], int],
     size_fn: Callable[[int, int], float],
 ) -> None: ...
-def crossing_edges(graph: GraphAdapter, drawing: Drawing) -> CrossingEdges: ...
+@overload
+def crossing_edges(graph: CsrGraph, drawing: Layout2d) -> list[dict[str, Any]]: ...
+@overload
+def crossing_edges(graph: GraphAdapter, drawing: Drawing) -> Any: ...
 @overload
 def angular_resolution(
     graph: GraphAdapter, drawing: DrawingEuclidean2d
@@ -1404,7 +1745,7 @@ def crossing_angle(
 @overload
 def crossing_angle(graph: CsrGraph, drawing: Layout2d) -> float: ...
 def crossing_angle_with_crossing_edges(
-    crossing_edges: CrossingEdges,
+    crossing_edges: Any,
 ) -> float: ...
 @overload
 def crossing_number(
@@ -1413,7 +1754,7 @@ def crossing_number(
 @overload
 def crossing_number(graph: CsrGraph, drawing: Layout2d) -> float: ...
 def crossing_number_with_crossing_edges(
-    crossing_edges: CrossingEdges,
+    crossing_edges: Any,
 ) -> float: ...
 @overload
 def gabriel_graph_property(
@@ -1428,7 +1769,11 @@ def ideal_edge_lengths(
     distance_matrix: DistanceMatrix,
 ) -> float: ...
 @overload
-def ideal_edge_lengths(graph: CsrGraph, drawing: Layout2d) -> float: ...
+def ideal_edge_lengths(
+    graph: CsrGraph,
+    drawing: Layout2d,
+    distance_matrix: None = None,
+) -> float: ...
 @overload
 def neighborhood_preservation(
     graph: GraphAdapter, drawing: DrawingEuclidean2d
@@ -1477,6 +1822,29 @@ def node_resolution_v6(layout: Layout2d) -> float: ...
 def aspect_ratio_v6(layout: Layout2d) -> float: ...
 def angular_resolution_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
 def ideal_edge_lengths_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
+def ideal_edge_lengths_with_unit(
+    graph: CsrGraph, layout: Layout2d, unit_edge_length: float = 1.0
+) -> float: ...
+def crossing_edges_torus(graph: CsrGraph, layout: Layout2d) -> list[dict[str, Any]]: ...
+def crossing_summary(graph: CsrGraph, layout: Layout2d) -> dict[str, Any]: ...
+def gabriel_graph_edges(layout: Layout2d) -> npt.NDArray[np.uint32]: ...
+def relative_neighborhood_edges(layout: Layout2d) -> npt.NDArray[np.uint32]: ...
+def all_pairs_bfs(
+    graph: CsrGraph, unit_edge_length: float = 1.0
+) -> npt.NDArray[np.float64]: ...
+def bfs_single_source(
+    graph: CsrGraph, source: int, unit_edge_length: float = 1.0
+) -> npt.NDArray[np.float64]: ...
+def scale_normalized_stress_from_distances(
+    layout: Layout2d,
+    distances: _MatrixArrayLike,
+    weights: _MatrixArrayLike | None = None,
+) -> float: ...
+def prism_distortion_with_edges(
+    original_layout: Layout2d,
+    adjusted_layout: Layout2d,
+    edges: _EdgeArrayLike,
+) -> tuple[float, float]: ...
 def evaluate_metrics(
     graph: CsrGraph,
     layout: Layout2d,
@@ -1485,10 +1853,21 @@ def evaluate_metrics(
     num_pivots: int = 64,
     num_samples: int = 10000,
     seed: int = 42,
+    ideal_edge_length: float = 1.0,
 ) -> dict[str, float]: ...
 def delaunay_triangulation(
     layout: Layout2d,
 ) -> tuple[npt.NDArray[np.uint32], npt.NDArray[np.uint32]]: ...
+def delaunay_to_csr(layout: Layout2d) -> CsrGraph: ...
+def rectangle_overlaps(
+    layout: Layout2d,
+    half_widths: _WeightArrayLike,
+    half_heights: _WeightArrayLike,
+) -> npt.NDArray[np.uint32]: ...
+def load_dataset(name: str) -> CsrGraph: ...
+def parse_csr_csv(
+    csv: str, *, directed: bool = False, sanitize: bool = True
+) -> CsrGraph: ...
 def select_maxmin_sp_pivots(
     graph: CsrGraph,
     num_pivots: int = 50,
@@ -1620,6 +1999,7 @@ def compute_regularized_dog_varadhan_landmarks(
     beta_floor: float | None = None,
 ) -> DogVaradhanLandmarks: ...
 
+@final
 class ManifoldLayout2d:
     @staticmethod
     def zeros(kind: str, n: int, dtype: _DtypeLike = "float64") -> ManifoldLayout2d: ...
@@ -1634,12 +2014,26 @@ class ManifoldLayout2d:
     def len(self) -> int: ...
     def is_empty(self) -> bool: ...
     def __len__(self) -> int: ...
+    def x(self, i: int) -> float: ...
+    def y(self, i: int) -> float: ...
+    def is_all_finite(self) -> bool: ...
+    def set_point(self, index: int, x: float, y: float) -> None: ...
     def coords(self) -> npt.NDArray[Any]: ...
     def to_layout(self) -> Layout2d: ...
     def geodesic_distance(self, i: int, j: int) -> float: ...
+    def tangent_delta(self, i: int, j: int) -> tuple[float, float]: ...
+    def apply_tangent_step(self, i: int, vx: float, vy: float) -> None: ...
     def project_all(self) -> None: ...
     def __repr__(self) -> str: ...
 
+def poincare_distance(x1: float, y1: float, x2: float, y2: float) -> float: ...
+def spherical_distance(
+    lon1: float, colat1: float, lon2: float, colat2: float
+) -> float: ...
+def torus_distance(x1: float, y1: float, x2: float, y2: float) -> float: ...
+def wrap_torus_point(x: float, y: float) -> tuple[float, float]: ...
+
+@final
 class TsNetSolver:
     @staticmethod
     def pure_2hop(
@@ -1726,6 +2120,36 @@ class TsNetSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
+    @staticmethod
+    def from_graph_partial_bfs(
+        graph: CsrGraph,
+        k: int = 15,
+        uniform_perplexity: float = 15.0,
+        *,
+        backend: str = "fft",
+        power: float = 2.0,
+        sigma_iters: int = 50,
+        sigma_tolerance: float = 1e-5,
+        row_normalize: bool = False,
+        iterations_stage1: int = 250,
+        iterations_stage2: int = 250,
+        iterations_stage3: int = 500,
+        exaggeration: float = 4.0,
+        lambda_c_stage1: float = 0.1,
+        lambda_c_stage2: float = 0.01,
+        lambda_c_stage3: float = 0.0,
+        lambda_r_stage3: float = 0.0,
+        learning_rate: float = 200.0,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -1739,6 +2163,7 @@ class TsNetSolver:
     def is_finished(self) -> bool: ...
     @property
     def total_fft_2d_calls(self) -> int: ...
+    def last_fft_stats(self) -> dict[str, int] | None: ...
     @property
     def num_nodes(self) -> int: ...
     @property
@@ -1749,6 +2174,7 @@ class TsNetSolver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class SgdSolver:
     @staticmethod
     def from_pairs(
@@ -1973,6 +2399,7 @@ class SgdSolver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class GuMapSolver:
     @staticmethod
     def from_fuzzy_set(
@@ -2056,9 +2483,10 @@ class GuMapSolver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class SpatialIntruderRefiner:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         rounds: int = 4,
         k_cap: int = 32,
@@ -2074,7 +2502,7 @@ class SpatialIntruderRefiner:
         seed: int = 42,
         *,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> SpatialIntruderRefiner: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -2093,6 +2521,7 @@ class SpatialIntruderRefiner:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class StressMajorizationSolver:
     @staticmethod
     def from_graph(
@@ -2136,6 +2565,7 @@ class StressMajorizationSolver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class KamadaKawaiSolver:
     @staticmethod
     def from_graph(
@@ -2218,9 +2648,10 @@ def py_coarsen(
     edge_merge_func: Callable[[list[int]], Any],
 ) -> tuple[GraphAdapter, dict[int, int]]: ...
 
+@final
 class TFdpSolver:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         *,
         backend: str = "ibfft",
@@ -2233,13 +2664,19 @@ class TFdpSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> TFdpSolver: ...
     @overload
     @staticmethod
     def from_knn(
-        knn: KnnGraph,
+        knn_or_indptr: KnnGraph,
+        indices: None = None,
+        weights: None = None,
         *,
         backend: str = "ibfft",
         total_iterations: int = 200,
@@ -2251,13 +2688,17 @@ class TFdpSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TFdpSolver: ...
     @overload
     @staticmethod
     def from_knn(
-        indptr: _IndexArrayLike,
+        knn_or_indptr: _IndexArrayLike,
         indices: _IndexArrayLike,
         weights: _WeightArrayLike | None = None,
         *,
@@ -2271,6 +2712,10 @@ class TFdpSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TFdpSolver: ...
@@ -2291,14 +2736,31 @@ class TFdpSolver:
     def dtype(self) -> str: ...
     @property
     def current_rho(self) -> float: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def total_fft_2d_calls(self) -> int: ...
     def __repr__(self) -> str: ...
 
+@final
 class IbUmapSolver:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         *,
         max_2hop_per_node: int = 30,
+        degree: int | None = 25,
+        num_landmarks: int = 64,
+        min_degree: int = 2,
+        jl_dim: int = 64,
+        degree_normalize: bool = True,
+        p_exp: float = 0.5,
+        eps_psd: float = 1e-4,
+        t_coarse: float = 48.0,
+        t1: float | None = None,
+        t2: float | None = None,
+        alpha: float | None = None,
+        beta_floor: float | None = None,
         backend: str = "ibfft",
         n_epochs: int = 200,
         learning_rate: float = 1.0,
@@ -2310,9 +2772,13 @@ class IbUmapSolver:
         tau_scale: float = 4.0,
         hub_damping: bool = True,
         theta: float = 0.5,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> IbUmapSolver: ...
     @staticmethod
     def from_knn(
         knn: KnnGraph,
@@ -2330,6 +2796,10 @@ class IbUmapSolver:
         tau_scale: float = 4.0,
         hub_damping: bool = True,
         theta: float = 0.5,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> IbUmapSolver: ...
@@ -2349,6 +2819,10 @@ class IbUmapSolver:
         tau_scale: float = 4.0,
         hub_damping: bool = True,
         theta: float = 0.5,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> IbUmapSolver: ...
@@ -2369,11 +2843,22 @@ class IbUmapSolver:
     def dtype(self) -> str: ...
     @property
     def current_rho(self) -> float: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def total_fft_2d_calls(self) -> int: ...
+    @property
+    def a(self) -> float | None: ...
+    @property
+    def b(self) -> float | None: ...
+    @property
+    def ab(self) -> tuple[float, float] | None: ...
     def __repr__(self) -> str: ...
 
+@final
 class ForceAtlas2Solver:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         *,
         iterations: int = 200,
@@ -2388,7 +2873,7 @@ class ForceAtlas2Solver:
         jitter_tolerance: float = 1.0,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> ForceAtlas2Solver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -2406,9 +2891,10 @@ class ForceAtlas2Solver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class YifanHuSolver:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         *,
         max_iterations_per_level: int = 100,
@@ -2422,7 +2908,7 @@ class YifanHuSolver:
         convergence_tolerance: float = 1e-4,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> YifanHuSolver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -2444,9 +2930,10 @@ class YifanHuSolver:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class PrismOverlapRemoval:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         half_widths: _WeightArrayLike,
         half_heights: _WeightArrayLike,
         *,
@@ -2457,7 +2944,7 @@ class PrismOverlapRemoval:
         padding: float = 0.0,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
-    ) -> None: ...
+    ) -> PrismOverlapRemoval: ...
     @staticmethod
     def from_radii(
         radii: _WeightArrayLike,
@@ -2489,8 +2976,9 @@ class PrismOverlapRemoval:
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
+@final
 class SeparationConstraint:
-    def __init__(self, left: int, right: int, gap: float) -> None: ...
+    def __new__(cls, left: int, right: int, gap: float) -> SeparationConstraint: ...
     @property
     def left(self) -> int: ...
     @property
@@ -2499,9 +2987,10 @@ class SeparationConstraint:
     def gap(self) -> float: ...
     def __repr__(self) -> str: ...
 
+@final
 class FdebSolver:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         graph: CsrGraph,
         layout: Layout2d,
         *,
@@ -2513,7 +3002,7 @@ class FdebSolver:
         spring_k: float = 0.1,
         minimum_edge_compatibility: float = 0.6,
         dtype: _DtypeLike | None = None,
-    ) -> None: ...
+    ) -> FdebSolver: ...
     def step(self) -> str: ...
     def run_steps(self, steps: int) -> str: ...
     def run(self) -> str: ...
@@ -2553,3 +3042,84 @@ def remove_cycles(graph: CsrGraph) -> CsrGraph: ...
 def assign_layers(
     graph: CsrGraph, *, method: str = "longest_path"
 ) -> npt.NDArray[np.uint32]: ...
+def classical_mds_2d(
+    graph: CsrGraph, *, dtype: _DtypeLike = "float64"
+) -> Layout2d: ...
+def rd_mds(
+    graph: CsrGraph,
+    dims: int = 2,
+    *,
+    eig_eps: float = 1e-10,
+    tol: float = 1e-6,
+    max_iters: int = 1000,
+    seed: int = 42,
+    dtype: _DtypeLike = "float64",
+) -> LayoutNd: ...
+def normalize_layout_2d(
+    layout: Layout2d, *, target_std: float = 1.0, seed: int = 42
+) -> None: ...
+def representative_mds(
+    distances_to_reps: _MatrixArrayLike,
+    dims: int = 2,
+    *,
+    dtype: _DtypeLike = "float64",
+) -> LayoutNd: ...
+def compute_resistance_embedding(
+    graph: CsrGraph,
+    dim: int = 16,
+    *,
+    tol: float = 1e-4,
+    max_iters: int = 300,
+    seed: int = 42,
+    eig_eps: float = 1e-10,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+def compute_diffusion_embedding(
+    graph: CsrGraph,
+    dim: int = 16,
+    *,
+    p: float = 0.5,
+    t: float | None = None,
+    tol: float = 1e-4,
+    max_iters: int = 300,
+    seed: int = 42,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]: ...
+def build_rerank_knn(
+    coords: _CoordArrayLike,
+    k: int = 15,
+    *,
+    coarse_dim: int = 10,
+    rerank_factor: int = 16,
+) -> KnnGraph: ...
+def graph_row_normalized_probabilities(
+    graph: CsrGraph,
+) -> SparseProbabilities: ...
+def symmetrize_row_normalized(
+    num_nodes: int,
+    indptr: _IndexArrayLike,
+    indices: _IndexArrayLike,
+    weights: _WeightArrayLike,
+) -> SparseProbabilities: ...
+def build_gumap_12hop_priority_csr(
+    num_nodes: int,
+    u1: _IndexArrayLike,
+    v1: _IndexArrayLike,
+    d1: _WeightArrayLike,
+    u2: _IndexArrayLike,
+    v2: _IndexArrayLike,
+    d2: _WeightArrayLike,
+    *,
+    tier2_margin: float = 1.1,
+) -> KnnGraph: ...
+def apply_relative_distance_floor(
+    d1: _WeightArrayLike,
+    d2: _WeightArrayLike,
+    d3: _WeightArrayLike,
+    *,
+    eps_dist: float = 1e-6,
+    min_ratio: float = 0.5,
+) -> tuple[
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    float,
+]: ...

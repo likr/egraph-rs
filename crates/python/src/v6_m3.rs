@@ -1,6 +1,10 @@
 //! M3 v6 clustering, non-Euclidean manifold layout, and cooperative layout solver
 //! bindings backed by `egraph-clustering` and `egraph-layout`.
 
+use egraph::{
+    clustering as egraph_clustering, core as egraph_core, layout as egraph_layout,
+    neighborhood as egraph_neighborhood, spatial as egraph_spatial,
+};
 use egraph_clustering::{
     KMeansConfig, LabelPropagationConfig, LouvainConfig, SpectralClusteringConfig,
     coarsen_graph as clu_coarsen_graph, kmeans_plus_plus as clu_kmeans_plus_plus,
@@ -10,6 +14,8 @@ use egraph_clustering::{
 };
 use egraph_core::{
     CoreError, CoreResult, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
+    poincare_distance as core_poincare_distance, spherical_distance as core_spherical_distance,
+    torus_distance as core_torus_distance, wrap_torus_point as core_wrap_torus_point,
 };
 use egraph_layout::{
     BarrierSymmetry, GuMapConfig, GuMapSolver, KamadaKawaiConfig, KamadaKawaiSolver,
@@ -21,7 +27,7 @@ use egraph_neighborhood::{DogVaradhanConfig, DogVaradhanStats, SymmetrizationMod
 use egraph_spatial::{IbFftConfig, InterpolationOrder};
 use numpy::ndarray::{Array2, ArrayView2};
 use numpy::{PyArray1, PyArray2, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList};
 
@@ -825,6 +831,77 @@ impl PyManifoldLayout2d {
         }
     }
 
+    /// Return the first coordinate (`x` or longitude or toroidal `x`) of vertex `i`.
+    #[pyo3(signature = (i), text_signature = "($self, i)")]
+    fn x(&self, i: StrictUsize) -> PyResult<f64> {
+        let n = self.len();
+        if i.0 >= n {
+            return Err(PyIndexError::new_err(format!(
+                "ManifoldLayout2d::x index {} out of bounds for length {}",
+                i.0, n
+            )));
+        }
+        Ok(match &self.inner {
+            ManifoldLayout2dInner::F64(m) => m.x()[i.0],
+            ManifoldLayout2dInner::F32(m) => f64::from(m.x()[i.0]),
+        })
+    }
+
+    /// Return the second coordinate (`y` or colatitude or toroidal `y`) of vertex `i`.
+    #[pyo3(signature = (i), text_signature = "($self, i)")]
+    fn y(&self, i: StrictUsize) -> PyResult<f64> {
+        let n = self.len();
+        if i.0 >= n {
+            return Err(PyIndexError::new_err(format!(
+                "ManifoldLayout2d::y index {} out of bounds for length {}",
+                i.0, n
+            )));
+        }
+        Ok(match &self.inner {
+            ManifoldLayout2dInner::F64(m) => m.y()[i.0],
+            ManifoldLayout2dInner::F32(m) => f64::from(m.y()[i.0]),
+        })
+    }
+
+    /// Return `True` if every coordinate in the manifold layout is finite.
+    fn is_all_finite(&self) -> bool {
+        match &self.inner {
+            ManifoldLayout2dInner::F64(m) => {
+                m.x().iter().all(|v| v.is_finite()) && m.y().iter().all(|v| v.is_finite())
+            }
+            ManifoldLayout2dInner::F32(m) => {
+                m.x().iter().all(|v| v.is_finite()) && m.y().iter().all(|v| v.is_finite())
+            }
+        }
+    }
+
+    /// Set vertex `index`'s coordinates, projecting onto the manifold domain.
+    #[pyo3(signature = (index, x, y), text_signature = "($self, index, x, y)")]
+    fn set_point(&mut self, index: StrictUsize, x: StrictF64, y: StrictF64) -> PyResult<()> {
+        match &mut self.inner {
+            ManifoldLayout2dInner::F64(m) => {
+                m.set_point(index.0, x.0, y.0).map_err(core_error_to_py)
+            }
+            ManifoldLayout2dInner::F32(m) => {
+                let x32 = x.0 as f32;
+                let y32 = y.0 as f32;
+                if x.0.is_finite() && !x32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.set_point x={} overflows float32",
+                        x.0
+                    )));
+                }
+                if y.0.is_finite() && !y32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.set_point y={} overflows float32",
+                        y.0
+                    )));
+                }
+                m.set_point(index.0, x32, y32).map_err(core_error_to_py)
+            }
+        }
+    }
+
     /// Compute the exact geodesic distance between vertices `i` and `j` on the manifold.
     #[pyo3(signature = (i, j), text_signature = "($self, i, j)")]
     fn geodesic_distance(&self, i: StrictUsize, j: StrictUsize) -> PyResult<f64> {
@@ -836,6 +913,46 @@ impl PyManifoldLayout2d {
                 .geodesic_distance(i.0, j.0)
                 .map(f64::from)
                 .map_err(core_error_to_py),
+        }
+    }
+
+    /// Compute the Riemannian logarithmic map (tangent vector at `i` pointing toward `j`).
+    #[pyo3(signature = (i, j), text_signature = "($self, i, j)")]
+    fn tangent_delta(&self, i: StrictUsize, j: StrictUsize) -> PyResult<(f64, f64)> {
+        match &self.inner {
+            ManifoldLayout2dInner::F64(m) => m.tangent_delta(i.0, j.0).map_err(core_error_to_py),
+            ManifoldLayout2dInner::F32(m) => m
+                .tangent_delta(i.0, j.0)
+                .map(|(vx, vy)| (f64::from(vx), f64::from(vy)))
+                .map_err(core_error_to_py),
+        }
+    }
+
+    /// Advance vertex `i` along the geodesic defined by tangent vector `(vx, vy)`.
+    #[pyo3(signature = (i, vx, vy), text_signature = "($self, i, vx, vy)")]
+    fn apply_tangent_step(&mut self, i: StrictUsize, vx: StrictF64, vy: StrictF64) -> PyResult<()> {
+        match &mut self.inner {
+            ManifoldLayout2dInner::F64(m) => m
+                .apply_tangent_step(i.0, vx.0, vy.0)
+                .map_err(core_error_to_py),
+            ManifoldLayout2dInner::F32(m) => {
+                let vx32 = vx.0 as f32;
+                let vy32 = vy.0 as f32;
+                if vx.0.is_finite() && !vx32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.apply_tangent_step vx={} overflows float32",
+                        vx.0
+                    )));
+                }
+                if vy.0.is_finite() && !vy32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.apply_tangent_step vy={} overflows float32",
+                        vy.0
+                    )));
+                }
+                m.apply_tangent_step(i.0, vx32, vy32)
+                    .map_err(core_error_to_py)
+            }
         }
     }
 
@@ -856,6 +973,39 @@ impl PyManifoldLayout2d {
             self.dtype()
         )
     }
+}
+
+/// Compute exact Poincaré disk hyperbolic geodesic distance between `(x1, y1)` and `(x2, y2)`.
+#[pyfunction]
+#[pyo3(signature = (x1, y1, x2, y2), text_signature = "(x1, y1, x2, y2)")]
+fn poincare_distance(x1: StrictF64, y1: StrictF64, x2: StrictF64, y2: StrictF64) -> f64 {
+    core_poincare_distance(x1.0, y1.0, x2.0, y2.0)
+}
+
+/// Compute great-circle distance on the unit sphere given `(lon, colatitude)` in radians.
+#[pyfunction]
+#[pyo3(signature = (lon1, colat1, lon2, colat2), text_signature = "(lon1, colat1, lon2, colat2)")]
+fn spherical_distance(
+    lon1: StrictF64,
+    colat1: StrictF64,
+    lon2: StrictF64,
+    colat2: StrictF64,
+) -> f64 {
+    core_spherical_distance(lon1.0, colat1.0, lon2.0, colat2.0)
+}
+
+/// Compute shortest periodic Euclidean distance on the flat unit torus `[0, 1)^2`.
+#[pyfunction]
+#[pyo3(signature = (x1, y1, x2, y2), text_signature = "(x1, y1, x2, y2)")]
+fn torus_distance(x1: StrictF64, y1: StrictF64, x2: StrictF64, y2: StrictF64) -> f64 {
+    core_torus_distance(x1.0, y1.0, x2.0, y2.0)
+}
+
+/// Wrap `(x, y)` periodically into the fundamental domain `[0, 1)^2` of the unit torus.
+#[pyfunction]
+#[pyo3(signature = (x, y), text_signature = "(x, y)")]
+fn wrap_torus_point(x: StrictF64, y: StrictF64) -> (f64, f64) {
+    core_wrap_torus_point(x.0, y.0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,6 +1401,115 @@ impl PyTsNetSolver {
         Ok(Self { inner })
     }
 
+    /// Construct a `TsNetSolver` from a `CsrGraph` using partial-BFS k-NN and uniform perplexity.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            k = StrictUsize(15),
+            uniform_perplexity = StrictF64(15.0),
+            *,
+            backend = "fft",
+            power = StrictF64(2.0),
+            sigma_iters = StrictUsize(50),
+            sigma_tolerance = StrictF64(1e-5),
+            row_normalize = false,
+            iterations_stage1 = StrictUsize(250),
+            iterations_stage2 = StrictUsize(250),
+            iterations_stage3 = StrictUsize(500),
+            exaggeration = StrictF64(4.0),
+            lambda_c_stage1 = StrictF64(0.1),
+            lambda_c_stage2 = StrictF64(0.01),
+            lambda_c_stage3 = StrictF64(0.0),
+            lambda_r_stage3 = StrictF64(0.0),
+            learning_rate = StrictF64(200.0),
+            momentum = StrictF64(0.8),
+            epsilon_r = StrictF64(0.05),
+            theta = StrictF64(0.5),
+            intervals = StrictUsize(25),
+            interpolation_order = StrictUsize(1),
+            min_grid_dim = StrictUsize(64),
+            max_grid_dim = StrictUsize(512),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, k=15, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=200.0, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+    )]
+    fn from_graph_partial_bfs(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        k: StrictUsize,
+        uniform_perplexity: StrictF64,
+        backend: &str,
+        power: StrictF64,
+        sigma_iters: StrictUsize,
+        sigma_tolerance: StrictF64,
+        row_normalize: bool,
+        iterations_stage1: StrictUsize,
+        iterations_stage2: StrictUsize,
+        iterations_stage3: StrictUsize,
+        exaggeration: StrictF64,
+        lambda_c_stage1: StrictF64,
+        lambda_c_stage2: StrictF64,
+        lambda_c_stage3: StrictF64,
+        lambda_r_stage3: StrictF64,
+        learning_rate: StrictF64,
+        momentum: StrictF64,
+        epsilon_r: StrictF64,
+        theta: StrictF64,
+        intervals: StrictUsize,
+        interpolation_order: StrictUsize,
+        min_grid_dim: StrictUsize,
+        max_grid_dim: StrictUsize,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let cfg = build_tsnet_config(
+            backend,
+            0.9,
+            5.0,
+            1200.0,
+            power.0,
+            sigma_iters.0,
+            sigma_tolerance.0,
+            row_normalize,
+            iterations_stage1.0,
+            iterations_stage2.0,
+            iterations_stage3.0,
+            exaggeration.0,
+            lambda_c_stage1.0,
+            lambda_c_stage2.0,
+            lambda_c_stage3.0,
+            lambda_r_stage3.0,
+            learning_rate.0,
+            momentum.0,
+            epsilon_r.0,
+            theta.0,
+            intervals.0,
+            interpolation_order.0,
+            min_grid_dim.0,
+            max_grid_dim.0,
+            seed.0,
+        )?;
+        let g = graph.inner();
+        let k_val = k.0;
+        let u_perp = uniform_perplexity.0;
+        let inner = py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => {
+                    TsNetSolver::<f64>::from_graph_partial_bfs(g, k_val, u_perp, cfg)
+                        .map(TsNetInner::F64)
+                }
+                ScalarDtype::F32 => {
+                    TsNetSolver::<f32>::from_graph_partial_bfs(g, k_val, u_perp, cfg)
+                        .map(TsNetInner::F32)
+                }
+            })
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner })
+    }
+
     /// Execute a single optimization step in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
@@ -1304,6 +1563,25 @@ impl PyTsNetSolver {
         match &self.inner {
             TsNetInner::F64(s) => s.total_fft_2d_calls(),
             TsNetInner::F32(s) => s.total_fft_2d_calls(),
+        }
+    }
+
+    /// Return telemetry counters from the most recent FFT field evaluation, or `None`.
+    fn last_fft_stats<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let stats = match &self.inner {
+            TsNetInner::F64(s) => s.last_fft_stats(),
+            TsNetInner::F32(s) => s.last_fft_stats(),
+        };
+        match stats {
+            Some(st) => {
+                let d = PyDict::new(py);
+                d.set_item("particle_forward_ffts", st.particle_forward_ffts)?;
+                d.set_item("kernel_forward_ffts", st.kernel_forward_ffts)?;
+                d.set_item("inverse_ffts", st.inverse_ffts)?;
+                d.set_item("total_fft_2d_calls", st.total_fft_2d_calls)?;
+                Ok(Some(d))
+            }
+            None => Ok(None),
         }
     }
 
@@ -3389,6 +3667,10 @@ pub(super) fn register_m3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySpatialIntruderRefiner>()?;
     m.add_class::<PyStressMajorizationSolver>()?;
     m.add_class::<PyKamadaKawaiSolver>()?;
+    m.add_function(wrap_pyfunction!(poincare_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(spherical_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(torus_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(wrap_torus_point, m)?)?;
     m.add_function(wrap_pyfunction!(kmeans_plus_plus, m)?)?;
     m.add_function(wrap_pyfunction!(spectral_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;
