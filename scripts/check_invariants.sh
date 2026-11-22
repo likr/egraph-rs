@@ -101,7 +101,7 @@ check_cargo_tree_crate() {
 # Full/legacy `egraph-wasm` and `egraph-python` stay on warn_legacy until M1/M3 removes `linfa`.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset|egraph-metrics)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset|egraph-metrics|egraph-linalg|egraph-neighborhood)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
     egraph-spatial)
@@ -117,7 +117,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-metrics; do
+  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-metrics egraph-linalg egraph-neighborhood; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
@@ -278,7 +278,7 @@ def resolve_cargo_version(cargo_path: pathlib.Path) -> str | None:
     return None
 
 
-for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics"):
+for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics", "linalg", "neighborhood"):
     sub_toml = root / "crates" / sub / "Cargo.toml"
     if sub_toml.exists() and ws_version:
         sub_ver = resolve_cargo_version(sub_toml)
