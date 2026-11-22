@@ -413,10 +413,52 @@ pub fn project_psd_spectral_filter(
     Ok((terms_psd, delta_psd, h_min))
 }
 
-const CHEBYSHEV_TILE_COLS: usize = 8;
+const CHEBYSHEV_TILE_COLS: usize = 16;
+const CHEBYSHEV_TAIL_L1_TOL: f64 = 1e-12;
+
+/// Returns the shortest non-empty prefix length `len >= 1` of `coeffs` whose dropped tail
+/// satisfies $\sum_{k=\mathrm{len}}^{d} |c_k| \le \mathrm{l1\_tail\_tol}$.
+///
+/// Since $|T_k(\tilde{\lambda})| \le 1$ on $[-1, 1]$, this bounds the dropped spectral
+/// operator norm error by at most `l1_tail_tol`.
+#[inline]
+pub fn effective_chebyshev_len(coeffs: &[f64], l1_tail_tol: f64) -> usize {
+    if coeffs.is_empty() {
+        return 0;
+    }
+    if !l1_tail_tol.is_finite() || l1_tail_tol < 0.0 {
+        return coeffs.len();
+    }
+    let mut tail_l1 = 0.0_f64;
+    let mut keep = coeffs.len();
+    while keep > 1 {
+        let next_tail = tail_l1 + coeffs[keep - 1].abs();
+        if next_tail <= l1_tail_tol {
+            tail_l1 = next_tail;
+            keep -= 1;
+        } else {
+            break;
+        }
+    }
+    keep
+}
+
+fn validate_csr_indices_in_bounds(mat: &CsrMatrix) -> CoreResult<()> {
+    let n = mat.num_nodes();
+    for &col in mat.indices() {
+        if (col as usize) >= n {
+            return Err(CoreError::index_out_of_bounds(
+                col as usize,
+                n,
+                "ChebyshevWorkspace::csr_indices",
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Zero-allocation-per-call tiled workspace (`t_prev`, `t_curr`, `t_next`, and L2-resident
-/// 8-column tile accumulators) for fused Chebyshev SpMV / SpMM recurrences and JL embeddings.
+/// 16-column cache-line tile accumulators) for fused Chebyshev SpMV / SpMM recurrences and JL embeddings.
 #[derive(Debug, Clone, Default)]
 pub struct ChebyshevWorkspace {
     t_prev: Vec<f64>,
@@ -474,9 +516,9 @@ impl ChebyshevWorkspace {
         curr: &[f64],
         next: &mut [f64],
         ca: f64,
-        mut out_a: Option<&mut [f64]>,
+        out_a: Option<&mut [f64]>,
         cb: f64,
-        mut out_b: Option<&mut [f64]>,
+        out_b: Option<&mut [f64]>,
         is_k1: bool,
     ) -> CoreResult<()> {
         let n = mat.num_nodes();
@@ -490,54 +532,103 @@ impl ChebyshevWorkspace {
                 "ChebyshevWorkspace::fused_step_const",
             ));
         }
-        if let Some(oa) = out_a.as_deref()
-            && oa.len() < len
+
+        let (curr_rows, curr_rem) = curr[..len].as_chunks::<W>();
+        let (next_rows, next_rem) = next[..len].as_chunks_mut::<W>();
+        if curr_rows.len() != n
+            || !curr_rem.is_empty()
+            || next_rows.len() != n
+            || !next_rem.is_empty()
         {
             return Err(CoreError::dimension_mismatch(
                 len,
-                oa.len(),
-                "ChebyshevWorkspace::fused_step_const::out_a",
+                curr.len().min(next.len()),
+                "ChebyshevWorkspace::fused_step_const::chunks",
             ));
         }
-        if let Some(ob) = out_b.as_deref()
-            && ob.len() < len
-        {
-            return Err(CoreError::dimension_mismatch(
-                len,
-                ob.len(),
-                "ChebyshevWorkspace::fused_step_const::out_b",
-            ));
-        }
+
+        let prev_rows: &[[f64; W]] = if is_k1 {
+            &[]
+        } else {
+            let (rows, rem) = prev[..len].as_chunks::<W>();
+            if rows.len() != n || !rem.is_empty() {
+                return Err(CoreError::dimension_mismatch(
+                    len,
+                    prev.len(),
+                    "ChebyshevWorkspace::fused_step_const::prev",
+                ));
+            }
+            rows
+        };
+
+        let mut oa_rows = match out_a {
+            Some(oa) => {
+                if oa.len() < len {
+                    return Err(CoreError::dimension_mismatch(
+                        len,
+                        oa.len(),
+                        "ChebyshevWorkspace::fused_step_const::out_a",
+                    ));
+                }
+                let (rows, rem) = oa[..len].as_chunks_mut::<W>();
+                if rows.len() != n || !rem.is_empty() {
+                    return Err(CoreError::dimension_mismatch(
+                        len,
+                        oa.len(),
+                        "ChebyshevWorkspace::fused_step_const::out_a",
+                    ));
+                }
+                Some(rows)
+            }
+            None => None,
+        };
+
+        let mut ob_rows = match out_b {
+            Some(ob) => {
+                if ob.len() < len {
+                    return Err(CoreError::dimension_mismatch(
+                        len,
+                        ob.len(),
+                        "ChebyshevWorkspace::fused_step_const::out_b",
+                    ));
+                }
+                let (rows, rem) = ob[..len].as_chunks_mut::<W>();
+                if rows.len() != n || !rem.is_empty() {
+                    return Err(CoreError::dimension_mismatch(
+                        len,
+                        ob.len(),
+                        "ChebyshevWorkspace::fused_step_const::out_b",
+                    ));
+                }
+                Some(rows)
+            }
+            None => None,
+        };
 
         let indptr = mat.indptr();
         let indices = mat.indices();
         let values = mat.values();
-        let curr = &curr[..len];
-        let next = &mut next[..len];
 
-        for row in 0..n {
+        for (row, next_row) in next_rows.iter_mut().enumerate() {
             let start = indptr[row] as usize;
             let end = indptr[row + 1] as usize;
             let mut acc = [0.0_f64; W];
             for (&col_u32, &mval) in indices[start..end].iter().zip(&values[start..end]) {
-                let x_off = (col_u32 as usize) * W;
-                if let Some(x_row) = curr.get(x_off..x_off + W) {
-                    for j in 0..W {
-                        acc[j] += mval * x_row[j];
-                    }
+                let x_row = &curr_rows[col_u32 as usize];
+                for j in 0..W {
+                    acc[j] += mval * x_row[j];
                 }
             }
 
-            let row_off = row * W;
             let mut nxt = [0.0_f64; W];
             if let Some(alpha) = unshifted_scale {
-                let curr_row = &curr[row_off..row_off + W];
+                let curr_row = &curr_rows[row];
                 if is_k1 {
                     for j in 0..W {
                         nxt[j] = alpha * acc[j] - curr_row[j];
                     }
                 } else {
-                    let prev_row = &prev[row_off..row_off + W];
+                    let prev_row = &prev_rows[row];
                     for j in 0..W {
                         nxt[j] = 2.0 * (alpha * acc[j] - curr_row[j]) - prev_row[j];
                     }
@@ -545,21 +636,21 @@ impl ChebyshevWorkspace {
             } else if is_k1 {
                 nxt = acc;
             } else {
-                let prev_row = &prev[row_off..row_off + W];
+                let prev_row = &prev_rows[row];
                 for j in 0..W {
                     nxt[j] = 2.0 * acc[j] - prev_row[j];
                 }
             }
 
-            next[row_off..row_off + W].copy_from_slice(&nxt);
-            if let Some(oa) = out_a.as_deref_mut() {
-                let row_oa = &mut oa[row_off..row_off + W];
+            *next_row = nxt;
+            if let Some(oa) = oa_rows.as_deref_mut() {
+                let row_oa = &mut oa[row];
                 for j in 0..W {
                     row_oa[j] += ca * nxt[j];
                 }
             }
-            if let Some(ob) = out_b.as_deref_mut() {
-                let row_ob = &mut ob[row_off..row_off + W];
+            if let Some(ob) = ob_rows.as_deref_mut() {
+                let row_ob = &mut ob[row];
                 for j in 0..W {
                     row_ob[j] += cb * nxt[j];
                 }
@@ -629,10 +720,9 @@ impl ChebyshevWorkspace {
             let mut acc = [0.0_f64; CHEBYSHEV_TILE_COLS];
             for (&col_u32, &mval) in indices[start..end].iter().zip(&values[start..end]) {
                 let x_off = (col_u32 as usize) * w;
-                if let Some(x_row) = curr.get(x_off..x_off + w) {
-                    for j in 0..w {
-                        acc[j] += mval * x_row[j];
-                    }
+                let x_row = &curr[x_off..x_off + w];
+                for j in 0..w {
+                    acc[j] += mval * x_row[j];
                 }
             }
 
@@ -692,7 +782,31 @@ impl ChebyshevWorkspace {
         is_k1: bool,
     ) -> CoreResult<()> {
         match w {
+            16 => Self::fused_step_const::<16>(
+                mat,
+                unshifted_scale,
+                prev,
+                curr,
+                next,
+                ca,
+                out_a,
+                cb,
+                out_b,
+                is_k1,
+            ),
             8 => Self::fused_step_const::<8>(
+                mat,
+                unshifted_scale,
+                prev,
+                curr,
+                next,
+                ca,
+                out_a,
+                cb,
+                out_b,
+                is_k1,
+            ),
+            4 => Self::fused_step_const::<4>(
                 mat,
                 unshifted_scale,
                 prev,
@@ -952,6 +1066,11 @@ impl ChebyshevWorkspace {
         if total == 0 {
             return Ok(());
         }
+        validate_csr_indices_in_bounds(mat)?;
+
+        let eff_a = effective_chebyshev_len(coeffs_a, CHEBYSHEV_TAIL_L1_TOL);
+        let coeffs_a = &coeffs_a[..eff_a];
+        let coeffs_b = coeffs_b.map(|cb| &cb[..effective_chebyshev_len(cb, CHEBYSHEV_TAIL_L1_TOL)]);
 
         let max_len = coeffs_a.len().max(coeffs_b.map_or(0, |b| b.len()));
         let ca0 = coeffs_a[0];
@@ -1210,10 +1329,13 @@ impl ChebyshevWorkspace {
             ));
         }
 
-        let coeffs = compute_chebyshev_sqrt_filter_coefficients(terms, lambda_max, degree)?;
+        let coeffs_full = compute_chebyshev_sqrt_filter_coefficients(terms, lambda_max, degree)?;
         if n == 0 {
             return Ok(());
         }
+        validate_csr_indices_in_bounds(mat)?;
+        let eff = effective_chebyshev_len(&coeffs_full, CHEBYSHEV_TAIL_L1_TOL);
+        let coeffs = &coeffs_full[..eff];
 
         let mut rng = DeterministicRng::from_seed_u64(seed);
         let scale = 1.0 / (jl_dim as f64).sqrt();
@@ -1243,7 +1365,7 @@ impl ChebyshevWorkspace {
                 }
             }
 
-            self.run_tile_degrees(mat, unshifted_scale, &coeffs, None, w)?;
+            self.run_tile_degrees(mat, unshifted_scale, coeffs, None, w)?;
 
             if let Some(inv_d) = inv_sqrt_deg {
                 for (row, &d_val) in inv_d.iter().enumerate() {
@@ -1284,8 +1406,9 @@ impl ChebyshevWorkspace {
         if jl_dim == 0 {
             return Err(CoreError::invalid_input("jl_dim must be >= 1"));
         }
-        let coeffs_a = compute_chebyshev_sqrt_filter_coefficients(terms_a, lambda_max, degree_a)?;
-        let coeffs_b = match terms_b {
+        let coeffs_a_full =
+            compute_chebyshev_sqrt_filter_coefficients(terms_a, lambda_max, degree_a)?;
+        let coeffs_b_full = match terms_b {
             Some((tb, deg_b)) => Some(compute_chebyshev_sqrt_filter_coefficients(
                 tb, lambda_max, deg_b,
             )?),
@@ -1294,22 +1417,30 @@ impl ChebyshevWorkspace {
 
         let n = l_tilde.num_nodes();
         if n == 0 {
-            return Ok((Vec::new(), coeffs_b.as_ref().map(|_| Vec::new())));
+            return Ok((Vec::new(), coeffs_b_full.as_ref().map(|_| Vec::new())));
         }
+        validate_csr_indices_in_bounds(l_tilde)?;
+
+        let eff_a = effective_chebyshev_len(&coeffs_a_full, CHEBYSHEV_TAIL_L1_TOL);
+        let coeffs_a = &coeffs_a_full[..eff_a];
+        let coeffs_b_trimmed = coeffs_b_full.as_deref().map(|cb| {
+            let eff_b = effective_chebyshev_len(cb, CHEBYSHEV_TAIL_L1_TOL);
+            &cb[..eff_b]
+        });
 
         let mut norms_a = vec![0.0_f64; n];
-        let mut norms_b = coeffs_b.as_ref().map(|_| vec![0.0_f64; n]);
+        let mut norms_b = coeffs_b_trimmed.map(|_| vec![0.0_f64; n]);
 
         let max_tile_len = n
             .checked_mul(jl_dim.min(CHEBYSHEV_TILE_COLS))
             .ok_or_else(|| CoreError::invalid_input("JL tile size overflow"))?;
         self.ensure_len(max_tile_len);
-        self.ensure_tile_out(max_tile_len, coeffs_b.is_some());
+        self.ensure_tile_out(max_tile_len, coeffs_b_trimmed.is_some());
 
         let mut rng = DeterministicRng::from_seed_u64(seed);
         let scale = 1.0 / (jl_dim as f64).sqrt();
         let ca0 = coeffs_a[0];
-        let cb0_opt = coeffs_b.as_ref().map(|cb| cb[0]);
+        let cb0_opt = coeffs_b_trimmed.map(|cb| cb[0]);
 
         for col_start in (0..jl_dim).step_by(CHEBYSHEV_TILE_COLS) {
             let w = (jl_dim - col_start).min(CHEBYSHEV_TILE_COLS);
@@ -1337,7 +1468,7 @@ impl ChebyshevWorkspace {
                 }
             }
 
-            self.run_tile_degrees(l_tilde, None, &coeffs_a, coeffs_b.as_deref(), w)?;
+            self.run_tile_degrees(l_tilde, None, coeffs_a, coeffs_b_trimmed, w)?;
 
             for (row, norm_a) in norms_a.iter_mut().enumerate() {
                 let oa = &self.out_a_tile[row * w..row * w + w];
@@ -2306,5 +2437,94 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn test_effective_chebyshev_len_tail_truncation_and_16_col_tiling() {
+        let coeffs_48 = compute_chebyshev_bandpass_coefficients(&[(1.0, 48.0)], 2.0, 75).unwrap();
+        let eff_48 = effective_chebyshev_len(&coeffs_48, CHEBYSHEV_TAIL_L1_TOL);
+        assert!(
+            eff_48 <= 55,
+            "expected effective_chebyshev_len(exp(-48 L)) <= 55, got {eff_48}"
+        );
+
+        let coeffs_sqrt_48 =
+            compute_chebyshev_sqrt_filter_coefficients(&[(1.0, 48.0)], 2.0, 75).unwrap();
+        let eff_sqrt_48 = effective_chebyshev_len(&coeffs_sqrt_48, CHEBYSHEV_TAIL_L1_TOL);
+        assert!(
+            eff_sqrt_48 <= 40,
+            "expected effective_chebyshev_len(sqrt(exp(-48 L))) <= 40, got {eff_sqrt_48}"
+        );
+
+        // Verify truncated coefficients match untrimmed degree-75 Chebyshev evaluation < 1e-11
+        let edges: Vec<(u32, u32)> = (0..19)
+            .map(|i| (i, i + 1))
+            .chain([(0, 19), (0, 10), (5, 15)])
+            .collect();
+        let g = CsrGraph::<f64>::from_edges(20, &edges, None, false, false).unwrap();
+        let (l_sym, _) = symmetric_normalized_laplacian(&g);
+        let l_tilde = crate::csr_matrix::shifted_normalized_laplacian(&l_sym, 2.0).unwrap();
+
+        let ncols = 16;
+        let mut v = vec![0.0_f64; 20 * ncols];
+        for r in 0..20 {
+            for c in 0..ncols {
+                v[r * ncols + c] = ((r * 5 + c * 11) as f64 * 0.23).cos();
+            }
+        }
+        let mut ws = ChebyshevWorkspace::new();
+        let mut out_band_trunc = vec![0.0_f64; 20 * ncols];
+        let mut out_sqrt_trunc = vec![0.0_f64; 20 * ncols];
+        ws.apply_batch_dual(
+            &l_tilde,
+            &coeffs_48,
+            Some(&coeffs_sqrt_48),
+            &v,
+            &mut out_band_trunc,
+            Some(&mut out_sqrt_trunc),
+            ncols,
+        )
+        .unwrap();
+
+        // Reference untrimmed degree-75 via scalar polynomial evaluation on dense eigendecomposition?
+        // Even simpler: compute untrimmed degree-75 directly via CsrMatrix::spmm!
+        let run_untrimmed = |coeffs: &[f64]| -> Vec<f64> {
+            let mut t_prev = v.clone();
+            let mut out = vec![0.0_f64; 20 * ncols];
+            for (dst, &src) in out.iter_mut().zip(t_prev.iter()) {
+                *dst = coeffs[0] * src;
+            }
+            let mut t_curr = vec![0.0_f64; 20 * ncols];
+            l_tilde.spmm(&t_prev, &mut t_curr, ncols).unwrap();
+            for (dst, &src) in out.iter_mut().zip(t_curr.iter()) {
+                *dst += coeffs[1] * src;
+            }
+            let mut t_next = vec![0.0_f64; 20 * ncols];
+            for &ck in &coeffs[2..] {
+                l_tilde.spmm(&t_curr, &mut t_next, ncols).unwrap();
+                for i in 0..(20 * ncols) {
+                    let nxt = 2.0 * t_next[i] - t_prev[i];
+                    t_next[i] = nxt;
+                    out[i] += ck * nxt;
+                }
+                std::mem::swap(&mut t_prev, &mut t_curr);
+                std::mem::swap(&mut t_curr, &mut t_next);
+            }
+            out
+        };
+
+        let ref_band = run_untrimmed(&coeffs_48);
+        let ref_sqrt = run_untrimmed(&coeffs_sqrt_48);
+        for (&got, &exp) in out_band_trunc.iter().zip(ref_band.iter()) {
+            assert!((got - exp).abs() < 1e-11);
+        }
+        for (&got, &exp) in out_sqrt_trunc.iter().zip(ref_sqrt.iter()) {
+            assert!((got - exp).abs() < 1e-11);
+        }
+
+        // Check edge cases of effective_chebyshev_len
+        assert_eq!(effective_chebyshev_len(&[], 1e-12), 0);
+        assert_eq!(effective_chebyshev_len(&[1.0], 1e-12), 1);
+        assert_eq!(effective_chebyshev_len(&[1.0, 0.5, 1e-13], 1e-12), 2);
     }
 }
