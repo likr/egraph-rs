@@ -1015,7 +1015,7 @@ fn smallest_laplacian_eigenpairs<'py>(
     ))
 }
 
-/// Compute exact O(|E|) spectral variance and degree summary statistics of `L_sym`.
+/// Compute exact ``O(|E|)`` spectral variance and degree summary statistics of ``L_sym``.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
@@ -1137,7 +1137,7 @@ fn chebyshev_dog_jl_embedding<'py>(
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
-/// Extract disjoint, sorted, self-loop-free unweighted 1-hop and pure 2-hop `CsrGraph`s.
+/// Extract disjoint, sorted, self-loop-free unweighted 1-hop and pure 2-hop ``CsrGraph`` instances.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]

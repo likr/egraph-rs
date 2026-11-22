@@ -80,7 +80,7 @@ Working with NetworkX and SciPy CSR (``egraph.interop``)
 
 In v6, use ``egraph.interop`` to convert NetworkX graphs, SciPy CSR matrices, or igraph objects directly into ``CsrGraph`` without storing Python objects in Rust:
 
-.. code-block:: python
+.. testcode:: python
 
     import networkx as nx
     import scipy.sparse as sp
@@ -100,7 +100,12 @@ In v6, use ``egraph.interop`` to convert NetworkX graphs, SciPy CSR matrices, or
 
     coords = layout.coords(copy=False)
     pos = {node: (float(coords[i, 0]), float(coords[i, 1])) for i, node in enumerate(nx_graph.nodes())}
-    print(eg.evaluate_metrics(graph_sp, layout, ["sns", "np2"]))
+    report = eg.evaluate_metrics(graph_sp, layout, ["sns", "np2"])
+    print("Interop nodes:", len(pos), "keys:", sorted(report.keys()))
+
+.. testoutput:: python
+
+    Interop nodes: 34 keys: ['neighborhood_preservation_2hop', 'scale_normalized_stress']
 
 Cooperative Stepping
 --------------------

@@ -1539,7 +1539,7 @@ fn sampled_scale_normalized_stress(
     })
 }
 
-/// Count exact non-adjacent edge crossings using the O((|E| + K) log |E|) sweep-line detector.
+/// Count exact non-adjacent edge crossings using the ``O((|E| + K) log |E|)`` sweep-line detector.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
