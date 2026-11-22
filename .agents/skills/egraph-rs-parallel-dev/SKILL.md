@@ -10,10 +10,12 @@ Use this skill whenever coordinating or executing concurrent work across multipl
 ## 1. Worktree Isolation Modes
 
 1. **Swarm / Subagent Tool Isolation (Preferred for Agent Tasks)**:
-   - Use `swarm{action:"add", workspace:"share", ...}` or `invoke_subagent{Workspace:"share", ...}` for authors that edit or build simultaneously.
+   - Use `swarm{action:"add", workspace:"share", ...}` or `invoke_subagent{Workspace:"share", ...}` for authors that edit or build simultaneously in a single-repo git workspace.
+   - In multi-root sessions that include non-git directories (such as `/Users/likr/papers`), `workspace:"share"` can fail across non-git roots; spawn authors with `workspace:"inherit"` and assign each author an isolated path created sequentially via `./scripts/worktree.sh create <slug> master`.
    - Leave read-only investigators and independent verifiers on `workspace:"inherit"` (or run verifier checks inside the author's dedicated worktree path).
    - Never run two write/build agents in the same directory.
 2. **Manual / CLI Worktree Isolation (`scripts/worktree.sh`)**:
+   - After adding or removing workspace crates on the integration branch, refresh the gitignored root `Cargo.lock` (`cargo metadata --format-version 1 >/dev/null`) before creating downstream worktrees so every worktree inherits an already-resolved `Cargo.lock`.
    - Create an isolated worktree + branch `wt/<slug>` + local `.venv`:
      ```bash
      ./scripts/worktree.sh create <slug> [base_ref]
@@ -23,9 +25,11 @@ Use this skill whenever coordinating or executing concurrent work across multipl
      ```bash
      EGRAPH_PARALLEL_WORKERS=3 ./scripts/worktree.sh verify <slug> --fast --json-summary <path>
      ```
-   - After merging/cherry-picking the committed branch into the integration branch, clean up:
+   - After merging/cherry-picking the committed branch into the integration branch, confirm clean worktree status and clean up (`--delete-branch` for fast-forward merges, `--delete-branch --force` for cherry-picked branches after confirming all commits landed):
      ```bash
      ./scripts/worktree.sh clean <slug> --delete-branch
+     # or for cherry-picked branches after verifying commits landed and worktree is clean:
+     ./scripts/worktree.sh clean <slug> --delete-branch --force
      ```
 
 ## 2. Host Resource & Build Cache Discipline (12 Cores / 24 GiB RAM)
@@ -75,7 +79,8 @@ Two parallel authors **MUST NEVER** edit the same file in the same wave. Treat t
    - Report itemized defects directly to the `@author` or `@coordinator [done] APPROVED` when clean.
 3. **Coordinator integration**:
    - Cherry-pick or merge approved branches sequentially into the integration branch.
-   - Run integrated `./scripts/verify.sh --all` before opening the next milestone wave.
-   - Clean merged worktrees with `./scripts/worktree.sh clean <slug> --delete-branch`.
+   - If workspace crates or dependencies changed, refresh root `Cargo.lock` via `cargo metadata --format-version 1 >/dev/null` before opening the next wave's worktrees.
+   - Run integrated `./scripts/verify.sh --all --build-wasm` before opening the next milestone wave.
+   - Clean merged worktrees with `./scripts/worktree.sh clean <slug> --delete-branch` (or pass `--force` only after confirming clean worktree status and verifying cherry-picked commits landed on the integration branch).
 4. **Long-running command heartbeat (Swarm Rule)**:
-   - Workers MUST post a brief interim status update on the swarm message board before starting any command expected to take `>60s` (e.g., `--rust`, `--python`, `--wasm`, `--all`, or long builds) so `monitor` does not emit false `[stall]` alerts.
+   - Workers MUST post a brief `[interim]` status update on the swarm message board before starting any command expected to take `>60s` (e.g., `--rust`, `--python`, `--wasm`, `--all`, or long builds) so `monitor` does not emit false `[stall]` alerts.

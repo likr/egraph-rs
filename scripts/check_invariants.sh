@@ -155,22 +155,29 @@ fi
 
 # 3. wasm32-unknown-unknown cross-compilation check
 WASM_CHECK_CRATE="${TARGET_CRATE:-egraph-wasm}"
-if has_workspace_pkg "$WASM_CHECK_CRATE"; then
-  if cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown >/dev/null 2>&1; then
-    pass "$WASM_CHECK_CRATE compiles cleanly for wasm32-unknown-unknown"
-  else
-    fail_hard "$WASM_CHECK_CRATE failed cargo check --target wasm32-unknown-unknown"
-    cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown || true
-  fi
-  if [[ "$WASM_CHECK_CRATE" == "egraph-wasm" ]]; then
-    if cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
-      pass "egraph-wasm (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
-    else
-      fail_hard "egraph-wasm (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
-      cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown || true
+case "$WASM_CHECK_CRATE" in
+  egraph-python|egraph-cli)
+    echo "[INFO] Skipping wasm32-unknown-unknown check for host-only crate '$WASM_CHECK_CRATE'"
+    ;;
+  *)
+    if has_workspace_pkg "$WASM_CHECK_CRATE"; then
+      if cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown >/dev/null 2>&1; then
+        pass "$WASM_CHECK_CRATE compiles cleanly for wasm32-unknown-unknown"
+      else
+        fail_hard "$WASM_CHECK_CRATE failed cargo check --target wasm32-unknown-unknown"
+        cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown || true
+      fi
+      if [[ "$WASM_CHECK_CRATE" == "egraph-wasm" ]]; then
+        if cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
+          pass "egraph-wasm (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
+        else
+          fail_hard "egraph-wasm (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
+          cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown || true
+        fi
+      fi
     fi
-  fi
-fi
+    ;;
+esac
 
 # 4. WASM gzip size check (budget: 600 KiB = 614400 bytes)
 WASM_FILE=""

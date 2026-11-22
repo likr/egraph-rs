@@ -27,7 +27,7 @@ help:
 	@echo "Harness & Parallel Worktree Tasks:"
 	@echo "  make venv-setup                     - Provision worktree-local Python .venv via uv"
 	@echo "  make verify-fast [CRATE=<name>]     - Tier 0: fmt + clippy/nextest on changed or CRATE + thread scan"
-	@echo "  make verify-all                     - Full Rust + Python + WASM + invariants + parity verification"
+	@echo "  make verify-all                     - Full Rust + Python + WASM (+ bundle/size) + invariants + parity verification"
 	@echo "  make invariants                     - Check single-thread, wasm32, RNG, size & metadata (report)"
 	@echo "  make invariants-strict              - Check invariants strictly (fail on any v6 violation)"
 	@echo "  make parity                         - Run cross-target parity & adversarial harness"
@@ -73,7 +73,7 @@ else
 endif
 
 verify-all:
-	./scripts/verify.sh --all
+	./scripts/verify.sh --all --build-wasm
 
 invariants:
 	./scripts/check_invariants.sh --mode report

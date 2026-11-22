@@ -307,6 +307,9 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
     RUST_TEST_ARGS+=(--release)
   fi
   run_step "rust_workspace_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --workspace
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-dataset' in pkgs else 1)"; then
+    run_step "rust_dataset_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-dataset
+  fi
 fi
 
 # --- Python ---
