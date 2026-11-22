@@ -1,7 +1,5 @@
 use crate::{CommunityDetection, utils::renumber_communities};
-use linfa::prelude::*;
-use linfa_clustering::KMeans;
-use ndarray::Array2;
+use egraph_clustering::{KMeansConfig, kmeans_plus_plus};
 use petgraph::visit::{EdgeCount, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingIndex;
 use petgraph_linalg_kernel::RdMds;
@@ -21,8 +19,7 @@ use std::hash::Hash;
 /// - RdMds (Resistance-distance MDS) for computing spectral coordinates with
 ///   high-quality eigenvalue computation using IC(0) preconditioning and
 ///   conjugate gradient solver
-/// - linfa's k-means clustering with k-means++ initialization for robust
-///   cluster assignment
+/// - Pure-Rust `egraph_clustering::kmeans_plus_plus` for deterministic cluster assignment
 ///
 /// # Examples
 ///
@@ -82,9 +79,10 @@ where
 
         // For single-node graphs, assign to community 0
         if node_count == 1 {
-            let node = graph.node_identifiers().next().unwrap();
             let mut communities = HashMap::new();
-            communities.insert(node, 0);
+            if let Some(node) = graph.node_identifiers().next() {
+                communities.insert(node, 0);
+            }
             return communities;
         }
 
@@ -109,29 +107,34 @@ where
 
         let embedding = embedding_algo.embedding(&graph, |_| 1.0f32, &solver, &mut rng);
 
-        // Convert embedding to f64 for linfa (linfa uses f64)
-        let data_array =
-            Array2::from_shape_fn((node_count, self.k), |(i, j)| embedding[[i, j]] as f64);
+        // Flatten spectral coordinates to f64 for pure-Rust K-Means++ clustering.
+        let dims = embedding.ncols();
+        if dims == 0 {
+            return HashMap::new();
+        }
+        let mut points_flat = Vec::with_capacity(node_count * dims);
+        for i in 0..node_count {
+            for j in 0..dims {
+                let val = embedding[[i, j]] as f64;
+                points_flat.push(if val.is_finite() { val } else { 0.0 });
+            }
+        }
 
-        // Create dataset for k-means
-        let dataset = Dataset::from(data_array);
-
-        // Perform k-means clustering using linfa
-        // Use k-means++ initialization for better cluster quality
-        let model = KMeans::params(self.k)
-            .max_n_iterations(100)
-            .tolerance(1e-4)
-            .fit(&dataset)
-            .expect("K-means clustering failed");
-
-        // Get cluster assignments
-        let predictions = model.predict(&dataset);
-        let clusters: Vec<usize> = predictions.as_targets().iter().copied().collect();
+        let config = KMeansConfig {
+            k: self.k.min(node_count),
+            max_iters: 100,
+            tol: 1e-4,
+            n_init: 1,
+            seed: 42,
+        };
+        let Ok(result) = kmeans_plus_plus(&points_flat, node_count, dims, &config) else {
+            return HashMap::new();
+        };
 
         // Map back to node IDs
         let mut communities = HashMap::new();
-        for (i, &cluster) in clusters.iter().enumerate() {
-            communities.insert(nodes[i], cluster);
+        for (i, &cluster) in result.labels.iter().enumerate() {
+            communities.insert(nodes[i], cluster as usize);
         }
 
         // Renumber communities from 0 to n-1 (in case some clusters are empty)
@@ -245,6 +248,23 @@ mod tests {
         assert_eq!(
             communities[&n2], communities[&n3],
             "Nodes 2 and 3 should be in the same community"
+        );
+    }
+
+    #[test]
+    fn test_spectral_too_many_clusters_and_determinism() {
+        let mut graph = UnGraph::<(), ()>::new_undirected();
+        let n1 = graph.add_node(());
+        let n2 = graph.add_node(());
+        graph.add_edge(n1, n2, ());
+
+        let spectral_too_many = Spectral::new(3);
+        assert!(spectral_too_many.detect_communities(&graph).is_empty());
+
+        let spectral = Spectral::new(2);
+        assert_eq!(
+            spectral.detect_communities(&graph),
+            spectral.detect_communities(&graph)
         );
     }
 }

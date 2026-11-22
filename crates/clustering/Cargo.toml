@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+egraph-clustering.workspace = true
+ndarray = { version = "0.16", default-features = false }
 petgraph = "0.8"
-petgraph-linalg-kernel = { path = "../linalg/kernel" }
 petgraph-drawing = { path = "../drawing" }
-ndarray = "0.16"
+petgraph-linalg-kernel = { path = "../linalg/kernel" }
 rand = "0.8"
-linfa = "0.8"
-linfa-clustering = "0.8"
