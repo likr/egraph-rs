@@ -1,0 +1,1896 @@
+//! Exact $O((|E|+K)\log|E|)$ sweep-line edge-crossing analysis, torus crossings, and
+//! $O(M)$ deterministic edge-pair sampling.
+
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashSet};
+use std::f64::consts::FRAC_PI_2;
+
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar, wrap_torus_coord,
+};
+
+const NONE_U32: u32 = u32::MAX;
+
+/// Details of a single crossing pair between two non-adjacent edges.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrossingPair {
+    pub edge_a: usize,
+    pub edge_b: usize,
+    pub u1: u32,
+    pub v1: u32,
+    pub u2: u32,
+    pub v2: u32,
+    /// Acute crossing angle in `[0, pi/2]` radians, or `None` for zero-length segments.
+    pub angle_rad: Option<f64>,
+    /// $\cos^2(\theta)$ of the crossing angle (`0.0` when angle is undefined).
+    pub cos_sq: f64,
+}
+
+/// Summary statistics of all edge crossings in a 2D Euclidean layout.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CrossingSummary {
+    pub count: usize,
+    /// Sum of $\cos^2(\theta)$ over crossing pairs (matches legacy `crossing_angle`).
+    pub angle_cos_sq_sum: f64,
+    /// Minimum acute crossing angle across all defined crossing pairs.
+    pub min_angle_rad: Option<f64>,
+}
+
+/// Crossing pair of periodic `[0, 1)^2` torus edge sub-segments.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TorusCrossing {
+    pub edge_a: usize,
+    pub edge_b: usize,
+    /// `[x1, y1, x2, y2]` coordinates of the first crossing sub-segment.
+    pub seg_a: [f64; 4],
+    /// `[x1, y1, x2, y2]` coordinates of the second crossing sub-segment.
+    pub seg_b: [f64; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Seg {
+    id: usize,
+    u: u32,
+    v: u32,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+    slope: f64,
+    is_vertical: bool,
+}
+
+impl Seg {
+    fn from_endpoints(id: usize, u: u32, v: u32, ax: f64, ay: f64, bx: f64, by: f64) -> Self {
+        let (x1, y1, x2, y2) = if ax < bx || (ax == bx && ay <= by) {
+            (ax, ay, bx, by)
+        } else {
+            (bx, by, ax, ay)
+        };
+        let is_vertical = x1 == x2;
+        let slope = if is_vertical {
+            0.0
+        } else {
+            (y2 - y1) / (x2 - x1)
+        };
+        Self {
+            id,
+            u,
+            v,
+            x1,
+            y1,
+            x2,
+            y2,
+            x_min: x1.min(x2),
+            x_max: x1.max(x2),
+            y_min: y1.min(y2),
+            y_max: y1.max(y2),
+            slope,
+            is_vertical,
+        }
+    }
+
+    #[inline]
+    fn shares_endpoint(&self, other: &Self) -> bool {
+        self.u == other.u
+            || self.u == other.v
+            || self.v == other.u
+            || self.v == other.v
+            || self.u == self.v
+            || other.u == other.v
+    }
+
+    #[inline]
+    fn y_at(&self, x: f64) -> f64 {
+        if x <= self.x1 {
+            self.y1
+        } else if x >= self.x2 {
+            self.y2
+        } else {
+            self.y1 + self.slope * (x - self.x1)
+        }
+    }
+}
+
+#[inline]
+fn same_sign_nonzero(a: f64, b: f64) -> bool {
+    (a > 0.0 && b > 0.0) || (a < 0.0 && b < 0.0)
+}
+
+#[inline]
+fn segments_cross(a: &Seg, b: &Seg) -> bool {
+    if a.shares_endpoint(b) {
+        return false;
+    }
+    if a.x_max < b.x_min || b.x_max < a.x_min || a.y_max < b.y_min || b.y_max < a.y_min {
+        return false;
+    }
+    let dx1 = a.x2 - a.x1;
+    let dy1 = a.y2 - a.y1;
+    let dx2 = b.x2 - b.x1;
+    let dy2 = b.y2 - b.y1;
+
+    let s1 = dx1 * (b.y1 - a.y1) - dy1 * (b.x1 - a.x1);
+    let t1 = dx1 * (b.y2 - a.y1) - dy1 * (b.x2 - a.x1);
+    if same_sign_nonzero(s1, t1) {
+        return false;
+    }
+
+    let s2 = dx2 * (a.y1 - b.y1) - dy2 * (a.x1 - b.x1);
+    let t2 = dx2 * (a.y2 - b.y1) - dy2 * (a.x2 - b.x1);
+    !same_sign_nonzero(s2, t2)
+}
+
+#[inline]
+fn intersection_x(a: &Seg, b: &Seg) -> Option<f64> {
+    let dx1 = a.x2 - a.x1;
+    let dy1 = a.y2 - a.y1;
+    let dx2 = b.x2 - b.x1;
+    let dy2 = b.y2 - b.y1;
+    let det = dx1 * dy2 - dy1 * dx2;
+    if det == 0.0 {
+        return None;
+    }
+    let t = ((b.x1 - a.x1) * dy2 - (b.y1 - a.y1) * dx2) / det;
+    let x = a.x1 + t * dx1;
+    let lo = a.x_min.max(b.x_min);
+    let hi = a.x_max.min(b.x_max);
+    Some(x.clamp(lo, hi))
+}
+
+#[inline]
+fn crossing_angle_metrics(a: &Seg, b: &Seg) -> (Option<f64>, f64) {
+    let dx1 = a.x2 - a.x1;
+    let dy1 = a.y2 - a.y1;
+    let dx2 = b.x2 - b.x1;
+    let dy2 = b.y2 - b.y1;
+    let len1 = dx1.hypot(dy1);
+    let len2 = dx2.hypot(dy2);
+    if len1 == 0.0 || len2 == 0.0 {
+        return (None, 0.0);
+    }
+    let cos_val = ((dx1 * dx2 + dy1 * dy2) / (len1 * len2)).clamp(-1.0, 1.0);
+    let acute = cos_val.abs().acos().min(FRAC_PI_2);
+    (Some(acute), cos_val * cos_val)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AvlNode {
+    parent: u32,
+    left: u32,
+    right: u32,
+    height: u16,
+    size: u32,
+    edge_idx: usize,
+}
+
+/// Arena-backed AVL tree maintaining active non-vertical segments ordered by `(y(x), slope, id)`.
+///
+/// Storing `node_of_edge` lets segment removal at right endpoints run in $O(\log |A|)$ by handle
+/// without relying on floating-point `y(x)` search, and swaps adjacent crossing segments in $O(1)$
+/// by exchanging edge payloads.
+struct ActiveSegmentTree {
+    nodes: Vec<AvlNode>,
+    free_list: Vec<u32>,
+    root: u32,
+    node_of_edge: Vec<u32>,
+}
+
+impl ActiveSegmentTree {
+    fn new(num_edges: usize) -> Self {
+        Self {
+            nodes: Vec::new(),
+            free_list: Vec::new(),
+            root: NONE_U32,
+            node_of_edge: vec![NONE_U32; num_edges],
+        }
+    }
+
+    #[inline]
+    fn is_active(&self, edge_idx: usize) -> bool {
+        self.node_of_edge[edge_idx] != NONE_U32
+    }
+
+    #[inline]
+    fn height(&self, n: u32) -> u16 {
+        if n == NONE_U32 {
+            0
+        } else {
+            self.nodes[n as usize].height
+        }
+    }
+
+    #[inline]
+    fn size(&self, n: u32) -> u32 {
+        if n == NONE_U32 {
+            0
+        } else {
+            self.nodes[n as usize].size
+        }
+    }
+
+    #[inline]
+    fn update(&mut self, n: u32) {
+        let l = self.nodes[n as usize].left;
+        let r = self.nodes[n as usize].right;
+        self.nodes[n as usize].height = 1 + self.height(l).max(self.height(r));
+        self.nodes[n as usize].size = 1 + self.size(l) + self.size(r);
+    }
+
+    #[inline]
+    fn balance_factor(&self, n: u32) -> i32 {
+        self.height(self.nodes[n as usize].left) as i32
+            - self.height(self.nodes[n as usize].right) as i32
+    }
+
+    fn alloc_node(&mut self, parent: u32, edge_idx: usize) -> u32 {
+        let node = AvlNode {
+            parent,
+            left: NONE_U32,
+            right: NONE_U32,
+            height: 1,
+            size: 1,
+            edge_idx,
+        };
+        if let Some(id) = self.free_list.pop() {
+            self.nodes[id as usize] = node;
+            id
+        } else {
+            let id = self.nodes.len() as u32;
+            self.nodes.push(node);
+            id
+        }
+    }
+
+    fn rotate_left(&mut self, x: u32) -> u32 {
+        let y = self.nodes[x as usize].right;
+        let t2 = self.nodes[y as usize].left;
+        let p = self.nodes[x as usize].parent;
+
+        self.nodes[y as usize].left = x;
+        self.nodes[x as usize].parent = y;
+        self.nodes[x as usize].right = t2;
+        if t2 != NONE_U32 {
+            self.nodes[t2 as usize].parent = x;
+        }
+        self.nodes[y as usize].parent = p;
+        if p == NONE_U32 {
+            self.root = y;
+        } else if self.nodes[p as usize].left == x {
+            self.nodes[p as usize].left = y;
+        } else {
+            self.nodes[p as usize].right = y;
+        }
+        self.update(x);
+        self.update(y);
+        y
+    }
+
+    fn rotate_right(&mut self, y: u32) -> u32 {
+        let x = self.nodes[y as usize].left;
+        let t2 = self.nodes[x as usize].right;
+        let p = self.nodes[y as usize].parent;
+
+        self.nodes[x as usize].right = y;
+        self.nodes[y as usize].parent = x;
+        self.nodes[y as usize].left = t2;
+        if t2 != NONE_U32 {
+            self.nodes[t2 as usize].parent = y;
+        }
+        self.nodes[x as usize].parent = p;
+        if p == NONE_U32 {
+            self.root = x;
+        } else if self.nodes[p as usize].left == y {
+            self.nodes[p as usize].left = x;
+        } else {
+            self.nodes[p as usize].right = x;
+        }
+        self.update(y);
+        self.update(x);
+        x
+    }
+
+    fn rebalance_up(&mut self, mut cur: u32) {
+        while cur != NONE_U32 {
+            self.update(cur);
+            let bf = self.balance_factor(cur);
+            if bf > 1 {
+                let left = self.nodes[cur as usize].left;
+                if self.balance_factor(left) < 0 {
+                    self.rotate_left(left);
+                }
+                cur = self.rotate_right(cur);
+            } else if bf < -1 {
+                let right = self.nodes[cur as usize].right;
+                if self.balance_factor(right) > 0 {
+                    self.rotate_right(right);
+                }
+                cur = self.rotate_left(cur);
+            }
+            cur = self.nodes[cur as usize].parent;
+        }
+    }
+
+    fn insert(&mut self, edge_idx: usize, sweep_x: f64, segs: &[Seg]) {
+        if self.node_of_edge[edge_idx] != NONE_U32 {
+            return;
+        }
+        if self.root == NONE_U32 {
+            let id = self.alloc_node(NONE_U32, edge_idx);
+            self.root = id;
+            self.node_of_edge[edge_idx] = id;
+            return;
+        }
+
+        let s_new = &segs[edge_idx];
+        let y_new = s_new.y_at(sweep_x);
+        let mut cur = self.root;
+        loop {
+            let cur_edge = self.nodes[cur as usize].edge_idx;
+            let s_cur = &segs[cur_edge];
+            let y_cur = s_cur.y_at(sweep_x);
+            let ord = y_new
+                .total_cmp(&y_cur)
+                .then_with(|| s_new.slope.total_cmp(&s_cur.slope))
+                .then_with(|| s_new.id.cmp(&s_cur.id));
+            if ord == Ordering::Less {
+                let left = self.nodes[cur as usize].left;
+                if left == NONE_U32 {
+                    let id = self.alloc_node(cur, edge_idx);
+                    self.nodes[cur as usize].left = id;
+                    self.node_of_edge[edge_idx] = id;
+                    self.rebalance_up(cur);
+                    return;
+                }
+                cur = left;
+            } else {
+                let right = self.nodes[cur as usize].right;
+                if right == NONE_U32 {
+                    let id = self.alloc_node(cur, edge_idx);
+                    self.nodes[cur as usize].right = id;
+                    self.node_of_edge[edge_idx] = id;
+                    self.rebalance_up(cur);
+                    return;
+                }
+                cur = right;
+            }
+        }
+    }
+
+    fn leftmost(&self, mut n: u32) -> u32 {
+        while n != NONE_U32 {
+            let l = self.nodes[n as usize].left;
+            if l == NONE_U32 {
+                break;
+            }
+            n = l;
+        }
+        n
+    }
+
+    fn rightmost(&self, mut n: u32) -> u32 {
+        while n != NONE_U32 {
+            let r = self.nodes[n as usize].right;
+            if r == NONE_U32 {
+                break;
+            }
+            n = r;
+        }
+        n
+    }
+
+    fn prev_node(&self, mut n: u32) -> u32 {
+        if n == NONE_U32 {
+            return NONE_U32;
+        }
+        let l = self.nodes[n as usize].left;
+        if l != NONE_U32 {
+            return self.rightmost(l);
+        }
+        let mut p = self.nodes[n as usize].parent;
+        while p != NONE_U32 && self.nodes[p as usize].left == n {
+            n = p;
+            p = self.nodes[p as usize].parent;
+        }
+        p
+    }
+
+    fn next_node(&self, mut n: u32) -> u32 {
+        if n == NONE_U32 {
+            return NONE_U32;
+        }
+        let r = self.nodes[n as usize].right;
+        if r != NONE_U32 {
+            return self.leftmost(r);
+        }
+        let mut p = self.nodes[n as usize].parent;
+        while p != NONE_U32 && self.nodes[p as usize].right == n {
+            n = p;
+            p = self.nodes[p as usize].parent;
+        }
+        p
+    }
+
+    #[inline]
+    fn prev_edge(&self, edge_idx: usize) -> Option<usize> {
+        let n = self.node_of_edge[edge_idx];
+        if n == NONE_U32 {
+            return None;
+        }
+        let p = self.prev_node(n);
+        if p == NONE_U32 {
+            None
+        } else {
+            Some(self.nodes[p as usize].edge_idx)
+        }
+    }
+
+    #[inline]
+    fn next_edge(&self, edge_idx: usize) -> Option<usize> {
+        let n = self.node_of_edge[edge_idx];
+        if n == NONE_U32 {
+            return None;
+        }
+        let nx = self.next_node(n);
+        if nx == NONE_U32 {
+            None
+        } else {
+            Some(self.nodes[nx as usize].edge_idx)
+        }
+    }
+
+    fn rank_of_edge(&self, edge_idx: usize) -> Option<usize> {
+        let mut cur = self.node_of_edge[edge_idx];
+        if cur == NONE_U32 {
+            return None;
+        }
+        let mut rank = self.size(self.nodes[cur as usize].left) as usize;
+        while self.nodes[cur as usize].parent != NONE_U32 {
+            let p = self.nodes[cur as usize].parent;
+            if self.nodes[p as usize].right == cur {
+                rank += 1 + self.size(self.nodes[p as usize].left) as usize;
+            }
+            cur = p;
+        }
+        Some(rank)
+    }
+
+    fn swap_adjacent_edges(&mut self, e1: usize, e2: usize) {
+        let n1 = self.node_of_edge[e1];
+        let n2 = self.node_of_edge[e2];
+        debug_assert!(n1 != NONE_U32 && n2 != NONE_U32);
+        self.nodes[n1 as usize].edge_idx = e2;
+        self.nodes[n2 as usize].edge_idx = e1;
+        self.node_of_edge[e1] = n2;
+        self.node_of_edge[e2] = n1;
+    }
+
+    /// Removes `edge_idx` by handle and returns the newly adjacent `(prev, next)` edge indices.
+    fn remove_by_edge(&mut self, edge_idx: usize) -> (Option<usize>, Option<usize>) {
+        let n = self.node_of_edge[edge_idx];
+        if n == NONE_U32 {
+            return (None, None);
+        }
+        let prev = self.prev_edge(edge_idx);
+        let next = self.next_edge(edge_idx);
+
+        // If node has two children, swap payload with its successor so deletion has <= 1 child.
+        let mut target = n;
+        if self.nodes[n as usize].left != NONE_U32 && self.nodes[n as usize].right != NONE_U32 {
+            let succ = self.leftmost(self.nodes[n as usize].right);
+            let succ_edge = self.nodes[succ as usize].edge_idx;
+            self.nodes[n as usize].edge_idx = succ_edge;
+            self.node_of_edge[succ_edge] = n;
+            target = succ;
+        }
+
+        let child = if self.nodes[target as usize].left != NONE_U32 {
+            self.nodes[target as usize].left
+        } else {
+            self.nodes[target as usize].right
+        };
+        let parent = self.nodes[target as usize].parent;
+        if child != NONE_U32 {
+            self.nodes[child as usize].parent = parent;
+        }
+        if parent == NONE_U32 {
+            self.root = child;
+        } else if self.nodes[parent as usize].left == target {
+            self.nodes[parent as usize].left = child;
+        } else {
+            self.nodes[parent as usize].right = child;
+        }
+
+        self.node_of_edge[edge_idx] = NONE_U32;
+        self.free_list.push(target);
+        if parent != NONE_U32 {
+            self.rebalance_up(parent);
+        }
+
+        (prev, next)
+    }
+
+    fn lower_bound_y(&self, target_y: f64, sweep_x: f64, segs: &[Seg]) -> Option<usize> {
+        let mut cur = self.root;
+        let mut candidate = NONE_U32;
+        while cur != NONE_U32 {
+            let e = self.nodes[cur as usize].edge_idx;
+            let y = segs[e].y_at(sweep_x);
+            if y >= target_y {
+                candidate = cur;
+                cur = self.nodes[cur as usize].left;
+            } else {
+                cur = self.nodes[cur as usize].right;
+            }
+        }
+        if candidate == NONE_U32 {
+            None
+        } else {
+            Some(self.nodes[candidate as usize].edge_idx)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EventKind {
+    Intersection { e1: usize, e2: usize },
+    Start { edge: usize },
+    Vertical { v_idx: usize },
+    End { edge: usize },
+}
+
+impl EventKind {
+    #[inline]
+    fn priority(self) -> u8 {
+        match self {
+            Self::Intersection { .. } => 0,
+            Self::Start { .. } => 1,
+            Self::Vertical { .. } => 2,
+            Self::End { .. } => 3,
+        }
+    }
+
+    #[inline]
+    fn tie_key(self) -> (usize, usize) {
+        match self {
+            Self::Intersection { e1, e2 } => (e1, e2),
+            Self::Start { edge } | Self::Vertical { v_idx: edge } | Self::End { edge } => (edge, 0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SweepEvent {
+    x: f64,
+    kind: EventKind,
+}
+
+impl PartialEq for SweepEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for SweepEvent {}
+
+impl PartialOrd for SweepEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SweepEvent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.x
+            .total_cmp(&other.x)
+            .then_with(|| self.kind.priority().cmp(&other.kind.priority()))
+            .then_with(|| self.kind.tie_key().cmp(&other.kind.tie_key()))
+    }
+}
+
+/// Exact $O((|E|+K)\log|E|)$ x-sweep edge-crossing counter, angle evaluator, and pair finder.
+pub struct SweepLineCrossings;
+
+impl SweepLineCrossings {
+    /// Counts all crossing edge pairs in `graph` under `layout`.
+    pub fn count<W, S: Scalar>(graph: &CsrGraph<W>, layout: &Layout2d<S>) -> CoreResult<usize> {
+        let edges = extract_csr_edges(graph);
+        Self::count_edges(&edges, layout)
+    }
+
+    /// Computes crossing count and crossing angle statistics in `graph` under `layout`.
+    pub fn summarize<W, S: Scalar>(
+        graph: &CsrGraph<W>,
+        layout: &Layout2d<S>,
+    ) -> CoreResult<CrossingSummary> {
+        let edges = extract_csr_edges(graph);
+        Self::summarize_edges(&edges, layout)
+    }
+
+    /// Finds all crossing edge pairs in `graph` under `layout`, sorted deterministically.
+    pub fn find_crossings<W, S: Scalar>(
+        graph: &CsrGraph<W>,
+        layout: &Layout2d<S>,
+    ) -> CoreResult<Vec<CrossingPair>> {
+        let edges = extract_csr_edges(graph);
+        Self::find_edge_crossings(&edges, layout)
+    }
+
+    /// Counts all crossing pairs among `edges` under `layout`.
+    pub fn count_edges<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> CoreResult<usize> {
+        Ok(Self::summarize_edges(edges, layout)?.count)
+    }
+
+    /// Summarizes crossing count and crossing angles among `edges` under `layout`.
+    pub fn summarize_edges<S: Scalar>(
+        edges: &[(u32, u32)],
+        layout: &Layout2d<S>,
+    ) -> CoreResult<CrossingSummary> {
+        let pairs = Self::find_edge_crossings(edges, layout)?;
+        let mut summary = CrossingSummary {
+            count: pairs.len(),
+            angle_cos_sq_sum: 0.0,
+            min_angle_rad: None,
+        };
+        for p in &pairs {
+            summary.angle_cos_sq_sum += p.cos_sq;
+            if let Some(a) = p.angle_rad {
+                summary.min_angle_rad = Some(match summary.min_angle_rad {
+                    Some(prev) => prev.min(a),
+                    None => a,
+                });
+            }
+        }
+        Ok(summary)
+    }
+
+    /// Finds all crossing pairs among `edges` under `layout`, sorted by `(edge_a, edge_b)`.
+    pub fn find_edge_crossings<S: Scalar>(
+        edges: &[(u32, u32)],
+        layout: &Layout2d<S>,
+    ) -> CoreResult<Vec<CrossingPair>> {
+        let segs = build_segments(edges, layout)?;
+        Ok(sweep_segments(&segs))
+    }
+}
+
+fn extract_csr_edges<W>(graph: &CsrGraph<W>) -> Vec<(u32, u32)> {
+    let n = graph.num_nodes();
+    let directed = graph.is_directed();
+    let mut edges = Vec::with_capacity(graph.num_edges());
+    for u in 0..n {
+        let u32_u = u as u32;
+        for &v in graph.neighbors(u) {
+            if directed || u32_u < v {
+                edges.push((u32_u, v));
+            }
+        }
+    }
+    edges
+}
+
+fn build_segments<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> CoreResult<Vec<Seg>> {
+    layout.validate_finite()?;
+    let n = layout.len();
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut segs = Vec::with_capacity(edges.len());
+
+    for (id, &(u, v)) in edges.iter().enumerate() {
+        let ui = u as usize;
+        let vi = v as usize;
+        if ui >= n {
+            return Err(CoreError::index_out_of_bounds(
+                ui,
+                n,
+                "SweepLineCrossings::edge_source",
+            ));
+        }
+        if vi >= n {
+            return Err(CoreError::index_out_of_bounds(
+                vi,
+                n,
+                "SweepLineCrossings::edge_target",
+            ));
+        }
+        segs.push(Seg::from_endpoints(
+            id,
+            u,
+            v,
+            xs[ui].to_f64(),
+            ys[ui].to_f64(),
+            xs[vi].to_f64(),
+            ys[vi].to_f64(),
+        ));
+    }
+    Ok(segs)
+}
+
+fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
+    if segs.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut max_coord = 1.0_f64;
+    let mut non_vert_count = 0usize;
+    let mut vert_indices = Vec::new();
+
+    for s in segs {
+        if s.u == s.v {
+            continue;
+        }
+        max_coord = max_coord
+            .max(s.x1.abs())
+            .max(s.x2.abs())
+            .max(s.y1.abs())
+            .max(s.y2.abs());
+        if s.is_vertical {
+            vert_indices.push(s.id);
+        } else {
+            non_vert_count += 1;
+        }
+    }
+
+    let eps_y = 1e-10 * max_coord + 1e-12;
+    let mut reported: HashSet<(usize, usize)> = HashSet::new();
+
+    // 1. Check vertical-vs-vertical crossings via 1D sweep grouped by exact x coordinate.
+    if vert_indices.len() >= 2 {
+        vert_indices.sort_unstable_by(|&a, &b| {
+            segs[a]
+                .x1
+                .total_cmp(&segs[b].x1)
+                .then_with(|| segs[a].y_min.total_cmp(&segs[b].y_min))
+                .then_with(|| segs[a].y_max.total_cmp(&segs[b].y_max))
+                .then_with(|| a.cmp(&b))
+        });
+
+        let mut i = 0;
+        let mut active_y: Vec<usize> = Vec::new();
+        while i < vert_indices.len() {
+            let x_cur = segs[vert_indices[i]].x1;
+            let mut j = i;
+            while j < vert_indices.len() && segs[vert_indices[j]].x1 == x_cur {
+                j += 1;
+            }
+            if j - i >= 2 {
+                active_y.clear();
+                for &v_id in &vert_indices[i..j] {
+                    let s_cur = &segs[v_id];
+                    active_y.retain(|&prev_id| segs[prev_id].y_max >= s_cur.y_min);
+                    for &prev_id in &active_y {
+                        if segments_cross(s_cur, &segs[prev_id]) {
+                            let pair = ordered_pair(v_id, prev_id);
+                            reported.insert(pair);
+                        }
+                    }
+                    active_y.push(v_id);
+                }
+            }
+            i = j;
+        }
+    }
+
+    if non_vert_count == 0 {
+        return finalize_pairs(&reported, segs);
+    }
+
+    // 2. X-sweep over non-vertical segments + vertical queries at exact x_v.
+    let mut events: BinaryHeap<Reverse<SweepEvent>> =
+        BinaryHeap::with_capacity(non_vert_count * 2 + vert_indices.len());
+    for s in segs {
+        if s.u == s.v || s.is_vertical {
+            continue;
+        }
+        events.push(Reverse(SweepEvent {
+            x: s.x1,
+            kind: EventKind::Start { edge: s.id },
+        }));
+        events.push(Reverse(SweepEvent {
+            x: s.x2,
+            kind: EventKind::End { edge: s.id },
+        }));
+    }
+    for &v_idx in &vert_indices {
+        events.push(Reverse(SweepEvent {
+            x: segs[v_idx].x1,
+            kind: EventKind::Vertical { v_idx },
+        }));
+    }
+
+    let mut tree = ActiveSegmentTree::new(segs.len());
+    let mut started_batch: Vec<usize> = Vec::new();
+    let mut end_batch: Vec<usize> = Vec::new();
+    let mut vert_batch: Vec<usize> = Vec::new();
+    let mut touched_edges: Vec<usize> = Vec::new();
+    let mut scratch = BandScratch::default();
+
+    while let Some(Reverse(first)) = events.peek().copied() {
+        let x_evt = first.x;
+        if x_evt != scratch.last_int_x {
+            scratch.processed_int_at_x.clear();
+            scratch.last_int_x = x_evt;
+        }
+        started_batch.clear();
+        end_batch.clear();
+        vert_batch.clear();
+        touched_edges.clear();
+
+        // Drain all events sharing exact x_evt, processing Intersections first so crossing
+        // active pairs settle into post-crossing slope order before Starts/Verticals.
+        while let Some(Reverse(ev)) = events.peek().copied() {
+            if ev.x != x_evt {
+                break;
+            }
+            events.pop();
+            match ev.kind {
+                EventKind::Intersection { e1, e2 } => {
+                    handle_intersection(
+                        e1,
+                        e2,
+                        x_evt,
+                        eps_y,
+                        segs,
+                        &mut tree,
+                        &mut events,
+                        &mut reported,
+                        &mut touched_edges,
+                        &mut scratch,
+                    );
+                }
+                EventKind::Start { edge } => started_batch.push(edge),
+                EventKind::Vertical { v_idx } => vert_batch.push(v_idx),
+                EventKind::End { edge } => end_batch.push(edge),
+            }
+        }
+
+        // Insert all segments starting at x_evt before checking clusters so co-located stars,
+        // ending tips, and passing segments at (x_evt, y) are evaluated simultaneously.
+        for &edge in &started_batch {
+            tree.insert(edge, x_evt, segs);
+        }
+        touched_edges.extend_from_slice(&started_batch);
+        touched_edges.extend_from_slice(&end_batch);
+
+        if !touched_edges.is_empty() {
+            check_eps_bands_at_x(
+                &touched_edges,
+                x_evt,
+                eps_y,
+                segs,
+                &tree,
+                &mut events,
+                &mut reported,
+                &mut scratch,
+            );
+        }
+
+        // Check vertical segments against active non-vertical segments in [y_min - eps_y, y_max + eps_y].
+        for &v_idx in &vert_batch {
+            let v_seg = &segs[v_idx];
+            let lo = v_seg.y_min - eps_y;
+            let hi = v_seg.y_max + eps_y;
+            if let Some(mut cur_edge) = tree.lower_bound_y(lo, x_evt, segs) {
+                loop {
+                    let s_cur = &segs[cur_edge];
+                    if s_cur.y_at(x_evt) > hi {
+                        break;
+                    }
+                    if segments_cross(v_seg, s_cur) {
+                        reported.insert(ordered_pair(v_idx, cur_edge));
+                    }
+                    let Some(nx) = tree.next_edge(cur_edge) else {
+                        break;
+                    };
+                    cur_edge = nx;
+                }
+            }
+        }
+
+        // Remove all segments ending at x_evt and check newly adjacent (prev, next) pairs.
+        for &edge in &end_batch {
+            let (prev, next) = tree.remove_by_edge(edge);
+            if let (Some(p), Some(n)) = (prev, next) {
+                check_adjacent_and_schedule(
+                    p,
+                    n,
+                    x_evt,
+                    segs,
+                    &mut events,
+                    &mut reported,
+                    &scratch.processed_int_at_x,
+                );
+            }
+        }
+    }
+
+    finalize_pairs(&reported, segs)
+}
+
+#[derive(Default)]
+struct BandScratch {
+    touched_ys: Vec<f64>,
+    bands: Vec<(f64, f64)>,
+    cluster: Vec<(usize, usize)>,
+    hub_buf: Vec<(usize, usize)>,
+    rest_buf: Vec<(usize, usize)>,
+    cur_buf: Vec<(usize, usize)>,
+    band_edges: Vec<usize>,
+    band_nodes: Vec<u32>,
+    processed_int_at_x: HashSet<(usize, usize)>,
+    last_int_x: f64,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_intersection(
+    e1: usize,
+    e2: usize,
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    tree: &mut ActiveSegmentTree,
+    events: &mut BinaryHeap<Reverse<SweepEvent>>,
+    reported: &mut HashSet<(usize, usize)>,
+    touched_edges: &mut Vec<usize>,
+    scratch: &mut BandScratch,
+) {
+    if !tree.is_active(e1) || !tree.is_active(e2) {
+        return;
+    }
+    let Some(r1) = tree.rank_of_edge(e1) else {
+        return;
+    };
+    let Some(r2) = tree.rank_of_edge(e2) else {
+        return;
+    };
+    if r1 >= r2 {
+        return;
+    }
+
+    if r1 + 1 == r2 {
+        tree.swap_adjacent_edges(e1, e2);
+        scratch.processed_int_at_x.insert(ordered_pair(e1, e2));
+        touched_edges.push(e1);
+        touched_edges.push(e2);
+        // After swap, `e2` precedes `e1`.
+        if let Some(left) = tree.prev_edge(e2) {
+            check_adjacent_and_schedule(
+                left,
+                e2,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+        if let Some(right) = tree.next_edge(e1) {
+            check_adjacent_and_schedule(
+                e1,
+                right,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+        return;
+    }
+
+    // Multi-way intersection or 1-ULP tie: sort the local band [e1..=e2] by post-crossing slope.
+    let y_mid = segs[e1].y_at(x_evt);
+    scratch.band_nodes.clear();
+    scratch.band_edges.clear();
+    let mut cur_edge = e1;
+    let mut steps = 0usize;
+    let span = r2 - r1;
+    while steps <= span {
+        let s_cur = &segs[cur_edge];
+        if (s_cur.y_at(x_evt) - y_mid).abs() > eps_y * 100.0 && cur_edge != e2 {
+            break;
+        }
+        scratch.band_nodes.push(tree.node_of_edge[cur_edge]);
+        scratch.band_edges.push(cur_edge);
+        if cur_edge == e2 {
+            break;
+        }
+        let Some(nx) = tree.next_edge(cur_edge) else {
+            break;
+        };
+        cur_edge = nx;
+        steps += 1;
+    }
+
+    if scratch.band_edges.last() != Some(&e2) {
+        return;
+    }
+
+    scratch.processed_int_at_x.insert(ordered_pair(e1, e2));
+    touched_edges.push(e1);
+    touched_edges.push(e2);
+
+    // Check pairwise crossings inside the multi-way band while pruning shared-hub star pairs.
+    scratch.cluster.clear();
+    for (pos, &edge) in scratch.band_edges.iter().enumerate() {
+        scratch.cluster.push((pos, edge));
+    }
+    check_band_pairs(x_evt, segs, events, reported, scratch);
+
+    let x_probe = x_evt + eps_y.min(1e-9);
+    scratch.band_edges.sort_unstable_by(|&a, &b| {
+        segs[a]
+            .y_at(x_probe)
+            .total_cmp(&segs[b].y_at(x_probe))
+            .then_with(|| segs[a].slope.total_cmp(&segs[b].slope))
+            .then_with(|| a.cmp(&b))
+    });
+
+    for (&node_id, &edge_id) in scratch.band_nodes.iter().zip(scratch.band_edges.iter()) {
+        tree.nodes[node_id as usize].edge_idx = edge_id;
+        tree.node_of_edge[edge_id] = node_id;
+    }
+
+    if let (Some(&first_e), Some(&last_e)) = (scratch.band_edges.first(), scratch.band_edges.last())
+    {
+        if let Some(left) = tree.prev_edge(first_e) {
+            check_adjacent_and_schedule(
+                left,
+                first_e,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+        if let Some(right) = tree.next_edge(last_e) {
+            check_adjacent_and_schedule(
+                last_e,
+                right,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+    }
+    for win in scratch.band_edges.windows(2) {
+        scratch
+            .processed_int_at_x
+            .insert(ordered_pair(win[0], win[1]));
+        check_adjacent_and_schedule(
+            win[0],
+            win[1],
+            x_evt,
+            segs,
+            events,
+            reported,
+            &scratch.processed_int_at_x,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn check_eps_bands_at_x(
+    touched_edges: &[usize],
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    tree: &ActiveSegmentTree,
+    events: &mut BinaryHeap<Reverse<SweepEvent>>,
+    reported: &mut HashSet<(usize, usize)>,
+    scratch: &mut BandScratch,
+) {
+    scratch.touched_ys.clear();
+    for &edge in touched_edges {
+        if tree.is_active(edge) {
+            scratch.touched_ys.push(segs[edge].y_at(x_evt));
+        }
+    }
+    if scratch.touched_ys.is_empty() {
+        return;
+    }
+    scratch.touched_ys.sort_unstable_by(f64::total_cmp);
+
+    // Merge overlapping [y - 2*eps_y, y + 2*eps_y] intervals so each degenerate cluster
+    // at `x_evt` is collected and scanned once even with bridged hubs or co-located stars.
+    let margin = 2.0 * eps_y;
+    scratch.bands.clear();
+    for &y in &scratch.touched_ys {
+        let lo = y - margin;
+        let hi = y + margin;
+        if let Some(last) = scratch.bands.last_mut()
+            && lo <= last.1
+        {
+            last.1 = last.1.max(hi);
+        } else {
+            scratch.bands.push((lo, hi));
+        }
+    }
+
+    for band_idx in 0..scratch.bands.len() {
+        let (band_lo, band_hi) = scratch.bands[band_idx];
+        let Some(mut cur_edge) = tree.lower_bound_y(band_lo, x_evt, segs) else {
+            continue;
+        };
+        while let Some(prev) = tree.prev_edge(cur_edge) {
+            if segs[prev].y_at(x_evt) < band_lo {
+                break;
+            }
+            cur_edge = prev;
+        }
+
+        scratch.cluster.clear();
+        let mut pos = 0usize;
+        loop {
+            if segs[cur_edge].y_at(x_evt) > band_hi {
+                break;
+            }
+            scratch.cluster.push((pos, cur_edge));
+            pos += 1;
+            let Some(nx) = tree.next_edge(cur_edge) else {
+                break;
+            };
+            cur_edge = nx;
+        }
+        if scratch.cluster.is_empty() {
+            continue;
+        }
+
+        let first_edge = scratch.cluster[0].1;
+        let last_edge = scratch.cluster[scratch.cluster.len() - 1].1;
+        if let Some(left) = tree.prev_edge(first_edge) {
+            check_adjacent_and_schedule(
+                left,
+                first_edge,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+        if let Some(right) = tree.next_edge(last_edge) {
+            check_adjacent_and_schedule(
+                last_edge,
+                right,
+                x_evt,
+                segs,
+                events,
+                reported,
+                &scratch.processed_int_at_x,
+            );
+        }
+
+        if scratch.cluster.len() >= 2 {
+            check_band_pairs(x_evt, segs, events, reported, scratch);
+        }
+    }
+}
+
+/// Checks all crossing pairs inside `scratch.cluster` while pruning same-vertex star fans
+/// via 4-slot Misra-Gries heavy-hitter detection so pure or nested stars remain $O(|C|)$.
+fn check_band_pairs(
+    x_evt: f64,
+    segs: &[Seg],
+    events: &mut BinaryHeap<Reverse<SweepEvent>>,
+    reported: &mut HashSet<(usize, usize)>,
+    scratch: &mut BandScratch,
+) {
+    scratch.cur_buf.clear();
+    scratch.cur_buf.extend_from_slice(&scratch.cluster);
+
+    while scratch.cur_buf.len() >= 2 {
+        let n = scratch.cur_buf.len();
+        if n > 32
+            && let Some(hub_v) = dominant_shared_vertex(&scratch.cur_buf, segs)
+        {
+            scratch.hub_buf.clear();
+            scratch.rest_buf.clear();
+            for &(pos, e) in &scratch.cur_buf {
+                let s = &segs[e];
+                if s.u == hub_v || s.v == hub_v {
+                    scratch.hub_buf.push((pos, e));
+                } else {
+                    scratch.rest_buf.push((pos, e));
+                }
+            }
+            // Segments in `hub_buf` share `hub_v`, so internal pairs cannot cross.
+            for &(pos_h, edge_h) in &scratch.hub_buf {
+                for &(pos_r, edge_r) in &scratch.rest_buf {
+                    let (lo, hi) = if pos_h < pos_r {
+                        (edge_h, edge_r)
+                    } else {
+                        (edge_r, edge_h)
+                    };
+                    check_adjacent_and_schedule(
+                        lo,
+                        hi,
+                        x_evt,
+                        segs,
+                        events,
+                        reported,
+                        &scratch.processed_int_at_x,
+                    );
+                }
+            }
+            std::mem::swap(&mut scratch.cur_buf, &mut scratch.rest_buf);
+            continue;
+        }
+
+        for i in 0..n {
+            let (pos_a, edge_a) = scratch.cur_buf[i];
+            for j in (i + 1)..n {
+                let (pos_b, edge_b) = scratch.cur_buf[j];
+                let (lo, hi) = if pos_a < pos_b {
+                    (edge_a, edge_b)
+                } else {
+                    (edge_b, edge_a)
+                };
+                check_adjacent_and_schedule(
+                    lo,
+                    hi,
+                    x_evt,
+                    segs,
+                    events,
+                    reported,
+                    &scratch.processed_int_at_x,
+                );
+            }
+        }
+        break;
+    }
+}
+
+fn dominant_shared_vertex(items: &[(usize, usize)], segs: &[Seg]) -> Option<u32> {
+    let mut slots: [(Option<u32>, usize); 4] = [(None, 0); 4];
+    for &(_, e) in items {
+        let s = &segs[e];
+        for v in [s.u, s.v] {
+            if let Some((_, cnt)) = slots.iter_mut().find(|(c, _)| *c == Some(v)) {
+                *cnt += 1;
+            } else if let Some(slot) = slots.iter_mut().find(|(_, cnt)| *cnt == 0) {
+                *slot = (Some(v), 1);
+            } else {
+                for slot in &mut slots {
+                    slot.1 -= 1;
+                    if slot.1 == 0 {
+                        slot.0 = None;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut best_v = None;
+    let mut best_cnt = 0usize;
+    for (cand, _) in slots {
+        let Some(v) = cand else {
+            continue;
+        };
+        let cnt = items
+            .iter()
+            .filter(|&&(_, e)| segs[e].u == v || segs[e].v == v)
+            .count();
+        if cnt > best_cnt {
+            best_cnt = cnt;
+            best_v = Some(v);
+        }
+    }
+    if best_cnt >= 4 { best_v } else { None }
+}
+
+fn check_adjacent_and_schedule(
+    lower: usize,
+    upper: usize,
+    sweep_x: f64,
+    segs: &[Seg],
+    events: &mut BinaryHeap<Reverse<SweepEvent>>,
+    reported: &mut HashSet<(usize, usize)>,
+    processed_int_at_x: &HashSet<(usize, usize)>,
+) {
+    let s_lo = &segs[lower];
+    let s_hi = &segs[upper];
+    if segments_cross(s_lo, s_hi) {
+        let pair = ordered_pair(lower, upper);
+        reported.insert(pair);
+        if s_lo.x2 > sweep_x
+            && s_hi.x2 > sweep_x
+            && s_lo.slope > s_hi.slope
+            && let Some(x_int) = intersection_x(s_lo, s_hi)
+        {
+            let x_push = x_int.max(sweep_x);
+            if x_push > sweep_x || !processed_int_at_x.contains(&pair) {
+                events.push(Reverse(SweepEvent {
+                    x: x_push,
+                    kind: EventKind::Intersection {
+                        e1: lower,
+                        e2: upper,
+                    },
+                }));
+            }
+        }
+    }
+}
+
+#[inline]
+fn ordered_pair(a: usize, b: usize) -> (usize, usize) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+fn finalize_pairs(reported: &HashSet<(usize, usize)>, segs: &[Seg]) -> Vec<CrossingPair> {
+    let mut pairs: Vec<CrossingPair> = reported
+        .iter()
+        .map(|&(a, b)| {
+            let sa = &segs[a];
+            let sb = &segs[b];
+            let (angle_rad, cos_sq) = crossing_angle_metrics(sa, sb);
+            CrossingPair {
+                edge_a: a,
+                edge_b: b,
+                u1: sa.u,
+                v1: sa.v,
+                u2: sb.u,
+                v2: sb.v,
+                angle_rad,
+                cos_sq,
+            }
+        })
+        .collect();
+    pairs.sort_unstable_by_key(|p| (p.edge_a, p.edge_b));
+    pairs
+}
+
+/// Splits a 2D torus edge `(x1, y1) -> (x2, y2)` into 1, 2, or 3 Euclidean segments on `[0, 1]^2`
+/// matching legacy `DrawingTorus2d::edge_segments` wrap-around conventions.
+pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<Vec<[f64; 4]>> {
+    if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
+        return Err(CoreError::non_finite("torus_edge_segments"));
+    }
+    let px = wrap_torus_coord(x1).to_f64();
+    let py = wrap_torus_coord(y1).to_f64();
+    let qx = wrap_torus_coord(x2).to_f64();
+    let qy = wrap_torus_coord(y2).to_f64();
+
+    // Find periodic shift (dx, dy) in {-1, 0, +1}^2 minimizing Euclidean distance (px + dx - qx, py + dy - qy).
+    let mut best_d = f64::INFINITY;
+    let mut best_dx = 0_i32;
+    let mut best_dy = 0_i32;
+    for dy in -1..=1 {
+        let y_shift = py + dy as f64;
+        for dx in -1..=1 {
+            let x_shift = px + dx as f64;
+            let d = (x_shift - qx).hypot(y_shift - qy);
+            if d < best_d {
+                best_d = d;
+                best_dx = dx;
+                best_dy = dy;
+            }
+        }
+    }
+
+    if best_dx == 0 && best_dy == 0 {
+        return Ok(vec![[px, py, qx, qy]]);
+    }
+
+    let torus_max = 1.0 - f64::EPSILON;
+
+    if best_dx == 0 {
+        let (x0, y0, x1_w, y1_w) = if py < qy {
+            (px, py, qx, qy)
+        } else {
+            (qx, qy, px, py)
+        };
+        let denom = y0 - y1_w + 1.0;
+        let x2_cross = if denom.abs() <= 1e-15 {
+            0.5 * (x0 + x1_w)
+        } else {
+            (y0 * x1_w - y1_w * x0 + x0) / denom
+        };
+        return Ok(vec![
+            [x0, y0, x2_cross, 0.0],
+            [x2_cross, torus_max, x1_w, y1_w],
+        ]);
+    }
+
+    if best_dy == 0 {
+        let (x0, y0, x1_w, y1_w) = if px < qx {
+            (px, py, qx, qy)
+        } else {
+            (qx, qy, px, py)
+        };
+        let denom = x0 - x1_w + 1.0;
+        let y2_cross = if denom.abs() <= 1e-15 {
+            0.5 * (y0 + y1_w)
+        } else {
+            (x0 * y1_w - x1_w * y0 + y0) / denom
+        };
+        return Ok(vec![
+            [x0, y0, 0.0, y2_cross],
+            [torus_max, y2_cross, x1_w, y1_w],
+        ]);
+    }
+
+    let (x0, y0, x1_w, y1_w) = if px < qx {
+        (px, py, qx, qy)
+    } else {
+        (qx, qy, px, py)
+    };
+    let cx = x0 - x1_w + 1.0;
+    let opp = best_dx * best_dy < 0;
+    let cy = if opp {
+        y0 - y1_w - 1.0
+    } else {
+        y0 - y1_w + 1.0
+    };
+    let x2_cross = if opp {
+        (cy * x0 - cx * y0 + cx) / cy
+    } else {
+        (cy * x0 - cx * y0) / cy
+    };
+    let y2_cross = (cx * y0 - cy * x0) / cx;
+
+    if opp {
+        if x2_cross < 0.0 {
+            Ok(vec![
+                [x0, y0, 0.0, y2_cross],
+                [torus_max, y2_cross, x2_cross + 1.0, torus_max],
+                [x2_cross + 1.0, 0.0, x1_w, y1_w],
+            ])
+        } else {
+            Ok(vec![
+                [x0, y0, x2_cross, torus_max],
+                [x2_cross, 0.0, 0.0, y2_cross + 1.0],
+                [torus_max, y2_cross + 1.0, x1_w, y1_w],
+            ])
+        }
+    } else if y2_cross < 0.0 {
+        Ok(vec![
+            [x0, y0, x2_cross, 0.0],
+            [x2_cross, torus_max, 0.0, y2_cross + 1.0],
+            [torus_max, y2_cross + 1.0, x1_w, y1_w],
+        ])
+    } else {
+        Ok(vec![
+            [x0, y0, 0.0, y2_cross],
+            [torus_max, y2_cross, x2_cross + 1.0, 0.0],
+            [x2_cross + 1.0, torus_max, x1_w, y1_w],
+        ])
+    }
+}
+
+/// Finds all crossing edge segment pairs for `graph` laid out on the flat unit torus `[0, 1)^2`.
+pub fn torus_crossing_edges<W, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+) -> CoreResult<Vec<TorusCrossing>> {
+    let edges = extract_csr_edges(graph);
+    torus_crossing_edges_from_edges(&edges, layout)
+}
+
+/// Finds all crossing edge segment pairs among `edges` on the flat unit torus `[0, 1)^2`.
+pub fn torus_crossing_edges_from_edges<S: Scalar>(
+    edges: &[(u32, u32)],
+    layout: &Layout2d<S>,
+) -> CoreResult<Vec<TorusCrossing>> {
+    layout.validate_finite()?;
+    let n = layout.len();
+    let xs = layout.x();
+    let ys = layout.y();
+
+    let mut sub_segs: Vec<Seg> = Vec::with_capacity(edges.len());
+    let mut orig_edge_of_sub: Vec<usize> = Vec::with_capacity(edges.len());
+
+    for (edge_id, &(u, v)) in edges.iter().enumerate() {
+        let ui = u as usize;
+        let vi = v as usize;
+        if ui >= n {
+            return Err(CoreError::index_out_of_bounds(
+                ui,
+                n,
+                "torus_crossing_edges_from_edges",
+            ));
+        }
+        if vi >= n {
+            return Err(CoreError::index_out_of_bounds(
+                vi,
+                n,
+                "torus_crossing_edges_from_edges",
+            ));
+        }
+        let pieces = torus_edge_segments(xs[ui], ys[ui], xs[vi], ys[vi])?;
+        for piece in pieces {
+            let sub_id = sub_segs.len();
+            sub_segs.push(Seg::from_endpoints(
+                sub_id, u, v, piece[0], piece[1], piece[2], piece[3],
+            ));
+            orig_edge_of_sub.push(edge_id);
+        }
+    }
+
+    let pairs = sweep_segments(&sub_segs);
+    let mut out = Vec::with_capacity(pairs.len());
+    for p in pairs {
+        let sa = &sub_segs[p.edge_a];
+        let sb = &sub_segs[p.edge_b];
+        let ea = orig_edge_of_sub[p.edge_a];
+        let eb = orig_edge_of_sub[p.edge_b];
+        if ea <= eb {
+            out.push(TorusCrossing {
+                edge_a: ea,
+                edge_b: eb,
+                seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
+                seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
+            });
+        } else {
+            out.push(TorusCrossing {
+                edge_a: eb,
+                edge_b: ea,
+                seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
+                seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
+            });
+        }
+    }
+    out.sort_unstable_by_key(|c| (c.edge_a, c.edge_b));
+    Ok(out)
+}
+
+/// Estimates total edge crossings in $O(M)$ time via deterministic edge-pair sampling.
+///
+/// When the total number of distinct edge pairs $\binom{|E|}{2}$ is at most `num_samples`,
+/// evaluates all pairs deterministically and returns the exact crossing count in $O(|E|^2) \le O(M)$.
+pub fn sampled_crossing_number<W, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+    num_samples: usize,
+    rng: &mut DeterministicRng,
+) -> CoreResult<f64> {
+    let edges = extract_csr_edges(graph);
+    sampled_crossing_number_edges(&edges, layout, num_samples, rng)
+}
+
+/// Edge-slice variant of [`sampled_crossing_number`].
+pub fn sampled_crossing_number_edges<S: Scalar>(
+    edges: &[(u32, u32)],
+    layout: &Layout2d<S>,
+    num_samples: usize,
+    rng: &mut DeterministicRng,
+) -> CoreResult<f64> {
+    if num_samples == 0 {
+        return Err(CoreError::invalid_input("num_samples must be >= 1"));
+    }
+    let segs = build_segments(edges, layout)?;
+    let non_loops: Vec<&Seg> = segs.iter().filter(|s| s.u != s.v).collect();
+    let m = non_loops.len();
+    if m < 2 {
+        return Ok(0.0);
+    }
+
+    let total_pairs = (m as u128 * (m as u128 - 1)) / 2;
+    if total_pairs <= num_samples as u128 {
+        let mut exact = 0usize;
+        for i in 0..m {
+            for j in (i + 1)..m {
+                if segments_cross(non_loops[i], non_loops[j]) {
+                    exact += 1;
+                }
+            }
+        }
+        return Ok(exact as f64);
+    }
+
+    let mut hits = 0usize;
+    for _ in 0..num_samples {
+        let i = rng.gen_range_usize(m);
+        let mut j = rng.gen_range_usize(m - 1);
+        if j >= i {
+            j += 1;
+        }
+        if segments_cross(non_loops[i], non_loops[j]) {
+            hits += 1;
+        }
+    }
+
+    Ok((hits as f64 / num_samples as f64) * (total_pairs as f64))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn brute_force_pairs(edges: &[(u32, u32)], layout: &Layout2d<f64>) -> Vec<(usize, usize)> {
+        let segs = build_segments(edges, layout).unwrap();
+        let mut out = Vec::new();
+        for i in 0..segs.len() {
+            for j in (i + 1)..segs.len() {
+                if segments_cross(&segs[i], &segs[j]) {
+                    out.push((i, j));
+                }
+            }
+        }
+        out
+    }
+
+    fn assert_matches_brute_force(label: &str, edges: &[(u32, u32)], layout: &Layout2d<f64>) {
+        let expected = brute_force_pairs(edges, layout);
+        let got_pairs = SweepLineCrossings::find_edge_crossings(edges, layout).unwrap();
+        let got_indices: Vec<(usize, usize)> =
+            got_pairs.iter().map(|p| (p.edge_a, p.edge_b)).collect();
+        assert_eq!(got_indices, expected, "{label}: crossing mismatch");
+        assert_eq!(
+            SweepLineCrossings::count_edges(edges, layout).unwrap(),
+            expected.len()
+        );
+    }
+
+    #[test]
+    fn test_sweep_line_planar_nonplanar_grid_and_star() {
+        // 1. Planar 4x4 grid (0 crossings).
+        let mut grid_x = Vec::new();
+        let mut grid_y = Vec::new();
+        let mut grid_edges = Vec::new();
+        for r in 0..4u32 {
+            for c in 0..4u32 {
+                let id = r * 4 + c;
+                grid_x.push(c as f64);
+                grid_y.push(r as f64);
+                if c + 1 < 4 {
+                    grid_edges.push((id, id + 1));
+                }
+                if r + 1 < 4 {
+                    grid_edges.push((id, id + 4));
+                }
+            }
+        }
+        let grid_layout = Layout2d::from_xy(grid_x, grid_y).unwrap();
+        assert_matches_brute_force("grid_4x4", &grid_edges, &grid_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&grid_edges, &grid_layout).unwrap(),
+            0
+        );
+
+        // 2. K5 pentagon + pentagram (non-planar, 5 crossings).
+        let k5_x: Vec<f64> = (0..5)
+            .map(|i| (i as f64 * std::f64::consts::TAU / 5.0).cos())
+            .collect();
+        let k5_y: Vec<f64> = (0..5)
+            .map(|i| (i as f64 * std::f64::consts::TAU / 5.0).sin())
+            .collect();
+        let mut k5_edges = Vec::new();
+        for u in 0..5u32 {
+            for v in (u + 1)..5u32 {
+                k5_edges.push((u, v));
+            }
+        }
+        let k5_layout = Layout2d::from_xy(k5_x, k5_y).unwrap();
+        assert_matches_brute_force("K5", &k5_edges, &k5_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&k5_edges, &k5_layout).unwrap(),
+            5
+        );
+
+        // 3. K_{3,3} bipartite layout (9 crossings).
+        let k33_layout = Layout2d::from_xy(
+            vec![0.0, 1.0, 2.0, 0.0, 1.0, 2.0],
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        )
+        .unwrap();
+        let mut k33_edges = Vec::new();
+        for u in 0..3u32 {
+            for v in 3..6u32 {
+                k33_edges.push((u, v));
+            }
+        }
+        assert_matches_brute_force("K3,3", &k33_edges, &k33_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&k33_edges, &k33_layout).unwrap(),
+            9
+        );
+
+        // 4. Star graph with 64 rays sharing center vertex 0 (0 crossings).
+        let mut star_x = vec![0.0];
+        let mut star_y = vec![0.0];
+        let mut star_edges = Vec::new();
+        for i in 1..=64u32 {
+            let ang = (i as f64) * std::f64::consts::TAU / 64.0;
+            star_x.push(ang.cos());
+            star_y.push(ang.sin());
+            star_edges.push((0, i));
+        }
+        let star_layout = Layout2d::from_xy(star_x, star_y).unwrap();
+        assert_matches_brute_force("star_64", &star_edges, &star_layout);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&star_edges, &star_layout).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_sweep_line_degeneracies_horizontal_vertical_collinear_and_shared_coords() {
+        // Horizontal, vertical, collinear overlapping, collinear disjoint, shared endpoints,
+        // coincident distinct-ID endpoints, and multi-way intersection at (1.0, 1.0).
+        let layout = Layout2d::from_xy(
+            vec![
+                0.0, 3.0, 1.0, 4.0, 5.0, 6.0, // horizontal / collinear on y=0
+                1.0, 1.0, 1.0, 1.0, // vertical overlapping on x=1
+                0.0, 2.0, 0.0, 2.0, 0.0, 2.0, // multi-way X crossing at (1, 1)
+                0.0, 1.0, // coincident distinct vertex at (0, 0) & T-junction at (1, 0)
+            ],
+            vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //
+                -1.0, 2.0, 0.5, 3.0, //
+                0.0, 2.0, 2.0, 0.0, 1.0, 1.0, //
+                0.0, 0.0, //
+            ],
+        )
+        .unwrap();
+        let edges = vec![
+            (0, 1),   // (0,0)-(3,0)
+            (2, 3),   // (1,0)-(4,0) collinear overlap with (0,1)
+            (4, 5),   // (5,0)-(6,0) collinear disjoint
+            (6, 7),   // vertical (1,-1)-(1,2)
+            (8, 9),   // vertical (1,0.5)-(1,3) overlaps (6,7)
+            (10, 11), // diag (0,0)-(2,2)
+            (12, 13), // diag (0,2)-(2,0)
+            (14, 15), // horiz (0,1)-(2,1) multi-way through (1,1)
+            (16, 17), // coincident vertex (0,0) to T-junction (1,0)
+            (0, 10),  // self-loop-like shared coord with distinct IDs
+            (1, 2),   // shared endpoint test
+        ];
+        assert_matches_brute_force("degenerate_suite", &edges, &layout);
+
+        // Bridged-hub cluster at (1.5, 0.75): a star at `hub`, an edge bridging across to
+        // a non-incident chord, plus passing/ending/starting edges meeting at the exact hub point.
+        let bridge_layout = Layout2d::from_xy(
+            vec![
+                1.5, 2.5, 2.5, 2.25, // hub=0 and 3 rays extending right
+                0.5, 2.5, // 4->5 passes through (1.5, 0.75) without sharing hub
+                0.75, 1.5, // 6->7 ends at (1.5, 0.75) on distinct vertex
+                1.0, 2.0, // 8->9 passes through (1.5, 0.75) without sharing hub
+                1.5, 2.5, // 10->11 starts at (1.5, 0.75) on distinct vertex
+            ],
+            vec![
+                0.75, 1.75, -0.25, 0.75, //
+                0.25, 1.25, //
+                0.0, 0.75, //
+                1.25, 0.25, //
+                0.75, 1.25, //
+            ],
+        )
+        .unwrap();
+        let bridge_edges = vec![
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (4, 5),
+            (6, 7),
+            (8, 9),
+            (10, 11),
+            (3, 8), // shares vertex 3 with (0, 3) and vertex 8 with (8, 9)
+        ];
+        assert_matches_brute_force("bridged_hub_cluster", &bridge_edges, &bridge_layout);
+
+        // Random dense stress test across 24 quantized seeds forcing dense multi-way ties.
+        for seed in 1..=24u64 {
+            let mut rng = DeterministicRng::from_seed_u64(seed);
+            let n = 25usize;
+            // Include quantized grid coordinates to force frequent collinear/vertical/shared ties.
+            let xs: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 0.25)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 0.25)
+                .collect();
+            let l = Layout2d::from_xy(xs, ys).unwrap();
+            let mut es = Vec::new();
+            for _ in 0..45 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                es.push((u, v));
+            }
+            assert_matches_brute_force(&format!("random_quantized_seed_{seed}"), &es, &l);
+        }
+
+        // Large 1024-ray star centered at (0, 0) verifying O(|E| log |E|) Misra-Gries hub pruning.
+        let mut big_x = vec![0.0];
+        let mut big_y = vec![0.0];
+        let mut big_edges = Vec::with_capacity(1024);
+        for i in 1..=1024u32 {
+            let theta = (i as f64) * (2.0 * std::f64::consts::PI / 1024.0);
+            big_x.push(theta.cos());
+            big_y.push(theta.sin());
+            big_edges.push((0, i));
+        }
+        let big_star = Layout2d::from_xy(big_x, big_y).unwrap();
+        assert_eq!(
+            SweepLineCrossings::count_edges(&big_edges, &big_star).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_sweep_line_angles_csr_torus_and_sampling() {
+        // Right-angle crossing gives cos_sq == 0 and min_angle == PI/2.
+        let layout =
+            Layout2d::from_xy(vec![-1.0, 1.0, 0.0, 0.0], vec![0.0, 0.0, -1.0, 1.0]).unwrap();
+        let csr = CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
+        let summary = SweepLineCrossings::summarize(&csr, &layout).unwrap();
+        assert_eq!(summary.count, 1);
+        assert!(summary.angle_cos_sq_sum.abs() < 1e-12);
+        assert!((summary.min_angle_rad.unwrap() - FRAC_PI_2).abs() < 1e-12);
+
+        // Torus crossing test: two wrapping edges that cross after periodic boundary split.
+        let torus_layout =
+            Layout2d::from_xy(vec![0.9, 0.1, 0.9, 0.1], vec![0.1, 0.9, 0.9, 0.1]).unwrap();
+        let torus_csr =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
+        let torus_crossings = torus_crossing_edges(&torus_csr, &torus_layout).unwrap();
+        assert!(!torus_crossings.is_empty());
+
+        // Sampled crossing number determinism and unbiased convergence on a dense bipartite layout.
+        let mut bx = Vec::new();
+        let mut by = Vec::new();
+        let mut bedges = Vec::new();
+        for i in 0..10u32 {
+            bx.push(i as f64);
+            by.push(0.0);
+        }
+        for j in 0..10u32 {
+            bx.push(j as f64);
+            by.push(1.0);
+        }
+        for u in 0..10u32 {
+            for v in 10..20u32 {
+                bedges.push((u, v));
+            }
+        }
+        let blayout = Layout2d::from_xy(bx, by).unwrap();
+        let exact = SweepLineCrossings::count_edges(&bedges, &blayout).unwrap() as f64;
+        let mut r1 = DeterministicRng::from_seed_u64(77);
+        let mut r2 = DeterministicRng::from_seed_u64(77);
+        let est1 = sampled_crossing_number_edges(&bedges, &blayout, 4000, &mut r1).unwrap();
+        let est2 = sampled_crossing_number_edges(&bedges, &blayout, 4000, &mut r2).unwrap();
+        assert_eq!(est1, est2);
+        assert!(
+            (est1 - exact).abs() / exact < 0.08,
+            "est1={est1}, exact={exact}"
+        );
+
+        // Validation errors.
+        let bad = Layout2d::from_xy(vec![f64::NAN, 1.0], vec![0.0, 0.0]).unwrap();
+        assert!(matches!(
+            SweepLineCrossings::count_edges(&[(0, 1)], &bad),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            sampled_crossing_number_edges(&[(0, 1)], &layout, 0, &mut r1),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+}
