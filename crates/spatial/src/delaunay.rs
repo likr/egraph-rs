@@ -118,6 +118,65 @@ impl Delaunay2d {
         })
     }
 
+    /// Extracts sorted canonical undirected Delaunay edges `(u, v)` (`u < v`) into `out_edges`
+    /// without building or sorting faces.
+    ///
+    /// Uses `spade::DelaunayTriangulation::bulk_load_stable` directly on `(x, y)`-sorted
+    /// deduplicated sites for spatial locality and $O(N \log N)$ throughput.
+    pub fn triangulate_edges_into<S: Scalar>(
+        layout: &Layout2d<S>,
+        out_edges: &mut Vec<(u32, u32)>,
+    ) -> CoreResult<()> {
+        out_edges.clear();
+        layout.validate_finite()?;
+        let n = layout.len();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_input(
+                "Delaunay2d vertex count exceeds u32::MAX",
+            ));
+        }
+        if n < 2 {
+            return Ok(());
+        }
+
+        let xs = layout.x();
+        let ys = layout.y();
+        let mut pts: Vec<IndexedPoint2> = (0..n)
+            .map(|i| IndexedPoint2 {
+                index: i as u32,
+                x: xs[i].to_f64(),
+                y: ys[i].to_f64(),
+            })
+            .collect();
+
+        // Deduplicate coincident sites deterministically, keeping the smallest vertex ID.
+        pts.sort_unstable_by(|a, b| {
+            a.x.total_cmp(&b.x)
+                .then_with(|| a.y.total_cmp(&b.y))
+                .then_with(|| a.index.cmp(&b.index))
+        });
+        pts.dedup_by(|b, a| a.x == b.x && a.y == b.y);
+
+        if pts.len() < 2 {
+            return Ok(());
+        }
+
+        let dt = DelaunayTriangulation::<IndexedPoint2>::bulk_load_stable(pts).map_err(|err| {
+            CoreError::numerical_breakdown(format!("spade Delaunay bulk_load_stable failed: {err}"))
+        })?;
+
+        out_edges.reserve(dt.num_undirected_edges());
+        for e in dt.undirected_edges() {
+            let [v0, v1] = e.vertices();
+            let a = v0.data().index;
+            let b = v1.data().index;
+            out_edges.push(if a < b { (a, b) } else { (b, a) });
+        }
+        out_edges.sort_unstable();
+        out_edges.dedup();
+        Ok(())
+    }
+
     /// Returns the number of vertices in the source layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
@@ -219,6 +278,43 @@ mod tests {
         let huge = Layout2d::from_xy(vec![0.0, 1e200, 1.0], vec![0.0, 0.0, 1.0]).unwrap();
         assert!(matches!(
             Delaunay2d::triangulate(&huge),
+            Err(CoreError::NumericalBreakdown(_))
+        ));
+    }
+
+    #[test]
+    fn test_delaunay_triangulate_edges_into_matches_and_errors() {
+        let mut edges = vec![(99, 100)];
+
+        let square =
+            Layout2d::from_xy(vec![0.0_f64, 1.0, 0.0, 1.0], vec![0.0, 0.0, 1.0, 1.0]).unwrap();
+        Delaunay2d::triangulate_edges_into(&square, &mut edges).unwrap();
+        assert_eq!(edges.len(), 5);
+        assert!(edges.windows(2).all(|w| w[0] < w[1]));
+
+        let collinear =
+            Layout2d::from_xy(vec![0.0_f32, 1.0, 2.0, 3.0], vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+        Delaunay2d::triangulate_edges_into(&collinear, &mut edges).unwrap();
+        assert_eq!(edges, vec![(0, 1), (1, 2), (2, 3)]);
+
+        let dup =
+            Layout2d::from_xy(vec![0.0_f64, 0.0, 1.0, 0.0], vec![0.0, 0.0, 0.0, 1.0]).unwrap();
+        Delaunay2d::triangulate_edges_into(&dup, &mut edges).unwrap();
+        assert_eq!(edges, vec![(0, 2), (0, 3), (2, 3)]);
+
+        let single = Layout2d::from_xy(vec![0.0_f64], vec![0.0]).unwrap();
+        Delaunay2d::triangulate_edges_into(&single, &mut edges).unwrap();
+        assert!(edges.is_empty());
+
+        let bad = Layout2d::from_xy(vec![0.0, f64::NAN, 1.0], vec![0.0, 1.0, 0.0]).unwrap();
+        assert!(matches!(
+            Delaunay2d::triangulate_edges_into(&bad, &mut edges),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        let huge = Layout2d::from_xy(vec![0.0, 1e200, 1.0], vec![0.0, 0.0, 1.0]).unwrap();
+        assert!(matches!(
+            Delaunay2d::triangulate_edges_into(&huge, &mut edges),
             Err(CoreError::NumericalBreakdown(_))
         ));
     }

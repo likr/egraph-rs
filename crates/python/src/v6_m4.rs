@@ -1163,7 +1163,7 @@ impl PyYifanHuSolver {
 
 /// Cooperative Gansner-Hu (2010) PRISM proximity-stress node overlap removal solver.
 ///
-/// Uses `Delaunay2d` proximity triangulation and sparse CSR Jacobi-PCG stress majorization
+/// Uses `Delaunay2d` proximity triangulation and sparse CSR Symmetric SSOR-PCG stress majorization
 /// in both `"float64"` and `"float32"` precision while releasing the Python GIL.
 #[pyclass(name = "PrismOverlapRemoval", module = "egraph._core")]
 pub struct PyPrismOverlapRemoval {
@@ -1182,13 +1182,13 @@ impl PyPrismOverlapRemoval {
             *,
             max_iterations = StrictUsize(50),
             max_scale_factor = StrictF64(1.5),
-            cg_max_iters = StrictUsize(200),
-            cg_tolerance = StrictF64(1e-5),
+            cg_max_iters = StrictUsize(80),
+            cg_tolerance = StrictF64(1e-3),
             padding = StrictF64(0.0),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(half_widths, half_heights, *, max_iterations=50, max_scale_factor=1.5, cg_max_iters=200, cg_tolerance=1e-5, padding=0.0, seed=42, dtype='float64')"
+        text_signature = "(half_widths, half_heights, *, max_iterations=50, max_scale_factor=1.5, cg_max_iters=80, cg_tolerance=1e-3, padding=0.0, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -1240,13 +1240,13 @@ impl PyPrismOverlapRemoval {
             *,
             max_iterations = StrictUsize(50),
             max_scale_factor = StrictF64(1.5),
-            cg_max_iters = StrictUsize(200),
-            cg_tolerance = StrictF64(1e-5),
+            cg_max_iters = StrictUsize(80),
+            cg_tolerance = StrictF64(1e-3),
             padding = StrictF64(0.0),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(radii, *, max_iterations=50, max_scale_factor=1.5, cg_max_iters=200, cg_tolerance=1e-5, padding=0.0, seed=42, dtype='float64')"
+        text_signature = "(radii, *, max_iterations=50, max_scale_factor=1.5, cg_max_iters=80, cg_tolerance=1e-3, padding=0.0, seed=42, dtype='float64')"
     )]
     fn from_radii(
         py: Python<'_>,
