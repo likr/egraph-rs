@@ -8,7 +8,7 @@
 //! which uses forces between edge segments to bundle similar edges together.
 
 use crate::{drawing::JsDrawingEuclidean2d, graph::JsGraph};
-use petgraph_edge_bundling_fdeb::{fdeb, EdgeBundlingOptions};
+use petgraph_edge_bundling_fdeb::{EdgeBundlingOptions, fdeb};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 

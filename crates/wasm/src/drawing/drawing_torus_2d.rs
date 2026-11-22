@@ -7,7 +7,7 @@
 
 use crate::graph::{IndexType, JsGraph};
 use js_sys::Array;
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph_drawing::{Drawing, DrawingTorus2d};
 use wasm_bindgen::prelude::*;
 
@@ -105,11 +105,11 @@ impl JsDrawingTorus2d {
                     .iter()
                     .map(|&(p, q)| {
                         let js_p = Array::new();
-                        js_p.push(&JsValue::from_f64(p.0 .0 as f64));
-                        js_p.push(&JsValue::from_f64(p.1 .0 as f64));
+                        js_p.push(&JsValue::from_f64(p.0.0 as f64));
+                        js_p.push(&JsValue::from_f64(p.1.0 as f64));
                         let js_q = Array::new();
-                        js_q.push(&JsValue::from_f64(q.0 .0 as f64));
-                        js_q.push(&JsValue::from_f64(q.1 .0 as f64));
+                        js_q.push(&JsValue::from_f64(q.0.0 as f64));
+                        js_q.push(&JsValue::from_f64(q.1.0 as f64));
                         let js_segment = Array::new();
                         js_segment.push(&js_p);
                         js_segment.push(&js_q);

@@ -6,7 +6,7 @@
 //! compared to planar layouts.
 
 use crate::graph::{IndexType, JsGraph};
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph_drawing::{Drawing, DrawingSpherical2d};
 use wasm_bindgen::prelude::*;
 

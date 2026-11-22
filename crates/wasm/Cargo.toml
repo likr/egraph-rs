@@ -1,8 +1,8 @@
 [package]
 name = "egraph-wasm"
-version = "5.0.0"
+version = "6.0.0-alpha.4"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
-edition = "2018"
+edition = "2024"
 description = "WebAssembly binding of egraph."
 repository = "https://github.com/likr/egraph-rs/tree/master/crates/wasm"
 license = "MIT"
@@ -10,30 +10,140 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[features]
+default = ["full"]
+full = ["legacy"]
+legacy = [
+    "dep:petgraph",
+    "dep:petgraph-algorithm-shortest-path",
+    "dep:petgraph-clustering",
+    "dep:petgraph-drawing",
+    "dep:petgraph-edge-bundling-fdeb",
+    "dep:petgraph-linalg-kernel",
+    "dep:petgraph-layout-kamada-kawai",
+    "dep:petgraph-layout-mds",
+    "dep:petgraph-layout-overwrap-removal",
+    "dep:petgraph-layout-sgd",
+    "dep:petgraph-layout-stress-majorization",
+    "dep:petgraph-layout-ts-net",
+    "dep:petgraph-layout-gumap",
+    "dep:petgraph-quality-metrics",
+    "dep:ndarray",
+    "dep:rand",
+    "dep:getrandom",
+    "dep:serde",
+    "dep:serde-wasm-bindgen",
+]
+
 [dependencies]
 console_error_panic_hook = "0.1"
-getrandom = { version = "0.2", features = ["js"] }
-js-sys = "0.3"
-ndarray = "0.16"
-petgraph = "0.8"
-petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
-petgraph-clustering = { path = "../clustering" }
-petgraph-drawing = { path = "../drawing" }
-petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb" }
-petgraph-linalg-kernel = { path = "../linalg/kernel" }
-petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai" }
-petgraph-layout-mds = { path = "../layout/mds" }
-petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal" }
-petgraph-layout-sgd = { path = "../layout/sgd" }
-petgraph-layout-stress-majorization = { path = "../layout/stress-majorization" }
-petgraph-layout-ts-net = { path = "../layout/ts-net" }
-petgraph-layout-gumap = { path = "../layout/gumap" }
-petgraph-quality-metrics = { path = "../quality-metrics" }
-rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.6"
-wasm-bindgen = "0.2.104"
+egraph-core.workspace = true
+egraph-ffi.workspace = true
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+
+getrandom = { version = "0.2", features = ["js"], optional = true }
+ndarray = { version = "0.16", default-features = false, optional = true }
+petgraph = { workspace = true, optional = true }
+petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path", optional = true }
+petgraph-clustering = { path = "../clustering", optional = true }
+petgraph-drawing = { path = "../drawing", optional = true }
+petgraph-edge-bundling-fdeb = { path = "../edge-bundling/fdeb", optional = true }
+petgraph-linalg-kernel = { path = "../linalg/kernel", optional = true }
+petgraph-layout-kamada-kawai = { path = "../layout/kamada-kawai", optional = true }
+petgraph-layout-mds = { path = "../layout/mds", optional = true }
+petgraph-layout-overwrap-removal = { path = "../layout/overwrap-removal", optional = true }
+petgraph-layout-sgd = { path = "../layout/sgd", optional = true }
+petgraph-layout-stress-majorization = { path = "../layout/stress-majorization", optional = true }
+petgraph-layout-ts-net = { path = "../layout/ts-net", optional = true }
+petgraph-layout-gumap = { path = "../layout/gumap", optional = true }
+petgraph-quality-metrics = { path = "../quality-metrics", optional = true }
+rand = { version = "0.8", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.54"
 serde_json = "1.0"
+wasm-bindgen-test = "0.3.54"
+
+[[test]]
+name = "v6_core"
+
+[[test]]
+name = "classical_mds"
+required-features = ["legacy"]
+
+[[test]]
+name = "clustering"
+required-features = ["legacy"]
+
+[[test]]
+name = "digraph"
+required-features = ["legacy"]
+
+[[test]]
+name = "drawing_euclidean_2d"
+required-features = ["legacy"]
+
+[[test]]
+name = "drawing_hyperbolic_2d"
+required-features = ["legacy"]
+
+[[test]]
+name = "drawing_spherical_2d"
+required-features = ["legacy"]
+
+[[test]]
+name = "drawing_torus_2d"
+required-features = ["legacy"]
+
+[[test]]
+name = "edge_bundling"
+required-features = ["legacy"]
+
+[[test]]
+name = "graph"
+required-features = ["legacy"]
+
+[[test]]
+name = "gumap"
+required-features = ["legacy"]
+
+[[test]]
+name = "kamada_kawai"
+required-features = ["legacy"]
+
+[[test]]
+name = "node"
+required-features = ["legacy"]
+
+[[test]]
+name = "quality_metrics"
+required-features = ["legacy"]
+
+[[test]]
+name = "rng"
+required-features = ["legacy"]
+
+[[test]]
+name = "sgd"
+required-features = ["legacy"]
+
+[[test]]
+name = "sgd_full"
+required-features = ["legacy"]
+
+[[test]]
+name = "sgd_sparse"
+required-features = ["legacy"]
+
+[[test]]
+name = "stress_majorization"
+required-features = ["legacy"]
+
+[[test]]
+name = "ts_net"
+required-features = ["legacy"]

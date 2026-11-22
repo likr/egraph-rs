@@ -5,7 +5,7 @@
 
 use crate::graph::{IndexType, JsGraph};
 use js_sys::Array;
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph_drawing::{Drawing, DrawingEuclidean2d};
 use wasm_bindgen::prelude::*;
 

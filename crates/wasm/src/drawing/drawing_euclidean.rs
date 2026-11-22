@@ -6,7 +6,7 @@
 //! embedding graphs in higher-dimensional spaces.
 
 use crate::graph::IndexType;
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph_drawing::{Drawing, DrawingEuclidean};
 use wasm_bindgen::prelude::*;
 

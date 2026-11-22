@@ -1,30 +1,41 @@
-// #[macro_use]
-// extern crate serde_derive;
+//! WebAssembly binding for the `egraph` library.
+//!
+//! This crate provides JavaScript/WebAssembly bindings for `egraph`, exposing:
+//!
+//! * v6 zero-copy CSR graphs and linear-memory 2D layouts ([`v6`])
+//! * Feature-gated legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
+//!   quality metrics, and RNG modules (`legacy` feature, enabled by default until M1-M4 replace
+//!   them with unified `egraph-core` solvers).
 
-//! WebAssembly binding for the egraph library.
-//!
-//! This crate provides JavaScript/WebAssembly bindings for the egraph library, enabling
-//! graph visualization and analysis capabilities in web environments. It exposes Rust
-//! implementations of graph data structures, layout algorithms, and drawing utilities
-//! through wasm-bindgen.
-//!
-//! The primary components of this crate include:
-//!
-//! * Graph data structures ([`graph`]): Undirected and directed graph implementations
-//! * Drawing utilities ([`drawing`]): Various geometric representations for graph drawings
-//! * Layout algorithms ([`layout`]): Force-directed and other layout algorithms
-//! * Edge bundling ([`edge_bundling`]): Methods to reduce visual clutter by bundling edges
-//! * Clustering ([`clustering`]): Graph clustering algorithms
-//! * Quality metrics ([`quality_metrics`]): Functions to evaluate drawing quality
-//! * Random number generation ([`rng`]): Seeded random number generation
-
-// pub mod algorithm;
+#[cfg(feature = "legacy")]
 pub mod clustering;
+#[cfg(feature = "legacy")]
 pub mod distance_matrix;
+#[cfg(feature = "legacy")]
 pub mod drawing;
+#[cfg(feature = "legacy")]
 pub mod edge_bundling;
+#[cfg(feature = "legacy")]
 pub mod graph;
-// pub mod grouping;
+#[cfg(feature = "legacy")]
 pub mod layout;
+#[cfg(feature = "legacy")]
 pub mod quality_metrics;
+#[cfg(feature = "legacy")]
 pub mod rng;
+
+pub mod v6;
+
+use wasm_bindgen::prelude::*;
+
+/// Installs `console_error_panic_hook` once so any Rust panic reports a readable stack trace
+/// to the JavaScript console.
+#[wasm_bindgen(js_name = setPanicHook)]
+pub fn set_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen(start)]
+fn wasm_start() {
+    console_error_panic_hook::set_once();
+}

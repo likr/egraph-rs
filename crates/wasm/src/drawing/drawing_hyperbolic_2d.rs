@@ -5,7 +5,7 @@
 //! with hierarchical structure due to the exponential growth of area with distance.
 
 use crate::graph::{IndexType, JsGraph};
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph_drawing::{Drawing, DrawingHyperbolic2d};
 use wasm_bindgen::prelude::*;
 

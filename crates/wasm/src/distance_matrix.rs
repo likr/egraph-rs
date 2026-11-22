@@ -6,10 +6,10 @@
 use crate::graph::JsGraph;
 use crate::rng::JsRng;
 use js_sys::Function;
-use petgraph::graph::{node_index, NodeIndex};
+use petgraph::graph::{NodeIndex, node_index};
 use petgraph::visit::EdgeRef;
 use petgraph_algorithm_shortest_path::{
-    all_sources_dijkstra, FullDistanceMatrix, PivotedDistanceMatrix,
+    FullDistanceMatrix, PivotedDistanceMatrix, all_sources_dijkstra,
 };
 use petgraph_linalg_kernel::EmbeddingKernel;
 use petgraph_linalg_kernel::{

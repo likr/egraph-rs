@@ -6,8 +6,8 @@
 use crate::graph::types::{Edge, IndexType, Node};
 use js_sys::{Array, Function};
 use petgraph::{
-    graph::{edge_index, node_index, Graph},
     Direction, EdgeType,
+    graph::{Graph, edge_index, node_index},
 };
 use wasm_bindgen::prelude::*;
 
@@ -190,21 +190,13 @@ impl<Ty: EdgeType> GraphBase<Ty> {
                     let result = node_map
                         .call2(&JsValue::null(), &(u.index() as f64).into(), node)
                         .unwrap();
-                    if result.is_null() {
-                        None
-                    } else {
-                        Some(result)
-                    }
+                    if result.is_null() { None } else { Some(result) }
                 },
                 |e, edge| {
                     let result = edge_map
                         .call2(&JsValue::null(), &(e.index() as f64).into(), edge)
                         .unwrap();
-                    if result.is_null() {
-                        None
-                    } else {
-                        Some(result)
-                    }
+                    if result.is_null() { None } else { Some(result) }
                 },
             ),
         }

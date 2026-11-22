@@ -6,8 +6,8 @@
 use crate::graph::base::GraphBase;
 use crate::graph::types::{Edge, IndexType, Node};
 use js_sys::{Array, Function};
-use petgraph::graph::Graph;
 use petgraph::Undirected;
+use petgraph::graph::Graph;
 use wasm_bindgen::prelude::*;
 
 /// WebAssembly binding for an undirected graph.
