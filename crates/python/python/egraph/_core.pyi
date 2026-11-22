@@ -1353,18 +1353,33 @@ def all_sources_dijkstra(
 def warshall_floyd(
     graph: GraphAdapter, f: Any = None
 ) -> DistanceMatrix: ...
+@overload
 def cycle_edges(graph: GraphAdapter) -> list[tuple[int, int]]: ...
+@overload
+def cycle_edges(graph: CsrGraph) -> npt.NDArray[np.uint32]: ...
 def remove_cycle(graph: GraphAdapter) -> None: ...
 def triangulation(drawing: DrawingEuclidean2d) -> GraphAdapter: ...
+@overload
 def project_1d(
     drawing: DrawingEuclidean2d, dimension: int, constraints: list[Constraint]
 ) -> None: ...
+@overload
+def project_1d(
+    coords: _WeightArrayLike, constraints: Sequence[SeparationConstraint]
+) -> npt.NDArray[Any]: ...
 def project_rectangle_no_overlap_constraints_2d(
     drawing: DrawingEuclidean2d, size_fn: Callable[[int, int], float]
 ) -> None: ...
+@overload
 def generate_layered_constraints(
     graph: GraphAdapter, gap: float
 ) -> list[Constraint]: ...
+@overload
+def generate_layered_constraints(
+    graph: CsrGraph,
+    layers: _IndexArrayLike,
+    min_layer_distance: float = 1.0,
+) -> list[SeparationConstraint]: ...
 def project_clustered_rectangle_no_overlap_constraints(
     graph: GraphAdapter,
     drawing: DrawingEuclidean2d,
@@ -1889,6 +1904,47 @@ class SgdSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
+    @staticmethod
+    def snap_t_fdp(
+        graph: CsrGraph,
+        *,
+        iterations: int = 200,
+        negatives_per_edge: int = 3,
+        learning_rate: float = 1.0,
+        alpha: float = 1.0,
+        repulsion_scale: float = 1.0,
+        rho_start: float = 1.0,
+        rho_end: float = 0.1,
+        rho_power: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def pacmap_graph(
+        graph: CsrGraph,
+        *,
+        n_neighbors: int = 10,
+        mn_ratio: float = 0.5,
+        fp_ratio: float = 2.0,
+        phase1_iters: int = 100,
+        phase2_iters: int = 100,
+        phase3_iters: int = 250,
+        learning_rate: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def sgd2(
+        graph: CsrGraph,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        step_scale: float = 1.0,
+        batch_size: int = 4096,
+        damping: float = 1e-4,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -2161,3 +2217,339 @@ def py_coarsen(
     node_merge_func: Callable[[list[int]], Any],
     edge_merge_func: Callable[[list[int]], Any],
 ) -> tuple[GraphAdapter, dict[int, int]]: ...
+
+class TFdpSolver:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        *,
+        backend: str = "ibfft",
+        total_iterations: int = 200,
+        learning_rate: float = 1.0,
+        momentum: float = 0.8,
+        theta: float = 0.5,
+        alpha: float = 1.0,
+        gamma: float = 1.0,
+        rho_start: float = 1.0,
+        rho_end: float = 0.1,
+        rho_power: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    @overload
+    @staticmethod
+    def from_knn(
+        knn: KnnGraph,
+        *,
+        backend: str = "ibfft",
+        total_iterations: int = 200,
+        learning_rate: float = 1.0,
+        momentum: float = 0.8,
+        theta: float = 0.5,
+        alpha: float = 1.0,
+        gamma: float = 1.0,
+        rho_start: float = 1.0,
+        rho_end: float = 0.1,
+        rho_power: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TFdpSolver: ...
+    @overload
+    @staticmethod
+    def from_knn(
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        weights: _WeightArrayLike | None = None,
+        *,
+        backend: str = "ibfft",
+        total_iterations: int = 200,
+        learning_rate: float = 1.0,
+        momentum: float = 0.8,
+        theta: float = 0.5,
+        alpha: float = 1.0,
+        gamma: float = 1.0,
+        rho_start: float = 1.0,
+        rho_end: float = 0.1,
+        rho_power: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TFdpSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    @property
+    def current_rho(self) -> float: ...
+    def __repr__(self) -> str: ...
+
+class IbUmapSolver:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        *,
+        max_2hop_per_node: int = 30,
+        backend: str = "ibfft",
+        n_epochs: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    @staticmethod
+    def from_knn(
+        knn: KnnGraph,
+        *,
+        sigma_iters: int = 64,
+        sigma_tol: float = 1e-5,
+        backend: str = "ibfft",
+        n_epochs: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> IbUmapSolver: ...
+    @staticmethod
+    def from_fuzzy_set(
+        probs: SparseProbabilities,
+        *,
+        degrees: _IndexArrayLike | None = None,
+        backend: str = "ibfft",
+        n_epochs: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> IbUmapSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    @property
+    def current_rho(self) -> float: ...
+    def __repr__(self) -> str: ...
+
+class ForceAtlas2Solver:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        *,
+        iterations: int = 200,
+        theta: float = 0.5,
+        use_barnes_hut: bool = True,
+        linlog_mode: bool = False,
+        strong_gravity: bool = False,
+        gravity: float = 1.0,
+        scaling_ratio: float = 2.0,
+        edge_weight_influence: float = 1.0,
+        outbound_attraction_distribution: bool = False,
+        jitter_tolerance: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class YifanHuSolver:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        *,
+        max_iterations_per_level: int = 100,
+        step_size: float = 1.0,
+        step_ratio: float = 0.95,
+        relative_strength: float = 0.2,
+        optimal_distance: float | None = None,
+        theta: float = 0.5,
+        min_coarsen_size: int = 30,
+        min_coarsen_ratio: float = 0.75,
+        convergence_tolerance: float = 1e-4,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_levels(self) -> int: ...
+    @property
+    def current_level(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class PrismOverlapRemoval:
+    def __init__(
+        self,
+        half_widths: _WeightArrayLike,
+        half_heights: _WeightArrayLike,
+        *,
+        max_iterations: int = 50,
+        max_scale_factor: float = 1.5,
+        cg_max_iters: int = 200,
+        cg_tolerance: float = 1e-5,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    @staticmethod
+    def from_radii(
+        radii: _WeightArrayLike,
+        *,
+        max_iterations: int = 50,
+        max_scale_factor: float = 1.5,
+        cg_max_iters: int = 200,
+        cg_tolerance: float = 1e-5,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> PrismOverlapRemoval: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def last_overlap_count(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class SeparationConstraint:
+    def __init__(self, left: int, right: int, gap: float) -> None: ...
+    @property
+    def left(self) -> int: ...
+    @property
+    def right(self) -> int: ...
+    @property
+    def gap(self) -> float: ...
+    def __repr__(self) -> str: ...
+
+class FdebSolver:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        layout: Layout2d,
+        *,
+        cycles: int = 6,
+        s0: float = 0.1,
+        i0: int = 90,
+        s_step: float = 0.5,
+        i_step: float = ...,
+        spring_k: float = 0.1,
+        minimum_edge_compatibility: float = 0.6,
+        dtype: _DtypeLike | None = None,
+    ) -> None: ...
+    def step(self) -> str: ...
+    def run_steps(self, steps: int) -> str: ...
+    def run(self) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def edge_offsets(self) -> npt.NDArray[np.uint32]: ...
+    def points(self) -> npt.NDArray[Any]: ...
+    def __repr__(self) -> str: ...
+
+def project_layout_axis(
+    layout: Layout2d,
+    axis: int,
+    constraints: Sequence[SeparationConstraint],
+) -> None: ...
+def project_rectangle_no_overlap_2d(
+    layout: Layout2d,
+    half_widths: _WeightArrayLike,
+    half_heights: _WeightArrayLike,
+) -> None: ...
+def project_clustered_rectangle_no_overlap_2d(
+    layout: Layout2d,
+    cluster_ids: _IndexArrayLike,
+    half_widths: _WeightArrayLike,
+    half_heights: _WeightArrayLike,
+) -> None: ...
+def remove_cycles(graph: CsrGraph) -> CsrGraph: ...
+def assign_layers(
+    graph: CsrGraph, *, method: str = "longest_path"
+) -> npt.NDArray[np.uint32]: ...

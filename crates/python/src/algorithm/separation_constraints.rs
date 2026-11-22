@@ -1,13 +1,14 @@
 use crate::FloatType;
 use crate::drawing::PyDrawingEuclidean2d;
 use crate::graph::{GraphType, PyGraphAdapter};
+use crate::v6::{PyCsrGraph, StrictF64, v6_generate_layered_constraints_impl, v6_project_1d_impl};
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
     Constraint, generate_layered_constraints, project_1d,
     project_clustered_rectangle_no_overlap_constraints,
     project_rectangle_no_overlap_constraints_2d,
 };
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 /// Represents a separation constraint for graph layouts.
@@ -101,25 +102,44 @@ impl PyConstraint {
 /// >>> # The nodes should now be properly separated
 /// >>> drawing.x(n1) < drawing.x(n2) - 5.0  # This should be True
 #[pyfunction]
-#[pyo3(name = "project_1d")]
-fn py_project_1d(
-    drawing: &mut PyDrawingEuclidean2d,
-    dimension: usize,
-    constraints: Vec<PyConstraint>,
-) -> PyResult<()> {
-    let rust_constraints: Vec<Constraint<FloatType>> =
-        constraints.iter().map(|c| c.constraint.clone()).collect();
+#[pyo3(name = "project_1d", signature = (target, arg2, arg3 = None))]
+fn py_project_1d<'py>(
+    py: Python<'py>,
+    target: &Bound<'py, PyAny>,
+    arg2: &Bound<'py, PyAny>,
+    arg3: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    if let Ok(drawing) = target.cast::<PyDrawingEuclidean2d>() {
+        let Some(constraints_obj) = arg3 else {
+            return Err(PyTypeError::new_err(
+                "project_1d(drawing, dimension, constraints) requires 3 arguments for DrawingEuclidean2d",
+            ));
+        };
+        let dimension = arg2.extract::<usize>()?;
+        let constraints = constraints_obj.extract::<Vec<PyConstraint>>()?;
+        let rust_constraints: Vec<Constraint<FloatType>> =
+            constraints.iter().map(|c| c.constraint.clone()).collect();
 
-    if dimension >= drawing.drawing().dimension() {
-        return Err(PyValueError::new_err(format!(
-            "dimension {} out of bounds. Drawing has {} dimensions",
-            dimension,
-            drawing.drawing().dimension()
-        )));
+        let mut borrowed = drawing.try_borrow_mut()?;
+        if dimension >= borrowed.drawing().dimension() {
+            return Err(PyValueError::new_err(format!(
+                "dimension {} out of bounds. Drawing has {} dimensions",
+                dimension,
+                borrowed.drawing().dimension()
+            )));
+        }
+
+        project_1d(borrowed.drawing_mut(), dimension, &rust_constraints);
+        return Ok(None);
     }
 
-    project_1d(drawing.drawing_mut(), dimension, &rust_constraints);
-    Ok(())
+    if arg3.is_some() {
+        return Err(PyTypeError::new_err(
+            "project_1d(coords, constraints) takes 2 arguments",
+        ));
+    }
+    let arr = v6_project_1d_impl(py, target, arg2)?;
+    Ok(Some(arr))
 }
 
 /// Projects rectangle positions to satisfy non-overlap constraints in both X and Y dimensions.
@@ -210,25 +230,85 @@ fn py_project_rectangle_no_overlap_constraints_2d(
 /// >>> # Apply constraints to the y-dimension (vertical)
 /// >>> eg.project_1d(drawing, 1, constraints)
 #[pyfunction]
-#[pyo3(name = "generate_layered_constraints")]
-fn py_generate_layered_constraints(
-    graph: &PyGraphAdapter,
-    gap: FloatType,
-) -> PyResult<Vec<PyConstraint>> {
-    match graph.graph() {
-        GraphType::DiGraph(graph) => {
-            let rust_constraints = generate_layered_constraints(graph, gap);
-            let py_constraints = rust_constraints
-                .into_iter()
-                .map(|c| PyConstraint { constraint: c })
-                .collect();
-
-            Ok(py_constraints)
+#[pyo3(
+    name = "generate_layered_constraints",
+    signature = (graph, layers_or_gap = None, min_layer_distance = StrictF64(1.0), *, layers = None, gap = None)
+)]
+fn py_generate_layered_constraints<'py>(
+    py: Python<'py>,
+    graph: &Bound<'py, PyAny>,
+    layers_or_gap: Option<&Bound<'py, PyAny>>,
+    min_layer_distance: StrictF64,
+    layers: Option<&Bound<'py, PyAny>>,
+    gap: Option<StrictF64>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Ok(csr) = graph.cast::<PyCsrGraph>() {
+        if gap.is_some() {
+            return Err(PyTypeError::new_err(
+                "generate_layered_constraints(csr_graph, layers, min_layer_distance=1.0) does not accept 'gap'",
+            ));
         }
-        _ => {
-            unimplemented!()
-        }
+        let layers_obj = match (layers, layers_or_gap) {
+            (Some(_), Some(_)) => {
+                return Err(PyTypeError::new_err(
+                    "generate_layered_constraints got multiple values for 'layers'",
+                ));
+            }
+            (Some(l), None) | (None, Some(l)) => l,
+            (None, None) => {
+                return Err(PyTypeError::new_err(
+                    "generate_layered_constraints(csr_graph, layers, ...) requires 'layers'",
+                ));
+            }
+        };
+        let cs = v6_generate_layered_constraints_impl(
+            py,
+            &csr.borrow(),
+            layers_obj,
+            min_layer_distance,
+        )?;
+        return Ok(cs.into_pyobject(py)?.into_any());
     }
+
+    if let Ok(adapter) = graph.cast::<PyGraphAdapter>() {
+        if layers.is_some() {
+            return Err(PyTypeError::new_err(
+                "generate_layered_constraints(digraph, gap) does not accept 'layers'",
+            ));
+        }
+        let gap_val = match (gap, layers_or_gap) {
+            (Some(_), Some(_)) => {
+                return Err(PyTypeError::new_err(
+                    "generate_layered_constraints got multiple values for 'gap'",
+                ));
+            }
+            (Some(g), None) => g.0,
+            (None, Some(obj)) => obj.extract::<StrictF64>()?.0,
+            (None, None) => {
+                return Err(PyTypeError::new_err(
+                    "generate_layered_constraints(digraph, gap) requires 'gap'",
+                ));
+            }
+        };
+        let borrowed = adapter.borrow();
+        return match borrowed.graph() {
+            GraphType::DiGraph(g) => {
+                let rust_constraints = generate_layered_constraints(g, gap_val);
+                let py_constraints: Vec<PyConstraint> = rust_constraints
+                    .into_iter()
+                    .map(|c| PyConstraint { constraint: c })
+                    .collect();
+                Ok(py_constraints.into_pyobject(py)?.into_any())
+            }
+            _ => Err(PyValueError::new_err(
+                "generate_layered_constraints requires a directed graph",
+            )),
+        };
+    }
+
+    Err(PyTypeError::new_err(
+        "generate_layered_constraints: graph must be CsrGraph or DiGraph",
+    ))
 }
 
 /// Removes overlaps between rectangular regions that represent clusters of nodes.

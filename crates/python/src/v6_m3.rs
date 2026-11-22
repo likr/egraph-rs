@@ -35,7 +35,7 @@ use super::{
     is_non_sequence_container,
 };
 
-fn normalize_enum_key(raw: &str) -> String {
+pub(super) fn normalize_enum_key(raw: &str) -> String {
     raw.trim()
         .chars()
         .filter(|c| *c != '_' && *c != '-' && *c != ' ')
@@ -81,8 +81,9 @@ fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, String> {
         "quadratic" => Ok(SgdScheduleKind::Quadratic),
         "reciprocal" => Ok(SgdScheduleKind::Reciprocal),
         "constant" => Ok(SgdScheduleKind::Constant),
+        "squared" => Ok(SgdScheduleKind::Squared),
         _ => Err(format!(
-            "unknown SGD schedule {raw:?}; expected 'exponential', 'linear', 'quadratic', 'reciprocal', or 'constant'"
+            "unknown SGD schedule {raw:?}; expected 'exponential', 'linear', 'quadratic', 'reciprocal', 'constant', or 'squared'"
         )),
     }
 }
@@ -97,7 +98,7 @@ fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, String> {
     }
 }
 
-fn solver_status_str(status: SolverStatus) -> &'static str {
+pub(super) fn solver_status_str(status: SolverStatus) -> &'static str {
     match status {
         SolverStatus::Initialized => "initialized",
         SolverStatus::Running => "running",
@@ -238,7 +239,7 @@ fn extract_distance_matrix_2d(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f64>, usi
     Ok((flat, nrows))
 }
 
-fn vec_f64_to_f32_checked(values: &[f64], ctx: &str) -> PyResult<Vec<f32>> {
+pub(super) fn vec_f64_to_f32_checked(values: &[f64], ctx: &str) -> PyResult<Vec<f32>> {
     let mut out = Vec::with_capacity(values.len());
     for &v in values {
         if !v.is_finite() {
@@ -255,7 +256,7 @@ fn vec_f64_to_f32_checked(values: &[f64], ctx: &str) -> PyResult<Vec<f32>> {
     Ok(out)
 }
 
-enum SolverLayout {
+pub(super) enum SolverLayout {
     F64(Layout2d<f64>),
     F32(Layout2d<f32>),
 }
@@ -272,7 +273,7 @@ fn layout_f64_to_f32_checked(soa64: &Layout2d<f64>) -> CoreResult<Layout2d<f32>>
     Layout2d::from_xy(x, y)
 }
 
-fn extract_solver_layout(
+pub(super) fn extract_solver_layout(
     layout: &Bound<'_, PyLayout2d>,
     target_dtype: ScalarDtype,
 ) -> PyResult<SolverLayout> {
@@ -293,7 +294,10 @@ fn extract_solver_layout(
     }
 }
 
-fn write_back_solver_layout(layout: &Bound<'_, PyLayout2d>, soa: &SolverLayout) -> PyResult<()> {
+pub(super) fn write_back_solver_layout(
+    layout: &Bound<'_, PyLayout2d>,
+    soa: &SolverLayout,
+) -> PyResult<()> {
     let mut borrowed = layout.try_borrow_mut()?;
     match (borrowed.inner_mut(), soa) {
         (Layout2dInner::F64(buf), SolverLayout::F64(l64)) => {
@@ -345,7 +349,7 @@ fn write_back_solver_layout(layout: &Bound<'_, PyLayout2d>, soa: &SolverLayout) 
     }
 }
 
-trait DualIterativeSolver: Send {
+pub(super) trait DualIterativeSolver: Send {
     fn dtype(&self) -> ScalarDtype;
     fn step_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus>;
     fn run_steps_layout(
@@ -361,7 +365,7 @@ trait DualIterativeSolver: Send {
 
 macro_rules! impl_dual_solver {
     ($enum_name:ident, $solver_ty:ident) => {
-        enum $enum_name {
+        pub(super) enum $enum_name {
             F64($solver_ty<f64>),
             F32($solver_ty<f32>),
         }
@@ -432,6 +436,8 @@ macro_rules! impl_dual_solver {
     };
 }
 
+pub(super) use impl_dual_solver;
+
 impl_dual_solver!(TsNetInner, TsNetSolver);
 impl_dual_solver!(SgdInner, SgdSolver);
 impl_dual_solver!(GuMapInner, GuMapSolver);
@@ -439,13 +445,13 @@ impl_dual_solver!(RefinerInner, SpatialIntruderRefiner);
 impl_dual_solver!(StressMajorizationInner, StressMajorizationSolver);
 impl_dual_solver!(KamadaKawaiInner, KamadaKawaiSolver);
 
-enum SolverAction {
+pub(super) enum SolverAction {
     Step,
     RunSteps(usize),
     Run,
 }
 
-fn execute_solver_action<I: DualIterativeSolver>(
+pub(super) fn execute_solver_action<I: DualIterativeSolver>(
     inner: &mut I,
     py: Python<'_>,
     layout: &Bound<'_, PyLayout2d>,
@@ -1479,6 +1485,14 @@ pub struct PySgdSolver {
 }
 
 impl PySgdSolver {
+    pub(super) fn from_inner(inner: SgdInner) -> Self {
+        Self {
+            inner,
+            barrier_stats: None,
+            dog_stats: None,
+        }
+    }
+
     fn execute_manifold_action(
         &mut self,
         py: Python<'_>,
@@ -2171,6 +2185,136 @@ impl PySgdSolver {
             barrier_stats: None,
             dog_stats: None,
         })
+    }
+
+    /// Construct a compact-memory edge-incident negative sampling `SNAP-tFDP` `SgdSolver`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            iterations = StrictUsize(200),
+            negatives_per_edge = StrictUsize(3),
+            learning_rate = StrictF64(1.0),
+            alpha = StrictF64(1.0),
+            repulsion_scale = StrictF64(1.0),
+            rho_start = StrictF64(1.0),
+            rho_end = StrictF64(0.1),
+            rho_power = StrictF64(1.0),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, iterations=200, negatives_per_edge=3, learning_rate=1.0, alpha=1.0, repulsion_scale=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, seed=42, dtype='float64')"
+    )]
+    fn snap_t_fdp(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        iterations: StrictUsize,
+        negatives_per_edge: StrictUsize,
+        learning_rate: StrictF64,
+        alpha: StrictF64,
+        repulsion_scale: StrictF64,
+        rho_start: StrictF64,
+        rho_end: StrictF64,
+        rho_power: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_m4::build_snap_t_fdp_solver(
+            py,
+            graph,
+            iterations,
+            negatives_per_edge,
+            learning_rate,
+            alpha,
+            repulsion_scale,
+            rho_start,
+            rho_end,
+            rho_power,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a 3-tier `PaCMAP-Graph` (`NB` / `MN` / `FP`) `SgdSolver`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            n_neighbors = StrictUsize(10),
+            mn_ratio = StrictF64(0.5),
+            fp_ratio = StrictF64(2.0),
+            phase1_iters = StrictUsize(100),
+            phase2_iters = StrictUsize(100),
+            phase3_iters = StrictUsize(250),
+            learning_rate = StrictF64(1.0),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, seed=42, dtype='float64')"
+    )]
+    fn pacmap_graph(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        n_neighbors: StrictUsize,
+        mn_ratio: StrictF64,
+        fp_ratio: StrictF64,
+        phase1_iters: StrictUsize,
+        phase2_iters: StrictUsize,
+        phase3_iters: StrictUsize,
+        learning_rate: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_m4::build_pacmap_graph_solver(
+            py,
+            graph,
+            n_neighbors,
+            mn_ratio,
+            fp_ratio,
+            phase1_iters,
+            phase2_iters,
+            phase3_iters,
+            learning_rate,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` `SgdSolver`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            t_max = StrictUsize(60),
+            eps = StrictF64(0.01),
+            step_scale = StrictF64(1.0),
+            batch_size = StrictUsize(4096),
+            damping = StrictF64(1e-4),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, t_max=60, eps=0.01, step_scale=1.0, batch_size=4096, damping=1e-4, seed=42, dtype='float64')"
+    )]
+    fn sgd2(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        t_max: StrictUsize,
+        eps: StrictF64,
+        step_scale: StrictF64,
+        batch_size: StrictUsize,
+        damping: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_m4::build_sgd2_solver(
+            py, graph, t_max, eps, step_scale, batch_size, damping, seed, dtype,
+        )
     }
 
     /// Execute one Euclidean SGD iteration in place on `layout` while releasing the GIL.
@@ -3328,6 +3472,10 @@ mod tests {
         assert_eq!(
             parse_sgd_schedule_kind("constant").unwrap(),
             SgdScheduleKind::Constant
+        );
+        assert_eq!(
+            parse_sgd_schedule_kind("squared").unwrap(),
+            SgdScheduleKind::Squared
         );
         assert!(parse_sgd_schedule_kind("cosine").is_err());
 

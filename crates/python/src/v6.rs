@@ -21,6 +21,12 @@ use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyType};
 mod v6_m2;
 #[path = "v6_m3.rs"]
 mod v6_m3;
+#[path = "v6_m4.rs"]
+mod v6_m4;
+
+pub(crate) use v6_m4::{
+    v6_cycle_edges_impl, v6_generate_layered_constraints_impl, v6_project_1d_impl,
+};
 
 pub(super) fn ffi_error_to_py(err: FfiError) -> PyErr {
     match err.kind {
@@ -435,7 +441,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for StrictU64 {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct StrictF64(pub(super) f64);
+pub(crate) struct StrictF64(pub(crate) f64);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for StrictF64 {
     type Error = PyErr;
@@ -1523,6 +1529,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
     v6_m2::register_m2(m)?;
     v6_m3::register_m3(m)?;
+    v6_m4::register_m4(m)?;
     Ok(())
 }
 
