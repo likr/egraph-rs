@@ -122,14 +122,24 @@ check_cargo_tree_legacy_crate() {
 }
 
 # 1. Dependency tree gate (rayon / linfa / getrandom / wgpu)
-# Pure-Rust v6 core/spatial/metrics/linalg/neighborhood/clustering/layout crates and
-# `egraph-wasm --no-default-features` ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
-# Legacy-featured crates (`petgraph-clustering`, `egraph-wasm` full, `egraph-python`, `egraph`)
+# Pure-Rust v6 core/spatial/metrics/linalg/neighborhood/clustering/layout/facade/cli crates
+# and `egraph-wasm` (both default `full = ["delaunay"]` and `--no-default-features`)
+# ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
+# Legacy-featured crates (`petgraph-clustering`, `egraph-python`, `egraph-wasm --features legacy`)
 # fail_hard on rayon/linfa/wgpu and warn_legacy ONLY on legacy `getrandom`.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-dataset|egraph-metrics|egraph-linalg|egraph-neighborhood|egraph-clustering)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-metrics|egraph-linalg|egraph-neighborhood|egraph-clustering|egraph-cli)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
+      ;;
+    egraph-dataset)
+      check_cargo_tree_crate "egraph-dataset (default)" "hard" -p egraph-dataset
+      check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
+      ;;
+    egraph)
+      check_cargo_tree_crate "egraph (default)" "hard" -p egraph
+      check_cargo_tree_crate "egraph (--all-features)" "hard" -p egraph --all-features
+      check_cargo_tree_crate "egraph (--no-default-features)" "hard" -p egraph --no-default-features
       ;;
     egraph-layout)
       check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
@@ -140,10 +150,10 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "egraph-spatial (--features delaunay)" "hard" -p egraph-spatial --features delaunay
       ;;
     egraph-wasm)
+      check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
       check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-      check_cargo_tree_legacy_crate "egraph-wasm (full)" -p egraph-wasm
       ;;
-    petgraph-clustering|egraph-python|egraph)
+    petgraph-clustering|egraph-python)
       check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
       ;;
     *)
@@ -151,11 +161,18 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-metrics egraph-linalg egraph-neighborhood egraph-clustering; do
+  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-metrics egraph-linalg egraph-neighborhood egraph-clustering egraph egraph-cli; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
   done
+  if has_workspace_pkg "egraph-dataset"; then
+    check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
+  fi
+  if has_workspace_pkg "egraph"; then
+    check_cargo_tree_crate "egraph (--all-features)" "hard" -p egraph --all-features
+    check_cargo_tree_crate "egraph (--no-default-features)" "hard" -p egraph --no-default-features
+  fi
   if has_workspace_pkg "egraph-layout"; then
     check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
     check_cargo_tree_crate "egraph-layout (--no-default-features)" "hard" -p egraph-layout --no-default-features
@@ -165,10 +182,10 @@ else
     check_cargo_tree_crate "egraph-spatial (--features delaunay)" "hard" -p egraph-spatial --features delaunay
   fi
   if has_workspace_pkg "egraph-wasm"; then
+    check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
     check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-    check_cargo_tree_legacy_crate "egraph-wasm (full)" -p egraph-wasm
   fi
-  for legacy_crate in petgraph-clustering egraph-python egraph; do
+  for legacy_crate in petgraph-clustering egraph-python; do
     if has_workspace_pkg "$legacy_crate"; then
       check_cargo_tree_legacy_crate "$legacy_crate" -p "$legacy_crate"
     fi
@@ -200,46 +217,48 @@ if [[ -d "$REPO_ROOT/crates" ]]; then
 fi
 
 # 3. wasm32-unknown-unknown cross-compilation check
-WASM_CHECK_CRATE="${TARGET_CRATE:-egraph-wasm}"
-case "$WASM_CHECK_CRATE" in
-  egraph-python|egraph-cli)
-    echo "[INFO] Skipping wasm32-unknown-unknown check for host-only crate '$WASM_CHECK_CRATE'"
-    ;;
-  *)
-    if has_workspace_pkg "$WASM_CHECK_CRATE"; then
-      if cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown >/dev/null 2>&1; then
-        pass "$WASM_CHECK_CRATE compiles cleanly for wasm32-unknown-unknown"
-      else
-        fail_hard "$WASM_CHECK_CRATE failed cargo check --target wasm32-unknown-unknown"
-        cargo check -p "$WASM_CHECK_CRATE" --target wasm32-unknown-unknown || true
-      fi
-      if [[ "$WASM_CHECK_CRATE" == "egraph-layout" ]]; then
-        if cargo check -p egraph-layout --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
-          pass "egraph-layout (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
-        else
-          fail_hard "egraph-layout (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
-          cargo check -p egraph-layout --no-default-features --target wasm32-unknown-unknown || true
-        fi
-      fi
-      if [[ "$WASM_CHECK_CRATE" == "egraph-spatial" ]]; then
-        if cargo check -p egraph-spatial --features delaunay --target wasm32-unknown-unknown >/dev/null 2>&1; then
-          pass "egraph-spatial (--features delaunay) compiles cleanly for wasm32-unknown-unknown"
-        else
-          fail_hard "egraph-spatial (--features delaunay) failed cargo check --target wasm32-unknown-unknown"
-          cargo check -p egraph-spatial --features delaunay --target wasm32-unknown-unknown || true
-        fi
-      fi
-      if [[ "$WASM_CHECK_CRATE" == "egraph-wasm" ]]; then
-        if cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
-          pass "egraph-wasm (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
-        else
-          fail_hard "egraph-wasm (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
-          cargo check -p egraph-wasm --no-default-features --target wasm32-unknown-unknown || true
-        fi
-      fi
+check_wasm32_target() {
+  local crate="$1"
+  if ! has_workspace_pkg "$crate"; then
+    return 0
+  fi
+  if cargo check -p "$crate" --target wasm32-unknown-unknown >/dev/null 2>&1; then
+    pass "$crate compiles cleanly for wasm32-unknown-unknown"
+  else
+    fail_hard "$crate failed cargo check --target wasm32-unknown-unknown"
+    cargo check -p "$crate" --target wasm32-unknown-unknown || true
+  fi
+  if [[ "$crate" == "egraph" || "$crate" == "egraph-layout" || "$crate" == "egraph-wasm" ]]; then
+    if cargo check -p "$crate" --no-default-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "$crate (--no-default-features) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "$crate (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p "$crate" --no-default-features --target wasm32-unknown-unknown || true
     fi
-    ;;
-esac
+  fi
+  if [[ "$crate" == "egraph-spatial" ]]; then
+    if cargo check -p egraph-spatial --features delaunay --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "egraph-spatial (--features delaunay) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "egraph-spatial (--features delaunay) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p egraph-spatial --features delaunay --target wasm32-unknown-unknown || true
+    fi
+  fi
+}
+
+if [[ -n "$TARGET_CRATE" ]]; then
+  case "$TARGET_CRATE" in
+    egraph-python|egraph-cli)
+      echo "[INFO] Skipping wasm32-unknown-unknown check for host-only crate '$TARGET_CRATE'"
+      ;;
+    *)
+      check_wasm32_target "$TARGET_CRATE"
+      ;;
+  esac
+else
+  check_wasm32_target "egraph"
+  check_wasm32_target "egraph-wasm"
+fi
 
 # 4. WASM gzip size check (budget: 600 KiB = 614400 bytes)
 WASM_FILE=""
@@ -324,7 +343,7 @@ def resolve_cargo_version(cargo_path: pathlib.Path) -> str | None:
     return None
 
 
-for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics", "linalg", "neighborhood", "cluster", "layout"):
+for sub in ("core", "ffi", "petgraph", "dataset", "spatial", "metrics", "linalg", "neighborhood", "cluster", "layout", "egraph", "cli"):
     sub_toml = root / "crates" / sub / "Cargo.toml"
     if sub_toml.exists() and ws_version:
         sub_ver = resolve_cargo_version(sub_toml)

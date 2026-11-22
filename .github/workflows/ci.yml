@@ -44,15 +44,17 @@ jobs:
         run: |
           PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
           eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
-          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -- -D warnings
-          cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -- -D warnings
+          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -p egraph -p egraph-cli -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -p egraph -p egraph-dataset -- -D warnings
 
       - name: Run release workspace tests
         run: |
           cargo test --release --workspace
-          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout
+          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -p egraph -p egraph-cli
           cargo test --release --features delaunay -p egraph-spatial
           cargo test --release --no-default-features -p egraph-layout
+          cargo test --release --no-default-features -p egraph
+          cargo test --release --no-default-features -p egraph-dataset
 
       - name: Check single-thread invariants and dependency hygiene
         run: |
@@ -62,7 +64,7 @@ jobs:
             echo "::error::workspace dependency tree pulls rayon/linfa/wgpu"
             exit 1
           fi
-          for crate in egraph-core egraph-ffi egraph-petgraph egraph-spatial egraph-metrics egraph-linalg egraph-neighborhood egraph-clustering egraph-layout; do
+          for crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial egraph-metrics egraph-linalg egraph-neighborhood egraph-clustering egraph-layout egraph egraph-cli egraph-wasm; do
             if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$crate dependency tree pulls forbidden crate"
               exit 1
@@ -117,7 +119,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --force-reinstall crates/python/dist/*.whl
-          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "mypy>=1.11"
+          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11" "mypy>=1.11"
 
       - name: Run Python test suite and parity harness
         shell: bash
@@ -135,6 +137,7 @@ jobs:
             shopt -s nullglob
             V6_PY_TESTS=(crates/python/tests/test_v6_*.py)
             mypy --strict crates/python/python/egraph ${V6_PY_TESTS[@]+"${V6_PY_TESTS[@]}"}
+            stubtest egraph
           fi
 
       - name: Upload Linux wheel for docs-check
@@ -184,7 +187,8 @@ jobs:
         run: |
           cargo check -p egraph-wasm --target wasm32-unknown-unknown
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4
+          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
+          wasm-pack test --node crates/wasm --features legacy
 
       - name: Build optimized web bundle, assemble pkg, and check <= 600 KiB gzip
         run: |
@@ -207,6 +211,13 @@ jobs:
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
           (cd crates/wasm && npm pack --dry-run)
+
+      - name: Build js/examples and run Playwright browser smoke
+        run: |
+          npm --prefix js/examples ci || npm --prefix js/examples install --no-audit --no-fund
+          npm --prefix js/examples run build
+          npx --prefix js/examples playwright install --with-deps chromium
+          node crates/wasm/tests/playwright_smoke.mjs
 
       - name: Upload built WASM pkg for docs-check
         uses: actions/upload-artifact@v4
@@ -239,24 +250,18 @@ jobs:
           name: wasm-pkg
           path: crates/wasm/pkg
 
-      - name: Build Sphinx HTML documentation
+      - name: Build Sphinx HTML documentation and doctests
         run: |
           python -m pip install --upgrade pip
           python -m pip install crates/python/dist/*.whl
           python -m pip install -r crates/python/docs/requirements.txt
           python -m sphinx -b html crates/python/docs/source crates/python/docs/_build/html
-          if [[ ! -f crates/python/docs/netlify.toml ]]; then
-            python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/doctest
-          fi
+          python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/doctest
 
-      - name: Build TypeDoc if configured
+      - name: Build TypeDoc documentation
         run: |
-          if [[ -f crates/wasm/typedoc.json ]]; then
-            npm ci --prefix crates/wasm
-            npx --prefix crates/wasm typedoc
-          else
-            echo "TypeDoc configuration not yet added; skipping until M5"
-          fi
+          npm ci --prefix crates/wasm
+          npm --prefix crates/wasm run docs
 
       - name: Validate docs/ relative Markdown links
         run: |

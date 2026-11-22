@@ -16,6 +16,7 @@ Modes (composable):
   --wasm                   Check wasm32 + run wasm-pack test --node crates/wasm
   --invariants             Run scripts/check_invariants.sh
   --parity                 Run scripts/parity_harness.py
+  --docs                   Build Sphinx HTML + doctest, TypeDoc, and js/examples Vite bundle
   --all                    Run --rust --python --wasm --invariants --parity
 
 Options:
@@ -36,6 +37,7 @@ RUN_PYTHON=0
 RUN_WASM=0
 RUN_INVARIANTS=0
 RUN_PARITY=0
+RUN_DOCS=0
 STRICT=0
 RELEASE_PY=1
 DEBUG_RUST=0
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --wasm) RUN_WASM=1; shift ;;
     --invariants) RUN_INVARIANTS=1; shift ;;
     --parity) RUN_PARITY=1; shift ;;
+    --docs) RUN_DOCS=1; shift ;;
     --all) RUN_RUST=1; RUN_PYTHON=1; RUN_WASM=1; RUN_INVARIANTS=1; RUN_PARITY=1; shift ;;
     --crate)
       IFS=',' read -ra _parts <<< "${2:-}"
@@ -76,7 +79,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ $((RUN_FAST + RUN_RUST + RUN_PYTHON + RUN_WASM + RUN_INVARIANTS + RUN_PARITY)) -eq 0 ]]; then
+if [[ $((RUN_FAST + RUN_RUST + RUN_PYTHON + RUN_WASM + RUN_INVARIANTS + RUN_PARITY + RUN_DOCS)) -eq 0 ]]; then
   RUN_FAST=1
 fi
 
@@ -139,6 +142,7 @@ run_cargo_test_args() {
 
 OVERALL_START="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
 STEP_RECORDS_FILE="$(mktemp "${TMPDIR:-/tmp}/egraph_verify_steps.XXXXXX")"
+DOCS_TMP_DIR=""
 FINAL_STATUS="pass"
 REACHED_END=0
 
@@ -193,6 +197,9 @@ out_path.write_text(json.dumps(payload, indent=2) + "\n")
 PY
   fi
   rm -f "$STEP_RECORDS_FILE"
+  if [[ -n "${DOCS_TMP_DIR:-}" ]]; then
+    rm -rf "$DOCS_TMP_DIR"
+  fi
   exit "$exit_code"
 }
 trap write_json_summary EXIT
@@ -318,6 +325,9 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
     run_step "clippy_layout_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -- -D warnings
   fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph' in pkgs else 1)"; then
+    run_step "clippy_egraph_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph -- -D warnings
+  fi
   RUST_TEST_ARGS=()
   if [[ "$DEBUG_RUST" -eq 0 ]]; then
     RUST_TEST_ARGS+=(--release)
@@ -325,12 +335,20 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_step "rust_workspace_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --workspace
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-dataset' in pkgs else 1)"; then
     run_step "rust_dataset_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-dataset
+    run_step "rust_dataset_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph-dataset
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-spatial' in pkgs else 1)"; then
     run_step "rust_spatial_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-spatial
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
     run_step "rust_layout_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph-layout
+  fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph' in pkgs else 1)"; then
+    run_step "rust_egraph_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph
+    run_step "rust_egraph_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph
+  fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-cli' in pkgs else 1)"; then
+    run_step "rust_cli_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} -p egraph-cli
   fi
 fi
 
@@ -362,6 +380,7 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
       [[ -n "$py_test" ]] && V6_PY_TESTS+=("$py_test")
     done < <(find "$REPO_ROOT/crates/python/tests" -maxdepth 1 -name 'test_v6_*.py' | sort)
     run_step "python_mypy" "$VIRTUAL_ENV/bin/mypy" --strict "$REPO_ROOT/crates/python/python/egraph" ${V6_PY_TESTS[@]+"${V6_PY_TESTS[@]}"}
+    run_step "python_stubtest" "$VIRTUAL_ENV/bin/stubtest" egraph
   fi
 fi
 
@@ -372,7 +391,8 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
     run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
   else
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
-    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4
+    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
+    run_step "wasm_test_legacy" wasm-pack test --node "$REPO_ROOT/crates/wasm" --features legacy
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
@@ -388,6 +408,9 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
           -o '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm'
       fi
     "
+    if [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]]; then
+      run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
+    fi
   fi
 fi
 
@@ -413,6 +436,47 @@ if [[ "$RUN_PARITY" -eq 1 ]]; then
     PARITY_ARGS+=(--wasm-pkg "$REPO_ROOT/crates/wasm/pkg")
   fi
   run_step "parity_harness" "$VIRTUAL_ENV/bin/python" "$PARITY_BIN" ${PARITY_ARGS[@]+"${PARITY_ARGS[@]}"}
+fi
+
+# --- Docs & Examples ---
+if [[ "$RUN_DOCS" -eq 1 ]]; then
+  run_step "python_venv_for_docs" ensure_venv
+  if ! "$VIRTUAL_ENV/bin/python" -c "import egraph" >/dev/null 2>&1; then
+    run_step "python_maturin_develop_for_docs" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/maturin' develop --release"
+  fi
+  if [[ ! -f "$REPO_ROOT/crates/wasm/pkg/index.d.ts" ]]; then
+    run_step "wasm_build_release_for_docs" bash -c "
+      set -euo pipefail
+      wasm-pack build --target web --no-opt --profile wasm-release -d pkg '$REPO_ROOT/crates/wasm'
+      if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
+        node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
+      fi
+      if command -v wasm-opt >/dev/null 2>&1 && [[ -f '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' ]]; then
+        wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+          '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' \
+          -o '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm'
+      fi
+    "
+  fi
+  DOCS_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/egraph_verify_docs.XXXXXX")"
+  run_step "docs_sphinx_html" "$VIRTUAL_ENV/bin/python" -m sphinx -b html "$REPO_ROOT/crates/python/docs/source" "$DOCS_TMP_DIR/sphinx_html"
+  run_step "docs_sphinx_doctest" "$VIRTUAL_ENV/bin/python" -m sphinx -b doctest "$REPO_ROOT/crates/python/docs/source" "$DOCS_TMP_DIR/sphinx_doctest"
+  run_step "docs_typedoc" bash -c "
+    set -euo pipefail
+    if [[ ! -x '$REPO_ROOT/crates/wasm/node_modules/.bin/typedoc' ]]; then
+      npm ci --prefix '$REPO_ROOT/crates/wasm'
+    fi
+    npx --prefix '$REPO_ROOT/crates/wasm' typedoc --options '$REPO_ROOT/crates/wasm/typedoc.json' --out '$DOCS_TMP_DIR/typedoc'
+  "
+  run_step "docs_js_examples_build" bash -c "
+    set -euo pipefail
+    if [[ ! -d '$REPO_ROOT/js/examples/node_modules' ]]; then
+      npm --prefix '$REPO_ROOT/js/examples' ci || npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund
+    fi
+    npm --prefix '$REPO_ROOT/js/examples' run build
+  "
+  rm -rf "$DOCS_TMP_DIR"
+  DOCS_TMP_DIR=""
 fi
 
 REACHED_END=1

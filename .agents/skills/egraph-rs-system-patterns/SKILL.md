@@ -231,3 +231,17 @@ All v6 layout solvers implement `egraph_core::IterativeSolver<S>` with cooperati
   - Gansner-Koren-North (2004) Stress Majorization using `BfsWorkspace`/`DijkstraWorkspace` APSP and a zero-per-iteration-allocation Jacobi Preconditioned Conjugate Gradient workspace (`PcgWorkspace`) with singular/disconnected component exit guards.
 - **`KamadaKawaiSolver<S>` (`crates/layout/src/kamada_kawai.rs`)**:
   - Cooperative Kamada-Kawai (1989) solver selecting the max-gradient vertex per `step()` with `|det| <= 1e-12` Hessian singularity guard falling back to bounded steepest descent.
+
+## Unified Facade, CLI & Cross-Target Integration (M5)
+
+- **`egraph` Facade Crate (`crates/egraph`)**:
+  - Unconditionally re-exports `egraph-core` and feature-gates `spatial`, `delaunay`, `linalg`, `neighborhood`, `layout`, `clustering`, `metrics`, `dataset`, and optional `petgraph` (excluded from `default` so pure-Rust and WASM consumers remain `petgraph`-free and `getrandom`-free), exposing `egraph::prelude::*`.
+- **`egraph-dataset` Optional `petgraph` Feature (`crates/dataset`)**:
+  - Embedded SuiteSparse/benchmark graphs (`karate`, `lesmis`, `1138_bus`, `3elt`, `dwt_1005`, `dwt_2680`, `poli`, `qh882`, `USpowerGrid`) and `parse_csr_csv` operate in pure-CSR mode under `--no-default-features`, while `petgraph` conversion helpers are isolated behind `feature = "petgraph"`.
+- **`egraph-cli` (`crates/cli`)**:
+  - `clap` v4 derive binary (`egraph`) providing `layout`, `metrics`, `cluster`, and `bench` subcommands over JSON edge-list/CSR, MatrixMarket (`.mtx`), CSR CSV, and embedded datasets with JSON output.
+- **Python Ecosystem Interop (`crates/python/python/egraph/interop.py`)**:
+  - `egraph.interop` provides `from_scipy_csr`, `to_scipy_csr`, `from_networkx`, `to_networkx`, and `from_igraph` with lazy optional imports (`egraph[interop]`), sanitized CSR construction, and strict stub/runtime alignment enforced via `mypy --strict` and `stubtest egraph`.
+- **WASM Pure ESM, `LayoutNd.coordsView()`, & `runProgressive` (`crates/wasm`)**:
+  - Default features (`full = ["delaunay"]`) exclude `legacy` (`petgraph`/`getrandom`/`serde`) to stay compact and `getrandom`-free while retaining opt-in `--features legacy`.
+  - `scripts/assemble_pkg.mjs` emits pure ESM (`pkg/index.js`, `pkg/egraph_wasm.node.js`, `pkg/index.d.ts`), attaches `memory.grow`-resilient `coordsView()` to both `Layout2d` and `LayoutNd`, and exports `runProgressive(solver, layout, onFrame, options)` for bounded-frame `requestAnimationFrame` execution (verified by `js/examples` Vite demos and `tests/playwright_smoke.mjs`).
