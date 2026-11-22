@@ -155,14 +155,15 @@ Diffusion kernel-based computations for graph distances and embeddings.
 
 ## Community Detection
 
-- **Unified Trait-Based Interface**:
-  ```rust
-  trait CommunityDetection<G> {
-      fn detect_communities(&self, graph: G) -> HashMap<G::NodeId, usize>;
-  }
-  ```
-- **Algorithms**: Louvain, Label Propagation, Spectral Clustering, InfoMap.
-- **Graph Coarsening**: Custom merge functions for nodes and edges.
+- **V6 Pure-Rust Clustering (`egraph-clustering`, `crates/cluster/`)**:
+  - Operates directly on flat `CsrGraph` and `egraph-linalg` primitives without `HashMap` in inner loops or aggregation; excludes `InfoMap` per `V6_RELEASE_PLAN.md`.
+  - **`kmeans_plus_plus` (`KMeansConfig`, `KMeansResult`)**: Deterministic $D^2$ weighted centroid seeding via `DeterministicRng`, multi-start `n_init` keeping lowest inertia, and canonical `0..k` labels.
+  - **`spectral_clustering` (`SpectralClusteringConfig`)**: Ng-Jordan-Weiss spectral clustering via `smallest_sym_laplacian_eigenpairs`, two-pass Modified Gram-Schmidt orthogonalization, row normalization, and `kmeans_plus_plus`.
+  - **`louvain` (`LouvainConfig`, `LouvainResult`)**: Two-phase multi-level modularity optimization using `VisitStamp` accumulators and compact `WeightedLevelGraph` super-graph aggregation.
+  - **`label_propagation` (`LabelPropagationConfig`)**: Asynchronous Fisher-Yates shuffled sweeps (`DeterministicRng::shuffle`) with `VisitStamp`-guarded neighbor vote counting.
+  - **`coarsen_graph` / `project_clustered_layout` (`CoarsenedGraph`)**: Hash-free label compaction into super-graphs and deterministic multilevel layout projection.
+- **Legacy v5 (`petgraph-clustering`)**:
+  - Trait-based `CommunityDetection<G>` over `petgraph` graphs (Louvain, Label Propagation, Spectral Clustering, InfoMap) and custom coarsening merge functions.
 
 ## Layering Algorithms
 
@@ -195,3 +196,24 @@ Diffusion kernel-based computations for graph distances and embeddings.
   - `compute_regularized_dog_varadhan_landmarks` constructs $L_{\mathrm{sym}}$, $\tilde{L}$, and MaxMin landmarks once and fuses fine DoG + coarse scaffold (`deg_c = max(d, 75)` for explicit `degree`, `max(deg_fine, adaptive(t_coarse))` otherwise) across shared degrees `0..=deg_fine`.
 - **Unweighted `CsrGraph<W>` Scalar Convention**:
   - `egraph-linalg` functions require `W: Scalar` on `CsrGraph<W>`, whereas `egraph-neighborhood::extract_1hop_2hop_csr` emits canonical unweighted `CsrGraph<f64>` (`weights: None`) graphs compatible across both `egraph-linalg` and Python/WASM bindings.
+
+## V6 Cooperative Layout Solvers (`egraph-layout`, `crates/layout/`)
+
+All v6 layout solvers implement `egraph_core::IterativeSolver<S>` with cooperative `step(&mut self, layout: &mut Layout2d<S>)`, `run_steps(layout, k)`, and `run(layout)` producing bit-exact results between `step()` loops and `run()`, zero non-test `.unwrap()`/`panic!`/`unsafe`, and explicit `DeterministicRng::from_seed_u64`.
+
+- **`TsNetSolver<S>` (`crates/layout/src/ts_net.rs`)**:
+  - Consolidates `TsNetBackend::{Exact, BarnesHut, FftInterpolation, LinearFft}` into an allocation-free cooperative solver backed by `FitField2d` (for `FftInterpolation` / `LinearFft` with $p=1$ bilinear interpolation) and `ArenaQuadtree2d` (`BarnesHut`).
+  - `TsNetConfig::pure_2hop()` provides the validated Track A Pure 1+2-Hop adaptive perplexity preset (`perplexity_c=0.9`, `min_perplexity=5.0`, `max_perplexity=1200.0`, `power=2.0`, 3-stage optimization `(250, 250, 500)` with `exaggeration=4.0`, `lambda_c=(0.1, 0.01, 0.0)`).
+- **`SgdSolver<S>` (`crates/layout/src/sgd.rs`)**:
+  - Pure-Rust `u32` Structure-of-Arrays (SoA) SGD engine storing packed `PackedSymPair<S>` (`i`, `j_hinge` with `HINGE_BIT = 1u32 << 31` bit-packed hinge flag, `d`, `w`) or `PackedGenPair<S>` for asymmetric weights/distances.
+  - **Cache-Blocked Shuffle**: For pair counts `> BLOCK_SHUFFLE_THRESHOLD` (`65_536`), `try_for_each_shuffled_pair` shuffles `BLOCK_SIZE` (`16_384`) block indices and intra-block slices rather than full-array Fisher-Yates, preserving cache locality while keeping `step()` and `run()` RNG consumption identical.
+  - **3-Tier Sparse Barrier & Streaming Negatives**: `SparseBarrierConfig` builds Tier 1 (1-hop), Tier 2 (2-hop), and Tier 3 (non-2-hop DoG-Varadhan / MaxMin pivot pairs with optional one-sided hinge repulsion and Horvitz-Thompson $\gamma_{\mathrm{eff}}$ scaling) via `SgdSolver::sparse_barrier_from_landmarks` / `sparse_barrier_dog`; `StreamingNegativeConfig` supports minimal-RAM on-the-fly non-edge negative sampling (`step()`/`run()`); `FullSgd`, `RandomPairSgd`, and `Omega` constructors share the same solver core.
+  - **Non-Euclidean Manifolds (`ManifoldLayout2d`)**: `SgdSolver::step_manifold` / `run_manifold` perform exponential/geodesic updates across `ManifoldKind::{HyperbolicPoincare, Spherical, Torus2d}` with finite-norm and pole/boundary clamping.
+- **`GuMapSolver<S>` (`crates/layout/src/gumap.rs`)**:
+  - Cooperative UMAP-for-graphs solver emitting canonical undirected `(u, v)`/`(v, u)` (`u < v`) pair order (eliminating directional sweep bias) and evaluating attractive/repulsive gradients via the `dist_sq.powf(b)` identity without per-pair `sqrt`.
+- **`SpatialIntruderRefiner<S>` (`crates/layout/src/refiner.rs`)**:
+  - $O(N \log N)$ 2D active-set spatial refiner using `StaticKdTree` and reusable `KdQueryScratch` to detect strictly $>2$-hop spatial false positives inside each node's $k_u$-NN ball, protect 1-hop anchors, and run bounded `SgdSolver` passes (`SpatialRefinerConfig` defaults: `rounds=4`, `k_cap=32`, `margin_scale=1.2`, `w_anchor=1.0`, `w_fn=0.0`, `w_fp=0.2`, `hinge_fp=true`, `seed=42`). Skips rounds with zero active violations for early convergence on clean layouts.
+- **`StressMajorizationSolver<S>` (`crates/layout/src/stress_majorization.rs`)**:
+  - Gansner-Koren-North (2004) Stress Majorization using `BfsWorkspace`/`DijkstraWorkspace` APSP and a zero-per-iteration-allocation Jacobi Preconditioned Conjugate Gradient workspace (`PcgWorkspace`) with singular/disconnected component exit guards.
+- **`KamadaKawaiSolver<S>` (`crates/layout/src/kamada_kawai.rs`)**:
+  - Cooperative Kamada-Kawai (1989) solver selecting the max-gradient vertex per `step()` with `|det| <= 1e-12` Hessian singularity guard falling back to bounded steepest descent.

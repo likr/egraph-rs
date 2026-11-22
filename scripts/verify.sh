@@ -362,7 +362,7 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
     run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
   else
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
-    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood
+    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
