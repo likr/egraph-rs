@@ -16,7 +16,9 @@ use egraph_neighborhood::{
 
 const HINGE_BIT: u32 = 1u32 << 31;
 const INDEX_MASK: u32 = !HINGE_BIT;
-const MAX_PACKED_PAIRS: usize = INDEX_MASK as usize;
+const MAX_PACKED_NODES: usize = (INDEX_MASK as usize) + 1;
+const BLOCK_SIZE: usize = 16_384;
+const BLOCK_SHUFFLE_THRESHOLD: usize = 65_536;
 
 /// Learning rate decay schedule family for [`SgdSolver`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -165,88 +167,106 @@ impl Default for StreamingNegativeConfig {
     }
 }
 
-/// Flat Structure-of-Arrays storage for pair endpoints, target distances, and weights.
-#[derive(Debug, Clone, Default)]
-struct SoaPairs<S: Scalar> {
-    src: Vec<u32>,
-    tgt: Vec<u32>,
-    dij: Vec<S>,
-    dji: Vec<S>,
-    wij: Vec<S>,
-    wji: Vec<S>,
+/// Packed symmetric SGD pair encoding endpoints, hinge flag, target distance, and weight.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PackedSymPair<S: Scalar> {
+    pub(crate) i: u32,
+    pub(crate) j_hinge: u32,
+    pub(crate) d: S,
+    pub(crate) w: S,
 }
 
-impl<S: Scalar> SoaPairs<S> {
-    fn with_capacity(cap: usize) -> Self {
+impl<S: Scalar> PackedSymPair<S> {
+    #[inline]
+    pub(crate) fn new(i: u32, j: u32, is_hinge: bool, d: S, w: S) -> Self {
+        debug_assert!(j <= INDEX_MASK);
         Self {
-            src: Vec::with_capacity(cap),
-            tgt: Vec::with_capacity(cap),
-            dij: Vec::with_capacity(cap),
-            dji: Vec::with_capacity(cap),
-            wij: Vec::with_capacity(cap),
-            wji: Vec::with_capacity(cap),
+            i,
+            j_hinge: if is_hinge { j | HINGE_BIT } else { j },
+            d,
+            w,
         }
     }
 
     #[inline]
-    fn len(&self) -> usize {
-        self.src.len()
+    fn to_pair_spec(self) -> PairSpec<S> {
+        PairSpec {
+            i: self.i as usize,
+            j: (self.j_hinge & INDEX_MASK) as usize,
+            dij: self.d,
+            dji: self.d,
+            wij: self.w,
+            wji: self.w,
+            is_hinge: (self.j_hinge & HINGE_BIT) != 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PackedGenPair<S: Scalar> {
+    i: u32,
+    j_hinge: u32,
+    dij: S,
+    dji: S,
+    wij: S,
+    wji: S,
+}
+
+impl<S: Scalar> PackedGenPair<S> {
+    #[inline]
+    fn new(i: u32, j: u32, is_hinge: bool, dij: S, dji: S, wij: S, wji: S) -> Self {
+        debug_assert!(j <= INDEX_MASK);
+        Self {
+            i,
+            j_hinge: if is_hinge { j | HINGE_BIT } else { j },
+            dij,
+            dji,
+            wij,
+            wji,
+        }
     }
 
-    fn validate(&self, num_nodes: usize, ctx: &'static str) -> CoreResult<()> {
-        let len = self.src.len();
-        for actual in [
-            self.tgt.len(),
-            self.dij.len(),
-            self.dji.len(),
-            self.wij.len(),
-            self.wji.len(),
-        ] {
-            if actual != len {
-                return Err(CoreError::dimension_mismatch(len, actual, ctx));
-            }
+    #[inline]
+    fn to_pair_spec(self) -> PairSpec<S> {
+        PairSpec {
+            i: self.i as usize,
+            j: (self.j_hinge & INDEX_MASK) as usize,
+            dij: self.dij,
+            dji: self.dji,
+            wij: self.wij,
+            wji: self.wji,
+            is_hinge: (self.j_hinge & HINGE_BIT) != 0,
         }
-        if len > MAX_PACKED_PAIRS {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: pair count {len} exceeds packed u32 schedule capacity {MAX_PACKED_PAIRS}"
-            )));
+    }
+}
+
+#[derive(Debug, Clone)]
+enum PairStorage<S: Scalar> {
+    Symmetric(Vec<PackedSymPair<S>>),
+    General(Vec<PackedGenPair<S>>),
+}
+
+impl<S: Scalar> PairStorage<S> {
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::Symmetric(v) => v.len(),
+            Self::General(v) => v.len(),
         }
-        for idx in 0..len {
-            let u = self.src[idx] as usize;
-            let v = self.tgt[idx] as usize;
-            if u >= num_nodes {
-                return Err(CoreError::index_out_of_bounds(u, num_nodes, ctx));
-            }
-            if v >= num_nodes {
-                return Err(CoreError::index_out_of_bounds(v, num_nodes, ctx));
-            }
-            if u == v {
-                return Err(CoreError::invalid_input(format!(
-                    "{ctx}: self-loop pair ({u}, {u}) at index {idx} is not permitted"
-                )));
-            }
-            for d in [self.dij[idx], self.dji[idx]] {
-                if !d.is_finite() {
-                    return Err(CoreError::non_finite(ctx));
-                }
-                if d <= S::ZERO {
-                    return Err(CoreError::invalid_input(format!(
-                        "{ctx}: target distances must be > 0 at index {idx}"
-                    )));
-                }
-            }
-            for w in [self.wij[idx], self.wji[idx]] {
-                if !w.is_finite() {
-                    return Err(CoreError::non_finite(ctx));
-                }
-                if w < S::ZERO {
-                    return Err(CoreError::invalid_input(format!(
-                        "{ctx}: weights must be >= 0 at index {idx}"
-                    )));
-                }
-            }
+    }
+}
+
+struct DirectedPairAccumulator<S: Scalar> {
+    pairs: Vec<PackedGenPair<S>>,
+    all_symmetric: bool,
+}
+
+impl<S: Scalar> DirectedPairAccumulator<S> {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            pairs: Vec::with_capacity(cap),
+            all_symmetric: true,
         }
-        Ok(())
     }
 
     fn push_f64(&mut self, u: u32, v: u32, d_uv: f64, d_vu: f64, w_uv: f64, w_vu: f64) {
@@ -266,12 +286,30 @@ impl<S: Scalar> SoaPairs<S> {
         {
             return;
         }
-        self.src.push(u);
-        self.tgt.push(v);
-        self.dij.push(d_uv_s);
-        self.dji.push(d_vu_s);
-        self.wij.push(w_uv_s);
-        self.wji.push(w_vu_s);
+        if d_uv_s != d_vu_s || w_uv_s != w_vu_s {
+            self.all_symmetric = false;
+        }
+        self.pairs.push(PackedGenPair::new(
+            u, v, false, d_uv_s, d_vu_s, w_uv_s, w_vu_s,
+        ));
+    }
+
+    fn into_storage(self) -> PairStorage<S> {
+        if self.all_symmetric {
+            let sym: Vec<PackedSymPair<S>> = self
+                .pairs
+                .into_iter()
+                .map(|p| PackedSymPair {
+                    i: p.i,
+                    j_hinge: p.j_hinge,
+                    d: p.dij,
+                    w: p.wij,
+                })
+                .collect();
+            PairStorage::Symmetric(sym)
+        } else {
+            PairStorage::General(self.pairs)
+        }
     }
 }
 
@@ -297,17 +335,19 @@ struct StreamingState<S: Scalar> {
     node_order: Vec<u32>,
 }
 
-/// Flat Structure-of-Arrays (SoA) `u32` Stochastic Gradient Descent (SGD) layout solver.
+/// Contiguous packed Stochastic Gradient Descent (SGD) layout solver.
 ///
-/// Supports two-sided spring pairs, one-sided hinge repulsion pairs, Track B 3-tier
-/// sparse barrier schedules, streaming negative sampling, Euclidean [`Layout2d<S>`] via
-/// [`IterativeSolver<S>`], and non-Euclidean [`ManifoldLayout2d<S>`] stepping.
+/// Supports symmetric and general two-sided spring pairs, one-sided hinge repulsion pairs,
+/// Track B 3-tier sparse barrier schedules, cache-blocked L2-resident shuffling, streaming
+/// negative sampling, Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
+/// [`ManifoldLayout2d<S>`] stepping.
 #[derive(Debug, Clone)]
 pub struct SgdSolver<S: Scalar = f64> {
     num_nodes: usize,
-    springs: SoaPairs<S>,
-    hinges: SoaPairs<S>,
-    schedule: Vec<u32>,
+    pairs: PairStorage<S>,
+    num_springs: usize,
+    num_hinges: usize,
+    block_order: Vec<u32>,
     streaming: Option<StreamingState<S>>,
     schedule_cfg: SgdScheduleConfig,
     eta_min: f64,
@@ -388,34 +428,18 @@ fn validate_graph_weights<W: Scalar>(graph: &CsrGraph<W>, ctx: &'static str) -> 
     Ok(())
 }
 
-fn compute_eta_bounds<S: Scalar>(
-    springs: &SoaPairs<S>,
-    hinges: &SoaPairs<S>,
-    extra_weight: Option<S>,
+fn eta_bounds_from_extrema(
+    mut w_min: f64,
+    mut w_max: f64,
+    extra_weight: Option<f64>,
     eps: f64,
 ) -> (f64, f64) {
-    let mut w_min = f64::INFINITY;
-    let mut w_max = 0.0_f64;
-    for slice in [
-        &springs.wij[..],
-        &springs.wji[..],
-        &hinges.wij[..],
-        &hinges.wji[..],
-    ] {
-        for &w in slice {
-            let wf = w.to_f64();
-            if wf.is_finite() && wf > 0.0 {
-                w_min = w_min.min(wf);
-                w_max = w_max.max(wf);
-            }
-        }
-    }
-    if let Some(w_ex) = extra_weight {
-        let wf = w_ex.to_f64();
-        if wf.is_finite() && wf > 0.0 {
-            w_min = w_min.min(wf);
-            w_max = w_max.max(wf);
-        }
+    if let Some(wf) = extra_weight
+        && wf.is_finite()
+        && wf > 0.0
+    {
+        w_min = w_min.min(wf);
+        w_max = w_max.max(wf);
     }
     if !eps.is_finite() || eps <= 0.0 || w_max <= 0.0 || !w_min.is_finite() {
         return (0.0, 0.0);
@@ -426,6 +450,38 @@ fn compute_eta_bounds<S: Scalar>(
         return (0.0, 0.0);
     }
     (eta_min, eta_max)
+}
+
+fn compute_eta_bounds<S: Scalar>(
+    pairs: &PairStorage<S>,
+    extra_weight: Option<S>,
+    eps: f64,
+) -> (f64, f64) {
+    let mut w_min = f64::INFINITY;
+    let mut w_max = 0.0_f64;
+    match pairs {
+        PairStorage::Symmetric(vec) => {
+            for p in vec {
+                let wf = p.w.to_f64();
+                if wf.is_finite() && wf > 0.0 {
+                    w_min = w_min.min(wf);
+                    w_max = w_max.max(wf);
+                }
+            }
+        }
+        PairStorage::General(vec) => {
+            for p in vec {
+                for w in [p.wij, p.wji] {
+                    let wf = w.to_f64();
+                    if wf.is_finite() && wf > 0.0 {
+                        w_min = w_min.min(wf);
+                        w_max = w_max.max(wf);
+                    }
+                }
+            }
+        }
+    }
+    eta_bounds_from_extrema(w_min, w_max, extra_weight.map(|w| w.to_f64()), eps)
 }
 
 #[inline]
@@ -441,7 +497,56 @@ fn resolve_directed_pair_params(d_uv: f64, d_vu: f64) -> Option<(f64, f64, f64, 
 }
 
 #[inline]
-fn apply_euclidean_pair<S: Scalar>(xs: &mut [S], ys: &mut [S], eta: S, p: PairSpec<S>) {
+fn fast_hypot<S: Scalar>(dx: S, dy: S) -> S {
+    let d2 = dx * dx + dy * dy;
+    if d2 > S::ZERO && d2.is_finite() {
+        d2.sqrt()
+    } else {
+        dx.hypot(dy)
+    }
+}
+
+#[inline]
+fn apply_euclidean_sym_pair<S: Scalar>(xs: &mut [S], ys: &mut [S], eta: S, p: PackedSymPair<S>) {
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
+    let mu = if p.w.is_finite() && p.w > S::ZERO {
+        (eta * p.w).min(S::ONE)
+    } else {
+        S::ZERO
+    };
+    if !p.d.is_finite() || p.d <= S::ZERO || !mu.is_finite() || mu <= S::ZERO {
+        return;
+    }
+    let dx = xs[i] - xs[j];
+    let dy = ys[i] - ys[j];
+    let d2 = dx * dx + dy * dy;
+    if is_hinge && d2.is_finite() && d2 >= p.d * p.d {
+        return;
+    }
+    let norm = if d2 > S::ZERO && d2.is_finite() {
+        d2.sqrt()
+    } else {
+        dx.hypot(dy)
+    };
+    if !norm.is_finite() || norm <= S::ZERO {
+        return;
+    }
+    if is_hinge && norm >= p.d {
+        return;
+    }
+    let coeff = S::from_f64(0.5) * (norm - p.d) / norm * mu;
+    let step_x = dx * coeff;
+    let step_y = dy * coeff;
+    xs[i] -= step_x;
+    ys[i] -= step_y;
+    xs[j] += step_x;
+    ys[j] += step_y;
+}
+
+#[inline]
+fn apply_euclidean_gen_pair<S: Scalar>(xs: &mut [S], ys: &mut [S], eta: S, p: &PackedGenPair<S>) {
     if !p.dij.is_finite() || !p.dji.is_finite() || p.dij <= S::ZERO || p.dji <= S::ZERO {
         return;
     }
@@ -458,27 +563,34 @@ fn apply_euclidean_pair<S: Scalar>(xs: &mut [S], ys: &mut [S], eta: S, p: PairSp
     if mu_i <= S::ZERO && mu_j <= S::ZERO {
         return;
     }
-    let dx = xs[p.i] - xs[p.j];
-    let dy = ys[p.i] - ys[p.j];
-    let norm = dx.hypot(dy);
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
+    let dx = xs[i] - xs[j];
+    let dy = ys[i] - ys[j];
+    let d2 = dx * dx + dy * dy;
+    if is_hinge && d2.is_finite() && d2 >= p.dij * p.dij && d2 >= p.dji * p.dji {
+        return;
+    }
+    let norm = fast_hypot(dx, dy);
     if !norm.is_finite() || norm <= S::ZERO {
         return;
     }
-    let update_i = mu_i > S::ZERO && (!p.is_hinge || norm < p.dij);
-    let update_j = mu_j > S::ZERO && (!p.is_hinge || norm < p.dji);
+    let update_i = mu_i > S::ZERO && (!is_hinge || norm < p.dij);
+    let update_j = mu_j > S::ZERO && (!is_hinge || norm < p.dji);
     if !update_i && !update_j {
         return;
     }
     let half = S::from_f64(0.5);
     if update_i {
         let coeff_i = half * (norm - p.dij) / norm * mu_i;
-        xs[p.i] -= dx * coeff_i;
-        ys[p.i] -= dy * coeff_i;
+        xs[i] -= dx * coeff_i;
+        ys[i] -= dy * coeff_i;
     }
     if update_j {
         let coeff_j = half * (norm - p.dji) / norm * mu_j;
-        xs[p.j] += dx * coeff_j;
-        ys[p.j] += dy * coeff_j;
+        xs[j] += dx * coeff_j;
+        ys[j] += dy * coeff_j;
     }
 }
 
@@ -869,61 +981,188 @@ fn sample_non2hop_pairs(
     (u3, v3)
 }
 
+fn init_pair_blocking<P>(pairs: &mut [P], rng: &mut DeterministicRng) -> Vec<u32> {
+    if pairs.len() > BLOCK_SHUFFLE_THRESHOLD {
+        rng.shuffle(pairs);
+        let num_blocks = pairs.len().div_ceil(BLOCK_SIZE);
+        (0..num_blocks as u32).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+#[inline]
+fn try_for_each_shuffled_pair<P>(
+    pairs: &mut [P],
+    block_order: &mut [u32],
+    rng: &mut DeterministicRng,
+    mut apply: impl FnMut(&P) -> CoreResult<()>,
+) -> CoreResult<()> {
+    let len = pairs.len();
+    if len == 0 {
+        return Ok(());
+    }
+    if len <= BLOCK_SHUFFLE_THRESHOLD {
+        rng.shuffle(pairs);
+        for p in pairs.iter() {
+            apply(p)?;
+        }
+    } else {
+        rng.shuffle(block_order);
+        for &b in block_order.iter() {
+            let start = (b as usize) * BLOCK_SIZE;
+            let end = (start + BLOCK_SIZE).min(len);
+            let chunk = &mut pairs[start..end];
+            rng.shuffle(chunk);
+            for p in chunk.iter() {
+                apply(p)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_pair_endpoints(
+    u: usize,
+    v: usize,
+    num_nodes: usize,
+    idx: usize,
+    ctx: &'static str,
+) -> CoreResult<()> {
+    if u >= num_nodes {
+        return Err(CoreError::index_out_of_bounds(u, num_nodes, ctx));
+    }
+    if v >= num_nodes {
+        return Err(CoreError::index_out_of_bounds(v, num_nodes, ctx));
+    }
+    if u == v {
+        return Err(CoreError::invalid_input(format!(
+            "{ctx}: self-loop pair ({u}, {u}) at index {idx} is not permitted"
+        )));
+    }
+    Ok(())
+}
+
 impl<S: Scalar> SgdSolver<S> {
-    fn from_soa(
+    pub(crate) fn from_packed_symmetric(
         num_nodes: usize,
-        springs: SoaPairs<S>,
-        hinges: SoaPairs<S>,
+        mut pairs: Vec<PackedSymPair<S>>,
+        num_springs: usize,
+        num_hinges: usize,
         schedule_cfg: SgdScheduleConfig,
         seed: u64,
     ) -> CoreResult<Self> {
-        if u32::try_from(num_nodes).is_err() {
-            return Err(CoreError::invalid_input("num_nodes exceeds u32::MAX"));
+        if num_nodes > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({num_nodes}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
         }
         validate_schedule_config(&schedule_cfg)?;
-        springs.validate(num_nodes, "SgdSolver::from_pairs_with_hinges::springs")?;
-        hinges.validate(num_nodes, "SgdSolver::from_pairs_with_hinges::hinges")?;
-
-        let n_springs = springs.len();
-        let n_hinges = hinges.len();
-        let mut schedule = Vec::with_capacity(n_springs + n_hinges);
-        for idx in 0..n_springs {
-            schedule.push(idx as u32);
-        }
-        for idx in 0..n_hinges {
-            schedule.push((idx as u32) | HINGE_BIT);
+        if num_springs + num_hinges != pairs.len() {
+            return Err(CoreError::dimension_mismatch(
+                pairs.len(),
+                num_springs + num_hinges,
+                "SgdSolver::from_packed_symmetric",
+            ));
         }
 
-        let (eta_min, eta_max) = compute_eta_bounds(&springs, &hinges, None, schedule_cfg.eps);
+        let mut w_min = f64::INFINITY;
+        let mut w_max = 0.0_f64;
+        for (idx, p) in pairs.iter().enumerate() {
+            let u = p.i as usize;
+            let v = (p.j_hinge & INDEX_MASK) as usize;
+            validate_pair_endpoints(u, v, num_nodes, idx, "SgdSolver::from_packed_symmetric")?;
+            if !p.d.is_finite() {
+                return Err(CoreError::non_finite("SgdSolver::from_packed_symmetric::d"));
+            }
+            if p.d <= S::ZERO {
+                return Err(CoreError::invalid_input(format!(
+                    "SgdSolver::from_packed_symmetric: target distances must be > 0 at index {idx}"
+                )));
+            }
+            if !p.w.is_finite() {
+                return Err(CoreError::non_finite("SgdSolver::from_packed_symmetric::w"));
+            }
+            if p.w < S::ZERO {
+                return Err(CoreError::invalid_input(format!(
+                    "SgdSolver::from_packed_symmetric: weights must be >= 0 at index {idx}"
+                )));
+            }
+            let wf = p.w.to_f64();
+            if wf > 0.0 {
+                w_min = w_min.min(wf);
+                w_max = w_max.max(wf);
+            }
+        }
+
+        let (eta_min, eta_max) = eta_bounds_from_extrema(w_min, w_max, None, schedule_cfg.eps);
         let status = if schedule_cfg.t_max == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
         };
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let block_order = init_pair_blocking(&mut pairs, &mut rng);
 
         Ok(Self {
             num_nodes,
-            springs,
-            hinges,
-            schedule,
+            pairs: PairStorage::Symmetric(pairs),
+            num_springs,
+            num_hinges,
+            block_order,
             streaming: None,
             schedule_cfg,
             eta_min,
             eta_max,
             iter: 0,
             status,
-            rng: DeterministicRng::from_seed_u64(seed),
+            rng,
+        })
+    }
+
+    fn from_pair_storage(
+        num_nodes: usize,
+        mut pairs: PairStorage<S>,
+        num_springs: usize,
+        num_hinges: usize,
+        schedule_cfg: SgdScheduleConfig,
+        seed: u64,
+    ) -> CoreResult<Self> {
+        if num_nodes > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({num_nodes}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+        validate_schedule_config(&schedule_cfg)?;
+        let (eta_min, eta_max) = compute_eta_bounds(&pairs, None, schedule_cfg.eps);
+        let status = if schedule_cfg.t_max == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let block_order = match &mut pairs {
+            PairStorage::Symmetric(v) => init_pair_blocking(v, &mut rng),
+            PairStorage::General(v) => init_pair_blocking(v, &mut rng),
+        };
+        Ok(Self {
+            num_nodes,
+            pairs,
+            num_springs,
+            num_hinges,
+            block_order,
+            streaming: None,
+            schedule_cfg,
+            eta_min,
+            eta_max,
+            iter: 0,
+            status,
+            rng,
         })
     }
 
     fn empty(num_nodes: usize, schedule: SgdScheduleConfig, seed: u64) -> CoreResult<Self> {
-        Self::from_soa(
-            num_nodes,
-            SoaPairs::default(),
-            SoaPairs::default(),
-            schedule,
-            seed,
-        )
+        Self::from_packed_symmetric(num_nodes, Vec::new(), 0, 0, schedule, seed)
     }
 
     /// Constructs an [`SgdSolver`] from explicit flat SoA two-sided spring arrays.
@@ -939,17 +1178,20 @@ impl<S: Scalar> SgdSolver<S> {
         schedule: SgdScheduleConfig,
         seed: u64,
     ) -> CoreResult<Self> {
-        Self::from_soa(
+        Self::from_pairs_with_hinges(
             num_nodes,
-            SoaPairs {
-                src,
-                tgt,
-                dij,
-                dji,
-                wij,
-                wji,
-            },
-            SoaPairs::default(),
+            src,
+            tgt,
+            dij,
+            dji,
+            wij,
+            wji,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
             schedule,
             seed,
         )
@@ -975,27 +1217,141 @@ impl<S: Scalar> SgdSolver<S> {
         schedule_cfg: SgdScheduleConfig,
         seed: u64,
     ) -> CoreResult<Self> {
-        Self::from_soa(
-            num_nodes,
-            SoaPairs {
-                src: spring_src,
-                tgt: spring_tgt,
-                dij: spring_dij,
-                dji: spring_dji,
-                wij: spring_wij,
-                wji: spring_wji,
-            },
-            SoaPairs {
-                src: hinge_src,
-                tgt: hinge_tgt,
-                dij: hinge_dij,
-                dji: hinge_dji,
-                wij: hinge_wij,
-                wji: hinge_wji,
-            },
-            schedule_cfg,
-            seed,
-        )
+        if num_nodes > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({num_nodes}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+        validate_schedule_config(&schedule_cfg)?;
+
+        let validate_soa_slice = |src: &[u32],
+                                  tgt: &[u32],
+                                  dij: &[S],
+                                  dji: &[S],
+                                  wij: &[S],
+                                  wji: &[S],
+                                  ctx: &'static str|
+         -> CoreResult<bool> {
+            let len = src.len();
+            for actual in [tgt.len(), dij.len(), dji.len(), wij.len(), wji.len()] {
+                if actual != len {
+                    return Err(CoreError::dimension_mismatch(len, actual, ctx));
+                }
+            }
+            let mut is_sym = true;
+            for idx in 0..len {
+                validate_pair_endpoints(src[idx] as usize, tgt[idx] as usize, num_nodes, idx, ctx)?;
+                for d in [dij[idx], dji[idx]] {
+                    if !d.is_finite() {
+                        return Err(CoreError::non_finite(ctx));
+                    }
+                    if d <= S::ZERO {
+                        return Err(CoreError::invalid_input(format!(
+                            "{ctx}: target distances must be > 0 at index {idx}"
+                        )));
+                    }
+                }
+                for w in [wij[idx], wji[idx]] {
+                    if !w.is_finite() {
+                        return Err(CoreError::non_finite(ctx));
+                    }
+                    if w < S::ZERO {
+                        return Err(CoreError::invalid_input(format!(
+                            "{ctx}: weights must be >= 0 at index {idx}"
+                        )));
+                    }
+                }
+                if dij[idx] != dji[idx] || wij[idx] != wji[idx] {
+                    is_sym = false;
+                }
+            }
+            Ok(is_sym)
+        };
+
+        let sym_s = validate_soa_slice(
+            &spring_src,
+            &spring_tgt,
+            &spring_dij,
+            &spring_dji,
+            &spring_wij,
+            &spring_wji,
+            "SgdSolver::from_pairs_with_hinges::springs",
+        )?;
+        let sym_h = validate_soa_slice(
+            &hinge_src,
+            &hinge_tgt,
+            &hinge_dij,
+            &hinge_dji,
+            &hinge_wij,
+            &hinge_wji,
+            "SgdSolver::from_pairs_with_hinges::hinges",
+        )?;
+
+        let n_springs = spring_src.len();
+        let n_hinges = hinge_src.len();
+        let total = n_springs + n_hinges;
+
+        if sym_s && sym_h {
+            let mut pairs = Vec::with_capacity(total);
+            for idx in 0..n_springs {
+                pairs.push(PackedSymPair::new(
+                    spring_src[idx],
+                    spring_tgt[idx],
+                    false,
+                    spring_dij[idx],
+                    spring_wij[idx],
+                ));
+            }
+            for idx in 0..n_hinges {
+                pairs.push(PackedSymPair::new(
+                    hinge_src[idx],
+                    hinge_tgt[idx],
+                    true,
+                    hinge_dij[idx],
+                    hinge_wij[idx],
+                ));
+            }
+            Self::from_pair_storage(
+                num_nodes,
+                PairStorage::Symmetric(pairs),
+                n_springs,
+                n_hinges,
+                schedule_cfg,
+                seed,
+            )
+        } else {
+            let mut pairs = Vec::with_capacity(total);
+            for idx in 0..n_springs {
+                pairs.push(PackedGenPair::new(
+                    spring_src[idx],
+                    spring_tgt[idx],
+                    false,
+                    spring_dij[idx],
+                    spring_dji[idx],
+                    spring_wij[idx],
+                    spring_wji[idx],
+                ));
+            }
+            for idx in 0..n_hinges {
+                pairs.push(PackedGenPair::new(
+                    hinge_src[idx],
+                    hinge_tgt[idx],
+                    true,
+                    hinge_dij[idx],
+                    hinge_dji[idx],
+                    hinge_wij[idx],
+                    hinge_wji[idx],
+                ));
+            }
+            Self::from_pair_storage(
+                num_nodes,
+                PairStorage::General(pairs),
+                n_springs,
+                n_hinges,
+                schedule_cfg,
+                seed,
+            )
+        }
     }
 
     /// Constructs a full all-pairs shortest-path SGD solver using [`BfsWorkspace`] for
@@ -1014,9 +1370,8 @@ impl<S: Scalar> SgdSolver<S> {
         }
 
         let cap = n.saturating_mul(n.saturating_sub(1)) / 2;
-        let mut springs = SoaPairs::with_capacity(cap);
-
         if !graph.is_directed() {
+            let mut pairs = Vec::with_capacity(cap);
             let mut dist_row = vec![f64::INFINITY; n];
             let mut bfs = (!graph.is_weighted()).then(|| BfsWorkspace::new(n));
             let mut dijk = graph.is_weighted().then(|| DijkstraWorkspace::new(n));
@@ -1028,38 +1383,45 @@ impl<S: Scalar> SgdSolver<S> {
                 }
                 for (j, &d) in dist_row.iter().enumerate().skip(i + 1) {
                     if d.is_finite() && d > 0.0 {
-                        let w = 1.0 / (d * d);
-                        springs.push_f64(i as u32, j as u32, d, d, w, w);
+                        let d_s = S::from_f64(d);
+                        let w_s = S::from_f64(1.0 / (d * d));
+                        if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                            pairs.push(PackedSymPair::new(i as u32, j as u32, false, d_s, w_s));
+                        }
                     }
                 }
             }
-        } else {
-            let total = n
-                .checked_mul(n)
-                .ok_or_else(|| CoreError::invalid_input("full APSP distance matrix overflow"))?;
-            let mut dists = vec![f64::INFINITY; total];
-            let mut bfs = (!graph.is_weighted()).then(|| BfsWorkspace::new(n));
-            let mut dijk = graph.is_weighted().then(|| DijkstraWorkspace::new(n));
-            for u in 0..n {
-                let row = &mut dists[u * n..(u + 1) * n];
-                if let Some(ws) = bfs.as_mut() {
-                    ws.bfs_from(graph, u, row)?;
-                } else if let Some(ws) = dijk.as_mut() {
-                    ws.dijkstra_from(graph, u, row)?;
-                }
+            let n_springs = pairs.len();
+            return Self::from_packed_symmetric(n, pairs, n_springs, 0, schedule, seed);
+        }
+
+        let total = n
+            .checked_mul(n)
+            .ok_or_else(|| CoreError::invalid_input("full APSP distance matrix overflow"))?;
+        let mut dists = vec![f64::INFINITY; total];
+        let mut bfs = (!graph.is_weighted()).then(|| BfsWorkspace::new(n));
+        let mut dijk = graph.is_weighted().then(|| DijkstraWorkspace::new(n));
+        for u in 0..n {
+            let row = &mut dists[u * n..(u + 1) * n];
+            if let Some(ws) = bfs.as_mut() {
+                ws.bfs_from(graph, u, row)?;
+            } else if let Some(ws) = dijk.as_mut() {
+                ws.dijkstra_from(graph, u, row)?;
             }
-            for i in 0..(n - 1) {
-                for j in (i + 1)..n {
-                    if let Some((duv, dvu, wuv, wvu)) =
-                        resolve_directed_pair_params(dists[i * n + j], dists[j * n + i])
-                    {
-                        springs.push_f64(i as u32, j as u32, duv, dvu, wuv, wvu);
-                    }
+        }
+        let mut acc = DirectedPairAccumulator::with_capacity(cap);
+        for i in 0..(n - 1) {
+            for j in (i + 1)..n {
+                if let Some((duv, dvu, wuv, wvu)) =
+                    resolve_directed_pair_params(dists[i * n + j], dists[j * n + i])
+                {
+                    acc.push_f64(i as u32, j as u32, duv, dvu, wuv, wvu);
                 }
             }
         }
-
-        Self::from_soa(n, springs, SoaPairs::default(), schedule, seed)
+        let storage = acc.into_storage();
+        let n_springs = storage.len();
+        Self::from_pair_storage(n, storage, n_springs, 0, schedule, seed)
     }
 
     /// Constructs a Track B 3-tier Sparse Barrier SGD solver directly from precomputed
@@ -1219,8 +1581,9 @@ impl<S: Scalar> SgdSolver<S> {
         };
 
         let mut r2 = vec![0.0_f64; n];
-        let mut springs = SoaPairs::with_capacity(pairs.u1.len() + pairs.u2.len());
-        let mut hinges = SoaPairs::default();
+        let mut packed_pairs = Vec::with_capacity(pairs.u1.len() + pairs.u2.len() + u3.len());
+        let mut n_pairs_two_sided = 0usize;
+        let mut n_pairs_hinge = 0usize;
 
         for (pairs_u, pairs_v, dists, omega) in [
             (&pairs.u1, &pairs.v1, &d1, config.omega_1),
@@ -1233,8 +1596,12 @@ impl<S: Scalar> SgdSolver<S> {
                 r2[u as usize] = r2[u as usize].max(d);
                 r2[v as usize] = r2[v as usize].max(d);
                 if omega > 0.0 {
-                    let w = omega / (d * d);
-                    springs.push_f64(u, v, d, d, w, w);
+                    let d_s = S::from_f64(d);
+                    let w_s = S::from_f64(omega / (d * d));
+                    if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                        packed_pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                        n_pairs_two_sided += 1;
+                    }
                 }
             }
         }
@@ -1249,19 +1616,27 @@ impl<S: Scalar> SgdSolver<S> {
             };
             let d3_bar = d3[idx].max(barrier_mult * r_pair).max(config.eps_dist);
             if gamma_eff > 0.0 {
-                let w3 = gamma_eff / (d3_bar * d3_bar);
-                let dst = if config.hinge_repulsion {
-                    &mut hinges
-                } else {
-                    &mut springs
-                };
-                dst.push_f64(u, v, d3_bar, d3_bar, w3, w3);
+                let d_s = S::from_f64(d3_bar);
+                let w_s = S::from_f64(gamma_eff / (d3_bar * d3_bar));
+                if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                    packed_pairs.push(PackedSymPair::new(u, v, config.hinge_repulsion, d_s, w_s));
+                    if config.hinge_repulsion {
+                        n_pairs_hinge += 1;
+                    } else {
+                        n_pairs_two_sided += 1;
+                    }
+                }
             }
         }
 
-        let n_pairs_two_sided = springs.len();
-        let n_pairs_hinge = hinges.len();
-        let solver = Self::from_soa(n, springs, hinges, config.schedule, config.seed)?;
+        let solver = Self::from_packed_symmetric(
+            n,
+            packed_pairs,
+            n_pairs_two_sided,
+            n_pairs_hinge,
+            config.schedule,
+            config.seed,
+        )?;
         let stats = SparseBarrierStats {
             n_pairs_1hop: pairs.u1.len(),
             n_pairs_2hop: pairs.u2.len(),
@@ -1309,12 +1684,12 @@ impl<S: Scalar> SgdSolver<S> {
 
         let raw_pairs = sample_edges_and_random_pairs(graph, pairs_per_node, seed);
         let m = raw_pairs.len();
-        let mut springs = SoaPairs::with_capacity(m);
         let mut dist_row = vec![f64::INFINITY; n];
         let mut bfs = (!graph.is_weighted()).then(|| BfsWorkspace::new(n));
         let mut dijk = graph.is_weighted().then(|| DijkstraWorkspace::new(n));
 
         if !graph.is_directed() {
+            let mut pairs = Vec::with_capacity(m);
             let mut idx = 0usize;
             while idx < m {
                 let u = raw_pairs[idx].0;
@@ -1327,52 +1702,59 @@ impl<S: Scalar> SgdSolver<S> {
                     let v = raw_pairs[idx].1;
                     let d = dist_row[v as usize];
                     if d.is_finite() && d > 0.0 {
-                        let w = 1.0 / (d * d);
-                        springs.push_f64(u, v, d, d, w, w);
+                        let d_s = S::from_f64(d);
+                        let w_s = S::from_f64(1.0 / (d * d));
+                        if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                            pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                        }
                     }
                     idx += 1;
                 }
             }
-        } else {
-            let mut d_uv_arr = vec![f64::INFINITY; m];
-            let mut d_vu_arr = vec![f64::INFINITY; m];
-            let mut queries: Vec<(u32, u32, usize, bool)> = Vec::with_capacity(m * 2);
-            for (slot, &(u, v)) in raw_pairs.iter().enumerate() {
-                queries.push((u, v, slot, true));
-                queries.push((v, u, slot, false));
-            }
-            queries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            let n_springs = pairs.len();
+            return Self::from_packed_symmetric(n, pairs, n_springs, 0, schedule, seed);
+        }
 
-            let mut q_idx = 0usize;
-            while q_idx < queries.len() {
-                let s = queries[q_idx].0;
-                if let Some(ws) = bfs.as_mut() {
-                    ws.bfs_from(graph, s as usize, &mut dist_row)?;
-                } else if let Some(ws) = dijk.as_mut() {
-                    ws.dijkstra_from(graph, s as usize, &mut dist_row)?;
-                }
-                while q_idx < queries.len() && queries[q_idx].0 == s {
-                    let (_, t, slot, is_fwd) = queries[q_idx];
-                    let d = dist_row[t as usize];
-                    if is_fwd {
-                        d_uv_arr[slot] = d;
-                    } else {
-                        d_vu_arr[slot] = d;
-                    }
-                    q_idx += 1;
-                }
-            }
+        let mut d_uv_arr = vec![f64::INFINITY; m];
+        let mut d_vu_arr = vec![f64::INFINITY; m];
+        let mut queries: Vec<(u32, u32, usize, bool)> = Vec::with_capacity(m * 2);
+        for (slot, &(u, v)) in raw_pairs.iter().enumerate() {
+            queries.push((u, v, slot, true));
+            queries.push((v, u, slot, false));
+        }
+        queries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
-            for (slot, &(u, v)) in raw_pairs.iter().enumerate() {
-                if let Some((duv, dvu, wuv, wvu)) =
-                    resolve_directed_pair_params(d_uv_arr[slot], d_vu_arr[slot])
-                {
-                    springs.push_f64(u, v, duv, dvu, wuv, wvu);
+        let mut q_idx = 0usize;
+        while q_idx < queries.len() {
+            let s = queries[q_idx].0;
+            if let Some(ws) = bfs.as_mut() {
+                ws.bfs_from(graph, s as usize, &mut dist_row)?;
+            } else if let Some(ws) = dijk.as_mut() {
+                ws.dijkstra_from(graph, s as usize, &mut dist_row)?;
+            }
+            while q_idx < queries.len() && queries[q_idx].0 == s {
+                let (_, t, slot, is_fwd) = queries[q_idx];
+                let d = dist_row[t as usize];
+                if is_fwd {
+                    d_uv_arr[slot] = d;
+                } else {
+                    d_vu_arr[slot] = d;
                 }
+                q_idx += 1;
             }
         }
 
-        Self::from_soa(n, springs, SoaPairs::default(), schedule, seed)
+        let mut acc = DirectedPairAccumulator::with_capacity(m);
+        for (slot, &(u, v)) in raw_pairs.iter().enumerate() {
+            if let Some((duv, dvu, wuv, wvu)) =
+                resolve_directed_pair_params(d_uv_arr[slot], d_vu_arr[slot])
+            {
+                acc.push_f64(u, v, duv, dvu, wuv, wvu);
+            }
+        }
+        let storage = acc.into_storage();
+        let n_springs = storage.len();
+        Self::from_pair_storage(n, storage, n_springs, 0, schedule, seed)
     }
 
     /// Constructs an Omega SGD solver using Euclidean distances in a precomputed row-major
@@ -1418,7 +1800,7 @@ impl<S: Scalar> SgdSolver<S> {
         }
 
         let raw_pairs = sample_edges_and_random_pairs(graph, k, seed);
-        let mut springs = SoaPairs::with_capacity(raw_pairs.len());
+        let mut pairs = Vec::with_capacity(raw_pairs.len());
         for &(u, v) in &raw_pairs {
             let row_u = &embedding_flat[(u as usize) * dims..((u as usize) + 1) * dims];
             let row_v = &embedding_flat[(v as usize) * dims..((v as usize) + 1) * dims];
@@ -1428,14 +1810,18 @@ impl<S: Scalar> SgdSolver<S> {
                 sq_sum += diff * diff;
             }
             let d = sq_sum.sqrt().max(min_dist);
-            let w = 1.0 / (d * d);
-            springs.push_f64(u, v, d, d, w, w);
+            let d_s = S::from_f64(d);
+            let w_s = S::from_f64(1.0 / (d * d));
+            if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+            }
         }
 
-        Self::from_soa(n, springs, SoaPairs::default(), schedule, seed)
+        let n_springs = pairs.len();
+        Self::from_packed_symmetric(n, pairs, n_springs, 0, schedule, seed)
     }
 
-    /// Constructs a minimal-RAM SGD solver storing only 1-hop edges in flat SoA springs and
+    /// Constructs a minimal-RAM SGD solver storing only 1-hop edges in flat packed pairs and
     /// sampling $O(|V| \cdot \mathrm{negatives\_per\_node})$ non-edge negative updates on-the-fly
     /// each step without preallocating negative pair buffers.
     pub fn streaming_negatives<W: Scalar>(
@@ -1482,7 +1868,7 @@ impl<S: Scalar> SgdSolver<S> {
 
         let canonical_edges = extract_canonical_undirected_edges(graph);
         let m = canonical_edges.len();
-        let mut springs = SoaPairs::with_capacity(m);
+        let mut pairs = Vec::with_capacity(m);
         let mut u1 = Vec::with_capacity(m);
         let mut v1 = Vec::with_capacity(m);
 
@@ -1490,12 +1876,16 @@ impl<S: Scalar> SgdSolver<S> {
             u1.push(u);
             v1.push(v);
             if edge_len.is_finite() && edge_len > 0.0 {
-                let w = 1.0 / (edge_len * edge_len);
-                springs.push_f64(u, v, edge_len, edge_len, w, w);
+                let d_s = S::from_f64(edge_len);
+                let w_s = S::from_f64(1.0 / (edge_len * edge_len));
+                if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+                    pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                }
             }
         }
 
-        let mut solver = Self::from_soa(n, springs, SoaPairs::default(), schedule, seed)?;
+        let n_springs = pairs.len();
+        let mut solver = Self::from_packed_symmetric(n, pairs, n_springs, 0, schedule, seed)?;
         if neg_config.negatives_per_node > 0 && weight_s > S::ZERO {
             let (adj_indptr, adj_indices) = build_symmetric_csr_from_sorted_pairs(n, &u1, &v1);
             let node_order: Vec<u32> = (0..n as u32).collect();
@@ -1508,12 +1898,8 @@ impl<S: Scalar> SgdSolver<S> {
                 adj_indices,
                 node_order,
             });
-            let (eta_min, eta_max) = compute_eta_bounds(
-                &solver.springs,
-                &solver.hinges,
-                Some(weight_s),
-                solver.schedule_cfg.eps,
-            );
+            let (eta_min, eta_max) =
+                compute_eta_bounds(&solver.pairs, Some(weight_s), solver.schedule_cfg.eps);
             solver.eta_min = eta_min;
             solver.eta_max = eta_max;
         }
@@ -1527,16 +1913,16 @@ impl<S: Scalar> SgdSolver<S> {
         self.num_nodes
     }
 
-    /// Returns the number of two-sided spring pairs stored in SoA buffers.
+    /// Returns the number of two-sided spring pairs stored.
     #[inline]
     pub fn num_springs(&self) -> usize {
-        self.springs.len()
+        self.num_springs
     }
 
-    /// Returns the number of one-sided hinge repulsion pairs stored in SoA buffers.
+    /// Returns the number of one-sided hinge repulsion pairs stored.
     #[inline]
     pub fn num_hinges(&self) -> usize {
-        self.hinges.len()
+        self.num_hinges
     }
 
     /// Returns the learning rate $\eta$ for the upcoming iteration (`0.0` if finished).
@@ -1600,85 +1986,56 @@ impl<S: Scalar> SgdSolver<S> {
         }
     }
 
-    fn run_pass<F>(&mut self, mut apply_pair: F) -> CoreResult<SolverStatus>
+    fn run_streaming_negatives<F>(&mut self, eta: S, mut apply_sym: F) -> CoreResult<()>
     where
-        F: FnMut(S, PairSpec<S>) -> CoreResult<()>,
+        F: FnMut(S, PackedSymPair<S>) -> CoreResult<()>,
     {
-        let eta_f64 = self.eta_at(self.iter);
-        if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
-            let eta = S::from_f64(eta_f64);
-            if !self.schedule.is_empty() {
-                self.rng.shuffle(&mut self.schedule);
-            }
-            for &slot in &self.schedule {
-                let is_hinge = (slot & HINGE_BIT) != 0;
-                let idx = (slot & INDEX_MASK) as usize;
-                let src_soa = if is_hinge {
-                    &self.hinges
-                } else {
-                    &self.springs
-                };
-                apply_pair(
-                    eta,
-                    PairSpec {
-                        i: src_soa.src[idx] as usize,
-                        j: src_soa.tgt[idx] as usize,
-                        dij: src_soa.dij[idx],
-                        dji: src_soa.dji[idx],
-                        wij: src_soa.wij[idx],
-                        wji: src_soa.wji[idx],
-                        is_hinge,
-                    },
-                )?;
-            }
-
-            if let Some(stream) = &mut self.streaming
-                && stream.negatives_per_node > 0
-                && stream.weight > S::ZERO
-            {
-                self.rng.shuffle(&mut stream.node_order);
-                let max_trials = stream.negatives_per_node.saturating_mul(4).max(8);
-                for &u_u32 in &stream.node_order {
-                    let u = u_u32 as usize;
-                    let row_start = stream.adj_indptr[u] as usize;
-                    let row_end = stream.adj_indptr[u + 1] as usize;
-                    let adj_u = &stream.adj_indices[row_start..row_end];
-                    if adj_u.len() + 1 >= self.num_nodes {
+        if let Some(stream) = &mut self.streaming
+            && stream.negatives_per_node > 0
+            && stream.weight > S::ZERO
+        {
+            self.rng.shuffle(&mut stream.node_order);
+            let max_trials = stream.negatives_per_node.saturating_mul(4).max(8);
+            for &u_u32 in &stream.node_order {
+                let row_start = stream.adj_indptr[u_u32 as usize] as usize;
+                let row_end = stream.adj_indptr[(u_u32 as usize) + 1] as usize;
+                let adj_u = &stream.adj_indices[row_start..row_end];
+                if adj_u.len() + 1 >= self.num_nodes {
+                    continue;
+                }
+                let mut accepted = 0usize;
+                let mut trials = 0usize;
+                while accepted < stream.negatives_per_node && trials < max_trials {
+                    trials += 1;
+                    let v_u32 = self.rng.gen_range_usize(self.num_nodes) as u32;
+                    if v_u32 == u_u32 || adj_u.binary_search(&v_u32).is_ok() {
                         continue;
                     }
-                    let mut accepted = 0usize;
-                    let mut trials = 0usize;
-                    while accepted < stream.negatives_per_node && trials < max_trials {
-                        trials += 1;
-                        let v_u32 = self.rng.gen_range_usize(self.num_nodes) as u32;
-                        if v_u32 == u_u32 || adj_u.binary_search(&v_u32).is_ok() {
-                            continue;
-                        }
-                        apply_pair(
-                            eta,
-                            PairSpec {
-                                i: u,
-                                j: v_u32 as usize,
-                                dij: stream.target_distance,
-                                dji: stream.target_distance,
-                                wij: stream.weight,
-                                wji: stream.weight,
-                                is_hinge: stream.hinge_only,
-                            },
-                        )?;
-                        accepted += 1;
-                    }
+                    apply_sym(
+                        eta,
+                        PackedSymPair::new(
+                            u_u32,
+                            v_u32,
+                            stream.hinge_only,
+                            stream.target_distance,
+                            stream.weight,
+                        ),
+                    )?;
+                    accepted += 1;
                 }
             }
         }
+        Ok(())
+    }
 
+    fn finish_iteration(&mut self) -> SolverStatus {
         self.iter += 1;
         self.status = if self.iter >= self.schedule_cfg.t_max {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
         };
-        Ok(self.status)
+        self.status
     }
 
     /// Executes one SGD iteration on a non-Euclidean [`ManifoldLayout2d<S>`] across
@@ -1695,7 +2052,28 @@ impl<S: Scalar> SgdSolver<S> {
         if self.status.is_finished() {
             return Ok(self.status);
         }
-        self.run_pass(|eta, pair| apply_manifold_pair(layout, eta, pair))
+
+        let eta_f64 = self.eta_at(self.iter);
+        if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
+            let eta = S::from_f64(eta_f64);
+            match &mut self.pairs {
+                PairStorage::Symmetric(pairs) => {
+                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
+                        apply_manifold_pair(layout, eta, p.to_pair_spec())
+                    })?;
+                }
+                PairStorage::General(pairs) => {
+                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
+                        apply_manifold_pair(layout, eta, p.to_pair_spec())
+                    })?;
+                }
+            }
+            self.run_streaming_negatives(eta, |e, p| {
+                apply_manifold_pair(layout, e, p.to_pair_spec())
+            })?;
+        }
+
+        Ok(self.finish_iteration())
     }
 
     /// Executes up to `steps` manifold SGD iterations or stops when finished.
@@ -1741,11 +2119,38 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
         if self.status.is_finished() {
             return Ok(self.status);
         }
-        let (xs, ys) = layout.xy_mut();
-        self.run_pass(|eta, pair| {
-            apply_euclidean_pair(xs, ys, eta, pair);
-            Ok(())
-        })
+
+        let eta_f64 = self.eta_at(self.iter);
+        if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
+            let eta = S::from_f64(eta_f64);
+            let (xs, ys) = layout.xy_mut();
+            match &mut self.pairs {
+                PairStorage::Symmetric(pairs) => {
+                    try_for_each_shuffled_pair(
+                        pairs,
+                        &mut self.block_order,
+                        &mut self.rng,
+                        |&p| {
+                            apply_euclidean_sym_pair(xs, ys, eta, p);
+                            Ok(())
+                        },
+                    )?;
+                }
+                PairStorage::General(pairs) => {
+                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
+                        apply_euclidean_gen_pair(xs, ys, eta, p);
+                        Ok(())
+                    })?;
+                }
+            }
+            let (xs, ys) = layout.xy_mut();
+            self.run_streaming_negatives(eta, |e, p| {
+                apply_euclidean_sym_pair(xs, ys, e, p);
+                Ok(())
+            })?;
+        }
+
+        Ok(self.finish_iteration())
     }
 
     fn status(&self) -> SolverStatus {
@@ -2726,5 +3131,90 @@ mod tests {
             ),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_cache_blocked_shuffle_over_threshold_step_eq_run() {
+        let n = 400usize;
+        let num_pairs = 70_000usize;
+        let mut pairs64 = Vec::with_capacity(num_pairs);
+        let mut pairs32 = Vec::with_capacity(num_pairs);
+        let mut n_springs = 0usize;
+        let mut n_hinges = 0usize;
+        for idx in 0..num_pairs {
+            let u = (idx % n) as u32;
+            let step = 1 + (idx / n);
+            let v = ((u as usize + step) % n) as u32;
+            let is_hinge = idx % 5 == 0;
+            if is_hinge {
+                n_hinges += 1;
+            } else {
+                n_springs += 1;
+            }
+            let d = 1.0 + (step % 7) as f64 * 0.25;
+            let w = 1.0 / (d * d);
+            pairs64.push(PackedSymPair::new(u, v, is_hinge, d, w));
+            pairs32.push(PackedSymPair::new(u, v, is_hinge, d as f32, w as f32));
+        }
+
+        let sched = SgdScheduleConfig {
+            t_max: 6,
+            eps: 0.05,
+            kind: SgdScheduleKind::Exponential,
+            step_scale: 0.2,
+        };
+
+        let mut s64_run = SgdSolver::<f64>::from_packed_symmetric(
+            n,
+            pairs64.clone(),
+            n_springs,
+            n_hinges,
+            sched,
+            42,
+        )
+        .unwrap();
+        let mut s64_step =
+            SgdSolver::<f64>::from_packed_symmetric(n, pairs64, n_springs, n_hinges, sched, 42)
+                .unwrap();
+        assert!(!s64_run.block_order.is_empty());
+        assert_eq!(s64_run.block_order.len(), num_pairs.div_ceil(BLOCK_SIZE));
+
+        let mut l64_run = circle_layout::<f64>(n, 2.0);
+        let mut l64_step = l64_run.clone();
+        s64_run.run(&mut l64_run).unwrap();
+        s64_step.run_steps(&mut l64_step, 2).unwrap();
+        while !s64_step.status().is_finished() {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        assert!(l64_run.is_all_finite());
+        for i in 0..n {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+
+        let mut s32_run = SgdSolver::<f32>::from_packed_symmetric(
+            n,
+            pairs32.clone(),
+            n_springs,
+            n_hinges,
+            sched,
+            42,
+        )
+        .unwrap();
+        let mut s32_step =
+            SgdSolver::<f32>::from_packed_symmetric(n, pairs32, n_springs, n_hinges, sched, 42)
+                .unwrap();
+        let mut l32_run = circle_layout::<f32>(n, 2.0);
+        let mut l32_step = l32_run.clone();
+        s32_run.run(&mut l32_run).unwrap();
+        s32_step.run_steps(&mut l32_step, 3).unwrap();
+        while !s32_step.status().is_finished() {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        assert!(l32_run.is_all_finite());
+        for i in 0..n {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
     }
 }

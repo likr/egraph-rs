@@ -6,9 +6,9 @@ use egraph_core::{
     SolverStatus,
 };
 use egraph_neighborhood::{
-    DogVaradhanConfig, KnnGraph, SparseProbabilities, apply_relative_distance_floor,
-    build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
-    compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs, find_ab_params,
+    DogVaradhanConfig, KnnGraph, SparseProbabilities, build_gumap_12hop_priority_csr,
+    compute_fuzzy_simplicial_set, compute_regularized_dog_varadhan_landmarks,
+    extract_sparse_1hop_2hop_pairs, find_ab_params,
 };
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
@@ -16,7 +16,6 @@ const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
 const GRAD_CLAMP: f64 = 4.0;
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
 const DEFAULT_EPS_DIST: f64 = 1e-6;
-const DEFAULT_MIN_RATIO: f64 = 0.5;
 
 /// Hyperparameters for [`GuMapSolver`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -172,20 +171,27 @@ impl<S: Scalar> GuMapSolver<S> {
         let (a, b) = config.resolve_ab()?;
 
         let n = probs.n_nodes;
-        let mut edge_src = Vec::with_capacity(probs.nnz());
-        let mut edge_tgt = Vec::with_capacity(probs.nnz());
-        let mut edge_weight = Vec::with_capacity(probs.nnz());
-
+        let mut raw_edges: Vec<(u32, u32, f64)> = Vec::with_capacity(probs.nnz());
         for i in 0..n {
             let i_u32 = i as u32;
             let (cols, vals) = probs.row(i);
             for (&j, &w) in cols.iter().zip(vals.iter()) {
                 if j != i_u32 && w > 0.0 {
-                    edge_src.push(i_u32);
-                    edge_tgt.push(j);
-                    edge_weight.push(w);
+                    raw_edges.push((i_u32, j, w));
                 }
             }
+        }
+        // Emit canonical undirected pairs `(u, v)` and `(v, u)` (`u < v`) consecutively
+        // instead of row-major order, avoiding directional sweep bias on ordered vertex IDs.
+        raw_edges.sort_unstable_by_key(|&(u, v, _)| (u.min(v), u.max(v), u > v));
+
+        let mut edge_src = Vec::with_capacity(raw_edges.len());
+        let mut edge_tgt = Vec::with_capacity(raw_edges.len());
+        let mut edge_weight = Vec::with_capacity(raw_edges.len());
+        for (u, v, w) in raw_edges {
+            edge_src.push(u);
+            edge_tgt.push(v);
+            edge_weight.push(w);
         }
 
         let status = if config.n_epochs == 0 {
@@ -217,7 +223,7 @@ impl<S: Scalar> GuMapSolver<S> {
     }
 
     /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] using $O(|E|)$ hub-safe 1+2-hop pairs,
-    /// regularized Chebyshev DoG Varadhan landmark ALT distances, relative distance flooring,
+    /// regularized Chebyshev DoG Varadhan landmark ALT distances, `eps_dist` distance flooring,
     /// 1+2-hop priority CSR construction, and fuzzy simplicial set computation.
     pub fn from_graph_dog<W: Scalar>(
         graph: &CsrGraph<W>,
@@ -236,14 +242,12 @@ impl<S: Scalar> GuMapSolver<S> {
             compute_regularized_dog_varadhan_landmarks(graph, dog_config)?;
         let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
         let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
-        let mut d3 = Vec::new();
-        let _ = apply_relative_distance_floor(
-            &mut d1,
-            &mut d2,
-            &mut d3,
-            DEFAULT_EPS_DIST,
-            DEFAULT_MIN_RATIO,
-        )?;
+        for d in &mut d1 {
+            *d = d.max(DEFAULT_EPS_DIST);
+        }
+        for d in &mut d2 {
+            *d = d.max(DEFAULT_EPS_DIST);
+        }
         let knn = build_gumap_12hop_priority_csr(
             n,
             &pairs.u1,
@@ -330,7 +334,7 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
 
         for idx in 0..m {
             let p_edge = self.edge_weight[idx];
-            if p_edge <= 0.0 || self.rng.next_f64() > p_edge {
+            if p_edge <= 0.0 || (p_edge < 1.0 && self.rng.next_f64() > p_edge) {
                 continue;
             }
 
@@ -740,5 +744,27 @@ mod tests {
             GuMapSolver::<f64>::from_fuzzy_set(bad_probs, cfg),
             Err(CoreError::IndexOutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn test_gumap_from_fuzzy_set_interleaves_symmetric_pairs() {
+        // Symmetric 4-node graph plus one asymmetric edge to confirm both cases work cleanly.
+        let probs = SparseProbabilities {
+            n_nodes: 4,
+            indptr: vec![0, 2, 4, 6, 7],
+            indices: vec![1, 3, 0, 2, 1, 3, 0],
+            values: vec![0.8, 0.5, 0.8, 0.6, 0.6, 0.4, 0.5],
+        };
+        let solver = GuMapSolver::<f64>::from_fuzzy_set(probs, GuMapConfig::default()).unwrap();
+        let got: Vec<(u32, u32)> = solver
+            .edge_src
+            .iter()
+            .copied()
+            .zip(solver.edge_tgt.iter().copied())
+            .collect();
+        assert_eq!(
+            got,
+            vec![(0, 1), (1, 0), (0, 3), (3, 0), (1, 2), (2, 1), (2, 3)]
+        );
     }
 }

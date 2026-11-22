@@ -10,9 +10,9 @@ use egraph_core::{
     SolverStatus, VisitStamp,
 };
 use egraph_neighborhood::{extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs};
-use egraph_spatial::StaticKdTree;
+use egraph_spatial::{KdQueryScratch, StaticKdTree};
 
-use crate::sgd::{SgdScheduleConfig, SgdScheduleKind, SgdSolver};
+use crate::sgd::{PackedSymPair, SgdScheduleConfig, SgdScheduleKind, SgdSolver};
 
 const MAX_WEIGHT_RATIO: f64 = 8100.0;
 const EXACT_2HOP_FLOOR_WORK: u128 = 100_000;
@@ -170,9 +170,8 @@ pub struct SpatialIntruderRefiner<S: Scalar = f64> {
     stats: SpatialRefinerStats,
     // Reusable scratch buffers to keep per-round overhead minimal.
     coords_f64: Vec<[f64; 2]>,
+    kd_scratch: KdQueryScratch,
     knn_scratch: Vec<(usize, f64)>,
-    nbr_idx_flat: Vec<u32>,
-    nbr_dist_flat: Vec<f64>,
     r_knn: Vec<f64>,
     s_indptr: Vec<usize>,
     s_indices: Vec<u32>,
@@ -215,9 +214,14 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             }
             (Some(exact_adj2), Vec::new(), Vec::new(), ks, false)
         } else {
-            let hub_pairs = extract_sparse_1hop_2hop_pairs(&adj1, config.k_cap, config.seed)?;
+            let (u2_hub, v2_hub) = if config.w_fn > 0.0 {
+                let hub_pairs = extract_sparse_1hop_2hop_pairs(&adj1, config.k_cap, config.seed)?;
+                (hub_pairs.u2, hub_pairs.v2)
+            } else {
+                (Vec::new(), Vec::new())
+            };
             let ks = compute_capped_2hop_sizes(&adj1, &deg, k_eff);
-            (None, hub_pairs.u2, hub_pairs.v2, ks, true)
+            (None, u2_hub, v2_hub, ks, true)
         };
 
         let mut s_indptr = Vec::with_capacity(n + 1);
@@ -268,9 +272,8 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             status,
             stats,
             coords_f64: vec![[0.0, 0.0]; n],
+            kd_scratch: KdQueryScratch::with_capacity(k_eff),
             knn_scratch: Vec::with_capacity(k_eff),
-            nbr_idx_flat: vec![0u32; n.saturating_mul(k_eff)],
-            nbr_dist_flat: vec![0.0_f64; n.saturating_mul(k_eff)],
             r_knn: vec![0.0_f64; n],
             s_indptr,
             s_indices: vec![0u32; s_acc],
@@ -316,6 +319,67 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
         for i in 0..self.num_nodes {
             self.coords_f64[i] = [xs[i].to_f64(), ys[i].to_f64()];
         }
+    }
+
+    fn populate_spatial_knn(
+        &mut self,
+        tree: &StaticKdTree<2, f64>,
+        tol_coinc_sq: f64,
+        detect_coincident: bool,
+    ) -> CoreResult<bool> {
+        let n = self.num_nodes;
+        let mut any_coincident = false;
+        for u in 0..n {
+            let ku = self.k_arr[u];
+            let k_q = if detect_coincident { ku.max(1) } else { ku };
+            if k_q == 0 {
+                self.r_knn[u] = self.d_floor;
+                continue;
+            }
+            tree.k_nearest_excluding_self_with_scratch(
+                u,
+                k_q,
+                &mut self.kd_scratch,
+                &mut self.knn_scratch,
+            )?;
+            if detect_coincident
+                && let Some(&(_, d2)) = self.knn_scratch.first()
+                && d2 <= tol_coinc_sq
+            {
+                self.coincident[u] = true;
+                any_coincident = true;
+            }
+            if ku == 0 {
+                self.r_knn[u] = self.d_floor;
+            } else {
+                let mut last_d = self.d_floor;
+                if let Some(&(_, d2)) = self
+                    .knn_scratch
+                    .get(ku - 1)
+                    .or_else(|| self.knn_scratch.last())
+                {
+                    last_d = if d2 > 0.0 && d2.is_finite() {
+                        d2.sqrt()
+                    } else {
+                        0.0
+                    };
+                }
+                self.r_knn[u] = last_d.max(self.d_floor);
+
+                let s_start = self.s_indptr[u];
+                let s_end = self.s_indptr[u + 1];
+                let s_row = &mut self.s_indices[s_start..s_end];
+                let mut fallback_v = ((u + 1) % n) as u32;
+                for (idx_k, slot) in s_row.iter_mut().enumerate() {
+                    if let Some(&(nbr, _)) = self.knn_scratch.get(idx_k) {
+                        fallback_v = nbr as u32;
+                    }
+                    *slot = fallback_v;
+                }
+                s_row.sort_unstable();
+            }
+        }
+        Ok(any_coincident)
     }
 
     fn update_final_scale_stats(&mut self) {
@@ -370,20 +434,11 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             (self.config.seed.wrapping_add((r as u64).wrapping_mul(1009))) & 0xFFFF_FFFF;
         let mut tree = StaticKdTree::<2, f64>::build(&self.coords_f64)?;
 
-        // Near-coincident node guard (SgdSolver skips norm == 0.0 pairs).
+        // Single spatial k-NN pass (k_q = ku.max(1)) detects near-coincident nodes simultaneously.
         let tol_coinc = 1e-12 * self.initial_scale;
         let tol_coinc_sq = tol_coinc * tol_coinc;
         self.coincident.fill(false);
-        let mut any_coincident = false;
-        for u in 0..n {
-            tree.k_nearest_excluding_self_into(u, 1, &mut self.knn_scratch)?;
-            if let Some(&(_, d2)) = self.knn_scratch.first()
-                && d2 <= tol_coinc_sq
-            {
-                self.coincident[u] = true;
-                any_coincident = true;
-            }
-        }
+        let any_coincident = self.populate_spatial_knn(&tree, tol_coinc_sq, true)?;
 
         if any_coincident {
             let mut rng_jit = DeterministicRng::from_seed_u64(round_seed);
@@ -402,43 +457,16 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                 }
             }
             tree = StaticKdTree::<2, f64>::build(&self.coords_f64)?;
+            let _ = self.populate_spatial_knn(&tree, tol_coinc_sq, false)?;
         }
 
-        // Query k_eff spatial neighbors excluding self and populate r_knn and S_csr.
-        let k_eff = self.k_eff;
-        for u in 0..n {
-            tree.k_nearest_excluding_self_into(u, k_eff, &mut self.knn_scratch)?;
-            let base = u * k_eff;
-            let ku = self.k_arr[u];
-            let mut last_d = self.d_floor;
-            for idx_k in 0..k_eff {
-                if let Some(&(nbr, d2)) = self.knn_scratch.get(idx_k) {
-                    let dist = d2.sqrt();
-                    self.nbr_idx_flat[base + idx_k] = nbr as u32;
-                    self.nbr_dist_flat[base + idx_k] = dist;
-                    last_d = dist;
-                } else {
-                    let fallback_v = ((u + 1) % n) as u32;
-                    self.nbr_idx_flat[base + idx_k] = fallback_v;
-                    self.nbr_dist_flat[base + idx_k] = last_d;
-                }
-            }
-            if ku == 0 {
-                self.r_knn[u] = self.d_floor;
-            } else {
-                self.r_knn[u] = self.nbr_dist_flat[base + ku - 1].max(self.d_floor);
-                let s_start = self.s_indptr[u];
-                let s_end = self.s_indptr[u + 1];
-                self.s_indices[s_start..s_end].copy_from_slice(&self.nbr_idx_flat[base..base + ku]);
-                self.s_indices[s_start..s_end].sort_unstable();
-            }
-        }
+        // Accumulate active pairs into flat buffers: FP in [0..fp_end), then FN + A1.
+        let mut pair_u: Vec<u32> = Vec::with_capacity(self.u1.len());
+        let mut pair_v: Vec<u32> = Vec::with_capacity(self.u1.len());
+        let mut pair_d: Vec<f64> = Vec::with_capacity(self.u1.len());
+        let mut pair_w: Vec<f64> = Vec::with_capacity(self.u1.len());
 
         // 1. Tier 3: False positives F+ (strictly > 2-hop, one-sided hinge d_curr < d_fp_target).
-        let mut fp_src: Vec<u32> = Vec::new();
-        let mut fp_tgt: Vec<u32> = Vec::new();
-        let mut fp_dist: Vec<f64> = Vec::new();
-        let mut fp_wt: Vec<f64> = Vec::new();
         if self.config.w_fp > 0.0 && !self.s_indices.is_empty() {
             let mut fp_candidates: Vec<(u32, u32)> = Vec::new();
             for u in 0..n {
@@ -492,21 +520,22 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                 let d_fp_tgt = (self.config.margin_scale * r_pair_fp).max(self.d_floor);
                 let dx = self.coords_f64[ui][0] - self.coords_f64[vi][0];
                 let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
-                let d_fp_curr = dx.hypot(dy);
+                let d_fp_curr = fast_hypot_f64(dx, dy);
                 if d_fp_curr < d_fp_tgt {
-                    fp_src.push(u_u32);
-                    fp_tgt.push(v_u32);
-                    fp_dist.push(d_fp_tgt);
-                    fp_wt.push(self.config.w_fp / (d_fp_tgt * d_fp_tgt));
+                    let w = self.config.w_fp / (d_fp_tgt * d_fp_tgt);
+                    if d_fp_tgt.is_finite() && w.is_finite() && d_fp_tgt > 0.0 && w > 0.0 {
+                        pair_u.push(u_u32);
+                        pair_v.push(v_u32);
+                        pair_d.push(d_fp_tgt);
+                        pair_w.push(w);
+                    }
                 }
             }
         }
+        let n_fp = pair_u.len();
 
         // 2. Tier 2: 2-hop False Negatives F- (bounded contraction when w_fn > 0.0).
-        let mut fn_src: Vec<u32> = Vec::new();
-        let mut fn_tgt: Vec<u32> = Vec::new();
-        let mut fn_dist: Vec<f64> = Vec::new();
-        let mut fn_wt: Vec<f64> = Vec::new();
+        let mut n_fn_2hop = 0usize;
         if self.config.w_fn > 0.0 {
             if let Some(adj2) = &self.adj2 {
                 for u in 0..n {
@@ -522,15 +551,19 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                         let r_pair_fn = 0.5 * (self.r_knn[u] + self.r_knn[vi]);
                         let dx = self.coords_f64[u][0] - self.coords_f64[vi][0];
                         let dy = self.coords_f64[u][1] - self.coords_f64[vi][1];
-                        let d_fn_curr = dx.hypot(dy);
+                        let d_fn_curr = fast_hypot_f64(dx, dy);
                         let d_fn_tgt = self
                             .d_floor
                             .max((self.config.fn_shrink * d_fn_curr).max(0.9 * r_pair_fn));
                         if d_fn_curr > d_fn_tgt {
-                            fn_src.push(u_u32);
-                            fn_tgt.push(v_u32);
-                            fn_dist.push(d_fn_tgt);
-                            fn_wt.push(self.config.w_fn / (d_fn_tgt * d_fn_tgt));
+                            let w = self.config.w_fn / (d_fn_tgt * d_fn_tgt);
+                            if d_fn_tgt.is_finite() && w.is_finite() && d_fn_tgt > 0.0 && w > 0.0 {
+                                pair_u.push(u_u32);
+                                pair_v.push(v_u32);
+                                pair_d.push(d_fn_tgt);
+                                pair_w.push(w);
+                                n_fn_2hop += 1;
+                            }
                         }
                     }
                 }
@@ -544,33 +577,33 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                     let r_pair_fn = 0.5 * (self.r_knn[ui] + self.r_knn[vi]);
                     let dx = self.coords_f64[ui][0] - self.coords_f64[vi][0];
                     let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
-                    let d_fn_curr = dx.hypot(dy);
+                    let d_fn_curr = fast_hypot_f64(dx, dy);
                     let d_fn_tgt = self
                         .d_floor
                         .max((self.config.fn_shrink * d_fn_curr).max(0.9 * r_pair_fn));
                     if d_fn_curr > d_fn_tgt {
-                        fn_src.push(u_u32);
-                        fn_tgt.push(v_u32);
-                        fn_dist.push(d_fn_tgt);
-                        fn_wt.push(self.config.w_fn / (d_fn_tgt * d_fn_tgt));
+                        let w = self.config.w_fn / (d_fn_tgt * d_fn_tgt);
+                        if d_fn_tgt.is_finite() && w.is_finite() && d_fn_tgt > 0.0 && w > 0.0 {
+                            pair_u.push(u_u32);
+                            pair_v.push(v_u32);
+                            pair_d.push(d_fn_tgt);
+                            pair_w.push(w);
+                            n_fn_2hop += 1;
+                        }
                     }
                 }
             }
         }
 
         // 3. Tier 1: 1-hop Anchors A1 (protect 1-hop lengths; gentle w_fn boost for elongated missing 1-hop).
-        let mut a1_src: Vec<u32> = Vec::with_capacity(self.u1.len());
-        let mut a1_tgt: Vec<u32> = Vec::with_capacity(self.v1.len());
-        let mut a1_dist: Vec<f64> = Vec::with_capacity(self.u1.len());
-        let mut a1_wt: Vec<f64> = Vec::with_capacity(self.u1.len());
         let mut n_1hop_fn = 0usize;
-
+        let a1_start = pair_u.len();
         for (&u_u32, &v_u32) in self.u1.iter().zip(self.v1.iter()) {
             let ui = u_u32 as usize;
             let vi = v_u32 as usize;
             let dx = self.coords_f64[ui][0] - self.coords_f64[vi][0];
             let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
-            let d1_curr = dx.hypot(dy);
+            let d1_curr = fast_hypot_f64(dx, dy);
             let d1_safe = d1_curr.max(self.d_floor);
 
             let (d1, w1) = if self.config.w_fn > 0.0 {
@@ -594,19 +627,19 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             };
 
             if w1 > 0.0 && d1 > 0.0 && w1.is_finite() && d1.is_finite() {
-                a1_src.push(u_u32);
-                a1_tgt.push(v_u32);
-                a1_dist.push(d1);
-                a1_wt.push(w1);
+                pair_u.push(u_u32);
+                pair_v.push(v_u32);
+                pair_d.push(d1);
+                pair_w.push(w1);
             }
         }
 
-        let n_fp = fp_src.len();
-        let n_fn = fn_src.len() + n_1hop_fn;
-        let n_anc = a1_src.len();
+        let n_fn = n_fn_2hop + n_1hop_fn;
+        let n_anc = pair_u.len() - a1_start;
+        let n_tot = pair_u.len();
 
         // Early stop when zero active intruders/stragglers exist so clean layouts remain untouched.
-        if n_fp == 0 && n_fn == 0 {
+        if (n_fp == 0 && n_fn == 0) || n_tot == 0 {
             self.stats.round_stats.push(SpatialRefinerRoundStats {
                 round: r + 1,
                 n_anchors: 0,
@@ -620,6 +653,8 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             return Ok(self.status);
         }
 
+        condition_weights(&mut pair_w, MAX_WEIGHT_RATIO);
+
         let scale_r = self.config.round_decay.powi(r as i32);
         let sched = SgdScheduleConfig {
             t_max: self.config.t_max,
@@ -628,157 +663,67 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             step_scale: scale_r,
         };
 
-        let n_tot = if self.config.hinge_fp {
-            let mut sp_src = Vec::with_capacity(a1_src.len() + fn_src.len());
-            let mut sp_tgt = Vec::with_capacity(a1_tgt.len() + fn_tgt.len());
-            let mut sp_d = Vec::with_capacity(a1_dist.len() + fn_dist.len());
-            let mut sp_w = Vec::with_capacity(a1_wt.len() + fn_wt.len());
-
-            for ((&u, &v), (&d, &w)) in a1_src
-                .iter()
-                .zip(a1_tgt.iter())
-                .zip(a1_dist.iter().zip(a1_wt.iter()))
-                .chain(
-                    fn_src
-                        .iter()
-                        .zip(fn_tgt.iter())
-                        .zip(fn_dist.iter().zip(fn_wt.iter())),
-                )
-            {
-                if d.is_finite() && w.is_finite() && d > 0.0 && w > 0.0 {
-                    sp_src.push(u);
-                    sp_tgt.push(v);
-                    sp_d.push(d);
-                    sp_w.push(w);
+        let mut packed: Vec<PackedSymPair<S>> = Vec::with_capacity(n_tot);
+        let mut n_springs = 0usize;
+        let mut n_hinges = 0usize;
+        // Emit two-sided springs (anchors + FN) before one-sided FP hinges in one pass.
+        for idx in n_fp..n_tot {
+            let d_s = S::from_f64(pair_d[idx]);
+            let w_s = S::from_f64(pair_w[idx]);
+            if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s >= S::ZERO {
+                packed.push(PackedSymPair::new(
+                    pair_u[idx],
+                    pair_v[idx],
+                    false,
+                    d_s,
+                    w_s,
+                ));
+                n_springs += 1;
+            }
+        }
+        let fp_is_hinge = self.config.hinge_fp;
+        for idx in 0..n_fp {
+            let d_s = S::from_f64(pair_d[idx]);
+            let w_s = S::from_f64(pair_w[idx]);
+            if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s >= S::ZERO {
+                packed.push(PackedSymPair::new(
+                    pair_u[idx],
+                    pair_v[idx],
+                    fp_is_hinge,
+                    d_s,
+                    w_s,
+                ));
+                if fp_is_hinge {
+                    n_hinges += 1;
+                } else {
+                    n_springs += 1;
                 }
             }
+        }
+        drop(pair_u);
+        drop(pair_v);
+        drop(pair_d);
+        drop(pair_w);
 
-            let mut hg_src = Vec::with_capacity(fp_src.len());
-            let mut hg_tgt = Vec::with_capacity(fp_tgt.len());
-            let mut hg_d = Vec::with_capacity(fp_dist.len());
-            let mut hg_w = Vec::with_capacity(fp_wt.len());
-            for ((&u, &v), (&d, &w)) in fp_src
-                .iter()
-                .zip(fp_tgt.iter())
-                .zip(fp_dist.iter().zip(fp_wt.iter()))
-            {
-                if d.is_finite() && w.is_finite() && d > 0.0 && w > 0.0 {
-                    hg_src.push(u);
-                    hg_tgt.push(v);
-                    hg_d.push(d);
-                    hg_w.push(w);
-                }
-            }
+        let n_tot_valid = packed.len();
+        if n_tot_valid == 0 {
+            self.stats.round_stats.push(SpatialRefinerRoundStats {
+                round: r + 1,
+                n_anchors: 0,
+                n_fn: 0,
+                n_fp: 0,
+                n_pairs_total: 0,
+                skipped: true,
+            });
+            self.update_final_scale_stats();
+            self.status = SolverStatus::Converged;
+            return Ok(self.status);
+        }
 
-            let tot = sp_src.len() + hg_src.len();
-            if tot == 0 {
-                self.stats.round_stats.push(SpatialRefinerRoundStats {
-                    round: r + 1,
-                    n_anchors: 0,
-                    n_fn: 0,
-                    n_fp: 0,
-                    n_pairs_total: 0,
-                    skipped: true,
-                });
-                self.update_final_scale_stats();
-                self.status = SolverStatus::Converged;
-                return Ok(self.status);
-            }
-
-            let n_sp = sp_w.len();
-            let mut all_w = Vec::with_capacity(tot);
-            all_w.extend_from_slice(&sp_w);
-            all_w.extend_from_slice(&hg_w);
-            condition_weights(&mut all_w, MAX_WEIGHT_RATIO);
-
-            let sp_d_s: Vec<S> = sp_d.iter().map(|&v| S::from_f64(v)).collect();
-            let sp_w_s: Vec<S> = all_w[..n_sp].iter().map(|&v| S::from_f64(v)).collect();
-            let hg_d_s: Vec<S> = hg_d.iter().map(|&v| S::from_f64(v)).collect();
-            let hg_w_s: Vec<S> = all_w[n_sp..].iter().map(|&v| S::from_f64(v)).collect();
-
-            let mut sgd = SgdSolver::<S>::from_pairs_with_hinges(
-                n,
-                sp_src,
-                sp_tgt,
-                sp_d_s.clone(),
-                sp_d_s,
-                sp_w_s.clone(),
-                sp_w_s,
-                hg_src,
-                hg_tgt,
-                hg_d_s.clone(),
-                hg_d_s,
-                hg_w_s.clone(),
-                hg_w_s,
-                sched,
-                round_seed,
-            )?;
-            sgd.run(layout)?;
-            tot
-        } else {
-            let mut src = Vec::with_capacity(a1_src.len() + fn_src.len() + fp_src.len());
-            let mut tgt = Vec::with_capacity(a1_tgt.len() + fn_tgt.len() + fp_tgt.len());
-            let mut dist = Vec::with_capacity(a1_dist.len() + fn_dist.len() + fp_dist.len());
-            let mut wt = Vec::with_capacity(a1_wt.len() + fn_wt.len() + fp_wt.len());
-
-            for ((&u, &v), (&d, &w)) in a1_src
-                .iter()
-                .zip(a1_tgt.iter())
-                .zip(a1_dist.iter().zip(a1_wt.iter()))
-                .chain(
-                    fn_src
-                        .iter()
-                        .zip(fn_tgt.iter())
-                        .zip(fn_dist.iter().zip(fn_wt.iter())),
-                )
-                .chain(
-                    fp_src
-                        .iter()
-                        .zip(fp_tgt.iter())
-                        .zip(fp_dist.iter().zip(fp_wt.iter())),
-                )
-            {
-                if d.is_finite() && w.is_finite() && d > 0.0 && w > 0.0 {
-                    src.push(u);
-                    tgt.push(v);
-                    dist.push(d);
-                    wt.push(w);
-                }
-            }
-
-            let tot = src.len();
-            if tot == 0 {
-                self.stats.round_stats.push(SpatialRefinerRoundStats {
-                    round: r + 1,
-                    n_anchors: 0,
-                    n_fn: 0,
-                    n_fp: 0,
-                    n_pairs_total: 0,
-                    skipped: true,
-                });
-                self.update_final_scale_stats();
-                self.status = SolverStatus::Converged;
-                return Ok(self.status);
-            }
-
-            condition_weights(&mut wt, MAX_WEIGHT_RATIO);
-            let dist_s: Vec<S> = dist.iter().map(|&v| S::from_f64(v)).collect();
-            let wt_s: Vec<S> = wt.iter().map(|&v| S::from_f64(v)).collect();
-
-            let mut sgd = SgdSolver::<S>::from_pairs(
-                n,
-                src,
-                tgt,
-                dist_s.clone(),
-                dist_s,
-                wt_s.clone(),
-                wt_s,
-                sched,
-                round_seed,
-            )?;
-            sgd.run(layout)?;
-            tot
-        };
+        let mut sgd = SgdSolver::<S>::from_packed_symmetric(
+            n, packed, n_springs, n_hinges, sched, round_seed,
+        )?;
+        sgd.run(layout)?;
 
         self.sync_coords_from_layout(layout);
         self.update_final_scale_stats();
@@ -787,13 +732,13 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
         self.stats.n_anchors_total += n_anc;
         self.stats.n_fn_total += n_fn;
         self.stats.n_fp_total += n_fp;
-        self.stats.n_pairs_total += n_tot;
+        self.stats.n_pairs_total += n_tot_valid;
         self.stats.round_stats.push(SpatialRefinerRoundStats {
             round: r + 1,
             n_anchors: n_anc,
             n_fn,
             n_fp,
-            n_pairs_total: n_tot,
+            n_pairs_total: n_tot_valid,
             skipped: false,
         });
 
@@ -922,6 +867,16 @@ fn compute_capped_2hop_sizes(adj_1hop: &CsrGraph<f64>, deg: &[usize], k_cap: usi
 }
 
 #[inline]
+fn fast_hypot_f64(dx: f64, dy: f64) -> f64 {
+    let d2 = dx * dx + dy * dy;
+    if d2 > 0.0 && d2.is_finite() {
+        d2.sqrt()
+    } else {
+        dx.hypot(dy)
+    }
+}
+
+#[inline]
 fn has_common_neighbor(n1_u: &[u32], n1_v: &[u32], stamp: &VisitStamp) -> bool {
     if n1_u.is_empty() || n1_v.is_empty() {
         return false;
@@ -957,7 +912,7 @@ fn compute_layout_scale(coords: &[[f64; 2]], u1: &[u32], v1: &[u32]) -> f64 {
         for (&u, &v) in u1.iter().zip(v1.iter()) {
             let ui = u as usize;
             let vi = v as usize;
-            let d = (coords[ui][0] - coords[vi][0]).hypot(coords[ui][1] - coords[vi][1]);
+            let d = fast_hypot_f64(coords[ui][0] - coords[vi][0], coords[ui][1] - coords[vi][1]);
             if d.is_finite() && d > 1e-12 {
                 pos_d1.push(d);
             }
