@@ -1604,6 +1604,557 @@ def compute_regularized_dog_varadhan_landmarks(
     alpha: float | None = None,
     beta_floor: float | None = None,
 ) -> DogVaradhanLandmarks: ...
+
+class ManifoldLayout2d:
+    @staticmethod
+    def zeros(kind: str, n: int, dtype: _DtypeLike = "float64") -> ManifoldLayout2d: ...
+    @staticmethod
+    def from_layout(kind: str, layout: Layout2d) -> ManifoldLayout2d: ...
+    @staticmethod
+    def from_coords(kind: str, coords: _CoordArrayLike) -> ManifoldLayout2d: ...
+    @property
+    def kind(self) -> str: ...
+    @property
+    def dtype(self) -> str: ...
+    def len(self) -> int: ...
+    def is_empty(self) -> bool: ...
+    def __len__(self) -> int: ...
+    def coords(self) -> npt.NDArray[Any]: ...
+    def to_layout(self) -> Layout2d: ...
+    def geodesic_distance(self, i: int, j: int) -> float: ...
+    def project_all(self) -> None: ...
+    def __repr__(self) -> str: ...
+
+class TsNetSolver:
+    @staticmethod
+    def pure_2hop(
+        graph: CsrGraph,
+        backend: str = "fft",
+        *,
+        perplexity_c: float = 0.9,
+        min_perplexity: float = 5.0,
+        max_perplexity: float = 1200.0,
+        power: float = 2.0,
+        sigma_iters: int = 50,
+        sigma_tolerance: float = 1e-5,
+        row_normalize: bool = False,
+        iterations_stage1: int = 250,
+        iterations_stage2: int = 250,
+        iterations_stage3: int = 500,
+        exaggeration: float = 4.0,
+        lambda_c_stage1: float = 0.1,
+        lambda_c_stage2: float = 0.01,
+        lambda_c_stage3: float = 0.0,
+        lambda_r_stage3: float = 0.0,
+        learning_rate: float = 200.0,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
+    @staticmethod
+    def from_knn(
+        knn: KnnGraph,
+        perplexities: _WeightArrayLike | float | None = None,
+        uniform_perplexity: float = 15.0,
+        *,
+        backend: str = "fft",
+        power: float = 2.0,
+        sigma_iters: int = 50,
+        sigma_tolerance: float = 1e-5,
+        row_normalize: bool = False,
+        iterations_stage1: int = 250,
+        iterations_stage2: int = 250,
+        iterations_stage3: int = 500,
+        exaggeration: float = 4.0,
+        lambda_c_stage1: float = 0.1,
+        lambda_c_stage2: float = 0.01,
+        lambda_c_stage3: float = 0.0,
+        lambda_r_stage3: float = 0.0,
+        learning_rate: float = 200.0,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
+    @staticmethod
+    def from_probabilities(
+        probs: SparseProbabilities,
+        backend: str = "fft",
+        *,
+        iterations_stage1: int = 250,
+        iterations_stage2: int = 250,
+        iterations_stage3: int = 500,
+        exaggeration: float = 4.0,
+        lambda_c_stage1: float = 0.1,
+        lambda_c_stage2: float = 0.01,
+        lambda_c_stage3: float = 0.0,
+        lambda_r_stage3: float = 0.0,
+        learning_rate: float = 200.0,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def total_fft_2d_calls(self) -> int: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def stage_index(self) -> int: ...
+    @property
+    def current_stage_lr(self) -> float: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class SgdSolver:
+    @staticmethod
+    def from_pairs(
+        num_nodes: int,
+        src: _IndexArrayLike,
+        tgt: _IndexArrayLike,
+        dij: _WeightArrayLike,
+        dji: _WeightArrayLike | None = None,
+        wij: _WeightArrayLike | None = None,
+        wji: _WeightArrayLike | None = None,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def from_pairs_with_hinges(
+        num_nodes: int,
+        spring_src: _IndexArrayLike,
+        spring_tgt: _IndexArrayLike,
+        spring_dij: _WeightArrayLike,
+        spring_dji: _WeightArrayLike | None,
+        spring_wij: _WeightArrayLike | None,
+        spring_wji: _WeightArrayLike | None,
+        hinge_src: _IndexArrayLike,
+        hinge_tgt: _IndexArrayLike,
+        hinge_dij: _WeightArrayLike,
+        hinge_dji: _WeightArrayLike | None = None,
+        hinge_wij: _WeightArrayLike | None = None,
+        hinge_wji: _WeightArrayLike | None = None,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def full(
+        graph: CsrGraph,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def sparse_barrier_from_landmarks(
+        graph: CsrGraph,
+        landmarks: DogVaradhanLandmarks,
+        pivots: _IndexArrayLike | None = None,
+        *,
+        max_2hop_per_node: int = 32,
+        hinge_repulsion: bool = True,
+        delta_rel: float = 0.25,
+        barrier_sym: str = "sym_max",
+        omega_1: float = 1.0,
+        omega_2: float = 1.0,
+        gamma_non2: float = 1.0,
+        ht_repulsion: bool = True,
+        min_ratio: float = 0.5,
+        eps_dist: float = 1e-6,
+        neg_per_node: int | None = None,
+        num_pivots: int = 50,
+        core_pivots: bool = True,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def sparse_barrier_dog(
+        graph: CsrGraph,
+        *,
+        degree: int | None = 25,
+        num_landmarks: int = 64,
+        degree_normalize: bool = True,
+        p_exp: float = 0.5,
+        eps_psd: float = 1e-4,
+        t_coarse: float = 48.0,
+        t1: float | None = None,
+        t2: float | None = None,
+        alpha: float | None = None,
+        beta_floor: float | None = None,
+        min_degree: int = 2,
+        jl_dim: int = 64,
+        max_2hop_per_node: int = 32,
+        hinge_repulsion: bool = True,
+        delta_rel: float = 0.25,
+        barrier_sym: str = "sym_max",
+        omega_1: float = 1.0,
+        omega_2: float = 1.0,
+        gamma_non2: float = 1.0,
+        ht_repulsion: bool = True,
+        min_ratio: float = 0.5,
+        eps_dist: float = 1e-6,
+        neg_per_node: int | None = None,
+        num_pivots: int = 50,
+        core_pivots: bool = True,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def random_pair(
+        graph: CsrGraph,
+        pairs_per_node: int = 30,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def omega(
+        graph: CsrGraph,
+        embedding: _MatrixArrayLike,
+        k: int = 30,
+        min_dist: float = 1e-3,
+        *,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def streaming_negatives(
+        graph: CsrGraph,
+        *,
+        negatives_per_node: int = 5,
+        target_distance: float = 2.0,
+        weight: float = 0.25,
+        hinge_only: bool = True,
+        t_max: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def step_manifold(self, layout: ManifoldLayout2d) -> str: ...
+    def run_steps_manifold(self, layout: ManifoldLayout2d, steps: int) -> str: ...
+    def run_manifold(self, layout: ManifoldLayout2d) -> str: ...
+    def stats(self) -> dict[str, Any] | None: ...
+    def dog_stats(self) -> dict[str, Any] | None: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_springs(self) -> int: ...
+    @property
+    def num_hinges(self) -> int: ...
+    @property
+    def current_eta(self) -> float: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class GuMapSolver:
+    @staticmethod
+    def from_fuzzy_set(
+        probs: SparseProbabilities,
+        *,
+        n_epochs: int = 200,
+        negative_sample_rate: int = 5,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GuMapSolver: ...
+    @staticmethod
+    def from_knn(
+        knn: KnnGraph,
+        *,
+        n_epochs: int = 200,
+        negative_sample_rate: int = 5,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GuMapSolver: ...
+    @staticmethod
+    def from_graph_dog(
+        graph: CsrGraph,
+        max_2hop_per_node: int = 32,
+        *,
+        degree: int | None = 25,
+        num_landmarks: int = 64,
+        degree_normalize: bool = True,
+        p_exp: float = 0.5,
+        eps_psd: float = 1e-4,
+        t_coarse: float = 48.0,
+        t1: float | None = None,
+        t2: float | None = None,
+        alpha: float | None = None,
+        beta_floor: float | None = None,
+        min_degree: int = 2,
+        jl_dim: int = 64,
+        n_epochs: int = 200,
+        negative_sample_rate: int = 5,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GuMapSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def ab(self) -> tuple[float, float]: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class SpatialIntruderRefiner:
+    def __init__(
+        self,
+        graph: CsrGraph,
+        rounds: int = 4,
+        k_cap: int = 32,
+        margin_scale: float = 1.2,
+        w_anchor: float = 1.0,
+        w_fn: float = 0.0,
+        w_fp: float = 0.2,
+        fn_shrink: float = 0.88,
+        round_decay: float = 0.75,
+        t_max: int = 20,
+        eps: float = 0.05,
+        hinge_fp: bool = True,
+        seed: int = 42,
+        *,
+        dtype: _DtypeLike = "float64",
+    ) -> None: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def stats(self) -> dict[str, Any]: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class StressMajorizationSolver:
+    @staticmethod
+    def from_graph(
+        graph: CsrGraph,
+        *,
+        epsilon: float = 1e-4,
+        max_iterations: int = 100,
+        pcg_tolerance: float = 1e-6,
+        pcg_max_iterations: int | None = None,
+        min_norm: float = 1e-4,
+        dtype: _DtypeLike = "float64",
+    ) -> StressMajorizationSolver: ...
+    @staticmethod
+    def from_distance_matrix(
+        distances: _MatrixArrayLike,
+        *,
+        epsilon: float = 1e-4,
+        max_iterations: int = 100,
+        pcg_tolerance: float = 1e-6,
+        pcg_max_iterations: int | None = None,
+        min_norm: float = 1e-4,
+        dtype: _DtypeLike = "float64",
+    ) -> StressMajorizationSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def compute_stress(self, layout: Layout2d) -> float: ...
+    @property
+    def last_stress(self) -> float | None: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class KamadaKawaiSolver:
+    @staticmethod
+    def from_graph(
+        graph: CsrGraph,
+        *,
+        eps: float = 1e-2,
+        max_inner_iters: int = 50,
+        max_outer_iters: int | None = None,
+        dtype: _DtypeLike = "float64",
+    ) -> KamadaKawaiSolver: ...
+    @staticmethod
+    def from_distance_matrix(
+        distances: _MatrixArrayLike,
+        *,
+        eps: float = 1e-2,
+        max_inner_iters: int = 50,
+        max_outer_iters: int | None = None,
+        dtype: _DtypeLike = "float64",
+    ) -> KamadaKawaiSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+def kmeans_plus_plus(
+    points: _MatrixArrayLike,
+    k: int = 2,
+    max_iters: int = 100,
+    tol: float = 1e-4,
+    n_init: int = 1,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+def spectral_clustering(
+    graph: CsrGraph,
+    k: int = 2,
+    max_eigen_iters: int = 300,
+    eigen_tol: float = 1e-4,
+    kmeans_max_iters: int = 100,
+    kmeans_tol: float = 1e-4,
+    seed: int = 42,
+) -> npt.NDArray[np.uint32]: ...
+def louvain_communities(
+    graph: CsrGraph,
+    max_passes: int = 100,
+    resolution: float = 1.0,
+    min_modularity_gain: float = 1e-7,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+def label_propagation(
+    graph: CsrGraph,
+    max_iters: int = 100,
+    seed: int = 42,
+) -> npt.NDArray[np.uint32]: ...
+def coarsen_graph(
+    graph: CsrGraph,
+    labels: _IndexArrayLike,
+) -> tuple[CsrGraph, npt.NDArray[np.uint32], npt.NDArray[np.uint32], int]: ...
+def project_clustered_layout(
+    coarse_layout: Layout2d,
+    node_to_coarse: _IndexArrayLike,
+    spread_radius: float = 0.1,
+    seed: int = 42,
+) -> Layout2d: ...
 def py_coarsen(
     graph: GraphAdapter,
     node_group_func: Callable[[int], int],

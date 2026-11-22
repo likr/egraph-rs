@@ -53,7 +53,7 @@ where
     Ok(out)
 }
 
-fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
+pub(super) fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 1 {
             return Err(PyValueError::new_err(format!(
@@ -139,7 +139,7 @@ fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> 
     Ok(out)
 }
 
-fn extract_f64_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
+pub(super) fn extract_f64_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
     if obj.is_none() {
         return Err(PyTypeError::new_err(format!(
             "{name} must be a 1D numeric array or sequence, not None"
@@ -153,7 +153,7 @@ fn extract_f64_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
     }
 }
 
-fn extract_perplexities(obj: &Bound<'_, PyAny>, num_nodes: usize) -> PyResult<Vec<f64>> {
+pub(super) fn extract_perplexities(obj: &Bound<'_, PyAny>, num_nodes: usize) -> PyResult<Vec<f64>> {
     if obj.is_instance_of::<PyBool>() {
         return Err(PyTypeError::new_err(
             "perplexities must be a 1D numeric array or scalar float, not bool",
@@ -255,7 +255,10 @@ fn extract_numeric_ndarray_2d(
     )))
 }
 
-fn extract_f64_2d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<(Vec<f64>, usize, usize)> {
+pub(super) fn extract_f64_2d(
+    obj: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<(Vec<f64>, usize, usize)> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         return extract_numeric_ndarray_2d(obj, untyped, name);
     }
@@ -507,6 +510,12 @@ pub struct PyKnnGraph {
     inner: KnnGraph,
 }
 
+impl PyKnnGraph {
+    pub(super) fn inner(&self) -> &KnnGraph {
+        &self.inner
+    }
+}
+
 #[pymethods]
 impl PyKnnGraph {
     /// Construct a validated `KnnGraph` from raw CSR arrays `(num_nodes, indptr, indices, distances)`.
@@ -581,6 +590,12 @@ pub struct PySparseProbabilities {
     inner: SparseProbabilities,
 }
 
+impl PySparseProbabilities {
+    pub(super) fn inner(&self) -> &SparseProbabilities {
+        &self.inner
+    }
+}
+
 #[pymethods]
 impl PySparseProbabilities {
     /// Number of vertices in the probability matrix.
@@ -632,6 +647,12 @@ impl PySparseProbabilities {
 pub struct PyDogVaradhanLandmarks {
     inner: DogVaradhanLandmarks,
     stats: DogVaradhanStats,
+}
+
+impl PyDogVaradhanLandmarks {
+    pub(super) fn inner(&self) -> &DogVaradhanLandmarks {
+        &self.inner
+    }
 }
 
 #[pymethods]

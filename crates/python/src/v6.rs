@@ -19,8 +19,10 @@ use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyType};
 
 #[path = "v6_m2.rs"]
 mod v6_m2;
+#[path = "v6_m3.rs"]
+mod v6_m3;
 
-fn ffi_error_to_py(err: FfiError) -> PyErr {
+pub(super) fn ffi_error_to_py(err: FfiError) -> PyErr {
     match err.kind {
         ErrorKind::IndexOutOfBounds => PyIndexError::new_err(err.message),
         ErrorKind::InvalidInput
@@ -32,7 +34,7 @@ fn ffi_error_to_py(err: FfiError) -> PyErr {
     }
 }
 
-fn core_error_to_py(err: CoreError) -> PyErr {
+pub(super) fn core_error_to_py(err: CoreError) -> PyErr {
     match err {
         CoreError::IndexOutOfBounds { .. } => PyIndexError::new_err(err.to_string()),
         CoreError::InvalidInput(_)
@@ -44,7 +46,7 @@ fn core_error_to_py(err: CoreError) -> PyErr {
     }
 }
 
-fn is_non_sequence_container(obj: &Bound<'_, PyAny>) -> bool {
+pub(super) fn is_non_sequence_container(obj: &Bound<'_, PyAny>) -> bool {
     obj.is_instance_of::<PyString>()
         || obj.is_instance_of::<PyBytes>()
         || obj.is_instance_of::<PyByteArray>()
@@ -85,7 +87,7 @@ where
     Ok(out)
 }
 
-fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<u32>> {
+pub(super) fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<u32>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 1 {
             return Err(PyValueError::new_err(format!(
@@ -175,7 +177,7 @@ fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<u32>> {
     Ok(out)
 }
 
-fn extract_optional_weights_1d(
+pub(super) fn extract_optional_weights_1d(
     weights: Option<&Bound<'_, PyAny>>,
     name: &str,
 ) -> PyResult<Option<Vec<f64>>> {
@@ -379,7 +381,7 @@ fn extract_flat_edges(edges: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
     Ok(flat)
 }
 
-fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<usize> {
+pub(super) fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<usize> {
     if obj.is_instance_of::<PyBool>() {
         return Err(PyTypeError::new_err(format!(
             "{name} must be an integer, not bool"
@@ -398,7 +400,7 @@ fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<us
 }
 
 #[derive(Clone, Copy)]
-struct StrictUsize(usize);
+pub(super) struct StrictUsize(pub(super) usize);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for StrictUsize {
     type Error = PyErr;
@@ -409,7 +411,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for StrictUsize {
 }
 
 #[derive(Clone, Copy)]
-struct StrictU64(u64);
+pub(super) struct StrictU64(pub(super) u64);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for StrictU64 {
     type Error = PyErr;
@@ -433,7 +435,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for StrictU64 {
 }
 
 #[derive(Clone, Copy)]
-struct StrictF64(f64);
+pub(super) struct StrictF64(pub(super) f64);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for StrictF64 {
     type Error = PyErr;
@@ -462,6 +464,10 @@ pub struct PyCsrGraph {
 impl PyCsrGraph {
     pub(crate) fn inner(&self) -> &CsrGraph<f64> {
         &self.inner
+    }
+
+    pub(super) fn from_csr_graph(inner: CsrGraph<f64>) -> Self {
+        Self { inner }
     }
 }
 
@@ -617,7 +623,7 @@ impl PyCsrGraph {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScalarDtype {
+pub(super) enum ScalarDtype {
     F64,
     F32,
 }
@@ -631,7 +637,7 @@ impl ScalarDtype {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::F64 => "float64",
             Self::F32 => "float32",
@@ -695,6 +701,22 @@ pub(crate) enum Layout2dInner {
 impl PyLayout2d {
     pub(crate) fn inner(&self) -> &Layout2dInner {
         &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut Layout2dInner {
+        &mut self.inner
+    }
+
+    pub(super) fn from_f64_layout(layout: &Layout2d<f64>) -> Self {
+        Self {
+            inner: Layout2dInner::F64(InterleavedLayout2d::from_layout2d(layout)),
+        }
+    }
+
+    pub(super) fn from_f32_layout(layout: &Layout2d<f32>) -> Self {
+        Self {
+            inner: Layout2dInner::F32(InterleavedLayout2d::from_layout2d(layout)),
+        }
     }
 }
 
@@ -836,6 +858,91 @@ pub struct PyLayout2d {
     inner: Layout2dInner,
 }
 
+pub(super) fn extract_layout_inner(coords: &Bound<'_, PyAny>) -> PyResult<Layout2dInner> {
+    if let Ok(untyped) = coords.cast::<PyUntypedArray>() {
+        if untyped.ndim() != 2 {
+            return Err(PyValueError::new_err(format!(
+                "coords must be a 2D array of shape (N, 2), got {}D",
+                untyped.ndim()
+            )));
+        }
+        let shape = untyped.shape();
+        if shape[1] != 2 {
+            return Err(PyValueError::new_err(format!(
+                "coords must have shape (N, 2), got ({}, {})",
+                shape[0], shape[1]
+            )));
+        }
+        if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f64>>() {
+            let flat = extract_interleaved_f64_from_view(arr.as_array())?;
+            let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
+            return Ok(Layout2dInner::F64(buf));
+        }
+        if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f32>>() {
+            let flat = extract_interleaved_f32_from_view(arr.as_array())?;
+            let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
+            return Ok(Layout2dInner::F32(buf));
+        }
+        return Err(PyTypeError::new_err(
+            "coords NumPy array must have dtype float64 or float32",
+        ));
+    }
+
+    if is_non_sequence_container(coords) {
+        return Err(PyTypeError::new_err(
+            "coords must be a 2D float64/float32 array or sequence of (x, y) pairs",
+        ));
+    }
+    let outer = coords.try_iter().map_err(|_| {
+        PyTypeError::new_err(
+            "coords must be a 2D float64/float32 array or sequence of (x, y) pairs",
+        )
+    })?;
+    let mut flat = Vec::new();
+    for (row_idx, row_res) in outer.enumerate() {
+        let row = row_res?;
+        if is_non_sequence_container(&row) {
+            return Err(PyTypeError::new_err(
+                "each coordinate row must be a 2-element sequence (x, y)",
+            ));
+        }
+        let inner = row.try_iter().map_err(|_| {
+            PyTypeError::new_err("each coordinate row must be a 2-element sequence (x, y)")
+        })?;
+        let mut xy = [0.0_f64; 2];
+        let mut count = 0usize;
+        for elem_res in inner {
+            let elem = elem_res?;
+            if elem.is_instance_of::<PyBool>() {
+                return Err(PyTypeError::new_err(
+                    "coords entries must be floats, not bool",
+                ));
+            }
+            if count < 2 {
+                let val = elem
+                    .extract::<f64>()
+                    .map_err(|_| PyTypeError::new_err("coords entries must be finite floats"))?;
+                if !val.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "coords contains non-finite value at row {row_idx}"
+                    )));
+                }
+                xy[count] = val;
+            }
+            count += 1;
+        }
+        if count != 2 {
+            return Err(PyValueError::new_err(format!(
+                "each coordinate row must contain exactly 2 elements, got {count}"
+            )));
+        }
+        flat.push(xy[0]);
+        flat.push(xy[1]);
+    }
+    let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
+    Ok(Layout2dInner::F64(buf))
+}
+
 #[pymethods]
 impl PyLayout2d {
     /// Create a zero-initialized `Layout2d` for `n` vertices.
@@ -867,94 +974,7 @@ impl PyLayout2d {
     /// for `float64` NumPy arrays and Python sequences. Rejects non-finite (`NaN`/`Inf`) entries.
     #[staticmethod]
     fn from_coords(coords: &Bound<'_, PyAny>) -> PyResult<Self> {
-        if let Ok(untyped) = coords.cast::<PyUntypedArray>() {
-            if untyped.ndim() != 2 {
-                return Err(PyValueError::new_err(format!(
-                    "coords must be a 2D array of shape (N, 2), got {}D",
-                    untyped.ndim()
-                )));
-            }
-            let shape = untyped.shape();
-            if shape[1] != 2 {
-                return Err(PyValueError::new_err(format!(
-                    "coords must have shape (N, 2), got ({}, {})",
-                    shape[0], shape[1]
-                )));
-            }
-            if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f64>>() {
-                let flat = extract_interleaved_f64_from_view(arr.as_array())?;
-                let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
-                return Ok(Self {
-                    inner: Layout2dInner::F64(buf),
-                });
-            }
-            if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f32>>() {
-                let flat = extract_interleaved_f32_from_view(arr.as_array())?;
-                let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
-                return Ok(Self {
-                    inner: Layout2dInner::F32(buf),
-                });
-            }
-            return Err(PyTypeError::new_err(
-                "coords NumPy array must have dtype float64 or float32",
-            ));
-        }
-
-        if is_non_sequence_container(coords) {
-            return Err(PyTypeError::new_err(
-                "coords must be a 2D float64/float32 array or sequence of (x, y) pairs",
-            ));
-        }
-        let outer = coords.try_iter().map_err(|_| {
-            PyTypeError::new_err(
-                "coords must be a 2D float64/float32 array or sequence of (x, y) pairs",
-            )
-        })?;
-        let mut flat = Vec::new();
-        for (row_idx, row_res) in outer.enumerate() {
-            let row = row_res?;
-            if is_non_sequence_container(&row) {
-                return Err(PyTypeError::new_err(
-                    "each coordinate row must be a 2-element sequence (x, y)",
-                ));
-            }
-            let inner = row.try_iter().map_err(|_| {
-                PyTypeError::new_err("each coordinate row must be a 2-element sequence (x, y)")
-            })?;
-            let mut xy = [0.0_f64; 2];
-            let mut count = 0usize;
-            for elem_res in inner {
-                let elem = elem_res?;
-                if elem.is_instance_of::<PyBool>() {
-                    return Err(PyTypeError::new_err(
-                        "coords entries must be floats, not bool",
-                    ));
-                }
-                if count < 2 {
-                    let val = elem.extract::<f64>().map_err(|_| {
-                        PyTypeError::new_err("coords entries must be finite floats")
-                    })?;
-                    if !val.is_finite() {
-                        return Err(PyValueError::new_err(format!(
-                            "coords contains non-finite value at row {row_idx}"
-                        )));
-                    }
-                    xy[count] = val;
-                }
-                count += 1;
-            }
-            if count != 2 {
-                return Err(PyValueError::new_err(format!(
-                    "each coordinate row must contain exactly 2 elements, got {count}"
-                )));
-            }
-            flat.push(xy[0]);
-            flat.push(xy[1]);
-        }
-        let buf = InterleavedLayout2d::from_interleaved(&flat).map_err(ffi_error_to_py)?;
-        Ok(Self {
-            inner: Layout2dInner::F64(buf),
-        })
+        extract_layout_inner(coords).map(|inner| Self { inner })
     }
 
     /// Return the number of vertices in the layout.
@@ -1502,6 +1522,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(evaluate_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
     v6_m2::register_m2(m)?;
+    v6_m3::register_m3(m)?;
     Ok(())
 }
 

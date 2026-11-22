@@ -10,15 +10,17 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+egraph-clustering.workspace = true
 egraph-core.workspace = true
 egraph-ffi.workspace = true
+egraph-layout.workspace = true
 egraph-linalg.workspace = true
 egraph-metrics.workspace = true
 egraph-neighborhood.workspace = true
 egraph-spatial = { workspace = true, features = ["delaunay"] }
 pyo3.workspace = true
 numpy.workspace = true
-ndarray = "0.16"
+ndarray = { version = "0.16", default-features = false }
 petgraph = "0.8"
 petgraph-algorithm-shortest-path = { path = "../algorithm/shortest-path" }
 petgraph-algorithm-layering = { path = "../algorithm/layering" }
