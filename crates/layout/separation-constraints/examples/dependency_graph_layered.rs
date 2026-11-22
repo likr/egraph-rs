@@ -8,7 +8,6 @@ use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
-use std::f32;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;

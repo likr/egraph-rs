@@ -7,7 +7,6 @@ use petgraph_layout_separation_constraints::{
 use petgraph_layout_stress_majorization::StressMajorization;
 use plotters::prelude::*;
 use std::error::Error;
-use std::f32;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Load the QH882 graph dataset

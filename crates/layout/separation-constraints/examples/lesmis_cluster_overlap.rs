@@ -12,7 +12,6 @@ use plotters::style::RGBColor;
 use rand::thread_rng;
 use std::collections::HashMap;
 use std::error::Error;
-use std::f32;
 
 // Function to get a color for each community
 fn get_community_color(community_index: usize) -> RGBColor {
