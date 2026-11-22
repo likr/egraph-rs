@@ -4,12 +4,52 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashSet};
 use std::f64::consts::FRAC_PI_2;
+use std::hash::{BuildHasherDefault, Hasher};
 
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar, wrap_torus_coord,
 };
 
 const NONE_U32: u32 = u32::MAX;
+
+#[derive(Default)]
+struct FastU64Hasher {
+    state: u64,
+}
+
+impl Hasher for FastU64Hasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.state
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        let z = i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.state = z ^ (z >> 32);
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.state;
+        for &b in bytes {
+            h = h.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ u64::from(b);
+        }
+        self.state = h;
+    }
+}
+
+type PairSet = HashSet<u64, BuildHasherDefault<FastU64Hasher>>;
+
+#[inline]
+fn pack_pair(a: usize, b: usize) -> u64 {
+    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+    ((lo as u64) << 32) | (hi as u64)
+}
+
+#[inline]
+fn unpack_pair(key: u64) -> (usize, usize) {
+    ((key >> 32) as usize, (key & 0xFFFF_FFFF) as usize)
+}
 
 /// Details of a single crossing pair between two non-adjacent edges.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -660,7 +700,8 @@ impl SweepLineCrossings {
 
     /// Counts all crossing pairs among `edges` under `layout`.
     pub fn count_edges<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> CoreResult<usize> {
-        Ok(Self::summarize_edges(edges, layout)?.count)
+        let segs = build_segments(edges, layout)?;
+        Ok(sweep_segments(&segs).len())
     }
 
     /// Summarizes crossing count and crossing angles among `edges` under `layout`.
@@ -668,18 +709,21 @@ impl SweepLineCrossings {
         edges: &[(u32, u32)],
         layout: &Layout2d<S>,
     ) -> CoreResult<CrossingSummary> {
-        let pairs = Self::find_edge_crossings(edges, layout)?;
+        let segs = build_segments(edges, layout)?;
+        let reported = sweep_segments(&segs);
         let mut summary = CrossingSummary {
-            count: pairs.len(),
+            count: reported.len(),
             angle_cos_sq_sum: 0.0,
             min_angle_rad: None,
         };
-        for p in &pairs {
-            summary.angle_cos_sq_sum += p.cos_sq;
-            if let Some(a) = p.angle_rad {
+        for key in reported {
+            let (a, b) = unpack_pair(key);
+            let (angle_rad, cos_sq) = crossing_angle_metrics(&segs[a], &segs[b]);
+            summary.angle_cos_sq_sum += cos_sq;
+            if let Some(ang) = angle_rad {
                 summary.min_angle_rad = Some(match summary.min_angle_rad {
-                    Some(prev) => prev.min(a),
-                    None => a,
+                    Some(prev) => prev.min(ang),
+                    None => ang,
                 });
             }
         }
@@ -692,7 +736,8 @@ impl SweepLineCrossings {
         layout: &Layout2d<S>,
     ) -> CoreResult<Vec<CrossingPair>> {
         let segs = build_segments(edges, layout)?;
-        Ok(sweep_segments(&segs))
+        let reported = sweep_segments(&segs);
+        Ok(finalize_pairs(&reported, &segs))
     }
 }
 
@@ -712,6 +757,9 @@ fn extract_csr_edges<W>(graph: &CsrGraph<W>) -> Vec<(u32, u32)> {
 }
 
 fn build_segments<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> CoreResult<Vec<Seg>> {
+    if edges.len() > u32::MAX as usize {
+        return Err(CoreError::invalid_input("edge count exceeds u32::MAX"));
+    }
     layout.validate_finite()?;
     let n = layout.len();
     let xs = layout.x();
@@ -748,9 +796,9 @@ fn build_segments<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> Core
     Ok(segs)
 }
 
-fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
+fn sweep_segments(segs: &[Seg]) -> PairSet {
     if segs.len() < 2 {
-        return Vec::new();
+        return PairSet::default();
     }
 
     let mut max_coord = 1.0_f64;
@@ -781,7 +829,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
                 max_seg_y_err.max(seg_y_err(s, s.x_max).min((s.y_max - s.y_min) + eps_y));
         }
     }
-    let mut reported: HashSet<(usize, usize)> = HashSet::new();
+    let mut reported: PairSet = PairSet::default();
 
     // 1. Check vertical-vs-vertical crossings via 1D sweep grouped by exact x coordinate.
     if vert_indices.len() >= 2 {
@@ -809,8 +857,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
                     active_y.retain(|&prev_id| segs[prev_id].y_max >= s_cur.y_min);
                     for &prev_id in &active_y {
                         if segments_cross(s_cur, &segs[prev_id]) {
-                            let pair = ordered_pair(v_id, prev_id);
-                            reported.insert(pair);
+                            reported.insert(pack_pair(v_id, prev_id));
                         }
                     }
                     active_y.push(v_id);
@@ -821,7 +868,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
     }
 
     if non_vert_count == 0 {
-        return finalize_pairs(&reported, segs);
+        return reported;
     }
 
     // 2. X-sweep over non-vertical segments + vertical queries at exact x_v.
@@ -932,7 +979,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
                         break;
                     }
                     if segments_cross(v_seg, s_cur) {
-                        reported.insert(ordered_pair(v_idx, cur_edge));
+                        reported.insert(pack_pair(v_idx, cur_edge));
                     }
                     let Some(nx) = tree.next_edge(cur_edge) else {
                         break;
@@ -979,7 +1026,7 @@ fn sweep_segments(segs: &[Seg]) -> Vec<CrossingPair> {
         }
     }
 
-    finalize_pairs(&reported, segs)
+    reported
 }
 
 struct BandScratch {
@@ -994,7 +1041,7 @@ struct BandScratch {
     visited_stamp: Vec<u64>,
     visited_err: Vec<f64>,
     stamp: u64,
-    processed_int_at_x: HashSet<(usize, usize)>,
+    processed_int_at_x: PairSet,
     last_int_x: f64,
 }
 
@@ -1012,7 +1059,7 @@ impl BandScratch {
             visited_stamp: vec![0; num_edges],
             visited_err: vec![0.0; num_edges],
             stamp: 0,
-            processed_int_at_x: HashSet::new(),
+            processed_int_at_x: PairSet::default(),
             last_int_x: f64::NAN,
         }
     }
@@ -1026,7 +1073,7 @@ fn handle_intersection(
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut HashSet<(usize, usize)>,
+    reported: &mut PairSet,
     touched_edges: &mut Vec<usize>,
     scratch: &mut BandScratch,
 ) {
@@ -1045,7 +1092,7 @@ fn handle_intersection(
 
     if r1 + 1 == r2 {
         tree.swap_adjacent_edges(e1, e2);
-        scratch.processed_int_at_x.insert(ordered_pair(e1, e2));
+        scratch.processed_int_at_x.insert(pack_pair(e1, e2));
         touched_edges.push(e1);
         touched_edges.push(e2);
         // After swap, `e2` precedes `e1`.
@@ -1095,7 +1142,7 @@ fn handle_intersection(
         return;
     }
 
-    scratch.processed_int_at_x.insert(ordered_pair(e1, e2));
+    scratch.processed_int_at_x.insert(pack_pair(e1, e2));
     touched_edges.push(e1);
     touched_edges.push(e2);
 
@@ -1146,9 +1193,7 @@ fn handle_intersection(
         }
     }
     for win in scratch.band_edges.windows(2) {
-        scratch
-            .processed_int_at_x
-            .insert(ordered_pair(win[0], win[1]));
+        scratch.processed_int_at_x.insert(pack_pair(win[0], win[1]));
         check_adjacent_and_schedule(
             win[0],
             win[1],
@@ -1200,7 +1245,7 @@ fn check_eps_bands_at_x(
     segs: &[Seg],
     tree: &ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut HashSet<(usize, usize)>,
+    reported: &mut PairSet,
     scratch: &mut BandScratch,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
@@ -1266,7 +1311,7 @@ fn reorder_surviving_bands_at_x(
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut HashSet<(usize, usize)>,
+    reported: &mut PairSet,
     scratch: &mut BandScratch,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
@@ -1356,9 +1401,7 @@ fn reorder_surviving_bands_at_x(
             }
         }
         for win in scratch.band_edges.windows(2) {
-            scratch
-                .processed_int_at_x
-                .insert(ordered_pair(win[0], win[1]));
+            scratch.processed_int_at_x.insert(pack_pair(win[0], win[1]));
             check_adjacent_and_schedule(
                 win[0],
                 win[1],
@@ -1378,7 +1421,7 @@ fn check_band_pairs(
     x_evt: f64,
     segs: &[Seg],
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut HashSet<(usize, usize)>,
+    reported: &mut PairSet,
     scratch: &mut BandScratch,
 ) {
     scratch.cur_buf.clear();
@@ -1490,15 +1533,15 @@ fn check_adjacent_and_schedule(
     sweep_x: f64,
     segs: &[Seg],
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut HashSet<(usize, usize)>,
-    processed_int_at_x: &HashSet<(usize, usize)>,
+    reported: &mut PairSet,
+    processed_int_at_x: &PairSet,
 ) {
     let s_lo = &segs[lower];
     let s_hi = &segs[upper];
     if !segments_geometrically_intersect(s_lo, s_hi) {
         return;
     }
-    let pair = ordered_pair(lower, upper);
+    let pair = pack_pair(lower, upper);
     if !s_lo.shares_endpoint(s_hi) {
         reported.insert(pair);
     }
@@ -1523,15 +1566,11 @@ fn check_adjacent_and_schedule(
     }
 }
 
-#[inline]
-fn ordered_pair(a: usize, b: usize) -> (usize, usize) {
-    if a < b { (a, b) } else { (b, a) }
-}
-
-fn finalize_pairs(reported: &HashSet<(usize, usize)>, segs: &[Seg]) -> Vec<CrossingPair> {
+fn finalize_pairs(reported: &PairSet, segs: &[Seg]) -> Vec<CrossingPair> {
     let mut pairs: Vec<CrossingPair> = reported
         .iter()
-        .map(|&(a, b)| {
+        .map(|&key| {
+            let (a, b) = unpack_pair(key);
             let sa = &segs[a];
             let sb = &segs[b];
             let (angle_rad, cos_sq) = crossing_angle_metrics(sa, sb);
@@ -1722,13 +1761,17 @@ pub fn torus_crossing_edges_from_edges<S: Scalar>(
         }
     }
 
+    if sub_segs.len() > u32::MAX as usize {
+        return Err(CoreError::invalid_input("edge count exceeds u32::MAX"));
+    }
     let pairs = sweep_segments(&sub_segs);
     let mut out = Vec::with_capacity(pairs.len());
-    for p in pairs {
-        let sa = &sub_segs[p.edge_a];
-        let sb = &sub_segs[p.edge_b];
-        let ea = orig_edge_of_sub[p.edge_a];
-        let eb = orig_edge_of_sub[p.edge_b];
+    for key in pairs {
+        let (sub_a, sub_b) = unpack_pair(key);
+        let sa = &sub_segs[sub_a];
+        let sb = &sub_segs[sub_b];
+        let ea = orig_edge_of_sub[sub_a];
+        let eb = orig_edge_of_sub[sub_b];
         if ea <= eb {
             out.push(TorusCrossing {
                 edge_a: ea,
@@ -1843,6 +1886,19 @@ mod tests {
             SweepLineCrossings::count_edges(edges, layout).unwrap(),
             expected.len()
         );
+        let summary = SweepLineCrossings::summarize_edges(edges, layout).unwrap();
+        assert_eq!(summary.count, expected.len());
+        let expected_cos_sq: f64 = got_pairs.iter().map(|p| p.cos_sq).sum();
+        assert!(
+            (summary.angle_cos_sq_sum - expected_cos_sq).abs()
+                <= 1e-12 * (expected.len().max(1) as f64),
+            "{label}: angle_cos_sq_sum mismatch"
+        );
+        let expected_min_ang = got_pairs
+            .iter()
+            .filter_map(|p| p.angle_rad)
+            .reduce(f64::min);
+        assert_eq!(summary.min_angle_rad, expected_min_ang);
     }
 
     #[test]
