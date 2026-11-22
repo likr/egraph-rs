@@ -4,8 +4,14 @@
 //! `egraph-neighborhood` to provide cooperative `step()`/`run_steps(k)` layout execution across
 //! Native Rust, Python (PyO3), and WebAssembly (`wasm32-unknown-unknown`) targets.
 
+pub mod constraints;
+pub mod continuous_fdp;
+pub mod fdeb;
+pub mod field_layout;
 pub mod gumap;
 pub mod kamada_kawai;
+pub mod layering;
+pub mod prism;
 pub mod refiner;
 pub mod sgd;
 pub mod stress_majorization;

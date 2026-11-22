@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["delaunay"]
+delaunay = ["egraph-spatial/delaunay"]
+
 [dependencies]
 egraph-core.workspace = true
 egraph-spatial.workspace = true

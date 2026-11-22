@@ -16,7 +16,7 @@ wasm-opt = false
 [features]
 default = ["full"]
 full = ["legacy", "delaunay"]
-delaunay = ["egraph-spatial/delaunay"]
+delaunay = ["egraph-spatial/delaunay", "egraph-layout/delaunay"]
 legacy = [
     "dep:petgraph",
     "dep:petgraph-algorithm-shortest-path",
@@ -44,7 +44,7 @@ console_error_panic_hook = "0.1"
 egraph-clustering.workspace = true
 egraph-core.workspace = true
 egraph-ffi.workspace = true
-egraph-layout.workspace = true
+egraph-layout = { workspace = true, default-features = false }
 egraph-linalg.workspace = true
 egraph-metrics.workspace = true
 egraph-neighborhood.workspace = true
