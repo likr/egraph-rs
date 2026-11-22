@@ -41,3 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed legacy `InfoMap` clustering placeholder and legacy dead workflow/crate scaffolding (`crates/layout/random`).
+
+### Notes
+
+- **Track A Interpolation Default**: `TsNetSolver.pure_2hop` defaults to `interpolation_order=1` (bilinear `ibFFT` for fast interactive/browser execution), while `interpolation_order=3` reproduces DKE Phase 4 cubic interpolation (`suite30` NP2 `0.6301`).
+- **4M-Node Streaming Memory Profile**: `SgdSolver.snap_t_fdp` provides streaming `< 1.3 GiB` Peak RSS execution on 4M-node graphs (`com-LiveJournal`).

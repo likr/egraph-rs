@@ -107,6 +107,10 @@ jobs:
           classifiers = py_project.get("classifiers", [])
           if pre_kind == "alpha" and "Development Status :: 3 - Alpha" not in classifiers:
               sys.exit("crates/python/pyproject.toml missing 'Development Status :: 3 - Alpha' classifier")
+          if pre_kind != "alpha" and "Development Status :: 3 - Alpha" in classifiers:
+              sys.exit(
+                  f"crates/python/pyproject.toml must not retain 'Development Status :: 3 - Alpha' classifier for tag '{ref_name}'"
+              )
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"tag_version={tag_version}\n")
