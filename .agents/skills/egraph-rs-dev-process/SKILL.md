@@ -31,8 +31,9 @@ This skill details the general development rules, comment conventions, parallel 
 ### 3. Before Task Completion (Final Verification Process)
 - **Formatting, Invariants, and Tests**:
   - Run `cargo fmt --all`.
-  - Run `./scripts/verify.sh` matching scope (`--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, or `--all`).
+  - Run `./scripts/verify.sh` matching scope (`--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, or `--all --build-wasm --docs`).
   - Ensure all modified crates (outside legacy `petgraph-linalg-kernel` baseline warnings) pass `clippy ... -- -D warnings`.
+  - Before release tagging, confirm workspace dependency alignment (`ndarray` `0.17` `default-features = false` matching `numpy` `0.28`), `crates/wasm/package.json` `repository` provenance metadata, `crates/python/pyproject.toml` classifiers matching tag stability (`alpha`/`beta`/`rc`/GA), and `CHANGELOG.md` accuracy.
 - **Prepare Commit**:
   - Draft a commit message following Conventional Commits format (see `egraph-rs-commit` skill).
 - **Ask for User Confirmation**:

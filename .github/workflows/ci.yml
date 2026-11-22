@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -172,7 +172,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y binaryen
-          curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+          sudo curl -fsSL https://github.com/wasm-bindgen/wasm-pack/releases/download/v0.15.1/wasm-pack-v0.15.1-x86_64-unknown-linux-musl.tar.gz \
+            | sudo tar -xz --strip-components=1 -C /usr/local/bin wasm-pack-v0.15.1-x86_64-unknown-linux-musl/wasm-pack
+          wasm-pack --version
 
       - name: Check egraph-wasm --no-default-features
         run: |
@@ -214,7 +216,11 @@ jobs:
 
       - name: Build js/examples and run Playwright browser smoke
         run: |
-          npm --prefix js/examples ci || npm --prefix js/examples install --no-audit --no-fund
+          if [[ -f js/examples/package-lock.json ]]; then
+            npm --prefix js/examples ci
+          else
+            npm --prefix js/examples install --no-audit --no-fund
+          fi
           npm --prefix js/examples run build
           npx --prefix js/examples playwright install --with-deps chromium
           node crates/wasm/tests/playwright_smoke.mjs

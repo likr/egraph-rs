@@ -261,6 +261,18 @@ ensure_venv() {
   fi
 }
 
+ensure_docs_venv() {
+  ensure_venv
+  if ! "$VIRTUAL_ENV/bin/python" -c "import sphinx, sphinx_rtd_theme, matplotlib" >/dev/null 2>&1; then
+    local req_file="$REPO_ROOT/crates/python/docs/requirements.txt"
+    if command -v uv >/dev/null 2>&1; then
+      uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$req_file"
+    else
+      "$VIRTUAL_ENV/bin/python" -m pip install -r "$req_file"
+    fi
+  fi
+}
+
 # --- Tier 0: --fast ---
 if [[ "$RUN_FAST" -eq 1 ]]; then
   run_step "rust_fmt_check" cargo fmt --all -- --check
@@ -417,14 +429,25 @@ fi
 # --- Invariants ---
 if [[ "$RUN_INVARIANTS" -eq 1 ]]; then
   INV_BIN="$(helper_path check_invariants.sh)"
-  INV_ARGS=(--mode "$([[ "$STRICT" -eq 1 ]] && echo strict || echo report)")
-  if [[ "${#CRATES[@]}" -gt 0 ]]; then
-    INV_ARGS+=(--crate "${CRATES[0]}")
+  INV_MODE="$([[ "$STRICT" -eq 1 ]] && echo strict || echo report)"
+  if [[ "${#CRATES[@]}" -gt 1 ]]; then
+    for idx in "${!CRATES[@]}"; do
+      INV_ARGS=(--mode "$INV_MODE" --crate "${CRATES[$idx]}")
+      if [[ "$BUILD_WASM" -eq 1 && "$idx" -eq 0 ]]; then
+        INV_ARGS+=(--check-wasm-size)
+      fi
+      run_step "invariants_${CRATES[$idx]}" "$INV_BIN" "${INV_ARGS[@]}"
+    done
+  else
+    INV_ARGS=(--mode "$INV_MODE")
+    if [[ "${#CRATES[@]}" -eq 1 ]]; then
+      INV_ARGS+=(--crate "${CRATES[0]}")
+    fi
+    if [[ "$BUILD_WASM" -eq 1 ]]; then
+      INV_ARGS+=(--check-wasm-size)
+    fi
+    run_step "invariants" "$INV_BIN" ${INV_ARGS[@]+"${INV_ARGS[@]}"}
   fi
-  if [[ "$BUILD_WASM" -eq 1 ]]; then
-    INV_ARGS+=(--check-wasm-size)
-  fi
-  run_step "invariants" "$INV_BIN" ${INV_ARGS[@]+"${INV_ARGS[@]}"}
 fi
 
 # --- Cross-target Parity ---
@@ -440,7 +463,7 @@ fi
 
 # --- Docs & Examples ---
 if [[ "$RUN_DOCS" -eq 1 ]]; then
-  run_step "python_venv_for_docs" ensure_venv
+  run_step "python_venv_for_docs" ensure_docs_venv
   if ! "$VIRTUAL_ENV/bin/python" -c "import egraph" >/dev/null 2>&1; then
     run_step "python_maturin_develop_for_docs" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/maturin' develop --release"
   fi
@@ -471,7 +494,11 @@ if [[ "$RUN_DOCS" -eq 1 ]]; then
   run_step "docs_js_examples_build" bash -c "
     set -euo pipefail
     if [[ ! -d '$REPO_ROOT/js/examples/node_modules' ]]; then
-      npm --prefix '$REPO_ROOT/js/examples' ci || npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund
+      if [[ -f '$REPO_ROOT/js/examples/package-lock.json' ]]; then
+        npm --prefix '$REPO_ROOT/js/examples' ci
+      else
+        npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund
+      fi
     fi
     npm --prefix '$REPO_ROOT/js/examples' run build
   "

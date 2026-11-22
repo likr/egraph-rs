@@ -389,13 +389,20 @@ wasm_toml = root / "crates" / "wasm" / "Cargo.toml"
 wasm_pkg = root / "crates" / "wasm" / "package.json"
 if wasm_toml.exists() and wasm_pkg.exists():
     wasm_cargo_ver = resolve_cargo_version(wasm_toml)
-    wasm_pkg_ver = json.loads(wasm_pkg.read_text(encoding="utf-8")).get("version")
+    wasm_pkg_data = json.loads(wasm_pkg.read_text(encoding="utf-8"))
+    wasm_pkg_ver = wasm_pkg_data.get("version")
     if ws_version and wasm_cargo_ver != ws_version:
         issues.append(f"crates/wasm/Cargo.toml version ({wasm_cargo_ver}) != workspace version ({ws_version})")
     if ws_version and wasm_pkg_ver != ws_version:
         issues.append(f"crates/wasm/package.json version ({wasm_pkg_ver}) != workspace version ({ws_version})")
     if wasm_cargo_ver != wasm_pkg_ver:
         issues.append(f"WASM Cargo.toml version ({wasm_cargo_ver}) != package.json version ({wasm_pkg_ver})")
+    repo_meta = wasm_pkg_data.get("repository")
+    if not isinstance(repo_meta, dict) or repo_meta.get("type") != "git" or repo_meta.get("directory") != "crates/wasm":
+        issues.append("crates/wasm/package.json repository must specify type='git' and directory='crates/wasm' for npm provenance")
+    repo_url = repo_meta.get("url", "") if isinstance(repo_meta, dict) else ""
+    if "github.com/likr/egraph-rs" not in str(repo_url):
+        issues.append(f"crates/wasm/package.json repository.url ({repo_url!r}) must point to github.com/likr/egraph-rs")
 
 for i in issues:
     print(i)
