@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [features]
+default = ["petgraph"]
+petgraph = ["dep:petgraph"]
 1138_bus = []
 poli = []
 USpowerGrid = []
@@ -17,4 +19,4 @@ lesmis = []
 
 [dependencies]
 egraph-core.workspace = true
-petgraph.workspace = true
+petgraph = { workspace = true, optional = true }

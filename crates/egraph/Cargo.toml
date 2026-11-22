@@ -1,0 +1,60 @@
+[package]
+name = "egraph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Unified single-threaded pure-Rust graph drawing and layout facade crate."
+
+[features]
+default = [
+    "spatial",
+    "linalg",
+    "neighborhood",
+    "layout",
+    "clustering",
+    "metrics",
+    "dataset",
+    "delaunay",
+]
+spatial = ["dep:egraph-spatial"]
+delaunay = ["spatial", "egraph-spatial/delaunay", "egraph-layout?/delaunay"]
+linalg = ["dep:egraph-linalg"]
+neighborhood = ["spatial", "linalg", "dep:egraph-neighborhood"]
+layout = ["spatial", "linalg", "neighborhood", "dep:egraph-layout"]
+clustering = ["linalg", "dep:egraph-clustering"]
+metrics = ["spatial", "linalg", "dep:egraph-metrics"]
+dataset = ["dep:egraph-dataset"]
+petgraph = ["dep:egraph-petgraph", "egraph-dataset?/petgraph"]
+full = [
+    "spatial",
+    "linalg",
+    "neighborhood",
+    "layout",
+    "clustering",
+    "metrics",
+    "dataset",
+    "delaunay",
+    "petgraph",
+]
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial = { workspace = true, optional = true }
+egraph-linalg = { workspace = true, optional = true }
+egraph-neighborhood = { workspace = true, optional = true }
+egraph-layout = { workspace = true, optional = true, default-features = false }
+egraph-clustering = { workspace = true, optional = true }
+egraph-metrics = { workspace = true, optional = true }
+egraph-dataset = { workspace = true, optional = true, default-features = false, features = [
+    "1138_bus",
+    "3elt",
+    "dwt_1005",
+    "dwt_2680",
+    "poli",
+    "qh882",
+    "USpowerGrid",
+    "karate",
+    "lesmis",
+] }
+egraph-petgraph = { workspace = true, optional = true }

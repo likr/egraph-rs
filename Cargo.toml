@@ -12,6 +12,7 @@ members = [
     "crates/dataset",
     "crates/drawing",
     "crates/edge-bundling/fdeb",
+    "crates/egraph",
     "crates/ffi",
     "crates/layout",
     "crates/layout/kamada-kawai",
@@ -48,8 +49,13 @@ wasm-bindgen = "0.2.104"
 js-sys = "0.3"
 pyo3 = { version = "0.28", features = ["abi3-py310", "extension-module"] }
 numpy = "0.28"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+egraph = { path = "crates/egraph" }
 egraph-clustering = { path = "crates/cluster" }
 egraph-core = { path = "crates/core" }
+egraph-dataset = { path = "crates/dataset" }
 egraph-ffi = { path = "crates/ffi" }
 egraph-layout = { path = "crates/layout" }
 egraph-linalg = { path = "crates/linalg" }
