@@ -6,8 +6,8 @@
 //! cycle breaking / layering, and reference-passing `FdebSolver` without `serde`,
 //! `getrandom`, or threading dependencies.
 
-use egraph_core::{CoreError, IterativeSolver};
-use egraph_layout::{
+use egraph::core::{CoreError, IterativeSolver};
+use egraph::layout::{
     ConstraintProjector, FdebConfig, FdebSolver, FieldLayoutSolver, FieldRepulsionBackend,
     ForceAtlas2Config, ForceAtlas2Solver, IbUmapConfig, LayeringMethod, PacmapGraphConfig,
     PrismConfig, PrismOverlapRemoval, SeparationConstraint, Sgd2Config, SgdSolver, SnapTFdpConfig,
@@ -15,7 +15,7 @@ use egraph_layout::{
     generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
     project_rectangle_no_overlap_2d, remove_cycles,
 };
-use egraph_neighborhood::{DogVaradhanConfig, KnnGraph};
+use egraph::neighborhood::{DogVaradhanConfig, KnnGraph};
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::v6::{JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize};
@@ -186,6 +186,51 @@ pub struct JsTFdpSolver {
     inner: FieldLayoutSolver<f32>,
 }
 
+fn try_extract_knn_graph(val: &JsValue) -> Result<Option<KnnGraph>, JsError> {
+    if val.is_null()
+        || val.is_undefined()
+        || !val.is_object()
+        || js_sys::Array::is_array(val)
+        || js_sys::ArrayBuffer::is_view(val)
+        || val.is_function()
+    {
+        return Ok(None);
+    }
+    let num_nodes_val = get_prop(val, "numNodes")?;
+    let indptr_prop = get_prop(val, "indptr")?;
+    let indices_prop = get_prop(val, "indices")?;
+    let distances_prop = get_prop(val, "distances")?;
+    let (Some(num_nodes_f), Some(indptr_fn), Some(indices_fn), Some(distances_fn)) = (
+        num_nodes_val.as_f64(),
+        indptr_prop.dyn_ref::<js_sys::Function>(),
+        indices_prop.dyn_ref::<js_sys::Function>(),
+        distances_prop.dyn_ref::<js_sys::Function>(),
+    ) else {
+        return Ok(None);
+    };
+    let n = parse_non_negative_usize(num_nodes_f, "knn.numNodes")?;
+    let raw_indptr = indptr_fn.call0(val).map_err(|err| {
+        JsError::new(&format!("TFdpSolver.fromKnn: knn.indptr() failed: {err:?}"))
+    })?;
+    let raw_indices = indices_fn.call0(val).map_err(|err| {
+        JsError::new(&format!(
+            "TFdpSolver.fromKnn: knn.indices() failed: {err:?}"
+        ))
+    })?;
+    let raw_distances = distances_fn.call0(val).map_err(|err| {
+        JsError::new(&format!(
+            "TFdpSolver.fromKnn: knn.distances() failed: {err:?}"
+        ))
+    })?;
+    let indptr = parse_u32_sequence(&raw_indptr, "knn.indptr")?;
+    let indices = parse_u32_sequence(&raw_indices, "knn.indices")?;
+    let distances = parse_f64_sequence(&raw_distances, "knn.distances")?;
+    let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
+    let knn =
+        KnnGraph::new_validated(n, indptr_usize, indices, distances).map_err(core_err_to_js)?;
+    Ok(Some(knn))
+}
+
 #[wasm_bindgen(js_class = TFdpSolver)]
 impl JsTFdpSolver {
     /// Constructs a `TFdpSolver` directly from a `CsrGraph`.
@@ -196,35 +241,47 @@ impl JsTFdpSolver {
         Ok(Self { inner })
     }
 
-    /// Constructs a `TFdpSolver` from raw CSR $k$-NN `indptr`, `indices`, and optional
-    /// non-negative neighbor distances/weights (`weights` defaults to uniform `0.0` distances).
+    /// Constructs a `TFdpSolver` from either a `KnnGraph` instance (`fromKnn(knn, options?)`)
+    /// or raw CSR $k$-NN `indptr`, `indices`, and optional neighbor `weights`
+    /// (`fromKnn(indptr, indices, weights?, options?)`, where `weights` defaults to uniform `0.0`).
     #[wasm_bindgen(js_name = fromKnn)]
     pub fn from_knn(
-        indptr: &[u32],
-        indices: &[u32],
+        knn_or_indptr: &JsValue,
+        indices_or_options: &JsValue,
         weights_or_options: &JsValue,
         options: &JsValue,
     ) -> Result<JsTFdpSolver, JsError> {
-        if indptr.is_empty() {
-            return Err(core_err_to_js(CoreError::invalid_csr(
-                "TFdpSolver.fromKnn: indptr must have length numNodes + 1 >= 1",
-            )));
-        }
-        let n = indptr.len() - 1;
-        let (weights_vec, opts_val) = if is_plain_js_object(weights_or_options) {
-            reject_extra_args_with_options(!options.is_undefined() && !options.is_null())?;
-            (vec![0.0_f64; indices.len()], weights_or_options)
-        } else if weights_or_options.is_undefined() || weights_or_options.is_null() {
-            (vec![0.0_f64; indices.len()], options)
+        let (knn, opts_val) = if let Some(knn) = try_extract_knn_graph(knn_or_indptr)? {
+            reject_extra_args_with_options(
+                (!weights_or_options.is_undefined() && !weights_or_options.is_null())
+                    || (!options.is_undefined() && !options.is_null()),
+            )?;
+            (knn, indices_or_options)
         } else {
-            let ws = parse_f64_sequence(weights_or_options, "weights")?;
-            (ws, options)
+            let indptr = parse_u32_sequence(knn_or_indptr, "indptr")?;
+            if indptr.is_empty() {
+                return Err(core_err_to_js(CoreError::invalid_csr(
+                    "TFdpSolver.fromKnn: indptr must have length numNodes + 1 >= 1",
+                )));
+            }
+            let indices = parse_u32_sequence(indices_or_options, "indices")?;
+            let n = indptr.len() - 1;
+            let (weights_vec, opts_val) = if is_plain_js_object(weights_or_options) {
+                reject_extra_args_with_options(!options.is_undefined() && !options.is_null())?;
+                (vec![0.0_f64; indices.len()], weights_or_options)
+            } else if weights_or_options.is_undefined() || weights_or_options.is_null() {
+                (vec![0.0_f64; indices.len()], options)
+            } else {
+                let ws = parse_f64_sequence(weights_or_options, "weights")?;
+                (ws, options)
+            };
+            let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
+            let knn = KnnGraph::new_validated(n, indptr_usize, indices, weights_vec)
+                .map_err(core_err_to_js)?;
+            (knn, opts_val)
         };
 
         let cfg = parse_t_fdp_config(opts_val)?;
-        let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
-        let knn = KnnGraph::new_validated(n, indptr_usize, indices.to_vec(), weights_vec)
-            .map_err(core_err_to_js)?;
         let inner = FieldLayoutSolver::<f32>::t_fdp_from_knn(&knn, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
@@ -323,6 +380,7 @@ impl JsIbUmapSolver {
             let m2 = opt_usize_prop(options, "max2hopPerNode", DEFAULT_IBUMAP_MAX_2HOP)?;
             let d_cfg = parse_dog_config_from_options_or_args(
                 options, cfg.seed, None, None, None, None, None, None, None, None, None, None,
+                None, None,
             )?;
             (m2, d_cfg)
         } else {

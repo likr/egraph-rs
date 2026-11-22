@@ -6,31 +6,32 @@
 //! `StressMajorizationSolver`, `KamadaKawaiSolver`) mutating `Layout2d` buffers in place
 //! without `serde`, `getrandom`, or threading dependencies.
 
-use egraph_clustering::{
+use egraph::clustering::{
     KMeansConfig, KMeansResult, LabelPropagationConfig, LouvainConfig, LouvainResult,
     SpectralClusteringConfig, coarsen_graph, kmeans_plus_plus, label_propagation, louvain,
     project_clustered_layout, spectral_clustering,
 };
-use egraph_core::{
+use egraph::core::{
     CoreError, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
+    poincare_distance, spherical_distance, torus_distance, wrap_torus_point,
 };
-use egraph_layout::{
+use egraph::layout::{
     BarrierSymmetry, GuMapConfig, GuMapSolver, KamadaKawaiConfig, KamadaKawaiSolver,
     SgdScheduleConfig, SgdScheduleKind, SgdSolver, SparseBarrierConfig, SparseBarrierStats,
     SpatialIntruderRefiner, SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,
     StreamingNegativeConfig, StressMajorizationConfig, StressMajorizationSolver, TsNetBackend,
     TsNetConfig, TsNetSolver,
 };
-use egraph_neighborhood::{DogVaradhanConfig, SymmetrizationMode};
-use egraph_spatial::InterpolationOrder;
+use egraph::neighborhood::{DogVaradhanConfig, DogVaradhanStats, SymmetrizationMode};
+use egraph::spatial::{FitFieldStats, InterpolationOrder};
 use wasm_bindgen::prelude::*;
 
 use crate::v6::{
     JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64,
 };
 use crate::v6_m2::{
-    JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities, parse_opt_usize_param,
-    parse_optional_usize,
+    JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities, JsSpectralMomentStats,
+    parse_opt_usize_param, parse_optional_usize,
 };
 
 const DEFAULT_KMEANS_K: usize = 2;
@@ -627,6 +628,32 @@ impl JsManifoldLayout2d {
         })
     }
 
+    /// Creates a zero-initialized Poincaré disk `ManifoldLayout2d` for `n` vertices.
+    #[wasm_bindgen(js_name = hyperbolicPoincare)]
+    pub fn hyperbolic_poincare(n: f64) -> Result<JsManifoldLayout2d, JsError> {
+        let count = parse_non_negative_usize(n, "n")?;
+        Ok(Self {
+            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::HyperbolicPoincare, count),
+        })
+    }
+
+    /// Creates a zero-initialized spherical `ManifoldLayout2d` for `n` vertices.
+    pub fn spherical(n: f64) -> Result<JsManifoldLayout2d, JsError> {
+        let count = parse_non_negative_usize(n, "n")?;
+        Ok(Self {
+            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::Spherical, count),
+        })
+    }
+
+    /// Creates a zero-initialized flat unit torus `ManifoldLayout2d` for `n` vertices.
+    #[wasm_bindgen(js_name = torus2d)]
+    pub fn torus_2d(n: f64) -> Result<JsManifoldLayout2d, JsError> {
+        let count = parse_non_negative_usize(n, "n")?;
+        Ok(Self {
+            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::Torus2d, count),
+        })
+    }
+
     /// Creates a `ManifoldLayout2d` from a Euclidean `Layout2d`, projecting points onto `kind`.
     #[wasm_bindgen(js_name = fromLayout)]
     pub fn from_layout(kind: &str, layout: &JsLayout2d) -> Result<JsManifoldLayout2d, JsError> {
@@ -651,8 +678,20 @@ impl JsManifoldLayout2d {
         manifold_kind_str(self.inner.kind()).to_owned()
     }
 
+    /// Alias for `kind` matching `ManifoldLayout2d.manifold`.
+    #[wasm_bindgen(getter)]
+    pub fn manifold(&self) -> String {
+        manifold_kind_str(self.inner.kind()).to_owned()
+    }
+
     /// Returns the number of vertices in the manifold layout.
     pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns the number of vertices in the manifold layout.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
         self.inner.len()
     }
 
@@ -679,6 +718,24 @@ impl JsManifoldLayout2d {
         let ii = parse_non_negative_usize(i, "i")?;
         let jj = parse_non_negative_usize(j, "j")?;
         self.inner.geodesic_distance(ii, jj).map_err(core_err_to_js)
+    }
+
+    /// Computes the Riemannian logarithmic map `[vx, vy]` at vertex `i` pointing toward `j`.
+    #[wasm_bindgen(js_name = tangentDelta)]
+    pub fn tangent_delta(&self, i: f64, j: f64) -> Result<Vec<f32>, JsError> {
+        let ii = parse_non_negative_usize(i, "i")?;
+        let jj = parse_non_negative_usize(j, "j")?;
+        let (vx, vy) = self.inner.tangent_delta(ii, jj).map_err(core_err_to_js)?;
+        Ok(vec![vx, vy])
+    }
+
+    /// Advances vertex `i` along the geodesic defined by tangent vector `(vx, vy)`.
+    #[wasm_bindgen(js_name = applyTangentStep)]
+    pub fn apply_tangent_step(&mut self, i: f64, vx: f32, vy: f32) -> Result<(), JsError> {
+        let idx = parse_non_negative_usize(i, "i")?;
+        self.inner
+            .apply_tangent_step(idx, vx, vy)
+            .map_err(core_err_to_js)
     }
 
     /// Re-projects all coordinates onto the manifold's canonical domain after checking finiteness.
@@ -727,9 +784,68 @@ impl JsManifoldLayout2d {
     }
 }
 
+/// Computes the Poincaré disk hyperbolic geodesic distance between `(x1, y1)` and `(x2, y2)`.
+#[wasm_bindgen(js_name = poincareDistance)]
+pub fn js_poincare_distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    poincare_distance(x1, y1, x2, y2)
+}
+
+/// Computes the great-circle geodesic distance on the unit sphere in `[0, pi]`.
+#[wasm_bindgen(js_name = sphericalDistance)]
+pub fn js_spherical_distance(lon1: f64, colat1: f64, lon2: f64, colat2: f64) -> f64 {
+    spherical_distance(lon1, colat1, lon2, colat2)
+}
+
+/// Computes the geodesic distance on the flat unit torus `[0, 1)^2`.
+#[wasm_bindgen(js_name = torusDistance)]
+pub fn js_torus_distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    torus_distance(x1, y1, x2, y2)
+}
+
+/// Wraps a 2D coordinate pair onto the flat unit torus `[0, 1)^2`, returning `[x, y]`.
+#[wasm_bindgen(js_name = wrapTorusPoint)]
+pub fn js_wrap_torus_point(x: f64, y: f64) -> Vec<f64> {
+    let (wx, wy) = wrap_torus_point(x, y);
+    vec![wx, wy]
+}
+
 // ============================================================================
 // 3. TsNetSolver (f32)
 // ============================================================================
+
+/// FFT field telemetry counters returned by `TsNetSolver.lastFftStats()`.
+#[wasm_bindgen(js_name = FitFieldStats)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JsFitFieldStats {
+    inner: FitFieldStats,
+}
+
+#[wasm_bindgen(js_class = FitFieldStats)]
+impl JsFitFieldStats {
+    /// Number of forward 2D FFTs executed on particle charge grids.
+    #[wasm_bindgen(getter, js_name = particleForwardFfts)]
+    pub fn particle_forward_ffts(&self) -> f64 {
+        self.inner.particle_forward_ffts as f64
+    }
+
+    /// Number of forward 2D FFTs executed on kernel grids.
+    #[wasm_bindgen(getter, js_name = kernelForwardFfts)]
+    pub fn kernel_forward_ffts(&self) -> f64 {
+        self.inner.kernel_forward_ffts as f64
+    }
+
+    /// Number of inverse 2D FFTs executed.
+    #[wasm_bindgen(getter, js_name = inverseFfts)]
+    pub fn inverse_ffts(&self) -> f64 {
+        self.inner.inverse_ffts as f64
+    }
+
+    /// Total `fft_2d` calls (`particleForwardFfts + kernelForwardFfts + inverseFfts`).
+    #[wasm_bindgen(getter, js_name = totalFft2dCalls)]
+    pub fn total_fft_2d_calls(&self) -> f64 {
+        self.inner.total_fft_2d_calls as f64
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn parse_tsnet_config(
@@ -754,6 +870,10 @@ fn parse_tsnet_config(
     sigma_tolerance: Option<f64>,
     row_normalize: Option<bool>,
     seed: Option<f64>,
+    intervals: Option<f64>,
+    interpolation_order: &JsValue,
+    min_grid_dim: Option<f64>,
+    max_grid_dim: Option<f64>,
 ) -> Result<TsNetConfig, JsError> {
     let mut cfg = TsNetConfig::pure_2hop();
     if is_plain_js_object(backend_or_options) {
@@ -776,7 +896,11 @@ fn parse_tsnet_config(
             || sigma_iters.is_some()
             || sigma_tolerance.is_some()
             || row_normalize.is_some()
-            || seed.is_some();
+            || seed.is_some()
+            || intervals.is_some()
+            || (!interpolation_order.is_undefined() && !interpolation_order.is_null())
+            || min_grid_dim.is_some()
+            || max_grid_dim.is_some();
         reject_extra_args_with_options(has_extra)?;
 
         if let Some(b_str) = opt_string_prop(backend_or_options, "backend")? {
@@ -820,22 +944,30 @@ fn parse_tsnet_config(
         cfg.momentum = opt_f64_prop(backend_or_options, "momentum", cfg.momentum)?;
         cfg.epsilon_r = opt_f64_prop(backend_or_options, "epsilonR", cfg.epsilon_r)?;
         cfg.theta = opt_f64_prop(backend_or_options, "theta", cfg.theta)?;
-        let ord_val = get_prop(backend_or_options, "ibfftOrder")?;
-        if !ord_val.is_undefined() && !ord_val.is_null() {
-            cfg.ibfft.order = parse_ibfft_order(&ord_val)?;
+
+        let ord_primary = get_prop(backend_or_options, "interpolationOrder")?;
+        let ord_alt = get_prop(backend_or_options, "ibfftOrder")?;
+        if !ord_primary.is_undefined() && !ord_primary.is_null() {
+            cfg.ibfft.order = parse_ibfft_order(&ord_primary)?;
+        } else if !ord_alt.is_undefined() && !ord_alt.is_null() {
+            cfg.ibfft.order = parse_ibfft_order(&ord_alt)?;
         }
-        cfg.ibfft.intervals =
-            opt_usize_prop(backend_or_options, "ibfftIntervals", cfg.ibfft.intervals)?;
-        cfg.ibfft.min_grid_dim = opt_usize_prop(
-            backend_or_options,
-            "ibfftMinGridDim",
-            cfg.ibfft.min_grid_dim,
-        )?;
-        cfg.ibfft.max_grid_dim = opt_usize_prop(
-            backend_or_options,
-            "ibfftMaxGridDim",
-            cfg.ibfft.max_grid_dim,
-        )?;
+        let int_primary = opt_maybe_usize_prop(backend_or_options, "intervals")?;
+        let int_alt = opt_maybe_usize_prop(backend_or_options, "ibfftIntervals")?;
+        cfg.ibfft.intervals = int_primary.or(int_alt).unwrap_or(cfg.ibfft.intervals);
+
+        let min_g_primary = opt_maybe_usize_prop(backend_or_options, "minGridDim")?;
+        let min_g_alt = opt_maybe_usize_prop(backend_or_options, "ibfftMinGridDim")?;
+        cfg.ibfft.min_grid_dim = min_g_primary
+            .or(min_g_alt)
+            .unwrap_or(cfg.ibfft.min_grid_dim);
+
+        let max_g_primary = opt_maybe_usize_prop(backend_or_options, "maxGridDim")?;
+        let max_g_alt = opt_maybe_usize_prop(backend_or_options, "ibfftMaxGridDim")?;
+        cfg.ibfft.max_grid_dim = max_g_primary
+            .or(max_g_alt)
+            .unwrap_or(cfg.ibfft.max_grid_dim);
+
         cfg.seed = opt_seed_prop(backend_or_options)?;
         return Ok(cfg);
     }
@@ -874,6 +1006,14 @@ fn parse_tsnet_config(
         cfg.symmetrization = SymmetrizationMode::RowNormalized;
     }
     cfg.seed = parse_seed_u64(seed)?;
+    cfg.ibfft.intervals = parse_optional_usize(intervals, cfg.ibfft.intervals, "intervals")?;
+    if !interpolation_order.is_undefined() && !interpolation_order.is_null() {
+        cfg.ibfft.order = parse_ibfft_order(interpolation_order)?;
+    }
+    cfg.ibfft.min_grid_dim =
+        parse_optional_usize(min_grid_dim, cfg.ibfft.min_grid_dim, "minGridDim")?;
+    cfg.ibfft.max_grid_dim =
+        parse_optional_usize(max_grid_dim, cfg.ibfft.max_grid_dim, "maxGridDim")?;
     Ok(cfg)
 }
 
@@ -912,6 +1052,10 @@ impl JsTsNetSolver {
         sigma_tolerance: Option<f64>,
         row_normalize: Option<bool>,
         seed: Option<f64>,
+        intervals: Option<f64>,
+        interpolation_order: &JsValue,
+        min_grid_dim: Option<f64>,
+        max_grid_dim: Option<f64>,
     ) -> Result<JsTsNetSolver, JsError> {
         let cfg = parse_tsnet_config(
             backend_or_options,
@@ -935,6 +1079,10 @@ impl JsTsNetSolver {
             sigma_tolerance,
             row_normalize,
             seed,
+            intervals,
+            interpolation_order,
+            min_grid_dim,
+            max_grid_dim,
         )?;
         let inner =
             TsNetSolver::<f32>::from_graph_pure_2hop(graph.inner(), cfg).map_err(core_err_to_js)?;
@@ -966,6 +1114,10 @@ impl JsTsNetSolver {
         sigma_tolerance: Option<f64>,
         row_normalize: Option<bool>,
         seed: Option<f64>,
+        intervals: Option<f64>,
+        interpolation_order: &JsValue,
+        min_grid_dim: Option<f64>,
+        max_grid_dim: Option<f64>,
     ) -> Result<JsTsNetSolver, JsError> {
         let cfg = parse_tsnet_config(
             backend_or_options,
@@ -989,6 +1141,10 @@ impl JsTsNetSolver {
             sigma_tolerance,
             row_normalize,
             seed,
+            intervals,
+            interpolation_order,
+            min_grid_dim,
+            max_grid_dim,
         )?;
         let uni = uniform_perplexity.unwrap_or(DEFAULT_UNIFORM_PERPLEXITY);
         let inner = TsNetSolver::<f32>::from_knn(knn.inner(), perplexities.as_deref(), uni, cfg)
@@ -1015,6 +1171,10 @@ impl JsTsNetSolver {
         epsilon_r: Option<f64>,
         theta: Option<f64>,
         seed: Option<f64>,
+        intervals: Option<f64>,
+        interpolation_order: &JsValue,
+        min_grid_dim: Option<f64>,
+        max_grid_dim: Option<f64>,
     ) -> Result<JsTsNetSolver, JsError> {
         let cfg = parse_tsnet_config(
             backend_or_options,
@@ -1038,10 +1198,86 @@ impl JsTsNetSolver {
             None,
             None,
             seed,
+            intervals,
+            interpolation_order,
+            min_grid_dim,
+            max_grid_dim,
         )?;
         let inner = TsNetSolver::<f32>::from_probabilities(probs.inner().clone(), cfg)
             .map_err(core_err_to_js)?;
         Ok(Self { inner })
+    }
+
+    /// Constructs a `TsNetSolver` from a `CsrGraph` using Partial BFS $k$-NN and a uniform perplexity.
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = fromGraphPartialBfs)]
+    pub fn from_graph_partial_bfs(
+        graph: &JsCsrGraph,
+        k: Option<f64>,
+        uniform_perplexity: Option<f64>,
+        backend_or_options: &JsValue,
+        iterations_stage1: Option<f64>,
+        iterations_stage2: Option<f64>,
+        iterations_stage3: Option<f64>,
+        learning_rate: Option<f64>,
+        exaggeration: Option<f64>,
+        lambda_c_stage1: Option<f64>,
+        lambda_c_stage2: Option<f64>,
+        lambda_c_stage3: Option<f64>,
+        lambda_r_stage3: Option<f64>,
+        momentum: Option<f64>,
+        epsilon_r: Option<f64>,
+        theta: Option<f64>,
+        power: Option<f64>,
+        sigma_iters: Option<f64>,
+        sigma_tolerance: Option<f64>,
+        row_normalize: Option<bool>,
+        seed: Option<f64>,
+        intervals: Option<f64>,
+        interpolation_order: &JsValue,
+        min_grid_dim: Option<f64>,
+        max_grid_dim: Option<f64>,
+    ) -> Result<JsTsNetSolver, JsError> {
+        let k_val = parse_optional_usize(k, 30, "k")?;
+        let uni = uniform_perplexity.unwrap_or(DEFAULT_UNIFORM_PERPLEXITY);
+        let cfg = parse_tsnet_config(
+            backend_or_options,
+            iterations_stage1,
+            iterations_stage2,
+            iterations_stage3,
+            learning_rate,
+            None,
+            None,
+            None,
+            exaggeration,
+            lambda_c_stage1,
+            lambda_c_stage2,
+            lambda_c_stage3,
+            lambda_r_stage3,
+            momentum,
+            epsilon_r,
+            theta,
+            power,
+            sigma_iters,
+            sigma_tolerance,
+            row_normalize,
+            seed,
+            intervals,
+            interpolation_order,
+            min_grid_dim,
+            max_grid_dim,
+        )?;
+        let inner = TsNetSolver::<f32>::from_graph_partial_bfs(graph.inner(), k_val, uni, cfg)
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Returns telemetry counters from the most recent FFT field evaluation, or `undefined`.
+    #[wasm_bindgen(js_name = lastFftStats)]
+    pub fn last_fft_stats(&self) -> Option<JsFitFieldStats> {
+        self.inner
+            .last_fft_stats()
+            .map(|inner| JsFitFieldStats { inner })
     }
 
     /// Executes one optimization iteration on `layout` in place.
@@ -1334,6 +1570,100 @@ fn parse_sparse_barrier_config(
     Ok(cfg)
 }
 
+/// Regularized DoG Varadhan landmark diagnostics returned by `SgdSolver.dogStats()`.
+#[wasm_bindgen(js_name = DogStats)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsDogStats {
+    inner: DogVaradhanStats,
+}
+
+#[wasm_bindgen(js_class = DogStats)]
+impl JsDogStats {
+    #[wasm_bindgen(getter, js_name = momentStats)]
+    pub fn moment_stats(&self) -> JsSpectralMomentStats {
+        JsSpectralMomentStats::from_inner(self.inner.moment_stats)
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn t1(&self) -> f64 {
+        self.inner.t1
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn t2(&self) -> f64 {
+        self.inner.t2
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn alpha(&self) -> f64 {
+        self.inner.alpha
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn degree(&self) -> usize {
+        self.inner.degree
+    }
+
+    #[wasm_bindgen(getter, js_name = deltaPsd)]
+    pub fn delta_psd(&self) -> f64 {
+        self.inner.delta_psd
+    }
+
+    #[wasm_bindgen(getter, js_name = hMin)]
+    pub fn h_min(&self) -> f64 {
+        self.inner.h_min
+    }
+
+    #[wasm_bindgen(getter, js_name = kMin)]
+    pub fn k_min(&self) -> f64 {
+        self.inner.k_min
+    }
+
+    #[wasm_bindgen(getter, js_name = kMed)]
+    pub fn k_med(&self) -> f64 {
+        self.inner.k_med
+    }
+
+    #[wasm_bindgen(getter, js_name = betaAuto)]
+    pub fn beta_auto(&self) -> f64 {
+        self.inner.beta_auto
+    }
+
+    #[wasm_bindgen(getter, js_name = betaEff)]
+    pub fn beta_eff(&self) -> f64 {
+        self.inner.beta_eff
+    }
+
+    #[wasm_bindgen(getter, js_name = numLandmarks)]
+    pub fn num_landmarks(&self) -> usize {
+        self.inner.n_landmarks
+    }
+
+    #[wasm_bindgen(getter, js_name = tCoarse)]
+    pub fn t_coarse(&self) -> f64 {
+        self.inner.t_coarse
+    }
+
+    #[wasm_bindgen(getter, js_name = usedCoarseScaffold)]
+    pub fn used_coarse_scaffold(&self) -> bool {
+        self.inner.used_coarse_scaffold
+    }
+}
+
+fn default_inv_sq_weights_f32(dists: &[f32]) -> Vec<f32> {
+    dists
+        .iter()
+        .map(|&d| {
+            let df = f64::from(d);
+            if df.is_finite() && df > 0.0 {
+                (1.0 / (df * df)) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn parse_dog_config_from_options_or_args(
     maybe_options: &JsValue,
@@ -1348,6 +1678,8 @@ pub(crate) fn parse_dog_config_from_options_or_args(
     t2: Option<f64>,
     alpha: Option<f64>,
     beta_floor: Option<f64>,
+    min_degree: Option<f64>,
+    jl_dim: Option<f64>,
 ) -> Result<DogVaradhanConfig, JsError> {
     let mut cfg = DogVaradhanConfig {
         seed,
@@ -1402,6 +1734,8 @@ pub(crate) fn parse_dog_config_from_options_or_args(
 
     cfg.degree = parse_opt_usize_param(degree, "degree")?;
     cfg.n_landmarks = parse_optional_usize(num_landmarks, cfg.n_landmarks, "numLandmarks")?;
+    cfg.min_degree = parse_optional_usize(min_degree, cfg.min_degree, "minDegree")?;
+    cfg.jl_dim = parse_optional_usize(jl_dim, cfg.jl_dim, "jlDim")?;
     cfg.degree_normalize = degree_normalize.unwrap_or(cfg.degree_normalize);
     cfg.p_exp = p_exp.unwrap_or(cfg.p_exp);
     cfg.eps_psd = eps_psd.unwrap_or(cfg.eps_psd);
@@ -1420,6 +1754,7 @@ pub(crate) fn parse_dog_config_from_options_or_args(
 pub struct JsSgdSolver {
     inner: SgdSolver<f32>,
     barrier_stats: Option<SparseBarrierStats>,
+    dog_stats: Option<DogVaradhanStats>,
 }
 
 impl JsSgdSolver {
@@ -1427,6 +1762,7 @@ impl JsSgdSolver {
         Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         }
     }
 }
@@ -1434,6 +1770,8 @@ impl JsSgdSolver {
 #[wasm_bindgen(js_class = SgdSolver)]
 impl JsSgdSolver {
     /// Constructs an `SgdSolver` from explicit flat SoA two-sided spring arrays.
+    ///
+    /// When `dji` is omitted, defaults to `dij`. When `wij`/`wji` are omitted, defaults to $1 / d^2$.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = fromPairs)]
     pub fn from_pairs(
@@ -1441,9 +1779,9 @@ impl JsSgdSolver {
         src: &[u32],
         tgt: &[u32],
         dij: &[f32],
-        dji: &[f32],
-        wij: &[f32],
-        wji: &[f32],
+        dji: Option<Vec<f32>>,
+        wij: Option<Vec<f32>>,
+        wji: Option<Vec<f32>>,
         t_max_or_options: &JsValue,
         eps: Option<f64>,
         kind: Option<String>,
@@ -1453,14 +1791,24 @@ impl JsSgdSolver {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let (sched, seed_u64) =
             parse_sgd_schedule_and_seed(t_max_or_options, eps, kind, step_scale, seed)?;
+        let dji_vec = dji.unwrap_or_else(|| dij.to_vec());
+        let wij_was_none = wij.is_none();
+        let wij_vec = wij.unwrap_or_else(|| default_inv_sq_weights_f32(dij));
+        let wji_vec = wji.unwrap_or_else(|| {
+            if wij_was_none {
+                default_inv_sq_weights_f32(&dji_vec)
+            } else {
+                wij_vec.clone()
+            }
+        });
         let inner = SgdSolver::<f32>::from_pairs(
             n,
             src.to_vec(),
             tgt.to_vec(),
             dij.to_vec(),
-            dji.to_vec(),
-            wij.to_vec(),
-            wji.to_vec(),
+            dji_vec,
+            wij_vec,
+            wji_vec,
             sched,
             seed_u64,
         )
@@ -1468,6 +1816,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1518,6 +1867,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1537,6 +1887,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1597,6 +1948,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: Some(stats),
+            dog_stats: None,
         })
     }
 
@@ -1633,6 +1985,8 @@ impl JsSgdSolver {
         t2: Option<f64>,
         alpha: Option<f64>,
         beta_floor: Option<f64>,
+        min_degree: Option<f64>,
+        jl_dim: Option<f64>,
     ) -> Result<JsSgdSolver, JsError> {
         let has_dog_extra = degree.is_some()
             || num_landmarks.is_some()
@@ -1643,7 +1997,9 @@ impl JsSgdSolver {
             || t1.is_some()
             || t2.is_some()
             || alpha.is_some()
-            || beta_floor.is_some();
+            || beta_floor.is_some()
+            || min_degree.is_some()
+            || jl_dim.is_some();
         let barrier_cfg = parse_sparse_barrier_config(
             max_2hop_or_options,
             hinge_repulsion,
@@ -1678,13 +2034,16 @@ impl JsSgdSolver {
             t2,
             alpha,
             beta_floor,
+            min_degree,
+            jl_dim,
         )?;
-        let (inner, stats, _dog_stats) =
+        let (inner, stats, dog_stats) =
             SgdSolver::<f32>::sparse_barrier_dog(graph.inner(), &dog_cfg, &barrier_cfg)
                 .map_err(core_err_to_js)?;
         Ok(Self {
             inner,
             barrier_stats: Some(stats),
+            dog_stats: Some(dog_stats),
         })
     }
 
@@ -1735,6 +2094,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1794,6 +2154,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1864,6 +2225,7 @@ impl JsSgdSolver {
         Ok(Self {
             inner,
             barrier_stats: None,
+            dog_stats: None,
         })
     }
 
@@ -1975,6 +2337,13 @@ impl JsSgdSolver {
     pub fn stats(&self) -> Option<JsSparseBarrierStats> {
         self.barrier_stats
             .map(|inner| JsSparseBarrierStats { inner })
+    }
+
+    /// Returns regularized DoG Varadhan landmark diagnostics `DogStats` when constructed via
+    /// `sparseBarrierDog`, or `undefined` otherwise.
+    #[wasm_bindgen(js_name = dogStats)]
+    pub fn dog_stats(&self) -> Option<JsDogStats> {
+        self.dog_stats.map(|inner| JsDogStats { inner })
     }
 
     /// Returns the number of two-sided spring pairs stored.
@@ -2120,6 +2489,8 @@ impl JsGuMapSolver {
         a: Option<f64>,
         b: Option<f64>,
         seed: Option<f64>,
+        sigma_iters: Option<f64>,
+        sigma_tolerance: Option<f64>,
     ) -> Result<JsGuMapSolver, JsError> {
         let cfg = parse_gumap_config(
             n_epochs_or_options,
@@ -2129,8 +2500,8 @@ impl JsGuMapSolver {
             spread,
             a,
             b,
-            None,
-            None,
+            sigma_iters,
+            sigma_tolerance,
             seed,
             false,
         )?;
@@ -2198,6 +2569,8 @@ impl JsGuMapSolver {
         t2: Option<f64>,
         alpha: Option<f64>,
         beta_floor: Option<f64>,
+        min_degree: Option<f64>,
+        jl_dim: Option<f64>,
     ) -> Result<JsGuMapSolver, JsError> {
         let has_dog_extra = degree.is_some()
             || num_landmarks.is_some()
@@ -2208,7 +2581,9 @@ impl JsGuMapSolver {
             || t1.is_some()
             || t2.is_some()
             || alpha.is_some()
-            || beta_floor.is_some();
+            || beta_floor.is_some()
+            || min_degree.is_some()
+            || jl_dim.is_some();
 
         let (max_2hop, gumap_cfg, dog_cfg) = if is_plain_js_object(max_2hop_or_options) {
             let has_extra = has_dog_extra
@@ -2234,6 +2609,8 @@ impl JsGuMapSolver {
             let d_cfg = parse_dog_config_from_options_or_args(
                 max_2hop_or_options,
                 g_cfg.seed,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -2281,6 +2658,8 @@ impl JsGuMapSolver {
                 t2,
                 alpha,
                 beta_floor,
+                min_degree,
+                jl_dim,
             )?;
             (m2, g_cfg, d_cfg)
         };

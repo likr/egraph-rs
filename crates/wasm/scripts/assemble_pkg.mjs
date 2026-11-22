@@ -37,13 +37,32 @@ for (const match of wasmJs.matchAll(/^export\s*\{([^}]+)\}\s*;?/gm)) {
 
 const requiredCoreAndM1 = [
   "Layout2d",
+  "LayoutNd",
   "CsrGraph",
+  "LargestConnectedComponentResult",
   "wasmMemory",
   "initSync",
   "scaleNormalizedStress",
   "evaluateMetrics",
   "MetricReport",
   "PrismDistortion",
+  "CrossingPair",
+  "TorusCrossing",
+  "CrossingSummary",
+  "idealEdgeLengthsWithUnit",
+  "crossingEdges",
+  "crossingEdgesTorus",
+  "crossingSummary",
+  "gabrielGraphEdges",
+  "relativeNeighborhoodEdges",
+  "allPairsBfs",
+  "bfsSingleSource",
+  "scaleNormalizedStressFromDistances",
+  "prismDistortionWithEdges",
+  "delaunayToCsr",
+  "rectangleOverlaps",
+  "loadDataset",
+  "parseCsrCsv",
 ];
 
 const requiredM2 = [
@@ -51,6 +70,7 @@ const requiredM2 = [
   "SparseProbabilities",
   "DogVaradhanLandmarks",
   "EigenResult",
+  "SpectralEmbeddingResult",
   "SpectralMomentStats",
   "TwoHopCsr",
   "TwoHopKnnResult",
@@ -74,10 +94,23 @@ const requiredM2 = [
   "findAbParams",
   "computeHorvitzThompsonGamma",
   "computeRegularizedDogVaradhanLandmarks",
+  "classicalMds2d",
+  "rdMds",
+  "normalizeLayout2d",
+  "representativeMds",
+  "computeResistanceEmbedding",
+  "computeDiffusionEmbedding",
+  "buildRerankKnn",
+  "graphRowNormalizedProbabilities",
+  "symmetrizeRowNormalized",
+  "buildGumap12hopPriorityCsr",
+  "applyRelativeDistanceFloor",
 ];
 
 const requiredM3 = [
   "CoarsenedGraphResult",
+  "DogStats",
+  "FitFieldStats",
   "GuMapSolver",
   "KMeansResult",
   "KamadaKawaiSolver",
@@ -94,8 +127,12 @@ const requiredM3 = [
   "kmeansPlusPlus",
   "labelPropagation",
   "louvainCommunities",
+  "poincareDistance",
   "projectClusteredLayout",
   "spectralClustering",
+  "sphericalDistance",
+  "torusDistance",
+  "wrapTorusPoint",
 ];
 
 const requiredM4 = [
@@ -126,18 +163,19 @@ if (missingExports.length > 0) {
 }
 
 const passthroughExports = Array.from(exportedNames)
-  .filter((name) => name !== "Layout2d")
+  .filter((name) => name !== "Layout2d" && name !== "LayoutNd")
   .sort();
 
 const indexJs = `/* @ts-self-types="./index.d.ts" */
 import init, {
   Layout2d as _Layout2d,
+  LayoutNd as _LayoutNd,
 ${passthroughExports.map((name) => `  ${name},`).join("\n")}
 } from "./egraph_wasm.js";
 
-function attachCoordsView(Layout2dClass) {
-  if (typeof Layout2dClass.prototype.coordsView !== "function") {
-    Layout2dClass.prototype.coordsView = function coordsView() {
+function attachCoordsView(LayoutClass) {
+  if (typeof LayoutClass.prototype.coordsView !== "function") {
+    LayoutClass.prototype.coordsView = function coordsView() {
       const buf = wasmMemory().buffer;
       const ptr = this.coordsPtr();
       const len = this.coordsLen();
@@ -153,10 +191,138 @@ function attachCoordsView(Layout2dClass) {
       return this._coordsView;
     };
   }
-  return Layout2dClass;
+  return LayoutClass;
+}
+
+/**
+ * Runs a cooperative iterative solver progressively within a per-frame time budget,
+ * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
+ * in Node.js) between batches.
+ */
+export function runProgressive(solver, layout, onFrame, options = {}) {
+  const {
+    frameBudgetMs = 10,
+    maxStepsPerFrame = 64,
+    stepsPerYield = 1,
+    signal,
+  } = options ?? {};
+
+  const scheduleNext =
+    typeof globalThis.requestAnimationFrame === "function"
+      ? (cb) => globalThis.requestAnimationFrame(() => cb())
+      : (cb) => globalThis.setTimeout(cb, 0);
+  const cancelNext =
+    typeof globalThis.cancelAnimationFrame === "function"
+      ? (id) => globalThis.cancelAnimationFrame(id)
+      : (id) => globalThis.clearTimeout(id);
+
+  const makeAbortError = () => {
+    if (typeof globalThis.DOMException === "function") {
+      return new globalThis.DOMException("runProgressive aborted", "AbortError");
+    }
+    const err = new Error("runProgressive aborted");
+    err.name = "AbortError";
+    return err;
+  };
+
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? makeAbortError());
+      return;
+    }
+    if (solver.isFinished) {
+      const doneCtx = {
+        iteration: solver.iteration,
+        totalIterations: solver.totalIterations,
+        status: solver.status,
+        layout,
+      };
+      if (typeof onFrame === "function") {
+        onFrame(doneCtx);
+      }
+      resolve(doneCtx);
+      return;
+    }
+
+    let handle = null;
+    let settled = false;
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      if (handle !== null) {
+        cancelNext(handle);
+        handle = null;
+      }
+      reject(signal?.reason ?? makeAbortError());
+    };
+
+    if (signal && typeof signal.addEventListener === "function") {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      if (signal && typeof signal.removeEventListener === "function") {
+        signal.removeEventListener("abort", onAbort);
+      }
+      fn(value);
+    };
+
+    const tick = () => {
+      if (settled) return;
+      if (signal?.aborted) {
+        finish(reject, signal.reason ?? makeAbortError());
+        return;
+      }
+      try {
+        const t0 = globalThis.performance.now();
+        let stepsThisFrame = 0;
+        let status = solver.status;
+        const batch = Math.max(1, Math.floor(stepsPerYield));
+
+        while (!solver.isFinished && stepsThisFrame < maxStepsPerFrame) {
+          if (batch > 1 && typeof solver.runSteps === "function") {
+            status = solver.runSteps(layout, batch);
+            stepsThisFrame += batch;
+          } else {
+            status = solver.step(layout);
+            stepsThisFrame += 1;
+          }
+          if (globalThis.performance.now() - t0 >= frameBudgetMs) {
+            break;
+          }
+        }
+
+        const ctx = {
+          iteration: solver.iteration,
+          totalIterations: solver.totalIterations,
+          status,
+          layout,
+        };
+
+        if (typeof onFrame === "function") {
+          onFrame(ctx);
+        }
+
+        if (solver.isFinished) {
+          finish(resolve, ctx);
+          return;
+        }
+
+        handle = scheduleNext(tick);
+      } catch (err) {
+        finish(reject, err);
+      }
+    };
+
+    handle = scheduleNext(tick);
+  });
 }
 
 export const Layout2d = attachCoordsView(_Layout2d);
+export const LayoutNd = attachCoordsView(_LayoutNd);
 export {
 ${passthroughExports.map((name) => `  ${name},`).join("\n")}
 };
@@ -224,6 +390,17 @@ if (!indexDts.includes("coordsView(): Float32Array;")) {
   indexDts = updated;
 }
 
+if (indexDts.includes("export class LayoutNd {")) {
+  const updatedNd = indexDts.replace(
+    /(export class LayoutNd \{[\s\S]*?coordsPtr\(\): number;\n)/,
+    `$1${coordsViewDecl.replace("[x0, y0, ...]", "[c0, c1, ...]")}`,
+  );
+  if (updatedNd === indexDts) {
+    throw new Error(`Failed to inject coordsView() into LayoutNd declaration in ${wasmDtsPath}`);
+  }
+  indexDts = updatedNd;
+}
+
 const m1TypesDecl = `/**
  * Canonical target identifiers and normalized aliases accepted by \`evaluateMetrics\`.
  */
@@ -287,7 +464,7 @@ indexDts = indexDts.replace(
 
 indexDts = indexDts.replace(
   /export function evaluateMetrics\([^;]+\): MetricReport;/,
-  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null): MetricReport;",
+  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null): MetricReport;",
 );
 
 indexDts = indexDts.replace(
@@ -411,6 +588,10 @@ export interface TsNetOptions {
   ibfftIntervals?: number | null;
   ibfftMinGridDim?: number | null;
   ibfftMaxGridDim?: number | null;
+  intervals?: number | null;
+  interpolationOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  minGridDim?: number | null;
+  maxGridDim?: number | null;
   seed?: number | null;
 }
 
@@ -664,6 +845,41 @@ export interface FdebOptions {
   minimumEdgeCompatibility?: number | null;
 }
 
+export interface ProgressiveSolverLike<TLayout = Layout2d> {
+  readonly isFinished: boolean;
+  readonly iteration: number;
+  readonly totalIterations: number;
+  readonly status: SolverStatus | string;
+  step(layout: TLayout): SolverStatus | string;
+  runSteps?(layout: TLayout, steps: number): SolverStatus | string;
+}
+
+export interface ProgressiveFrameContext<TLayout = Layout2d> {
+  iteration: number;
+  totalIterations: number;
+  status: SolverStatus | string;
+  layout: TLayout;
+}
+
+export interface RunProgressiveOptions {
+  frameBudgetMs?: number;
+  maxStepsPerFrame?: number;
+  stepsPerYield?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Runs a cooperative iterative solver progressively within a per-frame time budget,
+ * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
+ * in Node.js) between batches.
+ */
+export function runProgressive<TLayout = Layout2d>(
+  solver: ProgressiveSolverLike<TLayout>,
+  layout: TLayout,
+  onFrame?: ((ctx: ProgressiveFrameContext<TLayout>) => void) | null,
+  options?: RunProgressiveOptions | null,
+): Promise<ProgressiveFrameContext<TLayout>>;
+
 `;
 
 if (!indexDts.includes("export class CoarsenedGraphResult {")) {
@@ -677,11 +893,11 @@ indexDts = indexDts.replace(
 const m3DtsReplacements = [
   [
     /static fromFuzzySet\([^;]+\): GuMapSolver;/,
-    "static fromFuzzySet(probs: SparseProbabilities, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null): GuMapSolver;",
+    "static fromFuzzySet(probs: SparseProbabilities, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null): GuMapSolver;",
   ],
   [
     /static fromGraphDog\([^;]+\): GuMapSolver;/,
-    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, nEpochsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): GuMapSolver;",
+    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, nEpochsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): GuMapSolver;",
   ],
   [
     /static fromKnn\([^;]+\): GuMapSolver;/,
@@ -701,7 +917,7 @@ const m3DtsReplacements = [
   ],
   [
     /static fromPairs\([^;]+\): SgdSolver;/,
-    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji: Float32Array | number[], wij: Float32Array | number[], wji: Float32Array | number[], tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji?: Float32Array | number[] | null, wij?: Float32Array | number[] | null, wji?: Float32Array | number[] | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static full\([^;]+\): SgdSolver;/,
@@ -717,7 +933,7 @@ const m3DtsReplacements = [
   ],
   [
     /static sparseBarrierDog\([^;]+\): SgdSolver;/,
-    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): SgdSolver;",
+    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): SgdSolver;",
   ],
   [
     /static sparseBarrierFromLandmarks\([^;]+\): SgdSolver;/,
@@ -740,16 +956,20 @@ const m3DtsReplacements = [
     "static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
   ],
   [
+    /static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
+    "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+  ],
+  [
     /static fromKnn\([^;]+\): TsNetSolver;/,
-    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null): TsNetSolver;",
+    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static fromProbabilities\([^;]+\): TsNetSolver;/,
-    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null): TsNetSolver;",
+    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static pure2Hop\([^;]+\): TsNetSolver;/,
-    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null): TsNetSolver;",
+    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /export function kmeansPlusPlus\([^;]+\): KMeansResult;/,
@@ -784,7 +1004,7 @@ for (const [pattern, replacement] of m3DtsReplacements) {
 const m4DtsReplacements = [
   [
     /(export class TFdpSolver \{[\s\S]*?)static fromKnn\([^;]+\): TFdpSolver;/,
-    "$1static fromKnn(indptr: Uint32Array | number[], indices: Uint32Array | number[], weightsOrOptions?: Float64Array | Float32Array | number[] | TFdpOptions | null, options?: TFdpOptions | null): TFdpSolver;",
+    "$1static fromKnn(knn: KnnGraph, options?: TFdpOptions | null): TFdpSolver;\n    static fromKnn(indptr: Uint32Array | number[], indices: Uint32Array | number[], weightsOrOptions?: Float64Array | Float32Array | number[] | TFdpOptions | null, options?: TFdpOptions | null): TFdpSolver;",
   ],
   [
     /(export class TFdpSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,

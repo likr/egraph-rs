@@ -5,23 +5,33 @@ pub use crate::v6_m2::*;
 pub use crate::v6_m3::*;
 pub use crate::v6_m4::*;
 
-use egraph_core::{CoreError, CsrGraph, Layout2d};
-use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};
-use egraph_metrics::{
-    MetricConfig, MetricReport, MetricTarget, angular_resolution, aspect_ratio, crossing_angle,
-    crossing_edges_torus, crossing_number, edge_angle, evaluate_metrics,
-    gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
-    neighborhood_preservation_1hop, neighborhood_preservation_2hop, node_resolution,
-    prism_distortion, relative_neighborhood_preservation, sampled_crossing_number,
+use egraph::core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
+use egraph::dataset::{
+    dataset_3_elt_csr, dataset_1138_bus_csr, dataset_dwt_1005_csr, dataset_dwt_2680_csr,
+    dataset_karate_csr, dataset_lesmis_csr, dataset_poli_csr, dataset_qh882_csr,
+    dataset_uspower_grid_csr, parse_csr_csv,
+};
+use egraph::metrics::{
+    CrossingPair, CrossingSummary, MetricConfig, MetricReport, MetricTarget, TorusCrossing,
+    all_pairs_bfs, angular_resolution, aspect_ratio, bfs_single_source, crossing_angle,
+    crossing_edges, crossing_edges_torus, crossing_number, crossing_summary, edge_angle,
+    evaluate_metrics, gabriel_graph_edges, gabriel_graph_preservation, gabriel_graph_property,
+    ideal_edge_lengths, ideal_edge_lengths_with_unit, neighborhood_preservation_1hop,
+    neighborhood_preservation_2hop, node_resolution, prism_distortion, prism_distortion_with_edges,
+    relative_neighborhood_edges, relative_neighborhood_preservation, sampled_crossing_number,
     sampled_scale_normalized_stress, scale_normalized_stress,
+    scale_normalized_stress_from_distances,
 };
 #[cfg(feature = "delaunay")]
-use egraph_spatial::Delaunay2d;
+use egraph::spatial::Delaunay2d;
+use egraph::spatial::RectangleOverlapSweep;
+use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};
 use wasm_bindgen::{JsCast, prelude::*};
 
-const DEFAULT_NUM_PIVOTS: usize = 64;
-const DEFAULT_NUM_SAMPLES: usize = 10_000;
+const DEFAULT_NUM_PIVOTS: usize = 32;
+const DEFAULT_NUM_SAMPLES: usize = 4096;
 const DEFAULT_SEED: u64 = 42;
+const DEFAULT_UNIT_EDGE_LENGTH: f64 = 1.0;
 // IEEE-754 double precision represents integers exactly up to 2^53 - 1 (`Number.MAX_SAFE_INTEGER`),
 // allowing JS callers to pass numeric seeds like `42` without requiring `BigInt`.
 const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
@@ -198,6 +208,34 @@ impl JsCsrGraph {
     }
 }
 
+/// Largest connected component result returned by `CsrGraph.largestConnectedComponent()`.
+#[wasm_bindgen(js_name = LargestConnectedComponentResult)]
+#[derive(Debug, Clone)]
+pub struct JsLargestConnectedComponent {
+    graph: CsrGraph<f32>,
+    original_node_ids: Vec<u32>,
+}
+
+#[wasm_bindgen(js_class = LargestConnectedComponentResult)]
+impl JsLargestConnectedComponent {
+    /// Returns a cloned handle to the induced `CsrGraph` of the largest connected component.
+    pub fn graph(&self) -> JsCsrGraph {
+        JsCsrGraph::from_inner(self.graph.clone())
+    }
+
+    /// Returns the sorted original vertex IDs (`Uint32Array`) corresponding to compact vertices `0..k`.
+    #[wasm_bindgen(js_name = originalNodeIds)]
+    pub fn original_node_ids(&self) -> Vec<u32> {
+        self.original_node_ids.clone()
+    }
+
+    /// Alias for `originalNodeIds()`.
+    #[wasm_bindgen(js_name = nodeIds)]
+    pub fn node_ids(&self) -> Vec<u32> {
+        self.original_node_ids.clone()
+    }
+}
+
 #[wasm_bindgen(js_class = CsrGraph)]
 impl JsCsrGraph {
     /// Constructs a `CsrGraph` from CSR `indptr`, `indices`, and optional `weights`.
@@ -248,10 +286,36 @@ impl JsCsrGraph {
         self.inner.num_edges()
     }
 
+    /// Returns the number of stored CSR half-edge entries (`indices().length`).
+    pub fn nnz(&self) -> usize {
+        self.inner.nnz()
+    }
+
     /// Returns `true` if the graph is directed.
     #[wasm_bindgen(js_name = isDirected)]
     pub fn is_directed(&self) -> bool {
         self.inner.is_directed()
+    }
+
+    /// Returns `true` if explicit edge weights are stored.
+    #[wasm_bindgen(js_name = isWeighted)]
+    pub fn is_weighted(&self) -> bool {
+        self.inner.is_weighted()
+    }
+
+    /// Returns the degree (outgoing degree for directed graphs) of vertex `u`.
+    pub fn degree(&self, u: f64) -> Result<usize, JsError> {
+        let idx = parse_non_negative_usize(u, "u")?;
+        self.inner.try_degree(idx).map_err(core_err_to_js)
+    }
+
+    /// Returns a copy of the neighbor indices adjacent to vertex `u`.
+    pub fn neighbors(&self, u: f64) -> Result<Vec<u32>, JsError> {
+        let idx = parse_non_negative_usize(u, "u")?;
+        self.inner
+            .try_neighbors(idx)
+            .map(|slice| slice.to_vec())
+            .map_err(core_err_to_js)
     }
 
     /// Returns a copy of the CSR `indptr` row-offset array (`length === numNodes() + 1`).
@@ -267,6 +331,23 @@ impl JsCsrGraph {
     /// Returns a copy of the flat CSR `weights` array, or `undefined` if unweighted.
     pub fn weights(&self) -> Option<Vec<f32>> {
         self.inner.weights().map(|w| w.to_vec())
+    }
+
+    /// Extracts the induced subgraph on `nodes` with compact `0..nodes.length` vertex IDs.
+    #[wasm_bindgen(js_name = inducedSubgraph)]
+    pub fn induced_subgraph(&self, nodes: &[u32]) -> Result<JsCsrGraph, JsError> {
+        let sub = self.inner.induced_subgraph(nodes).map_err(core_err_to_js)?;
+        Ok(JsCsrGraph { inner: sub })
+    }
+
+    /// Extracts the largest (weakly) connected component as `{ graph(), originalNodeIds() }`.
+    #[wasm_bindgen(js_name = largestConnectedComponent)]
+    pub fn largest_connected_component(&self) -> JsLargestConnectedComponent {
+        let (graph, original_node_ids) = self.inner.largest_connected_component();
+        JsLargestConnectedComponent {
+            graph,
+            original_node_ids,
+        }
     }
 }
 
@@ -306,6 +387,20 @@ impl JsLayout2d {
         Ok(JsLayout2d { inner })
     }
 
+    /// Creates a deterministically initialized `Layout2d` for `n` vertices using `seed` (default `42`).
+    pub fn init(n: f64, seed: Option<f64>) -> Result<JsLayout2d, JsError> {
+        let count = parse_non_negative_usize(n, "n")?;
+        let seed_u64 = parse_seed_u64(seed)?;
+        let mut rng = DeterministicRng::from_seed_u64(seed_u64);
+        let mut coords = Vec::with_capacity(count.saturating_mul(2));
+        for _ in 0..count {
+            coords.push((rng.next_f64() - 0.5) as f32);
+            coords.push((rng.next_f64() - 0.5) as f32);
+        }
+        let inner = InterleavedLayout2d::<f32>::from_interleaved(&coords).map_err(ffi_err_to_js)?;
+        Ok(JsLayout2d { inner })
+    }
+
     /// Creates a `Layout2d` from an even-length interleaved `[x0, y0, ...]` array.
     #[wasm_bindgen(js_name = fromCoords)]
     pub fn from_coords(coords: &[f32]) -> Result<JsLayout2d, JsError> {
@@ -315,6 +410,12 @@ impl JsLayout2d {
 
     /// Returns the number of vertices in the layout.
     pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns the number of vertices in the layout.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
         self.inner.len()
     }
 
@@ -334,6 +435,12 @@ impl JsLayout2d {
     #[wasm_bindgen(js_name = coordsLen)]
     pub fn coords_len(&self) -> usize {
         self.inner.coords_len()
+    }
+
+    /// Returns a freshly allocated `Float32Array` copy of `[x0, y0, ...]` coordinates.
+    #[wasm_bindgen(js_name = copyCoords)]
+    pub fn copy_coords(&self) -> Vec<f32> {
+        self.inner.as_slice().to_vec()
     }
 
     /// Returns the `x` coordinate of vertex `index`.
@@ -360,6 +467,111 @@ impl JsLayout2d {
     pub fn set_y(&mut self, index: f64, value: f32) -> Result<(), JsError> {
         let idx = parse_non_negative_usize(index, "index")?;
         self.inner.set_y(idx, value).map_err(ffi_err_to_js)
+    }
+
+    /// Centers coordinates at zero mean and scales isotropically to `targetStd` (default `1.0`).
+    #[wasm_bindgen(js_name = normalizeStd)]
+    pub fn normalize_std(&mut self, target_std: Option<f64>) -> Result<(), JsError> {
+        let t_std = target_std.unwrap_or(1.0);
+        if !t_std.is_finite() || t_std <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd must be finite and strictly positive",
+            )));
+        }
+        let t_f32 = t_std as f32;
+        if !t_f32.is_finite() || t_f32 <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd overflows f32",
+            )));
+        }
+        let mut soa = self.inner.to_layout2d();
+        soa.center_and_normalize_to_std(t_f32)
+            .map_err(core_err_to_js)?;
+        self.inner.copy_from_layout2d(&soa).map_err(ffi_err_to_js)?;
+        Ok(())
+    }
+
+    /// Returns `true` if every coordinate in the buffer is finite (`!NaN && !Inf`).
+    #[wasm_bindgen(js_name = isAllFinite)]
+    pub fn is_all_finite(&self) -> bool {
+        self.inner.is_all_finite()
+    }
+}
+
+/// Contiguous row-major `(numNodes * dim)` $d$-dimensional node coordinate buffer (`f32`)
+/// suitable for zero-copy `Float32Array` linear-memory views via `coordsView()`.
+#[wasm_bindgen(js_name = LayoutNd)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsLayoutNd {
+    inner: LayoutNd<f32>,
+}
+
+impl JsLayoutNd {
+    /// Creates a `JsLayoutNd` from a core `LayoutNd<f32>`.
+    pub(crate) fn from_inner(inner: LayoutNd<f32>) -> Self {
+        Self { inner }
+    }
+}
+
+#[wasm_bindgen(js_class = LayoutNd)]
+impl JsLayoutNd {
+    /// Creates a zero-initialized `dim`-dimensional layout for `n` vertices.
+    pub fn zeros(n: f64, dim: f64) -> Result<JsLayoutNd, JsError> {
+        let num_nodes = parse_non_negative_usize(n, "n")?;
+        let dims = parse_non_negative_usize(dim, "dim")?;
+        let inner = LayoutNd::<f32>::zeros(num_nodes, dims).map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Creates a `LayoutNd` from flat row-major coordinates of length `n * dim`.
+    #[wasm_bindgen(js_name = fromCoords)]
+    pub fn from_coords(n: f64, dim: f64, coords: &[f32]) -> Result<JsLayoutNd, JsError> {
+        let num_nodes = parse_non_negative_usize(n, "n")?;
+        let dims = parse_non_negative_usize(dim, "dim")?;
+        let inner =
+            LayoutNd::<f32>::from_flat(num_nodes, dims, coords.to_vec()).map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Returns the number of vertices in the layout.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
+    /// Returns the dimensionality of the embedding space.
+    #[wasm_bindgen(getter)]
+    pub fn dim(&self) -> usize {
+        self.inner.dims()
+    }
+
+    /// Returns the number of vertices in the layout.
+    pub fn len(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
+    /// Returns `true` if the layout contains zero vertices.
+    #[wasm_bindgen(js_name = isEmpty)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Returns the byte offset of the row-major `f32` buffer in WebAssembly linear memory.
+    #[wasm_bindgen(js_name = coordsPtr)]
+    pub fn coords_ptr(&self) -> usize {
+        self.inner.coords().as_ptr() as usize
+    }
+
+    /// Returns the total scalar length of the row-major buffer (`numNodes * dim`).
+    #[wasm_bindgen(js_name = coordsLen)]
+    pub fn coords_len(&self) -> usize {
+        self.inner.coords().len()
+    }
+
+    /// Returns a freshly allocated `Float32Array` copy of the row-major coordinate buffer.
+    #[wasm_bindgen(js_name = copyCoords)]
+    pub fn copy_coords(&self) -> Vec<f32> {
+        self.inner.coords().to_vec()
     }
 
     /// Returns `true` if every coordinate in the buffer is finite (`!NaN && !Inf`).
@@ -737,6 +949,7 @@ pub fn js_evaluate_metrics(
     num_pivots: Option<f64>,
     num_samples: Option<f64>,
     seed: Option<f64>,
+    ideal_edge_length: Option<f64>,
 ) -> Result<JsMetricReport, JsError> {
     let parsed_targets = parse_metric_targets(targets)?;
     let sns_num_pivots = match num_pivots {
@@ -748,17 +961,273 @@ pub fn js_evaluate_metrics(
         Some(v) => parse_non_negative_usize(v, "numSamples")?,
     };
     let seed_u64 = parse_seed_u64(seed)?;
+    let ideal_len = ideal_edge_length.unwrap_or(DEFAULT_UNIT_EDGE_LENGTH);
     let cfg = MetricConfig {
         sns_num_pivots,
         sns_seed: seed_u64,
         crossing_num_samples,
         crossing_seed: seed_u64,
-        ideal_edge_length: 1.0,
+        ideal_edge_length: ideal_len,
     };
     let soa = layout.inner().to_layout2d();
     let report =
         evaluate_metrics(graph.inner(), &soa, &parsed_targets, &cfg).map_err(core_err_to_js)?;
     Ok(JsMetricReport { inner: report })
+}
+
+/// Evaluates ideal edge-length preservation error against a uniform `unitEdgeLength > 0`.
+#[wasm_bindgen(js_name = idealEdgeLengthsWithUnit)]
+pub fn js_ideal_edge_lengths_with_unit(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    unit_edge_length: f64,
+) -> Result<f64, JsError> {
+    let soa = layout.inner().to_layout2d();
+    ideal_edge_lengths_with_unit(graph.inner(), &soa, unit_edge_length).map_err(core_err_to_js)
+}
+
+/// Non-adjacent crossing edge pair details returned by `crossingEdges`.
+#[wasm_bindgen(js_name = CrossingPair)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsCrossingPair {
+    inner: CrossingPair,
+}
+
+#[wasm_bindgen(js_class = CrossingPair)]
+impl JsCrossingPair {
+    #[wasm_bindgen(getter, js_name = edgeA)]
+    pub fn edge_a(&self) -> usize {
+        self.inner.edge_a
+    }
+
+    #[wasm_bindgen(getter, js_name = edgeB)]
+    pub fn edge_b(&self) -> usize {
+        self.inner.edge_b
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn u1(&self) -> u32 {
+        self.inner.u1
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn v1(&self) -> u32 {
+        self.inner.v1
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn u2(&self) -> u32 {
+        self.inner.u2
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn v2(&self) -> u32 {
+        self.inner.v2
+    }
+
+    #[wasm_bindgen(getter, js_name = angleRad)]
+    pub fn angle_rad(&self) -> Option<f64> {
+        self.inner.angle_rad
+    }
+
+    #[wasm_bindgen(getter, js_name = cosSq)]
+    pub fn cos_sq(&self) -> f64 {
+        self.inner.cos_sq
+    }
+}
+
+/// Returns all non-adjacent crossing edge pairs in `graph` under `layout`.
+#[wasm_bindgen(js_name = crossingEdges)]
+pub fn js_crossing_edges(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<Vec<JsCrossingPair>, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let pairs = crossing_edges(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(pairs
+        .into_iter()
+        .map(|inner| JsCrossingPair { inner })
+        .collect())
+}
+
+/// Periodic `[0, 1)^2` torus crossing edge sub-segment pair returned by `crossingEdgesTorus`.
+#[wasm_bindgen(js_name = TorusCrossing)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsTorusCrossing {
+    inner: TorusCrossing,
+}
+
+#[wasm_bindgen(js_class = TorusCrossing)]
+impl JsTorusCrossing {
+    #[wasm_bindgen(getter, js_name = edgeA)]
+    pub fn edge_a(&self) -> usize {
+        self.inner.edge_a
+    }
+
+    #[wasm_bindgen(getter, js_name = edgeB)]
+    pub fn edge_b(&self) -> usize {
+        self.inner.edge_b
+    }
+
+    /// Returns `[x1, y1, x2, y2]` coordinates of the first crossing sub-segment.
+    #[wasm_bindgen(js_name = segA)]
+    pub fn seg_a(&self) -> Vec<f64> {
+        self.inner.seg_a.to_vec()
+    }
+
+    /// Returns `[x1, y1, x2, y2]` coordinates of the second crossing sub-segment.
+    #[wasm_bindgen(js_name = segB)]
+    pub fn seg_b(&self) -> Vec<f64> {
+        self.inner.seg_b.to_vec()
+    }
+}
+
+/// Finds all crossing edge sub-segment pairs on the unit torus `[0, 1)^2`.
+#[wasm_bindgen(js_name = crossingEdgesTorus)]
+pub fn js_crossing_edges_torus(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<Vec<JsTorusCrossing>, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let crossings = crossing_edges_torus(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(crossings
+        .into_iter()
+        .map(|inner| JsTorusCrossing { inner })
+        .collect())
+}
+
+/// Exact edge-crossing count and angle statistics returned by `crossingSummary`.
+#[wasm_bindgen(js_name = CrossingSummary)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsCrossingSummary {
+    inner: CrossingSummary,
+}
+
+#[wasm_bindgen(js_class = CrossingSummary)]
+impl JsCrossingSummary {
+    #[wasm_bindgen(getter)]
+    pub fn count(&self) -> usize {
+        self.inner.count
+    }
+
+    #[wasm_bindgen(getter, js_name = angleCosSqSum)]
+    pub fn angle_cos_sq_sum(&self) -> f64 {
+        self.inner.angle_cos_sq_sum
+    }
+
+    #[wasm_bindgen(getter, js_name = minAngleRad)]
+    pub fn min_angle_rad(&self) -> Option<f64> {
+        self.inner.min_angle_rad
+    }
+}
+
+/// Computes both exact crossing count and crossing-angle statistics in a single sweep pass.
+#[wasm_bindgen(js_name = crossingSummary)]
+pub fn js_crossing_summary(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<JsCrossingSummary, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let inner = crossing_summary(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(JsCrossingSummary { inner })
+}
+
+/// Extracts exact undirected Gabriel Graph (`GG`) edges as flat `[u0, v0, ...]` (`Uint32Array`).
+#[wasm_bindgen(js_name = gabrielGraphEdges)]
+pub fn js_gabriel_graph_edges(layout: &JsLayout2d) -> Result<Vec<u32>, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let edges = gabriel_graph_edges(&soa).map_err(core_err_to_js)?;
+    let mut flat = Vec::with_capacity(edges.len() * 2);
+    for (u, v) in edges {
+        flat.push(u);
+        flat.push(v);
+    }
+    Ok(flat)
+}
+
+/// Extracts exact undirected Relative Neighborhood Graph (`RNG`) edges as flat `[u0, v0, ...]` (`Uint32Array`).
+#[wasm_bindgen(js_name = relativeNeighborhoodEdges)]
+pub fn js_relative_neighborhood_edges(layout: &JsLayout2d) -> Result<Vec<u32>, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let edges = relative_neighborhood_edges(&soa).map_err(core_err_to_js)?;
+    let mut flat = Vec::with_capacity(edges.len() * 2);
+    for (u, v) in edges {
+        flat.push(u);
+        flat.push(v);
+    }
+    Ok(flat)
+}
+
+/// Computes an all-pairs shortest-path flat row-major `N * N` distance matrix via BFS.
+#[wasm_bindgen(js_name = allPairsBfs)]
+pub fn js_all_pairs_bfs(
+    graph: &JsCsrGraph,
+    unit_edge_length: Option<f64>,
+) -> Result<Vec<f64>, JsError> {
+    all_pairs_bfs(
+        graph.inner(),
+        unit_edge_length.unwrap_or(DEFAULT_UNIT_EDGE_LENGTH),
+    )
+    .map_err(core_err_to_js)
+}
+
+/// Runs single-source unweighted BFS from `source`, scaling each hop by `unitEdgeLength` (default `1.0`).
+#[wasm_bindgen(js_name = bfsSingleSource)]
+pub fn js_bfs_single_source(
+    graph: &JsCsrGraph,
+    source: f64,
+    unit_edge_length: Option<f64>,
+) -> Result<Vec<f64>, JsError> {
+    let src = parse_non_negative_usize(source, "source")?;
+    let mut scratch = egraph::metrics::BfsScratch::new(graph.inner().num_nodes());
+    let dists = bfs_single_source(
+        graph.inner(),
+        src,
+        unit_edge_length.unwrap_or(DEFAULT_UNIT_EDGE_LENGTH),
+        &mut scratch,
+    )
+    .map_err(core_err_to_js)?;
+    Ok(dists.to_vec())
+}
+
+/// Computes closed-form Scale-Normalized Stress (`SNS`) from a flat row-major `N * N` `distances`
+/// matrix and optional `weights` matrix (`w_ij = 1 / d_ij^2` when omitted).
+#[wasm_bindgen(js_name = scaleNormalizedStressFromDistances)]
+pub fn js_scale_normalized_stress_from_distances(
+    layout: &JsLayout2d,
+    distances: &[f64],
+    weights: Option<Vec<f64>>,
+) -> Result<f64, JsError> {
+    let soa = layout.inner().to_layout2d();
+    scale_normalized_stress_from_distances(&soa, distances, weights.as_deref())
+        .map_err(core_err_to_js)
+}
+
+/// Computes PRISM layout-preservation distortion using flat `[u0, v0, ...]` proximity `edges`.
+#[wasm_bindgen(js_name = prismDistortionWithEdges)]
+pub fn js_prism_distortion_with_edges(
+    original_layout: &JsLayout2d,
+    adjusted_layout: &JsLayout2d,
+    edges: &[u32],
+) -> Result<JsPrismDistortion, JsError> {
+    if !edges.len().is_multiple_of(2) {
+        return Err(core_err_to_js(CoreError::dimension_mismatch(
+            edges.len() + 1,
+            edges.len(),
+            "prismDistortionWithEdges::edges",
+        )));
+    }
+    let mut pairs = Vec::with_capacity(edges.len() / 2);
+    for &[u, v] in edges.as_chunks::<2>().0 {
+        pairs.push((u, v));
+    }
+    let orig_soa = original_layout.inner().to_layout2d();
+    let adj_soa = adjusted_layout.inner().to_layout2d();
+    let res = prism_distortion_with_edges(&orig_soa, &adj_soa, &pairs).map_err(core_err_to_js)?;
+    Ok(JsPrismDistortion {
+        sigma_dist: res.sigma_dist,
+        sigma_disp: res.sigma_disp,
+    })
 }
 
 /// Computes the deterministic 2D Delaunay triangulation of `layout` (`delaunay` feature).
@@ -783,4 +1252,114 @@ pub fn js_delaunay_triangulation(layout: &JsLayout2d) -> Result<JsDelaunayResult
         edges: flat_edges,
         triangles: flat_triangles,
     })
+}
+
+fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
+    let weights_f32: Option<Vec<f32>> = g64
+        .weights()
+        .map(|ws| {
+            ws.iter()
+                .map(|&w| {
+                    let wf = w as f32;
+                    if !wf.is_finite() {
+                        return Err(core_err_to_js(CoreError::non_finite("CsrGraph weight")));
+                    }
+                    Ok(wf)
+                })
+                .collect::<Result<Vec<f32>, JsError>>()
+        })
+        .transpose()?;
+    CsrGraph::<f32>::from_csr(
+        g64.indptr(),
+        g64.indices(),
+        weights_f32.as_deref(),
+        g64.is_directed(),
+        false,
+    )
+    .map_err(core_err_to_js)
+}
+
+/// Converts the 2D Delaunay triangulation of `layout` directly into an unweighted `CsrGraph`.
+#[wasm_bindgen(js_name = delaunayToCsr)]
+pub fn js_delaunay_to_csr(layout: &JsLayout2d) -> Result<JsCsrGraph, JsError> {
+    #[cfg(feature = "delaunay")]
+    {
+        let soa = layout.inner().to_layout2d();
+        let dt = Delaunay2d::triangulate(&soa).map_err(core_err_to_js)?;
+        let csr64 = dt.to_csr().map_err(core_err_to_js)?;
+        let csr32 = csr_f64_to_f32_unweighted_or_checked(csr64)?;
+        Ok(JsCsrGraph::from_inner(csr32))
+    }
+    #[cfg(not(feature = "delaunay"))]
+    {
+        let _ = layout;
+        Err(JsError::new(
+            "delaunayToCsr requires the 'delaunay' feature to be enabled",
+        ))
+    }
+}
+
+/// Finds all overlapping rectangle pairs `[i0, j0, i1, j1, ...]` (`i < j`) for `layout`
+/// with per-node `halfWidths` and `halfHeights` in $O(N \log N + K)$ time.
+#[wasm_bindgen(js_name = rectangleOverlaps)]
+pub fn js_rectangle_overlaps(
+    layout: &JsLayout2d,
+    half_widths: &[f32],
+    half_heights: &[f32],
+) -> Result<Vec<u32>, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let pairs = RectangleOverlapSweep::find_layout_overlaps(&soa, half_widths, half_heights)
+        .map_err(core_err_to_js)?;
+    let mut flat = Vec::with_capacity(pairs.len() * 2);
+    for (i, j) in pairs {
+        let iu = u32::try_from(i)
+            .map_err(|_| JsError::new("rectangleOverlaps index i exceeds u32::MAX"))?;
+        let ju = u32::try_from(j)
+            .map_err(|_| JsError::new("rectangleOverlaps index j exceeds u32::MAX"))?;
+        flat.push(iu);
+        flat.push(ju);
+    }
+    Ok(flat)
+}
+
+/// Loads one of the 9 embedded benchmark datasets (`"1138_bus"`, `"3_elt"`, `"dwt_1005"`,
+/// `"dwt_2680"`, `"poli"`, `"qh882"`, `"uspower_grid"`, `"karate"`, `"lesmis"`) as a `CsrGraph`.
+#[wasm_bindgen(js_name = loadDataset)]
+pub fn js_load_dataset(name: &str) -> Result<JsCsrGraph, JsError> {
+    let token: String = name
+        .chars()
+        .filter(|ch| !matches!(ch, '_' | '-' | ' '))
+        .map(|ch| ch.to_ascii_lowercase())
+        .collect();
+    let g64 = match token.as_str() {
+        "1138bus" => dataset_1138_bus_csr(),
+        "3elt" => dataset_3_elt_csr(),
+        "dwt1005" => dataset_dwt_1005_csr(),
+        "dwt2680" => dataset_dwt_2680_csr(),
+        "poli" => dataset_poli_csr(),
+        "qh882" => dataset_qh882_csr(),
+        "uspowergrid" => dataset_uspower_grid_csr(),
+        "karate" => dataset_karate_csr(),
+        "lesmis" => dataset_lesmis_csr(),
+        _ => {
+            return Err(JsError::new(&format!(
+                "unknown dataset {name:?}; expected one of '1138_bus', '3_elt', 'dwt_1005', 'dwt_2680', 'poli', 'qh882', 'uspower_grid', 'karate', 'lesmis'"
+            )));
+        }
+    };
+    let g32 = csr_f64_to_f32_unweighted_or_checked(g64)?;
+    Ok(JsCsrGraph::from_inner(g32))
+}
+
+/// Parses an edge-list CSV string (`num_nodes,num_edges` header + `u,v` rows) into a `CsrGraph`.
+#[wasm_bindgen(js_name = parseCsrCsv)]
+pub fn js_parse_csr_csv(
+    csv: &str,
+    directed: Option<bool>,
+    sanitize: Option<bool>,
+) -> Result<JsCsrGraph, JsError> {
+    let g64 = parse_csr_csv(csv, directed.unwrap_or(false), sanitize.unwrap_or(false))
+        .map_err(core_err_to_js)?;
+    let g32 = csr_f64_to_f32_unweighted_or_checked(g64)?;
+    Ok(JsCsrGraph::from_inner(g32))
 }

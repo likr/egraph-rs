@@ -15,8 +15,8 @@ wasm-opt = false
 
 [features]
 default = ["full"]
-full = ["legacy", "delaunay"]
-delaunay = ["egraph-spatial/delaunay", "egraph-layout/delaunay"]
+full = ["delaunay"]
+delaunay = ["egraph/delaunay"]
 legacy = [
     "dep:petgraph",
     "dep:petgraph-algorithm-shortest-path",
@@ -41,14 +41,16 @@ legacy = [
 
 [dependencies]
 console_error_panic_hook = "0.1"
-egraph-clustering.workspace = true
-egraph-core.workspace = true
+egraph = { workspace = true, default-features = false, features = [
+    "spatial",
+    "linalg",
+    "neighborhood",
+    "layout",
+    "clustering",
+    "metrics",
+    "dataset",
+] }
 egraph-ffi.workspace = true
-egraph-layout = { workspace = true, default-features = false }
-egraph-linalg.workspace = true
-egraph-metrics.workspace = true
-egraph-neighborhood.workspace = true
-egraph-spatial.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 
@@ -90,6 +92,9 @@ name = "v6_layout_clustering"
 
 [[test]]
 name = "v6_m4"
+
+[[test]]
+name = "v6_m5"
 
 [[test]]
 name = "classical_mds"

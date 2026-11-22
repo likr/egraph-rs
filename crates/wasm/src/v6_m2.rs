@@ -4,26 +4,33 @@
 //! 1+2-hop and hybrid adaptive $k$-NN graphs, perplexity / fuzzy simplicial probabilities,
 //! and regularized DoG Varadhan landmark tables without `serde` or threading dependencies.
 
-use egraph_core::{CsrGraph, Layout2d};
-use egraph_linalg::{
+use egraph::core::{CsrGraph, Layout2d, LayoutNd};
+use egraph::linalg::{
     ChebyshevWorkspace, EigenResult, PivotMdsConfig, SpectralMomentStats,
-    adaptive_chebyshev_degree, build_dog_terms, compute_chebyshev_bandpass_coefficients,
-    koren_spectral_init, pivot_mds, project_psd_spectral_filter, select_maxmin_sp_pivots,
+    adaptive_chebyshev_degree, build_dog_terms, classical_mds_2d,
+    compute_chebyshev_bandpass_coefficients, koren_spectral_init, normalize_layout_2d, pivot_mds,
+    project_psd_spectral_filter, rd_mds, representative_mds, select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs, spectral_moment_stats, symmetric_normalized_laplacian,
 };
-use egraph_neighborhood::{
+use egraph::neighborhood::{
     DEFAULT_MAX_PERPLEXITY, DEFAULT_MEDIAN_MIN_PERPLEXITY, DEFAULT_MEDIAN_PERPLEXITY_C,
     DEFAULT_NODEWISE_MIN_PERPLEXITY, DEFAULT_NODEWISE_PERPLEXITY_C, DogVaradhanConfig,
     DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph, KnnStats, PerplexityConfig,
-    SparseProbabilities, SymmetrizationMode, build_hybrid_adaptive_knn, build_pure_2hop_knn,
-    compute_2hop_neighborhood_sizes, compute_fuzzy_simplicial_set, compute_horvitz_thompson_gamma,
-    compute_knn_probabilities, compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
-    compute_regularized_dog_varadhan_landmarks, extract_1hop_2hop_csr, find_ab_params,
-    partial_bfs_knn,
+    SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
+    build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn, build_pure_2hop_knn,
+    build_rerank_knn, compute_2hop_neighborhood_sizes, compute_diffusion_embedding,
+    compute_fuzzy_simplicial_set, compute_horvitz_thompson_gamma, compute_knn_probabilities,
+    compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
+    compute_regularized_dog_varadhan_landmarks, compute_resistance_embedding,
+    extract_1hop_2hop_csr, find_ab_params, graph_row_normalized_probabilities, partial_bfs_knn,
+    symmetrize_row_normalized,
 };
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{JsCsrGraph, JsLayout2d, core_err_to_js, parse_non_negative_usize, parse_seed_u64};
+use crate::v6::{
+    JsCsrGraph, JsLayout2d, JsLayoutNd, core_err_to_js, ffi_err_to_js, parse_non_negative_usize,
+    parse_seed_u64,
+};
 
 const DEFAULT_NUM_PIVOTS: usize = 50;
 const DEFAULT_MIN_DEGREE: usize = 2;
@@ -356,6 +363,10 @@ pub struct JsSpectralMomentStats {
 
 #[wasm_bindgen(js_class = SpectralMomentStats)]
 impl JsSpectralMomentStats {
+    pub(crate) fn from_inner(inner: SpectralMomentStats) -> Self {
+        Self { inner }
+    }
+
     /// Returns the exact spectral variance $\sigma_\lambda^2$.
     #[wasm_bindgen(getter, js_name = sigmaLambdaSq)]
     pub fn sigma_lambda_sq(&self) -> f64 {
@@ -880,4 +891,250 @@ pub fn js_compute_regularized_dog_varadhan_landmarks(
     let (inner, stats) =
         compute_regularized_dog_varadhan_landmarks(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsDogVaradhanLandmarks { inner, stats })
+}
+
+/// Spectral embedding output returned by `computeResistanceEmbedding` and `computeDiffusionEmbedding`.
+#[wasm_bindgen(js_name = SpectralEmbeddingResult)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsSpectralEmbeddingResult {
+    coords: Vec<f64>,
+    lambdas: Vec<f64>,
+    num_nodes: usize,
+    dim: usize,
+    t_used: Option<f64>,
+}
+
+#[wasm_bindgen(js_class = SpectralEmbeddingResult)]
+impl JsSpectralEmbeddingResult {
+    /// Returns the flat row-major `(numNodes, dim)` `Float64Array` embedding coordinates.
+    pub fn coords(&self) -> Vec<f64> {
+        self.coords.clone()
+    }
+
+    /// Returns the kept nontrivial Laplacian eigenvalues (`Float64Array` of length `dim`).
+    pub fn lambdas(&self) -> Vec<f64> {
+        self.lambdas.clone()
+    }
+
+    /// Returns the number of vertices.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.num_nodes
+    }
+
+    /// Returns the effective embedding dimension (`lambdas().length`).
+    #[wasm_bindgen(getter)]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Returns the effective diffusion time $t_{\mathrm{used}}$ (for `computeDiffusionEmbedding`), or `undefined`.
+    #[wasm_bindgen(getter, js_name = tUsed)]
+    pub fn t_used(&self) -> Option<f64> {
+        self.t_used
+    }
+}
+
+/// 20. Computes a 2D `Layout2d` (`f32`) using zero-guarded Classical MDS.
+#[wasm_bindgen(js_name = classicalMds2d)]
+pub fn js_classical_mds_2d(graph: &JsCsrGraph) -> Result<JsLayout2d, JsError> {
+    let layout: Layout2d<f32> = classical_mds_2d(graph.inner()).map_err(core_err_to_js)?;
+    Ok(JsLayout2d::from_layout2d(&layout))
+}
+
+/// 21. Computes a `LayoutNd` (`f32`) zero-guarded resistance-distance spectral embedding (`RdMds`).
+#[wasm_bindgen(js_name = rdMds)]
+pub fn js_rd_mds(
+    graph: &JsCsrGraph,
+    dims: Option<f64>,
+    eig_eps: Option<f64>,
+    tol: Option<f64>,
+    max_iters: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsLayoutNd, JsError> {
+    let d = parse_optional_usize(dims, 2, "dims")?;
+    let eps = eig_eps.unwrap_or(1e-10);
+    let tol_val = tol.unwrap_or(1e-6);
+    let m_iters = parse_optional_usize(max_iters, 1000, "maxIters")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let layout: LayoutNd<f32> =
+        rd_mds(graph.inner(), d, eps, tol_val, m_iters, seed_u64).map_err(core_err_to_js)?;
+    Ok(JsLayoutNd::from_inner(layout))
+}
+
+/// 22. Sanitizes non-finite entries, centers `layout` in place, and scales isotropically to `targetStd` (default `1.0`).
+#[wasm_bindgen(js_name = normalizeLayout2d)]
+pub fn js_normalize_layout_2d(
+    layout: &mut JsLayout2d,
+    target_std: Option<f64>,
+    seed: Option<f64>,
+) -> Result<(), JsError> {
+    let t_std = target_std.unwrap_or(1.0);
+    let seed_u64 = parse_seed_u64(seed)?;
+    let mut soa = layout.inner().to_layout2d();
+    normalize_layout_2d(&mut soa, t_std, seed_u64).map_err(core_err_to_js)?;
+    layout
+        .inner_mut()
+        .copy_from_layout2d(&soa)
+        .map_err(ffi_err_to_js)?;
+    Ok(())
+}
+
+/// 23. Computes a `dim`-dimensional Representative / Landmark MDS `LayoutNd` (`f32`) from a flat
+/// row-major `(numNodes, numReps)` distance matrix.
+#[wasm_bindgen(js_name = representativeMds)]
+pub fn js_representative_mds(
+    distances_to_reps: &[f64],
+    num_nodes: f64,
+    num_reps: f64,
+    dims: f64,
+) -> Result<JsLayoutNd, JsError> {
+    let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+    let r = parse_non_negative_usize(num_reps, "numReps")?;
+    let d = parse_non_negative_usize(dims, "dims")?;
+    let layout: LayoutNd<f32> =
+        representative_mds(distances_to_reps, n, r, d).map_err(core_err_to_js)?;
+    Ok(JsLayoutNd::from_inner(layout))
+}
+
+/// 24. Computes effective-resistance spectral embedding $D^{-1/2} U \Lambda^{-1/2}$.
+#[wasm_bindgen(js_name = computeResistanceEmbedding)]
+pub fn js_compute_resistance_embedding(
+    graph: &JsCsrGraph,
+    dim: Option<f64>,
+    tol: Option<f64>,
+    max_iters: Option<f64>,
+    seed: Option<f64>,
+    eig_eps: Option<f64>,
+) -> Result<JsSpectralEmbeddingResult, JsError> {
+    let d = parse_optional_usize(dim, DEFAULT_N_MODES, "dim")?;
+    let tol_val = tol.unwrap_or(DEFAULT_TOL);
+    let m_iters = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let eps = eig_eps.unwrap_or(1e-10);
+    let (coords, lambdas) =
+        compute_resistance_embedding(graph.inner(), d, tol_val, m_iters, seed_u64, eps)
+            .map_err(core_err_to_js)?;
+    let eff_dim = lambdas.len();
+    Ok(JsSpectralEmbeddingResult {
+        coords,
+        lambdas,
+        num_nodes: graph.inner().num_nodes(),
+        dim: eff_dim,
+        t_used: None,
+    })
+}
+
+/// 25. Computes heat-diffusion spectral embedding $D^{-1/2} U \exp(-0.5 t \Lambda)$.
+#[wasm_bindgen(js_name = computeDiffusionEmbedding)]
+pub fn js_compute_diffusion_embedding(
+    graph: &JsCsrGraph,
+    dim: Option<f64>,
+    p: Option<f64>,
+    t: Option<f64>,
+    tol: Option<f64>,
+    max_iters: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsSpectralEmbeddingResult, JsError> {
+    let d = parse_optional_usize(dim, DEFAULT_N_MODES, "dim")?;
+    let p_val = p.unwrap_or(0.05);
+    let tol_val = tol.unwrap_or(DEFAULT_TOL);
+    let m_iters = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let (coords, lambdas, t_used) =
+        compute_diffusion_embedding(graph.inner(), d, p_val, t, tol_val, m_iters, seed_u64)
+            .map_err(core_err_to_js)?;
+    let eff_dim = lambdas.len();
+    Ok(JsSpectralEmbeddingResult {
+        coords,
+        lambdas,
+        num_nodes: graph.inner().num_nodes(),
+        dim: eff_dim,
+        t_used: Some(t_used),
+    })
+}
+
+/// 26. Constructs a 2-stage coarse `StaticKdTree` + full-`dim` reranked `KnnGraph` from row-major
+/// `(numNodes, dim)` coordinates.
+#[wasm_bindgen(js_name = buildRerankKnn)]
+pub fn js_build_rerank_knn(
+    coords: &[f64],
+    num_nodes: f64,
+    dim: f64,
+    k: f64,
+    coarse_dim: Option<f64>,
+    rerank_factor: Option<f64>,
+) -> Result<JsKnnGraph, JsError> {
+    let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+    let d = parse_non_negative_usize(dim, "dim")?;
+    let k_val = parse_non_negative_usize(k, "k")?;
+    let c_dim = parse_optional_usize(coarse_dim, DEFAULT_COARSE_DIM, "coarseDim")?;
+    let r_factor = parse_optional_usize(rerank_factor, DEFAULT_RERANK_FACTOR, "rerankFactor")?;
+    let inner = build_rerank_knn(coords, n, d, k_val, c_dim, r_factor).map_err(core_err_to_js)?;
+    Ok(JsKnnGraph { inner })
+}
+
+/// 27. Computes row-normalized symmetrized graph probabilities from a `CsrGraph`.
+#[wasm_bindgen(js_name = graphRowNormalizedProbabilities)]
+pub fn js_graph_row_normalized_probabilities(
+    graph: &JsCsrGraph,
+) -> Result<JsSparseProbabilities, JsError> {
+    let inner = graph_row_normalized_probabilities(graph.inner()).map_err(core_err_to_js)?;
+    Ok(JsSparseProbabilities { inner })
+}
+
+/// 28. Computes row-normalized symmetrized joint probabilities from arbitrary CSR directed affinities.
+#[wasm_bindgen(js_name = symmetrizeRowNormalized)]
+pub fn js_symmetrize_row_normalized(
+    num_nodes: f64,
+    indptr: &[u32],
+    indices: &[u32],
+    weights: &[f64],
+) -> Result<JsSparseProbabilities, JsError> {
+    let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+    let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
+    let inner =
+        symmetrize_row_normalized(n, &indptr_usize, indices, weights).map_err(core_err_to_js)?;
+    Ok(JsSparseProbabilities { inner })
+}
+
+/// 29. Builds a sorted symmetric CSR `KnnGraph` from 1-hop and 2-hop pair distances enforcing
+/// strict 1-hop priority ($d_1 < \mathrm{tier2Margin} \cdot d_2$ and $d_1 < d_2$).
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen(js_name = buildGumap12hopPriorityCsr)]
+pub fn js_build_gumap_12hop_priority_csr(
+    num_nodes: f64,
+    u1: &[u32],
+    v1: &[u32],
+    d1: &[f64],
+    u2: &[u32],
+    v2: &[u32],
+    d2: &[f64],
+    tier2_margin: Option<f64>,
+) -> Result<JsKnnGraph, JsError> {
+    let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+    let margin = tier2_margin.unwrap_or(1.1);
+    let inner = build_gumap_12hop_priority_csr(n, u1, v1, d1, u2, v2, d2, margin)
+        .map_err(core_err_to_js)?;
+    Ok(JsKnnGraph { inner })
+}
+
+/// 30. Clamps pair distances `d1`, `d2`, and `d3` in place using `max(epsDist, minRatio * median_pos)`,
+/// returning the applied distance floor.
+#[wasm_bindgen(js_name = applyRelativeDistanceFloor)]
+pub fn js_apply_relative_distance_floor(
+    d1: &mut [f64],
+    d2: &mut [f64],
+    d3: &mut [f64],
+    eps_dist: Option<f64>,
+    min_ratio: Option<f64>,
+) -> Result<f64, JsError> {
+    apply_relative_distance_floor(
+        d1,
+        d2,
+        d3,
+        eps_dist.unwrap_or(1e-3),
+        min_ratio.unwrap_or(0.1),
+    )
+    .map_err(core_err_to_js)
 }

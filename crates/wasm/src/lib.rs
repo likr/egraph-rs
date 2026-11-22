@@ -2,10 +2,10 @@
 //!
 //! This crate provides JavaScript/WebAssembly bindings for `egraph`, exposing:
 //!
-//! * v6 zero-copy CSR graphs and linear-memory 2D layouts ([`v6`])
-//! * Feature-gated legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
-//!   quality metrics, and RNG modules (`legacy` feature, enabled by default until M1-M4 replace
-//!   them with unified `egraph-core` solvers).
+//! * v6 zero-copy CSR graphs, linear-memory 2D/ND layouts, quality metrics, spectral/neighborhood
+//!   primitives, clustering, and cooperative iterative solvers ([`v6`])
+//! * Opt-in legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
+//!   quality metrics, and RNG modules (behind the `legacy` feature flag).
 
 #[cfg(feature = "legacy")]
 pub mod clustering;
