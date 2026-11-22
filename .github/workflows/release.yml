@@ -72,7 +72,22 @@ jobs:
                   return ws_version
               return str(ver)
 
-          for manifest in ("crates/core/Cargo.toml", "crates/ffi/Cargo.toml", "crates/petgraph/Cargo.toml", "crates/dataset/Cargo.toml", "crates/python/Cargo.toml", "crates/wasm/Cargo.toml"):
+          for manifest in (
+              "crates/core/Cargo.toml",
+              "crates/ffi/Cargo.toml",
+              "crates/petgraph/Cargo.toml",
+              "crates/dataset/Cargo.toml",
+              "crates/spatial/Cargo.toml",
+              "crates/metrics/Cargo.toml",
+              "crates/linalg/Cargo.toml",
+              "crates/neighborhood/Cargo.toml",
+              "crates/cluster/Cargo.toml",
+              "crates/layout/Cargo.toml",
+              "crates/egraph/Cargo.toml",
+              "crates/cli/Cargo.toml",
+              "crates/python/Cargo.toml",
+              "crates/wasm/Cargo.toml",
+          ):
               v = resolve_pkg_version(manifest)
               if v != tag_version:
                   sys.exit(f"{manifest} version ({v}) != tag ({tag_version})")
@@ -80,6 +95,18 @@ jobs:
           wasm_pkg = json.loads(pathlib.Path("crates/wasm/package.json").read_text(encoding="utf-8"))
           if wasm_pkg.get("version") != tag_version:
               sys.exit(f"crates/wasm/package.json version ({wasm_pkg.get('version')}) != tag ({tag_version})")
+
+          pyproj = tomllib.loads(pathlib.Path("crates/python/pyproject.toml").read_text(encoding="utf-8"))
+          py_project = pyproj.get("project", {})
+          req_py = str(py_project.get("requires-python", ""))
+          if not req_py.startswith(">=3.10"):
+              sys.exit(f"crates/python/pyproject.toml requires-python ({req_py!r}) must be '>=3.10'")
+          py_deps = py_project.get("dependencies", [])
+          if not any(re.match(r"^\s*numpy(\b|[<>=!~])", str(d)) for d in py_deps):
+              sys.exit("crates/python/pyproject.toml omits runtime numpy dependency")
+          classifiers = py_project.get("classifiers", [])
+          if pre_kind == "alpha" and "Development Status :: 3 - Alpha" not in classifiers:
+              sys.exit("crates/python/pyproject.toml missing 'Development Status :: 3 - Alpha' classifier")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"tag_version={tag_version}\n")
@@ -90,7 +117,7 @@ jobs:
           print(f"Verified tag={ref_name} tag_version={tag_version} pypi_version={pypi_version} npm_tag={npm_tag}")
           PY
 
-      - name: Run strict invariant check
+      - name: Run invariant checks
         run: ./scripts/check_invariants.sh --mode report
 
   build-wheels:
@@ -107,10 +134,10 @@ jobs:
             maturin_args: --release -o dist
             run_tests: true
           - name: linux-aarch64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
-            maturin_args: --release --target aarch64 -o dist
-            run_tests: false
+            maturin_args: --release -o dist
+            run_tests: true
           - name: macos-arm64
             os: macos-14
             rust_target: aarch64-apple-darwin
@@ -153,7 +180,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --force-reinstall crates/python/dist/*.whl
-          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0"
+          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11"
           cd crates/python
           python -m pytest tests
           cd ../..
@@ -230,7 +257,9 @@ jobs:
         id: size
         run: |
           wasm-pack test --node crates/wasm
-          wasm-pack build --target web --no-opt --profile wasm-release -d pkg crates/wasm
+          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
+          wasm-pack test --node crates/wasm --features legacy
+          (cd crates/wasm && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
           if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
             node crates/wasm/scripts/assemble_pkg.mjs
           fi
@@ -251,7 +280,16 @@ jobs:
             node crates/wasm/tests/node_esm_smoke.mjs
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
-          (cd crates/wasm && npm pack --dry-run && npm pack)
+
+      - name: Build js/examples and run Playwright browser smoke
+        run: |
+          npm --prefix js/examples ci || npm --prefix js/examples install --no-audit --no-fund
+          npm --prefix js/examples run build
+          npx --prefix js/examples playwright install --with-deps chromium
+          node crates/wasm/tests/playwright_smoke.mjs
+
+      - name: Pack npm tarball
+        run: (cd crates/wasm && npm pack --dry-run && npm pack)
 
       - name: Upload WASM pkg artifact
         uses: actions/upload-artifact@v4
@@ -329,7 +367,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Download built WASM pkg
         uses: actions/download-artifact@v4

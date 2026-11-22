@@ -44,7 +44,7 @@ VENV_DIR="${VENV_ARG:-$REPO_ROOT/.venv}"
 
 is_venv_ready() {
   local py="$1/bin/python"
-  [[ -x "$py" ]] && "$py" -c "import maturin, pytest, numpy, scipy, networkx, mypy, ruff" >/dev/null 2>&1
+  [[ -x "$py" ]] && "$py" -c "import maturin, pytest, numpy, scipy, networkx, igraph, mypy, ruff" >/dev/null 2>&1
 }
 
 if [[ "$FORCE" -eq 0 ]] && is_venv_ready "$VENV_DIR"; then
@@ -66,6 +66,7 @@ if command -v uv >/dev/null 2>&1; then
     "numpy>=1.26" \
     "scipy>=1.11" \
     "networkx>=3.0" \
+    "igraph>=0.11" \
     "mypy>=1.11" \
     "ruff>=0.6"
 else
@@ -77,6 +78,7 @@ else
     "numpy>=1.26" \
     "scipy>=1.11" \
     "networkx>=3.0" \
+    "igraph>=0.11" \
     "mypy>=1.11" \
     "ruff>=0.6"
 fi

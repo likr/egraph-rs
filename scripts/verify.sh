@@ -398,7 +398,7 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
   if [[ "$BUILD_WASM" -eq 1 ]]; then
     run_step "wasm_build_release" bash -c "
       set -euo pipefail
-      wasm-pack build --target web --no-opt --profile wasm-release -d pkg '$REPO_ROOT/crates/wasm'
+      (cd '$REPO_ROOT/crates/wasm' && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
       if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
         node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
       fi
@@ -447,7 +447,7 @@ if [[ "$RUN_DOCS" -eq 1 ]]; then
   if [[ ! -f "$REPO_ROOT/crates/wasm/pkg/index.d.ts" ]]; then
     run_step "wasm_build_release_for_docs" bash -c "
       set -euo pipefail
-      wasm-pack build --target web --no-opt --profile wasm-release -d pkg '$REPO_ROOT/crates/wasm'
+      (cd '$REPO_ROOT/crates/wasm' && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
       if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
         node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
       fi
