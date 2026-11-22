@@ -15,7 +15,8 @@ wasm-opt = false
 
 [features]
 default = ["full"]
-full = ["legacy"]
+full = ["legacy", "delaunay"]
+delaunay = ["egraph-spatial/delaunay"]
 legacy = [
     "dep:petgraph",
     "dep:petgraph-algorithm-shortest-path",
@@ -42,6 +43,8 @@ legacy = [
 console_error_panic_hook = "0.1"
 egraph-core.workspace = true
 egraph-ffi.workspace = true
+egraph-metrics.workspace = true
+egraph-spatial.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 
@@ -71,6 +74,9 @@ wasm-bindgen-test = "0.3.54"
 
 [[test]]
 name = "v6_core"
+
+[[test]]
+name = "v6_metrics"
 
 [[test]]
 name = "classical_mds"

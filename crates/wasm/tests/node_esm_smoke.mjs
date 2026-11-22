@@ -2,7 +2,32 @@ import assert from "node:assert/strict";
 import init, * as eg from "../pkg/egraph_wasm.node.js";
 import * as webPkg from "../pkg/index.js";
 
-const { CsrGraph, Layout2d, setPanicHook, wasmMemory } = eg;
+const {
+  CsrGraph,
+  Layout2d,
+  MetricReport,
+  PrismDistortion,
+  angularResolutionV6,
+  aspectRatioV6,
+  dggPreservation,
+  drngPreservation,
+  edgeAngle,
+  evaluateMetrics,
+  gabrielGraphPropertyV6,
+  idealEdgeLengthsV6,
+  neighborhoodPreservation1Hop,
+  neighborhoodPreservation2HopV6,
+  nodeResolutionV6,
+  prismDistortion,
+  sampledCrossingNumber,
+  sampledScaleNormalizedStress,
+  scaleNormalizedStress,
+  setPanicHook,
+  sweepCrossingAngle,
+  sweepCrossingNumber,
+  torusCrossingNumber,
+  wasmMemory,
+} = eg;
 
 // Cross-platform init() should resolve cleanly even when Node loader pre-initialized WASM.
 await init();
@@ -214,7 +239,163 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   l.free();
 }
 
-// 7. Verify legacy exports remain available when compiled with default `full` feature
+// 7. Verify M1 v6 egraph-metrics and egraph-spatial APIs
+{
+  assert.equal(typeof webPkg.scaleNormalizedStress, "function");
+  assert.equal(typeof webPkg.evaluateMetrics, "function");
+  assert.equal(typeof webPkg.MetricReport, "function");
+  assert.equal(typeof webPkg.PrismDistortion, "function");
+
+  // 4x4 grid layout (16 nodes, 24 edges, planar crystalline)
+  const gridEdges = [];
+  const gridCoords = [];
+  for (let r = 0; r < 4; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      const id = r * 4 + c;
+      gridCoords.push(c, r);
+      if (c + 1 < 4) gridEdges.push(id, id + 1);
+      if (r + 1 < 4) gridEdges.push(id, id + 4);
+    }
+  }
+  const grid = CsrGraph.fromEdgeList(16, new Uint32Array(gridEdges));
+  const gridLayout = Layout2d.fromCoords(new Float32Array(gridCoords));
+  const scaledCoords = new Float32Array(gridCoords.length);
+  for (let i = 0; i < gridCoords.length; i += 2) {
+    scaledCoords[i] = 10.0 * gridCoords[i] + 5.0;
+    scaledCoords[i + 1] = 10.0 * gridCoords[i + 1] - 3.0;
+  }
+  const gridScaled = Layout2d.fromCoords(scaledCoords);
+
+  const sns1 = scaleNormalizedStress(grid, gridLayout);
+  const sns10 = scaleNormalizedStress(grid, gridScaled);
+  assert(Number.isFinite(sns1) && sns1 >= 0 && sns1 < 0.05);
+  assert(Math.abs(sns1 - sns10) < 1e-5, "SNS must be scale-invariant");
+
+  const sampledSnsDefault = sampledScaleNormalizedStress(grid, gridLayout);
+  const sampledSns4 = sampledScaleNormalizedStress(grid, gridLayout, 16, 42);
+  assert(Math.abs(sampledSnsDefault - sns1) < 1e-5);
+  assert(Number.isFinite(sampledSns4) && sampledSns4 >= 0);
+
+  assert.equal(sweepCrossingNumber(grid, gridLayout), 0);
+  assert.equal(sweepCrossingAngle(grid, gridLayout), 0);
+  assert.equal(sampledCrossingNumber(grid, gridLayout), 0);
+
+  // K4 square with crossing diagonals
+  const k4 = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 3, 3, 0, 0, 2, 1, 3]));
+  const k4Layout = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]));
+  assert.equal(sweepCrossingNumber(k4, k4Layout), 1);
+  assert(Math.abs(sweepCrossingAngle(k4, k4Layout)) < 1e-6);
+  assert.equal(sampledCrossingNumber(k4, k4Layout, 100, 42), 1);
+  k4.free();
+  k4Layout.free();
+
+  // Torus crossing on [0, 1)^2
+  const torusGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 2, 3]));
+  const torusLayout = Layout2d.fromCoords(new Float32Array([0.9, 0.1, 0.1, 0.9, 0.9, 0.9, 0.1, 0.1]));
+  assert(torusCrossingNumber(torusGraph, torusLayout) >= 1);
+  torusGraph.free();
+  torusLayout.free();
+
+  assert(Math.abs(neighborhoodPreservation1Hop(grid, gridLayout) - 1.0) < 1e-6);
+  assert(Math.abs(neighborhoodPreservation2HopV6(grid, gridLayout) - 1.0) < 1e-6);
+  assert(Math.abs(drngPreservation(grid, gridLayout) - 1.0) < 1e-6);
+  assert(Math.abs(dggPreservation(grid, gridLayout) - 1.0) < 1e-6);
+  assert.equal(gabrielGraphPropertyV6(grid, gridLayout), 0);
+  assert(nodeResolutionV6(gridLayout) > 0);
+  assert(Math.abs(aspectRatioV6(gridLayout) - 1.0) < 1e-6);
+  assert(angularResolutionV6(grid, gridLayout) > 0);
+  assert(Math.abs(idealEdgeLengthsV6(grid, gridLayout)) < 1e-6);
+
+  assert(Math.abs(edgeAngle(1, 0, 0, 1) - Math.PI / 2) < 1e-12);
+  assert.equal(edgeAngle(0, 0, 1, 0), undefined);
+  assert.equal(edgeAngle(Number.NaN, 0, 1, 0), undefined);
+
+  const distortion = prismDistortion(gridLayout, gridScaled);
+  assert(distortion instanceof PrismDistortion);
+  assert(distortion.sigmaDist < 1e-5);
+  assert(distortion.sigmaDisp < 1e-5);
+  distortion.free();
+
+  // Selective metric evaluation without serde
+  const report = evaluateMetrics(grid, gridLayout, ["sns", "np2", "aspectRatio", "drng"], 8, 64, 42);
+  assert(report instanceof MetricReport);
+  assert(Math.abs(report.scaleNormalizedStress - sns1) < 1e-12);
+  assert(Math.abs(report.neighborhoodPreservation2Hop - 1.0) < 1e-6);
+  assert(Math.abs(report.aspectRatio - 1.0) < 1e-6);
+  assert(Math.abs(report.relativeNeighborhoodPreservation - 1.0) < 1e-6);
+  assert.equal(report.crossingNumber, undefined);
+  assert.equal(report.idealEdgeLengths, undefined);
+
+  const rec = report.toRecord();
+  assert.deepEqual(
+    Object.keys(rec).sort(),
+    [
+      "aspectRatio",
+      "neighborhoodPreservation2Hop",
+      "relativeNeighborhoodPreservation",
+      "scaleNormalizedStress",
+    ],
+  );
+  assert(Math.abs(rec.scaleNormalizedStress - sns1) < 1e-12);
+  report.free();
+
+  // Delaunay triangulation when `delaunay` feature is enabled
+  if (typeof eg.delaunayTriangulation === "function") {
+    assert.equal(typeof webPkg.delaunayTriangulation, "function");
+    const sq = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
+    const dt = eg.delaunayTriangulation(sq);
+    const dtEdges = dt.edges();
+    const dtTris = dt.triangles();
+    assert(dtEdges instanceof Uint32Array);
+    assert(dtTris instanceof Uint32Array);
+    assert.equal(dt.numNodes, 4);
+    assert.equal(dtEdges.length, 10);
+    assert.equal(dtTris.length, 6);
+    dt.free();
+    sq.free();
+  }
+
+  // Adversarial inputs must throw Error (never WebAssembly.RuntimeError)
+  const assertJsError = (fn, label) => {
+    let threw = false;
+    try {
+      fn();
+    } catch (err) {
+      assert(!(err instanceof WebAssembly.RuntimeError), `${label} trapped with RuntimeError`);
+      assert(err instanceof Error, `${label} must throw Error`);
+      threw = true;
+    }
+    assert(threw, `${label} must throw`);
+  };
+
+  const shortLayout = Layout2d.zeros(3);
+  const nanLayout = Layout2d.fromCoords(new Float32Array([Number.NaN, 0, ...gridCoords.slice(2)]));
+  assertJsError(() => scaleNormalizedStress(grid, shortLayout), "sns dimension mismatch");
+  assertJsError(() => sweepCrossingNumber(grid, nanLayout), "crossings non-finite");
+  assertJsError(() => neighborhoodPreservation1Hop(grid, shortLayout), "np1 dimension mismatch");
+  assertJsError(() => prismDistortion(gridLayout, shortLayout), "prism dimension mismatch");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 0, 42), "numPivots=0");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 4, -1), "seed=-1");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 4, 1.5), "seed=1.5");
+  assertJsError(
+    () => sampledScaleNormalizedStress(grid, gridLayout, 4, 9007199254740992),
+    "seed > MAX_SAFE_INTEGER",
+  );
+  assertJsError(() => sampledCrossingNumber(grid, gridLayout, 0, 42), "numSamples=0");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, "sns"), "non-array targets");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, [123]), "non-string target element");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, ["bogusMetric"]), "unknown target name");
+  if (typeof eg.delaunayTriangulation === "function") {
+    assertJsError(() => eg.delaunayTriangulation(nanLayout), "delaunay non-finite");
+  }
+  shortLayout.free();
+  nanLayout.free();
+  grid.free();
+  gridLayout.free();
+  gridScaled.free();
+}
+
+// 8. Verify legacy exports remain available when compiled with default `full` feature
 if (typeof eg.Graph === "function") {
   const legacyGraph = new eg.Graph();
   const u = legacyGraph.addNode(0);

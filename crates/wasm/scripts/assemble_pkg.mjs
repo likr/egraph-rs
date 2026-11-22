@@ -35,9 +35,18 @@ for (const match of wasmJs.matchAll(/^export\s*\{([^}]+)\}\s*;?/gm)) {
   }
 }
 
-if (!exportedNames.has("Layout2d") || !exportedNames.has("wasmMemory") || !exportedNames.has("initSync")) {
+if (
+  !exportedNames.has("Layout2d") ||
+  !exportedNames.has("CsrGraph") ||
+  !exportedNames.has("wasmMemory") ||
+  !exportedNames.has("initSync") ||
+  !exportedNames.has("scaleNormalizedStress") ||
+  !exportedNames.has("evaluateMetrics") ||
+  !exportedNames.has("MetricReport") ||
+  !exportedNames.has("PrismDistortion")
+) {
   throw new Error(
-    `Expected Layout2d, wasmMemory, and initSync exports in ${wasmJsPath}; found: ${Array.from(exportedNames).join(", ")}`,
+    `Expected v6 core + M1 metric exports in ${wasmJsPath}; found: ${Array.from(exportedNames).join(", ")}`,
   );
 }
 
@@ -139,6 +148,87 @@ if (!indexDts.includes("coordsView(): Float32Array;")) {
   }
   indexDts = updated;
 }
+
+const m1TypesDecl = `/**
+ * Canonical target identifiers and normalized aliases accepted by \`evaluateMetrics\`.
+ */
+export type MetricTarget =
+    | "scaleNormalizedStress"
+    | "sampledScaleNormalizedStress"
+    | "crossingNumber"
+    | "crossingAngle"
+    | "sampledCrossingNumber"
+    | "neighborhoodPreservation1Hop"
+    | "neighborhoodPreservation2Hop"
+    | "gabrielGraphProperty"
+    | "nodeResolution"
+    | "relativeNeighborhoodPreservation"
+    | "gabrielGraphPreservation"
+    | "aspectRatio"
+    | "angularResolution"
+    | "idealEdgeLengths"
+    | "sns"
+    | "sampled_sns"
+    | "np1"
+    | "np2"
+    | "drng"
+    | "dgg";
+
+/**
+ * Plain JavaScript record returned by \`MetricReport.toRecord()\`.
+ */
+export interface MetricReportRecord {
+    scaleNormalizedStress?: number;
+    sampledScaleNormalizedStress?: number;
+    crossingNumber?: number;
+    crossingAngle?: number;
+    sampledCrossingNumber?: number;
+    neighborhoodPreservation1Hop?: number;
+    neighborhoodPreservation2Hop?: number;
+    gabrielGraphProperty?: number;
+    nodeResolution?: number;
+    relativeNeighborhoodPreservation?: number;
+    gabrielGraphPreservation?: number;
+    aspectRatio?: number;
+    angularResolution?: number;
+    idealEdgeLengths?: number;
+}
+
+`;
+
+if (indexDts.includes("export class MetricReport {") && !indexDts.includes("export interface MetricReportRecord")) {
+  const metricDocMarker = "/**\n * Selective quality metric report";
+  if (indexDts.includes(metricDocMarker)) {
+    indexDts = indexDts.replace(metricDocMarker, `${m1TypesDecl}${metricDocMarker}`);
+  } else {
+    indexDts = indexDts.replace("export class MetricReport {", `${m1TypesDecl}export class MetricReport {`);
+  }
+}
+
+indexDts = indexDts.replace(
+  /toRecord\(\): object;/,
+  "toRecord(): MetricReportRecord;",
+);
+
+indexDts = indexDts.replace(
+  /export function evaluateMetrics\([^;]+\): MetricReport;/,
+  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null): MetricReport;",
+);
+
+indexDts = indexDts.replace(
+  /export function prismDistortion\([^;]+\): PrismDistortion;/,
+  "export function prismDistortion(originalLayout: Layout2d, adjustedLayout: Layout2d): PrismDistortion;",
+);
+
+indexDts = indexDts.replace(
+  /export function sampledCrossingNumber\([^;]+\): number;/,
+  "export function sampledCrossingNumber(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+);
+
+indexDts = indexDts.replace(
+  /export function sampledScaleNormalizedStress\([^;]+\): number;/,
+  "export function sampledScaleNormalizedStress(graph: CsrGraph, layout: Layout2d, numPivots?: number | null, seed?: number | null): number;",
+);
 
 await Promise.all([
   writeFile(path.join(pkgDir, "index.js"), indexJs, "utf8"),
