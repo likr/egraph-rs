@@ -1,0 +1,9 @@
+[package]
+name = "egraph-petgraph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+egraph-core.workspace = true
+petgraph.workspace = true

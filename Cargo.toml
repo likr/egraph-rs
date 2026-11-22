@@ -7,9 +7,11 @@ members = [
     "crates/algorithm/triangulation",
     "crates/cli",
     "crates/clustering",
+    "crates/core",
     "crates/dataset",
     "crates/drawing",
     "crates/edge-bundling/fdeb",
+    "crates/ffi",
     "crates/layout/kamada-kawai",
     "crates/layout/omega",
     "crates/layout/overwrap-removal",
@@ -20,7 +22,37 @@ members = [
     "crates/linalg/kernel",
     "crates/layout/ts-net",
     "crates/layout/gumap",
+    "crates/petgraph",
     "crates/python",
     "crates/quality-metrics",
     "crates/wasm",
 ]
+
+[workspace.package]
+version = "6.0.0-alpha.4"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/likr/egraph-rs"
+
+[workspace.dependencies]
+rand_core = "0.6"
+rand_chacha = { version = "0.3", default-features = false }
+petgraph = "0.8"
+wasm-bindgen = "0.2.104"
+js-sys = "0.3"
+pyo3 = { version = "0.28", features = ["abi3-py310", "extension-module"] }
+numpy = "0.28"
+egraph-core = { path = "crates/core" }
+egraph-ffi = { path = "crates/ffi" }
+egraph-petgraph = { path = "crates/petgraph" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+panic = "abort"
+strip = "symbols"
