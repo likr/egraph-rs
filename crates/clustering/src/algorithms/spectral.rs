@@ -1,4 +1,4 @@
-use crate::{CommunityDetection, utils::renumber_communities};
+use crate::CommunityDetection;
 use egraph_clustering::{KMeansConfig, kmeans_plus_plus};
 use petgraph::visit::{EdgeCount, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use petgraph_drawing::DrawingIndex;
@@ -131,14 +131,29 @@ where
             return HashMap::new();
         };
 
-        // Map back to node IDs
-        let mut communities = HashMap::new();
-        for (i, &cluster) in result.labels.iter().enumerate() {
-            communities.insert(nodes[i], cluster as usize);
+        // Compact cluster IDs deterministically in `nodes` order rather than iterating over a
+        // randomized-seed `HashMap`.
+        let max_label = result.labels.iter().copied().max().unwrap_or(0) as usize;
+        let mut remap: Vec<Option<usize>> = vec![None; max_label.saturating_add(1)];
+        let mut next_id = 0usize;
+        let mut communities = HashMap::with_capacity(node_count);
+        for (node, &raw_cluster) in nodes.iter().zip(result.labels.iter()) {
+            let raw_id = raw_cluster as usize;
+            let mapped_id = match remap.get(raw_id).copied().flatten() {
+                Some(id) => id,
+                None => {
+                    let id = next_id;
+                    next_id += 1;
+                    if let Some(slot) = remap.get_mut(raw_id) {
+                        *slot = Some(id);
+                    }
+                    id
+                }
+            };
+            communities.insert(*node, mapped_id);
         }
 
-        // Renumber communities from 0 to n-1 (in case some clusters are empty)
-        renumber_communities(&communities)
+        communities
     }
 }
 
