@@ -33,13 +33,14 @@ pub fn bfs_with_distance_matrix<G, S, D>(
     D: DistanceMatrix<G::NodeId, S>,
     S: NdFloat,
 {
-    let n = distance_matrix.shape().0;
+    let n = distance_matrix.shape().1;
     let k = distance_matrix.row_index(s).unwrap();
+    let s_col = distance_matrix.col_index(s).unwrap();
     let mut visited = vec![false; n];
-    visited[k] = true;
+    visited[s_col] = true;
     let mut queue = VecDeque::new();
     queue.push_back(s);
-    distance_matrix.set(s, s, S::zero());
+    distance_matrix.set_by_index(k, s_col, S::zero());
     while let Some(u) = queue.pop_front() {
         let i = distance_matrix.col_index(u).unwrap();
         for v in graph.neighbors(u) {
@@ -180,4 +181,66 @@ where
     S: NdFloat,
 {
     bfs_with_unit_edge_length(graph, S::one(), s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::graph::UnGraph;
+
+    #[test]
+    fn test_bfs_with_pivoted_distance_matrix_non_leading_pivots() {
+        let mut g = UnGraph::<(), ()>::new_undirected();
+        let n0 = g.add_node(());
+        let n1 = g.add_node(());
+        let n2 = g.add_node(());
+        let n3 = g.add_node(());
+        let n4 = g.add_node(());
+        let n5 = g.add_node(());
+
+        g.add_edge(n0, n1, ());
+        g.add_edge(n1, n2, ());
+        g.add_edge(n2, n3, ());
+        g.add_edge(n3, n4, ());
+        g.add_edge(n4, n5, ());
+        g.add_edge(n1, n4, ());
+
+        // Use pivots not located at node indices 0 or 1 so row index != column index
+        // and shape().0 (2) < shape().1 (6).
+        let dm = multi_source_bfs(&g, 1.0_f64, &[n3, n5]);
+        assert_eq!(dm.shape(), (2, 6));
+
+        let expected_from_n3 = [
+            (n0, 3.0),
+            (n1, 2.0),
+            (n2, 1.0),
+            (n3, 0.0),
+            (n4, 1.0),
+            (n5, 2.0),
+        ];
+        for (node, dist) in expected_from_n3 {
+            assert_eq!(dm.get(n3, node), Some(dist));
+        }
+
+        let expected_from_n5 = [
+            (n0, 3.0),
+            (n1, 2.0),
+            (n2, 3.0),
+            (n3, 2.0),
+            (n4, 1.0),
+            (n5, 0.0),
+        ];
+        for (node, dist) in expected_from_n5 {
+            assert_eq!(dm.get(n5, node), Some(dist));
+        }
+
+        // Also check scaled unit edge length via direct bfs_with_distance_matrix call.
+        let mut scaled = PivotedDistanceMatrix::new(&g, &[n4, n2]);
+        bfs_with_distance_matrix(&g, 2.5_f64, n4, &mut scaled);
+        bfs_with_distance_matrix(&g, 2.5_f64, n2, &mut scaled);
+        assert_eq!(scaled.get(n4, n0), Some(5.0));
+        assert_eq!(scaled.get(n4, n4), Some(0.0));
+        assert_eq!(scaled.get(n2, n5), Some(7.5));
+        assert_eq!(scaled.get(n2, n2), Some(0.0));
+    }
 }
