@@ -1,0 +1,12 @@
+[package]
+name = "egraph-layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial.workspace = true
+egraph-linalg.workspace = true
+egraph-neighborhood.workspace = true

@@ -6,12 +6,14 @@ members = [
     "crates/algorithm/shortest-path",
     "crates/algorithm/triangulation",
     "crates/cli",
+    "crates/cluster",
     "crates/clustering",
     "crates/core",
     "crates/dataset",
     "crates/drawing",
     "crates/edge-bundling/fdeb",
     "crates/ffi",
+    "crates/layout",
     "crates/layout/kamada-kawai",
     "crates/layout/omega",
     "crates/layout/overwrap-removal",
@@ -46,8 +48,10 @@ wasm-bindgen = "0.2.104"
 js-sys = "0.3"
 pyo3 = { version = "0.28", features = ["abi3-py310", "extension-module"] }
 numpy = "0.28"
+egraph-clustering = { path = "crates/cluster" }
 egraph-core = { path = "crates/core" }
 egraph-ffi = { path = "crates/ffi" }
+egraph-layout = { path = "crates/layout" }
 egraph-linalg = { path = "crates/linalg" }
 egraph-metrics = { path = "crates/metrics" }
 egraph-neighborhood = { path = "crates/neighborhood" }
