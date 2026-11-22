@@ -34,6 +34,8 @@ pub enum SgdScheduleKind {
     Reciprocal,
     /// Constant learning rate $\eta(t) = \mathrm{step\_scale}$.
     Constant,
+    /// Squared progress decay $\eta(t) = \max(\eta_{\max} (1 - \text{progress})^2, \eta_{\min})$.
+    Squared,
 }
 
 /// Learning rate schedule parameters for [`SgdSolver`].
@@ -164,6 +166,236 @@ impl Default for StreamingNegativeConfig {
             weight: 0.25,
             hinge_only: true,
         }
+    }
+}
+
+/// Configuration for compact-memory edge-incident negative sampling `SNAP-tFDP`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SnapTFdpConfig {
+    /// Total optimization iterations (`default: 200`).
+    pub iterations: usize,
+    /// Uniform random negative samples drawn per undirected edge per iteration (`default: 3`).
+    pub negatives_per_edge: usize,
+    /// Initial learning rate (`default: 1.0`).
+    pub learning_rate: f64,
+    /// Bounded $t$-FDP edge attraction scale (`default: 1.0`).
+    pub alpha: f64,
+    /// Student-$t$ repulsion multiplier (`default: 1.0`).
+    pub repulsion_scale: f64,
+    /// Initial repulsion annealing weight $\rho(0)$ (`default: 1.0`).
+    pub rho_start: f64,
+    /// Final repulsion annealing weight $\rho(1)$ (`default: 0.1`).
+    pub rho_end: f64,
+    /// Exponent $p > 0$ for $\rho(t) = \rho_{\mathrm{start}} + (\rho_{\mathrm{end}} - \rho_{\mathrm{start}}) t^p$ (`default: 1.0`).
+    pub rho_power: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for SnapTFdpConfig {
+    fn default() -> Self {
+        Self {
+            iterations: 200,
+            negatives_per_edge: 3,
+            learning_rate: 1.0,
+            alpha: 1.0,
+            repulsion_scale: 1.0,
+            rho_start: 1.0,
+            rho_end: 0.1,
+            rho_power: 1.0,
+            seed: 42,
+        }
+    }
+}
+
+impl SnapTFdpConfig {
+    /// Validates all `SNAP-tFDP` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.learning_rate.is_finite() {
+            return Err(CoreError::non_finite("SnapTFdpConfig::learning_rate"));
+        }
+        if self.learning_rate <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SnapTFdpConfig::learning_rate must be > 0, got {}",
+                self.learning_rate
+            )));
+        }
+        for (ctx, val) in [
+            ("SnapTFdpConfig::alpha", self.alpha),
+            ("SnapTFdpConfig::repulsion_scale", self.repulsion_scale),
+            ("SnapTFdpConfig::rho_start", self.rho_start),
+            ("SnapTFdpConfig::rho_end", self.rho_end),
+        ] {
+            if !val.is_finite() {
+                return Err(CoreError::non_finite(ctx));
+            }
+            if val < 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "{ctx} must be >= 0, got {val}"
+                )));
+            }
+        }
+        if !self.rho_power.is_finite() {
+            return Err(CoreError::non_finite("SnapTFdpConfig::rho_power"));
+        }
+        if self.rho_power <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SnapTFdpConfig::rho_power must be > 0, got {}",
+                self.rho_power
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for 3-tier `PaCMAP-Graph` layout optimization.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PacmapGraphConfig {
+    /// Target number of Near (`NB`) 1+2-hop neighbors per vertex (`default: 10`).
+    pub n_neighbors: usize,
+    /// Ratio of Mid-Near (`MN`) pairs relative to `n_neighbors` (`default: 0.5`).
+    pub mn_ratio: f64,
+    /// Ratio of Further (`FP`) repulsive pairs relative to `n_neighbors` (`default: 2.0`).
+    pub fp_ratio: f64,
+    /// Phase 1 (global unfolding, $w_{\mathrm{MN}}: 1000 \to 3$) iterations (`default: 100`).
+    pub phase1_iters: usize,
+    /// Phase 2 (scaffold locking, $w = (3, 3, 1)$) iterations (`default: 100`).
+    pub phase2_iters: usize,
+    /// Phase 3 (local refinement, $w = (1, 0, 1)$) iterations (`default: 250`).
+    pub phase3_iters: usize,
+    /// Adam optimizer learning rate (`default: 1.0`).
+    pub learning_rate: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for PacmapGraphConfig {
+    fn default() -> Self {
+        Self {
+            n_neighbors: 10,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 100,
+            phase2_iters: 100,
+            phase3_iters: 250,
+            learning_rate: 1.0,
+            seed: 42,
+        }
+    }
+}
+
+impl PacmapGraphConfig {
+    /// Validates all `PaCMAP-Graph` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.n_neighbors == 0 {
+            return Err(CoreError::invalid_input(
+                "PacmapGraphConfig::n_neighbors must be >= 1",
+            ));
+        }
+        for (ctx, val) in [
+            ("PacmapGraphConfig::mn_ratio", self.mn_ratio),
+            ("PacmapGraphConfig::fp_ratio", self.fp_ratio),
+        ] {
+            if !val.is_finite() {
+                return Err(CoreError::non_finite(ctx));
+            }
+            if val < 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "{ctx} must be >= 0, got {val}"
+                )));
+            }
+        }
+        if !self.learning_rate.is_finite() {
+            return Err(CoreError::non_finite("PacmapGraphConfig::learning_rate"));
+        }
+        if self.learning_rate <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "PacmapGraphConfig::learning_rate must be > 0, got {}",
+                self.learning_rate
+            )));
+        }
+        let _ = self
+            .phase1_iters
+            .checked_add(self.phase2_iters)
+            .and_then(|s| s.checked_add(self.phase3_iters))
+            .ok_or_else(|| {
+                CoreError::invalid_input("PacmapGraphConfig total iterations overflow")
+            })?;
+        Ok(())
+    }
+
+    #[inline]
+    fn total_iterations(&self) -> usize {
+        self.phase1_iters + self.phase2_iters + self.phase3_iters
+    }
+}
+
+/// Configuration for doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sgd2Config {
+    /// Total optimization iterations (`default: 60`).
+    pub t_max: usize,
+    /// Minimum learning rate ratio $\varepsilon > 0$ (`default: 0.01`).
+    pub eps: f64,
+    /// Multiplicative step scale (`default: 1.0`).
+    pub step_scale: f64,
+    /// Mini-batch pair count per preconditioned update (`default: 4096`).
+    pub batch_size: usize,
+    /// Diagonal curvature damping denominator floor $> 0$ (`default: 1e-4`).
+    pub damping: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for Sgd2Config {
+    fn default() -> Self {
+        Self {
+            t_max: 60,
+            eps: 0.01,
+            step_scale: 1.0,
+            batch_size: 4096,
+            damping: 1e-4,
+            seed: 42,
+        }
+    }
+}
+
+impl Sgd2Config {
+    /// Validates all `(SGD)^2` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.eps.is_finite() {
+            return Err(CoreError::non_finite("Sgd2Config::eps"));
+        }
+        if self.eps <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "Sgd2Config::eps must be > 0, got {}",
+                self.eps
+            )));
+        }
+        if !self.step_scale.is_finite() {
+            return Err(CoreError::non_finite("Sgd2Config::step_scale"));
+        }
+        if self.step_scale <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "Sgd2Config::step_scale must be > 0, got {}",
+                self.step_scale
+            )));
+        }
+        if self.batch_size == 0 {
+            return Err(CoreError::invalid_input(
+                "Sgd2Config::batch_size must be >= 1",
+            ));
+        }
+        if !self.damping.is_finite() {
+            return Err(CoreError::non_finite("Sgd2Config::damping"));
+        }
+        if self.damping <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "Sgd2Config::damping must be > 0, got {}",
+                self.damping
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -335,11 +567,47 @@ struct StreamingState<S: Scalar> {
     node_order: Vec<u32>,
 }
 
+#[derive(Debug, Clone)]
+struct SnapTFdpState {
+    config: SnapTFdpConfig,
+    edges_u: Vec<u32>,
+    edges_v: Vec<u32>,
+    edge_weights: Option<Vec<f32>>,
+    edge_order: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
+struct PacmapState {
+    config: PacmapGraphConfig,
+    nb_pairs: Vec<(u32, u32)>,
+    mn_pairs: Vec<(u32, u32)>,
+    fp_pairs: Vec<(u32, u32)>,
+    grad_x: Vec<f64>,
+    grad_y: Vec<f64>,
+    m_x: Vec<f64>,
+    m_y: Vec<f64>,
+    v_x: Vec<f64>,
+    v_y: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct Sgd2State {
+    batch_size: usize,
+    damping: f64,
+    grad_x: Vec<f64>,
+    grad_y: Vec<f64>,
+    h_x: Vec<f64>,
+    h_y: Vec<f64>,
+    touched_stamp: VisitStamp,
+    touched_nodes: Vec<u32>,
+}
+
 /// Contiguous packed Stochastic Gradient Descent (SGD) layout solver.
 ///
 /// Supports symmetric and general two-sided spring pairs, one-sided hinge repulsion pairs,
 /// Track B 3-tier sparse barrier schedules, cache-blocked L2-resident shuffling, streaming
-/// negative sampling, Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
+/// negative sampling, compact-memory `SNAP-tFDP`, 3-tier `PaCMAP-Graph`, doubly-stochastic
+/// `(SGD)^2`, Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
 /// [`ManifoldLayout2d<S>`] stepping.
 #[derive(Debug, Clone)]
 pub struct SgdSolver<S: Scalar = f64> {
@@ -349,6 +617,9 @@ pub struct SgdSolver<S: Scalar = f64> {
     num_hinges: usize,
     block_order: Vec<u32>,
     streaming: Option<StreamingState<S>>,
+    snap_t_fdp: Option<SnapTFdpState>,
+    pacmap: Option<PacmapState>,
+    sgd2: Option<Sgd2State>,
     schedule_cfg: SgdScheduleConfig,
     eta_min: f64,
     eta_max: f64,
@@ -1111,6 +1382,9 @@ impl<S: Scalar> SgdSolver<S> {
             num_hinges,
             block_order,
             streaming: None,
+            snap_t_fdp: None,
+            pacmap: None,
+            sgd2: None,
             schedule_cfg,
             eta_min,
             eta_max,
@@ -1152,6 +1426,9 @@ impl<S: Scalar> SgdSolver<S> {
             num_hinges,
             block_order,
             streaming: None,
+            snap_t_fdp: None,
+            pacmap: None,
+            sgd2: None,
             schedule_cfg,
             eta_min,
             eta_max,
@@ -1907,6 +2184,503 @@ impl<S: Scalar> SgdSolver<S> {
         Ok(solver)
     }
 
+    /// Constructs a compact-memory `SNAP-tFDP` solver storing only canonical undirected 1-hop
+    /// edges (`edges_u`, `edges_v`, optional `f32` weights, and `edge_order`) and drawing
+    /// `negatives_per_edge` uniform random negative vertices on-the-fly per edge.
+    pub fn snap_t_fdp<W: Scalar>(graph: &CsrGraph<W>, config: SnapTFdpConfig) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::snap_t_fdp")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let mut edges_u: Vec<u32>;
+        let mut edges_v: Vec<u32>;
+        let mut edge_weights: Option<Vec<f32>>;
+
+        if n <= 1 || graph.nnz() == 0 {
+            edges_u = Vec::new();
+            edges_v = Vec::new();
+            edge_weights = None;
+        } else if !graph.is_directed() {
+            // Stream directly into flat u32 arrays without temporary tuple vectors to respect
+            // strict 1M (<512 MB) and 4M (<1.6 GiB) Peak RSS budgets.
+            let m_est = graph.num_edges();
+            edges_u = Vec::with_capacity(m_est);
+            edges_v = Vec::with_capacity(m_est);
+            edge_weights = graph.is_weighted().then(|| Vec::with_capacity(m_est));
+            let weights_opt = graph.weights();
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let start = graph.indptr()[u] as usize;
+                let end = graph.indptr()[u + 1] as usize;
+                for pos in start..end {
+                    let v = graph.indices()[pos];
+                    if u_u32 < v {
+                        edges_u.push(u_u32);
+                        edges_v.push(v);
+                        if let (Some(ws_out), Some(ws_in)) = (edge_weights.as_mut(), weights_opt) {
+                            ws_out.push(ws_in[pos].to_f32());
+                        }
+                    }
+                }
+            }
+        } else if let Some(ws_in) = graph.weights() {
+            let mut raw: Vec<(u32, u32, f32)> = Vec::with_capacity(graph.nnz());
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let start = graph.indptr()[u] as usize;
+                let end = graph.indptr()[u + 1] as usize;
+                for (&v, &w) in graph.indices()[start..end]
+                    .iter()
+                    .zip(ws_in[start..end].iter())
+                {
+                    if u_u32 == v {
+                        continue;
+                    }
+                    let (a, b) = if u_u32 < v { (u_u32, v) } else { (v, u_u32) };
+                    raw.push((a, b, w.to_f32()));
+                }
+            }
+            raw.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(&y.1)));
+            edges_u = Vec::with_capacity(raw.len());
+            edges_v = Vec::with_capacity(raw.len());
+            let mut ws_out: Vec<f32> = Vec::with_capacity(raw.len());
+            for (a, b, w) in raw {
+                if edges_u.last().copied() == Some(a) && edges_v.last().copied() == Some(b) {
+                    if let Some(last_w) = ws_out.last_mut() {
+                        *last_w = (*last_w).max(w);
+                    }
+                } else {
+                    edges_u.push(a);
+                    edges_v.push(b);
+                    ws_out.push(w);
+                }
+            }
+            edge_weights = Some(ws_out);
+        } else {
+            let mut raw: Vec<(u32, u32)> = Vec::with_capacity(graph.nnz());
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let start = graph.indptr()[u] as usize;
+                let end = graph.indptr()[u + 1] as usize;
+                for &v in &graph.indices()[start..end] {
+                    if u_u32 != v {
+                        raw.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
+                    }
+                }
+            }
+            raw.sort_unstable();
+            raw.dedup();
+            edges_u = Vec::with_capacity(raw.len());
+            edges_v = Vec::with_capacity(raw.len());
+            for (a, b) in raw {
+                edges_u.push(a);
+                edges_v.push(b);
+            }
+            edge_weights = None;
+        }
+
+        let m = edges_u.len();
+        if u32::try_from(m).is_err() {
+            return Err(CoreError::invalid_csr(
+                "SNAP-tFDP undirected edge count exceeds u32::MAX",
+            ));
+        }
+
+        let mut edge_order: Vec<u32> = (0..m as u32).collect();
+        let mut rng = DeterministicRng::from_seed_u64(config.seed);
+        let block_order = init_pair_blocking(&mut edge_order, &mut rng);
+
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: config.iterations,
+            eps: 0.01,
+            kind: SgdScheduleKind::Linear,
+            step_scale: config.learning_rate,
+        };
+        let status = if config.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+
+        Ok(Self {
+            num_nodes: n,
+            pairs: PairStorage::Symmetric(Vec::new()),
+            num_springs: m,
+            num_hinges: 0,
+            block_order,
+            streaming: None,
+            snap_t_fdp: Some(SnapTFdpState {
+                config,
+                edges_u,
+                edges_v,
+                edge_weights,
+                edge_order,
+            }),
+            pacmap: None,
+            sgd2: None,
+            schedule_cfg,
+            eta_min: 0.0,
+            eta_max: config.learning_rate,
+            iter: 0,
+            status,
+            rng,
+        })
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` solver (`NB` 1+2-hop, `MN` mid-near, `FP` further)
+    /// with 3-phase dynamic loss weights and zero-allocation Adam updates.
+    pub fn pacmap_graph<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: PacmapGraphConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::pacmap_graph")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let total_iters = config.total_iterations();
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: total_iters,
+            eps: 0.01,
+            kind: SgdScheduleKind::Constant,
+            step_scale: config.learning_rate,
+        };
+        let status = if total_iters == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+
+        if n <= 1 {
+            return Ok(Self {
+                num_nodes: n,
+                pairs: PairStorage::Symmetric(Vec::new()),
+                num_springs: 0,
+                num_hinges: 0,
+                block_order: Vec::new(),
+                streaming: None,
+                snap_t_fdp: None,
+                pacmap: Some(PacmapState {
+                    config,
+                    nb_pairs: Vec::new(),
+                    mn_pairs: Vec::new(),
+                    fp_pairs: Vec::new(),
+                    grad_x: Vec::new(),
+                    grad_y: Vec::new(),
+                    m_x: Vec::new(),
+                    m_y: Vec::new(),
+                    v_x: Vec::new(),
+                    v_y: Vec::new(),
+                }),
+                sgd2: None,
+                schedule_cfg,
+                eta_min: config.learning_rate,
+                eta_max: config.learning_rate,
+                iter: 0,
+                status,
+                rng: DeterministicRng::from_seed_u64(config.seed),
+            });
+        }
+
+        let canonical_edges = extract_canonical_undirected_edges(graph);
+        let mut u1 = Vec::with_capacity(canonical_edges.len());
+        let mut v1 = Vec::with_capacity(canonical_edges.len());
+        for &(u, v, _) in &canonical_edges {
+            u1.push(u);
+            v1.push(v);
+        }
+        let (adj_indptr, adj_indices) = build_symmetric_csr_from_sorted_pairs(n, &u1, &v1);
+        let sym_graph = CsrGraph::<f64>::from_csr(&adj_indptr, &adj_indices, None, false, false)?;
+
+        // Optional per-node weighted 1-hop adjacency when input graph carries weights.
+        let weighted_rows: Option<Vec<Vec<(f64, u32)>>> = if graph.is_weighted() {
+            let mut rows = vec![Vec::new(); n];
+            for &(u, v, w) in &canonical_edges {
+                rows[u as usize].push((w, v));
+                rows[v as usize].push((w, u));
+            }
+            for row in &mut rows {
+                row.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            }
+            Some(rows)
+        } else {
+            None
+        };
+        drop(canonical_edges);
+        drop(u1);
+        drop(v1);
+
+        let n_nb = config.n_neighbors.min(n - 1);
+        let n_mn = ((config.mn_ratio * (config.n_neighbors as f64)).floor() as usize).min(n - 1);
+        let n_fp = ((config.fp_ratio * (config.n_neighbors as f64)).floor() as usize).min(n - 1);
+
+        // Precompute compact BFS landmark distances for O(1) Mid-Near proximity ranking.
+        let mut lm_dists: Vec<f64> = Vec::new();
+        let k_lm = if n_mn > 0 { 16usize.min(n) } else { 0 };
+        if k_lm > 0 {
+            let landmarks = select_maxmin_sp_pivots(&sym_graph, k_lm, config.seed, 2)?;
+            lm_dists.resize(landmarks.len() * n, f64::INFINITY);
+            let mut bfs = BfsWorkspace::new(n);
+            for (idx, &lm) in landmarks.iter().enumerate() {
+                bfs.bfs_from(
+                    &sym_graph,
+                    lm as usize,
+                    &mut lm_dists[idx * n..(idx + 1) * n],
+                )?;
+            }
+        }
+        let num_lm = if k_lm > 0 { lm_dists.len() / n } else { 0 };
+
+        let mut rng = DeterministicRng::from_seed_u64(config.seed);
+        let mut hop1_stamp = VisitStamp::new(n);
+        let mut exclude_stamp = VisitStamp::new(n);
+
+        let mut nb_pairs = Vec::with_capacity(n * n_nb);
+        let mut mn_pairs = Vec::with_capacity(n * n_mn);
+        let mut fp_pairs = Vec::with_capacity(n * n_fp);
+
+        let mut nb_u: Vec<u32> = Vec::with_capacity(n_nb);
+        let mut row1_scratch: Vec<u32> = Vec::new();
+        let mut hop2_raw: Vec<u32> = Vec::new();
+        let mut hop2_ranked: Vec<(usize, u32)> = Vec::new();
+
+        for u in 0..n {
+            let u_u32 = u as u32;
+            let n1_u = sym_graph.neighbors(u);
+
+            hop1_stamp.clear();
+            hop1_stamp.mark(u);
+            for &w in n1_u {
+                hop1_stamp.mark(w as usize);
+            }
+
+            nb_u.clear();
+            if let Some(w_rows) = &weighted_rows {
+                for &(_, v) in w_rows[u].iter().take(n_nb) {
+                    nb_u.push(v);
+                }
+            } else if n1_u.len() <= n_nb {
+                nb_u.extend_from_slice(n1_u);
+            } else {
+                row1_scratch.clear();
+                row1_scratch.extend_from_slice(n1_u);
+                rng.shuffle(&mut row1_scratch);
+                nb_u.extend_from_slice(&row1_scratch[..n_nb]);
+            }
+
+            if nb_u.len() < n_nb && !n1_u.is_empty() {
+                hop2_raw.clear();
+                let cand_cap = (n_nb * 8).max(64);
+                let per_w_cap = (n_nb * 2).max(16);
+                for &w in n1_u {
+                    let n1_w = sym_graph.neighbors(w as usize);
+                    if n1_w.len() <= 1 {
+                        continue;
+                    }
+                    if n1_w.len() <= per_w_cap {
+                        for &v in n1_w {
+                            if !hop1_stamp.is_visited(v as usize) {
+                                hop2_raw.push(v);
+                            }
+                        }
+                    } else {
+                        for _ in 0..per_w_cap {
+                            let v = n1_w[rng.gen_range_usize(n1_w.len())];
+                            if !hop1_stamp.is_visited(v as usize) {
+                                hop2_raw.push(v);
+                            }
+                        }
+                    }
+                    if hop2_raw.len() >= cand_cap {
+                        break;
+                    }
+                }
+                if !hop2_raw.is_empty() {
+                    hop2_raw.sort_unstable();
+                    hop2_ranked.clear();
+                    let mut idx = 0usize;
+                    while idx < hop2_raw.len() {
+                        let v = hop2_raw[idx];
+                        let start = idx;
+                        while idx < hop2_raw.len() && hop2_raw[idx] == v {
+                            idx += 1;
+                        }
+                        hop2_ranked.push((idx - start, v));
+                    }
+                    hop2_ranked.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+                    let rem = n_nb - nb_u.len();
+                    for &(_, v) in hop2_ranked.iter().take(rem) {
+                        nb_u.push(v);
+                    }
+                }
+            }
+
+            for &v in &nb_u {
+                nb_pairs.push((u_u32, v));
+            }
+
+            exclude_stamp.clear();
+            exclude_stamp.mark(u);
+            for &v in n1_u {
+                exclude_stamp.mark(v as usize);
+            }
+            for &v in &nb_u {
+                exclude_stamp.mark(v as usize);
+            }
+
+            // Mid-Near (`MN`): sample up to 6 non-1/2-hop candidates per slot and pick the
+            // nearest landmark-estimated candidate.
+            if n_mn > 0 {
+                let mut mn_collected = 0usize;
+                let mut slot_failures = 0usize;
+                while mn_collected < n_mn && slot_failures < 4 {
+                    let mut best_cand: Option<(f64, u32)> = None;
+                    let mut pool_count = 0usize;
+                    let mut trials = 0usize;
+                    while pool_count < 6 && trials < 18 {
+                        trials += 1;
+                        let c = rng.gen_range_usize(n);
+                        if exclude_stamp.is_visited(c)
+                            || has_common_neighbor(n1_u, sym_graph.neighbors(c), &hop1_stamp)
+                        {
+                            continue;
+                        }
+                        pool_count += 1;
+                        let mut lb = 0.0_f64;
+                        let mut ub = f64::INFINITY;
+                        for l in 0..num_lm {
+                            let du = lm_dists[l * n + u];
+                            let dc = lm_dists[l * n + c];
+                            if du.is_finite() && dc.is_finite() {
+                                lb = lb.max((du - dc).abs());
+                                ub = ub.min(du + dc);
+                            }
+                        }
+                        let est = if ub.is_finite() {
+                            0.5 * (lb + ub)
+                        } else {
+                            f64::INFINITY
+                        };
+                        let c_u32 = c as u32;
+                        if best_cand.is_none_or(|(b_est, b_c)| {
+                            est.total_cmp(&b_est).then_with(|| c_u32.cmp(&b_c)).is_lt()
+                        }) {
+                            best_cand = Some((est, c_u32));
+                        }
+                    }
+                    if let Some((_, c_u32)) = best_cand {
+                        exclude_stamp.mark(c_u32 as usize);
+                        mn_pairs.push((u_u32, c_u32));
+                        mn_collected += 1;
+                        slot_failures = 0;
+                    } else {
+                        slot_failures += 1;
+                    }
+                }
+            }
+
+            // Further (`FP`): sample non-neighbor repulsive pairs excluding u, 1-hop, and NB.
+            if n_fp > 0 {
+                exclude_stamp.clear();
+                exclude_stamp.mark(u);
+                for &v in n1_u {
+                    exclude_stamp.mark(v as usize);
+                }
+                for &v in &nb_u {
+                    exclude_stamp.mark(v as usize);
+                }
+                let mut fp_collected = 0usize;
+                let max_fp_trials = (n_fp * 4).max(16);
+                let mut trials = 0usize;
+                while fp_collected < n_fp && trials < max_fp_trials {
+                    trials += 1;
+                    let c = rng.gen_range_usize(n);
+                    if exclude_stamp.is_visited(c) {
+                        continue;
+                    }
+                    exclude_stamp.mark(c);
+                    fp_pairs.push((u_u32, c as u32));
+                    fp_collected += 1;
+                }
+            }
+        }
+
+        let n_springs = nb_pairs.len() + mn_pairs.len();
+        let n_hinges = fp_pairs.len();
+
+        Ok(Self {
+            num_nodes: n,
+            pairs: PairStorage::Symmetric(Vec::new()),
+            num_springs: n_springs,
+            num_hinges: n_hinges,
+            block_order: Vec::new(),
+            streaming: None,
+            snap_t_fdp: None,
+            pacmap: Some(PacmapState {
+                config,
+                nb_pairs,
+                mn_pairs,
+                fp_pairs,
+                grad_x: vec![0.0; n],
+                grad_y: vec![0.0; n],
+                m_x: vec![0.0; n],
+                m_y: vec![0.0; n],
+                v_x: vec![0.0; n],
+                v_y: vec![0.0; n],
+            }),
+            sgd2: None,
+            schedule_cfg,
+            eta_min: config.learning_rate,
+            eta_max: config.learning_rate,
+            iter: 0,
+            status,
+            rng,
+        })
+    }
+
+    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` solver
+    /// using [`SgdScheduleKind::Squared`] and zero per-step heap allocations.
+    pub fn sgd2<W: Scalar>(graph: &CsrGraph<W>, config: Sgd2Config) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::sgd2")?;
+
+        let schedule = SgdScheduleConfig {
+            t_max: config.t_max,
+            eps: config.eps,
+            kind: SgdScheduleKind::Squared,
+            step_scale: config.step_scale,
+        };
+        let n = graph.num_nodes();
+        let mut solver = if n <= 256 {
+            Self::full(graph, schedule, config.seed)?
+        } else {
+            Self::random_pair(graph, 16, schedule, config.seed)?
+        };
+        let touched_cap = (config.batch_size.saturating_mul(2)).min(n);
+        solver.sgd2 = Some(Sgd2State {
+            batch_size: config.batch_size,
+            damping: config.damping,
+            grad_x: vec![0.0; n],
+            grad_y: vec![0.0; n],
+            h_x: vec![0.0; n],
+            h_y: vec![0.0; n],
+            touched_stamp: VisitStamp::new(n),
+            touched_nodes: Vec::with_capacity(touched_cap),
+        });
+        Ok(solver)
+    }
+
     /// Returns the expected number of vertices in the layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
@@ -1931,6 +2705,20 @@ impl<S: Scalar> SgdSolver<S> {
     }
 
     fn eta_at(&self, t: usize) -> f64 {
+        if let Some(st) = &self.snap_t_fdp {
+            let total = st.config.iterations;
+            if total == 0 || t >= total {
+                return 0.0;
+            }
+            return st.config.learning_rate * (1.0 - (t as f64) / (total as f64));
+        }
+        if let Some(st) = &self.pacmap {
+            let total = st.config.total_iterations();
+            if total == 0 || t >= total {
+                return 0.0;
+            }
+            return st.config.learning_rate;
+        }
         let t_max = self.schedule_cfg.t_max;
         if t_max == 0 || t >= t_max {
             return 0.0;
@@ -1982,6 +2770,18 @@ impl<S: Scalar> SgdSolver<S> {
                     (self.eta_max / self.eta_min - 1.0) / ((t_max - 1) as f64)
                 };
                 scale * self.eta_max / (1.0 + b * (t as f64))
+            }
+            SgdScheduleKind::Squared => {
+                if self.eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let progress = if t_max <= 1 {
+                    0.0
+                } else {
+                    (t as f64) / ((t_max - 1) as f64)
+                };
+                let factor = 1.0 - progress;
+                scale * (self.eta_max * factor * factor).max(self.eta_min)
             }
         }
     }
@@ -2038,6 +2838,253 @@ impl<S: Scalar> SgdSolver<S> {
         self.status
     }
 
+    fn step_snap_t_fdp(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let t = self.iter;
+        let Some(st) = self.snap_t_fdp.as_mut() else {
+            return Ok(self.finish_iteration());
+        };
+        let total = st.config.iterations;
+        if n > 1 && !st.edges_u.is_empty() && total > 0 && t < total {
+            let eta_f64 = st.config.learning_rate * (1.0 - (t as f64) / (total as f64));
+            if eta_f64.is_finite() && eta_f64 > 0.0 {
+                let progress = if total <= 1 {
+                    0.0
+                } else {
+                    (t as f64) / ((total - 1) as f64)
+                };
+                let rho = st.config.rho_start
+                    + (st.config.rho_end - st.config.rho_start)
+                        * progress.powf(st.config.rho_power);
+                let base_attr = S::from_f64(eta_f64 * 0.1 * st.config.alpha);
+                let base_rep = S::from_f64(eta_f64 * rho * st.config.repulsion_scale);
+                let k_neg = st.config.negatives_per_edge;
+                let (xs, ys) = layout.xy_mut();
+                let len = st.edge_order.len();
+
+                if len <= BLOCK_SHUFFLE_THRESHOLD {
+                    self.rng.shuffle(&mut st.edge_order);
+                    apply_snap_edge_slice(
+                        xs,
+                        ys,
+                        &st.edge_order,
+                        &st.edges_u,
+                        &st.edges_v,
+                        st.edge_weights.as_deref(),
+                        n,
+                        k_neg,
+                        base_attr,
+                        base_rep,
+                        &mut self.rng,
+                    );
+                } else {
+                    self.rng.shuffle(&mut self.block_order);
+                    for &b in &self.block_order {
+                        let start = (b as usize) * BLOCK_SIZE;
+                        let end = (start + BLOCK_SIZE).min(len);
+                        let chunk = &mut st.edge_order[start..end];
+                        self.rng.shuffle(chunk);
+                        apply_snap_edge_slice(
+                            xs,
+                            ys,
+                            chunk,
+                            &st.edges_u,
+                            &st.edges_v,
+                            st.edge_weights.as_deref(),
+                            n,
+                            k_neg,
+                            base_attr,
+                            base_rep,
+                            &mut self.rng,
+                        );
+                    }
+                }
+            }
+        }
+        Ok(self.finish_iteration())
+    }
+
+    fn step_pacmap(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let t = self.iter;
+        let Some(st) = self.pacmap.as_mut() else {
+            return Ok(self.finish_iteration());
+        };
+        let total = st.config.total_iterations();
+        if n <= 1 || total == 0 || t >= total {
+            return Ok(self.finish_iteration());
+        }
+
+        let (w_nb, w_mn, w_fp) = if t < st.config.phase1_iters {
+            let p1 = if st.config.phase1_iters <= 1 {
+                0.0
+            } else {
+                (t as f64) / ((st.config.phase1_iters - 1) as f64)
+            };
+            (2.0, 1000.0 * (1.0 - p1) + 3.0 * p1, 1.0)
+        } else if t < st.config.phase1_iters + st.config.phase2_iters {
+            (3.0, 3.0, 1.0)
+        } else {
+            (1.0, 0.0, 1.0)
+        };
+
+        st.grad_x.fill(0.0);
+        st.grad_y.fill(0.0);
+
+        let (xs, ys) = layout.xy_mut();
+        if w_nb > 0.0 {
+            let scale_nb = 20.0 * w_nb;
+            for &(u, v) in &st.nb_pairs {
+                let ui = u as usize;
+                let vi = v as usize;
+                let dx = xs[ui].to_f64() - xs[vi].to_f64();
+                let dy = ys[ui].to_f64() - ys[vi].to_f64();
+                let d2 = dx * dx + dy * dy;
+                if d2.is_finite() {
+                    let denom = 10.0 + d2;
+                    let coeff = scale_nb / (denom * denom);
+                    if coeff.is_finite() {
+                        let gx = coeff * dx;
+                        let gy = coeff * dy;
+                        st.grad_x[ui] += gx;
+                        st.grad_y[ui] += gy;
+                        st.grad_x[vi] -= gx;
+                        st.grad_y[vi] -= gy;
+                    }
+                }
+            }
+        }
+        if w_mn > 0.0 {
+            let scale_mn = 20_000.0 * w_mn;
+            for &(u, v) in &st.mn_pairs {
+                let ui = u as usize;
+                let vi = v as usize;
+                let dx = xs[ui].to_f64() - xs[vi].to_f64();
+                let dy = ys[ui].to_f64() - ys[vi].to_f64();
+                let d2 = dx * dx + dy * dy;
+                if d2.is_finite() {
+                    let denom = 10_000.0 + d2;
+                    let coeff = scale_mn / (denom * denom);
+                    if coeff.is_finite() {
+                        let gx = coeff * dx;
+                        let gy = coeff * dy;
+                        st.grad_x[ui] += gx;
+                        st.grad_y[ui] += gy;
+                        st.grad_x[vi] -= gx;
+                        st.grad_y[vi] -= gy;
+                    }
+                }
+            }
+        }
+        if w_fp > 0.0 {
+            let scale_fp = -2.0 * w_fp;
+            for &(u, v) in &st.fp_pairs {
+                let ui = u as usize;
+                let vi = v as usize;
+                let dx = xs[ui].to_f64() - xs[vi].to_f64();
+                let dy = ys[ui].to_f64() - ys[vi].to_f64();
+                let d2 = dx * dx + dy * dy;
+                if d2.is_finite() {
+                    let denom = 1.0 + d2;
+                    let coeff = scale_fp / (denom * denom);
+                    if coeff.is_finite() {
+                        let gx = coeff * dx;
+                        let gy = coeff * dy;
+                        st.grad_x[ui] += gx;
+                        st.grad_y[ui] += gy;
+                        st.grad_x[vi] -= gx;
+                        st.grad_y[vi] -= gy;
+                    }
+                }
+            }
+        }
+
+        // Zero-allocation Adam update matching PaCMAP's (beta1=0.9, beta2=0.999) schedule.
+        const BETA1: f64 = 0.9;
+        const BETA2: f64 = 0.999;
+        const ADAM_EPS: f64 = 1e-7;
+        let t_step = (t + 1) as i32;
+        let bc1 = (1.0 - BETA1.powi(t_step)).max(1e-12);
+        let bc2 = (1.0 - BETA2.powi(t_step)).max(1e-12);
+        let lr_t = st.config.learning_rate * bc2.sqrt() / bc1;
+
+        for u in 0..n {
+            let gx = st.grad_x[u];
+            let gy = st.grad_y[u];
+            st.m_x[u] = BETA1 * st.m_x[u] + (1.0 - BETA1) * gx;
+            st.m_y[u] = BETA1 * st.m_y[u] + (1.0 - BETA1) * gy;
+            st.v_x[u] = BETA2 * st.v_x[u] + (1.0 - BETA2) * gx * gx;
+            st.v_y[u] = BETA2 * st.v_y[u] + (1.0 - BETA2) * gy * gy;
+
+            let step_x = lr_t * st.m_x[u] / (st.v_x[u].sqrt() + ADAM_EPS);
+            let step_y = lr_t * st.m_y[u] / (st.v_y[u].sqrt() + ADAM_EPS);
+            if step_x.is_finite() {
+                let nx = xs[u] - S::from_f64(step_x);
+                if nx.is_finite() {
+                    xs[u] = nx;
+                }
+            }
+            if step_y.is_finite() {
+                let ny = ys[u] - S::from_f64(step_y);
+                if ny.is_finite() {
+                    ys[u] = ny;
+                }
+            }
+        }
+
+        Ok(self.finish_iteration())
+    }
+
+    fn step_sgd2(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let eta_f64 = self.eta_at(self.iter);
+        if n > 1 && eta_f64.is_finite() && eta_f64 > 0.0 && self.eta_max > 0.0 {
+            let alpha_t =
+                (eta_f64 / self.eta_max).clamp(0.0, self.schedule_cfg.step_scale.max(1.0));
+            let Some(st) = self.sgd2.as_mut() else {
+                return Ok(self.finish_iteration());
+            };
+            let batch_size = st.batch_size;
+            let damping = st.damping;
+            let (xs, ys) = layout.xy_mut();
+            let mut batch_count = 0usize;
+
+            match &mut self.pairs {
+                PairStorage::Symmetric(pairs) => {
+                    try_for_each_shuffled_pair(
+                        pairs,
+                        &mut self.block_order,
+                        &mut self.rng,
+                        |&p| {
+                            accumulate_sgd2_sym_pair(xs, ys, st, p);
+                            batch_count += 1;
+                            if batch_count >= batch_size {
+                                flush_sgd2_batch(xs, ys, st, alpha_t, damping);
+                                batch_count = 0;
+                            }
+                            Ok(())
+                        },
+                    )?;
+                }
+                PairStorage::General(pairs) => {
+                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
+                        accumulate_sgd2_gen_pair(xs, ys, st, p);
+                        batch_count += 1;
+                        if batch_count >= batch_size {
+                            flush_sgd2_batch(xs, ys, st, alpha_t, damping);
+                            batch_count = 0;
+                        }
+                        Ok(())
+                    })?;
+                }
+            }
+            if batch_count > 0 {
+                flush_sgd2_batch(xs, ys, st, alpha_t, damping);
+            }
+        }
+        Ok(self.finish_iteration())
+    }
+
     /// Executes one SGD iteration on a non-Euclidean [`ManifoldLayout2d<S>`] across
     /// `HyperbolicPoincare`, `Spherical`, and `Torus2d` geometries.
     pub fn step_manifold(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
@@ -2049,6 +3096,11 @@ impl<S: Scalar> SgdSolver<S> {
             ));
         }
         layout.as_layout().validate_finite()?;
+        if self.snap_t_fdp.is_some() || self.pacmap.is_some() || self.sgd2.is_some() {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::step_manifold is not supported for SnapTFdp, PacmapGraph, or Sgd2 modes",
+            ));
+        }
         if self.status.is_finished() {
             return Ok(self.status);
         }
@@ -2106,6 +3158,231 @@ impl<S: Scalar> SgdSolver<S> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn apply_snap_edge_slice<S: Scalar>(
+    xs: &mut [S],
+    ys: &mut [S],
+    order_slice: &[u32],
+    edges_u: &[u32],
+    edges_v: &[u32],
+    edge_weights: Option<&[f32]>,
+    num_nodes: usize,
+    negatives_per_edge: usize,
+    base_attr: S,
+    base_rep: S,
+    rng: &mut DeterministicRng,
+) {
+    let eight = S::from_f64(8.0);
+    let max_attr = S::from_f64(0.49);
+    let max_rep = S::from_f64(0.5);
+    for (pos, &edge_idx) in order_slice.iter().enumerate() {
+        let idx = edge_idx as usize;
+        let u = edges_u[idx] as usize;
+        let v = edges_v[idx] as usize;
+        let w_e = match edge_weights {
+            Some(ws) => S::from_f32(ws[idx]),
+            None => S::ONE,
+        };
+
+        // Bounded t-FDP attraction along edge (u, v).
+        if w_e > S::ZERO && base_attr > S::ZERO {
+            let dx = xs[u] - xs[v];
+            let dy = ys[u] - ys[v];
+            let d2 = dx * dx + dy * dy;
+            let inv_1_d2 = if d2.is_finite() {
+                S::ONE / (S::ONE + d2)
+            } else {
+                S::ZERO
+            };
+            let attr = base_attr * w_e * (S::ONE + eight * inv_1_d2);
+            if attr.is_finite() && attr > S::ZERO {
+                let coeff = attr.min(max_attr);
+                let sx = dx * coeff;
+                let sy = dy * coeff;
+                if sx.is_finite() && sy.is_finite() {
+                    xs[u] -= sx;
+                    ys[u] -= sy;
+                    xs[v] += sx;
+                    ys[v] += sy;
+                }
+            }
+        }
+
+        // Uniform random Student-t negative repulsion incident to u/v.
+        if base_rep > S::ZERO {
+            for neg_idx in 0..negatives_per_edge {
+                let anchor = if ((pos + neg_idx) & 1) == 0 { u } else { v };
+                let w = rng.gen_range_usize(num_nodes);
+                if w == anchor {
+                    continue;
+                }
+                let rx = xs[anchor] - xs[w];
+                let ry = ys[anchor] - ys[w];
+                let rd2 = rx * rx + ry * ry;
+                if rd2.is_finite() {
+                    let denom = (S::ONE + rd2) * (S::ONE + rd2);
+                    if denom.is_finite() && denom > S::ZERO {
+                        let rep = (base_rep / denom).min(max_rep);
+                        if rep.is_finite() && rep > S::ZERO {
+                            let sx = rx * rep;
+                            let sy = ry * rep;
+                            if sx.is_finite() && sy.is_finite() {
+                                xs[anchor] += sx;
+                                ys[anchor] += sy;
+                                xs[w] -= sx;
+                                ys[w] -= sy;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[inline]
+fn record_sgd2_touch(st: &mut Sgd2State, idx: usize) {
+    if st.touched_stamp.visit(idx) {
+        st.touched_nodes.push(idx as u32);
+    }
+}
+
+#[inline]
+fn accumulate_sgd2_sym_pair<S: Scalar>(
+    xs: &[S],
+    ys: &[S],
+    st: &mut Sgd2State,
+    p: PackedSymPair<S>,
+) {
+    let d = p.d.to_f64();
+    let w = p.w.to_f64();
+    if !d.is_finite() || d <= 0.0 || !w.is_finite() || w <= 0.0 {
+        return;
+    }
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
+    let dx = xs[i].to_f64() - xs[j].to_f64();
+    let dy = ys[i].to_f64() - ys[j].to_f64();
+    let norm = dx.hypot(dy);
+    if !norm.is_finite() || norm <= 0.0 {
+        return;
+    }
+    if is_hinge && norm >= d {
+        return;
+    }
+    let err = (norm - d) / norm;
+    let gx = w * err * dx;
+    let gy = w * err * dy;
+    let inv_n2 = 1.0 / (norm * norm);
+    let cx = 2.0 * w * (0.5 + 0.5 * (dx * dx) * inv_n2);
+    let cy = 2.0 * w * (0.5 + 0.5 * (dy * dy) * inv_n2);
+    if !gx.is_finite() || !gy.is_finite() || !cx.is_finite() || !cy.is_finite() {
+        return;
+    }
+    st.grad_x[i] += gx;
+    st.grad_y[i] += gy;
+    st.h_x[i] += cx;
+    st.h_y[i] += cy;
+    st.grad_x[j] -= gx;
+    st.grad_y[j] -= gy;
+    st.h_x[j] += cx;
+    st.h_y[j] += cy;
+    record_sgd2_touch(st, i);
+    record_sgd2_touch(st, j);
+}
+
+#[inline]
+fn accumulate_sgd2_gen_pair<S: Scalar>(
+    xs: &[S],
+    ys: &[S],
+    st: &mut Sgd2State,
+    p: &PackedGenPair<S>,
+) {
+    let dij = p.dij.to_f64();
+    let dji = p.dji.to_f64();
+    let wij = p.wij.to_f64();
+    let wji = p.wji.to_f64();
+    if !dij.is_finite() || dij <= 0.0 || !dji.is_finite() || dji <= 0.0 {
+        return;
+    }
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
+    let dx = xs[i].to_f64() - xs[j].to_f64();
+    let dy = ys[i].to_f64() - ys[j].to_f64();
+    let norm = dx.hypot(dy);
+    if !norm.is_finite() || norm <= 0.0 {
+        return;
+    }
+    let inv_n2 = 1.0 / (norm * norm);
+    let dir_x = 0.5 + 0.5 * (dx * dx) * inv_n2;
+    let dir_y = 0.5 + 0.5 * (dy * dy) * inv_n2;
+
+    if wij.is_finite() && wij > 0.0 && (!is_hinge || norm < dij) {
+        let err_i = (norm - dij) / norm;
+        let gx = wij * err_i * dx;
+        let gy = wij * err_i * dy;
+        let cx = 2.0 * wij * dir_x;
+        let cy = 2.0 * wij * dir_y;
+        if gx.is_finite() && gy.is_finite() && cx.is_finite() && cy.is_finite() {
+            st.grad_x[i] += gx;
+            st.grad_y[i] += gy;
+            st.h_x[i] += cx;
+            st.h_y[i] += cy;
+            record_sgd2_touch(st, i);
+        }
+    }
+    if wji.is_finite() && wji > 0.0 && (!is_hinge || norm < dji) {
+        let err_j = (norm - dji) / norm;
+        let gx = wji * err_j * dx;
+        let gy = wji * err_j * dy;
+        let cx = 2.0 * wji * dir_x;
+        let cy = 2.0 * wji * dir_y;
+        if gx.is_finite() && gy.is_finite() && cx.is_finite() && cy.is_finite() {
+            st.grad_x[j] -= gx;
+            st.grad_y[j] -= gy;
+            st.h_x[j] += cx;
+            st.h_y[j] += cy;
+            record_sgd2_touch(st, j);
+        }
+    }
+}
+
+#[inline]
+fn flush_sgd2_batch<S: Scalar>(
+    xs: &mut [S],
+    ys: &mut [S],
+    st: &mut Sgd2State,
+    alpha_t: f64,
+    damping: f64,
+) {
+    for &u_u32 in &st.touched_nodes {
+        let u = u_u32 as usize;
+        let sx = alpha_t * st.grad_x[u] / (st.h_x[u] + damping);
+        let sy = alpha_t * st.grad_y[u] / (st.h_y[u] + damping);
+        if sx.is_finite() {
+            let nx = xs[u] - S::from_f64(sx);
+            if nx.is_finite() {
+                xs[u] = nx;
+            }
+        }
+        if sy.is_finite() {
+            let ny = ys[u] - S::from_f64(sy);
+            if ny.is_finite() {
+                ys[u] = ny;
+            }
+        }
+        st.grad_x[u] = 0.0;
+        st.grad_y[u] = 0.0;
+        st.h_x[u] = 0.0;
+        st.h_y[u] = 0.0;
+    }
+    st.touched_nodes.clear();
+    st.touched_stamp.clear();
+}
+
 impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         if layout.len() != self.num_nodes {
@@ -2118,6 +3395,16 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
         layout.validate_finite()?;
         if self.status.is_finished() {
             return Ok(self.status);
+        }
+
+        if self.snap_t_fdp.is_some() {
+            return self.step_snap_t_fdp(layout);
+        }
+        if self.pacmap.is_some() {
+            return self.step_pacmap(layout);
+        }
+        if self.sgd2.is_some() {
+            return self.step_sgd2(layout);
         }
 
         let eta_f64 = self.eta_at(self.iter);
@@ -2299,6 +3586,7 @@ mod tests {
             SgdScheduleKind::Quadratic,
             SgdScheduleKind::Reciprocal,
             SgdScheduleKind::Constant,
+            SgdScheduleKind::Squared,
         ] {
             let sched = SgdScheduleConfig {
                 t_max: 15,
@@ -3215,6 +4503,501 @@ mod tests {
         for i in 0..n {
             assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
             assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+    }
+
+    #[test]
+    fn test_snap_t_fdp_bit_exact_compact_memory_and_convergence() {
+        let barbell = barbell_graph(6);
+        let grid = grid_graph(4, 4);
+        let cfg = SnapTFdpConfig {
+            iterations: 80,
+            negatives_per_edge: 3,
+            learning_rate: 1.0,
+            alpha: 1.0,
+            repulsion_scale: 1.0,
+            rho_start: 1.0,
+            rho_end: 0.1,
+            rho_power: 1.0,
+            seed: 42,
+        };
+
+        // Verify compact storage (12 bytes/edge unweighted, zero materialized negatives or CSR).
+        let s_check = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+        let st = s_check.snap_t_fdp.as_ref().unwrap();
+        assert_eq!(s_check.pairs.len(), 0);
+        assert_eq!(st.edges_u.len(), grid.num_edges());
+        assert_eq!(st.edges_v.len(), grid.num_edges());
+        assert_eq!(st.edge_order.len(), grid.num_edges());
+        assert!(st.edge_weights.is_none());
+        let bytes_stored =
+            (st.edges_u.capacity() + st.edges_v.capacity() + st.edge_order.capacity())
+                * std::mem::size_of::<u32>();
+        assert_eq!(bytes_stored, grid.num_edges() * 12);
+
+        // Bit-exact step() == run() for f64 and f32.
+        let mut s64_run = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+        let mut s64_step = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+        let mut l64_run = circle_layout::<f64>(grid.num_nodes(), 1.0);
+        let mut l64_step = l64_run.clone();
+        assert_eq!(s64_run.run(&mut l64_run).unwrap(), SolverStatus::Completed);
+        assert_eq!(s64_run.current_eta(), 0.0);
+        s64_step.run_steps(&mut l64_step, 17).unwrap();
+        while !s64_step.status().is_finished() {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        assert!(l64_run.is_all_finite());
+        for i in 0..grid.num_nodes() {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+
+        let mut s32_run = SgdSolver::<f32>::snap_t_fdp(&grid, cfg).unwrap();
+        let mut s32_step = SgdSolver::<f32>::snap_t_fdp(&grid, cfg).unwrap();
+        let mut l32_run = circle_layout::<f32>(grid.num_nodes(), 1.0);
+        let mut l32_step = l32_run.clone();
+        s32_run.run(&mut l32_run).unwrap();
+        s32_step.run_steps(&mut l32_step, 9).unwrap();
+        for _ in 0..5 {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        s32_step.run(&mut l32_step).unwrap();
+        for i in 0..grid.num_nodes() {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+
+        // Barbell clique separation & grid NP2 preservation.
+        let mut bb_solver = SgdSolver::<f64>::snap_t_fdp(
+            &barbell,
+            SnapTFdpConfig {
+                iterations: 150,
+                ..cfg
+            },
+        )
+        .unwrap();
+        let mut bb_layout = pivot_mds(&barbell, &PivotMdsConfig::default()).unwrap();
+        bb_solver.run(&mut bb_layout).unwrap();
+        assert!(bb_layout.is_all_finite());
+        let c0x = bb_layout.x()[..6].iter().sum::<f64>() / 6.0;
+        let c0y = bb_layout.y()[..6].iter().sum::<f64>() / 6.0;
+        let c1x = bb_layout.x()[6..].iter().sum::<f64>() / 6.0;
+        let c1y = bb_layout.y()[6..].iter().sum::<f64>() / 6.0;
+        let centroid_dist = (c0x - c1x).hypot(c0y - c1y);
+        assert!(
+            centroid_dist > 0.5,
+            "expected separated barbell cliques, got {centroid_dist}"
+        );
+        assert!(compute_np2(&barbell, &bb_layout) >= 0.85);
+
+        let mut g_solver = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+        let mut g_layout = pivot_mds(&grid, &PivotMdsConfig::default()).unwrap();
+        g_solver.run(&mut g_layout).unwrap();
+        assert!(compute_np2(&grid, &g_layout) >= 0.75);
+
+        // Cache-blocked shuffle path (> 65_536 edges) step == run bit-exactness.
+        let n_big = 500usize;
+        let mut big_edges = Vec::with_capacity(75_000);
+        for u in 0..n_big {
+            for off in 1..=150 {
+                let v = (u + off) % n_big;
+                big_edges.push((u.min(v) as u32, u.max(v) as u32));
+            }
+        }
+        big_edges.sort_unstable();
+        big_edges.dedup();
+        assert!(big_edges.len() > BLOCK_SHUFFLE_THRESHOLD);
+        let big_g = CsrGraph::<f64>::from_edges(n_big, &big_edges, None, false, false).unwrap();
+        let big_cfg = SnapTFdpConfig {
+            iterations: 3,
+            negatives_per_edge: 2,
+            ..cfg
+        };
+        let mut b_run = SgdSolver::<f64>::snap_t_fdp(&big_g, big_cfg).unwrap();
+        let mut b_step = SgdSolver::<f64>::snap_t_fdp(&big_g, big_cfg).unwrap();
+        assert!(!b_run.block_order.is_empty());
+        let mut bl_run = circle_layout::<f64>(n_big, 1.0);
+        let mut bl_step = bl_run.clone();
+        b_run.run(&mut bl_run).unwrap();
+        b_step.step(&mut bl_step).unwrap();
+        b_step.run(&mut bl_step).unwrap();
+        for i in 0..n_big {
+            assert_eq!(bl_run.x()[i].to_bits(), bl_step.x()[i].to_bits());
+            assert_eq!(bl_run.y()[i].to_bits(), bl_step.y()[i].to_bits());
+        }
+
+        // Weighted directed graph works cleanly and allocates f32 weights only when weighted.
+        let dwg = CsrGraph::<f64>::from_edges(
+            4,
+            &[(0, 1), (1, 0), (1, 2), (2, 3)],
+            Some(&[2.0, 1.0, 1.5, 0.5]),
+            true,
+            false,
+        )
+        .unwrap();
+        let mut dw_solver = SgdSolver::<f64>::snap_t_fdp(&dwg, cfg).unwrap();
+        assert!(
+            dw_solver
+                .snap_t_fdp
+                .as_ref()
+                .unwrap()
+                .edge_weights
+                .is_some()
+        );
+        assert_eq!(dw_solver.num_springs(), 3);
+        let mut dw_layout = circle_layout::<f64>(4, 1.0);
+        dw_solver.run(&mut dw_layout).unwrap();
+        assert!(dw_layout.is_all_finite());
+
+        // Validation & edge-case guards.
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        assert_eq!(
+            SgdSolver::<f64>::snap_t_fdp(&empty, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(0))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        assert_eq!(
+            SgdSolver::<f64>::snap_t_fdp(&single, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(1))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        assert_eq!(
+            SgdSolver::<f64>::snap_t_fdp(
+                &grid,
+                SnapTFdpConfig {
+                    iterations: 0,
+                    ..cfg
+                }
+            )
+            .unwrap()
+            .status(),
+            SolverStatus::Completed
+        );
+        for bad in [
+            SnapTFdpConfig {
+                learning_rate: 0.0,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                learning_rate: f64::NAN,
+                ..cfg
+            },
+            SnapTFdpConfig { alpha: -0.1, ..cfg },
+            SnapTFdpConfig {
+                repulsion_scale: -1.0,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                rho_start: -0.5,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                rho_end: f64::INFINITY,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                rho_power: 0.0,
+                ..cfg
+            },
+        ] {
+            assert!(SgdSolver::<f64>::snap_t_fdp(&grid, bad).is_err());
+        }
+        let mut m_layout = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, grid.num_nodes());
+        assert!(matches!(
+            SgdSolver::<f64>::snap_t_fdp(&grid, cfg)
+                .unwrap()
+                .step_manifold(&mut m_layout),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn test_pacmap_graph_three_tier_three_phase_and_bit_exact() {
+        let grid = grid_graph(4, 4);
+        let cfg = PacmapGraphConfig {
+            n_neighbors: 6,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 30,
+            phase2_iters: 30,
+            phase3_iters: 60,
+            learning_rate: 0.5,
+            seed: 42,
+        };
+
+        // Check 3-tier pair invariants on grid(4, 4).
+        let s_check = SgdSolver::<f64>::pacmap_graph(&grid, cfg).unwrap();
+        let st = s_check.pacmap.as_ref().unwrap();
+        assert!(!st.nb_pairs.is_empty());
+        assert!(!st.mn_pairs.is_empty());
+        assert!(!st.fp_pairs.is_empty());
+        assert_eq!(s_check.total_iterations(), 120);
+
+        let (adj1, adj2) = extract_1hop_2hop_csr(&grid).unwrap();
+        for &(u, v) in &st.nb_pairs {
+            assert_ne!(u, v);
+            let ui = u as usize;
+            assert!(
+                adj1.neighbors(ui).contains(&v) || adj2.neighbors(ui).contains(&v),
+                "NB pair ({u}, {v}) must be 1-hop or 2-hop"
+            );
+        }
+        for &(u, v) in &st.mn_pairs {
+            assert_ne!(u, v);
+            let ui = u as usize;
+            assert!(!adj1.neighbors(ui).contains(&v));
+            assert!(!adj2.neighbors(ui).contains(&v));
+        }
+        for &(u, v) in &st.fp_pairs {
+            assert_ne!(u, v);
+            let ui = u as usize;
+            assert!(!adj1.neighbors(ui).contains(&v));
+        }
+
+        // Bit-exact step() == run() for f64 and f32 across all 3 phases.
+        let mut s64_run = SgdSolver::<f64>::pacmap_graph(&grid, cfg).unwrap();
+        let mut s64_step = SgdSolver::<f64>::pacmap_graph(&grid, cfg).unwrap();
+        let mut l64_run = pivot_mds(&grid, &PivotMdsConfig::default()).unwrap();
+        let mut l64_step = l64_run.clone();
+        s64_run.run(&mut l64_run).unwrap();
+        s64_step.run_steps(&mut l64_step, 35).unwrap(); // across phase 1 -> 2
+        s64_step.run_steps(&mut l64_step, 35).unwrap(); // across phase 2 -> 3
+        while !s64_step.status().is_finished() {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        assert_eq!(s64_step.iteration(), 120);
+        for i in 0..grid.num_nodes() {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+
+        let mut s32_run = SgdSolver::<f32>::pacmap_graph(&grid, cfg).unwrap();
+        let mut s32_step = SgdSolver::<f32>::pacmap_graph(&grid, cfg).unwrap();
+        let mut l32_run = circle_layout::<f32>(grid.num_nodes(), 1.0);
+        let mut l32_step = l32_run.clone();
+        s32_run.run(&mut l32_run).unwrap();
+        s32_step.run_steps(&mut l32_step, 45).unwrap();
+        s32_step.run(&mut l32_step).unwrap();
+        for i in 0..grid.num_nodes() {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+
+        // Barbell separation & NP2 quality with default PaCMAP-Graph parameters on a 20-node barbell.
+        let barbell20 = barbell_graph(10);
+        let mut bb_solver =
+            SgdSolver::<f64>::pacmap_graph(&barbell20, PacmapGraphConfig::default()).unwrap();
+        let mut bb_layout = circle_layout::<f64>(barbell20.num_nodes(), 0.25);
+        bb_solver.run(&mut bb_layout).unwrap();
+        assert!(bb_layout.is_all_finite());
+        let c0x = bb_layout.x()[..10].iter().sum::<f64>() / 10.0;
+        let c0y = bb_layout.y()[..10].iter().sum::<f64>() / 10.0;
+        let c1x = bb_layout.x()[10..].iter().sum::<f64>() / 10.0;
+        let c1y = bb_layout.y()[10..].iter().sum::<f64>() / 10.0;
+        let sep = (c0x - c1x).hypot(c0y - c1y);
+        assert!(sep > 1.0, "expected separated barbell cliques, got {sep}");
+        assert!(compute_np2(&barbell20, &bb_layout) >= 0.85);
+
+        // Weighted and directed graph paths work cleanly.
+        let dwg = CsrGraph::<f64>::from_edges(
+            6,
+            &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)],
+            Some(&[1.0, 2.0, 1.5, 1.0, 2.5, 0.8]),
+            true,
+            false,
+        )
+        .unwrap();
+        let mut dw_pm = SgdSolver::<f64>::pacmap_graph(&dwg, cfg).unwrap();
+        let mut dw_l = circle_layout::<f64>(6, 1.0);
+        dw_pm.run(&mut dw_l).unwrap();
+        assert!(dw_l.is_all_finite());
+
+        // Edge cases & invalid configs.
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        assert_eq!(
+            SgdSolver::<f64>::pacmap_graph(&empty, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(0))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        assert_eq!(
+            SgdSolver::<f64>::pacmap_graph(&single, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(1))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        assert_eq!(
+            SgdSolver::<f64>::pacmap_graph(
+                &grid,
+                PacmapGraphConfig {
+                    phase1_iters: 0,
+                    phase2_iters: 0,
+                    phase3_iters: 0,
+                    ..cfg
+                }
+            )
+            .unwrap()
+            .status(),
+            SolverStatus::Completed
+        );
+        for bad in [
+            PacmapGraphConfig {
+                n_neighbors: 0,
+                ..cfg
+            },
+            PacmapGraphConfig {
+                mn_ratio: -0.1,
+                ..cfg
+            },
+            PacmapGraphConfig {
+                fp_ratio: f64::NAN,
+                ..cfg
+            },
+            PacmapGraphConfig {
+                learning_rate: 0.0,
+                ..cfg
+            },
+        ] {
+            assert!(SgdSolver::<f64>::pacmap_graph(&grid, bad).is_err());
+        }
+    }
+
+    #[test]
+    fn test_sgd2_and_squared_schedule_convergence_and_bit_exact() {
+        let g = grid_graph(3, 4);
+
+        // Verify SgdScheduleKind::Squared decay curve & eta_min clamping.
+        let sq_sched = SgdScheduleConfig {
+            t_max: 11,
+            eps: 0.05,
+            kind: SgdScheduleKind::Squared,
+            step_scale: 1.0,
+        };
+        let mut sq_solver = SgdSolver::<f64>::full(&g, sq_sched, 42).unwrap();
+        let mut etas = Vec::new();
+        let mut sq_layout = circle_layout::<f64>(g.num_nodes(), 1.0);
+        for _ in 0..11 {
+            etas.push(sq_solver.current_eta());
+            sq_solver.step(&mut sq_layout).unwrap();
+        }
+        assert_eq!(sq_solver.current_eta(), 0.0);
+        assert!((etas[0] - sq_solver.eta_max).abs() < 1e-12);
+        assert!((etas[10] - sq_solver.eta_min).abs() < 1e-12);
+        for win in etas.windows(2) {
+            assert!(win[0] >= win[1]);
+        }
+
+        // Test Sgd2 with small batch_size=7 so multiple mini-batches + tail flush are exercised.
+        let cfg = Sgd2Config {
+            t_max: 40,
+            eps: 0.01,
+            step_scale: 1.0,
+            batch_size: 7,
+            damping: 1e-4,
+            seed: 42,
+        };
+
+        // Bit-exact step() == run() for f64 and f32.
+        let mut s64_run = SgdSolver::<f64>::sgd2(&g, cfg).unwrap();
+        let mut s64_step = SgdSolver::<f64>::sgd2(&g, cfg).unwrap();
+        let mut l64_run = circle_layout::<f64>(g.num_nodes(), 0.25);
+        let mut l64_step = l64_run.clone();
+        let stress_before = euclidean_apsp_stress(&g, &l64_run);
+        s64_run.run(&mut l64_run).unwrap();
+        s64_step.run_steps(&mut l64_step, 11).unwrap();
+        while !s64_step.status().is_finished() {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        for i in 0..g.num_nodes() {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+        let stress_after = euclidean_apsp_stress(&g, &l64_run);
+        assert!(
+            stress_after < stress_before * 0.2,
+            "Sgd2 did not reduce stress: {stress_before} -> {stress_after}"
+        );
+
+        let mut s32_run = SgdSolver::<f32>::sgd2(&g, cfg).unwrap();
+        let mut s32_step = SgdSolver::<f32>::sgd2(&g, cfg).unwrap();
+        let mut l32_run = circle_layout::<f32>(g.num_nodes(), 0.25);
+        let mut l32_step = l32_run.clone();
+        s32_run.run(&mut l32_run).unwrap();
+        s32_step.run_steps(&mut l32_step, 13).unwrap();
+        s32_step.run(&mut l32_step).unwrap();
+        for i in 0..g.num_nodes() {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+
+        // Large-n (> 256) sparse path uses bounded O(N) pairs instead of O(N^2) APSP.
+        let big_grid = grid_graph(18, 18); // 324 nodes > 256
+        let mut big_s2 = SgdSolver::<f64>::sgd2(&big_grid, Sgd2Config::default()).unwrap();
+        assert!(big_s2.num_springs() < 324 * 20);
+        let mut big_l = circle_layout::<f64>(big_grid.num_nodes(), 1.0);
+        big_s2.run(&mut big_l).unwrap();
+        assert!(big_l.is_all_finite());
+
+        // Weighted triangle shortest-path check (0-1-2 = 3.0 vs 0-2 = 10.0).
+        let wg = CsrGraph::<f64>::from_edges(
+            3,
+            &[(0, 1), (1, 2), (0, 2)],
+            Some(&[1.0, 2.0, 10.0]),
+            false,
+            false,
+        )
+        .unwrap();
+        let mut w_s2 = SgdSolver::<f64>::sgd2(&wg, Sgd2Config::default()).unwrap();
+        let mut w_l = circle_layout::<f64>(3, 2.0);
+        w_s2.run(&mut w_l).unwrap();
+        let d02 = (w_l.x()[0] - w_l.x()[2]).hypot(w_l.y()[0] - w_l.y()[2]);
+        assert!((d02 - 3.0).abs() < 0.25, "expected dist ~3.0, got {d02}");
+
+        // Validation & edge-case guards.
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        assert_eq!(
+            SgdSolver::<f64>::sgd2(&empty, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(0))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        assert_eq!(
+            SgdSolver::<f64>::sgd2(&single, cfg)
+                .unwrap()
+                .run(&mut Layout2d::zeros(1))
+                .unwrap(),
+            SolverStatus::Completed
+        );
+        for bad in [
+            Sgd2Config { eps: 0.0, ..cfg },
+            Sgd2Config {
+                eps: f64::NAN,
+                ..cfg
+            },
+            Sgd2Config {
+                step_scale: -1.0,
+                ..cfg
+            },
+            Sgd2Config {
+                batch_size: 0,
+                ..cfg
+            },
+            Sgd2Config {
+                damping: 0.0,
+                ..cfg
+            },
+        ] {
+            assert!(SgdSolver::<f64>::sgd2(&g, bad).is_err());
         }
     }
 }
