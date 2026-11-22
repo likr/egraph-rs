@@ -2145,21 +2145,23 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     emb16 = eg.chebyshev_dog_jl_embedding(g16, degree=15, jl_dim=8, seed=42)
 
     man_init_f32 = (init16_f32 * 0.25).astype(np.float32)
+    man_sph_init_f32 = (man_init_f32 + 1.5).astype(np.float32)
     man_py32: dict[str, dict[str, Any]] = {}
     man_py64: dict[str, dict[str, Any]] = {}
     for kind in ("hyperbolic", "spherical", "torus"):
-        # Unit [0, 1)^2 torus has geodesic diameter sqrt(0.5) ~ 0.707, so unscaled
-        # g16 shortest-path targets (up to 6.0) require smaller step_scale to avoid
-        # discontinuous wraps across the |dx| = 0.5 cut between native FMA and WASM.
-        m_step_scale = 0.02 if kind == "torus" else 1.0
-        ml32 = eg.ManifoldLayout2d.from_coords(kind, man_init_f32)
+        # Unit [0, 1)^2 torus has geodesic diameter sqrt(0.5) ~ 0.707, and spherical
+        # coordinates near colat=0 hit a pole atan2 singularity; use equator-centered init
+        # and scaled steps for spherical/torus against unscaled g16 shortest-path targets.
+        m_step_scale = 0.02 if kind == "torus" else (0.2 if kind == "spherical" else 1.0)
+        m_init = man_sph_init_f32 if kind == "spherical" else man_init_f32
+        ml32 = eg.ManifoldLayout2d.from_coords(kind, m_init)
         sgd_m32 = eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32")
         sgd_m32.run_manifold(ml32)
         man_py32[kind] = {
             "coords": ml32.coords(),
             "dist": float(ml32.geodesic_distance(0, 15)),
         }
-        ml64 = eg.ManifoldLayout2d.from_coords(kind, man_init_f32.astype(np.float64))
+        ml64 = eg.ManifoldLayout2d.from_coords(kind, m_init.astype(np.float64))
         sgd_m64 = eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64")
         sgd_m64.run_manifold(ml64)
         man_py64[kind] = {
@@ -2279,6 +2281,7 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "init16": [float(v) for v in init16_f32.ravel()],
         "gumap_init16": [float(v) for v in gumap_init16_f32.ravel()],
         "man_init16": [float(v) for v in man_init_f32.ravel()],
+        "man_sph_init16": [float(v) for v in man_sph_init_f32.ravel()],
         "emb16": [float(v) for v in emb16.ravel()],
         "folded9": [float(v) for v in folded9_f32.ravel()],
         "init9": [float(v) for v in init9_f32.ravel()],
@@ -2325,15 +2328,17 @@ const g9 = mod.CsrGraph.fromEdgeList(9, new Uint32Array(spec.g9_edges));
 const init16 = new Float32Array(spec.init16);
 const gumapInit16 = new Float32Array(spec.gumap_init16);
 const manInit = new Float32Array(spec.man_init16);
+const manSphInit = new Float32Array(spec.man_sph_init16);
 const emb16 = new Float64Array(spec.emb16);
 const folded9 = new Float32Array(spec.folded9);
 const init9 = new Float32Array(spec.init9);
 
 const manifolds = {};
 for (const kind of ['hyperbolic', 'spherical', 'torus']) {
-  const mStepScale = kind === 'torus' ? 0.02 : 1.0;
-  const mlRun = mod.ManifoldLayout2d.fromCoords(kind, manInit);
-  const mlStep = mod.ManifoldLayout2d.fromCoords(kind, manInit);
+  const mStepScale = kind === 'torus' ? 0.02 : (kind === 'spherical' ? 0.2 : 1.0);
+  const mInit = kind === 'spherical' ? manSphInit : manInit;
+  const mlRun = mod.ManifoldLayout2d.fromCoords(kind, mInit);
+  const mlStep = mod.ManifoldLayout2d.fromCoords(kind, mInit);
   const sRun = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
   const sStep = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
   sRun.runManifold(mlRun);
