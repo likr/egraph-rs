@@ -623,6 +623,10 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "TsNetSolver"):
         results.extend(run_v6_m3_python_checks(eg))
 
+    # 8. M4 unified force models, constraints, layering & FDEB checks
+    if hasattr(eg, "TFdpSolver"):
+        results.extend(run_v6_m4_python_checks(eg))
+
     return results
 
 
@@ -1102,6 +1106,295 @@ def run_v6_m3_python_checks(eg: Any) -> list[dict[str, Any]]:
     return results
 
 
+def _count_rect_overlaps_py(
+    coords: Any, hw: Any, hh: Any, tol: float = 1e-6
+) -> int:
+    n = len(coords)
+    count = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = abs(float(coords[i, 0]) - float(coords[j, 0]))
+            dy = abs(float(coords[i, 1]) - float(coords[j, 1]))
+            if dx < float(hw[i]) + float(hw[j]) - tol and dy < float(hh[i]) + float(hh[j]) - tol:
+                count += 1
+    return count
+
+
+def run_v6_m4_python_checks(eg: Any) -> list[dict[str, Any]]:
+    """Run deterministic, f32/f64, step()==run() & adversarial checks for M4 Python APIs."""
+    import numpy as np
+
+    results: list[dict[str, Any]] = []
+    t0 = time.perf_counter()
+
+    g16_edges = [
+        (r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)
+    ] + [
+        (r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)
+    ]
+    g16 = eg.CsrGraph.from_edges(16, g16_edges, directed=False, sanitize=True)
+    init16 = np.array(_make_m3_asymmetric_coords(16, scale=0.8), dtype=np.float64)
+
+    g25_edges = [
+        (r * 5 + c, r * 5 + c + 1) for r in range(5) for c in range(4)
+    ] + [
+        (r * 5 + c, (r + 1) * 5 + c) for r in range(4) for c in range(5)
+    ]
+    g25 = eg.CsrGraph.from_edges(25, g25_edges, directed=False, sanitize=True)
+    init25 = np.array(_make_m3_asymmetric_coords(25, scale=1.0), dtype=np.float64)
+
+    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    fuzzy16 = eg.compute_fuzzy_simplicial_set(knn16)
+    deg16 = np.diff(g16.indptr()).astype(np.uint32)
+
+    for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+        init16_typed = init16.astype(np_dtype)
+        init25_typed = init25.astype(np_dtype)
+
+        # 1. TFdpSolver across all 3 backends + from_knn
+        for backend in ("ibfft", "barnes_hut", "exact"):
+            sr = eg.TFdpSolver(g16, backend=backend, total_iterations=8, seed=42, dtype=dtype_name)
+            ss = eg.TFdpSolver(g16, backend=backend, total_iterations=8, seed=42, dtype=dtype_name)
+            lr = eg.Layout2d.from_coords(init16_typed)
+            ls = eg.Layout2d.from_coords(init16_typed)
+            rho0 = sr.current_rho
+            assert sr.run(lr) == "completed"
+            assert sr.current_rho <= rho0
+            assert ss.run_steps(ls, 3) == "running"
+            while not ss.is_finished:
+                ss.step(ls)
+            assert ss.status == "completed"
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
+                f"TFdpSolver/{backend}/{dtype_name} step != run"
+            )
+
+        tk1 = eg.TFdpSolver.from_knn(knn16, backend="exact", total_iterations=6, seed=42, dtype=dtype_name)
+        tk2 = eg.TFdpSolver.from_knn(
+            knn16.indptr(), knn16.indices(), knn16.distances(),
+            backend="exact", total_iterations=6, seed=42, dtype=dtype_name,
+        )
+        lk1 = eg.Layout2d.from_coords(init16_typed)
+        lk2 = eg.Layout2d.from_coords(init16_typed)
+        assert tk1.run(lk1) == "completed"
+        assert tk2.run(lk2) == "completed"
+        assert np.array_equal(lk1.coords(copy=True), lk2.coords(copy=True))
+
+        # 2. IbUmapSolver across all 3 backends + from_knn + from_fuzzy_set
+        for backend in ("ibfft", "barnes_hut", "exact"):
+            ir = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, n_epochs=6, seed=42, dtype=dtype_name)
+            is_ = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, n_epochs=6, seed=42, dtype=dtype_name)
+            lr = eg.Layout2d.from_coords(init16_typed)
+            ls = eg.Layout2d.from_coords(init16_typed)
+            assert ir.run(lr) == "completed"
+            assert math.isclose(ir.current_rho, 1.0, rel_tol=1e-9)
+            assert is_.run_steps(ls, 2) == "running"
+            while not is_.is_finished:
+                is_.step(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
+                f"IbUmapSolver/{backend}/{dtype_name} step != run"
+            )
+
+        ik = eg.IbUmapSolver.from_knn(knn16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name)
+        ifs = eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name)
+        lik = eg.Layout2d.from_coords(init16_typed)
+        lif = eg.Layout2d.from_coords(init16_typed)
+        assert ik.run(lik) == "completed" and lik.is_all_finite()
+        assert ifs.run(lif) == "completed" and lif.is_all_finite()
+
+        # 3. SgdSolver M4 constructors (snap_t_fdp, pacmap_graph, sgd2, schedule="squared")
+        m4_sgd_builders: list[tuple[str, Callable[[], Any]]] = [
+            ("snap_t_fdp", lambda dt=dtype_name: eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dt)),
+            ("pacmap_graph", lambda dt=dtype_name: eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase1_iters=3, phase2_iters=3, phase3_iters=4, seed=42, dtype=dt)),
+            ("sgd2", lambda dt=dtype_name: eg.SgdSolver.sgd2(g16, t_max=8, batch_size=16, seed=42, dtype=dt)),
+            ("squared", lambda dt=dtype_name: eg.SgdSolver.full(g16, t_max=8, schedule="squared", seed=42, dtype=dt)),
+        ]
+        for s_name, mk_s in m4_sgd_builders:
+            sr = mk_s()
+            ss = mk_s()
+            lr = eg.Layout2d.from_coords(init16_typed)
+            ls = eg.Layout2d.from_coords(init16_typed)
+            assert sr.run(lr) == "completed", f"SgdSolver.{s_name} did not complete"
+            assert ss.run_steps(ls, 3) == "running"
+            while not ss.is_finished:
+                ss.step(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
+                f"SgdSolver.{s_name}/{dtype_name} step != run"
+            )
+
+        # 4. ForceAtlas2Solver (Barnes-Hut & Exact)
+        for use_bh in (True, False):
+            fr = eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name)
+            fs = eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name)
+            lr = eg.Layout2d.from_coords(init16_typed)
+            ls = eg.Layout2d.from_coords(init16_typed)
+            assert fr.run(lr) == "completed"
+            assert fs.run_steps(ls, 4) == "running"
+            while not fs.is_finished:
+                fs.step(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
+                f"ForceAtlas2Solver/bh={use_bh}/{dtype_name} step != run"
+            )
+
+        # 5. YifanHuSolver (multilevel)
+        yr = eg.YifanHuSolver(g25, max_iterations_per_level=10, min_coarsen_size=6, min_coarsen_ratio=0.9, seed=42, dtype=dtype_name)
+        ys = eg.YifanHuSolver(g25, max_iterations_per_level=10, min_coarsen_size=6, min_coarsen_ratio=0.9, seed=42, dtype=dtype_name)
+        assert yr.num_levels >= 2
+        lyr = eg.Layout2d.from_coords(init25_typed)
+        lys = eg.Layout2d.from_coords(init25_typed)
+        assert yr.run(lyr) in ("converged", "completed")
+        assert yr.current_level == 0
+        ys.step(lys)
+        ys.run_steps(lys, 4)
+        ys.run(lys)
+        assert lyr.is_all_finite()
+        assert np.array_equal(lyr.coords(copy=True), lys.coords(copy=True)), (
+            f"YifanHuSolver/{dtype_name} step != run"
+        )
+
+        # 6. PrismOverlapRemoval (new + from_radii)
+        prism_init = (init16 * 0.15).astype(np_dtype)
+        hw = np.full(16, 0.5, dtype=np.float64)
+        hh = np.full(16, 0.4, dtype=np.float64)
+        pr = eg.PrismOverlapRemoval(hw, hh, max_iterations=50, padding=0.05, seed=42, dtype=dtype_name)
+        ps = eg.PrismOverlapRemoval(hw, hh, max_iterations=50, padding=0.05, seed=42, dtype=dtype_name)
+        lpr = eg.Layout2d.from_coords(prism_init)
+        lps = eg.Layout2d.from_coords(prism_init)
+        assert pr.run(lpr) == "converged"
+        assert pr.last_overlap_count == 0
+        ps.step(lps)
+        ps.run_steps(lps, 2)
+        ps.run(lps)
+        assert np.array_equal(lpr.coords(copy=True), lps.coords(copy=True))
+        tol_p = 1e-4 if dtype_name == "float32" else 1e-8
+        assert _count_rect_overlaps_py(lpr.coords(copy=True), hw + 0.025, hh + 0.025, tol=tol_p) == 0
+
+        pr_rad = eg.PrismOverlapRemoval.from_radii(np.full(16, 0.4, dtype=np.float64), max_iterations=50, seed=42, dtype=dtype_name)
+        l_rad = eg.Layout2d.from_coords(prism_init)
+        assert pr_rad.run(l_rad) == "converged"
+        assert pr_rad.last_overlap_count == 0
+
+        # 7. SeparationConstraint + projection helpers
+        arr_1d = np.array([2.0, 0.5, 0.0], dtype=np_dtype)
+        out_1d = eg.project_1d(arr_1d, [eg.SeparationConstraint(0, 1, 1.5), eg.SeparationConstraint(1, 2, 2.0)])
+        assert out_1d.dtype == np_dtype
+        assert float(out_1d[1] - out_1d[0]) >= 1.5 - 1e-5
+        assert float(out_1d[2] - out_1d[1]) >= 2.0 - 1e-5
+
+        rect_l = eg.Layout2d.from_coords(np.array([[0.0, 0.0], [0.2, 0.1], [0.1, -0.1], [-0.1, 0.2]], dtype=np_dtype))
+        hw4 = np.full(4, 0.5, dtype=np_dtype)
+        hh4 = np.full(4, 0.5, dtype=np_dtype)
+        eg.project_rectangle_no_overlap_2d(rect_l, hw4, hh4)
+        assert _count_rect_overlaps_py(rect_l.coords(copy=True), hw4, hh4, tol=1e-4) == 0
+
+        cl_l = eg.Layout2d.from_coords(np.array([[0.0, 0.0], [0.5, 0.0], [0.3, 0.2], [0.8, 0.2]], dtype=np_dtype))
+        eg.project_clustered_rectangle_no_overlap_2d(cl_l, np.array([0, 0, 1, 1], dtype=np.uint32), hw4, hh4)
+        cl_c = cl_l.coords(copy=True)
+        assert np.allclose(cl_c[1] - cl_c[0], [0.5, 0.0], atol=1e-5)
+        assert np.allclose(cl_c[3] - cl_c[2], [0.5, 0.0], atol=1e-5)
+
+        # 8. FdebSolver (step == run, input layout preserved)
+        fdeb_base = np.array([[float(c), float(r)] for r in range(4) for c in range(4)], dtype=np_dtype)
+        l_fdeb = eg.Layout2d.from_coords(fdeb_base)
+        fr_fdeb = eg.FdebSolver(g16, l_fdeb, cycles=2, i0=6, dtype=dtype_name)
+        fs_fdeb = eg.FdebSolver(g16, l_fdeb, cycles=2, i0=6, dtype=None)
+        assert fs_fdeb.dtype == dtype_name
+        assert fr_fdeb.run() == "completed"
+        fs_fdeb.step()
+        fs_fdeb.run_steps(3)
+        fs_fdeb.run()
+        off_r = fr_fdeb.edge_offsets()
+        pts_r = fr_fdeb.points()
+        assert off_r.dtype == np.uint32 and off_r.shape == (g16.num_edges + 1,)
+        assert int(off_r[0]) == 0 and int(off_r[-1]) == pts_r.shape[0]
+        assert pts_r.dtype == np_dtype and pts_r.shape[1] == 2 and np.all(np.isfinite(pts_r))
+        assert np.array_equal(off_r, fs_fdeb.edge_offsets())
+        assert np.array_equal(pts_r, fs_fdeb.points())
+        assert np.array_equal(l_fdeb.coords(copy=True), fdeb_base)
+
+    # 9. Layering (cycle_edges, remove_cycles, assign_layers) & generate_layered_constraints
+    cyc = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (2, 0), (1, 3)], directed=True, sanitize=True)
+    ce = eg.cycle_edges(cyc)
+    assert ce.dtype == np.uint32 and ce.ndim == 2 and ce.shape[1] == 2 and ce.shape[0] >= 1
+    dag = eg.remove_cycles(cyc)
+    assert dag.is_directed and eg.cycle_edges(dag).shape == (0, 2)
+
+    skip_edges = [(0, 1), (1, 2), (2, 3), (4, 3)]
+    skip_dag = eg.CsrGraph.from_edges(5, skip_edges, directed=True, sanitize=True)
+    lp = eg.assign_layers(skip_dag, method="longest_path")
+    ns = eg.assign_layers(skip_dag, method="network_simplex")
+    assert lp.dtype == np.uint32 and ns.dtype == np.uint32
+    for u, v in skip_edges:
+        assert int(lp[u]) < int(lp[v]) and int(ns[u]) < int(ns[v])
+    lp_span = sum(int(lp[v]) - int(lp[u]) for u, v in skip_edges)
+    ns_span = sum(int(ns[v]) - int(ns[u]) for u, v in skip_edges)
+    assert ns_span < lp_span
+    layered_cs = eg.generate_layered_constraints(skip_dag, ns, min_layer_distance=2.0)
+    l_lay = eg.Layout2d.zeros(5, dtype="float64")
+    eg.project_layout_axis(l_lay, 1, layered_cs)
+    ys_lay = l_lay.coords(copy=True)[:, 1]
+    for u, v in skip_edges:
+        assert float(ys_lay[v] - ys_lay[u]) >= 2.0 - 1e-6
+
+    results.append({
+        "case": "v6_m4_solvers_and_postproc",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+    })
+
+    # 10. Adversarial M4 Python checks (never PanicException)
+    t1 = time.perf_counter()
+    bad_l = eg.Layout2d.zeros(5)
+    l16_nan = eg.Layout2d.zeros(16)
+    l16_nan.coords(copy=False)[0, 0] = float("nan")
+    m4_bad: list[tuple[str, Callable[[], Any]]] = [
+        ("TFdpSolver/bad_backend", lambda: eg.TFdpSolver(g16, backend="bad")),
+        ("TFdpSolver/momentum_1", lambda: eg.TFdpSolver(g16, momentum=1.0)),
+        ("TFdpSolver/bool_iters", lambda: eg.TFdpSolver(g16, total_iterations=True)),
+        ("TFdpSolver/dim_mismatch", lambda: eg.TFdpSolver(g16).step(bad_l)),
+        ("TFdpSolver/nan_layout", lambda: eg.TFdpSolver(g16).step(l16_nan)),
+        ("TFdpSolver.from_knn/bad_indptr", lambda: eg.TFdpSolver.from_knn([], [])),
+        ("IbUmapSolver/zero_tau", lambda: eg.IbUmapSolver(g16, tau_scale=0.0)),
+        ("IbUmapSolver/bad_backend", lambda: eg.IbUmapSolver(g16, backend="bad")),
+        ("SgdSolver.snap_t_fdp/zero_rho_power", lambda: eg.SgdSolver.snap_t_fdp(g16, rho_power=0.0)),
+        ("SgdSolver.pacmap_graph/zero_neighbors", lambda: eg.SgdSolver.pacmap_graph(g16, n_neighbors=0)),
+        ("SgdSolver.sgd2/zero_batch", lambda: eg.SgdSolver.sgd2(g16, batch_size=0)),
+        ("ForceAtlas2Solver/zero_jitter", lambda: eg.ForceAtlas2Solver(g16, jitter_tolerance=0.0)),
+        ("ForceAtlas2Solver/dim_mismatch", lambda: eg.ForceAtlas2Solver(g16).step(bad_l)),
+        ("YifanHuSolver/step_ratio_1", lambda: eg.YifanHuSolver(g16, step_ratio=1.0)),
+        ("YifanHuSolver/dim_mismatch", lambda: eg.YifanHuSolver(g16).step(bad_l)),
+        ("PrismOverlapRemoval/len_mismatch", lambda: eg.PrismOverlapRemoval([1.0, 1.0], [1.0])),
+        ("PrismOverlapRemoval/neg_half", lambda: eg.PrismOverlapRemoval([1.0], [-0.5])),
+        ("PrismOverlapRemoval/nan_layout", lambda: eg.PrismOverlapRemoval.from_radii([0.5] * 16).step(l16_nan)),
+        ("SeparationConstraint/nan_gap", lambda: eg.SeparationConstraint(0, 1, float("nan"))),
+        ("project_1d/cycle", lambda: eg.project_1d([0.0, 1.0], [eg.SeparationConstraint(0, 1, 1.0), eg.SeparationConstraint(1, 0, 1.0)])),
+        ("project_layout_axis/bad_axis", lambda: eg.project_layout_axis(bad_l, 2, [])),
+        ("generate_layered_constraints/len_mismatch", lambda: eg.generate_layered_constraints(dag, [0])),
+        ("generate_layered_constraints/neg_dist", lambda: eg.generate_layered_constraints(dag, [0, 1, 2, 3], -1.0)),
+        ("project_rectangle_no_overlap_2d/len_mismatch", lambda: eg.project_rectangle_no_overlap_2d(bad_l, [1.0], [1.0])),
+        ("project_clustered_rectangle_no_overlap_2d/len_mismatch", lambda: eg.project_clustered_rectangle_no_overlap_2d(bad_l, [0], [1.0] * 5, [1.0] * 5)),
+        ("cycle_edges/undirected", lambda: eg.cycle_edges(g16)),
+        ("remove_cycles/undirected", lambda: eg.remove_cycles(g16)),
+        ("assign_layers/undirected", lambda: eg.assign_layers(g16)),
+        ("assign_layers/bad_method", lambda: eg.assign_layers(dag, method="unknown")),
+        ("FdebSolver/dim_mismatch", lambda: eg.FdebSolver(g16, bad_l)),
+        ("FdebSolver/cycles_too_large", lambda: eg.FdebSolver(g16, eg.Layout2d.zeros(16), cycles=30)),
+        ("FdebSolver/nan_layout", lambda: eg.FdebSolver(g16, l16_nan)),
+    ]
+    for label, fn in m4_bad:
+        _assert_non_panic_error(label, fn)
+
+    results.append({
+        "case": "v6_m4_adversarial_non_panic",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t1, 4),
+    })
+    return results
+
+
 def run_wasm_node_parity(wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
     """Verify Node.js ESM import, CsrGraph/Layout2d coordsView(), and JsError guard."""
     t0 = time.perf_counter()
@@ -1532,6 +1825,148 @@ if (typeof mod.TsNetSolver === 'function') {{
   dirG.free?.();
   g16.free?.();
   bb.free?.();
+}}
+
+if (typeof mod.TFdpSolver === 'function') {{
+  const m4Symbols = [
+    'FdebSolver',
+    'ForceAtlas2Solver',
+    'IbUmapSolver',
+    'PrismOverlapRemoval',
+    'SeparationConstraint',
+    'TFdpSolver',
+    'YifanHuSolver',
+    'assignLayers',
+    'cycleEdges',
+    'generateLayeredConstraints',
+    'project1d',
+    'projectClusteredRectangleNoOverlap2d',
+    'projectLayoutAxis',
+    'projectRectangleNoOverlap2d',
+    'removeCycles',
+  ];
+  for (const sym of m4Symbols) {{
+    assert.equal(typeof indexMod[sym], 'function', `index.js must export ${{sym}}`);
+    assert.equal(typeof mod[sym], 'function', `node entry must export ${{sym}}`);
+  }}
+
+  const g16Edges = [];
+  for (let r = 0; r < 4; r += 1) {{
+    for (let c = 0; c < 4; c += 1) {{
+      const u = r * 4 + c;
+      if (c + 1 < 4) g16Edges.push(u, u + 1);
+      if (r + 1 < 4) g16Edges.push(u, u + 4);
+    }}
+  }}
+  const g16 = CsrGraph.fromEdgeList(16, new Uint32Array(g16Edges));
+  const init16 = new Float32Array(32);
+  for (let i = 0; i < 16; i += 1) {{
+    init16[2 * i] = 0.7 * Math.cos(0.83 * i + 0.15) + 0.11 * i / 16.0;
+    init16[2 * i + 1] = 0.6 * Math.sin(1.13 * i - 0.21) - 0.09 * i / 16.0;
+  }}
+
+  const checkStepEqRun = (mkSolver, initArr, stepChunk, label) => {{
+    const sr = mkSolver();
+    const ss = mkSolver();
+    const lr = Layout2d.fromCoords(initArr);
+    const ls = Layout2d.fromCoords(initArr);
+    const stR = sr.run(lr);
+    assert.ok(stR === 'completed' || stR === 'converged', `${{label}} run status=${{stR}}`);
+    ss.runSteps(ls, stepChunk);
+    while (!ss.isFinished) ss.step(ls);
+    assert.deepEqual(Array.from(lr.coordsView()), Array.from(ls.coordsView()), `${{label}} step != run`);
+    assert.equal(lr.isAllFinite(), true, `${{label}} non-finite`);
+    sr.free?.();
+    ss.free?.();
+    lr.free?.();
+    ls.free?.();
+  }};
+
+  for (const bk of ['ibfft', 'barnes_hut', 'exact']) {{
+    checkStepEqRun(() => new mod.TFdpSolver(g16, {{ backend: bk, totalIterations: 8, seed: 42 }}), init16, 3, `TFdp/${{bk}}`);
+    checkStepEqRun(() => new mod.IbUmapSolver(g16, {{ backend: bk, nEpochs: 6, seed: 42 }}), init16, 2, `IbUmap/${{bk}}`);
+  }}
+  checkStepEqRun(() => mod.SgdSolver.snapTFdp(g16, {{ iterations: 8, negativesPerEdge: 3, seed: 42 }}), init16, 3, 'Sgd.snapTFdp');
+  checkStepEqRun(() => mod.SgdSolver.pacmapGraph(g16, {{ nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 }}), init16, 4, 'Sgd.pacmapGraph');
+  checkStepEqRun(() => mod.SgdSolver.sgd2(g16, {{ tMax: 8, batchSize: 16, seed: 42 }}), init16, 3, 'Sgd.sgd2');
+  checkStepEqRun(() => mod.SgdSolver.full(g16, {{ tMax: 8, kind: 'squared', seed: 42 }}), init16, 3, 'Sgd.squared');
+  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, {{ iterations: 8, useBarnesHut: true, seed: 42 }}), init16, 3, 'FA2/bh');
+  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, {{ iterations: 8, useBarnesHut: false, seed: 42 }}), init16, 3, 'FA2/exact');
+  checkStepEqRun(() => new mod.YifanHuSolver(g16, {{ maxIterationsPerLevel: 8, minCoarsenSize: 6, minCoarsenRatio: 0.9, seed: 42 }}), init16, 3, 'YifanHu');
+
+  const prismInit = init16.map((v) => v * 0.15);
+  checkStepEqRun(() => mod.PrismOverlapRemoval.fromRadii(new Float32Array(16).fill(0.4), {{ maxIterations: 40, seed: 42 }}), prismInit, 2, 'PRISM');
+
+  // FdebSolver step() == run() and input layout reuse (no value-drop bug)
+  const fdebInit = new Float32Array(32);
+  for (let r = 0; r < 4; r += 1) {{
+    for (let c = 0; c < 4; c += 1) {{
+      fdebInit[2 * (r * 4 + c)] = c;
+      fdebInit[2 * (r * 4 + c) + 1] = r;
+    }}
+  }}
+  const lFdeb = Layout2d.fromCoords(fdebInit);
+  const fdebR = new mod.FdebSolver(g16, lFdeb, {{ cycles: 2, i0: 6 }});
+  const fdebS = new mod.FdebSolver(g16, lFdeb, {{ cycles: 2, i0: 6 }});
+  assert.equal(lFdeb.len(), 16, 'FdebSolver must not drop input Layout2d');
+  assert.equal(fdebR.run(), 'completed');
+  fdebS.step();
+  fdebS.runSteps(3);
+  while (!fdebS.isFinished) fdebS.step();
+  assert.deepEqual(Array.from(fdebR.edgeOffsets()), Array.from(fdebS.edgeOffsets()));
+  assert.deepEqual(Array.from(fdebR.points()), Array.from(fdebS.points()));
+  assert.deepEqual(Array.from(lFdeb.coordsView()), Array.from(fdebInit));
+  fdebR.free?.();
+  fdebS.free?.();
+  lFdeb.free?.();
+
+  // Constraints & layering smoke + adversarial JsError checks
+  const c0 = new mod.SeparationConstraint(0, 1, 2.0);
+  const arr1d = new Float32Array([1.0, 0.0]);
+  mod.project1d(arr1d, [c0]);
+  assert.ok(arr1d[1] - arr1d[0] >= 2.0 - 1e-5);
+  c0.free?.();
+
+  const cyc = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 0, 1, 3]), null, true, true);
+  assert.ok(mod.cycleEdges(cyc).length >= 2);
+  const dag = mod.removeCycles(cyc);
+  assert.equal(mod.cycleEdges(dag).length, 0);
+  const layersNs = mod.assignLayers(dag, 'networkSimplex');
+  assert.equal(layersNs.length, 4);
+  const lCs = mod.generateLayeredConstraints(dag, layersNs, 2.0);
+  const lDag = Layout2d.zeros(4);
+  mod.projectLayoutAxis(lDag, 1, lCs);
+  for (const c of lCs) c.free?.();
+  lDag.free?.();
+  dag.free?.();
+  cyc.free?.();
+
+  const assertM4JsErr = (fn, label) => {{
+    let threw = false;
+    try {{
+      fn();
+    }} catch (err) {{
+      assert.ok(!(err instanceof WebAssembly.RuntimeError), `${{label}} trapped with RuntimeError`);
+      assert.ok(err instanceof Error, `${{label}} must throw Error`);
+      threw = true;
+    }}
+    assert.ok(threw, `${{label}} must throw`);
+  }};
+  const badL = Layout2d.zeros(3);
+  assertM4JsErr(() => new mod.TFdpSolver(g16, {{ backend: 'bad' }}), 'm4 tfdp bad backend');
+  assertM4JsErr(() => new mod.TFdpSolver(g16).step(badL), 'm4 tfdp dim mismatch');
+  assertM4JsErr(() => new mod.IbUmapSolver(g16, {{ tauScale: 0 }}), 'm4 ibumap zero tau');
+  assertM4JsErr(() => mod.SgdSolver.snapTFdp(g16, {{ rhoPower: 0 }}), 'm4 snapTFdp bad rhoPower');
+  assertM4JsErr(() => mod.SgdSolver.pacmapGraph(g16, {{ nNeighbors: 0 }}), 'm4 pacmapGraph bad nNeighbors');
+  assertM4JsErr(() => mod.SgdSolver.sgd2(g16, {{ batchSize: 0 }}), 'm4 sgd2 bad batchSize');
+  assertM4JsErr(() => new mod.ForceAtlas2Solver(g16, {{ jitterTolerance: 0 }}), 'm4 fa2 bad jitter');
+  assertM4JsErr(() => new mod.YifanHuSolver(g16, {{ stepRatio: 1.0 }}), 'm4 yh bad stepRatio');
+  assertM4JsErr(() => new mod.PrismOverlapRemoval(new Float32Array([1, 1]), new Float32Array([1])), 'm4 prism len mismatch');
+  assertM4JsErr(() => new mod.SeparationConstraint(0, 1, Number.NaN), 'm4 constraint nan');
+  assertM4JsErr(() => mod.assignLayers(g16, 'longestPath'), 'm4 assignLayers undir');
+  assertM4JsErr(() => new mod.FdebSolver(g16, badL), 'm4 fdeb dim mismatch');
+  badL.free?.();
+  g16.free?.();
 }}
 
 console.log('WASM_NODE_PARITY_OK');
@@ -2616,6 +3051,513 @@ console.log(JSON.stringify(out));
     }]
 
 
+def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
+    """Verify Python float32/float64 <-> WASM f32 parity across M4 solvers and post-processing."""
+    import numpy as np
+
+    if not hasattr(eg, "TFdpSolver"):
+        return []
+    node_entry = wasm_pkg / "egraph_wasm.node.js"
+    index_entry = wasm_pkg / "index.js"
+    if not index_entry.exists():
+        return []
+
+    t0 = time.perf_counter()
+
+    g16_edges = [
+        (r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)
+    ] + [
+        (r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)
+    ]
+    g16 = eg.CsrGraph.from_edges(16, g16_edges, directed=False, sanitize=True)
+    init16_f32 = np.array(_make_m3_asymmetric_coords(16, scale=0.8), dtype=np.float32)
+    init16_f64 = init16_f32.astype(np.float64)
+
+    g25_edges = [
+        (r * 5 + c, r * 5 + c + 1) for r in range(5) for c in range(4)
+    ] + [
+        (r * 5 + c, (r + 1) * 5 + c) for r in range(4) for c in range(5)
+    ]
+    g25 = eg.CsrGraph.from_edges(25, g25_edges, directed=False, sanitize=True)
+    init25_f32 = np.array(_make_m3_asymmetric_coords(25, scale=1.0), dtype=np.float32)
+    init25_f64 = init25_f32.astype(np.float64)
+
+    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    fuzzy16 = eg.compute_fuzzy_simplicial_set(knn16)
+    deg16 = np.diff(g16.indptr()).astype(np.uint32)
+
+    prism_init_f32 = (init16_f32 * 0.15).astype(np.float32)
+    prism_init_f64 = prism_init_f32.astype(np.float64)
+    hw16_f32 = np.full(16, 0.5, dtype=np.float32)
+    hh16_f32 = np.full(16, 0.4, dtype=np.float32)
+    rad16_f32 = np.full(16, 0.4, dtype=np.float32)
+
+    c1d_init_f32 = np.array([2.0, 0.5, 0.0, 1.5], dtype=np.float32)
+    rect_init_f32 = np.array([[0.0, 0.0], [0.2, 0.1], [0.1, -0.1], [-0.1, 0.2]], dtype=np.float32)
+    hw4_f32 = np.full(4, 0.5, dtype=np.float32)
+    hh4_f32 = np.full(4, 0.5, dtype=np.float32)
+    cl_init_f32 = np.array([[0.0, 0.0], [0.5, 0.0], [0.3, 0.2], [0.8, 0.2]], dtype=np.float32)
+    cl_ids = [0, 0, 1, 1]
+
+    fdeb_init_f32 = np.array(
+        [[float(c), float(r)] for r in range(4) for c in range(4)], dtype=np.float32
+    )
+
+    cyc_edges_list = [(0, 1), (1, 2), (2, 0), (1, 3)]
+    skip_edges_list = [(0, 1), (1, 2), (2, 3), (4, 3)]
+    g_cyc = eg.CsrGraph.from_edges(4, cyc_edges_list, directed=True, sanitize=True)
+    g_skip = eg.CsrGraph.from_edges(5, skip_edges_list, directed=True, sanitize=True)
+
+    ce_py = eg.cycle_edges(g_cyc)
+    dag_py = eg.remove_cycles(g_cyc)
+    layers_lp_py = eg.assign_layers(g_skip, method="longest_path")
+    layers_ns_py = eg.assign_layers(g_skip, method="network_simplex")
+
+    def run_py_m4(dtype_name: str) -> dict[str, Any]:
+        c16 = init16_f32 if dtype_name == "float32" else init16_f64
+        c25 = init25_f32 if dtype_name == "float32" else init25_f64
+        cp = prism_init_f32 if dtype_name == "float32" else prism_init_f64
+        np_dt = np.float32 if dtype_name == "float32" else np.float64
+
+        out: dict[str, Any] = {}
+        for bk in ("ibfft", "barnes_hut", "exact"):
+            l_tf = eg.Layout2d.from_coords(c16)
+            s_tf = eg.TFdpSolver(g16, backend=bk, total_iterations=8, seed=42, dtype=dtype_name)
+            s_tf.run(l_tf)
+            out[f"tfdp_{bk}"] = l_tf.coords(copy=True)
+
+            l_ib = eg.Layout2d.from_coords(c16)
+            s_ib = eg.IbUmapSolver(g16, backend=bk, n_epochs=6, seed=42, dtype=dtype_name)
+            s_ib.run(l_ib)
+            out[f"ibumap_{bk}"] = l_ib.coords(copy=True)
+
+        l_tfk = eg.Layout2d.from_coords(c16)
+        eg.TFdpSolver.from_knn(knn16, backend="exact", total_iterations=6, seed=42, dtype=dtype_name).run(l_tfk)
+        out["tfdp_knn"] = l_tfk.coords(copy=True)
+
+        l_ibk = eg.Layout2d.from_coords(c16)
+        eg.IbUmapSolver.from_knn(knn16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name).run(l_ibk)
+        out["ibumap_knn"] = l_ibk.coords(copy=True)
+
+        l_ibf = eg.Layout2d.from_coords(c16)
+        eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name).run(l_ibf)
+        out["ibumap_fset"] = l_ibf.coords(copy=True)
+
+        sgd_specs = {
+            "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
+            "sgd_pacmap": eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase1_iters=3, phase2_iters=3, phase3_iters=4, seed=42, dtype=dtype_name),
+            "sgd_sgd2": eg.SgdSolver.sgd2(g16, t_max=8, batch_size=16, seed=42, dtype=dtype_name),
+            "sgd_squared": eg.SgdSolver.full(g16, t_max=8, schedule="squared", seed=42, dtype=dtype_name),
+        }
+        for k, sv in sgd_specs.items():
+            l = eg.Layout2d.from_coords(c16)
+            sv.run(l)
+            out[k] = l.coords(copy=True)
+
+        for tag, use_bh in (("fa2_bh", True), ("fa2_exact", False)):
+            l_fa = eg.Layout2d.from_coords(c16)
+            eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name).run(l_fa)
+            out[tag] = l_fa.coords(copy=True)
+
+        l_yh = eg.Layout2d.from_coords(c25)
+        yh = eg.YifanHuSolver(
+            g25,
+            max_iterations_per_level=10,
+            min_coarsen_size=6,
+            min_coarsen_ratio=0.9,
+            convergence_tolerance=1e-6,
+            seed=42,
+            dtype=dtype_name,
+        )
+        yh.run(l_yh)
+        out["yh"] = l_yh.coords(copy=True)
+        out["yh_levels"] = int(yh.num_levels)
+
+        l_pr = eg.Layout2d.from_coords(cp)
+        pr = eg.PrismOverlapRemoval(
+            hw16_f32.astype(np_dt), hh16_f32.astype(np_dt), max_iterations=50, padding=0.05, seed=42, dtype=dtype_name
+        )
+        pr.run(l_pr)
+        out["prism_box"] = l_pr.coords(copy=True)
+        out["prism_box_ov"] = int(pr.last_overlap_count)
+
+        l_pr_rad = eg.Layout2d.from_coords(cp)
+        pr_rad = eg.PrismOverlapRemoval.from_radii(
+            rad16_f32.astype(np_dt), max_iterations=50, seed=42, dtype=dtype_name
+        )
+        pr_rad.run(l_pr_rad)
+        out["prism_rad"] = l_pr_rad.coords(copy=True)
+        out["prism_rad_ov"] = int(pr_rad.last_overlap_count)
+
+        out["proj_1d"] = eg.project_1d(
+            c1d_init_f32.astype(np_dt),
+            [
+                eg.SeparationConstraint(0, 1, 1.5),
+                eg.SeparationConstraint(1, 2, 2.0),
+                eg.SeparationConstraint(2, 3, 1.0),
+            ],
+        )
+
+        layered_cs = eg.generate_layered_constraints(g_skip, layers_ns_py, min_layer_distance=2.0)
+        l_ax = eg.Layout2d.zeros(5, dtype=dtype_name)
+        eg.project_layout_axis(l_ax, 1, layered_cs)
+        out["proj_axis"] = l_ax.coords(copy=True)
+
+        l_rc = eg.Layout2d.from_coords(rect_init_f32.astype(np_dt))
+        eg.project_rectangle_no_overlap_2d(l_rc, hw4_f32.astype(np_dt), hh4_f32.astype(np_dt))
+        out["proj_rect"] = l_rc.coords(copy=True)
+
+        l_crc = eg.Layout2d.from_coords(cl_init_f32.astype(np_dt))
+        eg.project_clustered_rectangle_no_overlap_2d(l_crc, cl_ids, hw4_f32.astype(np_dt), hh4_f32.astype(np_dt))
+        out["proj_cl_rect"] = l_crc.coords(copy=True)
+
+        l_fd = eg.Layout2d.from_coords(fdeb_init_f32.astype(np_dt))
+        fd = eg.FdebSolver(g16, l_fd, cycles=2, i0=6, dtype=dtype_name)
+        fd.run()
+        out["fdeb_offsets"] = fd.edge_offsets()
+        out["fdeb_points"] = fd.points()
+        return out
+
+    py32 = run_py_m4("float32")
+    py64 = run_py_m4("float64")
+
+    node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
+    wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
+    spec_payload = {
+        "g16_edges": [int(v) for edge in g16_edges for v in edge],
+        "g25_edges": [int(v) for edge in g25_edges for v in edge],
+        "cyc_edges": [int(v) for edge in cyc_edges_list for v in edge],
+        "skip_edges": [int(v) for edge in skip_edges_list for v in edge],
+        "init16": [float(v) for v in init16_f32.ravel()],
+        "init25": [float(v) for v in init25_f32.ravel()],
+        "prism_init": [float(v) for v in prism_init_f32.ravel()],
+        "hw16": [float(v) for v in hw16_f32],
+        "hh16": [float(v) for v in hh16_f32],
+        "rad16": [float(v) for v in rad16_f32],
+        "c1d_init": [float(v) for v in c1d_init_f32],
+        "rect_init": [float(v) for v in rect_init_f32.ravel()],
+        "hw4": [float(v) for v in hw4_f32],
+        "hh4": [float(v) for v in hh4_f32],
+        "cl_init": [float(v) for v in cl_init_f32.ravel()],
+        "cl_ids": cl_ids,
+        "fdeb_init": [float(v) for v in fdeb_init_f32.ravel()],
+        "knn_indptr": [int(v) for v in knn16.indptr()],
+        "knn_indices": [int(v) for v in knn16.indices()],
+        "knn_dists": [float(v) for v in knn16.distances()],
+        "deg16": [int(v) for v in deg16],
+    }
+
+    node_script = """
+import { readFile } from 'node:fs/promises';
+
+const nodeUrl = process.argv[1];
+const wasmPath = process.argv[2];
+const spec = JSON.parse(process.argv[3]);
+
+const mod = await import(nodeUrl);
+if (typeof mod.default === 'function') {
+  try {
+    const probe = mod.CsrGraph.fromCsr(new Uint32Array([0, 1, 2]), new Uint32Array([1, 0]));
+    probe.free?.();
+  } catch (_e) {
+    await mod.default(await readFile(wasmPath));
+  }
+}
+
+if (typeof mod.TFdpSolver !== 'function') {
+  console.log(JSON.stringify({ m4_available: false }));
+  process.exit(0);
+}
+
+const g16 = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges));
+const g25 = mod.CsrGraph.fromEdgeList(25, new Uint32Array(spec.g25_edges));
+const gCyc = mod.CsrGraph.fromEdgeList(4, new Uint32Array(spec.cyc_edges), null, true, true);
+const gSkip = mod.CsrGraph.fromEdgeList(5, new Uint32Array(spec.skip_edges), null, true, true);
+
+const init16 = new Float32Array(spec.init16);
+const init25 = new Float32Array(spec.init25);
+const prismInit = new Float32Array(spec.prism_init);
+
+const knn16 = mod.KnnGraph.fromCsr(
+  16,
+  new Uint32Array(spec.knn_indptr),
+  new Uint32Array(spec.knn_indices),
+  new Float64Array(spec.knn_dists),
+);
+const fuzzy16 = mod.computeFuzzySimplicialSet(knn16);
+
+const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
+  const sR = mkSolver();
+  const sS = mkSolver();
+  const lR = mod.Layout2d.fromCoords(initCoords);
+  const lS = mod.Layout2d.fromCoords(initCoords);
+  sR.run(lR);
+  sS.runSteps(lS, stepChunk);
+  while (!sS.isFinished) sS.step(lS);
+  const cR = Array.from(lR.coordsView());
+  const cS = Array.from(lS.coordsView());
+  if (JSON.stringify(cR) !== JSON.stringify(cS)) {
+    throw new Error('WASM M4 step() != run()');
+  }
+  lR.free?.();
+  lS.free?.();
+  return { coords: cR, sR, sS };
+};
+
+const solvers = {};
+for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
+  {
+    const r = runPairAndCheckStep(() => new mod.TFdpSolver(g16, { backend: bk, totalIterations: 8, seed: 42 }), init16, 3);
+    solvers[`tfdp_${bk}`] = r.coords;
+    r.sR.free?.(); r.sS.free?.();
+  }
+  {
+    const r = runPairAndCheckStep(() => new mod.IbUmapSolver(g16, { backend: bk, nEpochs: 6, seed: 42 }), init16, 2);
+    solvers[`ibumap_${bk}`] = r.coords;
+    r.sR.free?.(); r.sS.free?.();
+  }
+}
+
+{
+  const r = runPairAndCheckStep(
+    () => mod.TFdpSolver.fromKnn(
+      new Uint32Array(spec.knn_indptr),
+      new Uint32Array(spec.knn_indices),
+      new Float64Array(spec.knn_dists),
+      { backend: 'exact', totalIterations: 6, seed: 42 },
+    ),
+    init16,
+    2,
+  );
+  solvers.tfdp_knn = r.coords;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+{
+  const r = runPairAndCheckStep(
+    () => mod.IbUmapSolver.fromKnn(knn16, { backend: 'exact', nEpochs: 6, seed: 42 }),
+    init16,
+    2,
+  );
+  solvers.ibumap_knn = r.coords;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+{
+  const r = runPairAndCheckStep(
+    () => mod.IbUmapSolver.fromFuzzySet(fuzzy16, new Uint32Array(spec.deg16), { backend: 'exact', nEpochs: 6, seed: 42 }),
+    init16,
+    2,
+  );
+  solvers.ibumap_fset = r.coords;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+for (const [k, mk] of [
+  ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
+  ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 })],
+  ['sgd_sgd2', () => mod.SgdSolver.sgd2(g16, { tMax: 8, batchSize: 16, seed: 42 })],
+  ['sgd_squared', () => mod.SgdSolver.full(g16, { tMax: 8, kind: 'squared', seed: 42 })],
+  ['fa2_bh', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, seed: 42 })],
+  ['fa2_exact', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: false, seed: 42 })],
+]) {
+  const r = runPairAndCheckStep(mk, init16, 3);
+  solvers[k] = r.coords;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+{
+  const r = runPairAndCheckStep(
+    () => new mod.YifanHuSolver(g25, { maxIterationsPerLevel: 10, minCoarsenSize: 6, minCoarsenRatio: 0.9, convergenceTolerance: 1e-6, seed: 42 }),
+    init25,
+    4,
+  );
+  solvers.yh = r.coords;
+  solvers.yh_levels = r.sR.numLevels;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+{
+  const hw = new Float32Array(spec.hw16);
+  const hh = new Float32Array(spec.hh16);
+  const r = runPairAndCheckStep(
+    () => new mod.PrismOverlapRemoval(hw, hh, { maxIterations: 50, padding: 0.05, seed: 42 }),
+    prismInit,
+    2,
+  );
+  solvers.prism_box = r.coords;
+  solvers.prism_box_ov = r.sR.lastOverlapCount;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+{
+  const rad = new Float32Array(spec.rad16);
+  const r = runPairAndCheckStep(
+    () => mod.PrismOverlapRemoval.fromRadii(rad, { maxIterations: 50, seed: 42 }),
+    prismInit,
+    2,
+  );
+  solvers.prism_rad = r.coords;
+  solvers.prism_rad_ov = r.sR.lastOverlapCount;
+  r.sR.free?.(); r.sS.free?.();
+}
+
+const c1d = new Float32Array(spec.c1d_init);
+const cs1d = [
+  new mod.SeparationConstraint(0, 1, 1.5),
+  new mod.SeparationConstraint(1, 2, 2.0),
+  new mod.SeparationConstraint(2, 3, 1.0),
+];
+const proj1d = Array.from(mod.project1d(c1d, cs1d));
+for (const c of cs1d) c.free?.();
+
+const ce = Array.from(mod.cycleEdges(gCyc));
+const dag = mod.removeCycles(gCyc);
+const dagCe = Array.from(mod.cycleEdges(dag));
+const layersLp = Array.from(mod.assignLayers(gSkip, 'longestPath'));
+const layersNs = Array.from(mod.assignLayers(gSkip, 'networkSimplex'));
+const layeredCs = mod.generateLayeredConstraints(gSkip, new Uint32Array(layersNs), 2.0);
+const lAx = mod.Layout2d.zeros(5);
+mod.projectLayoutAxis(lAx, 1, layeredCs);
+const projAxis = Array.from(lAx.coordsView());
+for (const c of layeredCs) c.free?.();
+
+const lRc = mod.Layout2d.fromCoords(new Float32Array(spec.rect_init));
+mod.projectRectangleNoOverlap2d(lRc, new Float32Array(spec.hw4), new Float32Array(spec.hh4));
+const projRect = Array.from(lRc.coordsView());
+
+const lCrc = mod.Layout2d.fromCoords(new Float32Array(spec.cl_init));
+mod.projectClusteredRectangleNoOverlap2d(lCrc, new Uint32Array(spec.cl_ids), new Float32Array(spec.hw4), new Float32Array(spec.hh4));
+const projClRect = Array.from(lCrc.coordsView());
+
+const lFd = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
+const fdR = new mod.FdebSolver(g16, lFd, { cycles: 2, i0: 6 });
+const fdS = new mod.FdebSolver(g16, lFd, { cycles: 2, i0: 6 });
+fdR.run();
+fdS.step();
+fdS.runSteps(3);
+while (!fdS.isFinished) fdS.step();
+const fdebOff = Array.from(fdR.edgeOffsets());
+const fdebPts = Array.from(fdR.points());
+if (JSON.stringify(fdebPts) !== JSON.stringify(Array.from(fdS.points()))) {
+  throw new Error('WASM FdebSolver step() != run()');
+}
+
+const out = {
+  m4_available: true,
+  solvers,
+  proj1d,
+  projAxis,
+  projRect,
+  projClRect,
+  ce,
+  dagNumEdges: dag.numEdges(),
+  dagCeLen: dagCe.length,
+  layersLp,
+  layersNs,
+  fdebOff,
+  fdebPts,
+};
+
+fdR.free?.(); fdS.free?.(); lFd.free?.();
+lCrc.free?.(); lRc.free?.(); lAx.free?.();
+dag.free?.(); fuzzy16.free?.(); knn16.free?.();
+gSkip.free?.(); gCyc.free?.(); g25.free?.(); g16.free?.();
+
+console.log(JSON.stringify(out));
+"""
+    raw_out = subprocess.check_output(
+        ["node", "--input-type=module", "-e", node_script, node_url, wasm_path, json.dumps(spec_payload)],
+        text=True,
+    )
+    ws = json.loads(raw_out.strip().splitlines()[-1])
+    if not ws.get("m4_available", False):
+        return [{
+            "case": "cross_target_m4_py_vs_wasm",
+            "status": "skipped_no_wasm_m4",
+            "elapsed_sec": round(time.perf_counter() - t0, 4),
+        }]
+
+    max_f32_diff = 0.0
+    max_f64_rel = 0.0
+
+    def check_f32_wasm(label: str, a: Any, b: Any, tol: float = 1e-4) -> None:
+        nonlocal max_f32_diff
+        arr_a = np.asarray(a, dtype=np.float64).ravel()
+        arr_b = np.asarray(b, dtype=np.float64).ravel()
+        assert arr_a.shape == arr_b.shape, f"{label}: shape mismatch {arr_a.shape} vs {arr_b.shape}"
+        diff = float(np.max(np.abs(arr_a - arr_b))) if arr_a.size else 0.0
+        max_f32_diff = max(max_f32_diff, diff)
+        assert diff < tol, f"{label}: f32_vs_wasm diff={diff} >= {tol}"
+
+    def check_f64_vs_f32(label: str, a64: Any, a32: Any, tol: float = 5e-3) -> None:
+        nonlocal max_f64_rel
+        arr64 = np.asarray(a64, dtype=np.float64).ravel()
+        arr32 = np.asarray(a32, dtype=np.float64).ravel()
+        assert np.all(np.isfinite(arr64)), f"{label}: non-finite float64 output"
+        rel_scale = max(1.0, float(np.max(np.abs(arr64))))
+        rel_diff = float(np.max(np.abs(arr64 - arr32))) / rel_scale if arr64.size else 0.0
+        max_f64_rel = max(max_f64_rel, rel_diff)
+        assert rel_diff < tol, (
+            f"{label}: f64_vs_f32 rel_diff={rel_diff} >= {tol} "
+            f"(abs={float(np.max(np.abs(arr64 - arr32)))}, scale={rel_scale})"
+        )
+
+    ws_sol = ws["solvers"]
+    solver_keys = (
+        "tfdp_ibfft",
+        "tfdp_barnes_hut",
+        "tfdp_exact",
+        "tfdp_knn",
+        "ibumap_ibfft",
+        "ibumap_barnes_hut",
+        "ibumap_exact",
+        "ibumap_knn",
+        "ibumap_fset",
+        "sgd_snap",
+        "sgd_pacmap",
+        "sgd_sgd2",
+        "sgd_squared",
+        "fa2_bh",
+        "fa2_exact",
+        "yh",
+        "prism_box",
+        "prism_rad",
+    )
+    for key in solver_keys:
+        check_f32_wasm(key, py32[key], ws_sol[key], 1e-4)
+        check_f64_vs_f32(key, py64[key], py32[key], 5e-3)
+
+    assert py32["yh_levels"] == ws_sol["yh_levels"]
+    assert py32["prism_box_ov"] == ws_sol["prism_box_ov"] == 0
+    assert py32["prism_rad_ov"] == ws_sol["prism_rad_ov"] == 0
+
+    for pp_key, ws_pp_key in (
+        ("proj_1d", "proj1d"),
+        ("proj_axis", "projAxis"),
+        ("proj_rect", "projRect"),
+        ("proj_cl_rect", "projClRect"),
+        ("fdeb_points", "fdebPts"),
+    ):
+        check_f32_wasm(pp_key, py32[pp_key], ws[ws_pp_key], 1e-4)
+        check_f64_vs_f32(pp_key, py64[pp_key], py32[pp_key], 5e-3)
+
+    assert list(ce_py.ravel()) == ws["ce"]
+    assert dag_py.num_edges == ws["dagNumEdges"]
+    assert ws["dagCeLen"] == 0
+    assert list(layers_lp_py) == ws["layersLp"]
+    assert list(layers_ns_py) == ws["layersNs"]
+    assert list(py32["fdeb_offsets"]) == ws["fdebOff"]
+
+    return [{
+        "case": "cross_target_m4_py_vs_wasm",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+        "max_f32_diff": round(max_f32_diff, 12),
+        "max_f64_diff": round(max_f64_rel, 12),
+    }]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="egraph cross-target parity harness")
     parser.add_argument("--wasm-pkg", type=pathlib.Path, default=None, help="Path to built v6 WASM pkg/")
@@ -2640,6 +3582,7 @@ def main() -> int:
             results.extend(run_cross_target_m1_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m2_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m3_parity(eg_mod, args.wasm_pkg))
+            results.extend(run_cross_target_m4_parity(eg_mod, args.wasm_pkg))
 
     print(f"{'CASE':<40} {'STATUS':<24} {'ELAPSED(s)':>10}")
     print("-" * 78)
