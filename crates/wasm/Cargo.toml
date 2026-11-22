@@ -89,6 +89,9 @@ name = "v6_linalg_neighborhood"
 name = "v6_layout_clustering"
 
 [[test]]
+name = "v6_m4"
+
+[[test]]
 name = "classical_mds"
 required-features = ["legacy"]
 

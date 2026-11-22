@@ -315,6 +315,9 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
       eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
     '
   fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
+    run_step "clippy_layout_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -- -D warnings
+  fi
   RUST_TEST_ARGS=()
   if [[ "$DEBUG_RUST" -eq 0 ]]; then
     RUST_TEST_ARGS+=(--release)
@@ -325,6 +328,9 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-spatial' in pkgs else 1)"; then
     run_step "rust_spatial_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-spatial
+  fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
+    run_step "rust_layout_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph-layout
   fi
 fi
 
@@ -351,7 +357,11 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
   fi
 
   if [[ -f "$REPO_ROOT/crates/python/python/egraph/_core.pyi" ]]; then
-    run_step "python_mypy" "$VIRTUAL_ENV/bin/mypy" "$REPO_ROOT/crates/python/python/egraph"
+    V6_PY_TESTS=()
+    while IFS= read -r py_test; do
+      [[ -n "$py_test" ]] && V6_PY_TESTS+=("$py_test")
+    done < <(find "$REPO_ROOT/crates/python/tests" -maxdepth 1 -name 'test_v6_*.py' | sort)
+    run_step "python_mypy" "$VIRTUAL_ENV/bin/mypy" --strict "$REPO_ROOT/crates/python/python/egraph" ${V6_PY_TESTS[@]+"${V6_PY_TESTS[@]}"}
   fi
 fi
 
@@ -362,7 +372,7 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
     run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
   else
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
-    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering
+    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then

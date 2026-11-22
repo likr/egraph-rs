@@ -167,21 +167,20 @@ Diffusion kernel-based computations for graph distances and embeddings.
 
 ## Layering Algorithms
 
-- **Unified Trait-Based Interface**:
-  ```rust
-  trait LayeringAlgorithm<N, E, Ix: IndexType> {
-      fn assign_layers(&self, graph: &Graph<N, E, Directed, Ix>) -> HashMap<NodeIndex<Ix>, usize>;
-  }
-  ```
-- **Cycle Handling**: Detection and removal functions to ensure directed graphs are acyclic before layering.
+- **V6 `CsrGraph` Layering (`egraph-layout`, `crates/layout/src/layering.rs`)**:
+  - Uses iterative 3-color DFS (`cycle_edges`, `remove_cycles`) to detect and reverse back-edges in $O(V + E)$ time without recursion stack overflow on deep graphs, and `assign_layers(graph, method)` supporting `LayeringMethod::{LongestPath, NetworkSimplex}` without `petgraph` or `HashMap`.
+- **Legacy v5 (`petgraph-algorithm-layering`)**:
+  - Trait-based interface `LayeringAlgorithm<N, E, Ix: IndexType>` over `petgraph` directed graphs.
 
 ## Triangulation
 
-- **Delaunay Triangulation**:
-  - Uses the `spade` library to calculate 2D Euclidean triangulation.
+- **Delaunay Triangulation (`egraph-spatial`, feature `delaunay`)**:
+  - Uses `spade::DelaunayTriangulation::bulk_load_stable` on `(x, y)`-sorted deduplicated sites via `Delaunay2d::triangulate` and `Delaunay2d::triangulate_edges_into` (emitting sorted canonical undirected `(u, v)` with `u < v` without constructing faces).
 
 ## Spatial Structures & Quality Metrics
 
+- **`ArenaQuadtree2d` Weighted Coulomb Repulsion (`egraph-spatial`)**:
+  - Stores `total_mass: f64` per `QuadNode` and exposes `build_weighted` / `build_weighted_xy` and `compute_coulomb_repulsion(theta, eps_sq, out_x, out_y)` for degree/mass-weighted Barnes-Hut repulsion in `ForceAtlas2Solver` and `YifanHuSolver` (accumulating geometry and moments in `f64` even when `S = f32`).
 - **`SweepLineCrossings` vs `sampled_crossing_number` (`egraph-spatial` / `egraph-metrics`)**:
   - `SweepLineCrossings` runs in exact $O((|E| + K)\log |E|)$ time using a compact `FastU64Hasher`-backed `PairSet` (`pack_pair`) and zero `Vec<CrossingPair>` allocation on count/angle paths, remaining fast up to $K \sim 10^6\text{--}10^7$ crossings.
   - On ultra-dense hairball layouts where $K \sim 10^8$ or larger (e.g., `GION_3`, `bcsstk31`), exact enumeration is lower-bounded by $\Omega(K)$; use $O(M)$ `sampled_crossing_number` (deterministic `DeterministicRng`) instead of exact sweep-line counting.
@@ -208,7 +207,22 @@ All v6 layout solvers implement `egraph_core::IterativeSolver<S>` with cooperati
   - Pure-Rust `u32` Structure-of-Arrays (SoA) SGD engine storing packed `PackedSymPair<S>` (`i`, `j_hinge` with `HINGE_BIT = 1u32 << 31` bit-packed hinge flag, `d`, `w`) or `PackedGenPair<S>` for asymmetric weights/distances.
   - **Cache-Blocked Shuffle**: For pair counts `> BLOCK_SHUFFLE_THRESHOLD` (`65_536`), `try_for_each_shuffled_pair` shuffles `BLOCK_SIZE` (`16_384`) block indices and intra-block slices rather than full-array Fisher-Yates, preserving cache locality while keeping `step()` and `run()` RNG consumption identical.
   - **3-Tier Sparse Barrier & Streaming Negatives**: `SparseBarrierConfig` builds Tier 1 (1-hop), Tier 2 (2-hop), and Tier 3 (non-2-hop DoG-Varadhan / MaxMin pivot pairs with optional one-sided hinge repulsion and Horvitz-Thompson $\gamma_{\mathrm{eff}}$ scaling) via `SgdSolver::sparse_barrier_from_landmarks` / `sparse_barrier_dog`; `StreamingNegativeConfig` supports minimal-RAM on-the-fly non-edge negative sampling (`step()`/`run()`); `FullSgd`, `RandomPairSgd`, and `Omega` constructors share the same solver core.
+  - **M4 Compact & Scheduled Extensions**:
+    - `SnapTFdpConfig` (`SgdSolver::snap_t_fdp`): Streams canonical undirected 1-hop edges directly from CSR into flat `u32` `edges_u`, `edges_v`, and `edge_order` arrays (12 bytes/edge base footprint without temporary tuple vectors or materialized negatives) and samples `negatives_per_edge` ($k=3$) uniform negatives on-the-fly (`< 512 MB` at 1M nodes, `< 1.6 GiB` at 4M nodes).
+    - `PacmapGraphConfig` (`SgdSolver::pacmap_graph`): 3-tier near/mid-near/further graph loss across 3 optimization phases.
+    - `Sgd2Config` (`SgdSolver::sgd2`) & `SgdScheduleKind::Squared`: Doubly stochastic SGD with squared progress decay $\eta(t) = \max(\eta_{\max}(1 - t)^2, \eta_{\min})$.
   - **Non-Euclidean Manifolds (`ManifoldLayout2d`)**: `SgdSolver::step_manifold` / `run_manifold` perform exponential/geodesic updates across `ManifoldKind::{HyperbolicPoincare, Spherical, Torus2d}` with finite-norm and pole/boundary clamping.
+- **`FieldLayoutSolver<S>` (`crates/layout/src/field_layout.rs`)**:
+  - Cooperative `t-FDP` (`TFdpConfig`, `RhoSchedule`) and `ibUMAP` (`IbUmapConfig` with $c_K = 4$, $\tau_t = 4\alpha_t$, hub damping $\eta_i$, and constructors from `CsrGraph`, `KnnGraph`, or `SparseProbabilities`) supporting `FieldRepulsionBackend::{IbFft, BarnesHut, Exact}` with zero per-step heap allocations.
+- **`ContinuousFdp<S>` (`crates/layout/src/continuous_fdp.rs`)**:
+  - `ForceAtlas2Solver<S>` (`ForceAtlas2Config`): Degree-weighted Barnes-Hut `ArenaQuadtree2d::build_weighted` / `compute_coulomb_repulsion` (or exact $O(N^2)$), LinLog attraction, strong gravity, outbound attraction distribution, and adaptive swing dampening.
+  - `YifanHuSolver<S>` (`YifanHuConfig`): Multilevel `EC + MIVS` coarsening aggregating undirected coarse CSR edges once in canonical `c < cv` order and mirroring `(c, cv)` / `(cv, c)` for bit-identical `f64` symmetry without 1-ULP drift, paired with Barnes-Hut Coulomb repulsion and adaptive step cooling.
+- **`PrismOverlapRemoval<S>` (`crates/layout/src/prism.rs`)**:
+  - Proximity-stress node overlap removal using `Delaunay2d::triangulate_edges_into` (`bulk_load_stable` under `feature = "delaunay"`) or `StaticKdTree` $k$-NN fallback (under `--no-default-features`), Sweep-and-Prune (SAP) overlap detection, fused 2-RHS split `L+D+U` sparse CSR Symmetric SSOR-PCG (`SparsePcgWorkspace`), coordinate-magnitude ULP clearance margins (`coord_ulp = |coord| * S::EPSILON`) for `f32` precision at large coordinate offsets, and deterministic 2D scanline QPSC stall fallback (`STALL_NO_IMPROVE_STREAK = 8` or at `max_iterations`).
+- **`ConstraintProjector<S>` & 2D Overlap Projection (`crates/layout/src/constraints.rs`)**:
+  - Flat `Vec`-backed arena 1D QPSC projector using intrusive linked lists, flat CSR adjacency, and `VisitStamp` (zero `HashMap`/`HashSet`, zero recursion), plus `generate_layered_constraints`, `project_rectangle_no_overlap_2d` (with `pair_ulp` coordinate-scaled margins), and `project_clustered_rectangle_no_overlap_2d`.
+- **`FdebSolver<S>` (`crates/layout/src/fdeb.rs`)**:
+  - Reference-passing `FdebSolver::new(&graph, &layout, config)` (eliminating JS/WASM by-value layout drops), clamping `acos` inputs to `[-1.0, 1.0]` to prevent collinear `NaN`s, and outputting contiguous flat `(edge_offsets, points_x, points_y)` / `to_interleaved_points()` buffers across cooperative `step()` calls.
 - **`GuMapSolver<S>` (`crates/layout/src/gumap.rs`)**:
   - Cooperative UMAP-for-graphs solver emitting canonical undirected `(u, v)`/`(v, u)` (`u < v`) pair order (eliminating directional sweep bias) and evaluating attractive/repulsive gradients via the `dist_sq.powf(b)` identity without per-pair `sqrt`.
 - **`SpatialIntruderRefiner<S>` (`crates/layout/src/refiner.rs`)**:
