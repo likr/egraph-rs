@@ -1,0 +1,390 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v6.*"
+
+permissions:
+  contents: read
+
+env:
+  RUST_FONTCONFIG_DLOPEN: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  RAYON_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify-tag-and-version:
+    name: Verify Release Tag & Manifest Versions
+    runs-on: ubuntu-latest
+    outputs:
+      tag_version: ${{ steps.parse.outputs.tag_version }}
+      pypi_version: ${{ steps.parse.outputs.pypi_version }}
+      npm_tag: ${{ steps.parse.outputs.npm_tag }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Parse tag and verify Cargo.toml / package.json version alignment
+        id: parse
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, sys, tomllib
+
+          ref_name = os.environ["GITHUB_REF_NAME"]
+          m = re.fullmatch(r"v(\d+\.\d+\.\d+)(?:-(alpha|beta|rc)\.(\d+))?", ref_name)
+          if not m:
+              sys.exit(f"Invalid release tag '{ref_name}'; expected vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N")
+
+          base, pre_kind, pre_num = m.group(1), m.group(2), m.group(3)
+          tag_version = ref_name[1:]
+          if pre_kind is None:
+              pypi_version = base
+              npm_tag = "latest"
+              is_prerelease = "false"
+          else:
+              pep_map = {"alpha": "a", "beta": "b", "rc": "rc"}
+              pypi_version = f"{base}{pep_map[pre_kind]}{pre_num}"
+              npm_tag = "next"
+              is_prerelease = "true"
+
+          root_cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))
+          ws_version = root_cargo.get("workspace", {}).get("package", {}).get("version")
+          if ws_version != tag_version:
+              sys.exit(f"Root Cargo.toml [workspace.package] version ({ws_version}) != tag ({tag_version})")
+
+          def resolve_pkg_version(path: str) -> str:
+              data = tomllib.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+              ver = data.get("package", {}).get("version")
+              if isinstance(ver, dict) and ver.get("workspace") is True:
+                  return ws_version
+              return str(ver)
+
+          for manifest in ("crates/core/Cargo.toml", "crates/ffi/Cargo.toml", "crates/petgraph/Cargo.toml", "crates/dataset/Cargo.toml", "crates/python/Cargo.toml", "crates/wasm/Cargo.toml"):
+              v = resolve_pkg_version(manifest)
+              if v != tag_version:
+                  sys.exit(f"{manifest} version ({v}) != tag ({tag_version})")
+
+          wasm_pkg = json.loads(pathlib.Path("crates/wasm/package.json").read_text(encoding="utf-8"))
+          if wasm_pkg.get("version") != tag_version:
+              sys.exit(f"crates/wasm/package.json version ({wasm_pkg.get('version')}) != tag ({tag_version})")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"tag_version={tag_version}\n")
+              fh.write(f"pypi_version={pypi_version}\n")
+              fh.write(f"npm_tag={npm_tag}\n")
+              fh.write(f"is_prerelease={is_prerelease}\n")
+
+          print(f"Verified tag={ref_name} tag_version={tag_version} pypi_version={pypi_version} npm_tag={npm_tag}")
+          PY
+
+      - name: Run strict invariant check
+        run: ./scripts/check_invariants.sh --mode report
+
+  build-wheels:
+    name: Build Wheel (${{ matrix.name }})
+    needs: [verify-tag-and-version]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            rust_target: ""
+            maturin_args: --release -o dist
+            run_tests: true
+          - name: linux-aarch64
+            os: ubuntu-latest
+            rust_target: aarch64-unknown-linux-gnu
+            maturin_args: --release --target aarch64 -o dist
+            run_tests: false
+          - name: macos-arm64
+            os: macos-14
+            rust_target: aarch64-apple-darwin
+            maturin_args: --release --target aarch64-apple-darwin -o dist
+            run_tests: true
+          - name: macos-x86_64
+            os: macos-14
+            rust_target: x86_64-apple-darwin
+            maturin_args: --release --target x86_64-apple-darwin -o dist
+            run_tests: false
+          - name: windows-x64
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            maturin_args: --release -o dist
+            run_tests: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build wheel
+        uses: messense/maturin-action@v1
+        with:
+          command: build
+          args: ${{ matrix.maturin_args }}
+          working-directory: crates/python
+          manylinux: "2_28"
+
+      - name: Verify built wheel
+        if: matrix.run_tests
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --force-reinstall crates/python/dist/*.whl
+          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0"
+          cd crates/python
+          python -m pytest tests
+          cd ../..
+          python scripts/parity_harness.py
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheels-${{ matrix.name }}
+          path: crates/python/dist/*.whl
+
+  build-sdist:
+    name: Build & Smoke-Test Python sdist
+    needs: [verify-tag-and-version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build sdist and test source installation
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "maturin>=1.7,<2.0" "numpy>=1.26"
+          maturin sdist --manifest-path crates/python/Cargo.toml --out dist
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install --upgrade pip
+          /tmp/sdist-venv/bin/pip install dist/*.tar.gz
+          /tmp/sdist-venv/bin/python -c "import egraph; print('sdist import OK:', egraph.__file__)"
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+
+  build-wasm:
+    name: Build & Verify WASM ESM Package
+    needs: [verify-tag-and-version]
+    runs-on: ubuntu-latest
+    outputs:
+      wasm_raw_bytes: ${{ steps.size.outputs.raw_bytes }}
+      wasm_gzip_kib: ${{ steps.size.outputs.gzip_kib }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wasm-pack and binaryen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+          curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Run wasm-pack tests and build optimized ESM bundle
+        id: size
+        run: |
+          wasm-pack test --node crates/wasm
+          wasm-pack build --target web --no-opt --profile wasm-release -d pkg crates/wasm
+          if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
+            node crates/wasm/scripts/assemble_pkg.mjs
+          fi
+          wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+            crates/wasm/pkg/egraph_wasm_bg.wasm \
+            -o crates/wasm/pkg/egraph_wasm_bg.wasm
+          RAW_BYTES=$(wc -c < crates/wasm/pkg/egraph_wasm_bg.wasm | tr -d ' ')
+          GZIP_BYTES=$(gzip -9 -c crates/wasm/pkg/egraph_wasm_bg.wasm | wc -c | tr -d ' ')
+          GZIP_KIB=$(python3 -c "print(f'{$GZIP_BYTES/1024:.1f}')")
+          echo "raw_bytes=$RAW_BYTES" >> "$GITHUB_OUTPUT"
+          echo "gzip_kib=$GZIP_KIB" >> "$GITHUB_OUTPUT"
+          echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_KIB} KiB"
+          if [[ "$GZIP_BYTES" -gt 614400 ]]; then
+            echo "::error::WASM gzip size (${GZIP_KIB} KiB) exceeds 600 KiB budget"
+            exit 1
+          fi
+          if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
+            node crates/wasm/tests/node_esm_smoke.mjs
+          fi
+          python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
+          (cd crates/wasm && npm pack --dry-run && npm pack)
+
+      - name: Upload WASM pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-wasm-pkg
+          path: crates/wasm/pkg
+
+      - name: Upload npm tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-npm-tgz
+          path: crates/wasm/*.tgz
+
+  publish-pypi:
+    name: Publish to PyPI (OIDC)
+    needs: [verify-tag-and-version, build-wheels, build-sdist, build-wasm]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-release
+      url: https://pypi.org/p/egraph
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Python wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: Download Python sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist
+
+      - name: Verify Python distribution files
+        run: |
+          ls -la dist
+          python3 - <<'PY'
+          import os, pathlib, sys
+          expected = os.environ["PYPI_VERSION"]
+          entries = [p for p in pathlib.Path("dist").iterdir() if p.is_file()]
+          files = [p for p in entries if p.name.endswith((".whl", ".tar.gz"))]
+          unexpected = [p.name for p in entries if not p.name.endswith((".whl", ".tar.gz"))]
+          if unexpected:
+              sys.exit(f"Unexpected non-Python files in dist/: {unexpected}")
+          if not files:
+              sys.exit("No Python distributions found in dist/")
+          for f in files:
+              if expected not in f.name:
+                  sys.exit(f"Artifact '{f.name}' does not match expected PEP 440 version '{expected}'")
+          print(f"Verified {len(files)} Python artifacts for version {expected}.")
+          PY
+        env:
+          PYPI_VERSION: ${{ needs.verify-tag-and-version.outputs.pypi_version }}
+
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-npm:
+    name: Publish to npm (OIDC Provenance)
+    needs: [verify-tag-and-version, build-wheels, build-sdist, build-wasm]
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-release
+      url: https://www.npmjs.com/package/egraph
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download built WASM pkg
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-wasm-pkg
+          path: crates/wasm/pkg
+
+      - name: Ensure npm >= 11.5.1 for OIDC Trusted Publishing
+        run: |
+          NPM_VER=$(npm --version)
+          echo "Current npm version: $NPM_VER"
+          if ! node -e "const [maj,min,pat]=process.argv[1].split('.').map(Number); process.exit((maj>11 || (maj===11 && (min>5 || (min===5 && pat>=1)))) ? 0 : 1)" "$NPM_VER"; then
+            npm install -g "npm@^11.5.1"
+          fi
+          npm --version
+
+      - name: Publish to npm with provenance
+        working-directory: crates/wasm
+        run: npm publish --provenance --access public --tag "${{ needs.verify-tag-and-version.outputs.npm_tag }}"
+
+  github-release:
+    name: Create GitHub Release
+    needs:
+      - verify-tag-and-version
+      - build-wheels
+      - build-sdist
+      - build-wasm
+      - publish-pypi
+      - publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Prepare release asset directory
+        run: |
+          mkdir -p upload-assets
+          cp release-assets/*.whl release-assets/*.tar.gz release-assets/*.tgz upload-assets/
+          ls -la upload-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: upload-assets/*
+          prerelease: ${{ needs.verify-tag-and-version.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          body: |
+            ## egraph `${{ github.ref_name }}`
+
+            - **PyPI (`egraph`)**: `pip install --pre egraph==${{ needs.verify-tag-and-version.outputs.pypi_version }}`
+            - **npm (`egraph`, tag `${{ needs.verify-tag-and-version.outputs.npm_tag }}`)**: `npm install egraph@${{ needs.verify-tag-and-version.outputs.tag_version }}`
+            - **WASM bundle size (`egraph_wasm_bg.wasm`)**: `${{ needs.build-wasm.outputs.wasm_raw_bytes }}` bytes raw / `${{ needs.build-wasm.outputs.wasm_gzip_kib }} KiB` gzipped

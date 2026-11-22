@@ -1,0 +1,269 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RUST_FONTCONFIG_DLOPEN: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  RAYON_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-core:
+    name: Rust Core & Single-Thread Invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: |
+          PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
+          eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
+          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -- -D warnings
+
+      - name: Run release workspace tests
+        run: |
+          cargo test --release --workspace
+          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset
+
+      - name: Check single-thread invariants and dependency hygiene
+        run: |
+          test -f clippy.toml
+          grep -q "std::thread::spawn" clippy.toml
+          for crate in egraph-core egraph-ffi egraph-petgraph; do
+            if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+              echo "::error::$crate dependency tree pulls forbidden crate"
+              exit 1
+            fi
+          done
+          if cargo tree -p egraph-wasm --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::egraph-wasm --no-default-features pulls forbidden crate"
+            exit 1
+          fi
+          ./scripts/check_invariants.sh --mode report
+
+  python-matrix:
+    name: Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build wheel
+        uses: messense/maturin-action@v1
+        with:
+          command: build
+          args: --release -o dist
+          working-directory: crates/python
+          manylinux: "2_28"
+
+      - name: Install wheel and test dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --force-reinstall crates/python/dist/*.whl
+          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "mypy>=1.11"
+
+      - name: Run Python test suite and parity harness
+        shell: bash
+        run: |
+          cd crates/python
+          python -m pytest tests
+          cd ../..
+          python scripts/parity_harness.py
+
+      - name: Type-check Python stubs
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [[ -f crates/python/python/egraph/_core.pyi ]]; then
+            mypy crates/python/python/egraph
+          fi
+
+      - name: Upload Linux wheel for docs-check
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-linux
+          path: crates/python/dist/*.whl
+
+  wasm-pipeline:
+    name: WASM ESM Pipeline & Size Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wasm-pack and binaryen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+          curl -fsSL https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Check egraph-wasm --no-default-features
+        run: |
+          cargo check -p egraph-wasm --target wasm32-unknown-unknown --no-default-features
+          cargo clippy --no-deps -p egraph-wasm --no-default-features -- -D warnings
+          if cargo tree -p egraph-wasm --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::egraph-wasm --no-default-features pulls forbidden crate"
+            exit 1
+          fi
+
+      - name: Run wasm32 check and wasm-pack test --node
+        run: |
+          cargo check -p egraph-wasm --target wasm32-unknown-unknown
+          wasm-pack test --node crates/wasm
+
+      - name: Build optimized web bundle, assemble pkg, and check <= 600 KiB gzip
+        run: |
+          wasm-pack build --target web --no-opt --profile wasm-release -d pkg crates/wasm
+          if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
+            node crates/wasm/scripts/assemble_pkg.mjs
+          fi
+          wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+            crates/wasm/pkg/egraph_wasm_bg.wasm \
+            -o crates/wasm/pkg/egraph_wasm_bg.wasm
+          RAW_BYTES=$(wc -c < crates/wasm/pkg/egraph_wasm_bg.wasm | tr -d ' ')
+          GZIP_BYTES=$(gzip -9 -c crates/wasm/pkg/egraph_wasm_bg.wasm | wc -c | tr -d ' ')
+          echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_BYTES} B (budget <= 614400 B)"
+          if [[ "$GZIP_BYTES" -gt 614400 ]]; then
+            echo "::error::WASM gzip size (${GZIP_BYTES} B) exceeds 600 KiB (614400 B) budget"
+            exit 1
+          fi
+          if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
+            node crates/wasm/tests/node_esm_smoke.mjs
+          fi
+          python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
+          (cd crates/wasm && npm pack --dry-run)
+
+      - name: Upload built WASM pkg for docs-check
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: crates/wasm/pkg
+
+  docs-check:
+    name: Docs & Link Checks
+    runs-on: ubuntu-latest
+    needs: [python-matrix, wasm-pipeline]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-wheel-linux
+          path: crates/python/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg
+          path: crates/wasm/pkg
+
+      - name: Build Sphinx HTML documentation
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install crates/python/dist/*.whl
+          python -m pip install -r crates/python/docs/requirements.txt
+          python -m sphinx -b html crates/python/docs/source crates/python/docs/_build/html
+          if [[ ! -f crates/python/docs/netlify.toml ]]; then
+            python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/doctest
+          fi
+
+      - name: Build TypeDoc if configured
+        run: |
+          if [[ -f crates/wasm/typedoc.json ]]; then
+            npm ci --prefix crates/wasm
+            npx --prefix crates/wasm typedoc
+          else
+            echo "TypeDoc configuration not yet added; skipping until M5"
+          fi
+
+      - name: Validate docs/ relative Markdown links
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          docs_dir = pathlib.Path("docs")
+          broken = []
+          link_re = re.compile(r'\[[^\]]*\]\(([^)#\s]+)')
+          # Historical planning snapshot entries in V6_RELEASE_PLAN.md that point outside this repo
+          # or reference legacy files intentionally removed during v6 migration.
+          plan_ignored = {
+              "../../diffusion-kernel-experiments",
+              "../.github/workflows/maturin.yml",
+              "../crates/python/.github/workflows/CI.yml",
+              "../crates/python/docs/netlify.toml",
+          }
+          for md in sorted(docs_dir.glob("*.md")):
+              text = md.read_text(encoding="utf-8")
+              for target in link_re.findall(text):
+                  if target.startswith(("http://", "https://", "mailto:")):
+                      continue
+                  if md.name == "V6_RELEASE_PLAN.md" and target in plan_ignored:
+                      continue
+                  resolved = (md.parent / target).resolve()
+                  if not resolved.exists():
+                      broken.append(f"{md}: broken link '{target}'")
+          if broken:
+              for b in broken:
+                  print(f"::error::{b}", file=sys.stderr)
+              sys.exit(1)
+          print(f"Verified relative links in {len(list(docs_dir.glob('*.md')))} docs/*.md files.")
+          PY
