@@ -43,7 +43,9 @@ legacy = [
 console_error_panic_hook = "0.1"
 egraph-core.workspace = true
 egraph-ffi.workspace = true
+egraph-linalg.workspace = true
 egraph-metrics.workspace = true
+egraph-neighborhood.workspace = true
 egraph-spatial.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
@@ -77,6 +79,9 @@ name = "v6_core"
 
 [[test]]
 name = "v6_metrics"
+
+[[test]]
+name = "v6_linalg_neighborhood"
 
 [[test]]
 name = "classical_mds"

@@ -25,6 +25,7 @@ pub mod quality_metrics;
 pub mod rng;
 
 pub mod v6;
+mod v6_m2;
 
 use wasm_bindgen::prelude::*;
 

@@ -35,18 +35,53 @@ for (const match of wasmJs.matchAll(/^export\s*\{([^}]+)\}\s*;?/gm)) {
   }
 }
 
-if (
-  !exportedNames.has("Layout2d") ||
-  !exportedNames.has("CsrGraph") ||
-  !exportedNames.has("wasmMemory") ||
-  !exportedNames.has("initSync") ||
-  !exportedNames.has("scaleNormalizedStress") ||
-  !exportedNames.has("evaluateMetrics") ||
-  !exportedNames.has("MetricReport") ||
-  !exportedNames.has("PrismDistortion")
-) {
+const requiredCoreAndM1 = [
+  "Layout2d",
+  "CsrGraph",
+  "wasmMemory",
+  "initSync",
+  "scaleNormalizedStress",
+  "evaluateMetrics",
+  "MetricReport",
+  "PrismDistortion",
+];
+
+const requiredM2 = [
+  "KnnGraph",
+  "SparseProbabilities",
+  "DogVaradhanLandmarks",
+  "EigenResult",
+  "SpectralMomentStats",
+  "TwoHopCsr",
+  "TwoHopKnnResult",
+  "HybridKnnResult",
+  "selectMaxminSpPivots",
+  "pivotMdsInit",
+  "korenSpectralInit",
+  "smallestLaplacianEigenpairs",
+  "spectralMomentStats",
+  "chebyshevHeatSpmv",
+  "chebyshevDogJlEmbedding",
+  "extract1hop2hopCsr",
+  "buildPure2hopKnn",
+  "compute2hopNeighborhoodSizes",
+  "computeNodewise2hopPerplexities",
+  "computeMedian2hopPerplexity",
+  "buildHybridAdaptiveKnn",
+  "partialBfsKnn",
+  "computeKnnProbabilities",
+  "computeFuzzySimplicialSet",
+  "findAbParams",
+  "computeHorvitzThompsonGamma",
+  "computeRegularizedDogVaradhanLandmarks",
+];
+
+const missingExports = [...requiredCoreAndM1, ...requiredM2].filter(
+  (name) => !exportedNames.has(name),
+);
+if (missingExports.length > 0) {
   throw new Error(
-    `Expected v6 core + M1 metric exports in ${wasmJsPath}; found: ${Array.from(exportedNames).join(", ")}`,
+    `Missing required v6 exports in ${wasmJsPath}: ${missingExports.join(", ")}; found: ${Array.from(exportedNames).join(", ")}`,
   );
 }
 
@@ -229,6 +264,78 @@ indexDts = indexDts.replace(
   /export function sampledScaleNormalizedStress\([^;]+\): number;/,
   "export function sampledScaleNormalizedStress(graph: CsrGraph, layout: Layout2d, numPivots?: number | null, seed?: number | null): number;",
 );
+
+// Refine M2 TypeScript signatures (camelCase parameter names, optional targetStd?: number | null).
+const m2DtsReplacements = [
+  [
+    /static fromCsr\(num_nodes: number, indptr: Uint32Array \| number\[\], indices: Uint32Array \| number\[\], distances: Float64Array \| number\[\]\): KnnGraph;/,
+    "static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], distances: Float64Array | number[]): KnnGraph;",
+  ],
+  [
+    /export function selectMaxminSpPivots\([^;]+\): Uint32Array;/,
+    "export function selectMaxminSpPivots(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null): Uint32Array;",
+  ],
+  [
+    /export function pivotMdsInit\([^;]+\): Layout2d;/,
+    "export function pivotMdsInit(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;",
+  ],
+  [
+    /export function korenSpectralInit\([^;]+\): Layout2d;/,
+    "export function korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIters?: number | null, seed?: number | null): Layout2d;",
+  ],
+  [
+    /export function smallestLaplacianEigenpairs\([^;]+\): EigenResult;/,
+    "export function smallestLaplacianEigenpairs(graph: CsrGraph, nModes?: number | null, tol?: number | null, maxIters?: number | null, seed?: number | null): EigenResult;",
+  ],
+  [
+    /export function chebyshevHeatSpmv\([^;]+\): Float64Array;/,
+    "export function chebyshevHeatSpmv(graph: CsrGraph, vectors: Float64Array | number[], numCols: number, t: number, degree?: number | null, lambdaMax?: number | null): Float64Array;",
+  ],
+  [
+    /export function chebyshevDogJlEmbedding\([^;]+\): Float64Array;/,
+    "export function chebyshevDogJlEmbedding(graph: CsrGraph, jlDim?: number | null, degree?: number | null, seed?: number | null, degreeNormalize?: boolean | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null): Float64Array;",
+  ],
+  [
+    /export function computeNodewise2hopPerplexities\([^;]+\): Float64Array;/,
+    "export function computeNodewise2hopPerplexities(graph: CsrGraph, c?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null): Float64Array;",
+  ],
+  [
+    /export function computeMedian2hopPerplexity\([^;]+\): number;/,
+    "export function computeMedian2hopPerplexity(graph: CsrGraph, c?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null): number;",
+  ],
+  [
+    /export function buildHybridAdaptiveKnn\([^;]+\): HybridKnnResult;/,
+    "export function buildHybridAdaptiveKnn(graph: CsrGraph, coords: Float64Array | number[], dim: number, perplexities: Float64Array | number[], kFactor?: number | null, marginGap?: number | null, coarseDim?: number | null, rerankFactor?: number | null, k?: number | null, maxRowK?: number | null): HybridKnnResult;",
+  ],
+  [
+    /export function computeKnnProbabilities\([^;]+\): SparseProbabilities;/,
+    "export function computeKnnProbabilities(knn: KnnGraph, perplexities: Float64Array | number[], power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null): SparseProbabilities;",
+  ],
+  [
+    /export function computeFuzzySimplicialSet\([^;]+\): SparseProbabilities;/,
+    "export function computeFuzzySimplicialSet(knn: KnnGraph, sigmaIters?: number | null, sigmaTolerance?: number | null): SparseProbabilities;",
+  ],
+  [
+    /export function findAbParams\([^;]+\): Float64Array;/,
+    "export function findAbParams(minDist?: number | null, spread?: number | null): Float64Array;",
+  ],
+  [
+    /export function computeHorvitzThompsonGamma\([^;]+\): number;/,
+    "export function computeHorvitzThompsonGamma(gammaNon2: number, numNodes: number, negPerNode: number): number;",
+  ],
+  [
+    /export function computeRegularizedDogVaradhanLandmarks\([^;]+\): DogVaradhanLandmarks;/,
+    "export function computeRegularizedDogVaradhanLandmarks(graph: CsrGraph, degree?: number | null, numLandmarks?: number | null, seed?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): DogVaradhanLandmarks;",
+  ],
+];
+
+for (const [pattern, replacement] of m2DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine M2 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
 
 await Promise.all([
   writeFile(path.join(pkgDir, "index.js"), indexJs, "utf8"),

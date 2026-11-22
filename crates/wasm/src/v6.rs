@@ -1,7 +1,9 @@
 //! v6 zero-copy `CsrGraph`, WebAssembly linear-memory `Layout2d`, and M1 `egraph-metrics` /
 //! `egraph-spatial` bindings.
 
-use egraph_core::{CoreError, CsrGraph};
+pub use crate::v6_m2::*;
+
+use egraph_core::{CoreError, CsrGraph, Layout2d};
 use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};
 use egraph_metrics::{
     MetricConfig, MetricReport, MetricTarget, angular_resolution, aspect_ratio, crossing_angle,
@@ -26,11 +28,11 @@ fn ffi_err_to_js(err: FfiError) -> JsError {
     JsError::new(&err.to_string())
 }
 
-fn core_err_to_js(err: CoreError) -> JsError {
+pub(crate) fn core_err_to_js(err: CoreError) -> JsError {
     JsError::new(&err.to_string())
 }
 
-fn parse_non_negative_usize(value: f64, name: &str) -> Result<usize, JsError> {
+pub(crate) fn parse_non_negative_usize(value: f64, name: &str) -> Result<usize, JsError> {
     if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > (u32::MAX as f64) {
         return Err(JsError::new(&format!(
             "{name} must be a non-negative integer <= u32::MAX, got {value}"
@@ -39,7 +41,7 @@ fn parse_non_negative_usize(value: f64, name: &str) -> Result<usize, JsError> {
     Ok(value as usize)
 }
 
-fn parse_seed_u64(seed: Option<f64>) -> Result<u64, JsError> {
+pub(crate) fn parse_seed_u64(seed: Option<f64>) -> Result<u64, JsError> {
     match seed {
         None => Ok(DEFAULT_SEED),
         Some(value) => {
@@ -183,6 +185,11 @@ pub struct JsCsrGraph {
 }
 
 impl JsCsrGraph {
+    /// Wraps an existing `egraph_core::CsrGraph<f32>` in a `JsCsrGraph`.
+    pub(crate) fn from_inner(inner: CsrGraph<f32>) -> Self {
+        Self { inner }
+    }
+
     /// Returns a reference to the underlying `egraph_core::CsrGraph<f32>`.
     pub fn inner(&self) -> &CsrGraph<f32> {
         &self.inner
@@ -270,6 +277,13 @@ pub struct JsLayout2d {
 }
 
 impl JsLayout2d {
+    /// Creates a `JsLayout2d` by copying coordinates from a core SoA `Layout2d<f32>`.
+    pub(crate) fn from_layout2d(layout: &Layout2d<f32>) -> Self {
+        Self {
+            inner: InterleavedLayout2d::from_layout2d(layout),
+        }
+    }
+
     /// Returns a shared reference to the underlying `InterleavedLayout2d<f32>`.
     pub fn inner(&self) -> &InterleavedLayout2d<f32> {
         &self.inner
