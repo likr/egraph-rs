@@ -19,9 +19,9 @@ Always prefer `./scripts/verify.sh` over raw `cargo`/`maturin`/`unittest` invoca
 
 | Tier | Command | When to Run |
 |---|---|---|
-| **Tier 0 (`--fast`)** | `./scripts/verify.sh --fast [--crate <name>] [--json-summary <path>]` | After every local edit in a worktree (checks `rustfmt`, `clippy -D warnings` + `clippy.toml`, `nextest` on changed/`--crate` packages, `std::thread` scan). |
-| **Tier 1 (`--rust`)** | `./scripts/verify.sh --rust [--strict]` | Before merging a Rust crate branch (full workspace `fmt --check`, `clippy`, `nextest --workspace`; `--strict` includes legacy `petgraph-linalg-kernel`). |
-| **Tier 1 (`--python`)** | `./scripts/verify.sh --python [--test <module>] [--release]` | After editing `crates/python` or Rust code exposed to Python (rebuilds into local `.venv`, runs `unittest`, runs `mypy` if `_core.pyi` exists). |
+| **Tier 0 (`--fast`)** | `./scripts/verify.sh --fast [--crate <name>] [--json-summary <path>]` | After every local edit in a worktree (stays debug for quick crate loops; checks `rustfmt`, `clippy -D warnings` + `clippy.toml`, `nextest` on changed/`--crate` packages, `std::thread` scan). |
+| **Tier 1 (`--rust`)** | `./scripts/verify.sh --rust [--debug-rust] [--strict]` | Before merging a Rust crate branch (full workspace `fmt --check`, `clippy`, release `nextest --workspace` by default; `--debug-rust` opts into debug tests; `--strict` includes legacy `petgraph-linalg-kernel`). |
+| **Tier 1 (`--python`)** | `./scripts/verify.sh --python [--test <module>] [--dev-py]` | After editing `crates/python` or Rust code exposed to Python (rebuilds with `maturin develop --release` by default into local `.venv`; `--dev-py` opts into debug builds and `--release` remains accepted; runs `unittest` and `mypy` if `_core.pyi` exists). |
 | **Tier 1 (`--wasm`)** | `./scripts/verify.sh --wasm [--test <name>] [--build-wasm]` | After editing `crates/wasm` or core WASM-facing crates (`wasm32` check + `wasm-pack test --node`; `--build-wasm` adds release bundle + `wasm-opt -Oz` + gzip size check). |
 | **Tier 2 (`--invariants`)** | `./scripts/verify.sh --invariants [--strict]` | Checks `cargo tree` (`rayon`/`linfa`/`wgpu` absence), `std::thread`/`thread_rng` scans, `wasm32` compile, `.wasm <= 600 KiB` gzip budget, and packaging metadata. (`--mode report` tolerates legacy `v6-alpha` bloat; `--mode strict` is required for v6 crates.) |
 | **Tier 2 (`--parity`)** | `./scripts/verify.sh --parity` | Runs `scripts/parity_harness.py` (deterministic fixtures, adversarial `NaN`/error checks, optional Node.js WASM cross-check). |
@@ -48,7 +48,8 @@ Always prefer `./scripts/verify.sh` over raw `cargo`/`maturin`/`unittest` invoca
 
 Whenever a task is ready to be completed:
 1. Run `cargo fmt --all` and verify clean formatting (`cargo fmt --all -- --check`).
-2. Run `./scripts/verify.sh --fast` (or `--rust` / `--python` / `--wasm` / `--all` matching scope; note legacy `petgraph-linalg-kernel` clippy warnings require `--strict` to surface).
+2. Run `./scripts/verify.sh --fast` (or `--rust` / `--python` / `--wasm` / `--all` matching scope; note legacy `petgraph-linalg-kernel` clippy warnings require `--strict` to surface, `--rust` and `--python` default to release mode with `--debug-rust` / `--dev-py` available for debug opt-in, and `--fast` stays debug).
 3. Verify `clippy.toml` (`std::thread` forbidden) and `./scripts/check_invariants.sh` produce zero new violations.
 4. For Python binding changes, verify inside the worktree's isolated `.venv` (never pollute `/Users/likr/diffusion-kernel-experiments/.venv` from an unmerged worktree).
 5. Always pass `--no-pager` on `git diff`, `git log`, and `git show` commands.
+6. In swarm sessions, post a brief interim status update on the board before starting any command expected to take `>60s` to prevent false monitor `[stall]` alerts.

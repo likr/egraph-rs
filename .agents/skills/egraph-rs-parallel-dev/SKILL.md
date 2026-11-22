@@ -67,13 +67,15 @@ Two parallel authors **MUST NEVER** edit the same file in the same wave. Treat t
 
 1. **Author completion**:
    - Commit inside your own worktree/branch following `egraph-rs-commit`.
-   - Run `./scripts/verify.sh --fast --json-summary <scratch>/author_<name>.json` (and `--python`/`--wasm` if you touched bindings).
+   - Run `./scripts/verify.sh --fast --json-summary <scratch>/author_<name>.json` (`--fast` stays debug for quick crate loops; `--rust` and `--python` run in release mode by default, with `--debug-rust` and `--dev-py` available to opt into debug builds).
    - Post `@verifier [done] branch=<branch> worktree=<path> summary=<json_path>`.
 2. **Verifier audit**:
    - Inspect diff (`git --no-pager diff <base>..HEAD`).
-   - Run `./scripts/verify.sh --rust --invariants` (plus `--python`/`--wasm`/`--parity` for binding/integration milestones).
+   - Run `./scripts/verify.sh --rust --invariants` (release Rust tests by default; add `--debug-rust`/`--dev-py` only when debugging, and `--python`/`--wasm`/`--parity` for binding/integration milestones).
    - Report itemized defects directly to the `@author` or `@coordinator [done] APPROVED` when clean.
 3. **Coordinator integration**:
    - Cherry-pick or merge approved branches sequentially into the integration branch.
    - Run integrated `./scripts/verify.sh --all` before opening the next milestone wave.
    - Clean merged worktrees with `./scripts/worktree.sh clean <slug> --delete-branch`.
+4. **Long-running command heartbeat (Swarm Rule)**:
+   - Workers MUST post a brief interim status update on the swarm message board before starting any command expected to take `>60s` (e.g., `--rust`, `--python`, `--wasm`, `--all`, or long builds) so `monitor` does not emit false `[stall]` alerts.

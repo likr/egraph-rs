@@ -11,8 +11,8 @@ EGRAPH_PARALLEL_WORKERS, and worktree-local .venv.
 
 Modes (composable):
   --fast                   Tier 0: fmt check + clippy/nextest on modified or --crate targets + thread scan
-  --rust                   Full workspace fmt check, clippy (excl. legacy petgraph-linalg-kernel unless --strict), nextest
-  --python                 Build crates/python into worktree .venv via maturin develop & run tests/mypy
+  --rust                   Full workspace fmt check, clippy (excl. legacy petgraph-linalg-kernel unless --strict), release nextest
+  --python                 Build crates/python into worktree .venv via maturin develop --release & run tests/mypy
   --wasm                   Check wasm32 + run wasm-pack test --node crates/wasm
   --invariants             Run scripts/check_invariants.sh
   --parity                 Run scripts/parity_harness.py
@@ -21,7 +21,9 @@ Modes (composable):
 Options:
   --crate <name>           Target crate (repeatable or comma-separated) for --fast / --invariants
   --test <name>            Scoped test module/name for --python or --wasm
-  --release                Build Python bindings with maturin develop --release
+  --release                Build Python bindings with maturin develop --release (default)
+  --dev-py                 Build Python bindings in debug mode (maturin develop without --release)
+  --debug-rust             Run --rust workspace tests in debug mode instead of --release
   --build-wasm             Also run wasm-pack build --target web --release + wasm-opt -Oz + size check
   --strict                 Strict mode for invariants & workspace-wide clippy -D warnings
   --json-summary <path>    Write machine-readable JSON summary to <path>
@@ -35,7 +37,8 @@ RUN_WASM=0
 RUN_INVARIANTS=0
 RUN_PARITY=0
 STRICT=0
-RELEASE_PY=0
+RELEASE_PY=1
+DEBUG_RUST=0
 BUILD_WASM=0
 TEST_FILTER=""
 JSON_SUMMARY=""
@@ -59,6 +62,8 @@ while [[ $# -gt 0 ]]; do
       ;;
     --test) TEST_FILTER="${2:-}"; shift 2 ;;
     --release) RELEASE_PY=1; shift ;;
+    --dev-py) RELEASE_PY=0; shift ;;
+    --debug-rust) DEBUG_RUST=1; shift ;;
     --build-wasm) BUILD_WASM=1; shift ;;
     --strict) STRICT=1; shift ;;
     --json-summary) JSON_SUMMARY="${2:-}"; shift 2 ;;
@@ -297,7 +302,11 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
       eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
     '
   fi
-  run_step "rust_workspace_tests" run_cargo_test_args --workspace
+  RUST_TEST_ARGS=()
+  if [[ "$DEBUG_RUST" -eq 0 ]]; then
+    RUST_TEST_ARGS+=(--release)
+  fi
+  run_step "rust_workspace_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --workspace
 fi
 
 # --- Python ---
