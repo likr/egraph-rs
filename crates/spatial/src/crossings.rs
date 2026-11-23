@@ -295,28 +295,8 @@ fn cmp_post_x(a: &Seg, b: &Seg, x_evt: f64) -> Ordering {
         return a.slope.total_cmp(&b.slope).then_with(|| a.id.cmp(&b.id));
     }
 
-    let pdx = dx1.min(dx2);
-    let x_scale_evt = x_evt.abs().max(1.0);
-    let post_crossing = if pdx <= 64.0 * f64::EPSILON * x_scale_evt {
-        // Near-vertical segment (dx spans only a few ULPs): `p.x1 + t * pdx` loses sub-ULP
-        // position along `p`, so compare normalized `t_int` vs `t_evt` directly.
-        let (p, q) = if dx1 < dx2 || (dx1 == dx2 && a.id <= b.id) {
-            (a, b)
-        } else {
-            (b, a)
-        };
-        let p_dx = p.x2 - p.x1;
-        let p_dy = p.y2 - p.y1;
-        let q_dx = q.x2 - q.x1;
-        let q_dy = q.y2 - q.y1;
-        let p_det = p_dx * q_dy - p_dy * q_dx;
-        let t_int = ((q.x1 - p.x1) * q_dy - (q.y1 - p.y1) * q_dx) / p_det;
-        let t_evt = (x_evt - p.x1) / p_dx;
-        t_int <= t_evt
-    } else {
-        let xi = intersection_x(a, b).unwrap_or(x_evt);
-        xi <= x_evt
-    };
+    let xi = intersection_x(a, b).unwrap_or(x_evt);
+    let post_crossing = xi <= x_evt;
     if post_crossing {
         a.slope
             .total_cmp(&b.slope)
@@ -2431,16 +2411,22 @@ fn finalize_pairs(reported: &PairSet, segs: &[Seg]) -> Vec<CrossingPair> {
     pairs
 }
 
+#[inline]
+fn wrap_torus_pos<S: Scalar>(value: S) -> f64 {
+    let w = wrap_torus_coord(value).to_f64();
+    if w == 0.0 { 0.0 } else { w }
+}
+
 /// Splits a 2D torus edge `(x1, y1) -> (x2, y2)` into 1, 2, or 3 Euclidean segments on `[0, 1]^2`
 /// matching legacy `DrawingTorus2d::edge_segments` wrap-around conventions.
 pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<Vec<[f64; 4]>> {
     if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
         return Err(CoreError::non_finite("torus_edge_segments"));
     }
-    let px = wrap_torus_coord(x1).to_f64();
-    let py = wrap_torus_coord(y1).to_f64();
-    let qx = wrap_torus_coord(x2).to_f64();
-    let qy = wrap_torus_coord(y2).to_f64();
+    let px = wrap_torus_pos(x1);
+    let py = wrap_torus_pos(y1);
+    let qx = wrap_torus_pos(x2);
+    let qy = wrap_torus_pos(y2);
 
     // Find periodic shift (dx, dy) in {-1, 0, +1}^2 minimizing Euclidean distance (px + dx - qx, py + dy - qy).
     let mut best_d = f64::INFINITY;
@@ -2477,7 +2463,7 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
         } else {
             (y0 * x1_w - y1_w * x0 + x0) / denom
         };
-        let xw = wrap_torus_coord(x2_cross);
+        let xw = wrap_torus_pos(x2_cross);
         return Ok(vec![[x0, y0, xw, 0.0], [xw, torus_max, x1_w, y1_w]]);
     }
 
@@ -2493,7 +2479,7 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
         } else {
             (x0 * y1_w - x1_w * y0 + y0) / denom
         };
-        let yw = wrap_torus_coord(y2_cross);
+        let yw = wrap_torus_pos(y2_cross);
         return Ok(vec![[x0, y0, 0.0, yw], [torus_max, yw, x1_w, y1_w]]);
     }
 
@@ -2518,16 +2504,16 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
 
     if opp {
         if x2_cross < 0.0 {
-            let yw = wrap_torus_coord(y2_cross);
-            let xw = wrap_torus_coord(x2_cross + 1.0);
+            let yw = wrap_torus_pos(y2_cross);
+            let xw = wrap_torus_pos(x2_cross + 1.0);
             Ok(vec![
                 [x0, y0, 0.0, yw],
                 [torus_max, yw, xw, torus_max],
                 [xw, 0.0, x1_w, y1_w],
             ])
         } else {
-            let xw = wrap_torus_coord(x2_cross);
-            let yw = wrap_torus_coord(y2_cross + 1.0);
+            let xw = wrap_torus_pos(x2_cross);
+            let yw = wrap_torus_pos(y2_cross + 1.0);
             Ok(vec![
                 [x0, y0, xw, torus_max],
                 [xw, 0.0, 0.0, yw],
@@ -2535,16 +2521,16 @@ pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<
             ])
         }
     } else if y2_cross < 0.0 {
-        let xw = wrap_torus_coord(x2_cross);
-        let yw = wrap_torus_coord(y2_cross + 1.0);
+        let xw = wrap_torus_pos(x2_cross);
+        let yw = wrap_torus_pos(y2_cross + 1.0);
         Ok(vec![
             [x0, y0, xw, 0.0],
             [xw, torus_max, 0.0, yw],
             [torus_max, yw, x1_w, y1_w],
         ])
     } else {
-        let yw = wrap_torus_coord(y2_cross);
-        let xw = wrap_torus_coord(x2_cross + 1.0);
+        let yw = wrap_torus_pos(y2_cross);
+        let xw = wrap_torus_pos(x2_cross + 1.0);
         Ok(vec![
             [x0, y0, 0.0, yw],
             [torus_max, yw, xw, 0.0],
@@ -2635,8 +2621,12 @@ pub fn torus_crossing_edges_from_edges<S: Scalar>(
             .then_with(|| a.edge_b.cmp(&b.edge_b))
             .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
             .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+            .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
+            .then_with(|| a.seg_a[3].total_cmp(&b.seg_a[3]))
             .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
             .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+            .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
+            .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
     });
     Ok(out)
 }
@@ -3275,8 +3265,12 @@ mod tests {
                     .then_with(|| a.edge_b.cmp(&b.edge_b))
                     .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
                     .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+                    .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
+                    .then_with(|| a.seg_a[3].total_cmp(&b.seg_a[3]))
                     .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
                     .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+                    .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
+                    .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
             });
 
             let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
@@ -3571,8 +3565,12 @@ mod tests {
                 .then_with(|| a.edge_b.cmp(&b.edge_b))
                 .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
                 .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+                .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
+                .then_with(|| a.seg_a[3].total_cmp(&b.seg_a[3]))
                 .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
                 .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+                .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
+                .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
         });
         expected
     }
@@ -3847,6 +3845,163 @@ mod tests {
                 &edges,
                 &layout,
             );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_reviewer_reproducer_f_and_negative_steep_regression() {
+        // Reproducer F (`neg_steep_11_min`): 4-edge steep negative cluster at x ~ -1e6, dx ~ 1e-8
+        // where `t_int <= t_evt` previously disagreed with `xi == x_evt`, reverting a completed
+        // swap and causing `count_edges`/`summarize_edges` to under-count (3 instead of 4).
+        let layout_f = Layout2d::from_xy(
+            vec![
+                -9.99999999999950058e5,
+                -1.00000000000000000e6,
+                -9.99999999999979977e5,
+                -9.99999999999989988e5,
+                -9.99999999999950058e5,
+                -9.99999999999940046e5,
+            ],
+            vec![-46.0, -46.0, -50.0, -42.0, -50.0, -47.5],
+        )
+        .unwrap();
+        let edges_f = vec![(0, 2), (1, 4), (1, 5), (3, 2)];
+        assert_matches_brute_force("reproducer_F", &edges_f, &layout_f);
+        assert_streaming_matches_find("reproducer_F_stream", &edges_f, &layout_f);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&edges_f, &layout_f).unwrap(),
+            4
+        );
+
+        // `neg_steep_11` (`seed = 90_011`, `x_off = -1e6`, `dx ~ 1e-8`).
+        {
+            let mut rng = DeterministicRng::from_seed_u64(90_011);
+            let n = 24usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| -1e6 + (rng.gen_range_usize(8) as f64) * 1e-8)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| -50.0 + (rng.gen_range_usize(24) as f64) * 0.5)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..55 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force("neg_steep_11", &edges, &layout);
+            assert_streaming_matches_find("neg_steep_11_stream", &edges, &layout);
+        }
+
+        // 30 negative steep seeds at x_off = -1e6 (`dx ~ 1e-8`) and 30 at x_off = -1e8 (`dx ~ 1e-6`).
+        for seed in 1..=60u64 {
+            let mut rng = DeterministicRng::from_seed_u64(90_000 + seed);
+            let (x_off, dx_step) = if seed <= 30 {
+                (-1e6, 1e-8)
+            } else {
+                (-1e8, 1e-6)
+            };
+            let n = 24usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| x_off + (rng.gen_range_usize(8) as f64) * dx_step)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| -50.0 + (rng.gen_range_usize(24) as f64) * 0.5)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..55 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("neg_steep_batch_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(
+                &format!("neg_steep_batch_{seed}_stream"),
+                &edges,
+                &layout,
+            );
+        }
+
+        // 30 positive steep seeds at x_off = 1e8 (`dx ~ 1e-6`) + 30 near-vertical 1..16 ULP seeds.
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(91_000 + seed);
+            let n = 24usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| 1e8 + (rng.gen_range_usize(8) as f64) * 1e-6)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(24) as f64) * 0.5)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..55 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("pos_steep_1e8_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(&format!("pos_steep_1e8_{seed}_stream"), &edges, &layout);
+        }
+
+        for seed in 1..=30u64 {
+            let mut rng = DeterministicRng::from_seed_u64(92_000 + seed);
+            let base = if seed <= 10 {
+                100.0_f64
+            } else if seed <= 20 {
+                -1e6_f64
+            } else {
+                1e6_f64
+            };
+            let n = 20usize;
+            let mut xs = Vec::with_capacity(n);
+            let mut ys = Vec::with_capacity(n);
+            for _ in 0..n {
+                let ulps = rng.gen_range_usize(17) as u64;
+                let x = if base >= 0.0 {
+                    f64::from_bits(base.to_bits() + ulps)
+                } else {
+                    f64::from_bits(base.to_bits() - ulps)
+                };
+                xs.push(x);
+                ys.push((rng.gen_range_usize(20) as f64) * 0.5);
+            }
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..45 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("near_vert_ulp_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(&format!("near_vert_ulp_{seed}_stream"), &edges, &layout);
+        }
+    }
+
+    #[test]
+    fn test_torus_corner_wrap_sort_tie_break() {
+        // Degenerate corner-wrap segment `(0.0, 0.0) -> (1 - eps, 1 - eps)` produces sub-segments
+        // sharing left endpoint `(0.0, 0.0)` and previously exposed `-0.0` / sort tie-break gaps.
+        let eps_max = 1.0 - f64::EPSILON;
+        let layout = Layout2d::from_xy(
+            vec![0.0, eps_max, 0.05, 0.95, 0.25, 0.75, 0.1, 0.9],
+            vec![0.0, eps_max, 0.95, 0.05, 0.01, 0.99, 0.5, 0.5],
+        )
+        .unwrap();
+        let edges = vec![(0, 1), (2, 3), (4, 5), (6, 7), (0, 3), (1, 2)];
+        let expected = torus_brute_force(&edges, &layout);
+        let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
+        assert_eq!(got, expected, "torus corner wrap exact parity");
+        for item in &got {
+            for c in item.seg_a.into_iter().chain(item.seg_b) {
+                assert_ne!(
+                    c.to_bits(),
+                    (-0.0_f64).to_bits(),
+                    "torus crossing output must canonicalize -0.0 to +0.0"
+                );
+            }
         }
     }
 }
