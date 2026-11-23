@@ -6,9 +6,9 @@ use egraph_core::{
     SolverStatus,
 };
 use egraph_neighborhood::{
-    DogVaradhanConfig, KnnGraph, SparseProbabilities, build_gumap_12hop_priority_csr,
-    compute_fuzzy_simplicial_set, compute_regularized_dog_varadhan_landmarks,
-    extract_sparse_1hop_2hop_pairs, find_ab_params,
+    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, SparseProbabilities,
+    build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
+    compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs, find_ab_params,
 };
 use egraph_spatial::{ArenaQuadtree2d, Fft2dWorkspace, IbFft2d, IbFftConfig};
 
@@ -928,13 +928,13 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         })
     }
 
-    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] using $O(|E|)$
-    /// 1+2-hop pair sampling, regularized DoG Varadhan landmark ALT distances, priority CSR
-    /// construction, and fuzzy simplicial set computation.
-    pub fn ib_umap<W: Scalar>(
+    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] and precomputed
+    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
+    /// distances, priority CSR construction, and fuzzy simplicial sets.
+    pub fn ib_umap_from_landmarks<W: Scalar>(
         graph: &CsrGraph<W>,
+        landmarks: &DogVaradhanLandmarks,
         max_2hop_per_node: usize,
-        dog_cfg: &DogVaradhanConfig,
         config: IbUmapConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
@@ -942,7 +942,54 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
         }
-        let (landmarks, _dog_stats) = compute_regularized_dog_varadhan_landmarks(graph, dog_cfg)?;
+        if landmarks.num_nodes() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                landmarks.num_nodes(),
+                "FieldLayoutSolver::ib_umap_from_landmarks::landmarks",
+            ));
+        }
+        let k_lm = landmarks.num_landmarks();
+        if n > 0 && k_lm == 0 {
+            return Err(CoreError::invalid_input(
+                "landmarks must have at least 1 landmark when num_nodes > 0",
+            ));
+        }
+        let expected = n
+            .checked_mul(k_lm)
+            .ok_or_else(|| CoreError::invalid_input("landmark table size overflow"))?;
+        if landmarks.d_dog().len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                landmarks.d_dog().len(),
+                "DogVaradhanLandmarks::d_dog",
+            ));
+        }
+        if landmarks.d_dog().iter().any(|v| !v.is_finite()) {
+            return Err(CoreError::non_finite("DogVaradhanLandmarks::d_dog"));
+        }
+        if let Some(dc) = landmarks.d_coarse() {
+            if dc.len() != expected {
+                return Err(CoreError::dimension_mismatch(
+                    expected,
+                    dc.len(),
+                    "DogVaradhanLandmarks::d_coarse",
+                ));
+            }
+            if dc.iter().any(|v| !v.is_finite()) {
+                return Err(CoreError::non_finite("DogVaradhanLandmarks::d_coarse"));
+            }
+        }
+        for &lm in landmarks.landmarks() {
+            if (lm as usize) >= n {
+                return Err(CoreError::index_out_of_bounds(
+                    lm as usize,
+                    n,
+                    "DogVaradhanLandmarks::landmarks",
+                ));
+            }
+        }
+
         if n <= 1 {
             let degs = vec![0u32; n];
             return Self::ib_umap_from_fuzzy_set(
@@ -989,6 +1036,24 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             }
         }
         Self::ib_umap_from_fuzzy_set(probs, Some(&degrees), config)
+    }
+
+    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] using $O(|E|)$
+    /// 1+2-hop pair sampling, regularized DoG Varadhan landmark ALT distances, priority CSR
+    /// construction, and fuzzy simplicial set computation.
+    pub fn ib_umap<W: Scalar>(
+        graph: &CsrGraph<W>,
+        max_2hop_per_node: usize,
+        dog_cfg: &DogVaradhanConfig,
+        config: IbUmapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
+        }
+        let (landmarks, _dog_stats) = compute_regularized_dog_varadhan_landmarks(graph, dog_cfg)?;
+        Self::ib_umap_from_landmarks(graph, &landmarks, max_2hop_per_node, config)
     }
 
     /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a validated [`KnnGraph`] via
@@ -2493,5 +2558,61 @@ mod tests {
         s_umap.run(&mut l_umap).unwrap();
         assert!(s_umap.field_quadtree.nodes.capacity() >= qt_node_cap);
         assert!(l_umap.is_all_finite());
+    }
+
+    #[test]
+    fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
+        let g = grid_graph(4, 4);
+        let n = g.num_nodes();
+        let dog_cfg = DogVaradhanConfig::default();
+        let cfg = IbUmapConfig {
+            n_epochs: 15,
+            seed: 67,
+            ..Default::default()
+        };
+        let (landmarks, _) = compute_regularized_dog_varadhan_landmarks(&g, &dog_cfg).unwrap();
+
+        let mut s_dog = FieldLayoutSolver::<f64>::ib_umap(&g, 32, &dog_cfg, cfg).unwrap();
+        let mut s_lm =
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &landmarks, 32, cfg).unwrap();
+        let mut l_dog = seeded_layout::<f64>(n, 1.0, 23);
+        let mut l_lm = l_dog.clone();
+        s_dog.run(&mut l_dog).unwrap();
+        s_lm.run(&mut l_lm).unwrap();
+        for i in 0..n {
+            assert_eq!(l_dog.x()[i].to_bits(), l_lm.x()[i].to_bits());
+            assert_eq!(l_dog.y()[i].to_bits(), l_lm.y()[i].to_bits());
+        }
+
+        // Validation errors
+        let mut bad_nodes = landmarks.clone();
+        bad_nodes.num_nodes = n + 1;
+        assert!(matches!(
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_nodes, 32, cfg),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+
+        let mut bad_empty_lm = landmarks.clone();
+        bad_empty_lm.landmarks.clear();
+        bad_empty_lm.d_dog.clear();
+        bad_empty_lm.d_coarse = None;
+        assert!(matches!(
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_empty_lm, 32, cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+
+        let mut bad_nan = landmarks.clone();
+        bad_nan.d_dog[0] = f64::NAN;
+        assert!(matches!(
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_nan, 32, cfg),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        let mut bad_idx = landmarks;
+        bad_idx.landmarks[0] = n as u32;
+        assert!(matches!(
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_idx, 32, cfg),
+            Err(CoreError::IndexOutOfBounds { .. })
+        ));
     }
 }

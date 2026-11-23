@@ -6,9 +6,9 @@ use egraph_core::{
     SolverStatus,
 };
 use egraph_neighborhood::{
-    DogVaradhanConfig, KnnGraph, SparseProbabilities, build_gumap_12hop_priority_csr,
-    compute_fuzzy_simplicial_set, compute_regularized_dog_varadhan_landmarks,
-    extract_sparse_1hop_2hop_pairs, find_ab_params,
+    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, SparseProbabilities,
+    build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
+    compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs, find_ab_params,
 };
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
@@ -222,24 +222,73 @@ impl<S: Scalar> GuMapSolver<S> {
         Self::from_fuzzy_set(probs, config)
     }
 
-    /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] using $O(|E|)$ hub-safe 1+2-hop pairs,
-    /// regularized Chebyshev DoG Varadhan landmark ALT distances, `eps_dist` distance flooring,
-    /// 1+2-hop priority CSR construction, and fuzzy simplicial set computation.
-    pub fn from_graph_dog<W: Scalar>(
+    /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] and precomputed
+    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
+    /// distances, `eps_dist` flooring, 1+2-hop priority CSR, and fuzzy simplicial sets.
+    pub fn from_landmarks<W: Scalar>(
         graph: &CsrGraph<W>,
+        landmarks: &DogVaradhanLandmarks,
         max_2hop_per_node: usize,
-        dog_config: &DogVaradhanConfig,
         config: GuMapConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
         let n = graph.num_nodes();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
+        }
+        if landmarks.num_nodes() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                landmarks.num_nodes(),
+                "GuMapSolver::from_landmarks::landmarks",
+            ));
+        }
+        let k_lm = landmarks.num_landmarks();
+        if n > 0 && k_lm == 0 {
+            return Err(CoreError::invalid_input(
+                "landmarks must have at least 1 landmark when num_nodes > 0",
+            ));
+        }
+        let expected = n
+            .checked_mul(k_lm)
+            .ok_or_else(|| CoreError::invalid_input("landmark table size overflow"))?;
+        if landmarks.d_dog().len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                landmarks.d_dog().len(),
+                "DogVaradhanLandmarks::d_dog",
+            ));
+        }
+        if landmarks.d_dog().iter().any(|v| !v.is_finite()) {
+            return Err(CoreError::non_finite("DogVaradhanLandmarks::d_dog"));
+        }
+        if let Some(dc) = landmarks.d_coarse() {
+            if dc.len() != expected {
+                return Err(CoreError::dimension_mismatch(
+                    expected,
+                    dc.len(),
+                    "DogVaradhanLandmarks::d_coarse",
+                ));
+            }
+            if dc.iter().any(|v| !v.is_finite()) {
+                return Err(CoreError::non_finite("DogVaradhanLandmarks::d_coarse"));
+            }
+        }
+        for &lm in landmarks.landmarks() {
+            if (lm as usize) >= n {
+                return Err(CoreError::index_out_of_bounds(
+                    lm as usize,
+                    n,
+                    "DogVaradhanLandmarks::landmarks",
+                ));
+            }
+        }
+
         if n <= 1 {
             return Self::from_fuzzy_set(SparseProbabilities::empty(n), config);
         }
 
         let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, config.seed)?;
-        let (landmarks, _dog_stats) =
-            compute_regularized_dog_varadhan_landmarks(graph, dog_config)?;
         let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
         let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
         for d in &mut d1 {
@@ -259,6 +308,26 @@ impl<S: Scalar> GuMapSolver<S> {
             DEFAULT_TIER2_MARGIN,
         )?;
         Self::from_knn(&knn, config)
+    }
+
+    /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] using $O(|E|)$ hub-safe 1+2-hop pairs,
+    /// regularized Chebyshev DoG Varadhan landmark ALT distances, `eps_dist` distance flooring,
+    /// 1+2-hop priority CSR construction, and fuzzy simplicial set computation.
+    pub fn from_graph_dog<W: Scalar>(
+        graph: &CsrGraph<W>,
+        max_2hop_per_node: usize,
+        dog_config: &DogVaradhanConfig,
+        config: GuMapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        if n <= 1 {
+            return Self::from_fuzzy_set(SparseProbabilities::empty(n), config);
+        }
+
+        let (landmarks, _dog_stats) =
+            compute_regularized_dog_varadhan_landmarks(graph, dog_config)?;
+        Self::from_landmarks(graph, &landmarks, max_2hop_per_node, config)
     }
 
     /// Returns the solver configuration.
@@ -766,5 +835,60 @@ mod tests {
             got,
             vec![(0, 1), (1, 0), (0, 3), (3, 0), (1, 2), (2, 1), (2, 3)]
         );
+    }
+
+    #[test]
+    fn test_gumap_from_landmarks_bit_exact_and_validation() {
+        let grid = grid_graph(4, 4);
+        let n = grid.num_nodes();
+        let dog_cfg = DogVaradhanConfig::default();
+        let cfg = GuMapConfig {
+            n_epochs: 20,
+            seed: 55,
+            ..Default::default()
+        };
+        let (landmarks, _) = compute_regularized_dog_varadhan_landmarks(&grid, &dog_cfg).unwrap();
+
+        let mut s_dog = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+        let mut s_lm = GuMapSolver::<f64>::from_landmarks(&grid, &landmarks, 32, cfg).unwrap();
+        let mut l_dog = seeded_layout::<f64>(n, 1.0, 21);
+        let mut l_lm = l_dog.clone();
+        s_dog.run(&mut l_dog).unwrap();
+        s_lm.run(&mut l_lm).unwrap();
+        for i in 0..n {
+            assert_eq!(l_dog.x()[i].to_bits(), l_lm.x()[i].to_bits());
+            assert_eq!(l_dog.y()[i].to_bits(), l_lm.y()[i].to_bits());
+        }
+
+        // Validation errors
+        let mut bad_nodes = landmarks.clone();
+        bad_nodes.num_nodes = n + 1;
+        assert!(matches!(
+            GuMapSolver::<f64>::from_landmarks(&grid, &bad_nodes, 32, cfg),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+
+        let mut bad_empty_lm = landmarks.clone();
+        bad_empty_lm.landmarks.clear();
+        bad_empty_lm.d_dog.clear();
+        bad_empty_lm.d_coarse = None;
+        assert!(matches!(
+            GuMapSolver::<f64>::from_landmarks(&grid, &bad_empty_lm, 32, cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+
+        let mut bad_nan = landmarks.clone();
+        bad_nan.d_dog[0] = f64::NAN;
+        assert!(matches!(
+            GuMapSolver::<f64>::from_landmarks(&grid, &bad_nan, 32, cfg),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        let mut bad_idx = landmarks;
+        bad_idx.landmarks[0] = n as u32;
+        assert!(matches!(
+            GuMapSolver::<f64>::from_landmarks(&grid, &bad_idx, 32, cfg),
+            Err(CoreError::IndexOutOfBounds { .. })
+        ));
     }
 }
