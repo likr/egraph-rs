@@ -5,9 +5,9 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [6.0.0-alpha.4] - 2026-11-23
+## [6.0.0-alpha.5] - 2026-11-23
 
-`v6.0.0-alpha.4` (`6.0.0a4` on PyPI, `6.0.0-alpha.4` with `--tag next` on npm) delivers a clean architectural redesign across Native Rust, Python (PyO3 `abi3-py310`), and WebAssembly (`wasm-bindgen` pure ESM), achieving 100% cross-target feature parity under strictly single-threaded, deterministic pure CPU Rust execution.
+`v6.0.0-alpha.5` (`6.0.0a5` on PyPI, `6.0.0-alpha.5` with `--tag next` on npm) delivers a clean architectural redesign across Native Rust, Python (PyO3 `abi3-py310`), and WebAssembly (`wasm-bindgen` pure ESM), achieving 100% cross-target feature parity under strictly single-threaded, deterministic pure CPU Rust execution. Prior tag `v6.0.0-alpha.4` remained unpublished after a `check_invariants.sh` lockfile-stderr bug was fixed prior to `v6.0.0-alpha.5`.
 
 ### Added
 
