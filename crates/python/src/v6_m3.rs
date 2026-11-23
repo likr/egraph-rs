@@ -1122,7 +1122,7 @@ fn build_tsnet_config(
         lambda_c_stage2,
         lambda_c_stage3,
         lambda_r_stage3,
-        learning_rate,
+        learning_rate: Some(learning_rate),
         momentum,
         epsilon_r,
         theta,

@@ -9,7 +9,8 @@ use egraph_core::{
 };
 use egraph_neighborhood::{
     KnnGraph, PerplexityConfig, SparseProbabilities, SymmetrizationMode, build_pure_2hop_knn,
-    compute_knn_probabilities, compute_nodewise_2hop_perplexities, partial_bfs_knn,
+    compute_knn_probabilities, compute_nodewise_2hop_perplexities,
+    graph_12hop_row_normalized_probabilities, partial_bfs_knn,
 };
 use egraph_spatial::{
     ArenaQuadtree2d, FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats, IbFftConfig,
@@ -108,8 +109,8 @@ pub struct TsNetConfig {
     pub lambda_c_stage3: f64,
     /// Repulsion weight $\lambda_r$ in Stage 3 (`0.0`).
     pub lambda_r_stage3: f64,
-    /// Base gradient descent learning rate (`200.0`).
-    pub learning_rate: f64,
+    /// Optional explicit base gradient descent learning rate (`None` uses $O(N)$ scaling `max(200.0, N / 3.0)`).
+    pub learning_rate: Option<f64>,
     /// Momentum factor in `[0.0, 1.0)` (`0.8`).
     pub momentum: f64,
     /// Entropy softening constant $\varepsilon_r > 0$ (`0.05`).
@@ -148,13 +149,21 @@ impl TsNetConfig {
             lambda_c_stage2: 0.01,
             lambda_c_stage3: 0.0,
             lambda_r_stage3: 0.0,
-            learning_rate: 200.0,
+            learning_rate: None,
             momentum: 0.8,
             epsilon_r: 0.05,
             theta: 0.5,
             ibfft: IbFftConfig::default(),
             seed: 42,
         }
+    }
+
+    /// Resolves the effective base learning rate for a graph with `num_nodes` vertices:
+    /// explicit `Some(lr)` or automatic $O(N)$ scaling `200.0_f64.max((num_nodes as f64) / 3.0)`.
+    #[inline]
+    pub fn resolve_learning_rate(&self, num_nodes: usize) -> f64 {
+        self.learning_rate
+            .unwrap_or_else(|| 200.0_f64.max((num_nodes as f64) / 3.0))
     }
 
     /// Returns the 3 optimization stages defined by this configuration.
@@ -237,10 +246,11 @@ impl TsNetConfig {
                 )));
             }
         }
-        if !self.learning_rate.is_finite() || self.learning_rate <= 0.0 {
+        if let Some(lr) = self.learning_rate
+            && (!lr.is_finite() || lr <= 0.0)
+        {
             return Err(CoreError::invalid_input(format!(
-                "learning_rate must be finite and > 0.0, got {}",
-                self.learning_rate
+                "learning_rate must be finite and > 0.0, got {lr}"
             )));
         }
         if !self.momentum.is_finite() || self.momentum < 0.0 || self.momentum >= 1.0 {
@@ -375,9 +385,10 @@ impl<S: Scalar> TsNetSolver<S> {
             TsNetBackend::FftInterpolation | TsNetBackend::LinearFft => (0, 0),
         };
 
+        let base_lr = config.resolve_learning_rate(n);
         let initial_stage_lr = first_active
-            .map(|idx| compute_stage_lr(&stages[idx], n, config.learning_rate, config.momentum))
-            .unwrap_or(config.learning_rate);
+            .map(|idx| compute_stage_lr(&stages[idx], n, base_lr, config.momentum))
+            .unwrap_or(base_lr);
 
         Ok(Self {
             config,
@@ -403,7 +414,7 @@ impl<S: Scalar> TsNetSolver<S> {
             stage_idx,
             stage_iter: 0,
             stage_entered: false,
-            prev_stage_lr: config.learning_rate,
+            prev_stage_lr: base_lr,
             active_stage_lr: initial_stage_lr,
             last_fft_stats: None,
             total_fft_2d_calls: 0,
@@ -456,6 +467,24 @@ impl<S: Scalar> TsNetSolver<S> {
             config.max_perplexity,
         )?;
         Self::from_knn(&knn, Some(&perplexities), 1.0, config)
+    }
+
+    /// Constructs a [`TsNetSolver`] directly from a graph using row-normalized 1+2-hop
+    /// affinities $P = (D_{\mathrm{row}}^{-1} A + A^T D_{\mathrm{row}}^{-1}) / (2 N)$ with
+    /// $A = A_1 + w_2 A_2$.
+    ///
+    /// When `max_2hop_per_node` is `None`, exact uncapped 1+2-hop neighborhoods are used;
+    /// when `Some(cap)`, 2-hop expansion is hub-safely capped using `config.seed`.
+    pub fn from_graph_row_normalized<W: Scalar>(
+        graph: &CsrGraph<W>,
+        w2: f64,
+        max_2hop_per_node: Option<usize>,
+        config: TsNetConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let probs =
+            graph_12hop_row_normalized_probabilities(graph, w2, max_2hop_per_node, config.seed)?;
+        Self::from_probabilities(probs, config)
     }
 
     /// Constructs a [`TsNetSolver`] from a graph using Partial BFS $k$-NN (`config.seed`) and a
@@ -518,12 +547,8 @@ impl<S: Scalar> TsNetSolver<S> {
 
     fn enter_current_stage(&mut self) -> CoreResult<()> {
         let stage = self.stages[self.stage_idx];
-        let stage_lr = compute_stage_lr(
-            &stage,
-            self.num_nodes,
-            self.config.learning_rate,
-            self.config.momentum,
-        );
+        let base_lr = self.config.resolve_learning_rate(self.num_nodes);
+        let stage_lr = compute_stage_lr(&stage, self.num_nodes, base_lr, self.config.momentum);
         if stage_lr < self.prev_stage_lr {
             let vel_scale = stage_lr / self.prev_stage_lr;
             for v in &mut self.vel_x {
@@ -866,6 +891,8 @@ fn compute_stage_lr(stage: &TsNetStage, n: usize, learning_rate: f64, momentum: 
     if stage.lambda_r > 0.0 {
         let tsnet_lr_cap = 50.0_f64.min(2.0 * n_f64);
         stage_lr = stage_lr.min(tsnet_lr_cap);
+    } else if stage.lambda_c == 0.0 {
+        stage_lr = stage_lr.min(2.0 * n_f64);
     }
     stage_lr
 }
@@ -1014,7 +1041,18 @@ mod tests {
         assert_eq!(cfg.lambda_c_stage2, 0.01);
         assert_eq!(cfg.lambda_c_stage3, 0.0);
         assert_eq!(cfg.lambda_r_stage3, 0.0);
-        assert_eq!(cfg.learning_rate, 200.0);
+        assert_eq!(cfg.learning_rate, None);
+        assert_eq!(cfg.resolve_learning_rate(16), 200.0);
+        assert_eq!(cfg.resolve_learning_rate(600), 200.0);
+        assert!((cfg.resolve_learning_rate(3000) - 1000.0).abs() < 1e-12);
+        assert_eq!(
+            TsNetConfig {
+                learning_rate: Some(42.0),
+                ..cfg
+            }
+            .resolve_learning_rate(3000),
+            42.0
+        );
         assert_eq!(cfg.momentum, 0.8);
         assert_eq!(cfg.epsilon_r, 0.05);
         assert_eq!(cfg.theta, 0.5);
@@ -1069,7 +1107,11 @@ mod tests {
                 ..cfg
             },
             TsNetConfig {
-                learning_rate: 0.0,
+                learning_rate: Some(0.0),
+                ..cfg
+            },
+            TsNetConfig {
+                learning_rate: Some(f64::NAN),
                 ..cfg
             },
             TsNetConfig {
@@ -1207,7 +1249,7 @@ mod tests {
             // 1. Barbell (n=12) and 4x4 grid (n=16) with small-graph learning rate.
             let cfg_small = TsNetConfig {
                 backend,
-                learning_rate: 15.0,
+                learning_rate: Some(15.0),
                 iterations_stage1: 80,
                 iterations_stage2: 80,
                 iterations_stage3: 100,
@@ -1258,7 +1300,7 @@ mod tests {
             let grid_5x5 = make_grid_graph(5, 5);
             let cfg_classic = TsNetConfig {
                 backend,
-                learning_rate: 50.0,
+                learning_rate: Some(50.0),
                 iterations_stage1: 40,
                 iterations_stage2: 60,
                 iterations_stage3: 40,
@@ -1318,7 +1360,7 @@ mod tests {
         ] {
             let cfg = TsNetConfig {
                 backend,
-                learning_rate: 50.0,
+                learning_rate: Some(50.0),
                 ..TsNetConfig::pure_2hop()
             };
             let probs = SparseProbabilities::empty(grid.num_nodes());
@@ -1350,7 +1392,7 @@ mod tests {
         ] {
             let cfg_pre = TsNetConfig {
                 backend,
-                learning_rate: 15.0,
+                learning_rate: Some(15.0),
                 iterations_stage1: 40,
                 iterations_stage2: 40,
                 iterations_stage3: 0,
@@ -1364,7 +1406,7 @@ mod tests {
 
             let cfg_no_rep = TsNetConfig {
                 backend,
-                learning_rate: 15.0,
+                learning_rate: Some(15.0),
                 iterations_stage1: 0,
                 iterations_stage2: 0,
                 iterations_stage3: 40,
@@ -1482,7 +1524,7 @@ mod tests {
             lambda_c_stage2: 0.01,
             lambda_c_stage3: 0.0,
             lambda_r_stage3: 0.6,
-            learning_rate: 200.0,
+            learning_rate: Some(200.0),
             momentum: 0.8,
             ..TsNetConfig::pure_2hop()
         };
@@ -1653,5 +1695,131 @@ mod tests {
             TsNetSolver::<f64>::from_probabilities(bad_val_probs, TsNetConfig::pure_2hop()),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
+        // 1. Small-N Stage 3 with lambda_c == 0.0 and lambda_r == 0.0 is capped at 2 * N.
+        let g6 = make_barbell_graph(3); // N = 6
+        let cfg_s3 = TsNetConfig {
+            backend: TsNetBackend::Exact,
+            iterations_stage1: 0,
+            iterations_stage2: 0,
+            iterations_stage3: 2,
+            lambda_c_stage3: 0.0,
+            lambda_r_stage3: 0.0,
+            learning_rate: None,
+            ..TsNetConfig::pure_2hop()
+        };
+        let mut solver6 = TsNetSolver::<f64>::from_graph_pure_2hop(&g6, cfg_s3).unwrap();
+        let mut l6 = seeded_layout::<f64>(6, 0.5, 13);
+        solver6.step(&mut l6).unwrap();
+        assert!((solver6.current_stage_lr() - 12.0).abs() < 1e-12);
+        assert!(l6.is_all_finite());
+
+        // 2. Large-N Stage 3 (N = 3000) resolves to N/3 = 1000.0 and is never clipped by 2 * N.
+        let stage3 = TsNetStage {
+            iterations: 500,
+            exaggeration: 1.0,
+            lambda_kl: 1.0,
+            lambda_c: 0.0,
+            lambda_r: 0.0,
+        };
+        let cfg_auto = TsNetConfig::pure_2hop();
+        let base_3000 = cfg_auto.resolve_learning_rate(3000);
+        assert!((base_3000 - 1000.0).abs() < 1e-12);
+        let stage3_lr_3000 = compute_stage_lr(&stage3, 3000, base_3000, cfg_auto.momentum);
+        assert!((stage3_lr_3000 - 1000.0).abs() < 1e-12);
+
+        // 3. RowNormalized vs StandardTsne in from_graph_pure_2hop on asymmetric star+tail graph.
+        let mut edges: Vec<(u32, u32)> = (1..=6).map(|v| (0, v)).collect();
+        edges.extend([(6, 7), (7, 8), (8, 9)]);
+        let star_tail = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
+        let s_std = TsNetSolver::<f64>::from_graph_pure_2hop(&star_tail, cfg_auto).unwrap();
+        let s_rn = TsNetSolver::<f64>::from_graph_pure_2hop(
+            &star_tail,
+            TsNetConfig {
+                symmetrization: SymmetrizationMode::RowNormalized,
+                ..cfg_auto
+            },
+        )
+        .unwrap();
+        let max_p_diff = s_std
+            .p_vals
+            .iter()
+            .zip(s_rn.p_vals.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_p_diff > 1e-4,
+            "expected RowNormalized pure_2hop p_vals to differ from StandardTsne, diff={max_p_diff}"
+        );
+    }
+
+    #[test]
+    fn test_from_graph_row_normalized_uncapped_capped_and_bit_exact() {
+        let grid = make_grid_graph(4, 4);
+        let n = grid.num_nodes();
+        let cfg = TsNetConfig {
+            iterations_stage1: 8,
+            iterations_stage2: 8,
+            iterations_stage3: 8,
+            seed: 91,
+            ..TsNetConfig::pure_2hop()
+        };
+
+        for max_2hop in [None, Some(4usize)] {
+            let probs =
+                graph_12hop_row_normalized_probabilities(&grid, 0.5, max_2hop, cfg.seed).unwrap();
+            let mut s_ref = TsNetSolver::<f64>::from_probabilities(probs, cfg).unwrap();
+            let mut s_run =
+                TsNetSolver::<f64>::from_graph_row_normalized(&grid, 0.5, max_2hop, cfg).unwrap();
+            let mut s_step =
+                TsNetSolver::<f64>::from_graph_row_normalized(&grid, 0.5, max_2hop, cfg).unwrap();
+
+            let mut l_ref = seeded_layout::<f64>(n, 0.5, 29);
+            let mut l_run = l_ref.clone();
+            let mut l_step = l_ref.clone();
+
+            s_ref.run(&mut l_ref).unwrap();
+            s_run.run(&mut l_run).unwrap();
+            s_step.run_steps(&mut l_step, 10).unwrap();
+            while !s_step.status().is_finished() {
+                s_step.step(&mut l_step).unwrap();
+            }
+            for i in 0..n {
+                assert_eq!(l_ref.x()[i].to_bits(), l_run.x()[i].to_bits());
+                assert_eq!(l_ref.y()[i].to_bits(), l_run.y()[i].to_bits());
+                assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
+                assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
+            }
+
+            // f32 bit-exact step == run
+            let mut s32_run =
+                TsNetSolver::<f32>::from_graph_row_normalized(&grid, 0.5, max_2hop, cfg).unwrap();
+            let mut s32_step =
+                TsNetSolver::<f32>::from_graph_row_normalized(&grid, 0.5, max_2hop, cfg).unwrap();
+            let mut l32_run = seeded_layout::<f32>(n, 0.5, 29);
+            let mut l32_step = l32_run.clone();
+            s32_run.run(&mut l32_run).unwrap();
+            for _ in 0..24 {
+                s32_step.step(&mut l32_step).unwrap();
+            }
+            for i in 0..n {
+                assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+                assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+            }
+        }
+
+        // Validation & edge cases
+        assert!(matches!(
+            TsNetSolver::<f64>::from_graph_row_normalized(&grid, -0.5, None, cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let mut s_empty =
+            TsNetSolver::<f64>::from_graph_row_normalized(&empty, 0.5, None, cfg).unwrap();
+        let mut l_empty = Layout2d::<f64>::zeros(0);
+        assert_eq!(s_empty.run(&mut l_empty).unwrap(), SolverStatus::Converged);
     }
 }

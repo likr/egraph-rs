@@ -940,7 +940,8 @@ fn parse_tsnet_config(
             opt_f64_prop(backend_or_options, "lambdaCStage3", cfg.lambda_c_stage3)?;
         cfg.lambda_r_stage3 =
             opt_f64_prop(backend_or_options, "lambdaRStage3", cfg.lambda_r_stage3)?;
-        cfg.learning_rate = opt_f64_prop(backend_or_options, "learningRate", cfg.learning_rate)?;
+        cfg.learning_rate =
+            opt_maybe_f64_prop(backend_or_options, "learningRate")?.or(cfg.learning_rate);
         cfg.momentum = opt_f64_prop(backend_or_options, "momentum", cfg.momentum)?;
         cfg.epsilon_r = opt_f64_prop(backend_or_options, "epsilonR", cfg.epsilon_r)?;
         cfg.theta = opt_f64_prop(backend_or_options, "theta", cfg.theta)?;
@@ -987,7 +988,7 @@ fn parse_tsnet_config(
         parse_optional_usize(iterations_stage2, cfg.iterations_stage2, "iterationsStage2")?;
     cfg.iterations_stage3 =
         parse_optional_usize(iterations_stage3, cfg.iterations_stage3, "iterationsStage3")?;
-    cfg.learning_rate = learning_rate.unwrap_or(cfg.learning_rate);
+    cfg.learning_rate = learning_rate.or(cfg.learning_rate);
     cfg.perplexity_c = perplexity_c.unwrap_or(cfg.perplexity_c);
     cfg.min_perplexity = min_perplexity.unwrap_or(cfg.min_perplexity);
     cfg.max_perplexity = max_perplexity.unwrap_or(cfg.max_perplexity);
