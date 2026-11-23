@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import init, * as eg from "../pkg/egraph_wasm.node.js";
 import * as webPkg from "../pkg/index.js";
 
@@ -759,6 +762,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(!dtsText.includes("max_2hop_or_options"));
   assert(!dtsText.includes("w2_or_options"));
   assert(dtsText.includes("export interface TsNetRowNormalizedOptions extends TsNetOptions {"));
+  assert(dtsText.includes("export interface SgdScheduleOptions {"));
   assert(dtsText.includes("export interface GuMapLandmarksOptions extends GuMapOptions {"));
   assert(dtsText.includes("wAnchor2?: number | null;"));
   assert(dtsText.includes("static fromGraphRowNormalized("));
@@ -1472,6 +1476,20 @@ if (typeof eg.Graph === "function") {
 
   cmds.free();
   karate.free();
+}
+
+// 13. Run TypeScript declaration typechecking when `tsc` is installed locally
+{
+  const dtsPath = fileURLToPath(new URL("../pkg/index.d.ts", import.meta.url));
+  const tscBinName = process.platform === "win32" ? "tsc.cmd" : "tsc";
+  const tscCandidates = [
+    fileURLToPath(new URL(`../node_modules/.bin/${tscBinName}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../node_modules/.bin/${tscBinName}`, import.meta.url)),
+  ];
+  const tscBin = tscCandidates.find((p) => existsSync(p));
+  if (tscBin) {
+    execFileSync(tscBin, ["--noEmit", dtsPath], { stdio: "inherit" });
+  }
 }
 
 console.log("NODE_ESM_SMOKE_OK");

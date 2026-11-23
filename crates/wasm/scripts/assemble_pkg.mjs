@@ -350,6 +350,9 @@ export default async function init() {
 // Build pkg/index.d.ts from egraph_wasm.d.ts, preserving all v6 and legacy declarations
 // while adding CsrGraphOptions and Layout2d.prototype.coordsView().
 let indexDts = wasmDts;
+if (!indexDts.includes('/// <reference lib="esnext.disposable" />')) {
+  indexDts = `/// <reference lib="esnext.disposable" />\n${indexDts}`;
+}
 
 const csrOptionsDecl = `/**
  * Options controlling CSR / edge-list graph construction.
@@ -625,6 +628,8 @@ export interface TsNetRowNormalizedOptions extends TsNetOptions {
   w2?: number | null;
   max2hopPerNode?: number | null;
 }
+
+export interface SgdScheduleOptions {
   tMax?: number | null;
   eps?: number | null;
   kind?: SgdScheduleKind | null;
