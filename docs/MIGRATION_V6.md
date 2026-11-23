@@ -1,4 +1,4 @@
-# Migrating to `egraph` v6 (`v6.0.0-alpha.5`)
+# Migrating to `egraph` v6 (`v6.0.0-alpha.6`)
 
 `egraph` v6 is a clean architectural redesign across Native Rust, Python (`egraph`), and WebAssembly/TypeScript (`egraph`), targeting strictly single-threaded, deterministic pure CPU execution with zero-copy CSR/SoA data buffers and 100% cross-target parity.
 
@@ -8,7 +8,7 @@ For background on the v6 architecture, see [the v6 release plan](V6_RELEASE_PLAN
 
 ## Summary of Breaking Changes
 
-| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-alpha.5`) |
+| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-alpha.6`) |
 |---|---|---|
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
 | **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d` (zero-copy `coords(copy=False)` / `coordsView()`), `LayoutNd`, `ManifoldLayout2d` |

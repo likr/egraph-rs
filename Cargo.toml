@@ -36,7 +36,7 @@ members = [
 ]
 
 [workspace.package]
-version = "6.0.0-alpha.5"
+version = "6.0.0-alpha.6"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/likr/egraph-rs"
