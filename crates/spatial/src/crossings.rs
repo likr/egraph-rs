@@ -205,19 +205,129 @@ fn within_band(seed: &Seg, other: &Seg, x_evt: f64, eps_y: f64) -> bool {
 
 #[inline]
 fn intersection_x(a: &Seg, b: &Seg) -> Option<f64> {
-    let dx1 = a.x2 - a.x1;
-    let dy1 = a.y2 - a.y1;
-    let dx2 = b.x2 - b.x1;
-    let dy2 = b.y2 - b.y1;
+    let dx_a = a.x2 - a.x1;
+    let dx_b = b.x2 - b.x1;
+    let (p, q) = if dx_a < dx_b || (dx_a == dx_b && a.id <= b.id) {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let dx1 = p.x2 - p.x1;
+    let dy1 = p.y2 - p.y1;
+    let dx2 = q.x2 - q.x1;
+    let dy2 = q.y2 - q.y1;
     let det = dx1 * dy2 - dy1 * dx2;
     if det == 0.0 {
         return None;
     }
-    let t = ((b.x1 - a.x1) * dy2 - (b.y1 - a.y1) * dx2) / det;
-    let x = a.x1 + t * dx1;
-    let lo = a.x_min.max(b.x_min);
-    let hi = a.x_max.min(b.x_max);
+    let t = ((q.x1 - p.x1) * dy2 - (q.y1 - p.y1) * dx2) / det;
+    let x = p.x1 + t * dx1;
+    let lo = p.x_min.max(q.x_min);
+    let hi = p.x_max.min(q.x_max);
     Some(x.clamp(lo, hi))
+}
+
+/// Exact post-`x_evt` vertical order of two active non-vertical segments spanning `x_evt`.
+///
+/// Uses bounding-box y-disjointness and exact endpoint orientation signs (`s1, t1, s2, t2`) for
+/// non-intersecting pairs (avoiding `y_at(x_evt)` cancellation and scalar `dt_probe` overshoot),
+/// shared-endpoint slope checks, scale-safe `det == 0.0` fallback, and canonicalized
+/// `intersection_x` to separate completed crossings (`xi <= x_evt`) from future ones (`xi > x_evt`).
+#[inline]
+fn cmp_post_x(a: &Seg, b: &Seg, x_evt: f64) -> Ordering {
+    if a.id == b.id {
+        return Ordering::Equal;
+    }
+    if a.y_max < b.y_min {
+        return Ordering::Less;
+    }
+    if b.y_max < a.y_min {
+        return Ordering::Greater;
+    }
+
+    let dx1 = a.x2 - a.x1;
+    let dy1 = a.y2 - a.y1;
+    let dx2 = b.x2 - b.x1;
+    let dy2 = b.y2 - b.y1;
+
+    let s1 = dx1 * (b.y1 - a.y1) - dy1 * (b.x1 - a.x1);
+    let t1 = dx1 * (b.y2 - a.y1) - dy1 * (b.x2 - a.x1);
+    if same_sign_nonzero(s1, t1) {
+        return if s1 > 0.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+
+    let s2 = dx2 * (a.y1 - b.y1) - dy2 * (a.x1 - b.x1);
+    let t2 = dx2 * (a.y2 - b.y1) - dy2 * (a.x2 - b.x1);
+    if same_sign_nonzero(s2, t2) {
+        return if s2 > 0.0 {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        };
+    }
+
+    if a.x2 == b.x2 && a.y2 == b.y2 && a.x2 > x_evt {
+        return b.slope.total_cmp(&a.slope).then_with(|| a.id.cmp(&b.id));
+    }
+    if a.x1 == b.x1 && a.y1 == b.y1 && a.x1 <= x_evt {
+        return a.slope.total_cmp(&b.slope).then_with(|| a.id.cmp(&b.id));
+    }
+
+    let det = dx1 * dy2 - dy1 * dx2;
+    if det == 0.0 {
+        let ya = a.y_at(x_evt);
+        let yb = b.y_at(x_evt);
+        let x_scale = x_evt
+            .abs()
+            .max(a.x1.abs())
+            .max(a.x2.abs())
+            .max(b.x1.abs())
+            .max(b.x2.abs());
+        let y_scale = a.y1.abs().max(a.y2.abs()).max(b.y1.abs()).max(b.y2.abs());
+        let rel_tol = 32.0 * f64::EPSILON * (a.slope.abs().max(b.slope.abs()) * x_scale + y_scale);
+        if (ya - yb).abs() > rel_tol {
+            return ya.total_cmp(&yb);
+        }
+        return a.slope.total_cmp(&b.slope).then_with(|| a.id.cmp(&b.id));
+    }
+
+    let pdx = dx1.min(dx2);
+    let x_scale_evt = x_evt.abs().max(1.0);
+    let post_crossing = if pdx <= 64.0 * f64::EPSILON * x_scale_evt {
+        // Near-vertical segment (dx spans only a few ULPs): `p.x1 + t * pdx` loses sub-ULP
+        // position along `p`, so compare normalized `t_int` vs `t_evt` directly.
+        let (p, q) = if dx1 < dx2 || (dx1 == dx2 && a.id <= b.id) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let p_dx = p.x2 - p.x1;
+        let p_dy = p.y2 - p.y1;
+        let q_dx = q.x2 - q.x1;
+        let q_dy = q.y2 - q.y1;
+        let p_det = p_dx * q_dy - p_dy * q_dx;
+        let t_int = ((q.x1 - p.x1) * q_dy - (q.y1 - p.y1) * q_dx) / p_det;
+        let t_evt = (x_evt - p.x1) / p_dx;
+        t_int <= t_evt
+    } else {
+        let xi = intersection_x(a, b).unwrap_or(x_evt);
+        xi <= x_evt
+    };
+    if post_crossing {
+        a.slope
+            .total_cmp(&b.slope)
+            .then_with(|| 0.0_f64.total_cmp(&det))
+            .then_with(|| a.id.cmp(&b.id))
+    } else {
+        b.slope
+            .total_cmp(&a.slope)
+            .then_with(|| det.total_cmp(&0.0))
+            .then_with(|| a.id.cmp(&b.id))
+    }
 }
 
 #[inline]
@@ -231,7 +341,11 @@ fn crossing_angle_metrics(a: &Seg, b: &Seg) -> (Option<f64>, f64) {
     if len1 == 0.0 || len2 == 0.0 {
         return (None, 0.0);
     }
-    let cos_val = ((dx1 * dx2 + dy1 * dy2) / (len1 * len2)).clamp(-1.0, 1.0);
+    let ux1 = dx1 / len1;
+    let uy1 = dy1 / len1;
+    let ux2 = dx2 / len2;
+    let uy2 = dy2 / len2;
+    let cos_val = (ux1 * ux2 + uy1 * uy2).clamp(-1.0, 1.0);
     let acute = cos_val.abs().acos().min(FRAC_PI_2);
     (Some(acute), cos_val * cos_val)
 }
@@ -405,16 +519,11 @@ impl ActiveSegmentTree {
         }
 
         let s_new = &segs[edge_idx];
-        let y_new = s_new.y_at(sweep_x);
         let mut cur = self.root;
         loop {
             let cur_edge = self.nodes[cur as usize].edge_idx;
             let s_cur = &segs[cur_edge];
-            let y_cur = s_cur.y_at(sweep_x);
-            let ord = y_new
-                .total_cmp(&y_cur)
-                .then_with(|| s_new.slope.total_cmp(&s_cur.slope))
-                .then_with(|| s_new.id.cmp(&s_cur.id));
+            let ord = cmp_post_x(s_new, s_cur, sweep_x);
             if ord == Ordering::Less {
                 let left = self.nodes[cur as usize].left;
                 if left == NONE_U32 {
@@ -851,7 +960,88 @@ trait CrossingCollector {
         opt_xi: Option<f64>,
     );
     fn evict_before(&mut self, x_evt: f64);
-    fn flush_at_x(&mut self, next_x: f64);
+    fn flush_at_x(&mut self, sweep_x: f64, next_x: f64, segs: &[Seg], eps_y: f64, dt_probe: f64);
+}
+
+struct InlinePairSet {
+    inline: [u64; 8],
+    inline_len: usize,
+    overflow: PairSet,
+}
+
+impl InlinePairSet {
+    fn new() -> Self {
+        Self {
+            inline: [0; 8],
+            inline_len: 0,
+            overflow: PairSet::default(),
+        }
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.inline_len == 0 && self.overflow.is_empty()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        if self.overflow.is_empty() {
+            self.inline_len
+        } else {
+            self.overflow.len()
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.inline_len = 0;
+        if !self.overflow.is_empty() {
+            self.overflow.clear();
+        }
+    }
+
+    #[inline]
+    fn contains(&self, pair: u64) -> bool {
+        if self.overflow.is_empty() {
+            self.inline[..self.inline_len].contains(&pair)
+        } else {
+            self.overflow.contains(&pair)
+        }
+    }
+
+    #[inline]
+    fn insert(&mut self, pair: u64) -> bool {
+        if self.overflow.is_empty() {
+            if self.inline[..self.inline_len].contains(&pair) {
+                return false;
+            }
+            if self.inline_len < self.inline.len() {
+                self.inline[self.inline_len] = pair;
+                self.inline_len += 1;
+                return true;
+            }
+            for &p in &self.inline {
+                self.overflow.insert(p);
+            }
+            self.inline_len = 0;
+        }
+        self.overflow.insert(pair)
+    }
+
+    #[inline]
+    fn remove(&mut self, pair: u64) {
+        if self.overflow.is_empty() {
+            if let Some(pos) = self.inline[..self.inline_len]
+                .iter()
+                .position(|&p| p == pair)
+            {
+                self.inline_len -= 1;
+                self.inline[pos] = self.inline[self.inline_len];
+            }
+        } else {
+            self.overflow.remove(&pair);
+        }
+    }
 }
 
 struct PairSetCollector {
@@ -865,7 +1055,11 @@ impl CrossingCollector for PairSetCollector {
     }
 
     #[inline]
-    fn on_swap_pair(&mut self, _s1: &Seg, _s2: &Seg, _sweep_x: f64, _eps_y: f64, _dt_probe: f64) {}
+    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, _sweep_x: f64, _eps_y: f64, _dt_probe: f64) {
+        if !s1.shares_endpoint(s2) && segments_geometrically_intersect(s1, s2) {
+            self.reported.insert(pack_pair(s1.id, s2.id));
+        }
+    }
 
     #[inline]
     fn on_band_pair(
@@ -884,16 +1078,24 @@ impl CrossingCollector for PairSetCollector {
     fn evict_before(&mut self, _x_evt: f64) {}
 
     #[inline]
-    fn flush_at_x(&mut self, _next_x: f64) {}
+    fn flush_at_x(
+        &mut self,
+        _sweep_x: f64,
+        _next_x: f64,
+        _segs: &[Seg],
+        _eps_y: f64,
+        _dt_probe: f64,
+    ) {
+    }
 }
 
 struct StreamingCollector<F: FnMut(usize, usize)> {
     on_crossing: F,
-    at_x_inline: [(u64, Option<f64>); 8],
+    at_x_inline: [(u64, u32, u32, f64); 8],
     at_x_inline_len: usize,
     at_x_overflow_set: PairSet,
-    at_x_overflow_list: Vec<(u64, Option<f64>)>,
-    active_band_reported: PairSet,
+    at_x_overflow_list: Vec<(u64, u32, u32, f64)>,
+    active_band_reported: InlinePairSet,
     evict_heap: BinaryHeap<Reverse<(OrderedF64, u64)>>,
     peak_active_band: usize,
 }
@@ -902,11 +1104,11 @@ impl<F: FnMut(usize, usize)> StreamingCollector<F> {
     fn new(on_crossing: F) -> Self {
         Self {
             on_crossing,
-            at_x_inline: [(0, None); 8],
+            at_x_inline: [(0, 0, 0, f64::NAN); 8],
             at_x_inline_len: 0,
             at_x_overflow_set: PairSet::default(),
             at_x_overflow_list: Vec::new(),
-            active_band_reported: PairSet::default(),
+            active_band_reported: InlinePairSet::new(),
             evict_heap: BinaryHeap::new(),
             peak_active_band: 0,
         }
@@ -917,64 +1119,87 @@ impl<F: FnMut(usize, usize)> StreamingCollector<F> {
         if self.at_x_overflow_list.is_empty() {
             self.at_x_inline[..self.at_x_inline_len]
                 .iter()
-                .any(|&(p, _)| p == pair)
+                .any(|&(p, _, _, _)| p == pair)
         } else {
             self.at_x_overflow_set.contains(&pair)
         }
     }
 
     #[inline]
-    fn insert_at_x(&mut self, pair: u64, opt_x_evict: Option<f64>) {
+    fn is_reported(&self, pair: u64) -> bool {
+        self.contains_at_x(pair)
+            || (!self.active_band_reported.is_empty() && self.active_band_reported.contains(pair))
+    }
+
+    #[inline]
+    fn insert_at_x(&mut self, pair: u64, a_id: u32, b_id: u32, x_base: f64) {
         if self.at_x_overflow_list.is_empty() {
             if self.at_x_inline_len < self.at_x_inline.len() {
-                self.at_x_inline[self.at_x_inline_len] = (pair, opt_x_evict);
+                self.at_x_inline[self.at_x_inline_len] = (pair, a_id, b_id, x_base);
                 self.at_x_inline_len += 1;
                 return;
             }
-            for &(p, ev) in &self.at_x_inline {
+            for &(p, aid, bid, xb) in &self.at_x_inline {
                 self.at_x_overflow_set.insert(p);
-                self.at_x_overflow_list.push((p, ev));
+                self.at_x_overflow_list.push((p, aid, bid, xb));
             }
             self.at_x_inline_len = 0;
         }
         if self.at_x_overflow_set.insert(pair) {
-            self.at_x_overflow_list.push((pair, opt_x_evict));
+            self.at_x_overflow_list.push((pair, a_id, b_id, x_base));
         }
     }
 
     #[inline]
-    fn emit_if_new(&mut self, a: usize, b: usize, opt_x_evict: Option<f64>) {
-        let pair = pack_pair(a, b);
-        if self.contains_at_x(pair) || self.active_band_reported.contains(&pair) {
-            return;
-        }
-        self.insert_at_x(pair, opt_x_evict);
+    fn emit_pair_unchecked(&mut self, pair: u64, a: usize, b: usize, x_base: f64) {
+        self.insert_at_x(pair, a as u32, b as u32, x_base);
         let (lo, hi) = if a < b { (a, b) } else { (b, a) };
         (self.on_crossing)(lo, hi);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[inline]
-fn compute_x_evict(
-    a: &Seg,
-    b: &Seg,
+fn promote_band_pair(
+    pair: u64,
+    a_id: u32,
+    b_id: u32,
+    x_base: f64,
     sweep_x: f64,
-    xi: f64,
+    next_x: f64,
+    segs: &[Seg],
     eps_y: f64,
     dt_probe: f64,
-) -> Option<f64> {
+    active_band_reported: &mut InlinePairSet,
+    evict_heap: &mut BinaryHeap<Reverse<(OrderedF64, u64)>>,
+) {
+    if x_base.is_nan() {
+        return;
+    }
+    let a = &segs[a_id as usize];
+    let b = &segs[b_id as usize];
     let r = a.x2.min(b.x2);
-    if sweep_x >= r {
-        return None;
+    if next_x > r || sweep_x >= r {
+        return;
     }
     let ds = (a.slope - b.slope).abs();
-    if ds == 0.0 {
-        return Some(r);
+    let x_evict = if ds == 0.0 {
+        r
+    } else {
+        let dx_rem = next_x - x_base;
+        let dy = (a.y_at(sweep_x) - b.y_at(sweep_x)).abs();
+        let margin = dy + 2.0 * eps_y + 2.0 * (seg_y_err(a, r) + seg_y_err(b, r));
+        if dx_rem > dt_probe {
+            let rhs = (dx_rem - dt_probe) * ds;
+            if margin < rhs * (1.0 - 4.0 * f64::EPSILON) {
+                return;
+            }
+        }
+        r.min(x_base + margin / ds + dt_probe)
+    };
+    if x_evict >= next_x && active_band_reported.insert(pair) {
+        evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
     }
-    let dy = (a.y_at(sweep_x) - b.y_at(sweep_x)).abs();
-    let margin = dy + 2.0 * eps_y + 2.0 * (seg_y_err(a, r) + seg_y_err(b, r));
-    let x_sep = sweep_x.max(xi) + margin / ds + dt_probe;
-    Some(r.min(x_sep))
 }
 
 impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
@@ -985,11 +1210,24 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
     }
 
     #[inline]
-    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, eps_y: f64, dt_probe: f64) {
+    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, _eps_y: f64, _dt_probe: f64) {
         if !s1.shares_endpoint(s2) && segments_geometrically_intersect(s1, s2) {
-            let opt_x_evict = intersection_x(s1, s2)
-                .and_then(|xi| compute_x_evict(s1, s2, sweep_x, xi, eps_y, dt_probe));
-            self.emit_if_new(s1.id, s2.id, opt_x_evict);
+            if s1.slope == s2.slope
+                && (s1.x2 - s1.x1) * (s2.y2 - s2.y1) - (s1.y2 - s1.y1) * (s2.x2 - s2.x1) == 0.0
+            {
+                // Collinear/parallel pairs with det == 0.0 are emitted exclusively at `sweep_x == l`
+                // inside `on_band_pair` without cross-x_evt tracking.
+                return;
+            }
+            let pair = pack_pair(s1.id, s2.id);
+            if !self.is_reported(pair) {
+                let x_base = if s1.slope < s2.slope {
+                    intersection_x(s1, s2).map_or(sweep_x, |xi| sweep_x.max(xi))
+                } else {
+                    sweep_x
+                };
+                self.emit_pair_unchecked(pair, s1.id, s2.id, x_base);
+            }
         }
     }
 
@@ -1000,25 +1238,34 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
         s_hi: &Seg,
         sweep_x: f64,
         eps_y: f64,
-        dt_probe: f64,
+        _dt_probe: f64,
         opt_xi: Option<f64>,
     ) {
         match opt_xi {
             None => {
-                // det == 0.0 (collinear / parallel): emit only at the overlap start L so
-                // persistent collinear bands require O(1) cross-x_evt tracking.
+                // det == 0.0 (collinear / parallel, or sub-1e-160 underflow).
                 let l = s_lo.x1.max(s_hi.x1);
                 if sweep_x == l {
-                    self.emit_if_new(s_lo.id, s_hi.id, None);
+                    let pair = pack_pair(s_lo.id, s_hi.id);
+                    if !self.is_reported(pair) {
+                        let x_base = if s_lo.slope == s_hi.slope {
+                            f64::NAN
+                        } else {
+                            sweep_x
+                        };
+                        self.emit_pair_unchecked(pair, s_lo.id, s_hi.id, x_base);
+                    }
                 }
             }
             Some(xi) => {
-                let should_emit = xi == sweep_x
-                    || within_band(s_lo, s_hi, sweep_x, eps_y)
-                    || (s_lo.slope > s_hi.slope && xi <= sweep_x + dt_probe);
-                if should_emit {
-                    let opt_x_evict = compute_x_evict(s_lo, s_hi, sweep_x, xi, eps_y, dt_probe);
-                    self.emit_if_new(s_lo.id, s_hi.id, opt_x_evict);
+                if xi < sweep_x && s_lo.slope <= s_hi.slope {
+                    return;
+                }
+                if xi == sweep_x || within_band(s_lo, s_hi, sweep_x, eps_y) {
+                    let pair = pack_pair(s_lo.id, s_hi.id);
+                    if !self.is_reported(pair) {
+                        self.emit_pair_unchecked(pair, s_lo.id, s_hi.id, sweep_x.max(xi));
+                    }
                 }
             }
         }
@@ -1028,33 +1275,58 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
         while let Some(&Reverse((OrderedF64(ex), pair))) = self.evict_heap.peek() {
             if ex < x_evt {
                 self.evict_heap.pop();
-                self.active_band_reported.remove(&pair);
+                self.active_band_reported.remove(pair);
             } else {
                 break;
             }
         }
     }
 
-    fn flush_at_x(&mut self, next_x: f64) {
+    fn flush_at_x(&mut self, sweep_x: f64, next_x: f64, segs: &[Seg], eps_y: f64, dt_probe: f64) {
+        if self.at_x_inline_len == 0 && self.at_x_overflow_list.is_empty() {
+            return;
+        }
+        if next_x == f64::INFINITY {
+            self.at_x_inline_len = 0;
+            if !self.at_x_overflow_list.is_empty() {
+                self.at_x_overflow_set.clear();
+                self.at_x_overflow_list.clear();
+            }
+            return;
+        }
         if self.at_x_overflow_list.is_empty() {
             for i in 0..self.at_x_inline_len {
-                let (pair, opt_x_evict) = self.at_x_inline[i];
-                if let Some(x_evict) = opt_x_evict
-                    && x_evict >= next_x
-                    && self.active_band_reported.insert(pair)
-                {
-                    self.evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
-                }
+                let (pair, a_id, b_id, x_base) = self.at_x_inline[i];
+                promote_band_pair(
+                    pair,
+                    a_id,
+                    b_id,
+                    x_base,
+                    sweep_x,
+                    next_x,
+                    segs,
+                    eps_y,
+                    dt_probe,
+                    &mut self.active_band_reported,
+                    &mut self.evict_heap,
+                );
             }
             self.at_x_inline_len = 0;
         } else {
-            for &(pair, opt_x_evict) in &self.at_x_overflow_list {
-                if let Some(x_evict) = opt_x_evict
-                    && x_evict >= next_x
-                    && self.active_band_reported.insert(pair)
-                {
-                    self.evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
-                }
+            for &(pair, a_id, b_id, x_base) in &self.at_x_overflow_list {
+                promote_band_pair(
+                    pair,
+                    a_id,
+                    b_id,
+                    x_base,
+                    sweep_x,
+                    next_x,
+                    segs,
+                    eps_y,
+                    dt_probe,
+                    &mut self.active_band_reported,
+                    &mut self.evict_heap,
+                );
             }
             self.at_x_overflow_set.clear();
             self.at_x_overflow_list.clear();
@@ -1189,6 +1461,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
         let x_evt = first.x;
         if x_evt != scratch.last_int_x {
             scratch.processed_int_at_x.clear();
+            scratch.scheduled_at_x.clear();
             scratch.last_int_x = x_evt;
             collector.evict_before(x_evt);
         }
@@ -1296,6 +1569,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                     collector,
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
+                    &mut scratch.scheduled_at_x,
                 );
                 scratch.surviving_touched.push(p);
                 scratch.surviving_touched.push(n);
@@ -1315,7 +1589,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
 
         let next_x = events.peek().map_or(f64::INFINITY, |e| e.0.x);
         if next_x != x_evt {
-            collector.flush_at_x(next_x);
+            collector.flush_at_x(x_evt, next_x, segs, eps_y, scratch.dt_probe);
         }
     }
 }
@@ -1332,7 +1606,8 @@ struct BandScratch {
     visited_stamp: Vec<u64>,
     visited_err: Vec<f64>,
     stamp: u64,
-    processed_int_at_x: PairSet,
+    processed_int_at_x: InlinePairSet,
+    scheduled_at_x: InlinePairSet,
     last_int_x: f64,
 }
 
@@ -1350,9 +1625,231 @@ impl BandScratch {
             visited_stamp: vec![0; num_edges],
             visited_err: vec![0.0; num_edges],
             stamp: 0,
-            processed_int_at_x: PairSet::default(),
+            processed_int_at_x: InlinePairSet::new(),
+            scheduled_at_x: InlinePairSet::new(),
             last_int_x: f64::NAN,
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_flipped_pairs<C: CrossingCollector>(
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    collector: &mut C,
+    scratch: &mut BandScratch,
+) {
+    let k = scratch.cluster.len();
+    if k <= 1 {
+        return;
+    }
+    if k <= 64 {
+        for i in 0..k {
+            let (pos_u, edge_u) = scratch.cluster[i];
+            for j in (i + 1)..k {
+                let (pos_v, edge_v) = scratch.cluster[j];
+                if pos_u > pos_v {
+                    collector.on_swap_pair(
+                        &segs[edge_v],
+                        &segs[edge_u],
+                        x_evt,
+                        eps_y,
+                        scratch.dt_probe,
+                    );
+                }
+            }
+        }
+        return;
+    }
+
+    // Bottom-up merge sort on `orig_pos` using `cur_buf` / `rest_buf` so k > 64 remains
+    // O(k log k + inversions) without per-event allocations.
+    scratch.cur_buf.clear();
+    scratch.cur_buf.extend_from_slice(&scratch.cluster);
+    scratch.rest_buf.resize(k, (0, 0));
+
+    let mut width = 1usize;
+    while width < k {
+        let mut lo = 0usize;
+        while lo < k {
+            let mid = (lo + width).min(k);
+            let hi = (lo + 2 * width).min(k);
+            let mut l = lo;
+            let mut r = mid;
+            let mut out = lo;
+            while l < mid && r < hi {
+                if scratch.cur_buf[l].0 <= scratch.cur_buf[r].0 {
+                    scratch.rest_buf[out] = scratch.cur_buf[l];
+                    l += 1;
+                } else {
+                    let (_, edge_v) = scratch.cur_buf[r];
+                    for &(_, edge_u) in &scratch.cur_buf[l..mid] {
+                        collector.on_swap_pair(
+                            &segs[edge_v],
+                            &segs[edge_u],
+                            x_evt,
+                            eps_y,
+                            scratch.dt_probe,
+                        );
+                    }
+                    scratch.rest_buf[out] = scratch.cur_buf[r];
+                    r += 1;
+                }
+                out += 1;
+            }
+            while l < mid {
+                scratch.rest_buf[out] = scratch.cur_buf[l];
+                l += 1;
+                out += 1;
+            }
+            while r < hi {
+                scratch.rest_buf[out] = scratch.cur_buf[r];
+                r += 1;
+                out += 1;
+            }
+            lo += 2 * width;
+        }
+        std::mem::swap(&mut scratch.cur_buf, &mut scratch.rest_buf);
+        width *= 2;
+    }
+}
+
+/// Sorts `scratch.cluster` into exact post-`x_evt` order via `cmp_post_x`, resolves any local
+/// cyclic adjacent inversion spans by `(slope, id)`, notifies `collector.on_swap_pair` for every
+/// flipped pair, and writes the reordered edge indices back to `tree` and `scratch.band_edges`.
+#[allow(clippy::too_many_arguments)]
+fn sort_band_post_x<C: CrossingCollector>(
+    x_evt: f64,
+    eps_y: f64,
+    segs: &[Seg],
+    tree: &mut ActiveSegmentTree,
+    collector: &mut C,
+    scratch: &mut BandScratch,
+) {
+    let k = scratch.cluster.len();
+    if k <= 32 {
+        // Insertion sort tolerates rare O(ULP) 3-cycles in `cmp_post_x` without triggering
+        // `slice::sort_unstable_by` total-order assertions.
+        for i in 1..k {
+            let key = scratch.cluster[i];
+            let mut j = i;
+            while j > 0
+                && cmp_post_x(&segs[key.1], &segs[scratch.cluster[j - 1].1], x_evt)
+                    == Ordering::Less
+            {
+                scratch.cluster[j] = scratch.cluster[j - 1];
+                j -= 1;
+            }
+            scratch.cluster[j] = key;
+        }
+    } else {
+        // Bottom-up merge sort using `cur_buf` / `rest_buf` (cycle-safe, zero allocations).
+        scratch.cur_buf.clear();
+        scratch.cur_buf.extend_from_slice(&scratch.cluster);
+        scratch.rest_buf.resize(k, (0, 0));
+        let mut width = 1usize;
+        while width < k {
+            let mut lo = 0usize;
+            while lo < k {
+                let mid = (lo + width).min(k);
+                let hi = (lo + 2 * width).min(k);
+                let mut l = lo;
+                let mut r = mid;
+                let mut out = lo;
+                while l < mid && r < hi {
+                    if cmp_post_x(
+                        &segs[scratch.cur_buf[l].1],
+                        &segs[scratch.cur_buf[r].1],
+                        x_evt,
+                    ) != Ordering::Greater
+                    {
+                        scratch.rest_buf[out] = scratch.cur_buf[l];
+                        l += 1;
+                    } else {
+                        scratch.rest_buf[out] = scratch.cur_buf[r];
+                        r += 1;
+                    }
+                    out += 1;
+                }
+                while l < mid {
+                    scratch.rest_buf[out] = scratch.cur_buf[l];
+                    l += 1;
+                    out += 1;
+                }
+                while r < hi {
+                    scratch.rest_buf[out] = scratch.cur_buf[r];
+                    r += 1;
+                    out += 1;
+                }
+                lo += 2 * width;
+            }
+            std::mem::swap(&mut scratch.cur_buf, &mut scratch.rest_buf);
+            width *= 2;
+        }
+        scratch.cluster.clear();
+        scratch.cluster.extend_from_slice(&scratch.cur_buf);
+    }
+    let mut pass = 0usize;
+    loop {
+        let mut had_inversion = false;
+        let mut i = 0usize;
+        while i + 1 < k {
+            if cmp_post_x(
+                &segs[scratch.cluster[i].1],
+                &segs[scratch.cluster[i + 1].1],
+                x_evt,
+            ) == Ordering::Greater
+            {
+                had_inversion = true;
+                let lo = i;
+                let mut hi = i + 1;
+                while hi + 1 < k
+                    && cmp_post_x(
+                        &segs[scratch.cluster[hi].1],
+                        &segs[scratch.cluster[hi + 1].1],
+                        x_evt,
+                    ) == Ordering::Greater
+                {
+                    hi += 1;
+                }
+                if hi > lo + 1 {
+                    scratch.cluster[lo..=hi].sort_unstable_by(|a, b| {
+                        segs[a.1]
+                            .slope
+                            .total_cmp(&segs[b.1].slope)
+                            .then_with(|| a.1.cmp(&b.1))
+                    });
+                } else {
+                    scratch.cluster.swap(lo, hi);
+                }
+                i = hi + 1;
+            } else {
+                i += 1;
+            }
+        }
+        if !had_inversion {
+            break;
+        }
+        pass += 1;
+        if pass >= k {
+            scratch.cluster.sort_unstable_by(|a, b| {
+                segs[a.1]
+                    .slope
+                    .total_cmp(&segs[b.1].slope)
+                    .then_with(|| a.1.cmp(&b.1))
+            });
+            break;
+        }
+    }
+
+    emit_flipped_pairs(x_evt, eps_y, segs, collector, scratch);
+
+    scratch.band_edges.clear();
+    for (&node_id, &(_, edge_id)) in scratch.band_nodes.iter().zip(scratch.cluster.iter()) {
+        tree.nodes[node_id as usize].edge_idx = edge_id;
+        tree.node_of_edge[edge_id] = node_id;
+        scratch.band_edges.push(edge_id);
     }
 }
 
@@ -1386,10 +1883,38 @@ fn handle_intersection<C: CrossingCollector>(
         tree.swap_adjacent_edges(e1, e2);
         collector.on_swap_pair(&segs[e1], &segs[e2], x_evt, eps_y, scratch.dt_probe);
         scratch.processed_int_at_x.insert(pack_pair(e1, e2));
-        touched_edges.push(e1);
-        touched_edges.push(e2);
         // After swap, `e2` precedes `e1`.
-        if let Some(left) = tree.prev_edge(e2) {
+        let left = tree.prev_edge(e2);
+        let right = tree.next_edge(e1);
+        let s1 = &segs[e1];
+        let s2 = &segs[e2];
+        let y1 = s1.y_at(x_evt);
+        let y2 = s2.y_at(x_evt);
+        let err1 = seg_y_err(s1, x_evt);
+        let err2 = seg_y_err(s2, x_evt);
+        let left_isolated = match left {
+            None => true,
+            Some(l) => {
+                let sl = &segs[l];
+                let yl = sl.y_at(x_evt);
+                let err_l = seg_y_err(sl, x_evt);
+                y2 - yl > 2.0 * eps_y + err_l + err2 && y1 - yl > 2.0 * eps_y + err_l + err1
+            }
+        };
+        let right_isolated = match right {
+            None => true,
+            Some(r) => {
+                let sr = &segs[r];
+                let yr = sr.y_at(x_evt);
+                let err_r = seg_y_err(sr, x_evt);
+                yr - y1 > 2.0 * eps_y + err1 + err_r && yr - y2 > 2.0 * eps_y + err2 + err_r
+            }
+        };
+        if !left_isolated || !right_isolated {
+            touched_edges.push(e1);
+            touched_edges.push(e2);
+        }
+        if let Some(left) = left {
             check_adjacent_and_schedule(
                 left,
                 e2,
@@ -1400,9 +1925,10 @@ fn handle_intersection<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
-        if let Some(right) = tree.next_edge(e1) {
+        if let Some(right) = right {
             check_adjacent_and_schedule(
                 e1,
                 right,
@@ -1413,12 +1939,13 @@ fn handle_intersection<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
         return;
     }
 
-    // Multi-way intersection or 1-ULP tie: sort [e1..=e2] by scale-safe linearized post-x_evt order.
+    // Multi-way intersection or 1-ULP tie: sort [e1..=e2] by exact post-x_evt order.
     scratch.band_nodes.clear();
     scratch.band_edges.clear();
     let mut cur_edge = e1;
@@ -1449,20 +1976,7 @@ fn handle_intersection<C: CrossingCollector>(
         scratch.cluster.push((pos, edge));
     }
     check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
-
-    let dt = scratch.dt_probe;
-    scratch.band_edges.sort_unstable_by(|&a, &b| {
-        let ya = segs[a].y_at(x_evt) + segs[a].slope * dt;
-        let yb = segs[b].y_at(x_evt) + segs[b].slope * dt;
-        ya.total_cmp(&yb)
-            .then_with(|| segs[a].slope.total_cmp(&segs[b].slope))
-            .then_with(|| a.cmp(&b))
-    });
-
-    for (&node_id, &edge_id) in scratch.band_nodes.iter().zip(scratch.band_edges.iter()) {
-        tree.nodes[node_id as usize].edge_idx = edge_id;
-        tree.node_of_edge[edge_id] = node_id;
-    }
+    sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch);
 
     if let (Some(&first_e), Some(&last_e)) = (scratch.band_edges.first(), scratch.band_edges.last())
     {
@@ -1477,6 +1991,7 @@ fn handle_intersection<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
         if let Some(right) = tree.next_edge(last_e) {
@@ -1490,6 +2005,7 @@ fn handle_intersection<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
     }
@@ -1505,6 +2021,7 @@ fn handle_intersection<C: CrossingCollector>(
             collector,
             scratch.dt_probe,
             &scratch.processed_int_at_x,
+            &mut scratch.scheduled_at_x,
         );
     }
 }
@@ -1585,6 +2102,7 @@ fn check_eps_bands_at_x<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
         if let Some(right) = tree.next_edge(last_edge) {
@@ -1598,6 +2116,7 @@ fn check_eps_bands_at_x<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
 
@@ -1623,7 +2142,6 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
     let cur_stamp = scratch.stamp;
-    let dt = scratch.dt_probe;
 
     for idx in 0..scratch.surviving_touched.len() {
         let seed = scratch.surviving_touched[idx];
@@ -1647,14 +2165,10 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
             continue;
         }
 
-        let is_sorted = scratch.band_edges.windows(2).all(|w| {
-            let ya = segs[w[0]].y_at(x_evt) + segs[w[0]].slope * dt;
-            let yb = segs[w[1]].y_at(x_evt) + segs[w[1]].slope * dt;
-            ya.total_cmp(&yb)
-                .then_with(|| segs[w[0]].slope.total_cmp(&segs[w[1]].slope))
-                .then_with(|| w[0].cmp(&w[1]))
-                != Ordering::Greater
-        });
+        let is_sorted = scratch
+            .band_edges
+            .windows(2)
+            .all(|w| cmp_post_x(&segs[w[0]], &segs[w[1]], x_evt) != Ordering::Greater);
         if is_sorted {
             continue;
         }
@@ -1667,19 +2181,7 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
             scratch.band_nodes.push(tree.node_of_edge[e]);
         }
         check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
-
-        scratch.band_edges.sort_unstable_by(|&a, &b| {
-            let ya = segs[a].y_at(x_evt) + segs[a].slope * dt;
-            let yb = segs[b].y_at(x_evt) + segs[b].slope * dt;
-            ya.total_cmp(&yb)
-                .then_with(|| segs[a].slope.total_cmp(&segs[b].slope))
-                .then_with(|| a.cmp(&b))
-        });
-
-        for (&node_id, &edge_id) in scratch.band_nodes.iter().zip(scratch.band_edges.iter()) {
-            tree.nodes[node_id as usize].edge_idx = edge_id;
-            tree.node_of_edge[edge_id] = node_id;
-        }
+        sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch);
 
         if let (Some(&first_e), Some(&last_e)) =
             (scratch.band_edges.first(), scratch.band_edges.last())
@@ -1695,6 +2197,7 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                     collector,
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
+                    &mut scratch.scheduled_at_x,
                 );
             }
             if let Some(right) = tree.next_edge(last_e) {
@@ -1708,6 +2211,7 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                     collector,
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
+                    &mut scratch.scheduled_at_x,
                 );
             }
         }
@@ -1723,6 +2227,7 @@ fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                 collector,
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
+                &mut scratch.scheduled_at_x,
             );
         }
     }
@@ -1774,6 +2279,7 @@ fn check_band_pairs<C: CrossingCollector>(
                         collector,
                         scratch.dt_probe,
                         &scratch.processed_int_at_x,
+                        &mut scratch.scheduled_at_x,
                     );
                 }
             }
@@ -1800,6 +2306,7 @@ fn check_band_pairs<C: CrossingCollector>(
                     collector,
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
+                    &mut scratch.scheduled_at_x,
                 );
             }
         }
@@ -1855,28 +2362,40 @@ fn check_adjacent_and_schedule<C: CrossingCollector>(
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
     collector: &mut C,
     dt_probe: f64,
-    processed_int_at_x: &PairSet,
+    processed_int_at_x: &InlinePairSet,
+    scheduled_at_x: &mut InlinePairSet,
 ) {
     let s_lo = &segs[lower];
     let s_hi = &segs[upper];
+    let shares_ep = s_lo.shares_endpoint(s_hi);
+    if shares_ep && s_lo.slope <= s_hi.slope {
+        return;
+    }
     if !segments_geometrically_intersect(s_lo, s_hi) {
         return;
     }
-    let pair = pack_pair(lower, upper);
+    let can_schedule = s_lo.x2 > sweep_x
+        && s_hi.x2 > sweep_x
+        && s_lo.slope > s_hi.slope
+        && !(s_lo.x2 == s_hi.x2 && s_lo.y2 == s_hi.y2);
+    if shares_ep && !can_schedule {
+        return;
+    }
     let opt_xi = intersection_x(s_lo, s_hi);
-    if !s_lo.shares_endpoint(s_hi) {
+    if !shares_ep {
         collector.on_band_pair(s_lo, s_hi, sweep_x, eps_y, dt_probe, opt_xi);
     }
     // Schedule interior swaps even when segments share graph vertex IDs (e.g. wrapped torus pieces)
     // so sweep order stays valid past interior crossings, while skipping shared right tips.
-    if s_lo.x2 > sweep_x
-        && s_hi.x2 > sweep_x
-        && s_lo.slope > s_hi.slope
-        && !(s_lo.x2 == s_hi.x2 && s_lo.y2 == s_hi.y2)
-        && let Some(x_int) = opt_xi
-    {
+    if can_schedule && let Some(x_int) = opt_xi {
         let x_push = x_int.max(sweep_x);
-        if x_push > sweep_x || !processed_int_at_x.contains(&pair) {
+        let pair = pack_pair(lower, upper);
+        let should_push = if x_push > sweep_x {
+            scheduled_at_x.insert(pair)
+        } else {
+            !processed_int_at_x.contains(pair) && scheduled_at_x.insert(pair)
+        };
+        if should_push {
             events.push(Reverse(SweepEvent {
                 x: x_push,
                 kind: EventKind::Intersection {
@@ -2206,7 +2725,8 @@ mod tests {
         assert_eq!(got_indices, expected, "{label}: crossing mismatch");
         assert_eq!(
             SweepLineCrossings::count_edges(edges, layout).unwrap(),
-            expected.len()
+            expected.len(),
+            "{label}: count_edges mismatch"
         );
         let summary = SweepLineCrossings::summarize_edges(edges, layout).unwrap();
         assert_eq!(summary.count, expected.len());
@@ -2998,6 +3518,334 @@ mod tests {
                     .iter()
                     .filter_map(|p| p.angle_rad)
                     .reduce(f64::min)
+            );
+        }
+    }
+
+    fn torus_brute_force(edges: &[(u32, u32)], layout: &Layout2d<f64>) -> Vec<TorusCrossing> {
+        let mut sub_segs = Vec::new();
+        let mut orig_edge = Vec::new();
+        for (eid, &(u, v)) in edges.iter().enumerate() {
+            let pieces = torus_edge_segments(
+                layout.x()[u as usize],
+                layout.y()[u as usize],
+                layout.x()[v as usize],
+                layout.y()[v as usize],
+            )
+            .unwrap();
+            for p in pieces {
+                let id = sub_segs.len();
+                sub_segs.push(Seg::from_endpoints(id, u, v, p[0], p[1], p[2], p[3]));
+                orig_edge.push(eid);
+            }
+        }
+        let mut expected = Vec::new();
+        for i in 0..sub_segs.len() {
+            for j in (i + 1)..sub_segs.len() {
+                if segments_cross(&sub_segs[i], &sub_segs[j]) {
+                    let ea = orig_edge[i];
+                    let eb = orig_edge[j];
+                    let sa = &sub_segs[i];
+                    let sb = &sub_segs[j];
+                    if ea <= eb {
+                        expected.push(TorusCrossing {
+                            edge_a: ea,
+                            edge_b: eb,
+                            seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
+                            seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
+                        });
+                    } else {
+                        expected.push(TorusCrossing {
+                            edge_a: eb,
+                            edge_b: ea,
+                            seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
+                            seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
+                        });
+                    }
+                }
+            }
+        }
+        expected.sort_unstable_by(|a, b| {
+            a.edge_a
+                .cmp(&b.edge_a)
+                .then_with(|| a.edge_b.cmp(&b.edge_b))
+                .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
+                .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
+                .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
+                .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
+        });
+        expected
+    }
+
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_challenger_reproducers_a_b_c_d() {
+        // Reproducer A: 2-edge ULP drift at xi + past-crossing on_band_pair double-count guard.
+        let layout_a = Layout2d::from_xy(
+            vec![
+                -3.04805189247130648e-5,
+                5.00000097576867404e1,
+                3.31165387303849953e-5,
+                4.99999652101946026e1,
+            ],
+            vec![
+                -7.55507051547136343e-6,
+                2.00000408856693603e1,
+                3.83695954409438164e-5,
+                1.99999834070688145e1,
+            ],
+        )
+        .unwrap();
+        let edges_a = vec![(0, 1), (2, 3)];
+        assert_matches_brute_force("reproducer_A", &edges_a, &layout_a);
+        assert_streaming_matches_find("reproducer_A_stream", &edges_a, &layout_a);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&edges_a, &layout_a).unwrap(),
+            1
+        );
+
+        // Reproducer B: 4-edge cluster where reverting completed swap blocked (0, 2).
+        let layout_b = Layout2d::from_xy(
+            vec![
+                4.99999832431687921e1,
+                9.99999952436454294e1,
+                4.99999784950573343e1,
+                1.00000017056024674e2,
+                -9.83780916952248230e-7,
+                4.99999681576062898e1,
+            ],
+            vec![
+                8.00000140893703815e1,
+                1.69716668579220089e-5,
+                7.99999695116295868e1,
+                4.72816566238181744e-5,
+                4.90065288854551163e-5,
+                1.99999520082606139e1,
+            ],
+        )
+        .unwrap();
+        let edges_b = vec![(0, 1), (2, 3), (4, 3), (5, 1)];
+        assert_matches_brute_force("reproducer_B", &edges_b, &layout_b);
+        assert_streaming_matches_find("reproducer_B_stream", &edges_b, &layout_b);
+        assert_eq!(
+            SweepLineCrossings::count_edges(&edges_b, &layout_b).unwrap(),
+            3
+        );
+
+        // Reproducer C: 8-edge steep cluster at x ~ 1e6, dx ~ 4e-8.
+        let mut xc = vec![0.0; 20];
+        let mut yc = vec![0.0; 20];
+        let pts_c = [
+            (9usize, 1.00000000000005995e6, 2.5),
+            (6, 1.00000000000002002e6, 9.5),
+            (18, 1.00000000000001001e6, 4.0),
+            (3, 1.00000000000004994e6, 5.5),
+            (2, 1.00000000000000000e6, 0.0),
+            (8, 1.00000000000004994e6, 4.0),
+            (10, 1.00000000000003004e6, 4.0),
+            (14, 1.00000000000002002e6, 4.0),
+            (5, 1.00000000000001001e6, 7.0),
+            (11, 1.00000000000004994e6, 8.0),
+            (7, 1.00000000000003004e6, 7.5),
+            (19, 1.00000000000004005e6, 8.0),
+            (0, 1.00000000000003004e6, 2.5),
+        ];
+        for (idx, px, py) in pts_c {
+            xc[idx] = px;
+            yc[idx] = py;
+        }
+        let layout_c = Layout2d::from_xy(xc, yc).unwrap();
+        let edges_c = vec![
+            (9, 6),
+            (18, 3),
+            (2, 8),
+            (6, 10),
+            (14, 5),
+            (18, 6),
+            (11, 7),
+            (6, 19),
+        ];
+        assert_matches_brute_force("reproducer_C", &edges_c, &layout_c);
+        assert_streaming_matches_find("reproducer_C_stream", &edges_c, &layout_c);
+
+        // Reproducer D: 5-edge steep cluster with independent vertices at x ~ 1e6.
+        let layout_d = Layout2d::from_xy(
+            vec![
+                1.00000000000001001e6,
+                1.00000000000004994e6,
+                1.00000000000001001e6,
+                1.00000000000004005e6,
+                1.00000000000001001e6,
+                1.00000000000003004e6,
+                1.00000000000001001e6,
+                1.00000000000002002e6,
+                1.00000000000002002e6,
+                1.00000000000003004e6,
+            ],
+            vec![2.0, 8.0, 7.0, 8.0, 4.0, 2.5, 4.0, 9.5, 4.0, 4.0],
+        )
+        .unwrap();
+        let edges_d = vec![(0, 1), (2, 3), (4, 5), (6, 7), (8, 9)];
+        assert_matches_brute_force("reproducer_D", &edges_d, &layout_d);
+        assert_streaming_matches_find("reproducer_D_stream", &edges_d, &layout_d);
+
+        // Large non-hub multi-way intersection (70 segments crossing at (1.0, 1.0)) exercising
+        // the k > 64 merge-sort inversion path in `emit_flipped_pairs`.
+        let k_multi = 70usize;
+        let mut mx = Vec::with_capacity(k_multi * 2);
+        let mut my = Vec::with_capacity(k_multi * 2);
+        let mut medges = Vec::with_capacity(k_multi);
+        for i in 0..k_multi {
+            let slope = -1.0 + 2.0 * (i as f64) / ((k_multi - 1) as f64);
+            mx.push(0.0);
+            my.push(1.0 - slope);
+            mx.push(2.0);
+            my.push(1.0 + slope);
+            let u = (2 * i) as u32;
+            medges.push((u, u + 1));
+        }
+        let mlayout = Layout2d::from_xy(mx, my).unwrap();
+        assert_matches_brute_force("multiway_70_non_hub", &medges, &mlayout);
+        assert_streaming_matches_find("multiway_70_non_hub_stream", &medges, &mlayout);
+    }
+
+    #[test]
+    fn test_torus_steep_and_clustered_parity() {
+        // Steep wrapped torus sub-segments (dx ~ 1e-8 across periodic boundary).
+        for seed in 1..=25u64 {
+            let mut rng = DeterministicRng::from_seed_u64(5000 + seed);
+            let n = 20usize;
+            let base_x = 0.99999998;
+            let xs: Vec<f64> = (0..n)
+                .map(|i| {
+                    if i % 2 == 0 {
+                        (base_x + (rng.gen_range_usize(10) as f64) * 1e-9).rem_euclid(1.0)
+                    } else {
+                        ((rng.gen_range_usize(10) as f64) * 1e-9).rem_euclid(1.0)
+                    }
+                })
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(20) as f64) / 20.0)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..35 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v {
+                    edges.push((u, v));
+                }
+            }
+            let expected = torus_brute_force(&edges, &layout);
+            let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
+            assert_eq!(got, expected, "torus steep seed {seed}");
+        }
+
+        // Clustered torus layout (4 tight clusters of radius 1e-4 on [0, 1)^2).
+        for seed in 1..=25u64 {
+            let mut rng = DeterministicRng::from_seed_u64(6000 + seed);
+            let centers = [(0.1, 0.1), (0.9, 0.1), (0.1, 0.9), (0.9, 0.9)];
+            let n = 24usize;
+            let mut xs = Vec::with_capacity(n);
+            let mut ys = Vec::with_capacity(n);
+            for i in 0..n {
+                let (cx, cy) = centers[i % 4];
+                xs.push((cx + (rng.next_f64() - 0.5) * 1e-4).rem_euclid(1.0));
+                ys.push((cy + (rng.next_f64() - 0.5) * 1e-4).rem_euclid(1.0));
+            }
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..45 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v {
+                    edges.push((u, v));
+                }
+            }
+            let expected = torus_brute_force(&edges, &layout);
+            let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
+            assert_eq!(got, expected, "torus clustered seed {seed}");
+        }
+    }
+
+    #[test]
+    fn test_randomized_clustered_and_steep_stress_regression() {
+        // 1. 40 clustered seeds (4 tight clusters of radius 1e-4 with inter-cluster chords).
+        for seed in 1..=40u64 {
+            let mut rng = DeterministicRng::from_seed_u64(10_000 + seed);
+            let centers = [(0.0, 0.0), (50.0, 20.0), (50.0, 80.0), (100.0, 0.0)];
+            let n = 28usize;
+            let mut xs = Vec::with_capacity(n);
+            let mut ys = Vec::with_capacity(n);
+            for i in 0..n {
+                let (cx, cy) = centers[i % 4];
+                xs.push(cx + (rng.next_f64() - 0.5) * 1e-4);
+                ys.push(cy + (rng.next_f64() - 0.5) * 1e-4);
+            }
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..80 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("clustered_seed_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(
+                &format!("clustered_seed_{seed}_stream"),
+                &edges,
+                &layout,
+            );
+        }
+
+        // 2. 40 steep seeds at x_off = 100 and x_off = 1e6 with dx ~ 1e-8.
+        for seed in 1..=40u64 {
+            let mut rng = DeterministicRng::from_seed_u64(20_000 + seed);
+            let x_off = if seed <= 20 { 100.0 } else { 1e6 };
+            let n = 24usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| x_off + (rng.gen_range_usize(8) as f64) * 1e-8)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(24) as f64) * 0.5)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..55 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("steep_stress_seed_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(
+                &format!("steep_stress_seed_{seed}_stream"),
+                &edges,
+                &layout,
+            );
+        }
+
+        // 3. 15 tiny 1e-165 scale seeds (det underflows to 0.0) verifying det == 0.0 fallback.
+        for seed in 1..=15u64 {
+            let mut rng = DeterministicRng::from_seed_u64(30_000 + seed);
+            let n = 20usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 1e-165)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(11) as f64) * 1e-165)
+                .collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..40 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("tiny_1e-165_seed_{seed}"), &edges, &layout);
+            assert_streaming_matches_find(
+                &format!("tiny_1e-165_seed_{seed}_stream"),
+                &edges,
+                &layout,
             );
         }
     }
