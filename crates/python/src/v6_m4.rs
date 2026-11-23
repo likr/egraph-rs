@@ -24,7 +24,9 @@ use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArray, PyUntypedArrayMe
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
-use super::v6_m2::{PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_usize_1d};
+use super::v6_m2::{
+    PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_usize_1d,
+};
 use super::v6_m3::{
     DualIterativeSolver, PySgdSolver, SgdInner, SolverAction, SolverLayout, execute_solver_action,
     extract_solver_layout, impl_dual_solver, normalize_enum_key, solver_status_str,
@@ -616,6 +618,99 @@ impl PyIbUmapSolver {
         Ok(Self { inner })
     }
 
+    /// Construct an `IbUmapSolver` from precomputed `DogVaradhanLandmarks` and 1+2-hop pairs.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            landmarks,
+            max_2hop_per_node = StrictUsize(32),
+            *,
+            backend = "ibfft",
+            n_epochs = StrictUsize(200),
+            learning_rate = StrictF64(1.0),
+            min_dist = StrictF64(0.1),
+            spread = StrictF64(1.0),
+            a = None,
+            b = None,
+            c_k = StrictF64(4.0),
+            tau_scale = StrictF64(4.0),
+            hub_damping = true,
+            theta = StrictF64(0.5),
+            ibfft_order = StrictUsize(1),
+            ibfft_intervals = StrictUsize(25),
+            ibfft_min_grid_dim = StrictUsize(64),
+            ibfft_max_grid_dim = StrictUsize(512),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, backend='ibfft', n_epochs=200, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, c_k=4.0, tau_scale=4.0, hub_damping=True, theta=0.5, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
+    )]
+    fn from_landmarks(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        landmarks: &PyDogVaradhanLandmarks,
+        max_2hop_per_node: StrictUsize,
+        backend: &str,
+        n_epochs: StrictUsize,
+        learning_rate: StrictF64,
+        min_dist: StrictF64,
+        spread: StrictF64,
+        a: Option<StrictF64>,
+        b: Option<StrictF64>,
+        c_k: StrictF64,
+        tau_scale: StrictF64,
+        hub_damping: bool,
+        theta: StrictF64,
+        ibfft_order: StrictUsize,
+        ibfft_intervals: StrictUsize,
+        ibfft_min_grid_dim: StrictUsize,
+        ibfft_max_grid_dim: StrictUsize,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let cfg = build_ib_umap_config(
+            backend,
+            n_epochs.0,
+            learning_rate.0,
+            min_dist.0,
+            spread.0,
+            a.map(|v| v.0),
+            b.map(|v| v.0),
+            c_k.0,
+            tau_scale.0,
+            hub_damping,
+            theta.0,
+            ibfft_order.0,
+            ibfft_intervals.0,
+            ibfft_min_grid_dim.0,
+            ibfft_max_grid_dim.0,
+            seed.0,
+        )?;
+        let g = graph.inner();
+        let lm = landmarks.inner();
+        let inner = py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => FieldLayoutSolver::<f64>::ib_umap_from_landmarks(
+                    g,
+                    lm,
+                    max_2hop_per_node.0,
+                    cfg,
+                )
+                .map(FieldLayoutInner::F64),
+                ScalarDtype::F32 => FieldLayoutSolver::<f32>::ib_umap_from_landmarks(
+                    g,
+                    lm,
+                    max_2hop_per_node.0,
+                    cfg,
+                )
+                .map(FieldLayoutInner::F32),
+            })
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner })
+    }
+
     /// Construct an `IbUmapSolver` from a validated `KnnGraph` via `compute_fuzzy_simplicial_set`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
@@ -981,6 +1076,7 @@ pub(super) fn build_pacmap_graph_solver(
     phase2_iters: StrictUsize,
     phase3_iters: StrictUsize,
     learning_rate: StrictF64,
+    keep_all_1hop: bool,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
@@ -993,7 +1089,7 @@ pub(super) fn build_pacmap_graph_solver(
         phase3_iters: phase3_iters.0,
         learning_rate: learning_rate.0,
         seed: seed.0,
-        keep_all_1hop: false,
+        keep_all_1hop,
     };
     cfg.validate().map_err(core_error_to_py)?;
     let g = graph.inner();

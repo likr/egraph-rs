@@ -14,6 +14,10 @@ Data Containers
    :members:
    :undoc-members:
 
+.. autoclass:: egraph.Sparse12HopPairs
+   :members:
+   :undoc-members:
+
 .. autoclass:: egraph.DogVaradhanLandmarks
    :members:
    :undoc-members:
@@ -39,6 +43,7 @@ Neighborhood & Probability Builders
 -----------------------------------
 
 .. autofunction:: egraph.extract_1hop_2hop_csr
+.. autofunction:: egraph.extract_sparse_1hop_2hop_pairs
 .. autofunction:: egraph.build_pure_2hop_knn
 .. autofunction:: egraph.compute_2hop_neighborhood_sizes
 .. autofunction:: egraph.compute_nodewise_2hop_perplexities

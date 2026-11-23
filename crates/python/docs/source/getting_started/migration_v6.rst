@@ -18,7 +18,7 @@ Summary of Key Changes
 
 3. **``TsNet`` / ``BhTsNet`` / ``FitTsNet`` / ``LTsNet`` -> ``TsNetSolver``**
 
-   Replace the four legacy tsNET classes with the unified :class:`egraph.TsNetSolver` (``TsNetSolver.pure_2hop``, ``from_knn``, ``from_probabilities``, ``from_graph_partial_bfs``), supporting ``backend="fft" | "linear_fft" | "barnes_hut" | "exact"`` and cooperative ``step()`` / ``run_steps()`` / ``run()``.
+   Replace the four legacy tsNET classes with the unified :class:`egraph.TsNetSolver` (``TsNetSolver.pure_2hop``, ``from_graph_row_normalized``, ``from_knn``, ``from_probabilities``, ``from_graph_partial_bfs``), supporting ``backend="fft" | "linear_fft" | "barnes_hut" | "exact"`` and cooperative ``step()`` / ``run_steps()`` / ``run()``.
 
 4. **``stress`` (``NS``) -> Scale-Normalized Stress (``SNS``) / ``evaluate_metrics``**
 

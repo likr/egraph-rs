@@ -322,7 +322,17 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
                 np.testing.assert_array_equal(view_run, l_run.coords(copy=True))
                 np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-        # from_knn (per-node & scalar perplexity) and from_probabilities
+        # Verify default learning_rate=None across all 5 TsNetSolver constructors
+        for ctor in (
+            eg.TsNetSolver.pure_2hop,
+            eg.TsNetSolver.from_knn,
+            eg.TsNetSolver.from_probabilities,
+            eg.TsNetSolver.from_graph_partial_bfs,
+            eg.TsNetSolver.from_graph_row_normalized,
+        ):
+            self.assertIsNone(inspect.signature(ctor).parameters["learning_rate"].default)
+
+        # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
         knn, _, _ = eg.build_pure_2hop_knn(g)
         perps = eg.compute_nodewise_2hop_perplexities(g)
         s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
@@ -335,11 +345,45 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
             self.assertEqual(solver.run(lay), "completed")
             self.assertTrue(lay.is_all_finite())
 
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            for max_2hop in (None, 4):
+                rn_run = eg.TsNetSolver.from_graph_row_normalized(
+                    g,
+                    w2=0.5,
+                    max_2hop_per_node=max_2hop,
+                    backend="fft",
+                    iterations_stage1=2,
+                    iterations_stage2=2,
+                    iterations_stage3=2,
+                    seed=42,
+                    dtype=dtype_str,
+                )
+                rn_step = eg.TsNetSolver.from_graph_row_normalized(
+                    g,
+                    w2=0.5,
+                    max_2hop_per_node=max_2hop,
+                    backend="fft",
+                    iterations_stage1=2,
+                    iterations_stage2=2,
+                    iterations_stage3=2,
+                    seed=42,
+                    dtype=dtype_str,
+                )
+                l_rn_run = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                l_rn_step = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                self.assertEqual(rn_run.run(l_rn_run), "completed")
+                while not rn_step.is_finished:
+                    rn_step.step(l_rn_step)
+                np.testing.assert_array_equal(l_rn_run.coords(copy=True), l_rn_step.coords(copy=True))
+                # Stage 3 LR cap <= 2 * N for N=16 (< 100)
+                self.assertLessEqual(rn_run.current_stage_lr, 2.0 * g.num_nodes)
+
         # Validation errors
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, backend="bad"))
         self.assert_no_panic_raises((TypeError,), lambda: eg.TsNetSolver.pure_2hop(g, backend=123))  # type: ignore[arg-type]
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, interpolation_order=2))
         self.assert_no_panic_raises((TypeError,), lambda: eg.TsNetSolver.pure_2hop(g, learning_rate=True))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, w2=-0.1))
         self.assert_no_panic_raises((ValueError,), lambda: s_probs.step(eg.Layout2d.zeros(3)))
 
     def test_sgd_solver_all_constructors_schedules_and_manifolds(self) -> None:
@@ -503,6 +547,31 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
             self.assertEqual(s.run(lay), "completed")
             self.assertTrue(lay.is_all_finite())
 
+        # from_landmarks parity with from_graph_dog
+        lm = eg.compute_regularized_dog_varadhan_landmarks(barbell, degree=20, num_landmarks=8, seed=42)
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            s_dog = eg.GuMapSolver.from_graph_dog(
+                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_str
+            )
+            s_lm_run = eg.GuMapSolver.from_landmarks(
+                barbell, lm, max_2hop_per_node=32, n_epochs=15, seed=42, dtype=dtype_str
+            )
+            s_lm_step = eg.GuMapSolver.from_landmarks(
+                barbell, lm, max_2hop_per_node=32, n_epochs=15, seed=42, dtype=dtype_str
+            )
+            l_dog = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            l_lm_run = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            l_lm_step = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            s_dog.run(l_dog)
+            s_lm_run.run(l_lm_run)
+            s_lm_step.run_steps(l_lm_step, 5)
+            while not s_lm_step.is_finished:
+                s_lm_step.step(l_lm_step)
+            np.testing.assert_array_equal(l_lm_run.coords(copy=True), l_lm_step.coords(copy=True))
+            np.testing.assert_array_equal(l_lm_run.coords(copy=True), l_dog.coords(copy=True))
+
+        lm_other = eg.compute_regularized_dog_varadhan_landmarks(_make_grid(2, 2), num_landmarks=2, seed=42)
+        self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_landmarks(barbell, lm_other))
         self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_knn(knn, min_dist=-0.1))
         self.assert_no_panic_raises((TypeError,), lambda: eg.GuMapSolver.from_knn(knn, n_epochs=True))
 
@@ -567,6 +636,26 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
             self.assertGreater(rs_run.stats()["n_fp_total"], 0)
             np2_after = eg.neighborhood_preservation_2hop_v6(g_strip, ls_run)
             self.assertGreater(np2_after, strip_np2_before + 0.1)
+
+        # Dynamic k_cap & w_anchor2
+        ref_dyn = eg.SpatialIntruderRefiner(
+            g_strip,
+            rounds=4,
+            k_cap=8,
+            seed=42,
+            w_anchor2=0.5,
+            k_cap_decay=0.5,
+            k_cap_min=2,
+        )
+        self.assertEqual(ref_dyn.current_k_cap, 8)
+        l_dyn = eg.Layout2d.from_coords(strip_folded)
+        ref_dyn.step(l_dyn)
+        self.assertEqual(ref_dyn.current_k_cap, 4)
+        ref_dyn.set_k_cap(6)
+        self.assertEqual(ref_dyn.current_k_cap, 6)
+        ref_dyn.run(l_dyn)
+        self.assertTrue(l_dyn.is_all_finite())
+        self.assert_no_panic_raises((ValueError,), lambda: ref_dyn.set_k_cap(0))
 
         self.assert_no_panic_raises((ValueError,), lambda: eg.SpatialIntruderRefiner(g, k_cap=0))
         self.assert_no_panic_raises((TypeError,), lambda: eg.SpatialIntruderRefiner(g, hinge_fp=1))  # type: ignore[arg-type]

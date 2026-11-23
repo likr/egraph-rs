@@ -83,31 +83,9 @@ class TestClustering(unittest.TestCase):
         # The algorithm should find 2 communities
         self.assertEqual(len(set(communities.values())), 2)
 
-    def test_infomap(self):
-        # Create a simple graph with two communities
-        graph = eg.Graph()
-        n1 = graph.add_node({"id": "n1"})
-        n2 = graph.add_node({"id": "n2"})
-        n3 = graph.add_node({"id": "n3"})
-        n4 = graph.add_node({"id": "n4"})
-
-        # Community 1: n1, n2 are densely connected
-        graph.add_edge(n1, n2, {"weight": 1.0})
-
-        # Community 2: n3, n4 are densely connected
-        graph.add_edge(n3, n4, {"weight": 1.0})
-
-        # Weak connection between communities
-        graph.add_edge(n2, n3, {"weight": 0.1})
-
-        # Detect communities
-        infomap = eg.InfoMap()
-        communities = infomap.detect_communities(graph)
-
-        # The algorithm is stochastic, so we can't check exact communities
-        # But we can check that the right number of communities are found
-        self.assertGreaterEqual(len(set(communities.values())), 1)
-        self.assertLessEqual(len(set(communities.values())), 4)
+    def test_infomap_not_exposed(self):
+        self.assertFalse(hasattr(eg, "InfoMap"))
+        self.assertNotIn("InfoMap", eg.__all__)
 
     def test_coarsen(self):
         # Create a simple graph with two communities

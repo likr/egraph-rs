@@ -1089,7 +1089,7 @@ fn build_tsnet_config(
     lambda_c_stage2: f64,
     lambda_c_stage3: f64,
     lambda_r_stage3: f64,
-    learning_rate: f64,
+    learning_rate: Option<f64>,
     momentum: f64,
     epsilon_r: f64,
     theta: f64,
@@ -1122,7 +1122,7 @@ fn build_tsnet_config(
         lambda_c_stage2,
         lambda_c_stage3,
         lambda_r_stage3,
-        learning_rate: Some(learning_rate),
+        learning_rate,
         momentum,
         epsilon_r,
         theta,
@@ -1171,7 +1171,7 @@ impl PyTsNetSolver {
             lambda_c_stage2 = StrictF64(0.01),
             lambda_c_stage3 = StrictF64(0.0),
             lambda_r_stage3 = StrictF64(0.0),
-            learning_rate = StrictF64(200.0),
+            learning_rate = None,
             momentum = StrictF64(0.8),
             epsilon_r = StrictF64(0.05),
             theta = StrictF64(0.5),
@@ -1182,7 +1182,7 @@ impl PyTsNetSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, backend='fft', *, perplexity_c=0.9, min_perplexity=5.0, max_perplexity=1200.0, power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=200.0, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, backend='fft', *, perplexity_c=0.9, min_perplexity=5.0, max_perplexity=1200.0, power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn pure_2hop(
         py: Python<'_>,
@@ -1203,7 +1203,7 @@ impl PyTsNetSolver {
         lambda_c_stage2: StrictF64,
         lambda_c_stage3: StrictF64,
         lambda_r_stage3: StrictF64,
-        learning_rate: StrictF64,
+        learning_rate: Option<StrictF64>,
         momentum: StrictF64,
         epsilon_r: StrictF64,
         theta: StrictF64,
@@ -1231,7 +1231,7 @@ impl PyTsNetSolver {
             lambda_c_stage2.0,
             lambda_c_stage3.0,
             lambda_r_stage3.0,
-            learning_rate.0,
+            learning_rate.map(|v| v.0),
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1277,7 +1277,7 @@ impl PyTsNetSolver {
             lambda_c_stage2 = StrictF64(0.01),
             lambda_c_stage3 = StrictF64(0.0),
             lambda_r_stage3 = StrictF64(0.0),
-            learning_rate = StrictF64(200.0),
+            learning_rate = None,
             momentum = StrictF64(0.8),
             epsilon_r = StrictF64(0.05),
             theta = StrictF64(0.5),
@@ -1288,7 +1288,7 @@ impl PyTsNetSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn, perplexities=None, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=200.0, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(knn, perplexities=None, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -1308,7 +1308,7 @@ impl PyTsNetSolver {
         lambda_c_stage2: StrictF64,
         lambda_c_stage3: StrictF64,
         lambda_r_stage3: StrictF64,
-        learning_rate: StrictF64,
+        learning_rate: Option<StrictF64>,
         momentum: StrictF64,
         epsilon_r: StrictF64,
         theta: StrictF64,
@@ -1336,7 +1336,7 @@ impl PyTsNetSolver {
             lambda_c_stage2.0,
             lambda_c_stage3.0,
             lambda_r_stage3.0,
-            learning_rate.0,
+            learning_rate.map(|v| v.0),
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1383,7 +1383,7 @@ impl PyTsNetSolver {
             lambda_c_stage2 = StrictF64(0.01),
             lambda_c_stage3 = StrictF64(0.0),
             lambda_r_stage3 = StrictF64(0.0),
-            learning_rate = StrictF64(200.0),
+            learning_rate = None,
             momentum = StrictF64(0.8),
             epsilon_r = StrictF64(0.05),
             theta = StrictF64(0.5),
@@ -1394,7 +1394,7 @@ impl PyTsNetSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(probs, backend='fft', *, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=200.0, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(probs, backend='fft', *, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_probabilities(
         py: Python<'_>,
@@ -1408,7 +1408,7 @@ impl PyTsNetSolver {
         lambda_c_stage2: StrictF64,
         lambda_c_stage3: StrictF64,
         lambda_r_stage3: StrictF64,
-        learning_rate: StrictF64,
+        learning_rate: Option<StrictF64>,
         momentum: StrictF64,
         epsilon_r: StrictF64,
         theta: StrictF64,
@@ -1436,7 +1436,7 @@ impl PyTsNetSolver {
             lambda_c_stage2.0,
             lambda_c_stage3.0,
             lambda_r_stage3.0,
-            learning_rate.0,
+            learning_rate.map(|v| v.0),
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1482,7 +1482,7 @@ impl PyTsNetSolver {
             lambda_c_stage2 = StrictF64(0.01),
             lambda_c_stage3 = StrictF64(0.0),
             lambda_r_stage3 = StrictF64(0.0),
-            learning_rate = StrictF64(200.0),
+            learning_rate = None,
             momentum = StrictF64(0.8),
             epsilon_r = StrictF64(0.05),
             theta = StrictF64(0.5),
@@ -1493,7 +1493,7 @@ impl PyTsNetSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, k=15, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=200.0, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, k=15, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_graph_partial_bfs(
         py: Python<'_>,
@@ -1513,7 +1513,7 @@ impl PyTsNetSolver {
         lambda_c_stage2: StrictF64,
         lambda_c_stage3: StrictF64,
         lambda_r_stage3: StrictF64,
-        learning_rate: StrictF64,
+        learning_rate: Option<StrictF64>,
         momentum: StrictF64,
         epsilon_r: StrictF64,
         theta: StrictF64,
@@ -1541,7 +1541,7 @@ impl PyTsNetSolver {
             lambda_c_stage2.0,
             lambda_c_stage3.0,
             lambda_r_stage3.0,
-            learning_rate.0,
+            learning_rate.map(|v| v.0),
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1562,6 +1562,107 @@ impl PyTsNetSolver {
                 }
                 ScalarDtype::F32 => {
                     TsNetSolver::<f32>::from_graph_partial_bfs(g, k_val, u_perp, cfg)
+                        .map(TsNetInner::F32)
+                }
+            })
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner })
+    }
+
+    /// Construct a `TsNetSolver` from a `CsrGraph` using direct row-normalized `A1 + w2 * A2` affinity.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            w2 = StrictF64(0.5),
+            max_2hop_per_node = None,
+            *,
+            backend = "fft",
+            iterations_stage1 = StrictUsize(250),
+            iterations_stage2 = StrictUsize(250),
+            iterations_stage3 = StrictUsize(500),
+            exaggeration = StrictF64(4.0),
+            lambda_c_stage1 = StrictF64(0.1),
+            lambda_c_stage2 = StrictF64(0.01),
+            lambda_c_stage3 = StrictF64(0.0),
+            lambda_r_stage3 = StrictF64(0.0),
+            learning_rate = None,
+            momentum = StrictF64(0.8),
+            epsilon_r = StrictF64(0.05),
+            theta = StrictF64(0.5),
+            intervals = StrictUsize(25),
+            interpolation_order = StrictUsize(1),
+            min_grid_dim = StrictUsize(64),
+            max_grid_dim = StrictUsize(512),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, backend='fft', iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+    )]
+    fn from_graph_row_normalized(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        w2: StrictF64,
+        max_2hop_per_node: Option<StrictUsize>,
+        backend: &str,
+        iterations_stage1: StrictUsize,
+        iterations_stage2: StrictUsize,
+        iterations_stage3: StrictUsize,
+        exaggeration: StrictF64,
+        lambda_c_stage1: StrictF64,
+        lambda_c_stage2: StrictF64,
+        lambda_c_stage3: StrictF64,
+        lambda_r_stage3: StrictF64,
+        learning_rate: Option<StrictF64>,
+        momentum: StrictF64,
+        epsilon_r: StrictF64,
+        theta: StrictF64,
+        intervals: StrictUsize,
+        interpolation_order: StrictUsize,
+        min_grid_dim: StrictUsize,
+        max_grid_dim: StrictUsize,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let cfg = build_tsnet_config(
+            backend,
+            0.9,
+            5.0,
+            1200.0,
+            2.0,
+            50,
+            1e-5,
+            false,
+            iterations_stage1.0,
+            iterations_stage2.0,
+            iterations_stage3.0,
+            exaggeration.0,
+            lambda_c_stage1.0,
+            lambda_c_stage2.0,
+            lambda_c_stage3.0,
+            lambda_r_stage3.0,
+            learning_rate.map(|v| v.0),
+            momentum.0,
+            epsilon_r.0,
+            theta.0,
+            intervals.0,
+            interpolation_order.0,
+            min_grid_dim.0,
+            max_grid_dim.0,
+            seed.0,
+        )?;
+        let g = graph.inner();
+        let w2_val = w2.0;
+        let max_2hop_val = max_2hop_per_node.map(|v| v.0);
+        let inner = py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => {
+                    TsNetSolver::<f64>::from_graph_row_normalized(g, w2_val, max_2hop_val, cfg)
+                        .map(TsNetInner::F64)
+                }
+                ScalarDtype::F32 => {
+                    TsNetSolver::<f32>::from_graph_row_normalized(g, w2_val, max_2hop_val, cfg)
                         .map(TsNetInner::F32)
                 }
             })
@@ -2588,10 +2689,11 @@ impl PySgdSolver {
             phase2_iters = StrictUsize(100),
             phase3_iters = StrictUsize(250),
             learning_rate = StrictF64(1.0),
+            keep_all_1hop = false,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, seed=42, dtype='float64')"
     )]
     fn pacmap_graph(
         py: Python<'_>,
@@ -2603,6 +2705,7 @@ impl PySgdSolver {
         phase2_iters: StrictUsize,
         phase3_iters: StrictUsize,
         learning_rate: StrictF64,
+        keep_all_1hop: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -2616,6 +2719,7 @@ impl PySgdSolver {
             phase2_iters,
             phase3_iters,
             learning_rate,
+            keep_all_1hop,
             seed,
             dtype,
         )
@@ -3074,6 +3178,75 @@ impl PyGuMapSolver {
         Ok(Self { inner })
     }
 
+    /// Construct a `GuMapSolver` from precomputed `DogVaradhanLandmarks` and 1+2-hop priority CSR.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            landmarks,
+            max_2hop_per_node = StrictUsize(32),
+            *,
+            n_epochs = StrictUsize(200),
+            negative_sample_rate = StrictUsize(5),
+            learning_rate = StrictF64(1.0),
+            min_dist = StrictF64(0.1),
+            spread = StrictF64(1.0),
+            a = None,
+            b = None,
+            sigma_iters = StrictUsize(64),
+            sigma_tolerance = StrictF64(1e-5),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+    )]
+    fn from_landmarks(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        landmarks: &PyDogVaradhanLandmarks,
+        max_2hop_per_node: StrictUsize,
+        n_epochs: StrictUsize,
+        negative_sample_rate: StrictUsize,
+        learning_rate: StrictF64,
+        min_dist: StrictF64,
+        spread: StrictF64,
+        a: Option<StrictF64>,
+        b: Option<StrictF64>,
+        sigma_iters: StrictUsize,
+        sigma_tolerance: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let cfg = build_gumap_config(
+            n_epochs.0,
+            negative_sample_rate.0,
+            learning_rate.0,
+            min_dist.0,
+            spread.0,
+            a.map(|v| v.0),
+            b.map(|v| v.0),
+            sigma_iters.0,
+            sigma_tolerance.0,
+            seed.0,
+        )?;
+        let g = graph.inner();
+        let lm = landmarks.inner();
+        let inner = py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => {
+                    GuMapSolver::<f64>::from_landmarks(g, lm, max_2hop_per_node.0, cfg)
+                        .map(GuMapInner::F64)
+                }
+                ScalarDtype::F32 => {
+                    GuMapSolver::<f32>::from_landmarks(g, lm, max_2hop_per_node.0, cfg)
+                        .map(GuMapInner::F32)
+                }
+            })
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner })
+    }
+
     /// Execute a single optimization epoch in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
@@ -3231,9 +3404,12 @@ impl PySpatialIntruderRefiner {
             hinge_fp = true,
             seed = StrictU64(42),
             *,
+            w_anchor2 = StrictF64(0.0),
+            k_cap_decay = StrictF64(1.0),
+            k_cap_min = StrictUsize(1),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, rounds=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, t_max=20, eps=0.05, hinge_fp=True, seed=42, *, dtype='float64')"
+        text_signature = "(graph, rounds=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, t_max=20, eps=0.05, hinge_fp=True, seed=42, *, w_anchor2=0.0, k_cap_decay=1.0, k_cap_min=1, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -3250,6 +3426,9 @@ impl PySpatialIntruderRefiner {
         eps: StrictF64,
         hinge_fp: bool,
         seed: StrictU64,
+        w_anchor2: StrictF64,
+        k_cap_decay: StrictF64,
+        k_cap_min: StrictUsize,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = SpatialRefinerConfig {
@@ -3257,13 +3436,13 @@ impl PySpatialIntruderRefiner {
             k_cap: k_cap.0,
             margin_scale: margin_scale.0,
             w_anchor: w_anchor.0,
-            w_anchor2: 0.0,
+            w_anchor2: w_anchor2.0,
             w_fn: w_fn.0,
             w_fp: w_fp.0,
             fn_shrink: fn_shrink.0,
             round_decay: round_decay.0,
-            k_cap_decay: 1.0,
-            k_cap_min: 1,
+            k_cap_decay: k_cap_decay.0,
+            k_cap_min: k_cap_min.0,
             t_max: t_max.0,
             eps: eps.0,
             hinge_fp,
@@ -3346,6 +3525,26 @@ impl PySpatialIntruderRefiner {
             RefinerInner::F64(r) => r.num_nodes(),
             RefinerInner::F32(r) => r.num_nodes(),
         }
+    }
+
+    /// Current dynamic active-set neighborhood cap `k_cap`.
+    #[getter]
+    fn current_k_cap(&self) -> usize {
+        match &self.inner {
+            RefinerInner::F64(r) => r.current_k_cap(),
+            RefinerInner::F32(r) => r.current_k_cap(),
+        }
+    }
+
+    /// Update the active-set neighborhood cap `k_cap` for subsequent refinement rounds.
+    #[pyo3(signature = (k_cap), text_signature = "($self, k_cap)")]
+    fn set_k_cap(&mut self, py: Python<'_>, k_cap: StrictUsize) -> PyResult<()> {
+        let cap = k_cap.0;
+        py.detach(|| match &mut self.inner {
+            RefinerInner::F64(r) => r.set_k_cap(cap),
+            RefinerInner::F32(r) => r.set_k_cap(cap),
+        })
+        .map_err(core_error_to_py)
     }
 
     /// Refiner scalar precision (`"float64"` or `"float32"`).

@@ -31,6 +31,8 @@ Neighborhood & Proximity Preservation
 
 .. autofunction:: egraph.neighborhood_preservation_1hop
 .. autofunction:: egraph.neighborhood_preservation_2hop_v6
+.. autofunction:: egraph.sampled_np1
+.. autofunction:: egraph.sampled_np2
 .. autofunction:: egraph.drng_preservation
 .. autofunction:: egraph.dgg_preservation
 .. autofunction:: egraph.gabriel_graph_property_v6

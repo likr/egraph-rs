@@ -18,7 +18,7 @@ use egraph_linalg::{
 };
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph, KnnStats,
-    PerplexityConfig, SparseProbabilities, SymmetrizationMode,
+    PerplexityConfig, Sparse12HopPairs, SparseProbabilities, SymmetrizationMode,
     apply_relative_distance_floor as nb_apply_relative_distance_floor,
     build_gumap_12hop_priority_csr as nb_build_gumap_12hop_priority_csr,
     build_hybrid_adaptive_knn as nb_build_hybrid_adaptive_knn,
@@ -32,7 +32,9 @@ use egraph_neighborhood::{
     compute_nodewise_2hop_perplexities as nb_compute_nodewise_2hop_perplexities,
     compute_regularized_dog_varadhan_landmarks as nb_compute_regularized_dog_varadhan_landmarks,
     compute_resistance_embedding as nb_compute_resistance_embedding,
-    extract_1hop_2hop_csr as nb_extract_1hop_2hop_csr, find_ab_params as nb_find_ab_params,
+    extract_1hop_2hop_csr as nb_extract_1hop_2hop_csr,
+    extract_sparse_1hop_2hop_pairs as nb_extract_sparse_1hop_2hop_pairs,
+    find_ab_params as nb_find_ab_params,
     graph_row_normalized_probabilities as nb_graph_row_normalized_probabilities,
     partial_bfs_knn as nb_partial_bfs_knn,
     symmetrize_row_normalized as nb_symmetrize_row_normalized,
@@ -755,6 +757,57 @@ impl PySparseProbabilities {
     }
 }
 
+/// Extracted sparse undirected 1-hop and capped 2-hop vertex pair arrays `(u, v)` with `u < v`.
+#[pyclass(name = "Sparse12HopPairs", module = "egraph._core", from_py_object)]
+#[derive(Clone)]
+pub struct PySparse12HopPairs {
+    inner: Sparse12HopPairs,
+}
+
+#[pymethods]
+impl PySparse12HopPairs {
+    /// Number of unique undirected 1-hop pairs (`u1 < v1`).
+    #[getter]
+    fn num_1hop(&self) -> usize {
+        self.inner.u1.len()
+    }
+
+    /// Number of unique undirected 2-hop pairs (`u2 < v2`).
+    #[getter]
+    fn num_2hop(&self) -> usize {
+        self.inner.u2.len()
+    }
+
+    /// Return a `uint32` NumPy copy of 1-hop source vertex indices.
+    fn u1<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.inner.u1)
+    }
+
+    /// Return a `uint32` NumPy copy of 1-hop target vertex indices.
+    fn v1<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.inner.v1)
+    }
+
+    /// Return a `uint32` NumPy copy of 2-hop source vertex indices.
+    fn u2<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.inner.u2)
+    }
+
+    /// Return a `uint32` NumPy copy of 2-hop target vertex indices.
+    fn v2<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.inner.v2)
+    }
+
+    /// Return a concise string representation of the `Sparse12HopPairs`.
+    fn __repr__(&self) -> String {
+        format!(
+            "Sparse12HopPairs(num_1hop={}, num_2hop={})",
+            self.inner.u1.len(),
+            self.inner.u2.len()
+        )
+    }
+}
+
 /// Regularized DoG Varadhan landmark distance table (plus optional coarse diffusive scaffold)
 /// supporting fast ALT lower-bound distance queries.
 #[pyclass(name = "DogVaradhanLandmarks", module = "egraph._core", from_py_object)]
@@ -1148,6 +1201,29 @@ fn extract_1hop_2hop_csr(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<(PyCsrG
         .detach(|| nb_extract_1hop_2hop_csr(g))
         .map_err(core_error_to_py)?;
     Ok((PyCsrGraph { inner: adj1 }, PyCsrGraph { inner: adj2 }))
+}
+
+/// Extract canonical undirected 1-hop and hub-safe capped 2-hop vertex pairs ``Sparse12HopPairs``.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, max_2hop_per_node = StrictUsize(32), seed = StrictU64(42)),
+    text_signature = "(graph, max_2hop_per_node=32, seed=42)"
+)]
+fn extract_sparse_1hop_2hop_pairs(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    max_2hop_per_node: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<PySparse12HopPairs> {
+    let g = graph.inner();
+    let cap = max_2hop_per_node.0;
+    let seed_val = seed.0;
+    let inner = py
+        .detach(|| nb_extract_sparse_1hop_2hop_pairs(g, cap, seed_val))
+        .map_err(core_error_to_py)?;
+    Ok(PySparse12HopPairs { inner })
 }
 
 /// Build a pure 1+2-hop `KnnGraph` with `{1.0, 2.0}` distances, `k2_deg`, and summary `stats`.
@@ -1737,6 +1813,7 @@ fn apply_relative_distance_floor<'py>(
 pub(super) fn register_m2(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKnnGraph>()?;
     m.add_class::<PySparseProbabilities>()?;
+    m.add_class::<PySparse12HopPairs>()?;
     m.add_class::<PyDogVaradhanLandmarks>()?;
     m.add_function(wrap_pyfunction!(select_maxmin_sp_pivots, m)?)?;
     m.add_function(wrap_pyfunction!(pivot_mds_init, m)?)?;
@@ -1752,6 +1829,7 @@ pub(super) fn register_m2(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_resistance_embedding, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diffusion_embedding, m)?)?;
     m.add_function(wrap_pyfunction!(extract_1hop_2hop_csr, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_sparse_1hop_2hop_pairs, m)?)?;
     m.add_function(wrap_pyfunction!(build_pure_2hop_knn, m)?)?;
     m.add_function(wrap_pyfunction!(build_rerank_knn, m)?)?;
     m.add_function(wrap_pyfunction!(compute_2hop_neighborhood_sizes, m)?)?;

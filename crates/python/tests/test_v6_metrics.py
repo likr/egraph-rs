@@ -334,7 +334,7 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
             places=12,
         )
 
-        # Evaluate all 14 targets using mixed alias conventions.
+        # Evaluate all 16 targets using mixed alias conventions.
         all_targets = [
             "ScaleNormalizedStress",
             "sampled_sns",
@@ -343,6 +343,8 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
             "sampled_crossing_number",
             "np1",
             "neighborhood_preservation_2hop",
+            "sampled-np1",
+            "sampled_np2",
             "gabriel_graph_property",
             "node_resolution",
             "drng_preservation",
@@ -352,7 +354,7 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
             "ideal_edge_lengths",
         ]
         full = eg.evaluate_metrics(g, layout, all_targets, num_pivots=6, num_samples=200, seed=9)
-        self.assertEqual(len(full), 14)
+        self.assertEqual(len(full), 16)
         self.assertAlmostEqual(
             full["sampled_scale_normalized_stress"],
             eg.sampled_scale_normalized_stress(g, layout, num_pivots=6, seed=9),
@@ -368,6 +370,16 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
         self.assertAlmostEqual(
             full["neighborhood_preservation_1hop"],
             eg.neighborhood_preservation_1hop(g, layout),
+            places=12,
+        )
+        self.assertAlmostEqual(
+            full["sampled_np1"],
+            eg.sampled_np1(g, layout, num_samples=200, seed=9),
+            places=12,
+        )
+        self.assertAlmostEqual(
+            full["sampled_np2"],
+            eg.sampled_np2(g, layout, num_samples=200, seed=9),
             places=12,
         )
         self.assertAlmostEqual(
@@ -391,6 +403,53 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
             (ValueError,),
             lambda: eg.evaluate_metrics(g, layout, ["sampled_sns"], num_pivots=0),
         )
+        self.assert_no_panic_raises(
+            (ValueError,),
+            lambda: eg.evaluate_metrics(g, layout, ["sampled_np1"], num_samples=0),
+        )
+        self.assert_no_panic_raises(
+            (ValueError,),
+            lambda: eg.evaluate_metrics(g, layout, ["sampled_np2"], num_samples=0),
+        )
+
+    def test_sampled_np1_and_np2(self) -> None:
+        g, layout64 = _make_grid(4, 4)
+        layout32 = eg.Layout2d.from_coords(layout64.coords(copy=True).astype(np.float32))
+
+        for fn_sampled, fn_exact in (
+            (eg.sampled_np1, eg.neighborhood_preservation_1hop),
+            (eg.sampled_np2, eg.neighborhood_preservation_2hop_v6),
+        ):
+            self.assertIn(fn_sampled.__name__, eg.__all__)
+            self.assertTrue((fn_sampled.__doc__ or "").strip())
+            sig = inspect.signature(fn_sampled)
+            self.assertEqual(sig.parameters["num_samples"].default, 4096)
+            self.assertEqual(sig.parameters["seed"].default, 42)
+
+            exact = fn_exact(g, layout64)
+            full_s = fn_sampled(g, layout64, num_samples=g.num_nodes, seed=7)
+            self.assertEqual(full_s, exact)
+
+            sub_a = fn_sampled(g, layout64, num_samples=8, seed=19)
+            sub_b = fn_sampled(g, layout64, num_samples=8, seed=19)
+            self.assertEqual(sub_a, sub_b)
+            self.assertGreaterEqual(sub_a, 0.0)
+            self.assertLessEqual(sub_a, 1.0)
+
+            sub_32 = fn_sampled(g, layout32, num_samples=g.num_nodes, seed=7)
+            self.assertAlmostEqual(sub_32, fn_exact(g, layout32), places=12)
+
+            self.assert_no_panic_raises(
+                (ValueError,), lambda: fn_sampled(g, layout64, num_samples=0)
+            )
+            self.assert_no_panic_raises(
+                (ValueError,), lambda: fn_sampled(g, eg.Layout2d.zeros(4), num_samples=4)
+            )
+            bad_nan = eg.Layout2d.zeros(g.num_nodes)
+            bad_nan.coords(copy=False)[0, 0] = float("nan")
+            self.assert_no_panic_raises(
+                (ValueError,), lambda: fn_sampled(g, bad_nan, num_samples=4)
+            )
 
     def test_top_level_dual_dispatch_v6_and_legacy(self) -> None:
         # Build matching graphs/layouts in both legacy and v6 representations.

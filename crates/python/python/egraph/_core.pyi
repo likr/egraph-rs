@@ -60,7 +60,6 @@ __all__ = [
     "GuMapSolver",
     "IbUmapSolver",
     "Ic0CgSolver",
-    "InfoMap",
     "JacobiCgSolver",
     "KamadaKawai",
     "KamadaKawaiSolver",
@@ -109,6 +108,7 @@ __all__ = [
     "SeparationConstraint",
     "Sgd",
     "SgdSolver",
+    "Sparse12HopPairs",
     "SparseProbabilities",
     "SparseSgd",
     "SpatialIntruderRefiner",
@@ -167,6 +167,7 @@ __all__ = [
     "edge_angle",
     "evaluate_metrics",
     "extract_1hop_2hop_csr",
+    "extract_sparse_1hop_2hop_pairs",
     "find_ab_params",
     "gabriel_graph_edges",
     "gabriel_graph_property",
@@ -209,6 +210,8 @@ __all__ = [
     "remove_cycles",
     "representative_mds",
     "sampled_crossing_number",
+    "sampled_np1",
+    "sampled_np2",
     "sampled_scale_normalized_stress",
     "scale_normalized_stress",
     "scale_normalized_stress_from_distances",
@@ -347,6 +350,18 @@ class SparseProbabilities:
     def indices(self) -> npt.NDArray[np.uint32]: ...
     def values(self) -> npt.NDArray[np.float64]: ...
     def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class Sparse12HopPairs:
+    @property
+    def num_1hop(self) -> int: ...
+    @property
+    def num_2hop(self) -> int: ...
+    def u1(self) -> npt.NDArray[np.uint32]: ...
+    def v1(self) -> npt.NDArray[np.uint32]: ...
+    def u2(self) -> npt.NDArray[np.uint32]: ...
+    def v2(self) -> npt.NDArray[np.uint32]: ...
     def __repr__(self) -> str: ...
 
 @final
@@ -1682,11 +1697,6 @@ class SpectralClustering:
     def __new__(cls, k: int) -> SpectralClustering: ...
     def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
-@final
-class InfoMap:
-    def __new__(cls) -> InfoMap: ...
-    def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
-
 def all_sources_bfs(
     graph: GraphAdapter, unit_edge_length: float
 ) -> DistanceMatrix: ...
@@ -1825,6 +1835,20 @@ def sampled_crossing_number(
 def torus_crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
 def neighborhood_preservation_1hop(graph: CsrGraph, layout: Layout2d) -> float: ...
 def neighborhood_preservation_2hop_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
+def sampled_np1(
+    graph: CsrGraph,
+    layout: Layout2d,
+    *,
+    num_samples: int = 4096,
+    seed: int = 42,
+) -> float: ...
+def sampled_np2(
+    graph: CsrGraph,
+    layout: Layout2d,
+    *,
+    num_samples: int = 4096,
+    seed: int = 42,
+) -> float: ...
 def edge_angle(x1: float, y1: float, x2: float, y2: float) -> float | None: ...
 def prism_distortion(
     original_layout: Layout2d, adjusted_layout: Layout2d
@@ -1942,6 +1966,11 @@ def chebyshev_dog_jl_embedding(
     eps_psd: float = 1e-4,
 ) -> npt.NDArray[np.float64]: ...
 def extract_1hop_2hop_csr(graph: CsrGraph) -> tuple[CsrGraph, CsrGraph]: ...
+def extract_sparse_1hop_2hop_pairs(
+    graph: CsrGraph,
+    max_2hop_per_node: int = 32,
+    seed: int = 42,
+) -> Sparse12HopPairs: ...
 def build_pure_2hop_knn(
     graph: CsrGraph,
 ) -> tuple[KnnGraph, npt.NDArray[np.uint32], dict[str, Any]]: ...
@@ -2081,7 +2110,7 @@ class TsNetSolver:
         lambda_c_stage2: float = 0.01,
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
-        learning_rate: float = 200.0,
+        learning_rate: float | None = None,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -2111,7 +2140,7 @@ class TsNetSolver:
         lambda_c_stage2: float = 0.01,
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
-        learning_rate: float = 200.0,
+        learning_rate: float | None = None,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -2135,7 +2164,7 @@ class TsNetSolver:
         lambda_c_stage2: float = 0.01,
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
-        learning_rate: float = 200.0,
+        learning_rate: float | None = None,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -2165,7 +2194,33 @@ class TsNetSolver:
         lambda_c_stage2: float = 0.01,
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
-        learning_rate: float = 200.0,
+        learning_rate: float | None = None,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
+    @staticmethod
+    def from_graph_row_normalized(
+        graph: CsrGraph,
+        w2: float = 0.5,
+        max_2hop_per_node: int | None = None,
+        *,
+        backend: str = "fft",
+        iterations_stage1: int = 250,
+        iterations_stage2: int = 250,
+        iterations_stage3: int = 500,
+        exaggeration: float = 4.0,
+        lambda_c_stage1: float = 0.1,
+        lambda_c_stage2: float = 0.01,
+        lambda_c_stage3: float = 0.0,
+        lambda_r_stage3: float = 0.0,
+        learning_rate: float | None = None,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -2382,6 +2437,7 @@ class SgdSolver:
         phase2_iters: int = 100,
         phase3_iters: int = 250,
         learning_rate: float = 1.0,
+        keep_all_1hop: bool = False,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -2488,6 +2544,24 @@ class GuMapSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
+    @staticmethod
+    def from_landmarks(
+        graph: CsrGraph,
+        landmarks: DogVaradhanLandmarks,
+        max_2hop_per_node: int = 32,
+        *,
+        n_epochs: int = 200,
+        negative_sample_rate: int = 5,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GuMapSolver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -2527,6 +2601,9 @@ class SpatialIntruderRefiner:
         hinge_fp: bool = True,
         seed: int = 42,
         *,
+        w_anchor2: float = 0.0,
+        k_cap_decay: float = 1.0,
+        k_cap_min: int = 1,
         dtype: _DtypeLike = "float64",
     ) -> SpatialIntruderRefiner: ...
     def step(self, layout: Layout2d) -> str: ...
@@ -2543,6 +2620,9 @@ class SpatialIntruderRefiner:
     def is_finished(self) -> bool: ...
     @property
     def num_nodes(self) -> int: ...
+    @property
+    def current_k_cap(self) -> int: ...
+    def set_k_cap(self, k_cap: int) -> None: ...
     @property
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
@@ -2787,6 +2867,30 @@ class IbUmapSolver:
         t2: float | None = None,
         alpha: float | None = None,
         beta_floor: float | None = None,
+        backend: str = "ibfft",
+        n_epochs: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        ibfft_order: int = 1,
+        ibfft_intervals: int = 25,
+        ibfft_min_grid_dim: int = 64,
+        ibfft_max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> IbUmapSolver: ...
+    @staticmethod
+    def from_landmarks(
+        graph: CsrGraph,
+        landmarks: DogVaradhanLandmarks,
+        max_2hop_per_node: int = 32,
+        *,
         backend: str = "ibfft",
         n_epochs: int = 200,
         learning_rate: float = 1.0,

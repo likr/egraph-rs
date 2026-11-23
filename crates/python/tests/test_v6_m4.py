@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import inspect
 import math
 import unittest
 from typing import Any, Callable
@@ -213,6 +214,32 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
         s_fset.run(l_b)
         np.testing.assert_allclose(l_a.coords(copy=True), l_b.coords(copy=True), rtol=1e-12, atol=1e-12)
 
+        # from_landmarks (default max_2hop_per_node=32) & parity with IbUmapSolver.__new__
+        self.assertEqual(inspect.signature(eg.IbUmapSolver.from_landmarks).parameters["max_2hop_per_node"].default, 32)
+        lm = eg.compute_regularized_dog_varadhan_landmarks(graph, num_landmarks=8, seed=42)
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            s_direct = eg.IbUmapSolver(
+                graph, max_2hop_per_node=32, num_landmarks=8, backend="exact", n_epochs=8, seed=42, dtype=dtype_str
+            )
+            s_lm_run = eg.IbUmapSolver.from_landmarks(
+                graph, lm, max_2hop_per_node=32, backend="exact", n_epochs=8, seed=42, dtype=dtype_str
+            )
+            s_lm_step = eg.IbUmapSolver.from_landmarks(
+                graph, lm, max_2hop_per_node=32, backend="exact", n_epochs=8, seed=42, dtype=dtype_str
+            )
+            l_dir = eg.Layout2d.from_coords(base.astype(np_dtype))
+            l_run = eg.Layout2d.from_coords(base.astype(np_dtype))
+            l_step = eg.Layout2d.from_coords(base.astype(np_dtype))
+            s_direct.run(l_dir)
+            s_lm_run.run(l_run)
+            s_lm_step.step(l_step)
+            s_lm_step.run(l_step)
+            np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+            np.testing.assert_array_equal(l_run.coords(copy=True), l_dir.coords(copy=True))
+
+        lm_bad = eg.compute_regularized_dog_varadhan_landmarks(_make_grid(2, 2), num_landmarks=2, seed=42)
+        self.assert_no_panic_raises((ValueError,), lambda: eg.IbUmapSolver.from_landmarks(graph, lm_bad))
+
     def test_sgd_m4_solvers_and_squared_schedule(self) -> None:
         graph = _make_barbell(5, bridge_len=2)
         n = graph.num_nodes
@@ -262,6 +289,23 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
             p2.run_steps(l_step, 6)
             p2.run(l_step)
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+
+            # 2b. pacmap_graph keep_all_1hop=True retains all hub 1-hop edges beyond n_neighbors
+            star = eg.CsrGraph.from_edges(9, [(0, i) for i in range(1, 9)], directed=False, sanitize=True)
+            pm_keep = eg.SgdSolver.pacmap_graph(
+                star, n_neighbors=2, phase1_iters=2, phase2_iters=2, phase3_iters=2, keep_all_1hop=True, seed=42, dtype=dtype_str
+            )
+            pm_keep_step = eg.SgdSolver.pacmap_graph(
+                star, n_neighbors=2, phase1_iters=2, phase2_iters=2, phase3_iters=2, keep_all_1hop=True, seed=42, dtype=dtype_str
+            )
+            self.assertGreaterEqual(pm_keep.num_springs, 8)
+            star_init = _to_float_array(_seeded_coords(9, seed=13, scale=1.0), dtype_str)
+            ls_r = eg.Layout2d.from_coords(star_init)
+            ls_s = eg.Layout2d.from_coords(star_init)
+            pm_keep.run(ls_r)
+            pm_keep_step.step(ls_s)
+            pm_keep_step.run(ls_s)
+            np.testing.assert_array_equal(ls_r.coords(copy=True), ls_s.coords(copy=True))
 
             # 3. sgd2
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))

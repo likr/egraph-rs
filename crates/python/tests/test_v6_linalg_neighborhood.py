@@ -407,6 +407,32 @@ class TestV6LinalgAndNeighborhood(unittest.TestCase):
         self.assertEqual(stats2["n_1hop"], int(hop1.indptr()[-1]))
         self.assertEqual(stats2["n_2hop"], int(hop2.indptr()[-1]))
 
+        # Sparse 1+2-hop pairs extraction
+        pairs = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=32, seed=42)
+        pairs_rep = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=32, seed=42)
+        self.assertEqual(pairs.num_1hop, len(edges))
+        self.assertGreater(pairs.num_2hop, 0)
+        self.assertIn("Sparse12HopPairs", repr(pairs))
+        for arr in (pairs.u1(), pairs.v1(), pairs.u2(), pairs.v2()):
+            self.assertEqual(arr.dtype, np.uint32)
+        self.assertTrue(np.all(pairs.u1() < pairs.v1()))
+        self.assertTrue(np.all(pairs.u2() < pairs.v2()))
+        np.testing.assert_array_equal(pairs.u1(), pairs_rep.u1())
+        np.testing.assert_array_equal(pairs.v1(), pairs_rep.v1())
+        np.testing.assert_array_equal(pairs.u2(), pairs_rep.u2())
+        np.testing.assert_array_equal(pairs.v2(), pairs_rep.v2())
+
+        pairs_1hop_only = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=0, seed=42)
+        self.assertEqual(pairs_1hop_only.num_1hop, len(edges))
+        self.assertEqual(pairs_1hop_only.num_2hop, 0)
+
+        empty_pairs = eg.extract_sparse_1hop_2hop_pairs(eg.CsrGraph.from_edges(0, []))
+        self.assertEqual(empty_pairs.num_1hop, 0)
+        self.assertEqual(empty_pairs.num_2hop, 0)
+        single_pairs = eg.extract_sparse_1hop_2hop_pairs(eg.CsrGraph.from_edges(1, []))
+        self.assertEqual(single_pairs.num_1hop, 0)
+        self.assertEqual(single_pairs.num_2hop, 0)
+
         # Row 0 in pure 2-hop knn has 8 distances == 1.0 and 1 distance == 2.0
         r0_idx = knn2.indices()[knn2.indptr()[0] : knn2.indptr()[1]]
         r0_dist = knn2.distances()[knn2.indptr()[0] : knn2.indptr()[1]]
@@ -645,7 +671,7 @@ class TestV6LinalgAndNeighborhood(unittest.TestCase):
             np.testing.assert_array_equal(e_arr, ref_emb)
 
     def test_exports_signatures_and_docstrings(self) -> None:
-        m2_classes = ("KnnGraph", "SparseProbabilities", "DogVaradhanLandmarks")
+        m2_classes = ("KnnGraph", "SparseProbabilities", "Sparse12HopPairs", "DogVaradhanLandmarks")
         m2_functions = (
             "select_maxmin_sp_pivots",
             "pivot_mds_init",
@@ -655,6 +681,7 @@ class TestV6LinalgAndNeighborhood(unittest.TestCase):
             "chebyshev_heat_spmv",
             "chebyshev_dog_jl_embedding",
             "extract_1hop_2hop_csr",
+            "extract_sparse_1hop_2hop_pairs",
             "build_pure_2hop_knn",
             "compute_2hop_neighborhood_sizes",
             "compute_nodewise_2hop_perplexities",
@@ -690,6 +717,10 @@ class TestV6LinalgAndNeighborhood(unittest.TestCase):
         self.assertIsNone(sig_dog.parameters["degree"].default)
         self.assertEqual(sig_dog.parameters["num_landmarks"].default, 64)
         self.assertEqual(sig_dog.parameters["t_coarse"].default, 48.0)
+
+        sig_pairs = inspect.signature(eg.extract_sparse_1hop_2hop_pairs)
+        self.assertEqual(sig_pairs.parameters["max_2hop_per_node"].default, 32)
+        self.assertEqual(sig_pairs.parameters["seed"].default, 42)
 
 
 if __name__ == "__main__":

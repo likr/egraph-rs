@@ -827,6 +827,8 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "neighborhoodpreservation2hop" | "neighborhoodpreservation2hopv6" | "np2" => {
             Ok(MetricTarget::NeighborhoodPreservation2Hop)
         }
+        "samplednp1" | "sampledneighborhoodpreservation1hop" => Ok(MetricTarget::SampledNp1),
+        "samplednp2" | "sampledneighborhoodpreservation2hop" => Ok(MetricTarget::SampledNp2),
         "gabrielgraphproperty" | "gabrielgraphpropertyv6" | "gabrielproperty" => {
             Ok(MetricTarget::GabrielGraphProperty)
         }
@@ -1685,6 +1687,52 @@ fn neighborhood_preservation_2hop_v6(
     v6_neighborhood_preservation_2hop_impl(py, graph, layout)
 }
 
+/// Estimate 1-hop neighborhood preservation (`NP1`) in `[0.0, 1.0]` via deterministic vertex sampling.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_samples = StrictUsize(4096), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_samples=4096, seed=42)"
+)]
+fn sampled_np1(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_samples: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let samples = num_samples.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::sampled_neighborhood_preservation_1hop(g, &soa, samples, seed_val)
+    })
+}
+
+/// Estimate 2-hop neighborhood preservation (`NP2`) in `[0.0, 1.0]` via deterministic vertex sampling.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_samples = StrictUsize(4096), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_samples=4096, seed=42)"
+)]
+fn sampled_np2(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_samples: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let samples = num_samples.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::sampled_neighborhood_preservation_2hop(g, &soa, samples, seed_val)
+    })
+}
+
 /// Compute the undirected angle in `[0.0, pi]` radians between 2D vectors `(x1, y1)` and `(x2, y2)`.
 ///
 /// Returns `None` if either vector is non-finite or has zero length.
@@ -1803,10 +1851,10 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// Supported target names and aliases include `"scale_normalized_stress"` (`"sns"`),
 /// `"sampled_scale_normalized_stress"` (`"sampled_sns"`), `"crossing_number"`,
 /// `"crossing_angle"`, `"sampled_crossing_number"`, `"neighborhood_preservation_1hop"`
-/// (`"np1"`), `"neighborhood_preservation_2hop"` (`"np2"`), `"gabriel_graph_property"`,
-/// `"node_resolution"`, `"relative_neighborhood_preservation"` (`"drng"`),
-/// `"gabriel_graph_preservation"` (`"dgg"`), `"aspect_ratio"`, `"angular_resolution"`,
-/// and `"ideal_edge_lengths"`.
+/// (`"np1"`), `"neighborhood_preservation_2hop"` (`"np2"`), `"sampled_np1"`,
+/// `"sampled_np2"`, `"gabriel_graph_property"`, `"node_resolution"`,
+/// `"relative_neighborhood_preservation"` (`"drng"`), `"gabriel_graph_preservation"`
+/// (`"dgg"`), `"aspect_ratio"`, `"angular_resolution"`, and `"ideal_edge_lengths"`.
 ///
 /// Releases the Python GIL during computation and returns a dict keyed by canonical
 /// `MetricReport` snake_case field names.
@@ -1860,6 +1908,12 @@ fn evaluate_metrics(
     }
     if let Some(v) = report.neighborhood_preservation_2hop {
         out.insert("neighborhood_preservation_2hop".to_owned(), v);
+    }
+    if let Some(v) = report.sampled_np1 {
+        out.insert("sampled_np1".to_owned(), v);
+    }
+    if let Some(v) = report.sampled_np2 {
+        out.insert("sampled_np2".to_owned(), v);
     }
     if let Some(v) = report.gabriel_graph_property {
         out.insert("gabriel_graph_property".to_owned(), v);
@@ -2305,6 +2359,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(torus_crossing_number, m)?)?;
     m.add_function(wrap_pyfunction!(neighborhood_preservation_1hop, m)?)?;
     m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(sampled_np1, m)?)?;
+    m.add_function(wrap_pyfunction!(sampled_np2, m)?)?;
     m.add_function(wrap_pyfunction!(edge_angle, m)?)?;
     m.add_function(wrap_pyfunction!(prism_distortion, m)?)?;
     m.add_function(wrap_pyfunction!(prism_distortion_with_edges, m)?)?;
