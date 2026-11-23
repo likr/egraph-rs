@@ -701,7 +701,11 @@ impl SweepLineCrossings {
     /// Counts all crossing pairs among `edges` under `layout`.
     pub fn count_edges<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> CoreResult<usize> {
         let segs = build_segments(edges, layout)?;
-        Ok(sweep_segments(&segs).len())
+        let mut count = 0usize;
+        sweep_segments_with(&segs, |_, _| {
+            count += 1;
+        });
+        Ok(count)
     }
 
     /// Summarizes crossing count and crossing angles among `edges` under `layout`.
@@ -710,24 +714,39 @@ impl SweepLineCrossings {
         layout: &Layout2d<S>,
     ) -> CoreResult<CrossingSummary> {
         let segs = build_segments(edges, layout)?;
-        let reported = sweep_segments(&segs);
-        let mut summary = CrossingSummary {
-            count: reported.len(),
-            angle_cos_sq_sum: 0.0,
-            min_angle_rad: None,
-        };
-        for key in reported {
-            let (a, b) = unpack_pair(key);
+        let mut count = 0usize;
+        let mut cos_sq_sum = 0.0_f64;
+        let mut cos_sq_comp = 0.0_f64;
+        let mut min_angle_rad: Option<f64> = None;
+
+        sweep_segments_with(&segs, |a, b| {
+            count += 1;
             let (angle_rad, cos_sq) = crossing_angle_metrics(&segs[a], &segs[b]);
-            summary.angle_cos_sq_sum += cos_sq;
+            // Use Neumaier compensated summation so accumulation is deterministic (independent
+            // of hash-table bucket order) and keeps floating-point error at O(eps) rather than
+            // O(K * eps) on high-crossing graphs. Note that IEEE-754 addition order differs from
+            // sorting all pairs by (edge_a, edge_b) first, so angle_cos_sq_sum agrees within
+            // O(eps * K) while count and min_angle_rad are bit-exact.
+            let t = cos_sq_sum + cos_sq;
+            cos_sq_comp += if cos_sq_sum.abs() >= cos_sq.abs() {
+                (cos_sq_sum - t) + cos_sq
+            } else {
+                (cos_sq - t) + cos_sq_sum
+            };
+            cos_sq_sum = t;
             if let Some(ang) = angle_rad {
-                summary.min_angle_rad = Some(match summary.min_angle_rad {
+                min_angle_rad = Some(match min_angle_rad {
                     Some(prev) => prev.min(ang),
                     None => ang,
                 });
             }
-        }
-        Ok(summary)
+        });
+
+        Ok(CrossingSummary {
+            count,
+            angle_cos_sq_sum: cos_sq_sum + cos_sq_comp,
+            min_angle_rad,
+        })
     }
 
     /// Finds all crossing pairs among `edges` under `layout`, sorted by `(edge_a, edge_b)`.
@@ -796,9 +815,275 @@ fn build_segments<S: Scalar>(edges: &[(u32, u32)], layout: &Layout2d<S>) -> Core
     Ok(segs)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct OrderedF64(f64);
+
+impl PartialEq for OrderedF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.total_cmp(&other.0) == Ordering::Equal
+    }
+}
+
+impl Eq for OrderedF64 {}
+
+impl PartialOrd for OrderedF64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF64 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+trait CrossingCollector {
+    fn on_vertical_pair(&mut self, a: usize, b: usize);
+    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, eps_y: f64, dt_probe: f64);
+    fn on_band_pair(
+        &mut self,
+        s_lo: &Seg,
+        s_hi: &Seg,
+        sweep_x: f64,
+        eps_y: f64,
+        dt_probe: f64,
+        opt_xi: Option<f64>,
+    );
+    fn evict_before(&mut self, x_evt: f64);
+    fn flush_at_x(&mut self, next_x: f64);
+}
+
+struct PairSetCollector {
+    reported: PairSet,
+}
+
+impl CrossingCollector for PairSetCollector {
+    #[inline]
+    fn on_vertical_pair(&mut self, a: usize, b: usize) {
+        self.reported.insert(pack_pair(a, b));
+    }
+
+    #[inline]
+    fn on_swap_pair(&mut self, _s1: &Seg, _s2: &Seg, _sweep_x: f64, _eps_y: f64, _dt_probe: f64) {}
+
+    #[inline]
+    fn on_band_pair(
+        &mut self,
+        s_lo: &Seg,
+        s_hi: &Seg,
+        _sweep_x: f64,
+        _eps_y: f64,
+        _dt_probe: f64,
+        _opt_xi: Option<f64>,
+    ) {
+        self.reported.insert(pack_pair(s_lo.id, s_hi.id));
+    }
+
+    #[inline]
+    fn evict_before(&mut self, _x_evt: f64) {}
+
+    #[inline]
+    fn flush_at_x(&mut self, _next_x: f64) {}
+}
+
+struct StreamingCollector<F: FnMut(usize, usize)> {
+    on_crossing: F,
+    at_x_inline: [(u64, Option<f64>); 8],
+    at_x_inline_len: usize,
+    at_x_overflow_set: PairSet,
+    at_x_overflow_list: Vec<(u64, Option<f64>)>,
+    active_band_reported: PairSet,
+    evict_heap: BinaryHeap<Reverse<(OrderedF64, u64)>>,
+    peak_active_band: usize,
+}
+
+impl<F: FnMut(usize, usize)> StreamingCollector<F> {
+    fn new(on_crossing: F) -> Self {
+        Self {
+            on_crossing,
+            at_x_inline: [(0, None); 8],
+            at_x_inline_len: 0,
+            at_x_overflow_set: PairSet::default(),
+            at_x_overflow_list: Vec::new(),
+            active_band_reported: PairSet::default(),
+            evict_heap: BinaryHeap::new(),
+            peak_active_band: 0,
+        }
+    }
+
+    #[inline]
+    fn contains_at_x(&self, pair: u64) -> bool {
+        if self.at_x_overflow_list.is_empty() {
+            self.at_x_inline[..self.at_x_inline_len]
+                .iter()
+                .any(|&(p, _)| p == pair)
+        } else {
+            self.at_x_overflow_set.contains(&pair)
+        }
+    }
+
+    #[inline]
+    fn insert_at_x(&mut self, pair: u64, opt_x_evict: Option<f64>) {
+        if self.at_x_overflow_list.is_empty() {
+            if self.at_x_inline_len < self.at_x_inline.len() {
+                self.at_x_inline[self.at_x_inline_len] = (pair, opt_x_evict);
+                self.at_x_inline_len += 1;
+                return;
+            }
+            for &(p, ev) in &self.at_x_inline {
+                self.at_x_overflow_set.insert(p);
+                self.at_x_overflow_list.push((p, ev));
+            }
+            self.at_x_inline_len = 0;
+        }
+        if self.at_x_overflow_set.insert(pair) {
+            self.at_x_overflow_list.push((pair, opt_x_evict));
+        }
+    }
+
+    #[inline]
+    fn emit_if_new(&mut self, a: usize, b: usize, opt_x_evict: Option<f64>) {
+        let pair = pack_pair(a, b);
+        if self.contains_at_x(pair) || self.active_band_reported.contains(&pair) {
+            return;
+        }
+        self.insert_at_x(pair, opt_x_evict);
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        (self.on_crossing)(lo, hi);
+    }
+}
+
+#[inline]
+fn compute_x_evict(
+    a: &Seg,
+    b: &Seg,
+    sweep_x: f64,
+    xi: f64,
+    eps_y: f64,
+    dt_probe: f64,
+) -> Option<f64> {
+    let r = a.x2.min(b.x2);
+    if sweep_x >= r {
+        return None;
+    }
+    let ds = (a.slope - b.slope).abs();
+    if ds == 0.0 {
+        return Some(r);
+    }
+    let dy = (a.y_at(sweep_x) - b.y_at(sweep_x)).abs();
+    let margin = dy + 2.0 * eps_y + 2.0 * (seg_y_err(a, r) + seg_y_err(b, r));
+    let x_sep = sweep_x.max(xi) + margin / ds + dt_probe;
+    Some(r.min(x_sep))
+}
+
+impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
+    #[inline]
+    fn on_vertical_pair(&mut self, a: usize, b: usize) {
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        (self.on_crossing)(lo, hi);
+    }
+
+    #[inline]
+    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, eps_y: f64, dt_probe: f64) {
+        if !s1.shares_endpoint(s2) && segments_geometrically_intersect(s1, s2) {
+            let opt_x_evict = intersection_x(s1, s2)
+                .and_then(|xi| compute_x_evict(s1, s2, sweep_x, xi, eps_y, dt_probe));
+            self.emit_if_new(s1.id, s2.id, opt_x_evict);
+        }
+    }
+
+    #[inline]
+    fn on_band_pair(
+        &mut self,
+        s_lo: &Seg,
+        s_hi: &Seg,
+        sweep_x: f64,
+        eps_y: f64,
+        dt_probe: f64,
+        opt_xi: Option<f64>,
+    ) {
+        match opt_xi {
+            None => {
+                // det == 0.0 (collinear / parallel): emit only at the overlap start L so
+                // persistent collinear bands require O(1) cross-x_evt tracking.
+                let l = s_lo.x1.max(s_hi.x1);
+                if sweep_x == l {
+                    self.emit_if_new(s_lo.id, s_hi.id, None);
+                }
+            }
+            Some(xi) => {
+                let should_emit = xi == sweep_x
+                    || within_band(s_lo, s_hi, sweep_x, eps_y)
+                    || (s_lo.slope > s_hi.slope && xi <= sweep_x + dt_probe);
+                if should_emit {
+                    let opt_x_evict = compute_x_evict(s_lo, s_hi, sweep_x, xi, eps_y, dt_probe);
+                    self.emit_if_new(s_lo.id, s_hi.id, opt_x_evict);
+                }
+            }
+        }
+    }
+
+    fn evict_before(&mut self, x_evt: f64) {
+        while let Some(&Reverse((OrderedF64(ex), pair))) = self.evict_heap.peek() {
+            if ex < x_evt {
+                self.evict_heap.pop();
+                self.active_band_reported.remove(&pair);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn flush_at_x(&mut self, next_x: f64) {
+        if self.at_x_overflow_list.is_empty() {
+            for i in 0..self.at_x_inline_len {
+                let (pair, opt_x_evict) = self.at_x_inline[i];
+                if let Some(x_evict) = opt_x_evict
+                    && x_evict >= next_x
+                    && self.active_band_reported.insert(pair)
+                {
+                    self.evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
+                }
+            }
+            self.at_x_inline_len = 0;
+        } else {
+            for &(pair, opt_x_evict) in &self.at_x_overflow_list {
+                if let Some(x_evict) = opt_x_evict
+                    && x_evict >= next_x
+                    && self.active_band_reported.insert(pair)
+                {
+                    self.evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
+                }
+            }
+            self.at_x_overflow_set.clear();
+            self.at_x_overflow_list.clear();
+        }
+        self.peak_active_band = self.peak_active_band.max(self.active_band_reported.len());
+    }
+}
+
 fn sweep_segments(segs: &[Seg]) -> PairSet {
+    let mut collector = PairSetCollector {
+        reported: PairSet::default(),
+    };
+    sweep_segments_core(segs, &mut collector);
+    collector.reported
+}
+
+fn sweep_segments_with<F: FnMut(usize, usize)>(segs: &[Seg], on_crossing: F) {
+    let _ = sweep_segments_with_stats(segs, on_crossing);
+}
+
+fn sweep_segments_with_stats<F: FnMut(usize, usize)>(segs: &[Seg], on_crossing: F) -> usize {
+    let mut collector = StreamingCollector::new(on_crossing);
+    sweep_segments_core(segs, &mut collector);
+    collector.peak_active_band
+}
+
+fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
     if segs.len() < 2 {
-        return PairSet::default();
+        return;
     }
 
     let mut max_coord = 1.0_f64;
@@ -829,7 +1114,6 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                 max_seg_y_err.max(seg_y_err(s, s.x_max).min((s.y_max - s.y_min) + eps_y));
         }
     }
-    let mut reported: PairSet = PairSet::default();
 
     // 1. Check vertical-vs-vertical crossings via 1D sweep grouped by exact x coordinate.
     if vert_indices.len() >= 2 {
@@ -857,7 +1141,7 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                     active_y.retain(|&prev_id| segs[prev_id].y_max >= s_cur.y_min);
                     for &prev_id in &active_y {
                         if segments_cross(s_cur, &segs[prev_id]) {
-                            reported.insert(pack_pair(v_id, prev_id));
+                            collector.on_vertical_pair(v_id, prev_id);
                         }
                     }
                     active_y.push(v_id);
@@ -868,7 +1152,7 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
     }
 
     if non_vert_count == 0 {
-        return reported;
+        return;
     }
 
     // 2. X-sweep over non-vertical segments + vertical queries at exact x_v.
@@ -906,6 +1190,7 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
         if x_evt != scratch.last_int_x {
             scratch.processed_int_at_x.clear();
             scratch.last_int_x = x_evt;
+            collector.evict_before(x_evt);
         }
         started_batch.clear();
         end_batch.clear();
@@ -925,10 +1210,11 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                         e1,
                         e2,
                         x_evt,
+                        eps_y,
                         segs,
                         &mut tree,
                         &mut events,
-                        &mut reported,
+                        collector,
                         &mut touched_edges,
                         &mut scratch,
                     );
@@ -955,7 +1241,7 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                 segs,
                 &tree,
                 &mut events,
-                &mut reported,
+                collector,
                 &mut scratch,
             );
         }
@@ -979,7 +1265,7 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                         break;
                     }
                     if segments_cross(v_seg, s_cur) {
-                        reported.insert(pack_pair(v_idx, cur_edge));
+                        collector.on_vertical_pair(v_idx, cur_edge);
                     }
                     let Some(nx) = tree.next_edge(cur_edge) else {
                         break;
@@ -1004,9 +1290,11 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                     p,
                     n,
                     x_evt,
+                    eps_y,
                     segs,
                     &mut events,
-                    &mut reported,
+                    collector,
+                    scratch.dt_probe,
                     &scratch.processed_int_at_x,
                 );
                 scratch.surviving_touched.push(p);
@@ -1020,13 +1308,16 @@ fn sweep_segments(segs: &[Seg]) -> PairSet {
                 segs,
                 &mut tree,
                 &mut events,
-                &mut reported,
+                collector,
                 &mut scratch,
             );
         }
-    }
 
-    reported
+        let next_x = events.peek().map_or(f64::INFINITY, |e| e.0.x);
+        if next_x != x_evt {
+            collector.flush_at_x(next_x);
+        }
+    }
 }
 
 struct BandScratch {
@@ -1066,14 +1357,15 @@ impl BandScratch {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_intersection(
+fn handle_intersection<C: CrossingCollector>(
     e1: usize,
     e2: usize,
     x_evt: f64,
+    eps_y: f64,
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut PairSet,
+    collector: &mut C,
     touched_edges: &mut Vec<usize>,
     scratch: &mut BandScratch,
 ) {
@@ -1092,6 +1384,7 @@ fn handle_intersection(
 
     if r1 + 1 == r2 {
         tree.swap_adjacent_edges(e1, e2);
+        collector.on_swap_pair(&segs[e1], &segs[e2], x_evt, eps_y, scratch.dt_probe);
         scratch.processed_int_at_x.insert(pack_pair(e1, e2));
         touched_edges.push(e1);
         touched_edges.push(e2);
@@ -1101,9 +1394,11 @@ fn handle_intersection(
                 left,
                 e2,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1112,9 +1407,11 @@ fn handle_intersection(
                 e1,
                 right,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1151,7 +1448,7 @@ fn handle_intersection(
     for (pos, &edge) in scratch.band_edges.iter().enumerate() {
         scratch.cluster.push((pos, edge));
     }
-    check_band_pairs(x_evt, segs, events, reported, scratch);
+    check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
 
     let dt = scratch.dt_probe;
     scratch.band_edges.sort_unstable_by(|&a, &b| {
@@ -1174,9 +1471,11 @@ fn handle_intersection(
                 left,
                 first_e,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1185,9 +1484,11 @@ fn handle_intersection(
                 last_e,
                 right,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1198,9 +1499,11 @@ fn handle_intersection(
             win[0],
             win[1],
             x_evt,
+            eps_y,
             segs,
             events,
-            reported,
+            collector,
+            scratch.dt_probe,
             &scratch.processed_int_at_x,
         );
     }
@@ -1238,14 +1541,14 @@ fn collect_band_around_seed(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn check_eps_bands_at_x(
+fn check_eps_bands_at_x<C: CrossingCollector>(
     touched_edges: &[usize],
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     tree: &ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut PairSet,
+    collector: &mut C,
     scratch: &mut BandScratch,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
@@ -1276,9 +1579,11 @@ fn check_eps_bands_at_x(
                 left,
                 first_edge,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1287,9 +1592,11 @@ fn check_eps_bands_at_x(
                 last_edge,
                 right,
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1299,19 +1606,19 @@ fn check_eps_bands_at_x(
             for (pos, &e) in scratch.band_edges.iter().enumerate() {
                 scratch.cluster.push((pos, e));
             }
-            check_band_pairs(x_evt, segs, events, reported, scratch);
+            check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn reorder_surviving_bands_at_x(
+fn reorder_surviving_bands_at_x<C: CrossingCollector>(
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut PairSet,
+    collector: &mut C,
     scratch: &mut BandScratch,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
@@ -1359,7 +1666,7 @@ fn reorder_surviving_bands_at_x(
             scratch.cluster.push((pos, e));
             scratch.band_nodes.push(tree.node_of_edge[e]);
         }
-        check_band_pairs(x_evt, segs, events, reported, scratch);
+        check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
 
         scratch.band_edges.sort_unstable_by(|&a, &b| {
             let ya = segs[a].y_at(x_evt) + segs[a].slope * dt;
@@ -1382,9 +1689,11 @@ fn reorder_surviving_bands_at_x(
                     left,
                     first_e,
                     x_evt,
+                    eps_y,
                     segs,
                     events,
-                    reported,
+                    collector,
+                    scratch.dt_probe,
                     &scratch.processed_int_at_x,
                 );
             }
@@ -1393,9 +1702,11 @@ fn reorder_surviving_bands_at_x(
                     last_e,
                     right,
                     x_evt,
+                    eps_y,
                     segs,
                     events,
-                    reported,
+                    collector,
+                    scratch.dt_probe,
                     &scratch.processed_int_at_x,
                 );
             }
@@ -1406,9 +1717,11 @@ fn reorder_surviving_bands_at_x(
                 win[0],
                 win[1],
                 x_evt,
+                eps_y,
                 segs,
                 events,
-                reported,
+                collector,
+                scratch.dt_probe,
                 &scratch.processed_int_at_x,
             );
         }
@@ -1417,11 +1730,12 @@ fn reorder_surviving_bands_at_x(
 
 /// Checks all crossing pairs inside `scratch.cluster` while pruning same-vertex star fans
 /// via 4-slot Misra-Gries heavy-hitter detection so pure or nested stars remain $O(|C|)$.
-fn check_band_pairs(
+fn check_band_pairs<C: CrossingCollector>(
     x_evt: f64,
+    eps_y: f64,
     segs: &[Seg],
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut PairSet,
+    collector: &mut C,
     scratch: &mut BandScratch,
 ) {
     scratch.cur_buf.clear();
@@ -1454,9 +1768,11 @@ fn check_band_pairs(
                         lo,
                         hi,
                         x_evt,
+                        eps_y,
                         segs,
                         events,
-                        reported,
+                        collector,
+                        scratch.dt_probe,
                         &scratch.processed_int_at_x,
                     );
                 }
@@ -1478,9 +1794,11 @@ fn check_band_pairs(
                     lo,
                     hi,
                     x_evt,
+                    eps_y,
                     segs,
                     events,
-                    reported,
+                    collector,
+                    scratch.dt_probe,
                     &scratch.processed_int_at_x,
                 );
             }
@@ -1527,13 +1845,16 @@ fn dominant_shared_vertex(items: &[(usize, usize)], segs: &[Seg]) -> Option<u32>
     if best_cnt >= 4 { best_v } else { None }
 }
 
-fn check_adjacent_and_schedule(
+#[allow(clippy::too_many_arguments)]
+fn check_adjacent_and_schedule<C: CrossingCollector>(
     lower: usize,
     upper: usize,
     sweep_x: f64,
+    eps_y: f64,
     segs: &[Seg],
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
-    reported: &mut PairSet,
+    collector: &mut C,
+    dt_probe: f64,
     processed_int_at_x: &PairSet,
 ) {
     let s_lo = &segs[lower];
@@ -1542,8 +1863,9 @@ fn check_adjacent_and_schedule(
         return;
     }
     let pair = pack_pair(lower, upper);
+    let opt_xi = intersection_x(s_lo, s_hi);
     if !s_lo.shares_endpoint(s_hi) {
-        reported.insert(pair);
+        collector.on_band_pair(s_lo, s_hi, sweep_x, eps_y, dt_probe, opt_xi);
     }
     // Schedule interior swaps even when segments share graph vertex IDs (e.g. wrapped torus pieces)
     // so sweep order stays valid past interior crossings, while skipping shared right tips.
@@ -1551,7 +1873,7 @@ fn check_adjacent_and_schedule(
         && s_hi.x2 > sweep_x
         && s_lo.slope > s_hi.slope
         && !(s_lo.x2 == s_hi.x2 && s_lo.y2 == s_hi.y2)
-        && let Some(x_int) = intersection_x(s_lo, s_hi)
+        && let Some(x_int) = opt_xi
     {
         let x_push = x_int.max(sweep_x);
         if x_push > sweep_x || !processed_int_at_x.contains(&pair) {
@@ -2444,6 +2766,239 @@ mod tests {
                 "torus seed {seed}: count mismatch"
             );
             assert_eq!(got, expected, "torus seed {seed}: pair mismatch");
+        }
+    }
+
+    fn assert_streaming_matches_find(label: &str, edges: &[(u32, u32)], layout: &Layout2d<f64>) {
+        let pairs = SweepLineCrossings::find_edge_crossings(edges, layout).unwrap();
+        let count = SweepLineCrossings::count_edges(edges, layout).unwrap();
+        let summary = SweepLineCrossings::summarize_edges(edges, layout).unwrap();
+        assert_eq!(
+            count,
+            pairs.len(),
+            "{label}: count_edges vs find_edge_crossings"
+        );
+        assert_eq!(
+            summary.count,
+            pairs.len(),
+            "{label}: summary.count vs find_edge_crossings"
+        );
+        let expected_min_ang = pairs.iter().filter_map(|p| p.angle_rad).reduce(f64::min);
+        assert_eq!(
+            summary.min_angle_rad, expected_min_ang,
+            "{label}: min_angle_rad mismatch"
+        );
+        let expected_cos_sq: f64 = pairs.iter().map(|p| p.cos_sq).sum();
+        assert!(
+            (summary.angle_cos_sq_sum - expected_cos_sq).abs()
+                <= 1e-12 * (pairs.len().max(1) as f64),
+            "{label}: angle_cos_sq_sum mismatch (got={}, expected={})",
+            summary.angle_cos_sq_sum,
+            expected_cos_sq
+        );
+    }
+
+    #[test]
+    fn test_streaming_sweep_collinear_zero_length_shared_tips_and_eps_bands() {
+        // 1. Collinear overlaps (horizontal, vertical, diagonal), touching tips (a.x2 == b.x1),
+        // containment, duplicate coordinates with distinct vertex IDs, zero-length segments,
+        // self-loops, and shared right endpoints.
+        let layout = Layout2d::from_xy(
+            vec![
+                0.0, 2.0, 2.0, 4.0, 1.0, 3.0, 0.0, 5.0, // horizontal collinear on y=0
+                0.0, 2.0, 1.0, 3.0, 2.0, 4.0, // diagonal collinear on y=x
+                1.5, 1.5, 1.5, 1.5, // zero-length segment (14,15) and vertical (16,17)
+                0.5, 1.5, // zero-length at (0.5, 0.5) on y=x
+                3.0, 5.0, 3.0, 5.0, // shared right endpoint at (5, 2)
+                0.0, 4.0, // duplicate diagonal with distinct vertex IDs
+            ],
+            vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, //
+                0.0, 2.0, 1.0, 3.0, 2.0, 4.0, //
+                0.5, 0.5, -1.0, 4.0, //
+                0.5, 0.5, //
+                1.0, 2.0, 3.0, 2.0, //
+                0.0, 4.0, //
+            ],
+        )
+        .unwrap();
+        let edges = vec![
+            (0, 1),   // [0,2] on y=0
+            (2, 3),   // [2,4] touching tip on y=0
+            (4, 5),   // [1,3] partial overlap with (0,1) and (2,3)
+            (6, 7),   // [0,5] containment on y=0
+            (8, 9),   // [0,2] on y=x
+            (10, 11), // [1,3] on y=x
+            (12, 13), // [2,4] touching tip on y=x
+            (14, 15), // zero-length at (1.5, 0.5)
+            (16, 17), // vertical x=1.5 crossing y=0, y=x, and zero-length (14,15)
+            (18, 19), // zero-length at (0.5, 0.5) on y=x
+            (20, 21), // ends at (5, 2)
+            (22, 23), // shares right endpoint (5, 2) with (20, 21) via distinct IDs
+            (24, 25), // [0,4] duplicate diagonal
+            (0, 0),   // self-loop
+            (14, 14), // self-loop on zero-length vertex
+        ];
+        assert_matches_brute_force("collinear_zero_shared_tips", &edges, &layout);
+        assert_streaming_matches_find("collinear_zero_shared_tips_find", &edges, &layout);
+
+        // 2. Near-parallel eps_y band stress at y = 100.0 (|slope_a - slope_b| ~ 1e-15)
+        // plus crossing transverse segments and identical x_int ties.
+        let mut bx = Vec::new();
+        let mut by = Vec::new();
+        let mut bedges = Vec::new();
+        for i in 0..8u32 {
+            let x0 = 0.0;
+            let x1 = 10.0;
+            let dy = (i as f64) * 1e-13;
+            let y0 = 100.0 + dy;
+            let y1 = 100.0 + (7 - i) as f64 * 1e-13;
+            let u = bx.len() as u32;
+            bx.push(x0);
+            by.push(y0);
+            bx.push(x1);
+            by.push(y1);
+            bedges.push((u, u + 1));
+        }
+        // Add transverse segments crossing the band at distinct and shared x positions.
+        for k in 0..6u32 {
+            let u = bx.len() as u32;
+            let xc = 1.0 + (k as f64) * 1.5;
+            bx.push(xc - 0.5);
+            by.push(99.0);
+            bx.push(xc + 0.5);
+            by.push(101.0);
+            bedges.push((u, u + 1));
+        }
+        let band_layout = Layout2d::from_xy(bx, by).unwrap();
+        assert_matches_brute_force("near_parallel_eps_band_y100", &bedges, &band_layout);
+        assert_streaming_matches_find("near_parallel_eps_band_y100_find", &bedges, &band_layout);
+
+        // 3. Deferred crossings (x_int > sweep_x with intermediate segments starting/ending)
+        // and early dt_probe swap stress.
+        for seed in 1..=20u64 {
+            let mut rng = DeterministicRng::from_seed_u64(9000 + seed);
+            let n = 32usize;
+            let xs: Vec<f64> = (0..n)
+                .map(|_| rng.gen_range_usize(1000) as f64 * 1e-3)
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| 50.0 + rng.gen_range_usize(1000) as f64 * 1e-12)
+                .collect();
+            let l = Layout2d::from_xy(xs, ys).unwrap();
+            let mut es = Vec::new();
+            for _ in 0..60 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                es.push((u, v));
+            }
+            assert_matches_brute_force(&format!("eps_band_random_seed_{seed}"), &es, &l);
+        }
+    }
+
+    #[test]
+    fn test_streaming_sweep_dense_high_crossing_and_bounded_memory() {
+        // 1. K_{40,40} bipartite layout on parallel lines x=0 and x=1 (many identical x_int ties).
+        let mut bx = Vec::with_capacity(80);
+        let mut by = Vec::with_capacity(80);
+        for i in 0..40u32 {
+            bx.push(0.0);
+            by.push(i as f64);
+        }
+        for j in 0..40u32 {
+            bx.push(1.0);
+            by.push(j as f64);
+        }
+        let mut bedges = Vec::with_capacity(1600);
+        for u in 0..40u32 {
+            for v in 40..80u32 {
+                bedges.push((u, v));
+            }
+        }
+        let blayout = Layout2d::from_xy(bx, by).unwrap();
+        assert_streaming_matches_find("K_40_40", &bedges, &blayout);
+
+        let bsegs = build_segments(&bedges, &blayout).unwrap();
+        let mut bcount = 0usize;
+        let b_peak = sweep_segments_with_stats(&bsegs, |_, _| {
+            bcount += 1;
+        });
+        // Exact analytical crossing count for K_{40,40}: C(40,2)^2 = 780^2 = 608,400.
+        assert_eq!(bcount, 780 * 780);
+        assert!(
+            b_peak * 100 < bcount,
+            "K_{{40,40}} active band tracking ({b_peak}) must stay << total crossings ({bcount})"
+        );
+
+        // 2. K_50 convex circle layout (C(50, 4) = 230,300 crossings).
+        let k50_x: Vec<f64> = (0..50)
+            .map(|i| (i as f64 * std::f64::consts::TAU / 50.0).cos())
+            .collect();
+        let k50_y: Vec<f64> = (0..50)
+            .map(|i| (i as f64 * std::f64::consts::TAU / 50.0).sin())
+            .collect();
+        let mut k50_edges = Vec::with_capacity(50 * 49 / 2);
+        for u in 0..50u32 {
+            for v in (u + 1)..50u32 {
+                k50_edges.push((u, v));
+            }
+        }
+        let k50_layout = Layout2d::from_xy(k50_x, k50_y).unwrap();
+        assert_streaming_matches_find("K_50_circle", &k50_edges, &k50_layout);
+
+        let k50_segs = build_segments(&k50_edges, &k50_layout).unwrap();
+        let mut k50_count = 0usize;
+        let k50_peak = sweep_segments_with_stats(&k50_segs, |_, _| {
+            k50_count += 1;
+        });
+        assert_eq!(k50_count, 230_300);
+        assert!(
+            k50_peak * 20 < k50_count,
+            "K_50 active band tracking ({k50_peak}) must stay << total crossings ({k50_count})"
+        );
+
+        // 3. Random dense graphs (N=80, M=600) verifying CSR count/summarize parity and tiny active band.
+        for seed in 1..=5u64 {
+            let mut rng = DeterministicRng::from_seed_u64(7000 + seed);
+            let n = 80usize;
+            let xs: Vec<f64> = (0..n).map(|_| rng.next_f64() * 100.0).collect();
+            let ys: Vec<f64> = (0..n).map(|_| rng.next_f64() * 100.0).collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::with_capacity(600);
+            for _ in 0..600 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v {
+                    edges.push((u, v));
+                }
+            }
+            assert_streaming_matches_find(&format!("random_dense_seed_{seed}"), &edges, &layout);
+
+            let segs = build_segments(&edges, &layout).unwrap();
+            let mut c = 0usize;
+            let peak = sweep_segments_with_stats(&segs, |_, _| {
+                c += 1;
+            });
+            assert!(c > 10_000, "expected high-crossing dense layout, got {c}");
+            assert!(
+                peak * 100 < c,
+                "random_dense_seed_{seed}: active band ({peak}) must stay << total crossings ({c})"
+            );
+
+            // Also verify CsrGraph entrypoints count() and summarize() match find_crossings().
+            let csr = CsrGraph::<f64>::from_edges(n, &edges, None, false, true).unwrap();
+            let csr_pairs = SweepLineCrossings::find_crossings(&csr, &layout).unwrap();
+            let csr_count = SweepLineCrossings::count(&csr, &layout).unwrap();
+            let csr_summary = SweepLineCrossings::summarize(&csr, &layout).unwrap();
+            assert_eq!(csr_count, csr_pairs.len());
+            assert_eq!(csr_summary.count, csr_pairs.len());
+            assert_eq!(
+                csr_summary.min_angle_rad,
+                csr_pairs
+                    .iter()
+                    .filter_map(|p| p.angle_rad)
+                    .reduce(f64::min)
+            );
         }
     }
 }
