@@ -100,8 +100,9 @@ pub mod prelude {
         crossing_edges_torus, crossing_number, crossing_summary, evaluate_metrics,
         gabriel_graph_edges, ideal_edge_lengths, ideal_edge_lengths_with_unit,
         neighborhood_preservation_1hop, neighborhood_preservation_2hop,
-        prism_distortion_with_edges, relative_neighborhood_edges, scale_normalized_stress,
-        scale_normalized_stress_from_distances,
+        prism_distortion_with_edges, relative_neighborhood_edges,
+        sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
+        scale_normalized_stress, scale_normalized_stress_from_distances,
     };
 
     #[cfg(feature = "dataset")]

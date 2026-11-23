@@ -38,6 +38,8 @@ pub use geometry::{
 pub use neighborhood::{
     neighborhood_preservation_1hop, neighborhood_preservation_1hop_with_tree,
     neighborhood_preservation_2hop, neighborhood_preservation_2hop_with_tree,
+    sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_1hop_with_tree,
+    sampled_neighborhood_preservation_2hop, sampled_neighborhood_preservation_2hop_with_tree,
 };
 pub use proximity::{
     gabriel_graph_edges, gabriel_graph_edges_with_tree, gabriel_graph_preservation,

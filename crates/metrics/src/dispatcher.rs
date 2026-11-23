@@ -9,6 +9,8 @@ use crate::{
     geometry::{angular_resolution, aspect_ratio, ideal_edge_lengths},
     neighborhood::{
         neighborhood_preservation_1hop_with_tree, neighborhood_preservation_2hop_with_tree,
+        sampled_neighborhood_preservation_1hop_with_tree,
+        sampled_neighborhood_preservation_2hop_with_tree,
     },
     proximity::{
         gabriel_graph_preservation_with_tree, gabriel_graph_property_with_tree,
@@ -35,6 +37,10 @@ pub enum MetricTarget {
     NeighborhoodPreservation1Hop,
     /// 2-hop neighborhood preservation (`NP2`).
     NeighborhoodPreservation2Hop,
+    /// $O(\text{num\_samples} \cdot k \log N)$ deterministic sampled 1-hop neighborhood preservation (`Sampled NP1`).
+    SampledNp1,
+    /// $O(\text{num\_samples} \cdot k \log N)$ deterministic sampled 2-hop neighborhood preservation (`Sampled NP2`).
+    SampledNp2,
     /// Gabriel graph property violation sum.
     GabrielGraphProperty,
     /// One-sided hinge node-resolution violation sum.
@@ -58,9 +64,9 @@ pub struct MetricConfig {
     pub sns_num_pivots: usize,
     /// Explicit RNG seed for `SampledScaleNormalizedStress`.
     pub sns_seed: u64,
-    /// Number of edge-pair samples for `SampledCrossingNumber`.
+    /// Number of deterministic samples for `SampledCrossingNumber`, `SampledNp1`, and `SampledNp2`.
     pub crossing_num_samples: usize,
-    /// Explicit RNG seed for `SampledCrossingNumber`.
+    /// Explicit RNG seed for `SampledCrossingNumber`, `SampledNp1`, and `SampledNp2`.
     pub crossing_seed: u64,
     /// Target edge length fallback for unweighted graphs in `IdealEdgeLengths`.
     pub ideal_edge_length: f64,
@@ -111,6 +117,8 @@ pub struct MetricReport {
     pub sampled_crossing_number: Option<f64>,
     pub neighborhood_preservation_1hop: Option<f64>,
     pub neighborhood_preservation_2hop: Option<f64>,
+    pub sampled_np1: Option<f64>,
+    pub sampled_np2: Option<f64>,
     pub gabriel_graph_property: Option<f64>,
     pub node_resolution: Option<f64>,
     pub relative_neighborhood_preservation: Option<f64>,
@@ -129,6 +137,8 @@ struct RequestedFlags {
     sampled_crossing_number: bool,
     np1: bool,
     np2: bool,
+    sampled_np1: bool,
+    sampled_np2: bool,
     gabriel_property: bool,
     node_resolution: bool,
     drng: bool,
@@ -150,6 +160,8 @@ impl RequestedFlags {
                 MetricTarget::SampledCrossingNumber => flags.sampled_crossing_number = true,
                 MetricTarget::NeighborhoodPreservation1Hop => flags.np1 = true,
                 MetricTarget::NeighborhoodPreservation2Hop => flags.np2 = true,
+                MetricTarget::SampledNp1 => flags.sampled_np1 = true,
+                MetricTarget::SampledNp2 => flags.sampled_np2 = true,
                 MetricTarget::GabrielGraphProperty => flags.gabriel_property = true,
                 MetricTarget::NodeResolution => flags.node_resolution = true,
                 MetricTarget::RelativeNeighborhoodPreservation => flags.drng = true,
@@ -166,6 +178,8 @@ impl RequestedFlags {
     fn needs_kdtree(&self) -> bool {
         self.np1
             || self.np2
+            || self.sampled_np1
+            || self.sampled_np2
             || self.gabriel_property
             || self.node_resolution
             || self.drng
@@ -218,6 +232,11 @@ pub fn evaluate_metrics<W: Scalar, S: Scalar>(
             config.crossing_seed,
         )?);
     }
+    if (flags.sampled_np1 || flags.sampled_np2) && config.crossing_num_samples == 0 {
+        return Err(CoreError::invalid_input(
+            "crossing_num_samples must be >= 1",
+        ));
+    }
 
     let kdtree: Option<StaticKdTree<2, f64>> = if flags.needs_kdtree() {
         Some(build_kdtree_f64(layout)?)
@@ -234,6 +253,24 @@ pub fn evaluate_metrics<W: Scalar, S: Scalar>(
         if flags.np2 {
             report.neighborhood_preservation_2hop = Some(neighborhood_preservation_2hop_with_tree(
                 graph, layout, tree,
+            )?);
+        }
+        if flags.sampled_np1 {
+            report.sampled_np1 = Some(sampled_neighborhood_preservation_1hop_with_tree(
+                graph,
+                layout,
+                tree,
+                config.crossing_num_samples,
+                config.crossing_seed,
+            )?);
+        }
+        if flags.sampled_np2 {
+            report.sampled_np2 = Some(sampled_neighborhood_preservation_2hop_with_tree(
+                graph,
+                layout,
+                tree,
+                config.crossing_num_samples,
+                config.crossing_seed,
             )?);
         }
         if flags.gabriel_property {
@@ -286,7 +323,8 @@ mod tests {
     use crate::{
         crossing_angle, gabriel_graph_preservation, gabriel_graph_property,
         neighborhood_preservation_1hop, neighborhood_preservation_2hop, node_resolution,
-        relative_neighborhood_preservation,
+        relative_neighborhood_preservation, sampled_neighborhood_preservation_1hop,
+        sampled_neighborhood_preservation_2hop,
     };
 
     #[test]
@@ -333,6 +371,8 @@ mod tests {
         assert!(subset.sampled_crossing_number.is_none());
         assert!(subset.sampled_scale_normalized_stress.is_none());
         assert!(subset.neighborhood_preservation_1hop.is_none());
+        assert!(subset.sampled_np1.is_none());
+        assert!(subset.sampled_np2.is_none());
         assert!(subset.gabriel_graph_property.is_none());
         assert!(subset.node_resolution.is_none());
         assert!(subset.relative_neighborhood_preservation.is_none());
@@ -356,6 +396,8 @@ mod tests {
             MetricTarget::SampledCrossingNumber,
             MetricTarget::NeighborhoodPreservation1Hop,
             MetricTarget::NeighborhoodPreservation2Hop,
+            MetricTarget::SampledNp1,
+            MetricTarget::SampledNp2,
             MetricTarget::GabrielGraphProperty,
             MetricTarget::NodeResolution,
             MetricTarget::RelativeNeighborhoodPreservation,
@@ -392,6 +434,14 @@ mod tests {
         assert_eq!(
             full.neighborhood_preservation_2hop,
             Some(neighborhood_preservation_2hop(&g, &layout).unwrap())
+        );
+        assert_eq!(
+            full.sampled_np1,
+            Some(sampled_neighborhood_preservation_1hop(&g, &layout, 64, 9).unwrap())
+        );
+        assert_eq!(
+            full.sampled_np2,
+            Some(sampled_neighborhood_preservation_2hop(&g, &layout, 64, 9).unwrap())
         );
         assert_eq!(
             full.gabriel_graph_property,
@@ -434,6 +484,45 @@ mod tests {
             ),
             Err(CoreError::InvalidInput(_))
         ));
+
+        let bad_sample_cfg = MetricConfig {
+            crossing_num_samples: 0,
+            ..cfg
+        };
+        assert!(
+            evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_sample_cfg).is_ok()
+        );
+        assert!(matches!(
+            evaluate_metrics(&g, &layout, &[MetricTarget::SampledNp1], &bad_sample_cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            evaluate_metrics(&g, &layout, &[MetricTarget::SampledNp2], &bad_sample_cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+
+        // Verify sampled NP1/NP2 with sub-sample (< N) via evaluate_metrics shares KD-tree
+        // and matches standalone calls bit-for-bit.
+        let sub_cfg = MetricConfig {
+            crossing_num_samples: 2,
+            crossing_seed: 123,
+            ..cfg
+        };
+        let sub_rep = evaluate_metrics(
+            &g,
+            &layout,
+            &[MetricTarget::SampledNp1, MetricTarget::SampledNp2],
+            &sub_cfg,
+        )
+        .unwrap();
+        assert_eq!(
+            sub_rep.sampled_np1,
+            Some(sampled_neighborhood_preservation_1hop(&g, &layout, 2, 123).unwrap())
+        );
+        assert_eq!(
+            sub_rep.sampled_np2,
+            Some(sampled_neighborhood_preservation_2hop(&g, &layout, 2, 123).unwrap())
+        );
 
         // Verify f32 layouts and f32-weighted graphs work uniformly across all targets.
         let g32 = CsrGraph::<f32>::from_edges(
