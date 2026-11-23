@@ -29,7 +29,8 @@ pub use perplexity::{
     DEFAULT_NODEWISE_MIN_PERPLEXITY, DEFAULT_NODEWISE_PERPLEXITY_C, PerplexityConfig,
     SparseProbabilities, SymmetrizationMode, compute_2hop_neighborhood_sizes,
     compute_knn_probabilities, compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
-    graph_row_normalized_probabilities, partial_bfs_knn, symmetrize_row_normalized,
+    graph_12hop_row_normalized_probabilities, graph_row_normalized_probabilities, partial_bfs_knn,
+    symmetrize_row_normalized,
 };
 pub use rerank::{
     HybridKnnConfig, build_hybrid_adaptive_knn, build_rerank_knn, compute_diffusion_embedding,

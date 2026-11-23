@@ -3,7 +3,9 @@
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar, VisitStamp};
 
-use crate::knn::{KnnGraph, canonical_unweighted_1hop};
+use crate::knn::{
+    KnnGraph, canonical_unweighted_1hop, extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs,
+};
 
 /// Default multiplier $c$ for node-wise 2-hop adaptive perplexity (`c = 0.9`).
 pub const DEFAULT_NODEWISE_PERPLEXITY_C: f64 = 0.9;
@@ -448,6 +450,147 @@ pub fn graph_row_normalized_probabilities<W: Scalar>(
     symmetrize_row_normalized(n, &indptr_usize, graph.indices(), &weights)
 }
 
+/// Computes directly row-normalized 1+2-hop joint probabilities
+/// $P = (D_{\mathrm{row}}^{-1} A + A^T D_{\mathrm{row}}^{-1}) / (2 N)$ for $A = A_1 + w_2 A_2$.
+///
+/// When `max_2hop_per_node` is `None`, exact uncapped 1+2-hop neighborhoods from
+/// [`extract_1hop_2hop_csr`] are used; when `Some(cap)`, 2-hop pairs are hub-safely
+/// capped via [`extract_sparse_1hop_2hop_pairs`] using `seed`.
+pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
+    graph: &CsrGraph<W>,
+    w2: f64,
+    max_2hop_per_node: Option<usize>,
+    seed: u64,
+) -> CoreResult<SparseProbabilities> {
+    if !w2.is_finite() {
+        return Err(CoreError::non_finite(
+            "graph_12hop_row_normalized_probabilities::w2",
+        ));
+    }
+    if w2 < 0.0 {
+        return Err(CoreError::invalid_input(format!(
+            "w2 must be >= 0.0, got {w2}"
+        )));
+    }
+    let n = graph.num_nodes();
+    if u32::try_from(n).is_err() {
+        return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
+    }
+    if n < 2 {
+        return Ok(SparseProbabilities::empty(n));
+    }
+
+    if w2 == 0.0 || max_2hop_per_node == Some(0) {
+        let adj1 = canonical_unweighted_1hop(graph)?;
+        if adj1.nnz() == 0 {
+            return Ok(SparseProbabilities::empty(n));
+        }
+        let mut row_sum = vec![0.0_f64; n];
+        for (u, sum_out) in row_sum.iter_mut().enumerate() {
+            *sum_out = adj1.degree(u) as f64;
+        }
+        let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(adj1.num_edges());
+        for u in 0..n {
+            let u_u32 = u as u32;
+            let inv_u = if row_sum[u] > 0.0 {
+                1.0 / row_sum[u]
+            } else {
+                0.0
+            };
+            for &v in adj1.neighbors(u) {
+                if u_u32 < v {
+                    let vi = v as usize;
+                    let inv_v = if row_sum[vi] > 0.0 {
+                        1.0 / row_sum[vi]
+                    } else {
+                        0.0
+                    };
+                    pairs.push((u_u32, v, inv_u + inv_v));
+                }
+            }
+        }
+        return Ok(scatter_symmetric_pairs(n, pairs, true));
+    }
+
+    match max_2hop_per_node {
+        None => {
+            let (adj1, adj2) = extract_1hop_2hop_csr(graph)?;
+            if adj1.nnz() == 0 && adj2.nnz() == 0 {
+                return Ok(SparseProbabilities::empty(n));
+            }
+            let mut row_sum = vec![0.0_f64; n];
+            for (u, sum_out) in row_sum.iter_mut().enumerate() {
+                *sum_out = (adj1.degree(u) as f64) + w2 * (adj2.degree(u) as f64);
+            }
+            let mut pairs: Vec<(u32, u32, f64)> =
+                Vec::with_capacity(adj1.num_edges() + adj2.num_edges());
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let inv_u = if row_sum[u] > 0.0 {
+                    1.0 / row_sum[u]
+                } else {
+                    0.0
+                };
+                for &v in adj1.neighbors(u) {
+                    if u_u32 < v {
+                        let vi = v as usize;
+                        let inv_v = if row_sum[vi] > 0.0 {
+                            1.0 / row_sum[vi]
+                        } else {
+                            0.0
+                        };
+                        pairs.push((u_u32, v, inv_u + inv_v));
+                    }
+                }
+                for &v in adj2.neighbors(u) {
+                    if u_u32 < v {
+                        let vi = v as usize;
+                        let inv_v = if row_sum[vi] > 0.0 {
+                            1.0 / row_sum[vi]
+                        } else {
+                            0.0
+                        };
+                        pairs.push((u_u32, v, w2 * inv_u + w2 * inv_v));
+                    }
+                }
+            }
+            Ok(scatter_symmetric_pairs(n, pairs, true))
+        }
+        Some(cap) => {
+            let sp = extract_sparse_1hop_2hop_pairs(graph, cap, seed)?;
+            if sp.u1.is_empty() && sp.u2.is_empty() {
+                return Ok(SparseProbabilities::empty(n));
+            }
+            let mut deg1 = vec![0usize; n];
+            let mut deg2 = vec![0usize; n];
+            for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+                deg1[u as usize] += 1;
+                deg1[v as usize] += 1;
+            }
+            for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                deg2[u as usize] += 1;
+                deg2[v as usize] += 1;
+            }
+            let mut row_sum = vec![0.0_f64; n];
+            for u in 0..n {
+                row_sum[u] = (deg1[u] as f64) + w2 * (deg2[u] as f64);
+            }
+            let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(sp.u1.len() + sp.u2.len());
+            for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+                let ui = u as usize;
+                let vi = v as usize;
+                pairs.push((u, v, (1.0 / row_sum[ui]) + (1.0 / row_sum[vi])));
+            }
+            for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                let ui = u as usize;
+                let vi = v as usize;
+                pairs.push((u, v, (w2 / row_sum[ui]) + (w2 / row_sum[vi])));
+            }
+            Ok(scatter_symmetric_pairs(n, pairs, true))
+        }
+    }
+}
+
 /// Computes sparse symmetric high-dimensional joint probabilities from a validated [`KnnGraph`]
 /// and per-node target `perplexities` using $\lambda$-rescaling `(d / max_d)^power`, `f64`
 /// entropy binary search, reusable `VisitStamp` deduplication, and canonical sorted CSR output.
@@ -663,26 +806,26 @@ pub fn compute_knn_probabilities(
         dir_indptr.push(dir_indices.len());
     }
 
-    match config.symmetrization {
-        SymmetrizationMode::StandardTsne => {
-            let mut pairs = Vec::with_capacity(dir_indices.len());
-            for i in 0..n {
-                let i_u32 = i as u32;
-                let start = dir_indptr[i];
-                let end = dir_indptr[i + 1];
-                for pos in start..end {
-                    let j = dir_indices[pos];
-                    let p_ji = dir_values[pos];
-                    if p_ji > 0.0 {
-                        let (u, v) = if i_u32 < j { (i_u32, j) } else { (j, i_u32) };
-                        pairs.push((u, v, p_ji));
-                    }
-                }
+    let mut pairs = Vec::with_capacity(dir_indices.len());
+    for i in 0..n {
+        let i_u32 = i as u32;
+        let start = dir_indptr[i];
+        let end = dir_indptr[i + 1];
+        for pos in start..end {
+            let j = dir_indices[pos];
+            let p_ji = dir_values[pos];
+            if p_ji > 0.0 {
+                let (u, v) = if i_u32 < j { (i_u32, j) } else { (j, i_u32) };
+                pairs.push((u, v, p_ji));
             }
-            Ok(scatter_symmetric_pairs(n, pairs, true))
         }
+    }
+
+    match config.symmetrization {
+        SymmetrizationMode::StandardTsne => Ok(scatter_symmetric_pairs(n, pairs, true)),
         SymmetrizationMode::RowNormalized => {
-            symmetrize_row_normalized(n, &dir_indptr, &dir_indices, &dir_values)
+            let sym = scatter_symmetric_pairs(n, pairs, false);
+            symmetrize_row_normalized(n, &sym.indptr, &sym.indices, &sym.values)
         }
     }
 }
@@ -866,7 +1009,8 @@ mod tests {
         let p_total: f64 = p_graph.values.iter().sum();
         assert!((p_total - 1.0).abs() < 1e-12);
 
-        // Verify RowNormalized mode inside compute_knn_probabilities matches symmetrize_row_normalized.
+        // Verify RowNormalized mode inside compute_knn_probabilities genuinely row-normalizes
+        // S = P_dir + P_dir^T before final (D_S^{-1} S + S^T D_S^{-1}) / (2N) symmetrization.
         let cfg_rn = PerplexityConfig {
             symmetrization: SymmetrizationMode::RowNormalized,
             ..Default::default()
@@ -874,6 +1018,158 @@ mod tests {
         let sp_rn = compute_knn_probabilities(&knn, &perps, &cfg_rn).unwrap();
         let sp_rn_total: f64 = sp_rn.values.iter().sum();
         assert!((sp_rn_total - 1.0).abs() < 1e-12);
+        assert_eq!(sp_rn.indptr, sp.indptr);
+        assert_eq!(sp_rn.indices, sp.indices);
+        for i in 0..4 {
+            let (cols, vals) = sp_rn.row(i);
+            for (&j, &p_ij) in cols.iter().zip(vals.iter()) {
+                let (rcols, rvals) = sp_rn.row(j as usize);
+                let pos = rcols.binary_search(&(i as u32)).unwrap();
+                assert_eq!(p_ij.to_bits(), rvals[pos].to_bits());
+            }
+        }
+        let max_diff = sp_rn
+            .values
+            .iter()
+            .zip(sp.values.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_diff > 1e-3,
+            "expected RowNormalized to differ from StandardTsne on asymmetric knn, max_diff={max_diff}"
+        );
+
+        // On a regular symmetric KnnGraph, row sums of S = P_dir + P_dir^T are uniform (= 2.0),
+        // so RowNormalized matches StandardTsne.
+        let regular_knn = KnnGraph::new_validated(
+            4,
+            vec![0, 2, 4, 6, 8],
+            vec![1, 3, 0, 2, 1, 3, 0, 2],
+            vec![1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0, 1.0],
+        )
+        .unwrap();
+        let reg_perps = vec![1.5; 4];
+        let reg_std = compute_knn_probabilities(&regular_knn, &reg_perps, &cfg).unwrap();
+        let reg_rn = compute_knn_probabilities(&regular_knn, &reg_perps, &cfg_rn).unwrap();
+        let reg_diff = reg_std
+            .values
+            .iter()
+            .zip(reg_rn.values.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            reg_diff < 1e-15,
+            "expected RowNormalized to match StandardTsne on regular symmetric knn, diff={reg_diff}"
+        );
+    }
+
+    #[test]
+    fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
+        // Asymmetric barbell-like graph with star hub + tail so 1-hop and 2-hop degrees vary.
+        let mut edges: Vec<(u32, u32)> = (1..=6).map(|v| (0, v)).collect();
+        edges.extend([(6, 7), (7, 8), (8, 9), (1, 2)]);
+        let g = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
+        let n = g.num_nodes();
+
+        // 1. Uncapped (None): algebraically equal to symmetrize_row_normalized(A1 + w2 * A2).
+        let w2 = 0.5;
+        let probs_uncapped = graph_12hop_row_normalized_probabilities(&g, w2, None, 42).unwrap();
+        let (adj1, adj2) = extract_1hop_2hop_csr(&g).unwrap();
+        let mut indptr = Vec::with_capacity(n + 1);
+        indptr.push(0usize);
+        let mut indices = Vec::new();
+        let mut weights = Vec::new();
+        for u in 0..n {
+            for &v in adj1.neighbors(u) {
+                indices.push(v);
+                weights.push(1.0);
+            }
+            for &v in adj2.neighbors(u) {
+                indices.push(v);
+                weights.push(w2);
+            }
+            indptr.push(indices.len());
+        }
+        let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
+        assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
+        assert_eq!(probs_uncapped.indices, ref_uncapped.indices);
+        for (a, b) in probs_uncapped.values.iter().zip(ref_uncapped.values.iter()) {
+            assert!((a - b).abs() < 1e-14);
+        }
+        assert!((probs_uncapped.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
+        // 2. Capped (Some(3)): algebraically equal to symmetrize_row_normalized on capped pairs.
+        let cap = 3usize;
+        let probs_capped =
+            graph_12hop_row_normalized_probabilities(&g, 0.35, Some(cap), 77).unwrap();
+        let pairs = extract_sparse_1hop_2hop_pairs(&g, cap, 77).unwrap();
+        let mut adj_rows: Vec<Vec<(u32, f64)>> = vec![Vec::new(); n];
+        for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+            adj_rows[u as usize].push((v, 1.0));
+            adj_rows[v as usize].push((u, 1.0));
+        }
+        for (&u, &v) in pairs.u2.iter().zip(pairs.v2.iter()) {
+            adj_rows[u as usize].push((v, 0.35));
+            adj_rows[v as usize].push((u, 0.35));
+        }
+        let mut c_indptr = vec![0usize];
+        let mut c_indices = Vec::new();
+        let mut c_weights = Vec::new();
+        for row in adj_rows {
+            for (v, w) in row {
+                c_indices.push(v);
+                c_weights.push(w);
+            }
+            c_indptr.push(c_indices.len());
+        }
+        let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
+        assert_eq!(probs_capped.indptr, ref_capped.indptr);
+        assert_eq!(probs_capped.indices, ref_capped.indices);
+        for (a, b) in probs_capped.values.iter().zip(ref_capped.values.iter()) {
+            assert!((a - b).abs() < 1e-14);
+        }
+
+        // 3. 1-hop-only equivalence when w2 == 0.0 or max_2hop_per_node == Some(0).
+        let p_w0 = graph_12hop_row_normalized_probabilities(&g, 0.0, None, 42).unwrap();
+        let p_c0 = graph_12hop_row_normalized_probabilities(&g, 0.5, Some(0), 42).unwrap();
+        let p_1hop = graph_row_normalized_probabilities(&g).unwrap();
+        assert_eq!(p_w0.indptr, p_1hop.indptr);
+        assert_eq!(p_w0.indices, p_1hop.indices);
+        assert_eq!(p_c0.indptr, p_1hop.indptr);
+        assert_eq!(p_c0.indices, p_1hop.indices);
+        for ((&a, &b), &c) in p_w0
+            .values
+            .iter()
+            .zip(p_c0.values.iter())
+            .zip(p_1hop.values.iter())
+        {
+            assert!((a - c).abs() < 1e-14);
+            assert!((b - c).abs() < 1e-14);
+        }
+
+        // 4. Edge cases & validation errors.
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        assert_eq!(
+            graph_12hop_row_normalized_probabilities(&empty, 0.5, None, 42)
+                .unwrap()
+                .nnz(),
+            0
+        );
+        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        assert_eq!(
+            graph_12hop_row_normalized_probabilities(&single, 0.5, Some(4), 42)
+                .unwrap()
+                .nnz(),
+            0
+        );
+        assert!(matches!(
+            graph_12hop_row_normalized_probabilities(&g, -0.1, None, 42),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            graph_12hop_row_normalized_probabilities(&g, f64::NAN, None, 42),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
     }
 
     #[test]
