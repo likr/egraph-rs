@@ -627,6 +627,9 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "TFdpSolver"):
         results.extend(run_v6_m4_python_checks(eg))
 
+    assert not hasattr(eg, "InfoMap"), "InfoMap must not be exposed on egraph v6"
+    assert "InfoMap" not in getattr(eg, "__all__", []), "InfoMap must not be in egraph.__all__"
+
     return results
 
 
@@ -1568,6 +1571,7 @@ if (typeof mod.scaleNormalizedStress === 'function') {{
 if (typeof mod.selectMaxminSpPivots === 'function') {{
   const m2Symbols = [
     'KnnGraph',
+    'Sparse12HopPairs',
     'SparseProbabilities',
     'DogVaradhanLandmarks',
     'EigenResult',
@@ -1583,6 +1587,7 @@ if (typeof mod.selectMaxminSpPivots === 'function') {{
     'chebyshevHeatSpmv',
     'chebyshevDogJlEmbedding',
     'extract1hop2hopCsr',
+    'extractSparse1hop2hopPairs',
     'buildPure2hopKnn',
     'compute2hopNeighborhoodSizes',
     'computeNodewise2hopPerplexities',
@@ -1985,6 +1990,7 @@ if (typeof mod.TFdpSolver === 'function') {{
   g16.free?.();
 }}
 
+assert.equal(typeof mod.InfoMap, 'undefined');
 console.log('WASM_NODE_PARITY_OK');
 """
     subprocess.check_call(["node", "--input-type=module", "-e", node_script])
@@ -2015,6 +2021,8 @@ def run_cross_target_m1_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "crossing_number",
         "np1",
         "np2",
+        "sampled_np1",
+        "sampled_np2",
         "drng",
         "dgg",
         "aspect_ratio",
@@ -2036,7 +2044,7 @@ def run_cross_target_m1_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
 
         sig_dist, sig_disp = eg.prism_distortion(l32, l32_adj)
         report = eg.evaluate_metrics(
-            fg, l32, targets, num_pivots=4, num_samples=200, seed=42
+            fg, l32, targets, num_pivots=4, num_samples=5, seed=42
         )
         dt_edges, dt_tris = eg.delaunay_triangulation(l32)
 
@@ -2046,6 +2054,10 @@ def run_cross_target_m1_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
             "sweep_crossing_number": cr_sweep,
             "neighborhood_preservation_1hop": float(eg.neighborhood_preservation_1hop(fg, l32)),
             "neighborhood_preservation_2hop_v6": float(eg.neighborhood_preservation_2hop_v6(fg, l32)),
+            "sampled_np1_sub": float(eg.sampled_np1(fg, l32, num_samples=5, seed=42)),
+            "sampled_np2_sub": float(eg.sampled_np2(fg, l32, num_samples=5, seed=42)),
+            "sampled_np1_full": float(eg.sampled_np1(fg, l32, num_samples=n, seed=42)),
+            "sampled_np2_full": float(eg.sampled_np2(fg, l32, num_samples=n, seed=42)),
             "prism_sigma_dist": float(sig_dist),
             "prism_sigma_disp": float(sig_disp),
             "evaluate_metrics": {k: float(v) for k, v in report.items()},
@@ -2095,9 +2107,9 @@ for (const c of cases) {
   const rep = mod.evaluateMetrics(
     g,
     l,
-    ['sns', 'crossing_number', 'np1', 'np2', 'drng', 'dgg', 'aspect_ratio'],
+    ['sns', 'crossing_number', 'np1', 'np2', 'sampledNp1', 'sampledNp2', 'drng', 'dgg', 'aspect_ratio'],
     4,
-    200,
+    5,
     42,
   );
   const rec = rep.toRecord();
@@ -2117,6 +2129,10 @@ for (const c of cases) {
     sweep_crossing_number: mod.sweepCrossingNumber(g, l),
     neighborhood_preservation_1hop: mod.neighborhoodPreservation1Hop(g, l),
     neighborhood_preservation_2hop_v6: mod.neighborhoodPreservation2HopV6(g, l),
+    sampled_np1_sub: mod.sampledNp1(g, l, 5, 42),
+    sampled_np2_sub: mod.sampledNp2(g, l, 5, 42),
+    sampled_np1_full: mod.sampledNp1(g, l, c.n, 42),
+    sampled_np2_full: mod.sampledNp2(g, l, c.n, 42),
     prism_sigma_dist: pd.sigmaDist,
     prism_sigma_disp: pd.sigmaDisp,
     evaluate_metrics: {
@@ -2124,6 +2140,8 @@ for (const c of cases) {
       crossing_number: rec.crossingNumber,
       neighborhood_preservation_1hop: rec.neighborhoodPreservation1Hop,
       neighborhood_preservation_2hop: rec.neighborhoodPreservation2Hop,
+      sampled_np1: rec.sampledNp1,
+      sampled_np2: rec.sampledNp2,
       relative_neighborhood_preservation: rec.relativeNeighborhoodPreservation,
       gabriel_graph_preservation: rec.gabrielGraphPreservation,
       aspect_ratio: rec.aspectRatio,
@@ -2165,6 +2183,10 @@ console.log(JSON.stringify({ m1_available: true, cases: out }));
             ("sweep_crossing_number", "sweep_crossing_number"),
             ("neighborhood_preservation_1hop", "neighborhood_preservation_1hop"),
             ("neighborhood_preservation_2hop_v6", "neighborhood_preservation_2hop_v6"),
+            ("sampled_np1_sub", "sampled_np1_sub"),
+            ("sampled_np2_sub", "sampled_np2_sub"),
+            ("sampled_np1_full", "sampled_np1_full"),
+            ("sampled_np2_full", "sampled_np2_full"),
             ("prism_sigma_dist", "prism_sigma_dist"),
             ("prism_sigma_disp", "prism_sigma_disp"),
         ):
@@ -2238,6 +2260,8 @@ def run_cross_target_m2_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     )
 
     hop1, hop2 = eg.extract_1hop_2hop_csr(g)
+    sparse_pairs = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=8, seed=42)
+    sparse_pairs_zero = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=0, seed=42)
     pure_knn, k2_deg, pure_stats = eg.build_pure_2hop_knn(g)
     sizes_2hop = eg.compute_2hop_neighborhood_sizes(g)
     node_perps = eg.compute_nodewise_2hop_perplexities(g)
@@ -2245,6 +2269,7 @@ def run_cross_target_m2_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     hybrid_knn, hybrid_stats = eg.build_hybrid_adaptive_knn(g, jl_emb, node_perps)
     bfs_knn = eg.partial_bfs_knn(g, k=6, seed=42)
     probs = eg.compute_knn_probabilities(hybrid_knn, node_perps)
+    probs_rn = eg.compute_knn_probabilities(hybrid_knn, node_perps, row_normalize=True)
     fuzzy = eg.compute_fuzzy_simplicial_set(hybrid_knn)
     ab = eg.find_ab_params(0.1, 1.0)
     ht_gamma = float(eg.compute_horvitz_thompson_gamma(1.0, 1600, 16))
@@ -2304,6 +2329,8 @@ const jlEmb = mod.chebyshevDogJlEmbedding(g, 12, 25, 42, true, 1e-4);
 const twoHop = mod.extract1hop2hopCsr(g);
 const h1 = twoHop.hop1();
 const h2 = twoHop.hop2();
+const sparsePairs = mod.extractSparse1hop2hopPairs(g, 8, 42);
+const sparsePairsZero = mod.extractSparse1hop2hopPairs(g, 0, 42);
 const pureRes = mod.buildPure2hopKnn(g);
 const pureKnn = pureRes.knn();
 const pureRt = mod.KnnGraph.fromCsr(pureKnn.numNodes, pureKnn.indptr(), pureKnn.indices(), pureKnn.distances());
@@ -2314,6 +2341,7 @@ const hybRes = mod.buildHybridAdaptiveKnn(g, jlEmb, 12, nodePerps);
 const hybKnn = hybRes.knn();
 const bfsKnn = mod.partialBfsKnn(g, 6, 42);
 const probs = mod.computeKnnProbabilities(hybKnn, nodePerps);
+const probsRn = mod.computeKnnProbabilities(hybKnn, nodePerps, null, null, null, true);
 const fuzzy = mod.computeFuzzySimplicialSet(hybKnn);
 const ab = Array.from(mod.findAbParams(0.1, 1.0));
 const htGamma = mod.computeHorvitzThompsonGamma(1.0, 1600, 16);
@@ -2376,6 +2404,23 @@ const out = {
     indices: Array.from(probs.indices()),
     values: Array.from(probs.values()),
   },
+  probsRn: {
+    indptr: Array.from(probsRn.indptr()),
+    indices: Array.from(probsRn.indices()),
+    values: Array.from(probsRn.values()),
+  },
+  sparsePairs: {
+    u1: Array.from(sparsePairs.u1),
+    v1: Array.from(sparsePairs.v1),
+    u2: Array.from(sparsePairs.u2),
+    v2: Array.from(sparsePairs.v2),
+  },
+  sparsePairsZero: {
+    u1: Array.from(sparsePairsZero.u1),
+    v1: Array.from(sparsePairsZero.v1),
+    u2: Array.from(sparsePairsZero.u2),
+    v2: Array.from(sparsePairsZero.v2),
+  },
   fuzzy: {
     indptr: Array.from(fuzzy.indptr()),
     indices: Array.from(fuzzy.indices()),
@@ -2400,7 +2445,10 @@ const out = {
 
 lm.free?.();
 fuzzy.free?.();
+probsRn.free?.();
 probs.free?.();
+sparsePairsZero.free?.();
+sparsePairs.free?.();
 bfsKnn.free?.();
 hybKnn.free?.();
 hybRes.free?.();
@@ -2508,6 +2556,17 @@ console.log(JSON.stringify(out));
 
     assert list(probs.indptr()) == ws["probs"]["indptr"] and list(probs.indices()) == ws["probs"]["indices"]
     check_f64("compute_knn_probabilities/values", probs.values(), ws["probs"]["values"])
+    assert list(probs_rn.indptr()) == ws["probsRn"]["indptr"] and list(probs_rn.indices()) == ws["probsRn"]["indices"]
+    check_f64("compute_knn_probabilities_rn/values", probs_rn.values(), ws["probsRn"]["values"])
+
+    assert list(sparse_pairs.u1()) == ws["sparsePairs"]["u1"]
+    assert list(sparse_pairs.v1()) == ws["sparsePairs"]["v1"]
+    assert list(sparse_pairs.u2()) == ws["sparsePairs"]["u2"]
+    assert list(sparse_pairs.v2()) == ws["sparsePairs"]["v2"]
+    assert list(sparse_pairs_zero.u1()) == ws["sparsePairsZero"]["u1"]
+    assert list(sparse_pairs_zero.v1()) == ws["sparsePairsZero"]["v1"]
+    assert list(sparse_pairs_zero.u2()) == ws["sparsePairsZero"]["u2"] == []
+    assert list(sparse_pairs_zero.v2()) == ws["sparsePairsZero"]["v2"] == []
 
     assert list(fuzzy.indptr()) == ws["fuzzy"]["indptr"] and list(fuzzy.indices()) == ws["fuzzy"]["indices"]
     check_f64("compute_fuzzy_simplicial_set/values", fuzzy.values(), ws["fuzzy"]["values"])
@@ -2634,6 +2693,7 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     hinge_s_src = [e[0] for e in g16_edges]
     hinge_s_tgt = [e[1] for e in g16_edges]
     hinge_s_ones = [1.0] * len(g16_edges)
+    lm16 = eg.compute_regularized_dog_varadhan_landmarks(g16, degree=15, num_landmarks=8, seed=42)
 
     def run_py_solvers(dtype_name: str) -> dict[str, Any]:
         c16 = init16_f32 if dtype_name == "float32" else init16_f64
@@ -2649,6 +2709,26 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
             sv.run(l)
             out[f"tsnet_{bk}"] = l.coords(copy=True)
             out[f"tsnet_{bk}_ffts"] = int(sv.total_fft_2d_calls)
+
+        for tag, w2_val, cap_val, bk in (
+            ("tsnet_rn_uncapped", 0.5, None, "fft"),
+            ("tsnet_rn_capped", 0.35, 8, "exact"),
+        ):
+            l_rn = eg.Layout2d.from_coords(c16)
+            sv_rn = eg.TsNetSolver.from_graph_row_normalized(
+                g16,
+                w2=w2_val,
+                max_2hop_per_node=cap_val,
+                backend=bk,
+                iterations_stage1=4,
+                iterations_stage2=4,
+                iterations_stage3=4,
+                seed=42,
+                dtype=dtype_name,
+            )
+            sv_rn.run(l_rn)
+            out[tag] = l_rn.coords(copy=True)
+            out[f"{tag}_ffts"] = int(sv_rn.total_fft_2d_calls)
 
         sgd_map = {
             "sgd_full": eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=1.0, seed=42, dtype=dtype_name),
@@ -2700,11 +2780,45 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         out["gumap"] = l_gm.coords(copy=True)
         out["gumap_edges"] = int(gm.num_edges)
 
+        l_gm_lm = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
+        gm_lm = eg.GuMapSolver.from_landmarks(
+            g16,
+            lm16,
+            max_2hop_per_node=16,
+            n_epochs=15,
+            learning_rate=0.2,
+            seed=42,
+            dtype=dtype_name,
+        )
+        gm_lm.run(l_gm_lm)
+        out["gumap_lm"] = l_gm_lm.coords(copy=True)
+        out["gumap_lm_edges"] = int(gm_lm.num_edges)
+
         l_rf = eg.Layout2d.from_coords(c9_fold)
         rf = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
         rf.run(l_rf)
         out["refiner"] = l_rf.coords(copy=True)
         out["refiner_fp"] = int(rf.stats()["n_fp_total"])
+
+        l_rf_dyn = eg.Layout2d.from_coords(c9_fold)
+        rf_dyn = eg.SpatialIntruderRefiner(
+            g9,
+            rounds=4,
+            k_cap=8,
+            t_max=10,
+            seed=42,
+            w_anchor2=0.5,
+            k_cap_decay=0.5,
+            k_cap_min=2,
+            dtype=dtype_name,
+        )
+        rf_dyn.step(l_rf_dyn)
+        assert rf_dyn.current_k_cap == 4
+        rf_dyn.set_k_cap(6)
+        assert rf_dyn.current_k_cap == 6
+        rf_dyn.run(l_rf_dyn)
+        out["refiner_dyn"] = l_rf_dyn.coords(copy=True)
+        out["refiner_dyn_fp"] = int(rf_dyn.stats()["n_fp_total"])
 
         l_sm = eg.Layout2d.from_coords(c16)
         sm = eg.StressMajorizationSolver.from_graph(g16, max_iterations=15, epsilon=1e-6, dtype=dtype_name)
@@ -2838,6 +2952,21 @@ for (const bk of ['fft', 'linear_fft', 'barnes_hut', 'exact']) {
   res.solverStep.free?.();
 }
 
+for (const [tag, w2Val, capVal, bk] of [
+  ['tsnet_rn_uncapped', 0.5, null, 'fft'],
+  ['tsnet_rn_capped', 0.35, 8, 'exact'],
+]) {
+  const res = runPairAndCheckStep(
+    () => mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: w2Val, max2hopPerNode: capVal, backend: bk, iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }),
+    init16,
+    5,
+  );
+  solvers[tag] = res.coords;
+  solvers[`${tag}_ffts`] = res.solverRun.totalFft2dCalls;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
 const sgdSpecs = [
   ['sgd_full', () => mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: 1.0, seed: 42 })],
   ['sgd_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, tMax: 10, eps: 0.01, seed: 42 })],
@@ -2887,6 +3016,20 @@ for (const [k, mk] of sgdSpecs) {
 }
 
 {
+  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, 15, 8, 42);
+  const res = runPairAndCheckStep(
+    () => mod.GuMapSolver.fromLandmarks(g16, lm16, 16, { nEpochs: 15, learningRate: 0.2, seed: 42 }),
+    gumapInit16,
+    5,
+  );
+  solvers.gumap_lm = res.coords;
+  solvers.gumap_lm_edges = res.solverRun.numEdges;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+  lm16.free?.();
+}
+
+{
   const res = runPairAndCheckStep(
     () => new mod.SpatialIntruderRefiner(g9, { rounds: 3, kCap: 32, tMax: 10, seed: 42 }),
     folded9,
@@ -2898,6 +3041,22 @@ for (const [k, mk] of sgdSpecs) {
   st.free?.();
   res.solverRun.free?.();
   res.solverStep.free?.();
+}
+
+{
+  const rfDyn = new mod.SpatialIntruderRefiner(g9, { rounds: 4, kCap: 8, wAnchor2: 0.5, kCapDecay: 0.5, kCapMin: 2, tMax: 10, seed: 42 });
+  const lDyn = mod.Layout2d.fromCoords(folded9);
+  rfDyn.step(lDyn);
+  assert.equal(rfDyn.currentKCap, 4);
+  rfDyn.setKCap(6);
+  assert.equal(rfDyn.currentKCap, 6);
+  rfDyn.run(lDyn);
+  solvers.refiner_dyn = Array.from(lDyn.coordsView());
+  const stDyn = rfDyn.stats();
+  solvers.refiner_dyn_fp = stDyn.nFpTotal;
+  stDyn.free?.();
+  lDyn.free?.();
+  rfDyn.free?.();
 }
 
 {
@@ -3025,6 +3184,8 @@ console.log(JSON.stringify(out));
         "tsnet_linear_fft",
         "tsnet_barnes_hut",
         "tsnet_exact",
+        "tsnet_rn_uncapped",
+        "tsnet_rn_capped",
         "sgd_full",
         "sgd_dog",
         "sgd_rp",
@@ -3032,7 +3193,9 @@ console.log(JSON.stringify(out));
         "sgd_stream",
         "sgd_hinges",
         "gumap",
+        "gumap_lm",
         "refiner",
+        "refiner_dyn",
         "sm",
         "kk",
     ):
@@ -3051,11 +3214,15 @@ console.log(JSON.stringify(out));
 
     for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
         assert py32[f"tsnet_{bk}_ffts"] == ws_sol[f"tsnet_{bk}_ffts"]
+    for tag in ("tsnet_rn_uncapped", "tsnet_rn_capped"):
+        assert py32[f"{tag}_ffts"] == ws_sol[f"{tag}_ffts"]
     for sk in ("sgd_full", "sgd_dog", "sgd_rp", "sgd_omega", "sgd_stream", "sgd_hinges"):
         assert py32[f"{sk}_springs"] == ws_sol[f"{sk}_springs"]
         assert py32[f"{sk}_hinges"] == ws_sol[f"{sk}_hinges"]
     assert py32["gumap_edges"] == ws_sol["gumap_edges"]
+    assert py32["gumap_lm_edges"] == ws_sol["gumap_lm_edges"]
     assert py32["refiner_fp"] == ws_sol["refiner_fp"]
+    assert py32["refiner_dyn_fp"] == ws_sol["refiner_dyn_fp"]
     check_close("sm_stress/f32_vs_wasm", [py32["sm_stress"]], [ws_sol["sm_stress"]], 1e-4)
 
     return [{
@@ -3128,6 +3295,7 @@ def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     dag_py = eg.remove_cycles(g_cyc)
     layers_lp_py = eg.assign_layers(g_skip, method="longest_path")
     layers_ns_py = eg.assign_layers(g_skip, method="network_simplex")
+    lm16_m4 = eg.compute_regularized_dog_varadhan_landmarks(g16, num_landmarks=8, seed=42)
 
     def run_py_m4(dtype_name: str) -> dict[str, Any]:
         c16 = init16_f32 if dtype_name == "float32" else init16_f64
@@ -3158,6 +3326,30 @@ def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         l_ibf = eg.Layout2d.from_coords(c16)
         eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name).run(l_ibf)
         out["ibumap_fset"] = l_ibf.coords(copy=True)
+
+        for bk in ("exact", "ibfft"):
+            l_ibl = eg.Layout2d.from_coords(c16)
+            s_ibl = eg.IbUmapSolver.from_landmarks(
+                g16, lm16_m4, max_2hop_per_node=16, backend=bk, n_epochs=6, seed=42, dtype=dtype_name
+            )
+            s_ibl.run(l_ibl)
+            out[f"ibumap_lm_{bk}"] = l_ibl.coords(copy=True)
+            out[f"ibumap_lm_{bk}_edges"] = int(s_ibl.num_edges)
+
+        l_pmk = eg.Layout2d.from_coords(c16)
+        s_pmk = eg.SgdSolver.pacmap_graph(
+            g16,
+            n_neighbors=2,
+            phase1_iters=3,
+            phase2_iters=3,
+            phase3_iters=4,
+            keep_all_1hop=True,
+            seed=42,
+            dtype=dtype_name,
+        )
+        s_pmk.run(l_pmk)
+        out["sgd_pacmap_keep"] = l_pmk.coords(copy=True)
+        out["sgd_pacmap_keep_springs"] = int(s_pmk.num_springs)
 
         sgd_specs = {
             "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
@@ -3369,6 +3561,32 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   r.sR.free?.(); r.sS.free?.();
 }
 
+{
+  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
+  for (const bk of ['exact', 'ibfft']) {
+    const r = runPairAndCheckStep(
+      () => mod.IbUmapSolver.fromLandmarks(g16, lm16, 16, { backend: bk, nEpochs: 6, seed: 42 }),
+      init16,
+      2,
+    );
+    solvers[`ibumap_lm_${bk}`] = r.coords;
+    solvers[`ibumap_lm_${bk}_edges`] = r.sR.numEdges;
+    r.sR.free?.(); r.sS.free?.();
+  }
+  lm16.free?.();
+}
+
+{
+  const r = runPairAndCheckStep(
+    () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 2, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, keepAll1hop: true, seed: 42 }),
+    init16,
+    3,
+  );
+  solvers.sgd_pacmap_keep = r.coords;
+  solvers.sgd_pacmap_keep_springs = r.sR.numSprings;
+  r.sR.free?.(); r.sS.free?.();
+}
+
 for (const [k, mk] of [
   ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
   ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 })],
@@ -3530,8 +3748,11 @@ console.log(JSON.stringify(out));
         "ibumap_exact",
         "ibumap_knn",
         "ibumap_fset",
+        "ibumap_lm_exact",
+        "ibumap_lm_ibfft",
         "sgd_snap",
         "sgd_pacmap",
+        "sgd_pacmap_keep",
         "sgd_sgd2",
         "sgd_squared",
         "fa2_bh",
@@ -3545,6 +3766,9 @@ console.log(JSON.stringify(out));
         check_f64_vs_f32(key, py64[key], py32[key], 5e-3)
 
     assert py32["yh_levels"] == ws_sol["yh_levels"]
+    assert py32["ibumap_lm_exact_edges"] == ws_sol["ibumap_lm_exact_edges"]
+    assert py32["ibumap_lm_ibfft_edges"] == ws_sol["ibumap_lm_ibfft_edges"]
+    assert py32["sgd_pacmap_keep_springs"] == ws_sol["sgd_pacmap_keep_springs"]
     assert py32["prism_box_ov"] == ws_sol["prism_box_ov"] == 0
     assert py32["prism_rad_ov"] == ws_sol["prism_rad_ov"] == 0
 
