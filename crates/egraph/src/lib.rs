@@ -65,11 +65,12 @@ pub mod prelude {
     #[cfg(feature = "neighborhood")]
     pub use egraph_neighborhood::{
         DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph,
-        PerplexityConfig, SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
-        build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn, build_pure_2hop_knn,
-        build_rerank_knn, compute_diffusion_embedding, compute_fuzzy_simplicial_set,
-        compute_regularized_dog_varadhan_landmarks, compute_resistance_embedding,
-        extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs, graph_row_normalized_probabilities,
+        PerplexityConfig, Sparse12HopPairs, SparseProbabilities, SymmetrizationMode,
+        apply_relative_distance_floor, build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn,
+        build_pure_2hop_knn, build_rerank_knn, compute_diffusion_embedding,
+        compute_fuzzy_simplicial_set, compute_regularized_dog_varadhan_landmarks,
+        compute_resistance_embedding, extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs,
+        graph_12hop_row_normalized_probabilities, graph_row_normalized_probabilities,
         symmetrize_row_normalized,
     };
 
