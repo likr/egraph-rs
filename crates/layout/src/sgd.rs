@@ -267,6 +267,8 @@ pub struct PacmapGraphConfig {
     pub learning_rate: f64,
     /// Explicit deterministic RNG seed (`default: 42`).
     pub seed: u64,
+    /// Retain all 1-hop edges even on vertices with degree > `n_neighbors` (`default: false`).
+    pub keep_all_1hop: bool,
 }
 
 impl Default for PacmapGraphConfig {
@@ -280,6 +282,7 @@ impl Default for PacmapGraphConfig {
             phase3_iters: 250,
             learning_rate: 1.0,
             seed: 42,
+            keep_all_1hop: false,
         }
     }
 }
@@ -2394,8 +2397,9 @@ impl<S: Scalar> SgdSolver<S> {
         }
 
         let canonical_edges = extract_canonical_undirected_edges(graph);
-        let mut u1 = Vec::with_capacity(canonical_edges.len());
-        let mut v1 = Vec::with_capacity(canonical_edges.len());
+        let n_canon_edges = canonical_edges.len();
+        let mut u1 = Vec::with_capacity(n_canon_edges);
+        let mut v1 = Vec::with_capacity(n_canon_edges);
         for &(u, v, _) in &canonical_edges {
             u1.push(u);
             v1.push(v);
@@ -2446,7 +2450,12 @@ impl<S: Scalar> SgdSolver<S> {
         let mut hop1_stamp = VisitStamp::new(n);
         let mut exclude_stamp = VisitStamp::new(n);
 
-        let mut nb_pairs = Vec::with_capacity(n * n_nb);
+        let nb_cap = if config.keep_all_1hop {
+            (n * n_nb).max(n_canon_edges.saturating_mul(2))
+        } else {
+            n * n_nb
+        };
+        let mut nb_pairs = Vec::with_capacity(nb_cap);
         let mut mn_pairs = Vec::with_capacity(n * n_mn);
         let mut fp_pairs = Vec::with_capacity(n * n_fp);
 
@@ -2466,7 +2475,15 @@ impl<S: Scalar> SgdSolver<S> {
             }
 
             nb_u.clear();
-            if let Some(w_rows) = &weighted_rows {
+            if config.keep_all_1hop {
+                if let Some(w_rows) = &weighted_rows {
+                    for &(_, v) in &w_rows[u] {
+                        nb_u.push(v);
+                    }
+                } else {
+                    nb_u.extend_from_slice(n1_u);
+                }
+            } else if let Some(w_rows) = &weighted_rows {
                 for &(_, v) in w_rows[u].iter().take(n_nb) {
                     nb_u.push(v);
                 }
@@ -2606,7 +2623,9 @@ impl<S: Scalar> SgdSolver<S> {
                 while fp_collected < n_fp && trials < max_fp_trials {
                     trials += 1;
                     let c = rng.gen_range_usize(n);
-                    if exclude_stamp.is_visited(c) {
+                    if exclude_stamp.is_visited(c)
+                        || has_common_neighbor(n1_u, sym_graph.neighbors(c), &hop1_stamp)
+                    {
                         continue;
                     }
                     exclude_stamp.mark(c);
@@ -4728,6 +4747,7 @@ mod tests {
             phase3_iters: 60,
             learning_rate: 0.5,
             seed: 42,
+            keep_all_1hop: false,
         };
 
         // Check 3-tier pair invariants on grid(4, 4).
@@ -4757,6 +4777,10 @@ mod tests {
             assert_ne!(u, v);
             let ui = u as usize;
             assert!(!adj1.neighbors(ui).contains(&v));
+            assert!(
+                !adj2.neighbors(ui).contains(&v),
+                "FP pair ({u}, {v}) must not be 2-hop"
+            );
         }
 
         // Bit-exact step() == run() for f64 and f32 across all 3 phases.
@@ -4867,6 +4891,73 @@ mod tests {
             },
         ] {
             assert!(SgdSolver::<f64>::pacmap_graph(&grid, bad).is_err());
+        }
+    }
+
+    #[test]
+    fn test_pacmap_graph_keep_all_1hop_and_fp_2hop_exclusion() {
+        // Hub 0 connected to 1..=20 plus a path 20-21-22-23-24-25 (so leaves have deg < n_neighbors
+        // and vertices near the hub have 2-hop neighbors outside truncated nb_u).
+        let mut edges: Vec<(u32, u32)> = (1..=20).map(|v| (0, v)).collect();
+        edges.extend([(20, 21), (21, 22), (22, 23), (23, 24), (24, 25)]);
+        let n = 26usize;
+        let unweighted = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let weights: Vec<f64> = (0..edges.len()).map(|i| 1.0 + 0.1 * (i as f64)).collect();
+        let weighted =
+            CsrGraph::<f64>::from_edges(n, &edges, Some(&weights), false, false).unwrap();
+
+        let (adj1, adj2) = extract_1hop_2hop_csr(&unweighted).unwrap();
+        let cfg_trunc = PacmapGraphConfig {
+            n_neighbors: 6,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 5,
+            phase2_iters: 5,
+            phase3_iters: 5,
+            seed: 17,
+            keep_all_1hop: false,
+            ..Default::default()
+        };
+        let cfg_keep = PacmapGraphConfig {
+            keep_all_1hop: true,
+            ..cfg_trunc
+        };
+
+        for g in [&unweighted, &weighted] {
+            let s_trunc = SgdSolver::<f64>::pacmap_graph(g, cfg_trunc).unwrap();
+            let st_trunc = s_trunc.pacmap.as_ref().unwrap();
+            let hub_nb_trunc = st_trunc.nb_pairs.iter().filter(|&&(u, _)| u == 0).count();
+            assert_eq!(hub_nb_trunc, 6);
+
+            let s_keep = SgdSolver::<f64>::pacmap_graph(g, cfg_keep).unwrap();
+            let st_keep = s_keep.pacmap.as_ref().unwrap();
+            let hub_nb_keep: Vec<u32> = st_keep
+                .nb_pairs
+                .iter()
+                .filter(|&&(u, _)| u == 0)
+                .map(|&(_, v)| v)
+                .collect();
+            assert_eq!(hub_nb_keep.len(), 20);
+            for v in 1..=20u32 {
+                assert!(hub_nb_keep.contains(&v));
+            }
+            // Leaf node 1 has 1-hop degree 1 < 6, so 2-hop backfill still fills up to 6.
+            let leaf_nb_keep = st_keep.nb_pairs.iter().filter(|&&(u, _)| u == 1).count();
+            assert_eq!(leaf_nb_keep, 6);
+
+            // FP must exclude all 1-hop and 2-hop pairs even when deg > n_neighbors.
+            for &(u, v) in &st_trunc.fp_pairs {
+                assert_ne!(u, v);
+                let ui = u as usize;
+                assert!(!adj1.neighbors(ui).contains(&v));
+                assert!(!adj2.neighbors(ui).contains(&v));
+            }
+            for &(u, v) in &st_keep.fp_pairs {
+                assert_ne!(u, v);
+                let ui = u as usize;
+                assert!(!adj1.neighbors(ui).contains(&v));
+                assert!(!adj2.neighbors(ui).contains(&v));
+            }
         }
     }
 

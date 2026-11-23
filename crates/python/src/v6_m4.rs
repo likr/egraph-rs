@@ -993,6 +993,7 @@ pub(super) fn build_pacmap_graph_solver(
         phase3_iters: phase3_iters.0,
         learning_rate: learning_rate.0,
         seed: seed.0,
+        keep_all_1hop: false,
     };
     cfg.validate().map_err(core_error_to_py)?;
     let g = graph.inner();
