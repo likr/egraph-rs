@@ -36,6 +36,7 @@ Run single-threaded before committing or tagging:
    EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --invariants --docs
    ```
    Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, `.wasm` gzip `<= 600.0 KiB`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix js/examples run build` all pass, and `jp_cjk=0` across all modified files.
+   - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the 11 version/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` (`6/6`) runs the full matrix remotely before tagging.
 4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
 
 ## 3. OIDC Prerequisites & Tag Recovery Policy
@@ -64,6 +65,7 @@ After `release.yml` completes `success` across all 11 jobs:
   - Check installed version with `import importlib.metadata as md; assert md.version("egraph") == "<pep440>"` (`egraph.__version__` is **not** defined).
   - `eg.SgdSolver.sparse_barrier_dog(...)` returns `SgdSolver` directly (not a tuple).
   - `eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input, but returned `dict[str, float]` keys are canonical snake_case names: `"scale_normalized_stress"`, `"neighborhood_preservation_2hop"`, `"crossing_number"`.
+- **Downstream `uv`-Managed `.venv` Upgrade (`diffusion-kernel-experiments`)**: Downstream worktrees provisioned via `uv` do not bundle `pip`. Upgrade them to the published release with `uv pip install --python .venv/bin/python --pre --no-cache "egraph==<pep440>"`.
 
 ### npm (`npm install egraph@next` / `--tag next` for prereleases)
 - Verify `npm view egraph dist-tags --json` shows updated `next` while keeping existing `latest` untouched for prereleases.
