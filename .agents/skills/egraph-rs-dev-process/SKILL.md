@@ -33,13 +33,13 @@ This skill details the general development rules, comment conventions, parallel 
   - Run `cargo fmt --all`.
   - Run `./scripts/verify.sh` matching scope (`--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, or `--all --build-wasm --docs`).
   - Ensure all modified crates (outside legacy `petgraph-linalg-kernel` baseline warnings) pass `clippy ... -- -D warnings`.
-  - Before release tagging, confirm workspace dependency alignment (`ndarray` `0.17` `default-features = false` matching `numpy` `0.28`), `crates/wasm/package.json` `repository` provenance metadata, `crates/python/pyproject.toml` classifiers matching tag stability (`alpha`/`beta`/`rc`/GA), and `CHANGELOG.md` accuracy.
+  - Before release tagging, follow `egraph-rs-release` to confirm workspace dependency & `crates/wasm/package-lock.json` alignment (`ndarray` `0.17` `default-features = false` matching `numpy` `0.28`), `crates/wasm/package.json` `repository` provenance metadata, `crates/python/pyproject.toml` classifiers matching tag stability (`alpha`/`beta`/`rc`/GA), and `CHANGELOG.md` accuracy.
 - **Prepare Commit**:
-  - Draft a commit message following Conventional Commits format (see `egraph-rs-commit` skill).
+  - Split unrelated changes into atomic commits following `egraph-rs-commit` and `egraph-rs-github` rules (`git diff --cached --stat`).
 - **Ask for User Confirmation**:
   - Present a summary of all changes made (in **Japanese** for user communications).
-  - Include the proposed commit message.
-  - Wait for explicit user approval before committing. **This confirmation step must never be skipped under any circumstances.**
+  - Include the proposed commit message and whether pushing to remote is planned (`egraph-rs-github`).
+  - Wait for explicit user approval before committing unless the user has explicitly authorized autonomous atomic commits/pushes for the active task (such as an approved `/teamwork` or milestone execution prompt).
 
 ## Post-Task Reflection: Updating Skills
 Upon completing any task, the agent **MUST** reflect on the work performed:

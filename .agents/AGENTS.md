@@ -4,7 +4,7 @@
 
 `egraph-rs` is a high-performance graph drawing and layout library targeting **Native Rust, Python (PyO3), and WebAssembly (`wasm-bindgen` / TypeScript)** equally as first-class targets.
 
-- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md). All planned architectural redesign and feature milestones (**Step 0 + M0–M6**) culminate in **`v6.0.0-alpha.4`** on PyPI (`6.0.0a4`) and npm (`6.0.0-alpha.4`, `--tag next`). Subsequent releases (`beta`, `rc`, `v6.0.0` GA, `crates.io`) are scoped after `alpha.4` completes.
+- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md). Planned architectural redesign and feature milestones (**Step 0 + M0–M6**) shipped in **`v6.0.0-alpha.5`** on PyPI (`6.0.0a5`) and npm (`6.0.0-alpha.5`, `--tag next`); tag `v6.0.0-alpha.4` remained unpublished after fixing a lockfile-stderr invariant check bug prior to `v6.0.0-alpha.5`. Subsequent releases (`beta`, `rc`, `v6.0.0` GA, `crates.io`) build cleanly on this baseline.
 - **Paired Research & Benchmark Repo**: `/Users/likr/diffusion-kernel-experiments` provides empirically validated algorithms (Track A Pure 1+2-Hop Adaptive Fit-tsNET, Track B $O(|E|)$ Regularized Chebyshev DoG + 3-Tier Sparse Barrier SGD / GuMap + 2D Spatial Intruder Refinement) and regression benchmarks (`suite30`, `tsnet_ref5`, `drgraph` up to 4M nodes).
 
 ---
@@ -27,23 +27,34 @@
 
 ---
 
-## 3. Verification & Parallel Development Harness
+## 3. Git & GitHub Operational Rules
+
+- **Atomic Conventional Commits**: Split unrelated changes into atomic commits following [`egraph-rs-commit`](skills/egraph-rs-commit/SKILL.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). Confirm `git diff --cached --stat` before committing.
+- **Confirmation Gate**: Present a Japanese summary + proposed commit message and obtain explicit user approval before committing or pushing, unless the user explicitly authorized autonomous commits/pushes for the active task.
+- **History, Tag & Hygiene Guards**: Never force-push `master` (`--force`), never move or delete pushed release tags (`v6.*`), and never commit secrets, ignored build/venv artifacts (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`), or files `> 100 MB`. Verify `./scripts/verify.sh` before pushing.
+- **GitHub Issues & PRs**: Write all Issue bodies, PR descriptions, and release notes in English (`jp_cjk=0`) following [`.github/ISSUE_TEMPLATE/`](../.github/ISSUE_TEMPLATE/config.yml) and [`.github/pull_request_template.md`](../.github/pull_request_template.md); confirm CI green before merging or tagging.
+
+---
+
+## 4. Verification & Parallel Development Harness
 
 | Tool / Script | Purpose |
 |---|---|
 | [`scripts/setup_venv.sh`](../scripts/setup_venv.sh) | Provision isolated worktree-local Python 3.12 `.venv` (`maturin`, `pytest`, `numpy`, `scipy`, `networkx`, `mypy`, `ruff`) via `uv`. |
 | [`scripts/worktree.sh`](../scripts/worktree.sh) | Manage parallel git worktrees under `.worktrees/<slug>` (`wt/<slug>` branch + isolated `.venv`), verify inside worktrees, and safely clean up. |
-| [`scripts/verify.sh`](../scripts/verify.sh) | Tiered verification runner (`--fast`, `--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--all`, `--json-summary`) auto-configuring `sccache`, single-thread env vars, `CARGO_BUILD_JOBS` from `EGRAPH_PARALLEL_WORKERS`, and `nextest`. |
+| [`scripts/verify.sh`](../scripts/verify.sh) | Tiered verification runner (`--fast`, `--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, `--all`, `--json-summary`) auto-configuring `sccache`, single-thread env vars, `CARGO_BUILD_JOBS` from `EGRAPH_PARALLEL_WORKERS`, and `nextest`. |
 | [`scripts/check_invariants.sh`](../scripts/check_invariants.sh) | Enforce `cargo tree` (`rayon`/`linfa`/`wgpu`=0), static source scan, `wasm32-unknown-unknown` build, `.wasm` gzip budget (`<= 600 KiB`), and packaging metadata alignment (`--mode report` or `--mode strict`). |
 | [`scripts/parity_harness.py`](../scripts/parity_harness.py) | Deterministic golden fixtures, reproducibility, adversarial non-panic input tests, and optional Node.js WASM parity checks. |
 | [`clippy.toml`](../clippy.toml) | Blocks `std::thread::{spawn, scope, Builder, JoinHandle}` workspace-wide via Clippy. |
 
 ---
 
-## 4. Skills Index
+## 5. Skills Index
 
 - [egraph-rs-parallel-dev](skills/egraph-rs-parallel-dev/SKILL.md): Multi-agent + git worktree parallel execution playbook, 12-core/24-GiB resource budgeting, and M0–M6 disjoint file/crate ownership matrix.
 - [egraph-rs-verification](skills/egraph-rs-verification/SKILL.md): Tiered Rust, Python, WASM, invariant, and parity verification commands.
 - [egraph-rs-system-patterns](skills/egraph-rs-system-patterns/SKILL.md): Core algorithmic and architectural patterns across layouts, kernels, clustering, and bindings.
 - [egraph-rs-dev-process](skills/egraph-rs-dev-process/SKILL.md): General engineering workflow, comment standards, confirmation gate before committing, and skill maintenance rules.
 - [egraph-rs-commit](skills/egraph-rs-commit/SKILL.md): Conventional Commits specification and crate scoping rules.
+- [egraph-rs-github](skills/egraph-rs-github/SKILL.md): Branch/worktree discipline, push & tag immutability guards, PR/Issue templates, and non-polling `gh` CI workflows.
+- [egraph-rs-release](skills/egraph-rs-release/SKILL.md): Version-bump checklist (`Cargo.toml`, `package-lock.json`, docs), OIDC Trusted Publishing prerequisites, non-polling `gh run watch`, and live PyPI/npm clean-env smoke verification.

@@ -1,19 +1,19 @@
 # Technical Context: `egraph-rs`
 
-This reference document outlines the technical environment, folder architecture, toolchain, and constraints for `egraph-rs` (active roadmap: `docs/V6_RELEASE_PLAN.md`, target `v6.0.0-alpha.4`).
+This reference document outlines the technical environment, folder architecture, toolchain, and constraints for `egraph-rs` (active roadmap: `docs/V6_RELEASE_PLAN.md`, latest v6 milestone release `v6.0.0-alpha.5`).
 
 ## Technologies Used
 
 ### Core Technologies
-- **Rust (`rustc 1.100+`, transitioning mixed `2018`/`2021`/`2024` editions to uniform `2024` in M0)**: Primary implementation language.
+- **Rust (`edition = "2024"` workspace-wide)**: Primary implementation language.
 - **Cargo + `sccache` + `cargo-nextest`**: Dependency management, cached parallel compilation across worktrees, and fast test runner.
 - **PyO3 + `maturin` + `uv` (Python `>=3.10`, `abi3-py310`)**: Isolated per-worktree `.venv` Python bindings with `numpy`, `scipy`, `pytest`, `mypy`, `ruff`.
 - **WebAssembly (`wasm32-unknown-unknown`, `wasm-bindgen`, `wasm-pack`, `binaryen`/`wasm-opt`) + Node.js / ESM**: Browser and Node.js WASM integration targeting a single-binary ESM bundle (`<= 600 KiB` gzip).
 
 ### Key Directories
-- `crates/` — Rust workspace crates (transitioning in M0–M5 toward the 9-crate v6 DAG + `egraph` facade + `egraph-ffi` + `egraph-cli` + `egraph-python` + `egraph-wasm`).
+- `crates/` — Rust workspace crates (`egraph-core`, `egraph-ffi`, `egraph-petgraph`, `egraph-dataset`, `egraph-spatial`, `egraph-metrics`, `egraph-linalg`, `egraph-neighborhood`, `egraph-clustering`, `egraph-layout`, unified `egraph` facade, `egraph-cli`, `egraph-python`, `egraph-wasm`, plus legacy v5 `petgraph-*` crates).
 - `scripts/` — Worktree, venv, invariant-check, tiered verification, and cross-target parity harness scripts.
-- `docs/` — Release and migration plans (`docs/V6_RELEASE_PLAN.md`).
+- `docs/` — Release plan and migration guide (`docs/V6_RELEASE_PLAN.md`, `docs/MIGRATION_V6.md`).
 - `js/dataset`, `js/examples` — JavaScript/ESM datasets and Vite interactive examples.
 - `.agents/` — Workspace knowledge index (`AGENTS.md`) and agent skills (`skills/*`).
 
