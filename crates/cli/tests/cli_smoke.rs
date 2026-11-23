@@ -72,7 +72,7 @@ fn cli_layout_metrics_cluster_bench_embedded_dataset() {
         "--layout",
         layout_path.to_str().expect("utf8 path"),
         "--targets",
-        "sns,sampled-sns,crossings,np1,np2,ideal-edge-lengths",
+        "sns,sampled-sns,crossings,np1,np2,sampled-np1,sampled-np2,ideal-edge-lengths",
         "--num-pivots",
         "8",
         "--num-samples",
@@ -99,6 +99,8 @@ fn cli_layout_metrics_cluster_bench_embedded_dataset() {
             .as_f64()
             .is_some()
     );
+    assert!(metrics_json["sampled_np1"].as_f64().is_some());
+    assert!(metrics_json["sampled_np2"].as_f64().is_some());
 
     for (method, extra_k) in [
         ("louvain", false),

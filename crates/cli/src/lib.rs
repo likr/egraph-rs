@@ -170,13 +170,13 @@ pub struct MetricsArgs {
     /// Input 2D coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,np1,np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,ideal-edge-lengths,all`).
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,ideal-edge-lengths,all`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
     #[arg(long, default_value_t = 32)]
     pub num_pivots: usize,
-    /// Number of edge-pair samples for `sampled-crossings`.
+    /// Number of edge-pair / node samples for `sampled-crossings`, `sampled-np1`, and `sampled-np2`.
     #[arg(long, default_value_t = 4096)]
     pub num_samples: usize,
     /// Ideal edge length fallback for unweighted graphs.
@@ -268,6 +268,8 @@ pub struct MetricsOutput {
     pub sampled_crossing_number: Option<f64>,
     pub neighborhood_preservation_1hop: Option<f64>,
     pub neighborhood_preservation_2hop: Option<f64>,
+    pub sampled_np1: Option<f64>,
+    pub sampled_np2: Option<f64>,
     pub gabriel_graph_property: Option<f64>,
     pub node_resolution: Option<f64>,
     pub relative_neighborhood_preservation: Option<f64>,
@@ -297,6 +299,8 @@ impl MetricsOutput {
             sampled_crossing_number: report.sampled_crossing_number,
             neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
             neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
+            sampled_np1: report.sampled_np1,
+            sampled_np2: report.sampled_np2,
             gabriel_graph_property: report.gabriel_graph_property,
             node_resolution: report.node_resolution,
             relative_neighborhood_preservation: report.relative_neighborhood_preservation,
@@ -586,6 +590,8 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
                     MetricTarget::SampledCrossingNumber,
                     MetricTarget::NeighborhoodPreservation1Hop,
                     MetricTarget::NeighborhoodPreservation2Hop,
+                    MetricTarget::SampledNp1,
+                    MetricTarget::SampledNp2,
                     MetricTarget::GabrielGraphProperty,
                     MetricTarget::NodeResolution,
                     MetricTarget::RelativeNeighborhoodPreservation,
@@ -609,6 +615,12 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             }
             "np2" | "neighborhood-preservation-2hop" => {
                 targets.push(MetricTarget::NeighborhoodPreservation2Hop);
+            }
+            "sampled-np1" | "sampled-neighborhood-preservation-1hop" => {
+                targets.push(MetricTarget::SampledNp1);
+            }
+            "sampled-np2" | "sampled-neighborhood-preservation-2hop" => {
+                targets.push(MetricTarget::SampledNp2);
             }
             "gabriel" | "gabriel-graph-property" => {
                 targets.push(MetricTarget::GabrielGraphProperty);
