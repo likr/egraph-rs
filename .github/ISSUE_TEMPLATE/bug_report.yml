@@ -1,0 +1,70 @@
+name: Bug Report
+description: Report a reproducible bug, numerical anomaly, build failure, or cross-target discrepancy.
+title: "[bug]: "
+labels:
+  - bug
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue in `egraph-rs`. Please provide explicit seeds and environment details so maintainers can reproduce it deterministically under single-threaded execution.
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target / Package
+      description: Which binding or crate exhibited the issue?
+      options:
+        - Native Rust
+        - Python (egraph)
+        - WebAssembly / TypeScript (egraph)
+        - CLI (egraph-cli)
+        - Build / CI / Packaging
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or Commit SHA
+      description: Package version or commit hash (e.g., `6.0.0-alpha.5`, `6.0.0a5`, or `git rev-parse HEAD`).
+      placeholder: "6.0.0-alpha.5"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, CPU architecture, and toolchain/runtime versions.
+      placeholder: |
+        - OS / Arch: (e.g., macOS arm64 / Ubuntu 24.04 x86_64)
+        - Rust / Python / Node / Browser: (e.g., rustc 1.90, Python 3.12, Node 22)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal Reproducible Example
+      description: Include graph size (`N`, `M`), solver/config parameters, `dtype`, and explicit `seed`.
+      placeholder: |
+        import egraph as eg
+        g = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (2, 3), (3, 0)], directed=False)
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs. Actual Behavior
+      description: Describe what you expected, what happened instead, and paste full error/stack traces or non-finite values.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-Submission Checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I included the explicit `seed` and input graph details for reproduction.
+          required: true
+        - label: If reporting timing/performance, I set `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, and `MKL_NUM_THREADS=1`.

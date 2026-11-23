@@ -1,0 +1,46 @@
+name: Feature Request
+description: Propose a new graph layout algorithm, metric, binding API, or developer workflow improvement.
+title: "[feat]: "
+labels:
+  - enhancement
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        All core `egraph-rs` algorithms must support Native Rust, Python (`egraph`), and WebAssembly (`egraph` ESM) equally under strictly single-threaded pure CPU execution.
+  - type: checkboxes
+    id: targets
+    attributes:
+      label: Affected Targets
+      options:
+        - label: Native Rust (`egraph` / core crates)
+        - label: Python (`crates/python`)
+        - label: WebAssembly / TypeScript (`crates/wasm`)
+        - label: CLI (`crates/cli`)
+        - label: Documentation / Tooling
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem Statement & Use Case
+      description: What graph drawing, quality evaluation, or workflow problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API & Algorithm Design
+      description: Outline proposed structs/functions, parameters, complexity, and relevant paper or benchmark links.
+    validations:
+      required: true
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Architectural Invariant Alignment
+      options:
+        - label: Compatible with strictly single-threaded pure CPU Rust (no `rayon`, `std::thread`, Web Workers, `wgpu`, or C/Fortran FFI).
+          required: true
+        - label: Uses deterministic explicit `u64` seeding (`DeterministicRng`) rather than ambient entropy.
+          required: true
+        - label: Exposes cooperative `step()` / `run_steps(k)` execution if iterative (for browser `requestAnimationFrame`).
+          required: false

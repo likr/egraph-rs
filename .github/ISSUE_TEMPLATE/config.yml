@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Python Documentation
+    url: https://egraph-py-docs.netlify.app/
+    about: Read the v6 Python API reference, tutorials, and quickstart guides.
+  - name: v6 Migration Guide
+    url: https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md
+    about: Upgrade examples and API mappings from legacy v5 / v6-alpha.0..3 to v6.
