@@ -1,10 +1,10 @@
 use egraph_wasm::v6::{
     JsCsrGraph, JsFdebSolver, JsForceAtlas2Solver, JsIbUmapSolver, JsLayout2d,
     JsPrismOverlapRemoval, JsSeparationConstraint, JsSgdSolver, JsTFdpSolver, JsYifanHuSolver,
-    js_assign_layers, js_build_pure_2hop_knn, js_compute_fuzzy_simplicial_set, js_cycle_edges,
-    js_generate_layered_constraints, js_pivot_mds_init, js_project_1d,
-    js_project_clustered_rectangle_no_overlap_2d, js_project_layout_axis,
-    js_project_rectangle_no_overlap_2d, js_remove_cycles,
+    js_assign_layers, js_build_pure_2hop_knn, js_compute_fuzzy_simplicial_set,
+    js_compute_regularized_dog_varadhan_landmarks, js_cycle_edges, js_generate_layered_constraints,
+    js_pivot_mds_init, js_project_1d, js_project_clustered_rectangle_no_overlap_2d,
+    js_project_layout_axis, js_project_rectangle_no_overlap_2d, js_remove_cycles,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -253,12 +253,75 @@ fn ib_umap_solver_all_constructors_and_step_eq_run() {
 
     let mut l_a = init.clone();
     let mut l_b = init.clone();
-    let mut l_c = init;
+    let mut l_c = init.clone();
     assert_eq!(s_knn.run(&mut l_a).unwrap(), "completed");
     assert_eq!(s_fuz_a.run(&mut l_b).unwrap(), "completed");
     assert_eq!(s_fuz_b.run(&mut l_c).unwrap(), "completed");
     assert_layouts_bit_exact(&l_a, &l_b);
     assert!(l_c.is_all_finite());
+
+    // fromLandmarks (both options-object and positional max2hopPerNode)
+    let lm = js_compute_regularized_dog_varadhan_landmarks(
+        &grid,
+        Some(6.0),
+        Some(8.0),
+        Some(42.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let ib_lm_opts = make_opts(&[
+        ("max2hopPerNode", JsValue::from_f64(32.0)),
+        ("backend", JsValue::from_str("exact")),
+        ("nEpochs", JsValue::from_f64(6.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut s_lm_a =
+        JsIbUmapSolver::from_landmarks(&grid, &lm, &ib_lm_opts, &JsValue::UNDEFINED).unwrap();
+    let mut s_lm_b = JsIbUmapSolver::from_landmarks(
+        &grid,
+        &lm,
+        &JsValue::from_f64(32.0),
+        &make_opts(&[
+            ("backend", JsValue::from_str("exact")),
+            ("nEpochs", JsValue::from_f64(6.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    let mut l_lm_a = init.clone();
+    let mut l_lm_b = init;
+    assert_eq!(s_lm_a.run(&mut l_lm_a).unwrap(), "completed");
+    while !s_lm_b.is_finished() {
+        s_lm_b.step(&mut l_lm_b).unwrap();
+    }
+    assert_layouts_bit_exact(&l_lm_a, &l_lm_b);
+
+    let lm_bad = js_compute_regularized_dog_varadhan_landmarks(
+        &make_grid(2, 2),
+        None,
+        Some(2.0),
+        Some(42.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(
+        JsIbUmapSolver::from_landmarks(&grid, &lm_bad, &JsValue::UNDEFINED, &JsValue::UNDEFINED)
+            .is_err()
+    );
 
     // Adversarial checks
     assert!(JsIbUmapSolver::new(&grid, &make_opts(&[("cK", JsValue::from_f64(-1.0))])).is_err());
@@ -321,6 +384,23 @@ fn sgd_m4_constructors_snap_t_fdp_pacmap_sgd2_and_squared_schedule() {
         pm_step.step(&mut l_pm_step).unwrap();
     }
     assert_layouts_bit_exact(&l_pm_run, &l_pm_step);
+
+    // SgdSolver.pacmapGraph keepAll1hop=true retains all hub 1-hop edges beyond nNeighbors
+    let star_edges: Vec<u32> = (1..=8u32).flat_map(|i| [0, i]).collect();
+    let star = JsCsrGraph::from_edge_list(9.0, &star_edges, None, &JsValue::from_bool(false), None)
+        .unwrap();
+    let pm_keep = JsSgdSolver::pacmap_graph(
+        &star,
+        &make_opts(&[
+            ("nNeighbors", JsValue::from_f64(2.0)),
+            ("keepAll1hop", JsValue::from_bool(true)),
+            ("phase1Iters", JsValue::from_f64(2.0)),
+            ("phase2Iters", JsValue::from_f64(2.0)),
+            ("phase3Iters", JsValue::from_f64(2.0)),
+        ]),
+    )
+    .unwrap();
+    assert!(pm_keep.num_springs() >= 8);
 
     // 3. SgdSolver.sgd2 + "squared" schedule kind on SgdSolver.full
     let sgd2_opts = make_opts(&[

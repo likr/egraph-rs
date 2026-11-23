@@ -19,7 +19,7 @@ use egraph::neighborhood::{DogVaradhanConfig, KnnGraph};
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::v6::{JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize};
-use crate::v6_m2::{JsKnnGraph, JsSparseProbabilities};
+use crate::v6_m2::{JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities};
 use crate::v6_m3::{
     JsSgdSolver, get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
     opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
@@ -28,6 +28,7 @@ use crate::v6_m3::{
 };
 
 const DEFAULT_IBUMAP_MAX_2HOP: usize = 30;
+const DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP: usize = 32;
 const DEFAULT_IBUMAP_SIGMA_ITERS: usize = 64;
 const DEFAULT_IBUMAP_SIGMA_TOL: f64 = 1e-5;
 const DEFAULT_MIN_LAYER_DISTANCE: f32 = 1.0;
@@ -397,6 +398,48 @@ impl JsIbUmapSolver {
         Ok(Self { inner })
     }
 
+    /// Constructs an `IbUmapSolver` from precomputed `DogVaradhanLandmarks` and 1+2-hop pairs.
+    #[wasm_bindgen(js_name = fromLandmarks)]
+    pub fn from_landmarks(
+        graph: &JsCsrGraph,
+        landmarks: &JsDogVaradhanLandmarks,
+        max_2hop_or_options: &JsValue,
+        options: &JsValue,
+    ) -> Result<JsIbUmapSolver, JsError> {
+        let (max_2hop, opts_val) = if is_plain_js_object(max_2hop_or_options) {
+            reject_extra_args_with_options(!options.is_undefined() && !options.is_null())?;
+            let m2 = opt_usize_prop(
+                max_2hop_or_options,
+                "max2hopPerNode",
+                DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP,
+            )?;
+            (m2, max_2hop_or_options)
+        } else {
+            let m2 = if max_2hop_or_options.is_undefined() || max_2hop_or_options.is_null() {
+                if is_plain_js_object(options) {
+                    opt_usize_prop(options, "max2hopPerNode", DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP)?
+                } else {
+                    DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP
+                }
+            } else {
+                let v = max_2hop_or_options.as_f64().ok_or_else(|| {
+                    JsError::new("max2hopOrOptions must be a non-negative integer, options object, null, or undefined")
+                })?;
+                parse_non_negative_usize(v, "max2hopPerNode")?
+            };
+            (m2, options)
+        };
+        let cfg = parse_ib_umap_config(opts_val)?;
+        let inner = FieldLayoutSolver::<f32>::ib_umap_from_landmarks(
+            graph.inner(),
+            landmarks.inner(),
+            max_2hop,
+            cfg,
+        )
+        .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
     /// Constructs an `IbUmapSolver` from a `KnnGraph` via `computeFuzzySimplicialSet`.
     #[wasm_bindgen(js_name = fromKnn)]
     pub fn from_knn(knn: &JsKnnGraph, options: &JsValue) -> Result<JsIbUmapSolver, JsError> {
@@ -589,6 +632,7 @@ pub(crate) fn sgd_pacmap_graph(
         cfg.phase2_iters = opt_usize_prop(options, "phase2Iters", cfg.phase2_iters)?;
         cfg.phase3_iters = opt_usize_prop(options, "phase3Iters", cfg.phase3_iters)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
+        cfg.keep_all_1hop = opt_bool_prop(options, "keepAll1hop", cfg.keep_all_1hop)?;
         cfg.seed = opt_seed_prop(options)?;
     }
     let inner = SgdSolver::<f32>::pacmap_graph(graph.inner(), cfg).map_err(core_err_to_js)?;

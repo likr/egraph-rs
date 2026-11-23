@@ -43,6 +43,8 @@ const requiredCoreAndM1 = [
   "wasmMemory",
   "initSync",
   "scaleNormalizedStress",
+  "sampledNp1",
+  "sampledNp2",
   "evaluateMetrics",
   "MetricReport",
   "PrismDistortion",
@@ -67,6 +69,7 @@ const requiredCoreAndM1 = [
 
 const requiredM2 = [
   "KnnGraph",
+  "Sparse12HopPairs",
   "SparseProbabilities",
   "DogVaradhanLandmarks",
   "EigenResult",
@@ -83,6 +86,7 @@ const requiredM2 = [
   "chebyshevHeatSpmv",
   "chebyshevDogJlEmbedding",
   "extract1hop2hopCsr",
+  "extractSparse1hop2hopPairs",
   "buildPure2hopKnn",
   "compute2hopNeighborhoodSizes",
   "computeNodewise2hopPerplexities",
@@ -412,6 +416,12 @@ export type MetricTarget =
     | "sampledCrossingNumber"
     | "neighborhoodPreservation1Hop"
     | "neighborhoodPreservation2Hop"
+    | "sampledNp1"
+    | "sampledNp2"
+    | "sampled_np1"
+    | "sampled_np2"
+    | "sampledNeighborhoodPreservation1Hop"
+    | "sampledNeighborhoodPreservation2Hop"
     | "gabrielGraphProperty"
     | "nodeResolution"
     | "relativeNeighborhoodPreservation"
@@ -437,6 +447,8 @@ export interface MetricReportRecord {
     sampledCrossingNumber?: number;
     neighborhoodPreservation1Hop?: number;
     neighborhoodPreservation2Hop?: number;
+    sampledNp1?: number;
+    sampledNp2?: number;
     gabrielGraphProperty?: number;
     nodeResolution?: number;
     relativeNeighborhoodPreservation?: number;
@@ -482,6 +494,16 @@ indexDts = indexDts.replace(
   "export function sampledScaleNormalizedStress(graph: CsrGraph, layout: Layout2d, numPivots?: number | null, seed?: number | null): number;",
 );
 
+indexDts = indexDts.replace(
+  /export function sampledNp1\([^;]+\): number;/,
+  "export function sampledNp1(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+);
+
+indexDts = indexDts.replace(
+  /export function sampledNp2\([^;]+\): number;/,
+  "export function sampledNp2(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+);
+
 // Refine M2 TypeScript signatures (camelCase parameter names, optional targetStd?: number | null).
 const m2DtsReplacements = [
   [
@@ -511,6 +533,10 @@ const m2DtsReplacements = [
   [
     /export function chebyshevDogJlEmbedding\([^;]+\): Float64Array;/,
     "export function chebyshevDogJlEmbedding(graph: CsrGraph, jlDim?: number | null, degree?: number | null, seed?: number | null, degreeNormalize?: boolean | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null): Float64Array;",
+  ],
+  [
+    /export function extractSparse1hop2hopPairs\([^;]+\): Sparse12HopPairs;/,
+    "export function extractSparse1hop2hopPairs(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | null): Sparse12HopPairs;",
   ],
   [
     /export function computeNodewise2hopPerplexities\([^;]+\): Float64Array;/,
@@ -595,7 +621,10 @@ export interface TsNetOptions {
   seed?: number | null;
 }
 
-export interface SgdScheduleOptions {
+export interface TsNetRowNormalizedOptions extends TsNetOptions {
+  w2?: number | null;
+  max2hopPerNode?: number | null;
+}
   tMax?: number | null;
   eps?: number | null;
   kind?: SgdScheduleKind | null;
@@ -679,15 +708,22 @@ export interface GuMapDogOptions extends GuMapOptions {
   betaFloor?: number | null;
 }
 
+export interface GuMapLandmarksOptions extends GuMapOptions {
+  max2hopPerNode?: number | null;
+}
+
 export interface SpatialRefinerOptions {
   rounds?: number | null;
   kCap?: number | null;
   marginScale?: number | null;
   wAnchor?: number | null;
+  wAnchor2?: number | null;
   wFn?: number | null;
   wFp?: number | null;
   fnShrink?: number | null;
   roundDecay?: number | null;
+  kCapDecay?: number | null;
+  kCapMin?: number | null;
   tMax?: number | null;
   eps?: number | null;
   hingeFp?: boolean | null;
@@ -781,6 +817,7 @@ export interface PacmapGraphOptions {
   phase2Iters?: number | null;
   phase3Iters?: number | null;
   learningRate?: number | null;
+  keepAll1hop?: boolean | null;
   seed?: number | null;
 }
 
@@ -900,6 +937,10 @@ const m3DtsReplacements = [
     "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, nEpochsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): GuMapSolver;",
   ],
   [
+    /static fromLandmarks\([^;]+\): GuMapSolver;/,
+    "static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: GuMapLandmarksOptions | null): GuMapSolver;\n    static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, max2hopPerNode?: number | null, options?: GuMapOptions | null): GuMapSolver;",
+  ],
+  [
     /static fromKnn\([^;]+\): GuMapSolver;/,
     "static fromKnn(knn: KnnGraph, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null): GuMapSolver;",
   ],
@@ -945,7 +986,11 @@ const m3DtsReplacements = [
   ],
   [
     /constructor\(graph: CsrGraph, rounds_or_options: any[^;]*\);/,
-    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null);",
+    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null);",
+  ],
+  [
+    /setKCap\(k_cap: number\): void;/,
+    "setKCap(kCap: number): void;",
   ],
   [
     /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
@@ -958,6 +1003,10 @@ const m3DtsReplacements = [
   [
     /static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
     "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+  ],
+  [
+    /static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
+    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static fromKnn\([^;]+\): TsNetSolver;/,
@@ -1013,6 +1062,10 @@ const m4DtsReplacements = [
   [
     /(export class IbUmapSolver \{[\s\S]*?)static fromFuzzySet\([^;]+\): IbUmapSolver;/,
     "$1static fromFuzzySet(probs: SparseProbabilities, degreesOrOptions?: Uint32Array | number[] | IbUmapOptions | null, options?: IbUmapOptions | null): IbUmapSolver;",
+  ],
+  [
+    /(export class IbUmapSolver \{[\s\S]*?)static fromLandmarks\([^;]+\): IbUmapSolver;/,
+    "$1static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: IbUmapOptions | null): IbUmapSolver;\n    static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, max2hopPerNode?: number | null, options?: IbUmapOptions | null): IbUmapSolver;",
   ],
   [
     /(export class IbUmapSolver \{[\s\S]*?)static fromKnn\([^;]+\): IbUmapSolver;/,

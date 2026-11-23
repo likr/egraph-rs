@@ -4,9 +4,9 @@ use egraph_wasm::v6::{
     js_compute_fuzzy_simplicial_set, js_compute_horvitz_thompson_gamma,
     js_compute_knn_probabilities, js_compute_median_2hop_perplexity,
     js_compute_nodewise_2hop_perplexities, js_compute_regularized_dog_varadhan_landmarks,
-    js_extract_1hop_2hop_csr, js_find_ab_params, js_koren_spectral_init, js_partial_bfs_knn,
-    js_pivot_mds_init, js_select_maxmin_sp_pivots, js_smallest_laplacian_eigenpairs,
-    js_spectral_moment_stats,
+    js_extract_1hop_2hop_csr, js_extract_sparse_1hop_2hop_pairs, js_find_ab_params,
+    js_koren_spectral_init, js_partial_bfs_knn, js_pivot_mds_init, js_select_maxmin_sp_pivots,
+    js_smallest_laplacian_eigenpairs, js_spectral_moment_stats,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -227,6 +227,26 @@ fn neighborhood_2hop_hybrid_knn_probabilities_fuzzy_and_varadhan() {
     assert_eq!(h2.num_nodes(), 13);
     assert_eq!(h1.num_edges(), 11);
     assert!(h2.num_edges() > 0);
+
+    // 8b. extractSparse1hop2hopPairs
+    let pairs =
+        js_extract_sparse_1hop_2hop_pairs(&g, Some(32.0), Some(42.0)).expect("sparse pairs");
+    let pairs_def =
+        js_extract_sparse_1hop_2hop_pairs(&g, None, None).expect("sparse pairs default");
+    assert_eq!(pairs, pairs_def);
+    assert_eq!(pairs.num_1hop(), 11);
+    assert!(pairs.num_2hop() > 0);
+    assert!(pairs.u1().iter().zip(pairs.v1().iter()).all(|(a, b)| a < b));
+    assert!(pairs.u2().iter().zip(pairs.v2().iter()).all(|(a, b)| a < b));
+    let pairs_zero = js_extract_sparse_1hop_2hop_pairs(&g, Some(0.0), Some(42.0)).unwrap();
+    assert_eq!(pairs_zero.num_1hop(), 11);
+    assert_eq!(pairs_zero.num_2hop(), 0);
+    let empty_g = JsCsrGraph::from_edge_list(0.0, &[], None, &JsValue::UNDEFINED, None).unwrap();
+    let empty_p = js_extract_sparse_1hop_2hop_pairs(&empty_g, None, None).unwrap();
+    assert_eq!(empty_p.num_1hop(), 0);
+    assert_eq!(empty_p.num_2hop(), 0);
+    assert!(js_extract_sparse_1hop_2hop_pairs(&g, Some(-1.0), None).is_err());
+    assert!(js_extract_sparse_1hop_2hop_pairs(&g, None, Some(-1.0)).is_err());
 
     // 9. buildPure2hopKnn & 10. compute2hopNeighborhoodSizes
     let pure = js_build_pure_2hop_knn(&g).expect("pure 2hop knn");

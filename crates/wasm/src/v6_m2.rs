@@ -16,14 +16,14 @@ use egraph::neighborhood::{
     DEFAULT_MAX_PERPLEXITY, DEFAULT_MEDIAN_MIN_PERPLEXITY, DEFAULT_MEDIAN_PERPLEXITY_C,
     DEFAULT_NODEWISE_MIN_PERPLEXITY, DEFAULT_NODEWISE_PERPLEXITY_C, DogVaradhanConfig,
     DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph, KnnStats, PerplexityConfig,
-    SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
+    Sparse12HopPairs, SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
     build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn, build_pure_2hop_knn,
     build_rerank_knn, compute_2hop_neighborhood_sizes, compute_diffusion_embedding,
     compute_fuzzy_simplicial_set, compute_horvitz_thompson_gamma, compute_knn_probabilities,
     compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
     compute_regularized_dog_varadhan_landmarks, compute_resistance_embedding,
-    extract_1hop_2hop_csr, find_ab_params, graph_row_normalized_probabilities, partial_bfs_knn,
-    symmetrize_row_normalized,
+    extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs, find_ab_params,
+    graph_row_normalized_probabilities, partial_bfs_knn, symmetrize_row_normalized,
 };
 use wasm_bindgen::prelude::*;
 
@@ -55,6 +55,7 @@ const DEFAULT_SPREAD: f64 = 1.0;
 const DEFAULT_VARADHAN_LANDMARKS: usize = 64;
 const DEFAULT_P_EXP: f64 = 0.5;
 const DEFAULT_T_COARSE: f64 = 48.0;
+const DEFAULT_SPARSE_MAX_2HOP: usize = 32;
 
 pub(crate) fn parse_optional_usize(
     value: Option<f64>,
@@ -213,6 +214,52 @@ impl JsSparseProbabilities {
     /// Returns a copy of the flat `Float64Array` symmetric probability values (`length === nnz`).
     pub fn values(&self) -> Vec<f64> {
         self.inner.values.clone()
+    }
+}
+
+/// Extracted canonical undirected 1-hop and hub-safe capped 2-hop vertex pair arrays (`u < v`).
+#[wasm_bindgen(js_name = Sparse12HopPairs)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsSparse12HopPairs {
+    inner: Sparse12HopPairs,
+}
+
+#[wasm_bindgen(js_class = Sparse12HopPairs)]
+impl JsSparse12HopPairs {
+    /// Returns the number of unique undirected 1-hop pairs (`u1 < v1`).
+    #[wasm_bindgen(getter, js_name = num1hop)]
+    pub fn num_1hop(&self) -> usize {
+        self.inner.u1.len()
+    }
+
+    /// Returns the number of unique undirected 2-hop pairs (`u2 < v2`).
+    #[wasm_bindgen(getter, js_name = num2hop)]
+    pub fn num_2hop(&self) -> usize {
+        self.inner.u2.len()
+    }
+
+    /// Returns a copy of 1-hop source vertex indices (`Uint32Array`).
+    #[wasm_bindgen(getter)]
+    pub fn u1(&self) -> Vec<u32> {
+        self.inner.u1.clone()
+    }
+
+    /// Returns a copy of 1-hop target vertex indices (`Uint32Array`).
+    #[wasm_bindgen(getter)]
+    pub fn v1(&self) -> Vec<u32> {
+        self.inner.v1.clone()
+    }
+
+    /// Returns a copy of 2-hop source vertex indices (`Uint32Array`).
+    #[wasm_bindgen(getter)]
+    pub fn u2(&self) -> Vec<u32> {
+        self.inner.u2.clone()
+    }
+
+    /// Returns a copy of 2-hop target vertex indices (`Uint32Array`).
+    #[wasm_bindgen(getter)]
+    pub fn v2(&self) -> Vec<u32> {
+        self.inner.v2.clone()
     }
 }
 
@@ -696,6 +743,20 @@ pub fn js_extract_1hop_2hop_csr(graph: &JsCsrGraph) -> Result<JsTwoHopCsr, JsErr
     let hop1 = unweighted_f64_csr_to_f32(&adj1)?;
     let hop2 = unweighted_f64_csr_to_f32(&adj2)?;
     Ok(JsTwoHopCsr { hop1, hop2 })
+}
+
+/// 8b. Extracts canonical undirected 1-hop and hub-safe capped 2-hop vertex pair arrays `Sparse12HopPairs`.
+#[wasm_bindgen(js_name = extractSparse1hop2hopPairs)]
+pub fn js_extract_sparse_1hop_2hop_pairs(
+    graph: &JsCsrGraph,
+    max_2hop_per_node: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsSparse12HopPairs, JsError> {
+    let cap = parse_optional_usize(max_2hop_per_node, DEFAULT_SPARSE_MAX_2HOP, "max2hopPerNode")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let inner =
+        extract_sparse_1hop_2hop_pairs(graph.inner(), cap, seed_u64).map_err(core_err_to_js)?;
+    Ok(JsSparse12HopPairs { inner })
 }
 
 /// 9. Builds a pure 1+2-hop CSR `KnnGraph` with `{1.0, 2.0}` distances and degree statistics.

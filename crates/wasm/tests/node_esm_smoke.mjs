@@ -12,6 +12,7 @@ const {
   Layout2d,
   MetricReport,
   PrismDistortion,
+  Sparse12HopPairs,
   SparseProbabilities,
   SpectralMomentStats,
   TwoHopCsr,
@@ -34,6 +35,7 @@ const {
   edgeAngle,
   evaluateMetrics,
   extract1hop2hopCsr,
+  extractSparse1hop2hopPairs,
   findAbParams,
   gabrielGraphPropertyV6,
   idealEdgeLengthsV6,
@@ -45,6 +47,8 @@ const {
   pivotMdsInit,
   prismDistortion,
   sampledCrossingNumber,
+  sampledNp1,
+  sampledNp2,
   sampledScaleNormalizedStress,
   scaleNormalizedStress,
   CoarsenedGraphResult,
@@ -379,10 +383,19 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   distortion.free();
 
   // Selective metric evaluation without serde
-  const report = evaluateMetrics(grid, gridLayout, ["sns", "np2", "aspectRatio", "drng"], 8, 64, 42);
+  const report = evaluateMetrics(
+    grid,
+    gridLayout,
+    ["sns", "np2", "sampledNp1", "sampledNp2", "aspectRatio", "drng"],
+    8,
+    64,
+    42,
+  );
   assert(report instanceof MetricReport);
   assert(Math.abs(report.scaleNormalizedStress - sns1) < 1e-12);
   assert(Math.abs(report.neighborhoodPreservation2Hop - 1.0) < 1e-6);
+  assert.equal(report.sampledNp1, sampledNp1(grid, gridLayout, 64, 42));
+  assert.equal(report.sampledNp2, sampledNp2(grid, gridLayout, 64, 42));
   assert(Math.abs(report.aspectRatio - 1.0) < 1e-6);
   assert(Math.abs(report.relativeNeighborhoodPreservation - 1.0) < 1e-6);
   assert.equal(report.crossingNumber, undefined);
@@ -395,6 +408,8 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
       "aspectRatio",
       "neighborhoodPreservation2Hop",
       "relativeNeighborhoodPreservation",
+      "sampledNp1",
+      "sampledNp2",
       "scaleNormalizedStress",
     ],
   );
@@ -461,6 +476,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
 {
   const m2Symbols = [
     "KnnGraph",
+    "Sparse12HopPairs",
     "SparseProbabilities",
     "DogVaradhanLandmarks",
     "EigenResult",
@@ -476,6 +492,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     "chebyshevHeatSpmv",
     "chebyshevDogJlEmbedding",
     "extract1hop2hopCsr",
+    "extractSparse1hop2hopPairs",
     "buildPure2hopKnn",
     "compute2hopNeighborhoodSizes",
     "computeNodewise2hopPerplexities",
@@ -740,6 +757,13 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(!dtsText.includes("_or_options: any"));
   assert(!dtsText.includes("n_epochs_or_options"));
   assert(!dtsText.includes("max_2hop_or_options"));
+  assert(!dtsText.includes("w2_or_options"));
+  assert(dtsText.includes("export interface TsNetRowNormalizedOptions extends TsNetOptions {"));
+  assert(dtsText.includes("export interface GuMapLandmarksOptions extends GuMapOptions {"));
+  assert(dtsText.includes("wAnchor2?: number | null;"));
+  assert(dtsText.includes("static fromGraphRowNormalized("));
+  assert(dtsText.includes("static fromLandmarks("));
+  assert(dtsText.includes('"sampledNp1"'));
 
   // Helper graphs: 12-node 2-clique barbell and 4x4 grid (16 nodes)
   const makeBarbell = (k) => {
@@ -863,6 +887,20 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert.equal(typeof tsRunSolver.totalFft2dCalls, "number");
   assert(tsRunSolver.totalFft2dCalls > 0);
   assert.deepEqual(Array.from(tsStepLayout.coordsView()), Array.from(tsRunLayout.coordsView()));
+  const tsRnSolver = TsNetSolver.fromGraphRowNormalized(grid, {
+    w2: 0.5,
+    max2hopPerNode: 8,
+    backend: "fft",
+    iterationsStage1: 2,
+    iterationsStage2: 2,
+    iterationsStage3: 2,
+    seed: 11,
+  });
+  const tsRnLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
+  assert.equal(tsRnSolver.run(tsRnLayout), "completed");
+  assert(tsRnLayout.isAllFinite());
+  tsRnSolver.free();
+  tsRnLayout.free();
   tsRunSolver.free();
   tsStepSolver.free();
   tsRunLayout.free();
@@ -922,8 +960,19 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   gumap.free();
 
   // SpatialIntruderRefiner + Typed SpatialRefinerStats
-  const refiner = new SpatialIntruderRefiner(grid, { rounds: 2, tMax: 4, seed: 37 });
+  const refiner = new SpatialIntruderRefiner(grid, {
+    rounds: 2,
+    kCap: 8,
+    wAnchor2: 0.5,
+    kCapDecay: 0.5,
+    kCapMin: 2,
+    tMax: 4,
+    seed: 37,
+  });
+  assert.equal(refiner.currentKCap, 8);
   assert.equal(refiner.run(gumapLayout), "completed");
+  refiner.setKCap(6);
+  assert.equal(refiner.currentKCap, 6);
   const refStats = refiner.stats();
   assert(refStats instanceof SpatialRefinerStats);
   assert.equal(refStats.roundsExecuted, 2);
@@ -994,6 +1043,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(dtsText.includes("export interface YifanHuOptions {"));
   assert(dtsText.includes("export interface PrismOptions {"));
   assert(dtsText.includes("export interface FdebOptions {"));
+  assert(dtsText.includes("keepAll1hop?: boolean | null;"));
   assert(dtsText.includes('"squared"'));
   assert(!dtsText.includes("options: any"));
   assert(!dtsText.includes("constraints: any"));
@@ -1046,10 +1096,32 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   ib.free();
   lIb.free();
 
-  // SgdSolver.snapTFdp, pacmapGraph, sgd2, "squared"
+  // extractSparse1hop2hopPairs, GuMapSolver.fromLandmarks, IbUmapSolver.fromLandmarks
+  const sparsePairs = extractSparse1hop2hopPairs(grid, 8, 42);
+  assert(sparsePairs instanceof Sparse12HopPairs);
+  assert.equal(sparsePairs.num1hop, grid.numEdges());
+  assert(sparsePairs.u1 instanceof Uint32Array);
+  assert(sparsePairs.v2 instanceof Uint32Array);
+  sparsePairs.free();
+
+  const lmSmoke = computeRegularizedDogVaradhanLandmarks(grid, 6, 8, 42);
+  const gmLm = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { nEpochs: 4, seed: 42 });
+  const lGmLm = Layout2d.fromCoords(initCoords);
+  assert.equal(gmLm.run(lGmLm), "completed");
+  gmLm.free();
+  lGmLm.free();
+
+  const ibLm = IbUmapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, backend: "exact", nEpochs: 4, seed: 42 });
+  const lIbLm = Layout2d.fromCoords(initCoords);
+  assert.equal(ibLm.run(lIbLm), "completed");
+  ibLm.free();
+  lIbLm.free();
+  lmSmoke.free();
+
+  // SgdSolver.snapTFdp, pacmapGraph (including keepAll1hop), sgd2, "squared"
   for (const solver of [
     SgdSolver.snapTFdp(grid, { iterations: 6, seed: 42 }),
-    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
+    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, keepAll1hop: true, seed: 42 }),
     SgdSolver.sgd2(grid, { tMax: 6, batchSize: 16, seed: 42 }),
     SgdSolver.full(grid, { tMax: 6, kind: "squared", seed: 42 }),
   ]) {

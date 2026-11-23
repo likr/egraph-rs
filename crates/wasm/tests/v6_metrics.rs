@@ -5,8 +5,9 @@ use egraph_wasm::v6::{
     js_drng_preservation, js_edge_angle, js_evaluate_metrics, js_gabriel_graph_property_v6,
     js_ideal_edge_lengths_v6, js_neighborhood_preservation_1hop,
     js_neighborhood_preservation_2hop_v6, js_node_resolution_v6, js_prism_distortion,
-    js_sampled_crossing_number, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
-    js_sweep_crossing_angle, js_sweep_crossing_number, js_torus_crossing_number,
+    js_sampled_crossing_number, js_sampled_np1, js_sampled_np2, js_sampled_scale_normalized_stress,
+    js_scale_normalized_stress, js_sweep_crossing_angle, js_sweep_crossing_number,
+    js_torus_crossing_number,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -82,6 +83,18 @@ fn neighborhood_proximity_geometry_and_prism() {
     let (grid, layout) = make_grid_4x4();
     assert!((js_neighborhood_preservation_1hop(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert!((js_neighborhood_preservation_2hop_v6(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
+    assert_eq!(
+        js_sampled_np1(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
+        js_neighborhood_preservation_1hop(&grid, &layout).unwrap()
+    );
+    assert_eq!(
+        js_sampled_np2(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
+        js_neighborhood_preservation_2hop_v6(&grid, &layout).unwrap()
+    );
+    let snp1_a = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
+    let snp1_b = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
+    assert_eq!(snp1_a, snp1_b);
+    assert!((0.0..=1.0).contains(&snp1_a));
     assert!((js_drng_preservation(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert!((js_dgg_preservation(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert_eq!(js_gabriel_graph_property_v6(&grid, &layout).unwrap(), 0.0);
@@ -113,7 +126,13 @@ fn neighborhood_proximity_geometry_and_prism() {
 #[wasm_bindgen_test]
 fn selective_evaluate_metrics_and_adversarial_errors() {
     let (grid, layout) = make_grid_4x4();
-    let targets = js_sys::Array::of3(&"sns".into(), &"np2".into(), &"aspectRatio".into());
+    let targets = js_sys::Array::of5(
+        &"sns".into(),
+        &"np2".into(),
+        &"sampledNp1".into(),
+        &"sampled_np2".into(),
+        &"aspectRatio".into(),
+    );
     let report = js_evaluate_metrics(
         &grid,
         &layout,
@@ -127,6 +146,8 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
 
     assert!(report.scale_normalized_stress().is_some());
     assert!(report.neighborhood_preservation_2hop().is_some());
+    assert!(report.sampled_np1().is_some());
+    assert!(report.sampled_np2().is_some());
     assert!(report.aspect_ratio().is_some());
     assert!(report.crossing_number().is_none());
     assert!(report.crossing_angle().is_none());
@@ -139,6 +160,18 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
         .as_f64()
         .unwrap();
     assert!((sns_val - report.scale_normalized_stress().unwrap()).abs() < 1e-12);
+    assert_eq!(
+        js_sys::Reflect::get(&record, &"sampledNp1".into())
+            .unwrap()
+            .as_f64(),
+        report.sampled_np1()
+    );
+    assert_eq!(
+        js_sys::Reflect::get(&record, &"sampledNp2".into())
+            .unwrap()
+            .as_f64(),
+        report.sampled_np2()
+    );
     assert!(
         js_sys::Reflect::get(&record, &"crossingNumber".into())
             .unwrap()
@@ -167,6 +200,12 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             .is_err()
     );
     assert!(js_sampled_crossing_number(&grid, &layout, Some(0.0), Some(42.0)).is_err());
+    assert!(js_sampled_np1(&grid, &layout, Some(0.0), Some(42.0)).is_err());
+    assert!(js_sampled_np2(&grid, &layout, Some(0.0), Some(42.0)).is_err());
+    let empty_g = JsCsrGraph::from_edge_list(0.0, &[], None, &JsValue::UNDEFINED, None).unwrap();
+    let empty_l = JsLayout2d::zeros(0.0).unwrap();
+    assert_eq!(js_sampled_np1(&empty_g, &empty_l, None, None).unwrap(), 0.0);
+    assert_eq!(js_sampled_np2(&empty_g, &empty_l, None, None).unwrap(), 0.0);
 
     // Bad targets
     assert!(

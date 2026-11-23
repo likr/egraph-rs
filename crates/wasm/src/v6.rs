@@ -19,6 +19,7 @@ use egraph::metrics::{
     ideal_edge_lengths, ideal_edge_lengths_with_unit, neighborhood_preservation_1hop,
     neighborhood_preservation_2hop, node_resolution, prism_distortion, prism_distortion_with_edges,
     relative_neighborhood_edges, relative_neighborhood_preservation, sampled_crossing_number,
+    sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
     sampled_scale_normalized_stress, scale_normalized_stress,
     scale_normalized_stress_from_distances,
 };
@@ -91,6 +92,12 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         "neighborhoodpreservation2hop" | "neighborhoodpreservation2hopv6" | "np2" => {
             Ok(MetricTarget::NeighborhoodPreservation2Hop)
         }
+        "sampledneighborhoodpreservation1hop"
+        | "sampledneighborhoodpreservation"
+        | "samplednp1" => Ok(MetricTarget::SampledNp1),
+        "sampledneighborhoodpreservation2hop"
+        | "sampledneighborhoodpreservation2hopv6"
+        | "samplednp2" => Ok(MetricTarget::SampledNp2),
         "gabrielgraphproperty" | "gabrielgraphpropertyv6" | "gabrielproperty" => {
             Ok(MetricTarget::GabrielGraphProperty)
         }
@@ -658,6 +665,18 @@ impl JsMetricReport {
         self.inner.neighborhood_preservation_2hop
     }
 
+    /// Returns deterministic vertex-sampled 1-hop neighborhood preservation (`NP1`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sampledNp1)]
+    pub fn sampled_np1(&self) -> Option<f64> {
+        self.inner.sampled_np1
+    }
+
+    /// Returns deterministic vertex-sampled 2-hop neighborhood preservation (`NP2`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sampledNp2)]
+    pub fn sampled_np2(&self) -> Option<f64> {
+        self.inner.sampled_np2
+    }
+
     /// Returns Gabriel graph property violation sum, or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = gabrielGraphProperty)]
     pub fn gabriel_graph_property(&self) -> Option<f64> {
@@ -704,7 +723,7 @@ impl JsMetricReport {
     #[wasm_bindgen(js_name = toRecord)]
     pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
         let obj = js_sys::Object::new();
-        let entries: [(&str, Option<f64>); 14] = [
+        let entries: [(&str, Option<f64>); 16] = [
             ("scaleNormalizedStress", self.inner.scale_normalized_stress),
             (
                 "sampledScaleNormalizedStress",
@@ -724,6 +743,8 @@ impl JsMetricReport {
                 "neighborhoodPreservation2Hop",
                 self.inner.neighborhood_preservation_2hop,
             ),
+            ("sampledNp1", self.inner.sampled_np1),
+            ("sampledNp2", self.inner.sampled_np2),
             ("gabrielGraphProperty", self.inner.gabriel_graph_property),
             ("nodeResolution", self.inner.node_resolution),
             (
@@ -819,7 +840,7 @@ pub fn js_sweep_crossing_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Resul
     crossing_angle(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
-/// Estimates edge crossings in $O(\text{numSamples})$ time (`numSamples` default `10000`, `seed` default `42`).
+/// Estimates edge crossings in $O(\text{numSamples})$ time (`numSamples` default `4096`, `seed` default `42`).
 #[wasm_bindgen(js_name = sampledCrossingNumber)]
 pub fn js_sampled_crossing_number(
     graph: &JsCsrGraph,
@@ -863,6 +884,42 @@ pub fn js_neighborhood_preservation_2hop_v6(
 ) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     neighborhood_preservation_2hop(graph.inner(), &soa).map_err(core_err_to_js)
+}
+
+/// Estimates 1-hop neighborhood preservation (`NP1`) in `[0.0, 1.0]` via deterministic vertex sampling (`numSamples` default `4096`, `seed` default `42`).
+#[wasm_bindgen(js_name = sampledNp1)]
+pub fn js_sampled_np1(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    num_samples: Option<f64>,
+    seed: Option<f64>,
+) -> Result<f64, JsError> {
+    let samples = match num_samples {
+        None => DEFAULT_NUM_SAMPLES,
+        Some(v) => parse_non_negative_usize(v, "numSamples")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    sampled_neighborhood_preservation_1hop(graph.inner(), &soa, samples, seed_u64)
+        .map_err(core_err_to_js)
+}
+
+/// Estimates 2-hop neighborhood preservation (`NP2`) in `[0.0, 1.0]` via deterministic vertex sampling (`numSamples` default `4096`, `seed` default `42`).
+#[wasm_bindgen(js_name = sampledNp2)]
+pub fn js_sampled_np2(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    num_samples: Option<f64>,
+    seed: Option<f64>,
+) -> Result<f64, JsError> {
+    let samples = match num_samples {
+        None => DEFAULT_NUM_SAMPLES,
+        Some(v) => parse_non_negative_usize(v, "numSamples")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    sampled_neighborhood_preservation_2hop(graph.inner(), &soa, samples, seed_u64)
+        .map_err(core_err_to_js)
 }
 
 /// Computes Gabriel graph condition violations across `graph` edges under `layout`.

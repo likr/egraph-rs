@@ -1273,6 +1273,126 @@ impl JsTsNetSolver {
         Ok(Self { inner })
     }
 
+    /// Constructs a `TsNetSolver` from a `CsrGraph` using direct row-normalized `A1 + w2 * A2` affinity.
+    #[allow(clippy::too_many_arguments)]
+    #[wasm_bindgen(js_name = fromGraphRowNormalized)]
+    pub fn from_graph_row_normalized(
+        graph: &JsCsrGraph,
+        w2_or_options: &JsValue,
+        max_2hop_per_node: Option<f64>,
+        backend_or_options: &JsValue,
+        iterations_stage1: Option<f64>,
+        iterations_stage2: Option<f64>,
+        iterations_stage3: Option<f64>,
+        learning_rate: Option<f64>,
+        exaggeration: Option<f64>,
+        lambda_c_stage1: Option<f64>,
+        lambda_c_stage2: Option<f64>,
+        lambda_c_stage3: Option<f64>,
+        lambda_r_stage3: Option<f64>,
+        momentum: Option<f64>,
+        epsilon_r: Option<f64>,
+        theta: Option<f64>,
+        seed: Option<f64>,
+        intervals: Option<f64>,
+        interpolation_order: &JsValue,
+        min_grid_dim: Option<f64>,
+        max_grid_dim: Option<f64>,
+    ) -> Result<JsTsNetSolver, JsError> {
+        let (w2, max_2hop, cfg) = if is_plain_js_object(w2_or_options) {
+            let has_extra = max_2hop_per_node.is_some()
+                || (!backend_or_options.is_undefined() && !backend_or_options.is_null())
+                || iterations_stage1.is_some()
+                || iterations_stage2.is_some()
+                || iterations_stage3.is_some()
+                || learning_rate.is_some()
+                || exaggeration.is_some()
+                || lambda_c_stage1.is_some()
+                || lambda_c_stage2.is_some()
+                || lambda_c_stage3.is_some()
+                || lambda_r_stage3.is_some()
+                || momentum.is_some()
+                || epsilon_r.is_some()
+                || theta.is_some()
+                || seed.is_some()
+                || intervals.is_some()
+                || (!interpolation_order.is_undefined() && !interpolation_order.is_null())
+                || min_grid_dim.is_some()
+                || max_grid_dim.is_some();
+            reject_extra_args_with_options(has_extra)?;
+            let w2_val = opt_f64_prop(w2_or_options, "w2", 0.5)?;
+            let m2 = opt_maybe_usize_prop(w2_or_options, "max2hopPerNode")?;
+            let cfg = parse_tsnet_config(
+                w2_or_options,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &JsValue::UNDEFINED,
+                None,
+                None,
+            )?;
+            (w2_val, m2, cfg)
+        } else {
+            let w2_val = if w2_or_options.is_undefined() || w2_or_options.is_null() {
+                0.5
+            } else {
+                w2_or_options.as_f64().ok_or_else(|| {
+                    JsError::new("w2OrOptions must be a finite non-negative number, options object, null, or undefined")
+                })?
+            };
+            let m2 = parse_opt_usize_param(max_2hop_per_node, "max2hopPerNode")?;
+            let cfg = parse_tsnet_config(
+                backend_or_options,
+                iterations_stage1,
+                iterations_stage2,
+                iterations_stage3,
+                learning_rate,
+                None,
+                None,
+                None,
+                exaggeration,
+                lambda_c_stage1,
+                lambda_c_stage2,
+                lambda_c_stage3,
+                lambda_r_stage3,
+                momentum,
+                epsilon_r,
+                theta,
+                None,
+                None,
+                None,
+                None,
+                seed,
+                intervals,
+                interpolation_order,
+                min_grid_dim,
+                max_grid_dim,
+            )?;
+            (w2_val, m2, cfg)
+        };
+        let inner = TsNetSolver::<f32>::from_graph_row_normalized(graph.inner(), w2, max_2hop, cfg)
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
     /// Returns telemetry counters from the most recent FFT field evaluation, or `undefined`.
     #[wasm_bindgen(js_name = lastFftStats)]
     pub fn last_fft_stats(&self) -> Option<JsFitFieldStats> {
@@ -2671,6 +2791,64 @@ impl JsGuMapSolver {
         Ok(Self { inner })
     }
 
+    /// Constructs a `GuMapSolver` from precomputed `DogVaradhanLandmarks` and 1+2-hop priority CSR.
+    #[wasm_bindgen(js_name = fromLandmarks)]
+    pub fn from_landmarks(
+        graph: &JsCsrGraph,
+        landmarks: &JsDogVaradhanLandmarks,
+        max_2hop_or_options: &JsValue,
+        options: &JsValue,
+    ) -> Result<JsGuMapSolver, JsError> {
+        let (max_2hop, gumap_cfg) = if is_plain_js_object(max_2hop_or_options) {
+            reject_extra_args_with_options(!options.is_undefined() && !options.is_null())?;
+            let m2 = opt_usize_prop(
+                max_2hop_or_options,
+                "max2hopPerNode",
+                DEFAULT_GUMAP_MAX_2HOP,
+            )?;
+            let g_cfg = parse_gumap_config(
+                max_2hop_or_options,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+            )?;
+            (m2, g_cfg)
+        } else {
+            let m2 = if max_2hop_or_options.is_undefined() || max_2hop_or_options.is_null() {
+                DEFAULT_GUMAP_MAX_2HOP
+            } else {
+                let v = max_2hop_or_options.as_f64().ok_or_else(|| {
+                    JsError::new("max2hopOrOptions must be a non-negative integer, options object, null, or undefined")
+                })?;
+                parse_non_negative_usize(v, "max2hopPerNode")?
+            };
+            if !options.is_undefined() && !options.is_null() && !is_plain_js_object(options) {
+                return Err(JsError::new(
+                    "GuMapSolver.fromLandmarks: options must be a plain object, null, or undefined",
+                ));
+            }
+            let g_cfg = parse_gumap_config(
+                options, None, None, None, None, None, None, None, None, None, false,
+            )?;
+            (m2, g_cfg)
+        };
+        let inner = GuMapSolver::<f32>::from_landmarks(
+            graph.inner(),
+            landmarks.inner(),
+            max_2hop,
+            gumap_cfg,
+        )
+        .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
     /// Executes one epoch on `layout` in place.
     pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         step_layout_in_place(&mut self.inner, layout)
@@ -2917,6 +3095,9 @@ impl JsSpatialIntruderRefiner {
         eps: Option<f64>,
         hinge_fp: Option<bool>,
         seed: Option<f64>,
+        w_anchor2: Option<f64>,
+        k_cap_decay: Option<f64>,
+        k_cap_min: Option<f64>,
     ) -> Result<JsSpatialIntruderRefiner, JsError> {
         let mut cfg = SpatialRefinerConfig::default();
         if is_plain_js_object(rounds_or_options) {
@@ -2930,16 +3111,22 @@ impl JsSpatialIntruderRefiner {
                 || t_max.is_some()
                 || eps.is_some()
                 || hinge_fp.is_some()
-                || seed.is_some();
+                || seed.is_some()
+                || w_anchor2.is_some()
+                || k_cap_decay.is_some()
+                || k_cap_min.is_some();
             reject_extra_args_with_options(has_extra)?;
             cfg.rounds = opt_usize_prop(rounds_or_options, "rounds", cfg.rounds)?;
             cfg.k_cap = opt_usize_prop(rounds_or_options, "kCap", cfg.k_cap)?;
             cfg.margin_scale = opt_f64_prop(rounds_or_options, "marginScale", cfg.margin_scale)?;
             cfg.w_anchor = opt_f64_prop(rounds_or_options, "wAnchor", cfg.w_anchor)?;
+            cfg.w_anchor2 = opt_f64_prop(rounds_or_options, "wAnchor2", cfg.w_anchor2)?;
             cfg.w_fn = opt_f64_prop(rounds_or_options, "wFn", cfg.w_fn)?;
             cfg.w_fp = opt_f64_prop(rounds_or_options, "wFp", cfg.w_fp)?;
             cfg.fn_shrink = opt_f64_prop(rounds_or_options, "fnShrink", cfg.fn_shrink)?;
             cfg.round_decay = opt_f64_prop(rounds_or_options, "roundDecay", cfg.round_decay)?;
+            cfg.k_cap_decay = opt_f64_prop(rounds_or_options, "kCapDecay", cfg.k_cap_decay)?;
+            cfg.k_cap_min = opt_usize_prop(rounds_or_options, "kCapMin", cfg.k_cap_min)?;
             cfg.t_max = opt_usize_prop(rounds_or_options, "tMax", cfg.t_max)?;
             cfg.eps = opt_f64_prop(rounds_or_options, "eps", cfg.eps)?;
             cfg.hinge_fp = opt_bool_prop(rounds_or_options, "hingeFp", cfg.hinge_fp)?;
@@ -2954,10 +3141,13 @@ impl JsSpatialIntruderRefiner {
             cfg.k_cap = parse_optional_usize(k_cap, cfg.k_cap, "kCap")?;
             cfg.margin_scale = margin_scale.unwrap_or(cfg.margin_scale);
             cfg.w_anchor = w_anchor.unwrap_or(cfg.w_anchor);
+            cfg.w_anchor2 = w_anchor2.unwrap_or(cfg.w_anchor2);
             cfg.w_fn = w_fn.unwrap_or(cfg.w_fn);
             cfg.w_fp = w_fp.unwrap_or(cfg.w_fp);
             cfg.fn_shrink = fn_shrink.unwrap_or(cfg.fn_shrink);
             cfg.round_decay = round_decay.unwrap_or(cfg.round_decay);
+            cfg.k_cap_decay = k_cap_decay.unwrap_or(cfg.k_cap_decay);
+            cfg.k_cap_min = parse_optional_usize(k_cap_min, cfg.k_cap_min, "kCapMin")?;
             cfg.t_max = parse_optional_usize(t_max, cfg.t_max, "tMax")?;
             cfg.eps = eps.unwrap_or(cfg.eps);
             cfg.hinge_fp = hinge_fp.unwrap_or(cfg.hinge_fp);
@@ -3031,6 +3221,19 @@ impl JsSpatialIntruderRefiner {
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
         self.inner.num_nodes()
+    }
+
+    /// Returns the current dynamic active-set neighborhood cap `kCap`.
+    #[wasm_bindgen(getter, js_name = currentKCap)]
+    pub fn current_k_cap(&self) -> usize {
+        self.inner.current_k_cap()
+    }
+
+    /// Updates the active-set neighborhood cap `kCap` for subsequent refinement rounds.
+    #[wasm_bindgen(js_name = setKCap)]
+    pub fn set_k_cap(&mut self, k_cap: f64) -> Result<(), JsError> {
+        let cap = parse_non_negative_usize(k_cap, "kCap")?;
+        self.inner.set_k_cap(cap).map_err(core_err_to_js)
     }
 }
 

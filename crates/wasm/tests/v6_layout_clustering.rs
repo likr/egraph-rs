@@ -4,8 +4,8 @@ use egraph_wasm::v6::{
     js_build_pure_2hop_knn, js_chebyshev_dog_jl_embedding, js_coarsen_graph,
     js_compute_fuzzy_simplicial_set, js_compute_knn_probabilities,
     js_compute_nodewise_2hop_perplexities, js_compute_regularized_dog_varadhan_landmarks,
-    js_kmeans_plus_plus, js_label_propagation, js_louvain_communities, js_pivot_mds_init,
-    js_project_clustered_layout, js_spectral_clustering,
+    js_graph_row_normalized_probabilities, js_kmeans_plus_plus, js_label_propagation,
+    js_louvain_communities, js_pivot_mds_init, js_project_clustered_layout, js_spectral_clustering,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -445,6 +445,153 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
     assert_eq!(s_knn.num_nodes(), 16);
     assert_eq!(s_probs.total_iterations(), 6);
 
+    // Optional learningRate auto-scaling & Stage 3 LR cap (2 * N for N < 100) + fromGraphRowNormalized
+    let rn_opts = make_opts(&[
+        ("w2", JsValue::from_f64(0.5)),
+        ("max2hopPerNode", JsValue::from_f64(8.0)),
+        ("backend", JsValue::from_str("fft")),
+        ("iterationsStage1", JsValue::from_f64(2.0)),
+        ("iterationsStage2", JsValue::from_f64(2.0)),
+        ("iterationsStage3", JsValue::from_f64(2.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut rn_run = JsTsNetSolver::from_graph_row_normalized(
+        &grid,
+        &rn_opts,
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+    )
+    .expect("fromGraphRowNormalized opts");
+    let mut rn_step = JsTsNetSolver::from_graph_row_normalized(
+        &grid,
+        &JsValue::from_f64(0.5),
+        Some(8.0),
+        &JsValue::from_str("fft"),
+        Some(2.0),
+        Some(2.0),
+        Some(2.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(42.0),
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+    )
+    .expect("fromGraphRowNormalized pos");
+    let mut lrn_run = init.clone();
+    let mut lrn_step = init.clone();
+    assert_eq!(rn_run.run(&mut lrn_run).unwrap(), "completed");
+    while !rn_step.is_finished() {
+        rn_step.step(&mut lrn_step).unwrap();
+    }
+    assert_layouts_bit_exact(&lrn_run, &lrn_step);
+    assert!(rn_run.current_stage_lr() <= 32.0);
+
+    // w2 = 0.0 parity with graphRowNormalizedProbabilities + fromProbabilities
+    let probs_1hop = js_graph_row_normalized_probabilities(&grid).unwrap();
+    let mut s_rn0 = JsTsNetSolver::from_graph_row_normalized(
+        &grid,
+        &JsValue::from_f64(0.0),
+        None,
+        &JsValue::from_str("fft"),
+        Some(2.0),
+        Some(2.0),
+        Some(2.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(42.0),
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut s_p0 = JsTsNetSolver::from_probabilities(
+        &probs_1hop,
+        &JsValue::from_str("fft"),
+        Some(2.0),
+        Some(2.0),
+        Some(2.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(42.0),
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut lp0 = init.clone();
+    let mut lr0 = init;
+    s_rn0.run(&mut lr0).unwrap();
+    s_p0.run(&mut lp0).unwrap();
+    assert_layouts_bit_exact(&lr0, &lp0);
+    assert!(
+        JsTsNetSolver::from_graph_row_normalized(
+            &grid,
+            &JsValue::from_f64(-0.1),
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+        )
+        .is_err()
+    );
+
     // Invalid backend or extra positional arg with options rejected
     assert!(
         JsTsNetSolver::pure_2hop(
@@ -808,6 +955,67 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     .unwrap();
     assert_eq!(g_knn.num_edges(), g_fuz.num_edges());
 
+    // GuMapSolver.fromLandmarks (both options-object and positional max2hopPerNode)
+    let lm_barbell = js_compute_regularized_dog_varadhan_landmarks(
+        &grid,
+        Some(12.0),
+        Some(6.0),
+        Some(42.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let g_lm_opts = make_opts(&[
+        ("max2hopPerNode", JsValue::from_f64(32.0)),
+        ("nEpochs", JsValue::from_f64(10.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut g_lm_run =
+        JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_opts, &JsValue::UNDEFINED)
+            .expect("GuMap.fromLandmarks opts");
+    let mut g_lm_step = JsGuMapSolver::from_landmarks(
+        &grid,
+        &lm_barbell,
+        &JsValue::from_f64(32.0),
+        &make_opts(&[
+            ("nEpochs", JsValue::from_f64(10.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .expect("GuMap.fromLandmarks pos");
+    let mut glm_l1 = init.clone();
+    let mut glm_l2 = init;
+    assert_eq!(g_lm_run.run(&mut glm_l1).unwrap(), "completed");
+    while !g_lm_step.is_finished() {
+        g_lm_step.step(&mut glm_l2).unwrap();
+    }
+    assert_layouts_bit_exact(&glm_l1, &glm_l2);
+    let lm_small = js_compute_regularized_dog_varadhan_landmarks(
+        &make_grid(2, 2),
+        None,
+        Some(2.0),
+        Some(42.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(
+        JsGuMapSolver::from_landmarks(&grid, &lm_small, &JsValue::UNDEFINED, &JsValue::UNDEFINED)
+            .is_err()
+    );
+
     // 2. SpatialIntruderRefiner: clean grid converges early untouched; intruder pushed apart + step == run
     let small_grid = make_grid(3, 3);
     let mut clean_coords = Vec::new();
@@ -822,6 +1030,9 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     let mut ref_clean = JsSpatialIntruderRefiner::new(
         &small_grid,
         &JsValue::from_f64(4.0),
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -862,6 +1073,9 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         Some(true),
         Some(42.0),
+        None,
+        None,
+        None,
     )
     .unwrap();
     let mut r_step = JsSpatialIntruderRefiner::new(
@@ -878,6 +1092,9 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         Some(true),
         Some(42.0),
+        None,
+        None,
+        None,
     )
     .unwrap();
     assert!(r_run.run(&mut intr_run).is_ok());
@@ -891,6 +1108,44 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     let dist_after = (intr_run.x(0.0).unwrap() - intr_run.x(8.0).unwrap())
         .hypot(intr_run.y(0.0).unwrap() - intr_run.y(8.0).unwrap());
     assert!(dist_after > dist_before * 2.0);
+
+    // SpatialIntruderRefiner dynamic kCap + wAnchor2 + setKCap
+    let dyn_opts = make_opts(&[
+        ("rounds", JsValue::from_f64(4.0)),
+        ("kCap", JsValue::from_f64(8.0)),
+        ("wAnchor2", JsValue::from_f64(0.5)),
+        ("kCapDecay", JsValue::from_f64(0.5)),
+        ("kCapMin", JsValue::from_f64(2.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut r_dyn = JsSpatialIntruderRefiner::new(
+        &small_grid,
+        &dyn_opts,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(r_dyn.current_k_cap(), 8);
+    let mut l_dyn = JsLayout2d::from_coords(&intr_coords).unwrap();
+    r_dyn.step(&mut l_dyn).unwrap();
+    assert_eq!(r_dyn.current_k_cap(), 4);
+    r_dyn.set_k_cap(6.0).unwrap();
+    assert_eq!(r_dyn.current_k_cap(), 6);
+    r_dyn.run(&mut l_dyn).unwrap();
+    assert!(l_dyn.is_all_finite());
+    assert!(r_dyn.set_k_cap(0.0).is_err());
 
     // 3. StressMajorizationSolver (fromGraph, fromDistanceMatrix, computeStress, lastStress, step == run)
     let sm_opts = make_opts(&[
@@ -989,6 +1244,9 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
             &small_grid,
             &JsValue::from_f64(2.0),
             Some(0.0),
+            None,
+            None,
+            None,
             None,
             None,
             None,
