@@ -5,6 +5,32 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Row-Normalized 1+2-Hop tsNET (`TsNetSolver.from_graph_row_normalized` / `TsNetSolver.fromGraphRowNormalized`)**: Added `graph_12hop_row_normalized_probabilities` and `TsNetSolver` constructor supporting `w2` weighting and optional `max_2hop_per_node` capping across Rust, Python, and WASM.
+- **Sparse 1+2-Hop Pair Extraction (`extract_sparse_1hop_2hop_pairs` / `extractSparse1hop2hopPairs`)**: Exposed `Sparse12HopPairs` and `extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node=32, seed=42)` in `egraph::prelude`, Python, and WASM.
+- **Precomputed-Landmark Graph UMAP Constructors (`GuMapSolver.from_landmarks` / `IbUmapSolver.from_landmarks`)**: Added landmark-reusing constructors (`from_landmarks` / `fromLandmarks`, default `max_2hop_per_node=32`) across Rust, Python, and WASM.
+- **PaCMAP-Graph 1-Hop Full Retention (`keep_all_1hop` / `keepAll1hop`)**: Added `keep_all_1hop` option on `PacmapGraphConfig` and `SgdSolver.pacmap_graph` / `SgdSolver.pacmapGraph` to preserve all 1-hop edges beyond `n_neighbors`.
+- **Sampled Neighborhood Preservation (`sampled_np1` / `sampled_np2`, `sampledNp1` / `sampledNp2`)**: Added deterministic vertex-sampled 1-hop and 2-hop neighborhood preservation metrics to `egraph-metrics`, `evaluate_metrics` / `evaluateMetrics`, `egraph-cli` (`sampled-np1`, `sampled-np2`), Python, and WASM.
+- **Spatial Refiner 2-Hop Anchoring & Dynamic `k_cap`**: Added `w_anchor2`, `k_cap_decay`, `k_cap_min`, `current_k_cap` / `currentKCap`, and `set_k_cap` / `setKCap` on `SpatialIntruderRefiner`.
+
+### Changed
+
+- **Automatic $O(N)$ tsNET `learning_rate` Scaling**: Switched `TsNetConfig.learning_rate` and Python `TsNetSolver` constructor defaults to `None` (resolving to $\max(200.0, N / 3.0)$ with a Stage 3 stability cap of $2N$ for $N < 100$).
+- **Streaming `SweepLineCrossings` & Halved `SpatialIntruderRefiner` Memory**: Eliminated global `PairSet` materialization in `SweepLineCrossings::{count, count_edges, summarize, summarize_edges}` and eliminated the double-buffered pair vectors in `SpatialIntruderRefiner`.
+
+### Fixed
+
+- **Row-Normalized Perplexity Symmetrization**: Fixed `compute_knn_probabilities(..., row_normalize=True)` (`SymmetrizationMode::RowNormalized`) so row normalization applies to the symmetric support matrix rather than collapsing back to `StandardTsne`.
+- **`pacmap_graph` FP 2-Hop Exclusion**: Excluded 2-hop neighbors (`has_common_neighbor`) during `SgdSolver.pacmap_graph` further-pair (`FP`) sampling.
+- **WASM `sampledCrossingNumber` Docstring**: Corrected default `numSamples` documentation from `10000` to `4096`.
+
+### Removed
+
+- **Python `InfoMap` Binding**: Removed the legacy `InfoMap` PyO3 placeholder class (`crates/python/src/clustering/infomap.rs`) and its Python exports/stubs, aligning Python with WASM and `v6.0.0-alpha.5` release notes.
+
 ## [6.0.0-alpha.5] - 2026-11-23
 
 `v6.0.0-alpha.5` (`6.0.0a5` on PyPI, `6.0.0-alpha.5` with `--tag next` on npm) delivers a clean architectural redesign across Native Rust, Python (PyO3 `abi3-py310`), and WebAssembly (`wasm-bindgen` pure ESM), achieving 100% cross-target feature parity under strictly single-threaded, deterministic pure CPU Rust execution. Prior tag `v6.0.0-alpha.4` remained unpublished after a `check_invariants.sh` lockfile-stderr bug was fixed prior to `v6.0.0-alpha.5`.

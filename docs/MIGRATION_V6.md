@@ -13,7 +13,7 @@ For background on the v6 architecture, see [the v6 release plan](V6_RELEASE_PLAN
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
 | **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d` (zero-copy `coords(copy=False)` / `coordsView()`), `LayoutNd`, `ManifoldLayout2d` |
 | **Overlap removal** | `OverwrapRemoval` ($O(N^2)$) | `PrismOverlapRemoval` ($O(N \log N)$ Delaunay + bounded CG) |
-| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) |
+| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_graph_row_normalized` / `fromGraphRowNormalized`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) |
 | **Stress metric** | Unscaled `stress(drawing, dm)` (`NS`) | Scale-Normalized Stress (`scale_normalized_stress` / `scaleNormalizedStress`, `evaluate_metrics` / `evaluateMetrics`) |
 | **WASM packaging** | `egraph/dist/web/egraph_wasm`, UMD/Rollup, $2N$ `x(u)`/`y(u)` FFI loops | Pure ESM (`"type": "module"`), `await init()`, `CsrGraph.fromCsr`, `coordsView()`, `runProgressive()` |
 | **Community detection** | `Louvain`, `LabelPropagation`, `SpectralClustering`, `InfoMap` | `louvain_communities`, `label_propagation`, `spectral_clustering`, `kmeans_plus_plus`, `coarsen_graph` (`InfoMap` removed) |
