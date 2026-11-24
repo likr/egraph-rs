@@ -62,7 +62,7 @@ After `release.yml` completes `success` across all 11 jobs:
 ### PyPI (`pip install --pre`)
 - Install into a fresh `python3 -m venv` with `PIP_NO_CACHE_DIR=1 pip install --pre "egraph==<pep440>"` (add `--only-binary=:all:` when testing wheel-only installs without Rust).
 - **Important v6 Python API facts**:
-  - Check installed version with `import importlib.metadata as md; assert md.version("egraph") == "<pep440>"` (`egraph.__version__` is **not** defined).
+  - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0a7`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
   - `eg.SgdSolver.sparse_barrier_dog(...)` returns `SgdSolver` directly (not a tuple).
   - `eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input, but returned `dict[str, float]` keys are canonical snake_case names: `"scale_normalized_stress"`, `"neighborhood_preservation_2hop"`, `"crossing_number"`.
 - **Downstream `uv`-Managed `.venv` Upgrade (`diffusion-kernel-experiments`)**: Downstream worktrees provisioned via `uv` do not bundle `pip`. Upgrade them to the published release with `uv pip install --python .venv/bin/python --pre --no-cache "egraph==<pep440>"`.
