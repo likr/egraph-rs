@@ -338,7 +338,7 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
             ibumap.step(layout)
             self.assertGreater(ibumap.total_fft_2d_calls, 0)
 
-        # Default degree=None alignment across DoG APIs and 32/4096 metric defaults
+        # Default degree=None alignment across DoG APIs and 64/4096 metric defaults
         import inspect
 
         self.assertIsNone(inspect.signature(eg.compute_regularized_dog_varadhan_landmarks).parameters["degree"].default)
@@ -360,6 +360,6 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
         l_m = eg.pivot_mds_init(g, num_pivots=5, seed=42)
         ev_def = eg.evaluate_metrics(g, l_m, ["sampled_sns", "sampled_crossing_number"])
         ev_exp = eg.evaluate_metrics(
-            g, l_m, ["sampled_sns", "sampled_crossing_number"], num_pivots=32, num_samples=4096, seed=42
+            g, l_m, ["sampled_sns", "sampled_crossing_number"], num_pivots=64, num_samples=4096, seed=42
         )
         self.assertEqual(ev_def, ev_exp)

@@ -25,7 +25,8 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 use super::v6_m2::{
-    PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_usize_1d,
+    PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_f64_2d,
+    extract_usize_1d,
 };
 use super::v6_m3::{
     DualIterativeSolver, PySgdSolver, SgdInner, SolverAction, SolverLayout, execute_solver_action,
@@ -875,17 +876,17 @@ impl PyIbUmapSolver {
             Some(obj) if !obj.is_none() => Some(extract_u32_1d(obj, "degrees")?),
             _ => None,
         };
-        let probs_owned = probs.inner().clone();
+        let probs_ref = probs.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(
-                    probs_owned,
+                ScalarDtype::F64 => FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set_ref(
+                    probs_ref,
                     degs_opt.as_deref(),
                     cfg,
                 )
                 .map(FieldLayoutInner::F64),
-                ScalarDtype::F32 => FieldLayoutSolver::<f32>::ib_umap_from_fuzzy_set(
-                    probs_owned,
+                ScalarDtype::F32 => FieldLayoutSolver::<f32>::ib_umap_from_fuzzy_set_ref(
+                    probs_ref,
                     degs_opt.as_deref(),
                     cfg,
                 )
@@ -1077,6 +1078,10 @@ pub(super) fn build_pacmap_graph_solver(
     phase3_iters: StrictUsize,
     learning_rate: StrictF64,
     keep_all_1hop: bool,
+    max_1hop_per_node: Option<StrictUsize>,
+    degree_weight_beta: StrictF64,
+    num_landmarks: StrictUsize,
+    landmarks: Option<&Bound<'_, PyAny>>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
@@ -1090,15 +1095,59 @@ pub(super) fn build_pacmap_graph_solver(
         learning_rate: learning_rate.0,
         seed: seed.0,
         keep_all_1hop,
+        max_1hop_per_node: max_1hop_per_node.map(|v| v.0),
+        degree_weight_beta: degree_weight_beta.0,
+        num_landmarks: num_landmarks.0,
     };
     cfg.validate().map_err(core_error_to_py)?;
     let g = graph.inner();
-    let inner = py
-        .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(g, cfg).map(SgdInner::F32),
-        })
-        .map_err(core_error_to_py)?;
+    let inner = match landmarks {
+        None => py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(g, cfg).map(SgdInner::F64),
+                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(g, cfg).map(SgdInner::F32),
+            })
+            .map_err(core_error_to_py)?,
+        Some(obj) if obj.is_none() => py
+            .detach(|| match dtype {
+                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(g, cfg).map(SgdInner::F64),
+                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(g, cfg).map(SgdInner::F32),
+            })
+            .map_err(core_error_to_py)?,
+        Some(obj) => {
+            if let Ok(lm_ref) = obj.extract::<PyRef<'_, PyDogVaradhanLandmarks>>() {
+                let lm = lm_ref.inner();
+                py.detach(|| match dtype {
+                    ScalarDtype::F64 => {
+                        SgdSolver::<f64>::pacmap_graph_with_landmarks(g, lm, cfg).map(SgdInner::F64)
+                    }
+                    ScalarDtype::F32 => {
+                        SgdSolver::<f32>::pacmap_graph_with_landmarks(g, lm, cfg).map(SgdInner::F32)
+                    }
+                })
+                .map_err(core_error_to_py)?
+            } else {
+                let (flat, nrows, ncols) = extract_f64_2d(obj, "landmarks")?;
+                if nrows != g.num_nodes() {
+                    return Err(PyValueError::new_err(format!(
+                        "landmarks row count ({nrows}) must match graph.num_nodes ({})",
+                        g.num_nodes()
+                    )));
+                }
+                py.detach(|| match dtype {
+                    ScalarDtype::F64 => {
+                        SgdSolver::<f64>::pacmap_graph_with_landmark_distances(g, &flat, ncols, cfg)
+                            .map(SgdInner::F64)
+                    }
+                    ScalarDtype::F32 => {
+                        SgdSolver::<f32>::pacmap_graph_with_landmark_distances(g, &flat, ncols, cfg)
+                            .map(SgdInner::F32)
+                    }
+                })
+                .map_err(core_error_to_py)?
+            }
+        }
+    };
     Ok(PySgdSolver::from_inner(inner))
 }
 
@@ -1156,7 +1205,7 @@ impl PyForceAtlas2Solver {
             graph,
             *,
             iterations = StrictUsize(200),
-            theta = StrictF64(0.5),
+            theta = StrictF64(1.2),
             use_barnes_hut = true,
             linlog_mode = false,
             strong_gravity = false,
@@ -1168,7 +1217,7 @@ impl PyForceAtlas2Solver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, iterations=200, theta=0.5, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, iterations=200, theta=1.2, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -1306,19 +1355,19 @@ impl PyYifanHuSolver {
         signature = (
             graph,
             *,
-            max_iterations_per_level = StrictUsize(100),
+            max_iterations_per_level = StrictUsize(200),
             step_size = StrictF64(1.0),
-            step_ratio = StrictF64(0.95),
+            step_ratio = StrictF64(0.9),
             relative_strength = StrictF64(0.2),
             optimal_distance = None,
-            theta = StrictF64(0.5),
+            theta = StrictF64(1.2),
             min_coarsen_size = StrictUsize(30),
             min_coarsen_ratio = StrictF64(0.75),
             convergence_tolerance = StrictF64(1e-4),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, max_iterations_per_level=100, step_size=1.0, step_ratio=0.95, relative_strength=0.2, optimal_distance=None, theta=0.5, min_coarsen_size=30, min_coarsen_ratio=0.75, convergence_tolerance=1e-4, seed=42, dtype='float64')"
+        text_signature = "(graph, *, max_iterations_per_level=200, step_size=1.0, step_ratio=0.9, relative_strength=0.2, optimal_distance=None, theta=1.2, min_coarsen_size=30, min_coarsen_ratio=0.75, convergence_tolerance=1e-4, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,

@@ -275,6 +275,38 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assert_no_panic_raises((IndexError,), lambda: mt.geodesic_distance(0, 99))
         self.assert_no_panic_raises((TypeError,), lambda: eg.ManifoldLayout2d.zeros("torus", True))
 
+        # Poincare Mobius centroid centering & safe initialization (f64 and f32)
+        ax, ay = eg.poincare_mobius_add(-0.3, 0.4, 0.3, -0.4)
+        self.assertLess(math.hypot(ax, ay), 1e-12)
+        for dtype_str in ("float64", "float32"):
+            mr = eg.ManifoldLayout2d.random_init("hyperbolic", 8, scale=0.25, seed=42, dtype=dtype_str)
+            self.assertEqual(mr.dtype, dtype_str)
+            mr_coords = mr.coords()
+            self.assertTrue(np.all(np.hypot(mr_coords[:, 0], mr_coords[:, 1]) <= 0.25 + 1e-5))
+
+            m_off = eg.ManifoldLayout2d.from_coords(
+                "hyperbolic",
+                np.array([[0.6, 0.4], [0.7, 0.3], [0.55, 0.5]], dtype=np.float32 if dtype_str == "float32" else np.float64),
+            )
+            d_before = m_off.geodesic_distance(0, 1)
+            m_off.center_poincare_centroid()
+            cx, cy = m_off.poincare_centroid()
+            self.assertLess(math.hypot(cx, cy), 1e-10 if dtype_str == "float64" else 1e-4)
+            self.assertAlmostEqual(m_off.geodesic_distance(0, 1), d_before, places=9 if dtype_str == "float64" else 3)
+            m_off.recenter_poincare_at(2)
+            self.assertLess(math.hypot(m_off.x(2), m_off.y(2)), 1e-10 if dtype_str == "float64" else 1e-4)
+
+        big_euclid = eg.Layout2d.from_coords([[10.0, -5.0], [20.0, 5.0], [30.0, 15.0]])
+        m_scaled = eg.ManifoldLayout2d.from_layout_scaled("hyperbolic", big_euclid, max_radius=0.7)
+        r_scaled = np.hypot(m_scaled.coords()[:, 0], m_scaled.coords()[:, 1])
+        self.assertAlmostEqual(float(np.max(r_scaled)), 0.7, places=10)
+
+        # Non-Poincare manifolds reject Poincare-only methods
+        self.assert_no_panic_raises((ValueError,), lambda: mt.poincare_centroid())
+        self.assert_no_panic_raises((ValueError,), lambda: mt.recenter_poincare(0.1, 0.1))
+        self.assert_no_panic_raises((ValueError,), lambda: mt.recenter_poincare_at(0))
+        self.assert_no_panic_raises((ValueError,), lambda: mt.center_poincare_centroid())
+
     def test_tsnet_solver_all_backends_step_vs_run_and_zero_copy(self) -> None:
         g = _make_grid(4, 4)
         init_coords = _seeded_coords(16, seed=11, scale=1.0)
@@ -384,6 +416,13 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, interpolation_order=2))
         self.assert_no_panic_raises((TypeError,), lambda: eg.TsNetSolver.pure_2hop(g, learning_rate=True))
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, w2=-0.1))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, degree_beta=-0.1))
+        rn_beta = eg.TsNetSolver.from_graph_row_normalized(
+            g, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, backend="fft", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2, seed=42
+        )
+        l_rn_beta = eg.Layout2d.from_coords(init_coords)
+        self.assertEqual(rn_beta.run(l_rn_beta), "completed")
+        self.assertTrue(l_rn_beta.is_all_finite())
         self.assert_no_panic_raises((ValueError,), lambda: s_probs.step(eg.Layout2d.zeros(3)))
 
     def test_sgd_solver_all_constructors_schedules_and_manifolds(self) -> None:
@@ -658,7 +697,41 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assert_no_panic_raises((ValueError,), lambda: ref_dyn.set_k_cap(0))
 
         self.assert_no_panic_raises((ValueError,), lambda: eg.SpatialIntruderRefiner(g, k_cap=0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.SpatialIntruderRefiner(g, min_sep_ratio=-0.1))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.SpatialIntruderRefiner(g, w_sep=-0.1))
         self.assert_no_panic_raises((TypeError,), lambda: eg.SpatialIntruderRefiner(g, hinge_fp=1))  # type: ignore[arg-type]
+
+        # Opt-in separation hinge eliminates closed-twin collapse while preserving clean grids
+        twin_edges = list(g.to_edges() if hasattr(g, "to_edges") else [])
+        if not twin_edges:
+            twin_edges = [
+                (r * 3 + c, r * 3 + c + 1) for r in range(3) for c in range(2)
+            ] + [
+                (r * 3 + c, (r + 1) * 3 + c) for r in range(2) for c in range(3)
+            ]
+        twin_edges.extend([(0, 9), (0, 10), (9, 10)])
+        g_twin = eg.CsrGraph.from_edges(11, twin_edges, directed=False, sanitize=True)
+        twin_init = np.vstack([clean, np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float64)])
+        for dtype_str in ("float64", "float32"):
+            twin_typed = _to_float_array(twin_init, dtype_str)
+            lt_run = eg.Layout2d.from_coords(twin_typed)
+            lt_step = eg.Layout2d.from_coords(twin_typed)
+            rt_run = eg.SpatialIntruderRefiner(
+                g_twin, min_sep_ratio=0.15, w_sep=1.0, seed=42, dtype=dtype_str
+            )
+            rt_step = eg.SpatialIntruderRefiner(
+                g_twin, min_sep_ratio=0.15, w_sep=1.0, seed=42, dtype=dtype_str
+            )
+            rt_run.run(lt_run)
+            rt_step.step(lt_step)
+            rt_step.run(lt_step)
+            np.testing.assert_array_equal(lt_run.coords(copy=True), lt_step.coords(copy=True))
+            st_twin = rt_run.stats()
+            self.assertGreater(st_twin["n_sep_total"], 0)
+            self.assertGreater(st_twin["round_stats"][0]["n_sep"], 0)
+            coords_out = lt_run.coords(copy=True)
+            d_9_10 = float(np.hypot(coords_out[9, 0] - coords_out[10, 0], coords_out[9, 1] - coords_out[10, 1]))
+            self.assertGreater(d_9_10, 0.05)
 
     def test_stress_majorization_and_kamada_kawai_solvers(self) -> None:
         g = _make_grid(3, 3)

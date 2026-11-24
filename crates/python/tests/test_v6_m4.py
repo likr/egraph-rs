@@ -307,6 +307,49 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
             pm_keep_step.run(ls_s)
             np.testing.assert_array_equal(ls_r.coords(copy=True), ls_s.coords(copy=True))
 
+            # 2c. max_1hop_per_node, degree_weight_beta, and external landmarks (DogVaradhanLandmarks + 2D array)
+            pm_cap = eg.SgdSolver.pacmap_graph(
+                star,
+                n_neighbors=2,
+                keep_all_1hop=True,
+                max_1hop_per_node=3,
+                degree_weight_beta=0.5,
+                phase1_iters=2,
+                phase2_iters=2,
+                phase3_iters=2,
+                seed=42,
+                dtype=dtype_str,
+            )
+            self.assertLessEqual(pm_cap.num_springs, 24)
+            dog_lm = eg.compute_regularized_dog_varadhan_landmarks(graph, num_landmarks=6, seed=7)
+            pm_lm = eg.SgdSolver.pacmap_graph_with_landmarks(
+                graph,
+                dog_lm,
+                n_neighbors=6,
+                phase1_iters=4,
+                phase2_iters=4,
+                phase3_iters=6,
+                degree_weight_beta=0.25,
+                seed=9,
+                dtype=dtype_str,
+            )
+            pm_mat = eg.SgdSolver.pacmap_graph(
+                graph,
+                n_neighbors=6,
+                phase1_iters=4,
+                phase2_iters=4,
+                phase3_iters=6,
+                degree_weight_beta=0.25,
+                landmarks=dog_lm.table(),
+                seed=9,
+                dtype=dtype_str,
+            )
+            l_lm = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            l_mat = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            pm_lm.run(l_lm)
+            pm_mat.run(l_mat)
+            np.testing.assert_array_equal(l_lm.coords(copy=True), l_mat.coords(copy=True))
+
             # 3. sgd2
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))

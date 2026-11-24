@@ -19,8 +19,12 @@ _VectorArrayLike = (
 )
 _DtypeLike = str | np.dtype[Any] | type[np.floating[Any]]
 
+__version__: str
+
 __all__ = [
+    "__version__",
     "AmgCgSolver",
+    "AmgPcgSolver",
     "Array1",
     "Array2",
     "BandPassDiffusionKernel",
@@ -31,6 +35,7 @@ __all__ = [
     "ClassicalMds",
     "Constraint",
     "CsrGraph",
+    "CsrMatrix",
     "DiGraph",
     "DiffusionKernel",
     "DistanceMatrix",
@@ -41,6 +46,7 @@ __all__ = [
     "DrawingHyperbolic2d",
     "DrawingSpherical2d",
     "DrawingTorus2d",
+    "EffectiveResistanceResult",
     "EigendecompositionResult",
     "EmbeddingKernel",
     "EmbeddingKernelBuilder",
@@ -99,12 +105,15 @@ __all__ = [
     "PyArray1Iterator",
     "RandomPairSparseSgd",
     "RdMds",
+    "ResistanceCurvatureFlowResult",
     "Rng",
     "SchedulerConstant",
     "SchedulerExponential",
     "SchedulerLinear",
     "SchedulerQuadratic",
     "SchedulerReciprocal",
+    "ScreenedPoissonField2d",
+    "ScreenedPoissonRefiner",
     "SeparationConstraint",
     "Sgd",
     "SgdSolver",
@@ -128,29 +137,40 @@ __all__ = [
     "all_pairs_bfs",
     "all_sources_bfs",
     "all_sources_dijkstra",
+    "adjusted_patch_nig",
+    "adjusted_patch_nig_multiscale",
+    "align_clustered_centroids",
     "angular_resolution",
     "angular_resolution_v6",
+    "anisotropic_laplacian",
     "apply_relative_distance_floor",
     "aspect_ratio",
     "aspect_ratio_v6",
     "assign_layers",
     "bfs_single_source",
+    "build_capped_12hop_knn",
     "build_gumap_12hop_priority_csr",
     "build_hybrid_adaptive_knn",
     "build_pure_2hop_knn",
     "build_rerank_knn",
     "chebyshev_dog_jl_embedding",
+    "chebyshev_dog_jl_embedding_matrix",
     "chebyshev_heat_spmv",
+    "chebyshev_heat_spmv_matrix",
     "classical_mds_2d",
+    "coarse_backbone_init",
     "coarsen_graph",
     "compute_2hop_neighborhood_sizes",
     "compute_diffusion_embedding",
+    "compute_effective_resistances",
     "compute_fuzzy_simplicial_set",
     "compute_horvitz_thompson_gamma",
     "compute_knn_probabilities",
     "compute_median_2hop_perplexity",
     "compute_nodewise_2hop_perplexities",
+    "compute_pivoted_rhgh_landmarks",
     "compute_regularized_dog_varadhan_landmarks",
+    "compute_regularized_dog_varadhan_landmarks_from_matrix",
     "compute_resistance_embedding",
     "crossing_angle",
     "crossing_angle_with_crossing_edges",
@@ -159,6 +179,7 @@ __all__ = [
     "crossing_number",
     "crossing_number_with_crossing_edges",
     "crossing_summary",
+    "crosslessness",
     "cycle_edges",
     "delaunay_to_csr",
     "delaunay_triangulation",
@@ -173,6 +194,7 @@ __all__ = [
     "gabriel_graph_property",
     "gabriel_graph_property_v6",
     "generate_layered_constraints",
+    "graph_12hop_row_normalized_probabilities",
     "graph_row_normalized_probabilities",
     "ideal_edge_lengths",
     "ideal_edge_lengths_v6",
@@ -180,8 +202,15 @@ __all__ = [
     "kmeans_plus_plus",
     "koren_spectral_init",
     "label_propagation",
+    "landmark_stratified_rta",
+    "landmark_stratified_rta_detail",
+    "landmark_stratified_rta_from_landmarks",
+    "layout_degeneracy",
     "load_dataset",
+    "louvain_coarsen",
     "louvain_communities",
+    "minimum_angle",
+    "minimum_angle_summary",
     "neighborhood_preservation",
     "neighborhood_preservation_1hop",
     "neighborhood_preservation_2hop",
@@ -193,10 +222,12 @@ __all__ = [
     "partial_bfs_knn",
     "pivot_mds_init",
     "poincare_distance",
+    "poincare_mobius_add",
     "prism_distortion",
     "prism_distortion_with_edges",
     "project_1d",
     "project_clustered_layout",
+    "project_clustered_layout_with_radii",
     "project_clustered_rectangle_no_overlap_2d",
     "project_clustered_rectangle_no_overlap_constraints",
     "project_layout_axis",
@@ -209,7 +240,10 @@ __all__ = [
     "remove_cycle",
     "remove_cycles",
     "representative_mds",
+    "resistance_curvature_flow",
+    "robust_normalize_layout_2d",
     "sampled_crossing_number",
+    "sampled_crosslessness",
     "sampled_np1",
     "sampled_np2",
     "sampled_scale_normalized_stress",
@@ -365,6 +399,53 @@ class Sparse12HopPairs:
     def __repr__(self) -> str: ...
 
 @final
+class CsrMatrix:
+    def __new__(
+        cls,
+        num_nodes: int,
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        values: _WeightArrayLike,
+    ) -> CsrMatrix: ...
+    @staticmethod
+    def from_csr(
+        num_nodes: int,
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        values: _WeightArrayLike,
+    ) -> CsrMatrix: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def nnz(self) -> int: ...
+    def indptr(self) -> npt.NDArray[np.uint32]: ...
+    def indices(self) -> npt.NDArray[np.uint32]: ...
+    def values(self) -> npt.NDArray[np.float64]: ...
+    def diagonal(self) -> npt.NDArray[np.float64]: ...
+    def trace(self) -> float: ...
+    def gershgorin_spectral_bound(self) -> float: ...
+    def estimate_lambda_max(
+        self,
+        *,
+        num_iters: int = 10,
+        safety_factor: float = 1.02,
+        seed: int = 42,
+    ) -> float: ...
+    def estimate_lambda_max_lanczos(
+        self,
+        *,
+        num_steps: int = 16,
+        safety_factor: float = 1.05,
+        seed: int = 42,
+    ) -> float: ...
+    def spmv(self, x: _WeightArrayLike) -> npt.NDArray[np.float64]: ...
+    def scale_and_shift(self, scale: float, shift: float) -> CsrMatrix: ...
+    def is_symmetric(self, tol: float = 1e-10) -> bool: ...
+    def to_dense(self) -> npt.NDArray[np.float64]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
 class DogVaradhanLandmarks:
     @property
     def num_nodes(self) -> int: ...
@@ -385,6 +466,8 @@ class DogVaradhanLandmarks:
     def beta_eff(self) -> float: ...
     @property
     def beta_auto(self) -> float: ...
+    @property
+    def degree(self) -> int: ...
     @property
     def used_coarse_scaffold(self) -> bool: ...
     def alt_distances(
@@ -1820,7 +1903,7 @@ def sampled_scale_normalized_stress(
     graph: CsrGraph,
     layout: Layout2d,
     *,
-    num_pivots: int = 32,
+    num_pivots: int = 64,
     seed: int = 42,
 ) -> float: ...
 def sweep_crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
@@ -1832,6 +1915,61 @@ def sampled_crossing_number(
     num_samples: int = 4096,
     seed: int = 42,
 ) -> float: ...
+def crosslessness(graph: CsrGraph, layout: Layout2d) -> float: ...
+def sampled_crosslessness(
+    graph: CsrGraph,
+    layout: Layout2d,
+    *,
+    num_samples: int = 4096,
+    seed: int = 42,
+) -> float: ...
+def minimum_angle(graph: CsrGraph, layout: Layout2d) -> float: ...
+def minimum_angle_summary(graph: CsrGraph, layout: Layout2d) -> dict[str, float]: ...
+def layout_degeneracy(graph: CsrGraph, layout: Layout2d) -> dict[str, Any]: ...
+def adjusted_patch_nig(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+    *,
+    patch_radius: int = 8,
+    canvas_size: int = 2048,
+    pad_frac: float = 0.04,
+    seed: int = 42,
+) -> float: ...
+def adjusted_patch_nig_multiscale(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+    *,
+    radii: Sequence[int] | None = (2, 8, 32),
+    canvas_size: int = 2048,
+    pad_frac: float = 0.04,
+    seed: int = 42,
+) -> dict[str, float]: ...
+def landmark_stratified_rta(
+    graph: CsrGraph,
+    layout: Layout2d,
+    *,
+    num_landmarks: int = 64,
+    num_triplets: int = 1000000,
+    min_degree: int = 2,
+    seed: int = 42,
+) -> float: ...
+def landmark_stratified_rta_detail(
+    graph: CsrGraph,
+    layout: Layout2d,
+    *,
+    num_landmarks: int = 64,
+    num_triplets: int = 1000000,
+    min_degree: int = 2,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+def landmark_stratified_rta_from_landmarks(
+    layout: Layout2d,
+    landmark_ids: _IndexArrayLike,
+    landmark_dists: _IndexArrayLike | Sequence[Sequence[int]],
+    *,
+    num_triplets: int = 1000000,
+    seed: int = 42,
+) -> dict[str, Any]: ...
 def torus_crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
 def neighborhood_preservation_1hop(graph: CsrGraph, layout: Layout2d) -> float: ...
 def neighborhood_preservation_2hop_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
@@ -1888,10 +2026,17 @@ def evaluate_metrics(
     layout: Layout2d,
     targets: Iterable[str],
     *,
-    num_pivots: int = 32,
+    num_pivots: int = 64,
     num_samples: int = 4096,
     seed: int = 42,
     ideal_edge_length: float = 1.0,
+    community_labels: _IndexArrayLike | None = None,
+    num_landmarks: int = 64,
+    num_triplets: int = 1000000,
+    min_degree: int = 2,
+    patch_radius: int = 8,
+    canvas_size: int = 2048,
+    pad_frac: float = 0.04,
 ) -> dict[str, float]: ...
 def delaunay_triangulation(
     layout: Layout2d,
@@ -1945,6 +2090,15 @@ def smallest_laplacian_eigenpairs(
     bool,
 ]: ...
 def spectral_moment_stats(graph: CsrGraph) -> dict[str, float]: ...
+def anisotropic_laplacian(
+    graph: CsrGraph,
+    *,
+    alpha: float = 0.5,
+    beta: float = 0.0,
+    degree_reg: float = 0.0,
+    degree_cap: float | None = None,
+    reweighted_degree_norm: bool = True,
+) -> tuple[CsrMatrix, npt.NDArray[np.float64]]: ...
 def chebyshev_heat_spmv(
     graph: CsrGraph,
     vectors: _VectorArrayLike,
@@ -1952,6 +2106,17 @@ def chebyshev_heat_spmv(
     *,
     degree: int | None = None,
     lambda_max: float = 2.0,
+) -> npt.NDArray[np.float64]: ...
+def chebyshev_heat_spmv_matrix(
+    matrix: CsrMatrix,
+    vectors: _VectorArrayLike,
+    t: float,
+    *,
+    degree: int | None = None,
+    lambda_max: float | None = None,
+    lanczos_steps: int = 16,
+    safety_factor: float = 1.05,
+    seed: int = 42,
 ) -> npt.NDArray[np.float64]: ...
 def chebyshev_dog_jl_embedding(
     graph: CsrGraph,
@@ -1965,6 +2130,21 @@ def chebyshev_dog_jl_embedding(
     degree_normalize: bool = True,
     eps_psd: float = 1e-4,
 ) -> npt.NDArray[np.float64]: ...
+def chebyshev_dog_jl_embedding_matrix(
+    matrix: CsrMatrix,
+    *,
+    t1: float | None = None,
+    t2: float | None = None,
+    alpha: float | None = None,
+    degree: int | None = None,
+    jl_dim: int = 64,
+    seed: int = 42,
+    eps_psd: float = 1e-4,
+    lambda_max: float | None = None,
+    lanczos_steps: int = 16,
+    safety_factor: float = 1.05,
+    scale_vec: _WeightArrayLike | None = None,
+) -> npt.NDArray[np.float64]: ...
 def extract_1hop_2hop_csr(graph: CsrGraph) -> tuple[CsrGraph, CsrGraph]: ...
 def extract_sparse_1hop_2hop_pairs(
     graph: CsrGraph,
@@ -1973,6 +2153,12 @@ def extract_sparse_1hop_2hop_pairs(
 ) -> Sparse12HopPairs: ...
 def build_pure_2hop_knn(
     graph: CsrGraph,
+) -> tuple[KnnGraph, npt.NDArray[np.uint32], dict[str, Any]]: ...
+def build_capped_12hop_knn(
+    graph: CsrGraph,
+    max_2hop_per_node: int = 32,
+    *,
+    seed: int = 42,
 ) -> tuple[KnnGraph, npt.NDArray[np.uint32], dict[str, Any]]: ...
 def compute_2hop_neighborhood_sizes(graph: CsrGraph) -> npt.NDArray[np.uint32]: ...
 def compute_nodewise_2hop_perplexities(
@@ -2041,6 +2227,309 @@ def compute_regularized_dog_varadhan_landmarks(
     alpha: float | None = None,
     beta_floor: float | None = None,
 ) -> DogVaradhanLandmarks: ...
+def compute_pivoted_rhgh_landmarks(
+    graph: CsrGraph,
+    *,
+    gamma: float | None = None,
+    p_exp: float | None = None,
+    num_landmarks: int = 64,
+    min_degree: int = 2,
+    num_probes: int = 64,
+    rel_tol: float = 1e-12,
+    max_iterations: int = 500,
+    normalize_1hop: bool = True,
+    seed: int = 42,
+) -> tuple[DogVaradhanLandmarks, dict[str, Any]]: ...
+def compute_regularized_dog_varadhan_landmarks_from_matrix(
+    graph: CsrGraph,
+    matrix: CsrMatrix,
+    *,
+    lambda_max: float | None = None,
+    degree: int | None = None,
+    num_landmarks: int = 64,
+    min_degree: int = 2,
+    jl_dim: int = 64,
+    seed: int = 42,
+    degree_normalize: bool = True,
+    p_exp: float = 0.5,
+    eps_psd: float = 1e-4,
+    t_coarse: float = 48.0,
+    t1: float | None = None,
+    t2: float | None = None,
+    alpha: float | None = None,
+    beta_floor: float | None = None,
+) -> DogVaradhanLandmarks: ...
+
+@final
+class AmgPcgSolver:
+    def __new__(
+        cls,
+        num_nodes: int,
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        values: _WeightArrayLike,
+        *,
+        rel_tol: float = 1e-8,
+        abs_tol: float = 0.0,
+        max_iterations: int = 500,
+        theta: float = 0.25,
+        max_levels: int = 32,
+        max_coarse_size: int = 64,
+        pre_sweeps: int = 1,
+        post_sweeps: int = 1,
+        max_agg_size: int = 8,
+        diag_eps: float = 1e-14,
+        eig_eps: float = 1e-12,
+        sym_tol: float = 1e-10,
+        seed: int = 42,
+        randomize_ties: bool = False,
+        near_nullspace: _WeightArrayLike | None = None,
+    ) -> AmgPcgSolver: ...
+    @staticmethod
+    def from_csr(
+        num_nodes: int,
+        indptr: _IndexArrayLike,
+        indices: _IndexArrayLike,
+        values: _WeightArrayLike,
+        *,
+        rel_tol: float = 1e-8,
+        abs_tol: float = 0.0,
+        max_iterations: int = 500,
+        theta: float = 0.25,
+        max_levels: int = 32,
+        max_coarse_size: int = 64,
+        pre_sweeps: int = 1,
+        post_sweeps: int = 1,
+        max_agg_size: int = 8,
+        diag_eps: float = 1e-14,
+        eig_eps: float = 1e-12,
+        sym_tol: float = 1e-10,
+        seed: int = 42,
+        randomize_ties: bool = False,
+        near_nullspace: _WeightArrayLike | None = None,
+    ) -> AmgPcgSolver: ...
+    @staticmethod
+    def from_csr_matrix(
+        matrix: CsrMatrix,
+        *,
+        rel_tol: float = 1e-8,
+        abs_tol: float = 0.0,
+        max_iterations: int = 500,
+        theta: float = 0.25,
+        max_levels: int = 32,
+        max_coarse_size: int = 64,
+        pre_sweeps: int = 1,
+        post_sweeps: int = 1,
+        max_agg_size: int = 8,
+        diag_eps: float = 1e-14,
+        eig_eps: float = 1e-12,
+        sym_tol: float = 1e-10,
+        seed: int = 42,
+        randomize_ties: bool = False,
+        near_nullspace: _WeightArrayLike | None = None,
+    ) -> AmgPcgSolver: ...
+    @staticmethod
+    def from_graph_regularized_laplacian(
+        graph: CsrGraph,
+        gamma: float = 1.0,
+        *,
+        rel_tol: float = 1e-8,
+        abs_tol: float = 0.0,
+        max_iterations: int = 500,
+        theta: float = 0.25,
+        max_levels: int = 32,
+        max_coarse_size: int = 64,
+        pre_sweeps: int = 1,
+        post_sweeps: int = 1,
+        max_agg_size: int = 8,
+        diag_eps: float = 1e-14,
+        eig_eps: float = 1e-12,
+        sym_tol: float = 1e-10,
+        seed: int = 42,
+        randomize_ties: bool = False,
+    ) -> AmgPcgSolver: ...
+    @staticmethod
+    def from_graph_laplacian(
+        graph: CsrGraph,
+        kind: str = "combinatorial",
+        shift: float = 0.0,
+        *,
+        rel_tol: float = 1e-8,
+        abs_tol: float = 0.0,
+        max_iterations: int = 500,
+        theta: float = 0.25,
+        max_levels: int = 32,
+        max_coarse_size: int = 64,
+        pre_sweeps: int = 1,
+        post_sweeps: int = 1,
+        max_agg_size: int = 8,
+        diag_eps: float = 1e-14,
+        eig_eps: float = 1e-12,
+        sym_tol: float = 1e-10,
+        seed: int = 42,
+        randomize_ties: bool = False,
+    ) -> AmgPcgSolver: ...
+    def solve(
+        self,
+        b: _WeightArrayLike,
+        x0: _WeightArrayLike | None = None,
+    ) -> tuple[npt.NDArray[np.float64], dict[str, Any]]: ...
+    def solve_batch(
+        self,
+        b: _MatrixArrayLike,
+        x0: _MatrixArrayLike | None = None,
+    ) -> tuple[npt.NDArray[np.float64], dict[str, Any]]: ...
+    def start_solve(
+        self,
+        b: _WeightArrayLike,
+        x0: _WeightArrayLike | None = None,
+    ) -> str: ...
+    def step(self) -> str: ...
+    def run_steps(self, steps: int) -> str: ...
+    def run(self) -> str: ...
+    def solution(self) -> npt.NDArray[np.float64]: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_levels(self) -> int: ...
+    @property
+    def coarsest_size(self) -> int: ...
+    @property
+    def operator_complexity(self) -> float: ...
+    @property
+    def max_level_nnz(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def residual_norm(self) -> float: ...
+    @property
+    def relative_residual(self) -> float: ...
+    @property
+    def converged(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class EffectiveResistanceResult:
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def num_components(self) -> int: ...
+    @property
+    def foster_sum(self) -> float: ...
+    @property
+    def expected_foster(self) -> float: ...
+    @property
+    def foster_rel_err(self) -> float: ...
+    @property
+    def used_exact(self) -> bool: ...
+    @property
+    def amg_total_iterations(self) -> int: ...
+    @property
+    def amg_max_relative_residual(self) -> float: ...
+    @property
+    def amg_all_converged(self) -> bool: ...
+    def edge_u(self) -> npt.NDArray[np.uint32]: ...
+    def edge_v(self) -> npt.NDArray[np.uint32]: ...
+    def edge_lengths(self) -> npt.NDArray[np.float64]: ...
+    def conductances(self) -> npt.NDArray[np.float64]: ...
+    def effective_resistances(self) -> npt.NDArray[np.float64]: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ResistanceCurvatureFlowResult:
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def num_edges(self) -> int: ...
+    @property
+    def num_components(self) -> int: ...
+    @property
+    def foster_sum(self) -> float: ...
+    @property
+    def expected_foster(self) -> float: ...
+    @property
+    def foster_rel_err(self) -> float: ...
+    @property
+    def mean_link_curvature(self) -> float: ...
+    @property
+    def std_link_curvature(self) -> float: ...
+    @property
+    def min_link_curvature(self) -> float: ...
+    @property
+    def max_link_curvature(self) -> float: ...
+    @property
+    def mean_vertex_curvature(self) -> float: ...
+    @property
+    def min_vertex_curvature(self) -> float: ...
+    @property
+    def max_vertex_curvature(self) -> float: ...
+    @property
+    def used_exact(self) -> bool: ...
+    @property
+    def amg_total_iterations(self) -> int: ...
+    @property
+    def amg_max_relative_residual(self) -> float: ...
+    @property
+    def amg_all_converged(self) -> bool: ...
+    @property
+    def suggested_geometry(self) -> str: ...
+    @property
+    def suggested_manifold(self) -> str | None: ...
+    def edge_u(self) -> npt.NDArray[np.uint32]: ...
+    def edge_v(self) -> npt.NDArray[np.uint32]: ...
+    def edge_lengths(self) -> npt.NDArray[np.float64]: ...
+    def conductances(self) -> npt.NDArray[np.float64]: ...
+    def effective_resistances(self) -> npt.NDArray[np.float64]: ...
+    def vertex_curvatures(self) -> npt.NDArray[np.float64]: ...
+    def link_curvatures(self) -> npt.NDArray[np.float64]: ...
+    def step_history(self) -> list[dict[str, Any]]: ...
+    def length_graph(self) -> CsrGraph: ...
+    def conductance_graph(self) -> CsrGraph: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def compute_effective_resistances(
+    graph: CsrGraph,
+    *,
+    jl_dim: int = 64,
+    seed: int = 42,
+    weights_are_lengths: bool = True,
+    exact: bool | None = None,
+    exact_max_nodes: int = 64,
+    eig_eps: float = 1e-12,
+    rel_tol: float = 1e-8,
+    max_iterations: int = 500,
+) -> EffectiveResistanceResult: ...
+def resistance_curvature_flow(
+    graph: CsrGraph,
+    *,
+    steps: int = 2,
+    eta: float = 0.2,
+    kappa_max: float = 2.0,
+    min_edge_length: float = 1e-6,
+    jl_dim: int = 64,
+    seed: int = 42,
+    weights_are_lengths: bool = True,
+    exact: bool | None = None,
+    exact_max_nodes: int = 64,
+    eig_eps: float = 1e-12,
+    rel_tol: float = 1e-8,
+    max_iterations: int = 500,
+    hyperbolic_threshold: float = -0.05,
+    spherical_threshold: float = 0.2,
+    torus_std_threshold: float = 0.05,
+) -> ResistanceCurvatureFlowResult: ...
 
 @final
 class ManifoldLayout2d:
@@ -2058,6 +2547,22 @@ class ManifoldLayout2d:
     def from_layout(kind: str, layout: Layout2d) -> ManifoldLayout2d: ...
     @staticmethod
     def from_coords(kind: str, coords: _CoordArrayLike) -> ManifoldLayout2d: ...
+    @staticmethod
+    def random_init(
+        kind: str,
+        n: int,
+        *,
+        scale: float = 0.25,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ManifoldLayout2d: ...
+    @staticmethod
+    def from_layout_scaled(
+        kind: str,
+        layout: Layout2d,
+        *,
+        max_radius: float = 0.7,
+    ) -> ManifoldLayout2d: ...
     @property
     def kind(self) -> str: ...
     @property
@@ -2079,9 +2584,14 @@ class ManifoldLayout2d:
     def tangent_delta(self, i: int, j: int) -> tuple[float, float]: ...
     def apply_tangent_step(self, i: int, vx: float, vy: float) -> None: ...
     def project_all(self) -> None: ...
+    def poincare_centroid(self) -> tuple[float, float]: ...
+    def recenter_poincare(self, cx: float, cy: float) -> None: ...
+    def recenter_poincare_at(self, index: int) -> None: ...
+    def center_poincare_centroid(self) -> None: ...
     def __repr__(self) -> str: ...
 
 def poincare_distance(x1: float, y1: float, x2: float, y2: float) -> float: ...
+def poincare_mobius_add(x1: float, y1: float, x2: float, y2: float) -> tuple[float, float]: ...
 def spherical_distance(
     lon1: float, colat1: float, lon2: float, colat2: float
 ) -> float: ...
@@ -2211,6 +2721,7 @@ class TsNetSolver:
         w2: float = 0.5,
         max_2hop_per_node: int | None = None,
         *,
+        degree_beta: float = 0.0,
         backend: str = "fft",
         iterations_stage1: int = 250,
         iterations_stage2: int = 250,
@@ -2327,6 +2838,7 @@ class SgdSolver:
         neg_per_node: int | None = None,
         num_pivots: int = 50,
         core_pivots: bool = True,
+        degree_weight_beta: float = 0.0,
         t_max: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -2363,6 +2875,7 @@ class SgdSolver:
         neg_per_node: int | None = None,
         num_pivots: int = 50,
         core_pivots: bool = True,
+        degree_weight_beta: float = 0.0,
         t_max: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -2438,9 +2951,76 @@ class SgdSolver:
         phase3_iters: int = 250,
         learning_rate: float = 1.0,
         keep_all_1hop: bool = False,
+        max_1hop_per_node: int | None = None,
+        degree_weight_beta: float = 0.0,
+        num_landmarks: int = 16,
+        landmarks: DogVaradhanLandmarks | _MatrixArrayLike | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
+    @staticmethod
+    def pacmap_graph_with_landmarks(
+        graph: CsrGraph,
+        landmarks: DogVaradhanLandmarks | _MatrixArrayLike,
+        *,
+        n_neighbors: int = 10,
+        mn_ratio: float = 0.5,
+        fp_ratio: float = 2.0,
+        phase1_iters: int = 100,
+        phase2_iters: int = 100,
+        phase3_iters: int = 250,
+        learning_rate: float = 1.0,
+        keep_all_1hop: bool = False,
+        max_1hop_per_node: int | None = None,
+        degree_weight_beta: float = 0.0,
+        num_landmarks: int = 16,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def pacmap_graph_with_backbone(
+        graph: CsrGraph,
+        *,
+        n_neighbors: int = 10,
+        mn_ratio: float = 0.5,
+        fp_ratio: float = 2.0,
+        phase1_iters: int = 100,
+        phase2_iters: int = 100,
+        phase3_iters: int = 250,
+        learning_rate: float = 1.0,
+        keep_all_1hop: bool = False,
+        max_1hop_per_node: int | None = None,
+        degree_weight_beta: float = 0.0,
+        num_landmarks: int = 16,
+        max_coarse_nodes: int = 10000,
+        resolution: float = 1.0,
+        resolution_decay: float = 0.5,
+        max_passes: int = 100,
+        min_modularity_gain: float = 1e-7,
+        max_outer_rounds: int = 16,
+        edge_length_mode: str = "conductance_inverse",
+        distance_backend: str = "rhgh",
+        alpha: float = 0.75,
+        c0: float = 0.5,
+        kappa: float = 1.0,
+        gamma_w: float = 0.5,
+        gamma_m: float = 0.5,
+        mu_ov: float = 1.0,
+        m_gap: float = 0.1,
+        coarse_pivots: int = 64,
+        coarse_neg_per_node: int = 16,
+        coarse_t_max: int = 80,
+        rhgh_gamma: float | None = None,
+        rhgh_p: float | None = None,
+        rcf_steps: int = 2,
+        rcf_eta: float = 0.2,
+        jitter_scale: float = 0.5,
+        gamma_tether: float = 0.5,
+        target_std: float | None = 1.0,
+        robust_quantile: float = 0.95,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> tuple[SgdSolver, Layout2d, dict[str, Any]]: ...
     @staticmethod
     def sgd2(
         graph: CsrGraph,
@@ -2604,6 +3184,8 @@ class SpatialIntruderRefiner:
         w_anchor2: float = 0.0,
         k_cap_decay: float = 1.0,
         k_cap_min: int = 1,
+        min_sep_ratio: float = 0.0,
+        w_sep: float = 0.0,
         dtype: _DtypeLike = "float64",
     ) -> SpatialIntruderRefiner: ...
     def step(self, layout: Layout2d) -> str: ...
@@ -2747,6 +3329,64 @@ def project_clustered_layout(
     spread_radius: float = 0.1,
     seed: int = 42,
 ) -> Layout2d: ...
+def louvain_coarsen(
+    graph: CsrGraph,
+    *,
+    max_coarse_nodes: int = 10000,
+    resolution: float = 1.0,
+    resolution_decay: float = 0.5,
+    max_passes: int = 100,
+    min_modularity_gain: float = 1e-7,
+    max_outer_rounds: int = 16,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+def project_clustered_layout_with_radii(
+    coarse_layout: Layout2d,
+    node_to_coarse: _IndexArrayLike,
+    cluster_radii: _WeightArrayLike,
+    *,
+    jitter_scale: float = 0.5,
+    seed: int = 42,
+) -> Layout2d: ...
+def align_clustered_centroids(
+    fine_layout: Layout2d,
+    coarse_layout: Layout2d,
+    node_to_coarse: _IndexArrayLike,
+    *,
+    gamma_tether: float = 0.5,
+) -> None: ...
+def coarse_backbone_init(
+    graph: CsrGraph,
+    *,
+    max_coarse_nodes: int = 10000,
+    resolution: float = 1.0,
+    resolution_decay: float = 0.5,
+    max_passes: int = 100,
+    min_modularity_gain: float = 1e-7,
+    max_outer_rounds: int = 16,
+    edge_length_mode: str = "conductance_inverse",
+    distance_backend: str = "rhgh",
+    alpha: float = 0.75,
+    c0: float = 0.5,
+    kappa: float = 1.0,
+    gamma_w: float = 0.5,
+    gamma_m: float = 0.5,
+    mu_ov: float = 1.0,
+    m_gap: float = 0.1,
+    coarse_pivots: int = 64,
+    coarse_neg_per_node: int = 16,
+    coarse_t_max: int = 80,
+    rhgh_gamma: float | None = None,
+    rhgh_p: float | None = None,
+    rcf_steps: int = 2,
+    rcf_eta: float = 0.2,
+    jitter_scale: float = 0.5,
+    gamma_tether: float = 0.5,
+    target_std: float | None = 1.0,
+    robust_quantile: float = 0.95,
+    seed: int = 42,
+    dtype: _DtypeLike = "float64",
+) -> dict[str, Any]: ...
 def py_coarsen(
     graph: GraphAdapter,
     node_group_func: Callable[[int], int],
@@ -2992,7 +3632,7 @@ class ForceAtlas2Solver:
         graph: CsrGraph,
         *,
         iterations: int = 200,
-        theta: float = 0.5,
+        theta: float = 1.2,
         use_barnes_hut: bool = True,
         linlog_mode: bool = False,
         strong_gravity: bool = False,
@@ -3027,12 +3667,12 @@ class YifanHuSolver:
         cls,
         graph: CsrGraph,
         *,
-        max_iterations_per_level: int = 100,
+        max_iterations_per_level: int = 200,
         step_size: float = 1.0,
-        step_ratio: float = 0.95,
+        step_ratio: float = 0.9,
         relative_strength: float = 0.2,
         optimal_distance: float | None = None,
-        theta: float = 0.5,
+        theta: float = 1.2,
         min_coarsen_size: int = 30,
         min_coarsen_ratio: float = 0.75,
         convergence_tolerance: float = 1e-4,
@@ -3188,6 +3828,13 @@ def rd_mds(
 def normalize_layout_2d(
     layout: Layout2d, *, target_std: float = 1.0, seed: int = 42
 ) -> None: ...
+def robust_normalize_layout_2d(
+    layout: Layout2d,
+    *,
+    target_std: float = 1.0,
+    quantile: float = 0.95,
+    seed: int = 42,
+) -> None: ...
 def representative_mds(
     distances_to_reps: _MatrixArrayLike,
     dims: int = 2,
@@ -3223,6 +3870,14 @@ def build_rerank_knn(
 def graph_row_normalized_probabilities(
     graph: CsrGraph,
 ) -> SparseProbabilities: ...
+def graph_12hop_row_normalized_probabilities(
+    graph: CsrGraph,
+    w2: float = 0.5,
+    max_2hop_per_node: int | None = None,
+    *,
+    degree_beta: float = 0.0,
+    seed: int = 42,
+) -> SparseProbabilities: ...
 def symmetrize_row_normalized(
     num_nodes: int,
     indptr: _IndexArrayLike,
@@ -3253,3 +3908,117 @@ def apply_relative_distance_floor(
     npt.NDArray[np.float64],
     float,
 ]: ...
+
+@final
+class ScreenedPoissonField2d:
+    def __new__(
+        cls,
+        *,
+        kernel: str = "screened_poisson",
+        grid_size: int = 2048,
+        padding_factor: int = 2,
+        margin_ratio: float = 0.1,
+        sigma_ratio: float = 0.015,
+        sigma: float | None = None,
+        screening_length_ratio: float = 0.2,
+        kappa: float | None = None,
+        rho_max_factor: float = 4.0,
+        rho_max: float | None = None,
+        exact_adjoint: bool = True,
+        dtype: _DtypeLike = "float64",
+    ) -> ScreenedPoissonField2d: ...
+    def evaluate(self, layout: Layout2d) -> dict[str, Any]: ...
+    def evaluate_in_bounds(
+        self, layout: Layout2d, bounds: _WeightArrayLike
+    ) -> dict[str, Any]: ...
+    def workspace_memory_bytes(self) -> int: ...
+    @property
+    def grid_size(self) -> int: ...
+    @property
+    def padding_factor(self) -> int: ...
+    @property
+    def kernel(self) -> str: ...
+    @property
+    def exact_adjoint(self) -> bool: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ScreenedPoissonRefiner:
+    def __new__(
+        cls,
+        num_nodes: int,
+        *,
+        kernel: str = "screened_poisson",
+        grid_size: int = 2048,
+        padding_factor: int = 2,
+        margin_ratio: float = 0.1,
+        sigma_ratio: float = 0.015,
+        sigma: float | None = None,
+        screening_length_ratio: float = 0.2,
+        kappa: float | None = None,
+        rho_max_factor: float = 4.0,
+        rho_max: float | None = None,
+        exact_adjoint: bool = True,
+        iterations: int = 20,
+        step_size: float = 0.25,
+        momentum: float = 0.5,
+        max_step_ratio: float = 0.05,
+        anchor_weight: float = 0.0,
+        gamma_tether: float = 0.0,
+        recenter: bool = True,
+        energy_tol: float = 1e-12,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ScreenedPoissonRefiner: ...
+    @staticmethod
+    def from_graph(
+        graph: CsrGraph,
+        *,
+        kernel: str = "screened_poisson",
+        grid_size: int = 2048,
+        padding_factor: int = 2,
+        margin_ratio: float = 0.1,
+        sigma_ratio: float = 0.015,
+        sigma: float | None = None,
+        screening_length_ratio: float = 0.2,
+        kappa: float | None = None,
+        rho_max_factor: float = 4.0,
+        rho_max: float | None = None,
+        exact_adjoint: bool = True,
+        iterations: int = 20,
+        step_size: float = 0.25,
+        momentum: float = 0.5,
+        max_step_ratio: float = 0.05,
+        anchor_weight: float = 0.0,
+        gamma_tether: float = 0.0,
+        recenter: bool = True,
+        energy_tol: float = 1e-12,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ScreenedPoissonRefiner: ...
+    def set_coarse_tether(
+        self, coarse_layout: Layout2d, node_to_coarse: _IndexArrayLike
+    ) -> None: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def apply_epoch_step(self, layout: Layout2d) -> dict[str, Any]: ...
+    def last_stats(self) -> dict[str, Any]: ...
+    def workspace_memory_bytes(self) -> int: ...
+    @property
+    def last_energy(self) -> float: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...

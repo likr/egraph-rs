@@ -14,8 +14,9 @@ use egraph_clustering::{
 };
 use egraph_core::{
     CoreError, CoreResult, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
-    poincare_distance as core_poincare_distance, spherical_distance as core_spherical_distance,
-    torus_distance as core_torus_distance, wrap_torus_point as core_wrap_torus_point,
+    poincare_distance as core_poincare_distance, poincare_mobius_add as core_poincare_mobius_add,
+    spherical_distance as core_spherical_distance, torus_distance as core_torus_distance,
+    wrap_torus_point as core_wrap_torus_point,
 };
 use egraph_layout::{
     BarrierSymmetry, GuMapConfig, GuMapSolver, KamadaKawaiConfig, KamadaKawaiSolver,
@@ -819,6 +820,66 @@ impl PyManifoldLayout2d {
         .map_err(core_error_to_py)
     }
 
+    /// Create a deterministically seeded safe random initialization on `kind`.
+    #[staticmethod]
+    #[pyo3(
+        signature = (kind, n, *, scale = StrictF64(0.25), seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(kind, n, *, scale=0.25, seed=42, dtype='float64')"
+    )]
+    fn random_init(
+        py: Python<'_>,
+        kind: &str,
+        n: StrictUsize,
+        scale: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let mk = parse_manifold_kind(kind).map_err(PyValueError::new_err)?;
+        let n_val = n.0;
+        let scale_val = scale.0;
+        let seed_val = seed.0;
+        py.detach(|| match dtype {
+            ScalarDtype::F64 => {
+                ManifoldLayout2d::<f64>::random_init(mk, n_val, scale_val, seed_val)
+                    .map(ManifoldLayout2dInner::F64)
+            }
+            ScalarDtype::F32 => {
+                ManifoldLayout2d::<f32>::random_init(mk, n_val, scale_val, seed_val)
+                    .map(ManifoldLayout2dInner::F32)
+            }
+        })
+        .map(|inner| Self { inner })
+        .map_err(core_error_to_py)
+    }
+
+    /// Construct a `ManifoldLayout2d` from a Euclidean `Layout2d` scaled safely inside `max_radius`.
+    #[staticmethod]
+    #[pyo3(
+        signature = (kind, layout, *, max_radius = StrictF64(0.7)),
+        text_signature = "(kind, layout, *, max_radius=0.7)"
+    )]
+    fn from_layout_scaled(
+        py: Python<'_>,
+        kind: &str,
+        layout: &PyLayout2d,
+        max_radius: StrictF64,
+    ) -> PyResult<Self> {
+        let mk = parse_manifold_kind(kind).map_err(PyValueError::new_err)?;
+        let mr = max_radius.0;
+        py.detach(|| match layout.inner() {
+            Layout2dInner::F64(buf) => {
+                ManifoldLayout2d::from_layout_scaled(mk, &buf.to_layout2d(), mr)
+                    .map(ManifoldLayout2dInner::F64)
+            }
+            Layout2dInner::F32(buf) => {
+                ManifoldLayout2d::from_layout_scaled(mk, &buf.to_layout2d(), mr)
+                    .map(ManifoldLayout2dInner::F32)
+            }
+        })
+        .map(|inner| Self { inner })
+        .map_err(core_error_to_py)
+    }
+
     /// Canonical manifold kind name (`"hyperbolic"`, `"spherical"`, or `"torus"`).
     #[getter]
     fn kind(&self) -> &'static str {
@@ -1023,6 +1084,65 @@ impl PyManifoldLayout2d {
         }
     }
 
+    /// Compute the closed-form Möbius-equivariant Einstein midpoint centroid on the Poincaré disk.
+    fn poincare_centroid(&self) -> PyResult<(f64, f64)> {
+        match &self.inner {
+            ManifoldLayout2dInner::F64(m) => m.poincare_centroid().map_err(core_error_to_py),
+            ManifoldLayout2dInner::F32(m) => m
+                .poincare_centroid()
+                .map(|(x, y)| (f64::from(x), f64::from(y)))
+                .map_err(core_error_to_py),
+        }
+    }
+
+    /// Isometrically recenter all Poincaré disk points at `(cx, cy)` via Möbius automorphism.
+    #[pyo3(signature = (cx, cy), text_signature = "($self, cx, cy)")]
+    fn recenter_poincare(&mut self, cx: StrictF64, cy: StrictF64) -> PyResult<()> {
+        match &mut self.inner {
+            ManifoldLayout2dInner::F64(m) => {
+                m.recenter_poincare(cx.0, cy.0).map_err(core_error_to_py)
+            }
+            ManifoldLayout2dInner::F32(m) => {
+                let cx32 = cx.0 as f32;
+                let cy32 = cy.0 as f32;
+                if cx.0.is_finite() && !cx32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.recenter_poincare cx={} overflows float32",
+                        cx.0
+                    )));
+                }
+                if cy.0.is_finite() && !cy32.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "ManifoldLayout2d.recenter_poincare cy={} overflows float32",
+                        cy.0
+                    )));
+                }
+                m.recenter_poincare(cx32, cy32).map_err(core_error_to_py)
+            }
+        }
+    }
+
+    /// Isometrically recenter the Poincaré disk layout so vertex `index` moves to `(0, 0)`.
+    #[pyo3(signature = (index), text_signature = "($self, index)")]
+    fn recenter_poincare_at(&mut self, index: StrictUsize) -> PyResult<()> {
+        match &mut self.inner {
+            ManifoldLayout2dInner::F64(m) => {
+                m.recenter_poincare_at(index.0).map_err(core_error_to_py)
+            }
+            ManifoldLayout2dInner::F32(m) => {
+                m.recenter_poincare_at(index.0).map_err(core_error_to_py)
+            }
+        }
+    }
+
+    /// Isometrically recenter the Poincaré disk layout so its Einstein midpoint lies at `(0, 0)`.
+    fn center_poincare_centroid(&mut self) -> PyResult<()> {
+        match &mut self.inner {
+            ManifoldLayout2dInner::F64(m) => m.center_poincare_centroid().map_err(core_error_to_py),
+            ManifoldLayout2dInner::F32(m) => m.center_poincare_centroid().map_err(core_error_to_py),
+        }
+    }
+
     /// Return a concise string representation of the `ManifoldLayout2d`.
     fn __repr__(&self) -> String {
         format!(
@@ -1039,6 +1159,13 @@ impl PyManifoldLayout2d {
 #[pyo3(signature = (x1, y1, x2, y2), text_signature = "(x1, y1, x2, y2)")]
 fn poincare_distance(x1: StrictF64, y1: StrictF64, x2: StrictF64, y2: StrictF64) -> f64 {
     core_poincare_distance(x1.0, y1.0, x2.0, y2.0)
+}
+
+/// Compute Poincaré disk Möbius addition `(x1, y1) (+) (x2, y2)` inside the open unit disk.
+#[pyfunction]
+#[pyo3(signature = (x1, y1, x2, y2), text_signature = "(x1, y1, x2, y2)")]
+fn poincare_mobius_add(x1: StrictF64, y1: StrictF64, x2: StrictF64, y2: StrictF64) -> (f64, f64) {
+    core_poincare_mobius_add(x1.0, y1.0, x2.0, y2.0)
 }
 
 /// Compute great-circle distance on the unit sphere given `(lon, colatitude)` in radians.
@@ -1578,6 +1705,7 @@ impl PyTsNetSolver {
             w2 = StrictF64(0.5),
             max_2hop_per_node = None,
             *,
+            degree_beta = StrictF64(0.0),
             backend = "fft",
             iterations_stage1 = StrictUsize(250),
             iterations_stage2 = StrictUsize(250),
@@ -1598,13 +1726,14 @@ impl PyTsNetSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, backend='fft', iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, degree_beta=0.0, backend='fft', iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_graph_row_normalized(
         py: Python<'_>,
         graph: &PyCsrGraph,
         w2: StrictF64,
         max_2hop_per_node: Option<StrictUsize>,
+        degree_beta: StrictF64,
         backend: &str,
         iterations_stage1: StrictUsize,
         iterations_stage2: StrictUsize,
@@ -1655,15 +1784,28 @@ impl PyTsNetSolver {
         let g = graph.inner();
         let w2_val = w2.0;
         let max_2hop_val = max_2hop_per_node.map(|v| v.0);
+        let beta_val = degree_beta.0;
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    TsNetSolver::<f64>::from_graph_row_normalized(g, w2_val, max_2hop_val, cfg)
-                        .map(TsNetInner::F64)
+                    TsNetSolver::<f64>::from_graph_row_normalized_with_degree_decay(
+                        g,
+                        w2_val,
+                        max_2hop_val,
+                        beta_val,
+                        cfg,
+                    )
+                    .map(TsNetInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    TsNetSolver::<f32>::from_graph_row_normalized(g, w2_val, max_2hop_val, cfg)
-                        .map(TsNetInner::F32)
+                    TsNetSolver::<f32>::from_graph_row_normalized_with_degree_decay(
+                        g,
+                        w2_val,
+                        max_2hop_val,
+                        beta_val,
+                        cfg,
+                    )
+                    .map(TsNetInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -2266,6 +2408,7 @@ impl PySgdSolver {
             neg_per_node = None,
             num_pivots = StrictUsize(50),
             core_pivots = true,
+            degree_weight_beta = StrictF64(0.0),
             t_max = StrictUsize(60),
             eps = StrictF64(0.01),
             schedule = "exponential",
@@ -2273,7 +2416,7 @@ impl PySgdSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, landmarks, pivots=None, *, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, landmarks, pivots=None, *, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
     )]
     fn sparse_barrier_from_landmarks(
         py: Python<'_>,
@@ -2293,6 +2436,7 @@ impl PySgdSolver {
         neg_per_node: Option<StrictUsize>,
         num_pivots: StrictUsize,
         core_pivots: bool,
+        degree_weight_beta: StrictF64,
         t_max: StrictUsize,
         eps: StrictF64,
         schedule: &str,
@@ -2320,6 +2464,7 @@ impl PySgdSolver {
             neg_per_node: neg_per_node.map(|v| v.0),
             num_pivots: num_pivots.0,
             core_pivots,
+            degree_weight_beta: degree_weight_beta.0,
             schedule: sched,
             seed: seed.0,
         };
@@ -2382,6 +2527,7 @@ impl PySgdSolver {
             neg_per_node = None,
             num_pivots = StrictUsize(50),
             core_pivots = true,
+            degree_weight_beta = StrictF64(0.0),
             t_max = StrictUsize(60),
             eps = StrictF64(0.01),
             schedule = "exponential",
@@ -2389,7 +2535,7 @@ impl PySgdSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
     )]
     fn sparse_barrier_dog(
         py: Python<'_>,
@@ -2419,6 +2565,7 @@ impl PySgdSolver {
         neg_per_node: Option<StrictUsize>,
         num_pivots: StrictUsize,
         core_pivots: bool,
+        degree_weight_beta: StrictF64,
         t_max: StrictUsize,
         eps: StrictF64,
         schedule: &str,
@@ -2458,6 +2605,7 @@ impl PySgdSolver {
             neg_per_node: neg_per_node.map(|v| v.0),
             num_pivots: num_pivots.0,
             core_pivots,
+            degree_weight_beta: degree_weight_beta.0,
             schedule: sched,
             seed: seed.0,
         };
@@ -2690,10 +2838,14 @@ impl PySgdSolver {
             phase3_iters = StrictUsize(250),
             learning_rate = StrictF64(1.0),
             keep_all_1hop = false,
+            max_1hop_per_node = None,
+            degree_weight_beta = StrictF64(0.0),
+            num_landmarks = StrictUsize(16),
+            landmarks = None,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, seed=42, dtype='float64')"
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, landmarks=None, seed=42, dtype='float64')"
     )]
     fn pacmap_graph(
         py: Python<'_>,
@@ -2706,6 +2858,10 @@ impl PySgdSolver {
         phase3_iters: StrictUsize,
         learning_rate: StrictF64,
         keep_all_1hop: bool,
+        max_1hop_per_node: Option<StrictUsize>,
+        degree_weight_beta: StrictF64,
+        num_landmarks: StrictUsize,
+        landmarks: Option<&Bound<'_, PyAny>>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -2720,6 +2876,211 @@ impl PySgdSolver {
             phase3_iters,
             learning_rate,
             keep_all_1hop,
+            max_1hop_per_node,
+            degree_weight_beta,
+            num_landmarks,
+            landmarks,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a 3-tier `PaCMAP-Graph` (`NB` / `MN` / `FP`) `SgdSolver` with external landmarks.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            landmarks,
+            *,
+            n_neighbors = StrictUsize(10),
+            mn_ratio = StrictF64(0.5),
+            fp_ratio = StrictF64(2.0),
+            phase1_iters = StrictUsize(100),
+            phase2_iters = StrictUsize(100),
+            phase3_iters = StrictUsize(250),
+            learning_rate = StrictF64(1.0),
+            keep_all_1hop = false,
+            max_1hop_per_node = None,
+            degree_weight_beta = StrictF64(0.0),
+            num_landmarks = StrictUsize(16),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, landmarks, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, seed=42, dtype='float64')"
+    )]
+    fn pacmap_graph_with_landmarks(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        landmarks: &Bound<'_, PyAny>,
+        n_neighbors: StrictUsize,
+        mn_ratio: StrictF64,
+        fp_ratio: StrictF64,
+        phase1_iters: StrictUsize,
+        phase2_iters: StrictUsize,
+        phase3_iters: StrictUsize,
+        learning_rate: StrictF64,
+        keep_all_1hop: bool,
+        max_1hop_per_node: Option<StrictUsize>,
+        degree_weight_beta: StrictF64,
+        num_landmarks: StrictUsize,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_m4::build_pacmap_graph_solver(
+            py,
+            graph,
+            n_neighbors,
+            mn_ratio,
+            fp_ratio,
+            phase1_iters,
+            phase2_iters,
+            phase3_iters,
+            learning_rate,
+            keep_all_1hop,
+            max_1hop_per_node,
+            degree_weight_beta,
+            num_landmarks,
+            Some(landmarks),
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
+    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks, returning
+    /// `(solver, initial_layout, backbone_dict)`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            n_neighbors = StrictUsize(10),
+            mn_ratio = StrictF64(0.5),
+            fp_ratio = StrictF64(2.0),
+            phase1_iters = StrictUsize(100),
+            phase2_iters = StrictUsize(100),
+            phase3_iters = StrictUsize(250),
+            learning_rate = StrictF64(1.0),
+            keep_all_1hop = false,
+            max_1hop_per_node = None,
+            degree_weight_beta = StrictF64(0.0),
+            num_landmarks = StrictUsize(16),
+            max_coarse_nodes = StrictUsize(10_000),
+            resolution = StrictF64(1.0),
+            resolution_decay = StrictF64(0.5),
+            max_passes = StrictUsize(100),
+            min_modularity_gain = StrictF64(1e-7),
+            max_outer_rounds = StrictUsize(16),
+            edge_length_mode = "conductance_inverse",
+            distance_backend = "rhgh",
+            alpha = StrictF64(0.75),
+            c0 = StrictF64(0.5),
+            kappa = StrictF64(1.0),
+            gamma_w = StrictF64(0.5),
+            gamma_m = StrictF64(0.5),
+            mu_ov = StrictF64(1.0),
+            m_gap = StrictF64(0.1),
+            coarse_pivots = StrictUsize(64),
+            coarse_neg_per_node = StrictUsize(16),
+            coarse_t_max = StrictUsize(80),
+            rhgh_gamma = None,
+            rhgh_p = None,
+            rcf_steps = StrictUsize(2),
+            rcf_eta = StrictF64(0.2),
+            jitter_scale = StrictF64(0.5),
+            gamma_tether = StrictF64(0.5),
+            target_std = Some(StrictF64(1.0)),
+            robust_quantile = StrictF64(0.95),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, max_coarse_nodes=10000, resolution=1.0, resolution_decay=0.5, max_passes=100, min_modularity_gain=1e-7, max_outer_rounds=16, edge_length_mode='conductance_inverse', distance_backend='rhgh', alpha=0.75, c0=0.5, kappa=1.0, gamma_w=0.5, gamma_m=0.5, mu_ov=1.0, m_gap=0.1, coarse_pivots=64, coarse_neg_per_node=16, coarse_t_max=80, rhgh_gamma=None, rhgh_p=None, rcf_steps=2, rcf_eta=0.2, jitter_scale=0.5, gamma_tether=0.5, target_std=1.0, robust_quantile=0.95, seed=42, dtype='float64')"
+    )]
+    fn pacmap_graph_with_backbone(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        n_neighbors: StrictUsize,
+        mn_ratio: StrictF64,
+        fp_ratio: StrictF64,
+        phase1_iters: StrictUsize,
+        phase2_iters: StrictUsize,
+        phase3_iters: StrictUsize,
+        learning_rate: StrictF64,
+        keep_all_1hop: bool,
+        max_1hop_per_node: Option<StrictUsize>,
+        degree_weight_beta: StrictF64,
+        num_landmarks: StrictUsize,
+        max_coarse_nodes: StrictUsize,
+        resolution: StrictF64,
+        resolution_decay: StrictF64,
+        max_passes: StrictUsize,
+        min_modularity_gain: StrictF64,
+        max_outer_rounds: StrictUsize,
+        edge_length_mode: &str,
+        distance_backend: &str,
+        alpha: StrictF64,
+        c0: StrictF64,
+        kappa: StrictF64,
+        gamma_w: StrictF64,
+        gamma_m: StrictF64,
+        mu_ov: StrictF64,
+        m_gap: StrictF64,
+        coarse_pivots: StrictUsize,
+        coarse_neg_per_node: StrictUsize,
+        coarse_t_max: StrictUsize,
+        rhgh_gamma: Option<StrictF64>,
+        rhgh_p: Option<StrictF64>,
+        rcf_steps: StrictUsize,
+        rcf_eta: StrictF64,
+        jitter_scale: StrictF64,
+        gamma_tether: StrictF64,
+        target_std: Option<StrictF64>,
+        robust_quantile: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<(Self, PyLayout2d, Py<PyDict>)> {
+        super::v6_m5::build_pacmap_graph_with_backbone(
+            py,
+            graph,
+            n_neighbors,
+            mn_ratio,
+            fp_ratio,
+            phase1_iters,
+            phase2_iters,
+            phase3_iters,
+            learning_rate,
+            keep_all_1hop,
+            max_1hop_per_node,
+            degree_weight_beta,
+            num_landmarks,
+            max_coarse_nodes,
+            resolution,
+            resolution_decay,
+            max_passes,
+            min_modularity_gain,
+            max_outer_rounds,
+            edge_length_mode,
+            distance_backend,
+            alpha,
+            c0,
+            kappa,
+            gamma_w,
+            gamma_m,
+            mu_ov,
+            m_gap,
+            coarse_pivots,
+            coarse_neg_per_node,
+            coarse_t_max,
+            rhgh_gamma,
+            rhgh_p,
+            rcf_steps,
+            rcf_eta,
+            jitter_scale,
+            gamma_tether,
+            target_std,
+            robust_quantile,
             seed,
             dtype,
         )
@@ -3000,14 +3361,14 @@ impl PyGuMapSolver {
             sigma_tolerance.0,
             seed.0,
         )?;
-        let probs_owned = probs.inner().clone();
+        let probs_ref = probs.inner();
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    GuMapSolver::<f64>::from_fuzzy_set(probs_owned, cfg).map(GuMapInner::F64)
+                    GuMapSolver::<f64>::from_fuzzy_set_ref(probs_ref, cfg).map(GuMapInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    GuMapSolver::<f32>::from_fuzzy_set(probs_owned, cfg).map(GuMapInner::F32)
+                    GuMapSolver::<f32>::from_fuzzy_set_ref(probs_ref, cfg).map(GuMapInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -3351,6 +3712,7 @@ fn refiner_stats_to_py_dict(py: Python<'_>, stats: &SpatialRefinerStats) -> PyRe
     dict.set_item("n_anchors_total", stats.n_anchors_total)?;
     dict.set_item("n_fn_total", stats.n_fn_total)?;
     dict.set_item("n_fp_total", stats.n_fp_total)?;
+    dict.set_item("n_sep_total", stats.n_sep_total)?;
     dict.set_item("n_pairs_total", stats.n_pairs_total)?;
     dict.set_item("initial_scale", stats.initial_scale)?;
     dict.set_item("final_scale", stats.final_scale)?;
@@ -3366,6 +3728,7 @@ fn refiner_stats_to_py_dict(py: Python<'_>, stats: &SpatialRefinerStats) -> PyRe
         rd.set_item("n_anchors", r.n_anchors)?;
         rd.set_item("n_fn", r.n_fn)?;
         rd.set_item("n_fp", r.n_fp)?;
+        rd.set_item("n_sep", r.n_sep)?;
         rd.set_item("n_pairs_total", r.n_pairs_total)?;
         rd.set_item("skipped", r.skipped)?;
         rounds_list.append(rd)?;
@@ -3407,9 +3770,11 @@ impl PySpatialIntruderRefiner {
             w_anchor2 = StrictF64(0.0),
             k_cap_decay = StrictF64(1.0),
             k_cap_min = StrictUsize(1),
+            min_sep_ratio = StrictF64(0.0),
+            w_sep = StrictF64(0.0),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, rounds=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, t_max=20, eps=0.05, hinge_fp=True, seed=42, *, w_anchor2=0.0, k_cap_decay=1.0, k_cap_min=1, dtype='float64')"
+        text_signature = "(graph, rounds=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, t_max=20, eps=0.05, hinge_fp=True, seed=42, *, w_anchor2=0.0, k_cap_decay=1.0, k_cap_min=1, min_sep_ratio=0.0, w_sep=0.0, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -3429,6 +3794,8 @@ impl PySpatialIntruderRefiner {
         w_anchor2: StrictF64,
         k_cap_decay: StrictF64,
         k_cap_min: StrictUsize,
+        min_sep_ratio: StrictF64,
+        w_sep: StrictF64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = SpatialRefinerConfig {
@@ -3446,6 +3813,8 @@ impl PySpatialIntruderRefiner {
             t_max: t_max.0,
             eps: eps.0,
             hinge_fp,
+            min_sep_ratio: min_sep_ratio.0,
+            w_sep: w_sep.0,
             seed: seed.0,
         };
         let g = graph.inner();
@@ -3929,6 +4298,7 @@ pub(super) fn register_m3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStressMajorizationSolver>()?;
     m.add_class::<PyKamadaKawaiSolver>()?;
     m.add_function(wrap_pyfunction!(poincare_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(poincare_mobius_add, m)?)?;
     m.add_function(wrap_pyfunction!(spherical_distance, m)?)?;
     m.add_function(wrap_pyfunction!(torus_distance, m)?)?;
     m.add_function(wrap_pyfunction!(wrap_torus_point, m)?)?;

@@ -1,4 +1,5 @@
 import gc
+import importlib.metadata
 import inspect
 import unittest
 
@@ -297,6 +298,13 @@ class TestV6Layout2d(unittest.TestCase):
         self.assertTrue((eg.Layout2d.__doc__ or "").strip())
         sig = inspect.signature(eg.Layout2d.zeros)
         self.assertEqual(list(sig.parameters.keys()), ["n", "dtype"])
+
+    def test_version_export_matches_metadata(self) -> None:
+        meta_ver = importlib.metadata.version("egraph")
+        self.assertEqual(eg.__version__, meta_ver)
+        self.assertEqual(eg._core.__version__, meta_ver)
+        self.assertIsInstance(eg.__version__, str)
+        self.assertNotIn("__version__", eg.__all__)
 
 
 if __name__ == "__main__":

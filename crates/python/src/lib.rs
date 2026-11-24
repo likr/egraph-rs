@@ -34,12 +34,34 @@ mod v6;
 /// Standard floating-point precision type used in python bindings.
 pub type FloatType = f64;
 
+/// Converts a Cargo SemVer string (e.g. `6.0.0-alpha.6`) into PEP 440 format (`6.0.0a6`).
+fn pep440_version(semver: &str) -> String {
+    let base = semver.split('+').next().unwrap_or(semver);
+    if let Some((core, pre)) = base.split_once('-') {
+        let converted = if let Some(rest) = pre.strip_prefix("alpha.") {
+            format!("a{rest}")
+        } else if let Some(rest) = pre.strip_prefix("beta.") {
+            format!("b{rest}")
+        } else if let Some(rest) = pre.strip_prefix("rc.") {
+            format!("rc{rest}")
+        } else if let Some(rest) = pre.strip_prefix("dev.") {
+            format!(".dev{rest}")
+        } else {
+            format!(".{pre}")
+        };
+        format!("{core}{converted}")
+    } else {
+        base.to_owned()
+    }
+}
+
 /// Creates and initializes the `egraph._core` Python extension module.
 ///
 /// Registers the v6 zero-copy core types (`CsrGraph`, `Layout2d`) alongside the legacy
 /// graph drawing modules for incremental milestone migration.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", pep440_version(env!("CARGO_PKG_VERSION")))?;
     v6::register(m)?;
     graph::register(m)?;
     drawing::register(m)?;
@@ -51,4 +73,20 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     clustering::register(m)?;
     array::register(m)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pep440_version;
+
+    #[test]
+    fn test_pep440_version_conversion() {
+        assert_eq!(pep440_version("6.0.0-alpha.6"), "6.0.0a6");
+        assert_eq!(pep440_version("6.0.0-alpha.7"), "6.0.0a7");
+        assert_eq!(pep440_version("6.0.0-beta.2"), "6.0.0b2");
+        assert_eq!(pep440_version("6.0.0-rc.1"), "6.0.0rc1");
+        assert_eq!(pep440_version("6.0.0-dev.3"), "6.0.0.dev3");
+        assert_eq!(pep440_version("6.0.0"), "6.0.0");
+        assert_eq!(pep440_version("6.0.0+build42"), "6.0.0");
+    }
 }

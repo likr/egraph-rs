@@ -27,6 +27,8 @@ mod v6_m2;
 mod v6_m3;
 #[path = "v6_m4.rs"]
 mod v6_m4;
+#[path = "v6_m5.rs"]
+mod v6_m5;
 
 pub(crate) use v6_m4::{
     v6_cycle_edges_impl, v6_generate_layered_constraints_impl, v6_project_1d_impl,
@@ -821,6 +823,8 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "crossingnumber" | "sweepcrossingnumber" => Ok(MetricTarget::CrossingNumber),
         "crossingangle" | "sweepcrossingangle" => Ok(MetricTarget::CrossingAngle),
         "sampledcrossingnumber" | "sampledcrossing" => Ok(MetricTarget::SampledCrossingNumber),
+        "crosslessness" => Ok(MetricTarget::Crosslessness),
+        "sampledcrosslessness" => Ok(MetricTarget::SampledCrosslessness),
         "neighborhoodpreservation1hop" | "neighborhoodpreservation" | "np1" => {
             Ok(MetricTarget::NeighborhoodPreservation1Hop)
         }
@@ -841,7 +845,16 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         }
         "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
         "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
+        "minimumangle" | "minangle" | "minimumanglea2" | "minanglea2" => {
+            Ok(MetricTarget::MinimumAngle)
+        }
+        "minimumanglea1" | "minanglea1" => Ok(MetricTarget::MinimumAngleA1),
+        "layoutdegeneracy" => Ok(MetricTarget::LayoutDegeneracy),
         "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
+        "adjustedpatchnig" | "patchnig" => Ok(MetricTarget::AdjustedPatchNig),
+        "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
+            Ok(MetricTarget::LandmarkStratifiedRta)
+        }
         _ => Err(format!("unknown metric target {raw:?}")),
     }
 }
@@ -1590,13 +1603,13 @@ fn scale_normalized_stress(
     })
 }
 
-/// Compute O(kN) pivot-sampled Scale-Normalized Stress (`SNS`) from `num_pivots` deterministic BFS sources.
+/// Compute O(kN) degree-stratified pivot-sampled Scale-Normalized Stress (`SNS`) from `num_pivots` deterministic BFS sources.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, *, num_pivots = StrictUsize(32), seed = StrictU64(42)),
-    text_signature = "(graph, layout, *, num_pivots=32, seed=42)"
+    signature = (graph, layout, *, num_pivots = StrictUsize(64), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_pivots=64, seed=42)"
 )]
 fn sampled_scale_normalized_stress(
     py: Python<'_>,
@@ -1611,6 +1624,348 @@ fn sampled_scale_normalized_stress(
     dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::sampled_scale_normalized_stress(g, &soa, pivots, seed_val)
     })
+}
+
+/// Compute exact DRGraph Eq. (17) crosslessness `1 - sqrt(c / c_max)` in `[0.0, 1.0]`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crosslessness(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| egraph_metrics::crosslessness(g, &soa))
+}
+
+/// Estimate DRGraph Eq. (17) crosslessness `1 - sqrt(c_hat / c_max)` in `[0.0, 1.0]` via edge-pair sampling.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_samples = StrictUsize(4096), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_samples=4096, seed=42)"
+)]
+fn sampled_crosslessness(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_samples: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let samples = num_samples.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::sampled_crosslessness(g, &soa, samples, seed_val)
+    })
+}
+
+/// Compute DRGraph Eq. (19) strict minimum-angle resolution (`A2`) in `[0.0, 1.0]`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn minimum_angle(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+    let g = graph.inner();
+    dispatch_layout2d!(py, layout, |soa| egraph_metrics::minimum_angle(g, &soa))
+}
+
+/// Compute DRGraph Eq. (19) minimum-angle resolution summary `{"a1": ..., "a2": ...}`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn minimum_angle_summary(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<Py<PyDict>> {
+    let g = graph.inner();
+    let summary = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::minimum_angle_summary(g, &soa)
+    })?;
+    let dict = PyDict::new(py);
+    dict.set_item("a1", summary.a1)?;
+    dict.set_item("a2", summary.a2)?;
+    Ok(dict.unbind())
+}
+
+/// Evaluate coordinate-collapse (`f32`/`f64` duplicate nodes), zero-length edge, and bbox degeneracies.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn layout_degeneracy(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+) -> PyResult<Py<PyDict>> {
+    let g = graph.inner();
+    let deg = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::layout_degeneracy(g, &soa)
+    })?;
+    let dict = PyDict::new(py);
+    dict.set_item("num_nodes", deg.num_nodes)?;
+    dict.set_item("num_edges", deg.num_edges)?;
+    dict.set_item("duplicate_nodes_f32", deg.duplicate_nodes_f32)?;
+    dict.set_item("duplicate_ratio_f32", deg.duplicate_ratio_f32)?;
+    dict.set_item("duplicate_nodes_f64", deg.duplicate_nodes_f64)?;
+    dict.set_item("duplicate_ratio_f64", deg.duplicate_ratio_f64)?;
+    dict.set_item("zero_length_edges", deg.zero_length_edges)?;
+    dict.set_item("zero_length_edge_ratio", deg.zero_length_edge_ratio)?;
+    dict.set_item("bbox_width", deg.bbox_width)?;
+    dict.set_item("bbox_height", deg.bbox_height)?;
+    dict.set_item("is_bbox_degenerate", deg.is_bbox_degenerate)?;
+    Ok(dict.unbind())
+}
+
+fn extract_positive_usize_seq(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
+    if is_non_sequence_container(obj) {
+        return Err(PyTypeError::new_err(format!(
+            "{name} must be a sequence or iterable of positive integers"
+        )));
+    }
+    let iter = obj.try_iter().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "{name} must be a sequence or iterable of positive integers"
+        ))
+    })?;
+    let mut out = Vec::new();
+    for item_res in iter {
+        let item = item_res?;
+        let val = extract_non_negative_usize(&item, name)?;
+        out.push(val);
+    }
+    Ok(out)
+}
+
+/// Compute single-scale Adjusted Patch Normalized Information Gain (`Adjusted Patch-NIG`).
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, community_labels, *, patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), seed = StrictU64(42)),
+    text_signature = "(layout, community_labels, *, patch_radius=8, canvas_size=2048, pad_frac=0.04, seed=42)"
+)]
+fn adjusted_patch_nig(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    community_labels: &Bound<'_, PyAny>,
+    patch_radius: StrictUsize,
+    canvas_size: StrictUsize,
+    pad_frac: StrictF64,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let radius = patch_radius.0;
+    let c_sz = canvas_size.0;
+    let pad = pad_frac.0;
+    let seed_val = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::adjusted_patch_nig(&soa, &labels, radius, c_sz, pad, seed_val)
+    })
+}
+
+/// Compute multi-scale Adjusted Patch-NIG across `radii`, returning `{"patch_nig_r{r}": value}`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, community_labels, *, radii = None, canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), seed = StrictU64(42)),
+    text_signature = "(layout, community_labels, *, radii=(2, 8, 32), canvas_size=2048, pad_frac=0.04, seed=42)"
+)]
+fn adjusted_patch_nig_multiscale(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    community_labels: &Bound<'_, PyAny>,
+    radii: Option<&Bound<'_, PyAny>>,
+    canvas_size: StrictUsize,
+    pad_frac: StrictF64,
+    seed: StrictU64,
+) -> PyResult<BTreeMap<String, f64>> {
+    let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let radii_vec = match radii {
+        Some(obj) if !obj.is_none() => extract_positive_usize_seq(obj, "radii")?,
+        _ => vec![2, 8, 32],
+    };
+    let c_sz = canvas_size.0;
+    let pad = pad_frac.0;
+    let seed_val = seed.0;
+    let vals = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::adjusted_patch_nig_multiscale(
+            &soa, &labels, &radii_vec, c_sz, pad, seed_val,
+        )
+    })?;
+    let mut out = BTreeMap::new();
+    for (&r, &val) in radii_vec.iter().zip(vals.iter()) {
+        out.insert(format!("patch_nig_r{r}"), val);
+    }
+    Ok(out)
+}
+
+/// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_landmarks=64, num_triplets=1000000, min_degree=2, seed=42)"
+)]
+fn landmark_stratified_rta(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_landmarks: StrictUsize,
+    num_triplets: StrictUsize,
+    min_degree: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<f64> {
+    let g = graph.inner();
+    let nl = num_landmarks.0;
+    let nt = num_triplets.0;
+    let md = min_degree.0;
+    let s = seed.0;
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::landmark_stratified_rta(g, &soa, nl, nt, md, s)
+    })
+}
+
+/// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) with metadata dictionary.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layout, *, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), seed = StrictU64(42)),
+    text_signature = "(graph, layout, *, num_landmarks=64, num_triplets=1000000, min_degree=2, seed=42)"
+)]
+fn landmark_stratified_rta_detail(
+    py: Python<'_>,
+    graph: &PyCsrGraph,
+    layout: &PyLayout2d,
+    num_landmarks: StrictUsize,
+    num_triplets: StrictUsize,
+    min_degree: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<Py<PyDict>> {
+    let g = graph.inner();
+    let nl = num_landmarks.0;
+    let nt = num_triplets.0;
+    let md = min_degree.0;
+    let s = seed.0;
+    let eval = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::landmark_stratified_rta_detail(g, &soa, nl, nt, md, s)
+    })?;
+    let dict = PyDict::new(py);
+    dict.set_item("rta", eval.rta)?;
+    dict.set_item("num_landmarks", eval.num_landmarks)?;
+    dict.set_item("num_triplets", eval.num_triplets)?;
+    dict.set_item("num_strata", eval.num_strata)?;
+    dict.set_item("is_exact", eval.is_exact)?;
+    Ok(dict.unbind())
+}
+
+fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
+        if untyped.ndim() == 1 {
+            return extract_u32_1d(obj, "landmark_dists");
+        }
+        if untyped.ndim() != 2 {
+            return Err(PyValueError::new_err(format!(
+                "landmark_dists must be a 1D or 2D integer array, got {}D",
+                untyped.ndim()
+            )));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u32>>() {
+            return Ok(arr.as_array().iter().copied().collect());
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u16>>() {
+            return Ok(arr
+                .as_array()
+                .iter()
+                .map(|&v| {
+                    if v == u16::MAX {
+                        u32::MAX
+                    } else {
+                        u32::from(v)
+                    }
+                })
+                .collect());
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i64>>() {
+            return arr
+                .as_array()
+                .iter()
+                .map(|&v| {
+                    u32::try_from(v).map_err(|_| {
+                        PyValueError::new_err(format!(
+                            "landmark_dists entry {v} out of range for u32"
+                        ))
+                    })
+                })
+                .collect();
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i32>>() {
+            return arr
+                .as_array()
+                .iter()
+                .map(|&v| {
+                    u32::try_from(v).map_err(|_| {
+                        PyValueError::new_err(format!(
+                            "landmark_dists entry {v} out of range for u32"
+                        ))
+                    })
+                })
+                .collect();
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u64>>() {
+            return arr
+                .as_array()
+                .iter()
+                .map(|&v| {
+                    u32::try_from(v).map_err(|_| {
+                        PyValueError::new_err(format!(
+                            "landmark_dists entry {v} out of range for u32"
+                        ))
+                    })
+                })
+                .collect();
+        }
+        return Err(PyTypeError::new_err(
+            "landmark_dists NumPy array must have integer dtype",
+        ));
+    }
+    extract_u32_1d(obj, "landmark_dists")
+}
+
+/// Compute Landmark-Stratified RTA from precomputed `(P_L, N)` integer hop-distance table (`2**32 - 1` or `65535` for `uint16` = unreachable).
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, landmark_ids, landmark_dists, *, num_triplets = StrictUsize(1_000_000), seed = StrictU64(42)),
+    text_signature = "(layout, landmark_ids, landmark_dists, *, num_triplets=1000000, seed=42)"
+)]
+fn landmark_stratified_rta_from_landmarks(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    landmark_ids: &Bound<'_, PyAny>,
+    landmark_dists: &Bound<'_, PyAny>,
+    num_triplets: StrictUsize,
+    seed: StrictU64,
+) -> PyResult<Py<PyDict>> {
+    let l_ids = extract_u32_1d(landmark_ids, "landmark_ids")?;
+    let l_dists = extract_landmark_dists_flat(landmark_dists)?;
+    let nt = num_triplets.0;
+    let s = seed.0;
+    let eval = dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::landmark_stratified_rta_from_landmarks(&soa, &l_ids, &l_dists, nt, s)
+    })?;
+    let dict = PyDict::new(py);
+    dict.set_item("rta", eval.rta)?;
+    dict.set_item("num_landmarks", eval.num_landmarks)?;
+    dict.set_item("num_triplets", eval.num_triplets)?;
+    dict.set_item("num_strata", eval.num_strata)?;
+    dict.set_item("is_exact", eval.is_exact)?;
+    Ok(dict.unbind())
 }
 
 /// Count exact non-adjacent edge crossings using the ``O((|E| + K) log |E|)`` sweep-line detector.
@@ -1850,18 +2205,21 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 ///
 /// Supported target names and aliases include `"scale_normalized_stress"` (`"sns"`),
 /// `"sampled_scale_normalized_stress"` (`"sampled_sns"`), `"crossing_number"`,
-/// `"crossing_angle"`, `"sampled_crossing_number"`, `"neighborhood_preservation_1hop"`
-/// (`"np1"`), `"neighborhood_preservation_2hop"` (`"np2"`), `"sampled_np1"`,
-/// `"sampled_np2"`, `"gabriel_graph_property"`, `"node_resolution"`,
-/// `"relative_neighborhood_preservation"` (`"drng"`), `"gabriel_graph_preservation"`
-/// (`"dgg"`), `"aspect_ratio"`, `"angular_resolution"`, and `"ideal_edge_lengths"`.
+/// `"crossing_angle"`, `"sampled_crossing_number"`, `"crosslessness"`,
+/// `"sampled_crosslessness"`, `"neighborhood_preservation_1hop"` (`"np1"`),
+/// `"neighborhood_preservation_2hop"` (`"np2"`), `"sampled_np1"`, `"sampled_np2"`,
+/// `"gabriel_graph_property"`, `"node_resolution"`, `"relative_neighborhood_preservation"`
+/// (`"drng"`), `"gabriel_graph_preservation"` (`"dgg"`), `"aspect_ratio"`,
+/// `"angular_resolution"`, `"minimum_angle"` (`"min_angle"`), `"minimum_angle_a1"`,
+/// `"layout_degeneracy"`, `"ideal_edge_lengths"`, `"adjusted_patch_nig"` (requires
+/// `community_labels`), and `"landmark_stratified_rta"` (`"rta"`).
 ///
 /// Releases the Python GIL during computation and returns a dict keyed by canonical
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(32), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0)),
-    text_signature = "(graph, layout, targets, *, num_pivots=32, num_samples=4096, seed=42, ideal_edge_length=1.0)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04)),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(
@@ -1873,18 +2231,43 @@ fn evaluate_metrics(
     num_samples: StrictUsize,
     seed: StrictU64,
     ideal_edge_length: StrictF64,
+    community_labels: Option<&Bound<'_, PyAny>>,
+    num_landmarks: StrictUsize,
+    num_triplets: StrictUsize,
+    min_degree: StrictUsize,
+    patch_radius: StrictUsize,
+    canvas_size: StrictUsize,
+    pad_frac: StrictF64,
 ) -> PyResult<BTreeMap<String, f64>> {
     let target_list = extract_metric_targets(targets)?;
+    let comm_labels_vec = match community_labels {
+        Some(obj) if !obj.is_none() => Some(extract_u32_1d(obj, "community_labels")?),
+        _ => None,
+    };
     let config = MetricConfig {
         sns_num_pivots: num_pivots.0,
         sns_seed: seed.0,
         crossing_num_samples: num_samples.0,
         crossing_seed: seed.0,
         ideal_edge_length: ideal_edge_length.0,
+        rta_num_landmarks: num_landmarks.0,
+        rta_num_triplets: num_triplets.0,
+        rta_min_degree: min_degree.0,
+        rta_seed: seed.0,
+        patch_nig_radius: patch_radius.0,
+        patch_nig_canvas_size: canvas_size.0,
+        patch_nig_pad_frac: pad_frac.0,
+        patch_nig_seed: seed.0,
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::evaluate_metrics(g, &soa, &target_list, &config)
+        egraph_metrics::evaluate_metrics_with_communities(
+            g,
+            &soa,
+            &target_list,
+            &config,
+            comm_labels_vec.as_deref(),
+        )
     })?;
 
     let mut out = BTreeMap::new();
@@ -1902,6 +2285,12 @@ fn evaluate_metrics(
     }
     if let Some(v) = report.sampled_crossing_number {
         out.insert("sampled_crossing_number".to_owned(), v);
+    }
+    if let Some(v) = report.crosslessness {
+        out.insert("crosslessness".to_owned(), v);
+    }
+    if let Some(v) = report.sampled_crosslessness {
+        out.insert("sampled_crosslessness".to_owned(), v);
     }
     if let Some(v) = report.neighborhood_preservation_1hop {
         out.insert("neighborhood_preservation_1hop".to_owned(), v);
@@ -1933,8 +2322,23 @@ fn evaluate_metrics(
     if let Some(v) = report.angular_resolution {
         out.insert("angular_resolution".to_owned(), v);
     }
+    if let Some(v) = report.minimum_angle {
+        out.insert("minimum_angle".to_owned(), v);
+    }
+    if let Some(v) = report.minimum_angle_a1 {
+        out.insert("minimum_angle_a1".to_owned(), v);
+    }
+    if let Some(v) = report.layout_degeneracy {
+        out.insert("layout_degeneracy".to_owned(), v);
+    }
     if let Some(v) = report.ideal_edge_lengths {
         out.insert("ideal_edge_lengths".to_owned(), v);
+    }
+    if let Some(v) = report.adjusted_patch_nig {
+        out.insert("adjusted_patch_nig".to_owned(), v);
+    }
+    if let Some(v) = report.landmark_stratified_rta {
+        out.insert("landmark_stratified_rta".to_owned(), v);
     }
     Ok(out)
 }
@@ -2356,6 +2760,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sweep_crossing_number, m)?)?;
     m.add_function(wrap_pyfunction!(sweep_crossing_angle, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(crosslessness, m)?)?;
+    m.add_function(wrap_pyfunction!(sampled_crosslessness, m)?)?;
     m.add_function(wrap_pyfunction!(torus_crossing_number, m)?)?;
     m.add_function(wrap_pyfunction!(neighborhood_preservation_1hop, m)?)?;
     m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop_v6, m)?)?;
@@ -2370,6 +2776,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(node_resolution_v6, m)?)?;
     m.add_function(wrap_pyfunction!(aspect_ratio_v6, m)?)?;
     m.add_function(wrap_pyfunction!(angular_resolution_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_angle_summary, m)?)?;
+    m.add_function(wrap_pyfunction!(layout_degeneracy, m)?)?;
+    m.add_function(wrap_pyfunction!(adjusted_patch_nig, m)?)?;
+    m.add_function(wrap_pyfunction!(adjusted_patch_nig_multiscale, m)?)?;
+    m.add_function(wrap_pyfunction!(landmark_stratified_rta, m)?)?;
+    m.add_function(wrap_pyfunction!(landmark_stratified_rta_detail, m)?)?;
+    m.add_function(wrap_pyfunction!(landmark_stratified_rta_from_landmarks, m)?)?;
     m.add_function(wrap_pyfunction!(ideal_edge_lengths_v6, m)?)?;
     m.add_function(wrap_pyfunction!(ideal_edge_lengths_with_unit, m)?)?;
     m.add_function(wrap_pyfunction!(crossing_edges_torus, m)?)?;
@@ -2388,6 +2802,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     v6_m2::register_m2(m)?;
     v6_m3::register_m3(m)?;
     v6_m4::register_m4(m)?;
+    v6_m5::register_m5(m)?;
     Ok(())
 }
 
