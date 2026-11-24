@@ -462,6 +462,26 @@ pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
     max_2hop_per_node: Option<usize>,
     seed: u64,
 ) -> CoreResult<SparseProbabilities> {
+    graph_12hop_row_normalized_probabilities_with_degree_decay(
+        graph,
+        w2,
+        max_2hop_per_node,
+        0.0,
+        seed,
+    )
+}
+
+/// Computes directly row-normalized 1+2-hop joint probabilities with symmetric degree decay
+/// $(d_i d_j)^{-\beta}$ applied to edge weights before row normalization and symmetrization:
+/// $A_{ij} = c_{ij} \cdot (\max(\deg_1(i), 1) \cdot \max(\deg_1(j), 1))^{-\beta}$, where
+/// $c_{ij} = 1$ for 1-hop edges and $c_{ij} = w_2$ for pure 2-hop edges.
+pub fn graph_12hop_row_normalized_probabilities_with_degree_decay<W: Scalar>(
+    graph: &CsrGraph<W>,
+    w2: f64,
+    max_2hop_per_node: Option<usize>,
+    degree_beta: f64,
+    seed: u64,
+) -> CoreResult<SparseProbabilities> {
     if !w2.is_finite() {
         return Err(CoreError::non_finite(
             "graph_12hop_row_normalized_probabilities::w2",
@@ -470,6 +490,16 @@ pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
     if w2 < 0.0 {
         return Err(CoreError::invalid_input(format!(
             "w2 must be >= 0.0, got {w2}"
+        )));
+    }
+    if !degree_beta.is_finite() {
+        return Err(CoreError::non_finite(
+            "graph_12hop_row_normalized_probabilities::degree_beta",
+        ));
+    }
+    if degree_beta < 0.0 {
+        return Err(CoreError::invalid_input(format!(
+            "degree_beta must be >= 0.0, got {degree_beta}"
         )));
     }
     let n = graph.num_nodes();
@@ -485,45 +515,12 @@ pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
         if adj1.nnz() == 0 {
             return Ok(SparseProbabilities::empty(n));
         }
-        let mut row_sum = vec![0.0_f64; n];
-        for (u, sum_out) in row_sum.iter_mut().enumerate() {
-            *sum_out = adj1.degree(u) as f64;
-        }
         let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(adj1.num_edges());
-        for u in 0..n {
-            let u_u32 = u as u32;
-            let inv_u = if row_sum[u] > 0.0 {
-                1.0 / row_sum[u]
-            } else {
-                0.0
-            };
-            for &v in adj1.neighbors(u) {
-                if u_u32 < v {
-                    let vi = v as usize;
-                    let inv_v = if row_sum[vi] > 0.0 {
-                        1.0 / row_sum[vi]
-                    } else {
-                        0.0
-                    };
-                    pairs.push((u_u32, v, inv_u + inv_v));
-                }
-            }
-        }
-        return Ok(scatter_symmetric_pairs(n, pairs, true));
-    }
-
-    match max_2hop_per_node {
-        None => {
-            let (adj1, adj2) = extract_1hop_2hop_csr(graph)?;
-            if adj1.nnz() == 0 && adj2.nnz() == 0 {
-                return Ok(SparseProbabilities::empty(n));
-            }
+        if degree_beta == 0.0 {
             let mut row_sum = vec![0.0_f64; n];
             for (u, sum_out) in row_sum.iter_mut().enumerate() {
-                *sum_out = (adj1.degree(u) as f64) + w2 * (adj2.degree(u) as f64);
+                *sum_out = adj1.degree(u) as f64;
             }
-            let mut pairs: Vec<(u32, u32, f64)> =
-                Vec::with_capacity(adj1.num_edges() + adj2.num_edges());
             for u in 0..n {
                 let u_u32 = u as u32;
                 let inv_u = if row_sum[u] > 0.0 {
@@ -542,15 +539,158 @@ pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
                         pairs.push((u_u32, v, inv_u + inv_v));
                     }
                 }
-                for &v in adj2.neighbors(u) {
+            }
+        } else {
+            let deg_scale: Vec<f64> = (0..n)
+                .map(|u| (adj1.degree(u).max(1) as f64).powf(-degree_beta))
+                .collect();
+            let mut row_sum = vec![0.0_f64; n];
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let su = deg_scale[u];
+                for &v in adj1.neighbors(u) {
                     if u_u32 < v {
                         let vi = v as usize;
-                        let inv_v = if row_sum[vi] > 0.0 {
-                            1.0 / row_sum[vi]
-                        } else {
-                            0.0
-                        };
-                        pairs.push((u_u32, v, w2 * inv_u + w2 * inv_v));
+                        let w_uv = su * deg_scale[vi];
+                        row_sum[u] += w_uv;
+                        row_sum[vi] += w_uv;
+                    }
+                }
+            }
+            for u in 0..n {
+                let u_u32 = u as u32;
+                let su = deg_scale[u];
+                let ru = row_sum[u];
+                for &v in adj1.neighbors(u) {
+                    if u_u32 < v {
+                        let vi = v as usize;
+                        let w_uv = su * deg_scale[vi];
+                        if w_uv > 0.0 {
+                            let p_uv = if ru > 0.0 { w_uv / ru } else { 0.0 };
+                            let p_vu = if row_sum[vi] > 0.0 {
+                                w_uv / row_sum[vi]
+                            } else {
+                                0.0
+                            };
+                            let val = p_uv + p_vu;
+                            if val.is_finite() && val > 0.0 {
+                                pairs.push((u_u32, v, val));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(scatter_symmetric_pairs(n, pairs, true));
+    }
+
+    match max_2hop_per_node {
+        None => {
+            let (adj1, adj2) = extract_1hop_2hop_csr(graph)?;
+            if adj1.nnz() == 0 && adj2.nnz() == 0 {
+                return Ok(SparseProbabilities::empty(n));
+            }
+            let mut pairs: Vec<(u32, u32, f64)> =
+                Vec::with_capacity(adj1.num_edges() + adj2.num_edges());
+            if degree_beta == 0.0 {
+                let mut row_sum = vec![0.0_f64; n];
+                for (u, sum_out) in row_sum.iter_mut().enumerate() {
+                    *sum_out = (adj1.degree(u) as f64) + w2 * (adj2.degree(u) as f64);
+                }
+                for u in 0..n {
+                    let u_u32 = u as u32;
+                    let inv_u = if row_sum[u] > 0.0 {
+                        1.0 / row_sum[u]
+                    } else {
+                        0.0
+                    };
+                    for &v in adj1.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let inv_v = if row_sum[vi] > 0.0 {
+                                1.0 / row_sum[vi]
+                            } else {
+                                0.0
+                            };
+                            pairs.push((u_u32, v, inv_u + inv_v));
+                        }
+                    }
+                    for &v in adj2.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let inv_v = if row_sum[vi] > 0.0 {
+                                1.0 / row_sum[vi]
+                            } else {
+                                0.0
+                            };
+                            pairs.push((u_u32, v, w2 * inv_u + w2 * inv_v));
+                        }
+                    }
+                }
+            } else {
+                let deg_scale: Vec<f64> = (0..n)
+                    .map(|u| (adj1.degree(u).max(1) as f64).powf(-degree_beta))
+                    .collect();
+                let mut row_sum = vec![0.0_f64; n];
+                for u in 0..n {
+                    let u_u32 = u as u32;
+                    let su = deg_scale[u];
+                    for &v in adj1.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let w_uv = su * deg_scale[vi];
+                            row_sum[u] += w_uv;
+                            row_sum[vi] += w_uv;
+                        }
+                    }
+                    for &v in adj2.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let w_uv = w2 * su * deg_scale[vi];
+                            row_sum[u] += w_uv;
+                            row_sum[vi] += w_uv;
+                        }
+                    }
+                }
+                for u in 0..n {
+                    let u_u32 = u as u32;
+                    let su = deg_scale[u];
+                    let ru = row_sum[u];
+                    for &v in adj1.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let w_uv = su * deg_scale[vi];
+                            if w_uv > 0.0 {
+                                let p_uv = if ru > 0.0 { w_uv / ru } else { 0.0 };
+                                let p_vu = if row_sum[vi] > 0.0 {
+                                    w_uv / row_sum[vi]
+                                } else {
+                                    0.0
+                                };
+                                let val = p_uv + p_vu;
+                                if val.is_finite() && val > 0.0 {
+                                    pairs.push((u_u32, v, val));
+                                }
+                            }
+                        }
+                    }
+                    for &v in adj2.neighbors(u) {
+                        if u_u32 < v {
+                            let vi = v as usize;
+                            let w_uv = w2 * su * deg_scale[vi];
+                            if w_uv > 0.0 {
+                                let p_uv = if ru > 0.0 { w_uv / ru } else { 0.0 };
+                                let p_vu = if row_sum[vi] > 0.0 {
+                                    w_uv / row_sum[vi]
+                                } else {
+                                    0.0
+                                };
+                                let val = p_uv + p_vu;
+                                if val.is_finite() && val > 0.0 {
+                                    pairs.push((u_u32, v, val));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -562,29 +702,112 @@ pub fn graph_12hop_row_normalized_probabilities<W: Scalar>(
                 return Ok(SparseProbabilities::empty(n));
             }
             let mut deg1 = vec![0usize; n];
-            let mut deg2 = vec![0usize; n];
             for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
                 deg1[u as usize] += 1;
                 deg1[v as usize] += 1;
             }
-            for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
-                deg2[u as usize] += 1;
-                deg2[v as usize] += 1;
-            }
-            let mut row_sum = vec![0.0_f64; n];
-            for u in 0..n {
-                row_sum[u] = (deg1[u] as f64) + w2 * (deg2[u] as f64);
-            }
             let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(sp.u1.len() + sp.u2.len());
-            for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
-                let ui = u as usize;
-                let vi = v as usize;
-                pairs.push((u, v, (1.0 / row_sum[ui]) + (1.0 / row_sum[vi])));
-            }
-            for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
-                let ui = u as usize;
-                let vi = v as usize;
-                pairs.push((u, v, (w2 / row_sum[ui]) + (w2 / row_sum[vi])));
+            if degree_beta == 0.0 {
+                let mut deg2 = vec![0usize; n];
+                for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                    deg2[u as usize] += 1;
+                    deg2[v as usize] += 1;
+                }
+                let mut row_sum = vec![0.0_f64; n];
+                for u in 0..n {
+                    row_sum[u] = (deg1[u] as f64) + w2 * (deg2[u] as f64);
+                }
+                for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let inv_u = if row_sum[ui] > 0.0 {
+                        1.0 / row_sum[ui]
+                    } else {
+                        0.0
+                    };
+                    let inv_v = if row_sum[vi] > 0.0 {
+                        1.0 / row_sum[vi]
+                    } else {
+                        0.0
+                    };
+                    pairs.push((u, v, inv_u + inv_v));
+                }
+                for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let inv_u = if row_sum[ui] > 0.0 {
+                        w2 / row_sum[ui]
+                    } else {
+                        0.0
+                    };
+                    let inv_v = if row_sum[vi] > 0.0 {
+                        w2 / row_sum[vi]
+                    } else {
+                        0.0
+                    };
+                    pairs.push((u, v, inv_u + inv_v));
+                }
+            } else {
+                let deg_scale: Vec<f64> = (0..n)
+                    .map(|u| (deg1[u].max(1) as f64).powf(-degree_beta))
+                    .collect();
+                let mut row_sum = vec![0.0_f64; n];
+                for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let w_uv = deg_scale[ui] * deg_scale[vi];
+                    row_sum[ui] += w_uv;
+                    row_sum[vi] += w_uv;
+                }
+                for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let w_uv = w2 * deg_scale[ui] * deg_scale[vi];
+                    row_sum[ui] += w_uv;
+                    row_sum[vi] += w_uv;
+                }
+                for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let w_uv = deg_scale[ui] * deg_scale[vi];
+                    if w_uv > 0.0 {
+                        let p_uv = if row_sum[ui] > 0.0 {
+                            w_uv / row_sum[ui]
+                        } else {
+                            0.0
+                        };
+                        let p_vu = if row_sum[vi] > 0.0 {
+                            w_uv / row_sum[vi]
+                        } else {
+                            0.0
+                        };
+                        let val = p_uv + p_vu;
+                        if val.is_finite() && val > 0.0 {
+                            pairs.push((u, v, val));
+                        }
+                    }
+                }
+                for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let w_uv = w2 * deg_scale[ui] * deg_scale[vi];
+                    if w_uv > 0.0 {
+                        let p_uv = if row_sum[ui] > 0.0 {
+                            w_uv / row_sum[ui]
+                        } else {
+                            0.0
+                        };
+                        let p_vu = if row_sum[vi] > 0.0 {
+                            w_uv / row_sum[vi]
+                        } else {
+                            0.0
+                        };
+                        let val = p_uv + p_vu;
+                        if val.is_finite() && val > 0.0 {
+                            pairs.push((u, v, val));
+                        }
+                    }
+                }
             }
             Ok(scatter_symmetric_pairs(n, pairs, true))
         }
@@ -1267,5 +1490,113 @@ mod tests {
         );
         assert!(compute_nodewise_2hop_perplexities(&g, f64::NAN, 5.0, 1200.0).is_err());
         assert!(compute_median_2hop_perplexity(&g, 1.5, 15.0, -1.0).is_err());
+    }
+
+    #[test]
+    fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
+        // Asymmetric hub + chain graph
+        let mut edges: Vec<(u32, u32)> = (1..=6).map(|v| (0, v)).collect();
+        edges.extend([(6, 7), (7, 8), (8, 9), (1, 2)]);
+        let g = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
+        let n = g.num_nodes();
+        let beta = 0.4;
+        let w2 = 0.5;
+
+        // Uncapped exact match with reference symmetrize_row_normalized((d_i * d_j)^(-beta))
+        let probs_uncapped =
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, w2, None, beta, 42)
+                .unwrap();
+        let (adj1, adj2) = extract_1hop_2hop_csr(&g).unwrap();
+        let mut indptr = vec![0usize];
+        let mut indices = Vec::new();
+        let mut weights = Vec::new();
+        for u in 0..n {
+            let du = adj1.degree(u).max(1) as f64;
+            for &v in adj1.neighbors(u) {
+                let dv = adj1.degree(v as usize).max(1) as f64;
+                indices.push(v);
+                weights.push((du * dv).powf(-beta));
+            }
+            for &v in adj2.neighbors(u) {
+                let dv = adj1.degree(v as usize).max(1) as f64;
+                indices.push(v);
+                weights.push(w2 * (du * dv).powf(-beta));
+            }
+            indptr.push(indices.len());
+        }
+        let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
+        assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
+        assert_eq!(probs_uncapped.indices, ref_uncapped.indices);
+        for (&a, &b) in probs_uncapped.values.iter().zip(ref_uncapped.values.iter()) {
+            assert!((a - b).abs() < 1e-14);
+        }
+        assert!((probs_uncapped.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
+        // Capped Some(3) exact match
+        let probs_capped =
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.35, Some(3), beta, 77)
+                .unwrap();
+        let pairs = extract_sparse_1hop_2hop_pairs(&g, 3, 77).unwrap();
+        let mut deg1 = vec![0usize; n];
+        for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+            deg1[u as usize] += 1;
+            deg1[v as usize] += 1;
+        }
+        let mut adj_rows: Vec<Vec<(u32, f64)>> = vec![Vec::new(); n];
+        for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+            let w = ((deg1[u as usize].max(1) * deg1[v as usize].max(1)) as f64).powf(-beta);
+            adj_rows[u as usize].push((v, w));
+            adj_rows[v as usize].push((u, w));
+        }
+        for (&u, &v) in pairs.u2.iter().zip(pairs.v2.iter()) {
+            let w = 0.35 * ((deg1[u as usize].max(1) * deg1[v as usize].max(1)) as f64).powf(-beta);
+            adj_rows[u as usize].push((v, w));
+            adj_rows[v as usize].push((u, w));
+        }
+        let mut c_indptr = vec![0usize];
+        let mut c_indices = Vec::new();
+        let mut c_weights = Vec::new();
+        for row in adj_rows {
+            for (v, w) in row {
+                c_indices.push(v);
+                c_weights.push(w);
+            }
+            c_indptr.push(c_indices.len());
+        }
+        let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
+        assert_eq!(probs_capped.indptr, ref_capped.indptr);
+        assert_eq!(probs_capped.indices, ref_capped.indices);
+        for (&a, &b) in probs_capped.values.iter().zip(ref_capped.values.iter()) {
+            assert!((a - b).abs() < 1e-14);
+        }
+
+        // 1-hop-only branch (w2 == 0.0 and Some(0)) with degree decay
+        let p_w0 =
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.0, None, beta, 42)
+                .unwrap();
+        let p_c0 =
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.5, Some(0), beta, 42)
+                .unwrap();
+        assert_eq!(p_w0, p_c0);
+        assert!((p_w0.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
+        // Extreme beta = 200.0 underflow test: must NEVER produce NaN/Inf in any branch
+        for (w2_t, cap_t) in [(0.0, None), (0.5, None), (0.5, Some(2))] {
+            let p_extreme = graph_12hop_row_normalized_probabilities_with_degree_decay(
+                &g, w2_t, cap_t, 200.0, 42,
+            )
+            .unwrap();
+            assert!(p_extreme.values.iter().all(|v| v.is_finite() && *v > 0.0));
+        }
+
+        // Invalid degree_beta
+        assert!(matches!(
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.5, None, -0.1, 42),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.5, None, f64::NAN, 42),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
     }
 }

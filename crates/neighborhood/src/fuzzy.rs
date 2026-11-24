@@ -134,32 +134,37 @@ pub fn compute_fuzzy_simplicial_set(
         }
     }
 
+    drop(seen);
+    drop(seen_pos);
+    drop(collected);
+
     if directed_pairs.is_empty() {
         return Ok(SparseProbabilities::empty(n));
     }
 
     directed_pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-    let mut merged: Vec<(u32, u32, f64)> = Vec::with_capacity(directed_pairs.len());
     let mut deg = vec![0usize; n];
-
+    let mut write_idx = 0usize;
     let mut pos = 0usize;
-    while pos < directed_pairs.len() {
+    let len = directed_pairs.len();
+    while pos < len {
         let (u, v, mut w) = directed_pairs[pos];
         pos += 1;
-        while pos < directed_pairs.len() && directed_pairs[pos].0 == u && directed_pairs[pos].1 == v
-        {
+        while pos < len && directed_pairs[pos].0 == u && directed_pairs[pos].1 == v {
             let p = directed_pairs[pos].2;
             w = w + p - w * p;
             pos += 1;
         }
         if w > THRESHOLD {
-            merged.push((u, v, w));
+            directed_pairs[write_idx] = (u, v, w);
+            write_idx += 1;
             deg[u as usize] += 1;
             deg[v as usize] += 1;
         }
     }
+    directed_pairs.truncate(write_idx);
 
-    if merged.is_empty() {
+    if write_idx == 0 {
         return Ok(SparseProbabilities::empty(n));
     }
 
@@ -170,11 +175,12 @@ pub fn compute_fuzzy_simplicial_set(
         total += *d;
         indptr.push(total);
     }
+    drop(deg);
     let mut cursor = indptr[..n].to_vec();
     let mut indices = vec![0u32; total];
     let mut values = vec![0.0_f64; total];
 
-    for (u, v, w) in merged {
+    for (u, v, w) in directed_pairs {
         let pu = cursor[u as usize];
         indices[pu] = v;
         values[pu] = w;

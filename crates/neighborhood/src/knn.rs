@@ -385,10 +385,19 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
     max_2hop_per_node: usize,
     seed: u64,
 ) -> CoreResult<Sparse12HopPairs> {
+    let (pairs, _) = extract_sparse_1hop_2hop_pairs_inner(graph, max_2hop_per_node, seed)?;
+    Ok(pairs)
+}
+
+pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    seed: u64,
+) -> CoreResult<(Sparse12HopPairs, usize)> {
     let adj1 = canonical_unweighted_1hop(graph)?;
     let n = adj1.num_nodes();
     if n <= 1 || adj1.nnz() == 0 {
-        return Ok(Sparse12HopPairs::default());
+        return Ok((Sparse12HopPairs::default(), 0));
     }
 
     let mut u1 = Vec::with_capacity(adj1.num_edges());
@@ -404,17 +413,33 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
     }
 
     if max_2hop_per_node == 0 || n <= 2 {
-        return Ok(Sparse12HopPairs {
-            u1,
-            v1,
-            u2: Vec::new(),
-            v2: Vec::new(),
-        });
+        let mut n_truncated_2hop = 0usize;
+        if max_2hop_per_node == 0 && n > 2 {
+            for u in 0..n {
+                if adj1
+                    .neighbors(u)
+                    .iter()
+                    .any(|&w| adj1.degree(w as usize) > 1)
+                {
+                    n_truncated_2hop += 1;
+                }
+            }
+        }
+        return Ok((
+            Sparse12HopPairs {
+                u1,
+                v1,
+                u2: Vec::new(),
+                v2: Vec::new(),
+            },
+            n_truncated_2hop,
+        ));
     }
 
     let mut rng = DeterministicRng::from_seed_u64(seed);
     let mut stamp = VisitStamp::new(n);
     let mut raw_2hop: Vec<(u32, u32)> = Vec::new();
+    let mut n_truncated_2hop = 0usize;
 
     for u in 0..n {
         let n1_u = adj1.neighbors(u);
@@ -429,6 +454,7 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
 
         let u_u32 = u as u32;
         let mut collected = 0usize;
+        let mut truncated_u = false;
         for &w in n1_u {
             let n1_w = adj1.neighbors(w as usize);
             let deg_w = n1_w.len();
@@ -441,11 +467,13 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
                         raw_2hop.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
                         collected += 1;
                         if collected >= max_2hop_per_node {
+                            truncated_u = true;
                             break;
                         }
                     }
                 }
             } else {
+                truncated_u = true;
                 let n_draws = max_2hop_per_node.saturating_mul(2).min(deg_w);
                 for _ in 0..n_draws {
                     let v = n1_w[rng.gen_range_usize(deg_w)];
@@ -459,8 +487,12 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
                 }
             }
             if collected >= max_2hop_per_node {
+                truncated_u = true;
                 break;
             }
+        }
+        if truncated_u {
+            n_truncated_2hop += 1;
         }
     }
 
@@ -473,7 +505,115 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
         v2.push(b);
     }
 
-    Ok(Sparse12HopPairs { u1, v1, u2, v2 })
+    Ok((Sparse12HopPairs { u1, v1, u2, v2 }, n_truncated_2hop))
+}
+
+/// Builds a hub-safe capped 1+2-hop CSR [`KnnGraph`] with `{1.0, 2.0}` discrete distances,
+/// per-node neighborhood sizes `k2_deg`, and summary [`KnnStats`] in $O(|E| + N \cdot \mathrm{cap})$
+/// time via [`extract_sparse_1hop_2hop_pairs`] and a 2-way lexicographic merge scatter.
+pub fn build_capped_12hop_knn<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    seed: u64,
+) -> CoreResult<(KnnGraph, Vec<u32>, KnnStats)> {
+    let (sp, n_truncated_2hop) =
+        extract_sparse_1hop_2hop_pairs_inner(graph, max_2hop_per_node, seed)?;
+    let n = graph.num_nodes();
+    let n_1hop = sp.u1.len().saturating_mul(2);
+    let n_2hop = sp.u2.len().saturating_mul(2);
+    let total_nnz = n_1hop.saturating_add(n_2hop);
+
+    if n == 0 || total_nnz == 0 {
+        let knn = KnnGraph::empty(n)?;
+        let k2_deg = vec![0u32; n];
+        let stats = KnnStats {
+            n_truncated_2hop,
+            n_pure_2hop_rows: n,
+            ..KnnStats::default()
+        };
+        return Ok((knn, k2_deg, stats));
+    }
+
+    let mut deg1 = vec![0usize; n];
+    let mut deg2 = vec![0usize; n];
+    for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+        deg1[u as usize] += 1;
+        deg1[v as usize] += 1;
+    }
+    for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+        deg2[u as usize] += 1;
+        deg2[v as usize] += 1;
+    }
+
+    let mut indptr = Vec::with_capacity(n + 1);
+    indptr.push(0usize);
+    let mut k2_deg = Vec::with_capacity(n);
+    let mut min_row_k = usize::MAX;
+    let mut max_row_k = 0usize;
+    let mut running = 0usize;
+    for u in 0..n {
+        let row_k = deg1[u] + deg2[u];
+        k2_deg.push(row_k as u32);
+        min_row_k = min_row_k.min(row_k);
+        max_row_k = max_row_k.max(row_k);
+        running += row_k;
+        indptr.push(running);
+    }
+
+    let mut cursor = indptr[..n].to_vec();
+    let mut indices = vec![0u32; total_nnz];
+    let mut distances = vec![0.0_f64; total_nnz];
+
+    let mut i1 = 0usize;
+    let mut i2 = 0usize;
+    let len1 = sp.u1.len();
+    let len2 = sp.u2.len();
+    while i1 < len1 || i2 < len2 {
+        let take_1hop = match (i1 < len1, i2 < len2) {
+            (true, true) => (sp.u1[i1], sp.v1[i1]) <= (sp.u2[i2], sp.v2[i2]),
+            (true, false) => true,
+            (false, true) => false,
+            (false, false) => unreachable!(),
+        };
+        let (u, v, dist) = if take_1hop {
+            let p = (sp.u1[i1], sp.v1[i1], 1.0_f64);
+            i1 += 1;
+            p
+        } else {
+            let p = (sp.u2[i2], sp.v2[i2], 2.0_f64);
+            i2 += 1;
+            p
+        };
+        let pu = cursor[u as usize];
+        indices[pu] = v;
+        distances[pu] = dist;
+        cursor[u as usize] += 1;
+
+        let pv = cursor[v as usize];
+        indices[pv] = u;
+        distances[pv] = dist;
+        cursor[v as usize] += 1;
+    }
+
+    let knn = KnnGraph::new_validated(n, indptr, indices, distances)?;
+    let n_f64 = n as f64;
+    let avg_deg1 = (n_1hop as f64) / n_f64;
+    let avg_deg2 = (total_nnz as f64) / n_f64;
+    let stats = KnnStats {
+        avg_deg1,
+        avg_deg2,
+        avg_row_k: avg_deg2,
+        min_row_k,
+        max_row_k,
+        nnz: total_nnz,
+        n_1hop,
+        n_2hop,
+        n_truncated_1hop: 0,
+        n_truncated_2hop,
+        n_filled_residual: 0,
+        n_pure_2hop_rows: n,
+    };
+    Ok((knn, k2_deg, stats))
 }
 
 /// Builds a sorted symmetric CSR [`KnnGraph`] from 1-hop and 2-hop pair distances while strictly
@@ -567,17 +707,54 @@ pub fn build_gumap_12hop_priority_csr(
     }
 
     let mut d1_max = vec![0.0_f64; n_nodes];
-    let mut rows: Vec<Vec<(u32, f64)>> = vec![Vec::new(); n_nodes];
+    let mut deg = vec![0usize; n_nodes];
+
+    for (&u, &v) in u1.iter().zip(v1.iter()) {
+        if u != v {
+            deg[u as usize] += 1;
+            deg[v as usize] += 1;
+        }
+    }
+    for (&u, &v) in u2.iter().zip(v2.iter()) {
+        if u != v {
+            deg[u as usize] += 1;
+            deg[v as usize] += 1;
+        }
+    }
+
+    let mut raw_indptr = Vec::with_capacity(n_nodes + 1);
+    raw_indptr.push(0usize);
+    let mut raw_total = 0usize;
+    for &d in &deg {
+        raw_total += d;
+        raw_indptr.push(raw_total);
+    }
+    drop(deg);
+    if raw_total == 0 {
+        return KnnGraph::empty(n_nodes);
+    }
+
+    let mut raw_indices = vec![0u32; raw_total];
+    let mut raw_dists = vec![0.0_f64; raw_total];
+    let mut cursor = raw_indptr[..n_nodes].to_vec();
 
     for (&u, (&v, &d_raw)) in u1.iter().zip(v1.iter().zip(d1.iter())) {
         if u == v {
             continue;
         }
         let d = d_raw.max(1e-12);
-        d1_max[u as usize] = d1_max[u as usize].max(d);
-        d1_max[v as usize] = d1_max[v as usize].max(d);
-        rows[u as usize].push((v, d));
-        rows[v as usize].push((u, d));
+        let ui = u as usize;
+        let vi = v as usize;
+        d1_max[ui] = d1_max[ui].max(d);
+        d1_max[vi] = d1_max[vi].max(d);
+        let pu = cursor[ui];
+        raw_indices[pu] = v;
+        raw_dists[pu] = d;
+        cursor[ui] = pu + 1;
+        let pv = cursor[vi];
+        raw_indices[pv] = u;
+        raw_dists[pv] = d;
+        cursor[vi] = pv + 1;
     }
 
     for (&u, (&v, &d_raw)) in u2.iter().zip(v2.iter().zip(d2.iter())) {
@@ -585,7 +762,9 @@ pub fn build_gumap_12hop_priority_csr(
             continue;
         }
         let d = d_raw.max(1e-12);
-        let d1_pair = d1_max[u as usize].max(d1_max[v as usize]);
+        let ui = u as usize;
+        let vi = v as usize;
+        let d1_pair = d1_max[ui].max(d1_max[vi]);
         // Guarantee both d1 < tier2_margin * d2 and strict 1-hop priority d1 < d2 even when
         // tier2_margin <= 1.0 or incident 1-hop edges saturate floating-point precision.
         let d2_floor = if d1_pair > 0.0 {
@@ -598,30 +777,55 @@ pub fn build_gumap_12hop_priority_csr(
             1e-12
         };
         let d_adj = d.max(d2_floor);
-        rows[u as usize].push((v, d_adj));
-        rows[v as usize].push((u, d_adj));
+        let pu = cursor[ui];
+        raw_indices[pu] = v;
+        raw_dists[pu] = d_adj;
+        cursor[ui] = pu + 1;
+        let pv = cursor[vi];
+        raw_indices[pv] = u;
+        raw_dists[pv] = d_adj;
+        cursor[vi] = pv + 1;
     }
+    drop(cursor);
+    drop(d1_max);
 
     let mut indptr = Vec::with_capacity(n_nodes + 1);
     indptr.push(0usize);
-    let mut indices = Vec::new();
-    let mut distances = Vec::new();
+    let mut row_buf: Vec<(u32, f64)> = Vec::new();
+    let mut write_pos = 0usize;
 
-    for row in &mut rows {
-        row.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
-        let mut prev_col: Option<u32> = None;
-        for &(col, dist) in row.iter() {
-            if prev_col == Some(col) {
-                continue;
+    for u in 0..n_nodes {
+        let start = raw_indptr[u];
+        let end = raw_indptr[u + 1];
+        if start < end {
+            row_buf.clear();
+            for pos in start..end {
+                row_buf.push((raw_indices[pos], raw_dists[pos]));
             }
-            prev_col = Some(col);
-            indices.push(col);
-            distances.push(dist);
+            row_buf.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+            let mut prev_col: Option<u32> = None;
+            for &(col, dist) in &row_buf {
+                if prev_col == Some(col) {
+                    continue;
+                }
+                prev_col = Some(col);
+                raw_indices[write_pos] = col;
+                raw_dists[write_pos] = dist;
+                write_pos += 1;
+            }
         }
-        indptr.push(indices.len());
+        indptr.push(write_pos);
+    }
+    drop(row_buf);
+    drop(raw_indptr);
+    raw_indices.truncate(write_pos);
+    raw_dists.truncate(write_pos);
+    if write_pos * 8 < raw_total * 7 {
+        raw_indices.shrink_to_fit();
+        raw_dists.shrink_to_fit();
     }
 
-    KnnGraph::new_validated(n_nodes, indptr, indices, distances)
+    KnnGraph::new_validated(n_nodes, indptr, raw_indices, raw_dists)
 }
 
 #[inline]
@@ -748,6 +952,49 @@ mod tests {
 
         let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
         let (ks, deg_s, ss) = build_pure_2hop_knn(&single).unwrap();
+        assert_eq!(ks.num_nodes(), 1);
+        assert_eq!(deg_s, vec![0]);
+        assert_eq!(ss.n_pure_2hop_rows, 1);
+    }
+
+    #[test]
+    fn test_build_capped_12hop_knn_star_cap_and_ordering() {
+        // Star hub 0 connected to 1..=100, plus bridge 100-101.
+        let n = 102;
+        let mut edges: Vec<(u32, u32)> = (1..=100).map(|i| (0, i)).collect();
+        edges.push((100, 101));
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+
+        let (knn1, k2_1, stats1) = build_capped_12hop_knn(&g, 8, 42).unwrap();
+        let (knn2, k2_2, stats2) = build_capped_12hop_knn(&g, 8, 42).unwrap();
+        assert_eq!(knn1, knn2);
+        assert_eq!(k2_1, k2_2);
+        assert_eq!(stats1, stats2);
+        assert_eq!(stats1.n_1hop, 2 * edges.len());
+        assert!(stats1.n_2hop <= 2 * n * 8);
+        assert!(stats1.n_truncated_2hop > 0);
+        for (u, &k2_u) in k2_1.iter().enumerate() {
+            let (cols, dists) = knn1.row(u);
+            assert_eq!(cols.len(), k2_u as usize);
+            assert!(cols.windows(2).all(|w| w[0] < w[1]));
+            assert!(dists.iter().all(|&d| d == 1.0 || d == 2.0));
+        }
+
+        // max_2hop_per_node = 0 keeps 1-hop only and records truncation
+        let (knn_0, _, stats_0) = build_capped_12hop_knn(&g, 0, 42).unwrap();
+        assert_eq!(stats_0.n_2hop, 0);
+        assert_eq!(stats_0.n_1hop, knn_0.nnz());
+        assert!(stats_0.n_truncated_2hop > 0);
+
+        // Empty and singleton
+        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let (ke, deg_e, se) = build_capped_12hop_knn(&empty, 8, 42).unwrap();
+        assert_eq!(ke.num_nodes(), 0);
+        assert!(deg_e.is_empty());
+        assert_eq!(se.nnz, 0);
+
+        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        let (ks, deg_s, ss) = build_capped_12hop_knn(&single, 8, 42).unwrap();
         assert_eq!(ks.num_nodes(), 1);
         assert_eq!(deg_s, vec![0]);
         assert_eq!(ss.n_pure_2hop_rows, 1);
