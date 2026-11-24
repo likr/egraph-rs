@@ -12,7 +12,7 @@ This skill defines the tiered verification harness across Native Rust, Python (P
 Always prefer `./scripts/verify.sh` over raw `cargo`/`maturin`/`unittest` invocations. It automatically sets:
 - `RUST_FONTCONFIG_DLOPEN=1`
 - Single-thread guards (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `RAYON_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`)
-- `RUSTC_WRAPPER=sccache` (shared compilation cache across git worktrees)
+- `RUSTC_WRAPPER=sccache` (shared compilation cache across git worktrees; if deep sandbox `TMPDIR` paths trigger Unix socket `SUN_LEN` errors during `cargo clippy`, bypass cleanly with `RUSTC_WRAPPER=env` without altering repository files)
 - `CARGO_BUILD_JOBS` throttled by `EGRAPH_PARALLEL_WORKERS` (`1->8`, `2->5`, `3->4`, `>=4->2`)
 - Isolated worktree-local `$REPO_ROOT/.venv` (`uv`-managed Python 3.12)
 - `cargo nextest run` when installed
@@ -68,5 +68,11 @@ Whenever a task is ready to be completed:
     - Reserve `--strict` for explicit legacy-crate audits (`petgraph-linalg-kernel` carries baseline clippy warnings); standard milestone and release gates use `--all --build-wasm --docs` without `--strict`.
 13. **TypeScript Declaration Check after `--build-wasm`**:
     - Whenever `crates/wasm/scripts/assemble_pkg.mjs` or WASM bindings change, always run `npx tsc --noEmit` against the assembled `crates/wasm/pkg/index.d.ts` before handoff to catch stripped or overwritten type exports early.
-14. **Brute-Force Oracle Testing for Geometric/Spatial Algorithms**:
-    - For any change to `egraph-spatial` or `egraph-metrics` geometric kernels (e.g., `SweepLineCrossings`, torus wrap-around, `StaticKdTree`, `Delaunay2d`), authors MUST include randomized + degenerate brute-force $O(M^2)$ / $O(N^2)$ oracle equivalence tests (collinear overlaps, shared endpoints, floating-point tie-breaks, periodic boundaries) in the first iteration before requesting review.
+14. **Brute-Force Oracle & Adversarial Edge-Case Testing Before Review**:
+    - For any change to `egraph-spatial`, `egraph-linalg`, `egraph-layout`, or `egraph-metrics` kernels, authors MUST cover before requesting review:
+      - Randomized + degenerate brute-force $O(M^2)$ / $O(N^2)$ oracle tests for geometric kernels (collinear overlaps, shared endpoints, floating-point tie-breaks, periodic boundaries).
+      - Graph & layout boundary cases: empty (`N=0`), singleton (`N=1`), edgeless, **directed graphs with reciprocal edges `(u, v)` + `(v, u)`** (catching inclusion-exclusion `saturating_sub` bugs), mixed connected + isolated degree-0 vertices, and **1D / axis-aligned / 2-cluster collinear layouts** (ensuring isotropic scale extraction uses `&&` not `||` on axis spans).
+      - Iterative linear solver precision sensitivity: when solver outputs feed nonlinear transforms such as `-log(...)` (e.g., `RHGH`), validate end-to-end distance accuracy against exact dense solves (using tight tolerances like `rel_tol=1e-12`, not `1e-8`).
+      - Cross-target Native vs. WASM parity fixtures: use asymmetric graphs (or rotation-invariant comparisons) for spectral/PivotMDS pipelines so multiplicity-2 eigenvalues do not trigger false 90-degree eigenbasis flips from `1e-16` FMA differences.
+15. **Per-Wave WASM Gzip Budget Tracking**:
+    - Record `gzip -9 -c crates/wasm/pkg/egraph_wasm_bg.wasm | wc -c` at every WASM-touching milestone wave (hard limit `<= 614,400` B / `600.0 KiB`). Whenever remaining headroom drops below `40 KiB`, trigger immediate size trimming (e.g., monomorphization / `f32`-only WASM wrappers) before starting the next milestone rather than waiting until release.

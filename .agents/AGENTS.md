@@ -4,7 +4,7 @@
 
 `egraph-rs` is a high-performance graph drawing and layout library targeting **Native Rust, Python (PyO3), and WebAssembly (`wasm-bindgen` / TypeScript)** equally as first-class targets.
 
-- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md). Planned architectural redesign and feature milestones (**Step 0 + M0–M6**) shipped in **`v6.0.0-alpha.5`** on PyPI (`6.0.0a5`) and npm (`6.0.0-alpha.5`, `--tag next`); tag `v6.0.0-alpha.4` remained unpublished after fixing a lockfile-stderr invariant check bug prior to `v6.0.0-alpha.5`. Subsequent releases (`beta`, `rc`, `v6.0.0` GA, `crates.io`) build cleanly on this baseline.
+- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md). Architectural redesign (**Step 0 + M0–M6**) shipped in `v6.0.0-alpha.5`, followed by `v6.0.0-alpha.6` and **`v6.0.0-alpha.7`** (PyPI `6.0.0a7` / npm `6.0.0-alpha.7 --tag next`, adding WASM dataset exclusion + fat LTO, `PivotMds`/`GuMap`/`IbUmap` memory fixes, `YifanHu`/`ForceAtlas2` `theta=1.2`, `AmgPcgSolver`, `anisotropic_laplacian`, Devriendt–Lambiotte resistance curvature flow, coarse Louvain area-reserved backbone, Screened Poisson density field, and 5-axis metrics + `egraph.__version__`). Subsequent releases (`beta`, `rc`, `v6.0.0` GA, `crates.io`) build cleanly on this baseline.
 - **Paired Research & Benchmark Repo**: `/Users/likr/diffusion-kernel-experiments` provides empirically validated algorithms (Track A Pure 1+2-Hop Adaptive Fit-tsNET, Track B $O(|E|)$ Regularized Chebyshev DoG + 3-Tier Sparse Barrier SGD / GuMap + 2D Spatial Intruder Refinement) and regression benchmarks (`suite30`, `tsnet_ref5`, `drgraph` up to 4M nodes).
 
 ---
@@ -31,6 +31,7 @@
 
 - **Atomic Conventional Commits**: Split unrelated changes into atomic commits following [`egraph-rs-commit`](skills/egraph-rs-commit/SKILL.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). Confirm `git diff --cached --stat` before committing.
 - **Confirmation Gate**: Present a Japanese summary + proposed commit message and obtain explicit user approval before committing or pushing, unless the user explicitly authorized autonomous commits/pushes for the active task.
+- **Milestone-Cadenced Checkpointing**: In multi-milestone work, land atomic verified commits after each passed milestone/wave gate and push to `origin/master` at major stage boundaries (when autonomous commits/pushes are authorized, or after user confirmation otherwise). Reserve only the 11-file version bump, release tag (`v6.*`), and PyPI/npm publish for the final release gate.
 - **History, Tag & Hygiene Guards**: Never force-push `master` (`--force`), never move or delete pushed release tags (`v6.*`), and never commit secrets, ignored build/venv artifacts (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`), or files `> 100 MB`. Verify `./scripts/verify.sh` before pushing.
 - **GitHub Issues & PRs**: Write all Issue bodies, PR descriptions, and release notes in English (`jp_cjk=0`) following [`.github/ISSUE_TEMPLATE/`](../.github/ISSUE_TEMPLATE/config.yml) and [`.github/pull_request_template.md`](../.github/pull_request_template.md); confirm CI green before merging or tagging.
 

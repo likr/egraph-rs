@@ -36,6 +36,7 @@ This skill details the general development rules, comment conventions, parallel 
   - Before release tagging, follow `egraph-rs-release` to confirm workspace dependency & `crates/wasm/package-lock.json` alignment (`ndarray` `0.17` `default-features = false` matching `numpy` `0.28`), `crates/wasm/package.json` `repository` provenance metadata, `crates/python/pyproject.toml` classifiers matching tag stability (`alpha`/`beta`/`rc`/GA), and `CHANGELOG.md` accuracy.
 - **Prepare Commit**:
   - Split unrelated changes into atomic commits following `egraph-rs-commit` and `egraph-rs-github` rules (`git diff --cached --stat`).
+  - In multi-milestone work, commit atomically at each verified milestone/wave boundary and push at major stage boundaries (`egraph-rs-github`) rather than deferring all commits to the final release step.
 - **Ask for User Confirmation**:
   - Present a summary of all changes made (in **Japanese** for user communications).
   - Include the proposed commit message and whether pushing to remote is planned (`egraph-rs-github`).

@@ -9,6 +9,8 @@ Use this skill whenever preparing, bumping, tagging, publishing, or verifying a 
 
 ## 1. Complete Version-Bump File Checklist
 
+> Note: Feature, bugfix, and experiment commits/pushes should land per verified milestone (`egraph-rs-github`). This runbook governs only the final version-bump commit, annotated `v6.*` tag, CI/OIDC publishing, and live-registry verification.
+
 Update every file below atomically when bumping `X.Y.Z-alpha.N` / `X.Y.Z-beta.N` / `X.Y.Z-rc.N` / `X.Y.Z` (PEP 440 PyPI equivalent: `X.Y.ZaN` / `X.Y.ZbN` / `X.Y.ZrcN` / `X.Y.Z`):
 
 1. `Cargo.toml` (`[workspace.package].version`)
