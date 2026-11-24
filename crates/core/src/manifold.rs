@@ -2,6 +2,7 @@
 
 use crate::error::{CoreError, CoreResult};
 use crate::layout::Layout2d;
+use crate::rng::DeterministicRng;
 use crate::scalar::Scalar;
 use std::f64::consts::{PI, TAU};
 
@@ -47,6 +48,132 @@ impl<S: Scalar> ManifoldLayout2d<S> {
     /// Constructs a manifold layout from `x` and `y` vectors and projects them onto `kind`.
     pub fn from_xy(kind: ManifoldKind, x: Vec<S>, y: Vec<S>) -> CoreResult<Self> {
         Self::from_layout(kind, Layout2d::from_xy(x, y)?)
+    }
+
+    /// Creates a deterministically seeded safe random initialization on `kind`.
+    ///
+    /// For [`ManifoldKind::HyperbolicPoincare`], points are sampled uniformly by area inside the
+    /// open disk of radius `scale.min(1 - eps)` (`0 < scale < 1`), breaking the zero-tangent
+    /// deadlock of [`ManifoldLayout2d::zeros`] under manifold SGD. For
+    /// [`ManifoldKind::Spherical`], points are sampled uniformly by surface area on $S^2$. For
+    /// [`ManifoldKind::Torus2d`], points are sampled uniformly in $[0, 1)^2$.
+    pub fn random_init(kind: ManifoldKind, n: usize, scale: f64, seed: u64) -> CoreResult<Self> {
+        if !scale.is_finite() {
+            return Err(CoreError::non_finite(
+                "ManifoldLayout2d::random_init::scale",
+            ));
+        }
+        if scale <= 0.0 {
+            return Err(CoreError::invalid_input("scale must be strictly positive"));
+        }
+        if kind == ManifoldKind::HyperbolicPoincare && scale >= 1.0 {
+            return Err(CoreError::invalid_input(
+                "scale must be strictly in (0, 1) for HyperbolicPoincare",
+            ));
+        }
+        if n == 0 {
+            return Ok(Self::zeros(kind, 0));
+        }
+
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let mut xs = Vec::with_capacity(n);
+        let mut ys = Vec::with_capacity(n);
+        match kind {
+            ManifoldKind::HyperbolicPoincare => {
+                let max_r = scale.min(poincare_max_radius::<S>());
+                for _ in 0..n {
+                    let r = max_r * rng.next_f64().sqrt();
+                    let theta = TAU * rng.next_f64();
+                    let (s, c) = theta.sin_cos();
+                    let (px, py) = clamp_poincare_point(S::from_f64(r * c), S::from_f64(r * s));
+                    xs.push(px);
+                    ys.push(py);
+                }
+            }
+            ManifoldKind::Spherical => {
+                for _ in 0..n {
+                    let lon = TAU * rng.next_f64();
+                    let u = (2.0 * rng.next_f64() - 1.0).clamp(-1.0, 1.0);
+                    let colat = u.acos();
+                    let (px, py) = project_spherical_coords(S::from_f64(lon), S::from_f64(colat));
+                    xs.push(px);
+                    ys.push(py);
+                }
+            }
+            ManifoldKind::Torus2d => {
+                for _ in 0..n {
+                    let (px, py) =
+                        wrap_torus_point(S::from_f64(rng.next_f64()), S::from_f64(rng.next_f64()));
+                    xs.push(px);
+                    ys.push(py);
+                }
+            }
+        }
+        Ok(Self {
+            kind,
+            layout: Layout2d::from_xy(xs, ys)?,
+        })
+    }
+
+    /// Constructs a [`ManifoldLayout2d`] from a Euclidean [`Layout2d`] by centering and radially
+    /// scaling coordinates inside `max_radius` (`0 < max_radius < 1`) on
+    /// [`ManifoldKind::HyperbolicPoincare`], avoiding boundary rim collapse.
+    ///
+    /// For [`ManifoldKind::Spherical`] and [`ManifoldKind::Torus2d`], projects `layout` onto
+    /// the manifold domain identically to [`ManifoldLayout2d::from_layout`].
+    pub fn from_layout_scaled(
+        kind: ManifoldKind,
+        layout: &Layout2d<S>,
+        max_radius: f64,
+    ) -> CoreResult<Self> {
+        if !max_radius.is_finite() {
+            return Err(CoreError::non_finite(
+                "ManifoldLayout2d::from_layout_scaled::max_radius",
+            ));
+        }
+        if max_radius <= 0.0 || max_radius >= 1.0 {
+            return Err(CoreError::invalid_input(
+                "max_radius must be strictly in (0, 1)",
+            ));
+        }
+        layout.validate_finite()?;
+        if kind != ManifoldKind::HyperbolicPoincare {
+            return Self::from_layout(kind, layout.clone());
+        }
+
+        let n = layout.len();
+        if n == 0 {
+            return Ok(Self::zeros(kind, 0));
+        }
+        let inv_n = 1.0 / (n as f64);
+        let mx = layout.x().iter().map(|v| v.to_f64() * inv_n).sum::<f64>();
+        let my = layout.y().iter().map(|v| v.to_f64() * inv_n).sum::<f64>();
+        let mut r_max = 0.0_f64;
+        for (&x, &y) in layout.x().iter().zip(layout.y().iter()) {
+            let r = (x.to_f64() - mx).hypot(y.to_f64() - my);
+            if r > r_max {
+                r_max = r;
+            }
+        }
+        let eff_max_r = max_radius.min(poincare_max_radius::<S>());
+        let scale = if r_max.is_finite() && r_max > 0.0 {
+            eff_max_r / r_max
+        } else {
+            0.0
+        };
+        let mut xs = Vec::with_capacity(n);
+        let mut ys = Vec::with_capacity(n);
+        for (&x, &y) in layout.x().iter().zip(layout.y().iter()) {
+            let dx = x.to_f64() - mx;
+            let dy = y.to_f64() - my;
+            let (px, py) = clamp_poincare_point(S::from_f64(dx * scale), S::from_f64(dy * scale));
+            xs.push(px);
+            ys.push(py);
+        }
+        Ok(Self {
+            kind,
+            layout: Layout2d::from_xy(xs, ys)?,
+        })
     }
 
     /// Returns the manifold geometry type.
@@ -205,6 +332,75 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         self.layout.y_mut()[i] = ny;
         Ok(())
     }
+
+    /// Computes the closed-form Möbius-equivariant hyperbolic centroid (Einstein midpoint) of all
+    /// vertices in the Poincaré disk.
+    ///
+    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
+    pub fn poincare_centroid(&self) -> CoreResult<(S, S)> {
+        if self.kind != ManifoldKind::HyperbolicPoincare {
+            return Err(CoreError::unsupported(
+                "poincare_centroid is only supported on HyperbolicPoincare manifolds",
+            ));
+        }
+        poincare_einstein_midpoint(self.layout.x(), self.layout.y())
+    }
+
+    /// Isometrically recenters all Poincaré disk points at `(cx, cy)` via the holomorphic disk
+    /// automorphism $z \mapsto (-c) \oplus_M z = \frac{z - c}{1 - \bar{c} z}$.
+    ///
+    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
+    pub fn recenter_poincare(&mut self, cx: S, cy: S) -> CoreResult<()> {
+        if self.kind != ManifoldKind::HyperbolicPoincare {
+            return Err(CoreError::unsupported(
+                "recenter_poincare is only supported on HyperbolicPoincare manifolds",
+            ));
+        }
+        if !cx.is_finite() || !cy.is_finite() {
+            return Err(CoreError::non_finite("ManifoldLayout2d::recenter_poincare"));
+        }
+        self.layout.validate_finite()?;
+        let (ccx, ccy) = clamp_poincare_point(cx, cy);
+        let neg_cx = -ccx;
+        let neg_cy = -ccy;
+        let (xs, ys) = self.layout.xy_mut();
+        for i in 0..xs.len() {
+            let (nx, ny) = poincare_mobius_add(neg_cx, neg_cy, xs[i], ys[i]);
+            xs[i] = nx;
+            ys[i] = ny;
+        }
+        Ok(())
+    }
+
+    /// Isometrically recenters the Poincaré disk layout so vertex `index` moves to the origin `(0, 0)`.
+    ///
+    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
+    pub fn recenter_poincare_at(&mut self, index: usize) -> CoreResult<()> {
+        if self.kind != ManifoldKind::HyperbolicPoincare {
+            return Err(CoreError::unsupported(
+                "recenter_poincare_at is only supported on HyperbolicPoincare manifolds",
+            ));
+        }
+        let n = self.len();
+        if index >= n {
+            return Err(CoreError::index_out_of_bounds(
+                index,
+                n,
+                "ManifoldLayout2d::recenter_poincare_at",
+            ));
+        }
+        let cx = self.layout.x()[index];
+        let cy = self.layout.y()[index];
+        self.recenter_poincare(cx, cy)
+    }
+
+    /// Isometrically recenters the Poincaré disk layout so its Einstein midpoint lies at `(0, 0)`.
+    ///
+    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
+    pub fn center_poincare_centroid(&mut self) -> CoreResult<()> {
+        let (cx, cy) = self.poincare_centroid()?;
+        self.recenter_poincare(cx, cy)
+    }
 }
 
 #[inline]
@@ -236,11 +432,80 @@ pub fn clamp_poincare_point<S: Scalar>(x: S, y: S) -> (S, S) {
     let max_r = poincare_max_radius::<S>();
     let r = xf.hypot(yf);
     if r > max_r {
-        let scale = max_r / r;
-        (S::from_f64(xf * scale), S::from_f64(yf * scale))
+        (S::from_f64((xf / r) * max_r), S::from_f64((yf / r) * max_r))
     } else {
         (x, y)
     }
+}
+
+/// Computes the Poincaré disk Möbius (gyrovector) addition $a \oplus_M b = \frac{a + b}{1 + \bar{a} b}$
+/// in complex disk coordinates, clamping inputs and outputs inside the open unit disk.
+pub fn poincare_mobius_add<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> (S, S) {
+    let (cx1, cy1) = clamp_poincare_point(x1, y1);
+    let (cx2, cy2) = clamp_poincare_point(x2, y2);
+    let ax = cx1.to_f64();
+    let ay = cy1.to_f64();
+    let bx = cx2.to_f64();
+    let by = cy2.to_f64();
+
+    let num_x = ax + bx;
+    let num_y = ay + by;
+    let den_r = 1.0 + ax * bx + ay * by;
+    let den_i = ax * by - ay * bx;
+    let den_sq = den_r * den_r + den_i * den_i;
+    if den_sq <= 1e-24 {
+        return (S::ZERO, S::ZERO);
+    }
+    let rx = (num_x * den_r + num_y * den_i) / den_sq;
+    let ry = (num_y * den_r - num_x * den_i) / den_sq;
+    clamp_poincare_point(S::from_f64(rx), S::from_f64(ry))
+}
+
+/// Computes the closed-form Möbius-equivariant hyperbolic centroid (Einstein midpoint via the
+/// Lorentz hyperboloid lift) of Poincaré disk points `(xs, ys)`.
+pub fn poincare_einstein_midpoint<S: Scalar>(xs: &[S], ys: &[S]) -> CoreResult<(S, S)> {
+    if xs.len() != ys.len() {
+        return Err(CoreError::dimension_mismatch(
+            xs.len(),
+            ys.len(),
+            "poincare_einstein_midpoint::ys",
+        ));
+    }
+    if xs.is_empty() {
+        return Ok((S::ZERO, S::ZERO));
+    }
+
+    let mut sum_t = 0.0_f64;
+    let mut sum_sx = 0.0_f64;
+    let mut sum_sy = 0.0_f64;
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(CoreError::non_finite("poincare_einstein_midpoint"));
+        }
+        let (cx, cy) = clamp_poincare_point(x, y);
+        let px = cx.to_f64();
+        let py = cy.to_f64();
+        let r2 = px * px + py * py;
+        let denom = (1.0 - r2).max(1e-18);
+        sum_t += (1.0 + r2) / denom;
+        sum_sx += (2.0 * px) / denom;
+        sum_sy += (2.0 * py) / denom;
+    }
+
+    let inv_n = 1.0 / (xs.len() as f64);
+    let t_avg = sum_t * inv_n;
+    let sx_avg = sum_sx * inv_n;
+    let sy_avg = sum_sy * inv_n;
+    let s_norm2 = sx_avg * sx_avg + sy_avg * sy_avg;
+    let t0 = (t_avg * t_avg - s_norm2).max(1.0).sqrt();
+    let denom_back = t_avg + t0;
+    if denom_back <= 0.0 || !denom_back.is_finite() {
+        return Ok((S::ZERO, S::ZERO));
+    }
+    Ok(clamp_poincare_point(
+        S::from_f64(sx_avg / denom_back),
+        S::from_f64(sy_avg / denom_back),
+    ))
 }
 
 /// Computes the Poincaré disk hyperbolic geodesic distance between `(x1, y1)` and `(x2, y2)`.
@@ -598,6 +863,156 @@ mod tests {
         assert!(matches!(
             ManifoldLayout2d::from_xy(ManifoldKind::Spherical, vec![f64::NAN], vec![0.0]),
             Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_poincare_mobius_centroid_and_safe_init_f64_f32() {
+        // Clamp handles huge coordinates without underflow
+        let (hx, hy) = clamp_poincare_point(1e300_f64, 2e300_f64);
+        assert!(hx.is_finite() && hy.is_finite() && hx.hypot(hy) < 1.0);
+
+        // Mobius addition identity, inverse, and boundary clamping
+        let (id_x, id_y) = poincare_mobius_add(0.0_f64, 0.0, 0.3, -0.4);
+        assert!((id_x - 0.3).abs() < 1e-12 && (id_y - (-0.4)).abs() < 1e-12);
+        let (inv_x, inv_y) = poincare_mobius_add(-0.3_f64, 0.4, 0.3, -0.4);
+        assert!(inv_x.hypot(inv_y) < 1e-12);
+        let (bx, by) = poincare_mobius_add(0.99_f32, 0.0, 0.99, 0.0);
+        assert!(bx.is_finite() && by.is_finite() && (bx * bx + by * by) < 1.0);
+
+        // Einstein midpoint edge cases
+        assert_eq!(
+            poincare_einstein_midpoint::<f64>(&[], &[]).unwrap(),
+            (0.0, 0.0)
+        );
+        let (sx, sy) = poincare_einstein_midpoint(&[0.25_f64], &[-0.35]).unwrap();
+        assert!((sx - 0.25).abs() < 1e-12 && (sy - (-0.35)).abs() < 1e-12);
+        let (sym_x, sym_y) = poincare_einstein_midpoint(&[-0.4_f64, 0.4], &[-0.2, 0.2]).unwrap();
+        assert!(sym_x.hypot(sym_y) < 1e-12);
+        assert!(matches!(
+            poincare_einstein_midpoint(&[0.1_f64], &[0.1, 0.2]),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            poincare_einstein_midpoint(&[f64::NAN], &[0.0]),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        // Centering preserves pairwise geodesic distances isometrically (f64)
+        let mut hyp64 = ManifoldLayout2d::from_xy(
+            ManifoldKind::HyperbolicPoincare,
+            vec![0.6, 0.7, 0.55, 0.85],
+            vec![0.4, 0.3, 0.5, -0.1],
+        )
+        .unwrap();
+        let mut dists_before = Vec::new();
+        for i in 0..hyp64.len() {
+            for j in (i + 1)..hyp64.len() {
+                dists_before.push(hyp64.geodesic_distance(i, j).unwrap());
+            }
+        }
+        hyp64.center_poincare_centroid().unwrap();
+        let (cx, cy) = hyp64.poincare_centroid().unwrap();
+        assert!(
+            cx.hypot(cy) < 1e-12,
+            "centroid after centering: ({cx}, {cy})"
+        );
+        let mut idx = 0usize;
+        for i in 0..hyp64.len() {
+            for j in (i + 1)..hyp64.len() {
+                let d_after = hyp64.geodesic_distance(i, j).unwrap();
+                assert!((d_after - dists_before[idx]).abs() < 1e-10);
+                idx += 1;
+            }
+        }
+
+        // recenter_poincare_at moves node 2 to (0, 0) isometrically
+        hyp64.recenter_poincare_at(2).unwrap();
+        assert!(hyp64.x()[2].hypot(hyp64.y()[2]) < 1e-12);
+        let mut idx2 = 0usize;
+        for i in 0..hyp64.len() {
+            for j in (i + 1)..hyp64.len() {
+                let d_after = hyp64.geodesic_distance(i, j).unwrap();
+                assert!((d_after - dists_before[idx2]).abs() < 1e-10);
+                idx2 += 1;
+            }
+        }
+
+        // f32 parity + near-rim inputs
+        let mut hyp32 = ManifoldLayout2d::from_xy(
+            ManifoldKind::HyperbolicPoincare,
+            vec![0.999_f32, 0.995, 0.99],
+            vec![0.0_f32, 0.05, -0.05],
+        )
+        .unwrap();
+        let d32_before = hyp32.geodesic_distance(0, 1).unwrap();
+        hyp32.center_poincare_centroid().unwrap();
+        let (cx32, cy32) = hyp32.poincare_centroid().unwrap();
+        assert!(cx32.hypot(cy32) < 1e-4);
+        assert!((hyp32.geodesic_distance(0, 1).unwrap() - d32_before).abs() < 1e-3);
+
+        // random_init across all 3 manifolds
+        let r_hyp =
+            ManifoldLayout2d::<f64>::random_init(ManifoldKind::HyperbolicPoincare, 16, 0.25, 42)
+                .unwrap();
+        let r_hyp2 =
+            ManifoldLayout2d::<f64>::random_init(ManifoldKind::HyperbolicPoincare, 16, 0.25, 42)
+                .unwrap();
+        assert_eq!(r_hyp, r_hyp2);
+        for (&x, &y) in r_hyp.x().iter().zip(r_hyp.y().iter()) {
+            assert!(x.hypot(y) <= 0.25 + 1e-12);
+        }
+        // Breaking zeros deadlock: tangent_delta between distinct nodes is nonzero
+        let (tdx, tdy) = r_hyp.tangent_delta(0, 1).unwrap();
+        assert!(tdx.hypot(tdy) > 0.0);
+
+        let r_sph =
+            ManifoldLayout2d::<f32>::random_init(ManifoldKind::Spherical, 12, 0.25, 42).unwrap();
+        for (&lon, &colat) in r_sph.x().iter().zip(r_sph.y().iter()) {
+            assert!((0.0..std::f32::consts::TAU).contains(&lon));
+            assert!((0.0..=std::f32::consts::PI).contains(&colat));
+        }
+
+        let r_tor =
+            ManifoldLayout2d::<f32>::random_init(ManifoldKind::Torus2d, 12, 0.25, 42).unwrap();
+        for (&tx, &ty) in r_tor.x().iter().zip(r_tor.y().iter()) {
+            assert!((0.0..1.0).contains(&tx) && (0.0..1.0).contains(&ty));
+        }
+
+        // from_layout_scaled avoids rim collapse on large Euclidean layouts
+        let big_euclid =
+            Layout2d::from_xy(vec![10.0_f64, 20.0, 30.0], vec![-5.0, 5.0, 15.0]).unwrap();
+        let scaled = ManifoldLayout2d::from_layout_scaled(
+            ManifoldKind::HyperbolicPoincare,
+            &big_euclid,
+            0.7,
+        )
+        .unwrap();
+        let max_r = scaled
+            .x()
+            .iter()
+            .zip(scaled.y().iter())
+            .map(|(&x, &y)| x.hypot(y))
+            .fold(0.0_f64, f64::max);
+        assert!((max_r - 0.7).abs() < 1e-12);
+
+        // Non-Poincare manifolds reject Poincare-only operations
+        let mut tor = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, 3);
+        assert!(matches!(
+            tor.poincare_centroid(),
+            Err(CoreError::UnsupportedOperation(_))
+        ));
+        assert!(matches!(
+            tor.recenter_poincare(0.1, 0.1),
+            Err(CoreError::UnsupportedOperation(_))
+        ));
+        assert!(matches!(
+            tor.recenter_poincare_at(0),
+            Err(CoreError::UnsupportedOperation(_))
+        ));
+        assert!(matches!(
+            tor.center_poincare_centroid(),
+            Err(CoreError::UnsupportedOperation(_))
         ));
     }
 }
