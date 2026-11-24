@@ -2674,7 +2674,8 @@ impl<S: Scalar> SgdSolver<S> {
         let (adj_indptr, adj_indices) = build_symmetric_csr_from_sorted_pairs(n, &u1, &v1);
         let sym_graph = CsrGraph::<f64>::from_csr(&adj_indptr, &adj_indices, None, false, false)?;
 
-        // Optional per-node weighted 1-hop adjacency when input graph carries weights.
+        // Optional per-node weighted 1-hop adjacency when input graph carries weights,
+        // tie-breaking equal weights by ascending neighbor degree then vertex ID.
         let weighted_rows: Option<Vec<Vec<(f64, u32)>>> = if graph.is_weighted() {
             let mut rows = vec![Vec::new(); n];
             for &(u, v, w) in &canonical_edges {
@@ -2682,7 +2683,15 @@ impl<S: Scalar> SgdSolver<S> {
                 rows[v as usize].push((w, u));
             }
             for row in &mut rows {
-                row.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+                row.sort_unstable_by(|a, b| {
+                    a.0.total_cmp(&b.0)
+                        .then_with(|| {
+                            sym_graph
+                                .degree(a.1 as usize)
+                                .cmp(&sym_graph.degree(b.1 as usize))
+                        })
+                        .then_with(|| a.1.cmp(&b.1))
+                });
             }
             Some(rows)
         } else {
@@ -2758,10 +2767,12 @@ impl<S: Scalar> SgdSolver<S> {
         let mut mn_pairs = Vec::with_capacity(n * n_mn);
         let mut fp_pairs = Vec::with_capacity(n * n_fp);
 
+        let hub_thresh = 64usize.max(n.isqrt());
         let mut nb_u: Vec<u32> = Vec::with_capacity(n_nb);
+        let mut n1_sorted_scratch: Vec<(usize, u32)> = Vec::new();
         let mut row1_scratch: Vec<u32> = Vec::new();
-        let mut hop2_raw: Vec<u32> = Vec::new();
-        let mut hop2_ranked: Vec<(usize, u32)> = Vec::new();
+        let mut hop2_raw: Vec<(u32, f64)> = Vec::new();
+        let mut hop2_ranked: Vec<(f64, u32)> = Vec::new();
 
         for u in 0..n {
             let u_u32 = u as u32;
@@ -2771,6 +2782,17 @@ impl<S: Scalar> SgdSolver<S> {
             hop1_stamp.mark(u);
             for &w in n1_u {
                 hop1_stamp.mark(w as usize);
+            }
+
+            let need_sorted_n1 = !n1_u.is_empty()
+                && ((hop1_cap != usize::MAX && weighted_rows.is_none() && n1_u.len() > hop1_cap)
+                    || n1_u.len().min(hop1_cap) < n_nb);
+            if need_sorted_n1 {
+                n1_sorted_scratch.clear();
+                for &w in n1_u {
+                    n1_sorted_scratch.push((sym_graph.degree(w as usize), w));
+                }
+                n1_sorted_scratch.sort_unstable();
             }
 
             nb_u.clear();
@@ -2788,53 +2810,73 @@ impl<S: Scalar> SgdSolver<S> {
                 }
             } else if n1_u.len() <= hop1_cap {
                 nb_u.extend_from_slice(n1_u);
-            } else {
-                row1_scratch.clear();
-                row1_scratch.extend_from_slice(n1_u);
-                rng.shuffle(&mut row1_scratch);
-                nb_u.extend_from_slice(&row1_scratch[..hop1_cap]);
+            } else if hop1_cap > 0 {
+                // Keep all neighbors strictly below the cutoff degree deterministically, and only
+                // shuffle the tied-degree boundary slice when it overflows `hop1_cap`.
+                let d_cut = n1_sorted_scratch[hop1_cap - 1].0;
+                let tie_start = n1_sorted_scratch.partition_point(|&(d, _)| d < d_cut);
+                let tie_end = n1_sorted_scratch.partition_point(|&(d, _)| d <= d_cut);
+                for &(_, w) in &n1_sorted_scratch[..tie_start] {
+                    nb_u.push(w);
+                }
+                if tie_end == hop1_cap {
+                    for &(_, w) in &n1_sorted_scratch[tie_start..hop1_cap] {
+                        nb_u.push(w);
+                    }
+                } else {
+                    row1_scratch.clear();
+                    for &(_, w) in &n1_sorted_scratch[tie_start..tie_end] {
+                        row1_scratch.push(w);
+                    }
+                    rng.shuffle(&mut row1_scratch);
+                    nb_u.extend_from_slice(&row1_scratch[..(hop1_cap - tie_start)]);
+                }
             }
 
             if nb_u.len() < n_nb && !n1_u.is_empty() {
                 hop2_raw.clear();
                 let cand_cap = (n_nb * 8).max(64);
-                let per_w_cap = (n_nb * 2).max(16);
-                for &w in n1_u {
-                    let n1_w = sym_graph.neighbors(w as usize);
-                    if n1_w.len() <= 1 {
+                let hard_cand_cap = cand_cap.saturating_mul(16);
+                let mut prev_deg = 0usize;
+                for &(deg_w, w) in &n1_sorted_scratch {
+                    if deg_w <= 1 {
                         continue;
                     }
-                    if n1_w.len() <= per_w_cap {
-                        for &v in n1_w {
-                            if !hop1_stamp.is_visited(v as usize) {
-                                hop2_raw.push(v);
-                            }
-                        }
-                    } else {
-                        for _ in 0..per_w_cap {
-                            let v = n1_w[rng.gen_range_usize(n1_w.len())];
-                            if !hop1_stamp.is_visited(v as usize) {
-                                hop2_raw.push(v);
-                            }
-                        }
-                    }
-                    if hop2_raw.len() >= cand_cap {
+                    if deg_w > hub_thresh {
                         break;
+                    }
+                    if deg_w != prev_deg && hop2_raw.len() >= cand_cap {
+                        break;
+                    }
+                    if n1_u.len() >= n_nb && hop2_raw.len() >= hard_cand_cap {
+                        break;
+                    }
+                    prev_deg = deg_w;
+                    let aa_w = 1.0_f64 / (deg_w as f64).ln();
+                    for &v in sym_graph.neighbors(w as usize) {
+                        if !hop1_stamp.is_visited(v as usize) {
+                            hop2_raw.push((v, aa_w));
+                        }
                     }
                 }
                 if !hop2_raw.is_empty() {
-                    hop2_raw.sort_unstable();
+                    // Canonical `(v asc, aa_w desc)` order makes floating-point Adamic-Adar
+                    // summation bit-exact invariant under arbitrary vertex permutations.
+                    hop2_raw
+                        .sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.total_cmp(&a.1)));
                     hop2_ranked.clear();
                     let mut idx = 0usize;
                     while idx < hop2_raw.len() {
-                        let v = hop2_raw[idx];
-                        let start = idx;
-                        while idx < hop2_raw.len() && hop2_raw[idx] == v {
+                        let v = hop2_raw[idx].0;
+                        let mut aa_sum = 0.0_f64;
+                        while idx < hop2_raw.len() && hop2_raw[idx].0 == v {
+                            aa_sum += hop2_raw[idx].1;
                             idx += 1;
                         }
-                        hop2_ranked.push((idx - start, v));
+                        hop2_ranked.push((aa_sum, v));
                     }
-                    hop2_ranked.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+                    hop2_ranked
+                        .sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
                     let rem = n_nb - nb_u.len();
                     for &(_, v) in hop2_ranked.iter().take(rem) {
                         nb_u.push(v);
@@ -5722,5 +5764,315 @@ mod tests {
             ..pm_cfg
         };
         assert!(SgdSolver::<f64>::pacmap_graph(&fem, bad_pm).is_err());
+    }
+
+    #[test]
+    fn test_pacmap_graph_2hop_prefers_low_degree_bridges_and_adamic_adar() {
+        // 1. Adamic-Adar beats raw path count even when medium hubs have lower IDs:
+        //    - node 0 has n_neighbors = 6 and 5 1-hop neighbors: {1, 2, 3, 50, 51} -> 1 slot left.
+        //    - medium hubs {1, 2, 3} each have deg = 30 <= 64 and connect to candidate 99
+        //      (raw = 3, AA = 3 / ln(30) ~ 0.882). Candidate 99 has deg = 6 == n_neighbors so it
+        //      does not backfill 0 reciprocally.
+        //    - low-degree bridges {50, 51} each have deg = 3 and connect to candidate 100
+        //      (raw = 2, AA = 2 / ln(3) ~ 1.820).
+        let mut edges: Vec<(u32, u32)> = vec![(0, 1), (0, 2), (0, 3), (0, 50), (0, 51)];
+        let t_hub = 99u32;
+        let t_bridge = 100u32;
+        let mut next_leaf = 200u32;
+        for h in [1u32, 2, 3] {
+            edges.push((h, t_hub));
+            for _ in 0..28 {
+                edges.push((h, next_leaf));
+                next_leaf += 1;
+            }
+        }
+        edges.extend([(t_hub, 101), (t_hub, 102), (t_hub, 103)]);
+        edges.extend([(50, t_bridge), (51, t_bridge), (50, 104), (51, 105)]);
+        let n1 = (next_leaf as usize).max(106);
+        let g1 = CsrGraph::<f64>::from_edges(n1, &edges, None, false, false).unwrap();
+        let cfg1 = PacmapGraphConfig {
+            n_neighbors: 6,
+            mn_ratio: 0.0,
+            fp_ratio: 0.0,
+            phase1_iters: 1,
+            phase2_iters: 1,
+            phase3_iters: 1,
+            seed: 42,
+            ..Default::default()
+        };
+        let s1 = SgdSolver::<f64>::pacmap_graph(&g1, cfg1).unwrap();
+        let st1 = s1.pacmap.as_ref().unwrap();
+        assert!(
+            st1.nb_pairs.contains(&(0, t_bridge)),
+            "expected Adamic-Adar top candidate (0, {t_bridge}) to be selected"
+        );
+        assert!(
+            !st1.nb_pairs.contains(&(0, t_hub)),
+            "expected lower-AA raw-count candidate (0, {t_hub}) to be rejected"
+        );
+
+        // 2. Degree-sorted cand_cap visits high-ID low-degree bridge before exhausting cand_cap:
+        //    - node 0 has n_neighbors = 10 (cand_cap = 80), 4 low-ID deg=25 neighbors (1..=4)
+        //      generating 4 * 24 = 96 >= 80 candidates, and 1 high-ID deg=2 bridge 150 -> 151.
+        //    - 151 has deg = 10 == n_neighbors so only 0's 2-hop scan can insert (0, 151).
+        let mut edges2: Vec<(u32, u32)> =
+            vec![(0, 1), (0, 2), (0, 3), (0, 4), (0, 150), (150, 151)];
+        let mut next_v = 10u32;
+        for h in 1..=4u32 {
+            for _ in 0..24 {
+                edges2.push((h, next_v));
+                next_v += 1;
+            }
+        }
+        for k in 152..=160u32 {
+            edges2.push((151, k));
+        }
+        let n2 = 165usize;
+        let g2 = CsrGraph::<f64>::from_edges(n2, &edges2, None, false, false).unwrap();
+        let cfg2 = PacmapGraphConfig {
+            n_neighbors: 10,
+            mn_ratio: 0.0,
+            fp_ratio: 0.0,
+            phase1_iters: 1,
+            phase2_iters: 1,
+            phase3_iters: 1,
+            seed: 42,
+            ..Default::default()
+        };
+        let s2 = SgdSolver::<f64>::pacmap_graph(&g2, cfg2).unwrap();
+        let st2 = s2.pacmap.as_ref().unwrap();
+        assert!(
+            st2.nb_pairs.contains(&(0, 151)),
+            "expected high-ID deg=2 bridge 150->151 to be scanned before cand_cap exhaustion"
+        );
+    }
+
+    #[test]
+    fn test_pacmap_graph_2hop_suppresses_super_hubs_and_star_safety() {
+        // 1. N = 120 (hub_thresh = 64): super-hub 1 (deg = 100 > 64) + local bridge 102 (deg = 3).
+        let n = 120usize;
+        let mut edges: Vec<(u32, u32)> = vec![(0, 1), (0, 102), (102, 103), (102, 104)];
+        for leaf in 2..=100u32 {
+            edges.push((1, leaf));
+        }
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let cfg = PacmapGraphConfig {
+            n_neighbors: 4,
+            mn_ratio: 0.0,
+            fp_ratio: 0.0,
+            phase1_iters: 2,
+            phase2_iters: 2,
+            phase3_iters: 2,
+            seed: 42,
+            ..Default::default()
+        };
+        let s = SgdSolver::<f64>::pacmap_graph(&g, cfg).unwrap();
+        let st = s.pacmap.as_ref().unwrap();
+
+        for expected in [(0, 1), (0, 102), (0, 103), (0, 104)] {
+            assert!(
+                st.nb_pairs.contains(&expected),
+                "missing expected local/1-hop pair {expected:?}"
+            );
+        }
+        for leaf in 2..=100u32 {
+            assert!(
+                !st.nb_pairs.contains(&(0, leaf)),
+                "super-hub 1 leaked barrel 2-hop pair (0, {leaf})"
+            );
+        }
+        let leaf2_pairs: Vec<(u32, u32)> = st
+            .nb_pairs
+            .iter()
+            .copied()
+            .filter(|&(u, v)| u == 2 || v == 2)
+            .collect();
+        assert_eq!(leaf2_pairs, vec![(1, 2)]);
+
+        // 2. Pure star S_100 (deg(0) = 99 > 64): keeps exact 99 1-hop edges, zero panic, finite layout.
+        let n_star = 100usize;
+        let star_edges: Vec<(u32, u32)> = (1..n_star as u32).map(|v| (0, v)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &star_edges, None, false, false).unwrap();
+        let mut star_solver =
+            SgdSolver::<f64>::pacmap_graph(&star, PacmapGraphConfig::default()).unwrap();
+        let star_st = star_solver.pacmap.as_ref().unwrap();
+        assert_eq!(star_st.nb_pairs.len(), 99);
+        let mut star_layout = circle_layout::<f64>(n_star, 1.0);
+        star_solver.run(&mut star_layout).unwrap();
+        assert!(star_layout.is_all_finite());
+    }
+
+    #[test]
+    fn test_pacmap_graph_1hop_and_2hop_vertex_permutation_invariance() {
+        // Build an asymmetric graph where every vertex's 1-hop cutoff and 2-hop top-k boundary
+        // is strictly tie-free (zero RNG consumption), combining:
+        // (a) super-hub 0 (deg = 80 > 64) with 5 deg=1 leaves + 75 deg=2->deg=3 bridges,
+        // (b) medium-degree intermediates (deg = 25, previously RNG-subsampled at per_w_cap = 20),
+        // (c) local deg = 5..6 bridges with a unique top Adamic-Adar 2-hop target for c0, and
+        // (d) a truncated 1-hop vertex z (deg(z) = 8 > n_neighbors = 5) whose 5 lowest-degree
+        //     neighbors (deg = 6) are strictly separated from its 3 high-degree neighbors (deg = 20).
+        let mut edges: Vec<(u32, u32)> = Vec::new();
+        let mut next_id = 1u32;
+
+        // Helper: attach a K_6 gadget whose entry vertex gets deg = 6 (5 K_6 peers of deg=5 + anchor).
+        let add_k6_cap = |anchor: u32, edges: &mut Vec<(u32, u32)>, next_id: &mut u32| -> u32 {
+            let base = *next_id;
+            *next_id += 6;
+            for i in 0..6u32 {
+                for j in (i + 1)..6u32 {
+                    edges.push((base + i, base + j));
+                }
+            }
+            edges.push((anchor, base));
+            base
+        };
+
+        // Helper: attach two K_6 gadgets linked at their entry vertices so each entry gets deg = 7
+        // (5 K_6 peers of deg=5 + twin entry of deg=7 + anchor).
+        let add_k6_twin_pair =
+            |anchor_a: u32, anchor_b: u32, edges: &mut Vec<(u32, u32)>, next_id: &mut u32| {
+                let a = add_k6_cap(anchor_a, edges, next_id);
+                let b = add_k6_cap(anchor_b, edges, next_id);
+                edges.push((a, b));
+            };
+
+        // (a) Super-hub 0: 5 deg=1 leaves + 75 deg=2 bridges (0 - w - p - {q1, q2}).
+        for _ in 0..5 {
+            edges.push((0, next_id));
+            next_id += 1;
+        }
+        for _ in 0..75 {
+            let w = next_id;
+            let p = next_id + 1;
+            let q1 = next_id + 2;
+            let q2 = next_id + 3;
+            next_id += 4;
+            edges.extend([(0, w), (w, p), (p, q1), (p, q2)]);
+        }
+
+        // (b) & (c) Asymmetric local cluster around c0 (deg = 4 < n_neighbors = 5, rem = 1):
+        //     c0 -> {m1(25), m2(25), l1(5), l2(6)}.
+        //     t_fast has AA = 1/ln(5) + 1/ln(6) > 2/ln(25) (t_mid), and no other node enters
+        //     an ambiguous tie.
+        let c0 = next_id;
+        let m1 = next_id + 1;
+        let m2 = next_id + 2;
+        let l1 = next_id + 3;
+        let l2 = next_id + 4;
+        let t_mid = next_id + 5;
+        let t_fast = next_id + 6;
+        next_id += 7;
+        edges.extend([
+            (c0, m1),
+            (c0, m2),
+            (c0, l1),
+            (c0, l2),
+            (m1, t_mid),
+            (m2, t_mid),
+            (l1, l2),
+            (l1, t_fast),
+            (l2, t_fast),
+        ]);
+        // Pad t_mid and t_fast to deg = 5 == n_neighbors.
+        for _ in 0..3 {
+            add_k6_cap(t_mid, &mut edges, &mut next_id);
+            add_k6_cap(t_fast, &mut edges, &mut next_id);
+        }
+        // Pad l1 to deg = 5 (currently 3) and l2 to deg = 6 (currently 3; two deg=6 + one deg=7).
+        add_k6_cap(l1, &mut edges, &mut next_id);
+        add_k6_cap(l1, &mut edges, &mut next_id);
+        add_k6_cap(l2, &mut edges, &mut next_id);
+        add_k6_cap(l2, &mut edges, &mut next_id);
+        // Pad m1 and m2 to deg = 25 (currently 2: c0(4) + t_mid(5)):
+        // give each 3 deg=6 caps (so {c0, t_mid, g1, g2, g3} have deg <= 6 and tie_end == 5)
+        // plus 20 deg=7 twin-K6 attachments (10 pairs on m1, 10 pairs on m2).
+        for m in [m1, m2] {
+            for _ in 0..3 {
+                add_k6_cap(m, &mut edges, &mut next_id);
+            }
+            for _ in 0..10 {
+                add_k6_twin_pair(m, m, &mut edges, &mut next_id);
+            }
+        }
+        // Link l2's 3rd extra neighbor as deg=7 twin with an unused K_6 partner on t_fast?
+        // Wait: t_fast already has deg=5; instead pair l2's 3rd slot with an extra twin pair?
+        // Pairing (l2, l2) would add 2 edges to l2 (deg = 7); instead give l2 one side of a
+        // twin pair whose other side anchors to a fresh deg=5 hub `anchor_l2` (deg=5).
+        let anchor_l2 = next_id;
+        next_id += 1;
+        add_k6_twin_pair(l2, anchor_l2, &mut edges, &mut next_id);
+        for _ in 0..4 {
+            add_k6_cap(anchor_l2, &mut edges, &mut next_id);
+        }
+
+        // (d) Truncated 1-hop vertex z (deg(z) = 8 > n_neighbors = 5):
+        //     5 neighbors with deg = 6 (K_6 caps) and 3 neighbors h_1..h_3 with deg = 20
+        //     (each h_k has z(8), 5 K_6 caps of deg=6, and 14 deg=7 twin links).
+        let z = next_id;
+        next_id += 1;
+        for _ in 0..5 {
+            add_k6_cap(z, &mut edges, &mut next_id);
+        }
+        for _ in 0..3 {
+            let h = next_id;
+            next_id += 1;
+            edges.push((z, h));
+            for _ in 0..5 {
+                add_k6_cap(h, &mut edges, &mut next_id);
+            }
+            for _ in 0..7 {
+                add_k6_twin_pair(h, h, &mut edges, &mut next_id);
+            }
+        }
+
+        let n = next_id as usize;
+        let g_base = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let cfg = PacmapGraphConfig {
+            n_neighbors: 5,
+            mn_ratio: 0.0,
+            fp_ratio: 0.0,
+            phase1_iters: 1,
+            phase2_iters: 1,
+            phase3_iters: 1,
+            seed: 42,
+            ..Default::default()
+        };
+        let s_base = SgdSolver::<f64>::pacmap_graph(&g_base, cfg).unwrap();
+        let st_base = s_base.pacmap.as_ref().unwrap();
+        assert!(
+            st_base.nb_pairs.contains(&(c0.min(t_fast), c0.max(t_fast))),
+            "expected c0 to select unique Adamic-Adar top 2-hop neighbor t_fast"
+        );
+
+        let perm_reverse: Vec<u32> = (0..n as u32).map(|u| (n as u32 - 1) - u).collect();
+        let perm_shift: Vec<u32> = (0..n as u32).map(|u| (u + 37) % (n as u32)).collect();
+        let mut perm_shuffle: Vec<u32> = (0..n as u32).collect();
+        let mut perm_rng = DeterministicRng::from_seed_u64(12345);
+        perm_rng.shuffle(&mut perm_shuffle);
+
+        for perm in [&perm_reverse, &perm_shift, &perm_shuffle] {
+            let perm_edges: Vec<(u32, u32)> = edges
+                .iter()
+                .map(|&(u, v)| (perm[u as usize], perm[v as usize]))
+                .collect();
+            let g_perm = CsrGraph::<f64>::from_edges(n, &perm_edges, None, false, false).unwrap();
+            let s_perm = SgdSolver::<f64>::pacmap_graph(&g_perm, cfg).unwrap();
+            let st_perm = s_perm.pacmap.as_ref().unwrap();
+
+            let mut expected: Vec<(u32, u32)> = st_base
+                .nb_pairs
+                .iter()
+                .map(|&(u, v)| {
+                    let pu = perm[u as usize];
+                    let pv = perm[v as usize];
+                    if pu < pv { (pu, pv) } else { (pv, pu) }
+                })
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(
+                st_perm.nb_pairs, expected,
+                "nb_pairs failed exact vertex-permutation invariance"
+            );
+        }
     }
 }

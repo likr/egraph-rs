@@ -1599,4 +1599,33 @@ mod tests {
             Err(CoreError::NonFiniteValue { .. })
         ));
     }
+
+    #[test]
+    fn test_graph_12hop_row_normalized_probabilities_suppresses_superhub_barrel_mass() {
+        // N = 130: super-hub 0 (deg = 120 > max(64, isqrt(130))) + local bridge 1-2-3-4-5 +
+        // barrel leaves 6..=120 + separate connected path 121..=129 (zero isolated vertices).
+        let n = 130usize;
+        let mut edges: Vec<(u32, u32)> = (1..=120).map(|v| (0, v)).collect();
+        edges.extend([(1, 2), (2, 3), (3, 4), (4, 5)]);
+        for v in 121..129u32 {
+            edges.push((v, v + 1));
+        }
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+
+        let p = graph_12hop_row_normalized_probabilities(&g, 0.5, Some(32), 42).unwrap();
+        assert!((p.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
+        // Barrel leaves 6..=120 must only have 1-hop probability mass with super-hub 0 (zero cross-leaf
+        // or leaf-to-cluster 2-hop mass).
+        for leaf in 6..=120usize {
+            let start = p.indptr[leaf];
+            let end = p.indptr[leaf + 1];
+            assert_eq!(
+                &p.indices[start..end],
+                &[0],
+                "barrel leaf {leaf} leaked 2-hop neighbors: {:?}",
+                &p.indices[start..end]
+            );
+        }
+    }
 }

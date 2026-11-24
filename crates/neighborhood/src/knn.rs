@@ -377,9 +377,15 @@ pub fn build_pure_2hop_knn<W>(graph: &CsrGraph<W>) -> CoreResult<(KnnGraph, Vec<
 /// Extracts canonical undirected 1-hop (`u < v`) and hub-safe capped 2-hop (`u < v`) node pairs
 /// without $O(N^2)$ pair explosion on star hubs.
 ///
-/// Degree-1 neighbors are skipped when expanding 2-hop paths (they only point back to `u`),
-/// and neighbors `w` with `deg(w) > max_2hop_per_node` are deterministically subsampled via
-/// `DeterministicRng::from_seed_u64(seed)`.
+/// For each vertex `u`, 1-hop bridge candidates `w` are scanned in ascending `(deg(w), w)` order so
+/// low-degree local bridges fill the `max_2hop_per_node` budget before higher-degree intermediates.
+/// Degree-1 neighbors are skipped (they only point back to `u`), and super-hubs with
+/// `deg(w) > max(64, floor(sqrt(N)))` are unconditionally suppressed while marking `u` as
+/// truncated (preventing barrel-mediated cross-cluster contamination). Non-hub neighbors `w` with
+/// `max_2hop_per_node < deg(w) <= max(64, floor(sqrt(N)))` are deterministically subsampled via
+/// `DeterministicRng::from_seed_u64(seed)`, which preserves exact vertex-permutation invariance
+/// whenever all expanded bridges satisfy `deg(w) <= max_2hop_per_node` and truncation does not
+/// split a tied-degree tier.
 pub fn extract_sparse_1hop_2hop_pairs<W>(
     graph: &CsrGraph<W>,
     max_2hop_per_node: usize,
@@ -387,6 +393,11 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
 ) -> CoreResult<Sparse12HopPairs> {
     let (pairs, _) = extract_sparse_1hop_2hop_pairs_inner(graph, max_2hop_per_node, seed)?;
     Ok(pairs)
+}
+
+#[inline]
+fn super_hub_degree_threshold(n_nodes: usize) -> usize {
+    64usize.max(n_nodes.isqrt())
 }
 
 pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
@@ -436,6 +447,8 @@ pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
         ));
     }
 
+    let hub_threshold = super_hub_degree_threshold(n);
+    let mut w_candidates: Vec<(usize, u32)> = Vec::new();
     let mut rng = DeterministicRng::from_seed_u64(seed);
     let mut stamp = VisitStamp::new(n);
     let mut raw_2hop: Vec<(u32, u32)> = Vec::new();
@@ -448,19 +461,26 @@ pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
         }
         stamp.clear();
         stamp.mark(u);
-        for &w in n1_u {
-            stamp.mark(w as usize);
-        }
-
-        let u_u32 = u as u32;
-        let mut collected = 0usize;
+        w_candidates.clear();
         let mut truncated_u = false;
         for &w in n1_u {
-            let n1_w = adj1.neighbors(w as usize);
-            let deg_w = n1_w.len();
+            stamp.mark(w as usize);
+            let deg_w = adj1.degree(w as usize);
             if deg_w <= 1 {
                 continue;
             }
+            if deg_w > hub_threshold {
+                truncated_u = true;
+                continue;
+            }
+            w_candidates.push((deg_w, w));
+        }
+        w_candidates.sort_unstable();
+
+        let u_u32 = u as u32;
+        let mut collected = 0usize;
+        for &(deg_w, w) in &w_candidates {
+            let n1_w = adj1.neighbors(w as usize);
             if deg_w <= max_2hop_per_node {
                 for &v in n1_w {
                     if stamp.visit(v as usize) {
@@ -998,5 +1018,176 @@ mod tests {
         assert_eq!(ks.num_nodes(), 1);
         assert_eq!(deg_s, vec![0]);
         assert_eq!(ss.n_pure_2hop_rows, 1);
+    }
+
+    #[test]
+    fn test_extract_sparse_12hop_pairs_degree_order_superhub_suppression_and_perm_invariance() {
+        // N = 130 -> super_hub_degree_threshold(130) == 64.
+        // Vertex 0 is a low-ID super-hub (deg = 120 > 64) connected to 1..=120.
+        // 1..=5 form a local cluster (1-2-3-4-5), plus 5-121-122-123-124 extends outside 0.
+        // 6..=120 are pure sink-barrel leaves connected only to 0.
+        // 125..=129 form a disjoint path.
+        let n = 130usize;
+        let mut edges: Vec<(u32, u32)> = (1..=120).map(|v| (0, v)).collect();
+        edges.extend([
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 5),
+            (5, 121),
+            (121, 122),
+            (122, 123),
+            (123, 124),
+            (125, 126),
+            (126, 127),
+            (127, 128),
+            (128, 129),
+        ]);
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let cap = 8usize;
+        let (p_base, n_trunc) = extract_sparse_1hop_2hop_pairs_inner(&g, cap, 42).unwrap();
+        assert!(n_trunc >= 115);
+
+        let pairs_2: Vec<(u32, u32)> = p_base
+            .u2
+            .iter()
+            .copied()
+            .zip(p_base.v2.iter().copied())
+            .collect();
+        // Local cluster 2-hop pairs must be extracted cleanly.
+        for expected in [(1, 3), (2, 4), (3, 5), (4, 121), (5, 122), (121, 123)] {
+            assert!(
+                pairs_2.contains(&expected),
+                "missing local 2-hop pair {expected:?}"
+            );
+        }
+        // Zero leaf-to-cluster or leaf-to-leaf barrel pairs through super-hub 0 (leaves 6..=120).
+        for &(a, b) in &pairs_2 {
+            assert!(
+                !(6..=120).contains(&a) && !(6..=120).contains(&b),
+                "barrel leaf leaked into 2-hop pair ({a}, {b})"
+            );
+        }
+
+        // Apply nontrivial bijections moving super-hub 0 to N - 1 and arbitrary vertex IDs.
+        let perm_reverse: Vec<u32> = (0..n as u32).map(|u| (n as u32 - 1) - u).collect();
+        // gcd(73, 130) == 1, sends 0 -> 129 = N - 1.
+        let perm_affine: Vec<u32> = (0..n as u32).map(|u| (u * 73 + 129) % (n as u32)).collect();
+        for perm in [&perm_reverse, &perm_affine] {
+            let perm_edges: Vec<(u32, u32)> = edges
+                .iter()
+                .map(|&(u, v)| (perm[u as usize], perm[v as usize]))
+                .collect();
+            let g_perm = CsrGraph::<f64>::from_edges(n, &perm_edges, None, false, false).unwrap();
+            let p_perm = extract_sparse_1hop_2hop_pairs(&g_perm, cap, 42).unwrap();
+
+            let map_pairs = |us: &[u32], vs: &[u32]| -> Vec<(u32, u32)> {
+                let mut mapped: Vec<(u32, u32)> = us
+                    .iter()
+                    .zip(vs.iter())
+                    .map(|(&u, &v)| {
+                        let pu = perm[u as usize];
+                        let pv = perm[v as usize];
+                        if pu < pv { (pu, pv) } else { (pv, pu) }
+                    })
+                    .collect();
+                mapped.sort_unstable();
+                mapped
+            };
+
+            let expected_1 = map_pairs(&p_base.u1, &p_base.v1);
+            let actual_1: Vec<(u32, u32)> = p_perm
+                .u1
+                .iter()
+                .copied()
+                .zip(p_perm.v1.iter().copied())
+                .collect();
+            assert_eq!(actual_1, expected_1, "1-hop permutation invariance failed");
+
+            let expected_2 = map_pairs(&p_base.u2, &p_base.v2);
+            let actual_2: Vec<(u32, u32)> = p_perm
+                .u2
+                .iter()
+                .copied()
+                .zip(p_perm.v2.iter().copied())
+                .collect();
+            assert_eq!(actual_2, expected_2, "2-hop permutation invariance failed");
+        }
+    }
+
+    #[test]
+    fn test_extract_sparse_12hop_pairs_degree_tie_and_medium_hub_boundary() {
+        // N = 100 -> super_hub_degree_threshold(100) == 64, cap = 8.
+        // Vertex 0 connects to:
+        // - low-ID medium hub 1 (deg(1) = 40 <= 64, connected to 0 and 2..=40)
+        // - high-ID low-degree bridge 90 (deg(90) = 5 <= 8, connected to 0 and 91..=94)
+        let n = 100usize;
+        let mut edges: Vec<(u32, u32)> = vec![(0, 1), (0, 90)];
+        for v in 2..=40u32 {
+            edges.push((1, v));
+        }
+        for v in 91..=94u32 {
+            edges.push((90, v));
+        }
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let (p1, trunc1) = extract_sparse_1hop_2hop_pairs_inner(&g, 8, 42).unwrap();
+        let (p2, trunc2) = extract_sparse_1hop_2hop_pairs_inner(&g, 8, 42).unwrap();
+        assert_eq!(p1, p2);
+        assert_eq!(trunc1, trunc2);
+        assert!(trunc1 > 0);
+
+        let pairs_2: Vec<(u32, u32)> = p1.u2.iter().copied().zip(p1.v2.iter().copied()).collect();
+        // Low-degree bridge 90 (deg=5) MUST be expanded before medium-hub 1 (deg=40).
+        for v in 91..=94u32 {
+            assert!(
+                pairs_2.contains(&(0, v)),
+                "expected low-degree bridge 2-hop pair (0, {v})"
+            );
+        }
+        // Vertex 0 collects 4 pairs from bridge 90 + 4 sampled pairs from medium hub 1 (and
+        // undirected symmetrization may include additional pairs sampled by leaves 2..=40).
+        let zero_deg2 = pairs_2.iter().filter(|&&(a, b)| a == 0 || b == 0).count();
+        assert!((8..=(8 + 39)).contains(&zero_deg2));
+        assert!(p1.u2.len() <= n * 8);
+
+        // Even at cap = 5 (matching deg(90) = 5), low-degree bridge 90 MUST fill all 4 exact
+        // neighbors before hub 1 (deg = 40) is sampled.
+        let p_cap5 = extract_sparse_1hop_2hop_pairs(&g, 5, 42).unwrap();
+        let pairs_cap5: Vec<(u32, u32)> = p_cap5
+            .u2
+            .iter()
+            .copied()
+            .zip(p_cap5.v2.iter().copied())
+            .collect();
+        for v in 91..=94u32 {
+            assert!(
+                pairs_cap5.contains(&(0, v)),
+                "cap=5 must still select all low-degree bridge neighbors (0, {v})"
+            );
+        }
+
+        // Exact boundary check for N = 100 (threshold = 64):
+        // deg = 64 is retained as a medium hub (emits 2-hop pairs for node 0),
+        // while deg = 65 is unconditionally suppressed (emits 0 barrel pairs for node 0).
+        let edges_64: Vec<(u32, u32)> = std::iter::once((0, 1))
+            .chain((2..=64u32).map(|v| (1, v)))
+            .collect();
+        let g_64 = CsrGraph::<f64>::from_edges(n, &edges_64, None, false, false).unwrap();
+        let p_64 = extract_sparse_1hop_2hop_pairs(&g_64, 8, 42).unwrap();
+        assert!(
+            p_64.u2
+                .iter()
+                .zip(p_64.v2.iter())
+                .any(|(&a, &b)| a == 0 || b == 0),
+            "deg=64 should remain below/at threshold and emit 2-hop pairs"
+        );
+
+        let edges_65: Vec<(u32, u32)> = std::iter::once((0, 1))
+            .chain((2..=65u32).map(|v| (1, v)))
+            .collect();
+        let g_65 = CsrGraph::<f64>::from_edges(n, &edges_65, None, false, false).unwrap();
+        let (p_65, trunc_65) = extract_sparse_1hop_2hop_pairs_inner(&g_65, 8, 42).unwrap();
+        assert!(p_65.u2.is_empty(), "deg=65 must be suppressed as super-hub");
+        assert!(trunc_65 > 0);
     }
 }
