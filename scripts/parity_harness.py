@@ -786,6 +786,29 @@ def run_v6_m2_python_checks(eg: Any) -> list[dict[str, Any]]:
     )
     assert lm_no_coarse.used_coarse_scaffold is False and lm_no_coarse.coarse_table() is None
 
+    # 5b. AmgPcgSolver (SPD, singular/isolated, cooperative stepping, batch)
+    amg_reg = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
+    b_amg = np.cos(0.17 * np.arange(n, dtype=np.float64))
+    x_amg, amg_info = amg_reg.solve(b_amg)
+    assert amg_info["converged"] and amg_info["relative_residual"] <= 1e-8
+    amg_step = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
+    amg_step.start_solve(b_amg)
+    if not amg_step.is_finished:
+        amg_step.step()
+        amg_step.run()
+    assert np.array_equal(amg_step.solution(), x_amg)
+
+    b_amg_batch = np.column_stack([b_amg, -2.0 * b_amg])
+    x_amg_batch, batch_info = amg_reg.solve_batch(b_amg_batch)
+    assert batch_info["all_converged"] and np.allclose(x_amg_batch[:, 0], x_amg, atol=1e-12)
+
+    amg_sing = eg.AmgPcgSolver.from_graph_laplacian(g, kind="combinatorial", shift=0.0)
+    b_sing = np.zeros(n, dtype=np.float64)
+    b_sing[0] = 1.0
+    b_sing[64] = -1.0
+    x_sing, sing_info = amg_sing.solve(b_sing)
+    assert sing_info["converged"] and float(x_sing[69]) == 0.0
+
     results.append({
         "case": "v6_m2_linalg_and_neighborhood",
         "status": "pass",
@@ -826,6 +849,10 @@ def run_v6_m2_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("DogVaradhanLandmarks.alt_distances/oob", lambda: lm.alt_distances([n + 5], [0])),
         ("DogVaradhanLandmarks.alt_distances/mismatch", lambda: lm.alt_distances([0, 1], [0])),
         ("compute_regularized_dog_varadhan_landmarks/bad_beta", lambda: eg.compute_regularized_dog_varadhan_landmarks(g, beta_floor=1.0)),
+        ("AmgPcgSolver/asym", lambda: eg.AmgPcgSolver(2, [0, 2, 4], [0, 1, 0, 1], [2.0, -1.0, -2.0, 2.0])),
+        ("AmgPcgSolver/neg_diag", lambda: eg.AmgPcgSolver(2, [0, 2, 4], [0, 1, 0, 1], [-1.0, 0.0, 0.0, 2.0])),
+        ("AmgPcgSolver/solve_nan", lambda: amg_reg.solve(np.full(n, float("nan")))),
+        ("AmgPcgSolver/solve_dim", lambda: amg_reg.solve(np.ones(n - 1))),
     ]
     for label, fn in m2_bad_cases:
         _assert_non_panic_error(label, fn)
@@ -2280,12 +2307,49 @@ def run_cross_target_m2_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     alt_v = [63, 68, 69, 0]
     alt_d = lm.alt_distances(alt_u, alt_v)
 
+    amg_reg_py = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
+    b_amg_py = heat_in[:, 0]
+    x_amg_py, info_amg_py = amg_reg_py.solve(b_amg_py)
+    x_amg_batch_py, info_amg_batch_py = amg_reg_py.solve_batch(heat_in)
+    amg_step_py = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
+    amg_step_py.start_solve(b_amg_py)
+    if not amg_step_py.is_finished:
+        amg_step_py.step()
+        amg_step_py.run()
+    x_amg_step_py = amg_step_py.solution()
+
+    amg_sing_py = eg.AmgPcgSolver.from_graph_laplacian(g, kind="combinatorial", shift=0.0)
+    b_sing_py = np.zeros(n, dtype=np.float64)
+    b_sing_py[0] = 1.0
+    b_sing_py[64] = -1.0
+    x_sing_py, info_sing_py = amg_sing_py.solve(b_sing_py)
+
+    aniso_py, aniso_ns_py = eg.anisotropic_laplacian(
+        g, alpha=0.5, beta=0.0, degree_reg=0.0, degree_cap=None, reweighted_degree_norm=True
+    )
+    aniso_trace_py = float(aniso_py.trace())
+    aniso_gersh_py = float(aniso_py.gershgorin_spectral_bound())
+    aniso_pi_py = float(aniso_py.estimate_lambda_max(num_iters=10, safety_factor=1.02, seed=42))
+    aniso_lanc_py = float(aniso_py.estimate_lambda_max_lanczos(num_steps=16, safety_factor=1.05, seed=42))
+    aniso_heat_py = eg.chebyshev_heat_spmv_matrix(aniso_py, heat_in, 0.5)
+    aniso_jl_py = eg.chebyshev_dog_jl_embedding_matrix(aniso_py, jl_dim=12, seed=42)
+    aniso_lm_py = eg.compute_regularized_dog_varadhan_landmarks_from_matrix(
+        g, aniso_py, num_landmarks=16, seed=42, t_coarse=0.0
+    )
+
+    er_jl_py = eg.compute_effective_resistances(g, jl_dim=64, seed=42, exact=False)
+    er_ex_py = eg.compute_effective_resistances(g, seed=42, exact=True)
+    rcf_py = eg.resistance_curvature_flow(g, steps=2, eta=0.2, jl_dim=64, seed=42)
+    rcf_len_py = rcf_py.length_graph()
+    rcf_cond_py = rcf_py.conductance_graph()
+
     node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
     wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
     spec_payload = {
         "n": n,
         "edges": [int(v) for edge in edges for v in edge],
         "heat_in": [float(v) for v in heat_in.ravel()],
+        "b_sing": [float(v) for v in b_sing_py],
         "alt_u": alt_u,
         "alt_v": alt_v,
     }
@@ -2347,6 +2411,38 @@ const ab = Array.from(mod.findAbParams(0.1, 1.0));
 const htGamma = mod.computeHorvitzThompsonGamma(1.0, 1600, 16);
 const lm = mod.computeRegularizedDogVaradhanLandmarks(g, 25, 16, 42, true, 0.5, 1e-4, 48.0);
 const altD = Array.from(lm.altDistances(new Uint32Array(spec.alt_u), new Uint32Array(spec.alt_v)));
+
+const amgReg = mod.AmgPcgSolver.fromGraphRegularizedLaplacian(g, 10.0);
+const bAmg = Float64Array.from({ length: spec.n }, (_, i) => spec.heat_in[2 * i]);
+const amgRes = amgReg.solve(bAmg);
+const amgBatchRes = amgReg.solveBatch(new Float64Array(spec.heat_in), 2);
+const amgStep = mod.AmgPcgSolver.fromGraphRegularizedLaplacian(g, 10.0);
+amgStep.startSolve(bAmg);
+if (!amgStep.isFinished) {
+  amgStep.step();
+  amgStep.run();
+}
+const amgSing = mod.AmgPcgSolver.fromGraphLaplacian(g, "combinatorial", 0.0);
+const amgSingRes = amgSing.solve(new Float64Array(spec.b_sing));
+
+const aniso = mod.anisotropicLaplacian(g, 0.5, 0.0, 0.0, null, true);
+const anisoMat = aniso.matrix();
+const anisoNs = Array.from(aniso.nullspace());
+const anisoTrace = anisoMat.trace();
+const anisoGersh = anisoMat.gershgorinSpectralBound();
+const anisoPi = anisoMat.estimateLambdaMax(10, 1.02, 42);
+const anisoLanc = anisoMat.estimateLambdaMaxLanczos(16, 1.05, 42);
+const anisoHeat = Array.from(mod.chebyshevHeatSpmvMatrix(anisoMat, new Float64Array(spec.heat_in), 2, 0.5));
+const anisoJl = Array.from(mod.chebyshevDogJlEmbeddingMatrix(anisoMat, 12, null, 42));
+const anisoLm = mod.computeRegularizedDogVaradhanLandmarksFromMatrix(
+  g, anisoMat, null, null, 16, 2, 64, 42, true, 0.5, 1e-4, 0.0
+);
+
+const erJl = mod.computeEffectiveResistances(g, { jlDim: 64, seed: 42, exact: false });
+const erEx = mod.computeEffectiveResistances(g, { seed: 42, exact: true });
+const rcf = mod.resistanceCurvatureFlow(g, { steps: 2, eta: 0.2, jlDim: 64, seed: 42 });
+const rcfLenG = rcf.lengthGraph();
+const rcfCondG = rcf.conductanceGraph();
 
 const out = {
   m2_available: true,
@@ -2441,8 +2537,72 @@ const out = {
     usedCoarseScaffold: lm.usedCoarseScaffold,
     altD,
   },
+  amg: {
+    numLevels: amgReg.numLevels,
+    coarsestSize: amgReg.coarsestSize,
+    iterations: amgRes.iterations,
+    converged: amgRes.converged,
+    relRes: amgRes.relativeResidual,
+    x: Array.from(amgRes.x()),
+    xStep: Array.from(amgStep.solution()),
+    batchAllConverged: amgBatchRes.allConverged,
+    batchConvergedPerCol: Array.from(amgBatchRes.convergedPerCol()),
+    batchX: Array.from(amgBatchRes.x()),
+    singIterations: amgSingRes.iterations,
+    singConverged: amgSingRes.converged,
+    singX: Array.from(amgSingRes.x()),
+  },
+  aniso: {
+    values: Array.from(anisoMat.values()),
+    nullspace: anisoNs,
+    trace: anisoTrace,
+    gersh: anisoGersh,
+    pi: anisoPi,
+    lanc: anisoLanc,
+    heat: anisoHeat,
+    jl: anisoJl,
+    lmTable: Array.from(anisoLm.table()),
+    lmDegree: anisoLm.degree,
+  },
+  rcf: {
+    erJlRes: Array.from(erJl.effectiveResistances()),
+    erJlFosterErr: erJl.fosterRelErr,
+    erJlAllConv: erJl.amgAllConverged,
+    erExRes: Array.from(erEx.effectiveResistances()),
+    erExFosterErr: erEx.fosterRelErr,
+    numComp: rcf.numComponents,
+    edgeU: Array.from(rcf.edgeU()),
+    edgeV: Array.from(rcf.edgeV()),
+    edgeLengths: Array.from(rcf.edgeLengths()),
+    conductances: Array.from(rcf.conductances()),
+    effectiveResistances: Array.from(rcf.effectiveResistances()),
+    vertexCurvatures: Array.from(rcf.vertexCurvatures()),
+    linkCurvatures: Array.from(rcf.linkCurvatures()),
+    fosterSum: rcf.fosterSum,
+    expectedFoster: rcf.expectedFoster,
+    meanLink: rcf.meanLinkCurvature,
+    suggestedGeom: rcf.suggestedGeometry,
+    suggestedManifold: rcf.suggestedManifold ?? null,
+    stepsLen: rcf.stepHistory().length,
+    lenWeights: Array.from(rcfLenG.weights()),
+    condWeights: Array.from(rcfCondG.weights()),
+  },
 };
 
+rcfCondG.free?.();
+rcfLenG.free?.();
+rcf.free?.();
+erEx.free?.();
+erJl.free?.();
+anisoLm.free?.();
+anisoMat.free?.();
+aniso.free?.();
+amgSingRes.free?.();
+amgSing.free?.();
+amgStep.free?.();
+amgBatchRes.free?.();
+amgRes.free?.();
+amgReg.free?.();
 lm.free?.();
 fuzzy.free?.();
 probsRn.free?.();
@@ -2589,6 +2749,52 @@ console.log(JSON.stringify(out));
     ):
         check_f64(f"dog_varadhan/{py_attr}", [getattr(lm, py_attr)], [ws["lm"][ws_key]])
 
+    assert amg_reg_py.num_levels == ws["amg"]["numLevels"]
+    assert amg_reg_py.coarsest_size == ws["amg"]["coarsestSize"]
+    assert info_amg_py["iterations"] == ws["amg"]["iterations"]
+    assert bool(info_amg_py["converged"]) == bool(ws["amg"]["converged"])
+    check_f64("amg_pcg/x", x_amg_py, ws["amg"]["x"], tol=1e-10)
+    check_f64("amg_pcg/x_step", x_amg_step_py, ws["amg"]["xStep"], tol=1e-10)
+    assert bool(info_amg_batch_py["all_converged"]) == bool(ws["amg"]["batchAllConverged"])
+    assert [int(v) for v in info_amg_batch_py["converged_per_col"]] == ws["amg"]["batchConvergedPerCol"]
+    check_f64("amg_pcg/batch_x", x_amg_batch_py.ravel(), ws["amg"]["batchX"], tol=1e-10)
+    assert info_sing_py["iterations"] == ws["amg"]["singIterations"]
+    assert bool(info_sing_py["converged"]) == bool(ws["amg"]["singConverged"])
+    check_f64("amg_pcg/sing_x", x_sing_py, ws["amg"]["singX"], tol=1e-10)
+
+    check_f64("aniso/values", aniso_py.values(), ws["aniso"]["values"])
+    check_f64("aniso/nullspace", aniso_ns_py, ws["aniso"]["nullspace"])
+    check_f64("aniso/trace", [aniso_trace_py], [ws["aniso"]["trace"]])
+    check_f64("aniso/gersh", [aniso_gersh_py], [ws["aniso"]["gersh"]])
+    check_f64("aniso/pi", [aniso_pi_py], [ws["aniso"]["pi"]])
+    check_f64("aniso/lanc", [aniso_lanc_py], [ws["aniso"]["lanc"]])
+    check_f64("aniso/heat", aniso_heat_py, ws["aniso"]["heat"])
+    check_f64("aniso/jl", aniso_jl_py, ws["aniso"]["jl"])
+    check_f64("aniso/lm_table", aniso_lm_py.table(), ws["aniso"]["lmTable"])
+    assert aniso_lm_py.degree == ws["aniso"]["lmDegree"]
+
+    assert er_jl_py.amg_all_converged == ws["rcf"]["erJlAllConv"]
+    check_f64("er_jl/resistances", er_jl_py.effective_resistances(), ws["rcf"]["erJlRes"], tol=1e-10)
+    check_f64("er_jl/foster_rel_err", [er_jl_py.foster_rel_err], [ws["rcf"]["erJlFosterErr"]], tol=1e-10)
+    check_f64("er_ex/resistances", er_ex_py.effective_resistances(), ws["rcf"]["erExRes"], tol=1e-10)
+    check_f64("er_ex/foster_rel_err", [er_ex_py.foster_rel_err], [ws["rcf"]["erExFosterErr"]], tol=1e-10)
+    assert rcf_py.num_components == ws["rcf"]["numComp"]
+    assert list(rcf_py.edge_u()) == ws["rcf"]["edgeU"]
+    assert list(rcf_py.edge_v()) == ws["rcf"]["edgeV"]
+    check_f64("rcf/edge_lengths", rcf_py.edge_lengths(), ws["rcf"]["edgeLengths"], tol=1e-10)
+    check_f64("rcf/conductances", rcf_py.conductances(), ws["rcf"]["conductances"], tol=1e-10)
+    check_f64("rcf/effective_resistances", rcf_py.effective_resistances(), ws["rcf"]["effectiveResistances"], tol=1e-10)
+    check_f64("rcf/vertex_curvatures", rcf_py.vertex_curvatures(), ws["rcf"]["vertexCurvatures"], tol=1e-10)
+    check_f64("rcf/link_curvatures", rcf_py.link_curvatures(), ws["rcf"]["linkCurvatures"], tol=1e-10)
+    check_f64("rcf/foster_sum", [rcf_py.foster_sum], [ws["rcf"]["fosterSum"]], tol=1e-10)
+    check_f64("rcf/expected_foster", [rcf_py.expected_foster], [ws["rcf"]["expectedFoster"]], tol=1e-10)
+    check_f64("rcf/mean_link_curvature", [rcf_py.mean_link_curvature], [ws["rcf"]["meanLink"]], tol=1e-10)
+    assert rcf_py.suggested_geometry == ws["rcf"]["suggestedGeom"]
+    assert rcf_py.suggested_manifold == ws["rcf"]["suggestedManifold"]
+    assert len(rcf_py.step_history()) == ws["rcf"]["stepsLen"]
+    check_f32("rcf/length_graph_weights", rcf_len_py.weights(), ws["rcf"]["lenWeights"], tol=1e-5)
+    check_f32("rcf/conductance_graph_weights", rcf_cond_py.weights(), ws["rcf"]["condWeights"], tol=1e-5)
+
     return [{
         "case": "cross_target_m2_py_vs_wasm",
         "status": "pass",
@@ -2690,6 +2896,13 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     folded9_f32[8] = np.array([0.08, 0.08], dtype=np.float32)
     init9_f32 = np.array(_make_m3_asymmetric_coords(9, scale=1.2), dtype=np.float32)
 
+    g11_edges = list(g9_edges) + [(0, 9), (0, 10), (9, 10)]
+    g11_twin = eg.CsrGraph.from_edges(11, g11_edges, directed=False, sanitize=True)
+    twin11_f32 = np.vstack([
+        np.array([[float(c), float(r)] for r in range(3) for c in range(3)], dtype=np.float32),
+        np.array([[0.0, 0.0], [0.0, 0.0]], dtype=np.float32),
+    ])
+
     hinge_s_src = [e[0] for e in g16_edges]
     hinge_s_tgt = [e[1] for e in g16_edges]
     hinge_s_ones = [1.0] * len(g16_edges)
@@ -2699,6 +2912,7 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         c16 = init16_f32 if dtype_name == "float32" else init16_f64
         c9_fold = folded9_f32 if dtype_name == "float32" else folded9_f32.astype(np.float64)
         c9_init = init9_f32 if dtype_name == "float32" else init9_f32.astype(np.float64)
+        c11_twin = twin11_f32 if dtype_name == "float32" else twin11_f32.astype(np.float64)
 
         out: dict[str, Any] = {}
         for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
@@ -2820,6 +3034,21 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         out["refiner_dyn"] = l_rf_dyn.coords(copy=True)
         out["refiner_dyn_fp"] = int(rf_dyn.stats()["n_fp_total"])
 
+        l_rf_sep = eg.Layout2d.from_coords(c11_twin)
+        rf_sep = eg.SpatialIntruderRefiner(
+            g11_twin,
+            rounds=3,
+            k_cap=16,
+            t_max=10,
+            min_sep_ratio=0.15,
+            w_sep=1.0,
+            seed=42,
+            dtype=dtype_name,
+        )
+        rf_sep.run(l_rf_sep)
+        out["refiner_sep"] = l_rf_sep.coords(copy=True)
+        out["refiner_sep_total"] = int(rf_sep.stats()["n_sep_total"])
+
         l_sm = eg.Layout2d.from_coords(c16)
         sm = eg.StressMajorizationSolver.from_graph(g16, max_iterations=15, epsilon=1e-6, dtype=dtype_name)
         sm.run(l_sm)
@@ -2842,6 +3071,7 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "bb_edges": [int(v) for edge in bb_edges for v in edge],
         "g16_edges": [int(v) for edge in g16_edges for v in edge],
         "g9_edges": [int(v) for edge in g9_edges for v in edge],
+        "g11_edges": [int(v) for edge in g11_edges for v in edge],
         "coarse_coords": [float(v) for v in coarse_coords_f32.ravel()],
         "init16": [float(v) for v in init16_f32.ravel()],
         "gumap_init16": [float(v) for v in gumap_init16_f32.ravel()],
@@ -2849,6 +3079,7 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "man_sph_init16": [float(v) for v in man_sph_init_f32.ravel()],
         "emb16": [float(v) for v in emb16.ravel()],
         "folded9": [float(v) for v in folded9_f32.ravel()],
+        "twin11": [float(v) for v in twin11_f32.ravel()],
         "init9": [float(v) for v in init9_f32.ravel()],
         "hinge_src": hinge_s_src,
         "hinge_tgt": hinge_s_tgt,
@@ -2890,12 +3121,14 @@ const projCoords = Array.from(proj.coordsView());
 
 const g16 = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges));
 const g9 = mod.CsrGraph.fromEdgeList(9, new Uint32Array(spec.g9_edges));
+const g11 = mod.CsrGraph.fromEdgeList(11, new Uint32Array(spec.g11_edges));
 const init16 = new Float32Array(spec.init16);
 const gumapInit16 = new Float32Array(spec.gumap_init16);
 const manInit = new Float32Array(spec.man_init16);
 const manSphInit = new Float32Array(spec.man_sph_init16);
 const emb16 = new Float64Array(spec.emb16);
 const folded9 = new Float32Array(spec.folded9);
+const twin11 = new Float32Array(spec.twin11);
 const init9 = new Float32Array(spec.init9);
 
 const manifolds = {};
@@ -3061,6 +3294,20 @@ for (const [k, mk] of sgdSpecs) {
 
 {
   const res = runPairAndCheckStep(
+    () => new mod.SpatialIntruderRefiner(g11, { rounds: 3, kCap: 16, tMax: 10, minSepRatio: 0.15, wSep: 1.0, seed: 42 }),
+    twin11,
+    1,
+  );
+  solvers.refiner_sep = res.coords;
+  const stSep = res.solverRun.stats();
+  solvers.refiner_sep_total = stSep.nSepTotal;
+  stSep.free?.();
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
     () => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 15, epsilon: 1e-6 }),
     init16,
     4,
@@ -3113,6 +3360,7 @@ const out = {
 };
 
 g9.free?.();
+g11.free?.();
 g16.free?.();
 proj.free?.();
 cl.free?.();
@@ -3196,6 +3444,7 @@ console.log(JSON.stringify(out));
         "gumap_lm",
         "refiner",
         "refiner_dyn",
+        "refiner_sep",
         "sm",
         "kk",
     ):
@@ -3223,6 +3472,7 @@ console.log(JSON.stringify(out));
     assert py32["gumap_lm_edges"] == ws_sol["gumap_lm_edges"]
     assert py32["refiner_fp"] == ws_sol["refiner_fp"]
     assert py32["refiner_dyn_fp"] == ws_sol["refiner_dyn_fp"]
+    assert py32["refiner_sep_total"] == ws_sol["refiner_sep_total"] > 0
     check_close("sm_stress/f32_vs_wasm", [py32["sm_stress"]], [ws_sol["sm_stress"]], 1e-4)
 
     return [{
@@ -3350,6 +3600,24 @@ def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         s_pmk.run(l_pmk)
         out["sgd_pacmap_keep"] = l_pmk.coords(copy=True)
         out["sgd_pacmap_keep_springs"] = int(s_pmk.num_springs)
+
+        l_pm_lm = eg.Layout2d.from_coords(c16)
+        s_pm_lm = eg.SgdSolver.pacmap_graph_with_landmarks(
+            g16,
+            lm16_m4,
+            n_neighbors=4,
+            phase1_iters=3,
+            phase2_iters=3,
+            phase3_iters=4,
+            keep_all_1hop=True,
+            max_1hop_per_node=2,
+            degree_weight_beta=0.5,
+            seed=42,
+            dtype=dtype_name,
+        )
+        s_pm_lm.run(l_pm_lm)
+        out["sgd_pacmap_cap_beta_lm"] = l_pm_lm.coords(copy=True)
+        out["sgd_pacmap_cap_beta_lm_springs"] = int(s_pm_lm.num_springs)
 
         sgd_specs = {
             "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
@@ -3587,6 +3855,19 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   r.sR.free?.(); r.sS.free?.();
 }
 
+{
+  const lm16Pm = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
+  const r = runPairAndCheckStep(
+    () => mod.SgdSolver.pacmapGraphWithLandmarks(g16, lm16Pm, { nNeighbors: 4, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, keepAll1hop: true, max1hopPerNode: 2, degreeWeightBeta: 0.5, seed: 42 }),
+    init16,
+    3,
+  );
+  solvers.sgd_pacmap_cap_beta_lm = r.coords;
+  solvers.sgd_pacmap_cap_beta_lm_springs = r.sR.numSprings;
+  r.sR.free?.(); r.sS.free?.();
+  lm16Pm.free?.();
+}
+
 for (const [k, mk] of [
   ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
   ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 })],
@@ -3753,6 +4034,7 @@ console.log(JSON.stringify(out));
         "sgd_snap",
         "sgd_pacmap",
         "sgd_pacmap_keep",
+        "sgd_pacmap_cap_beta_lm",
         "sgd_sgd2",
         "sgd_squared",
         "fa2_bh",
@@ -3769,6 +4051,7 @@ console.log(JSON.stringify(out));
     assert py32["ibumap_lm_exact_edges"] == ws_sol["ibumap_lm_exact_edges"]
     assert py32["ibumap_lm_ibfft_edges"] == ws_sol["ibumap_lm_ibfft_edges"]
     assert py32["sgd_pacmap_keep_springs"] == ws_sol["sgd_pacmap_keep_springs"]
+    assert py32["sgd_pacmap_cap_beta_lm_springs"] == ws_sol["sgd_pacmap_cap_beta_lm_springs"]
     assert py32["prism_box_ov"] == ws_sol["prism_box_ov"] == 0
     assert py32["prism_rad_ov"] == ws_sol["prism_rad_ov"] == 0
 
@@ -3861,11 +4144,20 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     td_vx, td_vy = ml_py.tangent_delta(0, 1)
     ml_py.apply_tangent_step(0, td_vx * 0.1, td_vy * 0.1)
     ml_coords_after = ml_py.coords()
+    ml_rand_py = eg.ManifoldLayout2d.random_init("hyperbolic", 4, scale=0.25, seed=42, dtype="float32")
+    ml_rand_py.center_poincare_centroid()
+    ml_rand_cent_py = ml_rand_py.poincare_centroid()
+    ml_scaled_py = eg.ManifoldLayout2d.from_layout_scaled(
+        "hyperbolic", eg.Layout2d.from_coords(np.array([[10.0, -5.0], [20.0, 5.0], [30.0, 15.0]], dtype=np.float32)), max_radius=0.7
+    )
+    ml_scaled_py.recenter_poincare(0.1, -0.1)
+    ml_scaled_py.recenter_poincare_at(1)
     geo_dists_py = [
         float(eg.poincare_distance(0.0, 0.0, 0.3, 0.4)),
         float(eg.spherical_distance(0.0, 0.0, 0.0, math.pi / 2.0)),
         float(eg.torus_distance(0.05, 0.05, 0.95, 0.05)),
         *[float(v) for v in eg.wrap_torus_point(1.25, -0.25)],
+        *[float(v) for v in eg.poincare_mobius_add(0.2, -0.1, -0.15, 0.25)],
     ]
 
     # 4. Spatial & Metrics M5
@@ -3909,6 +4201,74 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     l_grid_adj = eg.Layout2d.from_coords(grid_coords_f32 + np.array([0.05, -0.03], dtype=np.float32))
     pd_edges_py = eg.prism_distortion_with_edges(l_grid, l_grid_adj, gg_py)
 
+    # 4b. W3 metrics & __version__
+    import importlib.metadata as _imd
+
+    py_pkg_ver = _imd.version("egraph")
+    assert eg.__version__ == eg._core.__version__ == py_pkg_ver, (
+        f"__version__ mismatch: {eg.__version__!r} vs {eg._core.__version__!r} vs {py_pkg_ver!r}"
+    )
+    w3_comm_labels = [0, 0, 0, 0, 0, 1, 1, 1, 1]
+    cl_py = float(eg.crosslessness(g_grid, l_grid))
+    scl_py = float(eg.sampled_crosslessness(g_grid, l_grid, num_samples=100, seed=42))
+    ma_py = float(eg.minimum_angle(g_grid, l_grid))
+    ma_sum_py = eg.minimum_angle_summary(g_grid, l_grid)
+    deg_py = eg.layout_degeneracy(g_grid, l_grid)
+    nig_py = float(eg.adjusted_patch_nig(l_grid, w3_comm_labels, patch_radius=16, canvas_size=2048, pad_frac=0.04, seed=42))
+    nig_ms_py = eg.adjusted_patch_nig_multiscale(l_grid, w3_comm_labels, radii=[16, 32], canvas_size=2048, pad_frac=0.04, seed=42)
+    rta_py = float(eg.landmark_stratified_rta(g_grid, l_grid, num_landmarks=4, num_triplets=50, min_degree=1, seed=42))
+    rta_det_py = eg.landmark_stratified_rta_detail(g_grid, l_grid, num_landmarks=4, num_triplets=50, min_degree=1, seed=42)
+    w3_lm_ids = eg.select_maxmin_sp_pivots(g_grid, num_pivots=3, seed=42, min_degree=1)
+    w3_apsp = eg.all_pairs_bfs(g_grid, 1.0)
+    w3_tbl = np.where(np.isfinite(w3_apsp[w3_lm_ids]), w3_apsp[w3_lm_ids], np.iinfo(np.uint32).max).astype(np.uint32)
+    rta_tbl_py = eg.landmark_stratified_rta_from_landmarks(l_grid, w3_lm_ids, w3_tbl, num_triplets=1000, seed=42)
+    w3_eval_py = eg.evaluate_metrics(
+        g_grid,
+        l_grid,
+        [
+            "crosslessness",
+            "sampled_crosslessness",
+            "minimum_angle",
+            "minimum_angle_a1",
+            "layout_degeneracy",
+            "adjusted_patch_nig",
+            "landmark_stratified_rta",
+        ],
+        num_samples=100,
+        seed=42,
+        community_labels=w3_comm_labels,
+        num_landmarks=4,
+        num_triplets=50,
+        min_degree=1,
+        patch_radius=16,
+        canvas_size=2048,
+        pad_frac=0.04,
+    )
+    g_dir4_py = eg.CsrGraph.from_edges(
+        4,
+        [(0, 1), (0, 3), (1, 3), (3, 0), (3, 1), (3, 2)],
+        directed=True,
+        sanitize=True,
+    )
+    l_dir4_py = eg.Layout2d.from_coords(
+        np.array([[0.0, 0.0], [2.0, 2.0], [0.0, 2.0], [2.0, 0.0]], dtype=np.float32)
+    )
+    cl_dir4_py = float(eg.crosslessness(g_dir4_py, l_dir4_py))
+    scl_dir4_py = float(eg.sampled_crosslessness(g_dir4_py, l_dir4_py, num_samples=100, seed=42))
+    assert cl_dir4_py == 0.0, f"expected dir4 crosslessness == 0.0, got {cl_dir4_py}"
+    assert scl_dir4_py == 0.0, f"expected dir4 sampled_crosslessness == 0.0, got {scl_dir4_py}"
+    g_rstar_py = eg.CsrGraph.from_edges(
+        4,
+        [(0, 1), (1, 0), (0, 2), (2, 0), (0, 3), (3, 0)],
+        directed=True,
+        sanitize=True,
+    )
+    l_rstar_py = eg.Layout2d.from_coords(
+        np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]], dtype=np.float32)
+    )
+    cl_rstar_py = float(eg.crosslessness(g_rstar_py, l_rstar_py))
+    assert cl_rstar_py == 1.0, f"expected reciprocal star crosslessness == 1.0, got {cl_rstar_py}"
+
     # 5. Linalg & Neighborhood M5
     g16 = eg.CsrGraph.from_edges(
         16,
@@ -3919,13 +4279,18 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     )
     cmds_py = eg.classical_mds_2d(g16, dtype="float32")
     eg.normalize_layout_2d(cmds_py, target_std=1.0, seed=42)
+    rob_py = eg.classical_mds_2d(g16, dtype="float32")
+    eg.robust_normalize_layout_2d(rob_py, target_std=1.5, quantile=0.95, seed=42)
     rd_py = eg.rd_mds(g16, dims=3, seed=42, dtype="float32")
     res_coords_py, res_lams_py = eg.compute_resistance_embedding(g16, dim=3, seed=42)
     diff_coords_py, diff_lams_py, diff_t_py = eg.compute_diffusion_embedding(g16, dim=3, p=0.5, seed=42)
     rep_in = np.array([[0.0, 3.0], [1.0, 2.0], [2.0, 1.0], [3.0, 0.0]], dtype=np.float64)
     rep_py = eg.representative_mds(rep_in, dims=2, dtype="float32")
     rerank_py = eg.build_rerank_knn(diff_coords_py, k=4, coarse_dim=2, rerank_factor=2)
+    capped_knn_py, capped_k2_py, _ = eg.build_capped_12hop_knn(g16, max_2hop_per_node=4, seed=42)
     row_probs_py = eg.graph_row_normalized_probabilities(g16)
+    row_probs12_py = eg.graph_12hop_row_normalized_probabilities(g16, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, seed=42)
+    sampled_sns_strat_py = float(eg.sampled_scale_normalized_stress(g16, cmds_py, num_pivots=4, seed=42))
     sym_probs_py = eg.symmetrize_row_normalized(3, [0, 1, 2, 3], [1, 2, 0], [1.0, 1.0, 1.0])
     prio_py = eg.build_gumap_12hop_priority_csr(3, [0], [1], [1.0], [0, 1], [2, 2], [2.0, 2.0], tier2_margin=1.1)
     f1_py, f2_py, f3_py, floor_py = eg.apply_relative_distance_floor([1e-6, 1.0], [2.0], [4.0], eps_dist=1e-3, min_ratio=0.1)
@@ -3952,6 +4317,25 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     ts_partial_py.run(l_ts_py)
     ts_fft_stats_py = ts_partial_py.last_fft_stats()
     assert ts_fft_stats_py is not None
+
+    l_ts_rn_py = eg.Layout2d.from_coords(init16_f32)
+    ts_rn_py = eg.TsNetSolver.from_graph_row_normalized(
+        g16,
+        w2=0.5,
+        max_2hop_per_node=4,
+        degree_beta=0.35,
+        backend="fft",
+        iterations_stage1=2,
+        iterations_stage2=2,
+        iterations_stage3=2,
+        intervals=1,
+        interpolation_order=1,
+        min_grid_dim=16,
+        max_grid_dim=64,
+        seed=42,
+        dtype="float32",
+    )
+    ts_rn_py.run(l_ts_rn_py)
 
     l_tfdp_knn_py = eg.Layout2d.from_coords(init16_f32)
     tfdp_knn_py = eg.TFdpSolver.from_knn(
@@ -3993,6 +4377,56 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     fdeb_py = eg.FdebSolver(g16, l_fdeb_py, cycles=2, i0=4, dtype="float32")
     fdeb_py.run()
 
+    hier_py = eg.louvain_coarsen(g16, max_coarse_nodes=4, seed=42)
+    rhgh_lm_py, rhgh_st_py = eg.compute_pivoted_rhgh_landmarks(
+        g16, num_landmarks=8, min_degree=1, num_probes=16, seed=42
+    )
+    g16_bb_edges = [
+        (r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)
+    ] + [
+        (r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)
+    ]
+    g16_bb_weights = [1.0 + 0.05 * i for i in range(len(g16_bb_edges))]
+    g16_bb_py = eg.CsrGraph.from_edges(16, g16_bb_edges, weights=g16_bb_weights, directed=False, sanitize=True)
+    bb_py = eg.coarse_backbone_init(
+        g16_bb_py,
+        max_coarse_nodes=4,
+        edge_length_mode="resistance_curvature_flow",
+        distance_backend="rhgh",
+        coarse_t_max=20,
+        seed=42,
+        dtype="float32",
+    )
+    bb_aligned_py = eg.Layout2d.from_coords(bb_py["fine_layout"].coords(copy=True))
+    eg.align_clustered_centroids(bb_aligned_py, bb_py["coarse_layout"], bb_py["node_to_coarse"], gamma_tether=0.5)
+
+    sp_field_py = eg.ScreenedPoissonField2d(
+        kernel="screened_poisson",
+        grid_size=64,
+        padding_factor=2,
+        sigma=0.2,
+        kappa=1.0,
+        rho_max=0.1,
+        exact_adjoint=True,
+        dtype="float32",
+    )
+    l_sp_init_py = eg.Layout2d.from_coords(init16_f32)
+    sp_eval_py = sp_field_py.evaluate_in_bounds(l_sp_init_py, [-2.0, 2.0, -2.0, 2.0])
+    l_sp_ref_py = eg.Layout2d.from_coords(init16_f32)
+    sp_ref_py = eg.ScreenedPoissonRefiner.from_graph(
+        g16,
+        grid_size=64,
+        padding_factor=2,
+        sigma=0.2,
+        kappa=1.0,
+        rho_max=0.1,
+        iterations=4,
+        anchor_weight=0.1,
+        seed=42,
+        dtype="float32",
+    )
+    sp_ref_py.run(l_sp_ref_py)
+
     node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
     index_url = index_entry.resolve().as_uri()
     wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
@@ -4005,12 +4439,10 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "nd_coords": [float(v) for v in nd_arr_f32.ravel()],
         "g16_edges": [
             int(v)
-            for edge in (
-                [(r * 4 + c, r * 4 + c + 1) for r in range(4) for c in range(3)]
-                + [(r * 4 + c, (r + 1) * 4 + c) for r in range(3) for c in range(4)]
-            )
+            for edge in g16_bb_edges
             for v in edge
         ],
+        "g16_bb_weights": g16_bb_weights,
         "init16": [float(v) for v in init16_f32.ravel()],
         "diff_coords": [float(v) for v in diff_coords_py.ravel()],
         "diff_dim": int(diff_coords_py.shape[1]),
@@ -4040,14 +4472,13 @@ if (typeof mod.default === 'function') {
 }
 
 assert.equal(typeof mod.LayoutNd, 'function', 'WASM missing M5 LayoutNd');
-assert.equal(typeof mod.loadDataset, 'function', 'WASM missing M5 loadDataset');
+assert.equal(typeof mod.loadDataset, 'undefined', 'WASM must not expose embedded loadDataset');
 assert.equal(typeof indexMod.runProgressive, 'function', 'WASM index.js missing runProgressive');
 
 const gDisc = mod.parseCsrCsv("6,5\\n0,1\\n2,3\\n3,4\\n4,5\\n5,2\\n", false, true);
 const sub = gDisc.inducedSubgraph(new Uint32Array([2, 3, 4]));
 const lcc = gDisc.largestConnectedComponent();
 const lccG = lcc.graph();
-const karate = mod.loadDataset("karate");
 
 const l2Empty = mod.Layout2d.zeros(0);
 assert.equal(l2Empty.isEmpty(), true);
@@ -4089,11 +4520,21 @@ const mly0 = ml.y(0);
 const td = ml.tangentDelta(0, 1);
 ml.applyTangentStep(0, td[0] * 0.1, td[1] * 0.1);
 const mlCoords = Array.from(ml.coords());
+const mlRand = mod.ManifoldLayout2d.randomInit('hyperbolic', 4, 0.25, 42);
+mlRand.centerPoincareCentroid();
+const mlRandCent = Array.from(mlRand.poincareCentroid());
+const lScaleIn = mod.Layout2d.fromCoords(new Float32Array([10, -5, 20, 5, 30, 15]));
+const mlScaled = mod.ManifoldLayout2d.fromLayoutScaled('hyperbolic', lScaleIn, 0.7);
+mlScaled.recenterPoincare(0.1, -0.1);
+mlScaled.recenterPoincareAt(1);
+const mlScaledCoords = Array.from(mlScaled.coords());
+const mlRandCoords = Array.from(mlRand.coords());
 const geoDists = [
   mod.poincareDistance(0, 0, 0.3, 0.4),
   mod.sphericalDistance(0, 0, 0, Math.PI / 2),
   mod.torusDistance(0.05, 0.05, 0.95, 0.05),
   ...Array.from(mod.wrapTorusPoint(1.25, -0.25)),
+  ...Array.from(mod.poincareMobiusAdd(0.2, -0.1, -0.15, 0.25)),
 ];
 
 const g9Edges = [];
@@ -4128,17 +4569,67 @@ const sampledCrDef = mod.sampledCrossingNumber(gGrid, lGrid);
 const lGridAdj = mod.Layout2d.fromCoords(new Float32Array(spec.grid_coords.map((v, i) => v + (i % 2 === 0 ? 0.05 : -0.03))));
 const pdEdges = mod.prismDistortionWithEdges(lGrid, lGridAdj, new Uint32Array(gg));
 
+const w3Comm = new Uint32Array([0, 0, 0, 0, 0, 1, 1, 1, 1]);
+const w3Cl = mod.crosslessness(gGrid, lGrid);
+const w3Scl = mod.sampledCrosslessness(gGrid, lGrid, 100, 42);
+const w3Ma = mod.minimumAngle(gGrid, lGrid);
+const w3MaSum = mod.minimumAngleSummary(gGrid, lGrid);
+const w3Deg = mod.layoutDegeneracy(gGrid, lGrid);
+const w3Nig = mod.adjustedPatchNig(lGrid, w3Comm, 16, 2048, 0.04, 42);
+const w3NigMs = Array.from(mod.adjustedPatchNigMultiscale(lGrid, w3Comm, [16, 32], 2048, 0.04, 42));
+const w3Rta = mod.landmarkStratifiedRta(gGrid, lGrid, 4, 50, 1, 42);
+const w3RtaDet = mod.landmarkStratifiedRtaDetail(gGrid, lGrid, 4, 50, 1, 42);
+const w3LmIds = mod.selectMaxminSpPivots(gGrid, 3, 42, 1);
+const w3TblFlat = [];
+for (let r = 0; r < w3LmIds.length; r++) {
+  const rowOff = w3LmIds[r] * 9;
+  for (let c = 0; c < 9; c++) {
+    const dv = apsp[rowOff + c];
+    w3TblFlat.push(Number.isFinite(dv) ? Math.round(dv) : 0xffffffff);
+  }
+}
+const w3RtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, w3LmIds, new Uint32Array(w3TblFlat), 1000, 42);
+const w3Eval = mod.evaluateMetrics(
+  gGrid,
+  lGrid,
+  ['crosslessness', 'sampledCrosslessness', 'minimumAngle', 'minimumAngleA1', 'layoutDegeneracy', 'adjustedPatchNig', 'landmarkStratifiedRta'],
+  null,
+  100,
+  42,
+  null,
+  w3Comm,
+  4,
+  50,
+  1,
+  16,
+  2048,
+  0.04,
+);
+const gDir4 = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 0, 3, 1, 3, 3, 0, 3, 1, 3, 2]), undefined, true, true);
+const lDir4 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 2, 2, 0, 2, 2, 0]));
+const clDir4 = mod.crosslessness(gDir4, lDir4);
+const sclDir4 = mod.sampledCrosslessness(gDir4, lDir4, 100, 42);
+const gRstar = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 0, 0, 2, 2, 0, 0, 3, 3, 0]), undefined, true, true);
+const lRstar = mod.Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, -1, 0]));
+const clRstar = mod.crosslessness(gRstar, lRstar);
+
 const g16 = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges));
 const cmds = mod.classicalMds2d(g16);
 mod.normalizeLayout2d(cmds, 1.0, 42);
 const cmdsCoords = Array.from(cmds.coordsView());
+const rob = mod.classicalMds2d(g16);
+mod.robustNormalizeLayout2d(rob, 1.5, 0.95, 42);
+const robCoords = Array.from(rob.coordsView());
 const rd = mod.rdMds(g16, 3, 1e-10, 1e-6, 1000, 42);
 const rdCoords = Array.from(rd.copyCoords());
 const resEmb = mod.computeResistanceEmbedding(g16, 3, 1e-4, 300, 42, 1e-10);
 const diffEmb = mod.computeDiffusionEmbedding(g16, 3, 0.5, null, 1e-4, 300, 42);
 const repNd = mod.representativeMds(new Float64Array([0, 3, 1, 2, 2, 1, 3, 0]), 4, 2, 2);
 const rerank = mod.buildRerankKnn(new Float64Array(spec.diff_coords), 16, spec.diff_dim, 4, 2, 2);
+const cappedKnn = mod.buildCapped12hopKnn(g16, 4, 42);
 const rowProbs = mod.graphRowNormalizedProbabilities(g16);
+const rowProbs12 = mod.graph12hopRowNormalizedProbabilities(g16, 0.5, 4, 0.35, 42);
+const sampledSnsStrat = mod.sampledScaleNormalizedStress(g16, cmds, 4, 42);
 const symProbs = mod.symmetrizeRowNormalized(3, new Uint32Array([0, 1, 2, 3]), new Uint32Array([1, 2, 0]), new Float64Array([1, 1, 1]));
 const prio = mod.buildGumap12hopPriorityCsr(3, new Uint32Array([0]), new Uint32Array([1]), new Float64Array([1]), new Uint32Array([0, 1]), new Uint32Array([2, 2]), new Float64Array([2, 2]), 1.1);
 const d1 = new Float64Array([1e-6, 1.0]);
@@ -4162,6 +4653,9 @@ const tsOpts = {
 };
 const tsPartial = mod.TsNetSolver.fromGraphPartialBfs(g16, 8, 6.0, tsOpts);
 const tsPartialProg = mod.TsNetSolver.fromGraphPartialBfs(g16, 8, 6.0, tsOpts);
+const tsRn = mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: 0.5, max2hopPerNode: 4, degreeBeta: 0.35, ...tsOpts });
+const lTsRn = mod.Layout2d.fromCoords(init16);
+tsRn.run(lTsRn);
 assert.equal(tsPartial.lastFftStats(), undefined);
 tsPartial.run(lTs);
 const fftStats = tsPartial.lastFftStats();
@@ -4207,12 +4701,50 @@ const lFdeb = mod.Layout2d.fromCoords(init16);
 const fdeb = new mod.FdebSolver(g16, lFdeb, { cycles: 2, i0: 4 });
 fdeb.run();
 
+const hier = mod.louvainCoarsen(g16, { maxCoarseNodes: 4, seed: 42 });
+const rhghRes = mod.computePivotedRhghLandmarks(g16, { numLandmarks: 8, minDegree: 1, numProbes: 16, seed: 42 });
+const rhghLm = rhghRes.landmarks();
+const g16Bb = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges), new Float32Array(spec.g16_bb_weights));
+const bb = mod.coarseBackboneInit(g16Bb, {
+  maxCoarseNodes: 4,
+  edgeLengthMode: "resistanceCurvatureFlow",
+  distanceBackend: "rhgh",
+  coarseTMax: 20,
+  seed: 42,
+});
+const bbAligned = mod.Layout2d.fromCoords(bb.fineLayout().copyCoords());
+const bbCoarse = bb.coarseLayout();
+mod.alignClusteredCentroids(bbAligned, bbCoarse, bb.nodeToCoarse(), 0.5);
+
+const spField = new mod.ScreenedPoissonField2d({
+  kernel: "screenedPoisson",
+  gridSize: 64,
+  paddingFactor: 2,
+  sigma: 0.2,
+  kappa: 1.0,
+  rhoMax: 0.1,
+  exactAdjoint: true,
+});
+const lSpInit = mod.Layout2d.fromCoords(init16);
+const spEval = spField.evaluateInBounds(lSpInit, [-2.0, 2.0, -2.0, 2.0]);
+const lSpRef = mod.Layout2d.fromCoords(init16);
+const spRef = mod.ScreenedPoissonRefiner.fromGraph(g16, {
+  gridSize: 64,
+  paddingFactor: 2,
+  sigma: 0.2,
+  kappa: 1.0,
+  rhoMax: 0.1,
+  iterations: 4,
+  anchorWeight: 0.1,
+  seed: 42,
+});
+spRef.run(lSpRef);
+
 const out = {
   disc: { nnz: gDisc.nnz(), isW: gDisc.isWeighted(), deg2: gDisc.degree(2), nbr2: Array.from(gDisc.neighbors(2)), subN: sub.numNodes(), subE: sub.numEdges(), lccN: lccG.numNodes(), lccIds: Array.from(lcc.originalNodeIds()) },
-  karate: { n: karate.numNodes(), e: karate.numEdges() },
   l2: { x1: l2x1, y1: l2y1, normCoords: l2NormCoords, initCoords: l2InitCoords },
   ndCoords,
-  ml: { x0: mlx0, y0: mly0, td: Array.from(td), coords: mlCoords, geoDists },
+  ml: { x0: mlx0, y0: mly0, td: Array.from(td), coords: mlCoords, geoDists, randCoords: mlRandCoords, randCent: mlRandCent, scaledCoords: mlScaledCoords },
   delCsr: { n: delCsr.numNodes(), e: delCsr.numEdges() },
   rectOv,
   ceLen: ce.length,
@@ -4230,16 +4762,20 @@ const out = {
   evalDef: { sns: evalDefRep.sampledScaleNormalizedStress, cr: evalDefRep.sampledCrossingNumber, snsStandalone: sampledSnsDef, crStandalone: sampledCrDef },
   pdEdges: [pdEdges.sigmaDist, pdEdges.sigmaDisp],
   cmdsCoords,
+  robCoords,
   rdCoords,
   res: { lams: Array.from(resEmb.lambdas()), coords: Array.from(resEmb.coords()) },
   diff: { tUsed: diffEmb.tUsed, lams: Array.from(diffEmb.lambdas()), coords: Array.from(diffEmb.coords()) },
   repCoords: Array.from(repNd.copyCoords()),
   rerank: { indptr: Array.from(rerank.indptr()), indices: Array.from(rerank.indices()), dists: Array.from(rerank.distances()) },
+  cappedKnn: { k2Deg: Array.from(cappedKnn.k2Deg()), indptr: Array.from(cappedKnn.knn().indptr()), indices: Array.from(cappedKnn.knn().indices()), dists: Array.from(cappedKnn.knn().distances()) },
   rowProbs: { indptr: Array.from(rowProbs.indptr()), indices: Array.from(rowProbs.indices()), values: Array.from(rowProbs.values()) },
+  rowProbs12: { indptr: Array.from(rowProbs12.indptr()), indices: Array.from(rowProbs12.indices()), values: Array.from(rowProbs12.values()) },
   symProbs: { indptr: Array.from(symProbs.indptr()), indices: Array.from(symProbs.indices()), values: Array.from(symProbs.values()) },
   prio: { indptr: Array.from(prio.indptr()), indices: Array.from(prio.indices()), dists: Array.from(prio.distances()) },
   floor: { d1: Array.from(d1), d2: Array.from(d2), d3: Array.from(d3), val: floorVal },
   tsPartial: { coords: Array.from(lTs.coordsView()), ffts: fftStats.totalFft2dCalls, pFfts: fftStats.particleForwardFfts, progFrames: progFrames.length },
+  tsRnCoords: Array.from(lTsRn.coordsView()),
   tfdpKnnCoords: Array.from(lTfdpKnn.coordsView()),
   ib: { a: ib.a, b: ib.b, ab: Array.from(ib.ab), numEdges: ib.numEdges, ffts: ib.totalFft2dCalls, coords: Array.from(lIb.coordsView()) },
   lmDogDef: { table: Array.from(lmDogDef.table()), t1: lmDogDef.t1, t2: lmDogDef.t2, alpha: lmDogDef.alpha },
@@ -4247,19 +4783,56 @@ const out = {
   sgdDogCoords: Array.from(lSgdDog.coordsView()),
   gmAb: Array.from(gmDog.ab),
   fdeb: { offsets: Array.from(fdeb.edgeOffsets()), points: Array.from(fdeb.points()) },
+  m51: {
+    hierClusters: hier.numClusters,
+    hierN2c: Array.from(hier.nodeToCoarse()),
+    rhghGamma: rhghRes.gamma,
+    rhghTable: Array.from(rhghLm.table()),
+    bbFine: Array.from(bb.fineLayout().coordsView()),
+    bbAligned: Array.from(bbAligned.coordsView()),
+  },
+  m52: {
+    energy: spEval.energy,
+    fftCalls: spEval.fft2dCalls,
+    fx: Array.from(spEval.forceX()),
+    fy: Array.from(spEval.forceY()),
+    refCoords: Array.from(lSpRef.coordsView()),
+    refLastEnergy: spRef.lastEnergy,
+  },
+  sampledSnsStrat,
+  w3: {
+    cl: w3Cl,
+    scl: w3Scl,
+    ma: w3Ma,
+    maSum: w3MaSum.toRecord(),
+    deg: w3Deg.toRecord(),
+    nig: w3Nig,
+    nigMs: w3NigMs,
+    rta: w3Rta,
+    rtaDet: w3RtaDet.toRecord(),
+    rtaTbl: w3RtaTbl.toRecord(),
+    eval: w3Eval.toRecord(),
+    clDir4: clDir4,
+    sclDir4: sclDir4,
+    clRstar: clRstar,
+  },
 };
+
+w3MaSum.free?.(); w3Deg.free?.(); w3RtaDet.free?.(); w3RtaTbl.free?.(); w3Eval.free?.();
+gDir4.free?.(); lDir4.free?.(); gRstar.free?.(); lRstar.free?.();
 
 for (const c of ce) c.free?.();
 for (const tc of cet) tc.free?.();
 cs.free?.(); evalRep.free?.(); evalDefRep.free?.(); pdEdges.free?.();
 fdeb.free?.(); lFdeb.free?.(); gmDog.free?.(); lmDogDef.free?.(); lSgdDog.free?.(); dogStats.free?.(); sgdDog.free?.();
+bbAligned.free?.(); bbCoarse.free?.(); bb.free?.(); g16Bb.free?.(); rhghLm.free?.(); rhghRes.free?.(); hier.free?.();
 ib.free?.(); lIb.free?.(); tfdpKnn.free?.(); lTfdpKnn.free?.(); knnObj.free?.();
 fftStats.free?.(); tsPartial.free?.(); tsPartialProg.free?.(); lTs.free?.(); lTsProg.free?.();
 prio.free?.(); symProbs.free?.(); rowProbs.free?.(); rerank.free?.(); repNd.free?.();
 diffEmb.free?.(); resEmb.free?.(); rd.free?.(); cmds.free?.(); g16.free?.();
 lGridAdj.free?.(); lX.free?.(); gX.free?.(); lRect.free?.(); delCsr.free?.(); lGrid.free?.(); gGrid.free?.();
 ml.free?.(); mlHyp.free?.(); mlSph.free?.(); mlTor.free?.(); lNd.free?.(); ndZero.free?.(); l2Init.free?.(); l2.free?.(); l2Empty.free?.();
-karate.free?.(); lccG.free?.(); lcc.free?.(); sub.free?.(); gDisc.free?.();
+lccG.free?.(); lcc.free?.(); sub.free?.(); gDisc.free?.();
 
 console.log(JSON.stringify(out));
 """
@@ -4290,7 +4863,7 @@ console.log(JSON.stringify(out));
     assert ws["disc"]["nbr2"] == list(g_disc.neighbors(2))
     assert ws["disc"]["subN"] == sub_py.num_nodes and ws["disc"]["subE"] == sub_py.num_edges
     assert ws["disc"]["lccN"] == lcc_py.num_nodes and ws["disc"]["lccIds"] == list(lcc_ids_py)
-    assert ws["karate"]["n"] == karate_py.num_nodes and ws["karate"]["e"] == karate_py.num_edges
+    assert karate_py.num_nodes == 34 and karate_py.num_edges >= 78
 
     check_close("Layout2d.x/y", [l2_x1, l2_y1], [ws["l2"]["x1"], ws["l2"]["y1"]], 1e-6)
     check_close("Layout2d.normalize_std", l2_norm_coords, ws["l2"]["normCoords"], 1e-5)
@@ -4300,6 +4873,9 @@ console.log(JSON.stringify(out));
     check_close("ManifoldLayout2d.x/y", [ml_x0, ml_y0], [ws["ml"]["x0"], ws["ml"]["y0"]], 1e-6)
     check_close("ManifoldLayout2d.tangent_delta", [td_vx, td_vy], ws["ml"]["td"], 1e-5)
     check_close("ManifoldLayout2d.apply_tangent_step", ml_coords_after, ws["ml"]["coords"], 1e-5)
+    check_close("ManifoldLayout2d.random_init+center_poincare_centroid", ml_rand_py.coords(), ws["ml"]["randCoords"], 1e-5)
+    check_close("ManifoldLayout2d.poincare_centroid", ml_rand_cent_py, ws["ml"]["randCent"], 1e-5)
+    check_close("ManifoldLayout2d.from_layout_scaled+recenter", ml_scaled_py.coords(), ws["ml"]["scaledCoords"], 1e-5)
     check_close("geodesic_distances", geo_dists_py, ws["ml"]["geoDists"], 1e-12, is_f32=False)
 
     assert ws["delCsr"]["n"] == del_csr_py.num_nodes and ws["delCsr"]["e"] == del_csr_py.num_edges
@@ -4323,8 +4899,34 @@ console.log(JSON.stringify(out));
     check_close("sampled_scale_normalized_stress/default", [sampled_sns_default_py], [ws["evalDef"]["snsStandalone"]], 1e-12, is_f32=False)
     check_close("sampled_crossing_number/default", [sampled_cr_default_py], [ws["evalDef"]["crStandalone"]], 1e-12, is_f32=False)
     check_close("prism_distortion_with_edges", pd_edges_py, ws["pdEdges"], 1e-5)
+    check_close("sampled_scale_normalized_stress/degree_stratified_k4", [sampled_sns_strat_py], [ws["sampledSnsStrat"]], 1e-6)
+    check_close("crosslessness", [cl_py], [ws["w3"]["cl"]], 1e-12, is_f32=False)
+    check_close("sampled_crosslessness", [scl_py], [ws["w3"]["scl"]], 1e-12, is_f32=False)
+    check_close("minimum_angle", [ma_py], [ws["w3"]["ma"]], 1e-12, is_f32=False)
+    check_close("minimum_angle_summary", [ma_sum_py["a1"], ma_sum_py["a2"]], [ws["w3"]["maSum"]["a1"], ws["w3"]["maSum"]["a2"]], 1e-12, is_f32=False)
+    assert deg_py["num_nodes"] == ws["w3"]["deg"]["numNodes"]
+    assert deg_py["num_edges"] == ws["w3"]["deg"]["numEdges"]
+    assert deg_py["duplicate_nodes_f32"] == ws["w3"]["deg"]["duplicateNodesF32"]
+    assert deg_py["duplicate_nodes_f64"] == ws["w3"]["deg"]["duplicateNodesF64"]
+    assert deg_py["zero_length_edges"] == ws["w3"]["deg"]["zeroLengthEdges"]
+    assert deg_py["is_bbox_degenerate"] == ws["w3"]["deg"]["isBboxDegenerate"]
+    check_close("layout_degeneracy/ratios_bbox", [deg_py["duplicate_ratio_f32"], deg_py["duplicate_ratio_f64"], deg_py["zero_length_edge_ratio"], deg_py["bbox_width"], deg_py["bbox_height"]], [ws["w3"]["deg"]["duplicateRatioF32"], ws["w3"]["deg"]["duplicateRatioF64"], ws["w3"]["deg"]["zeroLengthEdgeRatio"], ws["w3"]["deg"]["bboxWidth"], ws["w3"]["deg"]["bboxHeight"]], 1e-12, is_f32=False)
+    check_close("adjusted_patch_nig", [nig_py], [ws["w3"]["nig"]], 1e-12, is_f32=False)
+    check_close("adjusted_patch_nig_multiscale", [nig_ms_py["patch_nig_r16"], nig_ms_py["patch_nig_r32"]], ws["w3"]["nigMs"], 1e-12, is_f32=False)
+    check_close("landmark_stratified_rta", [rta_py], [ws["w3"]["rta"]], 1e-12, is_f32=False)
+    assert rta_det_py["num_landmarks"] == ws["w3"]["rtaDet"]["numLandmarks"]
+    assert rta_det_py["num_triplets"] == ws["w3"]["rtaDet"]["numTriplets"]
+    assert rta_det_py["num_strata"] == ws["w3"]["rtaDet"]["numStrata"]
+    assert rta_det_py["is_exact"] == ws["w3"]["rtaDet"]["isExact"]
+    check_close("landmark_stratified_rta_detail", [rta_det_py["rta"]], [ws["w3"]["rtaDet"]["rta"]], 1e-12, is_f32=False)
+    assert rta_tbl_py["num_triplets"] == ws["w3"]["rtaTbl"]["numTriplets"]
+    assert rta_tbl_py["is_exact"] == ws["w3"]["rtaTbl"]["isExact"]
+    check_close("landmark_stratified_rta_from_landmarks", [rta_tbl_py["rta"]], [ws["w3"]["rtaTbl"]["rta"]], 1e-12, is_f32=False)
+    check_close("evaluate_metrics/w3", [w3_eval_py["crosslessness"], w3_eval_py["sampled_crosslessness"], w3_eval_py["minimum_angle"], w3_eval_py["minimum_angle_a1"], w3_eval_py["layout_degeneracy"], w3_eval_py["adjusted_patch_nig"], w3_eval_py["landmark_stratified_rta"]], [ws["w3"]["eval"]["crosslessness"], ws["w3"]["eval"]["sampledCrosslessness"], ws["w3"]["eval"]["minimumAngle"], ws["w3"]["eval"]["minimumAngleA1"], ws["w3"]["eval"]["layoutDegeneracy"], ws["w3"]["eval"]["adjustedPatchNig"], ws["w3"]["eval"]["landmarkStratifiedRta"]], 1e-12, is_f32=False)
+    check_close("crosslessness/dir4_reciprocal_regression", [cl_dir4_py, scl_dir4_py, cl_rstar_py], [ws["w3"]["clDir4"], ws["w3"]["sclDir4"], ws["w3"]["clRstar"]], 1e-12, is_f32=False)
 
     check_close("classical_mds_2d", cmds_py.coords(copy=True), ws["cmdsCoords"], 1e-5)
+    check_close("robust_normalize_layout_2d", rob_py.coords(copy=True), ws["robCoords"], 1e-5)
     check_close("rd_mds", rd_py.coords(copy=True), ws["rdCoords"], 1e-4)
     check_close("compute_resistance_embedding/lambdas", res_lams_py, ws["res"]["lams"], 1e-10, is_f32=False)
     check_close("compute_resistance_embedding/coords", res_coords_py, ws["res"]["coords"], 1e-10, is_f32=False)
@@ -4345,6 +4947,13 @@ console.log(JSON.stringify(out));
     assert list(row_probs_py.indptr()) == ws["rowProbs"]["indptr"]
     assert list(row_probs_py.indices()) == ws["rowProbs"]["indices"]
     check_close("graph_row_normalized_probabilities", row_probs_py.values(), ws["rowProbs"]["values"], 1e-12, is_f32=False)
+    assert list(capped_k2_py) == ws["cappedKnn"]["k2Deg"]
+    assert list(capped_knn_py.indptr()) == ws["cappedKnn"]["indptr"]
+    assert list(capped_knn_py.indices()) == ws["cappedKnn"]["indices"]
+    check_close("build_capped_12hop_knn", capped_knn_py.distances(), ws["cappedKnn"]["dists"], 1e-12, is_f32=False)
+    assert list(row_probs12_py.indptr()) == ws["rowProbs12"]["indptr"]
+    assert list(row_probs12_py.indices()) == ws["rowProbs12"]["indices"]
+    check_close("graph_12hop_row_normalized_probabilities", row_probs12_py.values(), ws["rowProbs12"]["values"], 1e-12, is_f32=False)
     assert list(sym_probs_py.indptr()) == ws["symProbs"]["indptr"]
     assert list(sym_probs_py.indices()) == ws["symProbs"]["indices"]
     check_close("symmetrize_row_normalized", sym_probs_py.values(), ws["symProbs"]["values"], 1e-12, is_f32=False)
@@ -4360,6 +4969,7 @@ console.log(JSON.stringify(out));
     assert ts_fft_stats_py["total_fft_2d_calls"] == ws["tsPartial"]["ffts"]
     assert ts_fft_stats_py["particle_forward_ffts"] == ws["tsPartial"]["pFfts"]
     check_close("TsNetSolver.from_graph_partial_bfs", l_ts_py.coords(copy=True), ws["tsPartial"]["coords"], 1e-4)
+    check_close("TsNetSolver.from_graph_row_normalized(degree_beta=0.35)", l_ts_rn_py.coords(copy=True), ws["tsRnCoords"], 1e-4)
     check_close("TFdpSolver.from_knn(KnnGraph)", l_tfdp_knn_py.coords(copy=True), ws["tfdpKnnCoords"], 1e-4)
     assert ib_py.num_edges == ws["ib"]["numEdges"]
     assert ib_py.total_fft_2d_calls == ws["ib"]["ffts"]
@@ -4374,6 +4984,18 @@ console.log(JSON.stringify(out));
     check_close("GuMapSolver.from_graph_dog/default_ab", gm_dog_py.ab, ws["gmAb"], 1e-12, is_f32=False)
     assert list(fdeb_py.edge_offsets()) == ws["fdeb"]["offsets"]
     check_close("FdebSolver.points", fdeb_py.points(), ws["fdeb"]["points"], 1e-4)
+    assert hier_py["num_clusters"] == ws["m51"]["hierClusters"]
+    assert list(hier_py["node_to_coarse"]) == ws["m51"]["hierN2c"]
+    check_close("compute_pivoted_rhgh_landmarks/gamma", [rhgh_st_py["gamma"]], [ws["m51"]["rhghGamma"]], 1e-12, is_f32=False)
+    check_close("compute_pivoted_rhgh_landmarks/table", rhgh_lm_py.table(), ws["m51"]["rhghTable"], 1e-12, is_f32=False)
+    check_close("coarse_backbone_init/fine_layout", bb_py["fine_layout"].coords(copy=True), ws["m51"]["bbFine"], 1e-4)
+    check_close("align_clustered_centroids", bb_aligned_py.coords(copy=True), ws["m51"]["bbAligned"], 1e-4)
+    assert sp_eval_py["fft_2d_calls"] == ws["m52"]["fftCalls"]
+    check_close("ScreenedPoissonField2d.energy", [sp_eval_py["energy"]], [ws["m52"]["energy"]], 1e-10, is_f32=False)
+    check_close("ScreenedPoissonField2d.force_x", sp_eval_py["force_x"], ws["m52"]["fx"], 1e-5)
+    check_close("ScreenedPoissonField2d.force_y", sp_eval_py["force_y"], ws["m52"]["fy"], 1e-5)
+    check_close("ScreenedPoissonRefiner.run", l_sp_ref_py.coords(copy=True), ws["m52"]["refCoords"], 1e-4)
+    check_close("ScreenedPoissonRefiner.last_energy", [sp_ref_py.last_energy], [ws["m52"]["refLastEnergy"]], 1e-10, is_f32=False)
 
     return [{
         "case": "cross_target_m5_py_vs_wasm",
