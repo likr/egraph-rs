@@ -4,8 +4,10 @@
 //! `egraph-neighborhood` to provide cooperative `step()`/`run_steps(k)` layout execution across
 //! Native Rust, Python (PyO3), and WebAssembly (`wasm32-unknown-unknown`) targets.
 
+pub mod coarse_backbone;
 pub mod constraints;
 pub mod continuous_fdp;
+pub mod density_field;
 pub mod fdeb;
 pub mod field_layout;
 pub mod gumap;
@@ -17,6 +19,10 @@ pub mod sgd;
 pub mod stress_majorization;
 pub mod ts_net;
 
+pub use coarse_backbone::{
+    CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats, CoarseDistanceBackend,
+    CoarseEdgeLengthMode, coarse_backbone_init,
+};
 pub use constraints::{
     ConstraintProjector, SeparationConstraint, generate_layered_constraints,
     project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d,
@@ -24,6 +30,7 @@ pub use constraints::{
 pub use continuous_fdp::{
     ContinuousFdp, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,
 };
+pub use density_field::{ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig};
 pub use fdeb::{FdebConfig, FdebSolver};
 pub use field_layout::{
     FieldLayout, FieldLayoutSolver, FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig,

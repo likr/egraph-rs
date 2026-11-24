@@ -6,7 +6,7 @@ use egraph_core::{
     SolverStatus,
 };
 use egraph_neighborhood::{
-    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, SparseProbabilities,
+    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, Sparse12HopPairs, SparseProbabilities,
     build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
     compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs, find_ab_params,
 };
@@ -156,7 +156,7 @@ pub struct GuMapSolver<S: Scalar = f64> {
     b: f64,
     edge_src: Vec<u32>,
     edge_tgt: Vec<u32>,
-    edge_weight: Vec<f64>,
+    edge_weight: Vec<f32>,
     epoch: usize,
     status: SolverStatus,
     rng: DeterministicRng,
@@ -164,35 +164,53 @@ pub struct GuMapSolver<S: Scalar = f64> {
 }
 
 impl<S: Scalar> GuMapSolver<S> {
-    /// Constructs a [`GuMapSolver`] directly from a precomputed fuzzy simplicial set [`SparseProbabilities`].
-    pub fn from_fuzzy_set(probs: SparseProbabilities, config: GuMapConfig) -> CoreResult<Self> {
-        config.validate()?;
-        validate_sparse_probabilities(&probs)?;
-        let (a, b) = config.resolve_ab()?;
-
-        let n = probs.n_nodes;
-        let mut raw_edges: Vec<(u32, u32, f64)> = Vec::with_capacity(probs.nnz());
-        for i in 0..n {
-            let i_u32 = i as u32;
-            let (cols, vals) = probs.row(i);
-            for (&j, &w) in cols.iter().zip(vals.iter()) {
-                if j != i_u32 && w > 0.0 {
-                    raw_edges.push((i_u32, j, w));
+    #[allow(clippy::too_many_arguments)]
+    fn from_fuzzy_set_parts(
+        n: usize,
+        mut bucket_offsets: Vec<usize>,
+        mut edge_src: Vec<u32>,
+        mut edge_tgt: Vec<u32>,
+        mut edge_weight: Vec<f32>,
+        config: GuMapConfig,
+        a: f64,
+        b: f64,
+    ) -> Self {
+        if !edge_src.is_empty() {
+            // Sort each canonical bucket `u = min(s, t)` by `(other, s > t)` using one reusable
+            // O(max_deg) scratch buffer so `(u, v)` and `(v, u)` (`u < v`) remain interleaved.
+            let mut bucket_buf: Vec<(u32, bool, f32)> = Vec::new();
+            for u in 0..n {
+                let start = bucket_offsets[u];
+                let end = bucket_offsets[u + 1];
+                if end - start <= 1 {
+                    continue;
+                }
+                let u_u32 = u as u32;
+                bucket_buf.clear();
+                for pos in start..end {
+                    let s = edge_src[pos];
+                    let t = edge_tgt[pos];
+                    let is_rev = s > t;
+                    let other = if is_rev { s } else { t };
+                    bucket_buf.push((other, is_rev, edge_weight[pos]));
+                }
+                bucket_buf.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(&y.1)));
+                for (offset, &(other, is_rev, w)) in bucket_buf.iter().enumerate() {
+                    let pos = start + offset;
+                    if is_rev {
+                        edge_src[pos] = other;
+                        edge_tgt[pos] = u_u32;
+                    } else {
+                        edge_src[pos] = u_u32;
+                        edge_tgt[pos] = other;
+                    }
+                    edge_weight[pos] = w;
                 }
             }
+            drop(bucket_buf);
         }
-        // Emit canonical undirected pairs `(u, v)` and `(v, u)` (`u < v`) consecutively
-        // instead of row-major order, avoiding directional sweep bias on ordered vertex IDs.
-        raw_edges.sort_unstable_by_key(|&(u, v, _)| (u.min(v), u.max(v), u > v));
-
-        let mut edge_src = Vec::with_capacity(raw_edges.len());
-        let mut edge_tgt = Vec::with_capacity(raw_edges.len());
-        let mut edge_weight = Vec::with_capacity(raw_edges.len());
-        for (u, v, w) in raw_edges {
-            edge_src.push(u);
-            edge_tgt.push(v);
-            edge_weight.push(w);
-        }
+        bucket_offsets.clear();
+        drop(bucket_offsets);
 
         let status = if config.n_epochs == 0 {
             SolverStatus::Completed
@@ -200,7 +218,7 @@ impl<S: Scalar> GuMapSolver<S> {
             SolverStatus::Initialized
         };
 
-        Ok(Self {
+        Self {
             config,
             num_nodes: n,
             a,
@@ -212,7 +230,94 @@ impl<S: Scalar> GuMapSolver<S> {
             status,
             rng: DeterministicRng::from_seed_u64(config.seed),
             _marker: std::marker::PhantomData,
-        })
+        }
+    }
+
+    fn scatter_fuzzy_buckets(
+        probs: &SparseProbabilities,
+    ) -> (usize, Vec<usize>, Vec<u32>, Vec<u32>, Vec<f32>) {
+        let n = probs.n_nodes;
+        let mut bucket_offsets = vec![0usize; n + 1];
+        for i in 0..n {
+            let i_u32 = i as u32;
+            let (cols, vals) = probs.row(i);
+            for (&j, &w) in cols.iter().zip(vals.iter()) {
+                if j != i_u32 && w > 0.0 {
+                    let u = i_u32.min(j) as usize;
+                    bucket_offsets[u + 1] += 1;
+                }
+            }
+        }
+        for u in 0..n {
+            bucket_offsets[u + 1] += bucket_offsets[u];
+        }
+        let m = bucket_offsets[n];
+        if m == 0 {
+            return (n, bucket_offsets, Vec::new(), Vec::new(), Vec::new());
+        }
+
+        let mut edge_src = vec![0u32; m];
+        let mut edge_tgt = vec![0u32; m];
+        let mut edge_weight = vec![0.0_f32; m];
+        let mut cursor = bucket_offsets[..n].to_vec();
+        for i in 0..n {
+            let i_u32 = i as u32;
+            let (cols, vals) = probs.row(i);
+            for (&j, &w) in cols.iter().zip(vals.iter()) {
+                if j != i_u32 && w > 0.0 {
+                    let u = i_u32.min(j) as usize;
+                    let pos = cursor[u];
+                    edge_src[pos] = i_u32;
+                    edge_tgt[pos] = j;
+                    edge_weight[pos] = w as f32;
+                    cursor[u] = pos + 1;
+                }
+            }
+        }
+        drop(cursor);
+        (n, bucket_offsets, edge_src, edge_tgt, edge_weight)
+    }
+
+    /// Constructs a [`GuMapSolver`] directly from a precomputed fuzzy simplicial set [`SparseProbabilities`].
+    pub fn from_fuzzy_set(probs: SparseProbabilities, config: GuMapConfig) -> CoreResult<Self> {
+        config.validate()?;
+        validate_sparse_probabilities(&probs)?;
+        let (a, b) = config.resolve_ab()?;
+        let (n, bucket_offsets, edge_src, edge_tgt, edge_weight) =
+            Self::scatter_fuzzy_buckets(&probs);
+        drop(probs);
+        Ok(Self::from_fuzzy_set_parts(
+            n,
+            bucket_offsets,
+            edge_src,
+            edge_tgt,
+            edge_weight,
+            config,
+            a,
+            b,
+        ))
+    }
+
+    /// Constructs a [`GuMapSolver`] from a borrowed [`SparseProbabilities`] without cloning it.
+    pub fn from_fuzzy_set_ref(
+        probs: &SparseProbabilities,
+        config: GuMapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        validate_sparse_probabilities(probs)?;
+        let (a, b) = config.resolve_ab()?;
+        let (n, bucket_offsets, edge_src, edge_tgt, edge_weight) =
+            Self::scatter_fuzzy_buckets(probs);
+        Ok(Self::from_fuzzy_set_parts(
+            n,
+            bucket_offsets,
+            edge_src,
+            edge_tgt,
+            edge_weight,
+            config,
+            a,
+            b,
+        ))
     }
 
     /// Constructs a [`GuMapSolver`] from a validated [`KnnGraph`] via [`compute_fuzzy_simplicial_set`].
@@ -222,16 +327,12 @@ impl<S: Scalar> GuMapSolver<S> {
         Self::from_fuzzy_set(probs, config)
     }
 
-    /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] and precomputed
-    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
-    /// distances, `eps_dist` flooring, 1+2-hop priority CSR, and fuzzy simplicial sets.
-    pub fn from_landmarks<W: Scalar>(
+    fn compute_12hop_alt_distances<W: Scalar>(
         graph: &CsrGraph<W>,
         landmarks: &DogVaradhanLandmarks,
         max_2hop_per_node: usize,
-        config: GuMapConfig,
-    ) -> CoreResult<Self> {
-        config.validate()?;
+        seed: u64,
+    ) -> CoreResult<(Sparse12HopPairs, Vec<f64>, Vec<f64>)> {
         let n = graph.num_nodes();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
@@ -284,11 +385,7 @@ impl<S: Scalar> GuMapSolver<S> {
             }
         }
 
-        if n <= 1 {
-            return Self::from_fuzzy_set(SparseProbabilities::empty(n), config);
-        }
-
-        let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, config.seed)?;
+        let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, seed)?;
         let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
         let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
         for d in &mut d1 {
@@ -297,6 +394,16 @@ impl<S: Scalar> GuMapSolver<S> {
         for d in &mut d2 {
             *d = d.max(DEFAULT_EPS_DIST);
         }
+        Ok((pairs, d1, d2))
+    }
+
+    fn finish_from_pairs(
+        n: usize,
+        pairs: Sparse12HopPairs,
+        d1: Vec<f64>,
+        d2: Vec<f64>,
+        config: GuMapConfig,
+    ) -> CoreResult<Self> {
         let knn = build_gumap_12hop_priority_csr(
             n,
             &pairs.u1,
@@ -307,7 +414,34 @@ impl<S: Scalar> GuMapSolver<S> {
             &d2,
             DEFAULT_TIER2_MARGIN,
         )?;
-        Self::from_knn(&knn, config)
+        drop(pairs);
+        drop(d1);
+        drop(d2);
+        let probs = compute_fuzzy_simplicial_set(&knn, config.sigma_iters, config.sigma_tolerance)?;
+        drop(knn);
+        Self::from_fuzzy_set(probs, config)
+    }
+
+    /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] and precomputed
+    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
+    /// distances, `eps_dist` flooring, 1+2-hop priority CSR, and fuzzy simplicial sets.
+    pub fn from_landmarks<W: Scalar>(
+        graph: &CsrGraph<W>,
+        landmarks: &DogVaradhanLandmarks,
+        max_2hop_per_node: usize,
+        config: GuMapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        let (pairs, d1, d2) =
+            Self::compute_12hop_alt_distances(graph, landmarks, max_2hop_per_node, config.seed)?;
+        if n <= 1 {
+            drop(pairs);
+            drop(d1);
+            drop(d2);
+            return Self::from_fuzzy_set(SparseProbabilities::empty(n), config);
+        }
+        Self::finish_from_pairs(n, pairs, d1, d2, config)
     }
 
     /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] using $O(|E|)$ hub-safe 1+2-hop pairs,
@@ -327,7 +461,10 @@ impl<S: Scalar> GuMapSolver<S> {
 
         let (landmarks, _dog_stats) =
             compute_regularized_dog_varadhan_landmarks(graph, dog_config)?;
-        Self::from_landmarks(graph, &landmarks, max_2hop_per_node, config)
+        let (pairs, d1, d2) =
+            Self::compute_12hop_alt_distances(graph, &landmarks, max_2hop_per_node, config.seed)?;
+        drop(landmarks);
+        Self::finish_from_pairs(n, pairs, d1, d2, config)
     }
 
     /// Returns the solver configuration.
@@ -402,7 +539,7 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
         let m = self.edge_src.len();
 
         for idx in 0..m {
-            let p_edge = self.edge_weight[idx];
+            let p_edge = self.edge_weight[idx] as f64;
             if p_edge <= 0.0 || (p_edge < 1.0 && self.rng.next_f64() > p_edge) {
                 continue;
             }

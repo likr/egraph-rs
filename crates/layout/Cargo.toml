@@ -14,3 +14,4 @@ egraph-core.workspace = true
 egraph-spatial.workspace = true
 egraph-linalg.workspace = true
 egraph-neighborhood.workspace = true
+egraph-clustering.workspace = true

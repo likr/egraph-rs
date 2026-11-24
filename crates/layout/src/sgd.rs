@@ -3,15 +3,17 @@
 
 use std::f64::consts::PI;
 
+use crate::coarse_backbone::{CoarseBackboneConfig, CoarseBackboneResult, coarse_backbone_init};
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, ManifoldKind,
     ManifoldLayout2d, Scalar, SolverStatus, VisitStamp,
 };
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
 use egraph_neighborhood::{
-    DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, Sparse12HopPairs,
-    apply_relative_distance_floor, compute_horvitz_thompson_gamma,
-    compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs,
+    DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkConfig,
+    Sparse12HopPairs, apply_relative_distance_floor, compute_horvitz_thompson_gamma,
+    compute_pivoted_rhgh_landmarks, compute_regularized_dog_varadhan_landmarks,
+    extract_sparse_1hop_2hop_pairs,
 };
 
 const HINGE_BIT: u32 = 1u32 << 31;
@@ -99,8 +101,11 @@ pub struct SparseBarrierConfig {
     pub neg_per_node: Option<usize>,
     /// Number of MaxMin shortest-path pivots used for global non-2-hop coverage (`default: 50`).
     pub num_pivots: usize,
-    /// Prioritize `degree >= 2` core vertices during MaxMin pivot selection (`default: true`).
+    /// Prioritizes `degree >= 2` core vertices during MaxMin pivot selection (`default: true`).
     pub core_pivots: bool,
+    /// Degree-normalization exponent $\beta \ge 0$ scaling Tier 1/2 spring weights by
+    /// $(d_u d_v)^{-\beta}$ (`default: 0.0`, disabled; recommended `0.25..=0.5` for hubs).
+    pub degree_weight_beta: f64,
     /// SGD iteration schedule (`default: SgdScheduleConfig::default()`).
     pub schedule: SgdScheduleConfig,
     /// Deterministic RNG seed (`default: 42`).
@@ -123,6 +128,7 @@ impl Default for SparseBarrierConfig {
             neg_per_node: None,
             num_pivots: 50,
             core_pivots: true,
+            degree_weight_beta: 0.0,
             schedule: SgdScheduleConfig::default(),
             seed: 42,
         }
@@ -269,6 +275,14 @@ pub struct PacmapGraphConfig {
     pub seed: u64,
     /// Retain all 1-hop edges even on vertices with degree > `n_neighbors` (`default: false`).
     pub keep_all_1hop: bool,
+    /// Optional per-node cap on selected 1-hop neighbors (`None` = uncapped when `keep_all_1hop`,
+    /// `Some(k)` = at most `k` 1-hop neighbors per vertex). Must be `>= 1` when `Some` (`default: None`).
+    pub max_1hop_per_node: Option<usize>,
+    /// Degree-attenuation exponent $\beta \ge 0$ scaling `NB` attraction by $(d_u d_v)^{-\beta}$
+    /// (`default: 0.0`, disabled).
+    pub degree_weight_beta: f64,
+    /// Number of internal BFS landmarks when external landmarks are omitted (`default: 16`, must be `>= 1`).
+    pub num_landmarks: usize,
 }
 
 impl Default for PacmapGraphConfig {
@@ -283,6 +297,9 @@ impl Default for PacmapGraphConfig {
             learning_rate: 1.0,
             seed: 42,
             keep_all_1hop: false,
+            max_1hop_per_node: None,
+            degree_weight_beta: 0.0,
+            num_landmarks: 16,
         }
     }
 }
@@ -294,6 +311,27 @@ impl PacmapGraphConfig {
             return Err(CoreError::invalid_input(
                 "PacmapGraphConfig::n_neighbors must be >= 1",
             ));
+        }
+        if self.num_landmarks == 0 {
+            return Err(CoreError::invalid_input(
+                "PacmapGraphConfig::num_landmarks must be >= 1",
+            ));
+        }
+        if self.max_1hop_per_node == Some(0) {
+            return Err(CoreError::invalid_input(
+                "PacmapGraphConfig::max_1hop_per_node must be >= 1",
+            ));
+        }
+        if !self.degree_weight_beta.is_finite() {
+            return Err(CoreError::non_finite(
+                "PacmapGraphConfig::degree_weight_beta",
+            ));
+        }
+        if self.degree_weight_beta < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "PacmapGraphConfig::degree_weight_beta must be >= 0, got {}",
+                self.degree_weight_beta
+            )));
         }
         for (ctx, val) in [
             ("PacmapGraphConfig::mn_ratio", self.mn_ratio),
@@ -583,6 +621,7 @@ struct SnapTFdpState {
 struct PacmapState {
     config: PacmapGraphConfig,
     nb_pairs: Vec<(u32, u32)>,
+    nb_weights: Vec<f64>,
     mn_pairs: Vec<(u32, u32)>,
     fp_pairs: Vec<(u32, u32)>,
     grad_x: Vec<f64>,
@@ -591,6 +630,50 @@ struct PacmapState {
     m_y: Vec<f64>,
     v_x: Vec<f64>,
     v_y: Vec<f64>,
+}
+
+enum PacmapExternalLandmarks<'a> {
+    Dog(&'a DogVaradhanLandmarks),
+    Distances {
+        data: &'a [f64],
+        num_landmarks: usize,
+    },
+}
+
+enum LandmarkTable<'a> {
+    None,
+    RowMajor {
+        data: &'a [f64],
+        num_landmarks: usize,
+    },
+    ColMajor {
+        data: Vec<f64>,
+        num_landmarks: usize,
+    },
+}
+
+impl LandmarkTable<'_> {
+    #[inline]
+    fn num_landmarks(&self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::RowMajor { num_landmarks, .. } | Self::ColMajor { num_landmarks, .. } => {
+                *num_landmarks
+            }
+        }
+    }
+
+    #[inline]
+    fn dist(&self, node: usize, lm: usize, num_nodes: usize) -> f64 {
+        match self {
+            Self::None => f64::INFINITY,
+            Self::RowMajor {
+                data,
+                num_landmarks,
+            } => data[node * (*num_landmarks) + lm],
+            Self::ColMajor { data, .. } => data[lm * num_nodes + node],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -661,6 +744,10 @@ fn validate_barrier_config(cfg: &SparseBarrierConfig, has_explicit_pivots: bool)
         ("SparseBarrierConfig::omega_2", cfg.omega_2),
         ("SparseBarrierConfig::gamma_non2", cfg.gamma_non2),
         ("SparseBarrierConfig::min_ratio", cfg.min_ratio),
+        (
+            "SparseBarrierConfig::degree_weight_beta",
+            cfg.degree_weight_beta,
+        ),
     ] {
         if !val.is_finite() {
             return Err(CoreError::non_finite(ctx));
@@ -1860,6 +1947,20 @@ impl<S: Scalar> SgdSolver<S> {
             config.gamma_non2
         };
 
+        let deg_scale: Vec<f64> = if config.degree_weight_beta > 0.0 {
+            let mut degs = vec![0usize; n];
+            for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+                degs[u as usize] += 1;
+                degs[v as usize] += 1;
+            }
+            let beta = config.degree_weight_beta;
+            degs.into_iter()
+                .map(|d| (d.max(1) as f64).powf(-beta))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let mut r2 = vec![0.0_f64; n];
         let mut packed_pairs = Vec::with_capacity(pairs.u1.len() + pairs.u2.len() + u3.len());
         let mut n_pairs_two_sided = 0usize;
@@ -1876,8 +1977,13 @@ impl<S: Scalar> SgdSolver<S> {
                 r2[u as usize] = r2[u as usize].max(d);
                 r2[v as usize] = r2[v as usize].max(d);
                 if omega > 0.0 {
+                    let deg_factor = if deg_scale.is_empty() {
+                        1.0
+                    } else {
+                        deg_scale[u as usize] * deg_scale[v as usize]
+                    };
                     let d_s = S::from_f64(d);
-                    let w_s = S::from_f64(omega / (d * d));
+                    let w_s = S::from_f64((omega * deg_factor) / (d * d));
                     if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
                         packed_pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
                         n_pairs_two_sided += 1;
@@ -2342,6 +2448,79 @@ impl<S: Scalar> SgdSolver<S> {
         graph: &CsrGraph<W>,
         config: PacmapGraphConfig,
     ) -> CoreResult<Self> {
+        Self::pacmap_graph_inner(graph, config, None)
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` solver using precomputed [`DogVaradhanLandmarks`]
+    /// for Mid-Near (`MN`) proximity ranking instead of internal BFS landmarks.
+    pub fn pacmap_graph_with_landmarks<W: Scalar>(
+        graph: &CsrGraph<W>,
+        landmarks: &DogVaradhanLandmarks,
+        config: PacmapGraphConfig,
+    ) -> CoreResult<Self> {
+        Self::pacmap_graph_inner(graph, config, Some(PacmapExternalLandmarks::Dog(landmarks)))
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` solver using an externally supplied row-major
+    /// `(num_nodes, num_landmarks)` landmark distance table for Mid-Near (`MN`) ranking.
+    pub fn pacmap_graph_with_landmark_distances<W: Scalar>(
+        graph: &CsrGraph<W>,
+        landmark_distances: &[f64],
+        num_landmarks: usize,
+        config: PacmapGraphConfig,
+    ) -> CoreResult<Self> {
+        Self::pacmap_graph_inner(
+            graph,
+            config,
+            Some(PacmapExternalLandmarks::Distances {
+                data: landmark_distances,
+                num_landmarks,
+            }),
+        )
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
+    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks, returning
+    /// `(solver, initial_layout, backbone_result)`.
+    ///
+    /// Replacing unweighted random-BFS/PivotMDS initialization with a globally unfolded
+    /// coarse backbone and `RHGH` Mid-Near (`MN`) landmarks resolves folding on large-diameter
+    /// FEM meshes (`bcsstk31`, `venkat50`, `troll`, `ship_003`) while remaining deterministic
+    /// and cooperative via `step()`/`run_steps()`.
+    pub fn pacmap_graph_with_backbone<W: Scalar>(
+        graph: &CsrGraph<W>,
+        pacmap_cfg: PacmapGraphConfig,
+        backbone_cfg: &CoarseBackboneConfig,
+    ) -> CoreResult<(Self, Layout2d<S>, CoarseBackboneResult<S>)> {
+        pacmap_cfg.validate()?;
+        backbone_cfg.validate()?;
+        validate_graph_weights(graph, "SgdSolver::pacmap_graph_with_backbone")?;
+
+        let backbone = coarse_backbone_init::<W, S>(graph, backbone_cfg)?;
+        let n = graph.num_nodes();
+        let solver = if n > 1 && pacmap_cfg.mn_ratio > 0.0 && graph.nnz() > 0 {
+            let rhgh_cfg = RhghLandmarkConfig {
+                gamma: backbone_cfg.rhgh_gamma,
+                p_exp: backbone_cfg.rhgh_p,
+                n_landmarks: pacmap_cfg.num_landmarks.min(n).max(1),
+                min_degree: 1,
+                seed: pacmap_cfg.seed,
+                ..RhghLandmarkConfig::default()
+            };
+            let (landmarks, _) = compute_pivoted_rhgh_landmarks(graph, &rhgh_cfg)?;
+            Self::pacmap_graph_with_landmarks(graph, &landmarks, pacmap_cfg)?
+        } else {
+            Self::pacmap_graph(graph, pacmap_cfg)?
+        };
+        let init_layout = backbone.fine_layout.clone();
+        Ok((solver, init_layout, backbone))
+    }
+
+    fn pacmap_graph_inner<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: PacmapGraphConfig,
+        ext_landmarks: Option<PacmapExternalLandmarks<'_>>,
+    ) -> CoreResult<Self> {
         config.validate()?;
         validate_graph_weights(graph, "SgdSolver::pacmap_graph")?;
 
@@ -2350,6 +2529,93 @@ impl<S: Scalar> SgdSolver<S> {
             return Err(CoreError::invalid_input(format!(
                 "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
             )));
+        }
+
+        if let Some(ext) = &ext_landmarks {
+            match ext {
+                PacmapExternalLandmarks::Dog(landmarks) => {
+                    if landmarks.num_nodes() != n {
+                        return Err(CoreError::dimension_mismatch(
+                            n,
+                            landmarks.num_nodes(),
+                            "SgdSolver::pacmap_graph_with_landmarks::landmarks",
+                        ));
+                    }
+                    let k_lm = landmarks.num_landmarks();
+                    if n > 0 && k_lm == 0 {
+                        return Err(CoreError::invalid_input(
+                            "landmarks must have at least 1 landmark when num_nodes > 0",
+                        ));
+                    }
+                    let expected = n
+                        .checked_mul(k_lm)
+                        .ok_or_else(|| CoreError::invalid_input("landmark table size overflow"))?;
+                    if landmarks.d_dog().len() != expected {
+                        return Err(CoreError::dimension_mismatch(
+                            expected,
+                            landmarks.d_dog().len(),
+                            "DogVaradhanLandmarks::d_dog",
+                        ));
+                    }
+                    if landmarks.d_dog().iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite("DogVaradhanLandmarks::d_dog"));
+                    }
+                    if let Some(dc) = landmarks.d_coarse() {
+                        if dc.len() != expected {
+                            return Err(CoreError::dimension_mismatch(
+                                expected,
+                                dc.len(),
+                                "DogVaradhanLandmarks::d_coarse",
+                            ));
+                        }
+                        if dc.iter().any(|v| !v.is_finite()) {
+                            return Err(CoreError::non_finite("DogVaradhanLandmarks::d_coarse"));
+                        }
+                    }
+                    for &lm in landmarks.landmarks() {
+                        if (lm as usize) >= n {
+                            return Err(CoreError::index_out_of_bounds(
+                                lm as usize,
+                                n,
+                                "DogVaradhanLandmarks::landmarks",
+                            ));
+                        }
+                    }
+                }
+                PacmapExternalLandmarks::Distances {
+                    data,
+                    num_landmarks,
+                } => {
+                    let k_lm = *num_landmarks;
+                    if n > 0 && k_lm == 0 {
+                        return Err(CoreError::invalid_input(
+                            "num_landmarks must be >= 1 when num_nodes > 0",
+                        ));
+                    }
+                    let expected = n
+                        .checked_mul(k_lm)
+                        .ok_or_else(|| CoreError::invalid_input("landmark table size overflow"))?;
+                    if data.len() != expected {
+                        return Err(CoreError::dimension_mismatch(
+                            expected,
+                            data.len(),
+                            "SgdSolver::pacmap_graph_with_landmark_distances::landmark_distances",
+                        ));
+                    }
+                    for &v in *data {
+                        if !v.is_finite() {
+                            return Err(CoreError::non_finite(
+                                "SgdSolver::pacmap_graph_with_landmark_distances::landmark_distances",
+                            ));
+                        }
+                        if v < 0.0 {
+                            return Err(CoreError::invalid_input(format!(
+                                "landmark_distances must be >= 0.0, got {v}"
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         let total_iters = config.total_iterations();
@@ -2377,6 +2643,7 @@ impl<S: Scalar> SgdSolver<S> {
                 pacmap: Some(PacmapState {
                     config,
                     nb_pairs: Vec::new(),
+                    nb_weights: Vec::new(),
                     mn_pairs: Vec::new(),
                     fp_pairs: Vec::new(),
                     grad_x: Vec::new(),
@@ -2429,29 +2696,61 @@ impl<S: Scalar> SgdSolver<S> {
         let n_mn = ((config.mn_ratio * (config.n_neighbors as f64)).floor() as usize).min(n - 1);
         let n_fp = ((config.fp_ratio * (config.n_neighbors as f64)).floor() as usize).min(n - 1);
 
-        // Precompute compact BFS landmark distances for O(1) Mid-Near proximity ranking.
-        let mut lm_dists: Vec<f64> = Vec::new();
-        let k_lm = if n_mn > 0 { 16usize.min(n) } else { 0 };
-        if k_lm > 0 {
-            let landmarks = select_maxmin_sp_pivots(&sym_graph, k_lm, config.seed, 2)?;
-            lm_dists.resize(landmarks.len() * n, f64::INFINITY);
-            let mut bfs = BfsWorkspace::new(n);
-            for (idx, &lm) in landmarks.iter().enumerate() {
-                bfs.bfs_from(
-                    &sym_graph,
-                    lm as usize,
-                    &mut lm_dists[idx * n..(idx + 1) * n],
-                )?;
+        // Use supplied external landmark distances or compute compact BFS landmark distances.
+        let lm_table = if n_mn == 0 {
+            LandmarkTable::None
+        } else {
+            match ext_landmarks {
+                Some(PacmapExternalLandmarks::Dog(landmarks)) => LandmarkTable::RowMajor {
+                    data: landmarks.d_dog(),
+                    num_landmarks: landmarks.num_landmarks(),
+                },
+                Some(PacmapExternalLandmarks::Distances {
+                    data,
+                    num_landmarks,
+                }) => LandmarkTable::RowMajor {
+                    data,
+                    num_landmarks,
+                },
+                None => {
+                    let k_lm = config.num_landmarks.min(n);
+                    let landmarks = select_maxmin_sp_pivots(&sym_graph, k_lm, config.seed, 2)?;
+                    let num_lm = landmarks.len();
+                    let mut lm_dists = vec![f64::INFINITY; num_lm * n];
+                    let mut bfs = BfsWorkspace::new(n);
+                    for (idx, &lm) in landmarks.iter().enumerate() {
+                        bfs.bfs_from(
+                            &sym_graph,
+                            lm as usize,
+                            &mut lm_dists[idx * n..(idx + 1) * n],
+                        )?;
+                    }
+                    LandmarkTable::ColMajor {
+                        data: lm_dists,
+                        num_landmarks: num_lm,
+                    }
+                }
             }
-        }
-        let num_lm = if k_lm > 0 { lm_dists.len() / n } else { 0 };
+        };
+        let num_lm = lm_table.num_landmarks();
 
         let mut rng = DeterministicRng::from_seed_u64(config.seed);
         let mut hop1_stamp = VisitStamp::new(n);
         let mut exclude_stamp = VisitStamp::new(n);
 
+        let hop1_cap: usize = match (config.keep_all_1hop, config.max_1hop_per_node) {
+            (true, None) => usize::MAX,
+            (true, Some(cap)) => cap,
+            (false, None) => n_nb,
+            (false, Some(cap)) => n_nb.min(cap),
+        };
+
         let nb_cap = if config.keep_all_1hop {
-            (n * n_nb).max(n_canon_edges.saturating_mul(2))
+            let capped_edges = match config.max_1hop_per_node {
+                Some(cap) => n_canon_edges.min(n.saturating_mul(cap)),
+                None => n_canon_edges,
+            };
+            (n * n_nb).max(capped_edges.saturating_mul(2))
         } else {
             n * n_nb
         };
@@ -2475,7 +2774,7 @@ impl<S: Scalar> SgdSolver<S> {
             }
 
             nb_u.clear();
-            if config.keep_all_1hop {
+            if hop1_cap == usize::MAX {
                 if let Some(w_rows) = &weighted_rows {
                     for &(_, v) in &w_rows[u] {
                         nb_u.push(v);
@@ -2484,16 +2783,16 @@ impl<S: Scalar> SgdSolver<S> {
                     nb_u.extend_from_slice(n1_u);
                 }
             } else if let Some(w_rows) = &weighted_rows {
-                for &(_, v) in w_rows[u].iter().take(n_nb) {
+                for &(_, v) in w_rows[u].iter().take(hop1_cap) {
                     nb_u.push(v);
                 }
-            } else if n1_u.len() <= n_nb {
+            } else if n1_u.len() <= hop1_cap {
                 nb_u.extend_from_slice(n1_u);
             } else {
                 row1_scratch.clear();
                 row1_scratch.extend_from_slice(n1_u);
                 rng.shuffle(&mut row1_scratch);
-                nb_u.extend_from_slice(&row1_scratch[..n_nb]);
+                nb_u.extend_from_slice(&row1_scratch[..hop1_cap]);
             }
 
             if nb_u.len() < n_nb && !n1_u.is_empty() {
@@ -2543,8 +2842,10 @@ impl<S: Scalar> SgdSolver<S> {
                 }
             }
 
+            // Canonicalize undirected NB pairs `(min, max)` so reciprocal selections are deduplicated
+            // instead of applying double attractive gradients in `step_pacmap`.
             for &v in &nb_u {
-                nb_pairs.push((u_u32, v));
+                nb_pairs.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
             }
 
             exclude_stamp.clear();
@@ -2577,8 +2878,8 @@ impl<S: Scalar> SgdSolver<S> {
                         let mut lb = 0.0_f64;
                         let mut ub = f64::INFINITY;
                         for l in 0..num_lm {
-                            let du = lm_dists[l * n + u];
-                            let dc = lm_dists[l * n + c];
+                            let du = lm_table.dist(u, l, n);
+                            let dc = lm_table.dist(c, l, n);
                             if du.is_finite() && dc.is_finite() {
                                 lb = lb.max((du - dc).abs());
                                 ub = ub.min(du + dc);
@@ -2635,6 +2936,21 @@ impl<S: Scalar> SgdSolver<S> {
             }
         }
 
+        nb_pairs.sort_unstable();
+        nb_pairs.dedup();
+        let nb_weights: Vec<f64> = if config.degree_weight_beta > 0.0 {
+            let beta = config.degree_weight_beta;
+            let deg_scale: Vec<f64> = (0..n)
+                .map(|u| (sym_graph.degree(u).max(1) as f64).powf(-beta))
+                .collect();
+            nb_pairs
+                .iter()
+                .map(|&(u, v)| deg_scale[u as usize] * deg_scale[v as usize])
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let n_springs = nb_pairs.len() + mn_pairs.len();
         let n_hinges = fp_pairs.len();
 
@@ -2649,6 +2965,7 @@ impl<S: Scalar> SgdSolver<S> {
             pacmap: Some(PacmapState {
                 config,
                 nb_pairs,
+                nb_weights,
                 mn_pairs,
                 fp_pairs,
                 grad_x: vec![0.0; n],
@@ -2953,7 +3270,8 @@ impl<S: Scalar> SgdSolver<S> {
         let (xs, ys) = layout.xy_mut();
         if w_nb > 0.0 {
             let scale_nb = 20.0 * w_nb;
-            for &(u, v) in &st.nb_pairs {
+            let has_weights = !st.nb_weights.is_empty();
+            for (idx, &(u, v)) in st.nb_pairs.iter().enumerate() {
                 let ui = u as usize;
                 let vi = v as usize;
                 let dx = xs[ui].to_f64() - xs[vi].to_f64();
@@ -2961,7 +3279,8 @@ impl<S: Scalar> SgdSolver<S> {
                 let d2 = dx * dx + dy * dy;
                 if d2.is_finite() {
                     let denom = 10.0 + d2;
-                    let coeff = scale_nb / (denom * denom);
+                    let pair_w = if has_weights { st.nb_weights[idx] } else { 1.0 };
+                    let coeff = (scale_nb * pair_w) / (denom * denom);
                     if coeff.is_finite() {
                         let gx = coeff * dx;
                         let gy = coeff * dy;
@@ -3792,6 +4111,7 @@ mod tests {
             neg_per_node: Some(8),
             num_pivots: 2,
             core_pivots: true,
+            degree_weight_beta: 0.0,
             schedule: SgdScheduleConfig::default(),
             seed: 42,
         };
@@ -4027,6 +4347,22 @@ mod tests {
             hyp_after < hyp_before * 0.5,
             "hyperbolic stress did not drop: {hyp_before} -> {hyp_after}"
         );
+
+        // random_init breaks the zeros deadlock and center_poincare_centroid recenters without changing stress
+        let mut hyp_rand =
+            ManifoldLayout2d::<f64>::random_init(ManifoldKind::HyperbolicPoincare, 7, 0.25, 42)
+                .unwrap();
+        let rand_before = manifold_pair_stress(&hyp_rand, &tree_pairs);
+        let mut hyp_rand_solver = SgdSolver::<f64>::full(&tree, sched, 11).unwrap();
+        hyp_rand_solver.run_manifold(&mut hyp_rand).unwrap();
+        let rand_after = manifold_pair_stress(&hyp_rand, &tree_pairs);
+        assert!(
+            rand_after < rand_before * 0.5,
+            "random_init hyperbolic stress did not drop: {rand_before} -> {rand_after}"
+        );
+        hyp_rand.center_poincare_centroid().unwrap();
+        let rand_centered = manifold_pair_stress(&hyp_rand, &tree_pairs);
+        assert!((rand_centered - rand_after).abs() < 1e-10);
 
         // 2. Spherical on a 6-node cycle (diameter 3 < pi).
         let cyc = CsrGraph::<f64>::from_edges(
@@ -4748,6 +5084,7 @@ mod tests {
             learning_rate: 0.5,
             seed: 42,
             keep_all_1hop: false,
+            ..Default::default()
         };
 
         // Check 3-tier pair invariants on grid(4, 4).
@@ -4889,6 +5226,18 @@ mod tests {
                 learning_rate: 0.0,
                 ..cfg
             },
+            PacmapGraphConfig {
+                max_1hop_per_node: Some(0),
+                ..cfg
+            },
+            PacmapGraphConfig {
+                degree_weight_beta: -0.1,
+                ..cfg
+            },
+            PacmapGraphConfig {
+                degree_weight_beta: f64::NAN,
+                ..cfg
+            },
         ] {
             assert!(SgdSolver::<f64>::pacmap_graph(&grid, bad).is_err());
         }
@@ -4926,24 +5275,49 @@ mod tests {
         for g in [&unweighted, &weighted] {
             let s_trunc = SgdSolver::<f64>::pacmap_graph(g, cfg_trunc).unwrap();
             let st_trunc = s_trunc.pacmap.as_ref().unwrap();
-            let hub_nb_trunc = st_trunc.nb_pairs.iter().filter(|&&(u, _)| u == 0).count();
-            assert_eq!(hub_nb_trunc, 6);
+            // Zero duplicate undirected pairs in nb_pairs (all canonical u < v).
+            for w in st_trunc.nb_pairs.windows(2) {
+                assert!(w[0] < w[1], "duplicate or unsorted nb_pair: {w:?}");
+            }
+            assert!(st_trunc.nb_pairs.iter().all(|&(u, v)| u < v));
+            // Hub 0 has 20 1-hop neighbors (1..=20), all selected reciprocally by leaves 1..=19
+            // (and node 21 may backfill 0 as a 2-hop neighbor), deduplicated with zero duplicates.
+            let hub_inc_trunc = st_trunc
+                .nb_pairs
+                .iter()
+                .filter(|&&(u, v)| u == 0 || v == 0)
+                .count();
+            assert!(hub_inc_trunc >= 20);
 
             let s_keep = SgdSolver::<f64>::pacmap_graph(g, cfg_keep).unwrap();
             let st_keep = s_keep.pacmap.as_ref().unwrap();
+            for w in st_keep.nb_pairs.windows(2) {
+                assert!(w[0] < w[1], "duplicate or unsorted nb_pair: {w:?}");
+            }
             let hub_nb_keep: Vec<u32> = st_keep
                 .nb_pairs
                 .iter()
-                .filter(|&&(u, _)| u == 0)
-                .map(|&(_, v)| v)
+                .filter_map(|&(u, v)| {
+                    if u == 0 {
+                        Some(v)
+                    } else if v == 0 {
+                        Some(u)
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            assert_eq!(hub_nb_keep.len(), 20);
+            assert!(hub_nb_keep.len() >= 20);
             for v in 1..=20u32 {
                 assert!(hub_nb_keep.contains(&v));
             }
-            // Leaf node 1 has 1-hop degree 1 < 6, so 2-hop backfill still fills up to 6.
-            let leaf_nb_keep = st_keep.nb_pairs.iter().filter(|&&(u, _)| u == 1).count();
-            assert_eq!(leaf_nb_keep, 6);
+            // Leaf node 1 has 1-hop degree 1 < 6, so 2-hop backfill adds at least 5 pairs -> >= 6 incident.
+            let leaf_nb_keep = st_keep
+                .nb_pairs
+                .iter()
+                .filter(|&&(u, v)| u == 1 || v == 1)
+                .count();
+            assert!(leaf_nb_keep >= 6);
 
             // FP must exclude all 1-hop and 2-hop pairs even when deg > n_neighbors.
             for &(u, v) in &st_trunc.fp_pairs {
@@ -4959,6 +5333,166 @@ mod tests {
                 assert!(!adj2.neighbors(ui).contains(&v));
             }
         }
+    }
+
+    #[test]
+    fn test_pacmap_graph_max_1hop_degree_weight_and_external_landmarks() {
+        // 1. Canonical dedup & max_1hop_per_node on 20-clique (all degrees 19 > n_neighbors=4).
+        let n_clique = 20usize;
+        let mut clique_edges = Vec::new();
+        for u in 0..n_clique as u32 {
+            for v in (u + 1)..n_clique as u32 {
+                clique_edges.push((u, v));
+            }
+        }
+        let clique =
+            CsrGraph::<f64>::from_edges(n_clique, &clique_edges, None, false, false).unwrap();
+        let cfg_all = PacmapGraphConfig {
+            n_neighbors: 4,
+            mn_ratio: 0.0,
+            fp_ratio: 0.0,
+            phase1_iters: 2,
+            phase2_iters: 2,
+            phase3_iters: 2,
+            keep_all_1hop: true,
+            max_1hop_per_node: None,
+            ..Default::default()
+        };
+        let s_all = SgdSolver::<f64>::pacmap_graph(&clique, cfg_all).unwrap();
+        // Without double registration, K_20 has at most 20*19/2 = 190 undirected pairs!
+        assert_eq!(s_all.num_springs(), 190);
+
+        let cfg_cap = PacmapGraphConfig {
+            max_1hop_per_node: Some(3),
+            ..cfg_all
+        };
+        let s_cap = SgdSolver::<f64>::pacmap_graph(&clique, cfg_cap).unwrap();
+        // Each node picks 3 edges (at most 60 total, far below 190).
+        assert!(s_cap.num_springs() <= 60);
+
+        // 2. degree_weight_beta lowers hub NB attraction relative to FP repulsion.
+        let mut hub_edges: Vec<(u32, u32)> = (1..=30).map(|v| (0, v)).collect();
+        hub_edges.extend([(30, 31), (31, 32), (32, 33), (33, 34)]);
+        let g_hub = CsrGraph::<f64>::from_edges(35, &hub_edges, None, false, false).unwrap();
+        let cfg_unweighted = PacmapGraphConfig {
+            n_neighbors: 6,
+            keep_all_1hop: true,
+            degree_weight_beta: 0.0,
+            phase1_iters: 2,
+            phase2_iters: 2,
+            phase3_iters: 5,
+            seed: 42,
+            ..Default::default()
+        };
+        let cfg_beta = PacmapGraphConfig {
+            degree_weight_beta: 0.5,
+            ..cfg_unweighted
+        };
+        let s_unw = SgdSolver::<f64>::pacmap_graph(&g_hub, cfg_unweighted).unwrap();
+        let s_beta = SgdSolver::<f64>::pacmap_graph(&g_hub, cfg_beta).unwrap();
+        let st_unw = s_unw.pacmap.as_ref().unwrap();
+        let st_beta = s_beta.pacmap.as_ref().unwrap();
+        assert!(st_unw.nb_weights.is_empty());
+        assert_eq!(st_beta.nb_weights.len(), st_beta.nb_pairs.len());
+        let sum_unw: f64 = st_unw
+            .nb_pairs
+            .iter()
+            .filter(|&&(u, v)| u == 0 || v == 0)
+            .count() as f64;
+        let sum_beta: f64 = st_beta
+            .nb_pairs
+            .iter()
+            .zip(st_beta.nb_weights.iter())
+            .filter(|&(&(u, v), _)| u == 0 || v == 0)
+            .map(|(_, &w)| w)
+            .sum();
+        let fp_hub_unw = st_unw
+            .fp_pairs
+            .iter()
+            .filter(|&&(u, v)| u == 0 || v == 0)
+            .count()
+            .max(1) as f64;
+        let fp_hub_beta = st_beta
+            .fp_pairs
+            .iter()
+            .filter(|&&(u, v)| u == 0 || v == 0)
+            .count()
+            .max(1) as f64;
+        let hub_ratio_unw = sum_unw / fp_hub_unw;
+        let hub_ratio_beta = sum_beta / fp_hub_beta;
+        assert!(
+            hub_ratio_beta < hub_ratio_unw * 0.25,
+            "expected degree_weight_beta to lower hub nb/fp ratio: unw={hub_ratio_unw}, beta={hub_ratio_beta}"
+        );
+
+        // 3. External DogVaradhanLandmarks & raw landmark_distances + step == run parity.
+        let grid = grid_graph(5, 5);
+        let n_grid = grid.num_nodes();
+        let (dog_lm, _) =
+            compute_regularized_dog_varadhan_landmarks(&grid, &DogVaradhanConfig::default())
+                .unwrap();
+        let cfg_ext = PacmapGraphConfig {
+            n_neighbors: 6,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 4,
+            phase2_iters: 4,
+            phase3_iters: 6,
+            degree_weight_beta: 0.25,
+            seed: 99,
+            ..Default::default()
+        };
+        let mut s_lm =
+            SgdSolver::<f64>::pacmap_graph_with_landmarks(&grid, &dog_lm, cfg_ext).unwrap();
+        let mut s_raw = SgdSolver::<f64>::pacmap_graph_with_landmark_distances(
+            &grid,
+            dog_lm.d_dog(),
+            dog_lm.num_landmarks(),
+            cfg_ext,
+        )
+        .unwrap();
+        assert_eq!(
+            s_lm.pacmap.as_ref().unwrap().mn_pairs,
+            s_raw.pacmap.as_ref().unwrap().mn_pairs
+        );
+        let mut l_lm = circle_layout::<f64>(n_grid, 1.0);
+        let mut l_raw = l_lm.clone();
+        s_lm.run(&mut l_lm).unwrap();
+        while !s_raw.status().is_finished() {
+            s_raw.step(&mut l_raw).unwrap();
+        }
+        for i in 0..n_grid {
+            assert_eq!(l_lm.x()[i].to_bits(), l_raw.x()[i].to_bits());
+            assert_eq!(l_lm.y()[i].to_bits(), l_raw.y()[i].to_bits());
+        }
+
+        // Validation errors on external landmark distances.
+        assert!(
+            SgdSolver::<f64>::pacmap_graph_with_landmark_distances(&grid, &[0.0; 10], 2, cfg_ext,)
+                .is_err()
+        );
+        assert!(
+            SgdSolver::<f64>::pacmap_graph_with_landmark_distances(
+                &grid,
+                &vec![-1.0; n_grid * 2],
+                2,
+                cfg_ext,
+            )
+            .is_err()
+        );
+        assert!(
+            SgdSolver::<f64>::pacmap_graph_with_landmark_distances(
+                &grid,
+                &vec![f64::NAN; n_grid * 2],
+                2,
+                cfg_ext,
+            )
+            .is_err()
+        );
+        assert!(
+            SgdSolver::<f64>::pacmap_graph_with_landmark_distances(&grid, &[], 0, cfg_ext,)
+                .is_err()
+        );
     }
 
     #[test]
@@ -5090,5 +5624,103 @@ mod tests {
         ] {
             assert!(SgdSolver::<f64>::sgd2(&g, bad).is_err());
         }
+    }
+
+    #[test]
+    fn test_sparse_barrier_degree_weight_beta_and_pacmap_backbone_fem_grid() {
+        // 1. Star graph degree_weight_beta = 0.5 reduces spring weight on high-degree hub by (d_u * d_v)^{-0.5}.
+        let n_star = 17usize;
+        let star_edges: Vec<(u32, u32)> = (1..n_star as u32).map(|v| (0, v)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &star_edges, None, false, false).unwrap();
+        let lm = DogVaradhanLandmarks {
+            num_nodes: n_star,
+            landmarks: vec![0, 1],
+            d_dog: (0..n_star)
+                .flat_map(|i| if i == 0 { [0.0, 1.0] } else { [1.0, 2.0] })
+                .collect(),
+            d_coarse: None,
+        };
+        let cfg0 = SparseBarrierConfig {
+            omega_1: 1.0,
+            omega_2: 0.0,
+            gamma_non2: 0.0,
+            degree_weight_beta: 0.0,
+            neg_per_node: Some(0),
+            ..SparseBarrierConfig::default()
+        };
+        let cfg_beta = SparseBarrierConfig {
+            degree_weight_beta: 0.5,
+            ..cfg0
+        };
+        let (s0, _) =
+            SgdSolver::<f64>::sparse_barrier_from_landmarks(&star, &lm, Some(&[0, 1]), &cfg0)
+                .unwrap();
+        let (sb, _) =
+            SgdSolver::<f64>::sparse_barrier_from_landmarks(&star, &lm, Some(&[0, 1]), &cfg_beta)
+                .unwrap();
+        let w0 = match &s0.pairs {
+            PairStorage::Symmetric(p) => p[0].w,
+            _ => panic!("expected symmetric"),
+        };
+        let wb = match &sb.pairs {
+            PairStorage::Symmetric(p) => p[0].w,
+            _ => panic!("expected symmetric"),
+        };
+        let expected_ratio = (16.0_f64 * 1.0_f64).powf(-0.5);
+        assert!(
+            ((wb / w0) - expected_ratio).abs() < 1e-12,
+            "expected weight ratio {expected_ratio}, got {}",
+            wb / w0
+        );
+        let bad_beta = SparseBarrierConfig {
+            degree_weight_beta: -0.1,
+            ..cfg0
+        };
+        assert!(
+            SgdSolver::<f64>::sparse_barrier_from_landmarks(&star, &lm, Some(&[0, 1]), &bad_beta)
+                .is_err()
+        );
+
+        // 2. FEM-like 8x8 mesh grid: pacmap_graph_with_backbone unfolds deterministically and preserves NP2.
+        let fem = grid_graph(8, 8);
+        let pm_cfg = PacmapGraphConfig {
+            n_neighbors: 8,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 40,
+            phase2_iters: 40,
+            phase3_iters: 60,
+            num_landmarks: 24,
+            seed: 42,
+            ..PacmapGraphConfig::default()
+        };
+        let mut bb_cfg = CoarseBackboneConfig {
+            target_std: Some(5.0),
+            coarse_t_max: 40,
+            ..CoarseBackboneConfig::default()
+        };
+        bb_cfg.louvain.max_coarse_nodes = 16;
+
+        let (mut s1, mut l1, bb1) =
+            SgdSolver::<f64>::pacmap_graph_with_backbone(&fem, pm_cfg, &bb_cfg).unwrap();
+        let (mut s2, mut l2, _) =
+            SgdSolver::<f64>::pacmap_graph_with_backbone(&fem, pm_cfg, &bb_cfg).unwrap();
+        assert!(bb1.stats.num_coarse_nodes <= 16);
+        s1.run_steps(&mut l1, 20).unwrap();
+        s1.run(&mut l1).unwrap();
+        s2.run(&mut l2).unwrap();
+        assert_eq!(l1, l2);
+        let np2 = compute_np2(&fem, &l1);
+        assert!(
+            np2 > 0.70,
+            "expected unfolded FEM grid NP2 > 0.70, got {np2}"
+        );
+
+        // Invalid num_landmarks = 0 rejected.
+        let bad_pm = PacmapGraphConfig {
+            num_landmarks: 0,
+            ..pm_cfg
+        };
+        assert!(SgdSolver::<f64>::pacmap_graph(&fem, bad_pm).is_err());
     }
 }

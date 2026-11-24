@@ -6,7 +6,7 @@ use egraph_core::{
     SolverStatus,
 };
 use egraph_neighborhood::{
-    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, SparseProbabilities,
+    DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, Sparse12HopPairs, SparseProbabilities,
     build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
     compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs, find_ab_params,
 };
@@ -754,7 +754,7 @@ impl FieldQuadtree {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum FieldSolverMode {
     TFdp {
         config: TFdpConfig,
@@ -764,7 +764,6 @@ enum FieldSolverMode {
         config: IbUmapConfig,
         a: f64,
         b: f64,
-        hub_eta: Vec<f64>,
     },
 }
 
@@ -779,7 +778,8 @@ pub struct FieldLayoutSolver<S: Scalar = f64> {
     num_nodes: usize,
     indptr: Vec<usize>,
     indices: Vec<u32>,
-    edge_weights: Vec<f64>,
+    edge_weights: Vec<f32>,
+    hub_eta: Vec<f64>,
     attr_x: Vec<f64>,
     attr_y: Vec<f64>,
     vel_x: Vec<f64>,
@@ -837,7 +837,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
         }
 
-        let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(knn.nnz() * 2);
+        let mut pairs: Vec<(u32, u32, f32)> = Vec::with_capacity(knn.nnz() * 2);
         for u in 0..n {
             let u_u32 = u as u32;
             let (nbrs, dists) = knn.row(u);
@@ -856,13 +856,13 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                         "KnnGraph distances must be >= 0.0, got {d}"
                     )));
                 }
-                let w = 1.0 / (1.0 + d);
+                let w = (1.0 / (1.0 + d)) as f32;
                 pairs.push((u_u32, v, w));
                 pairs.push((v, u_u32, w));
             }
         }
 
-        let (indptr, indices, edge_weights) = symmetrize_pair_list(n, &mut pairs);
+        let (indptr, indices, edge_weights) = symmetrize_pair_list(n, pairs);
         Self::build_t_fdp_inner(n, indptr, indices, edge_weights, config)
     }
 
@@ -870,7 +870,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         n: usize,
         indptr: Vec<usize>,
         indices: Vec<u32>,
-        edge_weights: Vec<f64>,
+        edge_weights: Vec<f32>,
         config: TFdpConfig,
     ) -> CoreResult<Self> {
         let ibfft = if config.backend == FieldRepulsionBackend::IbFft {
@@ -889,7 +889,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         } else {
             0
         };
-        let total_w: f64 = edge_weights.iter().sum();
+        let total_w: f64 = edge_weights.iter().map(|&w| w as f64).sum();
         let avg_deg = if n > 0 {
             (total_w / (n as f64)).max(1.0)
         } else {
@@ -908,6 +908,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             indptr,
             indices,
             edge_weights,
+            hub_eta: Vec::new(),
             attr_x: vec![0.0; n],
             attr_y: vec![0.0; n],
             vel_x: vec![0.0; n],
@@ -928,16 +929,12 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         })
     }
 
-    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] and precomputed
-    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
-    /// distances, priority CSR construction, and fuzzy simplicial sets.
-    pub fn ib_umap_from_landmarks<W: Scalar>(
+    fn compute_12hop_alt_distances<W: Scalar>(
         graph: &CsrGraph<W>,
         landmarks: &DogVaradhanLandmarks,
         max_2hop_per_node: usize,
-        config: IbUmapConfig,
-    ) -> CoreResult<Self> {
-        config.validate()?;
+        seed: u64,
+    ) -> CoreResult<(Sparse12HopPairs, Vec<f64>, Vec<f64>)> {
         let n = graph.num_nodes();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
@@ -990,16 +987,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             }
         }
 
-        if n <= 1 {
-            let degs = vec![0u32; n];
-            return Self::ib_umap_from_fuzzy_set(
-                SparseProbabilities::empty(n),
-                Some(&degs),
-                config,
-            );
-        }
-
-        let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, config.seed)?;
+        let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, seed)?;
         let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
         let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
         for d in &mut d1 {
@@ -1008,6 +996,17 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         for d in &mut d2 {
             *d = d.max(DEFAULT_EPS_DIST);
         }
+        Ok((pairs, d1, d2))
+    }
+
+    fn finish_ib_umap_from_pairs<W: Scalar>(
+        graph: &CsrGraph<W>,
+        pairs: Sparse12HopPairs,
+        d1: Vec<f64>,
+        d2: Vec<f64>,
+        config: IbUmapConfig,
+    ) -> CoreResult<Self> {
+        let n = graph.num_nodes();
         let knn = build_gumap_12hop_priority_csr(
             n,
             &pairs.u1,
@@ -1018,7 +1017,11 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             &d2,
             DEFAULT_TIER2_MARGIN,
         )?;
+        drop(pairs);
+        drop(d1);
+        drop(d2);
         let probs = compute_fuzzy_simplicial_set(&knn, DEFAULT_SIGMA_ITERS, DEFAULT_SIGMA_TOL)?;
+        drop(knn);
         let mut degrees = vec![0u32; n];
         if !graph.is_directed() {
             for (u, deg_out) in degrees.iter_mut().enumerate() {
@@ -1038,6 +1041,33 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         Self::ib_umap_from_fuzzy_set(probs, Some(&degrees), config)
     }
 
+    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] and precomputed
+    /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
+    /// distances, priority CSR construction, and fuzzy simplicial sets.
+    pub fn ib_umap_from_landmarks<W: Scalar>(
+        graph: &CsrGraph<W>,
+        landmarks: &DogVaradhanLandmarks,
+        max_2hop_per_node: usize,
+        config: IbUmapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        let (pairs, d1, d2) =
+            Self::compute_12hop_alt_distances(graph, landmarks, max_2hop_per_node, config.seed)?;
+        if n <= 1 {
+            drop(pairs);
+            drop(d1);
+            drop(d2);
+            let degs = vec![0u32; n];
+            return Self::ib_umap_from_fuzzy_set(
+                SparseProbabilities::empty(n),
+                Some(&degs),
+                config,
+            );
+        }
+        Self::finish_ib_umap_from_pairs(graph, pairs, d1, d2, config)
+    }
+
     /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a [`CsrGraph`] using $O(|E|)$
     /// 1+2-hop pair sampling, regularized DoG Varadhan landmark ALT distances, priority CSR
     /// construction, and fuzzy simplicial set computation.
@@ -1053,7 +1083,21 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
         }
         let (landmarks, _dog_stats) = compute_regularized_dog_varadhan_landmarks(graph, dog_cfg)?;
-        Self::ib_umap_from_landmarks(graph, &landmarks, max_2hop_per_node, config)
+        let (pairs, d1, d2) =
+            Self::compute_12hop_alt_distances(graph, &landmarks, max_2hop_per_node, config.seed)?;
+        drop(landmarks);
+        if n <= 1 {
+            drop(pairs);
+            drop(d1);
+            drop(d2);
+            let degs = vec![0u32; n];
+            return Self::ib_umap_from_fuzzy_set(
+                SparseProbabilities::empty(n),
+                Some(&degs),
+                config,
+            );
+        }
+        Self::finish_ib_umap_from_pairs(graph, pairs, d1, d2, config)
     }
 
     /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a validated [`KnnGraph`] via
@@ -1067,6 +1111,72 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         config.validate()?;
         let probs = compute_fuzzy_simplicial_set(knn, sigma_iters, sigma_tol)?;
         Self::ib_umap_from_fuzzy_set(probs, None, config)
+    }
+
+    fn build_ib_umap_inner(
+        n: usize,
+        indptr: Vec<usize>,
+        indices: Vec<u32>,
+        edge_weights: Vec<f32>,
+        degrees: Option<&[u32]>,
+        config: IbUmapConfig,
+    ) -> CoreResult<Self> {
+        let (a, b) = config.resolve_ab()?;
+        let ibfft = if config.backend == FieldRepulsionBackend::IbFft {
+            Some(IbFft2d::new(config.ibfft)?)
+        } else {
+            None
+        };
+
+        let mut hub_eta = vec![1.0_f64; n];
+        if config.hub_damping {
+            for (i, eta_out) in hub_eta.iter_mut().enumerate() {
+                let deg_i = match degrees {
+                    Some(deg) => deg[i],
+                    None => (indptr[i + 1] - indptr[i]) as u32,
+                };
+                *eta_out = 1.0 / (deg_i.max(1) as f64);
+            }
+        }
+
+        let total_iterations = config.n_epochs;
+        let status = if total_iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+        let buf_len = if config.backend == FieldRepulsionBackend::IbFft {
+            n
+        } else {
+            0
+        };
+
+        Ok(Self {
+            mode: FieldSolverMode::IbUmap { config, a, b },
+            backend: config.backend,
+            num_nodes: n,
+            indptr,
+            indices,
+            edge_weights,
+            hub_eta,
+            attr_x: vec![0.0; n],
+            attr_y: vec![0.0; n],
+            vel_x: Vec::new(),
+            vel_y: Vec::new(),
+            next_x: vec![0.0; n],
+            next_y: vec![0.0; n],
+            phi_1: vec![S::ZERO; buf_len],
+            rep_x: vec![S::ZERO; n],
+            rep_y: vec![S::ZERO; n],
+            fft_ws: Fft2dWorkspace::new(),
+            ibfft,
+            quadtree: ArenaQuadtree2d::new(),
+            field_quadtree: FieldQuadtree::new(),
+            rng: DeterministicRng::from_seed_u64(config.seed),
+            iteration: 0,
+            total_iterations,
+            status,
+        })
     }
 
     /// Constructs an `ibUMAP` [`FieldLayoutSolver`] directly from a precomputed fuzzy simplicial
@@ -1088,67 +1198,39 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                 "FieldLayoutSolver::ib_umap_from_fuzzy_set::degrees",
             ));
         }
+        let SparseProbabilities {
+            n_nodes: _,
+            indptr,
+            indices,
+            values,
+        } = probs;
+        let edge_weights: Vec<f32> = values.into_iter().map(|w| w as f32).collect();
+        Self::build_ib_umap_inner(n, indptr, indices, edge_weights, degrees, config)
+    }
 
-        let (a, b) = config.resolve_ab()?;
-        let ibfft = if config.backend == FieldRepulsionBackend::IbFft {
-            Some(IbFft2d::new(config.ibfft)?)
-        } else {
-            None
-        };
-
-        let mut hub_eta = vec![1.0_f64; n];
-        if config.hub_damping {
-            for (i, eta_out) in hub_eta.iter_mut().enumerate() {
-                let deg_i = match degrees {
-                    Some(deg) => deg[i],
-                    None => (probs.indptr[i + 1] - probs.indptr[i]) as u32,
-                };
-                *eta_out = 1.0 / (deg_i.max(1) as f64);
-            }
+    /// Constructs an `ibUMAP` [`FieldLayoutSolver`] from a borrowed [`SparseProbabilities`]
+    /// without cloning its `f64` values vector.
+    pub fn ib_umap_from_fuzzy_set_ref(
+        probs: &SparseProbabilities,
+        degrees: Option<&[u32]>,
+        config: IbUmapConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        validate_sparse_probabilities(probs)?;
+        let n = probs.n_nodes;
+        if let Some(deg) = degrees
+            && deg.len() != n
+        {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                deg.len(),
+                "FieldLayoutSolver::ib_umap_from_fuzzy_set::degrees",
+            ));
         }
-
-        let total_iterations = config.n_epochs;
-        let status = if total_iterations == 0 {
-            SolverStatus::Completed
-        } else {
-            SolverStatus::Initialized
-        };
-        let buf_len = if config.backend == FieldRepulsionBackend::IbFft {
-            n
-        } else {
-            0
-        };
-
-        Ok(Self {
-            mode: FieldSolverMode::IbUmap {
-                config,
-                a,
-                b,
-                hub_eta,
-            },
-            backend: config.backend,
-            num_nodes: n,
-            indptr: probs.indptr,
-            indices: probs.indices,
-            edge_weights: probs.values,
-            attr_x: vec![0.0; n],
-            attr_y: vec![0.0; n],
-            vel_x: Vec::new(),
-            vel_y: Vec::new(),
-            next_x: vec![0.0; n],
-            next_y: vec![0.0; n],
-            phi_1: vec![S::ZERO; buf_len],
-            rep_x: vec![S::ZERO; n],
-            rep_y: vec![S::ZERO; n],
-            fft_ws: Fft2dWorkspace::new(),
-            ibfft,
-            quadtree: ArenaQuadtree2d::new(),
-            field_quadtree: FieldQuadtree::new(),
-            rng: DeterministicRng::from_seed_u64(config.seed),
-            iteration: 0,
-            total_iterations,
-            status,
-        })
+        let indptr = probs.indptr.clone();
+        let indices = probs.indices.clone();
+        let edge_weights: Vec<f32> = probs.values.iter().map(|&w| w as f32).collect();
+        Self::build_ib_umap_inner(n, indptr, indices, edge_weights, degrees, config)
     }
 
     /// Returns the number of vertices expected in [`Layout2d`].
@@ -1241,7 +1323,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                     let dx = xi - xs[j].to_f64();
                     let dy = yi - ys[j].to_f64();
                     let d2 = dx * dx + dy * dy;
-                    let mult = self.edge_weights[pos] / (1.0 + d2 * inv_alpha_sq);
+                    let mult = (self.edge_weights[pos] as f64) / (1.0 + d2 * inv_alpha_sq);
                     fx -= mult * dx;
                     fy -= mult * dy;
                 }
@@ -1397,7 +1479,6 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         config: IbUmapConfig,
         a: f64,
         b: f64,
-        hub_eta: &[f64],
     ) -> CoreResult<()> {
         let n = self.num_nodes;
         if self.iteration == 0 {
@@ -1427,7 +1508,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                     if j == i {
                         continue;
                     }
-                    let p_ij = self.edge_weights[pos];
+                    let p_ij = self.edge_weights[pos] as f64;
                     if p_ij <= 0.0 {
                         continue;
                     }
@@ -1524,7 +1605,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                 let fx = if raw_fx.is_finite() { raw_fx } else { 0.0 };
                 let fy = if raw_fy.is_finite() { raw_fy } else { 0.0 };
 
-                let step_scale = alpha_t * hub_eta[i];
+                let step_scale = alpha_t * self.hub_eta[i];
                 let mut dx = step_scale * fx;
                 let mut dy = step_scale * fy;
                 if !dx.is_finite() {
@@ -1591,17 +1672,12 @@ impl<S: Scalar> IterativeSolver<S> for FieldLayoutSolver<S> {
             return Ok(self.status);
         }
 
-        match self.mode.clone() {
+        match self.mode {
             FieldSolverMode::TFdp { config, rep_scale } => {
                 self.step_t_fdp(layout, config, rep_scale)?;
             }
-            FieldSolverMode::IbUmap {
-                config,
-                a,
-                b,
-                hub_eta,
-            } => {
-                self.step_ib_umap(layout, config, a, b, &hub_eta)?;
+            FieldSolverMode::IbUmap { config, a, b } => {
+                self.step_ib_umap(layout, config, a, b)?;
             }
         }
 
@@ -1630,12 +1706,12 @@ impl<S: Scalar> IterativeSolver<S> for FieldLayoutSolver<S> {
     }
 }
 
-fn extract_symmetric_csr_edges<W: Scalar>(graph: &CsrGraph<W>) -> (Vec<usize>, Vec<u32>, Vec<f64>) {
+fn extract_symmetric_csr_edges<W: Scalar>(graph: &CsrGraph<W>) -> (Vec<usize>, Vec<u32>, Vec<f32>) {
     let n = graph.num_nodes();
     if n == 0 {
         return (vec![0], Vec::new(), Vec::new());
     }
-    let mut pairs: Vec<(u32, u32, f64)> = Vec::with_capacity(if graph.is_directed() {
+    let mut pairs: Vec<(u32, u32, f32)> = Vec::with_capacity(if graph.is_directed() {
         graph.nnz() * 2
     } else {
         graph.nnz()
@@ -1653,48 +1729,47 @@ fn extract_symmetric_csr_edges<W: Scalar>(graph: &CsrGraph<W>) -> (Vec<usize>, V
             if w <= 0.0 {
                 continue;
             }
-            pairs.push((u_u32, v, w));
+            let w_f32 = w as f32;
+            pairs.push((u_u32, v, w_f32));
             if graph.is_directed() {
-                pairs.push((v, u_u32, w));
+                pairs.push((v, u_u32, w_f32));
             }
         }
     }
-    symmetrize_pair_list(n, &mut pairs)
+    symmetrize_pair_list(n, pairs)
 }
 
 fn symmetrize_pair_list(
     n: usize,
-    pairs: &mut [(u32, u32, f64)],
-) -> (Vec<usize>, Vec<u32>, Vec<f64>) {
+    mut pairs: Vec<(u32, u32, f32)>,
+) -> (Vec<usize>, Vec<u32>, Vec<f32>) {
     if pairs.is_empty() {
         return (vec![0; n + 1], Vec::new(), Vec::new());
     }
     pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
-    let mut dedup_u = Vec::with_capacity(pairs.len());
-    let mut dedup_v = Vec::with_capacity(pairs.len());
-    let mut dedup_w = Vec::with_capacity(pairs.len());
     let mut deg = vec![0usize; n];
-
+    let mut write_idx = 0usize;
     let mut pos = 0usize;
-    while pos < pairs.len() {
+    let len = pairs.len();
+    while pos < len {
         let (u, v, first_w) = pairs[pos];
-        let mut sum_w = first_w;
+        let mut sum_w = first_w as f64;
         let mut count = 1usize;
         pos += 1;
-        while pos < pairs.len() && pairs[pos].0 == u && pairs[pos].1 == v {
-            sum_w += pairs[pos].2;
+        while pos < len && pairs[pos].0 == u && pairs[pos].1 == v {
+            sum_w += pairs[pos].2 as f64;
             count += 1;
             pos += 1;
         }
-        let avg_w = sum_w / (count as f64);
+        let avg_w = (sum_w / (count as f64)) as f32;
         if avg_w > 0.0 {
-            dedup_u.push(u);
-            dedup_v.push(v);
-            dedup_w.push(avg_w);
+            pairs[write_idx] = (u, v, avg_w);
+            write_idx += 1;
             deg[u as usize] += 1;
         }
     }
+    pairs.truncate(write_idx);
 
     let mut indptr = Vec::with_capacity(n + 1);
     indptr.push(0);
@@ -1703,10 +1778,11 @@ fn symmetrize_pair_list(
         total += d;
         indptr.push(total);
     }
+    drop(deg);
     let mut cursor = indptr[..n].to_vec();
     let mut indices = vec![0u32; total];
-    let mut weights = vec![0.0_f64; total];
-    for ((&u, &v), &w) in dedup_u.iter().zip(dedup_v.iter()).zip(dedup_w.iter()) {
+    let mut weights = vec![0.0_f32; total];
+    for (u, v, w) in pairs {
         let p = cursor[u as usize];
         indices[p] = v;
         weights[p] = w;
@@ -2497,6 +2573,7 @@ mod tests {
 
     #[test]
     fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
+        assert!(!std::mem::needs_drop::<FieldSolverMode>());
         // Directed weighted graph is cleanly symmetrized in t_fdp and supported in ib_umap.
         let mut dir_edges = Vec::new();
         for i in 0..24u32 {

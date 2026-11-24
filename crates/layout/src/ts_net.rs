@@ -10,7 +10,7 @@ use egraph_core::{
 use egraph_neighborhood::{
     KnnGraph, PerplexityConfig, SparseProbabilities, SymmetrizationMode, build_pure_2hop_knn,
     compute_knn_probabilities, compute_nodewise_2hop_perplexities,
-    graph_12hop_row_normalized_probabilities, partial_bfs_knn,
+    graph_12hop_row_normalized_probabilities_with_degree_decay, partial_bfs_knn,
 };
 use egraph_spatial::{
     ArenaQuadtree2d, FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats, IbFftConfig,
@@ -481,9 +481,26 @@ impl<S: Scalar> TsNetSolver<S> {
         max_2hop_per_node: Option<usize>,
         config: TsNetConfig,
     ) -> CoreResult<Self> {
+        Self::from_graph_row_normalized_with_degree_decay(graph, w2, max_2hop_per_node, 0.0, config)
+    }
+
+    /// Constructs a [`TsNetSolver`] directly from a graph using row-normalized 1+2-hop
+    /// affinities with symmetric degree decay $(d_i d_j)^{-\mathrm{degree\_beta}}$.
+    pub fn from_graph_row_normalized_with_degree_decay<W: Scalar>(
+        graph: &CsrGraph<W>,
+        w2: f64,
+        max_2hop_per_node: Option<usize>,
+        degree_beta: f64,
+        config: TsNetConfig,
+    ) -> CoreResult<Self> {
         config.validate()?;
-        let probs =
-            graph_12hop_row_normalized_probabilities(graph, w2, max_2hop_per_node, config.seed)?;
+        let probs = graph_12hop_row_normalized_probabilities_with_degree_decay(
+            graph,
+            w2,
+            max_2hop_per_node,
+            degree_beta,
+            config.seed,
+        )?;
         Self::from_probabilities(probs, config)
     }
 
@@ -891,7 +908,7 @@ fn compute_stage_lr(stage: &TsNetStage, n: usize, learning_rate: f64, momentum: 
     if stage.lambda_r > 0.0 {
         let tsnet_lr_cap = 50.0_f64.min(2.0 * n_f64);
         stage_lr = stage_lr.min(tsnet_lr_cap);
-    } else if stage.lambda_c == 0.0 {
+    } else if stage.lambda_c == 0.0 || n < 100 {
         stage_lr = stage_lr.min(2.0 * n_f64);
     }
     stage_lr
@@ -1514,8 +1531,9 @@ mod tests {
 
     #[test]
     fn test_stage_lr_stability_cap_and_velocity_rescaling() {
+        // 1. For small graphs (N < 100), all stages are capped at 2.0 * N even when lambda_c > 0.
         let g = make_barbell_graph(3); // n = 6
-        let cfg = TsNetConfig {
+        let cfg_small = TsNetConfig {
             backend: TsNetBackend::Exact,
             iterations_stage1: 2,
             iterations_stage2: 2,
@@ -1528,26 +1546,75 @@ mod tests {
             momentum: 0.8,
             ..TsNetConfig::pure_2hop()
         };
-        let mut solver = TsNetSolver::<f64>::from_graph_pure_2hop(&g, cfg).unwrap();
-        let mut layout = seeded_layout::<f64>(6, 0.5, 31);
+        let mut solver_small = TsNetSolver::<f64>::from_graph_pure_2hop(&g, cfg_small).unwrap();
+        let mut layout_small = seeded_layout::<f64>(6, 0.5, 31);
+        solver_small.step(&mut layout_small).unwrap();
+        assert!((solver_small.current_stage_lr() - 12.0).abs() < 1e-10);
+        solver_small.step(&mut layout_small).unwrap();
+        solver_small.step(&mut layout_small).unwrap();
+        assert!((solver_small.current_stage_lr() - 12.0).abs() < 1e-10);
+        solver_small.step(&mut layout_small).unwrap();
+        solver_small.step(&mut layout_small).unwrap();
+        assert!((solver_small.current_stage_lr() - 12.0).abs() < 1e-10);
+        assert!(layout_small.is_all_finite());
 
-        // Stage 1: (1 + 0.8) * 0.85 * 1.1 * 6 / 0.1 = 100.98
-        solver.step(&mut layout).unwrap();
-        assert!((solver.current_stage_lr() - 100.98).abs() < 1e-10);
-        solver.step(&mut layout).unwrap();
-
-        // Stage 2: max_stable_lr > 200.0 => stage_lr = 200.0
-        solver.step(&mut layout).unwrap();
-        assert!((solver.current_stage_lr() - 200.0).abs() < 1e-10);
-        solver.step(&mut layout).unwrap();
-
-        // Capture velocity magnitude at end of Stage 2 before Stage 3 cap (2*n = 12.0).
-        let vel_x_end_s2 = solver.vel_x[0];
-        solver.step(&mut layout).unwrap();
-        assert!((solver.current_stage_lr() - 12.0).abs() < 1e-10);
-        assert!(layout.is_all_finite());
-        // Velocity was scaled by 12/200 = 0.06 before applying momentum * vel - lr * grad.
+        // 2. For N = 30 (N < 100), Stage 1/2 cap is 2*30 = 60.0 -> Stage 3 (lambda_r > 0) caps at 50.0
+        // and rescales velocity by 50/60.
+        let g30 = make_grid_graph(5, 6); // n = 30
+        let cfg_30 = TsNetConfig {
+            backend: TsNetBackend::Exact,
+            iterations_stage1: 2,
+            iterations_stage2: 2,
+            iterations_stage3: 2,
+            lambda_c_stage1: 0.1,
+            lambda_c_stage2: 0.01,
+            lambda_c_stage3: 0.0,
+            lambda_r_stage3: 0.6,
+            learning_rate: Some(200.0),
+            momentum: 0.8,
+            ..TsNetConfig::pure_2hop()
+        };
+        let mut solver30 = TsNetSolver::<f64>::from_graph_pure_2hop(&g30, cfg_30).unwrap();
+        let mut l30 = seeded_layout::<f64>(30, 0.5, 31);
+        solver30.step(&mut l30).unwrap();
+        assert!((solver30.current_stage_lr() - 60.0).abs() < 1e-10);
+        solver30.step(&mut l30).unwrap();
+        solver30.step(&mut l30).unwrap();
+        assert!((solver30.current_stage_lr() - 60.0).abs() < 1e-10);
+        solver30.step(&mut l30).unwrap();
+        let vel_x_end_s2 = solver30.vel_x[0];
+        solver30.step(&mut l30).unwrap();
+        assert!((solver30.current_stage_lr() - 50.0).abs() < 1e-10);
         assert!(vel_x_end_s2.is_finite());
+        assert!(l30.is_all_finite());
+
+        // 3. For N >= 100 (N = 120), Stage 1 stability cap max_stable_lr = 16.83 * 120 = 2019.6
+        // applies without the N < 100 2*N cap.
+        let g120 = make_grid_graph(10, 12); // n = 120
+        let cfg_120 = TsNetConfig {
+            backend: TsNetBackend::BarnesHut,
+            iterations_stage1: 2,
+            iterations_stage2: 2,
+            iterations_stage3: 2,
+            lambda_c_stage1: 0.1,
+            lambda_c_stage2: 0.01,
+            lambda_c_stage3: 0.0,
+            lambda_r_stage3: 0.6,
+            learning_rate: Some(2500.0),
+            momentum: 0.8,
+            ..TsNetConfig::pure_2hop()
+        };
+        let mut solver120 = TsNetSolver::<f64>::from_graph_pure_2hop(&g120, cfg_120).unwrap();
+        let mut l120 = seeded_layout::<f64>(120, 0.5, 31);
+        solver120.step(&mut l120).unwrap();
+        assert!((solver120.current_stage_lr() - 2019.6).abs() < 1e-8);
+        solver120.step(&mut l120).unwrap();
+        solver120.step(&mut l120).unwrap();
+        assert!((solver120.current_stage_lr() - 2500.0).abs() < 1e-8);
+        solver120.step(&mut l120).unwrap();
+        solver120.step(&mut l120).unwrap();
+        assert!((solver120.current_stage_lr() - 50.0).abs() < 1e-10);
+        assert!(l120.is_all_finite());
     }
 
     #[test]
@@ -1731,6 +1798,47 @@ mod tests {
         let stage3_lr_3000 = compute_stage_lr(&stage3, 3000, base_3000, cfg_auto.momentum);
         assert!((stage3_lr_3000 - 1000.0).abs() < 1e-12);
 
+        // 2b. Boundary checks at n = 99 (capped at 198.0 across stages) and n = 100 (200.0).
+        let stage1_c = TsNetStage {
+            iterations: 10,
+            exaggeration: 4.0,
+            lambda_kl: 1.0,
+            lambda_c: 0.1,
+            lambda_r: 0.0,
+        };
+        let stage2_c = TsNetStage {
+            iterations: 10,
+            exaggeration: 1.0,
+            lambda_kl: 1.0,
+            lambda_c: 0.01,
+            lambda_r: 0.0,
+        };
+        let stage3_no_r = TsNetStage {
+            iterations: 10,
+            exaggeration: 1.0,
+            lambda_kl: 1.0,
+            lambda_c: 0.0,
+            lambda_r: 0.0,
+        };
+        let lr99 = cfg_auto.resolve_learning_rate(99);
+        assert!((lr99 - 200.0).abs() < 1e-12);
+        assert!((compute_stage_lr(&stage1_c, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12);
+        assert!((compute_stage_lr(&stage2_c, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12);
+        assert!(
+            (compute_stage_lr(&stage3_no_r, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12
+        );
+
+        let lr100 = cfg_auto.resolve_learning_rate(100);
+        assert!((lr100 - 200.0).abs() < 1e-12);
+        assert!((compute_stage_lr(&stage1_c, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12);
+        assert!((compute_stage_lr(&stage2_c, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12);
+        assert!(
+            (compute_stage_lr(&stage3_no_r, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12
+        );
+        // With explicit larger learning_rate=500.0 at n=100, Stage 1/2 use 500.0 (not capped at 200.0).
+        assert!((compute_stage_lr(&stage1_c, 100, 500.0, cfg_auto.momentum) - 500.0).abs() < 1e-12);
+        assert!((compute_stage_lr(&stage2_c, 100, 500.0, cfg_auto.momentum) - 500.0).abs() < 1e-12);
+
         // 3. RowNormalized vs StandardTsne in from_graph_pure_2hop on asymmetric star+tail graph.
         let mut edges: Vec<(u32, u32)> = (1..=6).map(|v| (0, v)).collect();
         edges.extend([(6, 7), (7, 8), (8, 9)]);
@@ -1769,8 +1877,10 @@ mod tests {
         };
 
         for max_2hop in [None, Some(4usize)] {
-            let probs =
-                graph_12hop_row_normalized_probabilities(&grid, 0.5, max_2hop, cfg.seed).unwrap();
+            let probs = egraph_neighborhood::graph_12hop_row_normalized_probabilities(
+                &grid, 0.5, max_2hop, cfg.seed,
+            )
+            .unwrap();
             let mut s_ref = TsNetSolver::<f64>::from_probabilities(probs, cfg).unwrap();
             let mut s_run =
                 TsNetSolver::<f64>::from_graph_row_normalized(&grid, 0.5, max_2hop, cfg).unwrap();
@@ -1821,5 +1931,38 @@ mod tests {
             TsNetSolver::<f64>::from_graph_row_normalized(&empty, 0.5, None, cfg).unwrap();
         let mut l_empty = Layout2d::<f64>::zeros(0);
         assert_eq!(s_empty.run(&mut l_empty).unwrap(), SolverStatus::Converged);
+
+        // Degree-decayed row-normalized solver matches standalone probabilities
+        let probs_beta = graph_12hop_row_normalized_probabilities_with_degree_decay(
+            &grid,
+            0.5,
+            Some(4),
+            0.35,
+            cfg.seed,
+        )
+        .unwrap();
+        let mut s_prob_beta = TsNetSolver::<f64>::from_probabilities(probs_beta, cfg).unwrap();
+        let mut s_decay = TsNetSolver::<f64>::from_graph_row_normalized_with_degree_decay(
+            &grid,
+            0.5,
+            Some(4),
+            0.35,
+            cfg,
+        )
+        .unwrap();
+        let mut l_p = seeded_layout::<f64>(n, 0.5, 29);
+        let mut l_d = l_p.clone();
+        s_prob_beta.run(&mut l_p).unwrap();
+        s_decay.run(&mut l_d).unwrap();
+        for i in 0..n {
+            assert_eq!(l_p.x()[i].to_bits(), l_d.x()[i].to_bits());
+            assert_eq!(l_p.y()[i].to_bits(), l_d.y()[i].to_bits());
+        }
+        assert!(matches!(
+            TsNetSolver::<f64>::from_graph_row_normalized_with_degree_decay(
+                &grid, 0.5, None, -0.1, cfg
+            ),
+            Err(CoreError::InvalidInput(_))
+        ));
     }
 }

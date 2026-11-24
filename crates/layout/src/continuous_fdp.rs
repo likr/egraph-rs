@@ -19,7 +19,7 @@ const PROLONGATION_JITTER_FACTOR: f64 = 0.05;
 pub struct ForceAtlas2Config {
     /// Total number of ForceAtlas2 iterations (`default: 200`).
     pub iterations: usize,
-    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 0.5`).
+    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
     pub theta: f64,
     /// Whether to use $O(N \log N)$ Barnes-Hut quadtree repulsion (`default: true`).
     pub use_barnes_hut: bool,
@@ -45,7 +45,7 @@ impl Default for ForceAtlas2Config {
     fn default() -> Self {
         Self {
             iterations: 200,
-            theta: 0.5,
+            theta: 1.2,
             use_barnes_hut: true,
             linlog_mode: false,
             strong_gravity: false,
@@ -99,17 +99,17 @@ impl ForceAtlas2Config {
 /// Hyperparameters for [`YifanHuSolver`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct YifanHuConfig {
-    /// Maximum iterations executed at each multilevel scale (`default: 100`).
+    /// Maximum iterations executed at each multilevel scale (`default: 200`).
     pub max_iterations_per_level: usize,
     /// Initial step size multiplier relative to level optimal distance (`default: 1.0`).
     pub step_size: f64,
-    /// Adaptive step cooling/expansion ratio in `(0.0, 1.0)` (`default: 0.95`).
+    /// Adaptive step cooling/expansion ratio in `(0.0, 1.0)` (`default: 0.9`).
     pub step_ratio: f64,
     /// Repulsion strength coefficient $C$ in $C K^2 / d$ (`default: 0.2`).
     pub relative_strength: f64,
     /// Optional explicit finest-level optimal edge length $K_0$ (`None` defaults to `1.0`).
     pub optimal_distance: Option<f64>,
-    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 0.5`).
+    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
     pub theta: f64,
     /// Stop coarsening once vertex count drops to or below this size (`default: 30`).
     pub min_coarsen_size: usize,
@@ -124,12 +124,12 @@ pub struct YifanHuConfig {
 impl Default for YifanHuConfig {
     fn default() -> Self {
         Self {
-            max_iterations_per_level: 100,
+            max_iterations_per_level: 200,
             step_size: 1.0,
-            step_ratio: 0.95,
+            step_ratio: 0.9,
             relative_strength: 0.2,
             optimal_distance: None,
-            theta: 0.5,
+            theta: 1.2,
             min_coarsen_size: 30,
             min_coarsen_ratio: 0.75,
             convergence_tolerance: 1e-4,
@@ -1516,7 +1516,7 @@ mod tests {
     fn test_configs_defaults_and_validation() {
         let fa2 = ForceAtlas2Config::default();
         assert_eq!(fa2.iterations, 200);
-        assert_eq!(fa2.theta, 0.5);
+        assert_eq!(fa2.theta, 1.2);
         assert!(fa2.use_barnes_hut);
         assert!(!fa2.linlog_mode);
         assert!(!fa2.strong_gravity);
@@ -1551,12 +1551,12 @@ mod tests {
         }
 
         let yh = YifanHuConfig::default();
-        assert_eq!(yh.max_iterations_per_level, 100);
+        assert_eq!(yh.max_iterations_per_level, 200);
         assert_eq!(yh.step_size, 1.0);
-        assert_eq!(yh.step_ratio, 0.95);
+        assert_eq!(yh.step_ratio, 0.9);
         assert_eq!(yh.relative_strength, 0.2);
         assert_eq!(yh.optimal_distance, None);
-        assert_eq!(yh.theta, 0.5);
+        assert_eq!(yh.theta, 1.2);
         assert_eq!(yh.min_coarsen_size, 30);
         assert_eq!(yh.min_coarsen_ratio, 0.75);
         assert_eq!(yh.convergence_tolerance, 1e-4);

@@ -11,6 +11,7 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar, SolverStatu
 
 const MIN_EDGE_LEN: f64 = 1e-12;
 const MIN_SEG_DIST: f64 = 1e-12;
+const MAX_SPRING_ALPHA_KP: f64 = 0.45;
 
 /// Hyperparameters for [`FdebSolver`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -469,7 +470,6 @@ impl<S: Scalar> FdebSolver<S> {
     }
 
     fn apply_forces_and_integrate(&mut self) {
-        let m = self.num_edges;
         let pts = self.pts_per_edge;
         let num_mid = pts - 2;
         if num_mid == 0 {
@@ -479,28 +479,7 @@ impl<S: Scalar> FdebSolver<S> {
         self.vx.fill(0.0);
         self.vy.fill(0.0);
 
-        // 1. Spring forces along each subdivided edge.
-        let k = self.config.spring_k;
-        let num_mid_f = num_mid as f64;
-        for (e, ep) in self.edges.iter().enumerate() {
-            if ep.length <= MIN_EDGE_LEN {
-                continue;
-            }
-            let kp = k / (num_mid_f * ep.length);
-            let base = e * pts;
-            for i in 1..=num_mid {
-                let p0x = self.work_x[base + i - 1];
-                let p0y = self.work_y[base + i - 1];
-                let p1x = self.work_x[base + i];
-                let p1y = self.work_y[base + i];
-                let p2x = self.work_x[base + i + 1];
-                let p2y = self.work_y[base + i + 1];
-                self.vx[base + i] += kp * (p0x - p1x + p2x - p1x);
-                self.vy[base + i] += kp * (p0y - p1y + p2y - p1y);
-            }
-        }
-
-        // 2. Electrostatic attraction between compatible edge pairs.
+        // 1. Electrostatic attraction between compatible edge pairs (force accumulation).
         for pair in &self.edge_pairs {
             let base_p = (pair.p as usize) * pts;
             let base_q = (pair.q as usize) * pts;
@@ -527,14 +506,67 @@ impl<S: Scalar> FdebSolver<S> {
             }
         }
 
-        // 3. Explicit Euler integration of interior control points only (endpoints remain fixed).
+        // Scale electrostatic forces by step size `alpha` before adding clamped spring steps.
         let alpha = self.alpha;
-        for e in 0..m {
+        for v in &mut self.vx {
+            *v *= alpha;
+        }
+        for v in &mut self.vy {
+            *v *= alpha;
+        }
+
+        // 2. Clamped spring displacements along each subdivided edge: (alpha * kp).min(0.45).
+        let k = self.config.spring_k;
+        let num_mid_f = num_mid as f64;
+        for (e, ep) in self.edges.iter().enumerate() {
+            if ep.length <= MIN_EDGE_LEN {
+                continue;
+            }
+            let kp = k / (num_mid_f * ep.length);
+            let alpha_kp = (alpha * kp).min(MAX_SPRING_ALPHA_KP);
+            let base = e * pts;
+            for i in 1..=num_mid {
+                let p0x = self.work_x[base + i - 1];
+                let p0y = self.work_y[base + i - 1];
+                let p1x = self.work_x[base + i];
+                let p1y = self.work_y[base + i];
+                let p2x = self.work_x[base + i + 1];
+                let p2y = self.work_y[base + i + 1];
+                self.vx[base + i] += alpha_kp * (p0x - p1x + p2x - p1x);
+                self.vy[base + i] += alpha_kp * (p0y - p1y + p2y - p1y);
+            }
+        }
+
+        // 3. Per-point max displacement cap & explicit Euler update (endpoints remain fixed).
+        for (e, ep) in self.edges.iter().enumerate() {
+            if ep.length <= MIN_EDGE_LEN {
+                continue;
+            }
+            let max_disp = ep.length / (num_mid_f + 1.0);
             let base = e * pts;
             for i in 1..=num_mid {
                 let idx = base + i;
-                let nx = self.work_x[idx] + alpha * self.vx[idx];
-                let ny = self.work_y[idx] + alpha * self.vy[idx];
+                let mut dx = if self.vx[idx].is_finite() {
+                    self.vx[idx]
+                } else {
+                    0.0
+                };
+                let mut dy = if self.vy[idx].is_finite() {
+                    self.vy[idx]
+                } else {
+                    0.0
+                };
+                let norm = dx.hypot(dy);
+                if !norm.is_finite() {
+                    continue;
+                }
+                if norm > max_disp && norm > 0.0 {
+                    let scale = max_disp / norm;
+                    dx *= scale;
+                    dy *= scale;
+                }
+                let nx = self.work_x[idx] + dx;
+                let ny = self.work_y[idx] + dy;
                 if nx.is_finite() {
                     self.work_x[idx] = nx;
                 }
@@ -623,4 +655,96 @@ fn visibility_compatibility(
     let imy = 0.5 * (i0y + i1y);
     let m_dist = (imx - pmx).hypot(imy - pmy);
     (1.0 - 2.0 * m_dist / i_dist).max(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fdeb_short_edge_and_dense_bundle_stability_caps() {
+        // 1. Short compatible edges where naive alpha * kp = 0.5 * 1.0 / (1 * 1e-3) = 500.0 >> 0.5.
+        let g_short =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
+        let layout_short =
+            Layout2d::from_xy(vec![0.0, 1e-3, 0.0, 1e-3], vec![0.0, 0.0, 2e-4, 2e-4]).unwrap();
+        let cfg_short = FdebConfig {
+            cycles: 3,
+            s0: 0.5,
+            i0: 20,
+            spring_k: 1.0,
+            minimum_edge_compatibility: 0.5,
+            ..Default::default()
+        };
+        let mut solver_short = FdebSolver::<f64>::new(&g_short, &layout_short, cfg_short).unwrap();
+        solver_short.run().unwrap();
+        for (&x, &y) in solver_short
+            .points_x()
+            .iter()
+            .zip(solver_short.points_y().iter())
+        {
+            assert!(x.is_finite() && y.is_finite());
+            assert!(
+                (-1e-3..=2e-3).contains(&x),
+                "short edge x out of bounds: {x}"
+            );
+            assert!(
+                (-1e-3..=2e-3).contains(&y),
+                "short edge y out of bounds: {y}"
+            );
+        }
+
+        // 2. Dense bundle of 50 parallel short edges: single-step displacement must not exceed
+        // ep.length / (num_mid + 1).
+        let num_edges = 50usize;
+        let edges: Vec<(u32, u32)> = (0..num_edges)
+            .map(|i| ((2 * i) as u32, (2 * i + 1) as u32))
+            .collect();
+        let g_dense =
+            CsrGraph::<f64>::from_edges(num_edges * 2, &edges, None, false, false).unwrap();
+        let mut xs = Vec::with_capacity(num_edges * 2);
+        let mut ys = Vec::with_capacity(num_edges * 2);
+        for i in 0..num_edges {
+            let y_off = (i as f64) * 1e-4;
+            xs.push(0.0);
+            ys.push(y_off);
+            xs.push(1e-2);
+            ys.push(y_off);
+        }
+        let layout_dense = Layout2d::from_xy(xs, ys).unwrap();
+        let cfg_dense = FdebConfig {
+            cycles: 3,
+            s0: 1.0,
+            i0: 15,
+            spring_k: 1.0,
+            minimum_edge_compatibility: 0.5,
+            ..Default::default()
+        };
+        let mut solver_dense = FdebSolver::<f64>::new(&g_dense, &layout_dense, cfg_dense).unwrap();
+        solver_dense.step().unwrap();
+        let pts_per_edge =
+            (solver_dense.edge_offsets()[1] - solver_dense.edge_offsets()[0]) as usize;
+        let max_disp = 1e-2 / ((pts_per_edge - 1) as f64);
+        for e in 0..num_edges {
+            let y_base = (e as f64) * 1e-4;
+            let start = solver_dense.edge_offsets()[e] as usize;
+            let mid_y = solver_dense.points_y()[start + 1];
+            assert!(mid_y.is_finite());
+            assert!(
+                (mid_y - y_base).abs() <= max_disp + 1e-12,
+                "dense bundle midpoint moved {} > max_disp {max_disp}",
+                (mid_y - y_base).abs()
+            );
+        }
+        solver_dense.run().unwrap();
+        for (&x, &y) in solver_dense
+            .points_x()
+            .iter()
+            .zip(solver_dense.points_y().iter())
+        {
+            assert!(x.is_finite() && y.is_finite());
+            assert!((-1e-2..=2e-2).contains(&x));
+            assert!((-1e-2..=2e-2).contains(&y));
+        }
+    }
 }

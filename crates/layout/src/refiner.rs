@@ -49,6 +49,10 @@ pub struct SpatialRefinerConfig {
     pub eps: f64,
     /// Whether Tier 3 FPs use one-sided hinge repulsion instead of two-sided springs (`default: true`).
     pub hinge_fp: bool,
+    /// Opt-in minimum separation threshold as a fraction of `initial_scale` (`default: 0.0`, disabled).
+    pub min_sep_ratio: f64,
+    /// Opt-in short-range separation hinge weight multiplier (`default: 0.0`, disabled).
+    pub w_sep: f64,
     /// Explicit deterministic seed for jittering and SGD shuffling (`default: 42`).
     pub seed: u64,
 }
@@ -70,6 +74,8 @@ impl Default for SpatialRefinerConfig {
             t_max: 20,
             eps: 0.05,
             hinge_fp: true,
+            min_sep_ratio: 0.0,
+            w_sep: 0.0,
             seed: 42,
         }
     }
@@ -92,6 +98,8 @@ impl SpatialRefinerConfig {
             ("w_anchor2", self.w_anchor2),
             ("w_fn", self.w_fn),
             ("w_fp", self.w_fp),
+            ("min_sep_ratio", self.min_sep_ratio),
+            ("w_sep", self.w_sep),
         ] {
             if !val.is_finite() || val < 0.0 {
                 return Err(CoreError::invalid_input(format!(
@@ -141,6 +149,8 @@ pub struct SpatialRefinerRoundStats {
     pub n_fn: usize,
     /// Number of active Tier 3 spatial false-positive intruder pairs.
     pub n_fp: usize,
+    /// Number of active short-range separation hinge pairs.
+    pub n_sep: usize,
     /// Total active pairs supplied to the inner `SgdSolver`.
     pub n_pairs_total: usize,
     /// `true` when zero active intruders/stragglers were found and SGD was skipped.
@@ -154,6 +164,7 @@ pub struct SpatialRefinerStats {
     pub n_anchors_total: usize,
     pub n_fn_total: usize,
     pub n_fp_total: usize,
+    pub n_sep_total: usize,
     pub n_pairs_total: usize,
     pub initial_scale: f64,
     pub final_scale: f64,
@@ -264,6 +275,7 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             n_anchors_total: 0,
             n_fn_total: 0,
             n_fp_total: 0,
+            n_sep_total: 0,
             n_pairs_total: 0,
             initial_scale: 1.0,
             final_scale: 1.0,
@@ -544,11 +556,16 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             let _ = self.populate_spatial_knn(&tree, tol_coinc_sq, false)?;
         }
 
-        // Emit active pairs directly into a single PackedSymPair buffer ([FN/A2, A1, FP])
+        // Emit active pairs directly into a single PackedSymPair buffer ([FN/A2, A1, FP, SEP])
         // without an intermediate f64 pair double buffer.
         let mut packed: Vec<PackedSymPair<S>> = Vec::with_capacity(self.u1.len());
         let mut n_springs = 0usize;
         let mut n_hinges = 0usize;
+
+        let sep_enabled = self.config.min_sep_ratio > 0.0 && self.config.w_sep > 0.0;
+        let d_sep_tgt = (self.config.min_sep_ratio * self.initial_scale).max(self.d_floor);
+        let mut sep_candidates: Vec<(u32, u32)> = Vec::new();
+        let mut fp_covered_sep: Vec<(u32, u32)> = Vec::new();
 
         // 1. Tier 2: 2-hop False Negatives F- and/or 2-hop Anchors A2.
         let mut n_fn_2hop = 0usize;
@@ -558,6 +575,14 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                 let dx = self.coords_f64[ui][0] - self.coords_f64[vi][0];
                 let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
                 let d2_curr = fast_hypot_f64(dx, dy);
+                if sep_enabled && d2_curr < d_sep_tgt {
+                    sep_candidates.push(if u_u32 < v_u32 {
+                        (u_u32, v_u32)
+                    } else {
+                        (v_u32, u_u32)
+                    });
+                    return;
+                }
                 let d2_safe = d2_curr.max(self.d_floor);
 
                 let mut emitted_fn = false;
@@ -613,6 +638,14 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             let dx = self.coords_f64[ui][0] - self.coords_f64[vi][0];
             let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
             let d1_curr = fast_hypot_f64(dx, dy);
+            if sep_enabled && d1_curr < d_sep_tgt {
+                sep_candidates.push(if u_u32 < v_u32 {
+                    (u_u32, v_u32)
+                } else {
+                    (v_u32, u_u32)
+                });
+                continue;
+            }
             let d1_safe = d1_curr.max(self.d_floor);
 
             let (d1, w1) = if self.config.w_fn > 0.0 {
@@ -701,6 +734,11 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                 let dy = self.coords_f64[ui][1] - self.coords_f64[vi][1];
                 let d_fp_curr = fast_hypot_f64(dx, dy);
                 if d_fp_curr < d_fp_tgt {
+                    // Defer to the stronger separation hinge when sep_enabled and d_fp_tgt < d_sep_tgt.
+                    if sep_enabled && d_fp_curr < d_sep_tgt && d_fp_tgt < d_sep_tgt {
+                        sep_candidates.push((u_u32, v_u32));
+                        continue;
+                    }
                     let w = self.config.w_fp / (d_fp_tgt * d_fp_tgt);
                     if push_packed_pair(&mut packed, u_u32, v_u32, fp_is_hinge, d_fp_tgt, w) {
                         n_fp += 1;
@@ -709,7 +747,60 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                         } else {
                             n_springs += 1;
                         }
+                        if sep_enabled && d_fp_curr < d_sep_tgt {
+                            fp_covered_sep.push((u_u32, v_u32));
+                        }
                     }
+                }
+            }
+        }
+
+        // 4. Opt-in short-range minimum separation hinges (cures closed-twin collapse & zero-length edges).
+        let mut n_sep = 0usize;
+        if sep_enabled {
+            if !self.s_indices.is_empty() {
+                for u in 0..n {
+                    let ku = self.row_k(u);
+                    if ku == 0 {
+                        continue;
+                    }
+                    let s_start = self.s_indptr[u];
+                    let s_row = &self.s_indices[s_start..s_start + ku];
+                    let ux = self.coords_f64[u][0];
+                    let uy = self.coords_f64[u][1];
+                    let u_u32 = u as u32;
+                    for &v in s_row {
+                        let vi = v as usize;
+                        let d_curr = fast_hypot_f64(
+                            ux - self.coords_f64[vi][0],
+                            uy - self.coords_f64[vi][1],
+                        );
+                        if d_curr < d_sep_tgt {
+                            sep_candidates.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
+                        }
+                    }
+                }
+            }
+            sep_candidates.sort_unstable();
+            sep_candidates.dedup();
+            let w_sep_pair = self.config.w_sep / (d_sep_tgt * d_sep_tgt);
+            for (u_u32, v_u32) in sep_candidates {
+                if !fp_covered_sep.is_empty()
+                    && fp_covered_sep.binary_search(&(u_u32, v_u32)).is_ok()
+                {
+                    continue;
+                }
+                let ui = u_u32 as usize;
+                let vi = v_u32 as usize;
+                let d_curr = fast_hypot_f64(
+                    self.coords_f64[ui][0] - self.coords_f64[vi][0],
+                    self.coords_f64[ui][1] - self.coords_f64[vi][1],
+                );
+                if d_curr < d_sep_tgt
+                    && push_packed_pair(&mut packed, u_u32, v_u32, true, d_sep_tgt, w_sep_pair)
+                {
+                    n_sep += 1;
+                    n_hinges += 1;
                 }
             }
         }
@@ -718,13 +809,14 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
         let n_anc = n_anc_1hop + n_anc_2hop;
         let n_tot_valid = packed.len();
 
-        // Early stop when zero active intruders/stragglers exist so clean layouts remain untouched.
-        if (n_fp == 0 && n_fn == 0) || n_tot_valid == 0 {
+        // Early stop when zero active intruders/stragglers/collapsed pairs exist so clean layouts remain untouched.
+        if (n_fp == 0 && n_fn == 0 && n_sep == 0) || n_tot_valid == 0 {
             self.stats.round_stats.push(SpatialRefinerRoundStats {
                 round: r + 1,
                 n_anchors: 0,
                 n_fn: 0,
                 n_fp: 0,
+                n_sep: 0,
                 n_pairs_total: 0,
                 skipped: true,
             });
@@ -755,12 +847,14 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
         self.stats.n_anchors_total += n_anc;
         self.stats.n_fn_total += n_fn;
         self.stats.n_fp_total += n_fp;
+        self.stats.n_sep_total += n_sep;
         self.stats.n_pairs_total += n_tot_valid;
         self.stats.round_stats.push(SpatialRefinerRoundStats {
             round: r + 1,
             n_anchors: n_anc,
             n_fn,
             n_fp,
+            n_sep,
             n_pairs_total: n_tot_valid,
             skipped: false,
         });
@@ -1084,6 +1178,8 @@ mod tests {
         assert_eq!(cfg.t_max, 20);
         assert_eq!(cfg.eps, 0.05);
         assert!(cfg.hinge_fp);
+        assert_eq!(cfg.min_sep_ratio, 0.0);
+        assert_eq!(cfg.w_sep, 0.0);
         assert_eq!(cfg.seed, 42);
         cfg.validate().unwrap();
 
@@ -1101,6 +1197,19 @@ mod tests {
             },
             SpatialRefinerConfig {
                 w_anchor2: -0.1,
+                ..cfg
+            },
+            SpatialRefinerConfig {
+                min_sep_ratio: -0.1,
+                ..cfg
+            },
+            SpatialRefinerConfig {
+                min_sep_ratio: f64::NAN,
+                ..cfg
+            },
+            SpatialRefinerConfig { w_sep: -0.1, ..cfg },
+            SpatialRefinerConfig {
+                w_sep: f64::INFINITY,
                 ..cfg
             },
             SpatialRefinerConfig {
@@ -1548,6 +1657,118 @@ mod tests {
             for (g, e) in got.iter().zip(expected.iter()) {
                 assert!((g - e).abs() < 1e-12);
             }
+        }
+    }
+
+    #[test]
+    fn test_refiner_opt_in_separation_hinge_separates_closed_twins() {
+        // 3x3 grid (nodes 0..9) + closed-twin pair (9, 10) attached to node 0 with triangle (0, 9), (0, 10), (9, 10)
+        // so N[9] = {0, 9, 10} = N[10]. Nodes 9 and 10 are placed collapsed at (0.0, 0.0).
+        let mut edges = Vec::new();
+        for r in 0..3 {
+            for c in 0..3 {
+                let u = (r * 3 + c) as u32;
+                if c + 1 < 3 {
+                    edges.push((u, u + 1));
+                }
+                if r + 1 < 3 {
+                    edges.push((u, u + 3));
+                }
+            }
+        }
+        edges.extend([(0, 9), (0, 10), (9, 10)]);
+        let g = CsrGraph::<f64>::from_edges(11, &edges, None, false, false).unwrap();
+
+        let mut base_x = Vec::with_capacity(11);
+        let mut base_y = Vec::with_capacity(11);
+        for r in 0..3 {
+            for c in 0..3 {
+                base_x.push(c as f64);
+                base_y.push(r as f64);
+            }
+        }
+        base_x.extend([0.0, 0.0]);
+        base_y.extend([0.0, 0.0]);
+
+        // 1. Legacy defaults (min_sep_ratio = 0.0, w_sep = 0.0) preserve backward-compat: twins stay collapsed.
+        let legacy_cfg = SpatialRefinerConfig::default();
+        let mut l_legacy = Layout2d::from_xy(base_x.clone(), base_y.clone()).unwrap();
+        let mut r_legacy = SpatialIntruderRefiner::<f64>::new(&g, legacy_cfg).unwrap();
+        r_legacy.run(&mut l_legacy).unwrap();
+        assert_eq!(r_legacy.stats().n_sep_total, 0);
+        let d_legacy_9_10 =
+            (l_legacy.x()[9] - l_legacy.x()[10]).hypot(l_legacy.y()[9] - l_legacy.y()[10]);
+        assert!(
+            d_legacy_9_10 < 1e-2,
+            "expected legacy config to leave closed twins collapsed, got d={d_legacy_9_10}"
+        );
+
+        // 2. Opt-in separation hinge (min_sep_ratio = 0.15, w_sep = 1.0) eliminates closed-twin
+        // collapse and zero-length edges in both f64 and f32, with bit-exact step == run.
+        let sep_cfg = SpatialRefinerConfig {
+            min_sep_ratio: 0.15,
+            w_sep: 1.0,
+            ..Default::default()
+        };
+        let mut l64_run = Layout2d::from_xy(base_x.clone(), base_y.clone()).unwrap();
+        let mut l64_step = l64_run.clone();
+        let mut r64_run = SpatialIntruderRefiner::<f64>::new(&g, sep_cfg).unwrap();
+        let mut r64_step = SpatialIntruderRefiner::<f64>::new(&g, sep_cfg).unwrap();
+        r64_run.run(&mut l64_run).unwrap();
+        r64_step.step(&mut l64_step).unwrap();
+        r64_step.run(&mut l64_step).unwrap();
+        assert_eq!(r64_run.stats(), r64_step.stats());
+        assert!(r64_run.stats().n_sep_total > 0);
+        for i in 0..11 {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+        for i in 0..11 {
+            for j in (i + 1)..11 {
+                let d = (l64_run.x()[i] - l64_run.x()[j]).hypot(l64_run.y()[i] - l64_run.y()[j]);
+                assert!(d > 0.05, "pair ({i}, {j}) too close after sep hinge: d={d}");
+            }
+        }
+        for &(u, v) in &edges {
+            let d = (l64_run.x()[u as usize] - l64_run.x()[v as usize])
+                .hypot(l64_run.y()[u as usize] - l64_run.y()[v as usize]);
+            assert!(d > 0.05, "edge ({u}, {v}) near zero length: d={d}");
+        }
+
+        // f32 parity
+        let bx32: Vec<f32> = base_x.iter().map(|&v| v as f32).collect();
+        let by32: Vec<f32> = base_y.iter().map(|&v| v as f32).collect();
+        let mut l32_run = Layout2d::from_xy(bx32, by32).unwrap();
+        let mut l32_step = l32_run.clone();
+        let mut r32_run = SpatialIntruderRefiner::<f32>::new(&g, sep_cfg).unwrap();
+        let mut r32_step = SpatialIntruderRefiner::<f32>::new(&g, sep_cfg).unwrap();
+        r32_run.run(&mut l32_run).unwrap();
+        r32_step.step(&mut l32_step).unwrap();
+        r32_step.run(&mut l32_step).unwrap();
+        assert!(r32_run.stats().n_sep_total > 0);
+        for i in 0..11 {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+            for j in (i + 1)..11 {
+                let d = (l32_run.x()[i] - l32_run.x()[j]).hypot(l32_run.y()[i] - l32_run.y()[j]);
+                assert!(d > 0.05, "f32 pair ({i}, {j}) too close: d={d}");
+            }
+        }
+
+        // 3. Clean 3x3 grid without collapsed vertices remains completely untouched even with sep hinge enabled.
+        let clean_grid = grid_graph(3, 3);
+        let clean_orig = Layout2d::from_xy(base_x[..9].to_vec(), base_y[..9].to_vec()).unwrap();
+        let mut clean_work = clean_orig.clone();
+        let mut r_clean = SpatialIntruderRefiner::<f64>::new(&clean_grid, sep_cfg).unwrap();
+        assert_eq!(
+            r_clean.run(&mut clean_work).unwrap(),
+            SolverStatus::Converged
+        );
+        assert_eq!(r_clean.stats().n_sep_total, 0);
+        assert_eq!(r_clean.stats().rounds_executed, 0);
+        for i in 0..9 {
+            assert_eq!(clean_orig.x()[i].to_bits(), clean_work.x()[i].to_bits());
+            assert_eq!(clean_orig.y()[i].to_bits(), clean_work.y()[i].to_bits());
         }
     }
 }
