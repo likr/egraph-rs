@@ -1,13 +1,17 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 #[cfg(feature = "petgraph")]
 use petgraph::{EdgeType, graph::IndexType, prelude::*};
 #[cfg(feature = "petgraph")]
 use std::collections::HashMap;
 
-/// Parses an edge-list CSV string into a [`CsrGraph<f64>`].
+/// Parses an edge-list CSV string into a [`CsrGraph<W>`].
 ///
 /// Expected format is a header line `num_nodes,num_edges` followed by `num_edges` lines of `u,v`.
-pub fn parse_csr_csv(input: &str, directed: bool, sanitize: bool) -> CoreResult<CsrGraph<f64>> {
+pub fn parse_csr_csv<W: Scalar>(
+    input: &str,
+    directed: bool,
+    sanitize: bool,
+) -> CoreResult<CsrGraph<W>> {
     let mut tokens = input.split_ascii_whitespace();
     let header = tokens
         .next()
@@ -251,35 +255,62 @@ mod tests {
     #[test]
     fn test_parse_csr_csv_valid_and_errors() {
         let csv = "4,3\n0,1\r\n1,2\n2,3\n";
-        let g = parse_csr_csv(csv, false, false).unwrap();
+        let g = parse_csr_csv::<f64>(csv, false, false).unwrap();
         assert_eq!(g.num_nodes(), 4);
         assert_eq!(g.num_edges(), 3);
         assert!(!g.is_directed());
         assert_eq!(g.neighbors(1), &[0, 2]);
 
-        let dg = parse_csr_csv("3,2\n0,1\n1,0\n", true, false).unwrap();
+        let dg = parse_csr_csv::<f64>("3,2\n0,1\n1,0\n", true, false).unwrap();
         assert!(dg.is_directed());
         assert_eq!(dg.num_edges(), 2);
 
         assert!(matches!(
-            parse_csr_csv("", false, false),
+            parse_csr_csv::<f64>("", false, false),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            parse_csr_csv("3,2\n0,1\n", false, false),
+            parse_csr_csv::<f64>("3,2\n0,1\n", false, false),
             Err(CoreError::DimensionMismatch { .. })
         ));
         assert!(matches!(
-            parse_csr_csv("3,1\n0,1,2\n", false, false),
+            parse_csr_csv::<f64>("3,1\n0,1,2\n", false, false),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            parse_csr_csv("3,1\n0,5\n", false, false),
+            parse_csr_csv::<f64>("3,1\n0,5\n", false, false),
             Err(CoreError::IndexOutOfBounds { .. })
         ));
         assert!(matches!(
-            parse_csr_csv("3,1\n0,0\n", false, false),
+            parse_csr_csv::<f64>("3,1\n0,0\n", false, false),
             Err(CoreError::InvalidCsr(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_csr_csv_f32() {
+        let csv = "4,3\n0,1\n1,2\n2,3\n";
+        let g: CsrGraph<f32> = parse_csr_csv::<f32>(csv, false, false).unwrap();
+        assert_eq!(g.num_nodes(), 4);
+        assert_eq!(g.num_edges(), 3);
+        assert!(!g.is_directed());
+        assert!(g.weights().is_none());
+        assert_eq!(g.neighbors(1), &[0, 2]);
+
+        // Sanitize deduplicates undirected edges and removes self-loops.
+        let dirty = "3,3\n0,1\n1,0\n0,0\n";
+        let clean = parse_csr_csv::<f32>(dirty, false, true).unwrap();
+        assert_eq!(clean.num_nodes(), 3);
+        assert_eq!(clean.num_edges(), 1);
+        assert_eq!(clean.neighbors(0), &[1]);
+
+        let dg = parse_csr_csv::<f32>("3,2\n0,1\n1,0\n", true, false).unwrap();
+        assert!(dg.is_directed());
+        assert_eq!(dg.num_edges(), 2);
+
+        assert!(matches!(
+            parse_csr_csv::<f32>("3,2\n0,1\n", false, false),
+            Err(CoreError::DimensionMismatch { .. })
         ));
     }
 
