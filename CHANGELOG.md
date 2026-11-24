@@ -5,6 +5,35 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-alpha.7] - 2026-11-24
+
+### Added
+
+- **Python `egraph.__version__` Export**: Exposed `egraph.__version__` in PEP 440 form (`6.0.0a7`, derived from `CARGO_PKG_VERSION`) via `egraph._core` and re-exported it in `egraph/__init__.py` and `_core.pyi`.
+- **Stage 1 W1-W3 Core, Initialization & Neighborhood Constructors**:
+  - Added Poincare Mobius centroid centering (`poincare_mobius_add`, `ManifoldLayout2d` safe centroid initialization / projection) in `egraph-core`, Python, and WASM.
+  - Added `robust_normalize_layout_2d`, streaming `PivotMds` low-memory projection, degree-decayed `graph_12hop_row_normalized_probabilities`, and capped `build_capped_12hop_knn` across Rust, Python, and WASM.
+  - Added `keep_all_1hop` / `max_1hop_per_node`, `degree_weight_beta`, and external landmark distance support on `PacmapGraphConfig` / `SgdSolver.pacmap_graph`, plus opt-in short-range minimum-separation hinge (`min_sep_ratio`, `w_sep`) on `SpatialIntruderRefiner`.
+- **Stage 1 W3 Geometric & Quality Metrics (`egraph-metrics`, `egraph-cli`, Python, WASM)**:
+  - Added `crosslessness`, `sampled_crosslessness`, `minimum_angle`, `minimum_angle_summary`, `layout_degeneracy`, `adjusted_patch_nig`, `adjusted_patch_nig_multiscale`, `landmark_stratified_rta`, `landmark_stratified_rta_detail`, and `landmark_stratified_rta_from_landmarks`, along with `egraph-cli` targets (`crosslessness`, `minimum-angle`, `layout-degeneracy`, `rta`) and geometric oracle tests.
+- **Stage 2A Non-SPD Ideal Distances & Resistance Curvature Flow (`egraph-linalg`, `egraph-neighborhood`)**:
+  - Ported and hardened strictly single-threaded pure-Rust `AmgPcgSolver` on `CsrMatrix` (`egraph-linalg`), standalone `anisotropic_laplacian` ($L_\alpha$) with dynamic spectrum scaling, `chebyshev_heat_spmv_matrix`, `chebyshev_dog_jl_embedding_matrix`, `compute_effective_resistances`, and Devriendt–Lambiotte `resistance_curvature_flow` integrated with `ManifoldLayout2d`.
+  - Added `compute_pivoted_rhgh_landmarks` (`RHGH` / `BFSR`) and `compute_regularized_dog_varadhan_landmarks_from_matrix`.
+- **Stage 2B Coarse Louvain Area Reservation & Screened Poisson Density Field (`egraph-spatial`, `egraph-clustering`, `egraph-layout`)**:
+  - Added multi-level Louvain coarsening (`louvain_coarsen`, `project_clustered_layout_with_radii`, `align_clustered_centroids`) and coarse backbone initialization (`coarse_backbone_init`) with edge-length-first area reservation.
+  - Added `f32` R2C FFT `ScreenedPoissonField2d` and `ScreenedPoissonRefiner` unilateral upper-bound density refinement across Rust, Python, and WASM.
+- **Cross-Target Documentation & Parity**: Documented Stage 1, 2A, and 2B APIs in Sphinx reference (`crates/python/docs/source/api/`), updated WASM TypeScript definitions (`assemble_pkg.mjs`), and extended `scripts/parity_harness.py` for full Rust / Python / WASM parity.
+
+### Changed
+
+- **WASM Bundle Budget Liberation (`W0`)**: Removed `egraph-dataset` embedded CSVs from `egraph-wasm`, enabled `[profile.wasm-release] lto = "fat"`, generalized `parse_csr_csv<W: Scalar>`, and switched `js/examples` embedded graph loaders to async JSON imports to keep `egraph_wasm_bg.wasm` well below the `600 KiB` gzipped budget.
+- **Solver Memory & Parameter Improvements (`W2`)**: Reduced peak allocation in `GuMapSolver` / `IbUmapSolver` (staged drops, `f32` edge weights, zero `raw_edges`) and `FieldLayoutSolver::step()` (eliminated per-step `self.mode.clone()`), updated `ForceAtlas2Config` / `YifanHuConfig` default `theta` (`1.2`) and `YifanHuConfig` convergence parameters, clamped `FdebSolver` displacement (`(alpha * kp).min(0.45)`), and upgraded `sampled_scale_normalized_stress` to degree-stratified pivot selection (64–128 default pivots).
+
+### Fixed
+
+- **Small-Graph `TsNetSolver` Stage 3 Stability & Closed-Twin Separation**: Aligned `TsNetSolver` Stage 3 `learning_rate` cap ($2N$ for $N < 100$), fixed `YifanHuConfig` step-ratio convergence stagnation, corrected `PacmapGraphConfig` undirected 1-hop duplicate registration, and eliminated closed-twin zero-length edge collapse in `SpatialIntruderRefiner`.
+- **`RHGH` / `BFSR` & `AmgPcgSolver` Correctness**: Resolved four `RHGH` / `BFSR` scaling/pivot bugs and six `AmgPcgSolver` solver defects under strictly single-threaded deterministic execution.
+
 ## [6.0.0-alpha.6] - 2026-11-23
 
 ### Added
