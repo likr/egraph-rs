@@ -170,11 +170,11 @@ pub struct MetricsArgs {
     /// Input 2D coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,ideal-edge-lengths,all`).
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,rta,all`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
-    #[arg(long, default_value_t = 32)]
+    #[arg(long, default_value_t = 64)]
     pub num_pivots: usize,
     /// Number of edge-pair / node samples for `sampled-crossings`, `sampled-np1`, and `sampled-np2`.
     #[arg(long, default_value_t = 4096)]
@@ -266,6 +266,8 @@ pub struct MetricsOutput {
     pub crossing_number: Option<usize>,
     pub crossing_angle: Option<f64>,
     pub sampled_crossing_number: Option<f64>,
+    pub crosslessness: Option<f64>,
+    pub sampled_crosslessness: Option<f64>,
     pub neighborhood_preservation_1hop: Option<f64>,
     pub neighborhood_preservation_2hop: Option<f64>,
     pub sampled_np1: Option<f64>,
@@ -276,7 +278,11 @@ pub struct MetricsOutput {
     pub gabriel_graph_preservation: Option<f64>,
     pub aspect_ratio: Option<f64>,
     pub angular_resolution: Option<f64>,
+    pub minimum_angle: Option<f64>,
+    pub minimum_angle_a1: Option<f64>,
+    pub layout_degeneracy: Option<f64>,
     pub ideal_edge_lengths: Option<f64>,
+    pub landmark_stratified_rta: Option<f64>,
 }
 
 impl MetricsOutput {
@@ -297,6 +303,8 @@ impl MetricsOutput {
             crossing_number: report.crossing_number,
             crossing_angle: report.crossing_angle,
             sampled_crossing_number: report.sampled_crossing_number,
+            crosslessness: report.crosslessness,
+            sampled_crosslessness: report.sampled_crosslessness,
             neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
             neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
             sampled_np1: report.sampled_np1,
@@ -307,7 +315,11 @@ impl MetricsOutput {
             gabriel_graph_preservation: report.gabriel_graph_preservation,
             aspect_ratio: report.aspect_ratio,
             angular_resolution: report.angular_resolution,
+            minimum_angle: report.minimum_angle,
+            minimum_angle_a1: report.minimum_angle_a1,
+            layout_degeneracy: report.layout_degeneracy,
             ideal_edge_lengths: report.ideal_edge_lengths,
+            landmark_stratified_rta: report.landmark_stratified_rta,
         }
     }
 }
@@ -588,6 +600,8 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
                     MetricTarget::CrossingNumber,
                     MetricTarget::CrossingAngle,
                     MetricTarget::SampledCrossingNumber,
+                    MetricTarget::Crosslessness,
+                    MetricTarget::SampledCrosslessness,
                     MetricTarget::NeighborhoodPreservation1Hop,
                     MetricTarget::NeighborhoodPreservation2Hop,
                     MetricTarget::SampledNp1,
@@ -598,7 +612,11 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
                     MetricTarget::GabrielGraphPreservation,
                     MetricTarget::AspectRatio,
                     MetricTarget::AngularResolution,
+                    MetricTarget::MinimumAngle,
+                    MetricTarget::MinimumAngleA1,
+                    MetricTarget::LayoutDegeneracy,
                     MetricTarget::IdealEdgeLengths,
+                    MetricTarget::LandmarkStratifiedRta,
                 ]);
             }
             "sns" | "scale-normalized-stress" => targets.push(MetricTarget::ScaleNormalizedStress),
@@ -610,6 +628,8 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             "sampled-crossings" | "sampled-crossing-number" => {
                 targets.push(MetricTarget::SampledCrossingNumber);
             }
+            "crosslessness" => targets.push(MetricTarget::Crosslessness),
+            "sampled-crosslessness" => targets.push(MetricTarget::SampledCrosslessness),
             "np1" | "neighborhood-preservation-1hop" => {
                 targets.push(MetricTarget::NeighborhoodPreservation1Hop);
             }
@@ -634,7 +654,17 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             }
             "aspect-ratio" => targets.push(MetricTarget::AspectRatio),
             "angular-resolution" => targets.push(MetricTarget::AngularResolution),
+            "minimum-angle" | "min-angle" | "minimum-angle-a2" | "min-angle-a2" => {
+                targets.push(MetricTarget::MinimumAngle);
+            }
+            "minimum-angle-a1" | "min-angle-a1" => {
+                targets.push(MetricTarget::MinimumAngleA1);
+            }
+            "layout-degeneracy" => targets.push(MetricTarget::LayoutDegeneracy),
             "ideal-edge-lengths" => targets.push(MetricTarget::IdealEdgeLengths),
+            "rta" | "l-stratified-rta" | "landmark-stratified-rta" => {
+                targets.push(MetricTarget::LandmarkStratifiedRta);
+            }
             other => {
                 return Err(CliError::InvalidInput(format!(
                     "unknown metric target '{other}'"
@@ -656,6 +686,7 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
         crossing_num_samples: args.num_samples,
         crossing_seed: args.seed,
         ideal_edge_length: args.ideal_edge_length,
+        ..MetricConfig::default()
     };
     cfg.validate()?;
 
