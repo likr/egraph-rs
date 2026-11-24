@@ -1,8 +1,254 @@
 //! Geometric shape, edge-length, angular, and PRISM layout-preservation metrics.
 
+use std::f64::consts::TAU;
+
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 
-use crate::{extract_unique_edges, proximity::gabriel_graph_edges, validate_graph_layout};
+use crate::{
+    build_undirected_adjacency, extract_unique_edges, proximity::gabriel_graph_edges,
+    validate_graph_layout,
+};
+
+/// DRGraph Eq. (19) minimum-angle resolution summary (`a1` and `a2`) in `[0.0, 1.0]`.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MinimumAngleSummary {
+    /// A1 score using `atan2(0.0, 0.0) = 0.0` for zero-length incident edges.
+    pub a1: f64,
+    /// A2 score penalizing any `deg >= 2` vertex with at least one zero-length incident edge to `0.0`.
+    pub a2: f64,
+}
+
+/// Computes DRGraph Eq. (19) minimum-angle resolution (`A1` and `A2`) in `[0.0, 1.0]`.
+///
+/// Vertices with effective undirected degree `< 2` receive score `1.0`, while empty graphs
+/// (`N == 0`) return `MinimumAngleSummary { a1: 0.0, a2: 0.0 }`.
+pub fn minimum_angle_summary<W, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+) -> CoreResult<MinimumAngleSummary> {
+    validate_graph_layout(graph, layout, "minimum_angle_summary")?;
+    let n = layout.len();
+    if n == 0 {
+        return Ok(MinimumAngleSummary { a1: 0.0, a2: 0.0 });
+    }
+
+    let directed = graph.is_directed();
+    let directed_adj = if directed {
+        Some(build_undirected_adjacency(graph))
+    } else {
+        None
+    };
+
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut angles = Vec::<f64>::new();
+    let mut sum_a1 = 0.0_f64;
+    let mut sum_a2 = 0.0_f64;
+
+    for u in 0..n {
+        let u32_u = u as u32;
+        let nbrs = match directed_adj.as_ref() {
+            Some(adj) => adj[u].as_slice(),
+            None => graph.neighbors(u),
+        };
+        angles.clear();
+        let ux = xs[u].to_f64();
+        let uy = ys[u].to_f64();
+        let mut has_zero = false;
+        for &v in nbrs {
+            if v == u32_u {
+                continue;
+            }
+            let vi = v as usize;
+            let dx = xs[vi].to_f64() - ux;
+            let dy = ys[vi].to_f64() - uy;
+            if dx == 0.0 && dy == 0.0 {
+                has_zero = true;
+                angles.push(0.0);
+            } else {
+                angles.push(dy.atan2(dx));
+            }
+        }
+        let d = angles.len();
+        if d < 2 {
+            sum_a1 += 1.0;
+            sum_a2 += 1.0;
+            continue;
+        }
+        angles.sort_unstable_by(f64::total_cmp);
+        let mut min_diff = (TAU - (angles[d - 1] - angles[0])).max(0.0);
+        for k in 0..(d - 1) {
+            let gap = (angles[k + 1] - angles[k]).max(0.0);
+            if gap < min_diff {
+                min_diff = gap;
+            }
+        }
+        let ideal = TAU / (d as f64);
+        let score = (1.0 - (ideal - min_diff).abs() / ideal).clamp(0.0, 1.0);
+        sum_a1 += score;
+        if !has_zero {
+            sum_a2 += score;
+        }
+    }
+
+    let inv_n = 1.0 / (n as f64);
+    Ok(MinimumAngleSummary {
+        a1: (sum_a1 * inv_n).clamp(0.0, 1.0),
+        a2: (sum_a2 * inv_n).clamp(0.0, 1.0),
+    })
+}
+
+/// Computes DRGraph Eq. (19) strict minimum-angle resolution (`A2`) in `[0.0, 1.0]`.
+///
+/// Equivalent to `minimum_angle_summary(graph, layout)?.a2`.
+pub fn minimum_angle<W, S: Scalar>(graph: &CsrGraph<W>, layout: &Layout2d<S>) -> CoreResult<f64> {
+    Ok(minimum_angle_summary(graph, layout)?.a2)
+}
+
+/// Coordinate-collapse and zero-length edge degeneracy diagnostics for a 2D layout.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LayoutDegeneracy {
+    /// Total number of vertices $N$.
+    pub num_nodes: usize,
+    /// Total number of unique non-self-loop edges $M$.
+    pub num_edges: usize,
+    /// Number of vertices sharing an exact `f32` `(x, y)` coordinate with at least one other vertex.
+    pub duplicate_nodes_f32: usize,
+    /// Fraction `duplicate_nodes_f32 / num_nodes` (`0.0` when `num_nodes == 0`).
+    pub duplicate_ratio_f32: f64,
+    /// Number of vertices sharing an exact `f64` `(x, y)` coordinate with at least one other vertex.
+    pub duplicate_nodes_f64: usize,
+    /// Fraction `duplicate_nodes_f64 / num_nodes` (`0.0` when `num_nodes == 0`).
+    pub duplicate_ratio_f64: f64,
+    /// Number of unique non-self-loop edges whose endpoints coincide (`hypot(dx, dy) == 0.0`).
+    pub zero_length_edges: usize,
+    /// Fraction `zero_length_edges / num_edges` (`0.0` when `num_edges == 0`).
+    pub zero_length_edge_ratio: f64,
+    /// Axis-aligned bounding-box width `max_x - min_x`.
+    pub bbox_width: f64,
+    /// Axis-aligned bounding-box height `max_y - min_y`.
+    pub bbox_height: f64,
+    /// `true` when `num_nodes > 0` and either `bbox_width <= 1e-12` or `bbox_height <= 1e-12`.
+    pub is_bbox_degenerate: bool,
+}
+
+#[inline]
+fn canonical_f32(v: f32) -> f32 {
+    if v == 0.0 { 0.0 } else { v }
+}
+
+#[inline]
+fn canonical_f64(v: f64) -> f64 {
+    if v == 0.0 { 0.0 } else { v }
+}
+
+/// Evaluates duplicate-node (`f32`/`f64`), zero-length edge, and bounding-box degeneracies.
+///
+/// Canonicalizes `-0.0` to `+0.0` before bitwise key comparison.
+pub fn layout_degeneracy<W, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+) -> CoreResult<LayoutDegeneracy> {
+    validate_graph_layout(graph, layout, "layout_degeneracy")?;
+    let n = layout.len();
+    let edges = extract_unique_edges(graph);
+    let m = edges.len();
+    if n == 0 {
+        return Ok(LayoutDegeneracy {
+            num_nodes: 0,
+            num_edges: m,
+            ..LayoutDegeneracy::default()
+        });
+    }
+
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut keys_f32 = Vec::with_capacity(n);
+    let mut keys_f64 = Vec::with_capacity(n);
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+
+    for i in 0..n {
+        let x64 = canonical_f64(xs[i].to_f64());
+        let y64 = canonical_f64(ys[i].to_f64());
+        min_x = min_x.min(x64);
+        max_x = max_x.max(x64);
+        min_y = min_y.min(y64);
+        max_y = max_y.max(y64);
+        keys_f64.push((x64.to_bits(), y64.to_bits()));
+
+        let x32 = canonical_f32(x64 as f32);
+        let y32 = canonical_f32(y64 as f32);
+        keys_f32.push(((x32.to_bits() as u64) << 32) | (y32.to_bits() as u64));
+    }
+
+    keys_f32.sort_unstable();
+    let mut dup_f32 = 0usize;
+    let mut run = 1usize;
+    for i in 1..n {
+        if keys_f32[i] == keys_f32[i - 1] {
+            run += 1;
+        } else {
+            if run > 1 {
+                dup_f32 += run;
+            }
+            run = 1;
+        }
+    }
+    if run > 1 {
+        dup_f32 += run;
+    }
+
+    keys_f64.sort_unstable();
+    let mut dup_f64 = 0usize;
+    let mut run64 = 1usize;
+    for i in 1..n {
+        if keys_f64[i] == keys_f64[i - 1] {
+            run64 += 1;
+        } else {
+            if run64 > 1 {
+                dup_f64 += run64;
+            }
+            run64 = 1;
+        }
+    }
+    if run64 > 1 {
+        dup_f64 += run64;
+    }
+
+    let mut zero_edges = 0usize;
+    for &(u, v) in &edges {
+        let ui = u as usize;
+        let vi = v as usize;
+        if (xs[ui].to_f64() - xs[vi].to_f64()).hypot(ys[ui].to_f64() - ys[vi].to_f64()) == 0.0 {
+            zero_edges += 1;
+        }
+    }
+
+    let bbox_width = (max_x - min_x).max(0.0);
+    let bbox_height = (max_y - min_y).max(0.0);
+    let is_bbox_degenerate = bbox_width <= 1e-12 || bbox_height <= 1e-12;
+
+    Ok(LayoutDegeneracy {
+        num_nodes: n,
+        num_edges: m,
+        duplicate_nodes_f32: dup_f32,
+        duplicate_ratio_f32: dup_f32 as f64 / n as f64,
+        duplicate_nodes_f64: dup_f64,
+        duplicate_ratio_f64: dup_f64 as f64 / n as f64,
+        zero_length_edges: zero_edges,
+        zero_length_edge_ratio: if m == 0 {
+            0.0
+        } else {
+            zero_edges as f64 / m as f64
+        },
+        bbox_width,
+        bbox_height,
+        is_bbox_degenerate,
+    })
+}
 
 /// PRISM layout-preservation distortion metrics comparing `original` and `adjusted` layouts.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -402,6 +648,7 @@ fn compute_sigma_disp<S: Scalar>(original: &Layout2d<S>, adjusted: &Layout2d<S>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egraph_core::DeterministicRng;
     use std::f64::consts::{FRAC_PI_2, PI};
 
     #[test]
@@ -489,5 +736,228 @@ mod tests {
         let d_col = prism_distortion(&orig, &collapsed).unwrap();
         assert_eq!(d_col.sigma_dist, 0.0);
         assert_eq!(d_col.sigma_disp, 1.0);
+    }
+
+    fn brute_minimum_angle_oracle<W, S: Scalar>(
+        graph: &CsrGraph<W>,
+        layout: &Layout2d<S>,
+    ) -> (f64, f64) {
+        let n = layout.len();
+        if n == 0 {
+            return (0.0, 0.0);
+        }
+        let adj = build_undirected_adjacency(graph);
+        let xs = layout.x();
+        let ys = layout.y();
+        let mut s1 = 0.0_f64;
+        let mut s2 = 0.0_f64;
+        for u in 0..n {
+            let d = adj[u].len();
+            if d < 2 {
+                s1 += 1.0;
+                s2 += 1.0;
+                continue;
+            }
+            let ux = xs[u].to_f64();
+            let uy = ys[u].to_f64();
+            let mut has_zero = false;
+            let mut vecs = Vec::with_capacity(d);
+            for &v in &adj[u] {
+                let dx = xs[v as usize].to_f64() - ux;
+                let dy = ys[v as usize].to_f64() - uy;
+                if dx == 0.0 && dy == 0.0 {
+                    has_zero = true;
+                    vecs.push((1.0_f64, 0.0_f64));
+                } else {
+                    vecs.push((dx, dy));
+                }
+            }
+            let mut min_theta = TAU;
+            for i in 0..d {
+                for j in (i + 1)..d {
+                    let ang = edge_angle(vecs[i].0, vecs[i].1, vecs[j].0, vecs[j].1).unwrap();
+                    if ang < min_theta {
+                        min_theta = ang;
+                    }
+                }
+            }
+            let ideal = TAU / (d as f64);
+            let score = (1.0 - (ideal - min_theta).abs() / ideal).clamp(0.0, 1.0);
+            s1 += score;
+            if !has_zero {
+                s2 += score;
+            }
+        }
+        (s1 / n as f64, s2 / n as f64)
+    }
+
+    #[test]
+    fn test_minimum_angle_brute_force_oracle_branch_cut_and_zero_edges() {
+        // Empty graph -> (0.0, 0.0).
+        let empty_g = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let empty_l = Layout2d::<f64>::zeros(0);
+        assert_eq!(
+            minimum_angle_summary(&empty_g, &empty_l).unwrap(),
+            MinimumAngleSummary { a1: 0.0, a2: 0.0 }
+        );
+        assert_eq!(minimum_angle(&empty_g, &empty_l).unwrap(), 0.0);
+
+        // Regular 3-star: ideal 120 deg at center, deg 1 leaves -> both A1 and A2 = 1.0.
+        let star =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (0, 2), (0, 3)], None, false, false).unwrap();
+        let star_l = Layout2d::from_xy(
+            vec![0.0, 1.0, -0.5, -0.5],
+            vec![0.0, 0.0, 0.5 * 3.0_f64.sqrt(), -0.5 * 3.0_f64.sqrt()],
+        )
+        .unwrap();
+        let s_star = minimum_angle_summary(&star, &star_l).unwrap();
+        assert!((s_star.a1 - 1.0).abs() < 1e-12);
+        assert!((s_star.a2 - 1.0).abs() < 1e-12);
+
+        // Branch cut around -pi / +pi: center 0 with neighbors near (-1, +eps) and (-1, -eps).
+        let branch_g =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (0, 2), (0, 3)], None, false, false).unwrap();
+        let branch_l =
+            Layout2d::from_xy(vec![0.0, -1.0, -1.0, 1.0], vec![0.0, 1e-4, -1e-4, 0.0]).unwrap();
+        let s_branch = minimum_angle_summary(&branch_g, &branch_l).unwrap();
+        let (o1, o2) = brute_minimum_angle_oracle(&branch_g, &branch_l);
+        assert!((s_branch.a1 - o1).abs() < 1e-12);
+        assert!((s_branch.a2 - o2).abs() < 1e-12);
+
+        // Zero-length edge divergence between A1 (atan2(0,0)=0) and A2 (score=0.0).
+        // Vertex 0 has 3 neighbors: (1, 0), (-1, 0), and coincident (0, 0) -> ideal 2pi/3.
+        // A1 sees angles [0, 0, pi] -> min_diff = 0 -> score(0) = 0; wait, pick neighbor at (0, 1):
+        // angles [0 (zero-len), pi/2, pi] -> min_diff = pi/2, ideal = 2pi/3 -> A1 > 0 while A2 = 0 at vertex 0!
+        let zero_l =
+            Layout2d::from_xy(vec![0.0, 0.0, 0.0, -1.0], vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+        let s_zero = minimum_angle_summary(&star, &zero_l).unwrap();
+        let (z1, z2) = brute_minimum_angle_oracle(&star, &zero_l);
+        assert!((s_zero.a1 - z1).abs() < 1e-12);
+        assert!((s_zero.a2 - z2).abs() < 1e-12);
+        assert!(s_zero.a1 > s_zero.a2);
+        assert_eq!(minimum_angle(&star, &zero_l).unwrap(), s_zero.a2);
+
+        // Multi-seed random graphs (directed + undirected, f32 + f64) vs O(sum d_v^2) oracle.
+        for seed in 1..=20u64 {
+            let mut rng = DeterministicRng::from_seed_u64(500 + seed);
+            let n = 16usize;
+            let directed = seed % 2 == 0;
+            let mut edges = Vec::new();
+            for _ in 0..32 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            let g = CsrGraph::<f64>::from_edges(n, &edges, None, directed, true).unwrap();
+            let xs: Vec<f64> = (0..n).map(|_| rng.next_f64() * 4.0 - 2.0).collect();
+            let ys: Vec<f64> = (0..n).map(|_| rng.next_f64() * 4.0 - 2.0).collect();
+            let l64 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+            let l32 = Layout2d::from_xy(
+                xs.iter().map(|&v| v as f32).collect(),
+                ys.iter().map(|&v| v as f32).collect(),
+            )
+            .unwrap();
+
+            let s64 = minimum_angle_summary(&g, &l64).unwrap();
+            let (b64_1, b64_2) = brute_minimum_angle_oracle(&g, &l64);
+            assert!((s64.a1 - b64_1).abs() < 1e-12);
+            assert!((s64.a2 - b64_2).abs() < 1e-12);
+
+            let s32 = minimum_angle_summary(&g, &l32).unwrap();
+            let (b32_1, b32_2) = brute_minimum_angle_oracle(&g, &l32);
+            assert!((s32.a1 - b32_1).abs() < 1e-12);
+            assert!((s32.a2 - b32_2).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_layout_degeneracy_brute_force_oracle_and_edge_cases() {
+        // 1. Canonicalization of -0.0 -> +0.0 and f32 vs f64 collision divergence.
+        let g =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3)], None, false, false).unwrap();
+        // Nodes 0 and 1 are (+0.0, -0.0) and (-0.0, +0.0) -> identical in both f32 and f64.
+        // Nodes 2 and 3 differ by 1e-12 -> distinct in f64, identical in f32!
+        let l = Layout2d::from_xy(
+            vec![0.0_f64, -0.0_f64, 1.0, 1.0 + 1e-12],
+            vec![-0.0_f64, 0.0_f64, 1.0, 1.0],
+        )
+        .unwrap();
+        let deg = layout_degeneracy(&g, &l).unwrap();
+        assert_eq!(deg.num_nodes, 4);
+        assert_eq!(deg.num_edges, 3);
+        assert_eq!(deg.duplicate_nodes_f32, 4);
+        assert!((deg.duplicate_ratio_f32 - 1.0).abs() < 1e-12);
+        assert_eq!(deg.duplicate_nodes_f64, 2);
+        assert!((deg.duplicate_ratio_f64 - 0.5).abs() < 1e-12);
+        assert_eq!(deg.zero_length_edges, 1);
+        assert!((deg.zero_length_edge_ratio - (1.0 / 3.0)).abs() < 1e-12);
+        assert!(!deg.is_bbox_degenerate);
+
+        // 2. 1D collinear layout: bbox_height == 0 -> is_bbox_degenerate = true.
+        let line = Layout2d::from_xy(vec![0.0, 1.0, 2.0, 3.0], vec![0.0; 4]).unwrap();
+        let deg_line = layout_degeneracy(&g, &line).unwrap();
+        assert_eq!(deg_line.duplicate_nodes_f32, 0);
+        assert_eq!(deg_line.bbox_width, 3.0);
+        assert_eq!(deg_line.bbox_height, 0.0);
+        assert!(deg_line.is_bbox_degenerate);
+
+        // 3. Empty graph -> zeros, not degenerate.
+        let empty_g = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let empty_l = Layout2d::<f64>::zeros(0);
+        let deg_empty = layout_degeneracy(&empty_g, &empty_l).unwrap();
+        assert_eq!(deg_empty.num_nodes, 0);
+        assert_eq!(deg_empty.duplicate_ratio_f32, 0.0);
+        assert!(!deg_empty.is_bbox_degenerate);
+
+        // 4. Multi-seed O(N^2) brute-force oracle for duplicate_nodes_f32/f64 and zero_length_edges.
+        for seed in 1..=15u64 {
+            let mut rng = DeterministicRng::from_seed_u64(600 + seed);
+            let n = 25usize;
+            let mut edges = Vec::new();
+            for _ in 0..40 {
+                edges.push((rng.gen_range_usize(n) as u32, rng.gen_range_usize(n) as u32));
+            }
+            let rg = CsrGraph::<f64>::from_edges(n, &edges, None, false, true).unwrap();
+            let xs: Vec<f64> = (0..n)
+                .map(|_| {
+                    let v = rng.gen_range_usize(5) as f64 - 2.0;
+                    if v == 0.0 && rng.gen_range_usize(2) == 0 {
+                        -0.0
+                    } else {
+                        v
+                    }
+                })
+                .collect();
+            let ys: Vec<f64> = (0..n)
+                .map(|_| (rng.gen_range_usize(5) as f64) * 0.5)
+                .collect();
+            let rl = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+            let got = layout_degeneracy(&rg, &rl).unwrap();
+
+            let mut brute_dup64 = 0usize;
+            let mut brute_dup32 = 0usize;
+            for i in 0..n {
+                let has64 = (0..n).any(|j| j != i && xs[i] == xs[j] && ys[i] == ys[j]);
+                let has32 = (0..n).any(|j| {
+                    j != i && (xs[i] as f32) == (xs[j] as f32) && (ys[i] as f32) == (ys[j] as f32)
+                });
+                if has64 {
+                    brute_dup64 += 1;
+                }
+                if has32 {
+                    brute_dup32 += 1;
+                }
+            }
+            let uedges = extract_unique_edges(&rg);
+            let brute_zero = uedges
+                .iter()
+                .filter(|&&(u, v)| {
+                    xs[u as usize] == xs[v as usize] && ys[u as usize] == ys[v as usize]
+                })
+                .count();
+            assert_eq!(got.duplicate_nodes_f64, brute_dup64);
+            assert_eq!(got.duplicate_nodes_f32, brute_dup32);
+            assert_eq!(got.zero_length_edges, brute_zero);
+        }
     }
 }

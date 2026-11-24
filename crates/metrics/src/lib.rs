@@ -10,30 +10,41 @@
 //!   `dRNG` / `dGG` preservation metrics.
 //! - [`geometry`]: Aspect ratio, angular resolution, edge angles, ideal edge lengths,
 //!   and PRISM distortion ($\sigma_{\mathrm{dist}}, \sigma_{\mathrm{disp}}$).
-//! - [`dispatcher`]: Selective metric evaluation (`evaluate_metrics`) executing only
-//!   explicitly requested targets.
+//! - [`community`]: Spatial community coherence (`adjusted_patch_nig`,
+//!   `adjusted_patch_nig_multiscale`).
+//! - [`rta`]: $O(N)$-RAM streaming Landmark-Stratified Random Triplet Accuracy
+//!   (`landmark_stratified_rta`).
+//! - [`dispatcher`]: Selective metric evaluation (`evaluate_metrics`,
+//!   `evaluate_metrics_with_communities`) executing only explicitly requested targets.
 
+pub mod community;
 pub mod crossings;
 pub mod dispatcher;
 pub mod geometry;
 pub mod neighborhood;
 pub mod proximity;
+pub mod rta;
 pub mod stress;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 use egraph_spatial::StaticKdTree;
 
+pub use community::{adjusted_patch_nig, adjusted_patch_nig_multiscale};
 pub use crossings::{
     CrossingPair, CrossingSummary, TorusCrossing, crossing_angle, crossing_angle_from_pairs,
     crossing_edges, crossing_edges_torus, crossing_edges_torus_from_edges, crossing_number,
-    crossing_number_from_pairs, crossing_summary, sampled_crossing_number,
-    sampled_crossing_number_with_rng,
+    crossing_number_from_pairs, crossing_summary, crosslessness, crosslessness_from_count,
+    max_crossing_pairs, sampled_crossing_number, sampled_crossing_number_with_rng,
+    sampled_crosslessness,
 };
-pub use dispatcher::{MetricConfig, MetricReport, MetricTarget, evaluate_metrics};
+pub use dispatcher::{
+    MetricConfig, MetricReport, MetricTarget, evaluate_metrics, evaluate_metrics_with_communities,
+};
 pub use geometry::{
-    PrismDistortion, angular_resolution, aspect_ratio, edge_angle, ideal_edge_lengths,
-    ideal_edge_lengths_from_distances, ideal_edge_lengths_with_unit, prism_distortion,
-    prism_distortion_with_edges,
+    LayoutDegeneracy, MinimumAngleSummary, PrismDistortion, angular_resolution, aspect_ratio,
+    edge_angle, ideal_edge_lengths, ideal_edge_lengths_from_distances,
+    ideal_edge_lengths_with_unit, layout_degeneracy, minimum_angle, minimum_angle_summary,
+    prism_distortion, prism_distortion_with_edges,
 };
 pub use neighborhood::{
     neighborhood_preservation_1hop, neighborhood_preservation_1hop_with_tree,
@@ -47,6 +58,10 @@ pub use proximity::{
     node_resolution, node_resolution_with_tree, relative_neighborhood_edges,
     relative_neighborhood_edges_with_tree, relative_neighborhood_preservation,
     relative_neighborhood_preservation_with_tree,
+};
+pub use rta::{
+    RtaEvaluation, landmark_stratified_rta, landmark_stratified_rta_detail,
+    landmark_stratified_rta_from_landmarks,
 };
 pub use stress::{
     BfsScratch, StressEvaluation, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source,

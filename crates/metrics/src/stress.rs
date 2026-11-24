@@ -519,6 +519,62 @@ pub fn sampled_scale_normalized_stress<W, S: Scalar>(
     Ok(sampled_scale_normalized_stress_detail(graph, layout, num_pivots, seed)?.normalized_stress)
 }
 
+/// Selects up to `num_pivots` deterministic pivots stratified by vertex degree.
+///
+/// Ignores isolated vertices (`degree == 0`) whenever at least `num_pivots` non-isolated
+/// vertices exist, sorting non-isolated vertices by `(degree, id)` into `k` contiguous
+/// quantile strata and drawing one pivot per stratum with `DeterministicRng`. When
+/// `num_pivots >= non_isolated_count`, all non-isolated vertices are selected (and topped
+/// up with isolated vertices if `non_isolated_count < min(num_pivots, n)`), guaranteeing
+/// exact parity with [`scale_normalized_stress`].
+pub(crate) fn select_degree_stratified_pivots<W>(
+    graph: &CsrGraph<W>,
+    num_pivots: usize,
+    seed: u64,
+) -> Vec<usize> {
+    let n = graph.num_nodes();
+    let target = num_pivots.min(n);
+    if target == 0 {
+        return Vec::new();
+    }
+
+    let mut non_iso: Vec<(usize, usize)> = Vec::new();
+    for u in 0..n {
+        let deg = graph.degree(u);
+        if deg > 0 {
+            non_iso.push((deg, u));
+        }
+    }
+    let m = non_iso.len();
+    if m <= target {
+        let mut pivots: Vec<usize> = non_iso.into_iter().map(|(_, u)| u).collect();
+        if pivots.len() < target {
+            for u in 0..n {
+                if graph.degree(u) == 0 {
+                    pivots.push(u);
+                    if pivots.len() == target {
+                        break;
+                    }
+                }
+            }
+        }
+        return pivots;
+    }
+
+    non_iso.sort_unstable();
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let mut pivots = Vec::with_capacity(target);
+    let m_u128 = m as u128;
+    let k_u128 = target as u128;
+    for b in 0..target {
+        let start = (((b as u128) * m_u128) / k_u128) as usize;
+        let end = ((((b + 1) as u128) * m_u128) / k_u128) as usize;
+        let pick = start + rng.gen_range_usize(end - start);
+        pivots.push(non_iso[pick].1);
+    }
+    pivots
+}
+
 /// Computes full [`StressEvaluation`] details for $O(kN)$ pivot-sampled `SNS`.
 pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
     graph: &CsrGraph<W>,
@@ -535,19 +591,10 @@ pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
         return Ok(StressEvaluation::default());
     }
 
-    let k = num_pivots.min(n);
-    let mut pivots: Vec<usize> = (0..n).collect();
+    let pivots = select_degree_stratified_pivots(graph, num_pivots, seed);
     let mut is_pivot = vec![false; n];
-    if k == n {
-        is_pivot.fill(true);
-    } else {
-        let mut rng = DeterministicRng::from_seed_u64(seed);
-        for i in 0..k {
-            let pick = i + rng.gen_range_usize(n - i);
-            pivots.swap(i, pick);
-            is_pivot[pivots[i]] = true;
-        }
-        pivots.truncate(k);
+    for &p in &pivots {
+        is_pivot[p] = true;
     }
 
     let xs = layout.x();
@@ -980,5 +1027,80 @@ mod tests {
             sampled_scale_normalized_stress(&g, &collapsed, 0, 1),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_degree_stratified_pivot_coverage_and_exact_parity() {
+        // Construct a heterogeneous graph with 40 isolated nodes, 60 deg-1 leaves,
+        // 30 mid-degree nodes (deg >= 4), and 10 high-degree hubs (deg >= 12).
+        let mut edges = Vec::new();
+        // 10 hubs (0..10) forming a clique (deg >= 9), each with 6 leaves (10..70).
+        for i in 0..10u32 {
+            for j in (i + 1)..10u32 {
+                edges.push((i, j));
+            }
+        }
+        for h in 0..10u32 {
+            for l in 0..6u32 {
+                edges.push((h, 10 + h * 6 + l));
+            }
+        }
+        // 30 mid-degree nodes (70..100) forming a 4-regular-ish ring + chord.
+        for k in 0..30u32 {
+            let u = 70 + k;
+            let v1 = 70 + ((k + 1) % 30);
+            let v2 = 70 + ((k + 2) % 30);
+            edges.push((u, v1));
+            edges.push((u, v2));
+        }
+        // Connect mid-degree ring to hub 0 via two bridges so component is mostly connected.
+        edges.push((0, 70));
+        edges.push((5, 85));
+        // Nodes 100..140 remain isolated (deg == 0).
+        let n = 140usize;
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, true).unwrap();
+
+        let pivots = select_degree_stratified_pivots(&g, 20, 42);
+        assert_eq!(pivots.len(), 20);
+        // Zero isolated nodes selected while non_iso (100) >= 20.
+        assert!(pivots.iter().all(|&u| g.degree(u) > 0));
+        // All selected pivots are distinct.
+        let mut uniq = pivots.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), 20);
+
+        // Proportional coverage across leaves (60% -> ~12), mid (30% -> ~6), hubs (10% -> ~2).
+        let leaf_cnt = pivots.iter().filter(|&&u| g.degree(u) == 1).count();
+        let mid_cnt = pivots
+            .iter()
+            .filter(|&&u| (2..=8).contains(&g.degree(u)))
+            .count();
+        let hub_cnt = pivots.iter().filter(|&&u| g.degree(u) >= 9).count();
+        assert_eq!(leaf_cnt + mid_cnt + hub_cnt, 20);
+        assert!((11..=13).contains(&leaf_cnt), "leaf_cnt={leaf_cnt}");
+        assert!((5..=7).contains(&mid_cnt), "mid_cnt={mid_cnt}");
+        assert!((1..=3).contains(&hub_cnt), "hub_cnt={hub_cnt}");
+
+        // Exact parity with scale_normalized_stress when k >= non_iso (100) even if k < n (140).
+        let layout64 = random_layout(n, 77, 10.0);
+        let exact_sns = scale_normalized_stress(&g, &layout64).unwrap();
+        let non_iso_sns = sampled_scale_normalized_stress(&g, &layout64, 100, 42).unwrap();
+        let all_sns = sampled_scale_normalized_stress(&g, &layout64, 200, 42).unwrap();
+        assert!((non_iso_sns - exact_sns).abs() < 1e-12);
+        assert!((all_sns - exact_sns).abs() < 1e-12);
+
+        // f32 scale invariance on sampled_scale_normalized_stress.
+        let lx32: Vec<f32> = layout64.x().iter().map(|&v| v as f32).collect();
+        let ly32: Vec<f32> = layout64.y().iter().map(|&v| v as f32).collect();
+        let l32 = Layout2d::from_xy(lx32.clone(), ly32.clone()).unwrap();
+        let l32_scaled = Layout2d::from_xy(
+            lx32.iter().map(|&v| v * 12.5).collect(),
+            ly32.iter().map(|&v| v * 12.5).collect(),
+        )
+        .unwrap();
+        let s32_a = sampled_scale_normalized_stress(&g, &l32, 32, 99).unwrap();
+        let s32_b = sampled_scale_normalized_stress(&g, &l32_scaled, 32, 99).unwrap();
+        assert!((s32_a - s32_b).abs() < 1e-6);
     }
 }
