@@ -21,6 +21,8 @@ Crossing Metrics
 .. autofunction:: egraph.sweep_crossing_number
 .. autofunction:: egraph.sweep_crossing_angle
 .. autofunction:: egraph.sampled_crossing_number
+.. autofunction:: egraph.crosslessness
+.. autofunction:: egraph.sampled_crosslessness
 .. autofunction:: egraph.torus_crossing_number
 .. autofunction:: egraph.crossing_edges_torus
 .. autofunction:: egraph.crossing_summary
@@ -38,6 +40,15 @@ Neighborhood & Proximity Preservation
 .. autofunction:: egraph.gabriel_graph_property_v6
 .. autofunction:: egraph.gabriel_graph_edges
 .. autofunction:: egraph.relative_neighborhood_edges
+.. autofunction:: egraph.landmark_stratified_rta
+.. autofunction:: egraph.landmark_stratified_rta_detail
+.. autofunction:: egraph.landmark_stratified_rta_from_landmarks
+
+Community Spatial Coherence
+---------------------------
+
+.. autofunction:: egraph.adjusted_patch_nig
+.. autofunction:: egraph.adjusted_patch_nig_multiscale
 
 Geometry, Resolution & PRISM Distortion
 ---------------------------------------
@@ -47,6 +58,9 @@ Geometry, Resolution & PRISM Distortion
 .. autofunction:: egraph.node_resolution_v6
 .. autofunction:: egraph.aspect_ratio_v6
 .. autofunction:: egraph.angular_resolution_v6
+.. autofunction:: egraph.minimum_angle
+.. autofunction:: egraph.minimum_angle_summary
+.. autofunction:: egraph.layout_degeneracy
 .. autofunction:: egraph.ideal_edge_lengths_v6
 .. autofunction:: egraph.ideal_edge_lengths_with_unit
 

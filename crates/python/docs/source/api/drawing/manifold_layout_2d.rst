@@ -7,3 +7,6 @@ ManifoldLayout2d
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autofunction:: egraph.poincare_distance
+.. autofunction:: egraph.poincare_mobius_add

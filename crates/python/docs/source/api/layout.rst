@@ -3,6 +3,8 @@ Layout Module
 
 This module provides cooperative v6 layout solvers and legacy layout classes.
 
+.. autofunction:: egraph.coarse_backbone_init
+
 .. toctree::
    :maxdepth: 1
 
@@ -15,6 +17,8 @@ This module provides cooperative v6 layout solvers and legacy layout classes.
    layout/yifan_hu_solver
    layout/prism_overlap_removal
    layout/spatial_intruder_refiner
+   layout/screened_poisson_field_2d
+   layout/screened_poisson_refiner
    layout/fdeb_solver
    layout/stress_majorization_solver
    layout/kamada_kawai_solver
