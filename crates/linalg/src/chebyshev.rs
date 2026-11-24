@@ -23,6 +23,16 @@ pub fn adaptive_chebyshev_degree(max_t: f64) -> usize {
     40usize.max(deg as usize)
 }
 
+/// Computes the adaptive Chebyshev polynomial degree scaled for spectrum $[0, \lambda_{\max}]$,
+/// matching [`adaptive_chebyshev_degree`] bit-for-bit when `lambda_max == 2.0`.
+#[inline]
+pub fn adaptive_chebyshev_degree_scaled(max_t: f64, lambda_max: f64) -> usize {
+    if !max_t.is_finite() || !lambda_max.is_finite() || max_t <= 0.0 || lambda_max <= 0.0 {
+        return 40;
+    }
+    adaptive_chebyshev_degree(max_t * (0.5 * lambda_max))
+}
+
 /// Evaluates exponentially scaled modified Bessel functions $e^{-t} I_k(t)$ for $k = 0 \dots \mathrm{max\_k}$
 /// in `f64` using Miller's backward recurrence with periodic rescaling above `1e100`.
 ///
@@ -1492,6 +1502,223 @@ impl ChebyshevWorkspace {
 
         Ok((norms_a, norms_b))
     }
+
+    /// Evaluates $\exp(-t A) V$ on an arbitrary symmetric [`CsrMatrix`] using dynamic
+    /// spectrum scaling $[0, \hat{\lambda}_{\max}]$ (auto-estimated via Lanczos when
+    /// `lambda_max` is `None`) and adaptive scaled Chebyshev degree (when `degree` is `None`).
+    ///
+    /// Handles empty (`num_nodes == 0`) and zero (`lambda_max == 0.0`) matrices analytically,
+    /// returning the effective $\hat{\lambda}_{\max}$ used.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_heat_dynamic(
+        &mut self,
+        matrix: &CsrMatrix,
+        v: &[f64],
+        out: &mut [f64],
+        ncols: usize,
+        t: f64,
+        degree: Option<usize>,
+        lambda_max: Option<f64>,
+        lanczos_steps: usize,
+        safety_factor: f64,
+        seed: u64,
+    ) -> CoreResult<f64> {
+        if !t.is_finite() {
+            return Err(CoreError::non_finite(
+                "ChebyshevWorkspace::apply_heat_dynamic::t",
+            ));
+        }
+        if t < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "diffusion time t must be >= 0, got {t}"
+            )));
+        }
+        let n = matrix.num_nodes();
+        let total = n
+            .checked_mul(ncols)
+            .ok_or_else(|| CoreError::invalid_input("ChebyshevWorkspace batch size overflow"))?;
+        if v.len() != total {
+            return Err(CoreError::dimension_mismatch(
+                total,
+                v.len(),
+                "ChebyshevWorkspace::apply_heat_dynamic::v",
+            ));
+        }
+        if out.len() != total {
+            return Err(CoreError::dimension_mismatch(
+                total,
+                out.len(),
+                "ChebyshevWorkspace::apply_heat_dynamic::out",
+            ));
+        }
+
+        let gersh = matrix.gershgorin_spectral_bound();
+        if !gersh.is_finite() {
+            return Err(CoreError::non_finite(
+                "ChebyshevWorkspace::apply_heat_dynamic::matrix",
+            ));
+        }
+        let lmax = match lambda_max {
+            Some(lm) => {
+                if !lm.is_finite() {
+                    return Err(CoreError::non_finite(
+                        "ChebyshevWorkspace::apply_heat_dynamic::lambda_max",
+                    ));
+                }
+                if lm < 0.0 {
+                    return Err(CoreError::invalid_input(format!(
+                        "lambda_max must be >= 0, got {lm}"
+                    )));
+                }
+                if lm == 0.0 && gersh > 0.0 {
+                    return Err(CoreError::invalid_input(
+                        "lambda_max must be > 0 for non-zero matrices",
+                    ));
+                }
+                lm
+            }
+            None => matrix.estimate_lambda_max_lanczos(lanczos_steps, safety_factor, seed)?,
+        };
+
+        if total == 0 {
+            return Ok(lmax);
+        }
+        if lmax == 0.0 || t == 0.0 {
+            out.copy_from_slice(v);
+            return Ok(lmax);
+        }
+
+        let deg = degree.unwrap_or_else(|| adaptive_chebyshev_degree_scaled(t, lmax));
+        let coeffs = compute_chebyshev_bandpass_coefficients(&[(1.0, t)], lmax, deg)?;
+        self.apply_batch_with_lambda_max(matrix, lmax, &coeffs, v, out, ncols)?;
+        Ok(lmax)
+    }
+
+    /// Computes a deterministic Johnson-Lindenstrauss spectral embedding
+    /// $\sqrt{h_+}(A) Z$ (optionally left-multiplied by `scale_vec`) for an arbitrary symmetric
+    /// [`CsrMatrix`] using dynamic spectrum scaling $[0, \hat{\lambda}_{\max}]$.
+    ///
+    /// Handles empty (`num_nodes == 0`) and zero (`lambda_max == 0.0`) matrices analytically,
+    /// returning `(embedding, lambda_max_used)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_dog_jl_dynamic(
+        &mut self,
+        matrix: &CsrMatrix,
+        terms: &[(f64, f64)],
+        lambda_max: Option<f64>,
+        degree: Option<usize>,
+        jl_dim: usize,
+        eps_psd: f64,
+        lanczos_steps: usize,
+        safety_factor: f64,
+        seed: u64,
+        scale_vec: Option<&[f64]>,
+    ) -> CoreResult<(Vec<f64>, f64)> {
+        if jl_dim == 0 {
+            return Err(CoreError::invalid_input("jl_dim must be >= 1"));
+        }
+        if !eps_psd.is_finite() || eps_psd < 0.0 {
+            return Err(CoreError::invalid_input("eps_psd must be finite and >= 0"));
+        }
+        if terms.is_empty() {
+            return Err(CoreError::invalid_input("filter terms must not be empty"));
+        }
+        if let Some(0) = degree {
+            return Err(CoreError::invalid_input("degree must be >= 1"));
+        }
+        let mut max_t = 0.0_f64;
+        for &(w, t) in terms {
+            if !w.is_finite() || !t.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ChebyshevWorkspace::compute_dog_jl_dynamic::terms",
+                ));
+            }
+            if t < 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "diffusion time t must be >= 0, got {t}"
+                )));
+            }
+            if t > max_t {
+                max_t = t;
+            }
+        }
+        let n = matrix.num_nodes();
+        if let Some(sv) = scale_vec {
+            if sv.len() != n {
+                return Err(CoreError::dimension_mismatch(
+                    n,
+                    sv.len(),
+                    "ChebyshevWorkspace::compute_dog_jl_dynamic::scale_vec",
+                ));
+            }
+            if sv.iter().any(|v| !v.is_finite()) {
+                return Err(CoreError::non_finite(
+                    "ChebyshevWorkspace::compute_dog_jl_dynamic::scale_vec",
+                ));
+            }
+        }
+
+        let gersh = matrix.gershgorin_spectral_bound();
+        if !gersh.is_finite() {
+            return Err(CoreError::non_finite(
+                "ChebyshevWorkspace::compute_dog_jl_dynamic::matrix",
+            ));
+        }
+        let lmax = match lambda_max {
+            Some(lm) => {
+                if !lm.is_finite() {
+                    return Err(CoreError::non_finite(
+                        "ChebyshevWorkspace::compute_dog_jl_dynamic::lambda_max",
+                    ));
+                }
+                if lm < 0.0 {
+                    return Err(CoreError::invalid_input(format!(
+                        "lambda_max must be >= 0, got {lm}"
+                    )));
+                }
+                if lm == 0.0 && gersh > 0.0 {
+                    return Err(CoreError::invalid_input(
+                        "lambda_max must be > 0 for non-zero matrices",
+                    ));
+                }
+                lm
+            }
+            None => matrix.estimate_lambda_max_lanczos(lanczos_steps, safety_factor, seed)?,
+        };
+
+        if n == 0 {
+            return Ok((Vec::new(), lmax));
+        }
+        if lmax == 0.0 {
+            let total = n
+                .checked_mul(jl_dim)
+                .ok_or_else(|| CoreError::invalid_input("JL embedding size overflow"))?;
+            let h0: f64 = terms.iter().map(|&(w, _)| w).sum();
+            let delta = (eps_psd - h0).max(0.0);
+            let h_plus = ((h0 + delta) / (1.0 + delta)).max(0.0);
+            let g0 = h_plus.sqrt();
+            let mut rng = DeterministicRng::from_seed_u64(seed);
+            let scale = g0 / (jl_dim as f64).sqrt();
+            let mut out = vec![0.0_f64; total];
+            for row in 0..n {
+                let row_scale = scale_vec.map_or(1.0, |sv| sv[row]) * scale;
+                for col in 0..jl_dim {
+                    out[row * jl_dim + col] = if (rng.next_u64() & 1) == 0 {
+                        row_scale
+                    } else {
+                        -row_scale
+                    };
+                }
+            }
+            return Ok((out, 0.0));
+        }
+
+        let deg = degree.unwrap_or_else(|| adaptive_chebyshev_degree_scaled(max_t, lmax));
+        let (terms_psd, _, _) = project_psd_spectral_filter(terms, lmax, deg, eps_psd)?;
+        let emb = self
+            .compute_kernel_jl_embedding(matrix, &terms_psd, lmax, deg, jl_dim, seed, scale_vec)?;
+        Ok((emb, lmax))
+    }
 }
 
 /// Configuration for [`ChebyshevDogKernel`] implementing R1/R2 regularized Difference-of-Gaussians
@@ -2526,5 +2753,119 @@ mod tests {
         assert_eq!(effective_chebyshev_len(&[], 1e-12), 0);
         assert_eq!(effective_chebyshev_len(&[1.0], 1e-12), 1);
         assert_eq!(effective_chebyshev_len(&[1.0, 0.5, 1e-13], 1e-12), 2);
+    }
+
+    #[test]
+    fn test_adaptive_degree_scaled_and_dynamic_spectrum_star_graph() {
+        // Bit-exact match at lambda_max == 2.0
+        for &t in &[0.0, 0.5, 1.0, 4.5, 16.0, 48.0] {
+            assert_eq!(
+                adaptive_chebyshev_degree_scaled(t, 2.0),
+                adaptive_chebyshev_degree(t)
+            );
+        }
+        assert!(adaptive_chebyshev_degree_scaled(2.0, 100.0) > adaptive_chebyshev_degree(2.0));
+
+        // Zero-matrix fast path (edgeless graph under combinatorial Laplacian)
+        let edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
+        let l_zero = crate::csr_matrix::combinatorial_laplacian(&edgeless);
+        let mut ws = ChebyshevWorkspace::new();
+        let v_zero = vec![1.0, -2.0, 3.0, -4.0];
+        let mut out_zero = vec![0.0; 4];
+        let lmax_zero = ws
+            .apply_heat_dynamic(
+                &l_zero,
+                &v_zero,
+                &mut out_zero,
+                1,
+                2.5,
+                None,
+                None,
+                16,
+                1.05,
+                42,
+            )
+            .unwrap();
+        assert_eq!(lmax_zero, 0.0);
+        assert_eq!(out_zero, v_zero);
+
+        let terms_zero = build_dog_terms(1.0, 4.0, 0.5, 0.0).unwrap();
+        let (emb_zero, lmax_emb_zero) = ws
+            .compute_dog_jl_dynamic(
+                &l_zero,
+                &terms_zero,
+                None,
+                None,
+                8,
+                1e-4,
+                16,
+                1.05,
+                42,
+                None,
+            )
+            .unwrap();
+        assert_eq!(lmax_emb_zero, 0.0);
+        assert_eq!(emb_zero.len(), 32);
+        assert!(emb_zero.iter().all(|v| v.is_finite() && v.abs() > 0.0));
+
+        // Star graph K_{1, 50}: L_comb has lambda_max = 51.0 >> 2.0
+        let n_star = 51usize;
+        let edges: Vec<(u32, u32)> = (1..n_star).map(|i| (0, i as u32)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &edges, None, false, false).unwrap();
+        let l_star = crate::csr_matrix::combinatorial_laplacian(&star);
+        let l_dense = l_star.to_dense().unwrap();
+        let (evals, evecs) =
+            crate::eigen::symmetric_eigen_jacobi(&l_dense, n_star, 64, 1e-12).unwrap();
+
+        let t = 0.25;
+        let v: Vec<f64> = (0..n_star).map(|i| ((i as f64) * 0.31).sin()).collect();
+        let mut out = vec![0.0; n_star];
+        let lmax_used = ws
+            .apply_heat_dynamic(&l_star, &v, &mut out, 1, t, None, None, 16, 1.05, 42)
+            .unwrap();
+        assert!(lmax_used >= 51.0);
+
+        // Exact exp(-t * L) v = V diag(exp(-t * lambda)) V^T v
+        let mut proj = vec![0.0; n_star];
+        for m in 0..n_star {
+            let mut s = 0.0;
+            for i in 0..n_star {
+                s += evecs[i * n_star + m] * v[i];
+            }
+            proj[m] = s * (-t * evals[m]).exp();
+        }
+        let mut exact = vec![0.0; n_star];
+        for i in 0..n_star {
+            let mut s = 0.0;
+            for m in 0..n_star {
+                s += evecs[i * n_star + m] * proj[m];
+            }
+            exact[i] = s;
+        }
+        let max_err = out
+            .iter()
+            .zip(exact.iter())
+            .map(|(&a, &b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_err < 1e-8, "star heat dynamic max_err={max_err}");
+
+        // Dynamic DoG JL embedding on star graph (lambda_max >> 2)
+        let (dog_emb, lmax_dog) = ws
+            .compute_dog_jl_dynamic(
+                &l_star,
+                &terms_zero,
+                None,
+                None,
+                8,
+                1e-4,
+                16,
+                1.05,
+                42,
+                None,
+            )
+            .unwrap();
+        assert!(lmax_dog >= 51.0);
+        assert_eq!(dog_emb.len(), n_star * 8);
+        assert!(dog_emb.iter().all(|v| v.is_finite()));
     }
 }

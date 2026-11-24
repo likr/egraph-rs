@@ -15,6 +15,50 @@ fn next_gaussian_pair(rng: &mut DeterministicRng) -> (f64, f64) {
     (r * c, r * s)
 }
 
+#[inline]
+fn mean_and_iso_std<S: Scalar>(xs: &[S], ys: &[S]) -> (f64, f64, f64) {
+    let n_f64 = xs.len() as f64;
+    let mx = xs.iter().map(|v| v.to_f64()).sum::<f64>() / n_f64;
+    let my = ys.iter().map(|v| v.to_f64()).sum::<f64>() / n_f64;
+    let mut sum_sq = 0.0_f64;
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        let dx = x.to_f64() - mx;
+        let dy = y.to_f64() - my;
+        sum_sq += dx * dx + dy * dy;
+    }
+    (mx, my, (sum_sq / (2.0 * n_f64)).sqrt())
+}
+
+#[inline]
+fn median_of_slice(buf: &mut [f64]) -> f64 {
+    let len = buf.len();
+    debug_assert!(len > 0);
+    if len % 2 == 1 {
+        *buf.select_nth_unstable_by(len / 2, f64::total_cmp).1
+    } else {
+        let (left, &mut upper, _) = buf.select_nth_unstable_by(len / 2, f64::total_cmp);
+        let lower = left.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        0.5 * (lower + upper)
+    }
+}
+
+#[inline]
+fn quantile_of_slice(buf: &mut [f64], q: f64) -> f64 {
+    let len = buf.len();
+    debug_assert!(len >= 2);
+    let pos = q * ((len - 1) as f64);
+    let lo = pos.floor() as usize;
+    let hi = pos.ceil() as usize;
+    let frac = pos - (lo as f64);
+    let (left, &mut val_hi, _) = buf.select_nth_unstable_by(hi, f64::total_cmp);
+    if lo == hi {
+        val_hi
+    } else {
+        let val_lo = left.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        val_lo + frac * (val_hi - val_lo)
+    }
+}
+
 /// Sanitizes non-finite entries, centers coordinates per axis, and scales isotropically so
 /// $\sqrt{\frac{1}{2N} \sum_i ((x_i - \bar{x})^2 + (y_i - \bar{y})^2)} = \mathrm{target\_std}$,
 /// matching `numpy.std(coords)` on `(N, 2)` centered arrays.
@@ -40,70 +84,158 @@ pub fn normalize_layout_2d<S: Scalar>(
     }
 
     let mut rng = DeterministicRng::from_seed_u64(seed);
-    let mut xs = Vec::with_capacity(n);
-    let mut ys = Vec::with_capacity(n);
-    for (&x, &y) in layout.x().iter().zip(layout.y().iter()) {
-        let xf = x.to_f64();
-        let yf = y.to_f64();
-        let clean_x = if xf.is_finite() {
-            xf
-        } else {
-            next_gaussian_pair(&mut rng).0
-        };
-        let clean_y = if yf.is_finite() {
-            yf
-        } else {
-            next_gaussian_pair(&mut rng).0
-        };
-        xs.push(clean_x);
-        ys.push(clean_y);
+    let (xs, ys) = layout.xy_mut();
+    for i in 0..n {
+        if !xs[i].is_finite() {
+            xs[i] = S::from_f64(next_gaussian_pair(&mut rng).0);
+        }
+        if !ys[i].is_finite() {
+            ys[i] = S::from_f64(next_gaussian_pair(&mut rng).0);
+        }
     }
 
     if n == 1 {
-        layout.x_mut()[0] = S::ZERO;
-        layout.y_mut()[0] = S::ZERO;
+        xs[0] = S::ZERO;
+        ys[0] = S::ZERO;
         return Ok(());
     }
 
-    let n_f64 = n as f64;
-    let center_and_std = |x_buf: &mut [f64], y_buf: &mut [f64]| -> f64 {
-        let mx = x_buf.iter().sum::<f64>() / n_f64;
-        let my = y_buf.iter().sum::<f64>() / n_f64;
-        let mut sum_sq = 0.0_f64;
-        for (x, y) in x_buf.iter_mut().zip(y_buf.iter_mut()) {
-            *x -= mx;
-            *y -= my;
-            sum_sq += (*x) * (*x) + (*y) * (*y);
-        }
-        (sum_sq / (2.0 * n_f64)).sqrt()
-    };
-
-    let mut std_dev = center_and_std(&mut xs, &mut ys);
+    let (mut mx, mut my, mut std_dev) = mean_and_iso_std(xs, ys);
     if !std_dev.is_finite() || std_dev < 1e-12 {
-        for (x, y) in xs.iter_mut().zip(ys.iter_mut()) {
+        for i in 0..n {
             let (gx, gy) = next_gaussian_pair(&mut rng);
-            *x = gx;
-            *y = gy;
+            xs[i] = S::from_f64(gx);
+            ys[i] = S::from_f64(gy);
         }
-        std_dev = center_and_std(&mut xs, &mut ys);
+        (mx, my, std_dev) = mean_and_iso_std(xs, ys);
         if !std_dev.is_finite() || std_dev < 1e-12 {
-            layout.x_mut().fill(S::ZERO);
-            layout.y_mut().fill(S::ZERO);
+            xs.fill(S::ZERO);
+            ys.fill(S::ZERO);
             return Ok(());
         }
     }
 
     let scale = target_std / std_dev;
-    let (dst_x, dst_y) = layout.xy_mut();
     for i in 0..n {
-        dst_x[i] = S::from_f64(xs[i] * scale);
-        dst_y[i] = S::from_f64(ys[i] * scale);
+        xs[i] = S::from_f64((xs[i].to_f64() - mx) * scale);
+        ys[i] = S::from_f64((ys[i].to_f64() - my) * scale);
+    }
+    Ok(())
+}
+
+/// Sanitizes non-finite entries, centers coordinates at per-axis medians `(mx, my)`, and scales
+/// isotropically using the Gaussian-calibrated radial quantile $r_q / \sqrt{-2 \ln(1 - q)}$ so
+/// core spread matches `target_std` even when extreme outliers inflate the bounding box.
+///
+/// Falls back to isotropic standard deviation around `(mx, my)` if the quantile scale collapses
+/// (`< 1e-12`), and deterministically to Gaussian coordinates from `seed` if all points collapse.
+pub fn robust_normalize_layout_2d<S: Scalar>(
+    layout: &mut Layout2d<S>,
+    target_std: f64,
+    quantile: f64,
+    seed: u64,
+) -> CoreResult<()> {
+    if !target_std.is_finite() {
+        return Err(CoreError::non_finite(
+            "robust_normalize_layout_2d::target_std",
+        ));
+    }
+    if target_std <= 0.0 {
+        return Err(CoreError::invalid_input(
+            "target_std must be strictly positive",
+        ));
+    }
+    if !quantile.is_finite() {
+        return Err(CoreError::non_finite(
+            "robust_normalize_layout_2d::quantile",
+        ));
+    }
+    if quantile <= 0.0 || quantile >= 1.0 {
+        return Err(CoreError::invalid_input(
+            "quantile must be strictly in (0, 1)",
+        ));
+    }
+
+    let n = layout.len();
+    if n == 0 {
+        return Ok(());
+    }
+
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let (xs, ys) = layout.xy_mut();
+    for i in 0..n {
+        if !xs[i].is_finite() {
+            xs[i] = S::from_f64(next_gaussian_pair(&mut rng).0);
+        }
+        if !ys[i].is_finite() {
+            ys[i] = S::from_f64(next_gaussian_pair(&mut rng).0);
+        }
+    }
+
+    if n == 1 {
+        xs[0] = S::ZERO;
+        ys[0] = S::ZERO;
+        return Ok(());
+    }
+
+    let mut scratch = Vec::with_capacity(n);
+    scratch.extend(xs.iter().map(|v| v.to_f64()));
+    let mx = median_of_slice(&mut scratch);
+
+    scratch.clear();
+    scratch.extend(ys.iter().map(|v| v.to_f64()));
+    let my = median_of_slice(&mut scratch);
+
+    scratch.clear();
+    for i in 0..n {
+        scratch.push((xs[i].to_f64() - mx).hypot(ys[i].to_f64() - my));
+    }
+    let r_q = quantile_of_slice(&mut scratch, quantile);
+    let gauss_factor = (-2.0 * (1.0 - quantile).ln()).sqrt();
+    let sigma_hat = r_q / gauss_factor;
+
+    let mut center_x = mx;
+    let mut center_y = my;
+    let mut sigma = sigma_hat;
+    if !sigma.is_finite() || sigma < 1e-12 {
+        let mut sum_sq = 0.0_f64;
+        for i in 0..n {
+            let dx = xs[i].to_f64() - mx;
+            let dy = ys[i].to_f64() - my;
+            sum_sq += dx * dx + dy * dy;
+        }
+        let iso_std = (sum_sq / (2.0 * (n as f64))).sqrt();
+        if iso_std.is_finite() && iso_std >= 1e-12 {
+            sigma = iso_std;
+        } else {
+            for i in 0..n {
+                let (gx, gy) = next_gaussian_pair(&mut rng);
+                xs[i] = S::from_f64(gx);
+                ys[i] = S::from_f64(gy);
+            }
+            let (gmx, gmy, g_std) = mean_and_iso_std(xs, ys);
+            if !g_std.is_finite() || g_std < 1e-12 {
+                xs.fill(S::ZERO);
+                ys.fill(S::ZERO);
+                return Ok(());
+            }
+            center_x = gmx;
+            center_y = gmy;
+            sigma = g_std;
+        }
+    }
+
+    let scale = target_std / sigma;
+    for i in 0..n {
+        xs[i] = S::from_f64((xs[i].to_f64() - center_x) * scale);
+        ys[i] = S::from_f64((ys[i].to_f64() - center_y) * scale);
     }
     Ok(())
 }
 
 /// Replaces infinite/non-finite entries in a squared-distance buffer with a bounded finite
-/// fallback and applies double centering $C = -\frac{1}{2}(I - \frac{1}{n}\mathbf{1}\mathbf{1}^T)\Delta(I - \frac{1}{k}\mathbf{1}\mathbf{1}^T)$.
+/// fallback and applies double centering in-place:
+/// $C = -\frac{1}{2}(I - \frac{1}{n}\mathbf{1}\mathbf{1}^T)\Delta(I - \frac{1}{k}\mathbf{1}\mathbf{1}^T)$.
 fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec<f64> {
     if nrows == 0 || ncols == 0 {
         return Vec::new();
@@ -162,14 +294,13 @@ fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec
     }
     let grand_mean = row_means.iter().sum::<f64>() * inv_rows;
 
-    let mut c = vec![0.0_f64; total];
     for (i, &rm) in row_means.iter().enumerate() {
         let row_off = i * ncols;
         for j in 0..ncols {
-            c[row_off + j] = 0.5 * (rm + col_means[j] - delta[row_off + j] - grand_mean);
+            delta[row_off + j] = 0.5 * (rm + col_means[j] - delta[row_off + j] - grand_mean);
         }
     }
-    c
+    delta
 }
 
 /// Configuration for [`pivot_mds`].
@@ -194,6 +325,150 @@ impl Default for PivotMdsConfig {
             target_std: Some(1.0),
         }
     }
+}
+
+/// Streams a `(num_nodes, num_reps)` row-major distance table in 3 passes with zero `(N, k)`
+/// temporary `f64` buffers, computing $(n / k)^{1/4} C V \mathrm{diag}(e^{-1/4})$.
+fn mds_from_row_major_distances<F, W>(
+    num_nodes: usize,
+    num_reps: usize,
+    dims: usize,
+    fill_row: F,
+    mut write_row: W,
+) -> CoreResult<()>
+where
+    F: Fn(usize, &mut [f64]),
+    W: FnMut(usize, &[f64]),
+{
+    if num_nodes <= 1 || num_reps == 0 {
+        return Ok(());
+    }
+
+    let mut row_means = vec![0.0_f64; num_nodes];
+    let mut col_means = vec![0.0_f64; num_reps];
+    let mut row_inf_cnt = vec![0u32; num_nodes];
+    let mut col_inf_cnt = vec![0usize; num_reps];
+    let mut row_buf = vec![0.0_f64; num_reps];
+    let mut max_finite_sq = 0.0_f64;
+    let mut has_nonfinite = false;
+
+    for i in 0..num_nodes {
+        fill_row(i, &mut row_buf);
+        let mut r_sum = 0.0_f64;
+        let mut r_inf = 0u32;
+        for (j, &d) in row_buf.iter().enumerate() {
+            if d.is_finite() {
+                let sq = d * d;
+                if sq.is_finite() {
+                    r_sum += sq;
+                    col_means[j] += sq;
+                    if sq > max_finite_sq {
+                        max_finite_sq = sq;
+                    }
+                    continue;
+                }
+            }
+            r_inf = r_inf.saturating_add(1);
+            col_inf_cnt[j] += 1;
+            has_nonfinite = true;
+        }
+        row_means[i] = r_sum;
+        row_inf_cnt[i] = r_inf;
+    }
+
+    let total = num_nodes.saturating_mul(num_reps);
+    let fallback_sq = if has_nonfinite {
+        let denom = (total.max(1) * 4) as f64;
+        let safe_cap = f64::MAX / denom;
+        if max_finite_sq > 0.0 {
+            (max_finite_sq * 4.0).min(safe_cap)
+        } else {
+            1.0
+        }
+    } else {
+        0.0
+    };
+
+    let inv_cols = 1.0 / (num_reps as f64);
+    let inv_rows = 1.0 / (num_nodes as f64);
+    for (rm, &cnt) in row_means.iter_mut().zip(row_inf_cnt.iter()) {
+        if cnt > 0 {
+            *rm += (cnt as f64) * fallback_sq;
+        }
+        *rm *= inv_cols;
+    }
+    for (cm, &cnt) in col_means.iter_mut().zip(col_inf_cnt.iter()) {
+        if cnt > 0 {
+            *cm += (cnt as f64) * fallback_sq;
+        }
+        *cm *= inv_rows;
+    }
+    let grand_mean = row_means.iter().sum::<f64>() * inv_rows;
+
+    let mut ct_c = vec![0.0_f64; num_reps * num_reps];
+    for (i, &rm) in row_means.iter().enumerate() {
+        fill_row(i, &mut row_buf);
+        for (j, val) in row_buf.iter_mut().enumerate() {
+            let d = *val;
+            let delta_ij = if d.is_finite() {
+                let sq = d * d;
+                if sq.is_finite() { sq } else { fallback_sq }
+            } else {
+                fallback_sq
+            };
+            *val = 0.5 * (rm + col_means[j] - delta_ij - grand_mean);
+        }
+        for a in 0..num_reps {
+            let ca = row_buf[a];
+            for b in a..num_reps {
+                ct_c[a * num_reps + b] += ca * row_buf[b];
+            }
+        }
+    }
+    for a in 0..num_reps {
+        for b in 0..a {
+            ct_c[a * num_reps + b] = ct_c[b * num_reps + a];
+        }
+    }
+
+    let (evals, evecs) = symmetric_eigen_jacobi(&ct_c, num_reps, 120, 1e-12)?;
+    let used_dims = dims.min(num_reps);
+    let scale = ((num_nodes as f64) / (num_reps as f64)).powf(0.25);
+
+    let mut proj = vec![0.0_f64; num_reps * used_dims];
+    for m in 0..used_dims {
+        let eig_idx = num_reps - 1 - m;
+        let eig_val = evals[eig_idx];
+        let weight = if eig_val > 1e-10 {
+            scale / eig_val.sqrt().sqrt()
+        } else {
+            0.0
+        };
+        for j in 0..num_reps {
+            proj[j * used_dims + m] = weight * evecs[j * num_reps + eig_idx];
+        }
+    }
+
+    let mut out_acc = vec![0.0_f64; used_dims];
+    for (i, &rm) in row_means.iter().enumerate() {
+        fill_row(i, &mut row_buf);
+        out_acc.fill(0.0);
+        for (j, &d) in row_buf.iter().enumerate() {
+            let delta_ij = if d.is_finite() {
+                let sq = d * d;
+                if sq.is_finite() { sq } else { fallback_sq }
+            } else {
+                fallback_sq
+            };
+            let cij = 0.5 * (rm + col_means[j] - delta_ij - grand_mean);
+            let p_row = &proj[j * used_dims..(j + 1) * used_dims];
+            for m in 0..used_dims {
+                out_acc[m] += cij * p_row[m];
+            }
+        }
+        write_row(i, &out_acc);
+    }
+    Ok(())
 }
 
 /// Computes $d$-dimensional Representative / Landmark MDS coordinates
@@ -224,53 +499,21 @@ pub fn representative_mds<S: Scalar>(
         return Ok(layout);
     }
 
-    let c = double_center_distances(distances_to_reps, num_nodes, num_reps);
-    let mut ct_c = vec![0.0_f64; num_reps * num_reps];
-    for row in 0..num_nodes {
-        let c_row = &c[row * num_reps..(row + 1) * num_reps];
-        for a in 0..num_reps {
-            let ca = c_row[a];
-            for b in a..num_reps {
-                ct_c[a * num_reps + b] += ca * c_row[b];
-            }
-        }
-    }
-    for a in 0..num_reps {
-        for b in 0..a {
-            ct_c[a * num_reps + b] = ct_c[b * num_reps + a];
-        }
-    }
-
-    let (evals, evecs) = symmetric_eigen_jacobi(&ct_c, num_reps, 120, 1e-12)?;
-    let used_dims = dims.min(num_reps);
-    let scale = ((num_nodes as f64) / (num_reps as f64)).powf(0.25);
-
-    let mut proj = vec![0.0_f64; num_reps * used_dims];
-    for m in 0..used_dims {
-        let eig_idx = num_reps - 1 - m;
-        let eig_val = evals[eig_idx];
-        let weight = if eig_val > 1e-10 {
-            scale / eig_val.sqrt().sqrt()
-        } else {
-            0.0
-        };
-        for j in 0..num_reps {
-            proj[j * used_dims + m] = weight * evecs[j * num_reps + eig_idx];
-        }
-    }
-
     let coords = layout.coords_mut();
-    for i in 0..num_nodes {
-        let c_row = &c[i * num_reps..(i + 1) * num_reps];
-        let out_row = &mut coords[i * dims..i * dims + used_dims];
-        for j in 0..num_reps {
-            let cij = c_row[j];
-            let p_row = &proj[j * used_dims..(j + 1) * used_dims];
-            for m in 0..used_dims {
-                out_row[m] = S::from_f64(out_row[m].to_f64() + cij * p_row[m]);
+    mds_from_row_major_distances(
+        num_nodes,
+        num_reps,
+        dims,
+        |i, row_buf| {
+            row_buf.copy_from_slice(&distances_to_reps[i * num_reps..(i + 1) * num_reps]);
+        },
+        |i, vals| {
+            let out_row = &mut coords[i * dims..i * dims + vals.len()];
+            for (dst, &val) in out_row.iter_mut().zip(vals.iter()) {
+                *dst = S::from_f64(val);
             }
-        }
-    }
+        },
+    )?;
     Ok(layout)
 }
 
@@ -293,15 +536,35 @@ pub fn pivot_mds_from_distances<S: Scalar>(
             ));
         }
     }
-    let nd = representative_mds::<f64>(distances_nk, num_nodes, num_pivots, 2)?;
-    let mut x = Vec::with_capacity(num_nodes);
-    let mut y = Vec::with_capacity(num_nodes);
-    for i in 0..num_nodes {
-        let row = nd.node(i)?;
-        x.push(S::from_f64(row[0]));
-        y.push(S::from_f64(row[1]));
+    let expected = num_nodes
+        .checked_mul(num_pivots)
+        .ok_or_else(|| CoreError::invalid_input("pivot_mds distance matrix size overflow"))?;
+    if distances_nk.len() != expected {
+        return Err(CoreError::dimension_mismatch(
+            expected,
+            distances_nk.len(),
+            "pivot_mds_from_distances::distances_nk",
+        ));
     }
-    let mut layout = Layout2d::from_xy(x, y)?;
+
+    let mut layout = Layout2d::zeros(num_nodes);
+    if num_nodes > 1 && num_pivots > 0 {
+        let (xs, ys) = layout.xy_mut();
+        mds_from_row_major_distances(
+            num_nodes,
+            num_pivots,
+            2,
+            |i, row_buf| {
+                row_buf.copy_from_slice(&distances_nk[i * num_pivots..(i + 1) * num_pivots]);
+            },
+            |i, vals| {
+                xs[i] = S::from_f64(vals[0]);
+                if vals.len() > 1 {
+                    ys[i] = S::from_f64(vals[1]);
+                }
+            },
+        )?;
+    }
     if let Some(t_std) = target_std {
         normalize_layout_2d(&mut layout, t_std, seed)?;
     }
@@ -382,9 +645,13 @@ pub fn pivot_mds_with_pivots<W: Scalar, S: Scalar>(
         }
     }
 
-    let mut distances_nk = vec![f64::INFINITY; n * k];
-    let mut dist_col = vec![f64::INFINITY; n];
+    let total = n
+        .checked_mul(k)
+        .ok_or_else(|| CoreError::invalid_input("pivot_mds distance matrix size overflow"))?;
+
     if graph.is_weighted() {
+        let mut distances_nk = vec![f64::INFINITY; total];
+        let mut dist_col = vec![f64::INFINITY; n];
         let mut ws = DijkstraWorkspace::new(n);
         for (col, &p) in pivots.iter().enumerate() {
             ws.dijkstra_from(graph, p as usize, &mut dist_col)?;
@@ -392,17 +659,80 @@ pub fn pivot_mds_with_pivots<W: Scalar, S: Scalar>(
                 distances_nk[i * k + col] = dist_col[i];
             }
         }
-    } else {
-        let mut ws = BfsWorkspace::new(n);
+        return pivot_mds_from_distances(&distances_nk, n, k, target_std, seed);
+    }
+
+    let mut layout = Layout2d::zeros(n);
+    let mut dist_col = vec![u32::MAX; n];
+    let mut ws = BfsWorkspace::new(n);
+
+    if n <= u16::MAX as usize {
+        let mut distances_nk = vec![u16::MAX; total];
         for (col, &p) in pivots.iter().enumerate() {
-            ws.bfs_from(graph, p as usize, &mut dist_col)?;
+            ws.bfs_from_u32(graph, p as usize, &mut dist_col)?;
+            for i in 0..n {
+                let d = dist_col[i];
+                distances_nk[i * k + col] = if d == u32::MAX { u16::MAX } else { d as u16 };
+            }
+        }
+        let (xs, ys) = layout.xy_mut();
+        mds_from_row_major_distances(
+            n,
+            k,
+            2,
+            |i, row_buf| {
+                let row = &distances_nk[i * k..(i + 1) * k];
+                for (dst, &d) in row_buf.iter_mut().zip(row.iter()) {
+                    *dst = if d == u16::MAX {
+                        f64::INFINITY
+                    } else {
+                        f64::from(d)
+                    };
+                }
+            },
+            |i, vals| {
+                xs[i] = S::from_f64(vals[0]);
+                if vals.len() > 1 {
+                    ys[i] = S::from_f64(vals[1]);
+                }
+            },
+        )?;
+    } else {
+        let mut distances_nk = vec![u32::MAX; total];
+        for (col, &p) in pivots.iter().enumerate() {
+            ws.bfs_from_u32(graph, p as usize, &mut dist_col)?;
             for i in 0..n {
                 distances_nk[i * k + col] = dist_col[i];
             }
         }
+        let (xs, ys) = layout.xy_mut();
+        mds_from_row_major_distances(
+            n,
+            k,
+            2,
+            |i, row_buf| {
+                let row = &distances_nk[i * k..(i + 1) * k];
+                for (dst, &d) in row_buf.iter_mut().zip(row.iter()) {
+                    *dst = if d == u32::MAX {
+                        f64::INFINITY
+                    } else {
+                        f64::from(d)
+                    };
+                }
+            },
+            |i, vals| {
+                xs[i] = S::from_f64(vals[0]);
+                if vals.len() > 1 {
+                    ys[i] = S::from_f64(vals[1]);
+                }
+            },
+        )?;
     }
 
-    pivot_mds_from_distances(&distances_nk, n, k, target_std, seed)
+    if let Some(t_std) = target_std {
+        normalize_layout_2d(&mut layout, t_std, seed)?;
+    }
+    Ok(layout)
 }
 
 /// Computes Koren's degree-normalized 2D spectral layout $(D^{-1/2} v_2, D^{-1/2} v_3)$
@@ -947,5 +1277,104 @@ mod tests {
         let k_iso: Layout2d<f64> = koren_spectral_init(&iso, Some(1.0), 1e-6, 100, 42).unwrap();
         assert!(k_iso.is_all_finite());
         assert!((isotropic_std(&k_iso) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_robust_normalize_layout_2d_outliers_fallbacks_and_edge_cases() {
+        // 1. 96 core points + 4 extreme outliers at (500, 500): core std remains ~1.0
+        let mut xs = Vec::with_capacity(100);
+        let mut ys = Vec::with_capacity(100);
+        let mut rng = DeterministicRng::from_seed_u64(123);
+        for _ in 0..96 {
+            let (gx, gy) = next_gaussian_pair(&mut rng);
+            xs.push(gx);
+            ys.push(gy);
+        }
+        for _ in 0..4 {
+            xs.push(500.0);
+            ys.push(500.0);
+        }
+        let mut layout = Layout2d::from_xy(xs, ys).unwrap();
+        robust_normalize_layout_2d(&mut layout, 1.0, 0.95, 42).unwrap();
+        assert!(layout.is_all_finite());
+        let core_sum_sq: f64 = layout.x()[..96]
+            .iter()
+            .zip(layout.y()[..96].iter())
+            .map(|(&x, &y)| x * x + y * y)
+            .sum();
+        let core_std = (core_sum_sq / (2.0 * 96.0)).sqrt();
+        assert!(
+            (core_std - 1.0).abs() < 0.35,
+            "expected core_std ~ 1.0 under 4% outliers, got {core_std}"
+        );
+
+        // 2. >95% duplicate hub core + 2 distinct outer nodes falls back cleanly to isotropic_std
+        let mut hub_xs = vec![10.0_f64; 98];
+        let mut hub_ys = vec![-5.0_f64; 98];
+        hub_xs.extend([12.0, 8.0]);
+        hub_ys.extend([-5.0, -5.0]);
+        let mut hub_layout = Layout2d::from_xy(hub_xs, hub_ys).unwrap();
+        robust_normalize_layout_2d(&mut hub_layout, 1.5, 0.95, 42).unwrap();
+        assert!(hub_layout.is_all_finite());
+        assert!((isotropic_std(&hub_layout) - 1.5).abs() < 1e-12);
+
+        // 3. All collapsed -> deterministic Gaussian fallback
+        let mut collapsed = Layout2d::from_xy(vec![3.0_f32; 8], vec![7.0_f32; 8]).unwrap();
+        robust_normalize_layout_2d(&mut collapsed, 2.0, 0.95, 7).unwrap();
+        assert!(collapsed.is_all_finite());
+        let mut collapsed2 = Layout2d::from_xy(vec![3.0_f32; 8], vec![7.0_f32; 8]).unwrap();
+        robust_normalize_layout_2d(&mut collapsed2, 2.0, 0.95, 7).unwrap();
+        assert_eq!(collapsed, collapsed2);
+
+        // 4. n = 0, 1, 2, NaN/Inf
+        let mut empty = Layout2d::<f64>::zeros(0);
+        robust_normalize_layout_2d(&mut empty, 1.0, 0.95, 42).unwrap();
+
+        let mut single = Layout2d::from_xy(vec![f64::NAN], vec![5.0]).unwrap();
+        robust_normalize_layout_2d(&mut single, 1.0, 0.95, 42).unwrap();
+        assert_eq!(single.x(), &[0.0]);
+        assert_eq!(single.y(), &[0.0]);
+
+        let mut two = Layout2d::from_xy(vec![f64::INFINITY, 2.0], vec![0.0, f64::NAN]).unwrap();
+        robust_normalize_layout_2d(&mut two, 1.0, 0.95, 42).unwrap();
+        assert!(two.is_all_finite());
+
+        // 5. Validation errors
+        assert!(matches!(
+            robust_normalize_layout_2d(&mut two, 0.0, 0.95, 42),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            robust_normalize_layout_2d(&mut two, f64::NAN, 0.95, 42),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            robust_normalize_layout_2d(&mut two, 1.0, 1.0, 42),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            robust_normalize_layout_2d(&mut two, 1.0, 0.0, 42),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            robust_normalize_layout_2d(&mut two, 1.0, f64::NAN, 42),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_pivot_mds_streaming_matches_all_pivots_classical_mds() {
+        let edges = vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2)];
+        let g = CsrGraph::<f64>::from_edges(5, &edges, None, false, false).unwrap();
+        let all_pivots: Vec<u32> = (0..5).collect();
+        let pmds: Layout2d<f64> = pivot_mds_with_pivots(&g, &all_pivots, None, 42).unwrap();
+        let cmds: Layout2d<f64> = classical_mds_2d(&g).unwrap();
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                let dp = (pmds.x()[i] - pmds.x()[j]).hypot(pmds.y()[i] - pmds.y()[j]);
+                let dc = (cmds.x()[i] - cmds.x()[j]).hypot(cmds.y()[i] - cmds.y()[j]);
+                assert!((dp - dc).abs() < 1e-10, "pair ({i},{j}): {dp} vs {dc}");
+            }
+        }
     }
 }

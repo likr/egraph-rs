@@ -102,6 +102,56 @@ impl BfsWorkspace {
         }
         Ok(())
     }
+
+    /// Runs unweighted single-source BFS from `source`, writing integer hop distances into
+    /// `dist_out` (`u32::MAX` for unreachable nodes) with zero heap allocations once sized.
+    pub fn bfs_from_u32<W>(
+        &mut self,
+        graph: &CsrGraph<W>,
+        source: usize,
+        dist_out: &mut [u32],
+    ) -> CoreResult<()> {
+        let n = graph.num_nodes();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
+        }
+        if dist_out.len() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                dist_out.len(),
+                "BfsWorkspace::bfs_from_u32::dist_out",
+            ));
+        }
+        if source >= n {
+            return Err(CoreError::index_out_of_bounds(
+                source,
+                n,
+                "BfsWorkspace::bfs_from_u32::source",
+            ));
+        }
+
+        self.ensure_capacity(n);
+        dist_out.fill(u32::MAX);
+
+        self.visited.mark(source);
+        dist_out[source] = 0;
+        self.queue.push(source as u32);
+
+        let mut head = 0usize;
+        while head < self.queue.len() {
+            let u = self.queue[head] as usize;
+            head += 1;
+            let next_dist = dist_out[u] + 1;
+            for &v in graph.neighbors(u) {
+                let vi = v as usize;
+                if self.visited.visit(vi) {
+                    dist_out[vi] = next_dist;
+                    self.queue.push(v);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for BfsWorkspace {
@@ -295,31 +345,36 @@ pub fn select_maxmin_sp_pivots<W>(
         return Ok((0..n as u32).collect());
     }
 
-    let mut core_nodes = Vec::new();
-    let mut non_isolated = Vec::new();
+    let mut core_count = 0usize;
+    let mut non_iso_count = 0usize;
     for u in 0..n {
         let deg = graph.degree(u);
         if deg >= min_degree {
-            core_nodes.push(u as u32);
+            core_count += 1;
         }
         if deg > 0 {
-            non_isolated.push(u as u32);
+            non_iso_count += 1;
         }
     }
 
     let mut rng = DeterministicRng::from_seed_u64(seed);
-    let first_pivot = if !core_nodes.is_empty() {
-        core_nodes[rng.gen_range_usize(core_nodes.len())]
-    } else if !non_isolated.is_empty() {
-        non_isolated[rng.gen_range_usize(non_isolated.len())]
+    let first_pivot = if core_count > 0 {
+        let pick = rng.gen_range_usize(core_count);
+        (0..n)
+            .filter(|&u| graph.degree(u) >= min_degree)
+            .nth(pick)
+            .unwrap() as u32
+    } else if non_iso_count > 0 {
+        let pick = rng.gen_range_usize(non_iso_count);
+        (0..n).filter(|&u| graph.degree(u) > 0).nth(pick).unwrap() as u32
     } else {
         rng.gen_range_usize(n) as u32
     };
 
     let mut pivots = Vec::with_capacity(target);
     let mut chosen = vec![false; n];
-    let mut min_dist = vec![f64::INFINITY; n];
-    let mut bfs_dist = vec![f64::INFINITY; n];
+    let mut min_dist = vec![u32::MAX; n];
+    let mut bfs_dist = vec![u32::MAX; n];
     let mut ws = BfsWorkspace::new(n);
 
     pivots.push(first_pivot);
@@ -327,11 +382,11 @@ pub fn select_maxmin_sp_pivots<W>(
     let mut last = first_pivot as usize;
 
     for _ in 1..target {
-        ws.bfs_from(graph, last, &mut bfs_dist)?;
+        ws.bfs_from_u32(graph, last, &mut bfs_dist)?;
 
-        let mut best_core: Option<(usize, f64)> = None;
-        let mut best_non_iso: Option<(usize, f64)> = None;
-        let mut best_any: Option<(usize, f64)> = None;
+        let mut best_core: Option<(usize, u32)> = None;
+        let mut best_non_iso: Option<(usize, u32)> = None;
+        let mut best_any: Option<(usize, u32)> = None;
 
         for u in 0..n {
             let d = min_dist[u].min(bfs_dist[u]);

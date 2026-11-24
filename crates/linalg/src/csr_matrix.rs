@@ -1,6 +1,17 @@
 //! Compressed Sparse Row (`CsrMatrix`) representation, graph Laplacians, and $O(|E|)$ spectral moments.
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
+
+use crate::eigen::symmetric_eigen_jacobi;
+
+/// Default number of deterministic power-iteration steps in [`CsrMatrix::estimate_lambda_max`].
+pub const DEFAULT_SPECTRUM_POWER_ITERS: usize = 10;
+/// Default multiplicative safety margin in [`CsrMatrix::estimate_lambda_max`].
+pub const DEFAULT_SPECTRUM_SAFETY_FACTOR: f64 = 1.02;
+/// Default number of Lanczos steps in [`CsrMatrix::estimate_lambda_max_lanczos`].
+pub const DEFAULT_SPECTRUM_LANCZOS_STEPS: usize = 16;
+/// Default multiplicative safety margin in [`CsrMatrix::estimate_lambda_max_lanczos`].
+pub const DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR: f64 = 1.05;
 
 /// Supported graph Laplacian variants for sparse CSR construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -349,6 +360,464 @@ impl CsrMatrix {
             diagonal: out_diag,
         })
     }
+
+    /// Returns `true` if $|A_{ij} - A_{ji}| \le \mathrm{tol}$ for all entries `(i, j)`.
+    ///
+    /// Returns `false` if `tol` is non-finite or negative.
+    pub fn is_symmetric(&self, tol: f64) -> bool {
+        if !tol.is_finite() || tol < 0.0 {
+            return false;
+        }
+        let n = self.num_nodes;
+        for row in 0..n {
+            let row_u32 = row as u32;
+            let start = self.indptr[row] as usize;
+            let end = self.indptr[row + 1] as usize;
+            for pos in start..end {
+                let col = self.indices[pos] as usize;
+                if col == row {
+                    continue;
+                }
+                let val = self.values[pos];
+                let t_start = self.indptr[col] as usize;
+                let t_end = self.indptr[col + 1] as usize;
+                let t_cols = &self.indices[t_start..t_end];
+                let rev = match t_cols.binary_search(&row_u32) {
+                    Ok(idx) => self.values[t_start + idx],
+                    Err(_) => 0.0,
+                };
+                if (val - rev).abs() > tol {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Returns the explicit symmetric part $\frac{1}{2}(A + A^T)$ in canonical sorted CSR form,
+    /// pruning exact zero entries from CSR storage while keeping [`CsrMatrix::diagonal`] accurate.
+    pub fn symmetrize(&self) -> CoreResult<Self> {
+        let n = self.num_nodes;
+        if n == 0 {
+            return Ok(Self {
+                num_nodes: 0,
+                indptr: vec![0],
+                indices: Vec::new(),
+                values: Vec::new(),
+                diagonal: Vec::new(),
+            });
+        }
+
+        // Compute A^T in O(n + nnz) without HashMap; scanning rows 0..n in order yields
+        // strictly ascending column indices in every row of A^T.
+        let nnz = self.indices.len();
+        let mut col_counts = vec![0u32; n];
+        for &col in &self.indices {
+            col_counts[col as usize] += 1;
+        }
+        let mut t_indptr = Vec::with_capacity(n + 1);
+        t_indptr.push(0u32);
+        let mut running = 0u32;
+        for &cnt in &col_counts {
+            running = running
+                .checked_add(cnt)
+                .ok_or_else(|| CoreError::invalid_csr("transpose nnz exceeds u32::MAX"))?;
+            t_indptr.push(running);
+        }
+        let mut t_cursor = t_indptr[..n].to_vec();
+        let mut t_indices = vec![0u32; nnz];
+        let mut t_values = vec![0.0_f64; nnz];
+        for row in 0..n {
+            let row_u32 = row as u32;
+            let start = self.indptr[row] as usize;
+            let end = self.indptr[row + 1] as usize;
+            for pos in start..end {
+                let col = self.indices[pos] as usize;
+                let dst = t_cursor[col] as usize;
+                t_indices[dst] = row_u32;
+                t_values[dst] = self.values[pos];
+                t_cursor[col] += 1;
+            }
+        }
+
+        // Two-pointer merge of sorted row u of A and sorted row u of A^T.
+        let mut out_indptr = Vec::with_capacity(n + 1);
+        out_indptr.push(0u32);
+        let mut out_indices = Vec::with_capacity(nnz);
+        let mut out_values = Vec::with_capacity(nnz);
+        let mut out_diag = vec![0.0_f64; n];
+
+        for row in 0..n {
+            let row_u32 = row as u32;
+            let mut p1 = self.indptr[row] as usize;
+            let e1 = self.indptr[row + 1] as usize;
+            let mut p2 = t_indptr[row] as usize;
+            let e2 = t_indptr[row + 1] as usize;
+
+            while p1 < e1 || p2 < e2 {
+                let (col, avg) = if p2 >= e2 || (p1 < e1 && self.indices[p1] < t_indices[p2]) {
+                    let c = self.indices[p1];
+                    let v = 0.5 * self.values[p1];
+                    p1 += 1;
+                    (c, v)
+                } else if p1 >= e1 || t_indices[p2] < self.indices[p1] {
+                    let c = t_indices[p2];
+                    let v = 0.5 * t_values[p2];
+                    p2 += 1;
+                    (c, v)
+                } else {
+                    let c = self.indices[p1];
+                    let v = 0.5 * (self.values[p1] + t_values[p2]);
+                    p1 += 1;
+                    p2 += 1;
+                    (c, v)
+                };
+
+                if col == row_u32 {
+                    out_diag[row] = avg;
+                }
+                if avg != 0.0 {
+                    out_indices.push(col);
+                    out_values.push(avg);
+                }
+            }
+
+            let ptr = u32::try_from(out_indices.len())
+                .map_err(|_| CoreError::invalid_csr("symmetrized matrix nnz exceeds u32::MAX"))?;
+            out_indptr.push(ptr);
+        }
+
+        Ok(Self {
+            num_nodes: n,
+            indptr: out_indptr,
+            indices: out_indices,
+            values: out_values,
+            diagonal: out_diag,
+        })
+    }
+
+    /// Returns the matrix trace $\mathrm{tr}(A) = \sum_i A_{ii}$.
+    #[inline]
+    pub fn trace(&self) -> f64 {
+        self.diagonal.iter().copied().sum()
+    }
+
+    /// Returns the symmetric Gershgorin spectral upper bound
+    /// $\max_i \left(|A_{ii}| + \sum_{j \neq i} |A_{ij}|\right)$.
+    ///
+    /// Returns `0.0` for empty (`num_nodes == 0`) or zero matrices.
+    pub fn gershgorin_spectral_bound(&self) -> f64 {
+        let n = self.num_nodes;
+        if n == 0 {
+            return 0.0;
+        }
+        let mut max_bound = 0.0_f64;
+        for row in 0..n {
+            let start = self.indptr[row] as usize;
+            let end = self.indptr[row + 1] as usize;
+            let row_u32 = row as u32;
+            let mut row_abs_sum = 0.0_f64;
+            let mut saw_diag = false;
+            for pos in start..end {
+                let abs_val = self.values[pos].abs();
+                if !abs_val.is_finite() {
+                    return f64::NAN;
+                }
+                if self.indices[pos] == row_u32 {
+                    saw_diag = true;
+                }
+                row_abs_sum += abs_val;
+            }
+            if !saw_diag {
+                let d_abs = self.diagonal[row].abs();
+                if !d_abs.is_finite() {
+                    return f64::NAN;
+                }
+                row_abs_sum += d_abs;
+            }
+            if row_abs_sum > max_bound {
+                max_bound = row_abs_sum;
+            }
+        }
+        max_bound
+    }
+
+    /// Estimates $\lambda_{\max}(A)$ for a symmetric [`CsrMatrix`] using deterministic
+    /// Rademacher power iteration clamped by [`CsrMatrix::gershgorin_spectral_bound`],
+    /// scaled by `safety_factor >= 1.0`.
+    ///
+    /// Returns `0.0` for empty or zero matrices, and `gershgorin_spectral_bound()` when `num_iters == 0`.
+    pub fn estimate_lambda_max(
+        &self,
+        num_iters: usize,
+        safety_factor: f64,
+        seed: u64,
+    ) -> CoreResult<f64> {
+        if !safety_factor.is_finite() {
+            return Err(CoreError::non_finite(
+                "CsrMatrix::estimate_lambda_max::safety_factor",
+            ));
+        }
+        if safety_factor < 1.0 {
+            return Err(CoreError::invalid_input(format!(
+                "safety_factor must be >= 1.0, got {safety_factor}"
+            )));
+        }
+        let gersh = self.gershgorin_spectral_bound();
+        if !gersh.is_finite() {
+            return Err(CoreError::non_finite(
+                "CsrMatrix::estimate_lambda_max::matrix",
+            ));
+        }
+        let n = self.num_nodes;
+        if n == 0 || gersh == 0.0 {
+            return Ok(0.0);
+        }
+        if num_iters == 0 {
+            return Ok(gersh);
+        }
+        if n == 1 {
+            return Ok(self.diagonal[0].abs().min(gersh));
+        }
+
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let mut v = vec![0.0_f64; n];
+        let mut w = vec![0.0_f64; n];
+
+        let mut initialized = false;
+        for _attempt in 0..8 {
+            for vi in &mut v {
+                *vi = if (rng.next_u64() & 1) == 0 { 1.0 } else { -1.0 };
+            }
+            let v_norm = scaled_norm2(&v);
+            let inv_v = 1.0 / v_norm;
+            for vi in &mut v {
+                *vi *= inv_v;
+            }
+            self.spmv(&v, &mut w)?;
+            if scaled_norm2(&w) > 0.0 {
+                initialized = true;
+                break;
+            }
+        }
+        if !initialized {
+            return Ok(gersh);
+        }
+
+        for _iter in 0..num_iters {
+            self.spmv(&v, &mut w)?;
+            let w_norm = scaled_norm2(&w);
+            if !w_norm.is_finite() {
+                return Err(CoreError::non_finite(
+                    "CsrMatrix::estimate_lambda_max::spmv",
+                ));
+            }
+            if w_norm == 0.0 {
+                return Ok(gersh);
+            }
+            let inv_w = 1.0 / w_norm;
+            for (vi, &wi) in v.iter_mut().zip(w.iter()) {
+                *vi = wi * inv_w;
+            }
+        }
+
+        self.spmv(&v, &mut w)?;
+        let rq = dot_slice(&v, &w);
+        if !rq.is_finite() {
+            return Err(CoreError::non_finite("CsrMatrix::estimate_lambda_max::rq"));
+        }
+        Ok((safety_factor * rq.abs()).min(gersh))
+    }
+
+    /// Estimates $\lambda_{\max}(A)$ for a symmetric [`CsrMatrix`] via deterministic
+    /// `num_steps`-step Lanczos tridiagonalization with two-pass MGS reorthogonalization
+    /// and [`symmetric_eigen_jacobi`] on the $k \times k$ tridiagonal matrix, clamped by
+    /// [`CsrMatrix::gershgorin_spectral_bound`].
+    ///
+    /// Avoids power iteration's hub-spectrum underestimation while remaining $O(k \cdot \mathrm{nnz})$.
+    pub fn estimate_lambda_max_lanczos(
+        &self,
+        num_steps: usize,
+        safety_factor: f64,
+        seed: u64,
+    ) -> CoreResult<f64> {
+        if !safety_factor.is_finite() {
+            return Err(CoreError::non_finite(
+                "CsrMatrix::estimate_lambda_max_lanczos::safety_factor",
+            ));
+        }
+        if safety_factor < 1.0 {
+            return Err(CoreError::invalid_input(format!(
+                "safety_factor must be >= 1.0, got {safety_factor}"
+            )));
+        }
+        let gersh = self.gershgorin_spectral_bound();
+        if !gersh.is_finite() {
+            return Err(CoreError::non_finite(
+                "CsrMatrix::estimate_lambda_max_lanczos::matrix",
+            ));
+        }
+        let n = self.num_nodes;
+        if n == 0 || gersh == 0.0 {
+            return Ok(0.0);
+        }
+        if num_steps == 0 {
+            return Ok(gersh);
+        }
+        if n == 1 {
+            return Ok(self.diagonal[0].abs().min(gersh));
+        }
+
+        let k_max = num_steps.min(n);
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let mut q_vecs = vec![0.0_f64; k_max * n];
+        for val in &mut q_vecs[..n] {
+            *val = if (rng.next_u64() & 1) == 0 { 1.0 } else { -1.0 };
+        }
+        let q0_norm = scaled_norm2(&q_vecs[..n]);
+        let inv_q0 = 1.0 / q0_norm;
+        for val in &mut q_vecs[..n] {
+            *val *= inv_q0;
+        }
+
+        let mut alphas = Vec::with_capacity(k_max);
+        let mut betas = Vec::with_capacity(k_max.saturating_sub(1));
+        let mut w = vec![0.0_f64; n];
+
+        for j in 0..k_max {
+            let q_j_start = j * n;
+            self.spmv(&q_vecs[q_j_start..q_j_start + n], &mut w)?;
+
+            if j > 0 {
+                let beta_prev = betas[j - 1];
+                if beta_prev != 0.0 {
+                    let q_prev_start = (j - 1) * n;
+                    for i in 0..n {
+                        w[i] -= beta_prev * q_vecs[q_prev_start + i];
+                    }
+                }
+            }
+
+            let alpha_j = dot_slice(&q_vecs[q_j_start..q_j_start + n], &w);
+            if !alpha_j.is_finite() {
+                return Err(CoreError::non_finite(
+                    "CsrMatrix::estimate_lambda_max_lanczos::alpha",
+                ));
+            }
+            alphas.push(alpha_j);
+
+            if j + 1 == k_max {
+                break;
+            }
+
+            // Two-pass Modified Gram-Schmidt reorthogonalization against all kept Lanczos vectors.
+            for _pass in 0..2 {
+                for prev in 0..=j {
+                    let q_p = &q_vecs[prev * n..(prev + 1) * n];
+                    let proj = dot_slice(q_p, &w);
+                    for i in 0..n {
+                        w[i] -= proj * q_p[i];
+                    }
+                }
+            }
+
+            let beta_j = scaled_norm2(&w);
+            if !beta_j.is_finite() {
+                return Err(CoreError::non_finite(
+                    "CsrMatrix::estimate_lambda_max_lanczos::beta",
+                ));
+            }
+
+            if beta_j <= 1e-14 * gersh {
+                // Invariant Krylov subspace reached; restart with an orthogonal random vector.
+                let mut found = false;
+                for _attempt in 0..8 {
+                    let next_start = (j + 1) * n;
+                    for val in &mut q_vecs[next_start..next_start + n] {
+                        *val = if (rng.next_u64() & 1) == 0 { 1.0 } else { -1.0 };
+                    }
+                    for _pass in 0..2 {
+                        for prev in 0..=j {
+                            let (left, right) = q_vecs.split_at_mut(next_start);
+                            let q_p = &left[prev * n..(prev + 1) * n];
+                            let q_next = &mut right[..n];
+                            let proj = dot_slice(q_p, q_next);
+                            for i in 0..n {
+                                q_next[i] -= proj * q_p[i];
+                            }
+                        }
+                    }
+                    let nrm = scaled_norm2(&q_vecs[next_start..next_start + n]);
+                    if nrm > 1e-12 {
+                        let inv = 1.0 / nrm;
+                        for val in &mut q_vecs[next_start..next_start + n] {
+                            *val *= inv;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    break;
+                }
+                betas.push(0.0);
+            } else {
+                betas.push(beta_j);
+                let inv_beta = 1.0 / beta_j;
+                let next_start = (j + 1) * n;
+                for i in 0..n {
+                    q_vecs[next_start + i] = w[i] * inv_beta;
+                }
+            }
+        }
+
+        let m = alphas.len();
+        let mut t_mat = vec![0.0_f64; m * m];
+        for i in 0..m {
+            t_mat[i * m + i] = alphas[i];
+            if i + 1 < m {
+                let b = betas[i];
+                t_mat[i * m + (i + 1)] = b;
+                t_mat[(i + 1) * m + i] = b;
+            }
+        }
+        let (evals, _) = symmetric_eigen_jacobi(&t_mat, m, 64, 1e-12)?;
+        let max_eval = evals.iter().fold(0.0_f64, |acc, &e| acc.max(e.abs()));
+        Ok((safety_factor * max_eval).min(gersh))
+    }
+}
+
+#[inline]
+fn dot_slice(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
+}
+
+#[inline]
+fn scaled_norm2(a: &[f64]) -> f64 {
+    let mut max_abs = 0.0_f64;
+    for &x in a {
+        let ax = x.abs();
+        if !ax.is_finite() {
+            return f64::NAN;
+        }
+        if ax > max_abs {
+            max_abs = ax;
+        }
+    }
+    if max_abs == 0.0 {
+        return 0.0;
+    }
+    if (1e-100..=1e100).contains(&max_abs) {
+        return dot_slice(a, a).sqrt();
+    }
+    let sum_sq: f64 = a
+        .iter()
+        .map(|&x| {
+            let s = x / max_abs;
+            s * s
+        })
+        .sum();
+    max_abs * sum_sq.sqrt()
 }
 
 /// Extracts canonical undirected simple adjacency rows `(col, weight)` and vertex degrees,
@@ -710,6 +1179,323 @@ pub fn random_walk_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
     }
 }
 
+/// Configuration for Coifman-Lafon anisotropic graph Laplacian construction ($L_\alpha$).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnisotropicLaplacianConfig {
+    /// Density reweighting exponent `alpha` in $A^{(\alpha)}_{ij} = \tilde{d}_i^{-\alpha} A_{ij} \tilde{d}_j^{-\alpha}$.
+    /// `0.0` recovers standard adjacency; `0.5` gives Fokker-Planck; `1.0` gives Laplace-Beltrami.
+    pub alpha: f64,
+    /// Outer symmetric degree normalization exponent `beta` in $S (D^{(\alpha)} - A^{(\alpha)}) S$.
+    /// `0.0` gives unnormalized $D^{(\alpha)} - A^{(\alpha)}$; `-0.5` gives symmetric normalized form.
+    pub beta: f64,
+    /// Additive degree regularization $c_{\mathrm{deg}} \ge 0.0$ in $\tilde{d}_i = \min(d_i, d_{\mathrm{cap}}) + c_{\mathrm{deg}}$.
+    pub degree_reg: f64,
+    /// Optional degree saturation cap $d_{\mathrm{cap}} > 0.0$ applied before `degree_reg`.
+    pub degree_cap: Option<f64>,
+    /// When `true` (default), outer scaling $S$ uses reweighted degrees $(d^{(\alpha)}_i)^\beta$,
+    /// guaranteeing spectrum $\subseteq [0, 2]$ whenever `beta == -0.5`.
+    /// When `false`, outer scaling $S$ uses saturated raw degrees $\tilde{d}_i^\beta$.
+    pub reweighted_degree_norm: bool,
+}
+
+impl Default for AnisotropicLaplacianConfig {
+    fn default() -> Self {
+        Self {
+            alpha: 0.5,
+            beta: 0.0,
+            degree_reg: 0.0,
+            degree_cap: None,
+            reweighted_degree_norm: true,
+        }
+    }
+}
+
+/// Output of [`anisotropic_laplacian`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnisotropicLaplacianResult {
+    /// Symmetric PSD sparse matrix $S (D^{(\alpha)} - A^{(\alpha)}) S$.
+    pub matrix: CsrMatrix,
+    /// Near-nullspace vector $u$ satisfying `matrix * u == 0` on every non-isolated component
+    /// (`1.0 / s_i` when `s_i > 0`, `0.0` for isolated unit-diagonal rows, `1.0` for isolated zero rows).
+    pub nullspace: Vec<f64>,
+    /// Outer symmetric scaling factors $s_i$ (`1.0` when `beta == 0.0`).
+    pub outer_scale: Vec<f64>,
+}
+
+fn is_fast_undirected_clean_loopless<W: Scalar>(graph: &CsrGraph<W>) -> bool {
+    if !is_fast_undirected_clean(graph) {
+        return false;
+    }
+    for u in 0..graph.num_nodes() {
+        if graph.neighbors(u).binary_search(&(u as u32)).is_ok() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Constructs a symmetric positive semidefinite Coifman-Lafon anisotropic graph Laplacian
+/// $L_{\mathrm{aniso}} = S (D^{(\alpha)} - A^{(\alpha)}) S$ from `graph`.
+///
+/// Special cases:
+/// - `(alpha=0.0, beta=0.0, degree_reg=0.0, degree_cap=None)`: exact combinatorial Laplacian $L = D - A$.
+/// - `(alpha=0.0, beta=-0.5, degree_reg=0.0, degree_cap=None, reweighted_degree_norm=true)`:
+///   exact symmetric normalized Laplacian $L_{\mathrm{sym}} = I - D^{-1/2} A D^{-1/2}$.
+/// - `(alpha=0.0, beta=-p, degree_reg=0.0, degree_cap=None, reweighted_degree_norm=false)`:
+///   degree-power interpolation $L_{\mathrm{pow}}(p) = D^{-p}(D - A)D^{-p}$.
+/// - `(alpha, beta=-0.5, reweighted_degree_norm=true)`: Coifman-Lafon symmetric normalized
+///   operator with spectrum strictly bounded in $[0, 2]$.
+pub fn anisotropic_laplacian<W: Scalar>(
+    graph: &CsrGraph<W>,
+    config: AnisotropicLaplacianConfig,
+) -> CoreResult<AnisotropicLaplacianResult> {
+    if !config.alpha.is_finite() {
+        return Err(CoreError::non_finite("anisotropic_laplacian::alpha"));
+    }
+    if !config.beta.is_finite() {
+        return Err(CoreError::non_finite("anisotropic_laplacian::beta"));
+    }
+    if !config.degree_reg.is_finite() {
+        return Err(CoreError::non_finite("anisotropic_laplacian::degree_reg"));
+    }
+    if config.degree_reg < 0.0 {
+        return Err(CoreError::invalid_input(format!(
+            "degree_reg must be >= 0.0, got {}",
+            config.degree_reg
+        )));
+    }
+    if let Some(cap) = config.degree_cap {
+        if !cap.is_finite() {
+            return Err(CoreError::non_finite("anisotropic_laplacian::degree_cap"));
+        }
+        if cap <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "degree_cap must be > 0.0, got {cap}"
+            )));
+        }
+    }
+
+    let n = graph.num_nodes();
+    if n == 0 {
+        return Ok(AnisotropicLaplacianResult {
+            matrix: CsrMatrix {
+                num_nodes: 0,
+                indptr: vec![0],
+                indices: Vec::new(),
+                values: Vec::new(),
+                diagonal: Vec::new(),
+            },
+            nullspace: Vec::new(),
+            outer_scale: Vec::new(),
+        });
+    }
+
+    let is_fast = is_fast_undirected_clean_loopless(graph);
+    let (rows_opt, raw_degrees) = if is_fast {
+        let mut deg = vec![0.0_f64; n];
+        let weights_opt = graph.weights();
+        for (u, d_u) in deg.iter_mut().enumerate() {
+            let start = graph.indptr()[u] as usize;
+            let end = graph.indptr()[u + 1] as usize;
+            *d_u = match weights_opt {
+                Some(ws) => ws[start..end].iter().map(|w| w.to_f64()).sum(),
+                None => (end - start) as f64,
+            };
+        }
+        (None, deg)
+    } else {
+        let (rows, deg) = canonical_undirected_adjacency(graph, false);
+        (Some(rows), deg)
+    };
+
+    let mut d_eff = vec![0.0_f64; n];
+    let mut d_neg_alpha = vec![0.0_f64; n];
+    for i in 0..n {
+        let d_sat = match config.degree_cap {
+            Some(cap) => raw_degrees[i].min(cap),
+            None => raw_degrees[i],
+        };
+        let eff = d_sat + config.degree_reg;
+        d_eff[i] = eff;
+        d_neg_alpha[i] = if config.alpha == 0.0 {
+            1.0
+        } else if eff > 0.0 {
+            eff.powf(-config.alpha)
+        } else {
+            0.0
+        };
+    }
+
+    let mut d_alpha = vec![0.0_f64; n];
+    if config.alpha == 0.0 {
+        d_alpha.copy_from_slice(&raw_degrees);
+    } else if let Some(ref rows) = rows_opt {
+        for (u, row) in rows.iter().enumerate() {
+            let du = d_neg_alpha[u];
+            if du == 0.0 {
+                continue;
+            }
+            let mut sum = 0.0_f64;
+            for &(v, w) in row {
+                sum += du * w * d_neg_alpha[v as usize];
+            }
+            d_alpha[u] = sum;
+        }
+    } else {
+        let weights_opt = graph.weights();
+        for (u, d_a_u) in d_alpha.iter_mut().enumerate() {
+            let du = d_neg_alpha[u];
+            if du == 0.0 {
+                continue;
+            }
+            let start = graph.indptr()[u] as usize;
+            let end = graph.indptr()[u + 1] as usize;
+            let mut sum = 0.0_f64;
+            for pos in start..end {
+                let v = graph.indices()[pos] as usize;
+                let w = match weights_opt {
+                    Some(ws) => ws[pos].to_f64(),
+                    None => 1.0,
+                };
+                sum += du * w * d_neg_alpha[v];
+            }
+            *d_a_u = sum;
+        }
+    }
+
+    let is_sym_norm_half = (config.beta + 0.5).abs() <= 1e-12;
+    let use_unit_diag_isolated = config.reweighted_degree_norm && is_sym_norm_half;
+
+    let mut outer_scale = vec![0.0_f64; n];
+    let mut nullspace = vec![0.0_f64; n];
+    for i in 0..n {
+        let base_deg = if config.reweighted_degree_norm {
+            d_alpha[i]
+        } else {
+            d_eff[i]
+        };
+        let s_i = if config.beta == 0.0 {
+            1.0
+        } else if base_deg > 0.0 {
+            if is_sym_norm_half {
+                base_deg.sqrt().recip()
+            } else {
+                base_deg.powf(config.beta)
+            }
+        } else {
+            0.0
+        };
+        outer_scale[i] = s_i;
+        nullspace[i] = if s_i > 0.0 {
+            if config.beta == 0.0 {
+                1.0
+            } else if is_sym_norm_half {
+                base_deg.sqrt()
+            } else {
+                1.0 / s_i
+            }
+        } else if use_unit_diag_isolated {
+            0.0
+        } else {
+            1.0
+        };
+    }
+
+    let est_edges = match &rows_opt {
+        Some(rows) => rows.iter().map(Vec::len).sum(),
+        None => graph.nnz(),
+    };
+    let mut indptr = Vec::with_capacity(n + 1);
+    indptr.push(0u32);
+    let mut indices = Vec::with_capacity(est_edges + n);
+    let mut values = Vec::with_capacity(est_edges + n);
+    let mut diagonal = vec![0.0_f64; n];
+
+    if let Some(ref rows) = rows_opt {
+        for (u, row) in rows.iter().enumerate() {
+            let u_u32 = u as u32;
+            let scale_u = outer_scale[u] * d_neg_alpha[u];
+            let diag_u = if use_unit_diag_isolated {
+                1.0
+            } else {
+                outer_scale[u] * d_alpha[u] * outer_scale[u]
+            };
+            diagonal[u] = diag_u;
+            let mut diag_inserted = !use_unit_diag_isolated && diag_u == 0.0;
+
+            for &(v, w) in row {
+                if !diag_inserted && v > u_u32 {
+                    indices.push(u_u32);
+                    values.push(diag_u);
+                    diag_inserted = true;
+                }
+                let entry = -(scale_u * w * d_neg_alpha[v as usize] * outer_scale[v as usize]);
+                indices.push(v);
+                values.push(if entry == 0.0 { 0.0 } else { entry });
+            }
+            if !diag_inserted {
+                indices.push(u_u32);
+                values.push(diag_u);
+            }
+            let ptr = u32::try_from(indices.len()).map_err(|_| {
+                CoreError::invalid_csr("anisotropic_laplacian nnz exceeds u32::MAX")
+            })?;
+            indptr.push(ptr);
+        }
+    } else {
+        let weights_opt = graph.weights();
+        for u in 0..n {
+            let u_u32 = u as u32;
+            let scale_u = outer_scale[u] * d_neg_alpha[u];
+            let diag_u = if use_unit_diag_isolated {
+                1.0
+            } else {
+                outer_scale[u] * d_alpha[u] * outer_scale[u]
+            };
+            diagonal[u] = diag_u;
+            let mut diag_inserted = !use_unit_diag_isolated && diag_u == 0.0;
+
+            let start = graph.indptr()[u] as usize;
+            let end = graph.indptr()[u + 1] as usize;
+            for pos in start..end {
+                let v = graph.indices()[pos];
+                if !diag_inserted && v > u_u32 {
+                    indices.push(u_u32);
+                    values.push(diag_u);
+                    diag_inserted = true;
+                }
+                let w = match weights_opt {
+                    Some(ws) => ws[pos].to_f64(),
+                    None => 1.0,
+                };
+                let entry = -(scale_u * w * d_neg_alpha[v as usize] * outer_scale[v as usize]);
+                indices.push(v);
+                values.push(if entry == 0.0 { 0.0 } else { entry });
+            }
+            if !diag_inserted {
+                indices.push(u_u32);
+                values.push(diag_u);
+            }
+            let ptr = u32::try_from(indices.len()).map_err(|_| {
+                CoreError::invalid_csr("anisotropic_laplacian nnz exceeds u32::MAX")
+            })?;
+            indptr.push(ptr);
+        }
+    }
+
+    Ok(AnisotropicLaplacianResult {
+        matrix: CsrMatrix {
+            num_nodes: n,
+            indptr,
+            indices,
+            values,
+            diagonal,
+        },
+        nullspace,
+        outer_scale,
+    })
+}
+
 /// Constructs a CSR graph Laplacian of the requested [`LaplacianKind`].
 pub fn laplacian<W: Scalar>(graph: &CsrGraph<W>, kind: LaplacianKind) -> CsrMatrix {
     match kind {
@@ -989,5 +1775,250 @@ mod tests {
 
         assert!(shifted_normalized_laplacian(&l_single, 0.0).is_err());
         assert!(shifted_normalized_laplacian(&l_single, f64::NAN).is_err());
+    }
+
+    #[test]
+    fn test_is_symmetric_and_symmetrize() {
+        // Asymmetric 3x3 matrix:
+        // [ 2.0, -1.0,  0.0]
+        // [-3.0,  4.0,  2.0]
+        // [ 0.0, -2.0,  1.0]
+        let asym = CsrMatrix::from_csr(
+            3,
+            vec![0, 2, 5, 7],
+            vec![0, 1, 0, 1, 2, 1, 2],
+            vec![2.0, -1.0, -3.0, 4.0, 2.0, -2.0, 1.0],
+        )
+        .unwrap();
+        assert!(!asym.is_symmetric(1e-12));
+        assert!(!asym.is_symmetric(1.5));
+        assert!(asym.is_symmetric(4.0));
+        assert!(!asym.is_symmetric(-1.0));
+        assert!(!asym.is_symmetric(f64::NAN));
+
+        let sym = asym.symmetrize().unwrap();
+        assert!(sym.is_symmetric(0.0));
+        assert_eq!(sym.diagonal(), &[2.0, 4.0, 1.0]);
+        // (1, 2) and (2, 1) averaged to (2 + (-2)) * 0.5 = 0.0 and should be pruned!
+        let dense = sym.to_dense().unwrap();
+        assert_eq!(dense, vec![2.0, -2.0, 0.0, -2.0, 4.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(sym.nnz(), 5);
+
+        let empty = CsrMatrix::from_csr(0, vec![0], vec![], vec![]).unwrap();
+        assert!(empty.is_symmetric(0.0));
+        assert_eq!(empty.symmetrize().unwrap().num_nodes(), 0);
+    }
+
+    #[test]
+    fn test_anisotropic_laplacian_special_cases_and_psd() {
+        // Weighted graph with hub and isolated vertex 4
+        let g = CsrGraph::<f64>::from_edges(
+            5,
+            &[(0, 1), (0, 2), (0, 3), (1, 2), (2, 3)],
+            Some(&[2.0, 1.0, 3.0, 1.5, 0.5]),
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 1. (0, 0) recovers combinatorial_laplacian bit-for-bit
+        let l_comb = combinatorial_laplacian(&g);
+        let res_comb = anisotropic_laplacian(
+            &g,
+            AnisotropicLaplacianConfig {
+                alpha: 0.0,
+                beta: 0.0,
+                degree_reg: 0.0,
+                degree_cap: None,
+                reweighted_degree_norm: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(res_comb.matrix, l_comb);
+        assert_eq!(res_comb.nullspace, vec![1.0; 5]);
+
+        // 2. (0, -0.5, reweighted=true) recovers symmetric_normalized_laplacian
+        let (l_sym, _) = symmetric_normalized_laplacian(&g);
+        let res_sym = anisotropic_laplacian(
+            &g,
+            AnisotropicLaplacianConfig {
+                alpha: 0.0,
+                beta: -0.5,
+                degree_reg: 0.0,
+                degree_cap: None,
+                reweighted_degree_norm: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(res_sym.matrix, l_sym);
+        let mut y_ns = vec![0.0; 5];
+        res_sym.matrix.spmv(&res_sym.nullspace, &mut y_ns).unwrap();
+        for &v in &y_ns {
+            assert!(v.abs() < 1e-13);
+        }
+
+        // 3. Connected graph: (0, -0.5, reweighted=false) also matches L_sym
+        let g_conn = path_graph(6);
+        let (l_sym_conn, _) = symmetric_normalized_laplacian(&g_conn);
+        let res_sym_unrew = anisotropic_laplacian(
+            &g_conn,
+            AnisotropicLaplacianConfig {
+                alpha: 0.0,
+                beta: -0.5,
+                degree_reg: 0.0,
+                degree_cap: None,
+                reweighted_degree_norm: false,
+            },
+        )
+        .unwrap();
+        let diff_sym: f64 = l_sym_conn
+            .to_dense()
+            .unwrap()
+            .iter()
+            .zip(res_sym_unrew.matrix.to_dense().unwrap().iter())
+            .map(|(&a, &b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(diff_sym < 1e-14);
+
+        // 4. L_pow(p) = D^{-p}(D - A)D^{-p} at (0.0, -p, reweighted=false)
+        let p = 0.6;
+        let res_pow = anisotropic_laplacian(
+            &g_conn,
+            AnisotropicLaplacianConfig {
+                alpha: 0.0,
+                beta: -p,
+                degree_reg: 0.0,
+                degree_cap: None,
+                reweighted_degree_norm: false,
+            },
+        )
+        .unwrap();
+        let l_comb_conn = combinatorial_laplacian(&g_conn).to_dense().unwrap();
+        let d_pow: Vec<f64> = (0..6).map(|i| (g_conn.degree(i) as f64).powf(-p)).collect();
+        let dense_pow = res_pow.matrix.to_dense().unwrap();
+        for i in 0..6 {
+            for j in 0..6 {
+                let expected = d_pow[i] * l_comb_conn[i * 6 + j] * d_pow[j];
+                assert!((dense_pow[i * 6 + j] - expected).abs() < 1e-13);
+            }
+        }
+
+        // 5. CL_sym at (alpha, -0.5, reweighted=true) is symmetric, PSD, and spectrum in [0, 2]
+        for &alpha in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+            let cl_sym = anisotropic_laplacian(
+                &g,
+                AnisotropicLaplacianConfig {
+                    alpha,
+                    beta: -0.5,
+                    degree_reg: 0.0,
+                    degree_cap: None,
+                    reweighted_degree_norm: true,
+                },
+            )
+            .unwrap();
+            assert!(cl_sym.matrix.is_symmetric(1e-13));
+            let dense = cl_sym.matrix.to_dense().unwrap();
+            let (evals, _) = symmetric_eigen_jacobi(&dense, 5, 64, 1e-12).unwrap();
+            assert!(evals.iter().all(|&ev| (-1e-12..=2.0 + 1e-12).contains(&ev)));
+            cl_sym.matrix.spmv(&cl_sym.nullspace, &mut y_ns).unwrap();
+            assert!(y_ns.iter().all(|&v| v.abs() < 1e-12));
+
+            // Also verify unnormalized (beta = 0.0) with degree_reg & degree_cap is symmetric PSD
+            let cl_reg = anisotropic_laplacian(
+                &g,
+                AnisotropicLaplacianConfig {
+                    alpha,
+                    beta: 0.0,
+                    degree_reg: 0.5,
+                    degree_cap: Some(3.0),
+                    reweighted_degree_norm: true,
+                },
+            )
+            .unwrap();
+            assert!(cl_reg.matrix.is_symmetric(1e-13));
+            let dense_reg = cl_reg.matrix.to_dense().unwrap();
+            let (evals_reg, _) = symmetric_eigen_jacobi(&dense_reg, 5, 64, 1e-12).unwrap();
+            assert!(evals_reg.iter().all(|&ev| ev >= -1e-12));
+        }
+
+        // 6. Validation errors
+        assert!(
+            anisotropic_laplacian(
+                &g,
+                AnisotropicLaplacianConfig {
+                    alpha: f64::NAN,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            anisotropic_laplacian(
+                &g,
+                AnisotropicLaplacianConfig {
+                    degree_reg: -0.1,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            anisotropic_laplacian(
+                &g,
+                AnisotropicLaplacianConfig {
+                    degree_cap: Some(0.0),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_spectrum_estimation_gershgorin_power_lanczos_and_trace() {
+        // Empty and zero matrices
+        let empty = CsrMatrix::from_csr(0, vec![0], vec![], vec![]).unwrap();
+        assert_eq!(empty.trace(), 0.0);
+        assert_eq!(empty.gershgorin_spectral_bound(), 0.0);
+        assert_eq!(empty.estimate_lambda_max(10, 1.02, 42).unwrap(), 0.0);
+        assert_eq!(
+            empty.estimate_lambda_max_lanczos(16, 1.05, 42).unwrap(),
+            0.0
+        );
+
+        let edgeless = CsrGraph::<f64>::from_edges(5, &[], None, false, false).unwrap();
+        let zero_lap = combinatorial_laplacian(&edgeless);
+        assert_eq!(zero_lap.trace(), 0.0);
+        assert_eq!(zero_lap.gershgorin_spectral_bound(), 0.0);
+        assert_eq!(zero_lap.estimate_lambda_max(10, 1.02, 42).unwrap(), 0.0);
+        assert_eq!(
+            zero_lap.estimate_lambda_max_lanczos(16, 1.05, 42).unwrap(),
+            0.0
+        );
+
+        // Star graph K_{1, 50}: L_comb has exact lambda_max = 51.0, trace = 100.0
+        let n_star = 51usize;
+        let star_edges: Vec<(u32, u32)> = (1..n_star).map(|i| (0, i as u32)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &star_edges, None, false, false).unwrap();
+        let l_star = combinatorial_laplacian(&star);
+        assert!((l_star.trace() - 100.0).abs() < 1e-12);
+        let gersh = l_star.gershgorin_spectral_bound();
+        assert!((gersh - 100.0).abs() < 1e-12);
+        let pi = l_star.estimate_lambda_max(10, 1.02, 42).unwrap();
+        let lanc = l_star.estimate_lambda_max_lanczos(16, 1.05, 42).unwrap();
+        assert!(pi >= 50.0 && pi <= gersh);
+        assert!(lanc >= 51.0 && lanc <= (1.05 * 51.0 + 1e-9).min(gersh));
+
+        // 2-node graph (tests constant-vector Rademacher edge case!)
+        let g2 = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+        let l2 = combinatorial_laplacian(&g2);
+        assert!((l2.estimate_lambda_max_lanczos(16, 1.05, 42).unwrap() - 2.0).abs() < 1e-12);
+        assert!(l2.estimate_lambda_max(10, 1.02, 42).unwrap() >= 2.0 - 1e-12);
+
+        // Validation
+        assert!(l_star.estimate_lambda_max(10, 0.99, 42).is_err());
+        assert!(l_star.estimate_lambda_max_lanczos(16, 0.99, 42).is_err());
+        assert!((l_star.estimate_lambda_max(0, 1.0, 42).unwrap() - gersh).abs() < 1e-12);
+        assert!((l_star.estimate_lambda_max_lanczos(0, 1.0, 42).unwrap() - gersh).abs() < 1e-12);
     }
 }
