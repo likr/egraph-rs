@@ -5,6 +5,8 @@
 //! - [`Fft2dWorkspace`]: Reusable in-place Radix-2 1D/2D FFT with call telemetry.
 //! - [`IbFft2d`]: Bilinear ($p=1$) and cubic ($p=3$) interpolation-based FFT with `G_dual` binning.
 //! - [`FitField2d`]: Fused C1 (KL Student-$t$) + C2 (entropy) repulsion sharing particle FFTs.
+//! - [`R2cFft2dWorkspaceF32`]: In-place `f32` 2D Real-to-Complex (`R2C`/`C2R`) Radix-2 FFT workspace.
+//! - [`ScreenedPoissonField2d`]: Unilateral upper-bound Screened Poisson density field evaluator.
 //! - [`ArenaQuadtree2d`]: Flat `Vec`-backed Barnes-Hut quadtree.
 //! - [`StaticKdTree`]: Flat median-split static $D$-dimensional KD-tree.
 //! - [`SweepLineCrossings`]: Exact $O((|E|+K)\log|E|)$ sweep-line crossing detector, torus segments,
@@ -16,11 +18,13 @@ pub mod crossings;
 #[cfg(feature = "delaunay")]
 pub mod delaunay;
 pub mod fft;
+pub mod fft_r2c;
 pub mod fit_field;
 pub mod ibfft;
 pub mod kdtree;
 pub mod overlap;
 pub mod quadtree;
+pub mod screened_poisson;
 
 pub use crossings::{
     CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, sampled_crossing_number,
@@ -30,8 +34,13 @@ pub use crossings::{
 #[cfg(feature = "delaunay")]
 pub use delaunay::Delaunay2d;
 pub use fft::{Complex64, Fft2dWorkspace};
+pub use fft_r2c::{Complex32, R2cFft2dWorkspaceF32};
 pub use fit_field::{FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats};
 pub use ibfft::{IbFft2d, IbFftConfig, IbFftGridSpec, InterpolationOrder};
 pub use kdtree::{KdQueryScratch, StaticKdTree};
 pub use overlap::{Rect2d, RectangleOverlapSweep};
 pub use quadtree::ArenaQuadtree2d;
+pub use screened_poisson::{
+    DensityFieldKernel, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
+    ScreenedPoissonStats,
+};

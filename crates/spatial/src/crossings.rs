@@ -2694,7 +2694,10 @@ pub fn sampled_crossing_number_edges<S: Scalar>(
 mod tests {
     use super::*;
 
-    fn brute_force_pairs(edges: &[(u32, u32)], layout: &Layout2d<f64>) -> Vec<(usize, usize)> {
+    fn brute_force_pairs<S: Scalar>(
+        edges: &[(u32, u32)],
+        layout: &Layout2d<S>,
+    ) -> Vec<(usize, usize)> {
         let segs = build_segments(edges, layout).unwrap();
         let mut out = Vec::new();
         for i in 0..segs.len() {
@@ -2707,7 +2710,11 @@ mod tests {
         out
     }
 
-    fn assert_matches_brute_force(label: &str, edges: &[(u32, u32)], layout: &Layout2d<f64>) {
+    fn assert_matches_brute_force<S: Scalar>(
+        label: &str,
+        edges: &[(u32, u32)],
+        layout: &Layout2d<S>,
+    ) {
         let expected = brute_force_pairs(edges, layout);
         let got_pairs = SweepLineCrossings::find_edge_crossings(edges, layout).unwrap();
         let got_indices: Vec<(usize, usize)> =
@@ -3516,7 +3523,10 @@ mod tests {
         }
     }
 
-    fn torus_brute_force(edges: &[(u32, u32)], layout: &Layout2d<f64>) -> Vec<TorusCrossing> {
+    fn torus_brute_force<S: Scalar>(
+        edges: &[(u32, u32)],
+        layout: &Layout2d<S>,
+    ) -> Vec<TorusCrossing> {
         let mut sub_segs = Vec::new();
         let mut orig_edge = Vec::new();
         for (eid, &(u, v)) in edges.iter().enumerate() {
@@ -4002,6 +4012,58 @@ mod tests {
                     "torus crossing output must canonicalize -0.0 to +0.0"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_f32_sweep_and_out_of_unit_torus_oracles() {
+        // 1. Multi-seed Layout2d<f32> randomized & quantized degenerate sweep-line vs O(M^2) oracle.
+        for seed in 1..=20u64 {
+            let mut rng = DeterministicRng::from_seed_u64(95_000 + seed);
+            let n = 22usize;
+            let xs: Vec<f32> = (0..n)
+                .map(|_| ((rng.gen_range_usize(11) as f32) - 5.0) * 0.25)
+                .collect();
+            let ys: Vec<f32> = (0..n)
+                .map(|_| ((rng.gen_range_usize(11) as f32) - 5.0) * 0.25)
+                .collect();
+            let layout32 = Layout2d::from_xy(xs, ys).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..48 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                edges.push((u, v));
+            }
+            assert_matches_brute_force(&format!("f32_quantized_{seed}"), &edges, &layout32);
+        }
+
+        // 2. Out-of-[0, 1) periodic torus wrap tests (negative and >= 1.0 coordinates) in f64 & f32.
+        for seed in 1..=12u64 {
+            let mut rng = DeterministicRng::from_seed_u64(96_000 + seed);
+            let n = 12usize;
+            let xs: Vec<f64> = (0..n).map(|_| rng.next_f64() * 5.0 - 2.0).collect();
+            let ys: Vec<f64> = (0..n).map(|_| rng.next_f64() * 5.0 - 2.0).collect();
+            let layout64 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+            let mut edges = Vec::new();
+            for _ in 0..16 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v {
+                    edges.push((u, v));
+                }
+            }
+            let expected64 = torus_brute_force(&edges, &layout64);
+            let got64 = torus_crossing_edges_from_edges(&edges, &layout64).unwrap();
+            assert_eq!(got64, expected64, "out_of_unit_torus_f64_{seed}");
+
+            let layout32 = Layout2d::from_xy(
+                xs.iter().map(|&v| v as f32).collect(),
+                ys.iter().map(|&v| v as f32).collect(),
+            )
+            .unwrap();
+            let expected32 = torus_brute_force(&edges, &layout32);
+            let got32 = torus_crossing_edges_from_edges(&edges, &layout32).unwrap();
+            assert_eq!(got32, expected32, "out_of_unit_torus_f32_{seed}");
         }
     }
 }

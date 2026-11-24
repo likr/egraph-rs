@@ -815,4 +815,161 @@ mod tests {
             }
         }
     }
+
+    fn brute_knn_s<const D: usize, S: Scalar>(
+        pts: &[[S; D]],
+        q: &[S; D],
+        k: usize,
+        exclude: Option<usize>,
+    ) -> Vec<(usize, f64)> {
+        let mut q64 = [0.0_f64; D];
+        for d in 0..D {
+            q64[d] = q[d].to_f64();
+        }
+        let mut all: Vec<(usize, f64)> = pts
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| Some(*i) != exclude)
+            .map(|(i, p)| {
+                let mut p64 = [0.0_f64; D];
+                for d in 0..D {
+                    p64[d] = p[d].to_f64();
+                }
+                (i, dist_sq(&q64, &p64))
+            })
+            .collect();
+        all.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        all.truncate(k);
+        all
+    }
+
+    fn brute_within_s<const D: usize, S: Scalar>(
+        pts: &[[S; D]],
+        q: &[S; D],
+        r2: f64,
+    ) -> Vec<(usize, f64)> {
+        let mut q64 = [0.0_f64; D];
+        for d in 0..D {
+            q64[d] = q[d].to_f64();
+        }
+        let mut all: Vec<(usize, f64)> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let mut p64 = [0.0_f64; D];
+                for d in 0..D {
+                    p64[d] = p[d].to_f64();
+                }
+                (i, dist_sq(&q64, &p64))
+            })
+            .filter(|&(_, d2)| d2 <= r2)
+            .collect();
+        all.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        all
+    }
+
+    #[test]
+    fn test_kdtree_multiseed_f32_3d_median_split_and_exact_radius_oracles() {
+        // 1. Multi-seed 2D f32 & 3D f32/f64 randomized oracles (N > LEAF_SIZE=16).
+        for seed in 1..=8u64 {
+            let mut rng = DeterministicRng::from_seed_u64(3_000 + seed);
+            let pts2_f32: Vec<[f32; 2]> = (0..80)
+                .map(|_| {
+                    [
+                        (rng.next_f64() * 10.0 - 5.0) as f32,
+                        (rng.next_f64() * 10.0 - 5.0) as f32,
+                    ]
+                })
+                .collect();
+            let tree2 = StaticKdTree::<2, f32>::build(&pts2_f32).unwrap();
+            for i in [0usize, 17, 42, 79] {
+                for &k in &[1usize, 5, 25] {
+                    assert_eq!(
+                        tree2.k_nearest_excluding_self(i, k).unwrap(),
+                        brute_knn_s(&pts2_f32, &pts2_f32[i], k, Some(i))
+                    );
+                }
+            }
+            let q2 = [0.5_f32, -1.25_f32];
+            assert_eq!(
+                tree2.within_radius(&q2, 2.5).unwrap(),
+                brute_within_s(&pts2_f32, &q2, 6.25)
+            );
+
+            let pts3_f64: Vec<[f64; 3]> = (0..75)
+                .map(|_| {
+                    [
+                        rng.next_f64() * 8.0 - 4.0,
+                        rng.next_f64() * 8.0 - 4.0,
+                        rng.next_f64() * 8.0 - 4.0,
+                    ]
+                })
+                .collect();
+            let tree3 = StaticKdTree::<3, f64>::build(&pts3_f64).unwrap();
+            let pts3_f32: Vec<[f32; 3]> = pts3_f64
+                .iter()
+                .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
+                .collect();
+            let tree3_f32 = StaticKdTree::<3, f32>::build(&pts3_f32).unwrap();
+            for i in [0usize, 15, 37, 74] {
+                assert_eq!(
+                    tree3.k_nearest_excluding_self(i, 10).unwrap(),
+                    brute_knn(&pts3_f64, &pts3_f64[i], 10, Some(i))
+                );
+                assert_eq!(
+                    tree3_f32.k_nearest_excluding_self(i, 10).unwrap(),
+                    brute_knn_s(&pts3_f32, &pts3_f32[i], 10, Some(i))
+                );
+            }
+            let q3 = [1.0_f64, -1.0, 0.5];
+            assert_eq!(
+                tree3.within_radius(&q3, 3.0).unwrap(),
+                brute_within(&pts3_f64, &q3, 9.0)
+            );
+        }
+
+        // 2. Axis-aligned median-split tie-break oracle (many points on exact split plane x=2.0 / y=-1.0).
+        let mut tie_pts = Vec::with_capacity(96);
+        for i in 0..96usize {
+            let x = match i % 3 {
+                0 => 2.0,
+                1 => (i % 7) as f64,
+                _ => -((i % 5) as f64),
+            };
+            let y = match i % 4 {
+                0 => -1.0,
+                _ => ((i * 3) % 11) as f64 - 5.0,
+            };
+            tie_pts.push([x, y]);
+        }
+        let tie_tree = StaticKdTree::<2, f64>::build(&tie_pts).unwrap();
+        for i in 0..tie_pts.len() {
+            assert_eq!(
+                tie_tree.k_nearest_excluding_self(i, 12).unwrap(),
+                brute_knn(&tie_pts, &tie_pts[i], 12, Some(i)),
+                "median-split tie-break mismatch at i={i}"
+            );
+        }
+
+        // 3. Exact boundary d_sq == r_sq inclusion in within_radius_sq and within_radius.
+        let mut boundary_pts = Vec::new();
+        for x in -4..=4 {
+            for y in -4..=4 {
+                boundary_pts.push([x as f64, y as f64]);
+            }
+        }
+        let b_tree = StaticKdTree::<2, f64>::build(&boundary_pts).unwrap();
+        for &r_sq in &[0.0_f64, 1.0, 2.0, 4.0, 5.0, 9.0, 10.0] {
+            let q = [0.0, 0.0];
+            assert_eq!(
+                b_tree.within_radius_sq(&q, r_sq).unwrap(),
+                brute_within(&boundary_pts, &q, r_sq),
+                "within_radius_sq boundary r_sq={r_sq}"
+            );
+        }
+        assert_eq!(
+            b_tree.within_radius(&[0.0, 0.0], 2.0).unwrap(),
+            brute_within(&boundary_pts, &[0.0, 0.0], 4.0)
+        );
+    }
 }
