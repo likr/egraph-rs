@@ -16,6 +16,26 @@ fn facade_core_smoke() {
     assert_eq!(manifold.len(), 4);
 }
 
+#[cfg(feature = "linalg")]
+#[test]
+fn facade_amg_pcg_smoke() {
+    let graph = CsrGraph::<f64>::from_edges(
+        5,
+        &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)],
+        None,
+        false,
+        false,
+    )
+    .expect("valid cycle graph");
+    let solver = AmgPcgSolver::from_regularized_sym_laplacian(&graph, 2.0, AmgPcgConfig::default())
+        .expect("amg pcg solver");
+    let (x, res) = solver
+        .solve_vec(&[1.0, -1.0, 0.5, -0.5, 0.0])
+        .expect("solve");
+    assert!(res.converged);
+    assert!(x.iter().all(|v| v.is_finite()));
+}
+
 #[cfg(feature = "layout")]
 #[test]
 fn facade_layout_smoke() {
@@ -73,6 +93,107 @@ fn facade_metrics_clustering_dataset_smoke() {
 
     normalize_layout_2d(&mut layout, 1.0, 42).expect("normalize_layout_2d");
     assert!(layout.is_all_finite());
+}
+
+#[cfg(all(feature = "linalg", feature = "layout"))]
+#[test]
+fn facade_resistance_curvature_manifold_smoke() {
+    // 1. Barbell graph -> HyperbolicPoincare + SgdSolver::full + run_manifold
+    let mut edges = Vec::new();
+    for u in 0..5u32 {
+        for v in (u + 1)..5u32 {
+            edges.push((u, v));
+            edges.push((u + 5, v + 5));
+        }
+    }
+    edges.push((4, 5));
+    let barbell = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).expect("barbell");
+    let flow_hyp = resistance_curvature_flow(
+        &barbell,
+        &ResistanceCurvatureConfig {
+            steps: 2,
+            eta: 0.2,
+            ..Default::default()
+        },
+    )
+    .expect("barbell rcf");
+    let length_graph = flow_hyp.to_length_graph().expect("length graph");
+    let init_euclid = pivot_mds::<f64, f64>(&length_graph, &PivotMdsConfig::default())
+        .expect("pivot_mds on length_graph");
+
+    let mut ml_hyp = ManifoldLayout2d::<f64>::from_layout_scaled(
+        ManifoldKind::HyperbolicPoincare,
+        &init_euclid,
+        0.7,
+    )
+    .expect("from_layout_scaled hyperbolic");
+    let mut sgd_hyp = SgdSolver::<f64>::full(
+        &length_graph,
+        SgdScheduleConfig {
+            t_max: 8,
+            ..Default::default()
+        },
+        42,
+    )
+    .expect("sgd full hyp");
+    let st_hyp = sgd_hyp.run_manifold(&mut ml_hyp).expect("run_manifold hyp");
+    assert!(st_hyp.is_finished());
+    assert!(ml_hyp.as_layout().is_all_finite());
+
+    // 2. Spherical manifold with random_init + run_manifold
+    let mut ml_sph = ManifoldLayout2d::<f64>::random_init(ManifoldKind::Spherical, 10, 0.5, 42)
+        .expect("random_init spherical");
+    let mut sgd_sph = SgdSolver::<f64>::full(
+        &length_graph,
+        SgdScheduleConfig {
+            t_max: 8,
+            step_scale: 0.1,
+            ..Default::default()
+        },
+        42,
+    )
+    .expect("sgd full sph");
+    let st_sph = sgd_sph.run_manifold(&mut ml_sph).expect("run_manifold sph");
+    assert!(st_sph.is_finished());
+    assert!(ml_sph.as_layout().is_all_finite());
+
+    // 3. Torus2d on T_{8x8} + run_manifold
+    let mut t_edges = Vec::new();
+    for r in 0..8u32 {
+        for c in 0..8u32 {
+            let u = r * 8 + c;
+            t_edges.push((u, r * 8 + ((c + 1) % 8)));
+            t_edges.push((u, ((r + 1) % 8) * 8 + c));
+        }
+    }
+    let torus = CsrGraph::<f64>::from_edges(64, &t_edges, None, false, true).expect("torus");
+    let flow_tor = resistance_curvature_flow(
+        &torus,
+        &ResistanceCurvatureConfig {
+            steps: 1,
+            ..Default::default()
+        },
+    )
+    .expect("torus rcf");
+    assert_eq!(flow_tor.suggested_geometry, SuggestedGeometry::Torus2d);
+    assert_eq!(
+        flow_tor.suggested_manifold_kind(),
+        Some(ManifoldKind::Torus2d)
+    );
+    let mut ml_tor = ManifoldLayout2d::<f64>::random_init(ManifoldKind::Torus2d, 64, 0.4, 42)
+        .expect("random_init torus");
+    let mut sgd_tor = SgdSolver::<f64>::full(
+        &flow_tor.to_length_graph().expect("torus length graph"),
+        SgdScheduleConfig {
+            t_max: 8,
+            ..Default::default()
+        },
+        42,
+    )
+    .expect("sgd full tor");
+    let st_tor = sgd_tor.run_manifold(&mut ml_tor).expect("run_manifold tor");
+    assert!(st_tor.is_finished());
+    assert!(ml_tor.as_layout().is_all_finite());
 }
 
 #[cfg(feature = "petgraph")]
