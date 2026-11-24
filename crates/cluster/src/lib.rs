@@ -10,7 +10,11 @@ pub mod label_propagation;
 pub mod louvain;
 pub mod spectral;
 
-pub use coarsen::{CoarsenedGraph, coarsen_graph, project_clustered_layout};
+pub use coarsen::{
+    CoarseLouvainConfig, CoarsenedGraph, CoarsenedHierarchy, CoarsenedHierarchyLevel,
+    align_clustered_centroids, coarsen_graph, louvain_coarsen, project_clustered_layout,
+    project_clustered_layout_with_radii,
+};
 pub use kmeans::{KMeansConfig, KMeansResult, kmeans_plus_plus};
 pub use label_propagation::{LabelPropagationConfig, label_propagation};
 pub use louvain::{LouvainConfig, LouvainResult, louvain};
