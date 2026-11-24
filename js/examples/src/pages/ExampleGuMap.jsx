@@ -17,7 +17,11 @@ export function ExampleGuMap() {
 
     (async () => {
       try {
-        const loaded = loadEmbeddedGraph(dataset);
+        const loaded = await loadEmbeddedGraph(dataset);
+        if (ac.signal.aborted) {
+          loaded.graph.free();
+          return;
+        }
         graph = loaded.graph;
         layout = pivotMdsInit(graph, 32, 42, null, 1.0);
         solver = GuMapSolver.fromGraphDog(graph, {

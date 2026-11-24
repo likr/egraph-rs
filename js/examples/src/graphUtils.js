@@ -1,7 +1,14 @@
 import * as d3 from "d3";
-import { CsrGraph, loadDataset } from "egraph";
+import { CsrGraph } from "egraph";
 
 const palette = d3.scaleOrdinal(d3.schemeCategory10);
+
+const DATASET_LOADERS = {
+  lesmis: () => import("../../../js/dataset/les_miserables.json"),
+  karate: () => import("../../../js/dataset/karate_club.json"),
+  "1138_bus": () => import("../../../js/dataset/1138_bus.json"),
+  "3_elt": () => import("../../../js/dataset/3elt.json"),
+};
 
 export async function loadMiserablesGraph() {
   const response = await fetch("/data/miserables.json");
@@ -39,8 +46,34 @@ export async function loadMiserablesGraph() {
   return { graph, edges, nodes, links, numNodes: nodes.length };
 }
 
-export function loadEmbeddedGraph(name) {
-  const raw = loadDataset(name);
+export async function loadEmbeddedGraph(name) {
+  const loader = DATASET_LOADERS[name];
+  if (!loader) {
+    throw new Error(`Unknown dataset: ${name}`);
+  }
+  const mod = await loader();
+  const data = mod.default ?? mod;
+  const idToIndex = new Map();
+  data.nodes.forEach((node, i) => {
+    idToIndex.set(node.id, i);
+  });
+
+  const rawEdgePairs = [];
+  for (const link of data.links) {
+    const u = idToIndex.get(link.source);
+    const v = idToIndex.get(link.target);
+    if (u !== undefined && v !== undefined) {
+      rawEdgePairs.push(u, v);
+    }
+  }
+
+  const raw = CsrGraph.fromEdgeList(
+    data.nodes.length,
+    new Uint32Array(rawEdgePairs),
+    null,
+    false,
+    true,
+  );
   const lcc = raw.largestConnectedComponent();
   const graph = lcc.graph();
   lcc.free();
