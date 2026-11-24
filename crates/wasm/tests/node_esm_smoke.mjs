@@ -7,32 +7,52 @@ import init, * as eg from "../pkg/egraph_wasm.node.js";
 import * as webPkg from "../pkg/index.js";
 
 const {
+  AmgPcgBatchResult,
+  AmgPcgSolveResult,
+  AmgPcgSolver,
+  AnisotropicLaplacianResult,
   CsrGraph,
+  CsrMatrix,
   DogVaradhanLandmarks,
+  EffectiveResistanceResult,
   EigenResult,
   HybridKnnResult,
   KnnGraph,
   Layout2d,
+  LayoutDegeneracy,
   MetricReport,
+  MinimumAngleSummary,
   PrismDistortion,
+  ResistanceCurvatureFlowResult,
+  ResistanceCurvatureStep,
+  RtaEvaluation,
   Sparse12HopPairs,
   SparseProbabilities,
   SpectralMomentStats,
   TwoHopCsr,
   TwoHopKnnResult,
+  adjustedPatchNig,
+  adjustedPatchNigMultiscale,
   angularResolutionV6,
+  anisotropicLaplacian,
   aspectRatioV6,
   buildHybridAdaptiveKnn,
   buildPure2hopKnn,
   chebyshevDogJlEmbedding,
+  chebyshevDogJlEmbeddingMatrix,
   chebyshevHeatSpmv,
+  chebyshevHeatSpmvMatrix,
   compute2hopNeighborhoodSizes,
+  computeEffectiveResistances,
   computeFuzzySimplicialSet,
   computeHorvitzThompsonGamma,
   computeKnnProbabilities,
   computeMedian2hopPerplexity,
   computeNodewise2hopPerplexities,
   computeRegularizedDogVaradhanLandmarks,
+  computeRegularizedDogVaradhanLandmarksFromMatrix,
+  resistanceCurvatureFlow,
+  crosslessness,
   dggPreservation,
   drngPreservation,
   edgeAngle,
@@ -43,6 +63,12 @@ const {
   gabrielGraphPropertyV6,
   idealEdgeLengthsV6,
   korenSpectralInit,
+  landmarkStratifiedRta,
+  landmarkStratifiedRtaDetail,
+  landmarkStratifiedRtaFromLandmarks,
+  layoutDegeneracy,
+  minimumAngle,
+  minimumAngleSummary,
   neighborhoodPreservation1Hop,
   neighborhoodPreservation2HopV6,
   nodeResolutionV6,
@@ -50,6 +76,7 @@ const {
   pivotMdsInit,
   prismDistortion,
   sampledCrossingNumber,
+  sampledCrosslessness,
   sampledNp1,
   sampledNp2,
   sampledScaleNormalizedStress,
@@ -348,6 +375,8 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert.equal(sweepCrossingNumber(grid, gridLayout), 0);
   assert.equal(sweepCrossingAngle(grid, gridLayout), 0);
   assert.equal(sampledCrossingNumber(grid, gridLayout), 0);
+  assert.equal(crosslessness(grid, gridLayout), 1.0);
+  assert.equal(sampledCrosslessness(grid, gridLayout), 1.0);
 
   // K4 square with crossing diagonals
   const k4 = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 3, 3, 0, 0, 2, 1, 3]));
@@ -355,8 +384,49 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert.equal(sweepCrossingNumber(k4, k4Layout), 1);
   assert(Math.abs(sweepCrossingAngle(k4, k4Layout)) < 1e-6);
   assert.equal(sampledCrossingNumber(k4, k4Layout, 100, 42), 1);
+  assert(Math.abs(crosslessness(k4, k4Layout) - (1 - Math.sqrt(1 / 3))) < 1e-12);
+  assert(Math.abs(sampledCrosslessness(k4, k4Layout, 100, 42) - (1 - Math.sqrt(1 / 3))) < 1e-12);
   k4.free();
   k4Layout.free();
+
+  // Minimum angle, layout degeneracy, Adjusted Patch-NIG, Landmark-Stratified RTA
+  const maSum = minimumAngleSummary(grid, gridLayout);
+  assert(maSum instanceof MinimumAngleSummary);
+  assert.equal(maSum.a2, minimumAngle(grid, gridLayout));
+  maSum.free();
+
+  const degInfo = layoutDegeneracy(grid, gridLayout);
+  assert(degInfo instanceof LayoutDegeneracy);
+  assert.equal(degInfo.numNodes, 16);
+  assert.equal(degInfo.duplicateNodesF32, 0);
+  assert.equal(degInfo.zeroLengthEdges, 0);
+  assert.equal(degInfo.isBboxDegenerate, false);
+  degInfo.free();
+
+  const commLabels = new Uint32Array(Array.from({ length: 16 }, (_, i) => (i < 8 ? 0 : 1)));
+  const nigVal = adjustedPatchNig(gridLayout, commLabels, 16, 2048, 0.04, 42);
+  const nigMs = adjustedPatchNigMultiscale(gridLayout, commLabels, [16, 32], 2048, 0.04, 42);
+  assert(nigMs instanceof Float64Array);
+  assert(Math.abs(nigMs[0] - nigVal) < 1e-12);
+
+  const rtaVal = landmarkStratifiedRta(grid, gridLayout, 4, 10000, 2, 42);
+  const rtaDet = landmarkStratifiedRtaDetail(grid, gridLayout, 4, 10000, 2, 42);
+  assert(rtaDet instanceof RtaEvaluation);
+  assert(Math.abs(rtaDet.rta - rtaVal) < 1e-12);
+  assert.equal(rtaDet.isExact, true);
+  rtaDet.free();
+  const rtaFromTbl = landmarkStratifiedRtaFromLandmarks(
+    gridLayout,
+    new Uint32Array([0, 15]),
+    new Uint32Array([
+      0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6,
+      6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
+    ]),
+    10000,
+    42,
+  );
+  assert(rtaFromTbl instanceof RtaEvaluation);
+  rtaFromTbl.free();
 
   // Torus crossing on [0, 1)^2
   const torusGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 2, 3]));
@@ -478,6 +548,8 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
 // 8. Verify M2 v6 egraph-linalg and egraph-neighborhood APIs
 {
   const m2Symbols = [
+    "CsrMatrix",
+    "AnisotropicLaplacianResult",
     "KnnGraph",
     "Sparse12HopPairs",
     "SparseProbabilities",
@@ -487,13 +559,16 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     "TwoHopCsr",
     "TwoHopKnnResult",
     "HybridKnnResult",
+    "anisotropicLaplacian",
     "selectMaxminSpPivots",
     "pivotMdsInit",
     "korenSpectralInit",
     "smallestLaplacianEigenpairs",
     "spectralMomentStats",
     "chebyshevHeatSpmv",
+    "chebyshevHeatSpmvMatrix",
     "chebyshevDogJlEmbedding",
+    "chebyshevDogJlEmbeddingMatrix",
     "extract1hop2hopCsr",
     "extractSparse1hop2hopPairs",
     "buildPure2hopKnn",
@@ -507,6 +582,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     "findAbParams",
     "computeHorvitzThompsonGamma",
     "computeRegularizedDogVaradhanLandmarks",
+    "computeRegularizedDogVaradhanLandmarksFromMatrix",
   ];
   for (const sym of m2Symbols) {
     assert.equal(typeof webPkg[sym], "function", `missing webPkg.${sym}`);
@@ -1048,6 +1124,12 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(dtsText.includes("export interface PrismOptions {"));
   assert(dtsText.includes("export interface FdebOptions {"));
   assert(dtsText.includes("keepAll1hop?: boolean | null;"));
+  assert(dtsText.includes("max1hopPerNode?: number | null;"));
+  assert(dtsText.includes("degreeWeightBeta?: number | null;"));
+  assert(dtsText.includes("minSepRatio?: number | null;"));
+  assert(dtsText.includes("wSep?: number | null;"));
+  assert(dtsText.includes("pacmapGraphWithLandmarks("));
+  assert(dtsText.includes("pacmapGraphWithLandmarkDistances("));
   assert(dtsText.includes('"squared"'));
   assert(!dtsText.includes("options: any"));
   assert(!dtsText.includes("constraints: any"));
@@ -1122,10 +1204,13 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   lIbLm.free();
   lmSmoke.free();
 
-  // SgdSolver.snapTFdp, pacmapGraph (including keepAll1hop), sgd2, "squared"
+  const lmPm = computeRegularizedDogVaradhanLandmarks(grid, 6, 8, 42);
+  // SgdSolver.snapTFdp, pacmapGraph (including keepAll1hop/max1hopPerNode/degreeWeightBeta), pacmapGraphWithLandmarks, pacmapGraphWithLandmarkDistances, sgd2, "squared"
   for (const solver of [
     SgdSolver.snapTFdp(grid, { iterations: 6, seed: 42 }),
-    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, keepAll1hop: true, seed: 42 }),
+    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
+    SgdSolver.pacmapGraphWithLandmarks(grid, lmPm, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
+    SgdSolver.pacmapGraphWithLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
     SgdSolver.sgd2(grid, { tMax: 6, batchSize: 16, seed: 42 }),
     SgdSolver.full(grid, { tMax: 6, kind: "squared", seed: 42 }),
   ]) {
@@ -1135,6 +1220,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     solver.free();
     l.free();
   }
+  lmPm.free();
 
   // ForceAtlas2Solver & YifanHuSolver
   const fa2 = new ForceAtlas2Solver(grid, { iterations: 8, useBarnesHut: true, seed: 42 });
@@ -1229,7 +1315,6 @@ if (typeof eg.Graph === "function") {
   const {
     LayoutNd,
     runProgressive,
-    loadDataset,
     parseCsrCsv,
     delaunayToCsr,
     rectangleOverlaps,
@@ -1246,15 +1331,19 @@ if (typeof eg.Graph === "function") {
     classicalMds2d,
     rdMds,
     normalizeLayout2d,
+    robustNormalizeLayout2d,
     representativeMds,
     computeResistanceEmbedding,
     computeDiffusionEmbedding,
     buildRerankKnn,
+    buildCapped12hopKnn,
     graphRowNormalizedProbabilities,
+    graph12hopRowNormalizedProbabilities,
     symmetrizeRowNormalized,
     buildGumap12hopPriorityCsr,
     applyRelativeDistanceFloor,
     poincareDistance,
+    poincareMobiusAdd,
     sphericalDistance,
     torusDistance,
     wrapTorusPoint,
@@ -1263,9 +1352,15 @@ if (typeof eg.Graph === "function") {
 
   assert.equal(typeof runProgressive, "function");
   assert.equal(typeof webPkg.runProgressive, "function");
+  assert.equal(typeof eg.loadDataset, "undefined");
+  assert.equal(typeof webPkg.loadDataset, "undefined");
 
   // Dataset + CsrGraph M5 methods + LCC
-  const karate = loadDataset("karate");
+  const karateCsv = await readFile(
+    new URL("../../dataset/src/data/karate.csv", import.meta.url),
+    "utf8",
+  );
+  const karate = parseCsrCsv(karateCsv, false, false);
   assert.equal(karate.numNodes(), 34);
   assert(karate.nnz() > 0);
   assert.equal(karate.isWeighted(), false);
@@ -1320,6 +1415,13 @@ if (typeof eg.Graph === "function") {
   assert(Math.abs(torusDistance(0.05, 0.05, 0.95, 0.05) - 0.1) < 1e-9);
   const wrapped = wrapTorusPoint(1.25, -0.25);
   assert(Math.abs(wrapped[0] - 0.25) < 1e-9 && Math.abs(wrapped[1] - 0.75) < 1e-9);
+  const mAdd = poincareMobiusAdd(-0.3, 0.4, 0.3, -0.4);
+  assert(Math.hypot(mAdd[0], mAdd[1]) < 1e-12);
+  const mRand = ManifoldLayout2d.randomInit("hyperbolic", 4, 0.25, 42);
+  mRand.centerPoincareCentroid();
+  const mc = mRand.poincareCentroid();
+  assert(Math.hypot(mc[0], mc[1]) < 1e-4);
+  mRand.free();
   mHyp.free();
 
   // Spatial + metrics parity
@@ -1347,6 +1449,7 @@ if (typeof eg.Graph === "function") {
   // Linalg + neighborhood M5
   const cmds = classicalMds2d(karate);
   normalizeLayout2d(cmds, 1.0, 42);
+  robustNormalizeLayout2d(cmds, 1.0, 0.95, 42);
   assert(cmds.isAllFinite());
   const delCsr = delaunayToCsr(cmds);
   assert.equal(delCsr.numNodes(), 34);
@@ -1372,6 +1475,12 @@ if (typeof eg.Graph === "function") {
   const rowProbs = graphRowNormalizedProbabilities(karate);
   assert.equal(rowProbs.numNodes, 34);
   rowProbs.free();
+  const rowProbs12 = graph12hopRowNormalizedProbabilities(karate, 0.5, 8, 0.35, 42);
+  assert.equal(rowProbs12.numNodes, 34);
+  rowProbs12.free();
+  const cappedKnn = buildCapped12hopKnn(karate, 8, 42);
+  assert.equal(cappedKnn.k2Deg().length, 34);
+  cappedKnn.free();
   const symProbs = symmetrizeRowNormalized(3, new Uint32Array([0, 1, 2, 3]), new Uint32Array([1, 2, 0]), new Float64Array([1, 1, 1]));
   assert.equal(symProbs.numNodes, 3);
   symProbs.free();
@@ -1474,8 +1583,211 @@ if (typeof eg.Graph === "function") {
   assert(gmPos.numEdges > 0);
   gmPos.free();
 
+  // AmgPcgSolver smoke (regularized, CSR, cooperative stepping, batch, zero RHS)
+  const amg = AmgPcgSolver.fromGraphRegularizedLaplacian(karate, 5.0, { relTol: 1e-9 });
+  assert.equal(amg.numNodes, 34);
+  assert(amg.numLevels >= 1 && amg.coarsestSize <= 64);
+  const bKarate = Float64Array.from({ length: 34 }, (_, i) => Math.sin(0.3 * i + 0.1));
+  const amgRes = amg.solve(bKarate);
+  assert(amgRes instanceof AmgPcgSolveResult);
+  assert.equal(amgRes.converged, true);
+  assert(amgRes.relativeResidual <= 1e-8);
+  const amgX = amgRes.x();
+  assert.equal(amgX.length, 34);
+
+  const stInit = amg.startSolve(bKarate);
+  assert(["initialized", "converged"].includes(stInit));
+  if (!amg.isFinished) {
+    amg.step();
+    amg.run();
+  }
+  assert.equal(amg.converged, true);
+  assert.deepEqual(Array.from(amg.solution()), Array.from(amgX));
+
+  const bBatch = new Float64Array(34 * 2);
+  for (let i = 0; i < 34; i += 1) {
+    bBatch[2 * i] = bKarate[i];
+    bBatch[2 * i + 1] = -2.0 * bKarate[i];
+  }
+  const bRes = amg.solveBatch(bBatch, 2);
+  assert(bRes instanceof AmgPcgBatchResult);
+  assert.equal(bRes.allConverged, true);
+  assert.deepEqual(Array.from(bRes.convergedPerCol()), [1, 1]);
+  assert.equal(bRes.x().length, 68);
+  bRes.free();
+  amgRes.free();
+  amg.free();
+
+  const aniso = anisotropicLaplacian(karate, 0.0, 0.0, 0.0, null, false);
+  assert(aniso instanceof AnisotropicLaplacianResult);
+  const anisoMat = aniso.matrix();
+  assert(anisoMat instanceof CsrMatrix);
+  assert.equal(anisoMat.numNodes, 34);
+  assert(anisoMat.estimateLambdaMaxLanczos(16, 1.05, 42) > 2.0);
+  const heatMat = chebyshevHeatSpmvMatrix(anisoMat, bKarate, 1, 0.25);
+  assert.equal(heatMat.length, 34);
+  const jlMat = chebyshevDogJlEmbeddingMatrix(anisoMat, 8, null, 42);
+  assert.equal(jlMat.length, 34 * 8);
+  const lmMat = computeRegularizedDogVaradhanLandmarksFromMatrix(karate, anisoMat, null, null, 8, 2, 8, 42, true, 0.5, 1e-4, 0.0);
+  assert.equal(lmMat.usedCoarseScaffold, false);
+  const regAniso = anisoMat.scaleAndShift(1.0, 1.0);
+  const amgMat = AmgPcgSolver.fromCsrMatrix(regAniso);
+  const amgMatRes = amgMat.solve(bKarate);
+  assert.equal(amgMatRes.converged, true);
+  amgMatRes.free();
+  amgMat.free();
+  regAniso.free();
+  lmMat.free();
+  anisoMat.free();
+  aniso.free();
+
+  const amgCsr = AmgPcgSolver.fromCsr(3, [0, 2, 5, 7], [0, 1, 0, 1, 2, 1, 2], [2, -1, -1, 2, -1, -1, 2]);
+  const csrRes = amgCsr.solve([1, 0, 1]);
+  assert.equal(csrRes.converged, true);
+  csrRes.free();
+  amgCsr.free();
+
+  // Effective resistance + Resistance curvature flow smoke
+  const erKarate = computeEffectiveResistances(karate, { jlDim: 64, seed: 42 });
+  assert(erKarate instanceof EffectiveResistanceResult);
+  assert.equal(erKarate.numNodes, 34);
+  assert.equal(erKarate.numComponents, 1);
+  assert(erKarate.fosterRelErr < 1e-10);
+  assert.equal(erKarate.effectiveResistances().length, erKarate.numEdges);
+  erKarate.free();
+
+  const rcfKarate = resistanceCurvatureFlow(karate, { steps: 2, eta: 0.2, seed: 42 });
+  assert(rcfKarate instanceof ResistanceCurvatureFlowResult);
+  assert.equal(rcfKarate.suggestedGeometry, "hyperbolic");
+  assert.equal(rcfKarate.suggestedManifold, "hyperbolic");
+  const rcfSteps = rcfKarate.stepHistory();
+  assert.equal(rcfSteps.length, 3);
+  assert(rcfSteps[0] instanceof ResistanceCurvatureStep);
+  for (const s of rcfSteps) s.free();
+  const rcfLenG = rcfKarate.lengthGraph();
+  const rcfCondG = rcfKarate.conductanceGraph();
+  assert.equal(rcfLenG.isWeighted(), true);
+  assert.equal(rcfCondG.isWeighted(), true);
+  rcfLenG.free();
+  rcfCondG.free();
+  rcfKarate.free();
+
   cmds.free();
   karate.free();
+}
+
+// 12b. M5.1 Louvain coarsen, pivoted RHGH landmarks, coarse backbone, centroid tether, and PaCMAP backbone
+{
+  const g16 = CsrGraph.fromEdgeList(
+    16,
+    new Uint32Array([
+      0, 1, 1, 2, 2, 3, 3, 0,
+      4, 5, 5, 6, 6, 7, 7, 4,
+      8, 9, 9, 10, 10, 11, 11, 8,
+      12, 13, 13, 14, 14, 15, 15, 12,
+      3, 4, 7, 8, 11, 12,
+    ]),
+    undefined,
+    { directed: false, sanitize: true },
+  );
+  const hier = webPkg.louvainCoarsen(g16, { maxCoarseNodes: 4, seed: 42 });
+  assert(hier instanceof webPkg.CoarsenedHierarchyResult);
+  assert(hier.numClusters <= 4);
+  const hierCg = hier.coarseGraph();
+  assert.equal(hierCg.numNodes(), hier.numClusters);
+  hierCg.free();
+  hier.free();
+
+  const rhghRes = webPkg.computePivotedRhghLandmarks(g16, { numLandmarks: 8, minDegree: 1, numProbes: 16, seed: 42 });
+  assert(rhghRes instanceof webPkg.RhghLandmarksResult);
+  assert.equal(rhghRes.allConverged, true);
+  const rhghLm = rhghRes.landmarks();
+  assert(rhghLm instanceof DogVaradhanLandmarks);
+  assert.equal(rhghLm.numNodes, 16);
+  rhghLm.free();
+  rhghRes.free();
+
+  const bb = webPkg.coarseBackboneInit(g16, {
+    maxCoarseNodes: 4,
+    edgeLengthMode: "resistanceCurvatureFlow",
+    distanceBackend: "rhgh",
+    coarseTMax: 20,
+    seed: 42,
+  });
+  assert(bb instanceof webPkg.CoarseBackboneResult);
+  assert.equal(bb.numFineNodes, 16);
+  const bbFine = bb.fineLayout();
+  const bbCoarse = bb.coarseLayout();
+  const bbN2c = bb.nodeToCoarse();
+  webPkg.alignClusteredCentroids(bbFine, bbCoarse, bbN2c, 0.5);
+  assert.equal(bbFine.isAllFinite(), true);
+  const bbProj = webPkg.projectClusteredLayoutWithRadii(bbCoarse, bbN2c, bb.radii(), 0.5, 42);
+  assert.equal(bbProj.len(), 16);
+  bbProj.free();
+  bbCoarse.free();
+  bbFine.free();
+  bb.free();
+
+  const pmBb = SgdSolver.pacmapGraphWithBackbone(g16, {
+    nNeighbors: 6,
+    phase1Iters: 5,
+    phase2Iters: 5,
+    phase3Iters: 5,
+    numLandmarks: 8,
+    maxCoarseNodes: 4,
+    coarseTMax: 10,
+    seed: 42,
+  });
+  assert(pmBb instanceof webPkg.PacmapBackboneResult);
+  const pmSolver = pmBb.solver();
+  const pmLayout = pmBb.fineLayout();
+  pmSolver.run(pmLayout);
+  assert.equal(pmLayout.isAllFinite(), true);
+  pmLayout.free();
+  pmSolver.free();
+  pmBb.free();
+  g16.free();
+}
+
+// 12c. M5.2 ScreenedPoissonField2d & ScreenedPoissonRefiner
+{
+  const spField = new webPkg.ScreenedPoissonField2d({
+    kernel: "screenedPoisson",
+    gridSize: 64,
+    paddingFactor: 2,
+    rhoMax: 0.2,
+  });
+  assert(spField instanceof webPkg.ScreenedPoissonField2d);
+  assert.equal(spField.gridSize, 64);
+  assert.equal(spField.kernel, "screenedPoisson");
+  assert.equal(spField.exactAdjoint, true);
+  assert(spField.workspaceMemoryBytes() > 0);
+
+  const lDense = Layout2d.fromCoords(new Float32Array([0.0, 0.0, 0.05, 0.02, -0.04, 0.03, 0.02, -0.05]));
+  const spRes = spField.evaluate(lDense);
+  assert(spRes instanceof webPkg.ScreenedPoissonResult);
+  assert.equal(spRes.fft2dCalls, 6);
+  assert.equal(spRes.earlyExitNoExcess, false);
+  assert(spRes.energy > 0.0);
+  assert.equal(spRes.forceX().length, 4);
+  assert.equal(spRes.forceY().length, 4);
+
+  const spRefiner = new webPkg.ScreenedPoissonRefiner(4, {
+    gridSize: 64,
+    iterations: 3,
+    rhoMax: 0.2,
+    seed: 42,
+  });
+  assert(spRefiner instanceof webPkg.ScreenedPoissonRefiner);
+  spRefiner.run(lDense);
+  assert.equal(spRefiner.isFinished, true);
+  const lastSt = spRefiner.lastStats();
+  assert(lastSt instanceof webPkg.ScreenedPoissonResult);
+  lastSt.free();
+  spRefiner.free();
+  spRes.free();
+  lDense.free();
+  spField.free();
 }
 
 // 13. Run TypeScript declaration typechecking when `tsc` is installed locally

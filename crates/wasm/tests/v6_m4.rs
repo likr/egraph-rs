@@ -402,6 +402,50 @@ fn sgd_m4_constructors_snap_t_fdp_pacmap_sgd2_and_squared_schedule() {
     .unwrap();
     assert!(pm_keep.num_springs() >= 8);
 
+    // max1hopPerNode + degreeWeightBeta + pacmapGraphWithLandmarks + pacmapGraphWithLandmarkDistances
+    let pm_cap = JsSgdSolver::pacmap_graph(
+        &star,
+        &make_opts(&[
+            ("nNeighbors", JsValue::from_f64(2.0)),
+            ("keepAll1hop", JsValue::from_bool(true)),
+            ("max1hopPerNode", JsValue::from_f64(3.0)),
+            ("degreeWeightBeta", JsValue::from_f64(0.5)),
+            ("phase1Iters", JsValue::from_f64(2.0)),
+            ("phase2Iters", JsValue::from_f64(2.0)),
+            ("phase3Iters", JsValue::from_f64(2.0)),
+        ]),
+    )
+    .unwrap();
+    assert!(pm_cap.num_springs() <= 24);
+    let dog_lm = js_compute_regularized_dog_varadhan_landmarks(
+        &grid,
+        Some(6.0),
+        Some(6.0),
+        Some(7.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut pm_lm = JsSgdSolver::pacmap_graph_with_landmarks(&grid, &dog_lm, &pacmap_opts).unwrap();
+    let mut pm_dist = JsSgdSolver::pacmap_graph_with_landmark_distances(
+        &grid,
+        &dog_lm.table(),
+        dog_lm.num_landmarks() as f64,
+        &pacmap_opts,
+    )
+    .unwrap();
+    let mut l_pm_lm = init.clone();
+    let mut l_pm_dist = init.clone();
+    assert_eq!(pm_lm.run(&mut l_pm_lm).unwrap(), "completed");
+    assert_eq!(pm_dist.run(&mut l_pm_dist).unwrap(), "completed");
+    assert_layouts_bit_exact(&l_pm_lm, &l_pm_dist);
+
     // 3. SgdSolver.sgd2 + "squared" schedule kind on SgdSolver.full
     let sgd2_opts = make_opts(&[
         ("tMax", JsValue::from_f64(12.0)),

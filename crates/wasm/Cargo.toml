@@ -48,8 +48,8 @@ egraph = { workspace = true, default-features = false, features = [
     "layout",
     "clustering",
     "metrics",
-    "dataset",
 ] }
+egraph-dataset = { workspace = true, default-features = false }
 egraph-ffi.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true

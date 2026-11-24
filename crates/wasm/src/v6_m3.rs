@@ -13,7 +13,7 @@ use egraph::clustering::{
 };
 use egraph::core::{
     CoreError, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
-    poincare_distance, spherical_distance, torus_distance, wrap_torus_point,
+    poincare_distance, poincare_mobius_add, spherical_distance, torus_distance, wrap_torus_point,
 };
 use egraph::layout::{
     BarrierSymmetry, GuMapConfig, GuMapSolver, KamadaKawaiConfig, KamadaKawaiSolver,
@@ -672,6 +672,38 @@ impl JsManifoldLayout2d {
         Ok(Self { inner })
     }
 
+    /// Creates a deterministically seeded safe random initialization on `kind`.
+    #[wasm_bindgen(js_name = randomInit)]
+    pub fn random_init(
+        kind: &str,
+        n: f64,
+        scale: Option<f64>,
+        seed: Option<f64>,
+    ) -> Result<JsManifoldLayout2d, JsError> {
+        let m_kind = parse_manifold_kind(kind)?;
+        let count = parse_non_negative_usize(n, "n")?;
+        let scale_val = scale.unwrap_or(0.25);
+        let seed_u64 = parse_seed_u64(seed)?;
+        let inner = ManifoldLayout2d::<f32>::random_init(m_kind, count, scale_val, seed_u64)
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Creates a `ManifoldLayout2d` from a Euclidean `Layout2d` scaled safely inside `maxRadius` (default `0.7`).
+    #[wasm_bindgen(js_name = fromLayoutScaled)]
+    pub fn from_layout_scaled(
+        kind: &str,
+        layout: &JsLayout2d,
+        max_radius: Option<f64>,
+    ) -> Result<JsManifoldLayout2d, JsError> {
+        let m_kind = parse_manifold_kind(kind)?;
+        let mr = max_radius.unwrap_or(0.7);
+        let soa = layout.inner().to_layout2d();
+        let inner = ManifoldLayout2d::<f32>::from_layout_scaled(m_kind, &soa, mr)
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
     /// Returns the canonical manifold kind string: `"hyperbolic"`, `"spherical"`, or `"torus"`.
     #[wasm_bindgen(getter)]
     pub fn kind(&self) -> String {
@@ -782,12 +814,61 @@ impl JsManifoldLayout2d {
     pub fn is_all_finite(&self) -> bool {
         self.inner.as_layout().is_all_finite()
     }
+
+    /// Computes the closed-form Möbius-equivariant Einstein midpoint `[cx, cy]` on the Poincaré disk.
+    #[wasm_bindgen(js_name = poincareCentroid)]
+    pub fn poincare_centroid(&self) -> Result<Vec<f64>, JsError> {
+        let (cx, cy) = self.inner.poincare_centroid().map_err(core_err_to_js)?;
+        Ok(vec![f64::from(cx), f64::from(cy)])
+    }
+
+    /// Isometrically recenters all Poincaré disk points at `(cx, cy)` via Möbius automorphism.
+    #[wasm_bindgen(js_name = recenterPoincare)]
+    pub fn recenter_poincare(&mut self, cx: f64, cy: f64) -> Result<(), JsError> {
+        if !cx.is_finite() || !cy.is_finite() {
+            return Err(core_err_to_js(CoreError::non_finite(
+                "ManifoldLayout2d::recenterPoincare",
+            )));
+        }
+        let cx32 = cx as f32;
+        let cy32 = cy as f32;
+        if !cx32.is_finite() || !cy32.is_finite() {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "recenterPoincare coordinate overflows float32",
+            )));
+        }
+        self.inner
+            .recenter_poincare(cx32, cy32)
+            .map_err(core_err_to_js)
+    }
+
+    /// Isometrically recenters the Poincaré disk layout so vertex `index` moves to `(0, 0)`.
+    #[wasm_bindgen(js_name = recenterPoincareAt)]
+    pub fn recenter_poincare_at(&mut self, index: f64) -> Result<(), JsError> {
+        let idx = parse_non_negative_usize(index, "index")?;
+        self.inner.recenter_poincare_at(idx).map_err(core_err_to_js)
+    }
+
+    /// Isometrically recenters the Poincaré disk layout so its Einstein midpoint lies at `(0, 0)`.
+    #[wasm_bindgen(js_name = centerPoincareCentroid)]
+    pub fn center_poincare_centroid(&mut self) -> Result<(), JsError> {
+        self.inner
+            .center_poincare_centroid()
+            .map_err(core_err_to_js)
+    }
 }
 
 /// Computes the Poincaré disk hyperbolic geodesic distance between `(x1, y1)` and `(x2, y2)`.
 #[wasm_bindgen(js_name = poincareDistance)]
 pub fn js_poincare_distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     poincare_distance(x1, y1, x2, y2)
+}
+
+/// Computes Poincaré disk Möbius addition `(x1, y1) (+) (x2, y2)` inside the open unit disk, returning `[x, y]`.
+#[wasm_bindgen(js_name = poincareMobiusAdd)]
+pub fn js_poincare_mobius_add(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<f64> {
+    let (rx, ry) = poincare_mobius_add(x1, y1, x2, y2);
+    vec![rx, ry]
 }
 
 /// Computes the great-circle geodesic distance on the unit sphere in `[0, pi]`.
@@ -1298,8 +1379,9 @@ impl JsTsNetSolver {
         interpolation_order: &JsValue,
         min_grid_dim: Option<f64>,
         max_grid_dim: Option<f64>,
+        degree_beta: Option<f64>,
     ) -> Result<JsTsNetSolver, JsError> {
-        let (w2, max_2hop, cfg) = if is_plain_js_object(w2_or_options) {
+        let (w2, max_2hop, beta_val, cfg) = if is_plain_js_object(w2_or_options) {
             let has_extra = max_2hop_per_node.is_some()
                 || (!backend_or_options.is_undefined() && !backend_or_options.is_null())
                 || iterations_stage1.is_some()
@@ -1318,10 +1400,12 @@ impl JsTsNetSolver {
                 || intervals.is_some()
                 || (!interpolation_order.is_undefined() && !interpolation_order.is_null())
                 || min_grid_dim.is_some()
-                || max_grid_dim.is_some();
+                || max_grid_dim.is_some()
+                || degree_beta.is_some();
             reject_extra_args_with_options(has_extra)?;
             let w2_val = opt_f64_prop(w2_or_options, "w2", 0.5)?;
             let m2 = opt_maybe_usize_prop(w2_or_options, "max2hopPerNode")?;
+            let beta = opt_f64_prop(w2_or_options, "degreeBeta", 0.0)?;
             let cfg = parse_tsnet_config(
                 w2_or_options,
                 None,
@@ -1349,7 +1433,7 @@ impl JsTsNetSolver {
                 None,
                 None,
             )?;
-            (w2_val, m2, cfg)
+            (w2_val, m2, beta, cfg)
         } else {
             let w2_val = if w2_or_options.is_undefined() || w2_or_options.is_null() {
                 0.5
@@ -1359,6 +1443,7 @@ impl JsTsNetSolver {
                 })?
             };
             let m2 = parse_opt_usize_param(max_2hop_per_node, "max2hopPerNode")?;
+            let beta = degree_beta.unwrap_or(0.0);
             let cfg = parse_tsnet_config(
                 backend_or_options,
                 iterations_stage1,
@@ -1386,10 +1471,16 @@ impl JsTsNetSolver {
                 min_grid_dim,
                 max_grid_dim,
             )?;
-            (w2_val, m2, cfg)
+            (w2_val, m2, beta, cfg)
         };
-        let inner = TsNetSolver::<f32>::from_graph_row_normalized(graph.inner(), w2, max_2hop, cfg)
-            .map_err(core_err_to_js)?;
+        let inner = TsNetSolver::<f32>::from_graph_row_normalized_with_degree_decay(
+            graph.inner(),
+            w2,
+            max_2hop,
+            beta_val,
+            cfg,
+        )
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -1650,6 +1741,11 @@ fn parse_sparse_barrier_config(
         cfg.neg_per_node = opt_maybe_usize_prop(max_2hop_or_options, "negPerNode")?;
         cfg.num_pivots = opt_usize_prop(max_2hop_or_options, "numPivots", cfg.num_pivots)?;
         cfg.core_pivots = opt_bool_prop(max_2hop_or_options, "corePivots", cfg.core_pivots)?;
+        cfg.degree_weight_beta = opt_f64_prop(
+            max_2hop_or_options,
+            "degreeWeightBeta",
+            cfg.degree_weight_beta,
+        )?;
         cfg.schedule.t_max = opt_usize_prop(max_2hop_or_options, "tMax", cfg.schedule.t_max)?;
         cfg.schedule.eps = opt_f64_prop(max_2hop_or_options, "eps", cfg.schedule.eps)?;
         if let Some(k_str) = opt_string_prop(max_2hop_or_options, "kind")? {
@@ -2362,6 +2458,43 @@ impl JsSgdSolver {
         crate::v6_m4::sgd_pacmap_graph(graph, options)
     }
 
+    /// Constructs a 3-tier `PaCMAP-Graph` Adam layout solver using precomputed `DogVaradhanLandmarks`.
+    #[wasm_bindgen(js_name = pacmapGraphWithLandmarks)]
+    pub fn pacmap_graph_with_landmarks(
+        graph: &JsCsrGraph,
+        landmarks: &crate::v6_m2::JsDogVaradhanLandmarks,
+        options: &JsValue,
+    ) -> Result<JsSgdSolver, JsError> {
+        crate::v6_m4::sgd_pacmap_graph_with_landmarks(graph, landmarks, options)
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` Adam layout solver using a flat row-major
+    /// `(num_nodes, num_landmarks)` landmark distance table.
+    #[wasm_bindgen(js_name = pacmapGraphWithLandmarkDistances)]
+    pub fn pacmap_graph_with_landmark_distances(
+        graph: &JsCsrGraph,
+        landmark_distances: &[f64],
+        num_landmarks: f64,
+        options: &JsValue,
+    ) -> Result<JsSgdSolver, JsError> {
+        crate::v6_m4::sgd_pacmap_graph_with_landmark_distances(
+            graph,
+            landmark_distances,
+            num_landmarks,
+            options,
+        )
+    }
+
+    /// Constructs a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
+    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks.
+    #[wasm_bindgen(js_name = pacmapGraphWithBackbone)]
+    pub fn pacmap_graph_with_backbone(
+        graph: &JsCsrGraph,
+        options: &JsValue,
+    ) -> Result<crate::v6_m5::JsPacmapBackboneResult, JsError> {
+        crate::v6_m5::sgd_pacmap_graph_with_backbone(graph, options)
+    }
+
     /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` solver.
     pub fn sgd2(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
         crate::v6_m4::sgd_sgd2(graph, options)
@@ -2626,8 +2759,8 @@ impl JsGuMapSolver {
             seed,
             false,
         )?;
-        let inner = GuMapSolver::<f32>::from_fuzzy_set(probs.inner().clone(), cfg)
-            .map_err(core_err_to_js)?;
+        let inner =
+            GuMapSolver::<f32>::from_fuzzy_set_ref(probs.inner(), cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -2969,6 +3102,12 @@ impl JsSpatialRefinerRoundStats {
         self.inner.n_fp
     }
 
+    /// Returns the count of active short-range separation hinge pairs.
+    #[wasm_bindgen(getter, js_name = nSep)]
+    pub fn n_sep(&self) -> usize {
+        self.inner.n_sep
+    }
+
     /// Returns the total active pair count passed to the inner SGD pass.
     #[wasm_bindgen(getter, js_name = nPairsTotal)]
     pub fn n_pairs_total(&self) -> usize {
@@ -3013,6 +3152,12 @@ impl JsSpatialRefinerStats {
     #[wasm_bindgen(getter, js_name = nFpTotal)]
     pub fn n_fp_total(&self) -> usize {
         self.inner.n_fp_total
+    }
+
+    /// Returns cumulative short-range separation hinge pairs across executed rounds.
+    #[wasm_bindgen(getter, js_name = nSepTotal)]
+    pub fn n_sep_total(&self) -> usize {
+        self.inner.n_sep_total
     }
 
     /// Returns cumulative total active pairs across executed rounds.
@@ -3098,6 +3243,8 @@ impl JsSpatialIntruderRefiner {
         w_anchor2: Option<f64>,
         k_cap_decay: Option<f64>,
         k_cap_min: Option<f64>,
+        min_sep_ratio: Option<f64>,
+        w_sep: Option<f64>,
     ) -> Result<JsSpatialIntruderRefiner, JsError> {
         let mut cfg = SpatialRefinerConfig::default();
         if is_plain_js_object(rounds_or_options) {
@@ -3114,7 +3261,9 @@ impl JsSpatialIntruderRefiner {
                 || seed.is_some()
                 || w_anchor2.is_some()
                 || k_cap_decay.is_some()
-                || k_cap_min.is_some();
+                || k_cap_min.is_some()
+                || min_sep_ratio.is_some()
+                || w_sep.is_some();
             reject_extra_args_with_options(has_extra)?;
             cfg.rounds = opt_usize_prop(rounds_or_options, "rounds", cfg.rounds)?;
             cfg.k_cap = opt_usize_prop(rounds_or_options, "kCap", cfg.k_cap)?;
@@ -3130,6 +3279,8 @@ impl JsSpatialIntruderRefiner {
             cfg.t_max = opt_usize_prop(rounds_or_options, "tMax", cfg.t_max)?;
             cfg.eps = opt_f64_prop(rounds_or_options, "eps", cfg.eps)?;
             cfg.hinge_fp = opt_bool_prop(rounds_or_options, "hingeFp", cfg.hinge_fp)?;
+            cfg.min_sep_ratio = opt_f64_prop(rounds_or_options, "minSepRatio", cfg.min_sep_ratio)?;
+            cfg.w_sep = opt_f64_prop(rounds_or_options, "wSep", cfg.w_sep)?;
             cfg.seed = opt_seed_prop(rounds_or_options)?;
         } else {
             if !rounds_or_options.is_undefined() && !rounds_or_options.is_null() {
@@ -3151,6 +3302,8 @@ impl JsSpatialIntruderRefiner {
             cfg.t_max = parse_optional_usize(t_max, cfg.t_max, "tMax")?;
             cfg.eps = eps.unwrap_or(cfg.eps);
             cfg.hinge_fp = hinge_fp.unwrap_or(cfg.hinge_fp);
+            cfg.min_sep_ratio = min_sep_ratio.unwrap_or(cfg.min_sep_ratio);
+            cfg.w_sep = w_sep.unwrap_or(cfg.w_sep);
             cfg.seed = parse_seed_u64(seed)?;
         }
 

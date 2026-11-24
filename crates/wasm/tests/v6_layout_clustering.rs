@@ -216,20 +216,44 @@ fn manifold_layout_and_sgd_manifold_all_three_geometries() {
     assert!((0.0..std::f32::consts::TAU).contains(&sph.x(0.0).unwrap()));
     assert!((0.0..=std::f32::consts::PI).contains(&sph.y(0.0).unwrap()));
 
-    let mut tor = JsManifoldLayout2d::from_coords("torus2d", &[1.2, -0.1, 0.9, 0.2]).unwrap();
-    assert_eq!(tor.kind(), "torus");
-    assert!((tor.x(0.0).unwrap() - 0.2).abs() < 1e-6);
-    assert!((tor.y(0.0).unwrap() - 0.9).abs() < 1e-6);
-    tor.project_all().unwrap();
-    assert!(tor.is_all_finite());
+    let tor = JsManifoldLayout2d::from_coords("torus2d", &[1.2, -0.1, 0.9, 0.2]).unwrap();
+    let mut tor_mut = tor.clone();
+    assert_eq!(tor_mut.kind(), "torus");
+    assert!((tor_mut.x(0.0).unwrap() - 0.2).abs() < 1e-6);
+    assert!((tor_mut.y(0.0).unwrap() - 0.9).abs() < 1e-6);
+    tor_mut.project_all().unwrap();
+    assert!(tor_mut.is_all_finite());
+
+    // Poincare Mobius centroid centering & safe initialization
+    let m_rand =
+        JsManifoldLayout2d::random_init("hyperbolic", 8.0, Some(0.25), Some(42.0)).unwrap();
+    assert_eq!(m_rand.len(), 8);
+    assert!(m_rand.is_all_finite());
+    let big_euc =
+        egraph_wasm::v6::JsLayout2d::from_coords(&[10.0, -5.0, 20.0, 5.0, 30.0, 15.0]).unwrap();
+    let mut m_scaled =
+        JsManifoldLayout2d::from_layout_scaled("hyperbolic", &big_euc, Some(0.7)).unwrap();
+    let d_before = m_scaled.geodesic_distance(0.0, 1.0).unwrap();
+    m_scaled.center_poincare_centroid().unwrap();
+    let c = m_scaled.poincare_centroid().unwrap();
+    assert!(c[0].hypot(c[1]) < 1e-4);
+    assert!((m_scaled.geodesic_distance(0.0, 1.0).unwrap() - d_before).abs() < 1e-3);
+    m_scaled.recenter_poincare_at(2.0).unwrap();
+    assert!(m_scaled.x(2.0).unwrap().hypot(m_scaled.y(2.0).unwrap()) < 1e-4);
+    let m_add = egraph_wasm::v6::js_poincare_mobius_add(-0.3, 0.4, 0.3, -0.4);
+    assert!(m_add[0].hypot(m_add[1]) < 1e-12);
+    assert!(tor_mut.poincare_centroid().is_err());
+    assert!(tor_mut.recenter_poincare(0.1, 0.1).is_err());
+    assert!(tor_mut.recenter_poincare_at(0.0).is_err());
+    assert!(tor_mut.center_poincare_centroid().is_err());
 
     // Invalid manifold inputs
     assert!(JsManifoldLayout2d::zeros("klein_bottle", 2.0).is_err());
     assert!(JsManifoldLayout2d::from_coords("torus", &[0.0, 1.0, 2.0]).is_err());
     assert!(JsManifoldLayout2d::from_coords("spherical", &[f32::NAN, 0.0]).is_err());
-    assert!(tor.geodesic_distance(0.0, 9.0).is_err());
-    assert!(tor.set_point(0.0, f32::INFINITY, 0.0).is_err());
-    assert!(tor.x(5.0).is_err());
+    assert!(tor_mut.geodesic_distance(0.0, 9.0).is_err());
+    assert!(tor_mut.set_point(0.0, f32::INFINITY, 0.0).is_err());
+    assert!(tor_mut.x(5.0).is_err());
 
     // 2. SgdSolver stepManifold == runManifold across all 3 manifolds
     let cyc = JsCsrGraph::from_edge_list(
@@ -449,6 +473,7 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
     let rn_opts = make_opts(&[
         ("w2", JsValue::from_f64(0.5)),
         ("max2hopPerNode", JsValue::from_f64(8.0)),
+        ("degreeBeta", JsValue::from_f64(0.35)),
         ("backend", JsValue::from_str("fft")),
         ("iterationsStage1", JsValue::from_f64(2.0)),
         ("iterationsStage2", JsValue::from_f64(2.0)),
@@ -477,6 +502,7 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         &JsValue::UNDEFINED,
         None,
         None,
+        None,
     )
     .expect("fromGraphRowNormalized opts");
     let mut rn_step = JsTsNetSolver::from_graph_row_normalized(
@@ -501,6 +527,7 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         &JsValue::UNDEFINED,
         None,
         None,
+        Some(0.35),
     )
     .expect("fromGraphRowNormalized pos");
     let mut lrn_run = init.clone();
@@ -534,6 +561,7 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
         Some(42.0),
         None,
         &JsValue::UNDEFINED,
+        None,
         None,
         None,
     )
@@ -586,6 +614,7 @@ fn tsnet_solver_all_backends_constructors_and_step_eq_run() {
             None,
             None,
             &JsValue::UNDEFINED,
+            None,
             None,
             None,
         )
@@ -1044,6 +1073,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .unwrap();
     assert_eq!(ref_clean.run(&mut clean_layout).unwrap(), "converged");
@@ -1076,6 +1107,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .unwrap();
     let mut r_step = JsSpatialIntruderRefiner::new(
@@ -1095,6 +1128,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .unwrap();
     assert!(r_run.run(&mut intr_run).is_ok());
@@ -1104,6 +1139,7 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     let r_stats = r_run.stats();
     assert!(r_stats.rounds_executed() >= 1);
     assert!(r_stats.n_fp_total() > 0);
+    assert_eq!(r_stats.n_sep_total(), 0);
     assert!(!r_stats.round_stats().is_empty());
     let dist_after = (intr_run.x(0.0).unwrap() - intr_run.x(8.0).unwrap())
         .hypot(intr_run.y(0.0).unwrap() - intr_run.y(8.0).unwrap());
@@ -1135,6 +1171,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .unwrap();
     assert_eq!(r_dyn.current_k_cap(), 8);
@@ -1146,6 +1184,66 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     r_dyn.run(&mut l_dyn).unwrap();
     assert!(l_dyn.is_all_finite());
     assert!(r_dyn.set_k_cap(0.0).is_err());
+
+    // SpatialIntruderRefiner opt-in separation hinge (minSepRatio + wSep) cures closed-twin collapse
+    let mut twin_edges: Vec<u32> = Vec::new();
+    for r in 0..3u32 {
+        for c in 0..3u32 {
+            let u = r * 3 + c;
+            if c + 1 < 3 {
+                twin_edges.extend([u, u + 1]);
+            }
+            if r + 1 < 3 {
+                twin_edges.extend([u, u + 3]);
+            }
+        }
+    }
+    twin_edges.extend([0, 9, 0, 10, 9, 10]);
+    let twin_graph =
+        JsCsrGraph::from_edge_list(11.0, &twin_edges, None, &JsValue::from_bool(false), None)
+            .unwrap();
+    let mut twin_coords = Vec::with_capacity(22);
+    for r in 0..3 {
+        for c in 0..3 {
+            twin_coords.push(c as f32);
+            twin_coords.push(r as f32);
+        }
+    }
+    twin_coords.extend([0.0_f32, 0.0, 0.0, 0.0]);
+    let mut twin_layout = JsLayout2d::from_coords(&twin_coords).unwrap();
+    let sep_opts = make_opts(&[
+        ("minSepRatio", JsValue::from_f64(0.15)),
+        ("wSep", JsValue::from_f64(1.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut r_sep = JsSpatialIntruderRefiner::new(
+        &twin_graph,
+        &sep_opts,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    r_sep.run(&mut twin_layout).unwrap();
+    let sep_stats = r_sep.stats();
+    assert!(sep_stats.n_sep_total() > 0);
+    assert!(sep_stats.round_stats()[0].n_sep() > 0);
+    let d9_10 = (twin_layout.x(9.0).unwrap() - twin_layout.x(10.0).unwrap())
+        .hypot(twin_layout.y(9.0).unwrap() - twin_layout.y(10.0).unwrap());
+    assert!(d9_10 > 0.05);
 
     // 3. StressMajorizationSolver (fromGraph, fromDistanceMatrix, computeStress, lastStress, step == run)
     let sm_opts = make_opts(&[
@@ -1244,6 +1342,8 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
             &small_grid,
             &JsValue::from_f64(2.0),
             Some(0.0),
+            None,
+            None,
             None,
             None,
             None,

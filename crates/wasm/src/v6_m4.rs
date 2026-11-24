@@ -22,7 +22,7 @@ use crate::v6::{JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non
 use crate::v6_m2::{JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities};
 use crate::v6_m3::{
     JsSgdSolver, get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
-    opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
+    opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
     parse_dog_config_from_options_or_args, parse_ibfft_order, reject_extra_args_with_options,
     run_layout_in_place, run_steps_layout_in_place, solver_status_str, step_layout_in_place,
 };
@@ -33,7 +33,7 @@ const DEFAULT_IBUMAP_SIGMA_ITERS: usize = 64;
 const DEFAULT_IBUMAP_SIGMA_TOL: f64 = 1e-5;
 const DEFAULT_MIN_LAYER_DISTANCE: f32 = 1.0;
 
-fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, JsError> {
+pub(crate) fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, JsError> {
     if options.is_undefined() || options.is_null() {
         return Ok(false);
     }
@@ -490,8 +490,8 @@ impl JsIbUmapSolver {
             None
         };
 
-        let inner = FieldLayoutSolver::<f32>::ib_umap_from_fuzzy_set(
-            probs.inner().clone(),
+        let inner = FieldLayoutSolver::<f32>::ib_umap_from_fuzzy_set_ref(
+            probs.inner(),
             degrees.as_deref(),
             cfg,
         )
@@ -619,12 +619,12 @@ pub(crate) fn sgd_snap_t_fdp(
     Ok(JsSgdSolver::from_inner(inner))
 }
 
-pub(crate) fn sgd_pacmap_graph(
-    graph: &JsCsrGraph,
+pub(crate) fn parse_pacmap_graph_config(
     options: &JsValue,
-) -> Result<JsSgdSolver, JsError> {
+    ctx: &str,
+) -> Result<PacmapGraphConfig, JsError> {
     let mut cfg = PacmapGraphConfig::default();
-    if check_options_arg(options, "SgdSolver.pacmapGraph")? {
+    if check_options_arg(options, ctx)? {
         cfg.n_neighbors = opt_usize_prop(options, "nNeighbors", cfg.n_neighbors)?;
         cfg.mn_ratio = opt_f64_prop(options, "mnRatio", cfg.mn_ratio)?;
         cfg.fp_ratio = opt_f64_prop(options, "fpRatio", cfg.fp_ratio)?;
@@ -633,9 +633,50 @@ pub(crate) fn sgd_pacmap_graph(
         cfg.phase3_iters = opt_usize_prop(options, "phase3Iters", cfg.phase3_iters)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.keep_all_1hop = opt_bool_prop(options, "keepAll1hop", cfg.keep_all_1hop)?;
+        cfg.max_1hop_per_node = opt_maybe_usize_prop(options, "max1hopPerNode")?;
+        cfg.degree_weight_beta = opt_f64_prop(options, "degreeWeightBeta", cfg.degree_weight_beta)?;
+        cfg.num_landmarks = opt_usize_prop(options, "numLandmarks", cfg.num_landmarks)?;
         cfg.seed = opt_seed_prop(options)?;
     }
+    Ok(cfg)
+}
+
+pub(crate) fn sgd_pacmap_graph(
+    graph: &JsCsrGraph,
+    options: &JsValue,
+) -> Result<JsSgdSolver, JsError> {
+    let cfg = parse_pacmap_graph_config(options, "SgdSolver.pacmapGraph")?;
     let inner = SgdSolver::<f32>::pacmap_graph(graph.inner(), cfg).map_err(core_err_to_js)?;
+    Ok(JsSgdSolver::from_inner(inner))
+}
+
+pub(crate) fn sgd_pacmap_graph_with_landmarks(
+    graph: &JsCsrGraph,
+    landmarks: &JsDogVaradhanLandmarks,
+    options: &JsValue,
+) -> Result<JsSgdSolver, JsError> {
+    let cfg = parse_pacmap_graph_config(options, "SgdSolver.pacmapGraphWithLandmarks")?;
+    let inner =
+        SgdSolver::<f32>::pacmap_graph_with_landmarks(graph.inner(), landmarks.inner(), cfg)
+            .map_err(core_err_to_js)?;
+    Ok(JsSgdSolver::from_inner(inner))
+}
+
+pub(crate) fn sgd_pacmap_graph_with_landmark_distances(
+    graph: &JsCsrGraph,
+    landmark_distances: &[f64],
+    num_landmarks: f64,
+    options: &JsValue,
+) -> Result<JsSgdSolver, JsError> {
+    let k_lm = parse_non_negative_usize(num_landmarks, "numLandmarks")?;
+    let cfg = parse_pacmap_graph_config(options, "SgdSolver.pacmapGraphWithLandmarkDistances")?;
+    let inner = SgdSolver::<f32>::pacmap_graph_with_landmark_distances(
+        graph.inner(),
+        landmark_distances,
+        k_lm,
+        cfg,
+    )
+    .map_err(core_err_to_js)?;
     Ok(JsSgdSolver::from_inner(inner))
 }
 

@@ -4,17 +4,18 @@
 
 use egraph_wasm::v6::{
     JsCsrGraph, JsGuMapSolver, JsIbUmapSolver, JsLayout2d, JsLayoutNd, JsManifoldLayout2d,
-    JsSgdSolver, JsTFdpSolver, JsTsNetSolver, js_all_pairs_bfs, js_apply_relative_distance_floor,
-    js_bfs_single_source, js_build_gumap_12hop_priority_csr, js_build_pure_2hop_knn,
+    JsScreenedPoissonField2d, JsScreenedPoissonRefiner, JsSgdSolver, JsTFdpSolver, JsTsNetSolver,
+    js_all_pairs_bfs, js_apply_relative_distance_floor, js_bfs_single_source,
+    js_build_capped_12hop_knn, js_build_gumap_12hop_priority_csr, js_build_pure_2hop_knn,
     js_build_rerank_knn, js_classical_mds_2d, js_compute_diffusion_embedding,
     js_compute_regularized_dog_varadhan_landmarks, js_compute_resistance_embedding,
     js_crossing_edges, js_crossing_edges_torus, js_crossing_summary, js_evaluate_metrics,
-    js_gabriel_graph_edges, js_graph_row_normalized_probabilities, js_ideal_edge_lengths_with_unit,
-    js_load_dataset, js_normalize_layout_2d, js_parse_csr_csv, js_poincare_distance,
-    js_prism_distortion_with_edges, js_rd_mds, js_rectangle_overlaps,
-    js_relative_neighborhood_edges, js_representative_mds,
-    js_scale_normalized_stress_from_distances, js_spherical_distance, js_symmetrize_row_normalized,
-    js_torus_distance, js_wrap_torus_point,
+    js_gabriel_graph_edges, js_graph_12hop_row_normalized_probabilities,
+    js_graph_row_normalized_probabilities, js_ideal_edge_lengths_with_unit, js_normalize_layout_2d,
+    js_parse_csr_csv, js_poincare_distance, js_poincare_mobius_add, js_prism_distortion_with_edges,
+    js_rd_mds, js_rectangle_overlaps, js_relative_neighborhood_edges, js_representative_mds,
+    js_robust_normalize_layout_2d, js_scale_normalized_stress_from_distances,
+    js_spherical_distance, js_symmetrize_row_normalized, js_torus_distance, js_wrap_torus_point,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -143,6 +144,13 @@ fn manifold_layout_and_distances() {
     hyp.apply_tangent_step(0.0, delta[0] * 0.1, delta[1] * 0.1)
         .unwrap();
     assert!(js_poincare_distance(0.0, 0.0, 0.3, 0.4) > 0.5);
+    let m_add = js_poincare_mobius_add(-0.3, 0.4, 0.3, -0.4);
+    assert!(m_add[0].hypot(m_add[1]) < 1e-12);
+    let mut m_rand =
+        JsManifoldLayout2d::random_init("hyperbolic", 4.0, Some(0.25), Some(42.0)).unwrap();
+    m_rand.center_poincare_centroid().unwrap();
+    let mc = m_rand.poincare_centroid().unwrap();
+    assert!(mc[0].hypot(mc[1]) < 1e-4);
 
     let sph = JsManifoldLayout2d::spherical(2.0).unwrap();
     assert_eq!(sph.manifold(), "spherical");
@@ -162,11 +170,6 @@ fn manifold_layout_and_distances() {
 
 #[wasm_bindgen_test]
 fn dataset_spatial_and_metrics_m5_apis() {
-    let karate = js_load_dataset("karate").unwrap();
-    assert_eq!(karate.num_nodes(), 34);
-    assert!(karate.num_edges() >= 78);
-    assert!(js_load_dataset("nonexistent").is_err());
-
     let parsed = js_parse_csr_csv("3,2\n0,1\n1,2\n", Some(false), Some(true)).unwrap();
     assert_eq!(parsed.num_nodes(), 3);
     assert_eq!(parsed.num_edges(), 2);
@@ -208,8 +211,23 @@ fn dataset_spatial_and_metrics_m5_apis() {
     assert!(iel_unit.is_finite());
 
     let targets = js_sys::Array::of2(&"sns".into(), &"idealEdgeLengths".into());
-    let report =
-        js_evaluate_metrics(&grid, &grid_layout, &targets, None, None, None, Some(1.0)).unwrap();
+    let report = js_evaluate_metrics(
+        &grid,
+        &grid_layout,
+        &targets,
+        None,
+        None,
+        None,
+        Some(1.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
     assert!(report.scale_normalized_stress().is_some());
     assert!(report.ideal_edge_lengths().is_some());
 
@@ -245,6 +263,7 @@ fn linalg_and_neighborhood_m5_apis() {
     assert_eq!(cmds.num_nodes(), 16);
     assert!(cmds.is_all_finite());
     js_normalize_layout_2d(&mut cmds, Some(1.0), Some(42.0)).unwrap();
+    js_robust_normalize_layout_2d(&mut cmds, Some(1.0), Some(0.95), Some(42.0)).unwrap();
 
     let rd = js_rd_mds(&grid, Some(3.0), None, None, Some(200.0), Some(42.0)).unwrap();
     assert_eq!(rd.num_nodes(), 16);
@@ -283,6 +302,17 @@ fn linalg_and_neighborhood_m5_apis() {
 
     let row_probs = js_graph_row_normalized_probabilities(&grid).unwrap();
     assert_eq!(row_probs.num_nodes(), 16);
+    let row_probs_12 = js_graph_12hop_row_normalized_probabilities(
+        &grid,
+        Some(0.5),
+        Some(4.0),
+        Some(0.35),
+        Some(42.0),
+    )
+    .unwrap();
+    assert_eq!(row_probs_12.num_nodes(), 16);
+    let capped_knn = js_build_capped_12hop_knn(&grid, Some(4.0), Some(42.0)).unwrap();
+    assert_eq!(capped_knn.knn().num_nodes(), 16);
     let sym =
         js_symmetrize_row_normalized(3.0, &[0, 1, 2, 3], &[1, 2, 0], &[1.0, 1.0, 1.0]).unwrap();
     assert_eq!(sym.num_nodes(), 3);
@@ -499,4 +529,394 @@ fn solvers_m5_parity_apis() {
     )
     .unwrap();
     assert_eq!(lm_def.num_nodes(), 16);
+}
+
+#[wasm_bindgen_test]
+fn m5_1_louvain_coarsen_rhgh_and_coarse_backbone_parity() {
+    use egraph_wasm::v6::{
+        js_align_clustered_centroids, js_coarse_backbone_init, js_compute_pivoted_rhgh_landmarks,
+        js_louvain_coarsen, js_project_clustered_layout_with_radii,
+    };
+
+    // 1. Three-cluster chain A(6) - B(16) - C(6)
+    let small = 6usize;
+    let big = 16usize;
+    let n = 2 * small + big;
+    let mut edges = Vec::new();
+    for i in 0..small {
+        for j in (i + 1)..small {
+            edges.push(i as u32);
+            edges.push(j as u32);
+        }
+    }
+    for i in 0..big {
+        for j in (i + 1)..big {
+            edges.push((small + i) as u32);
+            edges.push((small + j) as u32);
+        }
+    }
+    let c0 = small + big;
+    for i in 0..small {
+        for j in (i + 1)..small {
+            edges.push((c0 + i) as u32);
+            edges.push((c0 + j) as u32);
+        }
+    }
+    edges.push((small - 1) as u32);
+    edges.push(small as u32);
+    edges.push((small + big - 1) as u32);
+    edges.push(c0 as u32);
+    let chain = JsCsrGraph::from_edge_list(
+        n as f64,
+        &edges,
+        None,
+        &JsValue::from_bool(false),
+        Some(true),
+    )
+    .unwrap();
+
+    let h = js_louvain_coarsen(
+        &chain,
+        &make_opts(&[
+            ("maxCoarseNodes", JsValue::from_f64(3.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    assert!(h.num_clusters() <= 3);
+    assert!(h.num_levels() >= 1);
+    assert_eq!(h.node_to_coarse().len(), n);
+
+    // 2. Pivoted RHGH landmarks on path(10)
+    let path = make_path_graph(10);
+    let rhgh = js_compute_pivoted_rhgh_landmarks(
+        &path,
+        &make_opts(&[
+            ("numLandmarks", JsValue::from_f64(10.0)),
+            ("minDegree", JsValue::from_f64(1.0)),
+            ("numProbes", JsValue::from_f64(16.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    assert!(rhgh.all_converged());
+    let d_alt = rhgh.landmarks().alt_distances(&[0, 0], &[1, 9]).unwrap();
+    assert!(d_alt[1] > d_alt[0]);
+
+    // 3. Pitfall #5 coarse backbone init (works under BOTH default and --no-default-features!)
+    let bb = js_coarse_backbone_init(
+        &chain,
+        &make_opts(&[
+            ("maxCoarseNodes", JsValue::from_f64(3.0)),
+            ("c0", JsValue::from_f64(0.8)),
+            ("kappa", JsValue::from_f64(1.0)),
+            ("muOv", JsValue::from_f64(2.0)),
+            ("mGap", JsValue::from_f64(0.1)),
+            (
+                "edgeLengthMode",
+                JsValue::from_str("resistanceCurvatureFlow"),
+            ),
+            ("distanceBackend", JsValue::from_str("rhgh")),
+            ("coarseTMax", JsValue::from_f64(30.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(bb.num_fine_nodes(), n);
+    assert_eq!(bb.num_coarse_nodes(), 3);
+    assert_eq!(bb.coarse_overlap_pairs_final(), 0);
+    assert!(bb.fine_layout().is_all_finite());
+
+    // 4. Pitfall #7 centroid alignment + radii projection
+    let coarse = JsLayout2d::from_coords(&[5.0, -3.0, -5.0, 2.0]).unwrap();
+    let mut fine = JsLayout2d::from_coords(&[
+        0.0, 0.0, 2.5, 0.25, 5.0, 0.0, 7.5, -0.25, 10.0, 0.0, 0.0, 0.0,
+    ])
+    .unwrap();
+    let n2c = [0u32, 0, 0, 0, 0, 1];
+    js_align_clustered_centroids(&mut fine, &coarse, &n2c, Some(1.0)).unwrap();
+    assert!(fine.is_all_finite());
+    let proj =
+        js_project_clustered_layout_with_radii(&coarse, &n2c, &[2.0, 4.0], Some(0.5), Some(7.0))
+            .unwrap();
+    assert_eq!(proj.num_nodes(), 6);
+
+    // 5. SparseBarrierDog with degreeWeightBeta + pacmapGraphWithBackbone
+    let grid = make_grid_graph(6, 6);
+    let mut sgd_beta = JsSgdSolver::sparse_barrier_dog(
+        &grid,
+        &make_opts(&[
+            ("degreeWeightBeta", JsValue::from_f64(0.5)),
+            ("minDegree", JsValue::from_f64(1.0)),
+            ("jlDim", JsValue::from_f64(8.0)),
+            ("tMax", JsValue::from_f64(5.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut l_beta = JsLayout2d::init(36.0, Some(42.0)).unwrap();
+    sgd_beta.run(&mut l_beta).unwrap();
+    assert!(l_beta.is_all_finite());
+
+    let pm_bb = JsSgdSolver::pacmap_graph_with_backbone(
+        &grid,
+        &make_opts(&[
+            ("nNeighbors", JsValue::from_f64(8.0)),
+            ("phase1Iters", JsValue::from_f64(10.0)),
+            ("phase2Iters", JsValue::from_f64(10.0)),
+            ("phase3Iters", JsValue::from_f64(10.0)),
+            ("numLandmarks", JsValue::from_f64(12.0)),
+            ("maxCoarseNodes", JsValue::from_f64(9.0)),
+            ("coarseTMax", JsValue::from_f64(20.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    let mut pm_solver = pm_bb.solver();
+    let mut pm_layout = pm_bb.fine_layout();
+    pm_solver.step(&mut pm_layout).unwrap();
+    pm_solver.run(&mut pm_layout).unwrap();
+    assert!(pm_layout.is_all_finite());
+
+    // 6. Challenger reproducer: 20-node two-10-clique bridge with jitterScale=0.0, targetStd=1.0
+    let mut two_clique_edges = Vec::new();
+    for i in 0..10u32 {
+        for j in (i + 1)..10u32 {
+            two_clique_edges.push(i);
+            two_clique_edges.push(j);
+            two_clique_edges.push(10 + i);
+            two_clique_edges.push(10 + j);
+        }
+    }
+    two_clique_edges.push(9);
+    two_clique_edges.push(10);
+    let g_two = JsCsrGraph::from_edge_list(
+        20.0,
+        &two_clique_edges,
+        None,
+        &JsValue::from_bool(false),
+        Some(true),
+    )
+    .unwrap();
+    let bb_two = js_coarse_backbone_init(
+        &g_two,
+        &make_opts(&[
+            ("maxCoarseNodes", JsValue::from_f64(2.0)),
+            ("jitterScale", JsValue::from_f64(0.0)),
+            ("targetStd", JsValue::from_f64(1.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(bb_two.num_coarse_nodes(), 2);
+    assert!((bb_two.scale_factor_applied() - 1.0).abs() > 1e-3);
+    let fl = bb_two.fine_layout().copy_coords();
+    let cl = bb_two.coarse_layout().copy_coords();
+    let n2c = bb_two.node_to_coarse();
+    for cid in 0..2u32 {
+        let mut sx = 0.0_f64;
+        let mut sy = 0.0_f64;
+        let mut cnt = 0usize;
+        for (idx, &c) in n2c.iter().enumerate() {
+            if c == cid {
+                sx += fl[2 * idx] as f64;
+                sy += fl[2 * idx + 1] as f64;
+                cnt += 1;
+            }
+        }
+        let mx = sx / (cnt as f64);
+        let my = sy / (cnt as f64);
+        let diff =
+            (mx - cl[2 * (cid as usize)] as f64).hypot(my - cl[2 * (cid as usize) + 1] as f64);
+        assert!(
+            diff < 1e-5,
+            "WASM cluster {cid} centroid mismatch: diff={diff}"
+        );
+    }
+}
+
+#[wasm_bindgen_test]
+fn m5_2_screened_poisson_density_field_and_refiner_parity() {
+    // 1. Finite-difference gradient oracle & Pitfall #1 outward sign check.
+    let mut coords = Vec::new();
+    let h = 12.0_f64 / 128.0_f64;
+    for i in 0..10 {
+        let ang = 0.31 + (i as f64) * std::f64::consts::TAU / 10.0;
+        let mut x = 0.17 + 0.25 * ang.cos();
+        let mut y = -0.13 + 0.25 * ang.sin();
+        let ux = ((x + 6.0) / h).fract();
+        let uy = ((y + 6.0) / h).fract();
+        if ux.min(1.0 - ux) < 0.1 {
+            x += 0.25 * h;
+        }
+        if uy.min(1.0 - uy) < 0.1 {
+            y += 0.25 * h;
+        }
+        coords.push(x as f32);
+        coords.push(y as f32);
+    }
+    for i in 0..4 {
+        let ang = 0.43 + (i as f64) * std::f64::consts::TAU / 4.0;
+        coords.push((0.17 + 0.70 * ang.cos()) as f32);
+        coords.push((-0.13 + 0.70 * ang.sin()) as f32);
+    }
+    coords.extend_from_slice(&[3.23_f32, -2.91, -3.13, 2.83]);
+
+    let bounds = [-5.0_f64, 5.0, -5.0, 5.0];
+    for (exact_adjoint, rho_max) in [(true, 0.05_f64), (false, 0.0_f64)] {
+        let mut field = JsScreenedPoissonField2d::new(&make_opts(&[
+            ("kernel", JsValue::from_str("screenedPoisson")),
+            ("gridSize", JsValue::from_f64(128.0)),
+            ("paddingFactor", JsValue::from_f64(2.0)),
+            ("sigma", JsValue::from_f64(0.35)),
+            ("kappa", JsValue::from_f64(0.5)),
+            ("rhoMax", JsValue::from_f64(rho_max)),
+            ("exactAdjoint", JsValue::from_bool(exact_adjoint)),
+        ]))
+        .unwrap();
+
+        let l_base = JsLayout2d::from_coords(&coords).unwrap();
+        let res = field.evaluate_in_bounds(&l_base, &bounds).unwrap();
+        assert!(!res.early_exit_no_excess());
+        assert_eq!(res.fft_2d_calls() as u64, if exact_adjoint { 6 } else { 4 });
+
+        let fx = res.force_x();
+        let fy = res.force_y();
+        let eps = 2e-3_f32;
+        let mut max_err = 0.0_f64;
+        let mut max_grad = 0.0_f64;
+        for i in 0..16 {
+            for (axis, anal_f) in [(0usize, fx[i] as f64), (1usize, fy[i] as f64)] {
+                let mut cp = coords.clone();
+                let mut cm = coords.clone();
+                cp[2 * i + axis] += eps;
+                cm[2 * i + axis] -= eps;
+                let lp = field
+                    .evaluate_in_bounds(&JsLayout2d::from_coords(&cp).unwrap(), &bounds)
+                    .unwrap()
+                    .energy();
+                let lm = field
+                    .evaluate_in_bounds(&JsLayout2d::from_coords(&cm).unwrap(), &bounds)
+                    .unwrap()
+                    .energy();
+                let fd = (lp - lm) / (2.0 * (eps as f64));
+                max_grad = max_grad.max(anal_f.abs());
+                max_err = max_err.max(((-anal_f) - fd).abs());
+            }
+        }
+        assert!(max_grad > 1e-4);
+        assert!(max_err / max_grad < 1e-2 && max_err < 2e-4);
+    }
+
+    // 2. Unilateral early-exit zero force.
+    let mut grid_coords = Vec::with_capacity(128);
+    for r in 0..8 {
+        for c in 0..8 {
+            grid_coords.push(c as f32);
+            grid_coords.push(r as f32);
+        }
+    }
+    let mut field_ee = JsScreenedPoissonField2d::new(&make_opts(&[
+        ("gridSize", JsValue::from_f64(128.0)),
+        ("rhoMax", JsValue::from_f64(10.0)),
+    ]))
+    .unwrap();
+    let res_ee = field_ee
+        .evaluate(&JsLayout2d::from_coords(&grid_coords).unwrap())
+        .unwrap();
+    assert!(res_ee.early_exit_no_excess());
+    assert_eq!(res_ee.energy(), 0.0);
+    assert_eq!(res_ee.fft_2d_calls() as u64, 2);
+
+    // 3. Refiner step == run, fromGraph, setCoarseTether, applyEpochStep.
+    let mut disk_coords = Vec::new();
+    for r in 0..16 {
+        for c in 0..16 {
+            let x = -0.8_f32 + 1.6_f32 * (c as f32) / 15.0;
+            let y = -0.8_f32 + 1.6_f32 * (r as f32) / 15.0;
+            if x * x + y * y <= 0.64 {
+                disk_coords.push(x);
+                disk_coords.push(y);
+            }
+        }
+    }
+    let n_disk = disk_coords.len() / 2;
+    let ref_opts = make_opts(&[
+        ("gridSize", JsValue::from_f64(64.0)),
+        ("sigma", JsValue::from_f64(0.10)),
+        ("kappa", JsValue::from_f64(1.0)),
+        ("rhoMax", JsValue::from_f64(0.15)),
+        ("iterations", JsValue::from_f64(4.0)),
+        ("stepSize", JsValue::from_f64(0.3)),
+        ("momentum", JsValue::from_f64(0.4)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut r_run = JsScreenedPoissonRefiner::new(n_disk as f64, &ref_opts).unwrap();
+    let mut r_step = JsScreenedPoissonRefiner::new(n_disk as f64, &ref_opts).unwrap();
+    let mut l_run = JsLayout2d::from_coords(&disk_coords).unwrap();
+    let mut l_step = JsLayout2d::from_coords(&disk_coords).unwrap();
+    r_run.run(&mut l_run).unwrap();
+    r_step.run_steps(&mut l_step, 2.0).unwrap();
+    assert_eq!(r_step.iteration(), 2);
+    r_step.run(&mut l_step).unwrap();
+    assert_eq!(l_run.copy_coords(), l_step.copy_coords());
+
+    let g4 = make_path_graph(4);
+    let mut r_g = JsScreenedPoissonRefiner::from_graph(
+        &g4,
+        &make_opts(&[
+            ("gridSize", JsValue::from_f64(64.0)),
+            ("rhoMax", JsValue::from_f64(0.1)),
+            ("anchorWeight", JsValue::from_f64(0.2)),
+            ("gammaTether", JsValue::from_f64(1.0)),
+            ("recenter", JsValue::from_bool(false)),
+        ]),
+    )
+    .unwrap();
+    let coarse = JsLayout2d::from_coords(&[5.0_f32, 2.0, -5.0, -2.0]).unwrap();
+    r_g.set_coarse_tether(&coarse, &[0, 0, 1, 1]).unwrap();
+    let mut l4 = JsLayout2d::from_coords(&[0.0_f32, 0.0, 0.1, 0.0, 0.1, 0.1, 0.0, 0.1]).unwrap();
+    let ep_st = r_g.apply_epoch_step(&mut l4).unwrap();
+    assert!(!ep_st.early_exit_no_excess());
+    let c4 = l4.copy_coords();
+    assert!((0.5 * (c4[0] + c4[2]) - 5.0).abs() < 1e-4);
+
+    // 4. Adversarial error checks.
+    assert!(
+        JsScreenedPoissonField2d::new(&make_opts(&[("kernel", JsValue::from_str("badKernel"))]))
+            .is_err()
+    );
+    assert!(
+        JsScreenedPoissonField2d::new(&make_opts(&[("gridSize", JsValue::from_f64(100.0))]))
+            .is_err()
+    );
 }

@@ -4,32 +4,45 @@
 //! 1+2-hop and hybrid adaptive $k$-NN graphs, perplexity / fuzzy simplicial probabilities,
 //! and regularized DoG Varadhan landmark tables without `serde` or threading dependencies.
 
-use egraph::core::{CsrGraph, Layout2d, LayoutNd};
+use egraph::core::{CoreError, CsrGraph, Layout2d, LayoutNd};
 use egraph::linalg::{
-    ChebyshevWorkspace, EigenResult, PivotMdsConfig, SpectralMomentStats,
-    adaptive_chebyshev_degree, build_dog_terms, classical_mds_2d,
-    compute_chebyshev_bandpass_coefficients, koren_spectral_init, normalize_layout_2d, pivot_mds,
-    project_psd_spectral_filter, rd_mds, representative_mds, select_maxmin_sp_pivots,
-    smallest_sym_laplacian_eigenpairs, spectral_moment_stats, symmetric_normalized_laplacian,
+    AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
+    AnisotropicLaplacianConfig, ChebyshevWorkspace, CsrMatrix,
+    DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR, DEFAULT_SPECTRUM_LANCZOS_STEPS,
+    DEFAULT_SPECTRUM_POWER_ITERS, DEFAULT_SPECTRUM_SAFETY_FACTOR, EffectiveResistanceConfig,
+    EffectiveResistanceResult, EigenResult, LaplacianKind, PivotMdsConfig,
+    ResistanceCurvatureConfig, ResistanceCurvatureFlowResult, ResistanceCurvatureStep,
+    SpectralMomentStats, adaptive_chebyshev_degree_scaled, anisotropic_laplacian, build_dog_terms,
+    classical_mds_2d, compute_chebyshev_bandpass_coefficients, compute_effective_resistances,
+    koren_spectral_init, normalize_layout_2d, pivot_mds, project_psd_spectral_filter, rd_mds,
+    representative_mds, resistance_curvature_flow, robust_normalize_layout_2d,
+    select_maxmin_sp_pivots, smallest_sym_laplacian_eigenpairs, spectral_moment_stats,
+    symmetric_normalized_laplacian,
 };
 use egraph::neighborhood::{
     DEFAULT_MAX_PERPLEXITY, DEFAULT_MEDIAN_MIN_PERPLEXITY, DEFAULT_MEDIAN_PERPLEXITY_C,
     DEFAULT_NODEWISE_MIN_PERPLEXITY, DEFAULT_NODEWISE_PERPLEXITY_C, DogVaradhanConfig,
     DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph, KnnStats, PerplexityConfig,
-    Sparse12HopPairs, SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
-    build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn, build_pure_2hop_knn,
-    build_rerank_knn, compute_2hop_neighborhood_sizes, compute_diffusion_embedding,
-    compute_fuzzy_simplicial_set, compute_horvitz_thompson_gamma, compute_knn_probabilities,
-    compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
-    compute_regularized_dog_varadhan_landmarks, compute_resistance_embedding,
+    RhghLandmarkStats, Sparse12HopPairs, SparseProbabilities, SymmetrizationMode,
+    apply_relative_distance_floor, build_capped_12hop_knn, build_gumap_12hop_priority_csr,
+    build_hybrid_adaptive_knn, build_pure_2hop_knn, build_rerank_knn,
+    compute_2hop_neighborhood_sizes, compute_diffusion_embedding, compute_fuzzy_simplicial_set,
+    compute_horvitz_thompson_gamma, compute_knn_probabilities, compute_median_2hop_perplexity,
+    compute_nodewise_2hop_perplexities, compute_regularized_dog_varadhan_landmarks,
+    compute_regularized_dog_varadhan_landmarks_from_matrix, compute_resistance_embedding,
     extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs, find_ab_params,
-    graph_row_normalized_probabilities, partial_bfs_knn, symmetrize_row_normalized,
+    graph_12hop_row_normalized_probabilities_with_degree_decay, graph_row_normalized_probabilities,
+    partial_bfs_knn, symmetrize_row_normalized,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::v6::{
     JsCsrGraph, JsLayout2d, JsLayoutNd, core_err_to_js, ffi_err_to_js, parse_non_negative_usize,
     parse_seed_u64,
+};
+use crate::v6_m3::{
+    get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
+    opt_usize_prop, solver_status_str,
 };
 
 const DEFAULT_NUM_PIVOTS: usize = 50;
@@ -263,6 +276,175 @@ impl JsSparse12HopPairs {
     }
 }
 
+/// Double-precision square Compressed Sparse Row matrix (`CsrMatrix`) with spectral bounds
+/// and matrix-vector operations.
+#[wasm_bindgen(js_name = CsrMatrix)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsCsrMatrix {
+    inner: CsrMatrix,
+}
+
+impl JsCsrMatrix {
+    /// Returns a shared reference to the underlying `egraph_linalg::CsrMatrix`.
+    pub fn inner(&self) -> &CsrMatrix {
+        &self.inner
+    }
+}
+
+#[wasm_bindgen(js_class = CsrMatrix)]
+impl JsCsrMatrix {
+    /// Constructs a validated `CsrMatrix` from CSR `numNodes`, `indptr`, `indices`, and `values`.
+    #[wasm_bindgen(js_name = fromCsr)]
+    pub fn from_csr(
+        num_nodes: f64,
+        indptr: &[u32],
+        indices: &[u32],
+        values: &[f64],
+    ) -> Result<JsCsrMatrix, JsError> {
+        let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+        let inner = CsrMatrix::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Returns the matrix dimension `numNodes`.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
+    /// Returns the number of stored non-zero entries.
+    #[wasm_bindgen(getter)]
+    pub fn nnz(&self) -> usize {
+        self.inner.nnz()
+    }
+
+    /// Returns a copy of CSR `indptr` (`Uint32Array`, length `numNodes + 1`).
+    pub fn indptr(&self) -> Vec<u32> {
+        self.inner.indptr().to_vec()
+    }
+
+    /// Returns a copy of sorted CSR column `indices` (`Uint32Array`, length `nnz`).
+    pub fn indices(&self) -> Vec<u32> {
+        self.inner.indices().to_vec()
+    }
+
+    /// Returns a copy of CSR `values` (`Float64Array`, length `nnz`).
+    pub fn values(&self) -> Vec<f64> {
+        self.inner.values().to_vec()
+    }
+
+    /// Returns a copy of the main diagonal entries (`Float64Array`, length `numNodes`).
+    pub fn diagonal(&self) -> Vec<f64> {
+        self.inner.diagonal().to_vec()
+    }
+
+    /// Returns the matrix trace `sum(diagonal)`.
+    pub fn trace(&self) -> f64 {
+        self.inner.trace()
+    }
+
+    /// Returns the symmetric Gershgorin upper spectral bound `max_i (|A_ii| + sum_{j!=i} |A_ij|)`.
+    #[wasm_bindgen(js_name = gershgorinSpectralBound)]
+    pub fn gershgorin_spectral_bound(&self) -> f64 {
+        self.inner.gershgorin_spectral_bound()
+    }
+
+    /// Estimates `lambdaMax` via deterministic Rademacher power iteration clamped by Gershgorin.
+    #[wasm_bindgen(js_name = estimateLambdaMax)]
+    pub fn estimate_lambda_max(
+        &self,
+        num_iters: Option<f64>,
+        safety_factor: Option<f64>,
+        seed: Option<f64>,
+    ) -> Result<f64, JsError> {
+        let iters = parse_optional_usize(num_iters, DEFAULT_SPECTRUM_POWER_ITERS, "numIters")?;
+        let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_SAFETY_FACTOR);
+        let s = parse_seed_u64(seed)?;
+        self.inner
+            .estimate_lambda_max(iters, sf, s)
+            .map_err(core_err_to_js)
+    }
+
+    /// Estimates `lambdaMax` via deterministic Lanczos tridiagonalization clamped by Gershgorin.
+    #[wasm_bindgen(js_name = estimateLambdaMaxLanczos)]
+    pub fn estimate_lambda_max_lanczos(
+        &self,
+        num_steps: Option<f64>,
+        safety_factor: Option<f64>,
+        seed: Option<f64>,
+    ) -> Result<f64, JsError> {
+        let steps = parse_optional_usize(num_steps, DEFAULT_SPECTRUM_LANCZOS_STEPS, "numSteps")?;
+        let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR);
+        let s = parse_seed_u64(seed)?;
+        self.inner
+            .estimate_lambda_max_lanczos(steps, sf, s)
+            .map_err(core_err_to_js)
+    }
+
+    /// Computes sparse matrix-vector product `y = A * x`.
+    pub fn spmv(&self, x: &[f64]) -> Result<Vec<f64>, JsError> {
+        if x.iter().any(|v| !v.is_finite()) {
+            return Err(JsError::new("x must contain only finite values"));
+        }
+        let mut out = vec![0.0_f64; self.inner.num_nodes()];
+        self.inner.spmv(x, &mut out).map_err(core_err_to_js)?;
+        Ok(out)
+    }
+
+    /// Returns `scale * A + shift * I`.
+    #[wasm_bindgen(js_name = scaleAndShift)]
+    pub fn scale_and_shift(&self, scale: f64, shift: f64) -> Result<JsCsrMatrix, JsError> {
+        let inner = self
+            .inner
+            .scale_and_shift(scale, shift)
+            .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Returns `true` if `|A_ij - A_ji| <= tol` for all entries.
+    #[wasm_bindgen(js_name = isSymmetric)]
+    pub fn is_symmetric(&self, tol: Option<f64>) -> bool {
+        self.inner.is_symmetric(tol.unwrap_or(1e-10))
+    }
+
+    /// Converts to a flat row-major `(numNodes, numNodes)` `Float64Array`.
+    #[wasm_bindgen(js_name = toDense)]
+    pub fn to_dense(&self) -> Result<Vec<f64>, JsError> {
+        self.inner.to_dense().map_err(core_err_to_js)
+    }
+}
+
+/// Output of `anisotropicLaplacian(graph, ...)`.
+#[wasm_bindgen(js_name = AnisotropicLaplacianResult)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsAnisotropicLaplacianResult {
+    matrix: CsrMatrix,
+    nullspace: Vec<f64>,
+    outer_scale: Vec<f64>,
+}
+
+#[wasm_bindgen(js_class = AnisotropicLaplacianResult)]
+impl JsAnisotropicLaplacianResult {
+    /// Returns the symmetric PSD `CsrMatrix` $S (D^{(\alpha)} - A^{(\alpha)}) S$.
+    pub fn matrix(&self) -> JsCsrMatrix {
+        JsCsrMatrix {
+            inner: self.matrix.clone(),
+        }
+    }
+
+    /// Returns the near-nullspace vector (`Float64Array`).
+    pub fn nullspace(&self) -> Vec<f64> {
+        self.nullspace.clone()
+    }
+
+    /// Returns the outer symmetric scaling factors (`Float64Array`).
+    #[wasm_bindgen(js_name = outerScale)]
+    pub fn outer_scale(&self) -> Vec<f64> {
+        self.outer_scale.clone()
+    }
+}
+
 /// Precomputed regularized DoG Varadhan landmark tables and R1/R2 regularization diagnostics.
 #[wasm_bindgen(js_name = DogVaradhanLandmarks)]
 #[derive(Debug, Clone, PartialEq)]
@@ -275,6 +457,32 @@ impl JsDogVaradhanLandmarks {
     /// Returns a shared reference to the underlying `egraph_neighborhood::DogVaradhanLandmarks`.
     pub fn inner(&self) -> &DogVaradhanLandmarks {
         &self.inner
+    }
+
+    pub(crate) fn from_rhgh_parts(inner: DogVaradhanLandmarks, rhgh: &RhghLandmarkStats) -> Self {
+        let stats = DogVaradhanStats {
+            moment_stats: SpectralMomentStats {
+                sigma_lambda_sq: 0.0,
+                sigma_lambda: 0.0,
+                deg_cv: rhgh.deg_cv,
+                mean_degree: rhgh.mean_degree,
+                leaf_fraction: rhgh.leaf_fraction,
+            },
+            t1: rhgh.gamma,
+            t2: rhgh.gamma,
+            alpha: rhgh.p_exp,
+            degree: 0,
+            delta_psd: 0.0,
+            h_min: 0.0,
+            k_min: 0.0,
+            k_med: 0.0,
+            beta_auto: 0.0,
+            beta_eff: 0.0,
+            n_landmarks: rhgh.n_landmarks,
+            t_coarse: 0.0,
+            used_coarse_scaffold: false,
+        };
+        Self { inner, stats }
     }
 }
 
@@ -342,6 +550,12 @@ impl JsDogVaradhanLandmarks {
     #[wasm_bindgen(getter, js_name = betaAuto)]
     pub fn beta_auto(&self) -> f64 {
         self.stats.beta_auto
+    }
+
+    /// Returns the Chebyshev polynomial degree used for the DoG filter.
+    #[wasm_bindgen(getter)]
+    pub fn degree(&self) -> usize {
+        self.stats.degree
     }
 
     /// Returns `true` if a coarse diffusive scaffold table was computed.
@@ -507,6 +721,24 @@ impl JsTwoHopKnnResult {
     pub fn nnz(&self) -> usize {
         self.stats.nnz
     }
+
+    /// Returns the number of stored 1-hop directed neighbor entries.
+    #[wasm_bindgen(getter, js_name = n1hop)]
+    pub fn n_1hop(&self) -> usize {
+        self.stats.n_1hop
+    }
+
+    /// Returns the number of stored 2-hop directed neighbor entries.
+    #[wasm_bindgen(getter, js_name = n2hop)]
+    pub fn n_2hop(&self) -> usize {
+        self.stats.n_2hop
+    }
+
+    /// Returns the number of vertices whose 2-hop expansion was truncated by `max2hopPerNode`.
+    #[wasm_bindgen(getter, js_name = nTruncated2hop)]
+    pub fn n_truncated_2hop(&self) -> usize {
+        self.stats.n_truncated_2hop
+    }
 }
 
 /// Hybrid 1+2-hop + 2-stage reranked `KnnGraph` and diagnostics returned by `buildHybridAdaptiveKnn`.
@@ -658,6 +890,31 @@ pub fn js_spectral_moment_stats(graph: &JsCsrGraph) -> JsSpectralMomentStats {
     }
 }
 
+/// 5b. Constructs a symmetric PSD Coifman-Lafon anisotropic graph Laplacian `L_aniso`.
+#[wasm_bindgen(js_name = anisotropicLaplacian)]
+pub fn js_anisotropic_laplacian(
+    graph: &JsCsrGraph,
+    alpha: Option<f64>,
+    beta: Option<f64>,
+    degree_reg: Option<f64>,
+    degree_cap: Option<f64>,
+    reweighted_degree_norm: Option<bool>,
+) -> Result<JsAnisotropicLaplacianResult, JsError> {
+    let cfg = AnisotropicLaplacianConfig {
+        alpha: alpha.unwrap_or(0.5),
+        beta: beta.unwrap_or(0.0),
+        degree_reg: degree_reg.unwrap_or(0.0),
+        degree_cap,
+        reweighted_degree_norm: reweighted_degree_norm.unwrap_or(true),
+    };
+    let res = anisotropic_laplacian(graph.inner(), cfg).map_err(core_err_to_js)?;
+    Ok(JsAnisotropicLaplacianResult {
+        matrix: res.matrix,
+        nullspace: res.nullspace,
+        outer_scale: res.outer_scale,
+    })
+}
+
 /// 6. Applies Chebyshev heat diffusion $\exp(-t L_{\mathrm{sym}})$ to a row-major `(numNodes, numCols)` buffer.
 #[wasm_bindgen(js_name = chebyshevHeatSpmv)]
 pub fn js_chebyshev_heat_spmv(
@@ -672,7 +929,7 @@ pub fn js_chebyshev_heat_spmv(
     let lmax = lambda_max.unwrap_or(DEFAULT_LAMBDA_MAX);
     let deg = match degree {
         Some(d) => parse_non_negative_usize(d, "degree")?,
-        None => adaptive_chebyshev_degree(t),
+        None => adaptive_chebyshev_degree_scaled(t, lmax),
     };
     if vectors.iter().any(|v| !v.is_finite()) {
         return Err(JsError::new("vectors must contain only finite values"));
@@ -687,6 +944,116 @@ pub fn js_chebyshev_heat_spmv(
     let (l_sym, _) = symmetric_normalized_laplacian(graph.inner());
     let mut ws = ChebyshevWorkspace::with_capacity(total);
     ws.apply_batch_with_lambda_max(&l_sym, lmax, &coeffs, vectors, &mut out, ncols)
+        .map_err(core_err_to_js)?;
+    Ok(out)
+}
+
+/// 6b. Applies Chebyshev heat diffusion $\exp(-t A)$ to a row-major `(numNodes, numCols)` buffer
+/// for an arbitrary symmetric PSD `CsrMatrix` with dynamic `[0, lambdaMax]` scaling.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen(js_name = chebyshevHeatSpmvMatrix)]
+pub fn js_chebyshev_heat_spmv_matrix(
+    matrix: &JsCsrMatrix,
+    vectors: &[f64],
+    num_cols: f64,
+    t: f64,
+    degree: Option<f64>,
+    lambda_max: Option<f64>,
+    lanczos_steps: Option<f64>,
+    safety_factor: Option<f64>,
+    seed: Option<f64>,
+) -> Result<Vec<f64>, JsError> {
+    let ncols = parse_non_negative_usize(num_cols, "numCols")?;
+    let deg = parse_opt_usize_param(degree, "degree")?;
+    let steps = parse_optional_usize(
+        lanczos_steps,
+        DEFAULT_SPECTRUM_LANCZOS_STEPS,
+        "lanczosSteps",
+    )?;
+    let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR);
+    let seed_u64 = parse_seed_u64(seed)?;
+    if vectors.iter().any(|v| !v.is_finite()) {
+        return Err(JsError::new("vectors must contain only finite values"));
+    }
+    let n = matrix.inner().num_nodes();
+    let total = n
+        .checked_mul(ncols)
+        .ok_or_else(|| JsError::new("chebyshevHeatSpmvMatrix size overflow"))?;
+    let mut out = vec![0.0_f64; total];
+    let mut ws = ChebyshevWorkspace::with_capacity(total);
+    ws.apply_heat_dynamic(
+        matrix.inner(),
+        vectors,
+        &mut out,
+        ncols,
+        t,
+        deg,
+        lambda_max,
+        steps,
+        sf,
+        seed_u64,
+    )
+    .map_err(core_err_to_js)?;
+    Ok(out)
+}
+
+/// 7b. Computes a deterministic R1/R2 regularized DoG JL spectral embedding `(numNodes, jlDim)`
+/// on an arbitrary symmetric PSD `CsrMatrix` with dynamic `[0, lambdaMax]` scaling.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen(js_name = chebyshevDogJlEmbeddingMatrix)]
+pub fn js_chebyshev_dog_jl_embedding_matrix(
+    matrix: &JsCsrMatrix,
+    jl_dim: Option<f64>,
+    degree: Option<f64>,
+    seed: Option<f64>,
+    eps_psd: Option<f64>,
+    t1: Option<f64>,
+    t2: Option<f64>,
+    alpha: Option<f64>,
+    lambda_max: Option<f64>,
+    lanczos_steps: Option<f64>,
+    safety_factor: Option<f64>,
+    scale_vec: Option<Vec<f64>>,
+) -> Result<Vec<f64>, JsError> {
+    let jl_dim_val = parse_optional_usize(jl_dim, DEFAULT_JL_DIM, "jlDim")?;
+    let deg = parse_opt_usize_param(degree, "degree")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let eps_psd_val = eps_psd.unwrap_or(DEFAULT_EPS_PSD);
+    let steps = parse_optional_usize(
+        lanczos_steps,
+        DEFAULT_SPECTRUM_LANCZOS_STEPS,
+        "lanczosSteps",
+    )?;
+    let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR);
+
+    let mat = matrix.inner();
+    let n = mat.num_nodes();
+    let s = if n > 0 {
+        let n_f = n as f64;
+        let mu1 = mat.trace() / n_f;
+        let frob_sq: f64 = mat.values().iter().map(|&v| v * v).sum();
+        (frob_sq / n_f - mu1 * mu1).max(1e-6).sqrt()
+    } else {
+        1e-3
+    };
+    let t1_eff = t1.unwrap_or(1.0 / (1.0 + s));
+    let t2_eff = t2.unwrap_or(4.0 / (1.0 + s));
+    let alpha_eff = alpha.unwrap_or((1.0 - s).max(0.0));
+    let base_terms = build_dog_terms(t1_eff, t2_eff, alpha_eff, 0.0).map_err(core_err_to_js)?;
+    let mut ws = ChebyshevWorkspace::with_capacity(n.saturating_mul(jl_dim_val));
+    let (out, _) = ws
+        .compute_dog_jl_dynamic(
+            mat,
+            &base_terms,
+            lambda_max,
+            deg,
+            jl_dim_val,
+            eps_psd_val,
+            steps,
+            sf,
+            seed_u64,
+            scale_vec.as_deref(),
+        )
         .map_err(core_err_to_js)?;
     Ok(out)
 }
@@ -763,6 +1130,20 @@ pub fn js_extract_sparse_1hop_2hop_pairs(
 #[wasm_bindgen(js_name = buildPure2hopKnn)]
 pub fn js_build_pure_2hop_knn(graph: &JsCsrGraph) -> Result<JsTwoHopKnnResult, JsError> {
     let (knn, k2_deg, stats) = build_pure_2hop_knn(graph.inner()).map_err(core_err_to_js)?;
+    Ok(JsTwoHopKnnResult { knn, k2_deg, stats })
+}
+
+/// 9b. Builds a hub-safe capped 1+2-hop CSR `KnnGraph` with `{1.0, 2.0}` distances and degree statistics.
+#[wasm_bindgen(js_name = buildCapped12hopKnn)]
+pub fn js_build_capped_12hop_knn(
+    graph: &JsCsrGraph,
+    max_2hop_per_node: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsTwoHopKnnResult, JsError> {
+    let cap = parse_optional_usize(max_2hop_per_node, DEFAULT_SPARSE_MAX_2HOP, "max2hopPerNode")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let (knn, k2_deg, stats) =
+        build_capped_12hop_knn(graph.inner(), cap, seed_u64).map_err(core_err_to_js)?;
     Ok(JsTwoHopKnnResult { knn, k2_deg, stats })
 }
 
@@ -954,6 +1335,60 @@ pub fn js_compute_regularized_dog_varadhan_landmarks(
     Ok(JsDogVaradhanLandmarks { inner, stats })
 }
 
+/// 19b. Computes regularized DoG Varadhan landmark tables from a custom symmetric PSD `CsrMatrix`
+/// with dynamic `[0, lambdaMax]` spectrum scaling.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen(js_name = computeRegularizedDogVaradhanLandmarksFromMatrix)]
+pub fn js_compute_regularized_dog_varadhan_landmarks_from_matrix(
+    graph: &JsCsrGraph,
+    matrix: &JsCsrMatrix,
+    lambda_max: Option<f64>,
+    degree: Option<f64>,
+    num_landmarks: Option<f64>,
+    min_degree: Option<f64>,
+    jl_dim: Option<f64>,
+    seed: Option<f64>,
+    degree_normalize: Option<bool>,
+    p_exp: Option<f64>,
+    eps_psd: Option<f64>,
+    t_coarse: Option<f64>,
+    t1: Option<f64>,
+    t2: Option<f64>,
+    alpha: Option<f64>,
+    beta_floor: Option<f64>,
+) -> Result<JsDogVaradhanLandmarks, JsError> {
+    let deg = parse_opt_usize_param(degree, "degree")?;
+    let n_landmarks =
+        parse_optional_usize(num_landmarks, DEFAULT_VARADHAN_LANDMARKS, "numLandmarks")?;
+    let min_deg = parse_optional_usize(min_degree, DEFAULT_MIN_DEGREE, "minDegree")?;
+    let jl_d = parse_optional_usize(jl_dim, DEFAULT_JL_DIM, "jlDim")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let cfg = DogVaradhanConfig {
+        t1,
+        t2,
+        alpha,
+        beta_floor,
+        degree: deg,
+        n_landmarks,
+        min_degree: min_deg,
+        jl_dim: jl_d,
+        degree_normalize: degree_normalize.unwrap_or(true),
+        p_exp: p_exp.unwrap_or(DEFAULT_P_EXP),
+        eps_psd: eps_psd.unwrap_or(DEFAULT_EPS_PSD),
+        t_coarse: t_coarse.unwrap_or(DEFAULT_T_COARSE),
+        seed: seed_u64,
+        ..DogVaradhanConfig::default()
+    };
+    let (inner, stats) = compute_regularized_dog_varadhan_landmarks_from_matrix(
+        graph.inner(),
+        matrix.inner(),
+        lambda_max,
+        &cfg,
+    )
+    .map_err(core_err_to_js)?;
+    Ok(JsDogVaradhanLandmarks { inner, stats })
+}
+
 /// Spectral embedding output returned by `computeResistanceEmbedding` and `computeDiffusionEmbedding`.
 #[wasm_bindgen(js_name = SpectralEmbeddingResult)]
 #[derive(Debug, Clone, PartialEq)]
@@ -1034,6 +1469,26 @@ pub fn js_normalize_layout_2d(
     let seed_u64 = parse_seed_u64(seed)?;
     let mut soa = layout.inner().to_layout2d();
     normalize_layout_2d(&mut soa, t_std, seed_u64).map_err(core_err_to_js)?;
+    layout
+        .inner_mut()
+        .copy_from_layout2d(&soa)
+        .map_err(ffi_err_to_js)?;
+    Ok(())
+}
+
+/// 22b. Median-centers and Gaussian-calibrated radial quantile-scales `layout` in place so core spread matches `targetStd` (default `1.0`).
+#[wasm_bindgen(js_name = robustNormalizeLayout2d)]
+pub fn js_robust_normalize_layout_2d(
+    layout: &mut JsLayout2d,
+    target_std: Option<f64>,
+    quantile: Option<f64>,
+    seed: Option<f64>,
+) -> Result<(), JsError> {
+    let t_std = target_std.unwrap_or(1.0);
+    let q_val = quantile.unwrap_or(0.95);
+    let seed_u64 = parse_seed_u64(seed)?;
+    let mut soa = layout.inner().to_layout2d();
+    robust_normalize_layout_2d(&mut soa, t_std, q_val, seed_u64).map_err(core_err_to_js)?;
     layout
         .inner_mut()
         .copy_from_layout2d(&soa)
@@ -1144,6 +1599,30 @@ pub fn js_graph_row_normalized_probabilities(
     Ok(JsSparseProbabilities { inner })
 }
 
+/// 27b. Computes row-normalized symmetrized 1+2-hop probabilities with optional capping and `(d_i d_j)^(-degreeBeta)` decay.
+#[wasm_bindgen(js_name = graph12hopRowNormalizedProbabilities)]
+pub fn js_graph_12hop_row_normalized_probabilities(
+    graph: &JsCsrGraph,
+    w2: Option<f64>,
+    max_2hop_per_node: Option<f64>,
+    degree_beta: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsSparseProbabilities, JsError> {
+    let w2_val = w2.unwrap_or(0.5);
+    let cap_opt = parse_opt_usize_param(max_2hop_per_node, "max2hopPerNode")?;
+    let beta_val = degree_beta.unwrap_or(0.0);
+    let seed_u64 = parse_seed_u64(seed)?;
+    let inner = graph_12hop_row_normalized_probabilities_with_degree_decay(
+        graph.inner(),
+        w2_val,
+        cap_opt,
+        beta_val,
+        seed_u64,
+    )
+    .map_err(core_err_to_js)?;
+    Ok(JsSparseProbabilities { inner })
+}
+
 /// 28. Computes row-normalized symmetrized joint probabilities from arbitrary CSR directed affinities.
 #[wasm_bindgen(js_name = symmetrizeRowNormalized)]
 pub fn js_symmetrize_row_normalized(
@@ -1198,4 +1677,940 @@ pub fn js_apply_relative_distance_floor(
         min_ratio.unwrap_or(0.1),
     )
     .map_err(core_err_to_js)
+}
+
+fn parse_amg_pcg_config_js(options: &JsValue) -> Result<(AmgPcgConfig, Option<Vec<f64>>), JsError> {
+    let mut cfg = AmgPcgConfig::default();
+    let mut near_nullspace: Option<Vec<f64>> = None;
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "AmgPcgSolver: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.rel_tol = opt_f64_prop(options, "relTol", cfg.rel_tol)?;
+        cfg.abs_tol = opt_f64_prop(options, "absTol", cfg.abs_tol)?;
+        cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
+        cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
+        cfg.max_levels = opt_usize_prop(options, "maxLevels", cfg.max_levels)?;
+        cfg.max_coarse_size = opt_usize_prop(options, "maxCoarseSize", cfg.max_coarse_size)?;
+        cfg.pre_sweeps = opt_usize_prop(options, "preSweeps", cfg.pre_sweeps)?;
+        cfg.post_sweeps = opt_usize_prop(options, "postSweeps", cfg.post_sweeps)?;
+        cfg.max_agg_size = opt_usize_prop(options, "maxAggSize", cfg.max_agg_size)?;
+        cfg.diag_eps = opt_f64_prop(options, "diagEps", cfg.diag_eps)?;
+        cfg.eig_eps = opt_f64_prop(options, "eigEps", cfg.eig_eps)?;
+        cfg.sym_tol = opt_f64_prop(options, "symTol", cfg.sym_tol)?;
+        cfg.seed = opt_seed_prop(options)?;
+        cfg.randomize_ties = opt_bool_prop(options, "randomizeTies", cfg.randomize_ties)?;
+
+        let ns_val = get_prop(options, "nearNullspace")?;
+        if !ns_val.is_undefined() && !ns_val.is_null() {
+            if let Some(arr) = ns_val.dyn_ref::<js_sys::Float64Array>() {
+                near_nullspace = Some(arr.to_vec());
+            } else if let Some(arr) = ns_val.dyn_ref::<js_sys::Float32Array>() {
+                near_nullspace = Some(arr.to_vec().into_iter().map(f64::from).collect());
+            } else if !ns_val.is_string() && ns_val.is_object() {
+                let iter = js_sys::try_iter(&ns_val)
+                    .map_err(|err| {
+                        JsError::new(&format!("failed to iterate nearNullspace: {err:?}"))
+                    })?
+                    .ok_or_else(|| {
+                        JsError::new("options.nearNullspace must be a Float64Array or number array")
+                    })?;
+                let mut vec = Vec::new();
+                for item_res in iter {
+                    let item = item_res.map_err(|err| {
+                        JsError::new(&format!("failed to read nearNullspace: {err:?}"))
+                    })?;
+                    let num = item.as_f64().ok_or_else(|| {
+                        JsError::new("options.nearNullspace entries must be numbers")
+                    })?;
+                    vec.push(num);
+                }
+                near_nullspace = Some(vec);
+            } else {
+                return Err(JsError::new(
+                    "options.nearNullspace must be a Float64Array or number array",
+                ));
+            }
+        }
+    }
+    cfg.validate().map_err(core_err_to_js)?;
+    Ok((cfg, near_nullspace))
+}
+
+fn parse_amg_laplacian_kind_js(raw: &str) -> Result<LaplacianKind, JsError> {
+    match normalize_enum_token(raw).as_str() {
+        "combinatorial" | "unnormalized" | "standard" => Ok(LaplacianKind::Combinatorial),
+        "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
+            Ok(LaplacianKind::SymmetricNormalized)
+        }
+        "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
+        _ => Err(JsError::new(&format!(
+            "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetric_normalized'"
+        ))),
+    }
+}
+
+/// Single-RHS solution and diagnostics returned by `AmgPcgSolver.solve()`.
+#[wasm_bindgen(js_name = AmgPcgSolveResult)]
+#[derive(Debug, Clone)]
+pub struct JsAmgPcgSolveResult {
+    x_vec: Vec<f64>,
+    res: AmgPcgSolveResult,
+}
+
+#[wasm_bindgen(js_class = AmgPcgSolveResult)]
+impl JsAmgPcgSolveResult {
+    /// Returns a copy of the solution vector (`Float64Array`).
+    pub fn x(&self) -> Vec<f64> {
+        self.x_vec.clone()
+    }
+
+    /// Number of PCG iterations executed.
+    #[wasm_bindgen(getter)]
+    pub fn iterations(&self) -> usize {
+        self.res.iterations
+    }
+
+    /// True Euclidean residual norm `||b - A x||_2`.
+    #[wasm_bindgen(getter, js_name = residualNorm)]
+    pub fn residual_norm(&self) -> f64 {
+        self.res.residual_norm
+    }
+
+    /// Relative residual norm `||b - A x||_2 / ||b||_2`.
+    #[wasm_bindgen(getter, js_name = relativeResidual)]
+    pub fn relative_residual(&self) -> f64 {
+        self.res.relative_residual
+    }
+
+    /// `true` if the stopping tolerance was met.
+    #[wasm_bindgen(getter)]
+    pub fn converged(&self) -> bool {
+        self.res.converged
+    }
+
+    /// Final solver lifecycle status string.
+    #[wasm_bindgen(getter)]
+    pub fn status(&self) -> String {
+        solver_status_str(self.res.status).to_owned()
+    }
+}
+
+/// Batched-RHS solution and diagnostics returned by `AmgPcgSolver.solveBatch()`.
+#[wasm_bindgen(js_name = AmgPcgBatchResult)]
+#[derive(Debug, Clone)]
+pub struct JsAmgPcgBatchResult {
+    num_nodes: usize,
+    ncols: usize,
+    x_flat: Vec<f64>,
+    res: AmgPcgBatchResult,
+}
+
+#[wasm_bindgen(js_class = AmgPcgBatchResult)]
+impl JsAmgPcgBatchResult {
+    /// Returns a flat row-major `(numNodes, ncols)` `Float64Array` copy of all solution columns.
+    pub fn x(&self) -> Vec<f64> {
+        self.x_flat.clone()
+    }
+
+    /// Number of rows (`numNodes`).
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.num_nodes
+    }
+
+    /// Number of RHS columns (`ncols`).
+    #[wasm_bindgen(getter)]
+    pub fn ncols(&self) -> usize {
+        self.ncols
+    }
+
+    /// Sum of PCG iterations across all columns.
+    #[wasm_bindgen(getter, js_name = totalIterations)]
+    pub fn total_iterations(&self) -> usize {
+        self.res.total_iterations
+    }
+
+    /// Maximum PCG iterations executed across all columns.
+    #[wasm_bindgen(getter, js_name = maxIterationsUsed)]
+    pub fn max_iterations_used(&self) -> usize {
+        self.res.max_iterations_used
+    }
+
+    /// Minimum PCG iterations executed across all columns.
+    #[wasm_bindgen(getter, js_name = minIterationsUsed)]
+    pub fn min_iterations_used(&self) -> usize {
+        self.res.min_iterations_used
+    }
+
+    /// Maximum true residual norm across all columns.
+    #[wasm_bindgen(getter, js_name = maxResidualNorm)]
+    pub fn max_residual_norm(&self) -> f64 {
+        self.res.max_residual_norm
+    }
+
+    /// Maximum relative residual norm across all columns.
+    #[wasm_bindgen(getter, js_name = maxRelativeResidual)]
+    pub fn max_relative_residual(&self) -> f64 {
+        self.res.max_relative_residual
+    }
+
+    /// `true` if every column converged within tolerance.
+    #[wasm_bindgen(getter, js_name = allConverged)]
+    pub fn all_converged(&self) -> bool {
+        self.res.all_converged
+    }
+
+    /// Returns per-column iteration counts (`Uint32Array`).
+    #[wasm_bindgen(js_name = iterationsPerCol)]
+    pub fn iterations_per_col(&self) -> Vec<u32> {
+        self.res
+            .iterations_per_col
+            .iter()
+            .map(|&v| v as u32)
+            .collect()
+    }
+
+    /// Returns per-column true residual norms (`Float64Array`).
+    #[wasm_bindgen(js_name = residualNorms)]
+    pub fn residual_norms(&self) -> Vec<f64> {
+        self.res.residual_norms.clone()
+    }
+
+    /// Returns per-column relative residual norms (`Float64Array`).
+    #[wasm_bindgen(js_name = relativeResiduals)]
+    pub fn relative_residuals(&self) -> Vec<f64> {
+        self.res.relative_residuals.clone()
+    }
+
+    /// Returns per-column convergence flags (`Uint8Array` with `1` for converged, `0` otherwise).
+    #[wasm_bindgen(js_name = convergedPerCol)]
+    pub fn converged_per_col(&self) -> Vec<u8> {
+        self.res
+            .converged_per_col
+            .iter()
+            .map(|&v| u8::from(v))
+            .collect()
+    }
+}
+
+/// Hardened single-threaded Algebraic Multigrid Preconditioned Conjugate Gradient (`AmgPcgSolver`)
+/// supporting symmetric CSR matrices, regularized/shifted graph Laplacians, batched RHS, and
+/// cooperative `step()` execution.
+#[wasm_bindgen(js_name = AmgPcgSolver)]
+#[derive(Debug, Clone)]
+pub struct JsAmgPcgSolver {
+    inner: AmgPcgSolver,
+    ws: AmgPcgWorkspace,
+}
+
+#[wasm_bindgen(js_class = AmgPcgSolver)]
+impl JsAmgPcgSolver {
+    /// Constructs an `AmgPcgSolver` directly from raw symmetric CSR buffers.
+    #[wasm_bindgen(js_name = fromCsr)]
+    pub fn from_csr(
+        num_nodes: f64,
+        indptr: &[u32],
+        indices: &[u32],
+        values: &[f64],
+        options: &JsValue,
+    ) -> Result<JsAmgPcgSolver, JsError> {
+        let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+        let (cfg, ns) = parse_amg_pcg_config_js(options)?;
+        let mat = CsrMatrix::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
+            .map_err(core_err_to_js)?;
+        let inner =
+            AmgPcgSolver::with_near_nullspace(&mat, ns.as_deref(), cfg).map_err(core_err_to_js)?;
+        let ws = inner.new_workspace();
+        Ok(Self { inner, ws })
+    }
+
+    /// Constructs an `AmgPcgSolver` directly from an existing `CsrMatrix`.
+    #[wasm_bindgen(js_name = fromCsrMatrix)]
+    pub fn from_csr_matrix(
+        matrix: &JsCsrMatrix,
+        options: &JsValue,
+    ) -> Result<JsAmgPcgSolver, JsError> {
+        let (cfg, ns) = parse_amg_pcg_config_js(options)?;
+        let inner = AmgPcgSolver::with_near_nullspace(matrix.inner(), ns.as_deref(), cfg)
+            .map_err(core_err_to_js)?;
+        let ws = inner.new_workspace();
+        Ok(Self { inner, ws })
+    }
+
+    /// Constructs an `AmgPcgSolver` for `I + gamma * L_sym` with exact `D^{1/2} 1` near-nullspace.
+    #[wasm_bindgen(js_name = fromGraphRegularizedLaplacian)]
+    pub fn from_graph_regularized_laplacian(
+        graph: &JsCsrGraph,
+        gamma: Option<f64>,
+        options: &JsValue,
+    ) -> Result<JsAmgPcgSolver, JsError> {
+        let (cfg, _) = parse_amg_pcg_config_js(options)?;
+        let inner =
+            AmgPcgSolver::from_regularized_sym_laplacian(graph.inner(), gamma.unwrap_or(1.0), cfg)
+                .map_err(core_err_to_js)?;
+        let ws = inner.new_workspace();
+        Ok(Self { inner, ws })
+    }
+
+    /// Constructs an `AmgPcgSolver` for a shifted graph Laplacian (`"combinatorial"` or `"symmetric_normalized"`).
+    #[wasm_bindgen(js_name = fromGraphLaplacian)]
+    pub fn from_graph_laplacian(
+        graph: &JsCsrGraph,
+        kind: Option<String>,
+        shift: Option<f64>,
+        options: &JsValue,
+    ) -> Result<JsAmgPcgSolver, JsError> {
+        let lap_kind = match kind {
+            Some(ref k) => parse_amg_laplacian_kind_js(k)?,
+            None => LaplacianKind::Combinatorial,
+        };
+        let (cfg, _) = parse_amg_pcg_config_js(options)?;
+        let inner =
+            AmgPcgSolver::from_laplacian(graph.inner(), lap_kind, shift.unwrap_or(0.0), cfg)
+                .map_err(core_err_to_js)?;
+        let ws = inner.new_workspace();
+        Ok(Self { inner, ws })
+    }
+
+    /// Solves `A x = b` synchronously with optional initial guess `x0`.
+    pub fn solve(
+        &mut self,
+        b: &[f64],
+        x0: Option<Vec<f64>>,
+    ) -> Result<JsAmgPcgSolveResult, JsError> {
+        self.inner
+            .init_solve(b, x0.as_deref(), &mut self.ws)
+            .map_err(core_err_to_js)?;
+        self.inner.run(&mut self.ws).map_err(core_err_to_js)?;
+        Ok(JsAmgPcgSolveResult {
+            x_vec: self.ws.x().to_vec(),
+            res: self.ws.result(),
+        })
+    }
+
+    /// Solves `A X = B` for flat row-major `(numNodes, ncols)` RHS matrix `bFlat`.
+    #[wasm_bindgen(js_name = solveBatch)]
+    pub fn solve_batch(
+        &mut self,
+        b_flat: &[f64],
+        ncols: f64,
+        x0_flat: Option<Vec<f64>>,
+    ) -> Result<JsAmgPcgBatchResult, JsError> {
+        let nc = parse_non_negative_usize(ncols, "ncols")?;
+        let n = self.inner.num_nodes();
+        let expected = n
+            .checked_mul(nc)
+            .ok_or_else(|| JsError::new("AmgPcgSolver.solveBatch size overflow"))?;
+        let mut x_out = match x0_flat {
+            Some(v) => {
+                if v.len() != expected {
+                    return Err(core_err_to_js(CoreError::dimension_mismatch(
+                        expected,
+                        v.len(),
+                        "AmgPcgSolver.solveBatch::x0Flat",
+                    )));
+                }
+                v
+            }
+            None => vec![0.0_f64; expected],
+        };
+        let res = self
+            .inner
+            .solve_batch(b_flat, &mut x_out, nc, &mut self.ws)
+            .map_err(core_err_to_js)?;
+        Ok(JsAmgPcgBatchResult {
+            num_nodes: n,
+            ncols: nc,
+            x_flat: x_out,
+            res,
+        })
+    }
+
+    /// Initializes a cooperative PCG solve for `b` and optional initial guess `x0`.
+    #[wasm_bindgen(js_name = startSolve)]
+    pub fn start_solve(&mut self, b: &[f64], x0: Option<Vec<f64>>) -> Result<String, JsError> {
+        let status = self
+            .inner
+            .init_solve(b, x0.as_deref(), &mut self.ws)
+            .map_err(core_err_to_js)?;
+        Ok(solver_status_str(status).to_owned())
+    }
+
+    /// Executes a single cooperative PCG iteration and returns the updated status string.
+    pub fn step(&mut self) -> Result<String, JsError> {
+        let status = self.inner.step(&mut self.ws).map_err(core_err_to_js)?;
+        Ok(solver_status_str(status).to_owned())
+    }
+
+    /// Executes up to `steps` cooperative PCG iterations and returns the updated status string.
+    #[wasm_bindgen(js_name = runSteps)]
+    pub fn run_steps(&mut self, steps: f64) -> Result<String, JsError> {
+        let n_steps = parse_non_negative_usize(steps, "steps")?;
+        let status = self
+            .inner
+            .run_steps(&mut self.ws, n_steps)
+            .map_err(core_err_to_js)?;
+        Ok(solver_status_str(status).to_owned())
+    }
+
+    /// Runs the active cooperative solve to completion and returns the final status string.
+    pub fn run(&mut self) -> Result<String, JsError> {
+        let status = self.inner.run(&mut self.ws).map_err(core_err_to_js)?;
+        Ok(solver_status_str(status).to_owned())
+    }
+
+    /// Returns a copy of the current solution vector (`Float64Array`).
+    pub fn solution(&self) -> Vec<f64> {
+        self.ws.x().to_vec()
+    }
+
+    /// Returns the matrix dimension `numNodes`.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
+    /// Returns the number of AMG hierarchy levels.
+    #[wasm_bindgen(getter, js_name = numLevels)]
+    pub fn num_levels(&self) -> usize {
+        self.inner.num_levels()
+    }
+
+    /// Returns the coarsest-level matrix dimension.
+    #[wasm_bindgen(getter, js_name = coarsestSize)]
+    pub fn coarsest_size(&self) -> usize {
+        self.inner.coarsest_size()
+    }
+
+    /// Returns the AMG operator complexity.
+    #[wasm_bindgen(getter, js_name = operatorComplexity)]
+    pub fn operator_complexity(&self) -> f64 {
+        self.inner.operator_complexity()
+    }
+
+    /// Returns the maximum CSR nonzero count across all AMG hierarchy levels.
+    #[wasm_bindgen(getter, js_name = maxLevelNnz)]
+    pub fn max_level_nnz(&self) -> usize {
+        self.inner.max_level_nnz()
+    }
+
+    /// Returns the current solver lifecycle status string.
+    #[wasm_bindgen(getter)]
+    pub fn status(&self) -> String {
+        solver_status_str(self.ws.status()).to_owned()
+    }
+
+    /// Returns the number of PCG iterations executed in the active solve.
+    #[wasm_bindgen(getter)]
+    pub fn iteration(&self) -> usize {
+        self.ws.iteration()
+    }
+
+    /// Returns the maximum scheduled iterations for the active solve.
+    #[wasm_bindgen(getter, js_name = totalIterations)]
+    pub fn total_iterations(&self) -> usize {
+        self.ws.total_iterations()
+    }
+
+    /// Returns `true` when the active solve has converged or completed.
+    #[wasm_bindgen(getter, js_name = isFinished)]
+    pub fn is_finished(&self) -> bool {
+        self.ws.is_finished()
+    }
+
+    /// Returns the most recent Euclidean residual norm.
+    #[wasm_bindgen(getter, js_name = residualNorm)]
+    pub fn residual_norm(&self) -> f64 {
+        self.ws.residual_norm()
+    }
+
+    /// Returns the most recent relative Euclidean residual norm.
+    #[wasm_bindgen(getter, js_name = relativeResidual)]
+    pub fn relative_residual(&self) -> f64 {
+        self.ws.relative_residual()
+    }
+
+    /// Returns `true` if the active solve converged within tolerance.
+    #[wasm_bindgen(getter)]
+    pub fn converged(&self) -> bool {
+        self.ws.converged()
+    }
+}
+
+fn opt_maybe_bool_prop(obj: &JsValue, key: &str) -> Result<Option<bool>, JsError> {
+    let val = get_prop(obj, key)?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(None);
+    }
+    val.as_bool()
+        .map(Some)
+        .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
+}
+
+fn parse_effective_resistance_options(
+    options: &JsValue,
+) -> Result<EffectiveResistanceConfig, JsError> {
+    let mut cfg = EffectiveResistanceConfig::default();
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "computeEffectiveResistances: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.jl_dim = opt_usize_prop(options, "jlDim", cfg.jl_dim)?;
+        cfg.seed = opt_seed_prop(options)?;
+        cfg.weights_are_lengths =
+            opt_bool_prop(options, "weightsAreLengths", cfg.weights_are_lengths)?;
+        cfg.exact = opt_maybe_bool_prop(options, "exact")?;
+        cfg.exact_max_nodes = opt_usize_prop(options, "exactMaxNodes", cfg.exact_max_nodes)?;
+        cfg.eig_eps = opt_f64_prop(options, "eigEps", cfg.eig_eps)?;
+        cfg.amg_config.rel_tol = opt_f64_prop(options, "relTol", cfg.amg_config.rel_tol)?;
+        cfg.amg_config.max_iterations =
+            opt_usize_prop(options, "maxIterations", cfg.amg_config.max_iterations)?;
+        cfg.amg_config.eig_eps = cfg.eig_eps;
+        cfg.amg_config.seed = cfg.seed;
+    }
+    cfg.validate().map_err(core_err_to_js)?;
+    Ok(cfg)
+}
+
+fn parse_resistance_curvature_options(
+    options: &JsValue,
+) -> Result<ResistanceCurvatureConfig, JsError> {
+    let mut cfg = ResistanceCurvatureConfig::default();
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "resistanceCurvatureFlow: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.steps = opt_usize_prop(options, "steps", cfg.steps)?;
+        cfg.eta = opt_f64_prop(options, "eta", cfg.eta)?;
+        cfg.kappa_max = opt_f64_prop(options, "kappaMax", cfg.kappa_max)?;
+        cfg.min_edge_length = opt_f64_prop(options, "minEdgeLength", cfg.min_edge_length)?;
+        cfg.hyperbolic_threshold =
+            opt_f64_prop(options, "hyperbolicThreshold", cfg.hyperbolic_threshold)?;
+        cfg.spherical_threshold =
+            opt_f64_prop(options, "sphericalThreshold", cfg.spherical_threshold)?;
+        cfg.torus_std_threshold =
+            opt_f64_prop(options, "torusStdThreshold", cfg.torus_std_threshold)?;
+        cfg.resistance = parse_effective_resistance_options(options)?;
+    }
+    cfg.validate().map_err(core_err_to_js)?;
+    Ok(cfg)
+}
+
+/// Effective edge resistances and Foster's theorem diagnostics for canonical simple undirected edges.
+#[wasm_bindgen(js_name = EffectiveResistanceResult)]
+#[derive(Debug, Clone)]
+pub struct JsEffectiveResistanceResult {
+    inner: EffectiveResistanceResult,
+}
+
+#[wasm_bindgen(js_class = EffectiveResistanceResult)]
+impl JsEffectiveResistanceResult {
+    /// Returns the number of vertices in the graph.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes
+    }
+
+    /// Returns the number of canonical undirected simple edges (`u < v`).
+    #[wasm_bindgen(getter, js_name = numEdges)]
+    pub fn num_edges(&self) -> usize {
+        self.inner.num_edges
+    }
+
+    /// Returns the number of connected components (including isolated vertices).
+    #[wasm_bindgen(getter, js_name = numComponents)]
+    pub fn num_components(&self) -> usize {
+        self.inner.num_components
+    }
+
+    /// Returns the observed Foster sum `sum_e w_e * R_e`.
+    #[wasm_bindgen(getter, js_name = fosterSum)]
+    pub fn foster_sum(&self) -> f64 {
+        self.inner.foster_sum
+    }
+
+    /// Returns the exact theoretical Foster sum `numNodes - numComponents`.
+    #[wasm_bindgen(getter, js_name = expectedFoster)]
+    pub fn expected_foster(&self) -> f64 {
+        self.inner.expected_foster
+    }
+
+    /// Returns the relative Foster error.
+    #[wasm_bindgen(getter, js_name = fosterRelErr)]
+    pub fn foster_rel_err(&self) -> f64 {
+        self.inner.foster_rel_err
+    }
+
+    /// Returns `true` if the exact dense pseudoinverse solver path was used.
+    #[wasm_bindgen(getter, js_name = usedExact)]
+    pub fn used_exact(&self) -> bool {
+        self.inner.used_exact
+    }
+
+    /// Returns total AMG-PCG iterations executed across all JL RHS columns.
+    #[wasm_bindgen(getter, js_name = amgTotalIterations)]
+    pub fn amg_total_iterations(&self) -> usize {
+        self.inner.amg_total_iterations
+    }
+
+    /// Returns maximum relative PCG residual across all JL RHS columns.
+    #[wasm_bindgen(getter, js_name = amgMaxRelativeResidual)]
+    pub fn amg_max_relative_residual(&self) -> f64 {
+        self.inner.amg_max_relative_residual
+    }
+
+    /// Returns `true` if every JL PCG column converged within tolerance.
+    #[wasm_bindgen(getter, js_name = amgAllConverged)]
+    pub fn amg_all_converged(&self) -> bool {
+        self.inner.amg_all_converged
+    }
+
+    /// Returns canonical edge source endpoints `u < v` (`Uint32Array`).
+    #[wasm_bindgen(js_name = edgeU)]
+    pub fn edge_u(&self) -> Vec<u32> {
+        self.inner.edge_u.clone()
+    }
+
+    /// Returns canonical edge target endpoints `v > u` (`Uint32Array`).
+    #[wasm_bindgen(js_name = edgeV)]
+    pub fn edge_v(&self) -> Vec<u32> {
+        self.inner.edge_v.clone()
+    }
+
+    /// Returns canonical edge lengths `l_e` (`Float64Array`).
+    #[wasm_bindgen(js_name = edgeLengths)]
+    pub fn edge_lengths(&self) -> Vec<f64> {
+        self.inner.edge_lengths.clone()
+    }
+
+    /// Returns canonical edge conductances `w_e = 1 / l_e` (`Float64Array`).
+    pub fn conductances(&self) -> Vec<f64> {
+        self.inner.conductances.clone()
+    }
+
+    /// Returns effective resistances `R_e` (`Float64Array`).
+    #[wasm_bindgen(js_name = effectiveResistances)]
+    pub fn effective_resistances(&self) -> Vec<f64> {
+        self.inner.effective_resistances.clone()
+    }
+}
+
+/// Per-iteration summary recorded during `resistanceCurvatureFlow()`.
+#[wasm_bindgen(js_name = ResistanceCurvatureStep)]
+#[derive(Debug, Clone, Copy)]
+pub struct JsResistanceCurvatureStep {
+    inner: ResistanceCurvatureStep,
+}
+
+#[wasm_bindgen(js_class = ResistanceCurvatureStep)]
+impl JsResistanceCurvatureStep {
+    /// Flow step index (`0..steps`, plus final evaluation step `steps`).
+    #[wasm_bindgen(getter)]
+    pub fn step(&self) -> usize {
+        self.inner.step
+    }
+
+    /// Observed Foster sum `sum_e w_e * R_e`.
+    #[wasm_bindgen(getter, js_name = fosterSum)]
+    pub fn foster_sum(&self) -> f64 {
+        self.inner.foster_sum
+    }
+
+    /// Exact theoretical Foster sum `numNodes - numComponents`.
+    #[wasm_bindgen(getter, js_name = expectedFoster)]
+    pub fn expected_foster(&self) -> f64 {
+        self.inner.expected_foster
+    }
+
+    /// Relative Foster error.
+    #[wasm_bindgen(getter, js_name = fosterRelErr)]
+    pub fn foster_rel_err(&self) -> f64 {
+        self.inner.foster_rel_err
+    }
+
+    /// Mean link resistance curvature.
+    #[wasm_bindgen(getter, js_name = meanLinkCurvature)]
+    pub fn mean_link_curvature(&self) -> f64 {
+        self.inner.mean_link_curvature
+    }
+
+    /// Population standard deviation of link resistance curvatures.
+    #[wasm_bindgen(getter, js_name = stdLinkCurvature)]
+    pub fn std_link_curvature(&self) -> f64 {
+        self.inner.std_link_curvature
+    }
+
+    /// Minimum link resistance curvature.
+    #[wasm_bindgen(getter, js_name = minLinkCurvature)]
+    pub fn min_link_curvature(&self) -> f64 {
+        self.inner.min_link_curvature
+    }
+
+    /// Maximum link resistance curvature.
+    #[wasm_bindgen(getter, js_name = maxLinkCurvature)]
+    pub fn max_link_curvature(&self) -> f64 {
+        self.inner.max_link_curvature
+    }
+
+    /// Mean vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = meanVertexCurvature)]
+    pub fn mean_vertex_curvature(&self) -> f64 {
+        self.inner.mean_vertex_curvature
+    }
+
+    /// Minimum vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = minVertexCurvature)]
+    pub fn min_vertex_curvature(&self) -> f64 {
+        self.inner.min_vertex_curvature
+    }
+
+    /// Maximum vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = maxVertexCurvature)]
+    pub fn max_vertex_curvature(&self) -> f64 {
+        self.inner.max_vertex_curvature
+    }
+
+    /// Whether the exact dense pseudoinverse solver was used.
+    #[wasm_bindgen(getter, js_name = usedExact)]
+    pub fn used_exact(&self) -> bool {
+        self.inner.used_exact
+    }
+
+    /// Total AMG-PCG iterations executed in this step.
+    #[wasm_bindgen(getter, js_name = amgTotalIterations)]
+    pub fn amg_total_iterations(&self) -> usize {
+        self.inner.amg_total_iterations
+    }
+
+    /// Maximum relative PCG residual in this step.
+    #[wasm_bindgen(getter, js_name = amgMaxRelativeResidual)]
+    pub fn amg_max_relative_residual(&self) -> f64 {
+        self.inner.amg_max_relative_residual
+    }
+}
+
+/// Devriendt-Lambiotte resistance curvature flow result with reweighted graphs and geometry classification.
+#[wasm_bindgen(js_name = ResistanceCurvatureFlowResult)]
+#[derive(Debug, Clone)]
+pub struct JsResistanceCurvatureFlowResult {
+    inner: ResistanceCurvatureFlowResult,
+}
+
+#[wasm_bindgen(js_class = ResistanceCurvatureFlowResult)]
+impl JsResistanceCurvatureFlowResult {
+    /// Returns the number of vertices in the graph.
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes
+    }
+
+    /// Returns the number of canonical undirected simple edges (`u < v`).
+    #[wasm_bindgen(getter, js_name = numEdges)]
+    pub fn num_edges(&self) -> usize {
+        self.inner.num_edges
+    }
+
+    /// Returns the number of connected components (including isolated vertices).
+    #[wasm_bindgen(getter, js_name = numComponents)]
+    pub fn num_components(&self) -> usize {
+        self.inner.num_components
+    }
+
+    /// Returns the final Foster sum `sum_e w_e * R_e`.
+    #[wasm_bindgen(getter, js_name = fosterSum)]
+    pub fn foster_sum(&self) -> f64 {
+        self.inner.foster_sum
+    }
+
+    /// Returns the exact theoretical Foster sum `numNodes - numComponents`.
+    #[wasm_bindgen(getter, js_name = expectedFoster)]
+    pub fn expected_foster(&self) -> f64 {
+        self.inner.expected_foster
+    }
+
+    /// Returns the final relative Foster error.
+    #[wasm_bindgen(getter, js_name = fosterRelErr)]
+    pub fn foster_rel_err(&self) -> f64 {
+        self.inner.foster_rel_err
+    }
+
+    /// Returns mean final link resistance curvature.
+    #[wasm_bindgen(getter, js_name = meanLinkCurvature)]
+    pub fn mean_link_curvature(&self) -> f64 {
+        self.inner.mean_link_curvature
+    }
+
+    /// Returns population standard deviation of final link resistance curvatures.
+    #[wasm_bindgen(getter, js_name = stdLinkCurvature)]
+    pub fn std_link_curvature(&self) -> f64 {
+        self.inner.std_link_curvature
+    }
+
+    /// Returns minimum final link resistance curvature.
+    #[wasm_bindgen(getter, js_name = minLinkCurvature)]
+    pub fn min_link_curvature(&self) -> f64 {
+        self.inner.min_link_curvature
+    }
+
+    /// Returns maximum final link resistance curvature.
+    #[wasm_bindgen(getter, js_name = maxLinkCurvature)]
+    pub fn max_link_curvature(&self) -> f64 {
+        self.inner.max_link_curvature
+    }
+
+    /// Returns mean final vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = meanVertexCurvature)]
+    pub fn mean_vertex_curvature(&self) -> f64 {
+        self.inner.mean_vertex_curvature
+    }
+
+    /// Returns minimum final vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = minVertexCurvature)]
+    pub fn min_vertex_curvature(&self) -> f64 {
+        self.inner.min_vertex_curvature
+    }
+
+    /// Returns maximum final vertex resistance curvature.
+    #[wasm_bindgen(getter, js_name = maxVertexCurvature)]
+    pub fn max_vertex_curvature(&self) -> f64 {
+        self.inner.max_vertex_curvature
+    }
+
+    /// Returns `true` if the final evaluation used the exact dense pseudoinverse solver.
+    #[wasm_bindgen(getter, js_name = usedExact)]
+    pub fn used_exact(&self) -> bool {
+        self.inner.used_exact
+    }
+
+    /// Returns total AMG-PCG iterations executed in the final evaluation.
+    #[wasm_bindgen(getter, js_name = amgTotalIterations)]
+    pub fn amg_total_iterations(&self) -> usize {
+        self.inner.amg_total_iterations
+    }
+
+    /// Returns maximum relative PCG residual in the final evaluation.
+    #[wasm_bindgen(getter, js_name = amgMaxRelativeResidual)]
+    pub fn amg_max_relative_residual(&self) -> f64 {
+        self.inner.amg_max_relative_residual
+    }
+
+    /// Returns `true` if every JL PCG column converged in the final evaluation.
+    #[wasm_bindgen(getter, js_name = amgAllConverged)]
+    pub fn amg_all_converged(&self) -> bool {
+        self.inner.amg_all_converged
+    }
+
+    /// Returns the suggested 2D geometry (`"hyperbolic"`, `"spherical"`, `"torus"`, or `"euclidean"`).
+    #[wasm_bindgen(getter, js_name = suggestedGeometry)]
+    pub fn suggested_geometry(&self) -> String {
+        self.inner.suggested_geometry.as_str().to_owned()
+    }
+
+    /// Returns the suggested `ManifoldKind` (`"hyperbolic"`, `"spherical"`, `"torus"`), or `undefined`.
+    #[wasm_bindgen(getter, js_name = suggestedManifold)]
+    pub fn suggested_manifold(&self) -> Option<String> {
+        self.inner
+            .suggested_manifold_kind()
+            .map(|_| self.inner.suggested_geometry.as_str().to_owned())
+    }
+
+    /// Returns canonical edge source endpoints `u < v` (`Uint32Array`).
+    #[wasm_bindgen(js_name = edgeU)]
+    pub fn edge_u(&self) -> Vec<u32> {
+        self.inner.edge_u.clone()
+    }
+
+    /// Returns canonical edge target endpoints `v > u` (`Uint32Array`).
+    #[wasm_bindgen(js_name = edgeV)]
+    pub fn edge_v(&self) -> Vec<u32> {
+        self.inner.edge_v.clone()
+    }
+
+    /// Returns final normalized edge lengths `l_e` (`Float64Array`).
+    #[wasm_bindgen(js_name = edgeLengths)]
+    pub fn edge_lengths(&self) -> Vec<f64> {
+        self.inner.edge_lengths.clone()
+    }
+
+    /// Returns final edge conductances `w_e = 1 / l_e` (`Float64Array`).
+    pub fn conductances(&self) -> Vec<f64> {
+        self.inner.conductances.clone()
+    }
+
+    /// Returns final effective resistances `R_e` (`Float64Array`).
+    #[wasm_bindgen(js_name = effectiveResistances)]
+    pub fn effective_resistances(&self) -> Vec<f64> {
+        self.inner.effective_resistances.clone()
+    }
+
+    /// Returns final vertex resistance curvatures `p_i` (`Float64Array`).
+    #[wasm_bindgen(js_name = vertexCurvatures)]
+    pub fn vertex_curvatures(&self) -> Vec<f64> {
+        self.inner.vertex_curvatures.clone()
+    }
+
+    /// Returns final link resistance curvatures `kappa_res(u, v)` (`Float64Array`).
+    #[wasm_bindgen(js_name = linkCurvatures)]
+    pub fn link_curvatures(&self) -> Vec<f64> {
+        self.inner.link_curvatures.clone()
+    }
+
+    /// Returns per-step diagnostics across `0..=steps`.
+    #[wasm_bindgen(js_name = stepHistory)]
+    pub fn step_history(&self) -> Vec<JsResistanceCurvatureStep> {
+        self.inner
+            .step_history
+            .iter()
+            .copied()
+            .map(|inner| JsResistanceCurvatureStep { inner })
+            .collect()
+    }
+
+    /// Builds a weighted undirected `CsrGraph` (`f32`) storing final edge lengths `l_e`.
+    #[wasm_bindgen(js_name = lengthGraph)]
+    pub fn length_graph(&self) -> Result<JsCsrGraph, JsError> {
+        self.inner
+            .to_length_graph_f32()
+            .map(JsCsrGraph::from_inner)
+            .map_err(core_err_to_js)
+    }
+
+    /// Builds a weighted undirected `CsrGraph` (`f32`) storing final conductances `w_e = 1 / l_e`.
+    #[wasm_bindgen(js_name = conductanceGraph)]
+    pub fn conductance_graph(&self) -> Result<JsCsrGraph, JsError> {
+        self.inner
+            .to_conductance_graph_f32()
+            .map(JsCsrGraph::from_inner)
+            .map_err(core_err_to_js)
+    }
+}
+
+/// Computes effective edge resistances and Foster's theorem diagnostics via exact pseudoinverse
+/// (for small graphs) or Spielman-Srivastava JL projection solved with `AmgPcgSolver`.
+#[wasm_bindgen(js_name = computeEffectiveResistances)]
+pub fn js_compute_effective_resistances(
+    graph: &JsCsrGraph,
+    options: &JsValue,
+) -> Result<JsEffectiveResistanceResult, JsError> {
+    let cfg = parse_effective_resistance_options(options)?;
+    let inner = compute_effective_resistances(graph.inner(), &cfg).map_err(core_err_to_js)?;
+    Ok(JsEffectiveResistanceResult { inner })
+}
+
+/// Runs Devriendt-Lambiotte resistance curvature flow on `graph` and classifies target geometry.
+#[wasm_bindgen(js_name = resistanceCurvatureFlow)]
+pub fn js_resistance_curvature_flow(
+    graph: &JsCsrGraph,
+    options: &JsValue,
+) -> Result<JsResistanceCurvatureFlowResult, JsError> {
+    let cfg = parse_resistance_curvature_options(options)?;
+    let inner = resistance_curvature_flow(graph.inner(), &cfg).map_err(core_err_to_js)?;
+    Ok(JsResistanceCurvatureFlowResult { inner })
 }

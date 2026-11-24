@@ -51,6 +51,19 @@ const requiredCoreAndM1 = [
   "CrossingPair",
   "TorusCrossing",
   "CrossingSummary",
+  "MinimumAngleSummary",
+  "LayoutDegeneracy",
+  "RtaEvaluation",
+  "crosslessness",
+  "sampledCrosslessness",
+  "minimumAngle",
+  "minimumAngleSummary",
+  "layoutDegeneracy",
+  "adjustedPatchNig",
+  "adjustedPatchNigMultiscale",
+  "landmarkStratifiedRta",
+  "landmarkStratifiedRtaDetail",
+  "landmarkStratifiedRtaFromLandmarks",
   "idealEdgeLengthsWithUnit",
   "crossingEdges",
   "crossingEdgesTorus",
@@ -63,11 +76,18 @@ const requiredCoreAndM1 = [
   "prismDistortionWithEdges",
   "delaunayToCsr",
   "rectangleOverlaps",
-  "loadDataset",
   "parseCsrCsv",
 ];
 
 const requiredM2 = [
+  "AmgPcgBatchResult",
+  "AmgPcgSolveResult",
+  "AmgPcgSolver",
+  "AnisotropicLaplacianResult",
+  "CsrMatrix",
+  "EffectiveResistanceResult",
+  "ResistanceCurvatureFlowResult",
+  "ResistanceCurvatureStep",
   "KnnGraph",
   "Sparse12HopPairs",
   "SparseProbabilities",
@@ -78,16 +98,22 @@ const requiredM2 = [
   "TwoHopCsr",
   "TwoHopKnnResult",
   "HybridKnnResult",
+  "anisotropicLaplacian",
+  "computeEffectiveResistances",
+  "resistanceCurvatureFlow",
   "selectMaxminSpPivots",
   "pivotMdsInit",
   "korenSpectralInit",
   "smallestLaplacianEigenpairs",
   "spectralMomentStats",
   "chebyshevHeatSpmv",
+  "chebyshevHeatSpmvMatrix",
   "chebyshevDogJlEmbedding",
+  "chebyshevDogJlEmbeddingMatrix",
   "extract1hop2hopCsr",
   "extractSparse1hop2hopPairs",
   "buildPure2hopKnn",
+  "buildCapped12hopKnn",
   "compute2hopNeighborhoodSizes",
   "computeNodewise2hopPerplexities",
   "computeMedian2hopPerplexity",
@@ -98,14 +124,17 @@ const requiredM2 = [
   "findAbParams",
   "computeHorvitzThompsonGamma",
   "computeRegularizedDogVaradhanLandmarks",
+  "computeRegularizedDogVaradhanLandmarksFromMatrix",
   "classicalMds2d",
   "rdMds",
   "normalizeLayout2d",
+  "robustNormalizeLayout2d",
   "representativeMds",
   "computeResistanceEmbedding",
   "computeDiffusionEmbedding",
   "buildRerankKnn",
   "graphRowNormalizedProbabilities",
+  "graph12hopRowNormalizedProbabilities",
   "symmetrizeRowNormalized",
   "buildGumap12hopPriorityCsr",
   "applyRelativeDistanceFloor",
@@ -132,6 +161,7 @@ const requiredM3 = [
   "labelPropagation",
   "louvainCommunities",
   "poincareDistance",
+  "poincareMobiusAdd",
   "projectClusteredLayout",
   "spectralClustering",
   "sphericalDistance",
@@ -157,9 +187,28 @@ const requiredM4 = [
   "removeCycles",
 ];
 
-const missingExports = [...requiredCoreAndM1, ...requiredM2, ...requiredM3, ...requiredM4].filter(
-  (name) => !exportedNames.has(name),
-);
+const requiredM5 = [
+  "CoarseBackboneResult",
+  "CoarsenedHierarchyResult",
+  "PacmapBackboneResult",
+  "RhghLandmarksResult",
+  "ScreenedPoissonField2d",
+  "ScreenedPoissonRefiner",
+  "ScreenedPoissonResult",
+  "alignClusteredCentroids",
+  "coarseBackboneInit",
+  "computePivotedRhghLandmarks",
+  "louvainCoarsen",
+  "projectClusteredLayoutWithRadii",
+];
+
+const missingExports = [
+  ...requiredCoreAndM1,
+  ...requiredM2,
+  ...requiredM3,
+  ...requiredM4,
+  ...requiredM5,
+].filter((name) => !exportedNames.has(name));
 if (missingExports.length > 0) {
   throw new Error(
     `Missing required v6 exports in ${wasmJsPath}: ${missingExports.join(", ")}; found: ${Array.from(exportedNames).join(", ")}`,
@@ -417,6 +466,8 @@ export type MetricTarget =
     | "crossingNumber"
     | "crossingAngle"
     | "sampledCrossingNumber"
+    | "crosslessness"
+    | "sampledCrosslessness"
     | "neighborhoodPreservation1Hop"
     | "neighborhoodPreservation2Hop"
     | "sampledNp1"
@@ -431,7 +482,18 @@ export type MetricTarget =
     | "gabrielGraphPreservation"
     | "aspectRatio"
     | "angularResolution"
+    | "minimumAngle"
+    | "minimumAngleA1"
+    | "minimum_angle"
+    | "minimum_angle_a1"
+    | "layoutDegeneracy"
+    | "layout_degeneracy"
     | "idealEdgeLengths"
+    | "adjustedPatchNig"
+    | "adjusted_patch_nig"
+    | "landmarkStratifiedRta"
+    | "landmark_stratified_rta"
+    | "rta"
     | "sns"
     | "sampled_sns"
     | "np1"
@@ -448,6 +510,8 @@ export interface MetricReportRecord {
     crossingNumber?: number;
     crossingAngle?: number;
     sampledCrossingNumber?: number;
+    crosslessness?: number;
+    sampledCrosslessness?: number;
     neighborhoodPreservation1Hop?: number;
     neighborhoodPreservation2Hop?: number;
     sampledNp1?: number;
@@ -458,7 +522,12 @@ export interface MetricReportRecord {
     gabrielGraphPreservation?: number;
     aspectRatio?: number;
     angularResolution?: number;
+    minimumAngle?: number;
+    minimumAngleA1?: number;
+    layoutDegeneracy?: number;
     idealEdgeLengths?: number;
+    adjustedPatchNig?: number;
+    landmarkStratifiedRta?: number;
 }
 
 `;
@@ -479,7 +548,37 @@ indexDts = indexDts.replace(
 
 indexDts = indexDts.replace(
   /export function evaluateMetrics\([^;]+\): MetricReport;/,
-  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null): MetricReport;",
+  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null): MetricReport;",
+);
+
+indexDts = indexDts.replace(
+  /export function sampledCrosslessness\([^;]+\): number;/,
+  "export function sampledCrosslessness(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+);
+
+indexDts = indexDts.replace(
+  /export function adjustedPatchNig\([^;]+\): number;/,
+  "export function adjustedPatchNig(layout: Layout2d, communityLabels: Uint32Array | number[], patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): number;",
+);
+
+indexDts = indexDts.replace(
+  /export function adjustedPatchNigMultiscale\([^;]+\): Float64Array;/,
+  "export function adjustedPatchNigMultiscale(layout: Layout2d, communityLabels: Uint32Array | number[], radii?: Uint32Array | number[] | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): Float64Array;",
+);
+
+indexDts = indexDts.replace(
+  /export function landmarkStratifiedRta\([^;]+\): number;/,
+  "export function landmarkStratifiedRta(graph: CsrGraph, layout: Layout2d, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, seed?: number | null): number;",
+);
+
+indexDts = indexDts.replace(
+  /export function landmarkStratifiedRtaDetail\([^;]+\): RtaEvaluation;/,
+  "export function landmarkStratifiedRtaDetail(graph: CsrGraph, layout: Layout2d, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, seed?: number | null): RtaEvaluation;",
+);
+
+indexDts = indexDts.replace(
+  /export function landmarkStratifiedRtaFromLandmarks\([^;]+\): RtaEvaluation;/,
+  "export function landmarkStratifiedRtaFromLandmarks(layout: Layout2d, landmarkIds: Uint32Array | number[], landmarkDists: Uint32Array | number[], numTriplets?: number | null, seed?: number | null): RtaEvaluation;",
 );
 
 indexDts = indexDts.replace(
@@ -534,12 +633,40 @@ const m2DtsReplacements = [
     "export function chebyshevHeatSpmv(graph: CsrGraph, vectors: Float64Array | number[], numCols: number, t: number, degree?: number | null, lambdaMax?: number | null): Float64Array;",
   ],
   [
+    /export function chebyshevHeatSpmvMatrix\([^;]+\): Float64Array;/,
+    "export function chebyshevHeatSpmvMatrix(matrix: CsrMatrix, vectors: Float64Array | number[], numCols: number, t: number, degree?: number | null, lambdaMax?: number | null, lanczosSteps?: number | null, safetyFactor?: number | null, seed?: number | null): Float64Array;",
+  ],
+  [
     /export function chebyshevDogJlEmbedding\([^;]+\): Float64Array;/,
     "export function chebyshevDogJlEmbedding(graph: CsrGraph, jlDim?: number | null, degree?: number | null, seed?: number | null, degreeNormalize?: boolean | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null): Float64Array;",
   ],
   [
+    /export function chebyshevDogJlEmbeddingMatrix\([^;]+\): Float64Array;/,
+    "export function chebyshevDogJlEmbeddingMatrix(matrix: CsrMatrix, jlDim?: number | null, degree?: number | null, seed?: number | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, lambdaMax?: number | null, lanczosSteps?: number | null, safetyFactor?: number | null, scaleVec?: Float64Array | number[] | null): Float64Array;",
+  ],
+  [
+    /export function anisotropicLaplacian\([^;]+\): AnisotropicLaplacianResult;/,
+    "export function anisotropicLaplacian(graph: CsrGraph, alpha?: number | null, beta?: number | null, degreeReg?: number | null, degreeCap?: number | null, reweightedDegreeNorm?: boolean | null): AnisotropicLaplacianResult;",
+  ],
+  [
+    /(export class CsrMatrix \{[\s\S]*?)static fromCsr\([^;]+\): CsrMatrix;/,
+    "$1static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], values: Float64Array | number[]): CsrMatrix;",
+  ],
+  [
     /export function extractSparse1hop2hopPairs\([^;]+\): Sparse12HopPairs;/,
     "export function extractSparse1hop2hopPairs(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | null): Sparse12HopPairs;",
+  ],
+  [
+    /export function buildCapped12hopKnn\([^;]+\): TwoHopKnnResult;/,
+    "export function buildCapped12hopKnn(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | null): TwoHopKnnResult;",
+  ],
+  [
+    /export function robustNormalizeLayout2d\([^;]+\): void;/,
+    "export function robustNormalizeLayout2d(layout: Layout2d, targetStd?: number | null, quantile?: number | null, seed?: number | null): void;",
+  ],
+  [
+    /export function graph12hopRowNormalizedProbabilities\([^;]+\): SparseProbabilities;/,
+    "export function graph12hopRowNormalizedProbabilities(graph: CsrGraph, w2?: number | null, max2hopPerNode?: number | null, degreeBeta?: number | null, seed?: number | null): SparseProbabilities;",
   ],
   [
     /export function computeNodewise2hopPerplexities\([^;]+\): Float64Array;/,
@@ -573,6 +700,38 @@ const m2DtsReplacements = [
     /export function computeRegularizedDogVaradhanLandmarks\([^;]+\): DogVaradhanLandmarks;/,
     "export function computeRegularizedDogVaradhanLandmarks(graph: CsrGraph, degree?: number | null, numLandmarks?: number | null, seed?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): DogVaradhanLandmarks;",
   ],
+  [
+    /export function computeRegularizedDogVaradhanLandmarksFromMatrix\([^;]+\): DogVaradhanLandmarks;/,
+    "export function computeRegularizedDogVaradhanLandmarksFromMatrix(graph: CsrGraph, matrix: CsrMatrix, lambdaMax?: number | null, degree?: number | null, numLandmarks?: number | null, minDegree?: number | null, jlDim?: number | null, seed?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): DogVaradhanLandmarks;",
+  ],
+  [
+    /(export class AmgPcgSolver \{[\s\S]*?)static fromCsr\([^;]+\): AmgPcgSolver;/,
+    "$1static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], values: Float64Array | number[], options?: AmgPcgOptions | null): AmgPcgSolver;",
+  ],
+  [
+    /(export class AmgPcgSolver \{[\s\S]*?)static fromCsrMatrix\([^;]+\): AmgPcgSolver;/,
+    "$1static fromCsrMatrix(matrix: CsrMatrix, options?: AmgPcgOptions | null): AmgPcgSolver;",
+  ],
+  [
+    /(export class AmgPcgSolver \{[\s\S]*?)static fromGraphRegularizedLaplacian\([^;]+\): AmgPcgSolver;/,
+    "$1static fromGraphRegularizedLaplacian(graph: CsrGraph, gamma?: number | null, options?: AmgPcgOptions | null): AmgPcgSolver;",
+  ],
+  [
+    /(export class AmgPcgSolver \{[\s\S]*?)static fromGraphLaplacian\([^;]+\): AmgPcgSolver;/,
+    "$1static fromGraphLaplacian(graph: CsrGraph, kind?: string | null, shift?: number | null, options?: AmgPcgOptions | null): AmgPcgSolver;",
+  ],
+  [
+    /(export class AmgPcgSolver \{[\s\S]*?)solveBatch\([^;]+\): AmgPcgBatchResult;/,
+    "$1solveBatch(bFlat: Float64Array | number[], ncols: number, x0Flat?: Float64Array | number[] | null): AmgPcgBatchResult;",
+  ],
+  [
+    /export function computeEffectiveResistances\([^;]+\): EffectiveResistanceResult;/,
+    "export function computeEffectiveResistances(graph: CsrGraph, options?: EffectiveResistanceOptions | null): EffectiveResistanceResult;",
+  ],
+  [
+    /export function resistanceCurvatureFlow\([^;]+\): ResistanceCurvatureFlowResult;/,
+    "export function resistanceCurvatureFlow(graph: CsrGraph, options?: ResistanceCurvatureFlowOptions | null): ResistanceCurvatureFlowResult;",
+  ],
 ];
 
 for (const [pattern, replacement] of m2DtsReplacements) {
@@ -585,12 +744,52 @@ for (const [pattern, replacement] of m2DtsReplacements) {
 
 const m3TypeDecls = `export type SolverStatus = "initialized" | "running" | "converged" | "completed";
 export type ManifoldKind = "hyperbolic" | "spherical" | "torus";
+export type SuggestedGeometry = "hyperbolic" | "spherical" | "torus" | "euclidean";
 export type TsNetBackend = "exact" | "barnes_hut" | "fft" | "linear_fft";
 export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant" | "squared";
 export type BarrierSymmetry = "sym_max" | "sym_avg";
 export type FieldRepulsionBackend = "ibfft" | "barnes_hut" | "exact";
 export type LayeringMethod = "longestPath" | "longest_path" | "networkSimplex" | "network_simplex";
 export type LayoutAxis = 0 | 1 | "x" | "y";
+
+export interface AmgPcgOptions {
+  relTol?: number | null;
+  absTol?: number | null;
+  maxIterations?: number | null;
+  theta?: number | null;
+  maxLevels?: number | null;
+  maxCoarseSize?: number | null;
+  preSweeps?: number | null;
+  postSweeps?: number | null;
+  maxAggSize?: number | null;
+  diagEps?: number | null;
+  eigEps?: number | null;
+  symTol?: number | null;
+  seed?: number | null;
+  randomizeTies?: boolean | null;
+  nearNullspace?: Float64Array | number[] | null;
+}
+
+export interface EffectiveResistanceOptions {
+  jlDim?: number | null;
+  seed?: number | null;
+  weightsAreLengths?: boolean | null;
+  exact?: boolean | null;
+  exactMaxNodes?: number | null;
+  eigEps?: number | null;
+  relTol?: number | null;
+  maxIterations?: number | null;
+}
+
+export interface ResistanceCurvatureFlowOptions extends EffectiveResistanceOptions {
+  steps?: number | null;
+  eta?: number | null;
+  kappaMax?: number | null;
+  minEdgeLength?: number | null;
+  hyperbolicThreshold?: number | null;
+  sphericalThreshold?: number | null;
+  torusStdThreshold?: number | null;
+}
 
 export interface TsNetOptions {
   backend?: TsNetBackend | null;
@@ -627,6 +826,7 @@ export interface TsNetOptions {
 export interface TsNetRowNormalizedOptions extends TsNetOptions {
   w2?: number | null;
   max2hopPerNode?: number | null;
+  degreeBeta?: number | null;
 }
 
 export interface SgdScheduleOptions {
@@ -667,6 +867,7 @@ export interface SparseBarrierOptions extends SgdScheduleOptions {
   negPerNode?: number | null;
   numPivots?: number | null;
   corePivots?: boolean | null;
+  degreeWeightBeta?: number | null;
 }
 
 export interface SparseBarrierDogOptions extends SparseBarrierOptions {
@@ -732,6 +933,8 @@ export interface SpatialRefinerOptions {
   tMax?: number | null;
   eps?: number | null;
   hingeFp?: boolean | null;
+  minSepRatio?: number | null;
+  wSep?: number | null;
   seed?: number | null;
 }
 
@@ -823,6 +1026,88 @@ export interface PacmapGraphOptions {
   phase3Iters?: number | null;
   learningRate?: number | null;
   keepAll1hop?: boolean | null;
+  max1hopPerNode?: number | null;
+  degreeWeightBeta?: number | null;
+  numLandmarks?: number | null;
+  seed?: number | null;
+}
+
+export type CoarseEdgeLengthMode = "conductanceInverse" | "resistanceCurvatureFlow";
+
+export type CoarseDistanceBackend = "rhgh" | "chebyshevDog" | "shortestPath";
+
+export interface CoarseLouvainOptions {
+  maxCoarseNodes?: number | null;
+  resolution?: number | null;
+  resolutionDecay?: number | null;
+  maxPasses?: number | null;
+  minModularityGain?: number | null;
+  maxOuterRounds?: number | null;
+  seed?: number | null;
+}
+
+export interface RhghLandmarkOptions {
+  gamma?: number | null;
+  pExp?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  numProbes?: number | null;
+  relTol?: number | null;
+  maxIterations?: number | null;
+  normalize1hop?: boolean | null;
+  seed?: number | null;
+}
+
+export interface CoarseBackboneOptions extends CoarseLouvainOptions {
+  edgeLengthMode?: CoarseEdgeLengthMode | string | null;
+  distanceBackend?: CoarseDistanceBackend | string | null;
+  alpha?: number | null;
+  c0?: number | null;
+  kappa?: number | null;
+  gammaW?: number | null;
+  gammaM?: number | null;
+  muOv?: number | null;
+  mGap?: number | null;
+  coarsePivots?: number | null;
+  coarseNegPerNode?: number | null;
+  coarseTMax?: number | null;
+  rhghGamma?: number | null;
+  rhghP?: number | null;
+  rcfSteps?: number | null;
+  rcfEta?: number | null;
+  jitterScale?: number | null;
+  gammaTether?: number | null;
+  targetStd?: number | null;
+  robustQuantile?: number | null;
+}
+
+export interface PacmapBackboneOptions extends PacmapGraphOptions, CoarseBackboneOptions {}
+
+export type DensityFieldKernel = "screenedPoisson" | "singleGaussian";
+
+export interface ScreenedPoissonOptions {
+  kernel?: DensityFieldKernel | string | null;
+  gridSize?: number | null;
+  paddingFactor?: number | null;
+  marginRatio?: number | null;
+  sigmaRatio?: number | null;
+  sigma?: number | null;
+  screeningLengthRatio?: number | null;
+  kappa?: number | null;
+  rhoMaxFactor?: number | null;
+  rhoMax?: number | null;
+  exactAdjoint?: boolean | null;
+}
+
+export interface ScreenedPoissonRefinerOptions extends ScreenedPoissonOptions {
+  iterations?: number | null;
+  stepSize?: number | null;
+  momentum?: number | null;
+  maxStepRatio?: number | null;
+  anchorWeight?: number | null;
+  gammaTether?: number | null;
+  recenter?: boolean | null;
+  energyTol?: number | null;
   seed?: number | null;
 }
 
@@ -991,7 +1276,7 @@ const m3DtsReplacements = [
   ],
   [
     /constructor\(graph: CsrGraph, rounds_or_options: any[^;]*\);/,
-    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null);",
+    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null, minSepRatio?: number | null, wSep?: number | null);",
   ],
   [
     /setKCap\(k_cap: number\): void;/,
@@ -1010,8 +1295,16 @@ const m3DtsReplacements = [
     "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
+    /static fromLayoutScaled\([^;]+\): ManifoldLayout2d;/,
+    "static fromLayoutScaled(kind: ManifoldKind | string, layout: Layout2d, maxRadius?: number | null): ManifoldLayout2d;",
+  ],
+  [
+    /static randomInit\([^;]+\): ManifoldLayout2d;/,
+    "static randomInit(kind: ManifoldKind | string, n: number, scale?: number | null, seed?: number | null): ManifoldLayout2d;",
+  ],
+  [
     /static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
-    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null, degreeBeta?: number | null): TsNetSolver;",
   ],
   [
     /static fromKnn\([^;]+\): TsNetSolver;/,
@@ -1089,6 +1382,14 @@ const m4DtsReplacements = [
     "static pacmapGraph(graph: CsrGraph, options?: PacmapGraphOptions | null): SgdSolver;",
   ],
   [
+    /static pacmapGraphWithLandmarks\(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options: any\): SgdSolver;/,
+    "static pacmapGraphWithLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: PacmapGraphOptions | null): SgdSolver;",
+  ],
+  [
+    /static pacmapGraphWithLandmarkDistances\(graph: CsrGraph, landmark_distances: Float64Array \| number\[\], num_landmarks: number, options: any\): SgdSolver;/,
+    "static pacmapGraphWithLandmarkDistances(graph: CsrGraph, landmarkDistances: Float64Array | number[], numLandmarks: number, options?: PacmapGraphOptions | null): SgdSolver;",
+  ],
+  [
     /static sgd2\(graph: CsrGraph, options: any\): SgdSolver;/,
     "static sgd2(graph: CsrGraph, options?: Sgd2Options | null): SgdSolver;",
   ],
@@ -1142,6 +1443,57 @@ for (const [pattern, replacement] of m4DtsReplacements) {
   const updated = indexDts.replace(pattern, replacement);
   if (updated === indexDts) {
     throw new Error(`Failed to refine M4 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
+
+const m5DtsReplacements = [
+  [
+    /static pacmapGraphWithBackbone\(graph: CsrGraph, options: any\): PacmapBackboneResult;/,
+    "static pacmapGraphWithBackbone(graph: CsrGraph, options?: PacmapBackboneOptions | null): PacmapBackboneResult;",
+  ],
+  [
+    /export function louvainCoarsen\(graph: CsrGraph, options: any\): CoarsenedHierarchyResult;/,
+    "export function louvainCoarsen(graph: CsrGraph, options?: CoarseLouvainOptions | null): CoarsenedHierarchyResult;",
+  ],
+  [
+    /export function projectClusteredLayoutWithRadii\([^;]+\): Layout2d;/,
+    "export function projectClusteredLayoutWithRadii(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], clusterRadii: Float64Array | number[], jitterScale?: number | null, seed?: number | null): Layout2d;",
+  ],
+  [
+    /export function alignClusteredCentroids\([^;]+\): void;/,
+    "export function alignClusteredCentroids(fineLayout: Layout2d, coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], gammaTether?: number | null): void;",
+  ],
+  [
+    /export function computePivotedRhghLandmarks\(graph: CsrGraph, options: any\): RhghLandmarksResult;/,
+    "export function computePivotedRhghLandmarks(graph: CsrGraph, options?: RhghLandmarkOptions | null): RhghLandmarksResult;",
+  ],
+  [
+    /export function coarseBackboneInit\(graph: CsrGraph, options: any\): CoarseBackboneResult;/,
+    "export function coarseBackboneInit(graph: CsrGraph, options?: CoarseBackboneOptions | null): CoarseBackboneResult;",
+  ],
+  [
+    /(export class ScreenedPoissonField2d \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: ScreenedPoissonOptions | null);",
+  ],
+  [
+    /(export class ScreenedPoissonRefiner \{[\s\S]*?)static fromGraph\(graph: CsrGraph, options: any\): ScreenedPoissonRefiner;/,
+    "$1static fromGraph(graph: CsrGraph, options?: ScreenedPoissonRefinerOptions | null): ScreenedPoissonRefiner;",
+  ],
+  [
+    /(export class ScreenedPoissonRefiner \{[\s\S]*?)constructor\(num_nodes: number, options: any\);/,
+    "$1constructor(numNodes: number, options?: ScreenedPoissonRefinerOptions | null);",
+  ],
+  [
+    /(export class ScreenedPoissonRefiner \{[\s\S]*?)setCoarseTether\(coarse_layout: Layout2d, node_to_coarse: Uint32Array \| number\[\]\): void;/,
+    "$1setCoarseTether(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[]): void;",
+  ],
+];
+
+for (const [pattern, replacement] of m5DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine M5 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
   }
   indexDts = updated;
 }

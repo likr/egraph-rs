@@ -74,5 +74,6 @@ codegen-units = 1
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
+lto = "fat"
 panic = "abort"
 strip = "symbols"

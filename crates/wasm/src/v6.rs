@@ -4,21 +4,21 @@
 pub use crate::v6_m2::*;
 pub use crate::v6_m3::*;
 pub use crate::v6_m4::*;
+pub use crate::v6_m5::*;
 
 use egraph::core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
-use egraph::dataset::{
-    dataset_3_elt_csr, dataset_1138_bus_csr, dataset_dwt_1005_csr, dataset_dwt_2680_csr,
-    dataset_karate_csr, dataset_lesmis_csr, dataset_poli_csr, dataset_qh882_csr,
-    dataset_uspower_grid_csr, parse_csr_csv,
-};
 use egraph::metrics::{
-    CrossingPair, CrossingSummary, MetricConfig, MetricReport, MetricTarget, TorusCrossing,
-    all_pairs_bfs, angular_resolution, aspect_ratio, bfs_single_source, crossing_angle,
-    crossing_edges, crossing_edges_torus, crossing_number, crossing_summary, edge_angle,
-    evaluate_metrics, gabriel_graph_edges, gabriel_graph_preservation, gabriel_graph_property,
-    ideal_edge_lengths, ideal_edge_lengths_with_unit, neighborhood_preservation_1hop,
-    neighborhood_preservation_2hop, node_resolution, prism_distortion, prism_distortion_with_edges,
-    relative_neighborhood_edges, relative_neighborhood_preservation, sampled_crossing_number,
+    CrossingPair, CrossingSummary, LayoutDegeneracy, MetricConfig, MetricReport, MetricTarget,
+    MinimumAngleSummary, RtaEvaluation, TorusCrossing, adjusted_patch_nig,
+    adjusted_patch_nig_multiscale, all_pairs_bfs, angular_resolution, aspect_ratio,
+    bfs_single_source, crossing_angle, crossing_edges, crossing_edges_torus, crossing_number,
+    crossing_summary, crosslessness, edge_angle, evaluate_metrics_with_communities,
+    gabriel_graph_edges, gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
+    ideal_edge_lengths_with_unit, landmark_stratified_rta, landmark_stratified_rta_detail,
+    landmark_stratified_rta_from_landmarks, layout_degeneracy, minimum_angle,
+    minimum_angle_summary, neighborhood_preservation_1hop, neighborhood_preservation_2hop,
+    node_resolution, prism_distortion, prism_distortion_with_edges, relative_neighborhood_edges,
+    relative_neighborhood_preservation, sampled_crossing_number, sampled_crosslessness,
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
     sampled_scale_normalized_stress, scale_normalized_stress,
     scale_normalized_stress_from_distances,
@@ -26,13 +26,20 @@ use egraph::metrics::{
 #[cfg(feature = "delaunay")]
 use egraph::spatial::Delaunay2d;
 use egraph::spatial::RectangleOverlapSweep;
+use egraph_dataset::parse_csr_csv;
 use egraph_ffi::{FfiError, InterleavedLayout2d, build_csr_f32, build_edges_f32};
 use wasm_bindgen::{JsCast, prelude::*};
 
-const DEFAULT_NUM_PIVOTS: usize = 32;
+const DEFAULT_NUM_PIVOTS: usize = 64;
 const DEFAULT_NUM_SAMPLES: usize = 4096;
 const DEFAULT_SEED: u64 = 42;
 const DEFAULT_UNIT_EDGE_LENGTH: f64 = 1.0;
+const DEFAULT_RTA_NUM_LANDMARKS: usize = 64;
+const DEFAULT_RTA_NUM_TRIPLETS: usize = 1_000_000;
+const DEFAULT_RTA_MIN_DEGREE: usize = 2;
+const DEFAULT_PATCH_NIG_RADIUS: usize = 8;
+const DEFAULT_PATCH_NIG_CANVAS_SIZE: usize = 2048;
+const DEFAULT_PATCH_NIG_PAD_FRAC: f64 = 0.04;
 // IEEE-754 double precision represents integers exactly up to 2^53 - 1 (`Number.MAX_SAFE_INTEGER`),
 // allowing JS callers to pass numeric seeds like `42` without requiring `BigInt`.
 const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
@@ -86,6 +93,8 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         "crossingnumber" | "sweepcrossingnumber" | "crossings" => Ok(MetricTarget::CrossingNumber),
         "crossingangle" | "sweepcrossingangle" => Ok(MetricTarget::CrossingAngle),
         "sampledcrossingnumber" | "sampledcrossings" => Ok(MetricTarget::SampledCrossingNumber),
+        "crosslessness" => Ok(MetricTarget::Crosslessness),
+        "sampledcrosslessness" => Ok(MetricTarget::SampledCrosslessness),
         "neighborhoodpreservation1hop" | "neighborhoodpreservation" | "np1" => {
             Ok(MetricTarget::NeighborhoodPreservation1Hop)
         }
@@ -110,7 +119,16 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         }
         "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
         "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
+        "minimumangle" | "minangle" | "minimumanglea2" | "minanglea2" => {
+            Ok(MetricTarget::MinimumAngle)
+        }
+        "minimumanglea1" | "minanglea1" => Ok(MetricTarget::MinimumAngleA1),
+        "layoutdegeneracy" => Ok(MetricTarget::LayoutDegeneracy),
         "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
+        "adjustedpatchnig" | "patchnig" => Ok(MetricTarget::AdjustedPatchNig),
+        "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
+            Ok(MetricTarget::LandmarkStratifiedRta)
+        }
         _ => Err(JsError::new(&format!("unknown metric target: {raw:?}"))),
     }
 }
@@ -653,6 +671,18 @@ impl JsMetricReport {
         self.inner.sampled_crossing_number
     }
 
+    /// Returns exact DRGraph Eq. (17) crosslessness, or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn crosslessness(&self) -> Option<f64> {
+        self.inner.crosslessness
+    }
+
+    /// Returns sampled DRGraph Eq. (17) crosslessness, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sampledCrosslessness)]
+    pub fn sampled_crosslessness(&self) -> Option<f64> {
+        self.inner.sampled_crosslessness
+    }
+
     /// Returns 1-hop neighborhood preservation (`NP1`), or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = neighborhoodPreservation1Hop)]
     pub fn neighborhood_preservation_1hop(&self) -> Option<f64> {
@@ -713,17 +743,47 @@ impl JsMetricReport {
         self.inner.angular_resolution
     }
 
+    /// Returns DRGraph Eq. (19) strict minimum-angle resolution (`A2`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = minimumAngle)]
+    pub fn minimum_angle(&self) -> Option<f64> {
+        self.inner.minimum_angle
+    }
+
+    /// Returns DRGraph Eq. (19) minimum-angle resolution (`A1`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = minimumAngleA1)]
+    pub fn minimum_angle_a1(&self) -> Option<f64> {
+        self.inner.minimum_angle_a1
+    }
+
+    /// Returns scalar layout-degeneracy summary, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = layoutDegeneracy)]
+    pub fn layout_degeneracy(&self) -> Option<f64> {
+        self.inner.layout_degeneracy
+    }
+
     /// Returns ideal edge-length preservation error sum, or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = idealEdgeLengths)]
     pub fn ideal_edge_lengths(&self) -> Option<f64> {
         self.inner.ideal_edge_lengths
     }
 
+    /// Returns Adjusted Patch-NIG score, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = adjustedPatchNig)]
+    pub fn adjusted_patch_nig(&self) -> Option<f64> {
+        self.inner.adjusted_patch_nig
+    }
+
+    /// Returns Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = landmarkStratifiedRta)]
+    pub fn landmark_stratified_rta(&self) -> Option<f64> {
+        self.inner.landmark_stratified_rta
+    }
+
     /// Converts requested metrics into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
     pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
         let obj = js_sys::Object::new();
-        let entries: [(&str, Option<f64>); 16] = [
+        let entries: [(&str, Option<f64>); 23] = [
             ("scaleNormalizedStress", self.inner.scale_normalized_stress),
             (
                 "sampledScaleNormalizedStress",
@@ -735,6 +795,8 @@ impl JsMetricReport {
             ),
             ("crossingAngle", self.inner.crossing_angle),
             ("sampledCrossingNumber", self.inner.sampled_crossing_number),
+            ("crosslessness", self.inner.crosslessness),
+            ("sampledCrosslessness", self.inner.sampled_crosslessness),
             (
                 "neighborhoodPreservation1Hop",
                 self.inner.neighborhood_preservation_1hop,
@@ -757,7 +819,12 @@ impl JsMetricReport {
             ),
             ("aspectRatio", self.inner.aspect_ratio),
             ("angularResolution", self.inner.angular_resolution),
+            ("minimumAngle", self.inner.minimum_angle),
+            ("minimumAngleA1", self.inner.minimum_angle_a1),
+            ("layoutDegeneracy", self.inner.layout_degeneracy),
             ("idealEdgeLengths", self.inner.ideal_edge_lengths),
+            ("adjustedPatchNig", self.inner.adjusted_patch_nig),
+            ("landmarkStratifiedRta", self.inner.landmark_stratified_rta),
         ];
         for (key, maybe_val) in entries {
             if let Some(val) = maybe_val {
@@ -767,6 +834,193 @@ impl JsMetricReport {
                     })?;
             }
         }
+        Ok(obj)
+    }
+}
+
+/// DRGraph Eq. (19) minimum-angle resolution summary (`a1` and `a2`).
+#[wasm_bindgen(js_name = MinimumAngleSummary)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsMinimumAngleSummary {
+    inner: MinimumAngleSummary,
+}
+
+#[wasm_bindgen(js_class = MinimumAngleSummary)]
+impl JsMinimumAngleSummary {
+    #[wasm_bindgen(getter)]
+    pub fn a1(&self) -> f64 {
+        self.inner.a1
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn a2(&self) -> f64 {
+        self.inner.a2
+    }
+
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("a1"),
+            &JsValue::from_f64(self.inner.a1),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set a1: {e:?}")))?;
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("a2"),
+            &JsValue::from_f64(self.inner.a2),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set a2: {e:?}")))?;
+        Ok(obj)
+    }
+}
+
+/// Coordinate-collapse and zero-length edge degeneracy diagnostics returned by `layoutDegeneracy`.
+#[wasm_bindgen(js_name = LayoutDegeneracy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsLayoutDegeneracy {
+    inner: LayoutDegeneracy,
+}
+
+#[wasm_bindgen(js_class = LayoutDegeneracy)]
+impl JsLayoutDegeneracy {
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        self.inner.num_nodes
+    }
+
+    #[wasm_bindgen(getter, js_name = numEdges)]
+    pub fn num_edges(&self) -> usize {
+        self.inner.num_edges
+    }
+
+    #[wasm_bindgen(getter, js_name = duplicateNodesF32)]
+    pub fn duplicate_nodes_f32(&self) -> usize {
+        self.inner.duplicate_nodes_f32
+    }
+
+    #[wasm_bindgen(getter, js_name = duplicateRatioF32)]
+    pub fn duplicate_ratio_f32(&self) -> f64 {
+        self.inner.duplicate_ratio_f32
+    }
+
+    #[wasm_bindgen(getter, js_name = duplicateNodesF64)]
+    pub fn duplicate_nodes_f64(&self) -> usize {
+        self.inner.duplicate_nodes_f64
+    }
+
+    #[wasm_bindgen(getter, js_name = duplicateRatioF64)]
+    pub fn duplicate_ratio_f64(&self) -> f64 {
+        self.inner.duplicate_ratio_f64
+    }
+
+    #[wasm_bindgen(getter, js_name = zeroLengthEdges)]
+    pub fn zero_length_edges(&self) -> usize {
+        self.inner.zero_length_edges
+    }
+
+    #[wasm_bindgen(getter, js_name = zeroLengthEdgeRatio)]
+    pub fn zero_length_edge_ratio(&self) -> f64 {
+        self.inner.zero_length_edge_ratio
+    }
+
+    #[wasm_bindgen(getter, js_name = bboxWidth)]
+    pub fn bbox_width(&self) -> f64 {
+        self.inner.bbox_width
+    }
+
+    #[wasm_bindgen(getter, js_name = bboxHeight)]
+    pub fn bbox_height(&self) -> f64 {
+        self.inner.bbox_height
+    }
+
+    #[wasm_bindgen(getter, js_name = isBboxDegenerate)]
+    pub fn is_bbox_degenerate(&self) -> bool {
+        self.inner.is_bbox_degenerate
+    }
+
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        let num_entries: [(&str, f64); 10] = [
+            ("numNodes", self.inner.num_nodes as f64),
+            ("numEdges", self.inner.num_edges as f64),
+            ("duplicateNodesF32", self.inner.duplicate_nodes_f32 as f64),
+            ("duplicateRatioF32", self.inner.duplicate_ratio_f32),
+            ("duplicateNodesF64", self.inner.duplicate_nodes_f64 as f64),
+            ("duplicateRatioF64", self.inner.duplicate_ratio_f64),
+            ("zeroLengthEdges", self.inner.zero_length_edges as f64),
+            ("zeroLengthEdgeRatio", self.inner.zero_length_edge_ratio),
+            ("bboxWidth", self.inner.bbox_width),
+            ("bboxHeight", self.inner.bbox_height),
+        ];
+        for (k, v) in num_entries {
+            js_sys::Reflect::set(&obj, &JsValue::from_str(k), &JsValue::from_f64(v))
+                .map_err(|e| JsError::new(&format!("failed to set {k}: {e:?}")))?;
+        }
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("isBboxDegenerate"),
+            &JsValue::from_bool(self.inner.is_bbox_degenerate),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set isBboxDegenerate: {e:?}")))?;
+        Ok(obj)
+    }
+}
+
+/// Detailed result returned by `landmarkStratifiedRtaDetail` and `landmarkStratifiedRtaFromLandmarks`.
+#[wasm_bindgen(js_name = RtaEvaluation)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsRtaEvaluation {
+    inner: RtaEvaluation,
+}
+
+#[wasm_bindgen(js_class = RtaEvaluation)]
+impl JsRtaEvaluation {
+    #[wasm_bindgen(getter)]
+    pub fn rta(&self) -> f64 {
+        self.inner.rta
+    }
+
+    #[wasm_bindgen(getter, js_name = numLandmarks)]
+    pub fn num_landmarks(&self) -> usize {
+        self.inner.num_landmarks
+    }
+
+    #[wasm_bindgen(getter, js_name = numTriplets)]
+    pub fn num_triplets(&self) -> usize {
+        self.inner.num_triplets
+    }
+
+    #[wasm_bindgen(getter, js_name = numStrata)]
+    pub fn num_strata(&self) -> usize {
+        self.inner.num_strata
+    }
+
+    #[wasm_bindgen(getter, js_name = isExact)]
+    pub fn is_exact(&self) -> bool {
+        self.inner.is_exact
+    }
+
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        for (k, v) in [
+            ("rta", self.inner.rta),
+            ("numLandmarks", self.inner.num_landmarks as f64),
+            ("numTriplets", self.inner.num_triplets as f64),
+            ("numStrata", self.inner.num_strata as f64),
+        ] {
+            js_sys::Reflect::set(&obj, &JsValue::from_str(k), &JsValue::from_f64(v))
+                .map_err(|e| JsError::new(&format!("failed to set {k}: {e:?}")))?;
+        }
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("isExact"),
+            &JsValue::from_bool(self.inner.is_exact),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set isExact: {e:?}")))?;
         Ok(obj)
     }
 }
@@ -997,8 +1251,189 @@ pub fn js_dgg_preservation(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f6
     gabriel_graph_preservation(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
+/// Computes exact DRGraph Eq. (17) crosslessness $1 - \sqrt{c / c_{\max}} \in [0.0, 1.0]$.
+#[wasm_bindgen(js_name = crosslessness)]
+pub fn js_crosslessness(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+    let soa = layout.inner().to_layout2d();
+    crosslessness(graph.inner(), &soa).map_err(core_err_to_js)
+}
+
+/// Estimates DRGraph Eq. (17) crosslessness $1 - \sqrt{\hat{c} / c_{\max}} \in [0.0, 1.0]$
+/// (`numSamples` default `4096`, `seed` default `42`).
+#[wasm_bindgen(js_name = sampledCrosslessness)]
+pub fn js_sampled_crosslessness(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    num_samples: Option<f64>,
+    seed: Option<f64>,
+) -> Result<f64, JsError> {
+    let samples = match num_samples {
+        None => DEFAULT_NUM_SAMPLES,
+        Some(v) => parse_non_negative_usize(v, "numSamples")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    sampled_crosslessness(graph.inner(), &soa, samples, seed_u64).map_err(core_err_to_js)
+}
+
+/// Computes DRGraph Eq. (19) strict minimum-angle resolution (`A2`) in `[0.0, 1.0]`.
+#[wasm_bindgen(js_name = minimumAngle)]
+pub fn js_minimum_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+    let soa = layout.inner().to_layout2d();
+    minimum_angle(graph.inner(), &soa).map_err(core_err_to_js)
+}
+
+/// Computes DRGraph Eq. (19) minimum-angle resolution summary (`a1` and `a2`).
+#[wasm_bindgen(js_name = minimumAngleSummary)]
+pub fn js_minimum_angle_summary(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<JsMinimumAngleSummary, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let inner = minimum_angle_summary(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(JsMinimumAngleSummary { inner })
+}
+
+/// Evaluates duplicate-node (`f32`/`f64`), zero-length edge, and bounding-box degeneracies.
+#[wasm_bindgen(js_name = layoutDegeneracy)]
+pub fn js_layout_degeneracy(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<JsLayoutDegeneracy, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let inner = layout_degeneracy(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(JsLayoutDegeneracy { inner })
+}
+
+/// Computes Adjusted Patch Normalized Information Gain (`Adjusted Patch-NIG`).
+#[wasm_bindgen(js_name = adjustedPatchNig)]
+pub fn js_adjusted_patch_nig(
+    layout: &JsLayout2d,
+    community_labels: &[u32],
+    patch_radius: Option<f64>,
+    canvas_size: Option<f64>,
+    pad_frac: Option<f64>,
+    seed: Option<f64>,
+) -> Result<f64, JsError> {
+    let radius = match patch_radius {
+        None => DEFAULT_PATCH_NIG_RADIUS,
+        Some(v) => parse_non_negative_usize(v, "patchRadius")?,
+    };
+    let c_sz = match canvas_size {
+        None => DEFAULT_PATCH_NIG_CANVAS_SIZE,
+        Some(v) => parse_non_negative_usize(v, "canvasSize")?,
+    };
+    let pad = pad_frac.unwrap_or(DEFAULT_PATCH_NIG_PAD_FRAC);
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    adjusted_patch_nig(&soa, community_labels, radius, c_sz, pad, seed_u64).map_err(core_err_to_js)
+}
+
+/// Computes multi-scale Adjusted Patch-NIG across `radii` (default `[2, 8, 32]`).
+#[wasm_bindgen(js_name = adjustedPatchNigMultiscale)]
+pub fn js_adjusted_patch_nig_multiscale(
+    layout: &JsLayout2d,
+    community_labels: &[u32],
+    radii: Option<Vec<u32>>,
+    canvas_size: Option<f64>,
+    pad_frac: Option<f64>,
+    seed: Option<f64>,
+) -> Result<Vec<f64>, JsError> {
+    let radii_usize: Vec<usize> = match radii {
+        Some(rs) => rs.into_iter().map(|r| r as usize).collect(),
+        None => vec![2, 8, 32],
+    };
+    let c_sz = match canvas_size {
+        None => DEFAULT_PATCH_NIG_CANVAS_SIZE,
+        Some(v) => parse_non_negative_usize(v, "canvasSize")?,
+    };
+    let pad = pad_frac.unwrap_or(DEFAULT_PATCH_NIG_PAD_FRAC);
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    adjusted_patch_nig_multiscale(&soa, community_labels, &radii_usize, c_sz, pad, seed_u64)
+        .map_err(core_err_to_js)
+}
+
+/// Computes Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`.
+#[wasm_bindgen(js_name = landmarkStratifiedRta)]
+pub fn js_landmark_stratified_rta(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    num_landmarks: Option<f64>,
+    num_triplets: Option<f64>,
+    min_degree: Option<f64>,
+    seed: Option<f64>,
+) -> Result<f64, JsError> {
+    let nl = match num_landmarks {
+        None => DEFAULT_RTA_NUM_LANDMARKS,
+        Some(v) => parse_non_negative_usize(v, "numLandmarks")?,
+    };
+    let nt = match num_triplets {
+        None => DEFAULT_RTA_NUM_TRIPLETS,
+        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
+    };
+    let md = match min_degree {
+        None => DEFAULT_RTA_MIN_DEGREE,
+        Some(v) => parse_non_negative_usize(v, "minDegree")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    landmark_stratified_rta(graph.inner(), &soa, nl, nt, md, seed_u64).map_err(core_err_to_js)
+}
+
+/// Computes Landmark-Stratified Random Triplet Accuracy with detailed metadata ([`RtaEvaluation`]).
+#[wasm_bindgen(js_name = landmarkStratifiedRtaDetail)]
+pub fn js_landmark_stratified_rta_detail(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    num_landmarks: Option<f64>,
+    num_triplets: Option<f64>,
+    min_degree: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsRtaEvaluation, JsError> {
+    let nl = match num_landmarks {
+        None => DEFAULT_RTA_NUM_LANDMARKS,
+        Some(v) => parse_non_negative_usize(v, "numLandmarks")?,
+    };
+    let nt = match num_triplets {
+        None => DEFAULT_RTA_NUM_TRIPLETS,
+        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
+    };
+    let md = match min_degree {
+        None => DEFAULT_RTA_MIN_DEGREE,
+        Some(v) => parse_non_negative_usize(v, "minDegree")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    let inner = landmark_stratified_rta_detail(graph.inner(), &soa, nl, nt, md, seed_u64)
+        .map_err(core_err_to_js)?;
+    Ok(JsRtaEvaluation { inner })
+}
+
+/// Computes Landmark-Stratified RTA from a flat row-major `(numLandmarks * N)` `Uint32Array` hop table.
+#[wasm_bindgen(js_name = landmarkStratifiedRtaFromLandmarks)]
+pub fn js_landmark_stratified_rta_from_landmarks(
+    layout: &JsLayout2d,
+    landmark_ids: &[u32],
+    landmark_dists: &[u32],
+    num_triplets: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsRtaEvaluation, JsError> {
+    let nt = match num_triplets {
+        None => DEFAULT_RTA_NUM_TRIPLETS,
+        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
+    };
+    let seed_u64 = parse_seed_u64(seed)?;
+    let soa = layout.inner().to_layout2d();
+    let inner =
+        landmark_stratified_rta_from_landmarks(&soa, landmark_ids, landmark_dists, nt, seed_u64)
+            .map_err(core_err_to_js)?;
+    Ok(JsRtaEvaluation { inner })
+}
+
 /// Selectively evaluates only the quality metrics listed in `targets`, skipping unrequested work.
 #[wasm_bindgen(js_name = evaluateMetrics)]
+#[allow(clippy::too_many_arguments)]
 pub fn js_evaluate_metrics(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
@@ -1007,6 +1442,13 @@ pub fn js_evaluate_metrics(
     num_samples: Option<f64>,
     seed: Option<f64>,
     ideal_edge_length: Option<f64>,
+    community_labels: Option<Vec<u32>>,
+    num_landmarks: Option<f64>,
+    num_triplets: Option<f64>,
+    min_degree: Option<f64>,
+    patch_radius: Option<f64>,
+    canvas_size: Option<f64>,
+    pad_frac: Option<f64>,
 ) -> Result<JsMetricReport, JsError> {
     let parsed_targets = parse_metric_targets(targets)?;
     let sns_num_pivots = match num_pivots {
@@ -1019,16 +1461,52 @@ pub fn js_evaluate_metrics(
     };
     let seed_u64 = parse_seed_u64(seed)?;
     let ideal_len = ideal_edge_length.unwrap_or(DEFAULT_UNIT_EDGE_LENGTH);
+    let rta_num_landmarks = match num_landmarks {
+        None => DEFAULT_RTA_NUM_LANDMARKS,
+        Some(v) => parse_non_negative_usize(v, "numLandmarks")?,
+    };
+    let rta_num_triplets = match num_triplets {
+        None => DEFAULT_RTA_NUM_TRIPLETS,
+        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
+    };
+    let rta_min_degree = match min_degree {
+        None => DEFAULT_RTA_MIN_DEGREE,
+        Some(v) => parse_non_negative_usize(v, "minDegree")?,
+    };
+    let patch_nig_radius = match patch_radius {
+        None => DEFAULT_PATCH_NIG_RADIUS,
+        Some(v) => parse_non_negative_usize(v, "patchRadius")?,
+    };
+    let patch_nig_canvas_size = match canvas_size {
+        None => DEFAULT_PATCH_NIG_CANVAS_SIZE,
+        Some(v) => parse_non_negative_usize(v, "canvasSize")?,
+    };
+    let patch_nig_pad_frac = pad_frac.unwrap_or(DEFAULT_PATCH_NIG_PAD_FRAC);
+
     let cfg = MetricConfig {
         sns_num_pivots,
         sns_seed: seed_u64,
         crossing_num_samples,
         crossing_seed: seed_u64,
         ideal_edge_length: ideal_len,
+        rta_num_landmarks,
+        rta_num_triplets,
+        rta_min_degree,
+        rta_seed: seed_u64,
+        patch_nig_radius,
+        patch_nig_canvas_size,
+        patch_nig_pad_frac,
+        patch_nig_seed: seed_u64,
     };
     let soa = layout.inner().to_layout2d();
-    let report =
-        evaluate_metrics(graph.inner(), &soa, &parsed_targets, &cfg).map_err(core_err_to_js)?;
+    let report = evaluate_metrics_with_communities(
+        graph.inner(),
+        &soa,
+        &parsed_targets,
+        &cfg,
+        community_labels.as_deref(),
+    )
+    .map_err(core_err_to_js)?;
     Ok(JsMetricReport { inner: report })
 }
 
@@ -1311,6 +1789,7 @@ pub fn js_delaunay_triangulation(layout: &JsLayout2d) -> Result<JsDelaunayResult
     })
 }
 
+#[cfg(feature = "delaunay")]
 fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
     let weights_f32: Option<Vec<f32>> = g64
         .weights()
@@ -1379,35 +1858,6 @@ pub fn js_rectangle_overlaps(
     Ok(flat)
 }
 
-/// Loads one of the 9 embedded benchmark datasets (`"1138_bus"`, `"3_elt"`, `"dwt_1005"`,
-/// `"dwt_2680"`, `"poli"`, `"qh882"`, `"uspower_grid"`, `"karate"`, `"lesmis"`) as a `CsrGraph`.
-#[wasm_bindgen(js_name = loadDataset)]
-pub fn js_load_dataset(name: &str) -> Result<JsCsrGraph, JsError> {
-    let token: String = name
-        .chars()
-        .filter(|ch| !matches!(ch, '_' | '-' | ' '))
-        .map(|ch| ch.to_ascii_lowercase())
-        .collect();
-    let g64 = match token.as_str() {
-        "1138bus" => dataset_1138_bus_csr(),
-        "3elt" => dataset_3_elt_csr(),
-        "dwt1005" => dataset_dwt_1005_csr(),
-        "dwt2680" => dataset_dwt_2680_csr(),
-        "poli" => dataset_poli_csr(),
-        "qh882" => dataset_qh882_csr(),
-        "uspowergrid" => dataset_uspower_grid_csr(),
-        "karate" => dataset_karate_csr(),
-        "lesmis" => dataset_lesmis_csr(),
-        _ => {
-            return Err(JsError::new(&format!(
-                "unknown dataset {name:?}; expected one of '1138_bus', '3_elt', 'dwt_1005', 'dwt_2680', 'poli', 'qh882', 'uspower_grid', 'karate', 'lesmis'"
-            )));
-        }
-    };
-    let g32 = csr_f64_to_f32_unweighted_or_checked(g64)?;
-    Ok(JsCsrGraph::from_inner(g32))
-}
-
 /// Parses an edge-list CSV string (`num_nodes,num_edges` header + `u,v` rows) into a `CsrGraph`.
 #[wasm_bindgen(js_name = parseCsrCsv)]
 pub fn js_parse_csr_csv(
@@ -1415,8 +1865,7 @@ pub fn js_parse_csr_csv(
     directed: Option<bool>,
     sanitize: Option<bool>,
 ) -> Result<JsCsrGraph, JsError> {
-    let g64 = parse_csr_csv(csv, directed.unwrap_or(false), sanitize.unwrap_or(false))
+    let g32 = parse_csr_csv::<f32>(csv, directed.unwrap_or(false), sanitize.unwrap_or(false))
         .map_err(core_err_to_js)?;
-    let g32 = csr_f64_to_f32_unweighted_or_checked(g64)?;
     Ok(JsCsrGraph::from_inner(g32))
 }

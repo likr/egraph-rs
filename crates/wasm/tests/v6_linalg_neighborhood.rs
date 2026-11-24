@@ -1,12 +1,16 @@
 use egraph_wasm::v6::{
-    JsCsrGraph, JsKnnGraph, js_build_hybrid_adaptive_knn, js_build_pure_2hop_knn,
-    js_chebyshev_dog_jl_embedding, js_chebyshev_heat_spmv, js_compute_2hop_neighborhood_sizes,
+    JsAmgPcgSolver, JsCsrGraph, JsKnnGraph, js_anisotropic_laplacian, js_build_capped_12hop_knn,
+    js_build_hybrid_adaptive_knn, js_build_pure_2hop_knn, js_chebyshev_dog_jl_embedding,
+    js_chebyshev_dog_jl_embedding_matrix, js_chebyshev_heat_spmv, js_chebyshev_heat_spmv_matrix,
+    js_compute_2hop_neighborhood_sizes, js_compute_effective_resistances,
     js_compute_fuzzy_simplicial_set, js_compute_horvitz_thompson_gamma,
     js_compute_knn_probabilities, js_compute_median_2hop_perplexity,
     js_compute_nodewise_2hop_perplexities, js_compute_regularized_dog_varadhan_landmarks,
-    js_extract_1hop_2hop_csr, js_extract_sparse_1hop_2hop_pairs, js_find_ab_params,
-    js_koren_spectral_init, js_partial_bfs_knn, js_pivot_mds_init, js_select_maxmin_sp_pivots,
-    js_smallest_laplacian_eigenpairs, js_spectral_moment_stats,
+    js_compute_regularized_dog_varadhan_landmarks_from_matrix, js_extract_1hop_2hop_csr,
+    js_extract_sparse_1hop_2hop_pairs, js_find_ab_params,
+    js_graph_12hop_row_normalized_probabilities, js_koren_spectral_init, js_partial_bfs_knn,
+    js_pivot_mds_init, js_resistance_curvature_flow, js_robust_normalize_layout_2d,
+    js_select_maxmin_sp_pivots, js_smallest_laplacian_eigenpairs, js_spectral_moment_stats,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -628,4 +632,199 @@ fn empty_singleton_directed_and_error_handling() {
         )
         .is_err()
     );
+
+    // W1 additions: robustNormalizeLayout2d, buildCapped12hopKnn, graph12hopRowNormalizedProbabilities
+    let mut rob =
+        js_pivot_mds_init(&grid, Some(8.0), Some(42.0), Some(2.0), &JsValue::NULL).unwrap();
+    js_robust_normalize_layout_2d(&mut rob, Some(1.5), Some(0.95), Some(42.0)).unwrap();
+    assert!(rob.is_all_finite());
+    assert!(js_robust_normalize_layout_2d(&mut rob, Some(0.0), None, None).is_err());
+
+    let hub = make_hub_chain_graph();
+    let capped = js_build_capped_12hop_knn(&hub, Some(3.0), Some(42.0)).unwrap();
+    assert_eq!(capped.knn().num_nodes(), 13);
+    assert!(capped.n_truncated_2hop() > 0);
+    assert!(capped.n_2hop() <= 2 * 13 * 3);
+
+    let p12 = js_graph_12hop_row_normalized_probabilities(
+        &hub,
+        Some(0.5),
+        Some(3.0),
+        Some(0.35),
+        Some(42.0),
+    )
+    .unwrap();
+    assert!((p12.values().iter().sum::<f64>() - (12.0 / 13.0)).abs() < 1e-10);
+    let p12_grid = js_graph_12hop_row_normalized_probabilities(
+        &grid,
+        Some(0.5),
+        Some(3.0),
+        Some(0.35),
+        Some(42.0),
+    )
+    .unwrap();
+    assert!((p12_grid.values().iter().sum::<f64>() - 1.0).abs() < 1e-10);
+    let p12_ext = js_graph_12hop_row_normalized_probabilities(
+        &hub,
+        Some(0.5),
+        Some(3.0),
+        Some(200.0),
+        Some(42.0),
+    )
+    .unwrap();
+    assert!(p12_ext.values().iter().all(|v| v.is_finite()));
+    assert!(
+        js_graph_12hop_row_normalized_probabilities(&hub, Some(0.5), None, Some(-0.1), None)
+            .is_err()
+    );
+}
+
+#[wasm_bindgen_test]
+fn amg_pcg_solver_hardened_and_cooperative() {
+    let grid = make_grid(6, 6);
+    let n = grid.num_nodes();
+    let mut solver =
+        JsAmgPcgSolver::from_graph_regularized_laplacian(&grid, Some(10.0), &JsValue::UNDEFINED)
+            .expect("amg solver");
+    assert_eq!(solver.num_nodes(), n);
+    assert!(solver.num_levels() >= 1);
+    assert!(solver.coarsest_size() <= 64);
+
+    let b: Vec<f64> = (0..n).map(|i| ((i * 7 + 1) as f64).sin()).collect();
+    let res = solver.solve(&b, None).expect("solve");
+    assert!(res.converged());
+    assert!(res.relative_residual() <= 1e-8);
+    assert_eq!(res.x().len(), n);
+
+    // Cooperative stepping equivalence
+    let mut step_solver =
+        JsAmgPcgSolver::from_graph_regularized_laplacian(&grid, Some(10.0), &JsValue::UNDEFINED)
+            .expect("step solver");
+    step_solver.start_solve(&b, None).expect("startSolve");
+    if !step_solver.is_finished() {
+        step_solver.step().expect("step");
+        step_solver.run_steps(2.0).expect("runSteps");
+        step_solver.run().expect("run");
+    }
+    assert!(step_solver.converged());
+    assert_eq!(step_solver.solution(), res.x());
+
+    // Batch solve
+    let mut b_flat = Vec::with_capacity(n * 2);
+    for &bi in &b {
+        b_flat.push(bi);
+        b_flat.push(2.0 * bi);
+    }
+    let batch = solver.solve_batch(&b_flat, 2.0, None).expect("solveBatch");
+    assert!(batch.all_converged());
+    assert_eq!(batch.converged_per_col(), vec![1u8, 1u8]);
+    assert_eq!(batch.num_nodes(), n);
+    assert_eq!(batch.ncols(), 2);
+    assert_eq!(batch.x().len(), n * 2);
+
+    // Anisotropic Laplacian + dynamic spectrum scaling + fromCsrMatrix
+    let aniso = js_anisotropic_laplacian(&grid, Some(0.0), Some(0.0), None, None, Some(false))
+        .expect("anisotropicLaplacian");
+    let l_comb = aniso.matrix();
+    assert_eq!(l_comb.num_nodes(), n);
+    assert!(l_comb.is_symmetric(None));
+    assert!(l_comb.trace() > 0.0);
+    assert!(l_comb.gershgorin_spectral_bound() > 2.0);
+    let lmax_lanc = l_comb
+        .estimate_lambda_max_lanczos(Some(16.0), Some(1.05), Some(42.0))
+        .expect("lanczos");
+    assert!(lmax_lanc > 2.0);
+    let heat_mat =
+        js_chebyshev_heat_spmv_matrix(&l_comb, &b, 1.0, 0.25, None, None, None, None, Some(42.0))
+            .expect("heat matrix");
+    assert_eq!(heat_mat.len(), n);
+    assert!(heat_mat.iter().all(|v| v.is_finite()));
+    let jl_mat = js_chebyshev_dog_jl_embedding_matrix(
+        &l_comb,
+        Some(8.0),
+        None,
+        Some(42.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("dog jl matrix");
+    assert_eq!(jl_mat.len(), n * 8);
+    let lm_mat = js_compute_regularized_dog_varadhan_landmarks_from_matrix(
+        &grid,
+        &l_comb,
+        None,
+        None,
+        Some(8.0),
+        None,
+        None,
+        Some(42.0),
+        None,
+        None,
+        None,
+        Some(0.0),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("dog landmarks from matrix");
+    assert!(!lm_mat.used_coarse_scaffold());
+    assert!(lm_mat.degree() >= 40);
+    let reg_mat = l_comb.scale_and_shift(1.0, 1.0).expect("scaleAndShift");
+    let mut mat_solver =
+        JsAmgPcgSolver::from_csr_matrix(&reg_mat, &JsValue::UNDEFINED).expect("fromCsrMatrix");
+    let mat_res = mat_solver.solve(&b, None).expect("solve mat");
+    assert!(mat_res.converged());
+
+    // Singular disconnected + isolated node + zero RHS + error handling
+    let hub = make_hub_chain_graph();
+    let mut hub_solver = JsAmgPcgSolver::from_graph_laplacian(
+        &hub,
+        Some("combinatorial".to_owned()),
+        Some(0.0),
+        &JsValue::UNDEFINED,
+    )
+    .expect("hub singular solver");
+    let zero_res = hub_solver.solve(&[0.0; 13], None).expect("zero rhs");
+    assert!(zero_res.converged());
+    assert_eq!(zero_res.iterations(), 0);
+    assert!(hub_solver.solve(&[1.0; 5], None).is_err());
+    assert!(hub_solver.solve(&[f64::NAN; 13], None).is_err());
+}
+
+#[wasm_bindgen_test]
+fn effective_resistance_and_curvature_flow_wasm() {
+    let grid10 = make_grid(10, 10);
+    let er = js_compute_effective_resistances(&grid10, &JsValue::UNDEFINED).expect("er jl");
+    assert!(!er.used_exact());
+    assert!(er.amg_all_converged());
+    assert_eq!(er.num_nodes(), 100);
+    assert_eq!(er.num_edges(), 180);
+    assert_eq!(er.num_components(), 1);
+    assert!((er.expected_foster() - 99.0).abs() < 1e-12);
+    assert!(er.foster_rel_err() < 0.05);
+    assert_eq!(er.edge_u().len(), 180);
+    assert_eq!(er.edge_v().len(), 180);
+    assert_eq!(er.effective_resistances().len(), 180);
+
+    let hub = make_hub_chain_graph();
+    let flow = js_resistance_curvature_flow(&hub, &JsValue::UNDEFINED).expect("rcf hub");
+    assert!(flow.used_exact());
+    assert_eq!(flow.num_components(), 2);
+    assert!((flow.expected_foster() - 11.0).abs() < 1e-12);
+    assert!(flow.foster_rel_err() < 1e-11);
+    assert_eq!(flow.suggested_geometry(), "hyperbolic");
+    assert_eq!(flow.suggested_manifold().as_deref(), Some("hyperbolic"));
+    assert_eq!(flow.step_history().len(), 3);
+    let lg = flow.length_graph().expect("lengthGraph");
+    let cg = flow.conductance_graph().expect("conductanceGraph");
+    assert!(lg.is_weighted());
+    assert!(cg.is_weighted());
+    assert_eq!(lg.num_nodes(), 13);
 }

@@ -1,13 +1,16 @@
 #[cfg(feature = "delaunay")]
 use egraph_wasm::v6::js_delaunay_triangulation;
 use egraph_wasm::v6::{
-    JsCsrGraph, JsLayout2d, js_angular_resolution_v6, js_aspect_ratio_v6, js_dgg_preservation,
+    JsCsrGraph, JsLayout2d, js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale,
+    js_angular_resolution_v6, js_aspect_ratio_v6, js_crosslessness, js_dgg_preservation,
     js_drng_preservation, js_edge_angle, js_evaluate_metrics, js_gabriel_graph_property_v6,
-    js_ideal_edge_lengths_v6, js_neighborhood_preservation_1hop,
+    js_ideal_edge_lengths_v6, js_landmark_stratified_rta, js_landmark_stratified_rta_detail,
+    js_landmark_stratified_rta_from_landmarks, js_layout_degeneracy, js_minimum_angle,
+    js_minimum_angle_summary, js_neighborhood_preservation_1hop,
     js_neighborhood_preservation_2hop_v6, js_node_resolution_v6, js_prism_distortion,
-    js_sampled_crossing_number, js_sampled_np1, js_sampled_np2, js_sampled_scale_normalized_stress,
-    js_scale_normalized_stress, js_sweep_crossing_angle, js_sweep_crossing_number,
-    js_torus_crossing_number,
+    js_sampled_crossing_number, js_sampled_crosslessness, js_sampled_np1, js_sampled_np2,
+    js_sampled_scale_normalized_stress, js_scale_normalized_stress, js_sweep_crossing_angle,
+    js_sweep_crossing_number, js_torus_crossing_number,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -141,6 +144,13 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
         Some(64.0),
         Some(42.0),
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .expect("selective report");
 
@@ -216,14 +226,267 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             None,
             None,
             None,
-            None
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         .is_err()
     );
     let bad_target = js_sys::Array::of1(&"nonExistentMetric".into());
-    assert!(js_evaluate_metrics(&grid, &layout, &bad_target, None, None, None, None).is_err());
+    assert!(
+        js_evaluate_metrics(
+            &grid,
+            &layout,
+            &bad_target,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err()
+    );
     let non_str_target = js_sys::Array::of1(&JsValue::from_f64(123.0));
-    assert!(js_evaluate_metrics(&grid, &layout, &non_str_target, None, None, None, None).is_err());
+    assert!(
+        js_evaluate_metrics(
+            &grid,
+            &layout,
+            &non_str_target,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[wasm_bindgen_test]
+fn w3_five_new_metrics_and_dispatcher_parity() {
+    let k4 = JsCsrGraph::from_edge_list(
+        4.0,
+        &[0, 1, 1, 2, 2, 3, 3, 0, 0, 2, 1, 3],
+        None,
+        &JsValue::UNDEFINED,
+        None,
+    )
+    .unwrap();
+    let sq = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]).unwrap();
+    let expected_cl = 1.0 - (1.0_f64 / 3.0).sqrt();
+    assert!((js_crosslessness(&k4, &sq).unwrap() - expected_cl).abs() < 1e-12);
+    assert!(
+        (js_sampled_crosslessness(&k4, &sq, Some(100.0), Some(42.0)).unwrap() - expected_cl).abs()
+            < 1e-12
+    );
+
+    let ma_sum = js_minimum_angle_summary(&k4, &sq).unwrap();
+    assert!((ma_sum.a1() - js_minimum_angle(&k4, &sq).unwrap()).abs() < 1e-12);
+    let ma_rec = ma_sum.to_record().unwrap();
+    assert!(
+        js_sys::Reflect::get(&ma_rec, &"a2".into())
+            .unwrap()
+            .as_f64()
+            .is_some()
+    );
+
+    let deg = js_layout_degeneracy(&k4, &sq).unwrap();
+    assert_eq!(deg.num_nodes(), 4);
+    assert_eq!(deg.num_edges(), 6);
+    assert_eq!(deg.duplicate_nodes_f32(), 0);
+    assert_eq!(deg.zero_length_edges(), 0);
+    assert!(!deg.is_bbox_degenerate());
+    let deg_rec = deg.to_record().unwrap();
+    assert_eq!(
+        js_sys::Reflect::get(&deg_rec, &"duplicateNodesF32".into())
+            .unwrap()
+            .as_f64(),
+        Some(0.0)
+    );
+
+    let nig = js_adjusted_patch_nig(
+        &sq,
+        &[0, 0, 1, 1],
+        Some(16.0),
+        Some(2048.0),
+        None,
+        Some(42.0),
+    )
+    .unwrap();
+    let nig_ms = js_adjusted_patch_nig_multiscale(
+        &sq,
+        &[0, 0, 1, 1],
+        Some(vec![16, 32]),
+        Some(2048.0),
+        None,
+        Some(42.0),
+    )
+    .unwrap();
+    assert!((nig_ms[0] - nig).abs() < 1e-12);
+
+    let (grid, grid_layout) = make_grid_4x4();
+    let rta = js_landmark_stratified_rta(
+        &grid,
+        &grid_layout,
+        Some(4.0),
+        Some(10000.0),
+        Some(2.0),
+        Some(42.0),
+    )
+    .unwrap();
+    let rta_det = js_landmark_stratified_rta_detail(
+        &grid,
+        &grid_layout,
+        Some(4.0),
+        Some(10000.0),
+        Some(2.0),
+        Some(42.0),
+    )
+    .unwrap();
+    assert!((rta_det.rta() - rta).abs() < 1e-12);
+    assert!(rta_det.is_exact());
+    let rta_rec = rta_det.to_record().unwrap();
+    assert_eq!(
+        js_sys::Reflect::get(&rta_rec, &"isExact".into())
+            .unwrap()
+            .as_bool(),
+        Some(true)
+    );
+    let rta_tbl = js_landmark_stratified_rta_from_landmarks(
+        &sq,
+        &[0, 2],
+        &[0, 1, 2, 1, 2, 1, 0, 1],
+        Some(1000.0),
+        Some(42.0),
+    )
+    .unwrap();
+    assert!(rta_tbl.is_exact());
+
+    let targets = js_sys::Array::new();
+    for t in [
+        "crosslessness",
+        "sampledCrosslessness",
+        "minimumAngle",
+        "minimumAngleA1",
+        "layoutDegeneracy",
+        "adjustedPatchNig",
+        "landmarkStratifiedRta",
+    ] {
+        targets.push(&t.into());
+    }
+    let rep = js_evaluate_metrics(
+        &k4,
+        &sq,
+        &targets,
+        None,
+        Some(100.0),
+        Some(42.0),
+        None,
+        Some(vec![0, 0, 1, 1]),
+        Some(4.0),
+        Some(1000.0),
+        Some(1.0),
+        Some(16.0),
+        Some(2048.0),
+        None,
+    )
+    .unwrap();
+    assert!((rep.crosslessness().unwrap() - expected_cl).abs() < 1e-12);
+    assert!(rep.minimum_angle().is_some());
+    assert!(rep.minimum_angle_a1().is_some());
+    assert_eq!(rep.layout_degeneracy(), Some(0.0));
+    assert!(rep.adjusted_patch_nig().is_some());
+    assert!(rep.landmark_stratified_rta().is_some());
+
+    let need_labels = js_sys::Array::of1(&"adjustedPatchNig".into());
+    assert!(
+        js_evaluate_metrics(
+            &k4,
+            &sq,
+            &need_labels,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[wasm_bindgen_test]
+fn crosslessness_directed_reciprocal_regression() {
+    // 1. Single reciprocal pair: c_max == 0 -> crosslessness == 1.0.
+    let g_pair = JsCsrGraph::from_edge_list(
+        2.0,
+        &[0, 1, 1, 0],
+        None,
+        &JsValue::from_bool(true),
+        Some(true),
+    )
+    .unwrap();
+    let l_pair = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0]).unwrap();
+    assert_eq!(js_crosslessness(&g_pair, &l_pair).unwrap(), 1.0);
+    assert_eq!(
+        js_sampled_crosslessness(&g_pair, &l_pair, Some(32.0), Some(42.0)).unwrap(),
+        1.0
+    );
+
+    // 2. Reciprocal 3-leaf star: adj_pairs > total_pairs, yet c_max == 0 -> crosslessness == 1.0.
+    let g_star = JsCsrGraph::from_edge_list(
+        4.0,
+        &[0, 1, 1, 0, 0, 2, 2, 0, 0, 3, 3, 0],
+        None,
+        &JsValue::from_bool(true),
+        Some(true),
+    )
+    .unwrap();
+    let l_star = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, -1.0, 0.0]).unwrap();
+    assert_eq!(js_crosslessness(&g_star, &l_star).unwrap(), 1.0);
+    assert_eq!(
+        js_sampled_crosslessness(&g_star, &l_star, Some(64.0), Some(42.0)).unwrap(),
+        1.0
+    );
+
+    // 3. 4-node 6-edge directed graph: adj_pairs (16) > total_pairs (15), c_max = 1, c = 1 -> 0.0.
+    let g_dir4 = JsCsrGraph::from_edge_list(
+        4.0,
+        &[0, 1, 0, 3, 1, 3, 3, 0, 3, 1, 3, 2],
+        None,
+        &JsValue::from_bool(true),
+        Some(true),
+    )
+    .unwrap();
+    let l_dir4 = JsLayout2d::from_coords(&[0.0, 0.0, 2.0, 2.0, 0.0, 2.0, 2.0, 0.0]).unwrap();
+    assert_eq!(js_sweep_crossing_number(&g_dir4, &l_dir4).unwrap(), 1);
+    assert_eq!(js_crosslessness(&g_dir4, &l_dir4).unwrap(), 0.0);
+    assert_eq!(
+        js_sampled_crosslessness(&g_dir4, &l_dir4, Some(100.0), Some(42.0)).unwrap(),
+        0.0
+    );
 }
 
 #[cfg(feature = "delaunay")]
