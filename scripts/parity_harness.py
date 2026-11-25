@@ -631,6 +631,10 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "cluster_area_faithfulness"):
         results.extend(_run_v6_gcaf_python_checks(eg))
 
+    # 10. W1 baseline algorithms & evaluation metrics Python checks
+    if hasattr(eg, "leiden_communities"):
+        results.extend(run_v6_w1_python_checks(eg))
+
     assert not hasattr(eg, "InfoMap"), "InfoMap must not be exposed on egraph v6"
     assert "InfoMap" not in getattr(eg, "__all__", []), "InfoMap must not be in egraph.__all__"
 
@@ -1814,6 +1818,354 @@ def run_v6_m4_python_checks(eg: Any) -> list[dict[str, Any]]:
     return results
 
 
+def run_v6_w1_python_checks(eg: Any) -> list[dict[str, Any]]:
+    """Run deterministic, f32/f64, step()==run() & adversarial checks for W1-1..W1-6 Python APIs."""
+    import numpy as np
+
+    results: list[dict[str, Any]] = []
+    t0 = time.perf_counter()
+
+    # Deterministic 10-node 2-clique barbell graph (cliques 0..4 and 5..9 bridged by 4-5)
+    bb_edges: list[tuple[int, int]] = []
+    for off in (0, 5):
+        for i in range(5):
+            for j in range(i + 1, 5):
+                bb_edges.append((off + i, off + j))
+    bb_edges.append((4, 5))
+    g_bb = eg.CsrGraph.from_edges(10, bb_edges, directed=False, sanitize=True)
+    init10 = np.array(_make_m3_asymmetric_coords(10, scale=1.2), dtype=np.float64)
+
+    # 1. W1-1 Leiden (Modularity & CPM)
+    l_mod1 = eg.leiden_communities(g_bb, objective="modularity", resolution=1.0, seed=42)
+    l_mod2 = eg.leiden_communities(g_bb, objective="mod", resolution=1.0, seed=42)
+    assert np.array_equal(l_mod1["labels"], l_mod2["labels"])
+    assert l_mod1["num_communities"] == 2
+    assert float(l_mod1["modularity"]) > 0.35
+    l_cpm = eg.leiden_communities(g_bb, objective="cpm", resolution=0.3, seed=42)
+    assert l_cpm["num_communities"] >= 2
+    l_empty = eg.leiden_communities(eg.CsrGraph.from_edges(0, [], directed=False))
+    assert l_empty["num_communities"] == 0 and len(l_empty["labels"]) == 0
+
+    for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+        init10_t = init10.astype(np_dtype)
+
+        # 2. W1-2 LinLog, FR, FA2 prevent_overlap
+        for rep_model in ("edge_repulsion", "node_repulsion"):
+            sr = eg.LinLogSolver(
+                g_bb, iterations=10, repulsion_model=rep_model, use_barnes_hut=True, seed=42, dtype=dtype_name
+            )
+            ss = eg.LinLogSolver(
+                g_bb, iterations=10, repulsion_model=rep_model, use_barnes_hut=True, seed=42, dtype=dtype_name
+            )
+            lr = eg.Layout2d.from_coords(init10_t)
+            ls = eg.Layout2d.from_coords(init10_t)
+            assert sr.run(lr) == "completed"
+            assert math.isfinite(sr.energy(lr))
+            assert ss.run_steps(ls, 3) == "running"
+            while not ss.is_finished:
+                ss.step(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True))
+
+        for backend in ("exact", "barnes_hut", "grid"):
+            fr = eg.FruchtermanReingoldSolver(
+                g_bb, iterations=10, backend=backend, seed=42, dtype=dtype_name
+            )
+            fs = eg.FruchtermanReingoldSolver(
+                g_bb, iterations=10, backend=backend, seed=42, dtype=dtype_name
+            )
+            lr = eg.Layout2d.from_coords(init10_t)
+            ls = eg.Layout2d.from_coords(init10_t)
+            assert fr.optimal_distance > 0.0
+            assert fr.run(lr) == "completed"
+            assert fr.current_temperature == 0.0
+            assert fs.run_steps(ls, 3) == "running"
+            while not fs.is_finished:
+                fs.step(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True))
+
+        radii10 = np.full(10, 0.6, dtype=np.float64)
+        far = eg.ForceAtlas2Solver(
+            g_bb,
+            iterations=10,
+            prevent_overlap=True,
+            default_node_radius=0.5,
+            node_radii=radii10,
+            seed=42,
+            dtype=dtype_name,
+        )
+        fas = eg.ForceAtlas2Solver(
+            g_bb,
+            iterations=10,
+            prevent_overlap=True,
+            default_node_radius=0.5,
+            node_radii=radii10,
+            seed=42,
+            dtype=dtype_name,
+        )
+        assert far.prevent_overlap is True
+        assert np.allclose(far.node_radii, radii10)
+        lfar = eg.Layout2d.from_coords(init10_t)
+        lfas = eg.Layout2d.from_coords(init10_t)
+        assert far.run(lfar) == "completed"
+        fas.step(lfas)
+        fas.run_steps(lfas, 4)
+        fas.run(lfas)
+        assert lfar.is_all_finite()
+        assert np.array_equal(lfar.coords(copy=True), lfas.coords(copy=True))
+
+        # 3. W1-3 Quadrilateral Simmelian Backbone
+        bb_res = eg.extract_quadrilateral_backbone(g_bb, retain_ratio=0.3)
+        assert len(bb_res["backbone_edges"]) >= len(bb_res["umst_edges"])
+        for mode in ("stress", "sgd"):
+            br = eg.BackboneSolver(
+                g_bb, retain_ratio=0.3, layout_mode=mode, iterations=10, seed=42, dtype=dtype_name
+            )
+            bs = eg.BackboneSolver(
+                g_bb, retain_ratio=0.3, layout_mode=mode, iterations=10, seed=42, dtype=dtype_name
+            )
+            lr = eg.Layout2d.from_coords(init10_t)
+            ls = eg.Layout2d.from_coords(init10_t)
+            assert br.run(lr) == "completed"
+            bs.step(ls)
+            bs.run(ls)
+            assert lr.is_all_finite()
+            assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True))
+
+        # 4. W1-4 ClusterRefine, squarified_treemap & GroupInABoxSolver
+        swapped = np.array(
+            [
+                [0.0, 0.0],
+                [0.2, 0.1],
+                [0.1, -0.2],
+                [0.3, 0.0],
+                [10.0, 0.1],
+                [10.0, 0.2],
+                [10.2, 0.1],
+                [10.1, -0.2],
+                [10.3, 0.0],
+                [0.0, 0.2],
+            ],
+            dtype=np_dtype,
+        )
+        comm_labels = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.uint32)
+        for cr_method in ("kmeans", "hac"):
+            cr1 = eg.ClusterRefineSolver.from_graph(
+                g_bb, comm_labels, method=cr_method, max_rounds=5, seed=42, dtype=dtype_name
+            )
+            cr2 = eg.ClusterRefineSolver.from_graph(
+                g_bb, comm_labels, method=cr_method, max_rounds=5, seed=42, dtype=dtype_name
+            )
+            lcr1 = eg.Layout2d.from_coords(swapped)
+            lcr2 = eg.Layout2d.from_coords(swapped)
+            dsc_before = eg.distance_consistency(lcr1, comm_labels)
+            cr1.run(lcr1)
+            cr2.step(lcr2)
+            cr2.run(lcr2)
+            assert np.array_equal(lcr1.coords(copy=True), lcr2.coords(copy=True))
+            assert eg.distance_consistency(lcr1, comm_labels) > dsc_before
+
+            lcr_fn = eg.Layout2d.from_coords(swapped)
+            moved = eg.refine_cluster_layout(
+                lcr_fn, comm_labels, method=cr_method, max_rounds=5, seed=42
+            )
+            assert moved > 0
+
+        for box_mode in ("treemap", "force_directed"):
+            for intra_mode in ("fr", "sgd_full", "yifan_hu"):
+                cw = [2.0, 1.0] if box_mode == "treemap" else None
+                gr = eg.GroupInABoxSolver(
+                    g_bb,
+                    comm_labels,
+                    box_mode=box_mode,
+                    intra_mode=intra_mode,
+                    intra_iterations=6,
+                    fd_iterations=6,
+                    cluster_weights=cw,
+                    seed=42,
+                    dtype=dtype_name,
+                )
+                gs = eg.GroupInABoxSolver(
+                    g_bb,
+                    comm_labels,
+                    box_mode=box_mode,
+                    intra_mode=intra_mode,
+                    intra_iterations=6,
+                    fd_iterations=6,
+                    cluster_weights=cw,
+                    seed=42,
+                    dtype=dtype_name,
+                )
+                lr = eg.Layout2d.from_coords(init10_t)
+                ls = eg.Layout2d.from_coords(init10_t)
+                assert len(gr.boxes()) == 2
+                gr.run(lr)
+                gs.step(ls)
+                gs.run(ls)
+                assert lr.is_all_finite()
+                assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True))
+
+        # 5. W1-5 GTreeOverlapRemoval & ForbidOverlapRemoval
+        ov_coords = (init10 * 0.15).astype(np_dtype)
+        ov_coords[1] = ov_coords[0]
+        hw10 = np.full(10, 0.45, dtype=np.float64)
+        hh10 = np.full(10, 0.35, dtype=np.float64)
+        gtr = eg.GTreeOverlapRemoval(hw10, hh10, max_iterations=25, padding=0.02, seed=42, dtype=dtype_name)
+        gts = eg.GTreeOverlapRemoval(hw10, hh10, max_iterations=25, padding=0.02, seed=42, dtype=dtype_name)
+        lgtr = eg.Layout2d.from_coords(ov_coords)
+        lgts = eg.Layout2d.from_coords(ov_coords)
+        gtr.run(lgtr)
+        gts.step(lgts)
+        gts.run(lgts)
+        assert gtr.last_overlap_count == 0
+        assert np.array_equal(lgtr.coords(copy=True), lgts.coords(copy=True))
+        assert len(eg.rectangle_overlaps(lgtr, hw10, hh10)) == 0
+
+        for variant in ("forbid", "forbid_prime", "sparse_forbid"):
+            fbr = eg.ForbidOverlapRemoval(
+                hw10, hh10, variant=variant, max_scale_iters=25, sgd_iterations=30, seed=42, dtype=dtype_name
+            )
+            fbs = eg.ForbidOverlapRemoval(
+                hw10, hh10, variant=variant, max_scale_iters=25, sgd_iterations=30, seed=42, dtype=dtype_name
+            )
+            lfbr = eg.Layout2d.from_coords(ov_coords)
+            lfbs = eg.Layout2d.from_coords(ov_coords)
+            fbr.run(lfbr)
+            fbs.step(lfbs)
+            fbs.run(lfbs)
+            assert fbr.last_overlap_count == 0
+            assert np.array_equal(lfbr.coords(copy=True), lfbs.coords(copy=True))
+            assert len(eg.rectangle_overlaps(lfbr, hw10, hh10)) == 0
+
+        # 6. W1-6 Cluster Baselines & NOR
+        sep_coords = np.array(
+            [
+                [-5.0, 0.0],
+                [-4.8, 0.1],
+                [-5.1, -0.1],
+                [-4.9, 0.2],
+                [-5.0, -0.2],
+                [5.0, 0.0],
+                [5.2, 0.1],
+                [4.9, -0.1],
+                [5.1, 0.2],
+                [5.0, -0.2],
+            ],
+            dtype=np_dtype,
+        )
+        l_sep = eg.Layout2d.from_coords(sep_coords)
+        pa = eg.partition_agreement(comm_labels, comm_labels)
+        assert abs(pa["ari"] - 1.0) < 1e-12 and abs(pa["fmi"] - 1.0) < 1e-12
+        assert abs(eg.cq_kmeans(l_sep, comm_labels, seed=42)["ari"] - 1.0) < 1e-12
+        assert abs(eg.cq_hac(l_sep, comm_labels)["ami"] - 1.0) < 1e-12
+        assert abs(eg.distance_consistency(l_sep, comm_labels) - 1.0) < 1e-12
+        assert eg.distribution_consistency(l_sep, comm_labels, grid_size=16) > 0.9
+        cdm, hdm = eg.class_density_measure(l_sep, comm_labels, grid_size=32)
+        assert cdm > 0.8 and abs(hdm - 1.0) < 1e-12
+        assert abs(eg.sepme_knng(l_sep, comm_labels, k=2) - 1.0) < 1e-12
+        assert eg.sepme_rng(l_sep, comm_labels) > 0.7
+        assert eg.sepme_gab(l_sep, comm_labels) > 0.5
+        assert eg.sepme_gong(l_sep, comm_labels, gamma=0.35) > 0.7
+        assert abs(eg.neighborhood_hit(l_sep, comm_labels, k=3) - 1.0) < 1e-12
+        assert eg.silhouette_score(l_sep, comm_labels) > 0.9
+        assert eg.calinski_harabasz_score(l_sep, comm_labels) > 100.0
+        assert eg.davies_bouldin_score(l_sep, comm_labels) < 0.2
+        assert 0.0 <= eg.pairwise_distance_overlap_error(l_sep, comm_labels, num_bins=32) <= 1.0
+        assert eg.sprawlter_nn(lgtr, hw10, hh10) >= 0.0
+        nor_w = eg.nor_metrics(eg.Layout2d.from_coords(ov_coords), lgtr, hw10, hh10, graph=g_bb)
+        assert nor_w["el_rsd"] >= 0.0 and math.isfinite(nor_w["oo_nni"])
+        nor_wo = eg.nor_metrics(eg.Layout2d.from_coords(ov_coords), lgtr, hw10, hh10)
+        assert nor_wo["el_rsd"] == 0.0
+
+        w16_targets = [
+            "dsc",
+            "dc",
+            "cdm",
+            "hdm",
+            "sepme_knng",
+            "sepme_rng",
+            "sepme_gab",
+            "sepme_gong",
+            "neighborhood_hit",
+            "silhouette",
+            "calinski_harabasz",
+            "davies_bouldin",
+            "cq_kmeans_ari",
+            "cq_kmeans_ami",
+            "cq_hac_hom",
+            "cq_hac_ami",
+            "pairwise_distance_overlap_error",
+            "sprawlter_nn",
+        ]
+        ev_w16 = eg.evaluate_metrics(
+            g_bb,
+            l_sep,
+            w16_targets,
+            community_labels=comm_labels,
+            sepme_knng_k=2,
+            neighborhood_hit_k=3,
+            dc_grid_size=16,
+            cdm_grid_size=32,
+            num_bins=32,
+            sprawlter_node_radius=0.5,
+            seed=42,
+        )
+        assert set(ev_w16.keys()) == set(w16_targets)
+        ev_alias = eg.evaluate_metrics(
+            g_bb, l_sep, ["sepme_knng2", "sepme-knng2"], community_labels=comm_labels, sepme_knng_k=2
+        )
+        assert abs(ev_alias["sepme_knng"] - ev_w16["sepme_knng"]) < 1e-12
+
+    rects = eg.squarified_treemap([3.0, 2.0, 1.0], width=100.0, height=50.0, x=0.0, y=0.0)
+    assert rects.shape == (3, 4)
+
+    results.append({
+        "case": "v6_w1_baselines_and_metrics",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+    })
+
+    # Adversarial W1 checks (never PanicException)
+    t1 = time.perf_counter()
+    bad_l = eg.Layout2d.zeros(5)
+    l10_nan = eg.Layout2d.zeros(10)
+    l10_nan.coords(copy=False)[0, 0] = float("nan")
+    g_dir = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2)], directed=True)
+    w1_bad: list[tuple[str, Callable[[], Any]]] = [
+        ("leiden_communities/directed", lambda: eg.leiden_communities(g_dir)),
+        ("leiden_communities/bad_obj", lambda: eg.leiden_communities(g_bb, objective="bad")),
+        ("leiden_communities/zero_passes", lambda: eg.leiden_communities(g_bb, max_passes=0)),
+        ("LinLogSolver/bad_repulsion", lambda: eg.LinLogSolver(g_bb, repulsion_model="bad")),
+        ("LinLogSolver/dim_mismatch", lambda: eg.LinLogSolver(g_bb).step(bad_l)),
+        ("FruchtermanReingoldSolver/bad_backend", lambda: eg.FruchtermanReingoldSolver(g_bb, backend="bad")),
+        ("FruchtermanReingoldSolver/dim_mismatch", lambda: eg.FruchtermanReingoldSolver(g_bb).step(bad_l)),
+        ("ForceAtlas2Solver/neg_radius", lambda: eg.ForceAtlas2Solver(g_bb, default_node_radius=-1.0)),
+        ("ForceAtlas2Solver/radii_len", lambda: eg.ForceAtlas2Solver(g_bb, node_radii=[1.0, 2.0])),
+        ("extract_quadrilateral_backbone/bad_ratio", lambda: eg.extract_quadrilateral_backbone(g_bb, retain_ratio=1.5)),
+        ("BackboneSolver/bad_mode", lambda: eg.BackboneSolver(g_bb, layout_mode="bad")),
+        ("ClusterRefineSolver/bad_method", lambda: eg.ClusterRefineSolver([0, 1], method="bad")),
+        ("squarified_treemap/empty", lambda: eg.squarified_treemap([])),
+        ("GroupInABoxSolver/bad_box", lambda: eg.GroupInABoxSolver(g_bb, [0] * 10, box_mode="bad")),
+        ("GTreeOverlapRemoval/len_mismatch", lambda: eg.GTreeOverlapRemoval([1.0, 1.0], [1.0])),
+        ("GTreeOverlapRemoval/nan_layout", lambda: eg.GTreeOverlapRemoval.from_radii([0.5] * 10).step(l10_nan)),
+        ("ForbidOverlapRemoval/bad_variant", lambda: eg.ForbidOverlapRemoval([1.0], [1.0], variant="bad")),
+        ("ForbidOverlapRemoval/nan_layout", lambda: eg.ForbidOverlapRemoval.from_radii([0.5] * 10).step(l10_nan)),
+        ("partition_agreement/len_mismatch", lambda: eg.partition_agreement([0, 1], [0])),
+        ("sepme_knng/k0", lambda: eg.sepme_knng(l10_nan, [0] * 10, k=0)),
+        ("evaluate_metrics/w16_missing_labels", lambda: eg.evaluate_metrics(g_bb, eg.Layout2d.zeros(10), ["dsc"])),
+    ]
+    for label, fn in w1_bad:
+        _assert_non_panic_error(label, fn)
+
+    results.append({
+        "case": "v6_w1_adversarial_non_panic",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t1, 4),
+    })
+    return results
+
+
 def run_wasm_node_parity(wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
     """Verify Node.js ESM import, CsrGraph/Layout2d coordsView(), and JsError guard."""
     t0 = time.perf_counter()
@@ -2570,6 +2922,95 @@ if (typeof mod.clusterAreaFaithfulness === 'function') {{
 
   lImb.free?.();
   gImb.free?.();
+}}
+
+if (typeof mod.leidenCommunities === 'function') {{
+  assert.equal(typeof indexMod.leidenCommunities, 'function', 'index.js missing leidenCommunities');
+  assert.equal(typeof indexMod.LinLogSolver, 'function', 'index.js missing LinLogSolver');
+  assert.equal(typeof indexMod.FruchtermanReingoldSolver, 'function', 'index.js missing FruchtermanReingoldSolver');
+  assert.equal(typeof indexMod.BackboneSolver, 'function', 'index.js missing BackboneSolver');
+  assert.equal(typeof indexMod.ClusterRefineSolver, 'function', 'index.js missing ClusterRefineSolver');
+  assert.equal(typeof indexMod.GroupInABoxSolver, 'function', 'index.js missing GroupInABoxSolver');
+  assert.equal(typeof indexMod.GTreeOverlapRemoval, 'function', 'index.js missing GTreeOverlapRemoval');
+  assert.equal(typeof indexMod.ForbidOverlapRemoval, 'function', 'index.js missing ForbidOverlapRemoval');
+  assert.equal(typeof indexMod.norMetrics, 'function', 'index.js missing norMetrics');
+
+  const gW1 = mod.CsrGraph.fromEdgeList(
+    8,
+    new Uint32Array([
+      0, 1, 0, 2, 0, 3, 1, 2, 1, 3, 2, 3,
+      3, 4,
+      4, 5, 4, 6, 4, 7, 5, 6, 5, 7, 6, 7,
+    ]),
+    null,
+    false,
+    true,
+  );
+  const w1Labels = new Uint32Array([0, 0, 0, 0, 1, 1, 1, 1]);
+  const w1Init = new Float32Array([-2, 0, -1.5, 0.5, -2.5, 0.5, -2, 1, 2, 0, 2.5, 0.5, 1.5, 0.5, 2, 1]);
+
+  const lRes = mod.leidenCommunities(gW1, {{ objective: 'modularity', resolution: 1.0, seed: 42 }});
+  assert.equal(lRes.numCommunities, 2);
+  assert.equal(lRes.toRecord().numCommunities, 2);
+  lRes.free?.();
+
+  const lRun = mod.Layout2d.fromCoords(w1Init);
+  const lStep = mod.Layout2d.fromCoords(w1Init);
+  const llRun = new mod.LinLogSolver(gW1, {{ iterations: 6, seed: 42 }});
+  const llStep = new mod.LinLogSolver(gW1, {{ iterations: 6, seed: 42 }});
+  llRun.run(lRun);
+  llStep.step(lStep);
+  llStep.run(lStep);
+  assert.deepEqual(Array.from(lRun.coordsView()), Array.from(lStep.coordsView()));
+  llRun.free?.(); llStep.free?.();
+
+  const frRun = new mod.FruchtermanReingoldSolver(gW1, {{ iterations: 6, backend: 'barnes_hut', seed: 42 }});
+  frRun.run(lRun);
+  assert.equal(frRun.currentTemperature, 0);
+  frRun.free?.();
+
+  const bbRes = mod.extractQuadrilateralBackbone(gW1, {{ retainRatio: 0.4 }});
+  assert.ok(bbRes.backboneEdges().length >= bbRes.umstEdges().length);
+  bbRes.free?.();
+
+  const tm = mod.squarifiedTreemap([3, 2, 1], 100, 50, 0, 0);
+  assert.equal(tm.length, 12);
+
+  const lOv = mod.Layout2d.fromCoords(new Float32Array([0, 0, 0.05, 0.02, -0.04, 0.03, 0.02, -0.04, 0.08, 0.06, -0.07, -0.05, 0.01, 0.05, -0.02, 0.01]));
+  const hw = new Float32Array(8).fill(0.4);
+  const hh = new Float32Array(8).fill(0.3);
+  const gt = new mod.GTreeOverlapRemoval(hw, hh, {{ maxIterations: 25, seed: 42 }});
+  gt.run(lOv);
+  assert.equal(gt.lastOverlapCount, 0);
+  gt.free?.();
+
+  const fb = mod.ForbidOverlapRemoval.fromRadii(hw, {{ variant: 'forbid', maxScaleIters: 20, sgdIterations: 20, seed: 42 }});
+  const lOvFb = mod.Layout2d.fromCoords(new Float32Array([0, 0, 0.05, 0.02, -0.04, 0.03, 0.02, -0.04, 0.08, 0.06, -0.07, -0.05, 0.01, 0.05, -0.02, 0.01]));
+  fb.run(lOvFb);
+  assert.equal(fb.lastOverlapCount, 0);
+  fb.free?.();
+
+  const assertW1Err = (fn, label) => {{
+    let threw = false;
+    try {{
+      fn();
+    }} catch (err) {{
+      assert.ok(!(err instanceof WebAssembly.RuntimeError), `${{label}} trapped with RuntimeError`);
+      assert.ok(err instanceof Error, `${{label}} must throw Error`);
+      threw = true;
+    }}
+    assert.ok(threw, `${{label}} must throw`);
+  }};
+  assertW1Err(() => mod.leidenCommunities(gW1, {{ objective: 'bad' }}), 'w1 leiden bad obj');
+  assertW1Err(() => new mod.LinLogSolver(gW1, {{ repulsionModel: 'bad' }}), 'w1 linlog bad rep');
+  assertW1Err(() => new mod.FruchtermanReingoldSolver(gW1, {{ backend: 'bad' }}), 'w1 fr bad backend');
+  assertW1Err(() => mod.extractQuadrilateralBackbone(gW1, {{ retainRatio: 2.0 }}), 'w1 bb bad ratio');
+  assertW1Err(() => mod.squarifiedTreemap([]), 'w1 treemap empty');
+  assertW1Err(() => new mod.GTreeOverlapRemoval([1, 1], [1]), 'w1 gtree len mismatch');
+  assertW1Err(() => new mod.ForbidOverlapRemoval([1], [1], {{ variant: 'bad' }}), 'w1 forbid bad variant');
+  assertW1Err(() => mod.evaluateMetrics(gW1, lRun, ['dsc']), 'w1 eval dsc missing labels');
+
+  lOvFb.free?.(); lOv.free?.(); lStep.free?.(); lRun.free?.(); gW1.free?.();
 }}
 
 assert.equal(typeof mod.InfoMap, 'undefined');
@@ -5905,6 +6346,679 @@ console.log(JSON.stringify(out));
     }]
 
 
+def run_cross_target_w1_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
+    """Verify Python float32 <-> WASM f32 numerical & structural parity across all W1-1..W1-6 APIs."""
+    import numpy as np
+
+    if not hasattr(eg, "leiden_communities"):
+        return []
+    node_entry = wasm_pkg / "egraph_wasm.node.js"
+    index_entry = wasm_pkg / "index.js"
+    if not index_entry.exists():
+        return []
+
+    t0 = time.perf_counter()
+
+    # Deterministic 10-node 2-clique barbell graph
+    bb_edges: list[tuple[int, int]] = []
+    for off in (0, 5):
+        for i in range(5):
+            for j in range(i + 1, 5):
+                bb_edges.append((off + i, off + j))
+    bb_edges.append((4, 5))
+    g_bb = eg.CsrGraph.from_edges(10, bb_edges, directed=False, sanitize=True)
+
+    init10_f32 = np.array(_make_m3_asymmetric_coords(10, scale=1.2), dtype=np.float32)
+    swapped_f32 = np.array(
+        [
+            [0.0, 0.0],
+            [0.2, 0.1],
+            [0.1, -0.2],
+            [0.3, 0.0],
+            [10.0, 0.1],
+            [10.0, 0.2],
+            [10.2, 0.1],
+            [10.1, -0.2],
+            [10.3, 0.0],
+            [0.0, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    sep_f32 = np.array(
+        [
+            [-5.0, 0.0],
+            [-4.8, 0.1],
+            [-5.1, -0.1],
+            [-4.9, 0.2],
+            [-5.0, -0.2],
+            [5.0, 0.0],
+            [5.2, 0.1],
+            [4.9, -0.1],
+            [5.1, 0.2],
+            [5.0, -0.2],
+        ],
+        dtype=np.float32,
+    )
+    ov_f32 = (init10_f32 * 0.15).astype(np.float32)
+    ov_f32[1] = ov_f32[0]
+    comm_labels = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
+    pred_labels = [10, 10, 10, 10, 20, 20, 20, 20, 20, 10]
+    hw10_f32 = [0.45] * 10
+    hh10_f32 = [0.35] * 10
+    radii10 = [0.6] * 10
+
+    # W1-1: Leiden
+    leiden_mod_py = eg.leiden_communities(g_bb, objective="modularity", resolution=1.0, seed=42)
+    leiden_cpm_py = eg.leiden_communities(g_bb, objective="cpm", resolution=0.3, seed=42)
+
+    # W1-2: LinLog, FR, FA2 prevent_overlap
+    linlog_py: dict[str, dict[str, Any]] = {}
+    for rep in ("edge_repulsion", "node_repulsion"):
+        ll = eg.LinLogSolver(
+            g_bb, iterations=8, repulsion_model=rep, use_barnes_hut=True, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(init10_f32)
+        ll.run(lay)
+        linlog_py[rep] = {
+            "coords": lay.coords(copy=True),
+            "energy": float(ll.energy(lay)),
+            "max_disp": float(ll.max_displacement),
+        }
+
+    fr_py: dict[str, dict[str, Any]] = {}
+    for backend in ("exact", "barnes_hut", "grid"):
+        fr = eg.FruchtermanReingoldSolver(g_bb, iterations=8, backend=backend, seed=42, dtype="float32")
+        lay = eg.Layout2d.from_coords(init10_f32)
+        fr.run(lay)
+        fr_py[backend] = {
+            "coords": lay.coords(copy=True),
+            "opt_dist": float(fr.optimal_distance),
+        }
+
+    fa2_ov = eg.ForceAtlas2Solver(
+        g_bb,
+        iterations=8,
+        prevent_overlap=True,
+        default_node_radius=0.5,
+        node_radii=radii10,
+        seed=42,
+        dtype="float32",
+    )
+    l_fa2_py = eg.Layout2d.from_coords(init10_f32)
+    fa2_ov.run(l_fa2_py)
+    fa2_coords_py = l_fa2_py.coords(copy=True)
+    fa2_radii_py = fa2_ov.node_radii
+
+    # W1-3: Backbone
+    bb_ex_py = eg.extract_quadrilateral_backbone(g_bb, retain_ratio=0.3)
+    bb_sol_py: dict[str, Any] = {}
+    for mode in ("stress", "sgd"):
+        bs = eg.BackboneSolver(
+            g_bb, retain_ratio=0.3, layout_mode=mode, iterations=8, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(init10_f32)
+        bs.run(lay)
+        bb_sol_py[mode] = lay.coords(copy=True)
+
+    # W1-4: ClusterRefine, squarified_treemap, GroupInABox
+    cr_py: dict[str, dict[str, Any]] = {}
+    for method in ("kmeans", "hac"):
+        cs = eg.ClusterRefineSolver.from_graph(
+            g_bb, comm_labels, method=method, max_rounds=5, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(swapped_f32)
+        cs.run(lay)
+        cr_py[method] = {
+            "coords": lay.coords(copy=True),
+            "moved": int(cs.last_moved_count),
+            "clusters": int(cs.num_clusters),
+        }
+    l_cr_fn = eg.Layout2d.from_coords(swapped_f32)
+    cr_fn_moved_py = int(eg.refine_cluster_layout(l_cr_fn, comm_labels, method="kmeans", max_rounds=5, seed=42))
+    cr_fn_coords_py = l_cr_fn.coords(copy=True)
+
+    treemap_py = eg.squarified_treemap([5.0, 3.0, 2.0], width=100.0, height=50.0, x=5.0, y=10.0)
+    gib_py: dict[str, dict[str, Any]] = {}
+    for bmode, imode, cw in (("treemap", "fr", [2.0, 1.0]), ("force_directed", "yifan_hu", None)):
+        gs = eg.GroupInABoxSolver(
+            g_bb,
+            comm_labels,
+            box_mode=bmode,
+            intra_mode=imode,
+            intra_iterations=6,
+            fd_iterations=6,
+            cluster_weights=cw,
+            seed=42,
+            dtype="float32",
+        )
+        lay = eg.Layout2d.from_coords(init10_f32)
+        gs.run(lay)
+        gib_py[f"{bmode}_{imode}"] = {
+            "coords": lay.coords(copy=True),
+            "boxes": gs.boxes(),
+        }
+
+    # W1-5: GTree & FORBID
+    gt_box = eg.GTreeOverlapRemoval(hw10_f32, hh10_f32, max_iterations=25, padding=0.02, seed=42, dtype="float32")
+    l_gt_box = eg.Layout2d.from_coords(ov_f32)
+    gt_box.run(l_gt_box)
+    gt_rad = eg.GTreeOverlapRemoval.from_radii(hw10_f32, max_iterations=25, padding=0.02, seed=42, dtype="float32")
+    l_gt_rad = eg.Layout2d.from_coords(ov_f32)
+    gt_rad.run(l_gt_rad)
+
+    fb_py: dict[str, dict[str, Any]] = {}
+    for var in ("forbid", "forbid_prime", "sparse_forbid"):
+        fb = eg.ForbidOverlapRemoval(
+            hw10_f32, hh10_f32, variant=var, max_scale_iters=25, sgd_iterations=30, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(ov_f32)
+        fb.run(lay)
+        fb_py[var] = {"coords": lay.coords(copy=True), "ov": int(fb.last_overlap_count)}
+    fb_rad = eg.ForbidOverlapRemoval.from_radii(
+        hw10_f32, variant="forbid", max_scale_iters=25, sgd_iterations=30, seed=42, dtype="float32"
+    )
+    l_fb_rad = eg.Layout2d.from_coords(ov_f32)
+    fb_rad.run(l_fb_rad)
+
+    # W1-6: cluster_baselines & evaluate_metrics
+    l_sep = eg.Layout2d.from_coords(sep_f32)
+    l_ov = eg.Layout2d.from_coords(ov_f32)
+    pa_py = eg.partition_agreement(comm_labels, pred_labels)
+    cq_km_py = eg.cq_kmeans(l_sep, comm_labels, n_init=5, max_iters=50, seed=42)
+    cq_hac_py = eg.cq_hac(l_sep, comm_labels)
+    cdm_py, hdm_py = eg.class_density_measure(l_sep, comm_labels, grid_size=32)
+    nor_g_py = eg.nor_metrics(l_ov, l_gt_box, hw10_f32, hh10_f32, graph=g_bb)
+    nor_nog_py = eg.nor_metrics(l_ov, l_gt_box, hw10_f32, hh10_f32)
+    w16_targets = [
+        "dsc",
+        "dc",
+        "cdm",
+        "hdm",
+        "sepme_knng",
+        "sepme_rng",
+        "sepme_gab",
+        "sepme_gong",
+        "neighborhood_hit",
+        "silhouette",
+        "calinski_harabasz",
+        "davies_bouldin",
+        "cq_kmeans_ari",
+        "cq_kmeans_ami",
+        "cq_hac_hom",
+        "cq_hac_ami",
+        "pairwise_distance_overlap_error",
+        "sprawlter_nn",
+    ]
+    ev_w16_py = eg.evaluate_metrics(
+        g_bb,
+        l_sep,
+        w16_targets,
+        community_labels=comm_labels,
+        sepme_knng_k=2,
+        neighborhood_hit_k=3,
+        dc_grid_size=16,
+        cdm_grid_size=32,
+        num_bins=32,
+        gong_gamma=0.35,
+        kmeans_n_init=5,
+        kmeans_max_iters=50,
+        sprawlter_node_radius=0.5,
+        seed=42,
+    )
+    standalone_w16_py = {
+        "dsc": float(eg.distance_consistency(l_sep, comm_labels)),
+        "dc": float(eg.distribution_consistency(l_sep, comm_labels, grid_size=16)),
+        "cdm": float(cdm_py),
+        "hdm": float(hdm_py),
+        "sepme_knng": float(eg.sepme_knng(l_sep, comm_labels, k=2)),
+        "sepme_rng": float(eg.sepme_rng(l_sep, comm_labels)),
+        "sepme_gab": float(eg.sepme_gab(l_sep, comm_labels)),
+        "sepme_gong": float(eg.sepme_gong(l_sep, comm_labels, gamma=0.35)),
+        "neighborhood_hit": float(eg.neighborhood_hit(l_sep, comm_labels, k=3)),
+        "silhouette": float(eg.silhouette_score(l_sep, comm_labels)),
+        "calinski_harabasz": float(eg.calinski_harabasz_score(l_sep, comm_labels)),
+        "davies_bouldin": float(eg.davies_bouldin_score(l_sep, comm_labels)),
+        "pdoe": float(eg.pairwise_distance_overlap_error(l_sep, comm_labels, num_bins=32)),
+        "sprawlter_rect": float(eg.sprawlter_nn(l_ov, hw10_f32, hh10_f32)),
+        "sprawlter_rad": float(eg.sprawlter_nn(l_ov, hw10_f32)),
+    }
+
+    node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
+    wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
+    spec_payload = {
+        "bb_edges": [int(v) for edge in bb_edges for v in edge],
+        "init10": [float(v) for v in init10_f32.ravel()],
+        "swapped": [float(v) for v in swapped_f32.ravel()],
+        "sep": [float(v) for v in sep_f32.ravel()],
+        "ov": [float(v) for v in ov_f32.ravel()],
+        "comm_labels": comm_labels,
+        "pred_labels": pred_labels,
+        "hw10": hw10_f32,
+        "hh10": hh10_f32,
+        "radii10": radii10,
+    }
+
+    node_script = """
+import { readFile } from 'node:fs/promises';
+
+const nodeUrl = process.argv[1];
+const wasmPath = process.argv[2];
+const spec = JSON.parse(process.argv[3]);
+
+const mod = await import(nodeUrl);
+if (typeof mod.default === 'function') {
+  try {
+    const probe = mod.CsrGraph.fromCsr(new Uint32Array([0, 1, 2]), new Uint32Array([1, 0]));
+    probe.free?.();
+  } catch (_e) {
+    await mod.default(await readFile(wasmPath));
+  }
+}
+
+if (typeof mod.leidenCommunities !== 'function') {
+  console.log(JSON.stringify({ w1_available: false }));
+  process.exit(0);
+}
+
+const gBb = mod.CsrGraph.fromEdgeList(10, new Uint32Array(spec.bb_edges), null, false, true);
+const init10 = new Float32Array(spec.init10);
+const swapped = new Float32Array(spec.swapped);
+const sep = new Float32Array(spec.sep);
+const ov = new Float32Array(spec.ov);
+const commLabels = new Uint32Array(spec.comm_labels);
+const predLabels = new Uint32Array(spec.pred_labels);
+const hw10 = new Float32Array(spec.hw10);
+const hh10 = new Float32Array(spec.hh10);
+
+// W1-1
+const lMod = mod.leidenCommunities(gBb, { objective: 'modularity', resolution: 1.0, seed: 42 });
+const lCpm = mod.leidenCommunities(gBb, { objective: 'cpm', resolution: 0.3, seed: 42 });
+
+// W1-2
+const linlog = {};
+for (const rep of ['edge_repulsion', 'node_repulsion']) {
+  const s = new mod.LinLogSolver(gBb, { iterations: 8, repulsionModel: rep, useBarnesHut: true, seed: 42 });
+  const l = mod.Layout2d.fromCoords(init10);
+  s.run(l);
+  linlog[rep] = { coords: Array.from(l.coordsView()), energy: s.energy(l), maxDisp: s.maxDisplacement };
+  l.free?.(); s.free?.();
+}
+
+const fr = {};
+for (const backend of ['exact', 'barnes_hut', 'grid']) {
+  const s = new mod.FruchtermanReingoldSolver(gBb, { iterations: 8, backend, seed: 42 });
+  const l = mod.Layout2d.fromCoords(init10);
+  s.run(l);
+  fr[backend] = { coords: Array.from(l.coordsView()), optDist: s.optimalDistance };
+  l.free?.(); s.free?.();
+}
+
+const fa2 = new mod.ForceAtlas2Solver(gBb, {
+  iterations: 8,
+  preventOverlap: true,
+  defaultNodeRadius: 0.5,
+  nodeRadii: spec.radii10,
+  seed: 42,
+});
+const lFa2 = mod.Layout2d.fromCoords(init10);
+fa2.run(lFa2);
+const fa2Out = { coords: Array.from(lFa2.coordsView()), radii: Array.from(fa2.nodeRadii()) };
+lFa2.free?.(); fa2.free?.();
+
+// W1-3
+const bbEx = mod.extractQuadrilateralBackbone(gBb, { retainRatio: 0.3 });
+const bbCsr = bbEx.backboneCsr();
+const bbSol = {};
+for (const mode of ['stress', 'sgd']) {
+  const s = new mod.BackboneSolver(gBb, { retainRatio: 0.3, layoutMode: mode, iterations: 8, seed: 42 });
+  const l = mod.Layout2d.fromCoords(init10);
+  s.run(l);
+  bbSol[mode] = Array.from(l.coordsView());
+  l.free?.(); s.free?.();
+}
+
+// W1-4
+const cr = {};
+for (const method of ['kmeans', 'hac']) {
+  const s = mod.ClusterRefineSolver.fromGraph(gBb, commLabels, { method, maxRounds: 5, seed: 42 });
+  const l = mod.Layout2d.fromCoords(swapped);
+  s.run(l);
+  cr[method] = { coords: Array.from(l.coordsView()), moved: s.lastMovedCount, clusters: s.numClusters };
+  l.free?.(); s.free?.();
+}
+const lCrFn = mod.Layout2d.fromCoords(swapped);
+const crFnMoved = mod.refineClusterLayout(lCrFn, commLabels, { method: 'kmeans', maxRounds: 5, seed: 42 });
+const crFnCoords = Array.from(lCrFn.coordsView());
+lCrFn.free?.();
+
+const treemap = Array.from(mod.squarifiedTreemap([5.0, 3.0, 2.0], 100.0, 50.0, 5.0, 10.0));
+const gib = {};
+for (const [bm, im, cw] of [['treemap', 'fr', [2.0, 1.0]], ['force_directed', 'yifan_hu', null]]) {
+  const s = new mod.GroupInABoxSolver(gBb, commLabels, {
+    boxMode: bm,
+    intraMode: im,
+    intraIterations: 6,
+    fdIterations: 6,
+    clusterWeights: cw,
+    seed: 42,
+  });
+  const l = mod.Layout2d.fromCoords(init10);
+  s.run(l);
+  gib[`${bm}_${im}`] = { coords: Array.from(l.coordsView()), boxes: s.boxes() };
+  l.free?.(); s.free?.();
+}
+
+// W1-5
+const gtBox = new mod.GTreeOverlapRemoval(hw10, hh10, { maxIterations: 25, padding: 0.02, seed: 42 });
+const lGtBox = mod.Layout2d.fromCoords(ov);
+gtBox.run(lGtBox);
+const gtRad = mod.GTreeOverlapRemoval.fromRadii(hw10, { maxIterations: 25, padding: 0.02, seed: 42 });
+const lGtRad = mod.Layout2d.fromCoords(ov);
+gtRad.run(lGtRad);
+
+const fb = {};
+for (const variant of ['forbid', 'forbid_prime', 'sparse_forbid']) {
+  const s = new mod.ForbidOverlapRemoval(hw10, hh10, {
+    variant,
+    maxScaleIters: 25,
+    sgdIterations: 30,
+    seed: 42,
+  });
+  const l = mod.Layout2d.fromCoords(ov);
+  s.run(l);
+  fb[variant] = { coords: Array.from(l.coordsView()), ov: s.lastOverlapCount };
+  l.free?.(); s.free?.();
+}
+const fbRad = mod.ForbidOverlapRemoval.fromRadii(hw10, {
+  variant: 'forbid',
+  maxScaleIters: 25,
+  sgdIterations: 30,
+  seed: 42,
+});
+const lFbRad = mod.Layout2d.fromCoords(ov);
+fbRad.run(lFbRad);
+
+// W1-6
+const lSep = mod.Layout2d.fromCoords(sep);
+const lOv = mod.Layout2d.fromCoords(ov);
+const pa = mod.partitionAgreement(commLabels, predLabels);
+const cqKm = mod.cqKmeans(lSep, commLabels, 5, 50, 42);
+const cqHac = mod.cqHac(lSep, commLabels);
+const cdmRes = mod.classDensityMeasure(lSep, commLabels, 32, null);
+const norG = mod.norMetrics(gBb, lOv, lGtBox, hw10, hh10);
+const norNoG = mod.norMetricsWithoutGraph(lOv, lGtBox, hw10, hh10);
+const evRep = mod.evaluateMetrics(
+  gBb,
+  lSep,
+  [
+    'dsc',
+    'dc',
+    'cdm',
+    'hdm',
+    'sepme_knng',
+    'sepme_rng',
+    'sepme_gab',
+    'sepme_gong',
+    'neighborhood_hit',
+    'silhouette',
+    'calinski_harabasz',
+    'davies_bouldin',
+    'cq_kmeans_ari',
+    'cq_kmeans_ami',
+    'cq_hac_hom',
+    'cq_hac_ami',
+    'pairwise_distance_overlap_error',
+    'sprawlter_nn',
+  ],
+  {
+    communityLabels: commLabels,
+    sepmeKnngK: 2,
+    neighborhoodHitK: 3,
+    dcGridSize: 16,
+    cdmGridSize: 32,
+    numBins: 32,
+    gongGamma: 0.35,
+    kmeansNInit: 5,
+    kmeansMaxIters: 50,
+    sprawlterNodeRadius: 0.5,
+    seed: 42,
+  },
+);
+
+const out = {
+  w1_available: true,
+  leidenMod: {
+    labels: Array.from(lMod.labels()),
+    numCommunities: lMod.numCommunities,
+    quality: lMod.quality,
+    modularity: lMod.modularity,
+    passes: lMod.passes,
+  },
+  leidenCpm: {
+    labels: Array.from(lCpm.labels()),
+    numCommunities: lCpm.numCommunities,
+    quality: lCpm.quality,
+    modularity: lCpm.modularity,
+    passes: lCpm.passes,
+  },
+  linlog,
+  fr,
+  fa2Out,
+  bbEx: {
+    umstEdges: Array.from(bbEx.umstEdges()),
+    backboneEdges: Array.from(bbEx.backboneEdges()),
+    simmelianWeights: Array.from(bbEx.simmelianWeights()),
+    edgeWeights: Array.from(bbEx.edgeWeights()),
+    csrNodes: bbCsr.numNodes(),
+    csrEdges: bbCsr.numEdges(),
+  },
+  bbSol,
+  cr,
+  crFn: { moved: crFnMoved, coords: crFnCoords },
+  treemap,
+  gib,
+  gt: {
+    boxCoords: Array.from(lGtBox.coordsView()),
+    boxOv: gtBox.lastOverlapCount,
+    radCoords: Array.from(lGtRad.coordsView()),
+    radOv: gtRad.lastOverlapCount,
+  },
+  fb,
+  fbRad: { coords: Array.from(lFbRad.coordsView()), ov: fbRad.lastOverlapCount },
+  w16: {
+    pa: pa.toRecord(),
+    cqKm: cqKm.toRecord(),
+    cqHac: cqHac.toRecord(),
+    norG: norG.toRecord(),
+    norNoG: norNoG.toRecord(),
+    ev: evRep.toRecord(),
+    standalone: {
+      dsc: mod.distanceConsistency(lSep, commLabels),
+      dc: mod.distributionConsistency(lSep, commLabels, 16),
+      cdm: cdmRes.cdm,
+      hdm: cdmRes.hdm,
+      sepmeKnng: mod.sepmeKnng(lSep, commLabels, 2),
+      sepmeRng: mod.sepmeRng(lSep, commLabels),
+      sepmeGab: mod.sepmeGab(lSep, commLabels),
+      sepmeGong: mod.sepmeGong(lSep, commLabels, 0.35),
+      neighborhoodHit: mod.neighborhoodHit(lSep, commLabels, 3),
+      silhouette: mod.silhouetteScore(lSep, commLabels),
+      calinskiHarabasz: mod.calinskiHarabaszScore(lSep, commLabels),
+      daviesBouldin: mod.daviesBouldinScore(lSep, commLabels),
+      pdoe: mod.pairwiseDistanceOverlapError(lSep, commLabels, 32),
+      sprawlterRect: mod.sprawlterNn(lOv, hw10, hh10),
+      sprawlterRad: mod.sprawlterNnRadii(lOv, hw10),
+    },
+  },
+};
+
+evRep.free?.(); norNoG.free?.(); norG.free?.(); cdmRes.free?.(); cqHac.free?.(); cqKm.free?.(); pa.free?.();
+lOv.free?.(); lSep.free?.();
+lFbRad.free?.(); fbRad.free?.(); lGtRad.free?.(); gtRad.free?.(); lGtBox.free?.(); gtBox.free?.();
+bbCsr.free?.(); bbEx.free?.(); lCpm.free?.(); lMod.free?.(); gBb.free?.();
+
+console.log(JSON.stringify(out));
+"""
+    raw_out = subprocess.check_output(
+        ["node", "--input-type=module", "-e", node_script, node_url, wasm_path, json.dumps(spec_payload)],
+        text=True,
+    )
+    ws = json.loads(raw_out.strip().splitlines()[-1])
+    if not ws.get("w1_available", False):
+        return [{
+            "case": "cross_target_w1_py_vs_wasm",
+            "status": "skipped_no_wasm_w1",
+            "elapsed_sec": round(time.perf_counter() - t0, 4),
+        }]
+
+    max_f32_diff = 0.0
+    max_f64_diff = 0.0
+
+    def check_close(label: str, a: Any, b: Any, tol: float, is_f32: bool = True) -> None:
+        nonlocal max_f32_diff, max_f64_diff
+        arr_a = np.asarray(a, dtype=np.float64).ravel()
+        arr_b = np.asarray(b, dtype=np.float64).ravel()
+        assert arr_a.shape == arr_b.shape, f"{label}: shape mismatch {arr_a.shape} vs {arr_b.shape}"
+        diff = float(np.max(np.abs(arr_a - arr_b))) if arr_a.size else 0.0
+        if is_f32:
+            max_f32_diff = max(max_f32_diff, diff)
+        else:
+            max_f64_diff = max(max_f64_diff, diff)
+        assert diff < tol, f"{label}: diff={diff} >= {tol}"
+
+    # W1-1 checks
+    for tag, py_r, ws_r in (
+        ("mod", leiden_mod_py, ws["leidenMod"]),
+        ("cpm", leiden_cpm_py, ws["leidenCpm"]),
+    ):
+        assert list(py_r["labels"]) == list(ws_r["labels"]), f"leiden/{tag} labels mismatch"
+        assert py_r["num_communities"] == ws_r["numCommunities"]
+        assert py_r["passes"] == ws_r["passes"]
+        check_close(
+            f"leiden/{tag}/quality_mod",
+            [py_r["quality"], py_r["modularity"]],
+            [ws_r["quality"], ws_r["modularity"]],
+            1e-12,
+            is_f32=False,
+        )
+
+    # W1-2 checks
+    for rep in ("edge_repulsion", "node_repulsion"):
+        check_close(f"linlog/{rep}/coords", linlog_py[rep]["coords"], ws["linlog"][rep]["coords"], 1e-4)
+        check_close(
+            f"linlog/{rep}/scalars",
+            [linlog_py[rep]["energy"], linlog_py[rep]["max_disp"]],
+            [ws["linlog"][rep]["energy"], ws["linlog"][rep]["maxDisp"]],
+            1e-4,
+        )
+    for backend in ("exact", "barnes_hut", "grid"):
+        check_close(f"fr/{backend}/coords", fr_py[backend]["coords"], ws["fr"][backend]["coords"], 1e-4)
+        check_close(
+            f"fr/{backend}/opt_dist", [fr_py[backend]["opt_dist"]], [ws["fr"][backend]["optDist"]], 1e-12, is_f32=False
+        )
+    check_close("fa2_overlap/coords", fa2_coords_py, ws["fa2Out"]["coords"], 1e-4)
+    check_close("fa2_overlap/radii", fa2_radii_py, ws["fa2Out"]["radii"], 1e-12, is_f32=False)
+
+    # W1-3 checks
+    assert list(bb_ex_py["umst_edges"].ravel()) == ws["bbEx"]["umstEdges"]
+    assert list(bb_ex_py["backbone_edges"].ravel()) == ws["bbEx"]["backboneEdges"]
+    assert bb_ex_py["backbone_csr"].num_nodes == ws["bbEx"]["csrNodes"]
+    assert bb_ex_py["backbone_csr"].num_edges == ws["bbEx"]["csrEdges"]
+    check_close("backbone/simmelian", bb_ex_py["simmelian_weights"], ws["bbEx"]["simmelianWeights"], 1e-12, is_f32=False)
+    check_close("backbone/edge_weights", bb_ex_py["edge_weights"], ws["bbEx"]["edgeWeights"], 1e-12, is_f32=False)
+    for mode in ("stress", "sgd"):
+        check_close(f"backbone_solver/{mode}", bb_sol_py[mode], ws["bbSol"][mode], 1e-4)
+
+    # W1-4 checks
+    for method in ("kmeans", "hac"):
+        assert cr_py[method]["moved"] == ws["cr"][method]["moved"]
+        assert cr_py[method]["clusters"] == ws["cr"][method]["clusters"]
+        check_close(f"cluster_refine/{method}", cr_py[method]["coords"], ws["cr"][method]["coords"], 1e-4)
+    assert cr_fn_moved_py == ws["crFn"]["moved"]
+    check_close("refine_cluster_layout", cr_fn_coords_py, ws["crFn"]["coords"], 1e-4)
+    check_close("squarified_treemap", treemap_py, ws["treemap"], 1e-12, is_f32=False)
+    for key in ("treemap_fr", "force_directed_yifan_hu"):
+        check_close(f"gib/{key}/coords", gib_py[key]["coords"], ws["gib"][key]["coords"], 1e-4)
+        assert len(gib_py[key]["boxes"]) == len(ws["gib"][key]["boxes"])
+        for pb, wb in zip(gib_py[key]["boxes"], ws["gib"][key]["boxes"]):
+            assert pb["cluster_id"] == wb["clusterId"]
+            assert pb["node_count"] == wb["nodeCount"]
+            check_close(
+                f"gib/{key}/box_{pb['cluster_id']}",
+                [pb["x_min"], pb["x_max"], pb["y_min"], pb["y_max"], pb["weight"]],
+                [wb["xMin"], wb["xMax"], wb["yMin"], wb["yMax"], wb["weight"]],
+                1e-4,
+            )
+
+    # W1-5 checks
+    assert gt_box.last_overlap_count == ws["gt"]["boxOv"] == 0
+    assert gt_rad.last_overlap_count == ws["gt"]["radOv"] == 0
+    check_close("gtree/box", l_gt_box.coords(copy=True), ws["gt"]["boxCoords"], 1e-4)
+    check_close("gtree/radii", l_gt_rad.coords(copy=True), ws["gt"]["radCoords"], 1e-4)
+    for var in ("forbid", "forbid_prime", "sparse_forbid"):
+        assert fb_py[var]["ov"] == ws["fb"][var]["ov"] == 0
+        check_close(f"forbid/{var}", fb_py[var]["coords"], ws["fb"][var]["coords"], 1e-4)
+    assert fb_rad.last_overlap_count == ws["fbRad"]["ov"] == 0
+    check_close("forbid/radii", l_fb_rad.coords(copy=True), ws["fbRad"]["coords"], 1e-4)
+
+    # W1-6 checks
+    pa_keys = (("ari", "ari"), ("ami", "ami"), ("homogeneity", "homogeneity"), ("completeness", "completeness"), ("v_measure", "vMeasure"), ("fmi", "fmi"))
+    for pk, wk in pa_keys:
+        check_close(f"partition_agreement/{pk}", [pa_py[pk]], [ws["w16"]["pa"][wk]], 1e-12, is_f32=False)
+        check_close(f"cq_kmeans/{pk}", [cq_km_py[pk]], [ws["w16"]["cqKm"][wk]], 1e-12, is_f32=False)
+        check_close(f"cq_hac/{pk}", [cq_hac_py[pk]], [ws["w16"]["cqHac"][wk]], 1e-12, is_f32=False)
+    for tag, py_n, ws_n in (("with_graph", nor_g_py, ws["w16"]["norG"]), ("no_graph", nor_nog_py, ws["w16"]["norNoG"])):
+        for pk, wk in (("oo_nni", "ooNni"), ("sp_ch_a", "spChA"), ("gs_bb_iar", "gsBbIar"), ("nm_dm_imse", "nmDmImse"), ("el_rsd", "elRsd")):
+            check_close(f"nor/{tag}/{pk}", [py_n[pk]], [ws_n[wk]], 1e-10, is_f32=False)
+    for pk, wk in (
+        ("dsc", "dsc"),
+        ("dc", "dc"),
+        ("cdm", "cdm"),
+        ("hdm", "hdm"),
+        ("sepme_knng", "sepmeKnng"),
+        ("sepme_rng", "sepmeRng"),
+        ("sepme_gab", "sepmeGab"),
+        ("sepme_gong", "sepmeGong"),
+        ("neighborhood_hit", "neighborhoodHit"),
+        ("silhouette", "silhouette"),
+        ("calinski_harabasz", "calinskiHarabasz"),
+        ("davies_bouldin", "daviesBouldin"),
+        ("pdoe", "pdoe"),
+        ("sprawlter_rect", "sprawlterRect"),
+        ("sprawlter_rad", "sprawlterRad"),
+    ):
+        check_close(f"w16_standalone/{pk}", [standalone_w16_py[pk]], [ws["w16"]["standalone"][wk]], 1e-10, is_f32=False)
+    for pk, wk in (
+        ("dsc", "dsc"),
+        ("dc", "dc"),
+        ("cdm", "cdm"),
+        ("hdm", "hdm"),
+        ("sepme_knng", "sepmeKnng"),
+        ("sepme_rng", "sepmeRng"),
+        ("sepme_gab", "sepmeGab"),
+        ("sepme_gong", "sepmeGong"),
+        ("neighborhood_hit", "neighborhoodHit"),
+        ("silhouette", "silhouette"),
+        ("calinski_harabasz", "calinskiHarabasz"),
+        ("davies_bouldin", "daviesBouldin"),
+        ("cq_kmeans_ari", "cqKmeansAri"),
+        ("cq_kmeans_ami", "cqKmeansAmi"),
+        ("cq_hac_hom", "cqHacHom"),
+        ("cq_hac_ami", "cqHacAmi"),
+        ("pairwise_distance_overlap_error", "pairwiseDistanceOverlapError"),
+        ("sprawlter_nn", "sprawlterNn"),
+    ):
+        check_close(f"evaluate_metrics/w16/{pk}", [ev_w16_py[pk]], [ws["w16"]["ev"][wk]], 1e-10, is_f32=False)
+
+    return [{
+        "case": "cross_target_w1_py_vs_wasm",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+        "max_f32_diff": round(max_f32_diff, 12),
+        "max_f64_diff": round(max_f64_diff, 12),
+    }]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="egraph cross-target parity harness")
     parser.add_argument("--wasm-pkg", type=pathlib.Path, default=None, help="Path to built v6 WASM pkg/")
@@ -5931,6 +7045,7 @@ def main() -> int:
             results.extend(run_cross_target_m3_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m4_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m5_parity(eg_mod, args.wasm_pkg))
+            results.extend(run_cross_target_w1_parity(eg_mod, args.wasm_pkg))
 
     print(f"{'CASE':<40} {'STATUS':<24} {'ELAPSED(s)':>10}")
     print("-" * 78)

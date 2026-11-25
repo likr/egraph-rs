@@ -200,7 +200,7 @@ jobs:
         run: |
           cargo check -p egraph-wasm --target wasm32-unknown-unknown
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
+          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5 --test v6_w1
           wasm-pack test --node crates/wasm --features legacy
 
       - name: Build optimized web bundle and assemble pkg
