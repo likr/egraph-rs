@@ -1219,10 +1219,13 @@ impl PyForceAtlas2Solver {
             outbound_attraction_distribution = false,
             jitter_tolerance = StrictF64(1.0),
             max_displacement = None,
+            prevent_overlap = false,
+            default_node_radius = StrictF64(1.0),
+            node_radii = None,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, iterations=200, theta=1.2, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, max_displacement=None, seed=42, dtype='float64')"
+        text_signature = "(graph, *, iterations=200, theta=1.2, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, max_displacement=None, prevent_overlap=False, default_node_radius=1.0, node_radii=None, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -1238,9 +1241,13 @@ impl PyForceAtlas2Solver {
         outbound_attraction_distribution: bool,
         jitter_tolerance: StrictF64,
         max_displacement: Option<StrictF64>,
+        prevent_overlap: bool,
+        default_node_radius: StrictF64,
+        node_radii: Option<&Bound<'_, PyAny>>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
+        let radii_opt = extract_optional_weights_1d(node_radii, "node_radii")?;
         let cfg = ForceAtlas2Config {
             iterations: iterations.0,
             theta: theta.0,
@@ -1253,17 +1260,26 @@ impl PyForceAtlas2Solver {
             outbound_attraction_distribution,
             jitter_tolerance: jitter_tolerance.0,
             max_displacement: max_displacement.map(|v| v.0),
+            prevent_overlap,
+            default_node_radius: default_node_radius.0,
             seed: seed.0,
-            ..ForceAtlas2Config::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
-            .detach(|| match dtype {
-                ScalarDtype::F64 => {
+            .detach(|| match (dtype, radii_opt) {
+                (ScalarDtype::F64, Some(radii)) => {
+                    ForceAtlas2Solver::<f64>::with_node_radii(g, cfg, radii)
+                        .map(ForceAtlas2Inner::F64)
+                }
+                (ScalarDtype::F32, Some(radii)) => {
+                    ForceAtlas2Solver::<f32>::with_node_radii(g, cfg, radii)
+                        .map(ForceAtlas2Inner::F32)
+                }
+                (ScalarDtype::F64, None) => {
                     ForceAtlas2Solver::<f64>::new(g, cfg).map(ForceAtlas2Inner::F64)
                 }
-                ScalarDtype::F32 => {
+                (ScalarDtype::F32, None) => {
                     ForceAtlas2Solver::<f32>::new(g, cfg).map(ForceAtlas2Inner::F32)
                 }
             })
@@ -1324,6 +1340,33 @@ impl PyForceAtlas2Solver {
         match &self.inner {
             ForceAtlas2Inner::F64(s) => s.num_nodes(),
             ForceAtlas2Inner::F32(s) => s.num_nodes(),
+        }
+    }
+
+    /// Whether Jacomy (2014) border-to-border overlap prevention is enabled.
+    #[getter]
+    fn prevent_overlap(&self) -> bool {
+        match &self.inner {
+            ForceAtlas2Inner::F64(s) => s.config().prevent_overlap,
+            ForceAtlas2Inner::F32(s) => s.config().prevent_overlap,
+        }
+    }
+
+    /// Configured default per-node radius used when `node_radii` was omitted.
+    #[getter]
+    fn default_node_radius(&self) -> f64 {
+        match &self.inner {
+            ForceAtlas2Inner::F64(s) => s.config().default_node_radius,
+            ForceAtlas2Inner::F32(s) => s.config().default_node_radius,
+        }
+    }
+
+    /// Effective per-node collision radii as a `float64` NumPy array of length `N`.
+    #[getter]
+    fn node_radii<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        match &self.inner {
+            ForceAtlas2Inner::F64(s) => PyArray1::from_slice(py, s.node_radii()),
+            ForceAtlas2Inner::F32(s) => PyArray1::from_slice(py, s.node_radii()),
         }
     }
 

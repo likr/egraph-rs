@@ -10,7 +10,7 @@ use egraph::{
 };
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
 use egraph_ffi::{ErrorKind, FfiError, InterleavedLayout2d, build_csr_f64, build_edges_f64};
-use egraph_metrics::{ClusterAreaConfig, MetricConfig, MetricTarget};
+use egraph_metrics::{ClusterAreaConfig, ClusterBaselineConfig, MetricConfig, MetricTarget};
 use egraph_spatial::{Delaunay2d, RectangleOverlapSweep};
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{
@@ -21,6 +21,22 @@ use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyType};
 
+macro_rules! dispatch_layout2d {
+    ($py:expr, $layout:expr, |$soa:ident| $body:expr) => {
+        $py.detach(|| match $layout.inner() {
+            Layout2dInner::F64(buf) => {
+                let $soa = buf.to_layout2d();
+                $body
+            }
+            Layout2dInner::F32(buf) => {
+                let $soa = buf.to_layout2d();
+                $body
+            }
+        })
+        .map_err(core_error_to_py)
+    };
+}
+
 #[path = "v6_m2.rs"]
 mod v6_m2;
 #[path = "v6_m3.rs"]
@@ -29,6 +45,8 @@ mod v6_m3;
 mod v6_m4;
 #[path = "v6_m5.rs"]
 mod v6_m5;
+#[path = "v6_w1.rs"]
+mod v6_w1;
 
 pub(crate) use v6_m4::{
     v6_cycle_edges_impl, v6_generate_layered_constraints_impl, v6_project_1d_impl,
@@ -797,23 +815,7 @@ impl PyLayout2d {
     }
 }
 
-macro_rules! dispatch_layout2d {
-    ($py:expr, $layout:expr, |$soa:ident| $body:expr) => {
-        $py.detach(|| match $layout.inner() {
-            Layout2dInner::F64(buf) => {
-                let $soa = buf.to_layout2d();
-                $body
-            }
-            Layout2dInner::F32(buf) => {
-                let $soa = buf.to_layout2d();
-                $body
-            }
-        })
-        .map_err(core_error_to_py)
-    };
-}
-
-fn layout_f32_to_f64(layout: &Layout2d<f32>) -> Layout2d<f64> {
+pub(super) fn layout_f32_to_f64(layout: &Layout2d<f32>) -> Layout2d<f64> {
     let x: Vec<f64> = layout.x().iter().map(|&v| f64::from(v)).collect();
     let y: Vec<f64> = layout.y().iter().map(|&v| f64::from(v)).collect();
     // Lengths from an existing `Layout2d<f32>` are guaranteed equal.
@@ -870,6 +872,24 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
             Ok(MetricTarget::LandmarkStratifiedRta)
         }
+        "dsc" | "distanceconsistency" => Ok(MetricTarget::Dsc),
+        "dc" | "distributionconsistency" => Ok(MetricTarget::Dc),
+        "cdm" | "classdensitymeasure" => Ok(MetricTarget::Cdm),
+        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::Hdm),
+        "sepmeknng" | "sepmeknng2" => Ok(MetricTarget::SepmeKnng),
+        "sepmerng" => Ok(MetricTarget::SepmeRng),
+        "sepmegab" => Ok(MetricTarget::SepmeGab),
+        "sepmegong" => Ok(MetricTarget::SepmeGong),
+        "neighborhoodhit" | "mnh" => Ok(MetricTarget::NeighborhoodHit),
+        "silhouette" | "silhouettescore" => Ok(MetricTarget::Silhouette),
+        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => Ok(MetricTarget::CalinskiHarabasz),
+        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldin),
+        "cqkmeansari" => Ok(MetricTarget::CqKmeansAri),
+        "cqkmeansami" => Ok(MetricTarget::CqKmeansAmi),
+        "cqhachom" | "cqhachomogeneity" => Ok(MetricTarget::CqHacHom),
+        "cqhacami" => Ok(MetricTarget::CqHacAmi),
+        "pairwisedistanceoverlaperror" | "pdoe" => Ok(MetricTarget::PairwiseDistanceOverlapError),
+        "sprawlternn" => Ok(MetricTarget::SprawlterNn),
         _ => Err(format!("unknown metric target {raw:?}")),
     }
 }
@@ -2389,14 +2409,18 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// `"angular_resolution"`, `"minimum_angle"` (`"min_angle"`), `"minimum_angle_a1"`,
 /// `"layout_degeneracy"`, `"ideal_edge_lengths"`, `"adjusted_patch_nig"` (requires
 /// `community_labels`), `"cluster_area_faithfulness"` (`"gcaf"`, requires
-/// `community_labels`), and `"landmark_stratified_rta"` (`"rta"`).
+/// `community_labels`), `"landmark_stratified_rta"` (`"rta"`), `"dsc"`, `"dc"`, `"cdm"`,
+/// `"hdm"`, `"sepme_knng"` (`"sepme_knng2"`), `"sepme_rng"`, `"sepme_gab"`, `"sepme_gong"`,
+/// `"neighborhood_hit"`, `"silhouette"`, `"calinski_harabasz"`, `"davies_bouldin"`,
+/// `"cq_kmeans_ari"`, `"cq_kmeans_ami"`, `"cq_hac_hom"`, `"cq_hac_ami"`,
+/// `"pairwise_distance_overlap_error"` (`"pdoe"`), and `"sprawlter_nn"`.
 ///
 /// Releases the Python GIL during computation and returns a dict keyed by canonical
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), node_weights = None, cluster_weights = None),
-    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, node_weights=None, cluster_weights=None)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), node_weights = None, cluster_weights = None, sepme_knng_k = StrictUsize(2), neighborhood_hit_k = StrictUsize(7), dc_grid_size = StrictUsize(20), cdm_grid_size = StrictUsize(64), cdm_bandwidth = None, num_bins = StrictUsize(100), gong_gamma = StrictF64(0.35), kmeans_n_init = StrictUsize(5), kmeans_max_iters = StrictUsize(100), sprawlter_node_radius = StrictF64(1.0)),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, node_weights=None, cluster_weights=None, sepme_knng_k=2, neighborhood_hit_k=7, dc_grid_size=20, cdm_grid_size=64, cdm_bandwidth=None, num_bins=100, gong_gamma=0.35, kmeans_n_init=5, kmeans_max_iters=100, sprawlter_node_radius=1.0)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(
@@ -2423,6 +2447,16 @@ fn evaluate_metrics(
     stevens_gamma: StrictF64,
     node_weights: Option<&Bound<'_, PyAny>>,
     cluster_weights: Option<&Bound<'_, PyAny>>,
+    sepme_knng_k: StrictUsize,
+    neighborhood_hit_k: StrictUsize,
+    dc_grid_size: StrictUsize,
+    cdm_grid_size: StrictUsize,
+    cdm_bandwidth: Option<StrictF64>,
+    num_bins: StrictUsize,
+    gong_gamma: StrictF64,
+    kmeans_n_init: StrictUsize,
+    kmeans_max_iters: StrictUsize,
+    sprawlter_node_radius: StrictF64,
 ) -> PyResult<BTreeMap<String, f64>> {
     let target_list = extract_metric_targets(targets)?;
     let comm_labels_vec = match community_labels {
@@ -2453,7 +2487,19 @@ fn evaluate_metrics(
             boundary_r95: boundary_r95.0,
             stevens_gamma: stevens_gamma.0,
         },
-        ..MetricConfig::default()
+        cluster_baselines: ClusterBaselineConfig {
+            sepme_knng_k: sepme_knng_k.0,
+            neighborhood_hit_k: neighborhood_hit_k.0,
+            dc_grid_size: dc_grid_size.0,
+            cdm_grid_size: cdm_grid_size.0,
+            cdm_bandwidth: cdm_bandwidth.map(|v| v.0),
+            num_bins: num_bins.0,
+            gong_gamma: gong_gamma.0,
+            kmeans_n_init: kmeans_n_init.0,
+            kmeans_max_iters: kmeans_max_iters.0,
+            seed: seed.0,
+            sprawlter_node_radius: sprawlter_node_radius.0,
+        },
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
@@ -2540,6 +2586,60 @@ fn evaluate_metrics(
     }
     if let Some(v) = report.landmark_stratified_rta {
         out.insert("landmark_stratified_rta".to_owned(), v);
+    }
+    if let Some(v) = report.dsc {
+        out.insert("dsc".to_owned(), v);
+    }
+    if let Some(v) = report.dc {
+        out.insert("dc".to_owned(), v);
+    }
+    if let Some(v) = report.cdm {
+        out.insert("cdm".to_owned(), v);
+    }
+    if let Some(v) = report.hdm {
+        out.insert("hdm".to_owned(), v);
+    }
+    if let Some(v) = report.sepme_knng {
+        out.insert("sepme_knng".to_owned(), v);
+    }
+    if let Some(v) = report.sepme_rng {
+        out.insert("sepme_rng".to_owned(), v);
+    }
+    if let Some(v) = report.sepme_gab {
+        out.insert("sepme_gab".to_owned(), v);
+    }
+    if let Some(v) = report.sepme_gong {
+        out.insert("sepme_gong".to_owned(), v);
+    }
+    if let Some(v) = report.neighborhood_hit {
+        out.insert("neighborhood_hit".to_owned(), v);
+    }
+    if let Some(v) = report.silhouette {
+        out.insert("silhouette".to_owned(), v);
+    }
+    if let Some(v) = report.calinski_harabasz {
+        out.insert("calinski_harabasz".to_owned(), v);
+    }
+    if let Some(v) = report.davies_bouldin {
+        out.insert("davies_bouldin".to_owned(), v);
+    }
+    if let Some(v) = report.cq_kmeans_ari {
+        out.insert("cq_kmeans_ari".to_owned(), v);
+    }
+    if let Some(v) = report.cq_kmeans_ami {
+        out.insert("cq_kmeans_ami".to_owned(), v);
+    }
+    if let Some(v) = report.cq_hac_hom {
+        out.insert("cq_hac_hom".to_owned(), v);
+    }
+    if let Some(v) = report.cq_hac_ami {
+        out.insert("cq_hac_ami".to_owned(), v);
+    }
+    if let Some(v) = report.pairwise_distance_overlap_error {
+        out.insert("pairwise_distance_overlap_error".to_owned(), v);
+    }
+    if let Some(v) = report.sprawlter_nn {
+        out.insert("sprawlter_nn".to_owned(), v);
     }
     Ok(out)
 }
@@ -2629,7 +2729,7 @@ fn crossing_summary(
     Ok(dict.unbind())
 }
 
-fn pairs_to_u32_array2<'py>(
+pub(super) fn pairs_to_u32_array2<'py>(
     py: Python<'py>,
     pairs: Vec<(u32, u32)>,
 ) -> PyResult<Bound<'py, PyArray2<u32>>> {
@@ -3006,6 +3106,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     v6_m3::register_m3(m)?;
     v6_m4::register_m4(m)?;
     v6_m5::register_m5(m)?;
+    v6_w1::register_w1(m)?;
     Ok(())
 }
 
@@ -3068,5 +3169,48 @@ mod tests {
             );
         }
         assert!(parse_metric_target("not_a_metric").is_err());
+    }
+
+    #[test]
+    fn test_w1_metric_target_aliases() {
+        let cases = [
+            ("dsc", MetricTarget::Dsc),
+            ("distance_consistency", MetricTarget::Dsc),
+            ("dc", MetricTarget::Dc),
+            ("distribution_consistency", MetricTarget::Dc),
+            ("cdm", MetricTarget::Cdm),
+            ("class_density_measure", MetricTarget::Cdm),
+            ("hdm", MetricTarget::Hdm),
+            ("2d-hdm", MetricTarget::Hdm),
+            ("histogram_density_measure", MetricTarget::Hdm),
+            ("sepme_knng", MetricTarget::SepmeKnng),
+            ("sepme-knng", MetricTarget::SepmeKnng),
+            ("sepme_knng2", MetricTarget::SepmeKnng),
+            ("sepme-knng2", MetricTarget::SepmeKnng),
+            ("sepme_rng", MetricTarget::SepmeRng),
+            ("sepme_gab", MetricTarget::SepmeGab),
+            ("sepme_gong", MetricTarget::SepmeGong),
+            ("neighborhood_hit", MetricTarget::NeighborhoodHit),
+            ("m_nh", MetricTarget::NeighborhoodHit),
+            ("silhouette", MetricTarget::Silhouette),
+            ("silhouette_score", MetricTarget::Silhouette),
+            ("calinski_harabasz", MetricTarget::CalinskiHarabasz),
+            ("ch", MetricTarget::CalinskiHarabasz),
+            ("davies_bouldin", MetricTarget::DaviesBouldin),
+            ("db", MetricTarget::DaviesBouldin),
+            ("cq_kmeans_ari", MetricTarget::CqKmeansAri),
+            ("cq_kmeans_ami", MetricTarget::CqKmeansAmi),
+            ("cq_hac_hom", MetricTarget::CqHacHom),
+            ("cq_hac_ami", MetricTarget::CqHacAmi),
+            (
+                "pairwise_distance_overlap_error",
+                MetricTarget::PairwiseDistanceOverlapError,
+            ),
+            ("pdoe", MetricTarget::PairwiseDistanceOverlapError),
+            ("sprawlter_nn", MetricTarget::SprawlterNn),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(parse_metric_target(raw).unwrap(), expected, "raw={raw}");
+        }
     }
 }

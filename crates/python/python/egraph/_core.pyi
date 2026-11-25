@@ -27,12 +27,14 @@ __all__ = [
     "AmgPcgSolver",
     "Array1",
     "Array2",
+    "BackboneSolver",
     "BandPassDiffusionKernel",
     "BandPassDiffusionKernelBuilder",
     "BhTsNet",
     "BhTsNetBuilder",
     "CgSolver",
     "ClassicalMds",
+    "ClusterRefineSolver",
     "Constraint",
     "CsrGraph",
     "CsrMatrix",
@@ -55,12 +57,16 @@ __all__ = [
     "FdebSolver",
     "FitTsNet",
     "FitTsNetBuilder",
+    "ForbidOverlapRemoval",
     "ForceAtlas2Solver",
+    "FruchtermanReingoldSolver",
     "FullSgd",
+    "GTreeOverlapRemoval",
     "GaussianKernel",
     "GaussianKernelBuilder",
     "Graph",
     "GraphAdapter",
+    "GroupInABoxSolver",
     "GuMap",
     "GuMapBuilder",
     "GuMapSolver",
@@ -78,6 +84,7 @@ __all__ = [
     "Laplacian",
     "Layout2d",
     "LayoutNd",
+    "LinLogSolver",
     "LongestPath",
     "Louvain",
     "LowRankDiffusionKernel",
@@ -153,10 +160,12 @@ __all__ = [
     "build_hybrid_adaptive_knn",
     "build_pure_2hop_knn",
     "build_rerank_knn",
+    "calinski_harabasz_score",
     "chebyshev_dog_jl_embedding",
     "chebyshev_dog_jl_embedding_matrix",
     "chebyshev_heat_spmv",
     "chebyshev_heat_spmv_matrix",
+    "class_density_measure",
     "classical_mds_2d",
     "cluster_area_faithfulness",
     "cluster_area_faithfulness_detail",
@@ -174,6 +183,8 @@ __all__ = [
     "compute_regularized_dog_varadhan_landmarks",
     "compute_regularized_dog_varadhan_landmarks_from_matrix",
     "compute_resistance_embedding",
+    "cq_hac",
+    "cq_kmeans",
     "crossing_angle",
     "crossing_angle_with_crossing_edges",
     "crossing_edges",
@@ -183,13 +194,17 @@ __all__ = [
     "crossing_summary",
     "crosslessness",
     "cycle_edges",
+    "davies_bouldin_score",
     "delaunay_to_csr",
     "delaunay_triangulation",
     "dgg_preservation",
+    "distance_consistency",
+    "distribution_consistency",
     "drng_preservation",
     "edge_angle",
     "evaluate_metrics",
     "extract_1hop_2hop_csr",
+    "extract_quadrilateral_backbone",
     "extract_sparse_1hop_2hop_pairs",
     "find_ab_params",
     "gabriel_graph_edges",
@@ -208,20 +223,25 @@ __all__ = [
     "landmark_stratified_rta_detail",
     "landmark_stratified_rta_from_landmarks",
     "layout_degeneracy",
+    "leiden_communities",
     "load_dataset",
     "louvain_coarsen",
     "louvain_communities",
     "minimum_angle",
     "minimum_angle_summary",
+    "neighborhood_hit",
     "neighborhood_preservation",
     "neighborhood_preservation_1hop",
     "neighborhood_preservation_2hop",
     "neighborhood_preservation_2hop_v6",
     "node_resolution",
     "node_resolution_v6",
+    "nor_metrics",
     "normalize_layout_2d",
+    "pairwise_distance_overlap_error",
     "parse_csr_csv",
     "partial_bfs_knn",
+    "partition_agreement",
     "pivot_mds_init",
     "poincare_distance",
     "poincare_mobius_add",
@@ -238,6 +258,7 @@ __all__ = [
     "py_coarsen",
     "rd_mds",
     "rectangle_overlaps",
+    "refine_cluster_layout",
     "relative_neighborhood_edges",
     "remove_cycle",
     "remove_cycles",
@@ -252,10 +273,17 @@ __all__ = [
     "scale_normalized_stress",
     "scale_normalized_stress_from_distances",
     "select_maxmin_sp_pivots",
+    "sepme_gab",
+    "sepme_gong",
+    "sepme_knng",
+    "sepme_rng",
+    "silhouette_score",
     "smallest_laplacian_eigenpairs",
     "spectral_clustering",
     "spectral_moment_stats",
     "spherical_distance",
+    "sprawlter_nn",
+    "squarified_treemap",
     "stress",
     "sweep_crossing_angle",
     "sweep_crossing_number",
@@ -2074,6 +2102,16 @@ def evaluate_metrics(
     stevens_gamma: float = 1.0,
     node_weights: _WeightArrayLike | None = None,
     cluster_weights: _WeightArrayLike | None = None,
+    sepme_knng_k: int = 2,
+    neighborhood_hit_k: int = 7,
+    dc_grid_size: int = 20,
+    cdm_grid_size: int = 64,
+    cdm_bandwidth: float | None = None,
+    num_bins: int = 100,
+    gong_gamma: float = 0.35,
+    kmeans_n_init: int = 5,
+    kmeans_max_iters: int = 100,
+    sprawlter_node_radius: float = 1.0,
 ) -> dict[str, float]: ...
 def delaunay_triangulation(
     layout: Layout2d,
@@ -3690,6 +3728,9 @@ class ForceAtlas2Solver:
         outbound_attraction_distribution: bool = False,
         jitter_tolerance: float = 1.0,
         max_displacement: float | None = None,
+        prevent_overlap: bool = False,
+        default_node_radius: float = 1.0,
+        node_radii: _WeightArrayLike | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> ForceAtlas2Solver: ...
@@ -3706,6 +3747,12 @@ class ForceAtlas2Solver:
     def is_finished(self) -> bool: ...
     @property
     def num_nodes(self) -> int: ...
+    @property
+    def prevent_overlap(self) -> bool: ...
+    @property
+    def default_node_radius(self) -> float: ...
+    @property
+    def node_radii(self) -> npt.NDArray[np.float64]: ...
     @property
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
@@ -4071,3 +4118,415 @@ class ScreenedPoissonRefiner:
     @property
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
+
+def leiden_communities(
+    graph: CsrGraph,
+    *,
+    objective: str = "modularity",
+    resolution: float = 1.0,
+    randomness: float = 0.01,
+    max_passes: int = 100,
+    min_quality_gain: float = 1e-7,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+
+@final
+class LinLogSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        iterations: int = 200,
+        repulsion_model: str = "edge_repulsion",
+        attraction_exponent: float = 0.0,
+        repulsion_exponent: float = -1.0,
+        theta: float = 1.2,
+        use_barnes_hut: bool = True,
+        gravity: float = 0.01,
+        edge_weight_influence: float = 1.0,
+        max_displacement: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> LinLogSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def energy(self, layout: Layout2d) -> float: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def max_displacement(self) -> float: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class FruchtermanReingoldSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        iterations: int = 200,
+        backend: str = "exact",
+        k: float | None = None,
+        area: float | None = None,
+        initial_temperature: float | None = None,
+        gravity: float = 0.0,
+        theta: float = 1.2,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> FruchtermanReingoldSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def optimal_distance(self) -> float: ...
+    @property
+    def current_temperature(self) -> float: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+def extract_quadrilateral_backbone(
+    graph: CsrGraph,
+    *,
+    retain_ratio: float = 0.2,
+    umst_weight_scale: float = 1.0,
+    non_backbone_weight_scale: float = 0.0,
+) -> dict[str, Any]: ...
+
+@final
+class BackboneSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        retain_ratio: float = 0.2,
+        umst_weight_scale: float = 1.0,
+        non_backbone_weight_scale: float = 0.0,
+        layout_mode: str = "stress",
+        iterations: int = 100,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> BackboneSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def backbone_result(self) -> dict[str, Any]: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ClusterRefineSolver:
+    def __new__(
+        cls,
+        cluster_labels: _IndexArrayLike,
+        *,
+        method: str = "kmeans",
+        max_rounds: int = 10,
+        kmeans_n_init: int = 5,
+        kmeans_max_iters: int = 100,
+        shift_step: float = 1.0,
+        margin: float = 0.1,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ClusterRefineSolver: ...
+    @staticmethod
+    def from_graph(
+        graph: CsrGraph,
+        cluster_labels: _IndexArrayLike,
+        *,
+        method: str = "kmeans",
+        max_rounds: int = 10,
+        kmeans_n_init: int = 5,
+        kmeans_max_iters: int = 100,
+        shift_step: float = 1.0,
+        margin: float = 0.1,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ClusterRefineSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def last_moved_count(self) -> int: ...
+    @property
+    def num_clusters(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+def refine_cluster_layout(
+    layout: Layout2d,
+    cluster_labels: _IndexArrayLike,
+    *,
+    method: str = "kmeans",
+    max_rounds: int = 10,
+    kmeans_n_init: int = 5,
+    kmeans_max_iters: int = 100,
+    shift_step: float = 1.0,
+    margin: float = 0.1,
+    seed: int = 42,
+) -> int: ...
+
+def squarified_treemap(
+    weights: _WeightArrayLike,
+    *,
+    width: float = 100.0,
+    height: float = 100.0,
+    x: float = 0.0,
+    y: float = 0.0,
+) -> npt.NDArray[np.float64]: ...
+
+@final
+class GroupInABoxSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        cluster_labels: _IndexArrayLike,
+        *,
+        box_mode: str = "treemap",
+        intra_mode: str = "fr",
+        total_width: float = 100.0,
+        total_height: float = 100.0,
+        box_padding: float = 0.05,
+        intra_iterations: int = 100,
+        fd_iterations: int = 100,
+        cluster_weights: _WeightArrayLike | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GroupInABoxSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def boxes(self) -> list[dict[str, Any]]: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class GTreeOverlapRemoval:
+    def __new__(
+        cls,
+        half_widths: _WeightArrayLike,
+        half_heights: _WeightArrayLike,
+        *,
+        max_iterations: int = 20,
+        padding: float = 0.0,
+        compact_t_max: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GTreeOverlapRemoval: ...
+    @staticmethod
+    def from_radii(
+        radii: _WeightArrayLike,
+        *,
+        max_iterations: int = 20,
+        padding: float = 0.0,
+        compact_t_max: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GTreeOverlapRemoval: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def last_overlap_count(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ForbidOverlapRemoval:
+    def __new__(
+        cls,
+        half_widths: _WeightArrayLike,
+        half_heights: _WeightArrayLike,
+        *,
+        variant: str = "forbid",
+        max_scale_iters: int = 20,
+        sgd_iterations: int = 30,
+        sparse_k: int = 30,
+        overlap_weight_k: float = 1.0,
+        scale_step: float = 0.1,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ForbidOverlapRemoval: ...
+    @staticmethod
+    def from_radii(
+        radii: _WeightArrayLike,
+        *,
+        variant: str = "forbid",
+        max_scale_iters: int = 20,
+        sgd_iterations: int = 30,
+        sparse_k: int = 30,
+        overlap_weight_k: float = 1.0,
+        scale_step: float = 0.1,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> ForbidOverlapRemoval: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def last_overlap_count(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+def partition_agreement(
+    labels_true: _IndexArrayLike,
+    labels_pred: _IndexArrayLike,
+) -> dict[str, float]: ...
+def cq_kmeans(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+    *,
+    n_init: int = 5,
+    max_iters: int = 100,
+    seed: int = 42,
+) -> dict[str, float]: ...
+def cq_hac(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+) -> dict[str, float]: ...
+def distance_consistency(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def distribution_consistency(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    grid_size: int = 20,
+) -> float: ...
+def class_density_measure(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    *,
+    grid_size: int = 64,
+    bandwidth: float | None = None,
+) -> tuple[float, float]: ...
+def sepme_knng(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    k: int = 2,
+) -> float: ...
+def sepme_rng(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def sepme_gab(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def sepme_gong(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    gamma: float = 0.35,
+) -> float: ...
+def neighborhood_hit(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    k: int = 7,
+) -> float: ...
+def silhouette_score(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def calinski_harabasz_score(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def davies_bouldin_score(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+) -> float: ...
+def pairwise_distance_overlap_error(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    num_bins: int = 100,
+) -> float: ...
+def sprawlter_nn(
+    layout: Layout2d,
+    half_widths: _WeightArrayLike,
+    half_heights: _WeightArrayLike | None = None,
+) -> float: ...
+def nor_metrics(
+    orig_layout: Layout2d,
+    adjusted_layout: Layout2d,
+    half_widths: _WeightArrayLike,
+    half_heights: _WeightArrayLike,
+    *,
+    graph: CsrGraph | None = None,
+) -> dict[str, float]: ...
