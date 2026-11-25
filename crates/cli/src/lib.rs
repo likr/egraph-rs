@@ -12,14 +12,15 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use egraph::prelude::{
-    CoreError, CsrGraph, DeterministicRng, DogVaradhanConfig, FieldLayoutSolver, ForceAtlas2Config,
-    ForceAtlas2Solver, GuMapConfig, GuMapSolver, IbUmapConfig, IterativeSolver, KMeansConfig,
-    KamadaKawaiConfig, KamadaKawaiSolver, LabelPropagationConfig, Layout2d, LouvainConfig,
-    MetricConfig, MetricReport, MetricTarget, PacmapGraphConfig, PivotMdsConfig, PrismConfig,
-    PrismOverlapRemoval, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
-    SpatialIntruderRefiner, SpatialRefinerConfig, SpectralClusteringConfig,
-    StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver,
-    YifanHuConfig, YifanHuSolver, evaluate_metrics, evaluate_metrics_with_communities,
+    ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, CoreError, CsrGraph, DeterministicRng,
+    DogVaradhanConfig, FieldLayoutSolver, ForceAtlas2Config, ForceAtlas2Solver, GuMapConfig,
+    GuMapSolver, IbUmapConfig, IterativeSolver, KMeansConfig, KamadaKawaiConfig, KamadaKawaiSolver,
+    LabelPropagationConfig, Layout2d, LouvainConfig, MetricConfig, MetricReport, MetricTarget,
+    PacmapGraphConfig, PivotMdsConfig, PrismConfig, PrismOverlapRemoval, SgdScheduleConfig,
+    SgdSolver, SnapTFdpConfig, SparseBarrierConfig, SpatialIntruderRefiner, SpatialRefinerConfig,
+    SpectralClusteringConfig, StressMajorizationConfig, StressMajorizationSolver, TFdpConfig,
+    TsNetConfig, TsNetSolver, YifanHuConfig, YifanHuSolver, cluster_area_faithfulness,
+    cluster_area_faithfulness_detail, evaluate_metrics, evaluate_metrics_with_communities,
     kmeans_plus_plus, koren_spectral_init, label_propagation, louvain, normalize_layout_2d,
     pivot_mds, spectral_clustering,
 };
@@ -172,10 +173,10 @@ pub struct MetricsArgs {
     /// Input 2D coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`).
+    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`) and `adjusted-patch-nig`.
     #[arg(long, value_name = "FILE")]
     pub community_labels: Option<PathBuf>,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,cluster-area-faithfulness,gcaf,rta,all`).
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,all`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
@@ -190,6 +191,27 @@ pub struct MetricsArgs {
     /// Deterministic RNG seed for sampled metrics.
     #[arg(long, default_value_t = 42)]
     pub seed: u64,
+    /// Maximum G-CAF grid resolution along unit radius R95 (`>= 12`).
+    #[arg(long, default_value_t = 128)]
+    pub gcaf_g_max: usize,
+    /// Gaussian splatting kernel standard deviation in grid cells for G-CAF.
+    #[arg(long, default_value_t = 0.85)]
+    pub gcaf_sigma_cells: f64,
+    /// Over-compression / scatter-tolerance multiplier kappa for G-CAF.
+    #[arg(long, default_value_t = 10.0)]
+    pub gcaf_kappa: f64,
+    /// Physical visibility threshold fraction tau_frac for G-CAF.
+    #[arg(long, default_value_t = 0.18)]
+    pub gcaf_tau_frac: f64,
+    /// Radial evaluation boundary in units of R95 for G-CAF (`inf` allowed).
+    #[arg(long, default_value_t = 2.0)]
+    pub gcaf_boundary_r95: f64,
+    /// Stevens power-law exponent gamma for G-CAF target cluster weights.
+    #[arg(long, default_value_t = 1.0)]
+    pub gcaf_stevens_gamma: f64,
+    /// Include per-cluster G-CAF diagnostics (`gcaf_detail`) in JSON output.
+    #[arg(long, default_value_t = false)]
+    pub gcaf_detail: bool,
     /// Optional output JSON file path (writes to stdout if omitted).
     #[arg(long, value_name = "FILE")]
     pub output: Option<PathBuf>,
@@ -259,6 +281,38 @@ pub struct LayoutOutput {
     pub coords: Vec<[f64; 2]>,
 }
 
+/// Per-cluster G-CAF diagnostics serialized when `--gcaf-detail` is enabled.
+#[derive(Debug, Serialize)]
+pub struct GcafDetailOutput {
+    pub cluster_ids: Vec<u32>,
+    pub counts: Vec<usize>,
+    pub p: Vec<f64>,
+    pub q: Vec<f64>,
+    pub purity: Vec<f64>,
+    pub resolution: Vec<f64>,
+    pub res_density: Vec<f64>,
+    pub res_deconv: Vec<f64>,
+    pub caf_per_cluster: Vec<f64>,
+    pub coherence: Vec<f64>,
+}
+
+impl From<ClusterAreaDetail> for GcafDetailOutput {
+    fn from(detail: ClusterAreaDetail) -> Self {
+        Self {
+            cluster_ids: detail.cluster_ids,
+            counts: detail.counts,
+            p: detail.p,
+            q: detail.q,
+            purity: detail.purity,
+            resolution: detail.resolution,
+            res_density: detail.res_density,
+            res_deconv: detail.res_deconv,
+            caf_per_cluster: detail.caf_per_cluster,
+            coherence: detail.coherence,
+        }
+    }
+}
+
 /// JSON output payload for `egraph metrics`.
 #[derive(Debug, Serialize)]
 pub struct MetricsOutput {
@@ -287,7 +341,19 @@ pub struct MetricsOutput {
     pub minimum_angle_a1: Option<f64>,
     pub layout_degeneracy: Option<f64>,
     pub ideal_edge_lengths: Option<f64>,
+    pub adjusted_patch_nig: Option<f64>,
     pub cluster_area_faithfulness: Option<f64>,
+    pub gcaf_purity_adj: Option<f64>,
+    pub gcaf_prop_vis: Option<f64>,
+    pub gcaf_res_density: Option<f64>,
+    pub gcaf_res_deconv: Option<f64>,
+    pub gcaf_res_combined: Option<f64>,
+    pub gcaf_spatial_coherence: Option<f64>,
+    pub gcaf_in_frac: Option<f64>,
+    pub gcaf_num_clusters: Option<usize>,
+    pub effective_boundary_r95: Option<f64>,
+    pub g_eff: Option<usize>,
+    pub gcaf_detail: Option<GcafDetailOutput>,
     pub landmark_stratified_rta: Option<f64>,
 }
 
@@ -298,6 +364,8 @@ impl MetricsOutput {
         num_edges: usize,
         elapsed_ms: f64,
         report: MetricReport,
+        gcaf_report: Option<ClusterAreaReport>,
+        gcaf_detail: Option<ClusterAreaDetail>,
     ) -> Self {
         Self {
             source,
@@ -325,7 +393,21 @@ impl MetricsOutput {
             minimum_angle_a1: report.minimum_angle_a1,
             layout_degeneracy: report.layout_degeneracy,
             ideal_edge_lengths: report.ideal_edge_lengths,
-            cluster_area_faithfulness: report.cluster_area_faithfulness,
+            adjusted_patch_nig: report.adjusted_patch_nig,
+            cluster_area_faithfulness: gcaf_report
+                .map(|r| r.caf)
+                .or(report.cluster_area_faithfulness),
+            gcaf_purity_adj: gcaf_report.map(|r| r.purity_adj),
+            gcaf_prop_vis: gcaf_report.map(|r| r.prop_vis),
+            gcaf_res_density: gcaf_report.map(|r| r.res_density),
+            gcaf_res_deconv: gcaf_report.map(|r| r.res_deconv),
+            gcaf_res_combined: gcaf_report.map(|r| r.res_combined),
+            gcaf_spatial_coherence: gcaf_report.map(|r| r.spatial_coherence),
+            gcaf_in_frac: gcaf_report.map(|r| r.in_frac),
+            gcaf_num_clusters: gcaf_report.map(|r| r.num_clusters),
+            effective_boundary_r95: gcaf_report.map(|r| r.effective_boundary_r95),
+            g_eff: gcaf_report.map(|r| r.g_eff),
+            gcaf_detail: gcaf_detail.map(GcafDetailOutput::from),
             landmark_stratified_rta: report.landmark_stratified_rta,
         }
     }
@@ -701,6 +783,9 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             "ideal-edge-lengths" => {
                 push_unique_target(&mut targets, MetricTarget::IdealEdgeLengths);
             }
+            "adjusted-patch-nig" | "patch-nig" => {
+                push_unique_target(&mut targets, MetricTarget::AdjustedPatchNig);
+            }
             "cluster-area-faithfulness" | "cluster-area" | "gcaf" | "g-caf" => {
                 push_unique_target(&mut targets, MetricTarget::ClusterAreaFaithfulness);
             }
@@ -810,30 +895,70 @@ pub fn load_community_labels_from_path(path: &Path, expected_nodes: usize) -> Cl
 pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
     let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
     let layout = load_layout_from_path(&args.layout, graph.num_nodes())?;
-    let targets = parse_metric_targets(&args.targets)?;
+    let mut targets = parse_metric_targets(&args.targets)?;
     let community_labels = args
         .community_labels
         .as_deref()
         .map(|path| load_community_labels_from_path(path, graph.num_nodes()))
         .transpose()?;
+    let has_all = args
+        .targets
+        .split(',')
+        .map(|t| t.trim().to_ascii_lowercase().replace('_', "-"))
+        .any(|t| t == "all");
+    if has_all && community_labels.is_some() {
+        push_unique_target(&mut targets, MetricTarget::AdjustedPatchNig);
+        push_unique_target(&mut targets, MetricTarget::ClusterAreaFaithfulness);
+    }
+    if args.gcaf_detail {
+        push_unique_target(&mut targets, MetricTarget::ClusterAreaFaithfulness);
+    }
     let cfg = MetricConfig {
         sns_num_pivots: args.num_pivots,
         sns_seed: args.seed,
         crossing_num_samples: args.num_samples,
         crossing_seed: args.seed,
         ideal_edge_length: args.ideal_edge_length,
+        cluster_area: ClusterAreaConfig {
+            g_max: args.gcaf_g_max,
+            sigma_cells: args.gcaf_sigma_cells,
+            kappa: args.gcaf_kappa,
+            tau_frac: args.gcaf_tau_frac,
+            boundary_r95: args.gcaf_boundary_r95,
+            stevens_gamma: args.gcaf_stevens_gamma,
+        },
         ..MetricConfig::default()
     };
     cfg.validate()?;
 
     let t0 = Instant::now();
+    let want_gcaf = targets.contains(&MetricTarget::ClusterAreaFaithfulness);
+    let non_gcaf_targets: Vec<MetricTarget> = targets
+        .iter()
+        .copied()
+        .filter(|t| *t != MetricTarget::ClusterAreaFaithfulness)
+        .collect();
     let report = evaluate_metrics_with_communities(
         &graph,
         &layout,
-        &targets,
+        &non_gcaf_targets,
         &cfg,
         community_labels.as_deref(),
     )?;
+    let (gcaf_report, gcaf_detail) = if want_gcaf {
+        let labels = community_labels.as_deref().ok_or_else(|| {
+            CoreError::invalid_input("ClusterAreaFaithfulness target requires community_labels")
+        })?;
+        if args.gcaf_detail {
+            let det = cluster_area_faithfulness_detail(&layout, labels, &cfg.cluster_area)?;
+            (Some(det.report), Some(det))
+        } else {
+            let rep = cluster_area_faithfulness(&layout, labels, &cfg.cluster_area)?;
+            (Some(rep), None)
+        }
+    } else {
+        (None, None)
+    };
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     Ok(MetricsOutput::from_report(
@@ -842,6 +967,8 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
         graph.num_edges(),
         elapsed_ms,
         report,
+        gcaf_report,
+        gcaf_detail,
     ))
 }
 
@@ -997,5 +1124,8 @@ mod tests {
 
         let err = parse_metric_targets("all,invalid_target").expect_err("trailing invalid target");
         assert!(matches!(err, CliError::InvalidInput(_)));
+
+        let patch_nig = parse_metric_targets("adjusted-patch-nig,patch_nig").expect("patch-nig");
+        assert_eq!(patch_nig, vec![MetricTarget::AdjustedPatchNig]);
     }
 }

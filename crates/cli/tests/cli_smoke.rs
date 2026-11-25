@@ -431,11 +431,134 @@ fn cli_metrics_cluster_area_faithfulness_and_error_guards() {
     let metrics_all: serde_json::Value =
         serde_json::from_str(&out_all).expect("parse all metrics json");
     assert!(metrics_all["cluster_area_faithfulness"].is_null());
+    assert!(metrics_all["adjusted_patch_nig"].is_null());
+    assert!(metrics_all["gcaf_detail"].is_null());
     assert!(metrics_all["scale_normalized_stress"].as_f64().is_some());
     assert!(
         metrics_all["landmark_stratified_rta"].as_f64().is_some(),
         "expected all standard metrics including landmark_stratified_rta"
     );
+
+    // 3a. G5: `--targets all` WITH `--community-labels` auto-includes `gcaf` and `adjusted-patch-nig`
+    // and populates G-CAF summary fields + effective_boundary_r95 + g_eff (with gcaf_detail=null).
+    let out_all_comm = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "all",
+        "--community-labels",
+        cluster_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_all_comm: serde_json::Value =
+        serde_json::from_str(&out_all_comm).expect("parse all+comm metrics json");
+    let caf_all_comm = metrics_all_comm["cluster_area_faithfulness"]
+        .as_f64()
+        .expect("non-null cluster_area_faithfulness for --targets all --community-labels");
+    assert!((caf_all_comm - caf_json).abs() < 1e-12);
+    assert!(
+        metrics_all_comm["adjusted_patch_nig"].as_f64().is_some(),
+        "expected non-null adjusted_patch_nig for --targets all --community-labels"
+    );
+    assert!(metrics_all_comm["gcaf_purity_adj"].as_f64().is_some());
+    assert!(metrics_all_comm["gcaf_prop_vis"].as_f64().is_some());
+    assert!(metrics_all_comm["gcaf_res_density"].as_f64().is_some());
+    assert!(metrics_all_comm["gcaf_res_deconv"].as_f64().is_some());
+    assert!(metrics_all_comm["gcaf_res_combined"].as_f64().is_some());
+    assert!(
+        metrics_all_comm["gcaf_spatial_coherence"]
+            .as_f64()
+            .is_some()
+    );
+    assert!(metrics_all_comm["gcaf_in_frac"].as_f64().is_some());
+    assert!(metrics_all_comm["gcaf_num_clusters"].as_u64().is_some());
+    assert_eq!(
+        metrics_all_comm["effective_boundary_r95"].as_f64(),
+        Some(2.0)
+    );
+    assert_eq!(metrics_all_comm["g_eff"].as_u64(), Some(12));
+    assert!(metrics_all_comm["gcaf_detail"].is_null());
+
+    // G5: explicit `--targets adjusted-patch-nig` with and without `--community-labels`.
+    let out_patch_nig = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "adjusted-patch-nig",
+        "--community-labels",
+        cluster_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_patch_nig: serde_json::Value =
+        serde_json::from_str(&out_patch_nig).expect("parse adjusted-patch-nig metrics json");
+    assert!(metrics_patch_nig["adjusted_patch_nig"].as_f64().is_some());
+    assert!(
+        metrics_patch_nig["cluster_area_faithfulness"].is_null(),
+        "expected cluster_area_faithfulness to stay null when only adjusted-patch-nig requested"
+    );
+
+    // G4: 6 `--gcaf-*` flags + `--gcaf-detail` populate per-cluster arrays matching num_clusters.
+    let out_gcaf_custom = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "gcaf",
+        "--community-labels",
+        cluster_path.to_str().expect("utf8 path"),
+        "--gcaf-g-max",
+        "64",
+        "--gcaf-sigma-cells",
+        "0.9",
+        "--gcaf-kappa",
+        "8.0",
+        "--gcaf-tau-frac",
+        "0.2",
+        "--gcaf-boundary-r95",
+        "2.5",
+        "--gcaf-stevens-gamma",
+        "0.7",
+        "--gcaf-detail",
+    ]);
+    let metrics_gcaf_custom: serde_json::Value =
+        serde_json::from_str(&out_gcaf_custom).expect("parse custom gcaf detail json");
+    assert_eq!(
+        metrics_gcaf_custom["effective_boundary_r95"].as_f64(),
+        Some(2.5)
+    );
+    let k_clusters = metrics_gcaf_custom["gcaf_num_clusters"]
+        .as_u64()
+        .expect("gcaf_num_clusters") as usize;
+    assert!(k_clusters >= 2);
+    let detail_obj = metrics_gcaf_custom["gcaf_detail"]
+        .as_object()
+        .expect("non-null gcaf_detail when --gcaf-detail passed");
+    for arr_key in [
+        "cluster_ids",
+        "counts",
+        "p",
+        "q",
+        "purity",
+        "resolution",
+        "res_density",
+        "res_deconv",
+        "caf_per_cluster",
+        "coherence",
+    ] {
+        assert_eq!(
+            detail_obj[arr_key]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected array for gcaf_detail.{arr_key}"))
+                .len(),
+            k_clusters
+        );
+    }
 
     // 3b. `--targets all,gcaf` and `--targets gcaf,all` with `--community-labels`
     // must emit both non-null `cluster_area_faithfulness` and all standard metrics.
@@ -502,6 +625,38 @@ fn cli_metrics_cluster_area_faithfulness_and_error_guards() {
         missing_stderr.contains("community_labels"),
         "expected stderr to mention community_labels, got: {missing_stderr}"
     );
+
+    let missing_patch_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "adjusted-patch-nig",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!missing_patch_out.status.success());
+
+    let bad_gcaf_flag_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "gcaf",
+            "--community-labels",
+            cluster_path.to_str().expect("utf8 path"),
+            "--gcaf-g-max",
+            "4",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!bad_gcaf_flag_out.status.success());
 
     // 5. Length mismatch in `--community-labels` errors cleanly.
     fs::write(&labels_bad_len_path, "0 1 2 3\n").expect("write short labels");
