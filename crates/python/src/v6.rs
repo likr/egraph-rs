@@ -10,7 +10,7 @@ use egraph::{
 };
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
 use egraph_ffi::{ErrorKind, FfiError, InterleavedLayout2d, build_csr_f64, build_edges_f64};
-use egraph_metrics::{MetricConfig, MetricTarget};
+use egraph_metrics::{ClusterAreaConfig, MetricConfig, MetricTarget};
 use egraph_spatial::{Delaunay2d, RectangleOverlapSweep};
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{
@@ -852,6 +852,9 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "layoutdegeneracy" => Ok(MetricTarget::LayoutDegeneracy),
         "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
         "adjustedpatchnig" | "patchnig" => Ok(MetricTarget::AdjustedPatchNig),
+        "clusterareafaithfulness" | "clusterarea" | "gcaf" => {
+            Ok(MetricTarget::ClusterAreaFaithfulness)
+        }
         "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
             Ok(MetricTarget::LandmarkStratifiedRta)
         }
@@ -1802,6 +1805,133 @@ fn adjusted_patch_nig_multiscale(
     Ok(out)
 }
 
+/// Compute Grid-based Cluster Area Faithfulness (`G-CAF`) in `[0.0, 1.0]`.
+///
+/// Evaluates how faithfully cluster areas in a 2D layout represent community sizes while
+/// accounting for spatial purity, visual area proportion, density/deconvolution resolution,
+/// and 8-connected spatial coherence.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0)),
+    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0)"
+)]
+#[allow(clippy::too_many_arguments)]
+fn cluster_area_faithfulness(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    community_labels: &Bound<'_, PyAny>,
+    g_max: StrictUsize,
+    sigma_cells: StrictF64,
+    kappa: StrictF64,
+    tau_frac: StrictF64,
+    boundary_r95: StrictF64,
+    stevens_gamma: StrictF64,
+) -> PyResult<f64> {
+    let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let config = ClusterAreaConfig {
+        g_max: g_max.0,
+        sigma_cells: sigma_cells.0,
+        kappa: kappa.0,
+        tau_frac: tau_frac.0,
+        boundary_r95: boundary_r95.0,
+        stevens_gamma: stevens_gamma.0,
+    };
+    dispatch_layout2d!(py, layout, |soa| {
+        egraph_metrics::cluster_area_faithfulness(&soa, &labels, &config).map(|r| r.caf)
+    })
+}
+
+fn populate_cluster_area_report_dict(
+    dict: &Bound<'_, PyDict>,
+    report: &egraph_metrics::ClusterAreaReport,
+) -> PyResult<()> {
+    dict.set_item("caf", report.caf)?;
+    dict.set_item("purity_adj", report.purity_adj)?;
+    dict.set_item("prop_vis", report.prop_vis)?;
+    dict.set_item("res_density", report.res_density)?;
+    dict.set_item("res_deconv", report.res_deconv)?;
+    dict.set_item("res_combined", report.res_combined)?;
+    dict.set_item("spatial_coherence", report.spatial_coherence)?;
+    dict.set_item("in_frac", report.in_frac)?;
+    dict.set_item("num_clusters", report.num_clusters)?;
+    dict.set_item("num_nodes", report.num_nodes)?;
+    Ok(())
+}
+
+/// Compute Grid-based Cluster Area Faithfulness (`G-CAF`) with summary and optional per-cluster diagnostics.
+///
+/// Returns a dictionary containing summary metrics (`caf`, `purity_adj`, `prop_vis`,
+/// `res_density`, `res_deconv`, `res_combined`, `spatial_coherence`, `in_frac`,
+/// `num_clusters`, `num_nodes`). When `return_per_cluster=True`, also includes
+/// `cluster_ids`, `counts`, `p`, `q`, `purity`, `resolution`,
+/// `res_density_per_cluster`, `res_deconv_per_cluster`, `caf_per_cluster`, and `coherence`
+/// as 1D NumPy arrays.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(
+    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), return_per_cluster = false),
+    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, return_per_cluster=False)"
+)]
+#[allow(clippy::too_many_arguments)]
+fn cluster_area_faithfulness_detail(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    community_labels: &Bound<'_, PyAny>,
+    g_max: StrictUsize,
+    sigma_cells: StrictF64,
+    kappa: StrictF64,
+    tau_frac: StrictF64,
+    boundary_r95: StrictF64,
+    stevens_gamma: StrictF64,
+    return_per_cluster: bool,
+) -> PyResult<Py<PyDict>> {
+    let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let config = ClusterAreaConfig {
+        g_max: g_max.0,
+        sigma_cells: sigma_cells.0,
+        kappa: kappa.0,
+        tau_frac: tau_frac.0,
+        boundary_r95: boundary_r95.0,
+        stevens_gamma: stevens_gamma.0,
+    };
+    let dict = PyDict::new(py);
+    if !return_per_cluster {
+        let report = dispatch_layout2d!(py, layout, |soa| {
+            egraph_metrics::cluster_area_faithfulness(&soa, &labels, &config)
+        })?;
+        populate_cluster_area_report_dict(&dict, &report)?;
+    } else {
+        let detail = dispatch_layout2d!(py, layout, |soa| {
+            egraph_metrics::cluster_area_faithfulness_detail(&soa, &labels, &config)
+        })?;
+        populate_cluster_area_report_dict(&dict, &detail.report)?;
+        dict.set_item("cluster_ids", PyArray1::from_vec(py, detail.cluster_ids))?;
+        dict.set_item("counts", PyArray1::from_vec(py, detail.counts))?;
+        dict.set_item("p", PyArray1::from_vec(py, detail.p))?;
+        dict.set_item("q", PyArray1::from_vec(py, detail.q))?;
+        dict.set_item("purity", PyArray1::from_vec(py, detail.purity))?;
+        dict.set_item("resolution", PyArray1::from_vec(py, detail.resolution))?;
+        // Rename per-cluster resolution fields to avoid colliding with scalar report keys.
+        dict.set_item(
+            "res_density_per_cluster",
+            PyArray1::from_vec(py, detail.res_density),
+        )?;
+        dict.set_item(
+            "res_deconv_per_cluster",
+            PyArray1::from_vec(py, detail.res_deconv),
+        )?;
+        dict.set_item(
+            "caf_per_cluster",
+            PyArray1::from_vec(py, detail.caf_per_cluster),
+        )?;
+        dict.set_item("coherence", PyArray1::from_vec(py, detail.coherence))?;
+    }
+    Ok(dict.unbind())
+}
+
 /// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`.
 ///
 /// Releases the Python GIL during computation.
@@ -2212,14 +2342,15 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// (`"drng"`), `"gabriel_graph_preservation"` (`"dgg"`), `"aspect_ratio"`,
 /// `"angular_resolution"`, `"minimum_angle"` (`"min_angle"`), `"minimum_angle_a1"`,
 /// `"layout_degeneracy"`, `"ideal_edge_lengths"`, `"adjusted_patch_nig"` (requires
+/// `community_labels`), `"cluster_area_faithfulness"` (`"gcaf"`, requires
 /// `community_labels`), and `"landmark_stratified_rta"` (`"rta"`).
 ///
 /// Releases the Python GIL during computation and returns a dict keyed by canonical
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04)),
-    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0)),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(
@@ -2238,6 +2369,12 @@ fn evaluate_metrics(
     patch_radius: StrictUsize,
     canvas_size: StrictUsize,
     pad_frac: StrictF64,
+    g_max: StrictUsize,
+    sigma_cells: StrictF64,
+    kappa: StrictF64,
+    tau_frac: StrictF64,
+    boundary_r95: StrictF64,
+    stevens_gamma: StrictF64,
 ) -> PyResult<BTreeMap<String, f64>> {
     let target_list = extract_metric_targets(targets)?;
     let comm_labels_vec = match community_labels {
@@ -2258,6 +2395,14 @@ fn evaluate_metrics(
         patch_nig_canvas_size: canvas_size.0,
         patch_nig_pad_frac: pad_frac.0,
         patch_nig_seed: seed.0,
+        cluster_area: ClusterAreaConfig {
+            g_max: g_max.0,
+            sigma_cells: sigma_cells.0,
+            kappa: kappa.0,
+            tau_frac: tau_frac.0,
+            boundary_r95: boundary_r95.0,
+            stevens_gamma: stevens_gamma.0,
+        },
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
@@ -2336,6 +2481,9 @@ fn evaluate_metrics(
     }
     if let Some(v) = report.adjusted_patch_nig {
         out.insert("adjusted_patch_nig".to_owned(), v);
+    }
+    if let Some(v) = report.cluster_area_faithfulness {
+        out.insert("cluster_area_faithfulness".to_owned(), v);
     }
     if let Some(v) = report.landmark_stratified_rta {
         out.insert("landmark_stratified_rta".to_owned(), v);
@@ -2781,6 +2929,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(layout_degeneracy, m)?)?;
     m.add_function(wrap_pyfunction!(adjusted_patch_nig, m)?)?;
     m.add_function(wrap_pyfunction!(adjusted_patch_nig_multiscale, m)?)?;
+    m.add_function(wrap_pyfunction!(cluster_area_faithfulness, m)?)?;
+    m.add_function(wrap_pyfunction!(cluster_area_faithfulness_detail, m)?)?;
     m.add_function(wrap_pyfunction!(landmark_stratified_rta, m)?)?;
     m.add_function(wrap_pyfunction!(landmark_stratified_rta_detail, m)?)?;
     m.add_function(wrap_pyfunction!(landmark_stratified_rta_from_landmarks, m)?)?;
@@ -2851,6 +3001,19 @@ mod tests {
             parse_metric_target("dgg").unwrap(),
             MetricTarget::GabrielGraphPreservation
         );
+        for alias in [
+            "cluster_area_faithfulness",
+            "cluster-area-faithfulness",
+            "ClusterAreaFaithfulness",
+            "cluster_area",
+            "gcaf",
+            "g-caf",
+        ] {
+            assert_eq!(
+                parse_metric_target(alias).unwrap(),
+                MetricTarget::ClusterAreaFaithfulness
+            );
+        }
         assert!(parse_metric_target("not_a_metric").is_err());
     }
 }

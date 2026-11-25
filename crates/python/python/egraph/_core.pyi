@@ -158,6 +158,8 @@ __all__ = [
     "chebyshev_heat_spmv",
     "chebyshev_heat_spmv_matrix",
     "classical_mds_2d",
+    "cluster_area_faithfulness",
+    "cluster_area_faithfulness_detail",
     "coarse_backbone_init",
     "coarsen_graph",
     "compute_2hop_neighborhood_sizes",
@@ -1944,6 +1946,29 @@ def adjusted_patch_nig_multiscale(
     pad_frac: float = 0.04,
     seed: int = 42,
 ) -> dict[str, float]: ...
+def cluster_area_faithfulness(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+    *,
+    g_max: int = 128,
+    sigma_cells: float = 0.85,
+    kappa: float = 10.0,
+    tau_frac: float = 0.18,
+    boundary_r95: float = 2.0,
+    stevens_gamma: float = 1.0,
+) -> float: ...
+def cluster_area_faithfulness_detail(
+    layout: Layout2d,
+    community_labels: _IndexArrayLike,
+    *,
+    g_max: int = 128,
+    sigma_cells: float = 0.85,
+    kappa: float = 10.0,
+    tau_frac: float = 0.18,
+    boundary_r95: float = 2.0,
+    stevens_gamma: float = 1.0,
+    return_per_cluster: bool = False,
+) -> dict[str, Any]: ...
 def landmark_stratified_rta(
     graph: CsrGraph,
     layout: Layout2d,
@@ -2037,6 +2062,12 @@ def evaluate_metrics(
     patch_radius: int = 8,
     canvas_size: int = 2048,
     pad_frac: float = 0.04,
+    g_max: int = 128,
+    sigma_cells: float = 0.85,
+    kappa: float = 10.0,
+    tau_frac: float = 0.18,
+    boundary_r95: float = 2.0,
+    stevens_gamma: float = 1.0,
 ) -> dict[str, float]: ...
 def delaunay_triangulation(
     layout: Layout2d,

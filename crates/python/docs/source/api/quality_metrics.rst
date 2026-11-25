@@ -49,6 +49,22 @@ Community Spatial Coherence
 
 .. autofunction:: egraph.adjusted_patch_nig
 .. autofunction:: egraph.adjusted_patch_nig_multiscale
+.. autofunction:: egraph.cluster_area_faithfulness
+.. autofunction:: egraph.cluster_area_faithfulness_detail
+
+.. testcode:: python
+
+   coords = [
+       [0.0, 0.0], [0.1, 0.0], [0.0, 0.1], [0.1, 0.1],
+       [5.0, 0.0], [5.1, 0.0], [5.0, 0.1], [5.1, 0.1],
+   ]
+   labels = [0, 0, 0, 0, 1, 1, 1, 1]
+   layout = eg.Layout2d.from_coords(coords)
+   caf = eg.cluster_area_faithfulness(layout, labels)
+   detail = eg.cluster_area_faithfulness_detail(layout, labels, return_per_cluster=True)
+   assert 0.0 <= caf <= 1.0
+   assert detail["num_clusters"] == 2
+   assert len(detail["caf_per_cluster"]) == 2
 
 Geometry, Resolution & PRISM Distortion
 ---------------------------------------

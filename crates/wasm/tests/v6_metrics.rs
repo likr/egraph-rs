@@ -1,10 +1,12 @@
 #[cfg(feature = "delaunay")]
 use egraph_wasm::v6::js_delaunay_triangulation;
 use egraph_wasm::v6::{
-    JsCsrGraph, JsLayout2d, js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale,
-    js_angular_resolution_v6, js_aspect_ratio_v6, js_crosslessness, js_dgg_preservation,
-    js_drng_preservation, js_edge_angle, js_evaluate_metrics, js_gabriel_graph_property_v6,
-    js_ideal_edge_lengths_v6, js_landmark_stratified_rta, js_landmark_stratified_rta_detail,
+    JsClusterAreaReport, JsCsrGraph, JsLayout2d, js_adjusted_patch_nig,
+    js_adjusted_patch_nig_multiscale, js_angular_resolution_v6, js_aspect_ratio_v6,
+    js_cluster_area_faithfulness, js_cluster_area_faithfulness_detail, js_crosslessness,
+    js_dgg_preservation, js_drng_preservation, js_edge_angle, js_evaluate_metrics,
+    js_evaluate_metrics_with_options, js_gabriel_graph_property_v6, js_ideal_edge_lengths_v6,
+    js_landmark_stratified_rta, js_landmark_stratified_rta_detail,
     js_landmark_stratified_rta_from_landmarks, js_layout_degeneracy, js_minimum_angle,
     js_minimum_angle_summary, js_neighborhood_preservation_1hop,
     js_neighborhood_preservation_2hop_v6, js_node_resolution_v6, js_prism_distortion,
@@ -14,6 +16,10 @@ use egraph_wasm::v6::{
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
+
+fn u32_js(labels: &[u32]) -> JsValue {
+    js_sys::Uint32Array::from(labels).into()
+}
 
 fn make_grid_4x4() -> (JsCsrGraph, JsLayout2d) {
     let mut edges = Vec::new();
@@ -391,7 +397,8 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
     ] {
         targets.push(&t.into());
     }
-    let rep = js_evaluate_metrics(
+    let k4_labels_js = u32_js(&[0, 0, 1, 1]);
+    let rep = js_evaluate_metrics_with_options(
         &k4,
         &sq,
         &targets,
@@ -399,12 +406,18 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
         Some(100.0),
         Some(42.0),
         None,
-        Some(vec![0, 0, 1, 1]),
+        &k4_labels_js,
         Some(4.0),
         Some(1000.0),
         Some(1.0),
         Some(16.0),
         Some(2048.0),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
     )
     .unwrap();
@@ -414,13 +427,20 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
     assert_eq!(rep.layout_degeneracy(), Some(0.0));
     assert!(rep.adjusted_patch_nig().is_some());
     assert!(rep.landmark_stratified_rta().is_some());
+    assert!(rep.cluster_area_faithfulness().is_none());
 
     let need_labels = js_sys::Array::of1(&"adjustedPatchNig".into());
     assert!(
-        js_evaluate_metrics(
+        js_evaluate_metrics_with_options(
             &k4,
             &sq,
             &need_labels,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
             None,
             None,
             None,
@@ -435,6 +455,632 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
         )
         .is_err()
     );
+}
+
+#[wasm_bindgen_test]
+fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
+    let mut coords = Vec::with_capacity(100);
+    let mut labels = Vec::with_capacity(50);
+    let mut mixed_labels = Vec::with_capacity(50);
+    for c in 0..5u32 {
+        for r in 0..5u32 {
+            coords.push(c as f32);
+            coords.push(r as f32);
+            labels.push(0);
+            mixed_labels.push((c + r) % 2);
+        }
+    }
+    for c in 0..5u32 {
+        for r in 0..5u32 {
+            coords.push((c + 10) as f32);
+            coords.push(r as f32);
+            labels.push(1);
+            mixed_labels.push((c + r) % 2);
+        }
+    }
+    let sep_layout = JsLayout2d::from_coords(&coords).unwrap();
+    let labels_js = u32_js(&labels);
+    let mixed_labels_js = u32_js(&mixed_labels);
+    let caf_sep =
+        js_cluster_area_faithfulness(&sep_layout, &labels_js, None, None, None, None, None, None)
+            .unwrap();
+    let det: JsClusterAreaReport = js_cluster_area_faithfulness_detail(
+        &sep_layout,
+        &labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!((caf_sep - det.caf()).abs() < 1e-12);
+    assert!(
+        caf_sep > 0.5,
+        "separated clusters should score high: {caf_sep}"
+    );
+    assert!((0.0..=1.0).contains(&det.purity_adj()));
+    assert!((0.0..=1.0).contains(&det.prop_vis()));
+    assert!((0.0..=1.0).contains(&det.res_density()));
+    assert!((0.0..=1.0).contains(&det.res_deconv()));
+    assert!((0.0..=1.0).contains(&det.res_combined()));
+    assert!((0.0..=1.0).contains(&det.spatial_coherence()));
+    assert!((0.0..=1.0).contains(&det.in_frac()));
+    assert_eq!(det.num_clusters(), 2);
+    assert_eq!(det.num_nodes(), 50);
+
+    assert_eq!(det.cluster_ids(), vec![0, 1]);
+    assert_eq!(det.counts(), vec![25, 25]);
+    assert_eq!(det.p().len(), 2);
+    assert_eq!(det.q().len(), 2);
+    assert_eq!(det.purity().len(), 2);
+    assert_eq!(det.resolution().len(), 2);
+    assert_eq!(det.res_density_per_cluster().len(), 2);
+    assert_eq!(det.res_deconv_per_cluster().len(), 2);
+    assert_eq!(det.caf_per_cluster().len(), 2);
+    assert_eq!(det.coherence().len(), 2);
+    assert!((det.p().iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((det.q().iter().sum::<f64>() - 1.0).abs() < 1e-12);
+
+    let rec = det.to_record().unwrap();
+    assert!(
+        (js_sys::Reflect::get(&rec, &"caf".into())
+            .unwrap()
+            .as_f64()
+            .unwrap()
+            - caf_sep)
+            .abs()
+            < 1e-12
+    );
+    assert_eq!(
+        js_sys::Reflect::get(&rec, &"numClusters".into())
+            .unwrap()
+            .as_f64(),
+        Some(2.0)
+    );
+    assert_eq!(
+        js_sys::Reflect::get(&rec, &"numNodes".into())
+            .unwrap()
+            .as_f64(),
+        Some(50.0)
+    );
+    for key in [
+        "purityAdj",
+        "propVis",
+        "resDensity",
+        "resDeconv",
+        "resCombined",
+        "spatialCoherence",
+        "inFrac",
+        "clusterIds",
+        "counts",
+        "p",
+        "q",
+        "purity",
+        "resolution",
+        "resDensityPerCluster",
+        "resDeconvPerCluster",
+        "cafPerCluster",
+        "coherence",
+    ] {
+        assert!(
+            !js_sys::Reflect::get(&rec, &key.into())
+                .unwrap()
+                .is_undefined(),
+            "missing key {key} in ClusterAreaReport.toRecord()"
+        );
+    }
+
+    let caf_mixed = js_cluster_area_faithfulness(
+        &sep_layout,
+        &mixed_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(caf_mixed < caf_sep);
+
+    // Exact grid-isometry invariance: scale + shift, 90-degree rotation, reflection.
+    let (coord_pairs, _) = coords.as_chunks::<2>();
+    let scaled_shifted: Vec<f32> = coord_pairs
+        .iter()
+        .flat_map(|p| [p[0] * 4.0 + 12.0, p[1] * 4.0 - 7.0])
+        .collect();
+    let rot90: Vec<f32> = coord_pairs.iter().flat_map(|p| [-p[1], p[0]]).collect();
+    let refl: Vec<f32> = coord_pairs.iter().flat_map(|p| [p[0], -p[1]]).collect();
+    for variant in [scaled_shifted, rot90, refl] {
+        let lv = JsLayout2d::from_coords(&variant).unwrap();
+        let caf_v =
+            js_cluster_area_faithfulness(&lv, &labels_js, None, None, None, None, None, None)
+                .unwrap();
+        assert!((caf_v - caf_sep).abs() < 1e-12);
+    }
+
+    // Imbalanced clusters: stevensGamma and boundaryR95 = +inf.
+    let mut imb_coords = Vec::with_capacity(48);
+    let mut imb_labels = Vec::with_capacity(24);
+    for i in 0..24u32 {
+        let x = if i < 20 {
+            -2.0 + 0.5 * (i as f32 / 19.0)
+        } else {
+            1.5 + 0.5 * ((i - 20) as f32 / 3.0)
+        };
+        let y = (i as f32 * 0.7).sin() * 0.2;
+        imb_coords.push(x);
+        imb_coords.push(y);
+        imb_labels.push(if i < 20 { 0 } else { 1 });
+    }
+    let imb_layout = JsLayout2d::from_coords(&imb_coords).unwrap();
+    let imb_labels_js = u32_js(&imb_labels);
+    let det_g05 = js_cluster_area_faithfulness_detail(
+        &imb_layout,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(0.5),
+    )
+    .unwrap();
+    let det_g20 = js_cluster_area_faithfulness_detail(
+        &imb_layout,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(2.0),
+    )
+    .unwrap();
+    assert!((det_g05.p().iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((det_g20.p().iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!(det_g05.p()[0] < det_g20.p()[0]);
+
+    let det_inf = js_cluster_area_faithfulness_detail(
+        &imb_layout,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        Some(f64::INFINITY),
+        None,
+    )
+    .unwrap();
+    assert!((det_inf.in_frac() - 1.0).abs() < 1e-12);
+    assert!((0.0..=1.0).contains(&det_inf.caf()));
+
+    // Plain JS Array of integers matches Uint32Array, including u32::MAX.
+    let l5 = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 3.0, 3.0, 4.0, 3.0]).unwrap();
+    let l5_u32_vec = [100u32, 5, 100, u32::MAX, 5];
+    let l5_u32_js = u32_js(&l5_u32_vec);
+    let l5_arr = js_sys::Array::new();
+    for v in l5_u32_vec {
+        l5_arr.push(&JsValue::from_f64(v as f64));
+    }
+    assert_eq!(
+        js_cluster_area_faithfulness(&l5, &l5_u32_js, None, None, None, None, None, None).unwrap(),
+        js_cluster_area_faithfulness(&l5, &l5_arr, None, None, None, None, None, None).unwrap()
+    );
+
+    // evaluateMetrics integration + lazy validation.
+    let path_edges: Vec<u32> = (0..23u32).flat_map(|i| [i, i + 1]).collect();
+    let imb_graph =
+        JsCsrGraph::from_edge_list(24.0, &path_edges, None, &JsValue::from_bool(false), None)
+            .unwrap();
+    let expected_custom = js_cluster_area_faithfulness(
+        &imb_layout,
+        &imb_labels_js,
+        Some(64.0),
+        Some(0.9),
+        Some(8.0),
+        Some(0.2),
+        Some(2.5),
+        Some(0.7),
+    )
+    .unwrap();
+    for alias in [
+        "clusterAreaFaithfulness",
+        "cluster_area_faithfulness",
+        "gcaf",
+    ] {
+        let t_arr = js_sys::Array::of1(&alias.into());
+        let rep = js_evaluate_metrics_with_options(
+            &imb_graph,
+            &imb_layout,
+            &t_arr,
+            None,
+            None,
+            None,
+            None,
+            &imb_labels_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(64.0),
+            Some(0.9),
+            Some(8.0),
+            Some(0.2),
+            Some(2.5),
+            Some(0.7),
+        )
+        .unwrap();
+        let val = rep.cluster_area_faithfulness().unwrap();
+        assert!((val - expected_custom).abs() < 1e-12);
+        let rep_rec = rep.to_record().unwrap();
+        let rec_val = js_sys::Reflect::get(&rep_rec, &"clusterAreaFaithfulness".into())
+            .unwrap()
+            .as_f64()
+            .unwrap();
+        assert!((rec_val - expected_custom).abs() < 1e-12);
+    }
+
+    // Lazy gMax validation: gMax=4 succeeds when G-CAF is not requested, fails when requested.
+    let ar_only = js_sys::Array::of1(&"aspectRatio".into());
+    assert!(
+        js_evaluate_metrics_with_options(
+            &imb_graph,
+            &imb_layout,
+            &ar_only,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::NULL,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(4.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_ok()
+    );
+    let gcaf_only = js_sys::Array::of1(&"gcaf".into());
+    assert!(
+        js_evaluate_metrics_with_options(
+            &imb_graph,
+            &imb_layout,
+            &gcaf_only,
+            None,
+            None,
+            None,
+            None,
+            &imb_labels_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(4.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err()
+    );
+    assert!(
+        js_evaluate_metrics_with_options(
+            &imb_graph,
+            &imb_layout,
+            &gcaf_only,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .is_err()
+    );
+
+    // Degenerate boundaries: N=0, N=1, K=1, collapsed coordinates.
+    let l0 = JsLayout2d::zeros(0.0).unwrap();
+    let d0 =
+        js_cluster_area_faithfulness_detail(&l0, &u32_js(&[]), None, None, None, None, None, None)
+            .unwrap();
+    assert_eq!(d0.caf(), 0.0);
+    assert_eq!(d0.num_clusters(), 0);
+    assert_eq!(d0.num_nodes(), 0);
+
+    let l1 = JsLayout2d::from_coords(&[1.0, 2.0]).unwrap();
+    let d1 =
+        js_cluster_area_faithfulness_detail(&l1, &u32_js(&[5]), None, None, None, None, None, None)
+            .unwrap();
+    assert_eq!(d1.caf(), 0.0);
+    assert_eq!(d1.num_clusters(), 1);
+    assert_eq!(d1.num_nodes(), 1);
+
+    let l4 = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).unwrap();
+    let dk1 = js_cluster_area_faithfulness_detail(
+        &l4,
+        &u32_js(&[3, 3, 3, 3]),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(dk1.caf(), 0.0);
+    assert_eq!(dk1.num_clusters(), 1);
+    assert_eq!(dk1.num_nodes(), 4);
+
+    let collapsed = JsLayout2d::from_coords(&[2.0, -1.0].repeat(6)).unwrap();
+    assert_eq!(
+        js_cluster_area_faithfulness(
+            &collapsed,
+            &u32_js(&[0, 0, 0, 1, 1, 1]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
+        .unwrap(),
+        0.0
+    );
+
+    // Adversarial error checks (must return Err, never panic).
+    assert!(
+        js_cluster_area_faithfulness(
+            &imb_layout,
+            &u32_js(&imb_labels[..23]),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
+        .is_err()
+    );
+    // Invalid JS communityLabels must reject with Err rather than ToUint32 coercion.
+    let make_bad_arr = |first: JsValue| -> JsValue {
+        let arr = js_sys::Array::new();
+        arr.push(&first);
+        for &v in &imb_labels[1..] {
+            arr.push(&JsValue::from_f64(v as f64));
+        }
+        arr.into()
+    };
+    let array_like_obj = js_sys::Object::new();
+    js_sys::Reflect::set(&array_like_obj, &"length".into(), &24.0.into()).unwrap();
+    let bad_label_inputs: Vec<JsValue> = vec![
+        make_bad_arr(JsValue::from_f64(-1.0)),
+        make_bad_arr(JsValue::from_f64(1.5)),
+        make_bad_arr(JsValue::from_f64(f64::NAN)),
+        make_bad_arr(JsValue::from_f64(f64::INFINITY)),
+        make_bad_arr(JsValue::from_f64(4_294_967_296.0)),
+        make_bad_arr(JsValue::from_str("bad")),
+        make_bad_arr(JsValue::NULL),
+        make_bad_arr(JsValue::UNDEFINED),
+        array_like_obj.into(),
+        JsValue::from_str("000000000000000000001111"),
+    ];
+    for bad in &bad_label_inputs {
+        assert!(
+            js_cluster_area_faithfulness(&imb_layout, bad, None, None, None, None, None, None)
+                .is_err()
+        );
+        assert!(
+            js_cluster_area_faithfulness_detail(
+                &imb_layout,
+                bad,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            js_evaluate_metrics_with_options(
+                &imb_graph,
+                &imb_layout,
+                &gcaf_only,
+                None,
+                None,
+                None,
+                None,
+                bad,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+    }
+    for nullish in [JsValue::NULL, JsValue::UNDEFINED] {
+        assert!(
+            js_cluster_area_faithfulness(&imb_layout, &nullish, None, None, None, None, None, None)
+                .is_err()
+        );
+        assert!(
+            js_cluster_area_faithfulness_detail(
+                &imb_layout,
+                &nullish,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            js_evaluate_metrics_with_options(
+                &imb_graph,
+                &imb_layout,
+                &gcaf_only,
+                None,
+                None,
+                None,
+                None,
+                &nullish,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    let mut nan_coords = imb_coords.clone();
+    nan_coords[0] = f32::NAN;
+    let nan_layout = JsLayout2d::from_coords(&nan_coords).unwrap();
+    assert!(
+        js_cluster_area_faithfulness(
+            &nan_layout,
+            &imb_labels_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
+        .is_err()
+    );
+    for bad_g in [11.0, 1.5, -1.0] {
+        assert!(
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &imb_labels_js,
+                Some(bad_g),
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .is_err()
+        );
+    }
+    for bad_sigma in [0.0, f64::NAN, 500.0] {
+        assert!(
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &imb_labels_js,
+                None,
+                Some(bad_sigma),
+                None,
+                None,
+                None,
+                None
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        js_cluster_area_faithfulness(
+            &imb_layout,
+            &imb_labels_js,
+            None,
+            None,
+            Some(0.0),
+            None,
+            None,
+            None
+        )
+        .is_err()
+    );
+    assert!(
+        js_cluster_area_faithfulness(
+            &imb_layout,
+            &imb_labels_js,
+            None,
+            None,
+            None,
+            Some(-1.0),
+            None,
+            None
+        )
+        .is_err()
+    );
+    for bad_r95 in [0.0, f64::NEG_INFINITY, f64::NAN] {
+        assert!(
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &imb_labels_js,
+                None,
+                None,
+                None,
+                None,
+                Some(bad_r95),
+                None
+            )
+            .is_err()
+        );
+    }
+    for bad_gamma in [0.0, f64::INFINITY] {
+        assert!(
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &imb_labels_js,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(bad_gamma)
+            )
+            .is_err()
+        );
+    }
 }
 
 #[wasm_bindgen_test]

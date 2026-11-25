@@ -53,6 +53,7 @@ const requiredCoreAndM1 = [
   "CrossingSummary",
   "MinimumAngleSummary",
   "LayoutDegeneracy",
+  "ClusterAreaReport",
   "RtaEvaluation",
   "crosslessness",
   "sampledCrosslessness",
@@ -61,6 +62,8 @@ const requiredCoreAndM1 = [
   "layoutDegeneracy",
   "adjustedPatchNig",
   "adjustedPatchNigMultiscale",
+  "clusterAreaFaithfulness",
+  "clusterAreaFaithfulnessDetail",
   "landmarkStratifiedRta",
   "landmarkStratifiedRtaDetail",
   "landmarkStratifiedRtaFromLandmarks",
@@ -491,6 +494,12 @@ export type MetricTarget =
     | "idealEdgeLengths"
     | "adjustedPatchNig"
     | "adjusted_patch_nig"
+    | "clusterAreaFaithfulness"
+    | "cluster_area_faithfulness"
+    | "cluster-area-faithfulness"
+    | "clusterArea"
+    | "cluster_area"
+    | "gcaf"
     | "landmarkStratifiedRta"
     | "landmark_stratified_rta"
     | "rta"
@@ -527,7 +536,34 @@ export interface MetricReportRecord {
     layoutDegeneracy?: number;
     idealEdgeLengths?: number;
     adjustedPatchNig?: number;
+    clusterAreaFaithfulness?: number;
     landmarkStratifiedRta?: number;
+}
+
+/**
+ * Plain JavaScript record returned by \`ClusterAreaReport.toRecord()\`.
+ */
+export interface ClusterAreaReportRecord {
+    caf: number;
+    purityAdj: number;
+    propVis: number;
+    resDensity: number;
+    resDeconv: number;
+    resCombined: number;
+    spatialCoherence: number;
+    inFrac: number;
+    numClusters: number;
+    numNodes: number;
+    clusterIds: Uint32Array;
+    counts: Uint32Array;
+    p: Float64Array;
+    q: Float64Array;
+    purity: Float64Array;
+    resolution: Float64Array;
+    resDensityPerCluster: Float64Array;
+    resDeconvPerCluster: Float64Array;
+    cafPerCluster: Float64Array;
+    coherence: Float64Array;
 }
 
 `;
@@ -541,15 +577,28 @@ if (indexDts.includes("export class MetricReport {") && !indexDts.includes("expo
   }
 }
 
-indexDts = indexDts.replace(
-  /toRecord\(\): object;/,
-  "toRecord(): MetricReportRecord;",
-);
+const gcafDtsReplacements = [
+  [
+    /(export class ClusterAreaReport \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): ClusterAreaReportRecord;",
+  ],
+  [
+    /(export class MetricReport \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): MetricReportRecord;",
+  ],
+  [
+    /export function evaluateMetrics\([^;]+\): MetricReport;/,
+    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): MetricReport;",
+  ],
+];
 
-indexDts = indexDts.replace(
-  /export function evaluateMetrics\([^;]+\): MetricReport;/,
-  "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null): MetricReport;",
-);
+for (const [pattern, replacement] of gcafDtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
 
 indexDts = indexDts.replace(
   /export function sampledCrosslessness\([^;]+\): number;/,
@@ -565,6 +614,23 @@ indexDts = indexDts.replace(
   /export function adjustedPatchNigMultiscale\([^;]+\): Float64Array;/,
   "export function adjustedPatchNigMultiscale(layout: Layout2d, communityLabels: Uint32Array | number[], radii?: Uint32Array | number[] | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): Float64Array;",
 );
+
+for (const [pattern, replacement] of [
+  [
+    /export function clusterAreaFaithfulness\([^;]+\): number;/,
+    "export function clusterAreaFaithfulness(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): number;",
+  ],
+  [
+    /export function clusterAreaFaithfulnessDetail\([^;]+\): ClusterAreaReport;/,
+    "export function clusterAreaFaithfulnessDetail(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): ClusterAreaReport;",
+  ],
+]) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine G-CAF TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
 
 indexDts = indexDts.replace(
   /export function landmarkStratifiedRta\([^;]+\): number;/,

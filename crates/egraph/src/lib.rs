@@ -116,10 +116,11 @@ pub mod prelude {
 
     #[cfg(feature = "metrics")]
     pub use egraph_metrics::{
-        LayoutDegeneracy, MetricConfig, MetricReport, MetricTarget, MinimumAngleSummary,
-        RtaEvaluation, adjusted_patch_nig, adjusted_patch_nig_multiscale, all_pairs_bfs,
-        bfs_single_source, crossing_edges, crossing_edges_torus, crossing_number, crossing_summary,
-        crosslessness, crosslessness_from_count, evaluate_metrics,
+        ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, LayoutDegeneracy, MetricConfig,
+        MetricReport, MetricTarget, MinimumAngleSummary, RtaEvaluation, adjusted_patch_nig,
+        adjusted_patch_nig_multiscale, all_pairs_bfs, bfs_single_source, cluster_area_faithfulness,
+        cluster_area_faithfulness_detail, crossing_edges, crossing_edges_torus, crossing_number,
+        crossing_summary, crosslessness, crosslessness_from_count, evaluate_metrics,
         evaluate_metrics_with_communities, gabriel_graph_edges, ideal_edge_lengths,
         ideal_edge_lengths_with_unit, landmark_stratified_rta, landmark_stratified_rta_detail,
         landmark_stratified_rta_from_landmarks, layout_degeneracy, max_crossing_pairs,

@@ -324,3 +324,388 @@ fn cli_rejects_invalid_prism_radius_fast() {
         );
     }
 }
+
+#[test]
+fn cli_metrics_cluster_area_faithfulness_and_error_guards() {
+    let dir = temp_dir("gcaf");
+    let layout_path = dir.join("karate_layout.json");
+    let cluster_path = dir.join("karate_cluster.json");
+    let labels_txt_path = dir.join("karate_labels.txt");
+    let labels_bad_len_path = dir.join("karate_labels_short.txt");
+
+    run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "tsnet-pure2hop",
+        "--init",
+        "pivot-mds",
+        "--seed",
+        "42",
+        "--output",
+        layout_path.to_str().expect("utf8 path"),
+    ]);
+
+    run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "louvain",
+        "--seed",
+        "42",
+        "--output",
+        cluster_path.to_str().expect("utf8 path"),
+    ]);
+    let cluster_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&cluster_path).expect("read cluster json"))
+            .expect("parse cluster json");
+    let labels = cluster_json["labels"]
+        .as_array()
+        .expect("cluster labels array");
+    assert_eq!(labels.len(), 34);
+
+    // 1. JSON {"labels": [...]} from `egraph cluster` + `cluster-area-faithfulness` target.
+    let out_json = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "sns,cluster-area-faithfulness",
+        "--community-labels",
+        cluster_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_from_json: serde_json::Value =
+        serde_json::from_str(&out_json).expect("parse metrics json");
+    let caf_json = metrics_from_json["cluster_area_faithfulness"]
+        .as_f64()
+        .expect("cluster_area_faithfulness float");
+    assert!((0.0..=1.0).contains(&caf_json));
+    assert!(
+        metrics_from_json["scale_normalized_stress"]
+            .as_f64()
+            .is_some()
+    );
+
+    // 2. Plain-text/CSV labels + `gcaf` alias must match JSON result.
+    let txt_body = format!(
+        "# karate community labels\n{}\n",
+        labels
+            .iter()
+            .map(|v| v.as_u64().expect("u64 label").to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    fs::write(&labels_txt_path, txt_body).expect("write text labels");
+    let out_txt = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "gcaf",
+        "--community-labels",
+        labels_txt_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_from_txt: serde_json::Value =
+        serde_json::from_str(&out_txt).expect("parse txt metrics json");
+    let caf_txt = metrics_from_txt["cluster_area_faithfulness"]
+        .as_f64()
+        .expect("gcaf float");
+    assert!((caf_txt - caf_json).abs() < 1e-12);
+
+    // 3. `--targets all` remains backward-compatible without `--community-labels`.
+    let out_all = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "all",
+    ]);
+    let metrics_all: serde_json::Value =
+        serde_json::from_str(&out_all).expect("parse all metrics json");
+    assert!(metrics_all["cluster_area_faithfulness"].is_null());
+    assert!(metrics_all["scale_normalized_stress"].as_f64().is_some());
+    assert!(
+        metrics_all["landmark_stratified_rta"].as_f64().is_some(),
+        "expected all standard metrics including landmark_stratified_rta"
+    );
+
+    // 3b. `--targets all,gcaf` and `--targets gcaf,all` with `--community-labels`
+    // must emit both non-null `cluster_area_faithfulness` and all standard metrics.
+    for combined_targets in ["all,gcaf", "gcaf,all"] {
+        let out_combined = run_egraph(&[
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            combined_targets,
+            "--community-labels",
+            cluster_path.to_str().expect("utf8 path"),
+        ]);
+        let metrics_combined: serde_json::Value =
+            serde_json::from_str(&out_combined).expect("parse combined metrics json");
+        let caf_combined = metrics_combined["cluster_area_faithfulness"]
+            .as_f64()
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected non-null cluster_area_faithfulness for --targets {combined_targets}"
+                )
+            });
+        assert!(
+            (caf_combined - caf_json).abs() < 1e-12,
+            "combined {combined_targets} gcaf ({caf_combined}) != standalone ({caf_json})"
+        );
+        assert!(
+            metrics_combined["scale_normalized_stress"]
+                .as_f64()
+                .is_some()
+        );
+        assert!(metrics_combined["crossing_number"].as_u64().is_some());
+        assert!(
+            metrics_combined["neighborhood_preservation_2hop"]
+                .as_f64()
+                .is_some()
+        );
+        assert!(
+            metrics_combined["landmark_stratified_rta"]
+                .as_f64()
+                .is_some()
+        );
+    }
+
+    // 4. Missing `--community-labels` when requesting `cluster-area-faithfulness` errors cleanly.
+    let bin = env!("CARGO_BIN_EXE_egraph");
+    let missing_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "cluster-area-faithfulness",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!missing_out.status.success());
+    let missing_stderr = String::from_utf8_lossy(&missing_out.stderr);
+    assert!(
+        missing_stderr.contains("community_labels"),
+        "expected stderr to mention community_labels, got: {missing_stderr}"
+    );
+
+    // 5. Length mismatch in `--community-labels` errors cleanly.
+    fs::write(&labels_bad_len_path, "0 1 2 3\n").expect("write short labels");
+    let mismatch_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "gcaf",
+            "--community-labels",
+            labels_bad_len_path.to_str().expect("utf8 path"),
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!mismatch_out.status.success());
+
+    // 6. Trailing invalid target after `all` must be rejected cleanly with non-zero exit.
+    let invalid_after_all_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "all,invalid_target",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(
+        !invalid_after_all_out.status.success(),
+        "expected non-zero exit for --targets all,invalid_target"
+    );
+    let invalid_stderr = String::from_utf8_lossy(&invalid_after_all_out.stderr);
+    assert!(
+        invalid_stderr.contains("unknown metric target"),
+        "expected stderr to mention unknown metric target, got: {invalid_stderr}"
+    );
+
+    // 7. Gap 7: JSON schemas ({"community_labels": [...]}, bare [...]), empty --targets "",
+    // and malformed label / eager --num-pivots 0 error guards.
+    let shifted_labels: Vec<u64> = labels
+        .iter()
+        .map(|v| 100_000 + v.as_u64().expect("u64 label"))
+        .collect();
+    let comm_obj_path = dir.join("karate_comm_labels.json");
+    fs::write(
+        &comm_obj_path,
+        serde_json::json!({ "community_labels": shifted_labels }).to_string(),
+    )
+    .expect("write community_labels json");
+    let out_comm_obj = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "gcaf",
+        "--community-labels",
+        comm_obj_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_comm_obj: serde_json::Value =
+        serde_json::from_str(&out_comm_obj).expect("parse community_labels metrics json");
+    let caf_comm_obj = metrics_comm_obj["cluster_area_faithfulness"]
+        .as_f64()
+        .expect("cluster_area_faithfulness float");
+    assert!((caf_comm_obj - caf_json).abs() < 1e-12);
+
+    let bare_arr_path = dir.join("karate_bare_labels.json");
+    fs::write(
+        &bare_arr_path,
+        serde_json::to_string(&shifted_labels).expect("serialize bare array"),
+    )
+    .expect("write bare json array");
+    let out_bare_arr = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "gcaf",
+        "--community-labels",
+        bare_arr_path.to_str().expect("utf8 path"),
+    ]);
+    let metrics_bare_arr: serde_json::Value =
+        serde_json::from_str(&out_bare_arr).expect("parse bare array metrics json");
+    let caf_bare_arr = metrics_bare_arr["cluster_area_faithfulness"]
+        .as_f64()
+        .expect("cluster_area_faithfulness float");
+    assert!((caf_bare_arr - caf_json).abs() < 1e-12);
+
+    let out_empty_targets = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "",
+    ]);
+    let metrics_empty: serde_json::Value =
+        serde_json::from_str(&out_empty_targets).expect("parse empty targets json");
+    assert!(metrics_empty["scale_normalized_stress"].is_null());
+    assert!(metrics_empty["cluster_area_faithfulness"].is_null());
+
+    let bad_label_cases: &[(&str, &str, &str, &str)] = &[
+        (
+            "bad_labels_not_array.json",
+            r#"{"labels": "not_array"}"#,
+            "'labels' field",
+            "non-array labels",
+        ),
+        (
+            "bad_comm_not_array.json",
+            r#"{"community_labels": 123}"#,
+            "'community_labels' field",
+            "non-array community_labels",
+        ),
+        (
+            "bad_other_schema.json",
+            r#"{"other": []}"#,
+            "unrecognized community labels JSON schema",
+            "unrecognized JSON schema",
+        ),
+        (
+            "bad_neg_elem.json",
+            "[0, -1, 1, 1]",
+            "non-negative integer",
+            "negative JSON integer",
+        ),
+        (
+            "bad_u32_overflow.json",
+            "[0, 4294967296, 1, 1]",
+            "exceeds u32::MAX",
+            "u32 overflow in JSON",
+        ),
+        (
+            "bad_plain_overflow.txt",
+            "4294967296\n",
+            "invalid community label",
+            "u32 overflow in plain text",
+        ),
+        (
+            "bad_malformed_prefix.txt",
+            "[0, 0, 1",
+            "EOF",
+            "malformed JSON prefix",
+        ),
+    ];
+    for &(fname, contents, expected_stderr, ctx) in bad_label_cases {
+        let p = dir.join(fname);
+        fs::write(&p, contents).expect("write bad label fixture");
+        let out = Command::new(bin)
+            .args([
+                "metrics",
+                "--dataset",
+                "karate",
+                "--layout",
+                layout_path.to_str().expect("utf8 path"),
+                "--targets",
+                "gcaf",
+                "--community-labels",
+                p.to_str().expect("utf8 path"),
+            ])
+            .output()
+            .expect("execute egraph binary");
+        assert!(!out.status.success(), "expected non-zero exit for {ctx}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains(expected_stderr),
+            "expected stderr containing {expected_stderr:?} for {ctx}, got: {stderr}"
+        );
+    }
+
+    let bad_pivots_out = Command::new(bin)
+        .args([
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--targets",
+            "gcaf",
+            "--community-labels",
+            cluster_path.to_str().expect("utf8 path"),
+            "--num-pivots",
+            "0",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(
+        !bad_pivots_out.status.success(),
+        "expected non-zero exit for --num-pivots 0 --targets gcaf"
+    );
+    let bad_pivots_stderr = String::from_utf8_lossy(&bad_pivots_out.stderr);
+    assert!(
+        bad_pivots_stderr.contains("sns_num_pivots"),
+        "expected stderr mentioning sns_num_pivots, got: {bad_pivots_stderr}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}

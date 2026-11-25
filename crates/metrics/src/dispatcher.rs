@@ -5,6 +5,7 @@ use egraph_spatial::StaticKdTree;
 
 use crate::{
     build_kdtree_f64,
+    cluster_area::{ClusterAreaConfig, cluster_area_faithfulness},
     community::adjusted_patch_nig,
     crossings::{
         crossing_number, crossing_summary, crosslessness_from_count, sampled_crossing_number,
@@ -74,6 +75,8 @@ pub enum MetricTarget {
     IdealEdgeLengths,
     /// Adjusted Patch Normalized Information Gain (`Adjusted Patch-NIG`); requires `community_labels`.
     AdjustedPatchNig,
+    /// Grid-based Cluster Area Faithfulness (`G-CAF`); requires `community_labels`.
+    ClusterAreaFaithfulness,
     /// Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`).
     LandmarkStratifiedRta,
 }
@@ -107,6 +110,8 @@ pub struct MetricConfig {
     pub patch_nig_pad_frac: f64,
     /// Explicit RNG seed for the permutation null in `AdjustedPatchNig`.
     pub patch_nig_seed: u64,
+    /// Configuration parameters for `ClusterAreaFaithfulness` (`G-CAF`).
+    pub cluster_area: ClusterAreaConfig,
 }
 
 impl Default for MetricConfig {
@@ -125,6 +130,7 @@ impl Default for MetricConfig {
             patch_nig_canvas_size: 2048,
             patch_nig_pad_frac: 0.04,
             patch_nig_seed: 42,
+            cluster_area: ClusterAreaConfig::default(),
         }
     }
 }
@@ -170,6 +176,7 @@ impl MetricConfig {
                 "patch_nig_pad_frac must be in [0.0, 0.5)",
             ));
         }
+        self.cluster_area.validate()?;
         Ok(())
     }
 }
@@ -199,6 +206,7 @@ pub struct MetricReport {
     pub layout_degeneracy: Option<f64>,
     pub ideal_edge_lengths: Option<f64>,
     pub adjusted_patch_nig: Option<f64>,
+    pub cluster_area_faithfulness: Option<f64>,
     pub landmark_stratified_rta: Option<f64>,
 }
 
@@ -226,6 +234,7 @@ struct RequestedFlags {
     layout_degeneracy: bool,
     ideal_edge_lengths: bool,
     adjusted_patch_nig: bool,
+    cluster_area_faithfulness: bool,
     landmark_stratified_rta: bool,
 }
 
@@ -256,6 +265,7 @@ impl RequestedFlags {
                 MetricTarget::LayoutDegeneracy => flags.layout_degeneracy = true,
                 MetricTarget::IdealEdgeLengths => flags.ideal_edge_lengths = true,
                 MetricTarget::AdjustedPatchNig => flags.adjusted_patch_nig = true,
+                MetricTarget::ClusterAreaFaithfulness => flags.cluster_area_faithfulness = true,
                 MetricTarget::LandmarkStratifiedRta => flags.landmark_stratified_rta = true,
             }
         }
@@ -281,7 +291,8 @@ impl RequestedFlags {
 /// a single sweep-line pass across `CrossingNumber`/`CrossingAngle`/`Crosslessness`,
 /// a single sampling pass across `SampledCrossingNumber`/`SampledCrosslessness`, and
 /// a single angular scan across `MinimumAngle`/`MinimumAngleA1`.
-/// For [`MetricTarget::AdjustedPatchNig`], use [`evaluate_metrics_with_communities`].
+/// For [`MetricTarget::AdjustedPatchNig`] and [`MetricTarget::ClusterAreaFaithfulness`],
+/// use [`evaluate_metrics_with_communities`].
 pub fn evaluate_metrics<W: Scalar, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
@@ -292,7 +303,8 @@ pub fn evaluate_metrics<W: Scalar, S: Scalar>(
 }
 
 /// Evaluates strictly the metrics listed in `targets` with optional `community_labels`
-/// (required when [`MetricTarget::AdjustedPatchNig`] is requested).
+/// (required when [`MetricTarget::AdjustedPatchNig`] or [`MetricTarget::ClusterAreaFaithfulness`]
+/// is requested).
 pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
@@ -465,6 +477,13 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
             config.patch_nig_seed,
         )?);
     }
+    if flags.cluster_area_faithfulness {
+        let labels = community_labels.ok_or_else(|| {
+            CoreError::invalid_input("ClusterAreaFaithfulness target requires community_labels")
+        })?;
+        report.cluster_area_faithfulness =
+            Some(cluster_area_faithfulness(layout, labels, &config.cluster_area)?.caf);
+    }
     if flags.landmark_stratified_rta {
         report.landmark_stratified_rta = Some(landmark_stratified_rta(
             graph,
@@ -514,6 +533,7 @@ mod tests {
             patch_nig_canvas_size: 1024,
             patch_nig_pad_frac: 0.04,
             patch_nig_seed: 9,
+            cluster_area: ClusterAreaConfig::default(),
         };
         assert_eq!(MetricConfig::default().sns_num_pivots, 64);
 
@@ -557,6 +577,7 @@ mod tests {
         assert!(subset.layout_degeneracy.is_none());
         assert!(subset.ideal_edge_lengths.is_none());
         assert!(subset.adjusted_patch_nig.is_none());
+        assert!(subset.cluster_area_faithfulness.is_none());
         assert!(subset.landmark_stratified_rta.is_none());
 
         // Empty targets list returns all None cleanly.
@@ -589,6 +610,7 @@ mod tests {
             MetricTarget::LayoutDegeneracy,
             MetricTarget::IdealEdgeLengths,
             MetricTarget::AdjustedPatchNig,
+            MetricTarget::ClusterAreaFaithfulness,
             MetricTarget::LandmarkStratifiedRta,
         ];
         let communities = [0_u32, 0, 1, 1];
@@ -673,11 +695,43 @@ mod tests {
             Some(adjusted_patch_nig(&layout, &communities, 16, 1024, 0.04, 9).unwrap())
         );
         assert_eq!(
+            full.cluster_area_faithfulness,
+            Some(
+                cluster_area_faithfulness(&layout, &communities, &cfg.cluster_area)
+                    .unwrap()
+                    .caf
+            )
+        );
+        assert_eq!(
             full.landmark_stratified_rta,
             Some(landmark_stratified_rta(&g, &layout, 4, 10_000, 1, 9).unwrap())
         );
         assert!(matches!(
             evaluate_metrics(&g, &layout, &[MetricTarget::AdjustedPatchNig], &cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            evaluate_metrics(&g, &layout, &[MetricTarget::ClusterAreaFaithfulness], &cfg),
+            Err(CoreError::InvalidInput(_))
+        ));
+
+        // Invalid config only errors when the corresponding metric is requested.
+        let bad_caf_cfg = MetricConfig {
+            cluster_area: ClusterAreaConfig {
+                g_max: 4,
+                ..cfg.cluster_area
+            },
+            ..cfg
+        };
+        assert!(evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_caf_cfg).is_ok());
+        assert!(matches!(
+            evaluate_metrics_with_communities(
+                &g,
+                &layout,
+                &[MetricTarget::ClusterAreaFaithfulness],
+                &bad_caf_cfg,
+                Some(&communities),
+            ),
             Err(CoreError::InvalidInput(_))
         ));
 
@@ -755,5 +809,8 @@ mod tests {
         assert!((rep32.ideal_edge_lengths.unwrap()).abs() < 1e-6);
         assert!((rep32.relative_neighborhood_preservation.unwrap() - 1.0).abs() < 1e-6);
         assert!((rep32.gabriel_graph_preservation.unwrap() - 1.0).abs() < 1e-6);
+        assert!(rep32.cluster_area_faithfulness.unwrap().is_finite());
+        assert!(cfg.validate().is_ok());
+        assert!(bad_caf_cfg.validate().is_err());
     }
 }

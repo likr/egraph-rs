@@ -6,7 +6,8 @@
 
 pub mod io;
 
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -18,8 +19,9 @@ use egraph::prelude::{
     PrismOverlapRemoval, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
     SpatialIntruderRefiner, SpatialRefinerConfig, SpectralClusteringConfig,
     StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver,
-    YifanHuConfig, YifanHuSolver, evaluate_metrics, kmeans_plus_plus, koren_spectral_init,
-    label_propagation, louvain, normalize_layout_2d, pivot_mds, spectral_clustering,
+    YifanHuConfig, YifanHuSolver, evaluate_metrics, evaluate_metrics_with_communities,
+    kmeans_plus_plus, koren_spectral_init, label_propagation, louvain, normalize_layout_2d,
+    pivot_mds, spectral_clustering,
 };
 use serde::Serialize;
 
@@ -170,7 +172,10 @@ pub struct MetricsArgs {
     /// Input 2D coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,rta,all`).
+    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`).
+    #[arg(long, value_name = "FILE")]
+    pub community_labels: Option<PathBuf>,
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,cluster-area-faithfulness,gcaf,rta,all`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
@@ -282,6 +287,7 @@ pub struct MetricsOutput {
     pub minimum_angle_a1: Option<f64>,
     pub layout_degeneracy: Option<f64>,
     pub ideal_edge_lengths: Option<f64>,
+    pub cluster_area_faithfulness: Option<f64>,
     pub landmark_stratified_rta: Option<f64>,
 }
 
@@ -319,6 +325,7 @@ impl MetricsOutput {
             minimum_angle_a1: report.minimum_angle_a1,
             layout_degeneracy: report.layout_degeneracy,
             ideal_edge_lengths: report.ideal_edge_lengths,
+            cluster_area_faithfulness: report.cluster_area_faithfulness,
             landmark_stratified_rta: report.landmark_stratified_rta,
         }
     }
@@ -584,6 +591,37 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
     })
 }
 
+const ALL_STANDARD_METRIC_TARGETS: [MetricTarget; 22] = [
+    MetricTarget::ScaleNormalizedStress,
+    MetricTarget::SampledScaleNormalizedStress,
+    MetricTarget::CrossingNumber,
+    MetricTarget::CrossingAngle,
+    MetricTarget::SampledCrossingNumber,
+    MetricTarget::Crosslessness,
+    MetricTarget::SampledCrosslessness,
+    MetricTarget::NeighborhoodPreservation1Hop,
+    MetricTarget::NeighborhoodPreservation2Hop,
+    MetricTarget::SampledNp1,
+    MetricTarget::SampledNp2,
+    MetricTarget::GabrielGraphProperty,
+    MetricTarget::NodeResolution,
+    MetricTarget::RelativeNeighborhoodPreservation,
+    MetricTarget::GabrielGraphPreservation,
+    MetricTarget::AspectRatio,
+    MetricTarget::AngularResolution,
+    MetricTarget::MinimumAngle,
+    MetricTarget::MinimumAngleA1,
+    MetricTarget::LayoutDegeneracy,
+    MetricTarget::IdealEdgeLengths,
+    MetricTarget::LandmarkStratifiedRta,
+];
+
+fn push_unique_target(targets: &mut Vec<MetricTarget>, target: MetricTarget) {
+    if !targets.contains(&target) {
+        targets.push(target);
+    }
+}
+
 /// Parses comma-separated metric target names into [`MetricTarget`] values.
 pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
     let mut targets = Vec::new();
@@ -594,76 +632,80 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
         }
         match token.as_str() {
             "all" => {
-                return Ok(vec![
-                    MetricTarget::ScaleNormalizedStress,
-                    MetricTarget::SampledScaleNormalizedStress,
-                    MetricTarget::CrossingNumber,
-                    MetricTarget::CrossingAngle,
-                    MetricTarget::SampledCrossingNumber,
-                    MetricTarget::Crosslessness,
-                    MetricTarget::SampledCrosslessness,
-                    MetricTarget::NeighborhoodPreservation1Hop,
-                    MetricTarget::NeighborhoodPreservation2Hop,
-                    MetricTarget::SampledNp1,
-                    MetricTarget::SampledNp2,
-                    MetricTarget::GabrielGraphProperty,
-                    MetricTarget::NodeResolution,
-                    MetricTarget::RelativeNeighborhoodPreservation,
-                    MetricTarget::GabrielGraphPreservation,
-                    MetricTarget::AspectRatio,
-                    MetricTarget::AngularResolution,
-                    MetricTarget::MinimumAngle,
-                    MetricTarget::MinimumAngleA1,
-                    MetricTarget::LayoutDegeneracy,
-                    MetricTarget::IdealEdgeLengths,
-                    MetricTarget::LandmarkStratifiedRta,
-                ]);
+                // Expand `all` in place instead of returning early so combinations
+                // like `all,gcaf` and trailing invalid tokens are both processed.
+                for &target in &ALL_STANDARD_METRIC_TARGETS {
+                    push_unique_target(&mut targets, target);
+                }
             }
-            "sns" | "scale-normalized-stress" => targets.push(MetricTarget::ScaleNormalizedStress),
+            "sns" | "scale-normalized-stress" => {
+                push_unique_target(&mut targets, MetricTarget::ScaleNormalizedStress);
+            }
             "sampled-sns" | "sampled-scale-normalized-stress" => {
-                targets.push(MetricTarget::SampledScaleNormalizedStress);
+                push_unique_target(&mut targets, MetricTarget::SampledScaleNormalizedStress);
             }
-            "crossings" | "crossing-number" => targets.push(MetricTarget::CrossingNumber),
-            "crossing-angle" => targets.push(MetricTarget::CrossingAngle),
+            "crossings" | "crossing-number" => {
+                push_unique_target(&mut targets, MetricTarget::CrossingNumber);
+            }
+            "crossing-angle" => {
+                push_unique_target(&mut targets, MetricTarget::CrossingAngle);
+            }
             "sampled-crossings" | "sampled-crossing-number" => {
-                targets.push(MetricTarget::SampledCrossingNumber);
+                push_unique_target(&mut targets, MetricTarget::SampledCrossingNumber);
             }
-            "crosslessness" => targets.push(MetricTarget::Crosslessness),
-            "sampled-crosslessness" => targets.push(MetricTarget::SampledCrosslessness),
+            "crosslessness" => {
+                push_unique_target(&mut targets, MetricTarget::Crosslessness);
+            }
+            "sampled-crosslessness" => {
+                push_unique_target(&mut targets, MetricTarget::SampledCrosslessness);
+            }
             "np1" | "neighborhood-preservation-1hop" => {
-                targets.push(MetricTarget::NeighborhoodPreservation1Hop);
+                push_unique_target(&mut targets, MetricTarget::NeighborhoodPreservation1Hop);
             }
             "np2" | "neighborhood-preservation-2hop" => {
-                targets.push(MetricTarget::NeighborhoodPreservation2Hop);
+                push_unique_target(&mut targets, MetricTarget::NeighborhoodPreservation2Hop);
             }
             "sampled-np1" | "sampled-neighborhood-preservation-1hop" => {
-                targets.push(MetricTarget::SampledNp1);
+                push_unique_target(&mut targets, MetricTarget::SampledNp1);
             }
             "sampled-np2" | "sampled-neighborhood-preservation-2hop" => {
-                targets.push(MetricTarget::SampledNp2);
+                push_unique_target(&mut targets, MetricTarget::SampledNp2);
             }
             "gabriel" | "gabriel-graph-property" => {
-                targets.push(MetricTarget::GabrielGraphProperty);
+                push_unique_target(&mut targets, MetricTarget::GabrielGraphProperty);
             }
-            "node-resolution" => targets.push(MetricTarget::NodeResolution),
+            "node-resolution" => {
+                push_unique_target(&mut targets, MetricTarget::NodeResolution);
+            }
             "drng" | "relative-neighborhood-preservation" => {
-                targets.push(MetricTarget::RelativeNeighborhoodPreservation);
+                push_unique_target(&mut targets, MetricTarget::RelativeNeighborhoodPreservation);
             }
             "dgg" | "gabriel-graph-preservation" => {
-                targets.push(MetricTarget::GabrielGraphPreservation);
+                push_unique_target(&mut targets, MetricTarget::GabrielGraphPreservation);
             }
-            "aspect-ratio" => targets.push(MetricTarget::AspectRatio),
-            "angular-resolution" => targets.push(MetricTarget::AngularResolution),
+            "aspect-ratio" => {
+                push_unique_target(&mut targets, MetricTarget::AspectRatio);
+            }
+            "angular-resolution" => {
+                push_unique_target(&mut targets, MetricTarget::AngularResolution);
+            }
             "minimum-angle" | "min-angle" | "minimum-angle-a2" | "min-angle-a2" => {
-                targets.push(MetricTarget::MinimumAngle);
+                push_unique_target(&mut targets, MetricTarget::MinimumAngle);
             }
             "minimum-angle-a1" | "min-angle-a1" => {
-                targets.push(MetricTarget::MinimumAngleA1);
+                push_unique_target(&mut targets, MetricTarget::MinimumAngleA1);
             }
-            "layout-degeneracy" => targets.push(MetricTarget::LayoutDegeneracy),
-            "ideal-edge-lengths" => targets.push(MetricTarget::IdealEdgeLengths),
+            "layout-degeneracy" => {
+                push_unique_target(&mut targets, MetricTarget::LayoutDegeneracy);
+            }
+            "ideal-edge-lengths" => {
+                push_unique_target(&mut targets, MetricTarget::IdealEdgeLengths);
+            }
+            "cluster-area-faithfulness" | "cluster-area" | "gcaf" | "g-caf" => {
+                push_unique_target(&mut targets, MetricTarget::ClusterAreaFaithfulness);
+            }
             "rta" | "l-stratified-rta" | "landmark-stratified-rta" => {
-                targets.push(MetricTarget::LandmarkStratifiedRta);
+                push_unique_target(&mut targets, MetricTarget::LandmarkStratifiedRta);
             }
             other => {
                 return Err(CliError::InvalidInput(format!(
@@ -675,11 +717,105 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
     Ok(targets)
 }
 
+/// Loads community labels from a JSON file (`{"labels": [...]}` / `{"community_labels": [...]}` / `[...]`)
+/// or a plain-text/CSV integer list, validating that all entries are `u32` integers and that
+/// the label count matches `expected_nodes`.
+pub fn load_community_labels_from_path(path: &Path, expected_nodes: usize) -> CliResult<Vec<u32>> {
+    let content = fs::read_to_string(path)?;
+    let trimmed = content.trim();
+    let is_json = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        || trimmed.starts_with('{')
+        || trimmed.starts_with('[');
+
+    let labels = if is_json {
+        let val: serde_json::Value = serde_json::from_str(trimmed)?;
+        let items = if let Some(arr) = val.as_array() {
+            arr
+        } else if let Some(field) = val.get("labels") {
+            field.as_array().ok_or_else(|| {
+                CliError::InvalidInput(format!(
+                    "'labels' field in '{}' must be a JSON array of integers",
+                    path.display()
+                ))
+            })?
+        } else if let Some(field) = val.get("community_labels") {
+            field.as_array().ok_or_else(|| {
+                CliError::InvalidInput(format!(
+                    "'community_labels' field in '{}' must be a JSON array of integers",
+                    path.display()
+                ))
+            })?
+        } else {
+            return Err(CliError::InvalidInput(format!(
+                "unrecognized community labels JSON schema in '{}'",
+                path.display()
+            )));
+        };
+
+        let mut parsed = Vec::with_capacity(items.len());
+        for (idx, item) in items.iter().enumerate() {
+            let raw = item.as_u64().ok_or_else(|| {
+                CliError::InvalidInput(format!(
+                    "community label at index {idx} in '{}' must be a non-negative integer",
+                    path.display()
+                ))
+            })?;
+            let lbl = u32::try_from(raw).map_err(|_| {
+                CliError::InvalidInput(format!(
+                    "community label {raw} at index {idx} in '{}' exceeds u32::MAX",
+                    path.display()
+                ))
+            })?;
+            parsed.push(lbl);
+        }
+        parsed
+    } else {
+        let mut parsed = Vec::new();
+        for (line_idx, raw_line) in content.lines().enumerate() {
+            let line = raw_line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            for token in line
+                .split(|c: char| c.is_ascii_whitespace() || c == ',')
+                .filter(|t| !t.is_empty())
+            {
+                let lbl = token.parse::<u32>().map_err(|_| {
+                    CliError::InvalidInput(format!(
+                        "invalid community label '{token}' on line {} of '{}'",
+                        line_idx + 1,
+                        path.display()
+                    ))
+                })?;
+                parsed.push(lbl);
+            }
+        }
+        parsed
+    };
+
+    if labels.len() != expected_nodes {
+        return Err(CliError::Core(CoreError::dimension_mismatch(
+            expected_nodes,
+            labels.len(),
+            "load_community_labels_from_path",
+        )));
+    }
+    Ok(labels)
+}
+
 /// Executes the `metrics` subcommand and returns the structured JSON output.
 pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
     let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
     let layout = load_layout_from_path(&args.layout, graph.num_nodes())?;
     let targets = parse_metric_targets(&args.targets)?;
+    let community_labels = args
+        .community_labels
+        .as_deref()
+        .map(|path| load_community_labels_from_path(path, graph.num_nodes()))
+        .transpose()?;
     let cfg = MetricConfig {
         sns_num_pivots: args.num_pivots,
         sns_seed: args.seed,
@@ -691,7 +827,13 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
     cfg.validate()?;
 
     let t0 = Instant::now();
-    let report = evaluate_metrics(&graph, &layout, &targets, &cfg)?;
+    let report = evaluate_metrics_with_communities(
+        &graph,
+        &layout,
+        &targets,
+        &cfg,
+        community_labels.as_deref(),
+    )?;
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     Ok(MetricsOutput::from_report(
@@ -822,4 +964,38 @@ pub fn execute_bench(args: &BenchArgs) -> CliResult<BenchOutput> {
         neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
         neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_metric_targets_expands_all_with_dedup_and_validation() {
+        let all_only = parse_metric_targets("all").expect("all");
+        assert_eq!(all_only.len(), 22);
+        assert!(!all_only.contains(&MetricTarget::ClusterAreaFaithfulness));
+
+        let all_gcaf = parse_metric_targets("all,gcaf").expect("all,gcaf");
+        assert_eq!(all_gcaf.len(), 23);
+        assert_eq!(
+            all_gcaf.last(),
+            Some(&MetricTarget::ClusterAreaFaithfulness)
+        );
+
+        let gcaf_all = parse_metric_targets("gcaf,all").expect("gcaf,all");
+        assert_eq!(gcaf_all.len(), 23);
+        assert_eq!(
+            gcaf_all.first(),
+            Some(&MetricTarget::ClusterAreaFaithfulness)
+        );
+
+        let sns_all = parse_metric_targets("sns,all,all,gcaf,gcaf").expect("dedup");
+        assert_eq!(sns_all.len(), 23);
+        assert_eq!(sns_all.first(), Some(&MetricTarget::ScaleNormalizedStress));
+        assert_eq!(sns_all.last(), Some(&MetricTarget::ClusterAreaFaithfulness));
+
+        let err = parse_metric_targets("all,invalid_target").expect_err("trailing invalid target");
+        assert!(matches!(err, CliError::InvalidInput(_)));
+    }
 }

@@ -12,11 +12,14 @@
 //!   and PRISM distortion ($\sigma_{\mathrm{dist}}, \sigma_{\mathrm{disp}}$).
 //! - [`community`]: Spatial community coherence (`adjusted_patch_nig`,
 //!   `adjusted_patch_nig_multiscale`).
+//! - [`cluster_area`]: Grid-based Cluster Area Faithfulness (`G-CAF`) combining
+//!   resolution, adjusted spatial purity, area proportion, and 8-connected coherence.
 //! - [`rta`]: $O(N)$-RAM streaming Landmark-Stratified Random Triplet Accuracy
 //!   (`landmark_stratified_rta`).
 //! - [`dispatcher`]: Selective metric evaluation (`evaluate_metrics`,
 //!   `evaluate_metrics_with_communities`) executing only explicitly requested targets.
 
+pub mod cluster_area;
 pub mod community;
 pub mod crossings;
 pub mod dispatcher;
@@ -29,6 +32,10 @@ pub mod stress;
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 use egraph_spatial::StaticKdTree;
 
+pub use cluster_area::{
+    ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, cluster_area_faithfulness,
+    cluster_area_faithfulness_detail,
+};
 pub use community::{adjusted_patch_nig, adjusted_patch_nig_multiscale};
 pub use crossings::{
     CrossingPair, CrossingSummary, TorusCrossing, crossing_angle, crossing_angle_from_pairs,

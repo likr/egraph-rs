@@ -91,6 +91,33 @@ fn facade_metrics_clustering_dataset_smoke() {
     assert!(report.scale_normalized_stress.is_some());
     assert!(report.neighborhood_preservation_2hop.is_some());
 
+    let caf_report = evaluate_metrics_with_communities(
+        &graph,
+        &layout,
+        &[MetricTarget::ClusterAreaFaithfulness],
+        &cfg,
+        Some(&louvain_res.labels),
+    )
+    .expect("evaluate_metrics_with_communities G-CAF");
+    let caf_val = caf_report
+        .cluster_area_faithfulness
+        .expect("cluster_area_faithfulness should be populated");
+    assert!(caf_val.is_finite() && (0.0..=1.0).contains(&caf_val));
+
+    let caf_detail = cluster_area_faithfulness_detail(
+        &layout,
+        &louvain_res.labels,
+        &ClusterAreaConfig::default(),
+    )
+    .expect("cluster_area_faithfulness_detail");
+    assert_eq!(caf_detail.report.num_nodes, 34);
+    assert_eq!(caf_detail.cluster_ids.len(), caf_detail.report.num_clusters);
+    assert!((caf_detail.report.caf - caf_val).abs() < 1e-12);
+    assert!(
+        caf_detail.report.spatial_coherence.is_finite()
+            && (0.0..=1.0).contains(&caf_detail.report.spatial_coherence)
+    );
+
     normalize_layout_2d(&mut layout, 1.0, 42).expect("normalize_layout_2d");
     assert!(layout.is_all_finite());
 }

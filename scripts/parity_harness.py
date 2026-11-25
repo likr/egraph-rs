@@ -627,10 +627,367 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "TFdpSolver"):
         results.extend(run_v6_m4_python_checks(eg))
 
+    # 9. G-CAF (Cluster Area Faithfulness) Python checks
+    if hasattr(eg, "cluster_area_faithfulness"):
+        results.extend(_run_v6_gcaf_python_checks(eg))
+
     assert not hasattr(eg, "InfoMap"), "InfoMap must not be exposed on egraph v6"
     assert "InfoMap" not in getattr(eg, "__all__", []), "InfoMap must not be in egraph.__all__"
 
     return results
+
+
+def _gcaf_small_n_regression_cases() -> list[dict[str, Any]]:
+    """Return exact f32 N <= 40 cross-target G-CAF parity regression fixtures."""
+    n30_k3_coords = [
+        -0.2815477252006531, 2.700129985809326, 1.5668566226959229, 0.07951676100492477,
+        -1.7507059574127197, 3.2445662021636963, -0.7271009683609009, -1.1585856676101685,
+        -0.9049389362335205, -0.01628471538424492, 0.6466772556304932, 0.3806455433368683,
+        -0.6412783861160278, 1.3978006839752197, -0.4455091059207916, -0.49050599336624146,
+        2.5104165077209473, 1.2259844541549683, 0.43586039543151855, -1.875908374786377,
+        -2.004007339477539, 1.1233396530151367, 1.0720340013504028, 0.9364057779312134,
+        0.1474851369857788, -0.5821631550788879, -1.3126808404922485, 2.892348527908325,
+        1.1164329051971436, -2.457968235015869, -0.7849741578102112, -4.539268970489502,
+        -1.1620724201202393, -0.7121404409408569, -0.565313458442688, -0.7346477508544922,
+        -2.0997090339660645, -0.09313655644655228, 1.1614314317703247, 0.3544427454471588,
+        0.4652692377567291, 1.7718443870544434, -0.44344475865364075, 1.4617308378219604,
+        -1.6758195161819458, 1.5955342054367065, -3.2307612895965576, -0.6647124886512756,
+        0.012851242907345295, 1.9697237014770508, 0.2668476700782776, 3.0945630073547363,
+        -0.838649570941925, 0.16661247611045837, 2.785959482192993, -2.0786988735198975,
+        -3.658062219619751, 2.8940680027008057, 4.266763687133789, 0.9111690521240234,
+    ]
+    n30_k3_labels = [2, 1, 2, 1, 0, 0, 1, 0, 1, 0, 1, 2, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1]
+    n39_k5_coords = [
+        2.3179290294647217, -2.3773701190948486, -2.518195390701294, 2.2936649322509766,
+        1.515089750289917, -0.1626361757516861, -0.5416049957275391, 1.4072234630584717,
+        -2.659836530685425, 1.2367346286773682, 0.230801060795784, 2.8906409740448,
+        0.14955002069473267, -2.741164445877075, 2.9515316486358643, 0.5958318710327148,
+        -2.25287127494812, -1.281233549118042, -4.208866119384766, -2.057319402694702,
+        1.240214228630066, -0.645514965057373, -3.716273784637451, -1.508569359779358,
+        0.5517861247062683, 0.43332743644714355, -2.085688829421997, 0.824012041091919,
+        1.1661124229431152, 0.5285953283309937, -1.7103712558746338, 0.9139032363891602,
+        -1.189815878868103, -2.2106411457061768, 2.106105089187622, 1.6581815481185913,
+        1.8313655853271484, -5.026828289031982, 0.15985800325870514, 2.3602962493896484,
+        1.1456916332244873, -0.6920322775840759, -1.9657926559448242, -1.7649825811386108,
+        -2.4530982971191406, -2.5909652709960938, 0.3976938724517822, 0.16761969029903412,
+        -3.0827178955078125, -0.32256436347961426, -3.298811674118042, 0.3545989990234375,
+        -2.273881196975708, 0.9519124031066895, -0.3883000612258911, -1.580034613609314,
+        -0.7317273616790771, 2.549612522125244, 0.18937981128692627, 2.016829013824463,
+        -0.643775999546051, -1.1126575469970703, -1.6523631811141968, -1.4371283054351807,
+        1.3997529745101929, -1.374435544013977, 0.34608787298202515, -0.20996540784835815,
+        0.8923608064651489, -0.3378030061721802, 0.48425641655921936, -1.9588091373443604,
+        2.5424654483795166, 0.02001159079372883, 1.4568390846252441, -3.306309938430786,
+        -2.286395311355591, -0.16748563945293427,
+    ]
+    n39_k5_labels = [3, 0, 0, 1, 4, 3, 0, 3, 1, 3, 3, 2, 2, 0, 0, 3, 4, 2, 0, 3, 0, 1, 1, 4, 1, 1, 3, 1, 0, 3, 1, 2, 2, 3, 2, 3, 3, 2, 1]
+    n40_b1_coords = [
+        -2.9233508110046387, 1.3258304595947266, -1.270039677619934, 0.05569106712937355,
+        -3.5743446350097656, 0.08754363656044006, 2.8365554809570312, -1.2860935926437378,
+        0.6736948490142822, 2.1501173973083496, 0.02794797532260418, -0.5190643072128296,
+        1.8806356191635132, 0.3827267289161682, 0.594303548336029, -5.774633884429932,
+        1.3010855913162231, 0.15634697675704956, -0.1997925490140915, 2.864908218383789,
+        -0.4877355992794037, -0.3527091443538666, 1.1604030132293701, 1.5458732843399048,
+        -3.2697393894195557, -1.7934491634368896, -1.9938316345214844, 0.7835420966148376,
+        2.9356517791748047, -1.301081895828247, 2.102522373199463, 3.261350393295288,
+        -3.1106839179992676, -3.077613353729248, 4.413053035736084, 1.5375747680664062,
+        1.0798331499099731, -0.5608461499214172, -0.24963510036468506, 0.9973931312561035,
+        2.0195343494415283, -1.7061171531677246, -3.577021360397339, 3.366581916809082,
+        1.3103059530258179, -1.3890607357025146, 0.760463535785675, 0.3916463255882263,
+        1.9436023235321045, 1.0128681659698486, -0.8362287878990173, 3.4891979694366455,
+        -2.9951605796813965, 2.4798998832702637, -0.43555063009262085, 1.482376217842102,
+        3.8454504013061523, -0.4614332914352417, -4.027052879333496, -0.38336920738220215,
+        -2.1162023544311523, 2.383676290512085, 2.38696551322937, -1.7980482578277588,
+        1.8000229597091675, 1.4273918867111206, -2.7043612003326416, -2.191859006881714,
+        1.9361793994903564, 1.2998770475387573, -0.2770219147205353, 1.5509105920791626,
+        1.5726526975631714, -3.3546550273895264, -0.31485745310783386, 2.2452876567840576,
+        1.2533442974090576, -2.2307775020599365, -0.25232869386672974, 0.9945555329322815,
+    ]
+    n40_b1_labels = [3, 1, 3, 0, 1, 2, 2, 2, 1, 0, 0, 0, 2, 3, 2, 1, 0, 1, 2, 1, 0, 3, 1, 1, 1, 0, 0, 2, 1, 3, 0, 3, 2, 2, 0, 0, 1, 1, 0, 1]
+    n6_b1_coords = [
+        0.09900733083486557, 3.489287853240967, -2.256587505340576, 1.0310328006744385,
+        -0.25905266404151917, 0.7601389288902283, 0.6031523942947388, 1.1567120552062988,
+        4.331787109375, 2.105045795440674, -2.2524311542510986, 3.557722568511963,
+    ]
+    n6_b1_labels = [3, 0, 5, 1, 3, 5]
+    idx445_pure_tail_coords = [
+        -0.933991551399231, -0.08828876167535782, 0.2382437139749527, -1.6165368556976318,
+        0.31952330470085144, -1.328585147857666, -0.29861539602279663, 1.6585638523101807,
+        -1.2817468643188477, -0.23555676639080048, 0.9802638292312622, -0.26757410168647766,
+        2.0682170391082764, 0.8867510557174683, 0.4469839334487915, 1.5724736452102661,
+        0.4012336730957031, -1.8822963237762451,
+    ]
+    idx445_pure_tail_labels = [1, 4, 4, 0, 3, 3, 3, 3, 4]
+    idx451_sparse_tail_coords = [
+        -0.2518731951713562, 0.07975521683692932, 1.37264883518219, 0.8500950932502747,
+        -1.343191385269165, 0.06236932426691055, 0.3976910710334778, 1.9115973711013794,
+        -0.9139043092727661, -0.8880517482757568, 1.6514384746551514, -0.22949932515621185,
+        -1.1391746997833252, -0.9518010020256042, 0.2050648033618927, -1.6683542728424072,
+        -0.25118568539619446, -0.6805249452590942, 0.30096200108528137, 0.10765163600444794,
+        -0.11161975562572479, -0.9943410754203796, 0.18235112726688385, -0.6725447177886963,
+        -0.5753703713417053, 1.0845589637756348, -0.15376493334770203, 0.6685572862625122,
+        -0.7996044158935547, -0.7258471250534058, 1.8715933561325073, -0.4190787076950073,
+        -0.7483075857162476, 0.6918076872825623, 0.7984699606895447, 1.896586298942566,
+        0.3965696394443512, -0.7518982887268066, -1.6543024778366089, -0.009605116210877895,
+        -1.536963939666748, -0.49072691798210144, -1.4884775876998901, 0.6713424921035767,
+        0.05031104385852814, 0.05718688666820526, -0.5325454473495483, -0.8697065711021423,
+        1.642391324043274, -1.7892390489578247, 1.8272528648376465, 0.6015019416809082,
+        0.2155684232711792, -0.2579333782196045, 1.403604507446289, 0.28627896308898926,
+        -0.39399221539497375, 0.44464102387428284, 0.3066869080066681, -0.12467768788337708,
+    ]
+    idx451_sparse_tail_labels = [
+        0, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1,
+    ]
+    s500_292_coords = [
+        -0.8589298129081726, -0.8472998738288879, -0.010375149548053741, -1.7285854816436768,
+        0.001789810019545257, 2.976900577545166, -0.9761431217193604, 1.2507176399230957,
+        0.7966066002845764, -0.43772125244140625, -1.9091739654541016, 0.8813920617103577,
+        -1.4938889741897583, 0.055759936571121216, -0.35337790846824646, -1.470625877380371,
+        0.6511914134025574, -0.35015806555747986, 0.903068482875824, -1.5927823781967163,
+        -0.3389033079147339, -1.0626435279846191, -0.25786250829696655, 0.23115427792072296,
+        -1.486572504043579, 0.38411444425582886, 0.5594135522842407, -0.8532565236091614,
+        -1.2615015506744385, -0.5342092514038086, -0.9444082975387573, 0.579115092754364,
+        -0.6351454854011536, -0.967582106590271, -0.5154885053634644, 0.9100424647331238,
+        0.9587221741676331, 0.26757296919822693, -0.877332866191864, -1.196655511856079,
+        0.7086302042007446, 1.4324191808700562, -1.5779736042022705, -0.42056649923324585,
+        -0.9108667969703674, 0.9537004828453064, 0.7653982639312744, 0.9929231405258179,
+        -1.488357663154602, 1.0644866228103638, -0.7887485027313232, 0.2259710282087326,
+        -0.8795187473297119, -0.9363757967948914, 0.8706657886505127, 0.7357091903686523,
+        0.9534659385681152, -1.8786526918411255, 0.2655912935733795, 1.7928541898727417,
+        -0.10050357133150101, -0.9006339311599731, 1.3498365879058838, 0.5915183424949646,
+        1.129069209098816, -0.5772221088409424, 1.0819532871246338, -0.8615137338638306,
+        0.395887166261673, 0.6019364595413208, 0.42082059383392334, -1.8643262386322021,
+        0.8065900802612305, 0.916283130645752,
+    ]
+    s500_292_k5_labels = [2, 4, 2, 4, 3, 0, 4, 1, 4, 1, 1, 0, 1, 0, 0, 3, 2, 0, 1, 3, 1, 3, 3, 0, 4, 4, 0, 1, 2, 4, 4, 0, 3, 3, 4, 3, 4]
+    s500_292_k6_labels = [3, 5, 3, 4, 4, 0, 5, 1, 5, 1, 2, 0, 1, 0, 0, 4, 2, 0, 2, 3, 1, 4, 4, 1, 5, 5, 0, 2, 3, 5, 5, 0, 4, 4, 5, 4, 5]
+    return [
+        {"name": "n30_k3_default", "coords": n30_k3_coords, "labels": n30_k3_labels, "g_max": None, "sigma_cells": None, "boundary_r95": None, "stevens_gamma": None},
+        {"name": "n30_k3_custom", "coords": n30_k3_coords, "labels": n30_k3_labels, "g_max": 12, "sigma_cells": 0.15, "boundary_r95": 0.8, "stevens_gamma": None},
+        {"name": "n39_k5_default", "coords": n39_k5_coords, "labels": n39_k5_labels, "g_max": None, "sigma_cells": None, "boundary_r95": None, "stevens_gamma": None},
+        {"name": "n39_k5_custom", "coords": n39_k5_coords, "labels": n39_k5_labels, "g_max": 32, "sigma_cells": 1.8, "boundary_r95": 5.0, "stevens_gamma": None},
+        {"name": "n40_b1_default", "coords": n40_b1_coords, "labels": n40_b1_labels, "g_max": None, "sigma_cells": None, "boundary_r95": None, "stevens_gamma": None},
+        {"name": "n40_b1_r1", "coords": n40_b1_coords, "labels": n40_b1_labels, "g_max": None, "sigma_cells": None, "boundary_r95": 1.0, "stevens_gamma": None},
+        {"name": "n6_b1_default", "coords": n6_b1_coords, "labels": n6_b1_labels, "g_max": None, "sigma_cells": None, "boundary_r95": None, "stevens_gamma": None},
+        {"name": "n6_b1_r1", "coords": n6_b1_coords, "labels": n6_b1_labels, "g_max": None, "sigma_cells": None, "boundary_r95": 1.0, "stevens_gamma": None},
+        {"name": "idx445_pure_tail", "coords": idx445_pure_tail_coords, "labels": idx445_pure_tail_labels, "g_max": 12, "sigma_cells": 0.15, "boundary_r95": 1.0, "stevens_gamma": 0.3},
+        {"name": "idx451_sparse_tail", "coords": idx451_sparse_tail_coords, "labels": idx451_sparse_tail_labels, "g_max": 32, "sigma_cells": 0.15, "boundary_r95": float("inf"), "stevens_gamma": 0.3},
+        {"name": "s500_292_k5", "coords": s500_292_coords, "labels": s500_292_k5_labels, "g_max": 12, "sigma_cells": 0.15, "boundary_r95": float("inf"), "stevens_gamma": 2.5},
+        {"name": "s500_292_k6", "coords": s500_292_coords, "labels": s500_292_k6_labels, "g_max": 12, "sigma_cells": 0.15, "boundary_r95": float("inf"), "stevens_gamma": 2.5},
+    ]
+
+
+def _run_v6_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
+    """Verify G-CAF scalar/detail/dispatcher parity, invariances, boundaries, and adversarial guards."""
+    import numpy as np
+
+    t0 = time.perf_counter()
+    # Exact-in-f32 dyadic integer 100-node 2-cluster grid
+    pts = []
+    labels = []
+    for c in range(10):
+        for r in range(10):
+            pts.append([float(c + (0 if c < 5 else 2)), float(r)])
+            labels.append(0 if c < 5 else 1)
+    coords64 = np.array(pts, dtype=np.float64)
+    coords32 = coords64.astype(np.float32)
+    l64 = eg.Layout2d.from_coords(coords64)
+    l32 = eg.Layout2d.from_coords(coords32)
+
+    caf64 = float(eg.cluster_area_faithfulness(l64, labels))
+    caf32 = float(eg.cluster_area_faithfulness(l32, labels))
+    assert abs(caf64 - caf32) < 1e-12, f"G-CAF f64 vs f32 dyadic drift: {caf64} vs {caf32}"
+
+    det64 = eg.cluster_area_faithfulness_detail(l64, labels, return_per_cluster=True)
+    det32 = eg.cluster_area_faithfulness_detail(l32, labels, return_per_cluster=True)
+    scalar_keys = (
+        "caf",
+        "purity_adj",
+        "prop_vis",
+        "res_density",
+        "res_deconv",
+        "res_combined",
+        "spatial_coherence",
+        "in_frac",
+    )
+    for k in scalar_keys:
+        assert abs(float(det64[k]) - float(det32[k])) < 1e-12, f"G-CAF scalar {k} drift"
+    assert det64["num_clusters"] == det32["num_clusters"] == 2
+    assert det64["num_nodes"] == det32["num_nodes"] == 100
+    vec_keys = (
+        "cluster_ids",
+        "counts",
+        "p",
+        "q",
+        "purity",
+        "resolution",
+        "res_density_per_cluster",
+        "res_deconv_per_cluster",
+        "caf_per_cluster",
+        "coherence",
+    )
+    for k in vec_keys:
+        assert np.max(np.abs(np.asarray(det64[k], dtype=np.float64) - np.asarray(det32[k], dtype=np.float64))) < 1e-12
+
+    g100 = eg.CsrGraph.from_edges(100, [(i, i + 1) for i in range(99)], directed=False, sanitize=True)
+    for alias in ("cluster_area_faithfulness", "gcaf", "clusterAreaFaithfulness"):
+        rep = eg.evaluate_metrics(g100, l64, [alias], community_labels=labels)
+        assert abs(float(rep["cluster_area_faithfulness"]) - caf64) < 1e-12
+
+    # Imbalanced 24-node fixture: stevens_gamma, boundary_r95=inf, custom config
+    coords_imb = np.array(
+        [
+            [
+                (-2.0 + 0.5 * (i / 19.0)) if i < 20 else (1.5 + 0.5 * ((i - 20) / 3.0)),
+                math.sin(i * 0.7) * 0.2,
+            ]
+            for i in range(24)
+        ],
+        dtype=np.float64,
+    )
+    labels_imb = [0] * 20 + [1] * 4
+    l_imb = eg.Layout2d.from_coords(coords_imb)
+    g_imb = eg.CsrGraph.from_edges(24, [(i, i + 1) for i in range(23)], directed=False, sanitize=True)
+
+    det_g05 = eg.cluster_area_faithfulness_detail(l_imb, labels_imb, stevens_gamma=0.5, return_per_cluster=True)
+    det_g20 = eg.cluster_area_faithfulness_detail(l_imb, labels_imb, stevens_gamma=2.0, return_per_cluster=True)
+    assert abs(float(np.sum(det_g05["p"])) - 1.0) < 1e-12
+    assert abs(float(np.sum(det_g20["p"])) - 1.0) < 1e-12
+    assert float(det_g05["p"][0]) < float(det_g20["p"][0])
+
+    det_inf = eg.cluster_area_faithfulness_detail(l_imb, labels_imb, boundary_r95=float("inf"))
+    assert abs(float(det_inf["in_frac"]) - 1.0) < 1e-12
+    assert 0.0 <= float(det_inf["caf"]) <= 1.0
+
+    caf_custom = float(
+        eg.cluster_area_faithfulness(
+            l_imb,
+            labels_imb,
+            g_max=64,
+            sigma_cells=0.9,
+            kappa=8.0,
+            tau_frac=0.2,
+            boundary_r95=2.5,
+            stevens_gamma=0.7,
+        )
+    )
+    eval_custom = eg.evaluate_metrics(
+        g_imb,
+        l_imb,
+        ["cluster_area_faithfulness"],
+        community_labels=labels_imb,
+        g_max=64,
+        sigma_cells=0.9,
+        kappa=8.0,
+        tau_frac=0.2,
+        boundary_r95=2.5,
+        stevens_gamma=0.7,
+    )
+    assert abs(float(eval_custom["cluster_area_faithfulness"]) - caf_custom) < 1e-12
+
+    # Degenerate boundaries: N=0, N=1, K=1, collapsed
+    d0 = eg.cluster_area_faithfulness_detail(eg.Layout2d.zeros(0), [], return_per_cluster=True)
+    assert d0["caf"] == 0.0 and d0["num_clusters"] == 0 and d0["num_nodes"] == 0
+    d1 = eg.cluster_area_faithfulness_detail(eg.Layout2d.from_coords([[1.0, 2.0]]), [5], return_per_cluster=True)
+    assert d1["caf"] == 0.0 and d1["num_clusters"] == 1 and d1["num_nodes"] == 1
+    dk1 = eg.cluster_area_faithfulness_detail(
+        eg.Layout2d.from_coords([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
+        [3, 3, 3, 3],
+        return_per_cluster=True,
+    )
+    assert dk1["caf"] == 0.0 and dk1["num_clusters"] == 1 and dk1["num_nodes"] == 4
+    l_col = eg.Layout2d.from_coords([[2.0, -1.0]] * 6)
+    assert float(eg.cluster_area_faithfulness(l_col, [0, 0, 0, 1, 1, 1])) == 0.0
+
+    # Adversarial non-panic error checks
+    l_nan = eg.Layout2d.from_coords(coords_imb.copy())
+    l_nan.coords(copy=False)[0, 0] = float("nan")
+    _assert_non_panic_error(
+        "gcaf/label_mismatch",
+        lambda: eg.cluster_area_faithfulness(l_imb, labels_imb[:-1]),
+        expected_types=(ValueError,),
+    )
+    _assert_non_panic_error(
+        "gcaf/nan_layout",
+        lambda: eg.cluster_area_faithfulness(l_nan, labels_imb),
+        expected_types=(ValueError,),
+    )
+    for bad_g in (11, -1):
+        _assert_non_panic_error(
+            f"gcaf/g_max_{bad_g}",
+            lambda g=bad_g: eg.cluster_area_faithfulness(l_imb, labels_imb, g_max=g),
+            expected_types=(ValueError,),
+        )
+    for bad_s in (0.0, -0.5, float("nan"), float("inf"), 400.0):
+        _assert_non_panic_error(
+            f"gcaf/sigma_{bad_s}",
+            lambda s=bad_s: eg.cluster_area_faithfulness(l_imb, labels_imb, sigma_cells=s),
+            expected_types=(ValueError,),
+        )
+    for bad_v in (0.0, -1.0, float("nan"), float("inf")):
+        _assert_non_panic_error(
+            f"gcaf/kappa_{bad_v}",
+            lambda v=bad_v: eg.cluster_area_faithfulness(l_imb, labels_imb, kappa=v),
+            expected_types=(ValueError,),
+        )
+        _assert_non_panic_error(
+            f"gcaf/tau_frac_{bad_v}",
+            lambda v=bad_v: eg.cluster_area_faithfulness(l_imb, labels_imb, tau_frac=v),
+            expected_types=(ValueError,),
+        )
+        _assert_non_panic_error(
+            f"gcaf/stevens_gamma_{bad_v}",
+            lambda v=bad_v: eg.cluster_area_faithfulness(l_imb, labels_imb, stevens_gamma=v),
+            expected_types=(ValueError,),
+        )
+    for bad_r in (0.0, -1.0, float("nan"), float("-inf")):
+        _assert_non_panic_error(
+            f"gcaf/boundary_r95_{bad_r}",
+            lambda r=bad_r: eg.cluster_area_faithfulness(l_imb, labels_imb, boundary_r95=r),
+            expected_types=(ValueError,),
+        )
+    for missing_target in ("cluster_area_faithfulness", "gcaf"):
+        _assert_non_panic_error(
+            f"evaluate_metrics/{missing_target}_missing_labels",
+            lambda t=missing_target: eg.evaluate_metrics(g_imb, l_imb, [t]),
+            expected_types=(ValueError,),
+        )
+    lazy_ok = eg.evaluate_metrics(g_imb, l_imb, ["aspect_ratio"], g_max=4)
+    assert "aspect_ratio" in lazy_ok and "cluster_area_faithfulness" not in lazy_ok
+    _assert_non_panic_error(
+        "evaluate_metrics/gcaf_lazy_gmax4",
+        lambda: eg.evaluate_metrics(g_imb, l_imb, ["gcaf"], community_labels=labels_imb, g_max=4),
+        expected_types=(ValueError,),
+    )
+
+    # Small-N (N <= 41) MEC quantile tie & boundary_r95=1.0 regression cases
+    for case in _gcaf_small_n_regression_cases():
+        coords_arr = np.asarray(case["coords"], dtype=np.float32).reshape(-1, 2)
+        n_case = coords_arr.shape[0]
+        l_case = eg.Layout2d.from_coords(coords_arr)
+        g_case = eg.CsrGraph.from_edges(n_case, [(i, i + 1) for i in range(n_case - 1)], directed=False, sanitize=True)
+        kwargs: dict[str, Any] = {}
+        if case["g_max"] is not None:
+            kwargs["g_max"] = case["g_max"]
+        if case["sigma_cells"] is not None:
+            kwargs["sigma_cells"] = case["sigma_cells"]
+        if case["boundary_r95"] is not None:
+            kwargs["boundary_r95"] = case["boundary_r95"]
+        if case["stevens_gamma"] is not None:
+            kwargs["stevens_gamma"] = case["stevens_gamma"]
+        caf_s = float(eg.cluster_area_faithfulness(l_case, case["labels"], **kwargs))
+        det_s = eg.cluster_area_faithfulness_detail(l_case, case["labels"], return_per_cluster=True, **kwargs)
+        eval_s = eg.evaluate_metrics(g_case, l_case, ["gcaf"], community_labels=case["labels"], **kwargs)
+        assert 0.0 <= caf_s <= 1.0 and math.isfinite(caf_s)
+        assert abs(caf_s - float(det_s["caf"])) < 1e-12
+        assert abs(caf_s - float(eval_s["cluster_area_faithfulness"])) < 1e-12
+        if case["name"] == "idx445_pure_tail":
+            assert float(det_s["purity"][3]) == 1.0, f"expected exact 1.0 purity[3], got {det_s['purity'][3]}"
+
+    return [{
+        "case": "v6_gcaf_python_checks",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+    }]
 
 
 def _make_m2_canonical_graph_spec() -> tuple[int, list[tuple[int, int]]]:
@@ -2015,6 +2372,153 @@ if (typeof mod.TFdpSolver === 'function') {{
   assertM4JsErr(() => new mod.FdebSolver(g16, badL), 'm4 fdeb dim mismatch');
   badL.free?.();
   g16.free?.();
+}}
+
+if (typeof mod.clusterAreaFaithfulness === 'function') {{
+  assert.equal(typeof mod.ClusterAreaReport, 'function', 'mod missing ClusterAreaReport');
+  assert.equal(typeof mod.clusterAreaFaithfulnessDetail, 'function', 'mod missing clusterAreaFaithfulnessDetail');
+  assert.equal(typeof indexMod.ClusterAreaReport, 'function', 'indexMod missing ClusterAreaReport');
+  assert.equal(typeof indexMod.clusterAreaFaithfulness, 'function', 'indexMod missing clusterAreaFaithfulness');
+  assert.equal(typeof indexMod.clusterAreaFaithfulnessDetail, 'function', 'indexMod missing clusterAreaFaithfulnessDetail');
+
+  const imbCoords = new Float32Array(48);
+  const imbLabels = new Uint32Array(24);
+  for (let i = 0; i < 24; i++) {{
+    imbCoords[2 * i] = i < 20 ? -2.0 + 0.5 * (i / 19) : 1.5 + 0.5 * ((i - 20) / 3);
+    imbCoords[2 * i + 1] = Math.sin(i * 0.7) * 0.2;
+    imbLabels[i] = i < 20 ? 0 : 1;
+  }}
+  const lImb = mod.Layout2d.fromCoords(imbCoords);
+  const imbEdges = [];
+  for (let i = 0; i < 23; i++) imbEdges.push(i, i + 1);
+  const gImb = mod.CsrGraph.fromEdgeList(24, new Uint32Array(imbEdges));
+
+  const cafDef = mod.clusterAreaFaithfulness(lImb, imbLabels);
+  const detDef = mod.clusterAreaFaithfulnessDetail(lImb, imbLabels);
+  assert.ok(detDef instanceof mod.ClusterAreaReport);
+  assert.ok(Math.abs(detDef.caf - cafDef) < 1e-12);
+  const recDef = detDef.toRecord();
+  assert.ok(Math.abs(recDef.caf - cafDef) < 1e-12);
+  for (const k of ['caf', 'purityAdj', 'propVis', 'resDensity', 'resDeconv', 'resCombined', 'spatialCoherence', 'inFrac']) {{
+    assert.ok(Number.isFinite(detDef[k]) && detDef[k] >= 0 && detDef[k] <= 1, `bad ${{k}}`);
+    assert.ok(Math.abs(recDef[k] - detDef[k]) < 1e-12, `record mismatch ${{k}}`);
+  }}
+  assert.equal(detDef.numClusters, 2);
+  assert.equal(detDef.numNodes, 24);
+  if (typeof detDef.clusterIds === 'function') {{
+    assert.equal(detDef.clusterIds().length, 2);
+    assert.equal(detDef.counts().length, 2);
+    const pSum = detDef.p().reduce((a, b) => a + b, 0);
+    const qSum = detDef.q().reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(pSum - 1.0) < 1e-12);
+    assert.ok(Math.abs(qSum - 1.0) < 1e-12);
+    for (const m of ['purity', 'resolution', 'resDensityPerCluster', 'resDeconvPerCluster', 'cafPerCluster', 'coherence']) {{
+      assert.equal(detDef[m]().length, 2, `bad len ${{m}}`);
+    }}
+  }}
+  detDef.free?.();
+
+  const cafCustom = mod.clusterAreaFaithfulness(lImb, imbLabels, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+  const l5 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 3, 3, 4, 3]));
+  const l5Arr = [100, 5, 100, 4294967295, 5];
+  assert.equal(mod.clusterAreaFaithfulness(l5, new Uint32Array(l5Arr)), mod.clusterAreaFaithfulness(l5, l5Arr));
+  l5.free?.();
+  for (const t of ['clusterAreaFaithfulness', 'cluster_area_faithfulness', 'gcaf']) {{
+    const rep = mod.evaluateMetrics(gImb, lImb, [t], null, null, null, null, imbLabels, null, null, null, null, null, null, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+    assert.ok(Math.abs(rep.clusterAreaFaithfulness - cafCustom) < 1e-12);
+    assert.ok(Math.abs(rep.toRecord().clusterAreaFaithfulness - cafCustom) < 1e-12);
+    rep.free?.();
+  }}
+
+  const detInf = mod.clusterAreaFaithfulnessDetail(lImb, imbLabels, null, null, null, null, Number.POSITIVE_INFINITY, null);
+  assert.ok(Math.abs(detInf.inFrac - 1.0) < 1e-12);
+  detInf.free?.();
+  const detG05 = mod.clusterAreaFaithfulnessDetail(lImb, imbLabels, null, null, null, null, null, 0.5);
+  const detG20 = mod.clusterAreaFaithfulnessDetail(lImb, imbLabels, null, null, null, null, null, 2.0);
+  if (typeof detG05.p === 'function') assert.ok(detG05.p()[0] < detG20.p()[0]);
+  detG05.free?.(); detG20.free?.();
+
+  // Degenerate boundaries: N=0, N=1, K=1, collapsed
+  const l0 = mod.Layout2d.zeros(0);
+  const d0 = mod.clusterAreaFaithfulnessDetail(l0, []);
+  assert.equal(d0.caf, 0); assert.equal(d0.numClusters, 0); assert.equal(d0.numNodes, 0);
+  d0.free?.(); l0.free?.();
+  const l1 = mod.Layout2d.fromCoords(new Float32Array([1, 2]));
+  assert.equal(mod.clusterAreaFaithfulness(l1, [5]), 0);
+  l1.free?.();
+  const l4 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
+  assert.equal(mod.clusterAreaFaithfulness(l4, [3, 3, 3, 3]), 0);
+  l4.free?.();
+  const lCol = mod.Layout2d.fromCoords(new Float32Array([2, -1, 2, -1, 2, -1, 2, -1, 2, -1, 2, -1]));
+  assert.equal(mod.clusterAreaFaithfulness(lCol, [0, 0, 0, 1, 1, 1]), 0);
+  lCol.free?.();
+
+  // Lazy gMax=4 passes without gcaf target
+  const lazyOk = mod.evaluateMetrics(gImb, lImb, ['aspectRatio'], null, null, null, null, null, null, null, null, null, null, null, 4);
+  assert.ok(Number.isFinite(lazyOk.aspectRatio));
+  assert.equal(lazyOk.clusterAreaFaithfulness, undefined);
+  lazyOk.free?.();
+
+  const assertGcafErr = (fn, label) => {{
+    let threw = false;
+    try {{
+      fn();
+    }} catch (err) {{
+      assert.ok(!(err instanceof WebAssembly.RuntimeError), `${{label}} trapped with RuntimeError`);
+      assert.ok(err instanceof Error, `${{label}} must throw Error`);
+      threw = true;
+    }}
+    assert.ok(threw, `${{label}} must throw`);
+  }};
+  assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, [0, 1]), 'gcaf label len mismatch');
+  const restLabels = Array.from(imbLabels.slice(1));
+  const invalidCommunityLabels = [
+    ['neg', [-1, ...restLabels]],
+    ['float', [1.5, ...restLabels]],
+    ['nan', [Number.NaN, ...restLabels]],
+    ['inf', [Number.POSITIVE_INFINITY, ...restLabels]],
+    ['overflow', [4294967296, ...restLabels]],
+    ['strElem', ['bad', ...restLabels]],
+    ['nullElem', [null, ...restLabels]],
+    ['undefElem', [undefined, ...restLabels]],
+    ['int32Array', new Int32Array([-1, ...restLabels])],
+    ['float64Array', new Float64Array([1.5, ...restLabels])],
+    ['arrayLikeObj', {{ length: 24 }}],
+    ['string', '000000000000000000001111'],
+  ];
+  for (const [tag, badLabels] of invalidCommunityLabels) {{
+    assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, badLabels), `gcaf bad labels (${{tag}})`);
+    assertGcafErr(() => mod.clusterAreaFaithfulnessDetail(lImb, badLabels), `gcafDetail bad labels (${{tag}})`);
+    assertGcafErr(
+      () => mod.evaluateMetrics(gImb, lImb, ['gcaf'], null, null, null, null, badLabels),
+      `gcaf eval bad labels (${{tag}})`,
+    );
+  }}
+  for (const [tag, nullish] of [['null', null], ['undefined', undefined]]) {{
+    assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, nullish), `gcaf nullish labels (${{tag}})`);
+    assertGcafErr(() => mod.clusterAreaFaithfulnessDetail(lImb, nullish), `gcafDetail nullish labels (${{tag}})`);
+    assertGcafErr(
+      () => mod.evaluateMetrics(gImb, lImb, ['gcaf'], null, null, null, null, nullish),
+      `gcaf eval nullish labels (${{tag}})`,
+    );
+  }}
+  const nanCoords = new Float32Array(imbCoords); nanCoords[0] = Number.NaN;
+  const lNan = mod.Layout2d.fromCoords(nanCoords);
+  assertGcafErr(() => mod.clusterAreaFaithfulness(lNan, imbLabels), 'gcaf nan layout');
+  lNan.free?.();
+  for (const bg of [11, -1, 1.5]) assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, bg), `gcaf gMax=${{bg}}`);
+  for (const bs of [0, -0.5, Number.NaN, Number.POSITIVE_INFINITY, 400]) assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, bs), `gcaf sigma=${{bs}}`);
+  for (const bv of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {{
+    assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, bv), `gcaf kappa=${{bv}}`);
+    assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, bv), `gcaf tau=${{bv}}`);
+    assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, bv), `gcaf gamma=${{bv}}`);
+  }}
+  for (const br of [0, -1, Number.NaN, Number.NEGATIVE_INFINITY]) assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, br), `gcaf r95=${{br}}`);
+  assertGcafErr(() => mod.evaluateMetrics(gImb, lImb, ['gcaf']), 'gcaf eval missing labels');
+  assertGcafErr(() => mod.evaluateMetrics(gImb, lImb, ['clusterAreaFaithfulness'], null, null, null, null, imbLabels, null, null, null, null, null, null, 4), 'gcaf eval lazy gMax=4');
+
+  lImb.free?.();
+  gImb.free?.();
 }}
 
 assert.equal(typeof mod.InfoMap, 'undefined');
@@ -4268,6 +4772,7 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
             "minimum_angle_a1",
             "layout_degeneracy",
             "adjusted_patch_nig",
+            "cluster_area_faithfulness",
             "landmark_stratified_rta",
         ],
         num_samples=100,
@@ -4280,6 +4785,102 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         canvas_size=2048,
         pad_frac=0.04,
     )
+    gcaf_grid_py = float(eg.cluster_area_faithfulness(l_grid, w3_comm_labels))
+    gcaf_grid_det_py = eg.cluster_area_faithfulness_detail(l_grid, w3_comm_labels, return_per_cluster=True)
+    imb24_coords_f32 = np.array(
+        [
+            [
+                (-2.0 + 0.5 * (i / 19.0)) if i < 20 else (1.5 + 0.5 * ((i - 20) / 3.0)),
+                math.sin(i * 0.7) * 0.2,
+            ]
+            for i in range(24)
+        ],
+        dtype=np.float32,
+    )
+    imb24_labels = [0] * 20 + [1] * 4
+    l_imb24_py = eg.Layout2d.from_coords(imb24_coords_f32)
+    g_imb24_py = eg.CsrGraph.from_edges(24, [(i, i + 1) for i in range(23)], directed=False, sanitize=True)
+    gcaf_imb_def_py = float(eg.cluster_area_faithfulness(l_imb24_py, imb24_labels))
+    gcaf_imb_custom_py = float(
+        eg.cluster_area_faithfulness(
+            l_imb24_py,
+            imb24_labels,
+            g_max=64,
+            sigma_cells=0.9,
+            kappa=8.0,
+            tau_frac=0.2,
+            boundary_r95=2.5,
+            stevens_gamma=0.7,
+        )
+    )
+    gcaf_imb_custom_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py,
+        imb24_labels,
+        g_max=64,
+        sigma_cells=0.9,
+        kappa=8.0,
+        tau_frac=0.2,
+        boundary_r95=2.5,
+        stevens_gamma=0.7,
+        return_per_cluster=True,
+    )
+    gcaf_imb_inf_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py, imb24_labels, boundary_r95=float("inf"), return_per_cluster=True
+    )
+    gcaf_imb_g05_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py, imb24_labels, stevens_gamma=0.5, return_per_cluster=True
+    )
+    gcaf_imb_g20_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py, imb24_labels, stevens_gamma=2.0, return_per_cluster=True
+    )
+    gcaf_imb_eval_py = eg.evaluate_metrics(
+        g_imb24_py,
+        l_imb24_py,
+        ["gcaf"],
+        community_labels=imb24_labels,
+        g_max=64,
+        sigma_cells=0.9,
+        kappa=8.0,
+        tau_frac=0.2,
+        boundary_r95=2.5,
+        stevens_gamma=0.7,
+    )
+    int20_coords_f64 = np.array(
+        [[float(c + (0 if c < 2 else 4)), float(r)] for c in range(4) for r in range(5)],
+        dtype=np.float64,
+    )
+    int20_labels = [0 if c < 2 else 1 for c in range(4) for _r in range(5)]
+    gcaf_int20_f64_py = eg.cluster_area_faithfulness_detail(
+        eg.Layout2d.from_coords(int20_coords_f64), int20_labels, return_per_cluster=True
+    )
+    gcaf_int20_f32_py = eg.cluster_area_faithfulness_detail(
+        eg.Layout2d.from_coords(int20_coords_f64.astype(np.float32)), int20_labels, return_per_cluster=True
+    )
+    gcaf_b0_py = eg.cluster_area_faithfulness_detail(eg.Layout2d.zeros(0), [], return_per_cluster=True)
+    gcaf_b1_py = eg.cluster_area_faithfulness_detail(eg.Layout2d.from_coords(np.array([[1.0, 2.0]], dtype=np.float32)), [5], return_per_cluster=True)
+    gcaf_bk1_py = eg.cluster_area_faithfulness_detail(eg.Layout2d.from_coords(np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=np.float32)), [3, 3, 3, 3], return_per_cluster=True)
+    gcaf_bcol_py = float(eg.cluster_area_faithfulness(eg.Layout2d.from_coords(np.array([[2.0, -1.0]] * 6, dtype=np.float32)), [0, 0, 0, 1, 1, 1]))
+    gcaf_small_n_cases = _gcaf_small_n_regression_cases()
+    gcaf_small_n_py: dict[str, dict[str, Any]] = {}
+    for case in gcaf_small_n_cases:
+        coords_arr = np.asarray(case["coords"], dtype=np.float32).reshape(-1, 2)
+        n_case = coords_arr.shape[0]
+        l_case = eg.Layout2d.from_coords(coords_arr)
+        g_case = eg.CsrGraph.from_edges(n_case, [(i, i + 1) for i in range(n_case - 1)], directed=False, sanitize=True)
+        kwargs: dict[str, Any] = {}
+        if case["g_max"] is not None:
+            kwargs["g_max"] = case["g_max"]
+        if case["sigma_cells"] is not None:
+            kwargs["sigma_cells"] = case["sigma_cells"]
+        if case["boundary_r95"] is not None:
+            kwargs["boundary_r95"] = case["boundary_r95"]
+        if case["stevens_gamma"] is not None:
+            kwargs["stevens_gamma"] = case["stevens_gamma"]
+        gcaf_small_n_py[case["name"]] = {
+            "caf": float(eg.cluster_area_faithfulness(l_case, case["labels"], **kwargs)),
+            "det": eg.cluster_area_faithfulness_detail(l_case, case["labels"], return_per_cluster=True, **kwargs),
+            "eval": eg.evaluate_metrics(g_case, l_case, ["gcaf"], community_labels=case["labels"], **kwargs),
+        }
     g_dir4_py = eg.CsrGraph.from_edges(
         4,
         [(0, 1), (0, 3), (1, 3), (3, 0), (3, 1), (3, 2)],
@@ -4485,6 +5086,20 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         "rerank_indptr": [int(v) for v in rerank_py.indptr()],
         "rerank_indices": [int(v) for v in rerank_py.indices()],
         "rerank_dists": [float(v) for v in rerank_py.distances()],
+        "imb24_coords": [float(v) for v in imb24_coords_f32.ravel()],
+        "int20_coords": [float(v) for v in int20_coords_f64.astype(np.float32).ravel()],
+        "int20_labels": int20_labels,
+        "gcaf_small_n": [
+            {
+                **c,
+                "boundary_r95": (
+                    "Infinity"
+                    if (c["boundary_r95"] is not None and math.isinf(c["boundary_r95"]))
+                    else c["boundary_r95"]
+                ),
+            }
+            for c in gcaf_small_n_cases
+        ],
     }
 
     node_script = """
@@ -4628,7 +5243,7 @@ const w3RtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, w3LmIds, new Uint
 const w3Eval = mod.evaluateMetrics(
   gGrid,
   lGrid,
-  ['crosslessness', 'sampledCrosslessness', 'minimumAngle', 'minimumAngleA1', 'layoutDegeneracy', 'adjustedPatchNig', 'landmarkStratifiedRta'],
+  ['crosslessness', 'sampledCrosslessness', 'minimumAngle', 'minimumAngleA1', 'layoutDegeneracy', 'adjustedPatchNig', 'clusterAreaFaithfulness', 'landmarkStratifiedRta'],
   null,
   100,
   42,
@@ -4641,6 +5256,101 @@ const w3Eval = mod.evaluateMetrics(
   2048,
   0.04,
 );
+const gcafGrid = mod.clusterAreaFaithfulness(lGrid, w3Comm);
+const gcafGridDet = mod.clusterAreaFaithfulnessDetail(lGrid, w3Comm);
+const imb24Labels = new Uint32Array(Array.from({ length: 24 }, (_, i) => (i < 20 ? 0 : 1)));
+const lImb24 = mod.Layout2d.fromCoords(new Float32Array(spec.imb24_coords));
+const imb24Edges = [];
+for (let i = 0; i < 23; i++) imb24Edges.push(i, i + 1);
+const gImb24 = mod.CsrGraph.fromEdgeList(24, new Uint32Array(imb24Edges));
+const gcafImbDef = mod.clusterAreaFaithfulness(lImb24, imb24Labels);
+const gcafImbCustom = mod.clusterAreaFaithfulness(lImb24, imb24Labels, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+const gcafImbCustomDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+const gcafImbInfDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, Number.POSITIVE_INFINITY, null);
+const gcafImbG05Det = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 0.5);
+const gcafImbG20Det = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 2.0);
+const gcafImbEval = mod.evaluateMetrics(gImb24, lImb24, ['gcaf'], null, null, null, null, imb24Labels, null, null, null, null, null, null, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+const lInt20 = mod.Layout2d.fromCoords(new Float32Array(spec.int20_coords));
+const gcafInt20Det = mod.clusterAreaFaithfulnessDetail(lInt20, new Uint32Array(spec.int20_labels));
+const lGcafB0 = mod.Layout2d.zeros(0);
+const gcafB0 = mod.clusterAreaFaithfulnessDetail(lGcafB0, []);
+const lGcafB1 = mod.Layout2d.fromCoords(new Float32Array([1, 2]));
+const gcafB1 = mod.clusterAreaFaithfulnessDetail(lGcafB1, [5]);
+const lGcafBk1 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
+const gcafBk1 = mod.clusterAreaFaithfulnessDetail(lGcafBk1, [3, 3, 3, 3]);
+const lGcafCol = mod.Layout2d.fromCoords(new Float32Array([2, -1, 2, -1, 2, -1, 2, -1, 2, -1, 2, -1]));
+const gcafBCol = mod.clusterAreaFaithfulness(lGcafCol, [0, 0, 0, 1, 1, 1]);
+const readGcafDet = (d) => {
+  const rec = d.toRecord();
+  return {
+    caf: d.caf,
+    purityAdj: d.purityAdj,
+    propVis: d.propVis,
+    resDensity: d.resDensity,
+    resDeconv: d.resDeconv,
+    resCombined: d.resCombined,
+    spatialCoherence: d.spatialCoherence,
+    inFrac: d.inFrac,
+    numClusters: d.numClusters,
+    numNodes: d.numNodes,
+    clusterIds: Array.from(d.clusterIds()),
+    counts: Array.from(d.counts()),
+    p: Array.from(d.p()),
+    q: Array.from(d.q()),
+    purity: Array.from(d.purity()),
+    resolution: Array.from(d.resolution()),
+    resDensityPerCluster: Array.from(d.resDensityPerCluster()),
+    resDeconvPerCluster: Array.from(d.resDeconvPerCluster()),
+    cafPerCluster: Array.from(d.cafPerCluster()),
+    coherence: Array.from(d.coherence()),
+    rec: {
+      caf: rec.caf,
+      purityAdj: rec.purityAdj,
+      propVis: rec.propVis,
+      resDensity: rec.resDensity,
+      resDeconv: rec.resDeconv,
+      resCombined: rec.resCombined,
+      spatialCoherence: rec.spatialCoherence,
+      inFrac: rec.inFrac,
+      numClusters: rec.numClusters,
+      numNodes: rec.numNodes,
+      clusterIds: Array.from(rec.clusterIds),
+      counts: Array.from(rec.counts),
+      p: Array.from(rec.p),
+      q: Array.from(rec.q),
+      purity: Array.from(rec.purity),
+      resolution: Array.from(rec.resolution),
+      resDensityPerCluster: Array.from(rec.resDensityPerCluster),
+      resDeconvPerCluster: Array.from(rec.resDeconvPerCluster),
+      cafPerCluster: Array.from(rec.cafPerCluster),
+      coherence: Array.from(rec.coherence),
+    },
+  };
+};
+const gcafSmallN = {};
+for (const c of spec.gcaf_small_n) {
+  const nCase = c.labels.length;
+  const lCase = mod.Layout2d.fromCoords(new Float32Array(c.coords));
+  const cEdges = [];
+  for (let i = 0; i + 1 < nCase; i++) cEdges.push(i, i + 1);
+  const gCase = mod.CsrGraph.fromEdgeList(nCase, new Uint32Array(cEdges));
+  const cLabels = new Uint32Array(c.labels);
+  const bR95 = c.boundary_r95 === 'Infinity' ? Infinity : c.boundary_r95;
+  const cafVal = mod.clusterAreaFaithfulness(lCase, cLabels, c.g_max, c.sigma_cells, null, null, bR95, c.stevens_gamma);
+  const detHandle = mod.clusterAreaFaithfulnessDetail(lCase, cLabels, c.g_max, c.sigma_cells, null, null, bR95, c.stevens_gamma);
+  const evalHandle = mod.evaluateMetrics(gCase, lCase, ['gcaf'], null, null, null, null, cLabels, null, null, null, null, null, null, c.g_max, c.sigma_cells, null, null, bR95, c.stevens_gamma);
+  const evalRec = evalHandle.toRecord();
+  gcafSmallN[c.name] = {
+    caf: cafVal,
+    det: readGcafDet(detHandle),
+    evalCaf: evalHandle.clusterAreaFaithfulness,
+    evalRecCaf: evalRec.clusterAreaFaithfulness,
+  };
+  detHandle.free?.();
+  evalHandle.free?.();
+  gCase.free?.();
+  lCase.free?.();
+}
 const gDir4 = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 0, 3, 1, 3, 3, 0, 3, 1, 3, 2]), undefined, true, true);
 const lDir4 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 2, 2, 0, 2, 2, 0]));
 const clDir4 = mod.crosslessness(gDir4, lDir4);
@@ -4848,12 +5558,32 @@ const out = {
     rtaDet: w3RtaDet.toRecord(),
     rtaTbl: w3RtaTbl.toRecord(),
     eval: w3Eval.toRecord(),
+    gcaf: {
+      grid: gcafGrid,
+      gridDet: readGcafDet(gcafGridDet),
+      imbDef: gcafImbDef,
+      imbCustom: gcafImbCustom,
+      imbCustomDet: readGcafDet(gcafImbCustomDet),
+      imbInfDet: readGcafDet(gcafImbInfDet),
+      imbG05Det: readGcafDet(gcafImbG05Det),
+      imbG20Det: readGcafDet(gcafImbG20Det),
+      imbEval: gcafImbEval.toRecord(),
+      int20Det: readGcafDet(gcafInt20Det),
+      b0: readGcafDet(gcafB0),
+      b1: readGcafDet(gcafB1),
+      bk1: readGcafDet(gcafBk1),
+      bCol: gcafBCol,
+      smallN: gcafSmallN,
+    },
     clDir4: clDir4,
     sclDir4: sclDir4,
     clRstar: clRstar,
   },
 };
 
+gcafGridDet.free?.(); gcafImbCustomDet.free?.(); gcafImbInfDet.free?.(); gcafImbG05Det.free?.(); gcafImbG20Det.free?.(); gcafImbEval.free?.();
+gcafInt20Det.free?.(); gcafB0.free?.(); gcafB1.free?.(); gcafBk1.free?.();
+lImb24.free?.(); gImb24.free?.(); lInt20.free?.(); lGcafB0.free?.(); lGcafB1.free?.(); lGcafBk1.free?.(); lGcafCol.free?.();
 w3MaSum.free?.(); w3Deg.free?.(); w3RtaDet.free?.(); w3RtaTbl.free?.(); w3Eval.free?.();
 gDir4.free?.(); lDir4.free?.(); gRstar.free?.(); lRstar.free?.();
 
@@ -4958,7 +5688,65 @@ console.log(JSON.stringify(out));
     assert rta_tbl_py["num_triplets"] == ws["w3"]["rtaTbl"]["numTriplets"]
     assert rta_tbl_py["is_exact"] == ws["w3"]["rtaTbl"]["isExact"]
     check_close("landmark_stratified_rta_from_landmarks", [rta_tbl_py["rta"]], [ws["w3"]["rtaTbl"]["rta"]], 1e-12, is_f32=False)
-    check_close("evaluate_metrics/w3", [w3_eval_py["crosslessness"], w3_eval_py["sampled_crosslessness"], w3_eval_py["minimum_angle"], w3_eval_py["minimum_angle_a1"], w3_eval_py["layout_degeneracy"], w3_eval_py["adjusted_patch_nig"], w3_eval_py["landmark_stratified_rta"]], [ws["w3"]["eval"]["crosslessness"], ws["w3"]["eval"]["sampledCrosslessness"], ws["w3"]["eval"]["minimumAngle"], ws["w3"]["eval"]["minimumAngleA1"], ws["w3"]["eval"]["layoutDegeneracy"], ws["w3"]["eval"]["adjustedPatchNig"], ws["w3"]["eval"]["landmarkStratifiedRta"]], 1e-12, is_f32=False)
+    check_close("evaluate_metrics/w3", [w3_eval_py["crosslessness"], w3_eval_py["sampled_crosslessness"], w3_eval_py["minimum_angle"], w3_eval_py["minimum_angle_a1"], w3_eval_py["layout_degeneracy"], w3_eval_py["adjusted_patch_nig"], w3_eval_py["cluster_area_faithfulness"], w3_eval_py["landmark_stratified_rta"]], [ws["w3"]["eval"]["crosslessness"], ws["w3"]["eval"]["sampledCrosslessness"], ws["w3"]["eval"]["minimumAngle"], ws["w3"]["eval"]["minimumAngleA1"], ws["w3"]["eval"]["layoutDegeneracy"], ws["w3"]["eval"]["adjustedPatchNig"], ws["w3"]["eval"]["clusterAreaFaithfulness"], ws["w3"]["eval"]["landmarkStratifiedRta"]], 1e-12, is_f32=False)
+    def check_gcaf_detail(label: str, py_det: dict[str, Any], ws_det: dict[str, Any]) -> None:
+        scalar_map = (
+            ("caf", "caf"),
+            ("purity_adj", "purityAdj"),
+            ("prop_vis", "propVis"),
+            ("res_density", "resDensity"),
+            ("res_deconv", "resDeconv"),
+            ("res_combined", "resCombined"),
+            ("spatial_coherence", "spatialCoherence"),
+            ("in_frac", "inFrac"),
+        )
+        vec_map = (
+            ("p", "p"),
+            ("q", "q"),
+            ("purity", "purity"),
+            ("resolution", "resolution"),
+            ("res_density_per_cluster", "resDensityPerCluster"),
+            ("res_deconv_per_cluster", "resDeconvPerCluster"),
+            ("caf_per_cluster", "cafPerCluster"),
+            ("coherence", "coherence"),
+        )
+        for src_obj in (ws_det, ws_det["rec"]):
+            assert py_det["num_clusters"] == src_obj["numClusters"], f"{label}: num_clusters mismatch"
+            assert py_det["num_nodes"] == src_obj["numNodes"], f"{label}: num_nodes mismatch"
+            assert list(py_det["cluster_ids"]) == src_obj["clusterIds"], f"{label}: cluster_ids mismatch"
+            assert list(py_det["counts"]) == src_obj["counts"], f"{label}: counts mismatch"
+            for py_k, ws_k in scalar_map:
+                check_close(f"{label}/{py_k}", [py_det[py_k]], [src_obj[ws_k]], 1e-12, is_f32=False)
+            for py_k, ws_k in vec_map:
+                check_close(f"{label}/{py_k}", py_det[py_k], src_obj[ws_k], 1e-12, is_f32=False)
+
+    gcaf_ws = ws["w3"]["gcaf"]
+    check_close("gcaf/grid", [gcaf_grid_py], [gcaf_ws["grid"]], 1e-12, is_f32=False)
+    check_gcaf_detail("gcaf/grid_det", gcaf_grid_det_py, gcaf_ws["gridDet"])
+    check_close("gcaf/imb_def", [gcaf_imb_def_py], [gcaf_ws["imbDef"]], 1e-12, is_f32=False)
+    check_close("gcaf/imb_custom", [gcaf_imb_custom_py, gcaf_imb_eval_py["cluster_area_faithfulness"]], [gcaf_ws["imbCustom"], gcaf_ws["imbEval"]["clusterAreaFaithfulness"]], 1e-12, is_f32=False)
+    check_gcaf_detail("gcaf/imb_custom_det", gcaf_imb_custom_det_py, gcaf_ws["imbCustomDet"])
+    check_gcaf_detail("gcaf/imb_inf_det", gcaf_imb_inf_det_py, gcaf_ws["imbInfDet"])
+    check_gcaf_detail("gcaf/imb_g05_det", gcaf_imb_g05_det_py, gcaf_ws["imbG05Det"])
+    check_gcaf_detail("gcaf/imb_g20_det", gcaf_imb_g20_det_py, gcaf_ws["imbG20Det"])
+    check_gcaf_detail("gcaf/int20_f32", gcaf_int20_f32_py, gcaf_ws["int20Det"])
+    check_gcaf_detail("gcaf/int20_f64", gcaf_int20_f64_py, gcaf_ws["int20Det"])
+    check_gcaf_detail("gcaf/b0", gcaf_b0_py, gcaf_ws["b0"])
+    check_gcaf_detail("gcaf/b1", gcaf_b1_py, gcaf_ws["b1"])
+    check_gcaf_detail("gcaf/bk1", gcaf_bk1_py, gcaf_ws["bk1"])
+    check_close("gcaf/bcol", [gcaf_bcol_py], [gcaf_ws["bCol"]], 1e-12, is_f32=False)
+    for case in gcaf_small_n_cases:
+        cname = case["name"]
+        py_c = gcaf_small_n_py[cname]
+        ws_c = gcaf_ws["smallN"][cname]
+        check_close(
+            f"gcaf/small_n/{cname}/scalar_and_eval",
+            [py_c["caf"], py_c["eval"]["cluster_area_faithfulness"], py_c["eval"]["cluster_area_faithfulness"]],
+            [ws_c["caf"], ws_c["evalCaf"], ws_c["evalRecCaf"]],
+            1e-12,
+            is_f32=False,
+        )
+        check_gcaf_detail(f"gcaf/small_n/{cname}/det", py_c["det"], ws_c["det"])
     check_close("crosslessness/dir4_reciprocal_regression", [cl_dir4_py, scl_dir4_py, cl_rstar_py], [ws["w3"]["clDir4"], ws["w3"]["sclDir4"], ws["w3"]["clRstar"]], 1e-12, is_f32=False)
 
     check_close("classical_mds_2d", cmds_py.coords(copy=True), ws["cmdsCoords"], 1e-5)
