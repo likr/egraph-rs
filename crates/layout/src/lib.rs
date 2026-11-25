@@ -19,6 +19,10 @@ pub mod forbid;
 #[cfg(feature = "baselines")]
 pub mod fr;
 #[cfg(feature = "baselines")]
+pub mod gem;
+#[cfg(feature = "baselines")]
+pub mod grip;
+#[cfg(feature = "baselines")]
 pub mod group_in_a_box;
 #[cfg(feature = "baselines")]
 pub mod gtree;
@@ -27,8 +31,16 @@ pub mod kamada_kawai;
 pub mod layering;
 #[cfg(feature = "baselines")]
 pub mod linlog;
+#[cfg(feature = "baselines")]
+pub mod maxent;
+#[cfg(feature = "baselines")]
+pub mod pfs_prime;
 pub mod prism;
 pub mod refiner;
+#[cfg(feature = "baselines")]
+pub mod sel;
+#[cfg(feature = "baselines")]
+pub mod sfc;
 pub mod sgd;
 pub mod stress_majorization;
 pub mod ts_net;
@@ -63,6 +75,10 @@ pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
 #[cfg(feature = "baselines")]
 pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
 #[cfg(feature = "baselines")]
+pub use gem::{GemConfig, GemSolver};
+#[cfg(feature = "baselines")]
+pub use grip::{GripConfig, GripSolver};
+#[cfg(feature = "baselines")]
 pub use group_in_a_box::{
     GibBox, GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
     squarified_treemap,
@@ -74,13 +90,23 @@ pub use kamada_kawai::{KamadaKawaiConfig, KamadaKawaiSolver};
 pub use layering::{LayeringMethod, assign_layers, cycle_edges, remove_cycles};
 #[cfg(feature = "baselines")]
 pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
+#[cfg(feature = "baselines")]
+pub use maxent::{MaxentStressConfig, MaxentStressSolver};
+#[cfg(feature = "baselines")]
+pub use pfs_prime::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
 pub use prism::{PrismConfig, PrismOverlapRemoval, SparsePcgWorkspace};
 pub use refiner::{
     SpatialIntruderRefiner, SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,
 };
+#[cfg(feature = "baselines")]
+pub use sel::{SelConfig, SelLayoutBackend, SelLayoutSolver, SelWeightMapping};
+#[cfg(feature = "baselines")]
+pub use sfc::{SfcConfig, SfcCurveKind, SfcLayoutSolver};
 pub use sgd::{
-    BarrierSymmetry, PacmapGraphConfig, Sgd2Config, SgdScheduleConfig, SgdScheduleKind, SgdSolver,
-    SnapTFdpConfig, SparseBarrierConfig, SparseBarrierStats, StreamingNegativeConfig,
+    BarrierSymmetry, DrGraphConfig, GraphCneConfig, GraphCneObjective, LargeVisConfig,
+    OrtmannPivotStrategy, OrtmannSparseStressConfig, PacmapGraphConfig, Sgd2Config,
+    SgdScheduleConfig, SgdScheduleKind, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
+    SparseBarrierStats, StreamingNegativeConfig,
 };
 pub use stress_majorization::{PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver};
 pub use ts_net::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
