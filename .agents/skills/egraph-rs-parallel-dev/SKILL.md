@@ -15,6 +15,7 @@ Use this skill whenever coordinating or executing concurrent work across multipl
    - Leave read-only investigators and independent verifiers on `workspace:"inherit"` (or run verifier checks inside the author's dedicated worktree path).
    - Never run two write/build agents in the same directory.
 2. **Manual / CLI Worktree Isolation (`scripts/worktree.sh`)**:
+   - **Pre-Flight Dirty-Root Gate**: Always run `git status --short` in the main checkout *before* starting Milestone 1 edits. If any unrelated dirty or untracked files exist (even for a single-milestone author), create and enter an isolated worktree immediately (`./scripts/worktree.sh create <slug> master`) rather than editing the dirty root and migrating mid-milestone.
    - After adding or removing workspace crates on the integration branch, refresh the gitignored root `Cargo.lock` (`cargo metadata --format-version 1 >/dev/null`) before creating downstream worktrees so every worktree inherits an already-resolved `Cargo.lock`.
    - Create an isolated worktree + branch `wt/<slug>` + local `.venv`:
      ```bash
@@ -31,11 +32,13 @@ Use this skill whenever coordinating or executing concurrent work across multipl
      # or for cherry-picked branches after verifying commits landed and worktree is clean:
      ./scripts/worktree.sh clean <slug> --delete-branch --force
      ```
+   - **Dirty-Root Direct Worktree Push & Cleanup**: When the main checkout must remain untouched due to pre-existing external dirty work, push verified commits directly from the clean worktree without touching root `HEAD` or running `merge --ff-only` in root: confirm `git rev-parse origin/master` is an ancestor of `wt/<slug>`, run `git push origin wt/<slug>:master` inside `.worktrees/<slug>`, verify `git ls-remote origin refs/heads/master`, and immediately clean `.worktrees/<slug>` (`./scripts/worktree.sh clean <slug> --delete-branch --force` once confirmed clean and pushed; note that the local root branch ref remains behind until the external worktree clears).
 
 ## 2. Host Resource & Build Cache Discipline (12 Cores / 24 GiB RAM)
 
 - **Shared `sccache`**: `scripts/verify.sh` automatically sets `RUSTC_WRAPPER=sccache` when installed. Never override `RUSTC_WRAPPER` to empty during parallel runs; `sccache` shares compiled crate artifacts across all worktrees while each worktree keeps its own `target/` lock-free.
 - **Worktree-Local `.venv`**: Every worktree uses `$REPO_ROOT/.venv` (created via `scripts/setup_venv.sh` using `uv` hardlinks). **NEVER** install development wheels into `/Users/likr/diffusion-kernel-experiments/.venv` while working inside parallel `egraph-rs` worktrees; only install into `diffusion-kernel-experiments/.venv` from the integrated checkout when running paired benchmark switches.
+- **Immutable Wheel Handoff & SHA256 Manifest**: When exporting a built release wheel from a worktree to downstream `diffusion-kernel-experiments` benchmarks, archive the `.whl` in a dedicated immutable path, record both the `.whl` SHA256 and installed `_core.abi3.so` SHA256 in the milestone handoff, and verify downstream `.venv` has not been overwritten by concurrent sessions before benchmarking.
 - **CPU & RAM Throttling (`EGRAPH_PARALLEL_WORKERS`)**: Set `EGRAPH_PARALLEL_WORKERS` to the number of concurrent building agents so `scripts/verify.sh` caps `CARGO_BUILD_JOBS` cleanly:
 
 | `EGRAPH_PARALLEL_WORKERS` | `CARGO_BUILD_JOBS` per worker | Total peak Rust jobs | Recommended Use Case |
@@ -86,6 +89,7 @@ Before launching parallel Python + WASM binding waves (or any paired cross-targe
 1. **Author completion**:
    - Commit inside your own worktree/branch following `egraph-rs-commit`.
    - Run `./scripts/verify.sh --fast --json-summary <scratch>/author_<name>.json` (`--fast` stays debug for quick crate loops; `--rust` and `--python` run in release mode by default, with `--debug-rust` and `--dev-py` available to opt into debug builds).
+   - **Author Pre-Gate Adversarial Self-Check**: When modifying geometric, coarsening, layout, or neighbor-selection algorithms, write and run fast unit/stress probes inside the crate covering disconnected components, asymmetric star+chain topologies, large coarse graphs (`N >= 300`), `--no-default-features` (`StaticKdTree` fallback), `f32` precision, and English-only comment hygiene (`jp_cjk=0`) *before* handing off to Challenger/Verifier so avoidable multi-iteration rejections are caught upfront.
    - Post `@verifier [done] branch=<branch> worktree=<path> summary=<json_path>`.
 2. **Verifier audit**:
    - Inspect diff (`git --no-pager diff <base>..HEAD`).
