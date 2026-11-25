@@ -1845,6 +1845,7 @@ fn evaluate_metrics_impl(
         patch_nig_pad_frac,
         patch_nig_seed: seed_u64,
         cluster_area,
+        ..MetricConfig::default()
     };
     let soa = layout.inner().to_layout2d();
     let report = evaluate_metrics_with_community_weights(

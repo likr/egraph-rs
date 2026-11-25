@@ -17,6 +17,8 @@ egraph = { workspace = true, features = [
     "layout",
     "clustering",
     "metrics",
+    "baselines",
+    "eval-baselines",
     "dataset",
     "delaunay",
 ] }

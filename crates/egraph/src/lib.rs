@@ -105,13 +105,24 @@ pub mod prelude {
         project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d, remove_cycles,
     };
 
+    #[cfg(all(feature = "layout", feature = "baselines"))]
+    pub use egraph_layout::{
+        BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver, ClusterRefineConfig,
+        ClusterRefineMethod, ClusterRefineSolver, ForbidConfig, ForbidOverlapRemoval,
+        ForbidVariant, FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver,
+        GTreeConfig, GTreeOverlapRemoval, GibBox, GibBoxLayoutMode, GibIntraLayoutMode,
+        GroupInABoxConfig, GroupInABoxSolver, LinLogConfig, LinLogRepulsion, LinLogSolver,
+        extract_quadrilateral_backbone, refine_cluster_layout, squarified_treemap,
+    };
+
     #[cfg(feature = "clustering")]
     pub use egraph_clustering::{
         CoarseLouvainConfig, CoarsenedGraph, CoarsenedHierarchy, CoarsenedHierarchyLevel,
-        KMeansConfig, KMeansResult, LabelPropagationConfig, LouvainConfig, LouvainResult,
-        SpectralClusteringConfig, align_clustered_centroids, coarsen_graph, kmeans_plus_plus,
-        label_propagation, louvain, louvain_coarsen, project_clustered_layout,
-        project_clustered_layout_with_radii, spectral_clustering,
+        KMeansConfig, KMeansResult, LabelPropagationConfig, LeidenConfig, LeidenObjective,
+        LeidenResult, LouvainConfig, LouvainResult, SpectralClusteringConfig,
+        align_clustered_centroids, coarsen_graph, kmeans_plus_plus, label_propagation, leiden,
+        louvain, louvain_coarsen, project_clustered_layout, project_clustered_layout_with_radii,
+        spectral_clustering,
     };
 
     #[cfg(feature = "metrics")]
@@ -131,6 +142,15 @@ pub mod prelude {
         sampled_crossing_number, sampled_crosslessness, sampled_neighborhood_preservation_1hop,
         sampled_neighborhood_preservation_2hop, sampled_scale_normalized_stress,
         scale_normalized_stress, scale_normalized_stress_from_distances,
+    };
+
+    #[cfg(all(feature = "metrics", feature = "eval-baselines"))]
+    pub use egraph_metrics::{
+        ClusterBaselineConfig, NorMetrics, PartitionAgreement, calinski_harabasz_score,
+        class_density_measure, cq_hac, cq_kmeans, davies_bouldin_score, distance_consistency,
+        distribution_consistency, neighborhood_hit, nor_metrics, nor_metrics_without_graph,
+        pairwise_distance_overlap_error, partition_agreement, sepme_gab, sepme_gong, sepme_knng,
+        sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
     };
 
     #[cfg(feature = "dataset")]

@@ -48,6 +48,8 @@ egraph = { workspace = true, default-features = false, features = [
     "layout",
     "clustering",
     "metrics",
+    "baselines",
+    "eval-baselines",
 ] }
 egraph-dataset = { workspace = true, default-features = false }
 egraph-ffi.workspace = true

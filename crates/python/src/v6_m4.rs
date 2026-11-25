@@ -1254,6 +1254,7 @@ impl PyForceAtlas2Solver {
             jitter_tolerance: jitter_tolerance.0,
             max_displacement: max_displacement.map(|v| v.0),
             seed: seed.0,
+            ..ForceAtlas2Config::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();

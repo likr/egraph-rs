@@ -223,6 +223,112 @@ fn facade_resistance_curvature_manifold_smoke() {
     assert!(ml_tor.as_layout().is_all_finite());
 }
 
+#[cfg(all(
+    feature = "layout",
+    feature = "baselines",
+    feature = "metrics",
+    feature = "eval-baselines",
+    feature = "clustering",
+    feature = "dataset"
+))]
+#[test]
+fn facade_baselines_smoke() {
+    let graph = egraph::dataset::dataset_karate_csr();
+    let leiden_res = leiden(&graph, &LeidenConfig::default()).expect("leiden");
+    assert_eq!(leiden_res.labels.len(), graph.num_nodes());
+
+    let mut layout = Layout2d::<f64>::zeros(graph.num_nodes());
+    let mut linlog = LinLogSolver::<f64>::new(
+        &graph,
+        LinLogConfig {
+            iterations: 5,
+            ..LinLogConfig::default()
+        },
+    )
+    .expect("linlog");
+    assert!(linlog.run(&mut layout).expect("linlog run").is_finished());
+
+    let mut fr = FruchtermanReingoldSolver::<f64>::new(
+        &graph,
+        FruchtermanReingoldConfig {
+            iterations: 5,
+            ..FruchtermanReingoldConfig::default()
+        },
+    )
+    .expect("fr");
+    assert!(fr.run(&mut layout).expect("fr run").is_finished());
+
+    let backbone = extract_quadrilateral_backbone(&graph, &BackboneConfig::default())
+        .expect("extract_quadrilateral_backbone");
+    assert_eq!(backbone.simmelian_weights.len(), graph.num_edges());
+    let mut bb_solver = BackboneSolver::<f64>::new(
+        &graph,
+        BackboneConfig {
+            iterations: 5,
+            ..BackboneConfig::default()
+        },
+    )
+    .expect("backbone solver");
+    assert!(bb_solver.run(&mut layout).expect("bb run").is_finished());
+
+    let mut refine = ClusterRefineSolver::<f64>::new(
+        leiden_res.labels.clone(),
+        ClusterRefineConfig {
+            max_rounds: 2,
+            ..ClusterRefineConfig::default()
+        },
+    )
+    .expect("cluster_refine");
+    assert!(refine.run(&mut layout).expect("refine run").is_finished());
+
+    let boxes = squarified_treemap(&[1.0, 2.0, 3.0], 0.0, 0.0, 100.0, 100.0).expect("treemap");
+    assert_eq!(boxes.len(), 3);
+    let mut gib = GroupInABoxSolver::<f64>::new(
+        &graph,
+        leiden_res.labels.clone(),
+        GroupInABoxConfig {
+            intra_iterations: 5,
+            ..GroupInABoxConfig::default()
+        },
+    )
+    .expect("gib");
+    assert!(gib.run(&mut layout).expect("gib run").is_finished());
+
+    let radii = vec![0.25_f64; graph.num_nodes()];
+    let mut gtree = GTreeOverlapRemoval::<f64>::from_radii(radii.clone(), GTreeConfig::default())
+        .expect("gtree");
+    assert!(gtree.run(&mut layout).expect("gtree run").is_finished());
+    assert_eq!(gtree.last_overlap_count(), 0);
+
+    let mut forbid = ForbidOverlapRemoval::<f64>::from_radii(
+        radii,
+        ForbidConfig {
+            max_scale_iters: 5,
+            sgd_iterations: 5,
+            ..ForbidConfig::default()
+        },
+    )
+    .expect("forbid");
+    assert!(forbid.run(&mut layout).expect("forbid run").is_finished());
+    assert_eq!(forbid.last_overlap_count(), 0);
+
+    let agr = partition_agreement(&leiden_res.labels, &leiden_res.labels).expect("agreement");
+    assert!((agr.ari - 1.0).abs() < 1e-12);
+    let dsc = distance_consistency(&layout, &leiden_res.labels).expect("dsc");
+    assert!(dsc.is_finite());
+
+    let report = evaluate_metrics_with_communities(
+        &graph,
+        &layout,
+        &[MetricTarget::Dsc, MetricTarget::SprawlterNn],
+        &MetricConfig::default(),
+        Some(&leiden_res.labels),
+    )
+    .expect("eval-baselines dispatcher");
+    assert!(report.dsc.is_some());
+    assert!(report.sprawlter_nn.is_some());
+}
+
 #[cfg(feature = "petgraph")]
 #[test]
 fn facade_petgraph_smoke() {

@@ -24,6 +24,8 @@ neighborhood = ["spatial", "linalg", "dep:egraph-neighborhood"]
 layout = ["spatial", "linalg", "neighborhood", "clustering", "dep:egraph-layout"]
 clustering = ["linalg", "dep:egraph-clustering"]
 metrics = ["spatial", "linalg", "dep:egraph-metrics"]
+baselines = ["layout", "egraph-layout?/baselines"]
+eval-baselines = ["metrics", "clustering", "egraph-metrics?/eval-baselines"]
 dataset = ["dep:egraph-dataset"]
 petgraph = ["dep:egraph-petgraph", "egraph-dataset?/petgraph"]
 full = [
@@ -33,6 +35,8 @@ full = [
     "layout",
     "clustering",
     "metrics",
+    "baselines",
+    "eval-baselines",
     "dataset",
     "delaunay",
     "petgraph",
@@ -45,7 +49,7 @@ egraph-linalg = { workspace = true, optional = true }
 egraph-neighborhood = { workspace = true, optional = true }
 egraph-layout = { workspace = true, optional = true, default-features = false }
 egraph-clustering = { workspace = true, optional = true }
-egraph-metrics = { workspace = true, optional = true }
+egraph-metrics = { workspace = true, optional = true, default-features = false }
 egraph-dataset = { workspace = true, optional = true, default-features = false, features = [
     "1138_bus",
     "3elt",

@@ -2453,6 +2453,7 @@ fn evaluate_metrics(
             boundary_r95: boundary_r95.0,
             stevens_gamma: stevens_gamma.0,
         },
+        ..MetricConfig::default()
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
