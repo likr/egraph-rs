@@ -335,9 +335,16 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
     '
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
+    run_step "clippy_layout_all_features" cargo clippy --no-deps --all-targets --all-features -p egraph-layout -- -D warnings
     run_step "clippy_layout_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -- -D warnings
+    run_step "clippy_layout_no_default_features_baselines" cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout -- -D warnings
+  fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-metrics' in pkgs else 1)"; then
+    run_step "clippy_metrics_all_features" cargo clippy --no-deps --all-targets --all-features -p egraph-metrics -- -D warnings
+    run_step "clippy_metrics_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph-metrics -- -D warnings
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph' in pkgs else 1)"; then
+    run_step "clippy_egraph_all_features" cargo clippy --no-deps --all-targets --all-features -p egraph -- -D warnings
     run_step "clippy_egraph_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p egraph -- -D warnings
   fi
   RUST_TEST_ARGS=()
@@ -352,8 +359,14 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-spatial' in pkgs else 1)"; then
     run_step "rust_spatial_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-spatial
   fi
+  if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-metrics' in pkgs else 1)"; then
+    run_step "rust_metrics_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-metrics
+    run_step "rust_metrics_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph-metrics
+  fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph-layout' in pkgs else 1)"; then
+    run_step "rust_layout_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph-layout
     run_step "rust_layout_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p egraph-layout
+    run_step "rust_layout_no_default_features_baselines" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features --features baselines -p egraph-layout
   fi
   if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if 'egraph' in pkgs else 1)"; then
     run_step "rust_egraph_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p egraph

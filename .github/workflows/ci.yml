@@ -45,14 +45,17 @@ jobs:
           PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
           eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
           cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -p egraph -p egraph-cli -- -D warnings
-          cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -p egraph -p egraph-dataset -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features -p egraph-layout -p egraph-metrics -p egraph -p egraph-dataset -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout -- -D warnings
 
       - name: Run release workspace tests
         run: |
           cargo test --release --workspace
-          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -p egraph -p egraph-cli
+          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial -p egraph-metrics -p egraph-linalg -p egraph-neighborhood -p egraph-clustering -p egraph-layout -p egraph -p egraph-cli
           cargo test --release --features delaunay -p egraph-spatial
           cargo test --release --no-default-features -p egraph-layout
+          cargo test --release --no-default-features --features baselines -p egraph-layout
+          cargo test --release --no-default-features -p egraph-metrics
           cargo test --release --no-default-features -p egraph
           cargo test --release --no-default-features -p egraph-dataset
 
@@ -78,8 +81,16 @@ jobs:
             echo "::error::egraph-spatial --features delaunay dependency tree pulls forbidden crate"
             exit 1
           fi
+          if cargo tree -p egraph-metrics --all-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::egraph-metrics --all-features dependency tree pulls forbidden crate"
+            exit 1
+          fi
           if cargo tree -p egraph-layout --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
             echo "::error::egraph-layout --no-default-features dependency tree pulls forbidden crate"
+            exit 1
+          fi
+          if cargo tree -p egraph-layout --no-default-features --features baselines --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
+            echo "::error::egraph-layout --no-default-features --features baselines dependency tree pulls forbidden crate"
             exit 1
           fi
           if cargo tree -p egraph-wasm --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then

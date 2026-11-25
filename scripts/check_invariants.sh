@@ -165,8 +165,13 @@ check_cargo_tree_legacy_crate() {
 # fail_hard on rayon/linfa/wgpu and warn_legacy ONLY on legacy `getrandom`.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-metrics|egraph-linalg|egraph-neighborhood|egraph-clustering|egraph-cli)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-neighborhood|egraph-clustering|egraph-cli)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
+      ;;
+    egraph-metrics)
+      check_cargo_tree_crate "egraph-metrics (default)" "hard" -p egraph-metrics
+      check_cargo_tree_crate "egraph-metrics (--all-features)" "hard" -p egraph-metrics --all-features
+      check_cargo_tree_crate "egraph-metrics (--no-default-features)" "hard" -p egraph-metrics --no-default-features
       ;;
     egraph-dataset)
       check_cargo_tree_crate "egraph-dataset (default)" "hard" -p egraph-dataset
@@ -180,6 +185,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
     egraph-layout)
       check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
       check_cargo_tree_crate "egraph-layout (--no-default-features)" "hard" -p egraph-layout --no-default-features
+      check_cargo_tree_crate "egraph-layout (--no-default-features --features baselines)" "hard" -p egraph-layout --no-default-features --features baselines
       ;;
     egraph-spatial)
       check_cargo_tree_crate "egraph-spatial (default)" "hard" -p egraph-spatial
@@ -202,6 +208,10 @@ else
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
   done
+  if has_workspace_pkg "egraph-metrics"; then
+    check_cargo_tree_crate "egraph-metrics (--all-features)" "hard" -p egraph-metrics --all-features
+    check_cargo_tree_crate "egraph-metrics (--no-default-features)" "hard" -p egraph-metrics --no-default-features
+  fi
   if has_workspace_pkg "egraph-dataset"; then
     check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
   fi
@@ -212,6 +222,7 @@ else
   if has_workspace_pkg "egraph-layout"; then
     check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
     check_cargo_tree_crate "egraph-layout (--no-default-features)" "hard" -p egraph-layout --no-default-features
+    check_cargo_tree_crate "egraph-layout (--no-default-features --features baselines)" "hard" -p egraph-layout --no-default-features --features baselines
   fi
   if has_workspace_pkg "egraph-spatial"; then
     check_cargo_tree_crate "egraph-spatial (default)" "hard" -p egraph-spatial
@@ -270,6 +281,30 @@ check_wasm32_target() {
     else
       fail_hard "$crate (--no-default-features) failed cargo check --target wasm32-unknown-unknown"
       cargo check -p "$crate" --no-default-features --target wasm32-unknown-unknown || true
+    fi
+  fi
+  if [[ "$crate" == "egraph" ]]; then
+    if cargo check -p egraph --all-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "egraph (--all-features) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "egraph (--all-features) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p egraph --all-features --target wasm32-unknown-unknown || true
+    fi
+  fi
+  if [[ "$crate" == "egraph-layout" ]]; then
+    if cargo check -p egraph-layout --no-default-features --features baselines --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "egraph-layout (--no-default-features --features baselines) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "egraph-layout (--no-default-features --features baselines) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p egraph-layout --no-default-features --features baselines --target wasm32-unknown-unknown || true
+    fi
+  fi
+  if [[ "$crate" == "egraph-metrics" ]]; then
+    if cargo check -p egraph-metrics --all-features --target wasm32-unknown-unknown >/dev/null 2>&1; then
+      pass "egraph-metrics (--all-features) compiles cleanly for wasm32-unknown-unknown"
+    else
+      fail_hard "egraph-metrics (--all-features) failed cargo check --target wasm32-unknown-unknown"
+      cargo check -p egraph-metrics --all-features --target wasm32-unknown-unknown || true
     fi
   fi
   if [[ "$crate" == "egraph-spatial" ]]; then
