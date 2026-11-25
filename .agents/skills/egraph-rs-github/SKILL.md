@@ -19,8 +19,10 @@ Follow these conventions alongside [`.agents/AGENTS.md`](../../AGENTS.md), [`egr
    - Inspect `git status -sb` and `git --no-pager diff --cached --stat` before committing.
    - Split unrelated edits (e.g., library code vs. `.github/` templates vs. `.agents/` updates) into separate atomic commits.
    - Verify no secrets, credentials, gitignored outputs (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`, `js/examples/dist/`), non-English code/doc/commit text (`jp_cjk=0`), or files `> 100 MB` are staged.
-2. **Pre-Commit Confirmation Gate**:
-   - By default, present the Japanese summary and proposed Conventional Commit message and obtain explicit user approval before committing or pushing (`egraph-rs-dev-process`). Only commit/push autonomously when the user explicitly authorized autonomous commits/pushes for the active run.
+2. **Autonomous Verified Commits & Pre-Completion Push Gate**:
+   - Commit verified changes atomically (staging explicit file paths only) and push to `origin/master` autonomously once scope-matched `./scripts/verify.sh` passes.
+   - Before delivering the final task completion report, ensure all verified task commits are pushed to `origin/master` (`git rev-parse HEAD origin/master` aligned).
+   - Keep release version bumps, release tags (`v6.*`), registry publishing, and destructive operations behind explicit user confirmation.
 3. **Pre-Push Verification**:
    - Run [`scripts/verify.sh`](../../../scripts/verify.sh) (`--fast`, `--rust`, `--python`, `--wasm`, `--invariants`, `--docs`, or `--all --build-wasm`) matching the scope of changes before pushing `origin/master`.
    - Confirm `git rev-parse HEAD origin/master` alignment after pushing and verify both `/Users/likr/egraph-rs` and any paired repos remain clean.
@@ -29,7 +31,7 @@ Follow these conventions alongside [`.agents/AGENTS.md`](../../AGENTS.md), [`egr
    - **Never** move or delete pushed release tags (`v6.*`). Recover from a failed release workflow by fixing `master` and tagging the next version (`egraph-rs-release`).
 5. **Milestone-Cadenced Commits & Stage Pushes (No End-of-Project Batching)**:
    - In multi-milestone tasks, commit atomically as soon as each milestone/wave (e.g., W0, W1, M4.1) passes its verification gate rather than keeping dirty changes across multiple milestones and splitting dozens of commits at the end.
-   - Push to `origin/master` at major stage boundaries once scope-matched `./scripts/verify.sh` passes (following the confirmation gate unless autonomous milestone commits/pushes were authorized).
+   - Push to `origin/master` autonomously at major stage boundaries once scope-matched `./scripts/verify.sh` passes, and ensure all verified task commits are pushed before reporting task completion.
    - Keep only the final release version-bump commit, annotated `v6.*` tag, and registry publish at the final release gate.
 
 ## 3. GitHub Issues & Pull Requests (`gh` CLI)

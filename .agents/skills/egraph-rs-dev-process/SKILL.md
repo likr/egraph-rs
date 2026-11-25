@@ -5,7 +5,7 @@ description: Guidelines for general development process, coding style, writing c
 
 # Development Process Guidelines for `egraph-rs`
 
-This skill details the general development rules, comment conventions, parallel worktree workflow, confirmation gate, and self-updating skill process for the `egraph-rs` project.
+This skill details the general development rules, comment conventions, parallel worktree workflow, autonomous commit/push completion gate, and self-updating skill process for the `egraph-rs` project.
 
 ## Code Comment Rules
 - **Language**: All comments in code files (Rust, Python, JS, TS) and all documentation inside `.agents/` must be written in English.
@@ -37,10 +37,10 @@ This skill details the general development rules, comment conventions, parallel 
 - **Prepare Commit**:
   - Split unrelated changes into atomic commits following `egraph-rs-commit` and `egraph-rs-github` rules (`git diff --cached --stat`).
   - In multi-milestone work, commit atomically at each verified milestone/wave boundary and push at major stage boundaries (`egraph-rs-github`) rather than deferring all commits to the final release step.
-- **Ask for User Confirmation**:
-  - Present a summary of all changes made (in **Japanese** for user communications).
-  - Include the proposed commit message and whether pushing to remote is planned (`egraph-rs-github`).
-  - Wait for explicit user approval before committing unless the user has explicitly authorized autonomous atomic commits/pushes for the active task (such as an approved `/teamwork` or milestone execution prompt).
+- **Autonomous Commit, Push & Completion Report**:
+  - Stage explicit file paths (`git diff --cached --stat`) and commit atomically once verification passes, keeping unrelated concurrent modifications untouched.
+  - Push all verified task commits to `origin/master` (`git rev-parse HEAD origin/master` aligned) before presenting the final summary in **Japanese** to the user.
+  - Reserve explicit user confirmation for release version bumps, release tags (`v6.*`), registry publishing, and destructive operations.
 
 ## Post-Task Reflection: Updating Skills
 Upon completing any task, the agent **MUST** reflect on the work performed:

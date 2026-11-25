@@ -30,8 +30,9 @@
 ## 3. Git & GitHub Operational Rules
 
 - **Atomic Conventional Commits**: Split unrelated changes into atomic commits following [`egraph-rs-commit`](skills/egraph-rs-commit/SKILL.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md). Confirm `git diff --cached --stat` before committing.
-- **Confirmation Gate**: Present a Japanese summary + proposed commit message and obtain explicit user approval before committing or pushing, unless the user explicitly authorized autonomous commits/pushes for the active task.
-- **Milestone-Cadenced Checkpointing**: In multi-milestone work, land atomic verified commits after each passed milestone/wave gate and push to `origin/master` at major stage boundaries (when autonomous commits/pushes are authorized, or after user confirmation otherwise). Reserve only the 11-file version bump, release tag (`v6.*`), and PyPI/npm publish for the final release gate.
+- **Autonomous Verified Commits & Stage Pushes**: In single- or multi-milestone work, commit verified changes atomically (staging explicit file paths only so concurrent edits stay untouched) after each passed verification gate (`./scripts/verify.sh`) and push to `origin/master` at logical stage boundaries autonomously.
+- **Pre-Completion Push Gate**: Before delivering the final task completion report to the user, ALL verified task commits MUST be pushed to `origin/master` (`git rev-parse HEAD origin/master` aligned).
+- **Release & Destructive Action Gate**: Reserve explicit user confirmation for the 11-file version bump, release tags (`v6.*`), PyPI/npm/crates.io publishing, and destructive Git/GitHub operations.
 - **History, Tag & Hygiene Guards**: Never force-push `master` (`--force`), never move or delete pushed release tags (`v6.*`), and never commit secrets, ignored build/venv artifacts (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`), or files `> 100 MB`. Verify `./scripts/verify.sh` before pushing.
 - **GitHub Issues & PRs**: Write all Issue bodies, PR descriptions, and release notes in English (`jp_cjk=0`) following [`.github/ISSUE_TEMPLATE/`](../.github/ISSUE_TEMPLATE/config.yml) and [`.github/pull_request_template.md`](../.github/pull_request_template.md); confirm CI green before merging or tagging.
 
@@ -55,7 +56,7 @@
 - [egraph-rs-parallel-dev](skills/egraph-rs-parallel-dev/SKILL.md): Multi-agent + git worktree parallel execution playbook, 12-core/24-GiB resource budgeting, and M0–M6 disjoint file/crate ownership matrix.
 - [egraph-rs-verification](skills/egraph-rs-verification/SKILL.md): Tiered Rust, Python, WASM, invariant, and parity verification commands.
 - [egraph-rs-system-patterns](skills/egraph-rs-system-patterns/SKILL.md): Core algorithmic and architectural patterns across layouts, kernels, clustering, and bindings.
-- [egraph-rs-dev-process](skills/egraph-rs-dev-process/SKILL.md): General engineering workflow, comment standards, confirmation gate before committing, and skill maintenance rules.
+- [egraph-rs-dev-process](skills/egraph-rs-dev-process/SKILL.md): General engineering workflow, comment standards, autonomous verified commit/push completion gate, and skill maintenance rules.
 - [egraph-rs-commit](skills/egraph-rs-commit/SKILL.md): Conventional Commits specification and crate scoping rules.
 - [egraph-rs-github](skills/egraph-rs-github/SKILL.md): Branch/worktree discipline, push & tag immutability guards, PR/Issue templates, and non-polling `gh` CI workflows.
 - [egraph-rs-release](skills/egraph-rs-release/SKILL.md): Version-bump checklist (`Cargo.toml`, `package-lock.json`, docs), OIDC Trusted Publishing prerequisites, non-polling `gh run watch`, and live PyPI/npm clean-env smoke verification.
