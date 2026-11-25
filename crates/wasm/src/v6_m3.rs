@@ -1970,7 +1970,9 @@ pub(crate) fn parse_dog_config_from_options_or_args(
 }
 
 /// Cooperative SoA `u32` SGD solver supporting 3-tier sparse barrier, streaming negatives,
-/// SNAP-tFDP, PaCMAP-Graph, `(SGD)^2`, Euclidean `Layout2d` (`f32`), and non-Euclidean `ManifoldLayout2d` (`f32`).
+/// Ortmann Sparse Stress, LargeVis, DRGraph, Graph-CNE, SNAP-tFDP, PaCMAP-Graph,
+/// diagonal-preconditioned mini-batch stress SGD (`sgd2`), Euclidean `Layout2d` (`f32`),
+/// and non-Euclidean `ManifoldLayout2d` (`f32`).
 #[wasm_bindgen(js_name = SgdSolver)]
 #[derive(Debug, Clone)]
 pub struct JsSgdSolver {
@@ -2500,9 +2502,35 @@ impl JsSgdSolver {
         crate::v6_m5::sgd_pacmap_graph_with_backbone(graph, options)
     }
 
-    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` solver.
+    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned stress SGD solver
+    /// (`SgdScheduleKind::Squared`, distinct from Ahmed et al. 2021 multi-criteria `(SGD)^2`).
     pub fn sgd2(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
         crate::v6_m4::sgd_sgd2(graph, options)
+    }
+
+    /// Constructs an Ortmann et al. (2016) Sparse Stress SGD solver.
+    #[wasm_bindgen(js_name = ortmannSparseStress)]
+    pub fn ortmann_sparse_stress(
+        graph: &JsCsrGraph,
+        options: &JsValue,
+    ) -> Result<JsSgdSolver, JsError> {
+        crate::v6_w2::sgd_ortmann_sparse_stress(graph, options)
+    }
+
+    /// Constructs a single-threaded deterministic `LargeVis` (Tang et al., 2016) solver.
+    pub fn largevis(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_w2::sgd_largevis(graph, options)
+    }
+
+    /// Constructs a multilevel negative-sampling `DRGraph` (Zhu et al., 2020) solver.
+    pub fn drgraph(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_w2::sgd_drgraph(graph, options)
+    }
+
+    /// Constructs a `Graph-CNE` (Bohm et al., 2025) contrastive neighbor embedding solver.
+    #[wasm_bindgen(js_name = graphCne)]
+    pub fn graph_cne(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        crate::v6_w2::sgd_graph_cne(graph, options)
     }
 
     /// Executes one Euclidean SGD iteration on `layout` in place.

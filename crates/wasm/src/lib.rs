@@ -30,6 +30,7 @@ mod v6_m3;
 mod v6_m4;
 mod v6_m5;
 mod v6_w1;
+mod v6_w2;
 
 use wasm_bindgen::prelude::*;
 

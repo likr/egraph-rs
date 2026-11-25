@@ -6,6 +6,7 @@ pub use crate::v6_m3::*;
 pub use crate::v6_m4::*;
 pub use crate::v6_m5::*;
 pub use crate::v6_w1::*;
+pub use crate::v6_w2::*;
 
 use egraph::core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
 use egraph::metrics::{
@@ -809,13 +810,15 @@ impl JsMetricReport {
         self.inner.node_resolution
     }
 
-    /// Returns shape-based Relative Neighborhood Graph preservation (`dRNG`), or `undefined` if not requested.
+    /// Returns Eades et al. (2017) unweighted shape-based Relative Neighborhood Graph preservation
+    /// (`S_RNG`, distinct from deferred Hong et al. 2022 `dRNG` and Fang et al. 2025 `dcRNG`), or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = relativeNeighborhoodPreservation)]
     pub fn relative_neighborhood_preservation(&self) -> Option<f64> {
         self.inner.relative_neighborhood_preservation
     }
 
-    /// Returns shape-based Gabriel Graph preservation (`dGG`), or `undefined` if not requested.
+    /// Returns Eades et al. (2017) unweighted shape-based Gabriel Graph preservation
+    /// (`S_GG`, distinct from deferred Hong et al. 2022 `dGG` and Fang et al. 2025 `dcGG`), or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = gabrielGraphPreservation)]
     pub fn gabriel_graph_preservation(&self) -> Option<f64> {
         self.inner.gabriel_graph_preservation
@@ -1629,14 +1632,24 @@ pub fn js_prism_distortion(
     })
 }
 
-/// Computes shape-based Relative Neighborhood Graph preservation (`dRNG`) in `[0.0, 1.0]`.
+/// Computes Eades et al. (2017) unweighted shape-based Relative Neighborhood Graph preservation
+/// (`S_RNG`) in `[0.0, 1.0]`.
+///
+/// Note: Implements classical unweighted `S_RNG` (Eades et al., JGAA 2017), distinct from
+/// deferred Hong et al. (2022) degree-sensitive `dRNG` and Fang et al. (2025) degree-constrained
+/// `dcRNG` (both deferred pending primary PDFs).
 #[wasm_bindgen(js_name = drngPreservation)]
 pub fn js_drng_preservation(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     relative_neighborhood_preservation(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
-/// Computes shape-based Gabriel Graph preservation (`dGG`) in `[0.0, 1.0]`.
+/// Computes Eades et al. (2017) unweighted shape-based Gabriel Graph preservation
+/// (`S_GG`) in `[0.0, 1.0]`.
+///
+/// Note: Implements classical unweighted `S_GG` (Eades et al., JGAA 2017), distinct from
+/// deferred Hong et al. (2022) degree-sensitive `dGG` and Fang et al. (2025) degree-constrained
+/// `dcGG` (both deferred pending primary PDFs).
 #[wasm_bindgen(js_name = dggPreservation)]
 pub fn js_dgg_preservation(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();

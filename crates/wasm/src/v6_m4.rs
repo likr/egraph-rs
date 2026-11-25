@@ -675,7 +675,11 @@ pub(crate) fn sgd_sgd2(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSol
 // 3. ForceAtlas2Solver & YifanHuSolver (ContinuousFdp)
 // ============================================================================
 
-/// Cooperative ForceAtlas2 force-directed layout solver (`f32`).
+/// Cooperative ForceAtlas2 (Jacomy et al., 2014) force-directed layout solver (`f32`).
+///
+/// Note: `linlogMode` enables ForceAtlas2 logarithmic attraction
+/// ($w \frac{\ln(1 + d)}{d} (p_v - p_u)$, decaying linearly to `0` as $d \to 0$) and is
+/// distinct from Noack (2007) true LinLog (`LinLogSolver`).
 #[wasm_bindgen(js_name = ForceAtlas2Solver)]
 #[derive(Debug, Clone)]
 pub struct JsForceAtlas2Solver {
@@ -1194,8 +1198,12 @@ pub fn js_project_rectangle_no_overlap_2d(
     Ok(())
 }
 
-/// Eliminates overlaps between axis-aligned cluster bounding boxes in `layout` in place while
-/// rigidly preserving relative coordinates within each cluster.
+/// One-shot post-processing pass that eliminates overlaps between axis-aligned cluster bounding
+/// boxes via rigid AABB VPSC in `layout` in place while preserving relative coordinates within
+/// each cluster.
+///
+/// Note: This rigid AABB VPSC pass is distinct from Dwyer et al. (2006) iterative constrained
+/// stress minimization (`IPSep-CoLa`).
 #[wasm_bindgen(js_name = projectClusteredRectangleNoOverlap2d)]
 pub fn js_project_clustered_rectangle_no_overlap_2d(
     layout: &mut JsLayout2d,
