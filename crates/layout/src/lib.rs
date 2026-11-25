@@ -4,21 +4,44 @@
 //! `egraph-neighborhood` to provide cooperative `step()`/`run_steps(k)` layout execution across
 //! Native Rust, Python (PyO3), and WebAssembly (`wasm32-unknown-unknown`) targets.
 
+#[cfg(feature = "baselines")]
+pub mod backbone;
+#[cfg(feature = "baselines")]
+pub mod cluster_refine;
 pub mod coarse_backbone;
 pub mod constraints;
 pub mod continuous_fdp;
 pub mod density_field;
 pub mod fdeb;
 pub mod field_layout;
+#[cfg(feature = "baselines")]
+pub mod forbid;
+#[cfg(feature = "baselines")]
+pub mod fr;
+#[cfg(feature = "baselines")]
+pub mod group_in_a_box;
+#[cfg(feature = "baselines")]
+pub mod gtree;
 pub mod gumap;
 pub mod kamada_kawai;
 pub mod layering;
+#[cfg(feature = "baselines")]
+pub mod linlog;
 pub mod prism;
 pub mod refiner;
 pub mod sgd;
 pub mod stress_majorization;
 pub mod ts_net;
 
+#[cfg(feature = "baselines")]
+pub use backbone::{
+    BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver,
+    extract_quadrilateral_backbone,
+};
+#[cfg(feature = "baselines")]
+pub use cluster_refine::{
+    ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, refine_cluster_layout,
+};
 pub use coarse_backbone::{
     CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats, CoarseDistanceBackend,
     CoarseEdgeLengthMode, coarse_backbone_init,
@@ -35,9 +58,22 @@ pub use fdeb::{FdebConfig, FdebSolver};
 pub use field_layout::{
     FieldLayout, FieldLayoutSolver, FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig,
 };
+#[cfg(feature = "baselines")]
+pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
+#[cfg(feature = "baselines")]
+pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
+#[cfg(feature = "baselines")]
+pub use group_in_a_box::{
+    GibBox, GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
+    squarified_treemap,
+};
+#[cfg(feature = "baselines")]
+pub use gtree::{GTreeConfig, GTreeOverlapRemoval};
 pub use gumap::{GuMapConfig, GuMapSolver};
 pub use kamada_kawai::{KamadaKawaiConfig, KamadaKawaiSolver};
 pub use layering::{LayeringMethod, assign_layers, cycle_edges, remove_cycles};
+#[cfg(feature = "baselines")]
+pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
 pub use prism::{PrismConfig, PrismOverlapRemoval, SparsePcgWorkspace};
 pub use refiner::{
     SpatialIntruderRefiner, SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,

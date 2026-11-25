@@ -9,10 +9,14 @@ use egraph_core::{
 use egraph_spatial::ArenaQuadtree2d;
 
 const COULOMB_EPS_SQ: f64 = 1e-6;
+const OVERLAP_DPRIME_MIN: f64 = 1e-6;
+const OVERLAP_REPULSION_K: f64 = 100.0;
 const MIN_FA2_SPEED: f64 = 1e-4;
 const MAX_FA2_DISPLACEMENT: f64 = 50.0;
 const MAX_COARSEN_LEVELS: usize = 64;
 const PROLONGATION_JITTER_FACTOR: f64 = 0.05;
+const MAX_OVERLAP_QUAD_DEPTH: usize = 32;
+const OVERLAP_QUAD_COINCIDENT_SQ: f64 = 1e-12;
 
 /// Hyperparameters for [`ForceAtlas2Solver`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,6 +43,10 @@ pub struct ForceAtlas2Config {
     pub jitter_tolerance: f64,
     /// Optional per-step vertex displacement cap (`None` adapts to `50.0 * max(1.0, sqrt(N / 1000.0))`, `default: None`).
     pub max_displacement: Option<f64>,
+    /// Enable Jacomy (2014) border-to-border node overlap prevention (`default: false`).
+    pub prevent_overlap: bool,
+    /// Default node radius used when constructed without explicit `node_radii` (`default: 1.0`).
+    pub default_node_radius: f64,
     /// Deterministic explicit RNG seed for collapsed-layout symmetry breaking (`default: 42`).
     pub seed: u64,
 }
@@ -57,6 +65,8 @@ impl Default for ForceAtlas2Config {
             outbound_attraction_distribution: false,
             jitter_tolerance: 1.0,
             max_displacement: None,
+            prevent_overlap: false,
+            default_node_radius: 1.0,
             seed: 42,
         }
     }
@@ -100,6 +110,12 @@ impl ForceAtlas2Config {
         {
             return Err(CoreError::invalid_input(format!(
                 "max_displacement must be finite and > 0.0, got {max_disp}"
+            )));
+        }
+        if !self.default_node_radius.is_finite() || self.default_node_radius < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "default_node_radius must be finite and >= 0.0, got {}",
+                self.default_node_radius
             )));
         }
         Ok(())
@@ -204,11 +220,424 @@ impl YifanHuConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct OverlapQuadNode {
+    center_x: f64,
+    center_y: f64,
+    width: f64,
+    height: f64,
+    count: usize,
+    total_mass: f64,
+    com_x: f64,
+    com_y: f64,
+    max_radius: f64,
+    avg_radius: f64,
+    leaf_head: u32,
+    first_child: u32,
+}
+
+impl OverlapQuadNode {
+    #[inline]
+    fn new(center_x: f64, center_y: f64, width: f64, height: f64) -> Self {
+        Self {
+            center_x,
+            center_y,
+            width,
+            height,
+            count: 0,
+            total_mass: 0.0,
+            com_x: 0.0,
+            com_y: 0.0,
+            max_radius: 0.0,
+            avg_radius: 0.0,
+            leaf_head: u32::MAX,
+            first_child: u32::MAX,
+        }
+    }
+
+    #[inline]
+    fn quadrant(&self, x: f64, y: f64) -> usize {
+        let right = usize::from(x >= self.center_x);
+        let bottom = usize::from(y >= self.center_y) * 2;
+        right + bottom
+    }
+
+    #[inline]
+    fn is_unsplitable_at_depth(&self, depth: usize) -> bool {
+        if depth >= MAX_OVERLAP_QUAD_DEPTH {
+            return true;
+        }
+        let qw = self.width * 0.25;
+        let qh = self.height * 0.25;
+        qw <= 0.0
+            || qh <= 0.0
+            || (self.center_x - qw) == self.center_x
+            || (self.center_x + qw) == self.center_x
+            || (self.center_y - qh) == self.center_y
+            || (self.center_y + qh) == self.center_y
+    }
+}
+
+/// Radius-aware flat arena Barnes-Hut quadtree for Jacomy (2014) `prevent_overlap` repulsion.
+///
+/// Tracks `max_radius` per quadtree cell so multipole approximation is only used when
+/// `max_dim < theta * d` AND `d > 2 * (r_i + cell.max_radius)` (strictly well-separated,
+/// guaranteeing `d' > 0`), while descending to exact pairwise `d' = d - r_i - r_j` checks
+/// for all nearby or overlapping pairs.
+#[derive(Debug, Clone, Default)]
+struct OverlapQuadtree {
+    nodes: Vec<OverlapQuadNode>,
+    leaf_of_point: Vec<u32>,
+    next_in_leaf: Vec<u32>,
+}
+
+impl OverlapQuadtree {
+    fn build(&mut self, xs: &[f64], ys: &[f64], masses: &[f64], radii: &[f64]) {
+        self.nodes.clear();
+        self.leaf_of_point.clear();
+        self.next_in_leaf.clear();
+
+        let n = xs.len();
+        if n == 0 {
+            return;
+        }
+
+        let mut min_x = xs[0];
+        let mut max_x = xs[0];
+        let mut min_y = ys[0];
+        let mut max_y = ys[0];
+        for i in 1..n {
+            min_x = min_x.min(xs[i]);
+            max_x = max_x.max(xs[i]);
+            min_y = min_y.min(ys[i]);
+            max_y = max_y.max(ys[i]);
+        }
+
+        self.leaf_of_point.resize(n, u32::MAX);
+        self.next_in_leaf.resize(n, u32::MAX);
+
+        let center_x = 0.5 * (min_x + max_x);
+        let center_y = 0.5 * (min_y + max_y);
+        let width = ((max_x - min_x) * 1.01).max(1e-4);
+        let height = ((max_y - min_y) * 1.01).max(1e-4);
+        self.nodes
+            .push(OverlapQuadNode::new(center_x, center_y, width, height));
+
+        for i in 0..n {
+            self.insert(i, xs, ys, masses, radii);
+        }
+    }
+
+    fn insert(&mut self, point_idx: usize, xs: &[f64], ys: &[f64], masses: &[f64], radii: &[f64]) {
+        let x = xs[point_idx];
+        let y = ys[point_idx];
+        let mass = masses[point_idx];
+        let rad = radii[point_idx];
+        let mut cur = 0usize;
+        let mut depth = 0usize;
+
+        loop {
+            let node = self.nodes[cur];
+            if node.count == 0 {
+                let slot = &mut self.nodes[cur];
+                slot.count = 1;
+                slot.total_mass = mass;
+                slot.com_x = x;
+                slot.com_y = y;
+                slot.max_radius = rad;
+                slot.avg_radius = rad;
+                slot.leaf_head = point_idx as u32;
+                self.leaf_of_point[point_idx] = cur as u32;
+                self.next_in_leaf[point_idx] = u32::MAX;
+                return;
+            }
+
+            let old_c = node.count as f64;
+            let new_c = (node.count + 1) as f64;
+            let old_m = node.total_mass;
+            let new_m = old_m + mass;
+            {
+                let slot = &mut self.nodes[cur];
+                if new_m > 0.0 {
+                    slot.com_x = (slot.com_x * old_m + x * mass) / new_m;
+                    slot.com_y = (slot.com_y * old_m + y * mass) / new_m;
+                    slot.avg_radius = (slot.avg_radius * old_m + rad * mass) / new_m;
+                } else {
+                    slot.com_x = (slot.com_x * old_c + x) / new_c;
+                    slot.com_y = (slot.com_y * old_c + y) / new_c;
+                    slot.avg_radius = (slot.avg_radius * old_c + rad) / new_c;
+                }
+                slot.max_radius = slot.max_radius.max(rad);
+                slot.total_mass = new_m;
+                slot.count += 1;
+            }
+
+            if node.first_child == u32::MAX {
+                let ref_idx = node.leaf_head as usize;
+                let rx = xs[ref_idx];
+                let ry = ys[ref_idx];
+                let dist_sq = (rx - x) * (rx - x) + (ry - y) * (ry - y);
+                if !dist_sq.is_finite()
+                    || dist_sq < OVERLAP_QUAD_COINCIDENT_SQ
+                    || node.is_unsplitable_at_depth(depth)
+                {
+                    self.next_in_leaf[point_idx] = self.nodes[cur].leaf_head;
+                    self.nodes[cur].leaf_head = point_idx as u32;
+                    self.leaf_of_point[point_idx] = cur as u32;
+                    return;
+                }
+
+                let head = self.nodes[cur].leaf_head;
+                self.nodes[cur].leaf_head = u32::MAX;
+                let base_child = self.subdivide(cur);
+
+                let mut existing = head;
+                while existing != u32::MAX {
+                    let e_idx = existing as usize;
+                    let next = self.next_in_leaf[e_idx];
+                    self.next_in_leaf[e_idx] = u32::MAX;
+                    let ex = xs[e_idx];
+                    let ey = ys[e_idx];
+                    let em = masses[e_idx];
+                    let er = radii[e_idx];
+                    let q = self.nodes[cur].quadrant(ex, ey);
+                    let child = base_child + q;
+                    let c_node = &mut self.nodes[child];
+                    if c_node.count == 0 {
+                        c_node.count = 1;
+                        c_node.total_mass = em;
+                        c_node.com_x = ex;
+                        c_node.com_y = ey;
+                        c_node.max_radius = er;
+                        c_node.avg_radius = er;
+                        c_node.leaf_head = e_idx as u32;
+                        self.leaf_of_point[e_idx] = child as u32;
+                    } else {
+                        let oc = c_node.count as f64;
+                        let nc = (c_node.count + 1) as f64;
+                        let om = c_node.total_mass;
+                        let nm = om + em;
+                        if nm > 0.0 {
+                            c_node.com_x = (c_node.com_x * om + ex * em) / nm;
+                            c_node.com_y = (c_node.com_y * om + ey * em) / nm;
+                            c_node.avg_radius = (c_node.avg_radius * om + er * em) / nm;
+                        } else {
+                            c_node.com_x = (c_node.com_x * oc + ex) / nc;
+                            c_node.com_y = (c_node.com_y * oc + ey) / nc;
+                            c_node.avg_radius = (c_node.avg_radius * oc + er) / nc;
+                        }
+                        c_node.max_radius = c_node.max_radius.max(er);
+                        c_node.total_mass = nm;
+                        c_node.count += 1;
+                        self.next_in_leaf[e_idx] = c_node.leaf_head;
+                        c_node.leaf_head = e_idx as u32;
+                        self.leaf_of_point[e_idx] = child as u32;
+                    }
+                    existing = next;
+                }
+
+                let q_new = self.nodes[cur].quadrant(x, y);
+                cur = base_child + q_new;
+                depth += 1;
+            } else {
+                let q = node.quadrant(x, y);
+                cur = (node.first_child as usize) + q;
+                depth += 1;
+            }
+        }
+    }
+
+    fn subdivide(&mut self, parent_idx: usize) -> usize {
+        let p = self.nodes[parent_idx];
+        let hw = p.width * 0.5;
+        let hh = p.height * 0.5;
+        let qw = p.width * 0.25;
+        let qh = p.height * 0.25;
+        let base = self.nodes.len();
+        self.nodes[parent_idx].first_child = base as u32;
+        self.nodes.push(OverlapQuadNode::new(
+            p.center_x - qw,
+            p.center_y - qh,
+            hw,
+            hh,
+        ));
+        self.nodes.push(OverlapQuadNode::new(
+            p.center_x + qw,
+            p.center_y - qh,
+            hw,
+            hh,
+        ));
+        self.nodes.push(OverlapQuadNode::new(
+            p.center_x - qw,
+            p.center_y + qh,
+            hw,
+            hh,
+        ));
+        self.nodes.push(OverlapQuadNode::new(
+            p.center_x + qw,
+            p.center_y + qh,
+            hw,
+            hh,
+        ));
+        base
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compute_repulsion(
+        &self,
+        xs: &[f64],
+        ys: &[f64],
+        masses: &[f64],
+        radii: &[f64],
+        theta: f64,
+        scaling_ratio: f64,
+        seed: u64,
+        iter: usize,
+        out_fx: &mut [f64],
+        out_fy: &mut [f64],
+    ) {
+        let n = xs.len();
+        if n < 2 || self.nodes.is_empty() {
+            out_fx.fill(0.0);
+            out_fy.fill(0.0);
+            return;
+        }
+        let theta_sq = theta * theta;
+        let mut stack = [0u32; 128];
+
+        for i in 0..n {
+            let x = xs[i];
+            let y = ys[i];
+            let mi = masses[i];
+            let ri = radii[i];
+            let mut sp = 1usize;
+            stack[0] = 0;
+            let mut fx = 0.0_f64;
+            let mut fy = 0.0_f64;
+
+            while sp > 0 {
+                sp -= 1;
+                let node_idx = stack[sp];
+                let node = &self.nodes[node_idx as usize];
+                if node.count == 0 || node.total_mass == 0.0 {
+                    continue;
+                }
+
+                if node.first_child == u32::MAX {
+                    let mut p = node.leaf_head;
+                    while p != u32::MAX {
+                        let other = p as usize;
+                        if other != i {
+                            let (px, py) = overlap_repulsion_pair(
+                                x - xs[other],
+                                y - ys[other],
+                                mi,
+                                masses[other],
+                                ri + radii[other],
+                                scaling_ratio,
+                                seed,
+                                iter,
+                                i,
+                                other,
+                            );
+                            fx += px;
+                            fy += py;
+                        }
+                        p = self.next_in_leaf[other];
+                    }
+                    continue;
+                }
+
+                let dx = x - node.com_x;
+                let dy = y - node.com_y;
+                let dist_sq = dx * dx + dy * dy;
+                let max_dim = node.width.max(node.height);
+                if theta > 0.0 && (max_dim * max_dim) < theta_sq * dist_sq {
+                    let d = dist_sq.sqrt();
+                    let min_sep = 2.0 * (ri + node.max_radius);
+                    if d > min_sep && d > 1e-12 {
+                        let d_prime = (d - ri - node.avg_radius).max(OVERLAP_DPRIME_MIN);
+                        let mult = (scaling_ratio * mi * node.total_mass) / (d * d_prime);
+                        fx += mult * dx;
+                        fy += mult * dy;
+                        continue;
+                    }
+                }
+                let base = node.first_child;
+                for c in 0..4 {
+                    let child = base + c;
+                    if self.nodes[child as usize].count > 0 {
+                        stack[sp] = child;
+                        sp += 1;
+                    }
+                }
+            }
+
+            out_fx[i] = fx;
+            out_fy[i] = fy;
+        }
+    }
+}
+
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn overlap_repulsion_pair(
+    dx: f64,
+    dy: f64,
+    mi: f64,
+    mj: f64,
+    r_sum: f64,
+    scaling_ratio: f64,
+    seed: u64,
+    iter: usize,
+    i: usize,
+    j: usize,
+) -> (f64, f64) {
+    let d = dx.hypot(dy);
+    let d_prime = d - r_sum;
+    if d_prime > 0.0 {
+        let d_prime_safe = d_prime.max(OVERLAP_DPRIME_MIN);
+        let mult = (scaling_ratio * mi * mj) / (d * d_prime_safe);
+        (mult * dx, mult * dy)
+    } else if d_prime < 0.0 {
+        let (ux, uy) = if d > 1e-12 {
+            (dx / d, dy / d)
+        } else {
+            deterministic_pair_unit_vector(seed, iter, i, j)
+        };
+        let mag = OVERLAP_REPULSION_K * mi * mj;
+        (mag * ux, mag * uy)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+#[inline]
+fn deterministic_pair_unit_vector(seed: u64, iter: usize, i: usize, j: usize) -> (f64, f64) {
+    let (a, b) = if i <= j {
+        (i as u64, j as u64)
+    } else {
+        (j as u64, i as u64)
+    };
+    let mut z = seed
+        .wrapping_add((iter as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+        .wrapping_add(a.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+        .wrapping_add(b.wrapping_mul(0x94D0_49BB_1331_11EB));
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let u = ((z >> 11) as f64) * (1.0 / ((1u64 << 53) as f64));
+    let angle = u * std::f64::consts::TAU;
+    let sign = if i <= j { 1.0 } else { -1.0 };
+    (sign * angle.cos(), sign * angle.sin())
+}
+
 /// Cooperative ForceAtlas2 layout solver implementing [`IterativeSolver`].
 ///
 /// Uses degree-weighted masses (`m_i = deg(i) + 1`) with either $O(N \log N)$ Barnes-Hut
 /// [`ArenaQuadtree2d`] Coulomb repulsion or exact $O(N^2)$ repulsion, linear/LinLog attraction,
-/// standard/strong gravity, and adaptive swing-traction step sizing without per-step allocations.
+/// standard/strong gravity, optional Jacomy (2014) border-to-border `prevent_overlap`, and
+/// adaptive swing-traction step sizing without per-step allocations.
 #[derive(Debug, Clone)]
 pub struct ForceAtlas2Solver<S: Scalar = f64> {
     config: ForceAtlas2Config,
@@ -217,6 +646,7 @@ pub struct ForceAtlas2Solver<S: Scalar = f64> {
     edges_v: Vec<u32>,
     edges_w: Vec<f64>,
     masses: Vec<f64>,
+    node_radii: Vec<f64>,
     x_buf: Vec<f64>,
     y_buf: Vec<f64>,
     fx: Vec<f64>,
@@ -227,6 +657,7 @@ pub struct ForceAtlas2Solver<S: Scalar = f64> {
     rep_x: Vec<f64>,
     rep_y: Vec<f64>,
     quadtree: ArenaQuadtree2d<f64>,
+    overlap_tree: OverlapQuadtree,
     global_speed: f64,
     max_displacement: f64,
     iter: usize,
@@ -235,9 +666,42 @@ pub struct ForceAtlas2Solver<S: Scalar = f64> {
 }
 
 impl<S: Scalar> ForceAtlas2Solver<S> {
-    /// Constructs a [`ForceAtlas2Solver`] from a [`CsrGraph`].
+    /// Constructs a [`ForceAtlas2Solver`] from a [`CsrGraph`] using `config.default_node_radius`.
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: ForceAtlas2Config) -> CoreResult<Self> {
         config.validate()?;
+        let n = graph.num_nodes();
+        let radii = vec![config.default_node_radius; n];
+        Self::with_node_radii(graph, config, radii)
+    }
+
+    /// Constructs a [`ForceAtlas2Solver`] from a [`CsrGraph`] with explicit per-node radii.
+    pub fn with_node_radii<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: ForceAtlas2Config,
+        node_radii: Vec<f64>,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n_graph = graph.num_nodes();
+        if node_radii.len() != n_graph {
+            return Err(CoreError::dimension_mismatch(
+                n_graph,
+                node_radii.len(),
+                "ForceAtlas2Solver::with_node_radii::node_radii",
+            ));
+        }
+        for &r in &node_radii {
+            if !r.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ForceAtlas2Solver::with_node_radii::node_radii",
+                ));
+            }
+            if r < 0.0 {
+                return Err(CoreError::invalid_input(
+                    "node_radii must be finite and >= 0.0",
+                ));
+            }
+        }
+
         let (n, edges_u, edges_v, raw_weights, deg) = extract_canonical_undirected_edges(graph)?;
         let max_displacement = config
             .max_displacement
@@ -275,7 +739,11 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
             edges_w.push(eff_w);
         }
 
-        let rep_len = if config.use_barnes_hut { n } else { 0 };
+        let rep_len = if config.use_barnes_hut && !config.prevent_overlap {
+            n
+        } else {
+            0
+        };
         let status = if config.iterations == 0 {
             SolverStatus::Completed
         } else {
@@ -289,6 +757,7 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
             edges_v,
             edges_w,
             masses,
+            node_radii,
             x_buf: vec![0.0; n],
             y_buf: vec![0.0; n],
             fx: vec![0.0; n],
@@ -299,6 +768,7 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
             rep_x: vec![0.0; rep_len],
             rep_y: vec![0.0; rep_len],
             quadtree: ArenaQuadtree2d::new(),
+            overlap_tree: OverlapQuadtree::default(),
             global_speed: 1.0,
             max_displacement,
             iter: 0,
@@ -317,6 +787,12 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the per-node collision radii.
+    #[inline]
+    pub fn node_radii(&self) -> &[f64] {
+        &self.node_radii
     }
 
     /// Returns the effective per-step vertex displacement cap.
@@ -375,8 +851,61 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
             }
         }
 
-        // 1. Repulsion: O(N log N) weighted Barnes-Hut or O(N^2) exact.
-        if self.config.use_barnes_hut {
+        // 1. Repulsion: Jacomy (2014) border-to-border `d' = d - r1 - r2` when `prevent_overlap`,
+        //    otherwise standard O(N log N) weighted Barnes-Hut or O(N^2) exact.
+        let prevent_overlap = self.config.prevent_overlap;
+        if prevent_overlap {
+            if self.config.use_barnes_hut {
+                self.overlap_tree
+                    .build(&self.x_buf, &self.y_buf, &self.masses, &self.node_radii);
+                self.overlap_tree.compute_repulsion(
+                    &self.x_buf,
+                    &self.y_buf,
+                    &self.masses,
+                    &self.node_radii,
+                    self.config.theta,
+                    self.config.scaling_ratio,
+                    self.config.seed,
+                    self.iter,
+                    &mut self.fx,
+                    &mut self.fy,
+                );
+            } else {
+                self.fx.fill(0.0);
+                self.fy.fill(0.0);
+                let sr = self.config.scaling_ratio;
+                let seed = self.config.seed;
+                let iter = self.iter;
+                for i in 0..n {
+                    let xi = self.x_buf[i];
+                    let yi = self.y_buf[i];
+                    let mi = self.masses[i];
+                    let ri = self.node_radii[i];
+                    let mut acc_x = 0.0_f64;
+                    let mut acc_y = 0.0_f64;
+                    for j in (i + 1)..n {
+                        let (fx_ij, fy_ij) = overlap_repulsion_pair(
+                            xi - self.x_buf[j],
+                            yi - self.y_buf[j],
+                            mi,
+                            self.masses[j],
+                            ri + self.node_radii[j],
+                            sr,
+                            seed,
+                            iter,
+                            i,
+                            j,
+                        );
+                        acc_x += fx_ij;
+                        acc_y += fy_ij;
+                        self.fx[j] -= fx_ij;
+                        self.fy[j] -= fy_ij;
+                    }
+                    self.fx[i] += acc_x;
+                    self.fy[i] += acc_y;
+                }
+            }
+        } else if self.config.use_barnes_hut {
             self.quadtree
                 .build_weighted_xy(&self.x_buf, &self.y_buf, &self.masses)?;
             self.quadtree.compute_coulomb_repulsion(
@@ -419,6 +948,8 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
         }
 
         // 2. Attraction: linear or LinLog along canonical undirected edges.
+        //    When `prevent_overlap` is active, use border distance `d' = d - r_u - r_v` when
+        //    `d' > 0` and disable attraction when `d' <= 0` (Jacomy 2014 Eqs. 7-9).
         let linlog = self.config.linlog_mode;
         for idx in 0..self.edges_u.len() {
             let u = self.edges_u[idx] as usize;
@@ -429,7 +960,19 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
             }
             let dx = self.x_buf[v] - self.x_buf[u];
             let dy = self.y_buf[v] - self.y_buf[u];
-            let factor = if linlog {
+            let factor = if prevent_overlap {
+                let d = dx.hypot(dy);
+                let d_prime = d - (self.node_radii[u] + self.node_radii[v]);
+                if d_prime > 0.0 && d > 1e-12 {
+                    if linlog {
+                        w * d_prime.ln_1p() / d
+                    } else {
+                        w * d_prime / d
+                    }
+                } else {
+                    0.0
+                }
+            } else if linlog {
                 let d_sq = dx * dx + dy * dy;
                 if d_sq > 1e-24 {
                     let d = d_sq.sqrt();
@@ -440,6 +983,9 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
             } else {
                 w
             };
+            if factor == 0.0 {
+                continue;
+            }
             let ax = factor * dx;
             let ay = factor * dy;
             self.fx[u] += ax;
@@ -509,14 +1055,16 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
         }
         self.global_speed = self.global_speed.clamp(MIN_FA2_SPEED, max_speed);
 
-        // 5. Apply adaptive displacements back into layout.
+        // 5. Apply adaptive displacements back into layout (dividing speed by 10 when
+        //    `prevent_overlap` is active per Jacomy 2014 p. 5).
         let speed = self.global_speed;
+        let speed_scale = if prevent_overlap { 0.1 } else { 1.0 };
         let max_disp = self.max_displacement;
         let (xs_mut, ys_mut) = layout.xy_mut();
         for i in 0..n {
             let fxi = self.fx[i];
             let fyi = self.fy[i];
-            let local_factor = speed / (1.0 + (speed * self.swing_buf[i]).sqrt());
+            let local_factor = speed_scale * (speed / (1.0 + (speed * self.swing_buf[i]).sqrt()));
             let mut dx = fxi * local_factor;
             let mut dy = fyi * local_factor;
             let disp = dx.hypot(dy);
@@ -1984,5 +2532,168 @@ mod tests {
             yh_err.step(&mut bad),
             Err(CoreError::NonFiniteValue { .. })
         ));
+    }
+
+    fn assert_copy<T: Copy>(_: T) {}
+
+    fn count_disk_overlaps<S: Scalar>(layout: &Layout2d<S>, radii: &[f64]) -> usize {
+        let n = layout.len();
+        let mut overlaps = 0usize;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = (layout.x()[i].to_f64() - layout.x()[j].to_f64())
+                    .hypot(layout.y()[i].to_f64() - layout.y()[j].to_f64());
+                if d < radii[i] + radii[j] - 1e-6 {
+                    overlaps += 1;
+                }
+            }
+        }
+        overlaps
+    }
+
+    #[test]
+    fn test_force_atlas2_prevent_overlap_resolves_overlaps_and_validation() {
+        let cfg_default = ForceAtlas2Config::default();
+        assert!(!cfg_default.prevent_overlap);
+        assert_eq!(cfg_default.default_node_radius, 1.0);
+        assert_copy(cfg_default);
+
+        // Invalid default_node_radius rejected.
+        for bad_r in [-0.1, f64::NAN, f64::INFINITY] {
+            assert!(
+                ForceAtlas2Config {
+                    default_node_radius: bad_r,
+                    ..cfg_default
+                }
+                .validate()
+                .is_err()
+            );
+        }
+
+        // with_node_radii validation.
+        let g4 = grid_graph(2, 2);
+        assert!(matches!(
+            ForceAtlas2Solver::<f64>::with_node_radii(&g4, cfg_default, vec![1.0; 3]),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            ForceAtlas2Solver::<f64>::with_node_radii(&g4, cfg_default, vec![1.0, -0.5, 1.0, 1.0]),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            ForceAtlas2Solver::<f64>::with_node_radii(
+                &g4,
+                cfg_default,
+                vec![1.0, f64::NAN, 1.0, 1.0]
+            ),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        // 1. Overlapping initial layout on a 4x4 grid with heterogeneous radii -> 0 overlaps
+        //    under both Exact and Barnes-Hut.
+        let grid = grid_graph(4, 4);
+        let radii: Vec<f64> = (0..16).map(|i| 0.8 + 0.1 * ((i % 4) as f64)).collect();
+        let mut init_overlap = seeded_layout::<f64>(16, 42);
+        // Compress initial positions so many pairs overlap initially.
+        for i in 0..16 {
+            init_overlap.x_mut()[i] *= 0.25;
+            init_overlap.y_mut()[i] *= 0.25;
+        }
+        assert!(count_disk_overlaps(&init_overlap, &radii) > 10);
+
+        for use_bh in [false, true] {
+            let mut layout = init_overlap.clone();
+            let cfg = ForceAtlas2Config {
+                iterations: 300,
+                use_barnes_hut: use_bh,
+                prevent_overlap: true,
+                linlog_mode: use_bh,
+                ..Default::default()
+            };
+            let mut solver =
+                ForceAtlas2Solver::<f64>::with_node_radii(&grid, cfg, radii.clone()).unwrap();
+            assert_eq!(solver.node_radii(), radii.as_slice());
+            assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);
+            assert!(layout.is_all_finite());
+            assert_eq!(
+                count_disk_overlaps(&layout, &radii),
+                0,
+                "expected 0 disk overlaps with use_barnes_hut={use_bh}"
+            );
+        }
+
+        // 2. Barnes-Hut with theta=0.0 matches Exact even with prevent_overlap=true and coincident starts.
+        let mut l_exact = Layout2d::<f64>::zeros(6);
+        let mut l_bh0 = Layout2d::<f64>::zeros(6);
+        let g6 = barbell_graph(3);
+        let r6 = vec![1.5; 6];
+        ForceAtlas2Solver::with_node_radii(
+            &g6,
+            ForceAtlas2Config {
+                iterations: 25,
+                use_barnes_hut: false,
+                prevent_overlap: true,
+                ..Default::default()
+            },
+            r6.clone(),
+        )
+        .unwrap()
+        .run(&mut l_exact)
+        .unwrap();
+        ForceAtlas2Solver::with_node_radii(
+            &g6,
+            ForceAtlas2Config {
+                iterations: 25,
+                use_barnes_hut: true,
+                theta: 0.0,
+                prevent_overlap: true,
+                ..Default::default()
+            },
+            r6.clone(),
+        )
+        .unwrap()
+        .run(&mut l_bh0)
+        .unwrap();
+        for i in 0..6 {
+            assert!((l_exact.x()[i] - l_bh0.x()[i]).abs() < 1e-8);
+            assert!((l_exact.y()[i] - l_bh0.y()[i]).abs() < 1e-8);
+        }
+
+        // 3. Bit-exact step() == run() for f64 and f32 with prevent_overlap=true.
+        for use_bh in [false, true] {
+            let cfg = ForceAtlas2Config {
+                iterations: 25,
+                use_barnes_hut: use_bh,
+                prevent_overlap: true,
+                default_node_radius: 1.25,
+                ..Default::default()
+            };
+            let mut l64_r = seeded_layout::<f64>(16, 88);
+            let mut l64_s = l64_r.clone();
+            let mut s64_r = ForceAtlas2Solver::<f64>::new(&grid, cfg).unwrap();
+            let mut s64_s = ForceAtlas2Solver::<f64>::new(&grid, cfg).unwrap();
+            s64_r.run(&mut l64_r).unwrap();
+            s64_s.run_steps(&mut l64_s, 9).unwrap();
+            while !s64_s.status().is_finished() {
+                s64_s.step(&mut l64_s).unwrap();
+            }
+            for i in 0..16 {
+                assert_eq!(l64_r.x()[i].to_bits(), l64_s.x()[i].to_bits());
+                assert_eq!(l64_r.y()[i].to_bits(), l64_s.y()[i].to_bits());
+            }
+
+            let mut l32_r = seeded_layout::<f32>(16, 88);
+            let mut l32_s = l32_r.clone();
+            let mut s32_r = ForceAtlas2Solver::<f32>::new(&grid, cfg).unwrap();
+            let mut s32_s = ForceAtlas2Solver::<f32>::new(&grid, cfg).unwrap();
+            s32_r.run(&mut l32_r).unwrap();
+            while !s32_s.status().is_finished() {
+                s32_s.step(&mut l32_s).unwrap();
+            }
+            for i in 0..16 {
+                assert_eq!(l32_r.x()[i].to_bits(), l32_s.x()[i].to_bits());
+                assert_eq!(l32_r.y()[i].to_bits(), l32_s.y()[i].to_bits());
+            }
+        }
     }
 }

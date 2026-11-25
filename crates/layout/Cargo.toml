@@ -8,6 +8,7 @@ repository.workspace = true
 [features]
 default = ["delaunay"]
 delaunay = ["egraph-spatial/delaunay"]
+baselines = []
 
 [dependencies]
 egraph-core.workspace = true
