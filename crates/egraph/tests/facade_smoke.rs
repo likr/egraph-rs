@@ -339,3 +339,153 @@ fn facade_petgraph_smoke() {
     assert_eq!(roundtrip.num_nodes(), 3);
     assert_eq!(roundtrip.num_edges(), 2);
 }
+
+#[cfg(all(feature = "linalg", feature = "layout"))]
+#[test]
+fn facade_w2_core_smoke() {
+    let graph = CsrGraph::<f64>::from_edges(
+        6,
+        &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 3)],
+        None,
+        false,
+        false,
+    )
+    .expect("valid graph");
+
+    let hde_cfg = HdeConfig {
+        dimensions: 4,
+        ..HdeConfig::default()
+    };
+    let hde_2d = hde::<f64, f64>(&graph, &hde_cfg).expect("hde");
+    assert_eq!(hde_2d.len(), 6);
+    assert!(hde_2d.is_all_finite());
+    let hde_piv =
+        hde_with_pivots::<f64, f64>(&graph, &[0, 2, 4], &hde_cfg).expect("hde_with_pivots");
+    assert!(hde_piv.is_all_finite());
+    let hde_nd_cfg = HdeConfig {
+        dimensions: 4,
+        output_dims: 3,
+        ..HdeConfig::default()
+    };
+    let nd_1 = hde_nd::<f64, f64>(&graph, &hde_nd_cfg).expect("hde_nd");
+    let nd_2 = hde_nd_with_pivots::<f64, f64>(&graph, &[0, 2, 4], &hde_nd_cfg)
+        .expect("hde_nd_with_pivots");
+    assert_eq!(nd_1.dims(), 3);
+    assert_eq!(nd_2.dims(), 3);
+
+    let mut layout = hde_2d;
+    let mut ortmann = SgdSolver::<f64>::ortmann_sparse_stress(
+        &graph,
+        OrtmannSparseStressConfig {
+            num_pivots: 3,
+            pivot_strategy: OrtmannPivotStrategy::MaxMinSp,
+            iterations: 5,
+            ..OrtmannSparseStressConfig::default()
+        },
+    )
+    .expect("ortmann");
+    assert!(ortmann.run(&mut layout).expect("ortmann run").is_finished());
+
+    let mut lv = SgdSolver::<f64>::largevis(
+        &graph,
+        LargeVisConfig {
+            iterations: 4,
+            ..LargeVisConfig::default()
+        },
+    )
+    .expect("largevis");
+    assert!(lv.run(&mut layout).expect("largevis run").is_finished());
+
+    let mut dr = SgdSolver::<f64>::drgraph(
+        &graph,
+        DrGraphConfig {
+            iterations: 4,
+            ..DrGraphConfig::default()
+        },
+    )
+    .expect("drgraph");
+    assert!(dr.run(&mut layout).expect("drgraph run").is_finished());
+
+    let mut cne = SgdSolver::<f64>::graph_cne(
+        &graph,
+        GraphCneConfig {
+            objective: GraphCneObjective::InfoNce,
+            iterations: 4,
+            ..GraphCneConfig::default()
+        },
+    )
+    .expect("graph_cne");
+    assert!(cne.run(&mut layout).expect("graph_cne run").is_finished());
+}
+
+#[cfg(all(feature = "layout", feature = "baselines", feature = "dataset"))]
+#[test]
+fn facade_w2_baselines_smoke() {
+    let graph = egraph::dataset::dataset_karate_csr();
+    let mut layout = Layout2d::<f64>::zeros(graph.num_nodes());
+
+    let mut maxent = MaxentStressSolver::<f64>::new(
+        &graph,
+        MaxentStressConfig {
+            stages: 2,
+            steps_per_stage: 3,
+            ..MaxentStressConfig::default()
+        },
+    )
+    .expect("maxent");
+    assert!(maxent.run(&mut layout).expect("maxent run").is_finished());
+    assert!(maxent.current_alpha().is_finite());
+    assert!(maxent.effective_q().is_finite());
+
+    let mut grip = GripSolver::<f64>::new(
+        &graph,
+        GripConfig {
+            rounds_min: 1,
+            rounds_max: 2,
+            ..GripConfig::default()
+        },
+    )
+    .expect("grip");
+    assert!(grip.run(&mut layout).expect("grip run").is_finished());
+
+    let mut gem = GemSolver::<f64>::new(
+        &graph,
+        GemConfig {
+            max_rounds: Some(4),
+            ..GemConfig::default()
+        },
+    )
+    .expect("gem");
+    assert!(gem.run(&mut layout).expect("gem run").is_finished());
+
+    let mut sel = SelLayoutSolver::<f64>::new(
+        &graph,
+        SelConfig {
+            mapping: SelWeightMapping::Sigmoid,
+            layout_backend: SelLayoutBackend::Fr,
+            iterations: 4,
+            ..SelConfig::default()
+        },
+    )
+    .expect("sel");
+    assert_eq!(sel.modulated_weights().len(), graph.num_edges());
+    assert!(sel.se_target().is_finite());
+    assert!(sel.run(&mut layout).expect("sel run").is_finished());
+
+    let mut sfc = SfcLayoutSolver::<f64>::new(
+        &graph,
+        SfcConfig {
+            curve: SfcCurveKind::Hilbert,
+            ..SfcConfig::default()
+        },
+    )
+    .expect("sfc");
+    assert_eq!(sfc.vertex_order().len(), graph.num_nodes());
+    assert!(sfc.run(&mut layout).expect("sfc run").is_finished());
+
+    let radii = vec![0.25_f64; graph.num_nodes()];
+    let mut pfsp = PfsPrimeOverlapRemoval::<f64>::from_radii(radii, PfsPrimeConfig::default())
+        .expect("pfs_prime");
+    assert!(pfsp.run(&mut layout).expect("pfs_prime run").is_finished());
+    assert_eq!(pfsp.last_overlap_count(), 0);
+}

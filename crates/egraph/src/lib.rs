@@ -64,13 +64,14 @@ pub mod prelude {
         ChebyshevDogKernel, ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
         DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS,
         DEFAULT_SPECTRUM_SAFETY_FACTOR, EffectiveResistanceConfig, EffectiveResistanceResult,
-        LaplacianKind, PivotMdsConfig, RdMds, ResistanceCurvatureConfig,
+        HdeConfig, LaplacianKind, PivotMdsConfig, RdMds, ResistanceCurvatureConfig,
         ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
         adaptive_chebyshev_degree, adaptive_chebyshev_degree_scaled, anisotropic_laplacian,
         classical_mds_2d, classify_geometry_from_curvature, combinatorial_laplacian,
-        compute_effective_resistances, koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds,
-        representative_mds, resistance_curvature_flow, robust_normalize_layout_2d,
-        select_maxmin_sp_pivots, symmetric_normalized_laplacian,
+        compute_effective_resistances, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots,
+        koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds, representative_mds,
+        resistance_curvature_flow, robust_normalize_layout_2d, select_maxmin_sp_pivots,
+        symmetric_normalized_laplacian,
     };
 
     #[cfg(feature = "neighborhood")]
@@ -93,16 +94,18 @@ pub mod prelude {
     pub use egraph_layout::{
         BarrierSymmetry, CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats,
         CoarseDistanceBackend, CoarseEdgeLengthMode, ConstraintProjector, ContinuousFdp,
-        FdebConfig, FdebSolver, FieldLayout, FieldLayoutSolver, FieldRepulsionBackend,
-        ForceAtlas2Config, ForceAtlas2Solver, GuMapConfig, GuMapSolver, IbUmapConfig,
-        KamadaKawaiConfig, KamadaKawaiSolver, LayeringMethod, PacmapGraphConfig, PrismConfig,
-        PrismOverlapRemoval, RhoSchedule, ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig,
-        SeparationConstraint, Sgd2Config, SgdScheduleConfig, SgdScheduleKind, SgdSolver,
-        SnapTFdpConfig, SparseBarrierConfig, SparseBarrierStats, SpatialIntruderRefiner,
-        SpatialRefinerConfig, StressMajorizationConfig, StressMajorizationSolver, TFdpConfig,
-        TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage, YifanHuConfig, YifanHuSolver,
-        assign_layers, coarse_backbone_init, cycle_edges, generate_layered_constraints,
-        project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d, remove_cycles,
+        DrGraphConfig, FdebConfig, FdebSolver, FieldLayout, FieldLayoutSolver,
+        FieldRepulsionBackend, ForceAtlas2Config, ForceAtlas2Solver, GraphCneConfig,
+        GraphCneObjective, GuMapConfig, GuMapSolver, IbUmapConfig, KamadaKawaiConfig,
+        KamadaKawaiSolver, LargeVisConfig, LayeringMethod, OrtmannPivotStrategy,
+        OrtmannSparseStressConfig, PacmapGraphConfig, PrismConfig, PrismOverlapRemoval,
+        RhoSchedule, ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig, SeparationConstraint,
+        Sgd2Config, SgdScheduleConfig, SgdScheduleKind, SgdSolver, SnapTFdpConfig,
+        SparseBarrierConfig, SparseBarrierStats, SpatialIntruderRefiner, SpatialRefinerConfig,
+        StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetBackend, TsNetConfig,
+        TsNetSolver, TsNetStage, YifanHuConfig, YifanHuSolver, assign_layers, coarse_backbone_init,
+        cycle_edges, generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
+        project_rectangle_no_overlap_2d, remove_cycles,
     };
 
     #[cfg(all(feature = "layout", feature = "baselines"))]
@@ -110,9 +113,12 @@ pub mod prelude {
         BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver, ClusterRefineConfig,
         ClusterRefineMethod, ClusterRefineSolver, ForbidConfig, ForbidOverlapRemoval,
         ForbidVariant, FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver,
-        GTreeConfig, GTreeOverlapRemoval, GibBox, GibBoxLayoutMode, GibIntraLayoutMode,
-        GroupInABoxConfig, GroupInABoxSolver, LinLogConfig, LinLogRepulsion, LinLogSolver,
-        extract_quadrilateral_backbone, refine_cluster_layout, squarified_treemap,
+        GTreeConfig, GTreeOverlapRemoval, GemConfig, GemSolver, GibBox, GibBoxLayoutMode,
+        GibIntraLayoutMode, GripConfig, GripSolver, GroupInABoxConfig, GroupInABoxSolver,
+        LinLogConfig, LinLogRepulsion, LinLogSolver, MaxentStressConfig, MaxentStressSolver,
+        PfsPrimeConfig, PfsPrimeOverlapRemoval, SelConfig, SelLayoutBackend, SelLayoutSolver,
+        SelWeightMapping, SfcConfig, SfcCurveKind, SfcLayoutSolver, extract_quadrilateral_backbone,
+        refine_cluster_layout, squarified_treemap,
     };
 
     #[cfg(feature = "clustering")]
