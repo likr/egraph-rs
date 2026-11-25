@@ -102,6 +102,9 @@ name = "v6_m5"
 name = "v6_w1"
 
 [[test]]
+name = "v6_w2"
+
+[[test]]
 name = "classical_mds"
 required-features = ["legacy"]
 

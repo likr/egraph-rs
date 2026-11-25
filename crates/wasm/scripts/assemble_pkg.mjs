@@ -243,6 +243,17 @@ const requiredW1 = [
   "norMetricsWithoutGraph",
 ];
 
+const requiredW2 = [
+  "hde",
+  "hdeNd",
+  "MaxentStressSolver",
+  "GripSolver",
+  "GemSolver",
+  "SelLayoutSolver",
+  "PfsPrimeOverlapRemoval",
+  "SfcLayoutSolver",
+];
+
 const missingExports = [
   ...requiredCoreAndM1,
   ...requiredM2,
@@ -250,6 +261,7 @@ const missingExports = [
   ...requiredM4,
   ...requiredM5,
   ...requiredW1,
+  ...requiredW2,
 ].filter((name) => !exportedNames.has(name));
 if (missingExports.length > 0) {
   throw new Error(
@@ -1336,6 +1348,11 @@ export interface ForceAtlas2Options {
   iterations?: number | null;
   theta?: number | null;
   useBarnesHut?: boolean | null;
+  /**
+   * Enables Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
+   * \`w * (ln(1 + d) / d) * (p_v - p_u)\` (which decays linearly to \`0\` as \`d -> 0\`).
+   * Distinct from Noack (2007) true LinLog (\`LinLogSolver\`).
+   */
   linlogMode?: boolean | null;
   strongGravity?: boolean | null;
   gravity?: number | null;
@@ -1492,6 +1509,135 @@ export interface NorMetricsRecord {
   gsBbIar: number;
   nmDmImse: number;
   elRsd: number;
+}
+
+export interface HdeOptions {
+  dimensions?: number | null;
+  seed?: number | null;
+  tol?: number | null;
+  maxSweeps?: number | null;
+  normalize?: boolean | null;
+  pivots?: Uint32Array | number[] | null;
+}
+
+export interface HdeNdOptions extends HdeOptions {
+  outputDims?: number | null;
+}
+
+export type OrtmannPivotStrategy = "kmeans_sp" | "maxmin_random_sp" | "maxmin_sp";
+
+export interface OrtmannSparseStressOptions {
+  numPivots?: number | null;
+  pivotStrategy?: OrtmannPivotStrategy | string | null;
+  iterations?: number | null;
+  etaMax?: number | null;
+  etaMin?: number | null;
+  eps?: number | null;
+  seed?: number | null;
+}
+
+export interface LargeVisOptions {
+  iterations?: number | null;
+  negativeSamples?: number | null;
+  gamma?: number | null;
+  initialLr?: number | null;
+  minLr?: number | null;
+  degreeExponent?: number | null;
+  seed?: number | null;
+}
+
+export interface DrGraphOptions {
+  kOrder?: number | null;
+  negativeSamples?: number | null;
+  b?: number | null;
+  gammaCoarse?: number | null;
+  gammaFine?: number | null;
+  coarsenStopRatio?: number | null;
+  iterations?: number | null;
+  initialLr?: number | null;
+  minLr?: number | null;
+  seed?: number | null;
+}
+
+export type GraphCneObjective = "infonce" | "neg_tsne";
+
+export interface GraphCneOptions {
+  objective?: GraphCneObjective | string | null;
+  negativeSamples?: number | null;
+  iterations?: number | null;
+  initialLr?: number | null;
+  minLr?: number | null;
+  repulsionWeight?: number | null;
+  rowNormalize?: boolean | null;
+  seed?: number | null;
+}
+
+export interface MaxentStressOptions {
+  q?: number | null;
+  alphaInit?: number | null;
+  alphaDecay?: number | null;
+  alphaMin?: number | null;
+  stages?: number | null;
+  stepsPerStage?: number | null;
+  tol?: number | null;
+  cgTol?: number | null;
+  cgMaxIters?: number | null;
+  theta?: number | null;
+  useBarnesHut?: boolean | null;
+  epsSq?: number | null;
+  seed?: number | null;
+}
+
+export interface GripOptions {
+  roundsMin?: number | null;
+  roundsMax?: number | null;
+  localNeighborhoodSize?: number | null;
+  repulsionScale?: number | null;
+  edgeLength?: number | null;
+  tempR?: number | null;
+  tempS?: number | null;
+  seed?: number | null;
+}
+
+export interface GemOptions {
+  edgeLength?: number | null;
+  gravity?: number | null;
+  tInit?: number | null;
+  tMax?: number | null;
+  tMin?: number | null;
+  maxRounds?: number | null;
+  oscillationAngle?: number | null;
+  rotationAngle?: number | null;
+  oscillationSensitivity?: number | null;
+  rotationSensitivity?: number | null;
+  perturbation?: number | null;
+  seed?: number | null;
+}
+
+export type SelWeightMapping = "sigmoid" | "linear" | "tanh" | "custom_logistic" | "binary";
+export type SelLayoutBackend = "fr" | "t_fdp";
+
+export interface SelOptions {
+  treeDepth?: number | null;
+  pqMaxPops?: number | null;
+  mapping?: SelWeightMapping | string | null;
+  layoutBackend?: SelLayoutBackend | string | null;
+  iterations?: number | null;
+  seed?: number | null;
+}
+
+export interface PfsPrimeOptions {
+  padding?: number | null;
+  seed?: number | null;
+}
+
+export type SfcCurveKind = "hilbert" | "morton";
+
+export interface SfcOptions {
+  curve?: SfcCurveKind | string | null;
+  scale?: number | null;
+  resolutionOrder?: number | null;
+  seed?: number | null;
 }
 
 export interface YifanHuOptions {
@@ -2017,6 +2163,69 @@ for (const [pattern, replacement] of w1DtsReplacements) {
   const updated = indexDts.replace(pattern, replacement);
   if (updated === indexDts) {
     throw new Error(`Failed to refine W1 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
+
+const w2DtsReplacements = [
+  [
+    /export function hde\([^;]+\): Layout2d;/,
+    "export function hde(graph: CsrGraph, options?: HdeOptions | null): Layout2d;",
+  ],
+  [
+    /export function hdeNd\([^;]+\): LayoutNd;/,
+    "export function hdeNd(graph: CsrGraph, options?: HdeNdOptions | null): LayoutNd;",
+  ],
+  [
+    /static ortmannSparseStress\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static ortmannSparseStress(graph: CsrGraph, options?: OrtmannSparseStressOptions | null): SgdSolver;",
+  ],
+  [
+    /static largevis\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static largevis(graph: CsrGraph, options?: LargeVisOptions | null): SgdSolver;",
+  ],
+  [
+    /static drgraph\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static drgraph(graph: CsrGraph, options?: DrGraphOptions | null): SgdSolver;",
+  ],
+  [
+    /static graphCne\(graph: CsrGraph, options: any\): SgdSolver;/,
+    "static graphCne(graph: CsrGraph, options?: GraphCneOptions | null): SgdSolver;",
+  ],
+  [
+    /(export class MaxentStressSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: MaxentStressOptions | null);",
+  ],
+  [
+    /(export class GripSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: GripOptions | null);",
+  ],
+  [
+    /(export class GemSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: GemOptions | null);",
+  ],
+  [
+    /(export class SelLayoutSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: SelOptions | null);",
+  ],
+  [
+    /(export class PfsPrimeOverlapRemoval \{[\s\S]*?)static fromRadii\([^;]+\): PfsPrimeOverlapRemoval;/,
+    "$1static fromRadii(radii: Float32Array | number[], options?: PfsPrimeOptions | null): PfsPrimeOverlapRemoval;",
+  ],
+  [
+    /(export class PfsPrimeOverlapRemoval \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: PfsPrimeOptions | null);",
+  ],
+  [
+    /(export class SfcLayoutSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: SfcOptions | null);",
+  ],
+];
+
+for (const [pattern, replacement] of w2DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine W2 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
   }
   indexDts = updated;
 }

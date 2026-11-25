@@ -2531,6 +2531,98 @@ if (typeof eg.Graph === "function") {
   g8.free();
 }
 
+// 12f. Verify W2 baseline exports (HDE, Ortmann, Maxent-Stress, LargeVis, DRGraph, Graph-CNE, GRIP, GEM, SEL, PFS', SFC)
+{
+  const g8 = CsrGraph.fromEdgeList(
+    8,
+    new Uint32Array([
+      0, 1, 0, 2, 0, 3, 1, 2, 1, 3, 2, 3,
+      4, 5, 4, 6, 4, 7, 5, 6, 5, 7, 6, 7,
+      3, 4,
+    ]),
+    undefined,
+    { directed: false, sanitize: true },
+  );
+
+  // W2-1a: HDE
+  const lHde = webPkg.hde(g8, { dimensions: 4, seed: 42, normalize: true });
+  assert.equal(lHde.len(), 8);
+  assert.equal(lHde.isAllFinite(), true);
+  lHde.free();
+
+  const lHdeNd = webPkg.hdeNd(g8, { dimensions: 4, outputDims: 3, pivots: [0, 3, 4, 7] });
+  assert.equal(lHdeNd.numNodes, 8);
+  assert.equal(lHdeNd.dim, 3);
+  assert.equal(lHdeNd.isAllFinite(), true);
+  lHdeNd.free();
+
+  // W2-1b & W2-3: SgdSolver W2 constructors
+  const lWork = Layout2d.init(8, 42);
+  for (const sgd of [
+    SgdSolver.ortmannSparseStress(g8, { numPivots: 4, pivotStrategy: "kmeans_sp", iterations: 8, seed: 42 }),
+    SgdSolver.largevis(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
+    SgdSolver.drgraph(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
+    SgdSolver.graphCne(g8, { objective: "infonce", iterations: 8, negativeSamples: 3, seed: 42 }),
+  ]) {
+    sgd.run(lWork);
+    assert.equal(sgd.isFinished, true);
+    assert.equal(lWork.isAllFinite(), true);
+    sgd.free();
+  }
+
+  // W2-2: MaxentStressSolver
+  const maxent = new webPkg.MaxentStressSolver(g8, { stages: 2, stepsPerStage: 4, seed: 42 });
+  assert.equal(maxent.numNodes, 8);
+  assert(Number.isFinite(maxent.effectiveQ));
+  assert(Number.isFinite(maxent.currentAlpha));
+  await webPkg.runProgressive(maxent, lWork, null, { maxStepsPerFrame: 4 });
+  assert.equal(maxent.isFinished, true);
+  assert.equal(lWork.isAllFinite(), true);
+  maxent.free();
+
+  // W2-4: GRIP, GEM, SEL, PFS', SFC
+  const grip = new webPkg.GripSolver(g8, { roundsMin: 2, roundsMax: 4, seed: 42 });
+  assert(grip.numLevels >= 1);
+  grip.run(lWork);
+  assert.equal(grip.isFinished, true);
+  grip.free();
+
+  const gem = new webPkg.GemSolver(g8, { maxRounds: 8, seed: 42 });
+  gem.run(lWork);
+  assert.equal(gem.isFinished, true);
+  gem.free();
+
+  const sel = new webPkg.SelLayoutSolver(g8, { mapping: "sigmoid", layoutBackend: "fr", iterations: 8, seed: 42 });
+  assert(Number.isFinite(sel.seTarget));
+  assert.equal(sel.modulatedWeights().length, 13);
+  sel.run(lWork);
+  assert.equal(sel.isFinished, true);
+  sel.free();
+
+  const lOverlap = Layout2d.fromCoords(
+    new Float32Array([
+      0.0, 0.0, 0.1, 0.05, -0.08, 0.07, 0.05, -0.06,
+      0.12, 0.1, -0.1, -0.08, 0.02, 0.09, -0.04, 0.02,
+    ]),
+  );
+  const pfs = webPkg.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(8).fill(0.4), { padding: 0.02, seed: 42 });
+  pfs.run(lOverlap);
+  assert.equal(pfs.isFinished, true);
+  assert.equal(pfs.lastOverlapCount, 0);
+  pfs.free();
+  lOverlap.free();
+
+  const sfc = new webPkg.SfcLayoutSolver(g8, { curve: "hilbert", scale: 100.0, seed: 42 });
+  assert.equal(sfc.vertexOrder().length, 8);
+  sfc.run(lWork);
+  assert.equal(sfc.isFinished, true);
+  assert.equal(lWork.isAllFinite(), true);
+  sfc.free();
+
+  lWork.free();
+  g8.free();
+}
+
 // 13. Run TypeScript declaration typechecking when `tsc` is installed locally
 {
   const dtsPath = fileURLToPath(new URL("../pkg/index.d.ts", import.meta.url));
