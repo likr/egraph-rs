@@ -2805,10 +2805,12 @@ impl PySgdSolver {
             rho_start = StrictF64(1.0),
             rho_end = StrictF64(0.1),
             rho_power = StrictF64(1.0),
+            degree_beta = StrictF64(0.0),
+            bounded_attraction = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, iterations=200, negatives_per_edge=3, learning_rate=1.0, alpha=1.0, repulsion_scale=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, iterations=200, negatives_per_edge=3, learning_rate=1.0, alpha=1.0, repulsion_scale=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, degree_beta=0.0, bounded_attraction=True, seed=42, dtype='float64')"
     )]
     fn snap_t_fdp(
         py: Python<'_>,
@@ -2821,6 +2823,8 @@ impl PySgdSolver {
         rho_start: StrictF64,
         rho_end: StrictF64,
         rho_power: StrictF64,
+        degree_beta: StrictF64,
+        bounded_attraction: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -2835,6 +2839,8 @@ impl PySgdSolver {
             rho_start,
             rho_end,
             rho_power,
+            degree_beta,
+            bounded_attraction,
             seed,
             dtype,
         )
@@ -3302,6 +3308,7 @@ fn build_gumap_config(
     b: Option<f64>,
     sigma_iters: usize,
     sigma_tolerance: f64,
+    symmetric_negative: bool,
     seed: u64,
 ) -> PyResult<GuMapConfig> {
     let cfg = GuMapConfig {
@@ -3314,6 +3321,7 @@ fn build_gumap_config(
         b,
         sigma_iters,
         sigma_tolerance,
+        symmetric_negative,
         seed,
     };
     cfg.validate().map_err(core_error_to_py)?;
@@ -3346,10 +3354,11 @@ impl PyGuMapSolver {
             b = None,
             sigma_iters = StrictUsize(64),
             sigma_tolerance = StrictF64(1e-5),
+            symmetric_negative = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(probs, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+        text_signature = "(probs, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_fuzzy_set(
         py: Python<'_>,
@@ -3363,6 +3372,7 @@ impl PyGuMapSolver {
         b: Option<StrictF64>,
         sigma_iters: StrictUsize,
         sigma_tolerance: StrictF64,
+        symmetric_negative: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -3376,6 +3386,7 @@ impl PyGuMapSolver {
             b.map(|v| v.0),
             sigma_iters.0,
             sigma_tolerance.0,
+            symmetric_negative,
             seed.0,
         )?;
         let probs_ref = probs.inner();
@@ -3408,10 +3419,11 @@ impl PyGuMapSolver {
             b = None,
             sigma_iters = StrictUsize(64),
             sigma_tolerance = StrictF64(1e-5),
+            symmetric_negative = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+        text_signature = "(knn, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -3425,6 +3437,7 @@ impl PyGuMapSolver {
         b: Option<StrictF64>,
         sigma_iters: StrictUsize,
         sigma_tolerance: StrictF64,
+        symmetric_negative: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -3438,6 +3451,7 @@ impl PyGuMapSolver {
             b.map(|v| v.0),
             sigma_iters.0,
             sigma_tolerance.0,
+            symmetric_negative,
             seed.0,
         )?;
         let knn_ref = knn.inner();
@@ -3479,10 +3493,11 @@ impl PyGuMapSolver {
             b = None,
             sigma_iters = StrictUsize(64),
             sigma_tolerance = StrictF64(1e-5),
+            symmetric_negative = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, max_2hop_per_node=32, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+        text_signature = "(graph, max_2hop_per_node=32, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_graph_dog(
         py: Python<'_>,
@@ -3509,6 +3524,7 @@ impl PyGuMapSolver {
         b: Option<StrictF64>,
         sigma_iters: StrictUsize,
         sigma_tolerance: StrictF64,
+        symmetric_negative: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -3522,6 +3538,7 @@ impl PyGuMapSolver {
             b.map(|v| v.0),
             sigma_iters.0,
             sigma_tolerance.0,
+            symmetric_negative,
             seed.0,
         )?;
         let dog_cfg = DogVaradhanConfig {
@@ -3574,10 +3591,11 @@ impl PyGuMapSolver {
             b = None,
             sigma_iters = StrictUsize(64),
             sigma_tolerance = StrictF64(1e-5),
+            symmetric_negative = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, seed=42, dtype='float64')"
+        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, n_epochs=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_landmarks(
         py: Python<'_>,
@@ -3593,6 +3611,7 @@ impl PyGuMapSolver {
         b: Option<StrictF64>,
         sigma_iters: StrictUsize,
         sigma_tolerance: StrictF64,
+        symmetric_negative: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -3606,6 +3625,7 @@ impl PyGuMapSolver {
             b.map(|v| v.0),
             sigma_iters.0,
             sigma_tolerance.0,
+            symmetric_negative,
             seed.0,
         )?;
         let g = graph.inner();

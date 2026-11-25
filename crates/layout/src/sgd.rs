@@ -193,6 +193,10 @@ pub struct SnapTFdpConfig {
     pub rho_end: f64,
     /// Exponent $p > 0$ for $\rho(t) = \rho_{\mathrm{start}} + (\rho_{\mathrm{end}} - \rho_{\mathrm{start}}) t^p$ (`default: 1.0`).
     pub rho_power: f64,
+    /// Degree-attenuation exponent $\beta \ge 0$ scaling edge attraction by $(d_u d_v)^{-\beta}$ (`default: 0.0`).
+    pub degree_beta: f64,
+    /// Whether edge attraction uses bounded $8/(1+d^2)$ (`true`) or legacy unbounded $1 + 8/(1+d^2)$ (`false`) (`default: true`).
+    pub bounded_attraction: bool,
     /// Explicit deterministic RNG seed (`default: 42`).
     pub seed: u64,
 }
@@ -208,6 +212,8 @@ impl Default for SnapTFdpConfig {
             rho_start: 1.0,
             rho_end: 0.1,
             rho_power: 1.0,
+            degree_beta: 0.0,
+            bounded_attraction: true,
             seed: 42,
         }
     }
@@ -247,6 +253,15 @@ impl SnapTFdpConfig {
             return Err(CoreError::invalid_input(format!(
                 "SnapTFdpConfig::rho_power must be > 0, got {}",
                 self.rho_power
+            )));
+        }
+        if !self.degree_beta.is_finite() {
+            return Err(CoreError::non_finite("SnapTFdpConfig::degree_beta"));
+        }
+        if self.degree_beta < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SnapTFdpConfig::degree_beta must be >= 0, got {}",
+                self.degree_beta
             )));
         }
         Ok(())
@@ -613,6 +628,7 @@ struct SnapTFdpState {
     edges_u: Vec<u32>,
     edges_v: Vec<u32>,
     edge_weights: Option<Vec<f32>>,
+    deg_scales: Option<Vec<f32>>,
     edge_order: Vec<u32>,
 }
 
@@ -2429,6 +2445,23 @@ impl<S: Scalar> SgdSolver<S> {
         let mut rng = DeterministicRng::from_seed_u64(config.seed);
         let block_order = init_pair_blocking(&mut edge_order, &mut rng);
 
+        // Allocate optional 4N-byte degree attenuation factors only when degree_beta > 0.
+        let deg_scales = if config.degree_beta > 0.0 && n > 1 && !edges_u.is_empty() {
+            let mut degs = vec![0u32; n];
+            for (&u, &v) in edges_u.iter().zip(edges_v.iter()) {
+                degs[u as usize] += 1;
+                degs[v as usize] += 1;
+            }
+            let beta = config.degree_beta;
+            Some(
+                degs.into_iter()
+                    .map(|d| (d.max(1) as f64).powf(-beta) as f32)
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
         let schedule_cfg = SgdScheduleConfig {
             t_max: config.iterations,
             eps: 0.01,
@@ -2453,6 +2486,7 @@ impl<S: Scalar> SgdSolver<S> {
                 edges_u,
                 edges_v,
                 edge_weights,
+                deg_scales,
                 edge_order,
             }),
             pacmap: None,
@@ -3304,6 +3338,7 @@ impl<S: Scalar> SgdSolver<S> {
                 let base_attr = S::from_f64(eta_f64 * 0.1 * st.config.alpha);
                 let base_rep = S::from_f64(eta_f64 * rho * st.config.repulsion_scale);
                 let k_neg = st.config.negatives_per_edge;
+                let bounded_attraction = st.config.bounded_attraction;
                 let (xs, ys) = layout.xy_mut();
                 let len = st.edge_order.len();
 
@@ -3316,6 +3351,8 @@ impl<S: Scalar> SgdSolver<S> {
                         &st.edges_u,
                         &st.edges_v,
                         st.edge_weights.as_deref(),
+                        st.deg_scales.as_deref(),
+                        bounded_attraction,
                         n,
                         k_neg,
                         base_attr,
@@ -3336,6 +3373,8 @@ impl<S: Scalar> SgdSolver<S> {
                             &st.edges_u,
                             &st.edges_v,
                             st.edge_weights.as_deref(),
+                            st.deg_scales.as_deref(),
+                            bounded_attraction,
                             n,
                             k_neg,
                             base_attr,
@@ -3614,6 +3653,8 @@ fn apply_snap_edge_slice<S: Scalar>(
     edges_u: &[u32],
     edges_v: &[u32],
     edge_weights: Option<&[f32]>,
+    deg_scales: Option<&[f32]>,
+    bounded_attraction: bool,
     num_nodes: usize,
     negatives_per_edge: usize,
     base_attr: S,
@@ -3631,9 +3672,13 @@ fn apply_snap_edge_slice<S: Scalar>(
             Some(ws) => S::from_f32(ws[idx]),
             None => S::ONE,
         };
+        let deg_factor = match deg_scales {
+            Some(ds) => S::from_f32(ds[u]) * S::from_f32(ds[v]),
+            None => S::ONE,
+        };
 
-        // Bounded t-FDP attraction along edge (u, v).
-        if w_e > S::ZERO && base_attr > S::ZERO {
+        // Bounded t-FDP attraction along edge (u, v) with optional degree attenuation.
+        if w_e > S::ZERO && base_attr > S::ZERO && deg_factor > S::ZERO {
             let dx = xs[u] - xs[v];
             let dy = ys[u] - ys[v];
             let d2 = dx * dx + dy * dy;
@@ -3642,7 +3687,12 @@ fn apply_snap_edge_slice<S: Scalar>(
             } else {
                 S::ZERO
             };
-            let attr = base_attr * w_e * (S::ONE + eight * inv_1_d2);
+            let kernel = if bounded_attraction {
+                eight * inv_1_d2
+            } else {
+                S::ONE + eight * inv_1_d2
+            };
+            let attr = base_attr * w_e * deg_factor * kernel;
             if attr.is_finite() && attr > S::ZERO {
                 let coeff = attr.min(max_attr);
                 let sx = dx * coeff;
@@ -4974,6 +5024,9 @@ mod tests {
     fn test_snap_t_fdp_bit_exact_compact_memory_and_convergence() {
         let barbell = barbell_graph(6);
         let grid = grid_graph(4, 4);
+        let def_cfg = SnapTFdpConfig::default();
+        assert_eq!(def_cfg.degree_beta, 0.0);
+        assert!(def_cfg.bounded_attraction);
         let cfg = SnapTFdpConfig {
             iterations: 80,
             negatives_per_edge: 3,
@@ -4983,10 +5036,12 @@ mod tests {
             rho_start: 1.0,
             rho_end: 0.1,
             rho_power: 1.0,
+            degree_beta: 0.0,
+            bounded_attraction: true,
             seed: 42,
         };
 
-        // Verify compact storage (12 bytes/edge unweighted, zero materialized negatives or CSR).
+        // Verify compact storage (12 bytes/edge unweighted, zero materialized negatives, CSR, or deg_scales).
         let s_check = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
         let st = s_check.snap_t_fdp.as_ref().unwrap();
         assert_eq!(s_check.pairs.len(), 0);
@@ -4994,6 +5049,7 @@ mod tests {
         assert_eq!(st.edges_v.len(), grid.num_edges());
         assert_eq!(st.edge_order.len(), grid.num_edges());
         assert!(st.edge_weights.is_none());
+        assert!(st.deg_scales.is_none());
         let bytes_stored =
             (st.edges_u.capacity() + st.edges_v.capacity() + st.edge_order.capacity())
                 * std::mem::size_of::<u32>();
@@ -5168,6 +5224,18 @@ mod tests {
                 rho_power: 0.0,
                 ..cfg
             },
+            SnapTFdpConfig {
+                degree_beta: -0.1,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                degree_beta: f64::NAN,
+                ..cfg
+            },
+            SnapTFdpConfig {
+                degree_beta: f64::INFINITY,
+                ..cfg
+            },
         ] {
             assert!(SgdSolver::<f64>::snap_t_fdp(&grid, bad).is_err());
         }
@@ -5178,6 +5246,185 @@ mod tests {
                 .step_manifold(&mut m_layout),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_snap_t_fdp_degree_beta_and_bounded_attraction() {
+        // 1. Star graph: degree_beta = 0.5 allocates 4N-byte deg_scales and attenuates hub-leaf pull.
+        let n_star = 17usize;
+        let star_edges: Vec<(u32, u32)> = (1..n_star).map(|i| (0u32, i as u32)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &star_edges, None, false, false).unwrap();
+
+        let cfg_zero = SnapTFdpConfig {
+            iterations: 1,
+            negatives_per_edge: 0,
+            learning_rate: 1.0,
+            alpha: 1.0,
+            degree_beta: 0.0,
+            bounded_attraction: true,
+            seed: 42,
+            ..Default::default()
+        };
+        let cfg_beta = SnapTFdpConfig {
+            degree_beta: 0.5,
+            ..cfg_zero
+        };
+        let mut s_zero = SgdSolver::<f64>::snap_t_fdp(&star, cfg_zero).unwrap();
+        let mut s_beta = SgdSolver::<f64>::snap_t_fdp(&star, cfg_beta).unwrap();
+        assert!(s_zero.snap_t_fdp.as_ref().unwrap().deg_scales.is_none());
+        let deg_scales = s_beta
+            .snap_t_fdp
+            .as_ref()
+            .unwrap()
+            .deg_scales
+            .as_ref()
+            .unwrap();
+        assert_eq!(deg_scales.len(), n_star);
+        assert_eq!(deg_scales.capacity(), n_star);
+
+        let mut init_star_x = vec![0.0; n_star];
+        let mut init_star_y = vec![0.0; n_star];
+        for i in 1..n_star {
+            let ang = 2.0 * std::f64::consts::PI * ((i - 1) as f64) / ((n_star - 1) as f64);
+            init_star_x[i] = 2.0 * ang.cos();
+            init_star_y[i] = 2.0 * ang.sin();
+        }
+        let mut l_zero = Layout2d::from_xy(init_star_x.clone(), init_star_y.clone()).unwrap();
+        let mut l_beta = Layout2d::from_xy(init_star_x, init_star_y).unwrap();
+        s_zero.step(&mut l_zero).unwrap();
+        s_beta.step(&mut l_beta).unwrap();
+        let mean_r_zero: f64 = (1..n_star)
+            .map(|i| (l_zero.x()[i] - l_zero.x()[0]).hypot(l_zero.y()[i] - l_zero.y()[0]))
+            .sum::<f64>()
+            / ((n_star - 1) as f64);
+        let mean_r_beta: f64 = (1..n_star)
+            .map(|i| (l_beta.x()[i] - l_beta.x()[0]).hypot(l_beta.y()[i] - l_beta.y()[0]))
+            .sum::<f64>()
+            / ((n_star - 1) as f64);
+        assert!(
+            mean_r_beta > mean_r_zero,
+            "expected degree_beta=0.5 to attenuate pull (mean_r_beta={mean_r_beta} <= mean_r_zero={mean_r_zero})"
+        );
+
+        // 2. Bounded long-range attraction vs legacy linear tail at d = 1000.0.
+        let pair_g = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+        let mut s_bounded = SgdSolver::<f64>::snap_t_fdp(
+            &pair_g,
+            SnapTFdpConfig {
+                iterations: 1,
+                negatives_per_edge: 0,
+                learning_rate: 1.0,
+                alpha: 1.0,
+                degree_beta: 0.0,
+                bounded_attraction: true,
+                seed: 7,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut s_unbounded = SgdSolver::<f64>::snap_t_fdp(
+            &pair_g,
+            SnapTFdpConfig {
+                iterations: 1,
+                negatives_per_edge: 0,
+                learning_rate: 1.0,
+                alpha: 1.0,
+                degree_beta: 0.0,
+                bounded_attraction: false,
+                seed: 7,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut l_b = Layout2d::from_xy(vec![0.0, 1000.0], vec![0.0, 0.0]).unwrap();
+        let mut l_u = Layout2d::from_xy(vec![0.0, 1000.0], vec![0.0, 0.0]).unwrap();
+        s_bounded.step(&mut l_b).unwrap();
+        s_unbounded.step(&mut l_u).unwrap();
+        let disp_b = l_b.x()[0].abs();
+        let disp_u = l_u.x()[0].abs();
+        assert!(
+            disp_b < 0.01,
+            "expected bounded long-range displacement O(1/d) << 1, got {disp_b}"
+        );
+        assert!(
+            disp_u > 90.0,
+            "expected legacy unbounded linear tail displacement ~100, got {disp_u}"
+        );
+
+        // 3. step == run bit-exactness (f64 & f32) across both (degree_beta=0.5, bounded=true)
+        // and (degree_beta=0.0, bounded=false).
+        let grid = grid_graph(4, 4);
+        for (beta, bounded) in [(0.5, true), (0.0, false)] {
+            let cfg = SnapTFdpConfig {
+                iterations: 15,
+                negatives_per_edge: 3,
+                degree_beta: beta,
+                bounded_attraction: bounded,
+                seed: 42,
+                ..Default::default()
+            };
+            let mut s64_r = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+            let mut s64_s = SgdSolver::<f64>::snap_t_fdp(&grid, cfg).unwrap();
+            let mut l64_r = circle_layout::<f64>(grid.num_nodes(), 1.0);
+            let mut l64_s = l64_r.clone();
+            s64_r.run(&mut l64_r).unwrap();
+            s64_s.run_steps(&mut l64_s, 5).unwrap();
+            while !s64_s.status().is_finished() {
+                s64_s.step(&mut l64_s).unwrap();
+            }
+            for i in 0..grid.num_nodes() {
+                assert_eq!(l64_r.x()[i].to_bits(), l64_s.x()[i].to_bits());
+                assert_eq!(l64_r.y()[i].to_bits(), l64_s.y()[i].to_bits());
+            }
+
+            let mut s32_r = SgdSolver::<f32>::snap_t_fdp(&grid, cfg).unwrap();
+            let mut s32_s = SgdSolver::<f32>::snap_t_fdp(&grid, cfg).unwrap();
+            let mut l32_r = circle_layout::<f32>(grid.num_nodes(), 1.0);
+            let mut l32_s = l32_r.clone();
+            s32_r.run(&mut l32_r).unwrap();
+            s32_s.run_steps(&mut l32_s, 5).unwrap();
+            while !s32_s.status().is_finished() {
+                s32_s.step(&mut l32_s).unwrap();
+            }
+            for i in 0..grid.num_nodes() {
+                assert_eq!(l32_r.x()[i].to_bits(), l32_s.x()[i].to_bits());
+                assert_eq!(l32_r.y()[i].to_bits(), l32_s.y()[i].to_bits());
+            }
+        }
+
+        // 4. Directed weighted graph with degree_beta > 0.0.
+        let dwg = CsrGraph::<f64>::from_edges(
+            4,
+            &[(0, 1), (1, 0), (1, 2), (2, 3)],
+            Some(&[2.0, 1.0, 1.5, 0.5]),
+            true,
+            false,
+        )
+        .unwrap();
+        let mut dw_solver = SgdSolver::<f64>::snap_t_fdp(
+            &dwg,
+            SnapTFdpConfig {
+                iterations: 20,
+                degree_beta: 0.4,
+                bounded_attraction: true,
+                seed: 13,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            dw_solver
+                .snap_t_fdp
+                .as_ref()
+                .unwrap()
+                .deg_scales
+                .as_ref()
+                .map(Vec::len),
+            Some(4)
+        );
+        let mut dw_layout = circle_layout::<f64>(4, 1.0);
+        dw_solver.run(&mut dw_layout).unwrap();
+        assert!(dw_layout.is_all_finite());
     }
 
     #[test]

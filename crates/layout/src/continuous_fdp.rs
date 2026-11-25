@@ -37,6 +37,8 @@ pub struct ForceAtlas2Config {
     pub outbound_attraction_distribution: bool,
     /// Adaptive speed tolerance controlling swing dampening (`default: 1.0`).
     pub jitter_tolerance: f64,
+    /// Optional per-step vertex displacement cap (`None` adapts to `50.0 * max(1.0, sqrt(N / 1000.0))`, `default: None`).
+    pub max_displacement: Option<f64>,
     /// Deterministic explicit RNG seed for collapsed-layout symmetry breaking (`default: 42`).
     pub seed: u64,
 }
@@ -54,6 +56,7 @@ impl Default for ForceAtlas2Config {
             edge_weight_influence: 1.0,
             outbound_attraction_distribution: false,
             jitter_tolerance: 1.0,
+            max_displacement: None,
             seed: 42,
         }
     }
@@ -90,6 +93,13 @@ impl ForceAtlas2Config {
             return Err(CoreError::invalid_input(format!(
                 "jitter_tolerance must be finite and > 0.0, got {}",
                 self.jitter_tolerance
+            )));
+        }
+        if let Some(max_disp) = self.max_displacement
+            && (!max_disp.is_finite() || max_disp <= 0.0)
+        {
+            return Err(CoreError::invalid_input(format!(
+                "max_displacement must be finite and > 0.0, got {max_disp}"
             )));
         }
         Ok(())
@@ -218,6 +228,7 @@ pub struct ForceAtlas2Solver<S: Scalar = f64> {
     rep_y: Vec<f64>,
     quadtree: ArenaQuadtree2d<f64>,
     global_speed: f64,
+    max_displacement: f64,
     iter: usize,
     status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -228,6 +239,9 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: ForceAtlas2Config) -> CoreResult<Self> {
         config.validate()?;
         let (n, edges_u, edges_v, raw_weights, deg) = extract_canonical_undirected_edges(graph)?;
+        let max_displacement = config
+            .max_displacement
+            .unwrap_or_else(|| MAX_FA2_DISPLACEMENT * ((n as f64) / 1000.0).sqrt().max(1.0));
 
         let mut masses = Vec::with_capacity(n);
         let mut total_mass = 0.0_f64;
@@ -286,6 +300,7 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
             rep_y: vec![0.0; rep_len],
             quadtree: ArenaQuadtree2d::new(),
             global_speed: 1.0,
+            max_displacement,
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -302,6 +317,12 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the effective per-step vertex displacement cap.
+    #[inline]
+    pub fn max_displacement(&self) -> f64 {
+        self.max_displacement
     }
 }
 
@@ -490,6 +511,7 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
 
         // 5. Apply adaptive displacements back into layout.
         let speed = self.global_speed;
+        let max_disp = self.max_displacement;
         let (xs_mut, ys_mut) = layout.xy_mut();
         for i in 0..n {
             let fxi = self.fx[i];
@@ -498,8 +520,8 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
             let mut dx = fxi * local_factor;
             let mut dy = fyi * local_factor;
             let disp = dx.hypot(dy);
-            if disp > MAX_FA2_DISPLACEMENT {
-                let cap = MAX_FA2_DISPLACEMENT / disp;
+            if disp > max_disp {
+                let cap = max_disp / disp;
                 dx *= cap;
                 dy *= cap;
             }
@@ -1525,6 +1547,7 @@ mod tests {
         assert_eq!(fa2.edge_weight_influence, 1.0);
         assert!(!fa2.outbound_attraction_distribution);
         assert_eq!(fa2.jitter_tolerance, 1.0);
+        assert_eq!(fa2.max_displacement, None);
         assert_eq!(fa2.seed, 42);
         fa2.validate().unwrap();
 
@@ -1544,6 +1567,26 @@ mod tests {
             },
             ForceAtlas2Config {
                 jitter_tolerance: 0.0,
+                ..fa2
+            },
+            ForceAtlas2Config {
+                max_displacement: Some(0.0),
+                ..fa2
+            },
+            ForceAtlas2Config {
+                max_displacement: Some(-5.0),
+                ..fa2
+            },
+            ForceAtlas2Config {
+                max_displacement: Some(f64::NAN),
+                ..fa2
+            },
+            ForceAtlas2Config {
+                max_displacement: Some(f64::INFINITY),
+                ..fa2
+            },
+            ForceAtlas2Config {
+                max_displacement: Some(f64::NEG_INFINITY),
                 ..fa2
             },
         ] {
@@ -1708,6 +1751,87 @@ mod tests {
         for i in 0..16 {
             assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
             assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+    }
+
+    #[test]
+    fn test_force_atlas2_scale_adaptive_max_displacement_and_step_parity() {
+        let grid_16 = grid_graph(4, 4);
+        let solver_small =
+            ForceAtlas2Solver::<f64>::new(&grid_16, ForceAtlas2Config::default()).unwrap();
+        assert_eq!(solver_small.max_displacement(), MAX_FA2_DISPLACEMENT);
+
+        // N = 90_000 sparse path graph scales max_displacement to 50 * sqrt(90) ~= 474.3416.
+        let n_large = 90_000usize;
+        let large_edges: Vec<(u32, u32)> = (0..n_large - 1)
+            .map(|i| (i as u32, (i + 1) as u32))
+            .collect();
+        let g_large =
+            CsrGraph::<f64>::from_edges(n_large, &large_edges, None, false, false).unwrap();
+        let solver_large =
+            ForceAtlas2Solver::<f64>::new(&g_large, ForceAtlas2Config::default()).unwrap();
+        let expected_large = MAX_FA2_DISPLACEMENT * ((n_large as f64) / 1000.0).sqrt();
+        assert!((solver_large.max_displacement() - expected_large).abs() < 1e-12);
+        assert!((solver_large.max_displacement() - 474.3416490252569).abs() < 1e-9);
+
+        // Explicit override clamps single-step displacement to <= max_displacement.
+        let pair_g = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+        let cap_val = 12.5_f64;
+        let mut s_cap = ForceAtlas2Solver::<f64>::new(
+            &pair_g,
+            ForceAtlas2Config {
+                iterations: 1,
+                max_displacement: Some(cap_val),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(s_cap.max_displacement(), cap_val);
+        let init_pair = Layout2d::from_xy(vec![-500.0, 500.0], vec![0.0, 0.0]).unwrap();
+        let mut l_cap = init_pair.clone();
+        s_cap.step(&mut l_cap).unwrap();
+        for i in 0..2 {
+            let disp = (l_cap.x()[i] - init_pair.x()[i]).hypot(l_cap.y()[i] - init_pair.y()[i]);
+            assert!(
+                disp <= cap_val + 1e-12,
+                "vertex {i} moved {disp} > {cap_val}"
+            );
+        }
+
+        // step == run bit-exactness (f64 and f32) for both None and Some(2.5).
+        for max_disp in [None, Some(2.5)] {
+            let cfg = ForceAtlas2Config {
+                iterations: 12,
+                max_displacement: max_disp,
+                ..Default::default()
+            };
+            let mut l64_r = seeded_layout::<f64>(16, 21);
+            let mut l64_s = l64_r.clone();
+            let mut s64_r = ForceAtlas2Solver::<f64>::new(&grid_16, cfg).unwrap();
+            let mut s64_s = ForceAtlas2Solver::<f64>::new(&grid_16, cfg).unwrap();
+            s64_r.run(&mut l64_r).unwrap();
+            s64_s.run_steps(&mut l64_s, 4).unwrap();
+            while !s64_s.status().is_finished() {
+                s64_s.step(&mut l64_s).unwrap();
+            }
+            for i in 0..16 {
+                assert_eq!(l64_r.x()[i].to_bits(), l64_s.x()[i].to_bits());
+                assert_eq!(l64_r.y()[i].to_bits(), l64_s.y()[i].to_bits());
+            }
+
+            let mut l32_r = seeded_layout::<f32>(16, 21);
+            let mut l32_s = l32_r.clone();
+            let mut s32_r = ForceAtlas2Solver::<f32>::new(&grid_16, cfg).unwrap();
+            let mut s32_s = ForceAtlas2Solver::<f32>::new(&grid_16, cfg).unwrap();
+            s32_r.run(&mut l32_r).unwrap();
+            s32_s.run_steps(&mut l32_s, 4).unwrap();
+            while !s32_s.status().is_finished() {
+                s32_s.step(&mut l32_s).unwrap();
+            }
+            for i in 0..16 {
+                assert_eq!(l32_r.x()[i].to_bits(), l32_s.x()[i].to_bits());
+                assert_eq!(l32_r.y()[i].to_bits(), l32_s.y()[i].to_bits());
+            }
         }
     }
 

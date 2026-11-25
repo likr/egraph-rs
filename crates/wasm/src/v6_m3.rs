@@ -2700,6 +2700,11 @@ fn parse_gumap_config(
         cfg.sigma_iters = opt_usize_prop(n_epochs_or_options, "sigmaIters", cfg.sigma_iters)?;
         cfg.sigma_tolerance =
             opt_f64_prop(n_epochs_or_options, "sigmaTolerance", cfg.sigma_tolerance)?;
+        cfg.symmetric_negative = opt_bool_prop(
+            n_epochs_or_options,
+            "symmetricNegative",
+            cfg.symmetric_negative,
+        )?;
         cfg.seed = opt_seed_prop(n_epochs_or_options)?;
         return Ok(cfg);
     }

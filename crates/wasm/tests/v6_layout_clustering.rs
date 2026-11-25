@@ -1243,12 +1243,122 @@ fn gumap_refiner_stress_majorization_and_kamada_kawai_solvers() {
     )
     .expect("GuMap.fromLandmarks pos");
     let mut glm_l1 = init.clone();
-    let mut glm_l2 = init;
+    let mut glm_l2 = init.clone();
     assert_eq!(g_lm_run.run(&mut glm_l1).unwrap(), "completed");
     while !g_lm_step.is_finished() {
         g_lm_step.step(&mut glm_l2).unwrap();
     }
     assert_layouts_bit_exact(&glm_l1, &glm_l2);
+
+    // symmetricNegative=false diverges from true while keeping step == run across fromGraphDog & fromLandmarks
+    let gm_asym_opts = make_opts(&[
+        ("nEpochs", JsValue::from_f64(20.0)),
+        ("negativeSampleRate", JsValue::from_f64(4.0)),
+        ("symmetricNegative", JsValue::from_bool(false)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut g_asym_r = JsGuMapSolver::from_graph_dog(
+        &grid,
+        &gm_asym_opts,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut g_asym_s = JsGuMapSolver::from_graph_dog(
+        &grid,
+        &gm_asym_opts,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let mut gl_asym_r = init.clone();
+    let mut gl_asym_s = init.clone();
+    assert_eq!(g_asym_r.run(&mut gl_asym_r).unwrap(), "completed");
+    while !g_asym_s.is_finished() {
+        g_asym_s.step(&mut gl_asym_s).unwrap();
+    }
+    assert_layouts_bit_exact(&gl_asym_r, &gl_asym_s);
+    let max_dog_diff = gl_run
+        .copy_coords()
+        .iter()
+        .zip(gl_asym_r.copy_coords().iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_dog_diff > 1e-3,
+        "expected symmetricNegative=false to diverge on fromGraphDog"
+    );
+
+    let g_lm_asym_opts = make_opts(&[
+        ("max2hopPerNode", JsValue::from_f64(32.0)),
+        ("nEpochs", JsValue::from_f64(10.0)),
+        ("symmetricNegative", JsValue::from_bool(false)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut g_lm_asym =
+        JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_asym_opts, &JsValue::UNDEFINED)
+            .unwrap();
+    let mut glm_asym_l = init;
+    assert_eq!(g_lm_asym.run(&mut glm_asym_l).unwrap(), "completed");
+    let max_lm_diff = glm_l1
+        .copy_coords()
+        .iter()
+        .zip(glm_asym_l.copy_coords().iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_lm_diff > 1e-3,
+        "expected symmetricNegative=false to diverge on fromLandmarks"
+    );
+    assert!(
+        JsGuMapSolver::from_landmarks(
+            &grid,
+            &lm_barbell,
+            &make_opts(&[("symmetricNegative", JsValue::from_str("nope"))]),
+            &JsValue::UNDEFINED,
+        )
+        .is_err()
+    );
     let lm_small = js_compute_regularized_dog_varadhan_landmarks(
         &make_grid(2, 2),
         None,

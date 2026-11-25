@@ -359,6 +359,35 @@ fn sgd_m4_constructors_snap_t_fdp_pacmap_sgd2_and_squared_schedule() {
     }
     assert_layouts_bit_exact(&l_snap_run, &l_snap_step);
 
+    // 1b. SgdSolver.snapTFdp degreeBeta + boundedAttraction=false diverges from defaults + step == run
+    let snap_mod_opts = make_opts(&[
+        ("iterations", JsValue::from_f64(15.0)),
+        ("negativesPerEdge", JsValue::from_f64(3.0)),
+        ("learningRate", JsValue::from_f64(0.5)),
+        ("degreeBeta", JsValue::from_f64(0.5)),
+        ("boundedAttraction", JsValue::from_bool(false)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut snap_mod_run = JsSgdSolver::snap_t_fdp(&grid, &snap_mod_opts).unwrap();
+    let mut snap_mod_step = JsSgdSolver::snap_t_fdp(&grid, &snap_mod_opts).unwrap();
+    let mut l_snap_mod_run = init.clone();
+    let mut l_snap_mod_step = init.clone();
+    assert_eq!(snap_mod_run.run(&mut l_snap_mod_run).unwrap(), "completed");
+    while !snap_mod_step.is_finished() {
+        snap_mod_step.step(&mut l_snap_mod_step).unwrap();
+    }
+    assert_layouts_bit_exact(&l_snap_mod_run, &l_snap_mod_step);
+    let max_snap_diff = l_snap_run
+        .copy_coords()
+        .iter()
+        .zip(l_snap_mod_run.copy_coords().iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_snap_diff > 1e-3,
+        "expected degreeBeta/boundedAttraction override to diverge, got {max_snap_diff}"
+    );
+
     // 2. SgdSolver.pacmapGraph
     let pacmap_opts = make_opts(&[
         ("nNeighbors", JsValue::from_f64(6.0)),
@@ -489,6 +518,20 @@ fn sgd_m4_constructors_snap_t_fdp_pacmap_sgd2_and_squared_schedule() {
         JsSgdSolver::sgd2(&grid, &make_opts(&[("batchSize", JsValue::from_f64(0.0))])).is_err()
     );
     assert!(JsSgdSolver::snap_t_fdp(&grid, &JsValue::from_f64(123.0)).is_err());
+    assert!(
+        JsSgdSolver::snap_t_fdp(
+            &grid,
+            &make_opts(&[("degreeBeta", JsValue::from_f64(-0.1))])
+        )
+        .is_err()
+    );
+    assert!(
+        JsSgdSolver::snap_t_fdp(
+            &grid,
+            &make_opts(&[("boundedAttraction", JsValue::from_str("nope"))])
+        )
+        .is_err()
+    );
 }
 
 #[wasm_bindgen_test]
@@ -521,6 +564,45 @@ fn force_atlas2_and_yifan_hu_solvers() {
         assert_eq!(l_step.coords_ptr(), ptr_before);
         assert_layouts_bit_exact(&l_run, &l_step);
     }
+
+    // 1b. ForceAtlas2Solver maxDisplacement overrides default, keeps step == run, and caps displacement
+    let wide_coords: Vec<f32> = init_b
+        .copy_coords()
+        .into_iter()
+        .map(|v| v * 150.0)
+        .collect();
+    let wide_init = JsLayout2d::from_coords(&wide_coords).unwrap();
+    let fa2_def_opts = make_opts(&[
+        ("iterations", JsValue::from_f64(4.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let fa2_cap_opts = make_opts(&[
+        ("iterations", JsValue::from_f64(4.0)),
+        ("maxDisplacement", JsValue::from_f64(0.2)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut fa2_def = JsForceAtlas2Solver::new(&barbell, &fa2_def_opts).unwrap();
+    let mut fa2_cap_r = JsForceAtlas2Solver::new(&barbell, &fa2_cap_opts).unwrap();
+    let mut fa2_cap_s = JsForceAtlas2Solver::new(&barbell, &fa2_cap_opts).unwrap();
+    let mut l_fa_def = wide_init.clone();
+    let mut l_fa_cap_r = wide_init.clone();
+    let mut l_fa_cap_s = wide_init;
+    assert_eq!(fa2_def.run(&mut l_fa_def).unwrap(), "completed");
+    assert_eq!(fa2_cap_r.run(&mut l_fa_cap_r).unwrap(), "completed");
+    while !fa2_cap_s.is_finished() {
+        fa2_cap_s.step(&mut l_fa_cap_s).unwrap();
+    }
+    assert_layouts_bit_exact(&l_fa_cap_r, &l_fa_cap_s);
+    let max_fa_diff = l_fa_def
+        .copy_coords()
+        .iter()
+        .zip(l_fa_cap_r.copy_coords().iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_fa_diff > 0.1,
+        "expected maxDisplacement=0.2 to diverge from default, got {max_fa_diff}"
+    );
 
     // 2. YifanHuSolver (multilevel EC + MIVS hierarchy, numLevels >= 2, currentLevel -> 0)
     let grid6 = make_grid(6, 6);
@@ -557,6 +639,20 @@ fn force_atlas2_and_yifan_hu_solvers() {
     assert!(
         JsForceAtlas2Solver::new(&barbell, &make_opts(&[("theta", JsValue::from_f64(-0.1))]))
             .is_err()
+    );
+    assert!(
+        JsForceAtlas2Solver::new(
+            &barbell,
+            &make_opts(&[("maxDisplacement", JsValue::from_f64(0.0))])
+        )
+        .is_err()
+    );
+    assert!(
+        JsForceAtlas2Solver::new(
+            &barbell,
+            &make_opts(&[("maxDisplacement", JsValue::from_str("bad"))])
+        )
+        .is_err()
     );
     assert!(
         JsYifanHuSolver::new(&grid6, &make_opts(&[("stepRatio", JsValue::from_f64(1.0))])).is_err()

@@ -1041,6 +1041,8 @@ pub(super) fn build_snap_t_fdp_solver(
     rho_start: StrictF64,
     rho_end: StrictF64,
     rho_power: StrictF64,
+    degree_beta: StrictF64,
+    bounded_attraction: bool,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
@@ -1053,6 +1055,8 @@ pub(super) fn build_snap_t_fdp_solver(
         rho_start: rho_start.0,
         rho_end: rho_end.0,
         rho_power: rho_power.0,
+        degree_beta: degree_beta.0,
+        bounded_attraction,
         seed: seed.0,
     };
     cfg.validate().map_err(core_error_to_py)?;
@@ -1214,10 +1218,11 @@ impl PyForceAtlas2Solver {
             edge_weight_influence = StrictF64(1.0),
             outbound_attraction_distribution = false,
             jitter_tolerance = StrictF64(1.0),
+            max_displacement = None,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, iterations=200, theta=1.2, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, seed=42, dtype='float64')"
+        text_signature = "(graph, *, iterations=200, theta=1.2, use_barnes_hut=True, linlog_mode=False, strong_gravity=False, gravity=1.0, scaling_ratio=2.0, edge_weight_influence=1.0, outbound_attraction_distribution=False, jitter_tolerance=1.0, max_displacement=None, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -1232,6 +1237,7 @@ impl PyForceAtlas2Solver {
         edge_weight_influence: StrictF64,
         outbound_attraction_distribution: bool,
         jitter_tolerance: StrictF64,
+        max_displacement: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1246,6 +1252,7 @@ impl PyForceAtlas2Solver {
             edge_weight_influence: edge_weight_influence.0,
             outbound_attraction_distribution,
             jitter_tolerance: jitter_tolerance.0,
+            max_displacement: max_displacement.map(|v| v.0),
             seed: seed.0,
         };
         cfg.validate().map_err(core_error_to_py)?;

@@ -3008,6 +3008,21 @@ def run_cross_target_m3_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
         out["gumap_lm"] = l_gm_lm.coords(copy=True)
         out["gumap_lm_edges"] = int(gm_lm.num_edges)
 
+        l_gm_asym = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
+        gm_asym = eg.GuMapSolver.from_graph_dog(
+            g16,
+            max_2hop_per_node=16,
+            degree=15,
+            num_landmarks=8,
+            n_epochs=15,
+            learning_rate=0.2,
+            symmetric_negative=False,
+            seed=42,
+            dtype=dtype_name,
+        )
+        gm_asym.run(l_gm_asym)
+        out["gumap_asym"] = l_gm_asym.coords(copy=True)
+
         l_rf = eg.Layout2d.from_coords(c9_fold)
         rf = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
         rf.run(l_rf)
@@ -3264,6 +3279,17 @@ for (const [k, mk] of sgdSpecs) {
 
 {
   const res = runPairAndCheckStep(
+    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, nEpochs: 15, learningRate: 0.2, symmetricNegative: false, seed: 42 }),
+    gumapInit16,
+    5,
+  );
+  solvers.gumap_asym = res.coords;
+  res.solverRun.free?.();
+  res.solverStep.free?.();
+}
+
+{
+  const res = runPairAndCheckStep(
     () => new mod.SpatialIntruderRefiner(g9, { rounds: 3, kCap: 32, tMax: 10, seed: 42 }),
     folded9,
     1,
@@ -3442,6 +3468,7 @@ console.log(JSON.stringify(out));
         "sgd_hinges",
         "gumap",
         "gumap_lm",
+        "gumap_asym",
         "refiner",
         "refiner_dyn",
         "refiner_sep",
@@ -3621,6 +3648,7 @@ def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
 
         sgd_specs = {
             "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
+            "sgd_snap_beta": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, degree_beta=0.5, bounded_attraction=False, seed=42, dtype=dtype_name),
             "sgd_pacmap": eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase1_iters=3, phase2_iters=3, phase3_iters=4, seed=42, dtype=dtype_name),
             "sgd_sgd2": eg.SgdSolver.sgd2(g16, t_max=8, batch_size=16, seed=42, dtype=dtype_name),
             "sgd_squared": eg.SgdSolver.full(g16, t_max=8, schedule="squared", seed=42, dtype=dtype_name),
@@ -3634,6 +3662,10 @@ def run_cross_target_m4_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
             l_fa = eg.Layout2d.from_coords(c16)
             eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name).run(l_fa)
             out[tag] = l_fa.coords(copy=True)
+
+        l_fa_cap = eg.Layout2d.from_coords(c16)
+        eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=True, max_displacement=0.25, seed=42, dtype=dtype_name).run(l_fa_cap)
+        out["fa2_cap"] = l_fa_cap.coords(copy=True)
 
         l_yh = eg.Layout2d.from_coords(c25)
         yh = eg.YifanHuSolver(
@@ -3870,11 +3902,13 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
 
 for (const [k, mk] of [
   ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
+  ['sgd_snap_beta', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, degreeBeta: 0.5, boundedAttraction: false, seed: 42 })],
   ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 })],
   ['sgd_sgd2', () => mod.SgdSolver.sgd2(g16, { tMax: 8, batchSize: 16, seed: 42 })],
   ['sgd_squared', () => mod.SgdSolver.full(g16, { tMax: 8, kind: 'squared', seed: 42 })],
   ['fa2_bh', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, seed: 42 })],
   ['fa2_exact', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: false, seed: 42 })],
+  ['fa2_cap', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, maxDisplacement: 0.25, seed: 42 })],
 ]) {
   const r = runPairAndCheckStep(mk, init16, 3);
   solvers[k] = r.coords;
@@ -4032,6 +4066,7 @@ console.log(JSON.stringify(out));
         "ibumap_lm_exact",
         "ibumap_lm_ibfft",
         "sgd_snap",
+        "sgd_snap_beta",
         "sgd_pacmap",
         "sgd_pacmap_keep",
         "sgd_pacmap_cap_beta_lm",
@@ -4039,6 +4074,7 @@ console.log(JSON.stringify(out));
         "sgd_squared",
         "fa2_bh",
         "fa2_exact",
+        "fa2_cap",
         "yh",
         "prism_box",
         "prism_rad",

@@ -38,6 +38,8 @@ pub struct GuMapConfig {
     pub sigma_iters: usize,
     /// Convergence tolerance for $\sigma_i$ binary search (`default: 1e-5`).
     pub sigma_tolerance: f64,
+    /// Whether negative-sample repulsion symmetrically updates both endpoints (`default: true`).
+    pub symmetric_negative: bool,
     /// Explicit deterministic seed for negative sampling and edge subsampling (`default: 42`).
     pub seed: u64,
 }
@@ -54,6 +56,7 @@ impl Default for GuMapConfig {
             b: None,
             sigma_iters: 64,
             sigma_tolerance: 1e-5,
+            symmetric_negative: true,
             seed: 42,
         }
     }
@@ -608,6 +611,16 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
                 if new_iy.is_finite() {
                     ys[i] = new_iy;
                 }
+                if self.config.symmetric_negative {
+                    let new_kx = xs[k] - r_delta_x;
+                    let new_ky = ys[k] - r_delta_y;
+                    if new_kx.is_finite() {
+                        xs[k] = new_kx;
+                    }
+                    if new_ky.is_finite() {
+                        ys[k] = new_ky;
+                    }
+                }
             }
         }
 
@@ -757,6 +770,7 @@ mod tests {
         assert_eq!(cfg.b, None);
         assert_eq!(cfg.sigma_iters, 64);
         assert_eq!(cfg.sigma_tolerance, 1e-5);
+        assert!(cfg.symmetric_negative);
         assert_eq!(cfg.seed, 42);
         cfg.validate().unwrap();
         let (a, b) = cfg.resolve_ab().unwrap();
@@ -1027,5 +1041,86 @@ mod tests {
             GuMapSolver::<f64>::from_landmarks(&grid, &bad_idx, 32, cfg),
             Err(CoreError::IndexOutOfBounds { .. })
         ));
+    }
+
+    #[test]
+    fn test_gumap_symmetric_negative_updates_both_endpoints_and_step_parity() {
+        // 3 nodes: edge (0, 1) with weight 1.0, and isolated node 2.
+        // With high negative_sample_rate, node 2 is sampled as a negative example.
+        let probs = SparseProbabilities {
+            n_nodes: 3,
+            indptr: vec![0, 1, 1, 1],
+            indices: vec![1],
+            values: vec![1.0],
+        };
+        let init = Layout2d::from_xy(vec![0.0, 1.0, 0.25], vec![0.0, 0.0, 0.25]).unwrap();
+
+        let cfg_sym = GuMapConfig {
+            n_epochs: 1,
+            negative_sample_rate: 20,
+            learning_rate: 1.0,
+            symmetric_negative: true,
+            seed: 42,
+            ..Default::default()
+        };
+        let cfg_asym = GuMapConfig {
+            symmetric_negative: false,
+            ..cfg_sym
+        };
+
+        let mut l_sym = init.clone();
+        let mut s_sym = GuMapSolver::<f64>::from_fuzzy_set(probs.clone(), cfg_sym).unwrap();
+        s_sym.step(&mut l_sym).unwrap();
+        let mut l_asym = init.clone();
+        let mut s_asym = GuMapSolver::<f64>::from_fuzzy_set(probs, cfg_asym).unwrap();
+        s_asym.step(&mut l_asym).unwrap();
+
+        // When symmetric_negative is false, isolated node 2 never moves.
+        assert_eq!(l_asym.x()[2], 0.25);
+        assert_eq!(l_asym.y()[2], 0.25);
+        // When symmetric_negative is true, isolated node 2 moves away from node 0.
+        assert!(
+            (l_sym.x()[2] - 0.25).hypot(l_sym.y()[2] - 0.25) > 1e-6,
+            "expected symmetric negative update to move isolated negative sample 2"
+        );
+
+        // step == run bit-exactness (f64 and f32) for symmetric_negative in {true, false}.
+        let grid = grid_graph(4, 4);
+        let dog_cfg = DogVaradhanConfig::default();
+        for sym in [true, false] {
+            let cfg = GuMapConfig {
+                n_epochs: 15,
+                symmetric_negative: sym,
+                seed: 77,
+                ..Default::default()
+            };
+            let mut s64_r = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+            let mut s64_s = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+            let mut l64_r = seeded_layout::<f64>(grid.num_nodes(), 1.0, 17);
+            let mut l64_s = l64_r.clone();
+            s64_r.run(&mut l64_r).unwrap();
+            s64_s.run_steps(&mut l64_s, 5).unwrap();
+            while !s64_s.status().is_finished() {
+                s64_s.step(&mut l64_s).unwrap();
+            }
+            for i in 0..grid.num_nodes() {
+                assert_eq!(l64_r.x()[i].to_bits(), l64_s.x()[i].to_bits());
+                assert_eq!(l64_r.y()[i].to_bits(), l64_s.y()[i].to_bits());
+            }
+
+            let mut s32_r = GuMapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+            let mut s32_s = GuMapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+            let mut l32_r = seeded_layout::<f32>(grid.num_nodes(), 1.0, 17);
+            let mut l32_s = l32_r.clone();
+            s32_r.run(&mut l32_r).unwrap();
+            s32_s.run_steps(&mut l32_s, 5).unwrap();
+            while !s32_s.status().is_finished() {
+                s32_s.step(&mut l32_s).unwrap();
+            }
+            for i in 0..grid.num_nodes() {
+                assert_eq!(l32_r.x()[i].to_bits(), l32_s.x()[i].to_bits());
+                assert_eq!(l32_r.y()[i].to_bits(), l32_s.y()[i].to_bits());
+            }
+        }
     }
 }

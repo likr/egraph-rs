@@ -1166,6 +1166,10 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(dtsText.includes("keepAll1hop?: boolean | null;"));
   assert(dtsText.includes("max1hopPerNode?: number | null;"));
   assert(dtsText.includes("degreeWeightBeta?: number | null;"));
+  assert(dtsText.includes("maxDisplacement?: number | null;"));
+  assert(dtsText.includes("degreeBeta?: number | null;"));
+  assert(dtsText.includes("boundedAttraction?: boolean | null;"));
+  assert(dtsText.includes("symmetricNegative?: boolean | null;"));
   assert(dtsText.includes("minSepRatio?: number | null;"));
   assert(dtsText.includes("wSep?: number | null;"));
   assert(dtsText.includes("pacmapGraphWithLandmarks("));
@@ -1237,6 +1241,16 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   gmLm.free();
   lGmLm.free();
 
+  const gmLmAsym = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { nEpochs: 4, symmetricNegative: false, seed: 42 });
+  const lGmLmAsym = Layout2d.fromCoords(initCoords);
+  assert.equal(gmLmAsym.run(lGmLmAsym), "completed");
+  gmLmAsym.free();
+  lGmLmAsym.free();
+  assert.throws(
+    () => GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { symmetricNegative: "nope" }),
+    Error,
+  );
+
   const ibLm = IbUmapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, backend: "exact", nEpochs: 4, seed: 42 });
   const lIbLm = Layout2d.fromCoords(initCoords);
   assert.equal(ibLm.run(lIbLm), "completed");
@@ -1248,6 +1262,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   // SgdSolver.snapTFdp, pacmapGraph (including keepAll1hop/max1hopPerNode/degreeWeightBeta), pacmapGraphWithLandmarks, pacmapGraphWithLandmarkDistances, sgd2, "squared"
   for (const solver of [
     SgdSolver.snapTFdp(grid, { iterations: 6, seed: 42 }),
+    SgdSolver.snapTFdp(grid, { iterations: 6, degreeBeta: 0.5, boundedAttraction: false, seed: 42 }),
     SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
     SgdSolver.pacmapGraphWithLandmarks(grid, lmPm, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
     SgdSolver.pacmapGraphWithLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
@@ -1269,6 +1284,21 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(lFa2.isAllFinite());
   fa2.free();
   lFa2.free();
+
+  const fa2Cap = new ForceAtlas2Solver(grid, { iterations: 8, maxDisplacement: 0.5, seed: 42 });
+  const lFa2Cap = Layout2d.fromCoords(initCoords);
+  assert.equal(fa2Cap.run(lFa2Cap), "completed");
+  assert(lFa2Cap.isAllFinite());
+  fa2Cap.free();
+  lFa2Cap.free();
+  assert.throws(
+    () => new ForceAtlas2Solver(grid, { maxDisplacement: "bad" }),
+    Error,
+  );
+  assert.throws(
+    () => SgdSolver.snapTFdp(grid, { boundedAttraction: "bad" }),
+    Error,
+  );
 
   const yh = new YifanHuSolver(grid, { maxIterationsPerLevel: 8, minCoarsenSize: 6, seed: 42 });
   assert(yh.numLevels >= 1);

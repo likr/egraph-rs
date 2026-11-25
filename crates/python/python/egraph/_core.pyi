@@ -2941,6 +2941,8 @@ class SgdSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
+        degree_beta: float = 0.0,
+        bounded_attraction: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -3081,6 +3083,7 @@ class GuMapSolver:
         b: float | None = None,
         sigma_iters: int = 64,
         sigma_tolerance: float = 1e-5,
+        symmetric_negative: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
@@ -3097,6 +3100,7 @@ class GuMapSolver:
         b: float | None = None,
         sigma_iters: int = 64,
         sigma_tolerance: float = 1e-5,
+        symmetric_negative: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
@@ -3126,6 +3130,7 @@ class GuMapSolver:
         b: float | None = None,
         sigma_iters: int = 64,
         sigma_tolerance: float = 1e-5,
+        symmetric_negative: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
@@ -3144,6 +3149,7 @@ class GuMapSolver:
         b: float | None = None,
         sigma_iters: int = 64,
         sigma_tolerance: float = 1e-5,
+        symmetric_negative: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
@@ -3646,6 +3652,7 @@ class ForceAtlas2Solver:
         edge_weight_influence: float = 1.0,
         outbound_attraction_distribution: bool = False,
         jitter_tolerance: float = 1.0,
+        max_displacement: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> ForceAtlas2Solver: ...

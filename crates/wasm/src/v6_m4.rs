@@ -613,6 +613,9 @@ pub(crate) fn sgd_snap_t_fdp(
         cfg.rho_start = opt_f64_prop(options, "rhoStart", cfg.rho_start)?;
         cfg.rho_end = opt_f64_prop(options, "rhoEnd", cfg.rho_end)?;
         cfg.rho_power = opt_f64_prop(options, "rhoPower", cfg.rho_power)?;
+        cfg.degree_beta = opt_f64_prop(options, "degreeBeta", cfg.degree_beta)?;
+        cfg.bounded_attraction =
+            opt_bool_prop(options, "boundedAttraction", cfg.bounded_attraction)?;
         cfg.seed = opt_seed_prop(options)?;
     }
     let inner = SgdSolver::<f32>::snap_t_fdp(graph.inner(), cfg).map_err(core_err_to_js)?;
@@ -727,6 +730,7 @@ impl JsForceAtlas2Solver {
                 cfg.outbound_attraction_distribution,
             )?;
             cfg.jitter_tolerance = opt_f64_prop(options, "jitterTolerance", cfg.jitter_tolerance)?;
+            cfg.max_displacement = opt_maybe_f64_prop(options, "maxDisplacement")?;
             cfg.seed = opt_seed_prop(options)?;
         }
         let inner = ForceAtlas2Solver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;

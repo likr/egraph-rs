@@ -626,6 +626,15 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         )
 
     def test_gumap_solver_all_constructors_and_step_vs_run(self) -> None:
+        for ctor in (
+            eg.GuMapSolver.from_fuzzy_set,
+            eg.GuMapSolver.from_knn,
+            eg.GuMapSolver.from_graph_dog,
+            eg.GuMapSolver.from_landmarks,
+        ):
+            sig = inspect.signature(ctor)
+            self.assertIs(sig.parameters["symmetric_negative"].default, True)
+
         barbell = _make_barbell(6, bridge_len=1)
         n = barbell.num_nodes
         init_coords = _seeded_coords(n, seed=19, scale=1.0)
@@ -697,6 +706,55 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_landmarks(barbell, lm_other))
         self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_knn(knn, min_dist=-0.1))
         self.assert_no_panic_raises((TypeError,), lambda: eg.GuMapSolver.from_knn(knn, n_epochs=True))
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.GuMapSolver.from_knn(knn, symmetric_negative=1)  # type: ignore[arg-type]
+        )
+
+        # symmetric_negative=False diverges deterministically from True across all 4 constructors
+        # while preserving step() == run() bit-exactness for both float64 and float32.
+        def _build_gumap(label: str, sym: bool, dt: str) -> eg.GuMapSolver:
+            if label == "from_fuzzy_set":
+                return eg.GuMapSolver.from_fuzzy_set(
+                    fuzzy, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+                )
+            if label == "from_knn":
+                return eg.GuMapSolver.from_knn(
+                    knn, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+                )
+            if label == "from_graph_dog":
+                return eg.GuMapSolver.from_graph_dog(
+                    barbell,
+                    max_2hop_per_node=32,
+                    degree=20,
+                    num_landmarks=8,
+                    n_epochs=10,
+                    symmetric_negative=sym,
+                    seed=42,
+                    dtype=dt,
+                )
+            return eg.GuMapSolver.from_landmarks(
+                barbell, lm, max_2hop_per_node=32, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+            )
+
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            for label in ("from_fuzzy_set", "from_knn", "from_graph_dog", "from_landmarks"):
+                s_true = _build_gumap(label, True, dtype_str)
+                s_false_run = _build_gumap(label, False, dtype_str)
+                s_false_step = _build_gumap(label, False, dtype_str)
+                l_true = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                l_false_run = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                l_false_step = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                s_true.run(l_true)
+                s_false_run.run(l_false_run)
+                s_false_step.run_steps(l_false_step, 4)
+                while not s_false_step.is_finished:
+                    s_false_step.step(l_false_step)
+                self.assertTrue(l_false_run.is_all_finite(), label)
+                np.testing.assert_array_equal(l_false_run.coords(copy=True), l_false_step.coords(copy=True))
+                self.assertFalse(
+                    np.allclose(l_true.coords(copy=True), l_false_run.coords(copy=True)),
+                    f"{label}/{dtype_str}: symmetric_negative=False matched True",
+                )
 
     def test_spatial_intruder_refiner(self) -> None:
         g = _make_grid(3, 3)

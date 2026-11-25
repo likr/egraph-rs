@@ -896,6 +896,7 @@ export interface GuMapOptions {
   b?: number | null;
   sigmaIters?: number | null;
   sigmaTolerance?: number | null;
+  symmetricNegative?: boolean | null;
   seed?: number | null;
 }
 
@@ -1015,6 +1016,8 @@ export interface SnapTFdpOptions {
   rhoStart?: number | null;
   rhoEnd?: number | null;
   rhoPower?: number | null;
+  degreeBeta?: number | null;
+  boundedAttraction?: boolean | null;
   seed?: number | null;
 }
 
@@ -1132,6 +1135,7 @@ export interface ForceAtlas2Options {
   edgeWeightInfluence?: number | null;
   outboundAttractionDistribution?: boolean | null;
   jitterTolerance?: number | null;
+  maxDisplacement?: number | null;
   seed?: number | null;
 }
 

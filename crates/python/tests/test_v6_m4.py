@@ -245,6 +245,10 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
         n = graph.num_nodes
         base = _seeded_coords(n, seed=31, scale=1.0)
 
+        sig_snap = inspect.signature(eg.SgdSolver.snap_t_fdp)
+        self.assertEqual(sig_snap.parameters["degree_beta"].default, 0.0)
+        self.assertIs(sig_snap.parameters["bounded_attraction"].default, True)
+
         for dtype_str in ("float64", "float32"):
             # 1. snap_t_fdp
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
@@ -260,6 +264,34 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
             s2.run_steps(l_step, 5)
             s2.run(l_step)
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+
+            # 1b. snap_t_fdp degree_beta + bounded_attraction=False diverges from defaults and preserves step == run
+            l_mod_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            l_mod_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            sm1 = eg.SgdSolver.snap_t_fdp(
+                graph,
+                iterations=12,
+                negatives_per_edge=3,
+                degree_beta=0.5,
+                bounded_attraction=False,
+                seed=5,
+                dtype=dtype_str,
+            )
+            sm2 = eg.SgdSolver.snap_t_fdp(
+                graph,
+                iterations=12,
+                negatives_per_edge=3,
+                degree_beta=0.5,
+                bounded_attraction=False,
+                seed=5,
+                dtype=dtype_str,
+            )
+            sm1.run(l_mod_run)
+            sm2.step(l_mod_step)
+            sm2.run_steps(l_mod_step, 5)
+            sm2.run(l_mod_step)
+            np.testing.assert_array_equal(l_mod_run.coords(copy=True), l_mod_step.coords(copy=True))
+            self.assertFalse(np.allclose(l_run.coords(copy=True), l_mod_run.coords(copy=True)))
 
             # 2. pacmap_graph
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
@@ -381,6 +413,10 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
         n = graph.num_nodes
         base = _seeded_coords(n, seed=41, scale=1.0)
 
+        sig_fa2 = inspect.signature(eg.ForceAtlas2Solver)
+        self.assertIsNone(sig_fa2.parameters["max_displacement"].default)
+        self.assertIs(sig_fa2.parameters["outbound_attraction_distribution"].default, False)
+
         for dtype_str in ("float64", "float32"):
             for use_bh in (True, False):
                 l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
@@ -414,6 +450,24 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
                 fa2.run_steps(l_step, 5)
                 fa2.run(l_step)
                 np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+
+            # max_displacement caps large displacements and diverges from None while keeping step == run
+            star = eg.CsrGraph.from_edges(5, [(0, 1), (0, 2), (0, 3), (0, 4)], directed=False, sanitize=True)
+            wide = _to_float_array(_seeded_coords(5, seed=11, scale=200.0), dtype_str)
+            l_unbounded = eg.Layout2d.from_coords(wide)
+            l_cap_run = eg.Layout2d.from_coords(wide)
+            l_cap_step = eg.Layout2d.from_coords(wide)
+            fa_unbounded = eg.ForceAtlas2Solver(star, iterations=5, max_displacement=None, seed=7, dtype=dtype_str)
+            fa_cap_r = eg.ForceAtlas2Solver(star, iterations=5, max_displacement=0.2, seed=7, dtype=dtype_str)
+            fa_cap_s = eg.ForceAtlas2Solver(star, iterations=5, max_displacement=0.2, seed=7, dtype=dtype_str)
+            fa_unbounded.run(l_unbounded)
+            fa_cap_r.run(l_cap_run)
+            fa_cap_s.step(l_cap_step)
+            fa_cap_s.run(l_cap_step)
+            np.testing.assert_array_equal(l_cap_run.coords(copy=True), l_cap_step.coords(copy=True))
+            self.assertFalse(np.allclose(l_unbounded.coords(copy=True), l_cap_run.coords(copy=True)))
+            max_disp_step = float(np.max(np.linalg.norm(l_cap_run.coords(copy=True) - wide, axis=1)))
+            self.assertLessEqual(max_disp_step, 5.0 * 0.2 + 1e-4)
 
         # YifanHu multilevel (force >= 2 levels with min_coarsen_size=6 on 25-node grid)
         for dtype_str in ("float64", "float32"):
@@ -667,6 +721,18 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
             (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, rho_power=0.0)
         )
         self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=-0.1)
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=float("nan"))
+        )
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=True)
+        )
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.SgdSolver.snap_t_fdp(graph, bounded_attraction=1)  # type: ignore[arg-type]
+        )
+        self.assert_no_panic_raises(
             (ValueError,), lambda: eg.SgdSolver.pacmap_graph(graph, n_neighbors=0)
         )
         self.assert_no_panic_raises(
@@ -674,6 +740,15 @@ class TestV6M4SolversAndPostProcessing(unittest.TestCase):
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.ForceAtlas2Solver(graph, jitter_tolerance=0.0)
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.ForceAtlas2Solver(graph, max_displacement=0.0)
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.ForceAtlas2Solver(graph, max_displacement=float("nan"))
+        )
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.ForceAtlas2Solver(graph, max_displacement=True)
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.YifanHuSolver(graph, step_ratio=1.0)
