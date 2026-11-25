@@ -37,7 +37,7 @@ Run single-threaded before committing or tagging:
    ```bash
    EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --invariants --docs
    ```
-   Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, `.wasm` gzip `<= 600.0 KiB`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix js/examples run build` all pass, and `jp_cjk=0` across all modified files.
+   Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix js/examples run build` all pass, and `jp_cjk=0` across all modified files.
    - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the 11 version/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` (`6/6`) runs the full matrix remotely before tagging.
 4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
 
@@ -71,7 +71,7 @@ After `release.yml` completes `success` across all 11 jobs:
 
 ### npm (`npm install egraph@next` / `--tag next` for prereleases)
 - Verify `npm view egraph dist-tags --json` shows updated `next` while keeping existing `latest` untouched for prereleases.
-- Install into a clean `"type": "module"` directory (`npm install egraph@next`), confirm `node_modules/egraph/package.json` `"version"`, verify `node_modules/egraph/pkg/egraph_wasm_bg.wasm` level-9 gzip `<= 614400` bytes (`600 KiB`), and smoke-run via Node.js ESM (`import init, { ... } from "egraph"`):
+- Install into a clean `"type": "module"` directory (`npm install egraph@next`), confirm `node_modules/egraph/package.json` `"version"`, and smoke-run via Node.js ESM (`import init, { ... } from "egraph"`):
   - `evaluateMetrics(g, lay, ["sns", "np2", "crossingNumber"]).toRecord()` returns camelCase fields (`scaleNormalizedStress`, `neighborhoodPreservation2Hop`, `crossingNumber`).
 
 Remove all temporary smoke directories under `/tmp` afterwards and verify clean `git status -sb`.

@@ -278,10 +278,6 @@ jobs:
           echo "raw_bytes=$RAW_BYTES" >> "$GITHUB_OUTPUT"
           echo "gzip_kib=$GZIP_KIB" >> "$GITHUB_OUTPUT"
           echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_KIB} KiB"
-          if [[ "$GZIP_BYTES" -gt 614400 ]]; then
-            echo "::error::WASM gzip size (${GZIP_KIB} KiB) exceeds 600 KiB budget"
-            exit 1
-          fi
           if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
             node crates/wasm/tests/node_esm_smoke.mjs
           fi

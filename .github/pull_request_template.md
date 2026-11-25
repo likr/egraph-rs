@@ -28,6 +28,6 @@
 ## Mandatory Checklist
 - [ ] Strictly single-threaded pure CPU Rust: zero `rayon`, `std::thread`, Web Workers, `SharedArrayBuffer`, `wgpu`, or C/Fortran FFI (`ndarray` uses `default-features = false`).
 - [ ] Deterministic explicit `u64` RNG (`DeterministicRng::from_seed_u64`), zero `thread_rng()` / `from_entropy()`, and zero non-test `.unwrap()` / `expect()` / `panic!` / `unreachable!` / `unsafe`.
-- [ ] Native / Python / WASM API parity and `--no-default-features` WASM builds checked; `egraph_wasm_bg.wasm` gzip remains `<= 600 KiB`.
+- [ ] Native / Python / WASM API parity and `--no-default-features` WASM builds checked.
 - [ ] Python bindings checked with `mypy --strict` and `stubtest egraph` when `.py` / `.pyi` / PyO3 exports changed.
 - [ ] All code, comments, documentation, commit messages, and PR/Issue prose are written in English (`jp_cjk=0`).

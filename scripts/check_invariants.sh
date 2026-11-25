@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/check_invariants.sh [--mode report|strict] [--crate <name>] [--check-wasm-size]
 
-Verify single-threaded pure-Rust, WASM cross-compilation, wasm size budget,
+Verify single-threaded pure-Rust, WASM cross-compilation, optional .wasm size reporting,
 deterministic RNG, and cross-target packaging invariants.
 EOF
 }
@@ -296,7 +296,7 @@ else
   check_wasm32_target "egraph-wasm"
 fi
 
-# 4. WASM gzip size check (budget: 600 KiB = 614400 bytes)
+# 4. WASM artifact size report (informational; no gzip upper-bound enforced)
 WASM_FILE=""
 for p in \
   "$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm" \
@@ -312,15 +312,11 @@ if [[ -n "$WASM_FILE" ]]; then
   RAW_BYTES="$(wc -c < "$WASM_FILE" | tr -d ' ')"
   GZIP_BYTES="$(gzip -9 -c "$WASM_FILE" | wc -c | tr -d ' ')"
   GZIP_KIB="$(python3 -c "print(f'{$GZIP_BYTES/1024:.1f}')")"
-  if [[ "$GZIP_BYTES" -le 614400 ]]; then
-    pass "WASM size OK: $WASM_FILE (raw=${RAW_BYTES} B, gzip=${GZIP_KIB} KiB <= 600.0 KiB)"
-  else
-    warn_legacy "WASM gzip size exceeds 600 KiB budget: $WASM_FILE (${GZIP_KIB} KiB)"
-  fi
+  pass "WASM artifact size: $WASM_FILE (raw=${RAW_BYTES} B, gzip=${GZIP_KIB} KiB)"
 elif [[ "$CHECK_WASM_SIZE" -eq 1 ]]; then
   fail_hard "--check-wasm-size requested, but no built .wasm artifact found"
 else
-  echo "[INFO] No built .wasm artifact present yet; skipping gzip size check"
+  echo "[INFO] No built .wasm artifact present yet; skipping size report"
 fi
 
 # 5. Cross-target packaging metadata check

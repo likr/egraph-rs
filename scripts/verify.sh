@@ -25,7 +25,7 @@ Options:
   --release                Build Python bindings with maturin develop --release (default)
   --dev-py                 Build Python bindings in debug mode (maturin develop without --release)
   --debug-rust             Run --rust workspace tests in debug mode instead of --release
-  --build-wasm             Also run wasm-pack build --target web --profile wasm-release + assemble_pkg.mjs + wasm-opt -Oz + size check
+  --build-wasm             Also run wasm-pack build --target web --profile wasm-release + assemble_pkg.mjs + wasm-opt -Oz + size report
   --strict                 Strict mode for invariants & workspace-wide clippy -D warnings
   --json-summary <path>    Write machine-readable JSON summary to <path>
 EOF

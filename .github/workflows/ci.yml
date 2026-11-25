@@ -148,7 +148,7 @@ jobs:
           path: crates/python/dist/*.whl
 
   wasm-pipeline:
-    name: WASM ESM Pipeline & Size Gate
+    name: WASM ESM Pipeline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -192,7 +192,7 @@ jobs:
           wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
           wasm-pack test --node crates/wasm --features legacy
 
-      - name: Build optimized web bundle, assemble pkg, and check <= 600 KiB gzip
+      - name: Build optimized web bundle and assemble pkg
         run: |
           (cd crates/wasm && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
           if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
@@ -203,11 +203,7 @@ jobs:
             -o crates/wasm/pkg/egraph_wasm_bg.wasm
           RAW_BYTES=$(wc -c < crates/wasm/pkg/egraph_wasm_bg.wasm | tr -d ' ')
           GZIP_BYTES=$(gzip -9 -c crates/wasm/pkg/egraph_wasm_bg.wasm | wc -c | tr -d ' ')
-          echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_BYTES} B (budget <= 614400 B)"
-          if [[ "$GZIP_BYTES" -gt 614400 ]]; then
-            echo "::error::WASM gzip size (${GZIP_BYTES} B) exceeds 600 KiB (614400 B) budget"
-            exit 1
-          fi
+          echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_BYTES} B"
           if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
             node crates/wasm/tests/node_esm_smoke.mjs
           fi

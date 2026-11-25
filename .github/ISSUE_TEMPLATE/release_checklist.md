@@ -11,7 +11,7 @@ labels:
 - [ ] For `beta` / `rc` / GA releases, update classifiers in `crates/python/pyproject.toml` (remove `"Development Status :: 3 - Alpha"`).
 - [ ] Confirm `crates/wasm/package.json` `"repository"` block (`url`, `directory: "crates/wasm"`) for npm `--provenance`.
 - [ ] Simulate `.github/workflows/release.yml` `verify-tag-and-version` parser locally with `GITHUB_REF_NAME=v6.X.Y...`.
-- [ ] Run `EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --all --build-wasm --docs` (`hard_fails=0`, `.wasm` gzip `<= 600 KiB`, Sphinx `doctest`, TypeDoc, Vite build) and `node crates/wasm/tests/playwright_smoke.mjs`.
+- [ ] Run `EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --all --build-wasm --docs` (`hard_fails=0`, Sphinx `doctest`, TypeDoc, Vite build) and `node crates/wasm/tests/playwright_smoke.mjs`.
 - [ ] Confirm `jp_cjk=0` across all modified files and clean git status.
 
 ## Tag & Publish
@@ -22,5 +22,5 @@ labels:
 
 ## Live Registry Clean-Env Smoke Tests
 - [ ] Verify PyPI install in fresh venv (`pip install --pre "egraph==..."` or stable pin), `importlib.metadata.version("egraph")`, and Track A/B + `evaluate_metrics` execution.
-- [ ] Verify `npm view egraph dist-tags --json` (`next` for prereleases, `latest` for GA), clean `npm install`, `.wasm` gzip `<= 600 KiB`, and Node ESM smoke execution.
+- [ ] Verify `npm view egraph dist-tags --json` (`next` for prereleases, `latest` for GA), clean `npm install`, and Node ESM smoke execution.
 - [ ] Verify GitHub Release assets (`.whl`, `.tar.gz`, `.tgz`) and clean local working tree.

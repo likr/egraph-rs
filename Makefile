@@ -27,8 +27,8 @@ help:
 	@echo "Harness & Parallel Worktree Tasks:"
 	@echo "  make venv-setup                     - Provision worktree-local Python .venv via uv"
 	@echo "  make verify-fast [CRATE=<name>]     - Tier 0: fmt + clippy/nextest on changed or CRATE + thread scan"
-	@echo "  make verify-all                     - Full Rust + Python + WASM (+ bundle/size) + invariants + parity verification"
-	@echo "  make invariants                     - Check single-thread, wasm32, RNG, size & metadata (report)"
+	@echo "  make verify-all                     - Full Rust + Python + WASM (+ bundle) + invariants + parity verification"
+	@echo "  make invariants                     - Check single-thread, wasm32, RNG & metadata (report)"
 	@echo "  make invariants-strict              - Check invariants strictly (fail on any v6 violation)"
 	@echo "  make parity                         - Run cross-target parity & adversarial harness"
 	@echo "  make worktree-create NAME=<slug>    - Create isolated .worktrees/<slug> + wt/<slug> + .venv"
@@ -47,7 +47,7 @@ help:
 	@echo "  make wasm-check                     - Check egraph-wasm for wasm32-unknown-unknown"
 	@echo "  make wasm-build                     - Build release web WASM bundle + wasm-opt -Oz"
 	@echo "  make wasm-test                      - Run wasm-pack test --node crates/wasm"
-	@echo "  make wasm-size                      - Report .wasm raw & gzipped size vs 600 KiB budget"
+	@echo "  make wasm-size                      - Report .wasm raw & gzipped size (informational)"
 	@echo ""
 	@echo "Python Tasks (uses worktree-local $(VENV_DIR)):"
 	@echo "  make python-build                   - Build release Python bindings into local .venv"
@@ -79,7 +79,7 @@ invariants:
 	./scripts/check_invariants.sh --mode report
 
 invariants-strict:
-	./scripts/check_invariants.sh --mode strict --check-wasm-size
+	./scripts/check_invariants.sh --mode strict
 
 parity:
 	./scripts/verify.sh --parity

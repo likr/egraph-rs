@@ -8,7 +8,7 @@ This reference document outlines the technical environment, folder architecture,
 - **Rust (`edition = "2024"` workspace-wide)**: Primary implementation language.
 - **Cargo + `sccache` + `cargo-nextest`**: Dependency management, cached parallel compilation across worktrees, and fast test runner.
 - **PyO3 + `maturin` + `uv` (Python `>=3.10`, `abi3-py310`)**: Isolated per-worktree `.venv` Python bindings with `numpy`, `scipy`, `pytest`, `mypy`, `ruff`.
-- **WebAssembly (`wasm32-unknown-unknown`, `wasm-bindgen`, `wasm-pack`, `binaryen`/`wasm-opt`) + Node.js / ESM**: Browser and Node.js WASM integration targeting a single-binary ESM bundle (`<= 600 KiB` gzip).
+- **WebAssembly (`wasm32-unknown-unknown`, `wasm-bindgen`, `wasm-pack`, `binaryen`/`wasm-opt`) + Node.js / ESM**: Browser and Node.js WASM integration targeting a single-binary ESM bundle.
 
 ### Key Directories
 - `crates/` — Rust workspace crates (`egraph-core`, `egraph-ffi`, `egraph-petgraph`, `egraph-dataset`, `egraph-spatial`, `egraph-metrics`, `egraph-linalg`, `egraph-neighborhood`, `egraph-clustering`, `egraph-layout`, unified `egraph` facade, `egraph-cli`, `egraph-python`, `egraph-wasm`, plus legacy v5 `petgraph-*` crates).
