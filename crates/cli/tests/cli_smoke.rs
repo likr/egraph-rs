@@ -864,3 +864,612 @@ fn cli_metrics_cluster_area_faithfulness_and_error_guards() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn cli_cluster_leiden_mod_and_cpm() {
+    let bin = env!("CARGO_BIN_EXE_egraph");
+
+    let out_mod_1 = run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "leiden-mod",
+        "--resolution",
+        "1.0",
+        "--randomness",
+        "0.01",
+        "--seed",
+        "42",
+    ]);
+    let mod_1: serde_json::Value = serde_json::from_str(&out_mod_1).expect("parse leiden-mod");
+    assert_eq!(mod_1["method"], "leiden-mod");
+    assert_eq!(mod_1["labels"].as_array().expect("labels").len(), 34);
+    assert!(mod_1["num_clusters"].as_u64().expect("num_clusters") >= 2);
+    let q_mod = mod_1["quality"].as_f64().expect("quality f64");
+    let m_mod = mod_1["modularity"].as_f64().expect("modularity f64");
+    assert!(q_mod.is_finite() && m_mod.is_finite());
+    assert!((q_mod - m_mod).abs() < 1e-12);
+    assert!(mod_1["inertia"].is_null());
+
+    // Determinism under identical seed.
+    let out_mod_2 = run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "leiden-mod",
+        "--resolution",
+        "1.0",
+        "--randomness",
+        "0.01",
+        "--seed",
+        "42",
+    ]);
+    let mod_2: serde_json::Value = serde_json::from_str(&out_mod_2).expect("parse leiden-mod 2");
+    assert_eq!(mod_1["labels"], mod_2["labels"]);
+    assert!((mod_2["quality"].as_f64().expect("quality2") - q_mod).abs() < 1e-12);
+
+    // CPM objective.
+    let out_cpm = run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "leiden-cpm",
+        "--resolution",
+        "0.1",
+        "--randomness",
+        "0.01",
+        "--seed",
+        "42",
+    ]);
+    let cpm: serde_json::Value = serde_json::from_str(&out_cpm).expect("parse leiden-cpm");
+    assert_eq!(cpm["method"], "leiden-cpm");
+    assert_eq!(cpm["labels"].as_array().expect("labels").len(), 34);
+    assert!(cpm["num_clusters"].as_u64().expect("num_clusters") >= 1);
+    assert!(cpm["quality"].as_f64().expect("cpm quality").is_finite());
+    assert!(
+        cpm["modularity"]
+            .as_f64()
+            .expect("cpm modularity")
+            .is_finite()
+    );
+
+    // Existing methods keep quality = null.
+    let out_louvain = run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "louvain",
+        "--seed",
+        "42",
+    ]);
+    let louvain_json: serde_json::Value =
+        serde_json::from_str(&out_louvain).expect("parse louvain");
+    assert!(louvain_json["quality"].is_null());
+    assert!(louvain_json["modularity"].as_f64().is_some());
+
+    // Error guards for invalid resolution / randomness.
+    for args in [
+        vec![
+            "cluster",
+            "--dataset",
+            "karate",
+            "--method",
+            "leiden-mod",
+            "--resolution",
+            "-0.1",
+        ],
+        vec![
+            "cluster",
+            "--dataset",
+            "karate",
+            "--method",
+            "leiden-cpm",
+            "--randomness",
+            "0.0",
+        ],
+    ] {
+        let out = Command::new(bin)
+            .args(&args)
+            .output()
+            .expect("execute egraph binary");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for {:?}",
+            args
+        );
+    }
+}
+
+#[test]
+fn cli_layout_w1_baselines_cluster_refine_and_bench() {
+    let dir = temp_dir("w1_layout");
+    let labels_path = dir.join("karate_leiden.json");
+    let bad_labels_path = dir.join("bad_labels.txt");
+
+    run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "leiden-mod",
+        "--seed",
+        "42",
+        "--output",
+        labels_path.to_str().expect("utf8 path"),
+    ]);
+
+    for method in ["linlog", "fr", "fa2-overlap", "backbone", "gib"] {
+        let out = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "42",
+        ]);
+        let val: serde_json::Value = serde_json::from_str(&out).expect("parse layout json");
+        assert_eq!(val["num_nodes"], 34, "method {method}");
+        assert_eq!(val["method"], method);
+        assert_eq!(val["cluster_refine"], "none");
+        assert_eq!(val["overlap_removal"], "none");
+        let xs = val["x"].as_array().expect("x array");
+        let ys = val["y"].as_array().expect("y array");
+        assert_eq!(xs.len(), 34);
+        assert_eq!(ys.len(), 34);
+        assert!(xs.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
+        assert!(ys.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
+    }
+
+    // Explicit --community-labels with gib.
+    let gib_explicit = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "gib",
+        "--community-labels",
+        labels_path.to_str().expect("utf8 path"),
+        "--seed",
+        "42",
+    ]);
+    let gib_json: serde_json::Value =
+        serde_json::from_str(&gib_explicit).expect("parse gib explicit");
+    assert_eq!(gib_json["num_nodes"], 34);
+    assert_eq!(gib_json["method"], "gib");
+
+    // --cluster-refine kmeans and hac (both explicit labels and auto-Leiden fallback).
+    for refine_mode in ["kmeans", "hac"] {
+        let with_labels = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--cluster-refine",
+            refine_mode,
+            "--community-labels",
+            labels_path.to_str().expect("utf8 path"),
+            "--seed",
+            "42",
+        ]);
+        let v1: serde_json::Value =
+            serde_json::from_str(&with_labels).expect("parse cluster-refine with labels");
+        assert_eq!(v1["num_nodes"], 34);
+        assert_eq!(v1["cluster_refine"], refine_mode);
+
+        let auto_labels = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--cluster-refine",
+            refine_mode,
+            "--seed",
+            "42",
+        ]);
+        let v2: serde_json::Value =
+            serde_json::from_str(&auto_labels).expect("parse cluster-refine auto");
+        assert_eq!(v2["num_nodes"], 34);
+        assert_eq!(v2["cluster_refine"], refine_mode);
+        assert_eq!(v1["coords"], v2["coords"]);
+    }
+
+    // Bench shares expanded LayoutMethod cleanly.
+    for bench_method in ["linlog", "gib"] {
+        let bench_out = run_egraph(&[
+            "bench",
+            "--dataset",
+            "karate",
+            "--method",
+            bench_method,
+            "--seed",
+            "42",
+        ]);
+        let bench_json: serde_json::Value =
+            serde_json::from_str(&bench_out).expect("parse bench json");
+        assert_eq!(bench_json["num_nodes"], 34);
+        assert_eq!(bench_json["method"], bench_method);
+        assert!(bench_json["total_ms"].as_f64().expect("total_ms") >= 0.0);
+    }
+
+    // Error guard: mismatched --community-labels length fails cleanly in layout.
+    fs::write(&bad_labels_path, "0 1 2\n").expect("write bad labels");
+    let bin = env!("CARGO_BIN_EXE_egraph");
+    let bad_out = Command::new(bin)
+        .args([
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--community-labels",
+            bad_labels_path.to_str().expect("utf8 path"),
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!bad_out.status.success());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_layout_overlap_removal_variants_and_prism_compat() {
+    let bin = env!("CARGO_BIN_EXE_egraph");
+
+    for variant in [
+        "none",
+        "prism",
+        "gtree",
+        "forbid",
+        "forbid-prime",
+        "sparse-forbid",
+    ] {
+        let out = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--overlap-removal",
+            variant,
+            "--prism-radius",
+            "0.05",
+            "--seed",
+            "42",
+        ]);
+        let val: serde_json::Value = serde_json::from_str(&out).expect("parse overlap json");
+        assert_eq!(val["overlap_removal"], variant);
+        if variant == "none" {
+            assert_eq!(val["prism_applied"], false);
+            assert!(val["prism_overlaps_remaining"].is_null());
+            assert!(val["overlaps_remaining"].is_null());
+        } else {
+            assert_eq!(
+                val["overlaps_remaining"], 0,
+                "expected 0 overlaps remaining for variant {variant}"
+            );
+            if variant == "prism" {
+                assert_eq!(val["prism_applied"], true);
+                assert_eq!(val["prism_overlaps_remaining"], 0);
+            } else {
+                assert_eq!(val["prism_applied"], false);
+                assert!(val["prism_overlaps_remaining"].is_null());
+            }
+        }
+    }
+
+    // Backward-compatible `--prism` flag.
+    let prism_compat = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "tsnet-pure2hop",
+        "--prism",
+        "--prism-radius",
+        "0.05",
+        "--seed",
+        "42",
+    ]);
+    let prism_val: serde_json::Value =
+        serde_json::from_str(&prism_compat).expect("parse prism compat");
+    assert_eq!(prism_val["prism_applied"], true);
+    assert_eq!(prism_val["overlap_removal"], "prism");
+    assert_eq!(prism_val["prism_overlaps_remaining"], 0);
+    assert_eq!(prism_val["overlaps_remaining"], 0);
+
+    // Conflict guard between `--prism` and `--overlap-removal`.
+    let conflict_out = Command::new(bin)
+        .args([
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--prism",
+            "--overlap-removal",
+            "gtree",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!conflict_out.status.success());
+
+    // Invalid radius guard across new overlap-removal variants (must fail fast).
+    for variant in ["gtree", "forbid"] {
+        for bad_radius in ["0.0", "-0.1", "NaN", "inf"] {
+            let t0 = std::time::Instant::now();
+            let out = Command::new(bin)
+                .args([
+                    "layout",
+                    "--dataset",
+                    "karate",
+                    "--method",
+                    "stress",
+                    "--overlap-removal",
+                    variant,
+                    "--prism-radius",
+                    bad_radius,
+                ])
+                .output()
+                .expect("execute egraph binary");
+            assert!(
+                !out.status.success(),
+                "expected non-zero exit for --overlap-removal {variant} --prism-radius {bad_radius}"
+            );
+            assert!(
+                t0.elapsed().as_secs_f64() < 5.0,
+                "expected fast rejection for --overlap-removal {variant} --prism-radius {bad_radius}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cli_w1_degenerate_graphs_n0_n1_and_disconnected() {
+    let dir = temp_dir("degenerate_w1");
+    let n0_path = dir.join("n0.json");
+    let n1_path = dir.join("n1.json");
+    let disc_path = dir.join("disc.json");
+    fs::write(&n0_path, r#"{"num_nodes": 0, "edges": []}"#).expect("write n0");
+    fs::write(&n1_path, r#"{"num_nodes": 1, "edges": []}"#).expect("write n1");
+    fs::write(
+        &disc_path,
+        r#"{"num_nodes": 6, "edges": [[0,1],[1,2],[2,0],[3,4]]}"#,
+    )
+    .expect("write disc");
+
+    for (path, expected_n) in [(&n0_path, 0usize), (&n1_path, 1usize), (&disc_path, 6usize)] {
+        let p = path.to_str().expect("utf8 path");
+        for c_method in ["leiden-mod", "leiden-cpm"] {
+            let out = run_egraph(&[
+                "cluster", "--input", p, "--method", c_method, "--seed", "42",
+            ]);
+            let val: serde_json::Value = serde_json::from_str(&out).expect("parse cluster");
+            assert_eq!(val["num_nodes"].as_u64(), Some(expected_n as u64));
+            assert_eq!(val["labels"].as_array().expect("labels").len(), expected_n);
+        }
+
+        for l_method in ["linlog", "fr", "fa2-overlap", "backbone", "gib"] {
+            let out = run_egraph(&[
+                "layout",
+                "--input",
+                p,
+                "--method",
+                l_method,
+                "--cluster-refine",
+                "kmeans",
+                "--overlap-removal",
+                "gtree",
+                "--seed",
+                "42",
+            ]);
+            let val: serde_json::Value = serde_json::from_str(&out).expect("parse layout");
+            assert_eq!(val["num_nodes"].as_u64(), Some(expected_n as u64));
+            assert_eq!(val["overlaps_remaining"], 0);
+            let xs = val["x"].as_array().expect("x");
+            let ys = val["y"].as_array().expect("y");
+            assert_eq!(xs.len(), expected_n);
+            assert_eq!(ys.len(), expected_n);
+            assert!(xs.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
+            assert!(ys.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
+        }
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_metrics_eval_baselines_18_targets() {
+    let dir = temp_dir("eval_baselines");
+    let layout_path = dir.join("karate_stress.json");
+    let cluster_path = dir.join("karate_leiden.json");
+
+    run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "stress",
+        "--seed",
+        "42",
+        "--output",
+        layout_path.to_str().expect("utf8 path"),
+    ]);
+    run_egraph(&[
+        "cluster",
+        "--dataset",
+        "karate",
+        "--method",
+        "leiden-mod",
+        "--seed",
+        "42",
+        "--output",
+        cluster_path.to_str().expect("utf8 path"),
+    ]);
+
+    let all_18_targets = "dsc,dc,cdm,hdm,sepme-knng,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn";
+    let out_18 = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--community-labels",
+        cluster_path.to_str().expect("utf8 path"),
+        "--targets",
+        all_18_targets,
+        "--seed",
+        "42",
+    ]);
+    let m18: serde_json::Value = serde_json::from_str(&out_18).expect("parse 18 metrics");
+    let baseline_keys = [
+        "dsc",
+        "dc",
+        "cdm",
+        "hdm",
+        "sepme_knng",
+        "sepme_rng",
+        "sepme_gab",
+        "sepme_gong",
+        "neighborhood_hit",
+        "silhouette",
+        "calinski_harabasz",
+        "davies_bouldin",
+        "cq_kmeans_ari",
+        "cq_kmeans_ami",
+        "cq_hac_hom",
+        "cq_hac_ami",
+        "pairwise_distance_overlap_error",
+        "sprawlter_nn",
+    ];
+    for key in baseline_keys {
+        let val = m18[key]
+            .as_f64()
+            .unwrap_or_else(|| panic!("expected finite float for {key}, got {:?}", m18[key]));
+        assert!(val.is_finite(), "{key} not finite: {val}");
+    }
+    for unit_key in [
+        "dsc",
+        "dc",
+        "cdm",
+        "hdm",
+        "sepme_knng",
+        "sepme_rng",
+        "sepme_gab",
+        "sepme_gong",
+        "neighborhood_hit",
+        "cq_hac_hom",
+        "pairwise_distance_overlap_error",
+    ] {
+        let v = m18[unit_key].as_f64().expect("unit metric");
+        assert!((0.0..=1.0).contains(&v), "{unit_key} out of [0,1]: {v}");
+    }
+    for signed_unit_key in ["silhouette", "cq_kmeans_ari", "cq_kmeans_ami", "cq_hac_ami"] {
+        let v = m18[signed_unit_key].as_f64().expect("signed unit metric");
+        assert!(
+            (-1.0..=1.0).contains(&v),
+            "{signed_unit_key} out of [-1,1]: {v}"
+        );
+    }
+    for nonneg_key in ["calinski_harabasz", "davies_bouldin", "sprawlter_nn"] {
+        let v = m18[nonneg_key].as_f64().expect("nonneg metric");
+        assert!(v >= 0.0, "{nonneg_key} < 0: {v}");
+    }
+
+    // sepme-knng / sepme_knng / sepme-knng2 / sepme_knng2 alias parity.
+    let expected_sepme_knng = m18["sepme_knng"].as_f64().expect("sepme_knng");
+    for alias in ["sepme-knng", "sepme_knng", "sepme-knng2", "sepme_knng2"] {
+        let out_alias = run_egraph(&[
+            "metrics",
+            "--dataset",
+            "karate",
+            "--layout",
+            layout_path.to_str().expect("utf8 path"),
+            "--community-labels",
+            cluster_path.to_str().expect("utf8 path"),
+            "--targets",
+            alias,
+        ]);
+        let alias_json: serde_json::Value =
+            serde_json::from_str(&out_alias).expect("parse alias json");
+        let v = alias_json["sepme_knng"]
+            .as_f64()
+            .unwrap_or_else(|| panic!("missing sepme_knng for alias {alias}"));
+        assert!(
+            (v - expected_sepme_knng).abs() < 1e-12,
+            "alias {alias} mismatch: {v} vs {expected_sepme_knng}"
+        );
+    }
+
+    // Label-free sprawlter-nn succeeds without --community-labels and omits unrequested baseline keys.
+    let out_sprawlter = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "sprawlter-nn",
+    ]);
+    let sp_obj =
+        serde_json::from_str::<serde_json::Value>(&out_sprawlter).expect("parse sprawlter json");
+    let sp_val = sp_obj["sprawlter_nn"].as_f64().expect("sprawlter_nn");
+    assert!(sp_val.is_finite() && sp_val >= 1.0);
+    assert!(sp_obj.as_object().expect("obj").get("dsc").is_none());
+
+    // Regression: `--targets all` without `--community-labels` omits all 18 eval-baselines keys.
+    let out_all = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        layout_path.to_str().expect("utf8 path"),
+        "--targets",
+        "all",
+    ]);
+    let all_val: serde_json::Value = serde_json::from_str(&out_all).expect("parse all");
+    let all_obj = all_val.as_object().expect("obj");
+    assert!(all_val["cluster_area_faithfulness"].is_null());
+    assert!(all_val["adjusted_patch_nig"].is_null());
+    assert!(all_val["scale_normalized_stress"].as_f64().is_some());
+    for key in baseline_keys {
+        assert!(
+            all_obj.get(key).is_none(),
+            "expected {key} to be omitted from `--targets all`"
+        );
+    }
+
+    // Missing `--community-labels` error guard for label-dependent W1-6 targets.
+    let bin = env!("CARGO_BIN_EXE_egraph");
+    for target in ["dsc", "sepme-knng2", "cq-hac-ami"] {
+        let missing_out = Command::new(bin)
+            .args([
+                "metrics",
+                "--dataset",
+                "karate",
+                "--layout",
+                layout_path.to_str().expect("utf8 path"),
+                "--targets",
+                target,
+            ])
+            .output()
+            .expect("execute egraph binary");
+        assert!(
+            !missing_out.status.success(),
+            "expected non-zero exit for --targets {target} without --community-labels"
+        );
+        let stderr = String::from_utf8_lossy(&missing_out.stderr);
+        assert!(
+            stderr.contains("community_labels"),
+            "expected stderr mentioning community_labels for {target}, got: {stderr}"
+        );
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}

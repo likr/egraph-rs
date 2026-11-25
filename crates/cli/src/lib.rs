@@ -12,17 +12,21 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use egraph::prelude::{
-    ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, CoreError, CsrGraph, DeterministicRng,
-    DogVaradhanConfig, FieldLayoutSolver, ForceAtlas2Config, ForceAtlas2Solver, GuMapConfig,
-    GuMapSolver, IbUmapConfig, IterativeSolver, KMeansConfig, KamadaKawaiConfig, KamadaKawaiSolver,
-    LabelPropagationConfig, Layout2d, LouvainConfig, MetricConfig, MetricReport, MetricTarget,
-    PacmapGraphConfig, PivotMdsConfig, PrismConfig, PrismOverlapRemoval, SgdScheduleConfig,
-    SgdSolver, SnapTFdpConfig, SparseBarrierConfig, SpatialIntruderRefiner, SpatialRefinerConfig,
-    SpectralClusteringConfig, StressMajorizationConfig, StressMajorizationSolver, TFdpConfig,
-    TsNetConfig, TsNetSolver, YifanHuConfig, YifanHuSolver, cluster_area_faithfulness,
-    cluster_area_faithfulness_detail, evaluate_metrics, evaluate_metrics_with_communities,
-    kmeans_plus_plus, koren_spectral_init, label_propagation, louvain, normalize_layout_2d,
-    pivot_mds, spectral_clustering,
+    BackboneConfig, BackboneSolver, ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport,
+    ClusterBaselineConfig, ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver,
+    CoreError, CsrGraph, DeterministicRng, DogVaradhanConfig, FieldLayoutSolver, ForbidConfig,
+    ForbidOverlapRemoval, ForbidVariant, ForceAtlas2Config, ForceAtlas2Solver,
+    FruchtermanReingoldConfig, FruchtermanReingoldSolver, GTreeConfig, GTreeOverlapRemoval,
+    GroupInABoxConfig, GroupInABoxSolver, GuMapConfig, GuMapSolver, IbUmapConfig, IterativeSolver,
+    KMeansConfig, KamadaKawaiConfig, KamadaKawaiSolver, LabelPropagationConfig, Layout2d,
+    LeidenConfig, LeidenObjective, LinLogConfig, LinLogSolver, LouvainConfig, MetricConfig,
+    MetricReport, MetricTarget, PacmapGraphConfig, PivotMdsConfig, PrismConfig,
+    PrismOverlapRemoval, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
+    SpatialIntruderRefiner, SpatialRefinerConfig, SpectralClusteringConfig,
+    StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver,
+    YifanHuConfig, YifanHuSolver, cluster_area_faithfulness, cluster_area_faithfulness_detail,
+    evaluate_metrics, evaluate_metrics_with_communities, kmeans_plus_plus, koren_spectral_init,
+    label_propagation, leiden, louvain, normalize_layout_2d, pivot_mds, spectral_clustering,
 };
 use serde::Serialize;
 
@@ -48,7 +52,7 @@ pub enum Commands {
     Layout(LayoutArgs),
     /// Evaluate quality metrics on a graph and an existing 2D JSON layout.
     Metrics(MetricsArgs),
-    /// Cluster a graph using Louvain, spectral clustering, label propagation, or K-Means++.
+    /// Cluster a graph using Louvain, Leiden, spectral clustering, label propagation, or K-Means++.
     Cluster(ClusterArgs),
     /// Run a reproducible layout + metrics timing benchmark.
     Bench(BenchArgs),
@@ -94,6 +98,21 @@ pub enum LayoutMethod {
     /// Kamada-Kawai (`KamadaKawaiSolver`).
     #[value(name = "kk")]
     Kk,
+    /// Noack LinLog energy-model force-directed layout (`LinLogSolver`).
+    #[value(name = "linlog")]
+    Linlog,
+    /// Fruchterman-Reingold force-directed layout (`FruchtermanReingoldSolver`).
+    #[value(name = "fr")]
+    Fr,
+    /// Barnes-Hut ForceAtlas2 with overlap prevention (`ForceAtlas2Solver` with `prevent_overlap = true`).
+    #[value(name = "fa2-overlap")]
+    Fa2Overlap,
+    /// Quadrilateral Simmelian Backbone layout (`BackboneSolver`).
+    #[value(name = "backbone")]
+    Backbone,
+    /// Group-in-a-Box clustered layout (`GroupInABoxSolver`).
+    #[value(name = "gib")]
+    Gib,
 }
 
 /// Supported layout initialization methods.
@@ -118,6 +137,12 @@ pub enum ClusterMethod {
     /// Two-phase multi-level Louvain modularity maximization.
     #[value(name = "louvain")]
     Louvain,
+    /// Leiden modularity maximization (`leiden` with `LeidenObjective::Modularity`).
+    #[value(name = "leiden-mod")]
+    LeidenMod,
+    /// Leiden Constant Potts Model maximization (`leiden` with `LeidenObjective::Cpm`).
+    #[value(name = "leiden-cpm")]
+    LeidenCpm,
     /// Ng-Jordan-Weiss spectral clustering.
     #[value(name = "spectral")]
     Spectral,
@@ -127,6 +152,47 @@ pub enum ClusterMethod {
     /// K-Means++ over normalized 2D PivotMDS coordinates.
     #[value(name = "kmeans")]
     Kmeans,
+}
+
+/// Post-layout cluster refinement strategy (`--cluster-refine`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterRefineArg {
+    /// No cluster refinement.
+    #[default]
+    #[value(name = "none")]
+    None,
+    /// K-Means cluster assignment refinement (`ClusterRefineMethod::Kmeans`).
+    #[value(name = "kmeans")]
+    Kmeans,
+    /// Hierarchical Agglomerative Clustering refinement (`ClusterRefineMethod::Hac`).
+    #[value(name = "hac")]
+    Hac,
+}
+
+/// Post-layout node overlap removal strategy (`--overlap-removal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlapRemovalArg {
+    /// No overlap removal.
+    #[default]
+    #[value(name = "none")]
+    None,
+    /// Proximity stress overlap removal (`PrismOverlapRemoval`).
+    #[value(name = "prism")]
+    Prism,
+    /// Delaunay/KdTree GTree overlap removal (`GTreeOverlapRemoval`).
+    #[value(name = "gtree")]
+    Gtree,
+    /// FORBID stress-based overlap removal (`ForbidVariant::Forbid`).
+    #[value(name = "forbid")]
+    Forbid,
+    /// FORBID' stress-based overlap removal (`ForbidVariant::ForbidPrime`).
+    #[value(name = "forbid-prime")]
+    ForbidPrime,
+    /// Sparse FORBID overlap removal (`ForbidVariant::SparseForbid`).
+    #[value(name = "sparse-forbid")]
+    SparseForbid,
 }
 
 /// Arguments for `egraph layout`.
@@ -144,14 +210,23 @@ pub struct LayoutArgs {
     /// Initial layout placement strategy.
     #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
     pub init: InitMethod,
+    /// Optional community labels file (JSON or plain-text/CSV integer list) for `gib` and `--cluster-refine` (auto-clustered via Leiden when omitted).
+    #[arg(long, value_name = "FILE")]
+    pub community_labels: Option<PathBuf>,
     /// Apply post-layout 2D spatial intruder refinement (`SpatialIntruderRefiner`).
     #[arg(long, default_value_t = false)]
     pub refine: bool,
-    /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`).
-    #[arg(long, default_value_t = false)]
+    /// Post-layout cluster refinement method (`none`, `kmeans`, `hac`).
+    #[arg(long, value_enum, default_value_t = ClusterRefineArg::None)]
+    pub cluster_refine: ClusterRefineArg,
+    /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`, alias for `--overlap-removal prism`).
+    #[arg(long, default_value_t = false, conflicts_with = "overlap_removal")]
     pub prism: bool,
-    /// Uniform node half-extent radius used when `--prism` is enabled.
-    #[arg(long, default_value_t = 0.05)]
+    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`; default: `none`).
+    #[arg(long, value_enum)]
+    pub overlap_removal: Option<OverlapRemovalArg>,
+    /// Uniform node half-extent radius used when overlap removal (`--overlap-removal` or `--prism`) is enabled.
+    #[arg(long, visible_alias = "overlap-radius", default_value_t = 0.05)]
     pub prism_radius: f64,
     /// Deterministic RNG seed.
     #[arg(long, default_value_t = 42)]
@@ -173,10 +248,10 @@ pub struct MetricsArgs {
     /// Input 2D coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`) and `adjusted-patch-nig`.
+    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`), `adjusted-patch-nig`, and label-dependent `eval-baselines` targets (`dsc`, `dc`, `cdm`, `hdm`, `sepme-*`, `neighborhood-hit`, `silhouette`, `calinski-harabasz`, `davies-bouldin`, `cq-*`, `pairwise-distance-overlap-error`; `sprawlter-nn` does not require labels).
     #[arg(long, value_name = "FILE")]
     pub community_labels: Option<PathBuf>,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,all`).
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,dsc,dc,cdm,hdm,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,all`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
@@ -232,6 +307,12 @@ pub struct ClusterArgs {
     /// Target number of clusters (used by `spectral` and `kmeans`).
     #[arg(long, default_value_t = 2)]
     pub k: usize,
+    /// Resolution parameter gamma for `leiden-mod` and `leiden-cpm`.
+    #[arg(long, default_value_t = 1.0)]
+    pub resolution: f64,
+    /// Randomness (temperature) parameter for Leiden refinement (`> 0.0`).
+    #[arg(long, default_value_t = 0.01)]
+    pub randomness: f64,
     /// Deterministic RNG seed.
     #[arg(long, default_value_t = 42)]
     pub seed: u64,
@@ -273,8 +354,11 @@ pub struct LayoutOutput {
     pub num_nodes: usize,
     pub num_edges: usize,
     pub refined: bool,
+    pub cluster_refine: ClusterRefineArg,
     pub prism_applied: bool,
     pub prism_overlaps_remaining: Option<usize>,
+    pub overlap_removal: OverlapRemovalArg,
+    pub overlaps_remaining: Option<usize>,
     pub elapsed_ms: f64,
     pub x: Vec<f64>,
     pub y: Vec<f64>,
@@ -355,6 +439,42 @@ pub struct MetricsOutput {
     pub g_eff: Option<usize>,
     pub gcaf_detail: Option<GcafDetailOutput>,
     pub landmark_stratified_rta: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsc: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dc: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cdm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hdm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sepme_knng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sepme_rng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sepme_gab: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sepme_gong: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub neighborhood_hit: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub silhouette: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calinski_harabasz: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub davies_bouldin: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cq_kmeans_ari: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cq_kmeans_ami: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cq_hac_hom: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cq_hac_ami: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pairwise_distance_overlap_error: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sprawlter_nn: Option<f64>,
 }
 
 impl MetricsOutput {
@@ -409,6 +529,24 @@ impl MetricsOutput {
             g_eff: gcaf_report.map(|r| r.g_eff),
             gcaf_detail: gcaf_detail.map(GcafDetailOutput::from),
             landmark_stratified_rta: report.landmark_stratified_rta,
+            dsc: report.dsc,
+            dc: report.dc,
+            cdm: report.cdm,
+            hdm: report.hdm,
+            sepme_knng: report.sepme_knng,
+            sepme_rng: report.sepme_rng,
+            sepme_gab: report.sepme_gab,
+            sepme_gong: report.sepme_gong,
+            neighborhood_hit: report.neighborhood_hit,
+            silhouette: report.silhouette,
+            calinski_harabasz: report.calinski_harabasz,
+            davies_bouldin: report.davies_bouldin,
+            cq_kmeans_ari: report.cq_kmeans_ari,
+            cq_kmeans_ami: report.cq_kmeans_ami,
+            cq_hac_hom: report.cq_hac_hom,
+            cq_hac_ami: report.cq_hac_ami,
+            pairwise_distance_overlap_error: report.pairwise_distance_overlap_error,
+            sprawlter_nn: report.sprawlter_nn,
         }
     }
 }
@@ -423,6 +561,7 @@ pub struct ClusterOutput {
     pub num_edges: usize,
     pub num_clusters: usize,
     pub modularity: Option<f64>,
+    pub quality: Option<f64>,
     pub inertia: Option<f64>,
     pub elapsed_ms: f64,
     pub labels: Vec<u32>,
@@ -507,6 +646,18 @@ pub fn run_layout_method(
     graph: &CsrGraph<f64>,
     layout: &mut Layout2d<f64>,
     method: LayoutMethod,
+    seed: u64,
+) -> CliResult<()> {
+    run_layout_method_with_communities(graph, layout, method, None, seed)
+}
+
+/// Runs the selected layout solver in-place on `layout`, forwarding optional `community_labels`
+/// (used by [`LayoutMethod::Gib`]; auto-clustered via Leiden if `None`).
+pub fn run_layout_method_with_communities(
+    graph: &CsrGraph<f64>,
+    layout: &mut Layout2d<f64>,
+    method: LayoutMethod,
+    community_labels: Option<&[u32]>,
     seed: u64,
 ) -> CliResult<()> {
     match method {
@@ -608,13 +759,81 @@ pub fn run_layout_method(
             let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
             solver.run(layout)?;
         }
+        LayoutMethod::Linlog => {
+            let cfg = LinLogConfig {
+                seed,
+                ..LinLogConfig::default()
+            };
+            let mut solver = LinLogSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fr => {
+            let cfg = FruchtermanReingoldConfig {
+                seed,
+                ..FruchtermanReingoldConfig::default()
+            };
+            let mut solver = FruchtermanReingoldSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fa2Overlap => {
+            let cfg = ForceAtlas2Config {
+                prevent_overlap: true,
+                seed,
+                ..ForceAtlas2Config::default()
+            };
+            let mut solver = ForceAtlas2Solver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Backbone => {
+            let cfg = BackboneConfig {
+                seed,
+                ..BackboneConfig::default()
+            };
+            let mut solver = BackboneSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Gib => {
+            let labels = match community_labels {
+                Some(lbls) => lbls.to_vec(),
+                None => {
+                    let l_cfg = LeidenConfig {
+                        seed,
+                        ..LeidenConfig::default()
+                    };
+                    leiden(graph, &l_cfg)?.labels
+                }
+            };
+            let cfg = GroupInABoxConfig {
+                seed,
+                ..GroupInABoxConfig::default()
+            };
+            let mut solver = GroupInABoxSolver::new(graph, labels, cfg)?;
+            solver.run(layout)?;
+        }
     }
     Ok(())
 }
 
 /// Executes the `layout` subcommand and returns the structured JSON output.
 pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
-    if args.prism && (!args.prism_radius.is_finite() || args.prism_radius <= 0.0) {
+    if args.prism
+        && matches!(
+            args.overlap_removal,
+            Some(mode) if mode != OverlapRemovalArg::Prism
+        )
+    {
+        return Err(CliError::InvalidInput(
+            "--prism cannot be combined with a conflicting --overlap-removal mode".to_string(),
+        ));
+    }
+    let effective_overlap = match (args.prism, args.overlap_removal) {
+        (true, _) => OverlapRemovalArg::Prism,
+        (false, Some(mode)) => mode,
+        (false, None) => OverlapRemovalArg::None,
+    };
+    if effective_overlap != OverlapRemovalArg::None
+        && (!args.prism_radius.is_finite() || args.prism_radius <= 0.0)
+    {
         return Err(CliError::Core(CoreError::invalid_input(
             "prism-radius must be finite and > 0.0",
         )));
@@ -623,12 +842,34 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
     let (graph, embedded_layout, source) =
         resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
 
+    let mut community_labels = args
+        .community_labels
+        .as_deref()
+        .map(|path| load_community_labels_from_path(path, graph.num_nodes()))
+        .transpose()?;
+
+    if community_labels.is_none()
+        && (args.method == LayoutMethod::Gib || args.cluster_refine != ClusterRefineArg::None)
+    {
+        let l_cfg = LeidenConfig {
+            seed: args.seed,
+            ..LeidenConfig::default()
+        };
+        community_labels = Some(leiden(&graph, &l_cfg)?.labels);
+    }
+
     let mut layout = match embedded_layout {
         Some(l) => l,
         None => build_initial_layout(&graph, args.init, args.seed)?,
     };
 
-    run_layout_method(&graph, &mut layout, args.method, args.seed)?;
+    run_layout_method_with_communities(
+        &graph,
+        &mut layout,
+        args.method,
+        community_labels.as_deref(),
+        args.seed,
+    )?;
 
     if args.refine {
         let ref_cfg = SpatialRefinerConfig {
@@ -639,17 +880,65 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
         refiner.run(&mut layout)?;
     }
 
-    let mut prism_overlaps_remaining = None;
-    if args.prism {
-        let prism_cfg = PrismConfig {
-            seed: args.seed,
-            ..PrismConfig::default()
+    if args.cluster_refine != ClusterRefineArg::None {
+        let method = match args.cluster_refine {
+            ClusterRefineArg::None => unreachable!(),
+            ClusterRefineArg::Kmeans => ClusterRefineMethod::Kmeans,
+            ClusterRefineArg::Hac => ClusterRefineMethod::Hac,
         };
-        let radii = vec![args.prism_radius; graph.num_nodes()];
-        let mut prism = PrismOverlapRemoval::from_radii(radii, prism_cfg)?;
-        prism.run(&mut layout)?;
-        prism_overlaps_remaining = Some(prism.last_overlap_count());
+        let labels = community_labels.clone().unwrap_or_default();
+        let cr_cfg = ClusterRefineConfig {
+            method,
+            seed: args.seed,
+            ..ClusterRefineConfig::default()
+        };
+        let mut refiner = ClusterRefineSolver::from_graph(&graph, labels, cr_cfg)?;
+        refiner.run(&mut layout)?;
     }
+
+    let (prism_overlaps_remaining, overlaps_remaining) = match effective_overlap {
+        OverlapRemovalArg::None => (None, None),
+        OverlapRemovalArg::Prism => {
+            let prism_cfg = PrismConfig {
+                seed: args.seed,
+                ..PrismConfig::default()
+            };
+            let radii = vec![args.prism_radius; graph.num_nodes()];
+            let mut prism = PrismOverlapRemoval::from_radii(radii, prism_cfg)?;
+            prism.run(&mut layout)?;
+            let rem = Some(prism.last_overlap_count());
+            (rem, rem)
+        }
+        OverlapRemovalArg::Gtree => {
+            let gtree_cfg = GTreeConfig {
+                seed: args.seed,
+                ..GTreeConfig::default()
+            };
+            let radii = vec![args.prism_radius; graph.num_nodes()];
+            let mut gtree = GTreeOverlapRemoval::from_radii(radii, gtree_cfg)?;
+            gtree.run(&mut layout)?;
+            (None, Some(gtree.last_overlap_count()))
+        }
+        OverlapRemovalArg::Forbid
+        | OverlapRemovalArg::ForbidPrime
+        | OverlapRemovalArg::SparseForbid => {
+            let variant = match effective_overlap {
+                OverlapRemovalArg::Forbid => ForbidVariant::Forbid,
+                OverlapRemovalArg::ForbidPrime => ForbidVariant::ForbidPrime,
+                OverlapRemovalArg::SparseForbid => ForbidVariant::SparseForbid,
+                _ => unreachable!(),
+            };
+            let forbid_cfg = ForbidConfig {
+                variant,
+                seed: args.seed,
+                ..ForbidConfig::default()
+            };
+            let radii = vec![args.prism_radius; graph.num_nodes()];
+            let mut forbid = ForbidOverlapRemoval::from_radii(radii, forbid_cfg)?;
+            forbid.run(&mut layout)?;
+            (None, Some(forbid.last_overlap_count()))
+        }
+    };
 
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let x = layout.x().to_vec();
@@ -664,8 +953,11 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
         num_nodes: graph.num_nodes(),
         num_edges: graph.num_edges(),
         refined: args.refine,
-        prism_applied: args.prism,
+        cluster_refine: args.cluster_refine,
+        prism_applied: effective_overlap == OverlapRemovalArg::Prism,
         prism_overlaps_remaining,
+        overlap_removal: effective_overlap,
+        overlaps_remaining,
         elapsed_ms,
         x,
         y,
@@ -791,6 +1083,60 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             }
             "rta" | "l-stratified-rta" | "landmark-stratified-rta" => {
                 push_unique_target(&mut targets, MetricTarget::LandmarkStratifiedRta);
+            }
+            "dsc" | "distance-consistency" => {
+                push_unique_target(&mut targets, MetricTarget::Dsc);
+            }
+            "dc" | "distribution-consistency" => {
+                push_unique_target(&mut targets, MetricTarget::Dc);
+            }
+            "cdm" | "class-density-measure" => {
+                push_unique_target(&mut targets, MetricTarget::Cdm);
+            }
+            "hdm" | "2d-hdm" | "histogram-density-measure" => {
+                push_unique_target(&mut targets, MetricTarget::Hdm);
+            }
+            "sepme-knng" | "sepme-knng2" => {
+                push_unique_target(&mut targets, MetricTarget::SepmeKnng);
+            }
+            "sepme-rng" => {
+                push_unique_target(&mut targets, MetricTarget::SepmeRng);
+            }
+            "sepme-gab" => {
+                push_unique_target(&mut targets, MetricTarget::SepmeGab);
+            }
+            "sepme-gong" => {
+                push_unique_target(&mut targets, MetricTarget::SepmeGong);
+            }
+            "neighborhood-hit" | "m-nh" | "nh" => {
+                push_unique_target(&mut targets, MetricTarget::NeighborhoodHit);
+            }
+            "silhouette" | "silhouette-score" => {
+                push_unique_target(&mut targets, MetricTarget::Silhouette);
+            }
+            "calinski-harabasz" | "calinski-harabasz-score" | "ch" => {
+                push_unique_target(&mut targets, MetricTarget::CalinskiHarabasz);
+            }
+            "davies-bouldin" | "davies-bouldin-score" | "db" => {
+                push_unique_target(&mut targets, MetricTarget::DaviesBouldin);
+            }
+            "cq-kmeans-ari" => {
+                push_unique_target(&mut targets, MetricTarget::CqKmeansAri);
+            }
+            "cq-kmeans-ami" => {
+                push_unique_target(&mut targets, MetricTarget::CqKmeansAmi);
+            }
+            "cq-hac-hom" => {
+                push_unique_target(&mut targets, MetricTarget::CqHacHom);
+            }
+            "cq-hac-ami" => {
+                push_unique_target(&mut targets, MetricTarget::CqHacAmi);
+            }
+            "pairwise-distance-overlap-error" | "pdoe" => {
+                push_unique_target(&mut targets, MetricTarget::PairwiseDistanceOverlapError);
+            }
+            "sprawlter-nn" | "sprawlter" => {
+                push_unique_target(&mut targets, MetricTarget::SprawlterNn);
             }
             other => {
                 return Err(CliError::InvalidInput(format!(
@@ -927,6 +1273,10 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
             boundary_r95: args.gcaf_boundary_r95,
             stevens_gamma: args.gcaf_stevens_gamma,
         },
+        cluster_baselines: ClusterBaselineConfig {
+            seed: args.seed,
+            ..ClusterBaselineConfig::default()
+        },
         ..MetricConfig::default()
     };
     cfg.validate()?;
@@ -977,14 +1327,54 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
     let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
 
     let t0 = Instant::now();
-    let (labels, num_clusters, modularity, inertia) = match args.method {
+    let (labels, num_clusters, modularity, quality, inertia) = match args.method {
         ClusterMethod::Louvain => {
             let cfg = LouvainConfig {
                 seed: args.seed,
                 ..LouvainConfig::default()
             };
             let res = louvain(&graph, &cfg)?;
-            (res.labels, res.num_communities, Some(res.modularity), None)
+            (
+                res.labels,
+                res.num_communities,
+                Some(res.modularity),
+                None,
+                None,
+            )
+        }
+        ClusterMethod::LeidenMod => {
+            let cfg = LeidenConfig {
+                objective: LeidenObjective::Modularity,
+                resolution: args.resolution,
+                randomness: args.randomness,
+                seed: args.seed,
+                ..LeidenConfig::default()
+            };
+            let res = leiden(&graph, &cfg)?;
+            (
+                res.labels,
+                res.num_communities,
+                Some(res.modularity),
+                Some(res.quality),
+                None,
+            )
+        }
+        ClusterMethod::LeidenCpm => {
+            let cfg = LeidenConfig {
+                objective: LeidenObjective::Cpm,
+                resolution: args.resolution,
+                randomness: args.randomness,
+                seed: args.seed,
+                ..LeidenConfig::default()
+            };
+            let res = leiden(&graph, &cfg)?;
+            (
+                res.labels,
+                res.num_communities,
+                Some(res.modularity),
+                Some(res.quality),
+                None,
+            )
         }
         ClusterMethod::Spectral => {
             let cfg = SpectralClusteringConfig {
@@ -994,7 +1384,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             };
             let labels = spectral_clustering(&graph, &cfg)?;
             let count = count_distinct_labels(&labels);
-            (labels, count, None, None)
+            (labels, count, None, None, None)
         }
         ClusterMethod::LabelProp => {
             let cfg = LabelPropagationConfig {
@@ -1003,7 +1393,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             };
             let labels = label_propagation(&graph, &cfg)?;
             let count = count_distinct_labels(&labels);
-            (labels, count, None, None)
+            (labels, count, None, None, None)
         }
         ClusterMethod::Kmeans => {
             let layout = build_initial_layout(&graph, InitMethod::PivotMds, args.seed)?;
@@ -1015,7 +1405,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             };
             let res = kmeans_plus_plus(&points, graph.num_nodes(), 2, &cfg)?;
             let count = count_distinct_labels(&res.labels);
-            (res.labels, count, None, Some(res.inertia))
+            (res.labels, count, None, None, Some(res.inertia))
         }
     };
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -1028,6 +1418,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
         num_edges: graph.num_edges(),
         num_clusters,
         modularity,
+        quality,
         inertia,
         elapsed_ms,
         labels,
@@ -1127,5 +1518,204 @@ mod tests {
 
         let patch_nig = parse_metric_targets("adjusted-patch-nig,patch_nig").expect("patch-nig");
         assert_eq!(patch_nig, vec![MetricTarget::AdjustedPatchNig]);
+    }
+
+    #[test]
+    fn parse_metric_targets_parses_all_18_eval_baseline_targets_and_aliases() {
+        let all_only = parse_metric_targets("all").expect("all");
+        assert_eq!(all_only.len(), 22);
+
+        let all_18 = parse_metric_targets(
+            "dsc,dc,cdm,hdm,sepme-knng,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn",
+        )
+        .expect("all 18 eval-baselines targets");
+        assert_eq!(
+            all_18,
+            vec![
+                MetricTarget::Dsc,
+                MetricTarget::Dc,
+                MetricTarget::Cdm,
+                MetricTarget::Hdm,
+                MetricTarget::SepmeKnng,
+                MetricTarget::SepmeRng,
+                MetricTarget::SepmeGab,
+                MetricTarget::SepmeGong,
+                MetricTarget::NeighborhoodHit,
+                MetricTarget::Silhouette,
+                MetricTarget::CalinskiHarabasz,
+                MetricTarget::DaviesBouldin,
+                MetricTarget::CqKmeansAri,
+                MetricTarget::CqKmeansAmi,
+                MetricTarget::CqHacHom,
+                MetricTarget::CqHacAmi,
+                MetricTarget::PairwiseDistanceOverlapError,
+                MetricTarget::SprawlterNn,
+            ]
+        );
+
+        let sepme_aliases = parse_metric_targets("sepme-knng,sepme_knng,sepme-knng2,sepme_knng2")
+            .expect("sepme aliases");
+        assert_eq!(sepme_aliases, vec![MetricTarget::SepmeKnng]);
+
+        let snake_and_short = parse_metric_targets(
+            "distance_consistency,distribution_consistency,class_density_measure,2d_hdm,histogram_density_measure,sepme_rng,sepme_gab,sepme_gong,neighborhood_hit,m_nh,nh,silhouette_score,calinski_harabasz,calinski_harabasz_score,ch,davies_bouldin,davies_bouldin_score,db,cq_kmeans_ari,cq_kmeans_ami,cq_hac_hom,cq_hac_ami,pairwise_distance_overlap_error,pdoe,sprawlter_nn,sprawlter",
+        )
+        .expect("snake_case and alias parity");
+        assert_eq!(
+            snake_and_short,
+            vec![
+                MetricTarget::Dsc,
+                MetricTarget::Dc,
+                MetricTarget::Cdm,
+                MetricTarget::Hdm,
+                MetricTarget::SepmeRng,
+                MetricTarget::SepmeGab,
+                MetricTarget::SepmeGong,
+                MetricTarget::NeighborhoodHit,
+                MetricTarget::Silhouette,
+                MetricTarget::CalinskiHarabasz,
+                MetricTarget::DaviesBouldin,
+                MetricTarget::CqKmeansAri,
+                MetricTarget::CqKmeansAmi,
+                MetricTarget::CqHacHom,
+                MetricTarget::CqHacAmi,
+                MetricTarget::PairwiseDistanceOverlapError,
+                MetricTarget::SprawlterNn,
+            ]
+        );
+    }
+
+    #[test]
+    fn cli_parses_w1_layout_cluster_and_overlap_removal_flags() {
+        let cli_prism = Cli::try_parse_from(["egraph", "layout", "--dataset", "karate", "--prism"])
+            .expect("--prism");
+        match cli_prism.command {
+            Commands::Layout(args) => {
+                assert!(args.prism);
+                assert_eq!(args.overlap_removal, None);
+                assert_eq!(args.cluster_refine, ClusterRefineArg::None);
+            }
+            _ => panic!("expected Layout command"),
+        }
+
+        for (flag, expected) in [
+            ("none", OverlapRemovalArg::None),
+            ("prism", OverlapRemovalArg::Prism),
+            ("gtree", OverlapRemovalArg::Gtree),
+            ("forbid", OverlapRemovalArg::Forbid),
+            ("forbid-prime", OverlapRemovalArg::ForbidPrime),
+            ("sparse-forbid", OverlapRemovalArg::SparseForbid),
+        ] {
+            let parsed = Cli::try_parse_from([
+                "egraph",
+                "layout",
+                "--dataset",
+                "karate",
+                "--overlap-removal",
+                flag,
+                "--overlap-radius",
+                "0.1",
+            ])
+            .expect("parse overlap-removal");
+            match parsed.command {
+                Commands::Layout(args) => {
+                    assert!(!args.prism);
+                    assert_eq!(args.overlap_removal, Some(expected));
+                    assert!((args.prism_radius - 0.1).abs() < 1e-12);
+                }
+                _ => panic!("expected Layout command"),
+            }
+        }
+
+        let conflict = Cli::try_parse_from([
+            "egraph",
+            "layout",
+            "--dataset",
+            "karate",
+            "--prism",
+            "--overlap-removal",
+            "gtree",
+        ]);
+        assert!(
+            conflict.is_err(),
+            "expected clap conflict between --prism and --overlap-removal"
+        );
+
+        for (method_str, expected) in [
+            ("linlog", LayoutMethod::Linlog),
+            ("fr", LayoutMethod::Fr),
+            ("fa2-overlap", LayoutMethod::Fa2Overlap),
+            ("backbone", LayoutMethod::Backbone),
+            ("gib", LayoutMethod::Gib),
+        ] {
+            let parsed = Cli::try_parse_from([
+                "egraph",
+                "layout",
+                "--dataset",
+                "karate",
+                "--method",
+                method_str,
+                "--cluster-refine",
+                "hac",
+                "--community-labels",
+                "labels.json",
+            ])
+            .expect("parse W1 layout method and cluster-refine");
+            match parsed.command {
+                Commands::Layout(args) => {
+                    assert_eq!(args.method, expected);
+                    assert_eq!(args.cluster_refine, ClusterRefineArg::Hac);
+                    assert_eq!(args.community_labels, Some(PathBuf::from("labels.json")));
+                }
+                _ => panic!("expected Layout command"),
+            }
+        }
+
+        for (method_str, expected) in [
+            ("leiden-mod", ClusterMethod::LeidenMod),
+            ("leiden-cpm", ClusterMethod::LeidenCpm),
+        ] {
+            let parsed = Cli::try_parse_from([
+                "egraph",
+                "cluster",
+                "--dataset",
+                "karate",
+                "--method",
+                method_str,
+                "--resolution",
+                "1.25",
+                "--randomness",
+                "0.05",
+            ])
+            .expect("parse leiden cluster flags");
+            match parsed.command {
+                Commands::Cluster(args) => {
+                    assert_eq!(args.method, expected);
+                    assert!((args.resolution - 1.25).abs() < 1e-12);
+                    assert!((args.randomness - 0.05).abs() < 1e-12);
+                }
+                _ => panic!("expected Cluster command"),
+            }
+        }
+    }
+
+    #[test]
+    fn execute_layout_rejects_conflicting_prism_and_overlap_removal_for_rust_callers() {
+        let args = LayoutArgs {
+            input: None,
+            dataset: Some("karate".to_string()),
+            method: LayoutMethod::Stress,
+            init: InitMethod::PivotMds,
+            community_labels: None,
+            refine: false,
+            cluster_refine: ClusterRefineArg::None,
+            prism: true,
+            overlap_removal: Some(OverlapRemovalArg::Gtree),
+            prism_radius: 0.05,
+            seed: 42,
+            output: None,
+        };
+        let err = execute_layout(&args).expect_err("runtime conflict guard");
+        assert!(matches!(err, CliError::InvalidInput(_)));
     }
 }
