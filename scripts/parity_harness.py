@@ -635,6 +635,10 @@ def run_v6_python_suite(eg: Any) -> list[dict[str, Any]]:
     if hasattr(eg, "leiden_communities"):
         results.extend(run_v6_w1_python_checks(eg))
 
+    # 11. W2 diversity baselines Python checks
+    if hasattr(eg, "hde"):
+        results.extend(run_v6_w2_python_checks(eg))
+
     assert not hasattr(eg, "InfoMap"), "InfoMap must not be exposed on egraph v6"
     assert "InfoMap" not in getattr(eg, "__all__", []), "InfoMap must not be in egraph.__all__"
 
@@ -2160,6 +2164,376 @@ def run_v6_w1_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     results.append({
         "case": "v6_w1_adversarial_non_panic",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t1, 4),
+    })
+    return results
+
+
+def run_v6_w2_python_checks(eg: Any) -> list[dict[str, Any]]:
+    """Run deterministic, f32/f64, step()==run(), invariant & adversarial checks for W2 Python APIs."""
+    import numpy as np
+
+    results: list[dict[str, Any]] = []
+    t0 = time.perf_counter()
+
+    # Graph fixtures: asymmetric 70-node graph, 10-node 2-clique barbell, 4x4 grid, 10-node star.
+    n_asym, asym_edges = _make_m2_canonical_graph_spec()
+    g_asym = eg.CsrGraph.from_edges(n_asym, asym_edges, directed=False, sanitize=True)
+
+    bb_edges: list[tuple[int, int]] = []
+    for off in (0, 5):
+        for i in range(5):
+            for j in range(i + 1, 5):
+                bb_edges.append((off + i, off + j))
+    bb_edges.append((4, 5))
+    g_bb = eg.CsrGraph.from_edges(10, bb_edges, directed=False, sanitize=True)
+
+    grid_edges: list[tuple[int, int]] = []
+    for r in range(4):
+        for c in range(4):
+            u = r * 4 + c
+            if c + 1 < 4:
+                grid_edges.append((u, u + 1))
+            if r + 1 < 4:
+                grid_edges.append((u, u + 4))
+    g_grid = eg.CsrGraph.from_edges(16, grid_edges, directed=False, sanitize=True)
+    g_star = eg.CsrGraph.from_edges(10, [(0, i) for i in range(1, 10)], directed=False, sanitize=True)
+
+    init10 = np.array(_make_m3_asymmetric_coords(10, scale=1.2), dtype=np.float64)
+    init_asym = np.array(_make_m3_asymmetric_coords(n_asym, scale=1.2), dtype=np.float64)
+
+    for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+        init10_t = init10.astype(np_dtype)
+        init_asym_t = init_asym.astype(np_dtype)
+
+        # 1. W2-1a HDE & HDE-ND
+        for norm in (True, False):
+            lh1 = eg.hde(g_asym, dimensions=16, normalize=norm, seed=42, dtype=dtype_name)
+            lh2 = eg.hde(g_asym, dimensions=16, normalize=norm, seed=42, dtype=dtype_name)
+            assert lh1.dtype == dtype_name and lh1.is_all_finite()
+            ch1 = lh1.coords(copy=True)
+            assert ch1.shape == (n_asym, 2) and ch1.dtype == np_dtype
+            assert np.array_equal(ch1, lh2.coords(copy=True))
+
+        lhp = eg.hde(g_asym, pivots=[0, 5, 10, 15], seed=42, dtype=dtype_name)
+        assert lhp.is_all_finite() and lhp.coords(copy=False).shape == (n_asym, 2)
+
+        for out_dims in (2, 3):
+            nd1 = eg.hde_nd(
+                g_asym, dimensions=16, output_dims=out_dims, seed=42, dtype=dtype_name
+            )
+            nd2 = eg.hde_nd(
+                g_asym, dimensions=16, output_dims=out_dims, seed=42, dtype=dtype_name
+            )
+            assert nd1.num_nodes == n_asym and nd1.dim == out_dims and nd1.is_all_finite()
+            cnd1 = nd1.coords(copy=True)
+            assert cnd1.shape == (n_asym, out_dims) and cnd1.dtype == np_dtype
+            assert np.array_equal(cnd1, nd2.coords(copy=True))
+
+        # 2. W2-1b Ortmann Sparse Stress & W2-3 LargeVis / DRGraph / Graph-CNE
+        sgd_cases: list[tuple[str, Callable[[], Any]]] = [
+            (
+                "ortmann_kmeans_sp",
+                lambda: eg.SgdSolver.ortmann_sparse_stress(
+                    g_bb, num_pivots=4, pivot_strategy="kmeans_sp", iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "ortmann_maxmin_random_sp",
+                lambda: eg.SgdSolver.ortmann_sparse_stress(
+                    g_bb, num_pivots=4, pivot_strategy="maxmin_random_sp", iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "ortmann_maxmin_sp",
+                lambda: eg.SgdSolver.ortmann_sparse_stress(
+                    g_bb, num_pivots=4, pivot_strategy="maxmin_sp", iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "largevis",
+                lambda: eg.SgdSolver.largevis(
+                    g_bb, iterations=10, negative_samples=3, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "drgraph_k1",
+                lambda: eg.SgdSolver.drgraph(
+                    g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "drgraph_k2",
+                lambda: eg.SgdSolver.drgraph(
+                    g_bb, k_order=2, negative_samples=3, iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "graph_cne_infonce",
+                lambda: eg.SgdSolver.graph_cne(
+                    g_bb, objective="infonce", negative_samples=3, iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+            (
+                "graph_cne_neg_tsne",
+                lambda: eg.SgdSolver.graph_cne(
+                    g_bb, objective="neg_tsne", negative_samples=3, iterations=10, seed=42, dtype=dtype_name
+                ),
+            ),
+        ]
+        for label, mk_sgd in sgd_cases:
+            sr1 = mk_sgd()
+            sr2 = mk_sgd()
+            ss = mk_sgd()
+            lr1 = eg.Layout2d.from_coords(init10_t)
+            lr2 = eg.Layout2d.from_coords(init10_t)
+            ls = eg.Layout2d.from_coords(init10_t)
+            assert sr1.run(lr1) == "completed", label
+            assert sr2.run(lr2) == "completed", label
+            ss.step(ls)
+            ss.run_steps(ls, 3)
+            ss.run(ls)
+            assert sr1.is_finished and ss.is_finished and lr1.is_all_finite()
+            assert np.array_equal(lr1.coords(copy=True), lr2.coords(copy=True)), label
+            assert np.array_equal(lr1.coords(copy=True), ls.coords(copy=True)), label
+
+        # 3. W2-2 MaxentStressSolver
+        for use_bh in (True, False):
+            mr1 = eg.MaxentStressSolver(
+                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+            )
+            mr2 = eg.MaxentStressSolver(
+                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+            )
+            ms = eg.MaxentStressSolver(
+                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+            )
+            assert abs(mr1.effective_q - 0.5) < 1e-12
+            assert abs(mr1.current_alpha - 1.0) < 1e-12
+            lr1 = eg.Layout2d.from_coords(init_asym_t)
+            lr2 = eg.Layout2d.from_coords(init_asym_t)
+            ls = eg.Layout2d.from_coords(init_asym_t)
+            assert mr1.run(lr1) in ("completed", "converged")
+            assert mr2.run(lr2) in ("completed", "converged")
+            assert mr1.current_alpha < 1.0
+            ms.step(ls)
+            ms.run_steps(ls, 3)
+            ms.run(ls)
+            assert mr1.is_finished and ms.is_finished and lr1.is_all_finite()
+            assert np.array_equal(lr1.coords(copy=True), lr2.coords(copy=True))
+            assert np.array_equal(lr1.coords(copy=True), ls.coords(copy=True))
+
+        # 4. W2-4 GRIP, GEM, SEL
+        gr1 = eg.GripSolver(g_bb, rounds_min=3, rounds_max=8, seed=42, dtype=dtype_name)
+        gr2 = eg.GripSolver(g_bb, rounds_min=3, rounds_max=8, seed=42, dtype=dtype_name)
+        gs = eg.GripSolver(g_bb, rounds_min=3, rounds_max=8, seed=42, dtype=dtype_name)
+        assert gr1.num_levels >= 1
+        lgr1 = eg.Layout2d.from_coords(init10_t)
+        lgr2 = eg.Layout2d.from_coords(init10_t)
+        lgs = eg.Layout2d.from_coords(init10_t)
+        gr1.run(lgr1)
+        gr2.run(lgr2)
+        gs.step(lgs)
+        gs.run_steps(lgs, 2)
+        gs.run(lgs)
+        assert gr1.is_finished and gs.is_finished and lgr1.is_all_finite()
+        assert np.array_equal(lgr1.coords(copy=True), lgr2.coords(copy=True))
+        assert np.array_equal(lgr1.coords(copy=True), lgs.coords(copy=True))
+
+        gm1 = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
+        gm2 = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
+        gms = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
+        lgm1 = eg.Layout2d.from_coords(init10_t)
+        lgm2 = eg.Layout2d.from_coords(init10_t)
+        lgms = eg.Layout2d.from_coords(init10_t)
+        gm1.run(lgm1)
+        gm2.run(lgm2)
+        gms.step(lgms)
+        gms.run_steps(lgms, 3)
+        gms.run(lgms)
+        assert gm1.is_finished and gms.is_finished and lgm1.is_all_finite()
+        assert np.array_equal(lgm1.coords(copy=True), lgm2.coords(copy=True))
+        assert np.array_equal(lgm1.coords(copy=True), lgms.coords(copy=True))
+
+        for mapping in ("sigmoid", "linear", "tanh", "custom_logistic", "binary"):
+            for backend in ("fr", "t_fdp"):
+                sel1 = eg.SelLayoutSolver(
+                    g_bb, mapping=mapping, layout_backend=backend, iterations=8, seed=42, dtype=dtype_name
+                )
+                sel2 = eg.SelLayoutSolver(
+                    g_bb, mapping=mapping, layout_backend=backend, iterations=8, seed=42, dtype=dtype_name
+                )
+                sels = eg.SelLayoutSolver(
+                    g_bb, mapping=mapping, layout_backend=backend, iterations=8, seed=42, dtype=dtype_name
+                )
+                assert math.isfinite(sel1.se_target)
+                mw = sel1.modulated_weights()
+                assert mw.dtype == np.float64 and mw.ndim == 1 and np.all(np.isfinite(mw))
+                lsel1 = eg.Layout2d.from_coords(init10_t)
+                lsel2 = eg.Layout2d.from_coords(init10_t)
+                lsels = eg.Layout2d.from_coords(init10_t)
+                sel1.run(lsel1)
+                sel2.run(lsel2)
+                sels.step(lsels)
+                sels.run_steps(lsels, 2)
+                sels.run(lsels)
+                assert sel1.is_finished and sels.is_finished and lsel1.is_all_finite()
+                assert np.array_equal(lsel1.coords(copy=True), lsel2.coords(copy=True))
+                assert np.array_equal(lsel1.coords(copy=True), lsels.coords(copy=True))
+
+        # 5. W2-4 PFS' Overlap Removal (0 overlaps & oo_nni == 0)
+        ov_coords = (init10 * 0.15).astype(np_dtype)
+        ov_coords[1] = ov_coords[0]
+        hw10 = np.full(10, 0.45, dtype=np.float64)
+        hh10 = np.full(10, 0.35, dtype=np.float64)
+        radii10 = np.full(10, 0.50, dtype=np.float64)
+
+        pf1 = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
+        pf2 = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
+        pfs = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
+        lpf1 = eg.Layout2d.from_coords(ov_coords)
+        lpf2 = eg.Layout2d.from_coords(ov_coords)
+        lpfs = eg.Layout2d.from_coords(ov_coords)
+        pf1.run(lpf1)
+        pf2.run(lpf2)
+        pfs.step(lpfs)
+        assert pf1.is_finished and pfs.is_finished
+        assert pf1.last_overlap_count == 0
+        assert len(eg.rectangle_overlaps(lpf1, hw10, hh10)) == 0
+        assert np.array_equal(lpf1.coords(copy=True), lpf2.coords(copy=True))
+        assert np.array_equal(lpf1.coords(copy=True), lpfs.coords(copy=True))
+
+        col_coords = np.column_stack([
+            np.linspace(-1.0, 1.0, 10, dtype=np.float64),
+            np.zeros(10, dtype=np.float64),
+        ]).astype(np_dtype)
+        l_col_orig = eg.Layout2d.from_coords(col_coords)
+        l_col_adj = eg.Layout2d.from_coords(col_coords)
+        pfr = eg.PfsPrimeOverlapRemoval.from_radii(radii10, padding=0.0, seed=42, dtype=dtype_name)
+        pfr.run(l_col_adj)
+        assert pfr.last_overlap_count == 0
+        assert len(eg.rectangle_overlaps(l_col_adj, radii10, radii10)) == 0
+        nor_pfs = eg.nor_metrics(l_col_orig, l_col_adj, radii10, radii10, graph=g_bb)
+        assert abs(float(nor_pfs["oo_nni"])) < 1e-12
+
+        # 6. W2-4 SFC Layout Solver (0 co-location)
+        for curve in ("hilbert", "morton"):
+            sfc1 = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            sfc2 = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            sfcs = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            ord1 = sfc1.vertex_order()
+            assert ord1.dtype == np.uint32 and sorted(ord1.tolist()) == list(range(10))
+            lsfc1 = eg.Layout2d.zeros(10, dtype=dtype_name)
+            lsfc2 = eg.Layout2d.zeros(10, dtype=dtype_name)
+            lsfcs = eg.Layout2d.zeros(10, dtype=dtype_name)
+            sfc1.run(lsfc1)
+            sfc2.run(lsfc2)
+            sfcs.step(lsfcs)
+            assert sfc1.is_finished and sfcs.is_finished and lsfc1.is_all_finite()
+            assert np.array_equal(lsfc1.coords(copy=True), lsfc2.coords(copy=True))
+            assert np.array_equal(lsfc1.coords(copy=True), lsfcs.coords(copy=True))
+            assert eg.layout_degeneracy(g_bb, lsfc1)["duplicate_nodes_f32"] == 0
+
+    # Auto-q invariant on MaxentStressSolver
+    assert abs(eg.MaxentStressSolver(g_grid).effective_q - 0.0) < 1e-12
+    assert abs(eg.MaxentStressSolver(g_star).effective_q - 0.8) < 1e-12
+
+    # Degenerate graphs across all W2 APIs (N=0, N=1, edgeless, disconnected+isolated, reciprocal directed)
+    g_empty = eg.CsrGraph.from_edges(0, [], directed=False)
+    g_single = eg.CsrGraph.from_edges(1, [], directed=False)
+    g_edgeless = eg.CsrGraph.from_edges(5, [], directed=False)
+    g_disc = eg.CsrGraph.from_edges(6, [(0, 1), (1, 2), (0, 2), (3, 4)], directed=False, sanitize=True)
+    g_dir_rec = eg.CsrGraph.from_edges(4, [(0, 1), (1, 0), (1, 2), (2, 1), (2, 3)], directed=True, sanitize=False)
+    for g_deg in (g_empty, g_single, g_edgeless, g_disc, g_dir_rec):
+        m = g_deg.num_nodes
+        assert eg.hde(g_deg, dimensions=4, seed=42).is_all_finite()
+        assert eg.hde_nd(g_deg, dimensions=4, output_dims=3, seed=42).is_all_finite()
+        deg_init = (
+            np.column_stack([np.linspace(-1.0, 1.0, m), np.zeros(m)])
+            if m > 0
+            else np.zeros((0, 2), dtype=np.float64)
+        )
+        for solver in (
+            eg.SgdSolver.ortmann_sparse_stress(g_deg, num_pivots=3, iterations=4, seed=42),
+            eg.SgdSolver.largevis(g_deg, iterations=4, seed=42),
+            eg.SgdSolver.drgraph(g_deg, iterations=4, seed=42),
+            eg.SgdSolver.graph_cne(g_deg, iterations=4, seed=42),
+            eg.MaxentStressSolver(g_deg, stages=2, steps_per_stage=3, seed=42),
+            eg.GripSolver(g_deg, rounds_min=2, rounds_max=4, seed=42),
+            eg.GemSolver(g_deg, max_rounds=4, seed=42),
+            eg.SelLayoutSolver(g_deg, iterations=4, seed=42),
+            eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64), seed=42),
+            eg.SfcLayoutSolver(g_deg, seed=42),
+        ):
+            lay = eg.Layout2d.from_coords(deg_init)
+            solver.run(lay)
+            assert lay.is_all_finite()
+
+    results.append({
+        "case": "v6_w2_baselines",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+    })
+
+    # Adversarial W2 invalid-input non-panic checks
+    t1 = time.perf_counter()
+    bad_lay = eg.Layout2d.zeros(10)
+    bad_lay.coords(copy=False)[0, 0] = float("nan")
+    wrong_lay = eg.Layout2d.zeros(3)
+    hw10_ok = np.full(10, 0.45, dtype=np.float64)
+    hh10_ok = np.full(10, 0.35, dtype=np.float64)
+    w2_bad: list[tuple[str, Callable[[], Any], tuple[type[BaseException], ...]]] = [
+        ("hde/dimensions_0", lambda: eg.hde(g_bb, dimensions=0), (ValueError,)),
+        ("hde_nd/output_dims_0", lambda: eg.hde_nd(g_bb, output_dims=0), (ValueError,)),
+        ("hde/tol_nan", lambda: eg.hde(g_bb, tol=float("nan")), (ValueError,)),
+        ("hde/tol_0", lambda: eg.hde(g_bb, tol=0.0), (ValueError,)),
+        ("hde/max_sweeps_0", lambda: eg.hde(g_bb, max_sweeps=0), (ValueError,)),
+        ("hde/empty_pivots", lambda: eg.hde(g_bb, pivots=[]), (ValueError,)),
+        ("hde/oob_pivot", lambda: eg.hde(g_bb, pivots=[999]), (IndexError,)),
+        ("hde/bool_seed", lambda: eg.hde(g_bb, seed=True), (TypeError,)),
+        ("ortmann/num_pivots_0", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=0), (ValueError,)),
+        ("ortmann/bad_strategy", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, pivot_strategy="bad"), (ValueError,)),
+        ("largevis/neg_gamma", lambda: eg.SgdSolver.largevis(g_bb, gamma=-1.0), (ValueError,)),
+        ("largevis/bool_seed", lambda: eg.SgdSolver.largevis(g_bb, seed=True), (TypeError,)),
+        ("drgraph/k_order_0", lambda: eg.SgdSolver.drgraph(g_bb, k_order=0), (ValueError,)),
+        ("drgraph/bad_ratio", lambda: eg.SgdSolver.drgraph(g_bb, coarsen_stop_ratio=1.5), (ValueError,)),
+        ("graph_cne/bad_obj", lambda: eg.SgdSolver.graph_cne(g_bb, objective="bad"), (ValueError,)),
+        ("graph_cne/neg_rep", lambda: eg.SgdSolver.graph_cne(g_bb, repulsion_weight=-0.5), (ValueError,)),
+        ("largevis/nan_layout", lambda: eg.SgdSolver.largevis(g_bb, iterations=2).run(bad_lay), (ValueError,)),
+        ("largevis/wrong_len", lambda: eg.SgdSolver.largevis(g_bb, iterations=2).run(wrong_lay), (ValueError,)),
+        ("maxent/q_too_low", lambda: eg.MaxentStressSolver(g_bb, q=-2.0), (ValueError,)),
+        ("maxent/q_nan", lambda: eg.MaxentStressSolver(g_bb, q=float("nan")), (ValueError,)),
+        ("maxent/alpha_decay_bad", lambda: eg.MaxentStressSolver(g_bb, alpha_decay=1.5), (ValueError,)),
+        ("maxent/nan_layout", lambda: eg.MaxentStressSolver(g_bb, stages=1, steps_per_stage=2).run(bad_lay), (ValueError,)),
+        ("maxent/wrong_len", lambda: eg.MaxentStressSolver(g_bb, stages=1, steps_per_stage=2).run(wrong_lay), (ValueError,)),
+        ("grip/rounds_inverted", lambda: eg.GripSolver(g_bb, rounds_min=10, rounds_max=5), (ValueError,)),
+        ("grip/edge_length_0", lambda: eg.GripSolver(g_bb, edge_length=0.0), (ValueError,)),
+        ("grip/nan_layout", lambda: eg.GripSolver(g_bb, rounds_min=1, rounds_max=2).run(bad_lay), (ValueError,)),
+        ("gem/edge_length_0", lambda: eg.GemSolver(g_bb, edge_length=0.0), (ValueError,)),
+        ("gem/gravity_neg", lambda: eg.GemSolver(g_bb, gravity=-1.0), (ValueError,)),
+        ("gem/nan_layout", lambda: eg.GemSolver(g_bb, max_rounds=2).run(bad_lay), (ValueError,)),
+        ("sel/tree_depth_0", lambda: eg.SelLayoutSolver(g_bb, tree_depth=0), (ValueError,)),
+        ("sel/bad_mapping", lambda: eg.SelLayoutSolver(g_bb, mapping="bad"), (ValueError,)),
+        ("sel/bad_backend", lambda: eg.SelLayoutSolver(g_bb, layout_backend="bad"), (ValueError,)),
+        ("sel/nan_layout", lambda: eg.SelLayoutSolver(g_bb, iterations=2).run(bad_lay), (ValueError,)),
+        ("pfs_prime/len_mismatch", lambda: eg.PfsPrimeOverlapRemoval([1.0, 2.0], [1.0]), (ValueError,)),
+        ("pfs_prime/neg_hw", lambda: eg.PfsPrimeOverlapRemoval([-1.0], [1.0]), (ValueError,)),
+        ("pfs_prime/neg_padding", lambda: eg.PfsPrimeOverlapRemoval([1.0], [1.0], padding=-0.1), (ValueError,)),
+        ("pfs_prime/inf_radii", lambda: eg.PfsPrimeOverlapRemoval.from_radii([float("inf")]), (ValueError,)),
+        ("pfs_prime/nan_layout", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).run(bad_lay), (ValueError,)),
+        ("pfs_prime/wrong_len", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).run(wrong_lay), (ValueError,)),
+        ("sfc/scale_0", lambda: eg.SfcLayoutSolver(g_bb, scale=0.0), (ValueError,)),
+        ("sfc/res_order_16", lambda: eg.SfcLayoutSolver(g_bb, resolution_order=16), (ValueError,)),
+        ("sfc/bad_curve", lambda: eg.SfcLayoutSolver(g_bb, curve="peano"), (ValueError,)),
+        ("sfc/nan_layout", lambda: eg.SfcLayoutSolver(g_bb).run(bad_lay), (ValueError,)),
+        ("sfc/wrong_len", lambda: eg.SfcLayoutSolver(g_bb).run(wrong_lay), (ValueError,)),
+    ]
+    for label, fn, expected in w2_bad:
+        _assert_non_panic_error(label, fn, expected_types=expected)
+
+    results.append({
+        "case": "v6_w2_adversarial_non_panic",
         "status": "pass",
         "elapsed_sec": round(time.perf_counter() - t1, 4),
     })
@@ -7019,6 +7393,496 @@ console.log(JSON.stringify(out));
     }]
 
 
+def run_cross_target_w2_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str, Any]]:
+    """Verify Python float32 <-> WASM f32 numerical & structural parity across all W2 APIs."""
+    import numpy as np
+
+    if not hasattr(eg, "hde"):
+        return []
+    node_entry = wasm_pkg / "egraph_wasm.node.js"
+    index_entry = wasm_pkg / "index.js"
+    if not index_entry.exists():
+        return []
+
+    t0 = time.perf_counter()
+
+    # Fixtures: asymmetric 70-node graph (for spectral HDE), 10-node barbell, 4x4 grid, 10-node star.
+    n_asym, asym_edges = _make_m2_canonical_graph_spec()
+    g_asym = eg.CsrGraph.from_edges(n_asym, asym_edges, directed=False, sanitize=True)
+
+    bb_edges: list[tuple[int, int]] = []
+    for off in (0, 5):
+        for i in range(5):
+            for j in range(i + 1, 5):
+                bb_edges.append((off + i, off + j))
+    bb_edges.append((4, 5))
+    g_bb = eg.CsrGraph.from_edges(10, bb_edges, directed=False, sanitize=True)
+
+    grid_edges: list[tuple[int, int]] = []
+    for r in range(4):
+        for c in range(4):
+            u = r * 4 + c
+            if c + 1 < 4:
+                grid_edges.append((u, u + 1))
+            if r + 1 < 4:
+                grid_edges.append((u, u + 4))
+    g_grid = eg.CsrGraph.from_edges(16, grid_edges, directed=False, sanitize=True)
+
+    star_edges = [(0, i) for i in range(1, 10)]
+    g_star = eg.CsrGraph.from_edges(10, star_edges, directed=False, sanitize=True)
+
+    init10_f32 = np.array(_make_m3_asymmetric_coords(10, scale=1.2), dtype=np.float32)
+    ov_f32 = (init10_f32 * 0.15).astype(np.float32)
+    ov_f32[1] = ov_f32[0]
+    col_f32 = np.column_stack([
+        np.linspace(-1.0, 1.0, 10, dtype=np.float32),
+        np.zeros(10, dtype=np.float32),
+    ]).astype(np.float32)
+    hw10_f32 = [0.45] * 10
+    hh10_f32 = [0.35] * 10
+    radii10_f32 = [0.50] * 10
+
+    # W2-1a: HDE & HDE-ND on asymmetric graph
+    hde_py = eg.hde(g_asym, dimensions=16, normalize=True, seed=42, dtype="float32")
+    hde_piv_py = eg.hde(g_asym, pivots=[0, 5, 10, 15], normalize=True, seed=42, dtype="float32")
+    hde_nd_py = eg.hde_nd(
+        g_asym, dimensions=16, output_dims=3, normalize=True, seed=42, dtype="float32"
+    )
+
+    # W2-1b & W2-3: SgdSolver W2 presets
+    sgd_py: dict[str, Any] = {}
+    for key, mk in (
+        ("ort_kmeans", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="kmeans_sp", iterations=10, seed=42, dtype="float32")),
+        ("ort_maxmin_rand", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="maxmin_random_sp", iterations=10, seed=42, dtype="float32")),
+        ("ort_maxmin", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="maxmin_sp", iterations=10, seed=42, dtype="float32")),
+        ("largevis", lambda: eg.SgdSolver.largevis(g_bb, iterations=10, negative_samples=3, seed=42, dtype="float32")),
+        ("drgraph", lambda: eg.SgdSolver.drgraph(g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype="float32")),
+        ("cne_infonce", lambda: eg.SgdSolver.graph_cne(g_bb, objective="infonce", negative_samples=3, iterations=10, seed=42, dtype="float32")),
+        ("cne_neg_tsne", lambda: eg.SgdSolver.graph_cne(g_bb, objective="neg_tsne", negative_samples=3, iterations=10, seed=42, dtype="float32")),
+    ):
+        s = mk()
+        lay = eg.Layout2d.from_coords(init10_f32)
+        s.run(lay)
+        sgd_py[key] = lay.coords(copy=True)
+
+    # W2-2: MaxentStressSolver
+    maxent_py: dict[str, dict[str, Any]] = {}
+    for use_bh in (True, False):
+        tag = "bh" if use_bh else "exact"
+        ms = eg.MaxentStressSolver(
+            g_bb, q=0.4, stages=2, steps_per_stage=5, use_barnes_hut=use_bh, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(init10_f32)
+        ms.run(lay)
+        maxent_py[tag] = {
+            "coords": lay.coords(copy=True),
+            "q": float(ms.effective_q),
+            "alpha": float(ms.current_alpha),
+        }
+    maxent_auto_grid_py = float(eg.MaxentStressSolver(g_grid, dtype="float32").effective_q)
+    maxent_auto_star_py = float(eg.MaxentStressSolver(g_star, dtype="float32").effective_q)
+
+    # W2-4: GRIP, GEM, SEL, PFS', SFC
+    grip_s = eg.GripSolver(g_bb, rounds_min=3, rounds_max=8, seed=42, dtype="float32")
+    l_grip = eg.Layout2d.from_coords(init10_f32)
+    grip_s.run(l_grip)
+    grip_py = {"coords": l_grip.coords(copy=True), "num_levels": int(grip_s.num_levels)}
+
+    gem_s = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype="float32")
+    l_gem = eg.Layout2d.from_coords(init10_f32)
+    gem_s.run(l_gem)
+    gem_py = l_gem.coords(copy=True)
+
+    sel_py: dict[str, dict[str, Any]] = {}
+    for mapping, backend in (("sigmoid", "fr"), ("tanh", "t_fdp")):
+        ss = eg.SelLayoutSolver(
+            g_bb, mapping=mapping, layout_backend=backend, iterations=8, seed=42, dtype="float32"
+        )
+        lay = eg.Layout2d.from_coords(init10_f32)
+        ss.run(lay)
+        sel_py[f"{mapping}_{backend}"] = {
+            "coords": lay.coords(copy=True),
+            "se_target": float(ss.se_target),
+            "weights": ss.modulated_weights(),
+        }
+
+    pfs_box = eg.PfsPrimeOverlapRemoval(hw10_f32, hh10_f32, padding=0.02, seed=42, dtype="float32")
+    l_pfs_box = eg.Layout2d.from_coords(ov_f32)
+    pfs_box.run(l_pfs_box)
+    pfs_rad = eg.PfsPrimeOverlapRemoval.from_radii(radii10_f32, padding=0.0, seed=42, dtype="float32")
+    l_col_orig = eg.Layout2d.from_coords(col_f32)
+    l_pfs_rad = eg.Layout2d.from_coords(col_f32)
+    pfs_rad.run(l_pfs_rad)
+    pfs_nor_py = eg.nor_metrics(l_col_orig, l_pfs_rad, radii10_f32, radii10_f32, graph=g_bb)
+
+    sfc_py: dict[str, dict[str, Any]] = {}
+    for curve in ("hilbert", "morton"):
+        sc = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype="float32")
+        lay = eg.Layout2d.zeros(10, dtype="float32")
+        sc.run(lay)
+        sfc_py[curve] = {
+            "coords": lay.coords(copy=True),
+            "order": sc.vertex_order().tolist(),
+            "dups": int(eg.layout_degeneracy(g_bb, lay)["duplicate_nodes_f32"]),
+        }
+
+    node_url = node_entry.resolve().as_uri() if node_entry.exists() else index_entry.resolve().as_uri()
+    wasm_path = (wasm_pkg / "egraph_wasm_bg.wasm").resolve().as_posix()
+    spec_payload = {
+        "n_asym": n_asym,
+        "asym_edges": [int(v) for edge in asym_edges for v in edge],
+        "bb_edges": [int(v) for edge in bb_edges for v in edge],
+        "grid_edges": [int(v) for edge in grid_edges for v in edge],
+        "star_edges": [int(v) for edge in star_edges for v in edge],
+        "init10": [float(v) for v in init10_f32.ravel()],
+        "ov": [float(v) for v in ov_f32.ravel()],
+        "col": [float(v) for v in col_f32.ravel()],
+        "hw10": hw10_f32,
+        "hh10": hh10_f32,
+        "radii10": radii10_f32,
+    }
+
+    node_script = """
+import { readFile } from 'node:fs/promises';
+
+const nodeUrl = process.argv[1];
+const wasmPath = process.argv[2];
+const spec = JSON.parse(process.argv[3]);
+
+const mod = await import(nodeUrl);
+if (typeof mod.default === 'function') {
+  try {
+    const probe = mod.CsrGraph.fromCsr(new Uint32Array([0, 1, 2]), new Uint32Array([1, 0]));
+    probe.free?.();
+  } catch (_e) {
+    await mod.default(await readFile(wasmPath));
+  }
+}
+
+if (typeof mod.hde !== 'function') {
+  console.log(JSON.stringify({ w2_available: false }));
+  process.exit(0);
+}
+
+function assertNonPanicError(label, fn) {
+  let caught = false;
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof WebAssembly.RuntimeError) {
+      throw new Error(`${label} triggered WebAssembly.RuntimeError: ${err}`);
+    }
+    caught = true;
+  }
+  if (!caught) {
+    throw new Error(`${label} unexpectedly succeeded`);
+  }
+}
+
+function arrEq(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+const gAsym = mod.CsrGraph.fromEdgeList(spec.n_asym, new Uint32Array(spec.asym_edges), null, false, true);
+const gBb = mod.CsrGraph.fromEdgeList(10, new Uint32Array(spec.bb_edges), null, false, true);
+const gGrid = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.grid_edges), null, false, true);
+const gStar = mod.CsrGraph.fromEdgeList(10, new Uint32Array(spec.star_edges), null, false, true);
+const init10 = new Float32Array(spec.init10);
+const ov = new Float32Array(spec.ov);
+const col = new Float32Array(spec.col);
+const hw10 = new Float32Array(spec.hw10);
+const hh10 = new Float32Array(spec.hh10);
+const radii10 = new Float32Array(spec.radii10);
+
+// W2-1a HDE & HDE-ND
+const lHde = mod.hde(gAsym, { dimensions: 16, normalize: true, seed: 42 });
+const lHdePiv = mod.hde(gAsym, { pivots: [0, 5, 10, 15], normalize: true, seed: 42 });
+const lHdeNd = mod.hdeNd(gAsym, { dimensions: 16, outputDims: 3, normalize: true, seed: 42 });
+const hdeOut = {
+  coords: Array.from(lHde.coordsView()),
+  numNodes: lHde.numNodes,
+  pivCoords: Array.from(lHdePiv.coordsView()),
+  ndCoords: Array.from(lHdeNd.coordsView()),
+  ndNumNodes: lHdeNd.numNodes,
+  ndDim: lHdeNd.dim,
+};
+lHde.free?.(); lHdePiv.free?.(); lHdeNd.free?.();
+
+// W2-1b & W2-3 SgdSolver W2 presets
+const sgdConfigs = [
+  ['ort_kmeans', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'kmeans_sp', iterations: 10, seed: 42 })],
+  ['ort_maxmin_rand', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxmin_random_sp', iterations: 10, seed: 42 })],
+  ['ort_maxmin', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxmin_sp', iterations: 10, seed: 42 })],
+  ['largevis', () => mod.SgdSolver.largevis(gBb, { iterations: 10, negativeSamples: 3, seed: 42 })],
+  ['drgraph', () => mod.SgdSolver.drgraph(gBb, { kOrder: 1, negativeSamples: 3, iterations: 10, seed: 42 })],
+  ['cne_infonce', () => mod.SgdSolver.graphCne(gBb, { objective: 'infonce', negativeSamples: 3, iterations: 10, seed: 42 })],
+  ['cne_neg_tsne', () => mod.SgdSolver.graphCne(gBb, { objective: 'neg_tsne', negativeSamples: 3, iterations: 10, seed: 42 })],
+];
+const sgdOut = {};
+for (const [k, mk] of sgdConfigs) {
+  const s1 = mk();
+  const s2 = mk();
+  const l1 = mod.Layout2d.fromCoords(init10);
+  const l2 = mod.Layout2d.fromCoords(init10);
+  s1.run(l1);
+  s2.step(l2);
+  s2.runSteps(l2, 3);
+  s2.run(l2);
+  const c1 = Array.from(l1.coordsView());
+  const c2 = Array.from(l2.coordsView());
+  if (!arrEq(c1, c2)) throw new Error(`WASM step()!=run() for ${k}`);
+  sgdOut[k] = c1;
+  l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
+}
+
+// W2-2 MaxentStressSolver
+const maxentOut = {};
+for (const useBh of [true, false]) {
+  const tag = useBh ? 'bh' : 'exact';
+  const s1 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, useBarnesHut: useBh, seed: 42 });
+  const s2 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, useBarnesHut: useBh, seed: 42 });
+  const l1 = mod.Layout2d.fromCoords(init10);
+  const l2 = mod.Layout2d.fromCoords(init10);
+  s1.run(l1);
+  s2.step(l2);
+  s2.runSteps(l2, 3);
+  s2.run(l2);
+  const c1 = Array.from(l1.coordsView());
+  const c2 = Array.from(l2.coordsView());
+  if (!arrEq(c1, c2)) throw new Error(`WASM Maxent step()!=run() for ${tag}`);
+  maxentOut[tag] = { coords: c1, q: s1.effectiveQ, alpha: s1.currentAlpha };
+  l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
+}
+const mAutoGrid = new mod.MaxentStressSolver(gGrid, {});
+const mAutoStar = new mod.MaxentStressSolver(gStar, {});
+const maxentAutoQ = { grid: mAutoGrid.effectiveQ, star: mAutoStar.effectiveQ };
+mAutoGrid.free?.(); mAutoStar.free?.();
+
+// W2-4 GRIP, GEM, SEL, PFS', SFC
+const g1 = new mod.GripSolver(gBb, { roundsMin: 3, roundsMax: 8, seed: 42 });
+const g2 = new mod.GripSolver(gBb, { roundsMin: 3, roundsMax: 8, seed: 42 });
+const lg1 = mod.Layout2d.fromCoords(init10);
+const lg2 = mod.Layout2d.fromCoords(init10);
+g1.run(lg1); g2.step(lg2); g2.runSteps(lg2, 2); g2.run(lg2);
+const gripCoords = Array.from(lg1.coordsView());
+if (!arrEq(gripCoords, Array.from(lg2.coordsView()))) throw new Error('WASM Grip step()!=run()');
+const gripNumLevels = g1.numLevels;
+lg1.free?.(); lg2.free?.(); g1.free?.(); g2.free?.();
+
+const m1 = new mod.GemSolver(gBb, { maxRounds: 12, seed: 42 });
+const m2 = new mod.GemSolver(gBb, { maxRounds: 12, seed: 42 });
+const lm1 = mod.Layout2d.fromCoords(init10);
+const lm2 = mod.Layout2d.fromCoords(init10);
+m1.run(lm1); m2.step(lm2); m2.runSteps(lm2, 3); m2.run(lm2);
+const gemCoords = Array.from(lm1.coordsView());
+if (!arrEq(gemCoords, Array.from(lm2.coordsView()))) throw new Error('WASM Gem step()!=run()');
+lm1.free?.(); lm2.free?.(); m1.free?.(); m2.free?.();
+
+const selOut = {};
+for (const [mapping, layoutBackend] of [['sigmoid', 'fr'], ['tanh', 't_fdp']]) {
+  const s1 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend, iterations: 8, seed: 42 });
+  const s2 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend, iterations: 8, seed: 42 });
+  const l1 = mod.Layout2d.fromCoords(init10);
+  const l2 = mod.Layout2d.fromCoords(init10);
+  s1.run(l1); s2.step(l2); s2.runSteps(l2, 2); s2.run(l2);
+  const c1 = Array.from(l1.coordsView());
+  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SEL step()!=run() for ${mapping}/${layoutBackend}`);
+  selOut[`${mapping}_${layoutBackend}`] = {
+    coords: c1,
+    seTarget: s1.seTarget,
+    weights: Array.from(s1.modulatedWeights()),
+  };
+  l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
+}
+
+const pfBox1 = new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: 0.02, seed: 42 });
+const pfBox2 = new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: 0.02, seed: 42 });
+const lPf1 = mod.Layout2d.fromCoords(ov);
+const lPf2 = mod.Layout2d.fromCoords(ov);
+pfBox1.run(lPf1); pfBox2.step(lPf2);
+const pfBoxCoords = Array.from(lPf1.coordsView());
+if (!arrEq(pfBoxCoords, Array.from(lPf2.coordsView()))) throw new Error('WASM PFS step()!=run()');
+const pfBoxOv = pfBox1.lastOverlapCount;
+
+const pfRad = mod.PfsPrimeOverlapRemoval.fromRadii(radii10, { padding: 0.0, seed: 42 });
+const lColOrig = mod.Layout2d.fromCoords(col);
+const lPfRad = mod.Layout2d.fromCoords(col);
+pfRad.run(lPfRad);
+const pfRadCoords = Array.from(lPfRad.coordsView());
+const pfRadOv = pfRad.lastOverlapCount;
+const norG = mod.norMetrics(gBb, lColOrig, lPfRad, radii10, radii10);
+const pfOoNni = norG.ooNni;
+norG.free?.(); lColOrig.free?.(); lPfRad.free?.(); pfRad.free?.();
+lPf1.free?.(); lPf2.free?.(); pfBox1.free?.(); pfBox2.free?.();
+
+const sfcOut = {};
+for (const curve of ['hilbert', 'morton']) {
+  const s1 = new mod.SfcLayoutSolver(gBb, { curve, scale: 80.0, seed: 42 });
+  const s2 = new mod.SfcLayoutSolver(gBb, { curve, scale: 80.0, seed: 42 });
+  const l1 = mod.Layout2d.zeros(10);
+  const l2 = mod.Layout2d.zeros(10);
+  s1.run(l1); s2.step(l2);
+  const c1 = Array.from(l1.coordsView());
+  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SFC step()!=run() for ${curve}`);
+  const deg = mod.layoutDegeneracy(gBb, l1);
+  sfcOut[curve] = { coords: c1, order: Array.from(s1.vertexOrder()), dups: deg.duplicateNodesF32 };
+  deg.free?.(); l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
+}
+
+// Degenerate graphs non-panic in WASM
+const gEmpty = mod.CsrGraph.fromEdgeList(0, new Uint32Array([]), null, false, true);
+const gSingle = mod.CsrGraph.fromEdgeList(1, new Uint32Array([]), null, false, true);
+const gDisc = mod.CsrGraph.fromEdgeList(6, new Uint32Array([0, 1, 1, 2, 0, 2, 3, 4]), null, false, true);
+const gDirRec = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 0, 1, 2, 2, 1, 2, 3]), null, true, false);
+for (const gDeg of [gEmpty, gSingle, gDisc, gDirRec]) {
+  const m = gDeg.numNodes();
+  const h1 = mod.hde(gDeg, { dimensions: 4, seed: 42 });
+  if (!h1.isAllFinite()) throw new Error('WASM hde non-finite on degenerate graph');
+  h1.free?.();
+  const h2 = mod.hdeNd(gDeg, { dimensions: 4, outputDims: 3, seed: 42 });
+  if (!h2.isAllFinite()) throw new Error('WASM hdeNd non-finite on degenerate graph');
+  h2.free?.();
+  for (const s of [
+    mod.SgdSolver.ortmannSparseStress(gDeg, { numPivots: 3, iterations: 4, seed: 42 }),
+    mod.SgdSolver.largevis(gDeg, { iterations: 4, seed: 42 }),
+    mod.SgdSolver.drgraph(gDeg, { iterations: 4, seed: 42 }),
+    mod.SgdSolver.graphCne(gDeg, { iterations: 4, seed: 42 }),
+    new mod.MaxentStressSolver(gDeg, { stages: 2, stepsPerStage: 3, seed: 42 }),
+    new mod.GripSolver(gDeg, { roundsMin: 2, roundsMax: 4, seed: 42 }),
+    new mod.GemSolver(gDeg, { maxRounds: 4, seed: 42 }),
+    new mod.SelLayoutSolver(gDeg, { iterations: 4, seed: 42 }),
+    mod.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(m).fill(0.25), { seed: 42 }),
+    new mod.SfcLayoutSolver(gDeg, { seed: 42 }),
+  ]) {
+    const ld = mod.Layout2d.zeros(m);
+    s.run(ld);
+    if (!ld.isAllFinite()) throw new Error('WASM W2 solver non-finite on degenerate graph');
+    ld.free?.(); s.free?.();
+  }
+}
+gEmpty.free?.(); gSingle.free?.(); gDisc.free?.(); gDirRec.free?.();
+
+// Invalid input JsError (no WebAssembly.RuntimeError)
+assertNonPanicError('wasm/hde/dimensions_0', () => mod.hde(gBb, { dimensions: 0 }));
+assertNonPanicError('wasm/hdeNd/outputDims_0', () => mod.hdeNd(gBb, { outputDims: 0 }));
+assertNonPanicError('wasm/ortmann/bad_strat', () => mod.SgdSolver.ortmannSparseStress(gBb, { pivotStrategy: 'bad' }));
+assertNonPanicError('wasm/largevis/neg_gamma', () => mod.SgdSolver.largevis(gBb, { gamma: -1 }));
+assertNonPanicError('wasm/drgraph/k0', () => mod.SgdSolver.drgraph(gBb, { kOrder: 0 }));
+assertNonPanicError('wasm/cne/bad_obj', () => mod.SgdSolver.graphCne(gBb, { objective: 'bad' }));
+assertNonPanicError('wasm/maxent/q_bad', () => new mod.MaxentStressSolver(gBb, { q: -2 }));
+assertNonPanicError('wasm/grip/rounds_inv', () => new mod.GripSolver(gBb, { roundsMin: 10, roundsMax: 5 }));
+assertNonPanicError('wasm/gem/edge_len_0', () => new mod.GemSolver(gBb, { edgeLength: 0 }));
+assertNonPanicError('wasm/sel/bad_mapping', () => new mod.SelLayoutSolver(gBb, { mapping: 'bad' }));
+assertNonPanicError('wasm/pfs/neg_padding', () => new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: -0.1 }));
+assertNonPanicError('wasm/sfc/bad_curve', () => new mod.SfcLayoutSolver(gBb, { curve: 'peano' }));
+
+gAsym.free?.(); gBb.free?.(); gGrid.free?.(); gStar.free?.();
+
+console.log(JSON.stringify({
+  w2_available: true,
+  hdeOut,
+  sgdOut,
+  maxentOut,
+  maxentAutoQ,
+  gripCoords,
+  gripNumLevels,
+  gemCoords,
+  selOut,
+  pfBoxCoords,
+  pfBoxOv,
+  pfRadCoords,
+  pfRadOv,
+  pfOoNni,
+  sfcOut,
+}));
+"""
+    raw_out = subprocess.check_output(
+        ["node", "--input-type=module", "-e", node_script, node_url, wasm_path, json.dumps(spec_payload)],
+        text=True,
+    )
+    ws = json.loads(raw_out.strip().splitlines()[-1])
+    if not ws.get("w2_available", False):
+        return [{
+            "case": "cross_target_w2_py_vs_wasm",
+            "status": "skipped_no_wasm_w2",
+            "elapsed_sec": round(time.perf_counter() - t0, 4),
+        }]
+
+    max_f32_diff = 0.0
+    max_f64_diff = 0.0
+
+    def check_close(label: str, a: Any, b: Any, tol: float, is_f32: bool = True) -> None:
+        nonlocal max_f32_diff, max_f64_diff
+        arr_a = np.asarray(a, dtype=np.float64).ravel()
+        arr_b = np.asarray(b, dtype=np.float64).ravel()
+        assert arr_a.shape == arr_b.shape, f"{label}: shape mismatch {arr_a.shape} vs {arr_b.shape}"
+        diff = float(np.max(np.abs(arr_a - arr_b))) if arr_a.size else 0.0
+        if is_f32:
+            max_f32_diff = max(max_f32_diff, diff)
+        else:
+            max_f64_diff = max(max_f64_diff, diff)
+        assert diff < tol, f"{label}: diff={diff} >= {tol}"
+
+    # W2-1a checks
+    assert hde_py.num_nodes == ws["hdeOut"]["numNodes"] == n_asym
+    assert hde_nd_py.num_nodes == ws["hdeOut"]["ndNumNodes"] == n_asym
+    assert hde_nd_py.dim == ws["hdeOut"]["ndDim"] == 3
+    check_close("hde/asym", hde_py.coords(copy=True), ws["hdeOut"]["coords"], 1e-4)
+    check_close("hde/pivots", hde_piv_py.coords(copy=True), ws["hdeOut"]["pivCoords"], 1e-4)
+    check_close("hde_nd/asym", hde_nd_py.coords(copy=True), ws["hdeOut"]["ndCoords"], 1e-4)
+
+    # W2-1b & W2-3 checks
+    for key, py_coords in sgd_py.items():
+        check_close(f"sgd_w2/{key}", py_coords, ws["sgdOut"][key], 1e-4)
+
+    # W2-2 checks
+    for tag in ("bh", "exact"):
+        check_close(f"maxent/{tag}/coords", maxent_py[tag]["coords"], ws["maxentOut"][tag]["coords"], 1e-4)
+        check_close(
+            f"maxent/{tag}/scalars",
+            [maxent_py[tag]["q"], maxent_py[tag]["alpha"]],
+            [ws["maxentOut"][tag]["q"], ws["maxentOut"][tag]["alpha"]],
+            1e-12,
+            is_f32=False,
+        )
+    check_close("maxent/auto_q_grid", [maxent_auto_grid_py], [ws["maxentAutoQ"]["grid"]], 1e-12, is_f32=False)
+    check_close("maxent/auto_q_star", [maxent_auto_star_py], [ws["maxentAutoQ"]["star"]], 1e-12, is_f32=False)
+
+    # W2-4 checks
+    assert grip_py["num_levels"] == ws["gripNumLevels"]
+    check_close("grip/coords", grip_py["coords"], ws["gripCoords"], 1e-4)
+    check_close("gem/coords", gem_py, ws["gemCoords"], 1e-4)
+
+    for key, py_sel in sel_py.items():
+        ws_sel = ws["selOut"][key]
+        check_close(f"sel/{key}/coords", py_sel["coords"], ws_sel["coords"], 1e-4)
+        check_close(f"sel/{key}/se_target", [py_sel["se_target"]], [ws_sel["seTarget"]], 1e-12, is_f32=False)
+        check_close(f"sel/{key}/weights", py_sel["weights"], ws_sel["weights"], 1e-12, is_f32=False)
+
+    assert pfs_box.last_overlap_count == ws["pfBoxOv"] == 0
+    assert pfs_rad.last_overlap_count == ws["pfRadOv"] == 0
+    check_close("pfs_prime/box", l_pfs_box.coords(copy=True), ws["pfBoxCoords"], 1e-4)
+    check_close("pfs_prime/radii", l_pfs_rad.coords(copy=True), ws["pfRadCoords"], 1e-4)
+    check_close("pfs_prime/oo_nni", [pfs_nor_py["oo_nni"], 0.0], [ws["pfOoNni"], 0.0], 1e-12, is_f32=False)
+
+    for curve in ("hilbert", "morton"):
+        assert sfc_py[curve]["order"] == ws["sfcOut"][curve]["order"]
+        assert sfc_py[curve]["dups"] == ws["sfcOut"][curve]["dups"] == 0
+        check_close(f"sfc/{curve}/coords", sfc_py[curve]["coords"], ws["sfcOut"][curve]["coords"], 1e-4)
+
+    return [{
+        "case": "cross_target_w2_py_vs_wasm",
+        "status": "pass",
+        "elapsed_sec": round(time.perf_counter() - t0, 4),
+        "max_f32_diff": round(max_f32_diff, 12),
+        "max_f64_diff": round(max_f64_diff, 12),
+    }]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="egraph cross-target parity harness")
     parser.add_argument("--wasm-pkg", type=pathlib.Path, default=None, help="Path to built v6 WASM pkg/")
@@ -7046,6 +7910,7 @@ def main() -> int:
             results.extend(run_cross_target_m4_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_m5_parity(eg_mod, args.wasm_pkg))
             results.extend(run_cross_target_w1_parity(eg_mod, args.wasm_pkg))
+            results.extend(run_cross_target_w2_parity(eg_mod, args.wasm_pkg))
 
     print(f"{'CASE':<40} {'STATUS':<24} {'ELAPSED(s)':>10}")
     print("-" * 78)
