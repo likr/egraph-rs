@@ -10,10 +10,9 @@ use egraph_core::{
 };
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
 use egraph_neighborhood::{
-    DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkConfig,
-    Sparse12HopPairs, apply_relative_distance_floor, compute_horvitz_thompson_gamma,
-    compute_pivoted_rhgh_landmarks, compute_regularized_dog_varadhan_landmarks,
-    extract_sparse_1hop_2hop_pairs,
+    DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, Sparse12HopPairs,
+    apply_relative_distance_floor, compute_horvitz_thompson_gamma,
+    compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs,
 };
 
 const HINGE_BIT: u32 = 1u32 << 31;
@@ -1229,6 +1228,31 @@ fn has_common_neighbor(n1_u: &[u32], n1_v: &[u32], stamp: &VisitStamp) -> bool {
         return n1_v.iter().any(|&x| stamp.is_visited(x as usize));
     }
     n1_u.iter().any(|x| n1_v.binary_search(x).is_ok())
+}
+
+#[inline]
+fn has_common_neighbor_non_hub(
+    n1_u: &[u32],
+    n1_v: &[u32],
+    stamp: &VisitStamp,
+    adj_indptr: &[u32],
+    non_hub_thresh: usize,
+) -> bool {
+    if n1_u.is_empty() || n1_v.is_empty() {
+        return false;
+    }
+    if n1_v.len() <= n1_u.len() || n1_v.len() <= 64 {
+        return n1_v.iter().any(|&x| {
+            let xi = x as usize;
+            stamp.is_visited(xi)
+                && ((adj_indptr[xi + 1] - adj_indptr[xi]) as usize) <= non_hub_thresh
+        });
+    }
+    n1_u.iter().any(|&x| {
+        let xi = x as usize;
+        ((adj_indptr[xi + 1] - adj_indptr[xi]) as usize) <= non_hub_thresh
+            && n1_v.binary_search(&x).is_ok()
+    })
 }
 
 fn sample_non2hop_pairs(
@@ -2480,13 +2504,14 @@ impl<S: Scalar> SgdSolver<S> {
     }
 
     /// Constructs a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
-    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks, returning
+    /// backbone initialization and `num_landmarks`-BFS Mid-Near (`MN`) landmarks, returning
     /// `(solver, initial_layout, backbone_result)`.
     ///
     /// Replacing unweighted random-BFS/PivotMDS initialization with a globally unfolded
-    /// coarse backbone and `RHGH` Mid-Near (`MN`) landmarks resolves folding on large-diameter
-    /// FEM meshes (`bcsstk31`, `venkat50`, `troll`, `ship_003`) while remaining deterministic
-    /// and cooperative via `step()`/`run_steps()`.
+    /// coarse backbone resolves folding on large-diameter FEM meshes (`bcsstk31`, `venkat50`,
+    /// `troll`, `ship_003`) while `num_landmarks`-BFS `MN` landmarks (default `16`) provide
+    /// vertex-level Mid-Near distances without fine-graph `RHGH` overhead, remaining
+    /// deterministic and cooperative via `step()`/`run_steps()`.
     pub fn pacmap_graph_with_backbone<W: Scalar>(
         graph: &CsrGraph<W>,
         pacmap_cfg: PacmapGraphConfig,
@@ -2497,21 +2522,7 @@ impl<S: Scalar> SgdSolver<S> {
         validate_graph_weights(graph, "SgdSolver::pacmap_graph_with_backbone")?;
 
         let backbone = coarse_backbone_init::<W, S>(graph, backbone_cfg)?;
-        let n = graph.num_nodes();
-        let solver = if n > 1 && pacmap_cfg.mn_ratio > 0.0 && graph.nnz() > 0 {
-            let rhgh_cfg = RhghLandmarkConfig {
-                gamma: backbone_cfg.rhgh_gamma,
-                p_exp: backbone_cfg.rhgh_p,
-                n_landmarks: pacmap_cfg.num_landmarks.min(n).max(1),
-                min_degree: 1,
-                seed: pacmap_cfg.seed,
-                ..RhghLandmarkConfig::default()
-            };
-            let (landmarks, _) = compute_pivoted_rhgh_landmarks(graph, &rhgh_cfg)?;
-            Self::pacmap_graph_with_landmarks(graph, &landmarks, pacmap_cfg)?
-        } else {
-            Self::pacmap_graph(graph, pacmap_cfg)?
-        };
+        let solver = Self::pacmap_graph(graph, pacmap_cfg)?;
         let init_layout = backbone.fine_layout.clone();
         Ok((solver, init_layout, backbone))
     }
@@ -2768,6 +2779,7 @@ impl<S: Scalar> SgdSolver<S> {
         let mut fp_pairs = Vec::with_capacity(n * n_fp);
 
         let hub_thresh = 64usize.max(n.isqrt());
+        let non_hub_thresh = 64usize.min(16usize.max(n.isqrt()));
         let mut nb_u: Vec<u32> = Vec::with_capacity(n_nb);
         let mut n1_sorted_scratch: Vec<(usize, u32)> = Vec::new();
         let mut row1_scratch: Vec<u32> = Vec::new();
@@ -2912,7 +2924,13 @@ impl<S: Scalar> SgdSolver<S> {
                         trials += 1;
                         let c = rng.gen_range_usize(n);
                         if exclude_stamp.is_visited(c)
-                            || has_common_neighbor(n1_u, sym_graph.neighbors(c), &hop1_stamp)
+                            || has_common_neighbor_non_hub(
+                                n1_u,
+                                sym_graph.neighbors(c),
+                                &hop1_stamp,
+                                &adj_indptr,
+                                non_hub_thresh,
+                            )
                         {
                             continue;
                         }
@@ -2953,27 +2971,76 @@ impl<S: Scalar> SgdSolver<S> {
             // Further (`FP`): sample non-neighbor repulsive pairs excluding u, 1-hop, and NB.
             if n_fp > 0 {
                 exclude_stamp.clear();
-                exclude_stamp.mark(u);
+                let mut n_excluded = 0usize;
+                if exclude_stamp.visit(u) {
+                    n_excluded += 1;
+                }
                 for &v in n1_u {
-                    exclude_stamp.mark(v as usize);
+                    if exclude_stamp.visit(v as usize) {
+                        n_excluded += 1;
+                    }
                 }
                 for &v in &nb_u {
-                    exclude_stamp.mark(v as usize);
-                }
-                let mut fp_collected = 0usize;
-                let max_fp_trials = (n_fp * 4).max(16);
-                let mut trials = 0usize;
-                while fp_collected < n_fp && trials < max_fp_trials {
-                    trials += 1;
-                    let c = rng.gen_range_usize(n);
-                    if exclude_stamp.is_visited(c)
-                        || has_common_neighbor(n1_u, sym_graph.neighbors(c), &hop1_stamp)
-                    {
-                        continue;
+                    if exclude_stamp.visit(v as usize) {
+                        n_excluded += 1;
                     }
-                    exclude_stamp.mark(c);
-                    fp_pairs.push((u_u32, c as u32));
-                    fp_collected += 1;
+                }
+                if n_excluded < n {
+                    let mut fp_collected = 0usize;
+                    let max_fp_trials = (n_fp * 4).max(16);
+                    let mut trials = 0usize;
+                    while fp_collected < n_fp && n_excluded < n && trials < max_fp_trials {
+                        trials += 1;
+                        let c = rng.gen_range_usize(n);
+                        if exclude_stamp.is_visited(c)
+                            || has_common_neighbor_non_hub(
+                                n1_u,
+                                sym_graph.neighbors(c),
+                                &hop1_stamp,
+                                &adj_indptr,
+                                non_hub_thresh,
+                            )
+                        {
+                            continue;
+                        }
+                        if exclude_stamp.visit(c) {
+                            n_excluded += 1;
+                        }
+                        fp_pairs.push((u_u32, c as u32));
+                        fp_collected += 1;
+                    }
+
+                    // Two-stage bounded fallback relaxing only the 2-hop check while keeping u,
+                    // 1-hop, and NB strictly excluded.
+                    if fp_collected < n_fp && n_excluded < n {
+                        let rem = (n_fp - fp_collected).min(n - n_excluded);
+                        let fallback_trials = (rem * 4).max(16);
+                        for _ in 0..fallback_trials {
+                            if fp_collected >= n_fp || n_excluded >= n {
+                                break;
+                            }
+                            let c = rng.gen_range_usize(n);
+                            if exclude_stamp.visit(c) {
+                                n_excluded += 1;
+                                fp_pairs.push((u_u32, c as u32));
+                                fp_collected += 1;
+                            }
+                        }
+                        if fp_collected < n_fp && n_excluded < n {
+                            let start = rng.gen_range_usize(n);
+                            for offset in 0..n {
+                                if fp_collected >= n_fp || n_excluded >= n {
+                                    break;
+                                }
+                                let c = (start + offset) % n;
+                                if exclude_stamp.visit(c) {
+                                    n_excluded += 1;
+                                    fp_pairs.push((u_u32, c as u32));
+                                    fp_collected += 1;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -5152,13 +5219,35 @@ mod tests {
             assert!(!adj1.neighbors(ui).contains(&v));
             assert!(!adj2.neighbors(ui).contains(&v));
         }
+        let mut fp_per_u: Vec<Vec<u32>> = vec![Vec::new(); grid.num_nodes()];
         for &(u, v) in &st.fp_pairs {
             assert_ne!(u, v);
             let ui = u as usize;
             assert!(!adj1.neighbors(ui).contains(&v));
+            fp_per_u[ui].push(v);
+        }
+        // On grid(4, 4) (n = 16, n_neighbors = 6, n_fp = 12), FP fallback guarantees
+        // min(12, 16 - 1 - |N1(u) U nb_u|) unique FP pairs per vertex (9 for interior/edge, 10 for corners).
+        for (u, row) in fp_per_u.iter_mut().enumerate() {
+            let expected = (16 - 1 - (adj1.degree(u) + adj2.degree(u)).min(6)).min(12);
+            assert_eq!(row.len(), expected);
+            row.sort_unstable();
+            row.dedup();
+            assert_eq!(row.len(), expected);
+        }
+        // On grid(8, 8) (n = 64, max_deg = 4 <= 16), sufficient non-2-hop vertices exist so
+        // FP strictly excludes both 1-hop and 2-hop neighbors.
+        let grid8 = grid_graph(8, 8);
+        let s8 = SgdSolver::<f64>::pacmap_graph(&grid8, cfg).unwrap();
+        let st8 = s8.pacmap.as_ref().unwrap();
+        let (adj1_8, adj2_8) = extract_1hop_2hop_csr(&grid8).unwrap();
+        for &(u, v) in &st8.fp_pairs {
+            assert_ne!(u, v);
+            let ui = u as usize;
+            assert!(!adj1_8.neighbors(ui).contains(&v));
             assert!(
-                !adj2.neighbors(ui).contains(&v),
-                "FP pair ({u}, {v}) must not be 2-hop"
+                !adj2_8.neighbors(ui).contains(&v),
+                "grid(8, 8) FP pair ({u}, {v}) must not be 2-hop"
             );
         }
 
@@ -5361,18 +5450,61 @@ mod tests {
                 .count();
             assert!(leaf_nb_keep >= 6);
 
-            // FP must exclude all 1-hop and 2-hop pairs even when deg > n_neighbors.
+            // FP must strictly exclude 1-hop edges even when deg > n_neighbors, and tail vertices
+            // with non-hub 2-hop neighbors (u >= 22) still exclude adj2.
             for &(u, v) in &st_trunc.fp_pairs {
                 assert_ne!(u, v);
                 let ui = u as usize;
                 assert!(!adj1.neighbors(ui).contains(&v));
-                assert!(!adj2.neighbors(ui).contains(&v));
+                if ui >= 22 {
+                    assert!(!adj2.neighbors(ui).contains(&v));
+                }
             }
             for &(u, v) in &st_keep.fp_pairs {
                 assert_ne!(u, v);
                 let ui = u as usize;
                 assert!(!adj1.neighbors(ui).contains(&v));
-                assert!(!adj2.neighbors(ui).contains(&v));
+                if ui >= 22 {
+                    assert!(!adj2.neighbors(ui).contains(&v));
+                }
+            }
+        }
+
+        // Larger non-hub graph (n = 70, all degrees <= 10 <= non_hub_thresh = 16):
+        // deg(0) = 10 > n_neighbors = 4, and FP strictly excludes both adj1 and adj2.
+        let mut nh_edges: Vec<(u32, u32)> = (1..=10u32).map(|v| (0, v)).collect();
+        for v in 10..69u32 {
+            nh_edges.push((v, v + 1));
+        }
+        let g_nh = CsrGraph::<f64>::from_edges(70, &nh_edges, None, false, false).unwrap();
+        let (nh_adj1, nh_adj2) = extract_1hop_2hop_csr(&g_nh).unwrap();
+        let nh_cfg_trunc = PacmapGraphConfig {
+            n_neighbors: 4,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 2,
+            phase2_iters: 2,
+            phase3_iters: 2,
+            seed: 17,
+            keep_all_1hop: false,
+            ..Default::default()
+        };
+        let nh_cfg_keep = PacmapGraphConfig {
+            keep_all_1hop: true,
+            ..nh_cfg_trunc
+        };
+        for nh_cfg in [nh_cfg_trunc, nh_cfg_keep] {
+            let s_nh = SgdSolver::<f64>::pacmap_graph(&g_nh, nh_cfg).unwrap();
+            let st_nh = s_nh.pacmap.as_ref().unwrap();
+            assert!(!st_nh.fp_pairs.is_empty());
+            for &(u, v) in &st_nh.fp_pairs {
+                assert_ne!(u, v);
+                let ui = u as usize;
+                assert!(!nh_adj1.neighbors(ui).contains(&v));
+                assert!(
+                    !nh_adj2.neighbors(ui).contains(&v),
+                    "non-hub FP pair ({u}, {v}) must not be 2-hop"
+                );
             }
         }
     }
@@ -6073,6 +6205,140 @@ mod tests {
                 st_perm.nb_pairs, expected,
                 "nb_pairs failed exact vertex-permutation invariance"
             );
+        }
+    }
+
+    #[test]
+    fn test_pacmap_graph_non_hub_2hop_and_fp_fallback_on_hub_and_small_graphs() {
+        // 1. Hub-bypass in both stamp and binary_search branches of has_common_neighbor_non_hub:
+        //    N = 256 -> non_hub_thresh = 16.
+        //    - Hub 0 connects to 1..=100 (deg(0) = 100 > 16).
+        //    - Vertex 2 connects to 101..=180 (deg(2) = 81 > 64) so comparing leaf u = 1
+        //      (deg = 1) with c = 2 exercises the binary_search branch, while comparing u = 1
+        //      with leaf c = 3 (deg = 1) exercises the stamp branch.
+        //    - Path 100-181-...-255 gives non-hub 2-hop vertices (deg <= 2 <= 16).
+        let n = 256usize;
+        let mut edges: Vec<(u32, u32)> = (1..=100u32).map(|v| (0, v)).collect();
+        for v in 101..=180u32 {
+            edges.push((2, v));
+        }
+        edges.push((100, 181));
+        for v in 181..255u32 {
+            edges.push((v, v + 1));
+        }
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let (adj1, adj2) = extract_1hop_2hop_csr(&g).unwrap();
+        let cfg = PacmapGraphConfig {
+            n_neighbors: 4,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 4,
+            phase2_iters: 4,
+            phase3_iters: 4,
+            seed: 31,
+            ..Default::default()
+        };
+        let mut solver = SgdSolver::<f64>::pacmap_graph(&g, cfg).unwrap();
+        let st = solver.pacmap.as_ref().unwrap();
+
+        let mut leaf_mn_counts = vec![0usize; n];
+        let mut leaf_fp_counts = vec![0usize; n];
+        for &(u, _) in &st.mn_pairs {
+            leaf_mn_counts[u as usize] += 1;
+        }
+        for &(u, _) in &st.fp_pairs {
+            leaf_fp_counts[u as usize] += 1;
+        }
+        for u in 1..=99usize {
+            if u == 2 {
+                continue;
+            }
+            assert_eq!(
+                leaf_mn_counts[u], 2,
+                "hub leaf {u} must receive full MN quota despite hub 0"
+            );
+            assert_eq!(
+                leaf_fp_counts[u], 8,
+                "hub leaf {u} must receive full FP quota despite hub 0"
+            );
+        }
+        // True non-hub 2-hop neighbors on path 200..250 (deg <= 2 <= 16) stay excluded from MN & FP.
+        for &(u, v) in st.mn_pairs.iter().chain(st.fp_pairs.iter()) {
+            let ui = u as usize;
+            let vi = v as usize;
+            if (200..=250).contains(&ui) && (200..=250).contains(&vi) {
+                assert!(!adj1.neighbors(ui).contains(&v));
+                assert!(
+                    !adj2.neighbors(ui).contains(&v),
+                    "non-hub 2-hop pair ({u}, {v}) must remain excluded from MN/FP"
+                );
+            }
+        }
+        let mut layout = circle_layout::<f64>(n, 1.0);
+        solver.run(&mut layout).unwrap();
+        assert!(layout.is_all_finite());
+
+        // 2. Small-graph FP fallback & O(1) n_excluded >= n guard:
+        let small_cfg = PacmapGraphConfig {
+            n_neighbors: 4,
+            mn_ratio: 0.5,
+            fp_ratio: 2.0,
+            phase1_iters: 2,
+            phase2_iters: 2,
+            phase3_iters: 2,
+            seed: 42,
+            ..Default::default()
+        };
+
+        // 2a. Clique K_10: n_excluded == n for every vertex -> zero FP pairs, no hang.
+        let mut k10_edges = Vec::new();
+        for u in 0..10u32 {
+            for v in (u + 1)..10u32 {
+                k10_edges.push((u, v));
+            }
+        }
+        let k10 = CsrGraph::<f64>::from_edges(10, &k10_edges, None, false, false).unwrap();
+        let s_k10 = SgdSolver::<f64>::pacmap_graph(&k10, small_cfg).unwrap();
+        assert!(s_k10.pacmap.as_ref().unwrap().fp_pairs.is_empty());
+
+        // 2b. Star S_20: hub 0 (n_excluded = 20) gets 0 FPs, every leaf gets 8 FPs.
+        let s20_edges: Vec<(u32, u32)> = (1..20u32).map(|v| (0, v)).collect();
+        let s20 = CsrGraph::<f64>::from_edges(20, &s20_edges, None, false, false).unwrap();
+        let s_s20 = SgdSolver::<f64>::pacmap_graph(&s20, small_cfg).unwrap();
+        let st_s20 = s_s20.pacmap.as_ref().unwrap();
+        let mut s20_fp_per_u: Vec<Vec<u32>> = vec![Vec::new(); 20];
+        for &(u, v) in &st_s20.fp_pairs {
+            assert_ne!(u, v);
+            assert!(!s20.neighbors(u as usize).contains(&v));
+            s20_fp_per_u[u as usize].push(v);
+        }
+        assert!(s20_fp_per_u[0].is_empty());
+        for row in &mut s20_fp_per_u[1..20] {
+            assert_eq!(row.len(), 8);
+            row.sort_unstable();
+            row.dedup();
+            assert_eq!(row.len(), 8);
+        }
+
+        // 2c. Cycle C_10: deg(u)=2, nb_u=4 (1-hop + 2-hop) -> 10 - 1 - 4 = 5 < 8 FPs per node,
+        //     all 1-hop and NB pairs strictly excluded and zero duplicates per source vertex.
+        let c10_edges: Vec<(u32, u32)> = (0..10u32).map(|u| (u, (u + 1) % 10)).collect();
+        let c10 = CsrGraph::<f64>::from_edges(10, &c10_edges, None, false, false).unwrap();
+        let s_c10 = SgdSolver::<f64>::pacmap_graph(&c10, small_cfg).unwrap();
+        let st_c10 = s_c10.pacmap.as_ref().unwrap();
+        let mut c10_fp_per_u: Vec<Vec<u32>> = vec![Vec::new(); 10];
+        for &(u, v) in &st_c10.fp_pairs {
+            assert_ne!(u, v);
+            assert!(!c10.neighbors(u as usize).contains(&v));
+            let pair = if u < v { (u, v) } else { (v, u) };
+            assert!(st_c10.nb_pairs.binary_search(&pair).is_err());
+            c10_fp_per_u[u as usize].push(v);
+        }
+        for row in &mut c10_fp_per_u {
+            assert_eq!(row.len(), 5);
+            row.sort_unstable();
+            row.dedup();
+            assert_eq!(row.len(), 5);
         }
     }
 }

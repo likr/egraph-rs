@@ -9,7 +9,7 @@ use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
     SolverStatus, VisitStamp,
 };
-use egraph_neighborhood::{extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs};
+use egraph_neighborhood::extract_sparse_1hop_2hop_pairs;
 use egraph_spatial::{KdQueryScratch, StaticKdTree};
 
 use crate::sgd::{PackedSymPair, SgdScheduleConfig, SgdScheduleKind, SgdSolver};
@@ -186,6 +186,8 @@ pub struct SpatialIntruderRefiner<S: Scalar = f64> {
     u1: Vec<u32>,
     v1: Vec<u32>,
     adj1: CsrGraph<f64>,
+    deg: Vec<usize>,
+    non_hub_thresh: usize,
     adj2: Option<CsrGraph<f64>>,
     u2_hub: Vec<u32>,
     v2_hub: Vec<u32>,
@@ -223,6 +225,7 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
 
         let (adj1, u1, v1) = build_canonical_undirected_1hop(graph)?;
         let deg: Vec<usize> = (0..n).map(|u| adj1.degree(u)).collect();
+        let non_hub_thresh = non_hub_degree_threshold(n);
         let two_hop_work: u128 = deg
             .iter()
             .map(|&d| {
@@ -239,12 +242,9 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
         let (adj2, u2_hub, v2_hub, k_arr, used_hub_fallback) = if trivial_early {
             (None, Vec::new(), Vec::new(), vec![0usize; n], false)
         } else if use_exact_2hop {
-            let (_, exact_adj2) = extract_1hop_2hop_csr(&adj1)?;
-            let mut ks = Vec::with_capacity(n);
-            for u in 0..n {
-                ks.push((adj1.degree(u) + exact_adj2.degree(u)).min(k_eff));
-            }
-            (Some(exact_adj2), Vec::new(), Vec::new(), ks, false)
+            let (non_hub_adj2, ks) =
+                build_nonhub_2hop_csr_and_k_arr(&adj1, &deg, non_hub_thresh, k_eff)?;
+            (Some(non_hub_adj2), Vec::new(), Vec::new(), ks, false)
         } else {
             let (u2_hub, v2_hub) = if config.w_fn > 0.0 || config.w_anchor2 > 0.0 {
                 let hub_pairs = extract_sparse_1hop_2hop_pairs(&adj1, config.k_cap, config.seed)?;
@@ -295,6 +295,8 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             u1,
             v1,
             adj1,
+            deg,
+            non_hub_thresh,
             adj2,
             u2_hub,
             v2_hub,
@@ -358,19 +360,12 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
         let trivial_early =
             n <= 2 || self.u1.is_empty() || self.config.rounds == 0 || self.config.t_max == 0;
         if k_cap > self.k_cap_capacity && !trivial_early {
-            if let Some(adj2) = &self.adj2 {
-                self.k_arr = (0..n)
-                    .map(|u| (self.adj1.degree(u) + adj2.degree(u)).min(new_k_eff))
-                    .collect();
-            } else {
-                let deg: Vec<usize> = (0..n).map(|u| self.adj1.degree(u)).collect();
-                self.k_arr = compute_capped_2hop_sizes(&self.adj1, &deg, new_k_eff);
-                if self.config.w_fn > 0.0 || self.config.w_anchor2 > 0.0 {
-                    let hub_pairs =
-                        extract_sparse_1hop_2hop_pairs(&self.adj1, k_cap, self.config.seed)?;
-                    self.u2_hub = hub_pairs.u2;
-                    self.v2_hub = hub_pairs.v2;
-                }
+            self.k_arr = compute_capped_2hop_sizes(&self.adj1, &self.deg, new_k_eff);
+            if self.adj2.is_none() && (self.config.w_fn > 0.0 || self.config.w_anchor2 > 0.0) {
+                let hub_pairs =
+                    extract_sparse_1hop_2hop_pairs(&self.adj1, k_cap, self.config.seed)?;
+                self.u2_hub = hub_pairs.u2;
+                self.v2_hub = hub_pairs.v2;
             }
             self.s_indptr.clear();
             self.s_indptr.push(0usize);
@@ -709,7 +704,13 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                             continue;
                         }
                         let n1_v = self.adj1.neighbors(vi);
-                        if !has_common_neighbor(n1_u, n1_v, &self.stamp) {
+                        if !has_common_non_hub_neighbor(
+                            n1_u,
+                            n1_v,
+                            &self.stamp,
+                            &self.deg,
+                            self.non_hub_thresh,
+                        ) {
                             let u_u32 = u as u32;
                             fp_candidates.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
                         }
@@ -1006,14 +1007,97 @@ fn fast_hypot_f64(dx: f64, dy: f64) -> f64 {
 }
 
 #[inline]
-fn has_common_neighbor(n1_u: &[u32], n1_v: &[u32], stamp: &VisitStamp) -> bool {
+fn non_hub_degree_threshold(n_nodes: usize) -> usize {
+    64usize.min(16usize.max(n_nodes.isqrt()))
+}
+
+fn build_nonhub_2hop_csr_and_k_arr(
+    adj1: &CsrGraph<f64>,
+    deg: &[usize],
+    non_hub_thresh: usize,
+    k_eff: usize,
+) -> CoreResult<(CsrGraph<f64>, Vec<usize>)> {
+    let n = adj1.num_nodes();
+    if n == 0 || adj1.nnz() == 0 {
+        let indptr2 = vec![0u32; n + 1];
+        let adj2 = CsrGraph::from_csr(&indptr2, &[], None, false, false)?;
+        return Ok((adj2, vec![0usize; n]));
+    }
+
+    let mut stamp = VisitStamp::new(n);
+    let mut indptr2 = Vec::with_capacity(n + 1);
+    indptr2.push(0u32);
+    let mut indices2 = Vec::new();
+    let mut row2 = Vec::new();
+    let mut k_arr = Vec::with_capacity(n);
+
+    for u in 0..n {
+        stamp.clear();
+        stamp.mark(u);
+        let n1 = adj1.neighbors(u);
+        for &w in n1 {
+            stamp.mark(w as usize);
+        }
+
+        row2.clear();
+        for &w in n1 {
+            if deg[w as usize] <= non_hub_thresh {
+                for &v in adj1.neighbors(w as usize) {
+                    if stamp.visit(v as usize) {
+                        row2.push(v);
+                    }
+                }
+            }
+        }
+        row2.sort_unstable();
+        indices2.extend_from_slice(&row2);
+        let ptr = u32::try_from(indices2.len())
+            .map_err(|_| CoreError::invalid_csr("non-hub 2-hop CSR nnz exceeds u32::MAX"))?;
+        indptr2.push(ptr);
+
+        // Preserve exact capped 1+2-hop neighborhood size (including hub-bridged 2-hop nodes)
+        // for spatial k_u-NN ball estimation.
+        let mut ku = n1.len() + row2.len();
+        if ku < k_eff {
+            'hub_scan: for &w in n1 {
+                if deg[w as usize] > non_hub_thresh {
+                    for &v in adj1.neighbors(w as usize) {
+                        if stamp.visit(v as usize) {
+                            ku += 1;
+                            if ku >= k_eff {
+                                break 'hub_scan;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        k_arr.push(ku.min(k_eff));
+    }
+
+    let adj2 = CsrGraph::from_csr(&indptr2, &indices2, None, false, false)?;
+    Ok((adj2, k_arr))
+}
+
+#[inline]
+fn has_common_non_hub_neighbor(
+    n1_u: &[u32],
+    n1_v: &[u32],
+    stamp: &VisitStamp,
+    deg: &[usize],
+    non_hub_thresh: usize,
+) -> bool {
     if n1_u.is_empty() || n1_v.is_empty() {
         return false;
     }
     if n1_v.len() <= n1_u.len() || n1_v.len() <= 64 {
-        return n1_v.iter().any(|&x| stamp.is_visited(x as usize));
+        return n1_v.iter().any(|&x| {
+            let xi = x as usize;
+            stamp.is_visited(xi) && deg[xi] <= non_hub_thresh
+        });
     }
-    n1_u.iter().any(|x| n1_v.binary_search(x).is_ok())
+    n1_u.iter()
+        .any(|&x| deg[x as usize] <= non_hub_thresh && n1_v.binary_search(&x).is_ok())
 }
 
 fn compute_coords_std(coords: &[[f64; 2]]) -> f64 {
@@ -1770,5 +1854,189 @@ mod tests {
             assert_eq!(clean_orig.x()[i].to_bits(), clean_work.x()[i].to_bits());
             assert_eq!(clean_orig.y()[i].to_bits(), clean_work.y()[i].to_bits());
         }
+    }
+
+    #[test]
+    fn test_refiner_medium_hub_non_hub_2hop_and_super_hub_fallback() {
+        // 1. Medium-hub graph (N = 400, non_hub_thresh = 20):
+        //    - Hub 0 connects to ring leaves 1..=30 (deg(0) = 30 > 20, 30^2 = 900 << 100_000 -> use_exact_2hop == true).
+        //    - Ring edges (1,2)..(29,30),(30,1) give leaves deg = 3 <= 20 so distance-2 ring neighbors
+        //      (e.g. 1 and 3 via 2) are valid non-hub 2-hop pairs while opposite leaves (e.g. 1 and 15)
+        //      share ONLY medium hub 0.
+        //    - Path 30-31-...-399 gives low-degree background nodes (deg = 2 <= 20).
+        let n = 400usize;
+        let mut edges: Vec<(u32, u32)> = (1..=30u32).map(|v| (0, v)).collect();
+        for i in 1..=30u32 {
+            let next = if i == 30 { 1 } else { i + 1 };
+            edges.push((i, next));
+        }
+        for v in 30..399u32 {
+            edges.push((v, v + 1));
+        }
+        let g_med = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+
+        let mut base_x = vec![0.0_f64; n];
+        let mut base_y = vec![0.0_f64; n];
+        for i in 1..=30 {
+            let ang = std::f64::consts::TAU * ((i - 1) as f64) / 30.0;
+            base_x[i] = 5.0 * ang.cos();
+            base_y[i] = 5.0 * ang.sin();
+        }
+        for v in 31..n {
+            base_x[v] = base_x[30] + ((v - 30) as f64);
+            base_y[v] = base_y[30];
+        }
+        let clean_orig = Layout2d::from_xy(base_x.clone(), base_y.clone()).unwrap();
+
+        // Clean medium-hub layout with k_cap = 4 remains completely undisturbed.
+        let clean_cfg = SpatialRefinerConfig {
+            rounds: 2,
+            k_cap: 4,
+            ..Default::default()
+        };
+        let mut l_clean = clean_orig.clone();
+        let mut r_clean = SpatialIntruderRefiner::<f64>::new(&g_med, clean_cfg).unwrap();
+        assert!(!r_clean.stats().used_hub_fallback);
+        assert_eq!(r_clean.run(&mut l_clean).unwrap(), SolverStatus::Converged);
+        assert_eq!(r_clean.stats().n_fp_total, 0);
+        assert_eq!(r_clean.stats().rounds_executed, 0);
+        for i in 0..n {
+            assert_eq!(l_clean.x()[i].to_bits(), clean_orig.x()[i].to_bits());
+            assert_eq!(l_clean.y()[i].to_bits(), clean_orig.y()[i].to_bits());
+        }
+
+        // Pair sharing ONLY non-hub node 2 (deg = 3 <= 20): collapse (1, 3) slightly closer to 2
+        // with k_cap = 2 -> NOT flagged as F+ (n_fp_total == 0).
+        let mut nonhub_x = base_x.clone();
+        let mut nonhub_y = base_y.clone();
+        nonhub_x[1] = base_x[2] - 0.05;
+        nonhub_y[1] = base_y[2];
+        nonhub_x[3] = base_x[2] + 0.05;
+        nonhub_y[3] = base_y[2];
+        let mut l_nonhub = Layout2d::from_xy(nonhub_x, nonhub_y).unwrap();
+        let mut r_nonhub = SpatialIntruderRefiner::<f64>::new(
+            &g_med,
+            SpatialRefinerConfig {
+                rounds: 1,
+                k_cap: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            r_nonhub.run(&mut l_nonhub).unwrap(),
+            SolverStatus::Converged
+        );
+        assert_eq!(r_nonhub.stats().n_fp_total, 0);
+
+        // Collapse opposite hub leaves (1, 15) together (share ONLY medium hub 0, deg=30 > 20):
+        // medium-hub adj2 filter must detect F+ and push (1, 15) apart, with f64/f32 step == run
+        // parity and set_k_cap growth.
+        let mut intr_x = base_x;
+        let mut intr_y = base_y;
+        intr_x[15] = intr_x[1] + 0.01;
+        intr_y[15] = intr_y[1];
+        let intr_init = Layout2d::from_xy(intr_x.clone(), intr_y.clone()).unwrap();
+
+        let intr_cfg = SpatialRefinerConfig {
+            rounds: 2,
+            k_cap: 8,
+            seed: 19,
+            ..Default::default()
+        };
+        let mut r64_run = SpatialIntruderRefiner::<f64>::new(&g_med, intr_cfg).unwrap();
+        let mut r64_step = SpatialIntruderRefiner::<f64>::new(&g_med, intr_cfg).unwrap();
+        assert!(!r64_run.stats().used_hub_fallback);
+        let mut l64_run = intr_init.clone();
+        let mut l64_step = intr_init.clone();
+        r64_run.run(&mut l64_run).unwrap();
+        r64_step.step(&mut l64_step).unwrap();
+        r64_step.run(&mut l64_step).unwrap();
+        assert!(r64_run.stats().n_fp_total > 0);
+        assert_eq!(r64_run.stats(), r64_step.stats());
+        for i in 0..n {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+        let sep_1_15 = (l64_run.x()[1] - l64_run.x()[15]).hypot(l64_run.y()[1] - l64_run.y()[15]);
+        assert!(
+            sep_1_15 > 0.1,
+            "expected medium-hub adj2 filter to separate (1, 15), got {sep_1_15}"
+        );
+
+        // f32 step == run parity on medium-hub intruder layout.
+        let intr32 = Layout2d::from_xy(
+            intr_x.iter().map(|&v| v as f32).collect(),
+            intr_y.iter().map(|&v| v as f32).collect(),
+        )
+        .unwrap();
+        let mut r32_run = SpatialIntruderRefiner::<f32>::new(&g_med, intr_cfg).unwrap();
+        let mut r32_step = SpatialIntruderRefiner::<f32>::new(&g_med, intr_cfg).unwrap();
+        let mut l32_run = intr32.clone();
+        let mut l32_step = intr32;
+        r32_run.run(&mut l32_run).unwrap();
+        while !r32_step.status().is_finished() {
+            r32_step.step(&mut l32_step).unwrap();
+        }
+        assert!(r32_run.stats().n_fp_total > 0);
+        for i in 0..n {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+
+        // set_k_cap growth beyond initial capacity on medium-hub graph.
+        let mut r_grow = SpatialIntruderRefiner::<f64>::new(&g_med, intr_cfg).unwrap();
+        let mut l_grow = intr_init;
+        r_grow.step(&mut l_grow).unwrap();
+        r_grow.set_k_cap(40).unwrap();
+        assert_eq!(r_grow.current_k_cap(), 40);
+        r_grow.run(&mut l_grow).unwrap();
+        assert!(l_grow.is_all_finite());
+
+        // 2. Super-hub adj1 fallback path (use_exact_2hop == false):
+        //    star(400) where hub 0 has deg >= 399 > 20, plus node 399 connected to 300..379
+        //    (deg(399) = 80 > 64) so (u=1, v=399) exercises the binary_search branch and
+        //    (u=1, v=2) exercises the stamp branch in has_common_non_hub_neighbor.
+        let mut hub_edges: Vec<(u32, u32)> = (1..n as u32).map(|v| (0, v)).collect();
+        for v in 300..379u32 {
+            hub_edges.push((399, v));
+        }
+        let g_super = CsrGraph::<f64>::from_edges(n, &hub_edges, None, false, false).unwrap();
+
+        let mut sxs = vec![0.0_f64; n];
+        let mut sys = vec![0.0_f64; n];
+        for i in 1..n {
+            let ang = std::f64::consts::TAU * ((i - 1) as f64) / ((n - 1) as f64);
+            sxs[i] = 3.0 * ang.cos();
+            sys[i] = 3.0 * ang.sin();
+        }
+        // Collapse (1, 2) and (1, 399) together while sharing ONLY super-hub 0.
+        sxs[2] = sxs[1] + 0.005;
+        sys[2] = sys[1];
+        sxs[399] = sxs[1] - 0.005;
+        sys[399] = sys[1] + 0.005;
+
+        let mut r_super = SpatialIntruderRefiner::<f64>::new(
+            &g_super,
+            SpatialRefinerConfig {
+                rounds: 2,
+                k_cap: 16,
+                seed: 23,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(r_super.stats().used_hub_fallback);
+        let mut l_super = Layout2d::from_xy(sxs, sys).unwrap();
+        r_super.run(&mut l_super).unwrap();
+        assert!(l_super.is_all_finite());
+        assert!(r_super.stats().n_fp_total > 0);
+        let sep_1_2 = (l_super.x()[1] - l_super.x()[2]).hypot(l_super.y()[1] - l_super.y()[2]);
+        let sep_1_399 =
+            (l_super.x()[1] - l_super.x()[399]).hypot(l_super.y()[1] - l_super.y()[399]);
+        assert!(
+            sep_1_2 > 0.05 && sep_1_399 > 0.05,
+            "expected super-hub adj1 fallback to separate (1,2)={sep_1_2} and (1,399)={sep_1_399}"
+        );
     }
 }

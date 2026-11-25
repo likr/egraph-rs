@@ -308,6 +308,199 @@ fn count_disk_overlaps<S: Scalar>(
     Ok(cnt)
 }
 
+fn coarse_connected_components<S: Scalar>(
+    cg: &CsrGraph<S>,
+    n_l: usize,
+) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut comp_id = vec![usize::MAX; n_l];
+    let mut comp_nodes: Vec<Vec<usize>> = Vec::new();
+    let cg_indptr = cg.indptr();
+    let cg_indices = cg.indices();
+    let mut queue = Vec::new();
+
+    for start in 0..n_l {
+        if comp_id[start] != usize::MAX {
+            continue;
+        }
+        let cid = comp_nodes.len();
+        comp_id[start] = cid;
+        queue.clear();
+        queue.push(start);
+        let mut head = 0usize;
+        while head < queue.len() {
+            let u = queue[head];
+            head += 1;
+            let s = cg_indptr[u] as usize;
+            let e = cg_indptr[u + 1] as usize;
+            for &nbr in &cg_indices[s..e] {
+                let v = nbr as usize;
+                if comp_id[v] == usize::MAX {
+                    comp_id[v] = cid;
+                    queue.push(v);
+                }
+            }
+        }
+        queue.sort_unstable();
+        comp_nodes.push(queue.clone());
+    }
+
+    (comp_id, comp_nodes)
+}
+
+fn resolve_residual_disk_overlaps<S: Scalar>(
+    layout: &mut Layout2d<S>,
+    radii: &[f64],
+    m_gap: f64,
+    half_boxes: &[S],
+    coarse_sizes: &[u32],
+) -> CoreResult<()> {
+    let n = layout.len();
+    if n < 2 || half_boxes.iter().all(|&h| h <= S::ZERO) {
+        return Ok(());
+    }
+    let rel_margin = if std::mem::size_of::<S>() <= 4 {
+        5e-4
+    } else {
+        1e-5
+    };
+    let sweep_half_boxes: Vec<S> = radii
+        .iter()
+        .map(|&r| {
+            let h = r + 0.5 * m_gap;
+            if h > 0.0 {
+                S::from_f64(h * (1.0 + 1e-3) + 1e-6)
+            } else {
+                S::ZERO
+            }
+        })
+        .collect();
+
+    let max_sweeps = 512usize.max(n.saturating_mul(4));
+    let mut px = vec![0.0_f64; n];
+    let mut py = vec![0.0_f64; n];
+    let mut moved_any = false;
+
+    for sweep in 0..max_sweeps {
+        let candidates = RectangleOverlapSweep::find_layout_overlaps(
+            layout,
+            &sweep_half_boxes,
+            &sweep_half_boxes,
+        )?;
+        if candidates.is_empty() {
+            break;
+        }
+        {
+            let xs = layout.x();
+            let ys = layout.y();
+            for i in 0..n {
+                px[i] = xs[i].to_f64();
+                py[i] = ys[i].to_f64();
+            }
+        }
+
+        let mut sweep_overlap = false;
+        let use_symmetric = sweep >= 32;
+        for (u, v) in candidates {
+            let d_bar = radii[u] + radii[v] + m_gap;
+            if !d_bar.is_finite() || d_bar <= 0.0 {
+                continue;
+            }
+            let dx = px[v] - px[u];
+            let dy = py[v] - py[u];
+            let dist = dx.hypot(dy);
+            if !dist.is_finite() || dist >= d_bar {
+                continue;
+            }
+            sweep_overlap = true;
+
+            let target_d = d_bar * (1.0 + rel_margin) + 1e-9;
+            let push = target_d - dist;
+            if !push.is_finite() || push <= 0.0 {
+                continue;
+            }
+            let (ux, uy) = if dist > 1e-12 {
+                (dx / dist, dy / dist)
+            } else {
+                // Deterministic non-collinear separation direction for coincident centers.
+                let angle =
+                    ((u as f64) * 2.399963229728653) + ((v as f64) * 0.618033988749895) + 0.37;
+                (angle.cos(), angle.sin())
+            };
+
+            let (step_u, step_v) = if use_symmetric {
+                (0.5 * push, 0.5 * push)
+            } else {
+                let sz_u = (coarse_sizes[u] as f64).max(1.0);
+                let sz_v = (coarse_sizes[v] as f64).max(1.0);
+                let inv_u = 1.0 / sz_u;
+                let inv_v = 1.0 / sz_v;
+                let inv_sum = inv_u + inv_v;
+                (push * (inv_u / inv_sum), push * (inv_v / inv_sum))
+            };
+
+            let nx_u = px[u] - ux * step_u;
+            let ny_u = py[u] - uy * step_u;
+            let nx_v = px[v] + ux * step_v;
+            let ny_v = py[v] + uy * step_v;
+            if nx_u.is_finite() && ny_u.is_finite() && nx_v.is_finite() && ny_v.is_finite() {
+                px[u] = nx_u;
+                py[u] = ny_u;
+                px[v] = nx_v;
+                py[v] = ny_v;
+            }
+        }
+
+        if !sweep_overlap {
+            break;
+        }
+        moved_any = true;
+        let (xs_m, ys_m) = layout.xy_mut();
+        for i in 0..n {
+            let sx = S::from_f64(px[i]);
+            let sy = S::from_f64(py[i]);
+            if sx.is_finite() && sy.is_finite() {
+                xs_m[i] = sx;
+                ys_m[i] = sy;
+            }
+        }
+    }
+
+    if moved_any {
+        // Re-center without scaling so pairwise clearances are preserved, reverting if
+        // floating-point rounding re-introduces any overlap.
+        let (mx, my) = {
+            let xs = layout.x();
+            let ys = layout.y();
+            let mut sx = 0.0_f64;
+            let mut sy = 0.0_f64;
+            for i in 0..n {
+                sx += xs[i].to_f64();
+                sy += ys[i].to_f64();
+            }
+            (sx / (n as f64), sy / (n as f64))
+        };
+        if mx.is_finite() && my.is_finite() && mx.hypot(my) > 1e-6 {
+            let before = layout.clone();
+            {
+                let (xs_m, ys_m) = layout.xy_mut();
+                for i in 0..n {
+                    let nx = S::from_f64(xs_m[i].to_f64() - mx);
+                    let ny = S::from_f64(ys_m[i].to_f64() - my);
+                    if nx.is_finite() && ny.is_finite() {
+                        xs_m[i] = nx;
+                        ys_m[i] = ny;
+                    }
+                }
+            }
+            if count_disk_overlaps(layout, radii, m_gap, half_boxes)? > 0 {
+                *layout = before;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn collect_disk_hinge_pairs<S: Scalar>(
     layout: &Layout2d<S>,
     radii: &[f64],
@@ -813,7 +1006,15 @@ fn coarse_backbone_init_core<S: Scalar>(
         }
     }
     if init_spread <= 0.0 {
-        let target = (1.0 + 2.0 * max_radius).max(1.0);
+        let area_r = radii
+            .iter()
+            .map(|&r| {
+                let hr = r + 0.5 * config.m_gap;
+                hr * hr
+            })
+            .sum::<f64>()
+            .sqrt();
+        let target = (1.0 + 2.0 * max_radius).max(2.0 * area_r).max(1.0);
         robust_normalize_layout_2d(
             &mut coarse_layout,
             target,
@@ -862,14 +1063,19 @@ fn coarse_backbone_init_core<S: Scalar>(
             }
         }
 
-        // Sample canonical non-edge coarse pairs.
-        if config.coarse_neg_per_node > 0 && n_l > 2 {
+        // Sample canonical non-edge coarse pairs only within the same connected component.
+        if m_l > 0 && config.coarse_neg_per_node > 0 && n_l > 2 {
+            let (comp_id, comp_nodes) = coarse_connected_components(cg, n_l);
             let mut neg_pairs: Vec<(u32, u32)> =
                 Vec::with_capacity(n_l * config.coarse_neg_per_node);
             let mut stamp = VisitStamp::new(n_l);
             let cg_indptr = cg.indptr();
             let cg_indices = cg.indices();
             for u in 0..n_l {
+                let members = &comp_nodes[comp_id[u]];
+                if members.len() <= 2 {
+                    continue;
+                }
                 stamp.clear();
                 stamp.mark(u);
                 for &nbr in &cg_indices[cg_indptr[u] as usize..cg_indptr[u + 1] as usize] {
@@ -881,8 +1087,8 @@ fn coarse_backbone_init_core<S: Scalar>(
                     if collected >= config.coarse_neg_per_node {
                         break;
                     }
-                    let v = rng.gen_range_usize(n_l);
-                    if !stamp.visit(v) {
+                    let v = members[rng.gen_range_usize(members.len())];
+                    if comp_id[v] != comp_id[u] || !stamp.visit(v) {
                         continue;
                     }
                     let (a, b) = if u < v { (u, v) } else { (v, u) };
@@ -900,7 +1106,8 @@ fn coarse_backbone_init_core<S: Scalar>(
                 for idx in 0..neg_pairs.len() {
                     let u = neg_u[idx] as usize;
                     let v = neg_v[idx] as usize;
-                    let d = neg_alts[idx].max(floor_d);
+                    let min_clear = radii[u] + radii[v] + config.m_gap;
+                    let d = neg_alts[idx].max(floor_d).max(min_clear);
                     let sz_u = coarsest.coarse_sizes[u] as f64;
                     let sz_v = coarsest.coarse_sizes[v] as f64;
                     let mass = (sz_u * sz_v).powf(0.5 * config.gamma_m);
@@ -941,6 +1148,7 @@ fn coarse_backbone_init_core<S: Scalar>(
             let mut hinge_wt: Vec<S> = Vec::new();
 
             if config.mu_ov > 0.0 {
+                let eff_mu = config.mu_ov * (1.0 + 2.0 * (round as f64));
                 let h_pairs = collect_disk_hinge_pairs(
                     &coarse_layout,
                     &radii,
@@ -951,15 +1159,26 @@ fn coarse_backbone_init_core<S: Scalar>(
                     #[cfg(not(feature = "delaunay"))]
                     &mut knn_out,
                 )?;
-                let mu_ov_s = S::from_f64(config.mu_ov);
                 for (u, v) in h_pairs {
-                    let d_bar = radii[u as usize] + radii[v as usize] + config.m_gap;
+                    let ui = u as usize;
+                    let vi = v as usize;
+                    let d_bar = radii[ui] + radii[vi] + config.m_gap;
+                    if !d_bar.is_finite() || d_bar <= 0.0 {
+                        continue;
+                    }
+                    let sz_u = coarsest.coarse_sizes[ui] as f64;
+                    let sz_v = coarsest.coarse_sizes[vi] as f64;
+                    let mass = (sz_u * sz_v).powf(0.5 * config.gamma_m);
+                    let denom = d_bar.max(1e-6);
+                    let w = eff_mu * mass / (denom * denom);
                     let d_bar_s = S::from_f64(d_bar);
-                    if d_bar_s.is_finite() && d_bar_s > S::ZERO && mu_ov_s.is_finite() {
+                    let w_s = S::from_f64(w);
+                    if d_bar_s.is_finite() && d_bar_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO
+                    {
                         hinge_src.push(u);
                         hinge_tgt.push(v);
                         hinge_dist.push(d_bar_s);
-                        hinge_wt.push(mu_ov_s);
+                        hinge_wt.push(w_s);
                     }
                 }
             }
@@ -989,6 +1208,19 @@ fn coarse_backbone_init_core<S: Scalar>(
                 config.seed.wrapping_add(round as u64),
             )?;
             solver.run(&mut coarse_layout)?;
+        }
+
+        if config.mu_ov > 0.0
+            && n_l > 1
+            && count_disk_overlaps(&coarse_layout, &radii, config.m_gap, &half_boxes)? > 0
+        {
+            resolve_residual_disk_overlaps(
+                &mut coarse_layout,
+                &radii,
+                config.m_gap,
+                &half_boxes,
+                &coarsest.coarse_sizes,
+            )?;
         }
     }
 
@@ -1333,5 +1565,495 @@ mod tests {
         let res_zero = coarse_backbone_init::<f32, f32>(&g_zero32, &cfg).unwrap();
         assert!(res_zero.fine_layout.is_all_finite());
         assert!(res_zero.coarse_layout.is_all_finite());
+    }
+
+    #[test]
+    fn test_stage_f_mass_scaled_hinges_and_non_edge_clearance() {
+        // 1. Unequal large clusters: mass-scaled hinges eliminate coarse overlap in both f64 and f32.
+        let big = make_three_cluster_chain(64);
+        let mut cfg = CoarseBackboneConfig {
+            c0: 0.8,
+            gamma_m: 0.5,
+            mu_ov: 1.0,
+            m_gap: 0.1,
+            target_std: None,
+            distance_backend: CoarseDistanceBackend::ShortestPath,
+            ..CoarseBackboneConfig::default()
+        };
+        cfg.louvain.max_coarse_nodes = 3;
+
+        let res64 = coarse_backbone_init::<f64, f64>(&big, &cfg).unwrap();
+        assert_eq!(res64.stats.num_coarse_nodes, 3);
+        assert_eq!(res64.stats.coarse_overlap_pairs_final, 0);
+        assert!(res64.fine_layout.is_all_finite());
+
+        let big32 = make_three_cluster_chain(64);
+        let res32 = coarse_backbone_init::<f64, f32>(&big32, &cfg).unwrap();
+        assert_eq!(res32.stats.num_coarse_nodes, 3);
+        assert_eq!(res32.stats.coarse_overlap_pairs_final, 0);
+        assert!(res32.fine_layout.is_all_finite());
+
+        // 2. Disconnected large cliques (m_l == 0, non-edge springs + hinges) preserve non-edge
+        //    clearance >= radii[u] + radii[v] + m_gap without collapsing.
+        let mut disc_edges = Vec::new();
+        for c in 0..4u32 {
+            let off = c * 12;
+            for i in 0..12u32 {
+                for j in (i + 1)..12u32 {
+                    disc_edges.push((off + i, off + j));
+                }
+            }
+        }
+        let g_disc = CsrGraph::<f64>::from_edges(48, &disc_edges, None, false, false).unwrap();
+        let mut cfg_disc = CoarseBackboneConfig {
+            c0: 0.8,
+            gamma_m: 0.5,
+            mu_ov: 1.0,
+            m_gap: 0.1,
+            coarse_neg_per_node: 4,
+            target_std: None,
+            ..CoarseBackboneConfig::default()
+        };
+        cfg_disc.louvain.max_coarse_nodes = 4;
+        let res_disc = coarse_backbone_init::<f64, f64>(&g_disc, &cfg_disc).unwrap();
+        assert_eq!(res_disc.stats.num_coarse_nodes, 4);
+        assert_eq!(res_disc.stats.coarse_overlap_pairs_final, 0);
+        for u in 0..4usize {
+            for v in (u + 1)..4usize {
+                let d = (res_disc.coarse_layout.x()[u] - res_disc.coarse_layout.x()[v])
+                    .hypot(res_disc.coarse_layout.y()[u] - res_disc.coarse_layout.y()[v]);
+                let min_req = res_disc.radii[u] + res_disc.radii[v] + cfg_disc.m_gap;
+                assert!(
+                    d >= min_req - 1e-6,
+                    "disconnected cluster pair ({u}, {v}) collapsed: d={d} < min_req={min_req}"
+                );
+            }
+        }
+
+        // 3. Edge cases: tiny m_gap with c0=0.0 in f32, c0=0.0 & m_gap=0.0, and mu_ov=0.0.
+        for (c0, m_gap, mu_ov) in [(0.0, 1e-8, 1.0), (0.0, 0.0, 1.0), (0.8, 0.1, 0.0)] {
+            let mut edge_cfg = CoarseBackboneConfig {
+                c0,
+                m_gap,
+                mu_ov,
+                target_std: None,
+                ..CoarseBackboneConfig::default()
+            };
+            edge_cfg.louvain.max_coarse_nodes = 3;
+            let r_f32 = coarse_backbone_init::<f64, f32>(&big, &edge_cfg).unwrap();
+            assert!(
+                r_f32.fine_layout.is_all_finite() && r_f32.coarse_layout.is_all_finite(),
+                "non-finite output for c0={c0}, m_gap={m_gap}, mu_ov={mu_ov}"
+            );
+        }
+    }
+
+    fn make_unequal_clusters_graph(
+        n_big: usize,
+        big_size: usize,
+        n_small: usize,
+        small_size: usize,
+        topology: &str,
+    ) -> CsrGraph<f64> {
+        let mut offsets = Vec::with_capacity(n_big + n_small);
+        let mut cur = 0usize;
+        for _ in 0..n_big {
+            offsets.push((cur, big_size));
+            cur += big_size;
+        }
+        for _ in 0..n_small {
+            offsets.push((cur, small_size));
+            cur += small_size;
+        }
+        let n_total = cur;
+        let mut edges = Vec::new();
+        for &(off, sz) in &offsets {
+            for i in 0..sz {
+                for j in (i + 1)..sz {
+                    edges.push(((off + i) as u32, (off + j) as u32));
+                }
+            }
+        }
+        match topology {
+            "chain" => {
+                for c in 0..(offsets.len().saturating_sub(1)) {
+                    let u = offsets[c].0 + offsets[c].1 - 1;
+                    let v = offsets[c + 1].0;
+                    edges.push((u as u32, v as u32));
+                }
+            }
+            "star_chain" => {
+                // Star over the big clusters centered at cluster 0, then chain through small clusters.
+                for c in 1..n_big {
+                    let u = offsets[0].0 + (c % offsets[0].1);
+                    let v = offsets[c].0;
+                    edges.push((u as u32, v as u32));
+                }
+                if n_big > 0 && n_small > 0 {
+                    let u = offsets[0].0 + offsets[0].1 - 1;
+                    let v = offsets[n_big].0;
+                    edges.push((u as u32, v as u32));
+                    for c in n_big..(offsets.len() - 1) {
+                        let a = offsets[c].0 + offsets[c].1 - 1;
+                        let b = offsets[c + 1].0;
+                        edges.push((a as u32, b as u32));
+                    }
+                }
+            }
+            "mixed_2comp" => {
+                // Component 0: star over big clusters; Component 1: chain over small clusters.
+                for c in 1..n_big {
+                    let u = offsets[0].0 + (c % offsets[0].1);
+                    let v = offsets[c].0;
+                    edges.push((u as u32, v as u32));
+                }
+                for c in n_big..(offsets.len().saturating_sub(1)) {
+                    let a = offsets[c].0 + offsets[c].1 - 1;
+                    let b = offsets[c + 1].0;
+                    edges.push((a as u32, b as u32));
+                }
+            }
+            "star_all" => {
+                // Star over all remaining clusters centered at cluster 0.
+                for c in 1..offsets.len() {
+                    let u = offsets[0].0 + (c % offsets[0].1);
+                    let v = offsets[c].0;
+                    edges.push((u as u32, v as u32));
+                }
+            }
+            "disconnected" => {}
+            other => panic!("unknown topology: {other}"),
+        }
+        CsrGraph::from_edges(n_total, &edges, None, false, false).unwrap()
+    }
+
+    #[test]
+    fn test_stage_f_unequal_clusters_all_topologies_f64_and_f32() {
+        // Challenger suite: 10x100 + 20x10 across chain, star_chain, disconnected, mixed_2comp
+        // x gamma_m in {0.0, 0.5, 1.0} x {Rhgh, ChebyshevDog, ShortestPath} x {f64, f32}.
+        for topology in ["chain", "star_chain", "disconnected", "mixed_2comp"] {
+            let g = make_unequal_clusters_graph(10, 100, 20, 10, topology);
+            for gamma_m in [0.0, 0.5, 1.0] {
+                for backend in [
+                    CoarseDistanceBackend::Rhgh,
+                    CoarseDistanceBackend::ChebyshevDog,
+                    CoarseDistanceBackend::ShortestPath,
+                ] {
+                    let mut cfg = CoarseBackboneConfig {
+                        c0: 0.8,
+                        m_gap: 0.1,
+                        gamma_m,
+                        distance_backend: backend,
+                        target_std: None,
+                        ..CoarseBackboneConfig::default()
+                    };
+                    cfg.louvain.max_coarse_nodes = 30;
+
+                    let r64 = coarse_backbone_init::<f64, f64>(&g, &cfg).unwrap();
+                    assert_eq!(
+                        r64.stats.coarse_overlap_pairs_final, 0,
+                        "f64 overlap for topology={topology}, gamma_m={gamma_m}, backend={backend:?}"
+                    );
+                    assert!(r64.fine_layout.is_all_finite() && r64.coarse_layout.is_all_finite());
+
+                    let r32 = coarse_backbone_init::<f64, f32>(&g, &cfg).unwrap();
+                    assert_eq!(
+                        r32.stats.coarse_overlap_pairs_final, 0,
+                        "f32 overlap for topology={topology}, gamma_m={gamma_m}, backend={backend:?}"
+                    );
+                    assert!(r32.fine_layout.is_all_finite() && r32.coarse_layout.is_all_finite());
+
+                    // Verify normalized fine_layout remains finite and well-scaled around target_std.
+                    if gamma_m == 0.5 && backend == CoarseDistanceBackend::Rhgh {
+                        let norm_cfg = CoarseBackboneConfig {
+                            target_std: Some(1.0),
+                            ..cfg
+                        };
+                        let r_norm = coarse_backbone_init::<f64, f64>(&g, &norm_cfg).unwrap();
+                        assert_eq!(r_norm.stats.coarse_overlap_pairs_final, 0);
+                        assert!(r_norm.fine_layout.is_all_finite());
+                        assert!(r_norm.coarse_layout.is_all_finite());
+                        assert!(
+                            r_norm.stats.scale_factor_applied.is_finite()
+                                && r_norm.stats.scale_factor_applied > 0.0
+                        );
+                        let n_f = r_norm.fine_layout.len() as f64;
+                        let fx = r_norm.fine_layout.x();
+                        let fy = r_norm.fine_layout.y();
+                        let mx = fx.iter().sum::<f64>() / n_f;
+                        let my = fy.iter().sum::<f64>() / n_f;
+                        let var = fx
+                            .iter()
+                            .zip(fy.iter())
+                            .map(|(&x, &y)| (x - mx).powi(2) + (y - my).powi(2))
+                            .sum::<f64>()
+                            / n_f;
+                        let std_2d = var.sqrt();
+                        assert!(
+                            std_2d > 0.2 && std_2d < 5.0,
+                            "unexpected fine_layout std={std_2d} for topology={topology}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Smaller disconnected unequal clusters: 2x100 + 4x10.
+        let g_small_disc = make_unequal_clusters_graph(2, 100, 4, 10, "disconnected");
+        for gamma_m in [0.0, 0.5, 1.0] {
+            let mut cfg = CoarseBackboneConfig {
+                c0: 0.8,
+                m_gap: 0.1,
+                gamma_m,
+                target_std: None,
+                ..CoarseBackboneConfig::default()
+            };
+            cfg.louvain.max_coarse_nodes = 6;
+            let r64 = coarse_backbone_init::<f64, f64>(&g_small_disc, &cfg).unwrap();
+            assert_eq!(
+                r64.stats.coarse_overlap_pairs_final, 0,
+                "2x100+4x10 f64 overlap for gamma_m={gamma_m}"
+            );
+            let r32 = coarse_backbone_init::<f64, f32>(&g_small_disc, &cfg).unwrap();
+            assert_eq!(
+                r32.stats.coarse_overlap_pairs_final, 0,
+                "2x100+4x10 f32 overlap for gamma_m={gamma_m}"
+            );
+        }
+
+        // mu_ov == 0.0 must leave both SGD hinges and post-SGD overlap projection disabled.
+        let g_star = make_unequal_clusters_graph(10, 100, 20, 10, "star_chain");
+        let mut cfg_no_ov = CoarseBackboneConfig {
+            c0: 0.8,
+            m_gap: 0.1,
+            mu_ov: 0.0,
+            target_std: None,
+            ..CoarseBackboneConfig::default()
+        };
+        cfg_no_ov.louvain.max_coarse_nodes = 30;
+        let r_no_ov = coarse_backbone_init::<f64, f64>(&g_star, &cfg_no_ov).unwrap();
+        assert!(r_no_ov.fine_layout.is_all_finite() && r_no_ov.coarse_layout.is_all_finite());
+        assert!(
+            r_no_ov.stats.coarse_overlap_pairs_final > 0,
+            "expected residual overlaps when mu_ov=0.0 disables both barrier hinges and projection"
+        );
+    }
+
+    #[test]
+    fn test_resolve_residual_disk_overlaps_coincident_and_zero_noop() {
+        // Coincident disks resolve cleanly in both f64 and f32 without NaNs/Inf.
+        let radii = vec![2.0, 2.0, 1.0, 1.0];
+        let sizes = vec![100, 100, 10, 10];
+        let m_gap = 0.1;
+        let half_boxes64: Vec<f64> = radii.iter().map(|&r| r + 0.5 * m_gap).collect();
+        let mut l64 = Layout2d::<f64>::zeros(4);
+        resolve_residual_disk_overlaps(&mut l64, &radii, m_gap, &half_boxes64, &sizes).unwrap();
+        assert!(l64.is_all_finite());
+        assert_eq!(
+            count_disk_overlaps(&l64, &radii, m_gap, &half_boxes64).unwrap(),
+            0
+        );
+
+        let half_boxes32: Vec<f32> = radii.iter().map(|&r| (r + 0.5 * m_gap) as f32).collect();
+        let mut l32 = Layout2d::<f32>::zeros(4);
+        resolve_residual_disk_overlaps(&mut l32, &radii, m_gap, &half_boxes32, &sizes).unwrap();
+        assert!(l32.is_all_finite());
+        assert_eq!(
+            count_disk_overlaps(&l32, &radii, m_gap, &half_boxes32).unwrap(),
+            0
+        );
+
+        // Already non-overlapping layout is an exact bit-level no-op.
+        let orig = Layout2d::from_xy(vec![0.0_f64, 10.0], vec![0.0, 0.0]).unwrap();
+        let mut copy = orig.clone();
+        let hb2 = vec![2.05_f64, 2.05];
+        resolve_residual_disk_overlaps(&mut copy, &[2.0, 2.0], 0.1, &hb2, &[10, 10]).unwrap();
+        assert_eq!(copy, orig);
+    }
+
+    #[test]
+    fn test_stage_f_large_n_l_default_config_zero_overlaps_f64_and_f32() {
+        fn brute_force_overlap_count<S: Scalar>(
+            layout: &Layout2d<S>,
+            radii: &[f64],
+            m_gap: f64,
+            scale: f64,
+            tol: f64,
+        ) -> usize {
+            let n = layout.len();
+            let xs = layout.x();
+            let ys = layout.y();
+            let mut ov = 0usize;
+            for u in 0..n {
+                let xu = xs[u].to_f64();
+                let yu = ys[u].to_f64();
+                for v in (u + 1)..n {
+                    let req = (radii[u] + radii[v] + m_gap) * scale * (1.0 - tol);
+                    let d = (xu - xs[v].to_f64()).hypot(yu - ys[v].to_f64());
+                    if d < req {
+                        ov += 1;
+                    }
+                }
+            }
+            ov
+        }
+
+        let cases = [
+            ("300-disc-default", 10, 50, 290, 4, "disconnected", None),
+            ("500-disc-default", 10, 50, 490, 4, "disconnected", None),
+            ("1000-disc-default", 10, 50, 990, 4, "disconnected", None),
+            ("500-star_all-res10", 1, 50, 499, 10, "star_all", Some(10.0)),
+        ];
+
+        for (label, n_big, big_sz, n_small, small_sz, topo, res_opt) in cases {
+            let g = make_unequal_clusters_graph(n_big, big_sz, n_small, small_sz, topo);
+            let mut cfg = CoarseBackboneConfig::default();
+            if let Some(res) = res_opt {
+                cfg.louvain.resolution = res;
+            }
+            let expected_nl = n_big + n_small;
+
+            let r64 = coarse_backbone_init::<f64, f64>(&g, &cfg).unwrap();
+            assert_eq!(
+                r64.stats.num_coarse_nodes, expected_nl,
+                "{label} f64 unexpected num_coarse_nodes"
+            );
+            assert_eq!(
+                r64.stats.coarse_overlap_pairs_final, 0,
+                "{label} f64 residual overlaps: init={} -> final={}",
+                r64.stats.coarse_overlap_pairs_initial, r64.stats.coarse_overlap_pairs_final
+            );
+            assert_eq!(
+                brute_force_overlap_count(
+                    &r64.coarse_layout,
+                    &r64.radii,
+                    cfg.m_gap,
+                    r64.stats.scale_factor_applied,
+                    1e-9,
+                ),
+                0,
+                "{label} f64 brute-force oracle detected overlap"
+            );
+            assert!(
+                r64.fine_layout.is_all_finite() && r64.coarse_layout.is_all_finite(),
+                "{label} f64 produced non-finite coordinates"
+            );
+
+            let r32 = coarse_backbone_init::<f64, f32>(&g, &cfg).unwrap();
+            assert_eq!(
+                r32.stats.num_coarse_nodes, expected_nl,
+                "{label} f32 unexpected num_coarse_nodes"
+            );
+            assert_eq!(
+                r32.stats.coarse_overlap_pairs_final, 0,
+                "{label} f32 residual overlaps: init={} -> final={}",
+                r32.stats.coarse_overlap_pairs_initial, r32.stats.coarse_overlap_pairs_final
+            );
+            assert_eq!(
+                brute_force_overlap_count(
+                    &r32.coarse_layout,
+                    &r32.radii,
+                    cfg.m_gap,
+                    r32.stats.scale_factor_applied,
+                    1e-5,
+                ),
+                0,
+                "{label} f32 brute-force oracle detected overlap"
+            );
+            assert!(
+                r32.fine_layout.is_all_finite() && r32.coarse_layout.is_all_finite(),
+                "{label} f32 produced non-finite coordinates"
+            );
+        }
+
+        // Also test 500-disc high-radius t_max=1/80 and 1000-star_all-res10 stress cases.
+        let g500 = make_unequal_clusters_graph(10, 50, 490, 4, "disconnected");
+        for t_max in [1usize, 80usize] {
+            let cfg_hi = CoarseBackboneConfig {
+                c0: 1.0,
+                m_gap: 0.2,
+                gamma_m: 1.0,
+                coarse_t_max: t_max,
+                target_std: None,
+                ..CoarseBackboneConfig::default()
+            };
+            let r_hi = coarse_backbone_init::<f64, f64>(&g500, &cfg_hi).unwrap();
+            assert_eq!(
+                r_hi.stats.coarse_overlap_pairs_final, 0,
+                "500-disc high-radius t_max={t_max} residual overlaps: init={} -> final={}",
+                r_hi.stats.coarse_overlap_pairs_initial, r_hi.stats.coarse_overlap_pairs_final
+            );
+            assert_eq!(
+                brute_force_overlap_count(&r_hi.coarse_layout, &r_hi.radii, cfg_hi.m_gap, 1.0, 0.0),
+                0
+            );
+            let r_hi32 = coarse_backbone_init::<f64, f32>(&g500, &cfg_hi).unwrap();
+            assert_eq!(
+                r_hi32.stats.coarse_overlap_pairs_final, 0,
+                "500-disc high-radius f32 t_max={t_max} residual overlaps: init={} -> final={}",
+                r_hi32.stats.coarse_overlap_pairs_initial, r_hi32.stats.coarse_overlap_pairs_final
+            );
+            assert_eq!(
+                brute_force_overlap_count(
+                    &r_hi32.coarse_layout,
+                    &r_hi32.radii,
+                    cfg_hi.m_gap,
+                    1.0,
+                    0.0
+                ),
+                0
+            );
+        }
+
+        let g1000_star = make_unequal_clusters_graph(1, 50, 999, 4, "star_all");
+        let mut cfg_star1000 = CoarseBackboneConfig {
+            target_std: None,
+            ..CoarseBackboneConfig::default()
+        };
+        cfg_star1000.louvain.resolution = 10.0;
+        let r_star1000 = coarse_backbone_init::<f64, f64>(&g1000_star, &cfg_star1000).unwrap();
+        assert_eq!(
+            r_star1000.stats.coarse_overlap_pairs_final,
+            0,
+            "1000-star_all-res10 f64 residual overlaps: nl={}, init={} -> final={}",
+            r_star1000.stats.num_coarse_nodes,
+            r_star1000.stats.coarse_overlap_pairs_initial,
+            r_star1000.stats.coarse_overlap_pairs_final
+        );
+        assert_eq!(
+            brute_force_overlap_count(
+                &r_star1000.coarse_layout,
+                &r_star1000.radii,
+                cfg_star1000.m_gap,
+                1.0,
+                0.0
+            ),
+            0
+        );
+
+        // Verify 2-cluster disconnected collinearity stays preserved with area-scaled init.
+        let g2 = make_unequal_clusters_graph(1, 50, 1, 10, "disconnected");
+        let cfg2 = CoarseBackboneConfig {
+            c0: 0.8,
+            m_gap: 0.1,
+            target_std: None,
+            ..CoarseBackboneConfig::default()
+        };
+        let r2_64 = coarse_backbone_init::<f64, f64>(&g2, &cfg2).unwrap();
+        assert_eq!(r2_64.stats.num_coarse_nodes, 2);
+        assert_eq!(r2_64.stats.coarse_overlap_pairs_final, 0);
+        assert!(
+            (r2_64.coarse_layout.y()[0] - r2_64.coarse_layout.y()[1]).abs() < 1e-12,
+            "2-cluster disconnected collinearity broken in f64: {:?}",
+            r2_64.coarse_layout.y()
+        );
+        let r2_32 = coarse_backbone_init::<f64, f32>(&g2, &cfg2).unwrap();
+        assert_eq!(r2_32.stats.num_coarse_nodes, 2);
+        assert_eq!(r2_32.stats.coarse_overlap_pairs_final, 0);
+        assert!(
+            (r2_32.coarse_layout.y()[0] - r2_32.coarse_layout.y()[1]).abs() < 1e-5,
+            "2-cluster disconnected collinearity broken in f32: {:?}",
+            r2_32.coarse_layout.y()
+        );
     }
 }

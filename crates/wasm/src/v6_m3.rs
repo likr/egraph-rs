@@ -2491,7 +2491,7 @@ impl JsSgdSolver {
     }
 
     /// Constructs a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
-    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks.
+    /// backbone initialization and `num_landmarks`-BFS Mid-Near (`MN`) landmarks.
     #[wasm_bindgen(js_name = pacmapGraphWithBackbone)]
     pub fn pacmap_graph_with_backbone(
         graph: &JsCsrGraph,

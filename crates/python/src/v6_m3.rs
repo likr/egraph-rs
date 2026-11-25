@@ -2965,7 +2965,7 @@ impl PySgdSolver {
     }
 
     /// Construct a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
-    /// backbone initialization and pure-Rust pivoted `RHGH` landmarks, returning
+    /// backbone initialization and `num_landmarks`-BFS Mid-Near (`MN`) landmarks, returning
     /// `(solver, initial_layout, backbone_dict)`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
