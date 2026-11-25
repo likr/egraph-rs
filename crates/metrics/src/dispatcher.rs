@@ -65,9 +65,11 @@ pub enum MetricTarget {
     GabrielGraphProperty,
     /// One-sided hinge node-resolution violation sum.
     NodeResolution,
-    /// Shape-based 1-hop vs RNG Mean Jaccard Similarity (`dRNG`).
+    /// Eades et al. (2017) unweighted shape-based 1-hop vs RNG Mean Jaccard Similarity (`S_RNG`;
+    /// distinct from Hong et al. 2022 `dRNG` and Fang et al. 2025 `dcRNG`).
     RelativeNeighborhoodPreservation,
-    /// Shape-based 1-hop vs Gabriel Graph Mean Jaccard Similarity (`dGG`).
+    /// Eades et al. (2017) unweighted shape-based 1-hop vs Gabriel Graph Mean Jaccard Similarity (`S_GG`;
+    /// distinct from Hong et al. 2022 `dGG` and Fang et al. 2025 `dcGG`).
     GabrielGraphPreservation,
     /// PCA singular-value aspect ratio ($\sigma_2 / \sigma_1$).
     AspectRatio,
@@ -450,8 +452,8 @@ struct RequestedFlags {
     sampled_np2: bool,
     gabriel_property: bool,
     node_resolution: bool,
-    drng: bool,
-    dgg: bool,
+    s_rng: bool,
+    s_gg: bool,
     aspect_ratio: bool,
     angular_resolution: bool,
     minimum_angle: bool,
@@ -517,8 +519,8 @@ impl RequestedFlags {
                 MetricTarget::SampledNp2 => flags.sampled_np2 = true,
                 MetricTarget::GabrielGraphProperty => flags.gabriel_property = true,
                 MetricTarget::NodeResolution => flags.node_resolution = true,
-                MetricTarget::RelativeNeighborhoodPreservation => flags.drng = true,
-                MetricTarget::GabrielGraphPreservation => flags.dgg = true,
+                MetricTarget::RelativeNeighborhoodPreservation => flags.s_rng = true,
+                MetricTarget::GabrielGraphPreservation => flags.s_gg = true,
                 MetricTarget::AspectRatio => flags.aspect_ratio = true,
                 MetricTarget::AngularResolution => flags.angular_resolution = true,
                 MetricTarget::MinimumAngle => flags.minimum_angle = true,
@@ -579,8 +581,8 @@ impl RequestedFlags {
             || self.sampled_np2
             || self.gabriel_property
             || self.node_resolution
-            || self.drng
-            || self.dgg;
+            || self.s_rng
+            || self.s_gg;
         #[cfg(feature = "eval-baselines")]
         {
             base || self.sepme_knng
@@ -743,12 +745,12 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
         if flags.node_resolution {
             report.node_resolution = Some(node_resolution_with_tree(layout, tree)?);
         }
-        if flags.drng {
+        if flags.s_rng {
             report.relative_neighborhood_preservation = Some(
                 relative_neighborhood_preservation_with_tree(graph, layout, tree)?,
             );
         }
-        if flags.dgg {
+        if flags.s_gg {
             report.gabriel_graph_preservation =
                 Some(gabriel_graph_preservation_with_tree(graph, layout, tree)?);
         }

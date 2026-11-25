@@ -6,8 +6,8 @@
 //! - [`crossings`]: Exact sweep-line crossing counts/angles, torus crossings, and
 //!   deterministic sampled crossing estimation.
 //! - [`neighborhood`]: `StaticKdTree`-accelerated 1-hop and 2-hop neighborhood preservation.
-//! - [`proximity`]: Gabriel graph property, hinge node resolution, and shape-based
-//!   `dRNG` / `dGG` preservation metrics.
+//! - [`proximity`]: Gabriel graph property, hinge node resolution, and Eades et al. (2017)
+//!   unweighted shape-based `S_RNG` / `S_GG` preservation metrics.
 //! - [`geometry`]: Aspect ratio, angular resolution, edge angles, ideal edge lengths,
 //!   and PRISM distortion ($\sigma_{\mathrm{dist}}, \sigma_{\mathrm{disp}}$).
 //! - [`community`]: Spatial community coherence (`adjusted_patch_nig`,
