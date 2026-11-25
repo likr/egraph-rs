@@ -5,18 +5,19 @@ pub use crate::v6_m2::*;
 pub use crate::v6_m3::*;
 pub use crate::v6_m4::*;
 pub use crate::v6_m5::*;
+pub use crate::v6_w1::*;
 
 use egraph::core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
 use egraph::metrics::{
-    ClusterAreaConfig, ClusterAreaDetail, CrossingPair, CrossingSummary, LayoutDegeneracy,
-    MetricConfig, MetricReport, MetricTarget, MinimumAngleSummary, RtaEvaluation, TorusCrossing,
-    adjusted_patch_nig, adjusted_patch_nig_multiscale, all_pairs_bfs, angular_resolution,
-    aspect_ratio, bfs_single_source, cluster_area_faithfulness_detail_with_weights,
-    cluster_area_faithfulness_with_weights, crossing_angle, crossing_edges, crossing_edges_torus,
-    crossing_number, crossing_summary, crosslessness, edge_angle,
-    evaluate_metrics_with_community_weights, gabriel_graph_edges, gabriel_graph_preservation,
-    gabriel_graph_property, ideal_edge_lengths, ideal_edge_lengths_with_unit,
-    landmark_stratified_rta, landmark_stratified_rta_detail,
+    ClusterAreaConfig, ClusterAreaDetail, ClusterBaselineConfig, CrossingPair, CrossingSummary,
+    LayoutDegeneracy, MetricConfig, MetricReport, MetricTarget, MinimumAngleSummary, RtaEvaluation,
+    TorusCrossing, adjusted_patch_nig, adjusted_patch_nig_multiscale, all_pairs_bfs,
+    angular_resolution, aspect_ratio, bfs_single_source,
+    cluster_area_faithfulness_detail_with_weights, cluster_area_faithfulness_with_weights,
+    crossing_angle, crossing_edges, crossing_edges_torus, crossing_number, crossing_summary,
+    crosslessness, edge_angle, evaluate_metrics_with_community_weights, gabriel_graph_edges,
+    gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
+    ideal_edge_lengths_with_unit, landmark_stratified_rta, landmark_stratified_rta_detail,
     landmark_stratified_rta_from_landmarks, layout_degeneracy, minimum_angle,
     minimum_angle_summary, neighborhood_preservation_1hop, neighborhood_preservation_2hop,
     node_resolution, prism_distortion, prism_distortion_with_edges, relative_neighborhood_edges,
@@ -63,12 +64,12 @@ pub(crate) fn parse_non_negative_usize(value: f64, name: &str) -> Result<usize, 
     Ok(value as usize)
 }
 
-fn parse_non_negative_u32(value: f64, name: &str) -> Result<u32, JsError> {
+pub(crate) fn parse_non_negative_u32(value: f64, name: &str) -> Result<u32, JsError> {
     let v = parse_non_negative_usize(value, name)?;
     u32::try_from(v).map_err(|_| JsError::new(&format!("{name} must be <= u32::MAX, got {value}")))
 }
 
-fn parse_u32_sequence(val: &JsValue, name: &str) -> Result<Vec<u32>, JsError> {
+pub(crate) fn parse_u32_sequence(val: &JsValue, name: &str) -> Result<Vec<u32>, JsError> {
     if let Some(arr) = val.dyn_ref::<js_sys::Uint32Array>() {
         return Ok(arr.to_vec());
     }
@@ -92,7 +93,10 @@ fn parse_u32_sequence(val: &JsValue, name: &str) -> Result<Vec<u32>, JsError> {
     Ok(out)
 }
 
-fn parse_optional_f64_sequence(val: &JsValue, name: &str) -> Result<Option<Vec<f64>>, JsError> {
+pub(crate) fn parse_optional_f64_sequence(
+    val: &JsValue,
+    name: &str,
+) -> Result<Option<Vec<f64>>, JsError> {
     if val.is_null() || val.is_undefined() {
         return Ok(None);
     }
@@ -197,6 +201,24 @@ fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
             Ok(MetricTarget::LandmarkStratifiedRta)
         }
+        "dsc" | "distanceconsistency" => Ok(MetricTarget::Dsc),
+        "dc" | "distributionconsistency" => Ok(MetricTarget::Dc),
+        "cdm" | "classdensitymeasure" => Ok(MetricTarget::Cdm),
+        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::Hdm),
+        "sepmeknng" | "sepmeknng2" => Ok(MetricTarget::SepmeKnng),
+        "sepmerng" => Ok(MetricTarget::SepmeRng),
+        "sepmegab" => Ok(MetricTarget::SepmeGab),
+        "sepmegong" => Ok(MetricTarget::SepmeGong),
+        "neighborhoodhit" | "mnh" => Ok(MetricTarget::NeighborhoodHit),
+        "silhouette" | "silhouettescore" => Ok(MetricTarget::Silhouette),
+        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => Ok(MetricTarget::CalinskiHarabasz),
+        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldin),
+        "cqkmeansari" => Ok(MetricTarget::CqKmeansAri),
+        "cqkmeansami" => Ok(MetricTarget::CqKmeansAmi),
+        "cqhachom" | "cqhachomogeneity" => Ok(MetricTarget::CqHacHom),
+        "cqhacami" => Ok(MetricTarget::CqHacAmi),
+        "pairwisedistanceoverlaperror" | "pdoe" => Ok(MetricTarget::PairwiseDistanceOverlapError),
+        "sprawlternn" => Ok(MetricTarget::SprawlterNn),
         _ => Err(JsError::new(&format!("unknown metric target: {raw:?}"))),
     }
 }
@@ -853,11 +875,119 @@ impl JsMetricReport {
         self.inner.landmark_stratified_rta
     }
 
+    /// Returns Distance Consistency (`DSC`), or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn dsc(&self) -> Option<f64> {
+        self.inner.dsc
+    }
+
+    /// Returns Distribution Consistency (`DC`), or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn dc(&self) -> Option<f64> {
+        self.inner.dc
+    }
+
+    /// Returns Class Density Measure (`CDM`), or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn cdm(&self) -> Option<f64> {
+        self.inner.cdm
+    }
+
+    /// Returns 2D Histogram Density Measure (`2D-HDM`), or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn hdm(&self) -> Option<f64> {
+        self.inner.hdm
+    }
+
+    /// Returns SepMe $k$-NN graph DIR CPT, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sepmeKnng)]
+    pub fn sepme_knng(&self) -> Option<f64> {
+        self.inner.sepme_knng
+    }
+
+    /// Returns SepMe Relative Neighborhood Graph DIR CPT, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sepmeRng)]
+    pub fn sepme_rng(&self) -> Option<f64> {
+        self.inner.sepme_rng
+    }
+
+    /// Returns SepMe Gabriel Graph DIR CPT, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sepmeGab)]
+    pub fn sepme_gab(&self) -> Option<f64> {
+        self.inner.sepme_gab
+    }
+
+    /// Returns SepMe $\gamma$-Observable Neighbor Graph DIR CPT, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sepmeGong)]
+    pub fn sepme_gong(&self) -> Option<f64> {
+        self.inner.sepme_gong
+    }
+
+    /// Returns Neighborhood Hit ($M_{\mathrm{NH}}$), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = neighborhoodHit)]
+    pub fn neighborhood_hit(&self) -> Option<f64> {
+        self.inner.neighborhood_hit
+    }
+
+    /// Returns Silhouette coefficient, or `undefined` if not requested.
+    #[wasm_bindgen(getter)]
+    pub fn silhouette(&self) -> Option<f64> {
+        self.inner.silhouette
+    }
+
+    /// Returns Calinski-Harabasz Index, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = calinskiHarabasz)]
+    pub fn calinski_harabasz(&self) -> Option<f64> {
+        self.inner.calinski_harabasz
+    }
+
+    /// Returns Davies-Bouldin Index, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = daviesBouldin)]
+    pub fn davies_bouldin(&self) -> Option<f64> {
+        self.inner.davies_bouldin
+    }
+
+    /// Returns $k$-means Cluster Quality (`CQ-kmeans` ARI), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = cqKmeansAri)]
+    pub fn cq_kmeans_ari(&self) -> Option<f64> {
+        self.inner.cq_kmeans_ari
+    }
+
+    /// Returns $k$-means Cluster Quality (`CQ-kmeans` AMI), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = cqKmeansAmi)]
+    pub fn cq_kmeans_ami(&self) -> Option<f64> {
+        self.inner.cq_kmeans_ami
+    }
+
+    /// Returns Average-linkage HAC Cluster Quality (`CQ-HAC` Homogeneity), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = cqHacHom)]
+    pub fn cq_hac_hom(&self) -> Option<f64> {
+        self.inner.cq_hac_hom
+    }
+
+    /// Returns Average-linkage HAC Cluster Quality (`CQ-HAC` AMI), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = cqHacAmi)]
+    pub fn cq_hac_ami(&self) -> Option<f64> {
+        self.inner.cq_hac_ami
+    }
+
+    /// Returns Pairwise Distance-Overlap Error (`PDOE`), or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = pairwiseDistanceOverlapError)]
+    pub fn pairwise_distance_overlap_error(&self) -> Option<f64> {
+        self.inner.pairwise_distance_overlap_error
+    }
+
+    /// Returns Sprawlter-NN composite overlap clutter measure, or `undefined` if not requested.
+    #[wasm_bindgen(getter, js_name = sprawlterNn)]
+    pub fn sprawlter_nn(&self) -> Option<f64> {
+        self.inner.sprawlter_nn
+    }
+
     /// Converts requested metrics into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
     pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
         let obj = js_sys::Object::new();
-        let entries: [(&str, Option<f64>); 24] = [
+        let entries: [(&str, Option<f64>); 42] = [
             ("scaleNormalizedStress", self.inner.scale_normalized_stress),
             (
                 "sampledScaleNormalizedStress",
@@ -903,6 +1033,27 @@ impl JsMetricReport {
                 self.inner.cluster_area_faithfulness,
             ),
             ("landmarkStratifiedRta", self.inner.landmark_stratified_rta),
+            ("dsc", self.inner.dsc),
+            ("dc", self.inner.dc),
+            ("cdm", self.inner.cdm),
+            ("hdm", self.inner.hdm),
+            ("sepmeKnng", self.inner.sepme_knng),
+            ("sepmeRng", self.inner.sepme_rng),
+            ("sepmeGab", self.inner.sepme_gab),
+            ("sepmeGong", self.inner.sepme_gong),
+            ("neighborhoodHit", self.inner.neighborhood_hit),
+            ("silhouette", self.inner.silhouette),
+            ("calinskiHarabasz", self.inner.calinski_harabasz),
+            ("daviesBouldin", self.inner.davies_bouldin),
+            ("cqKmeansAri", self.inner.cq_kmeans_ari),
+            ("cqKmeansAmi", self.inner.cq_kmeans_ami),
+            ("cqHacHom", self.inner.cq_hac_hom),
+            ("cqHacAmi", self.inner.cq_hac_ami),
+            (
+                "pairwiseDistanceOverlapError",
+                self.inner.pairwise_distance_overlap_error,
+            ),
+            ("sprawlterNn", self.inner.sprawlter_nn),
         ];
         for (key, maybe_val) in entries {
             if let Some(val) = maybe_val {
@@ -1764,6 +1915,39 @@ pub fn js_landmark_stratified_rta_from_landmarks(
     Ok(JsRtaEvaluation { inner })
 }
 
+fn parse_cluster_baseline_config(
+    options: &JsValue,
+    default_seed: u64,
+) -> Result<ClusterBaselineConfig, JsError> {
+    let mut cfg = ClusterBaselineConfig {
+        seed: default_seed,
+        ..ClusterBaselineConfig::default()
+    };
+    cfg.sepme_knng_k = crate::v6_m3::opt_usize_prop(options, "sepmeKnngK", cfg.sepme_knng_k)?;
+    cfg.neighborhood_hit_k =
+        crate::v6_m3::opt_usize_prop(options, "neighborhoodHitK", cfg.neighborhood_hit_k)?;
+    cfg.dc_grid_size = crate::v6_m3::opt_usize_prop(options, "dcGridSize", cfg.dc_grid_size)?;
+    cfg.cdm_grid_size = crate::v6_m3::opt_usize_prop(options, "cdmGridSize", cfg.cdm_grid_size)?;
+    if let Some(bw) = crate::v6_m3::opt_maybe_f64_prop(options, "cdmBandwidth")? {
+        cfg.cdm_bandwidth = Some(bw);
+    }
+    cfg.num_bins = crate::v6_m3::opt_usize_prop(options, "numBins", cfg.num_bins)?;
+    cfg.gong_gamma = crate::v6_m3::opt_f64_prop(options, "gongGamma", cfg.gong_gamma)?;
+    cfg.kmeans_n_init = crate::v6_m3::opt_usize_prop(options, "kmeansNInit", cfg.kmeans_n_init)?;
+    cfg.kmeans_max_iters =
+        crate::v6_m3::opt_usize_prop(options, "kmeansMaxIters", cfg.kmeans_max_iters)?;
+    let seed_val = crate::v6_m3::get_prop(options, "seed")?;
+    if !seed_val.is_undefined() && !seed_val.is_null() {
+        let num = seed_val
+            .as_f64()
+            .ok_or_else(|| JsError::new("options.seed must be a non-negative safe integer"))?;
+        cfg.seed = parse_seed_u64(Some(num))?;
+    }
+    cfg.sprawlter_node_radius =
+        crate::v6_m3::opt_f64_prop(options, "sprawlterNodeRadius", cfg.sprawlter_node_radius)?;
+    Ok(cfg)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics_impl(
     graph: &JsCsrGraph,
@@ -1788,6 +1972,7 @@ fn evaluate_metrics_impl(
     stevens_gamma: Option<f64>,
     node_weights: Option<&[f64]>,
     cluster_weights: Option<&[f64]>,
+    cluster_baselines_opt: Option<ClusterBaselineConfig>,
 ) -> Result<JsMetricReport, JsError> {
     let parsed_targets = parse_metric_targets(targets)?;
     let sns_num_pivots = match num_pivots {
@@ -1829,6 +2014,10 @@ fn evaluate_metrics_impl(
         boundary_r95,
         stevens_gamma,
     )?;
+    let cluster_baselines = cluster_baselines_opt.unwrap_or(ClusterBaselineConfig {
+        seed: seed_u64,
+        ..ClusterBaselineConfig::default()
+    });
 
     let cfg = MetricConfig {
         sns_num_pivots,
@@ -1845,7 +2034,7 @@ fn evaluate_metrics_impl(
         patch_nig_pad_frac,
         patch_nig_seed: seed_u64,
         cluster_area,
-        ..MetricConfig::default()
+        cluster_baselines,
     };
     let soa = layout.inner().to_layout2d();
     let report = evaluate_metrics_with_community_weights(
@@ -1863,6 +2052,176 @@ fn evaluate_metrics_impl(
 
 /// Selectively evaluates only the quality metrics listed in `targets`, skipping unrequested work.
 #[wasm_bindgen(js_name = evaluateMetrics)]
+#[allow(clippy::too_many_arguments)]
+pub fn js_evaluate_metrics_entry(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+    targets: &JsValue,
+    num_pivots_or_options: &JsValue,
+    num_samples: Option<f64>,
+    seed: Option<f64>,
+    ideal_edge_length: Option<f64>,
+    community_labels: &JsValue,
+    num_landmarks: Option<f64>,
+    num_triplets: Option<f64>,
+    min_degree: Option<f64>,
+    patch_radius: Option<f64>,
+    canvas_size: Option<f64>,
+    pad_frac: Option<f64>,
+    g_max: Option<f64>,
+    sigma_cells: Option<f64>,
+    kappa: Option<f64>,
+    tau_frac: Option<f64>,
+    boundary_r95: Option<f64>,
+    stevens_gamma: Option<f64>,
+    node_weights: &JsValue,
+    cluster_weights: &JsValue,
+    cluster_baseline_options: &JsValue,
+) -> Result<JsMetricReport, JsError> {
+    if crate::v6_m3::is_plain_js_object(num_pivots_or_options) {
+        let has_extra = num_samples.is_some()
+            || seed.is_some()
+            || ideal_edge_length.is_some()
+            || (!community_labels.is_undefined() && !community_labels.is_null())
+            || num_landmarks.is_some()
+            || num_triplets.is_some()
+            || min_degree.is_some()
+            || patch_radius.is_some()
+            || canvas_size.is_some()
+            || pad_frac.is_some()
+            || g_max.is_some()
+            || sigma_cells.is_some()
+            || kappa.is_some()
+            || tau_frac.is_some()
+            || boundary_r95.is_some()
+            || stevens_gamma.is_some()
+            || (!node_weights.is_undefined() && !node_weights.is_null())
+            || (!cluster_weights.is_undefined() && !cluster_weights.is_null())
+            || (!cluster_baseline_options.is_undefined() && !cluster_baseline_options.is_null());
+        crate::v6_m3::reject_extra_args_with_options(has_extra)?;
+
+        let opts = num_pivots_or_options;
+        let opt_num_pivots = crate::v6_m3::opt_maybe_f64_prop(opts, "numPivots")?;
+        let opt_num_samples = crate::v6_m3::opt_maybe_f64_prop(opts, "numSamples")?;
+        let opt_seed = crate::v6_m3::opt_maybe_f64_prop(opts, "seed")?;
+        let opt_seed_u64 = parse_seed_u64(opt_seed)?;
+        let opt_ideal_len = crate::v6_m3::opt_maybe_f64_prop(opts, "idealEdgeLength")?;
+        let labels_val = crate::v6_m3::get_prop(opts, "communityLabels")?;
+        let opt_labels = if labels_val.is_null() || labels_val.is_undefined() {
+            None
+        } else {
+            Some(parse_u32_sequence(&labels_val, "communityLabels")?)
+        };
+        let opt_num_landmarks = crate::v6_m3::opt_maybe_f64_prop(opts, "numLandmarks")?;
+        let opt_num_triplets = crate::v6_m3::opt_maybe_f64_prop(opts, "numTriplets")?;
+        let opt_min_degree = crate::v6_m3::opt_maybe_f64_prop(opts, "minDegree")?;
+        let opt_patch_radius = crate::v6_m3::opt_maybe_f64_prop(opts, "patchRadius")?;
+        let opt_canvas_size = crate::v6_m3::opt_maybe_f64_prop(opts, "canvasSize")?;
+        let opt_pad_frac = crate::v6_m3::opt_maybe_f64_prop(opts, "padFrac")?;
+        let opt_g_max = crate::v6_m3::opt_maybe_f64_prop(opts, "gMax")?;
+        let opt_sigma_cells = crate::v6_m3::opt_maybe_f64_prop(opts, "sigmaCells")?;
+        let opt_kappa = crate::v6_m3::opt_maybe_f64_prop(opts, "kappa")?;
+        let opt_tau_frac = crate::v6_m3::opt_maybe_f64_prop(opts, "tauFrac")?;
+        let opt_boundary_r95 = crate::v6_m3::opt_maybe_f64_prop(opts, "boundaryR95")?;
+        let opt_stevens_gamma = crate::v6_m3::opt_maybe_f64_prop(opts, "stevensGamma")?;
+        let opt_nw = parse_optional_f64_sequence(
+            &crate::v6_m3::get_prop(opts, "nodeWeights")?,
+            "nodeWeights",
+        )?;
+        let opt_cw = parse_optional_f64_sequence(
+            &crate::v6_m3::get_prop(opts, "clusterWeights")?,
+            "clusterWeights",
+        )?;
+        let cb_nested = crate::v6_m3::get_prop(opts, "clusterBaselines")?;
+        let cb_cfg =
+            if crate::v6_m4::check_options_arg(&cb_nested, "evaluateMetrics::clusterBaselines")? {
+                parse_cluster_baseline_config(&cb_nested, opt_seed_u64)?
+            } else {
+                parse_cluster_baseline_config(opts, opt_seed_u64)?
+            };
+        return evaluate_metrics_impl(
+            graph,
+            layout,
+            targets,
+            opt_num_pivots,
+            opt_num_samples,
+            opt_seed,
+            opt_ideal_len,
+            opt_labels.as_deref(),
+            opt_num_landmarks,
+            opt_num_triplets,
+            opt_min_degree,
+            opt_patch_radius,
+            opt_canvas_size,
+            opt_pad_frac,
+            opt_g_max,
+            opt_sigma_cells,
+            opt_kappa,
+            opt_tau_frac,
+            opt_boundary_r95,
+            opt_stevens_gamma,
+            opt_nw.as_deref(),
+            opt_cw.as_deref(),
+            Some(cb_cfg),
+        );
+    }
+
+    let num_pivots = if num_pivots_or_options.is_undefined() || num_pivots_or_options.is_null() {
+        None
+    } else if let Some(v) = num_pivots_or_options.as_f64() {
+        Some(v)
+    } else {
+        return Err(JsError::new(
+            "numPivotsOrOptions must be a number, options object, null, or undefined",
+        ));
+    };
+    let parsed_labels = if community_labels.is_null() || community_labels.is_undefined() {
+        None
+    } else {
+        Some(parse_u32_sequence(community_labels, "communityLabels")?)
+    };
+    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
+    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let cb_cfg = if crate::v6_m4::check_options_arg(
+        cluster_baseline_options,
+        "evaluateMetrics::clusterBaselineOptions",
+    )? {
+        Some(parse_cluster_baseline_config(
+            cluster_baseline_options,
+            seed_u64,
+        )?)
+    } else {
+        None
+    };
+    evaluate_metrics_impl(
+        graph,
+        layout,
+        targets,
+        num_pivots,
+        num_samples,
+        seed,
+        ideal_edge_length,
+        parsed_labels.as_deref(),
+        num_landmarks,
+        num_triplets,
+        min_degree,
+        patch_radius,
+        canvas_size,
+        pad_frac,
+        g_max,
+        sigma_cells,
+        kappa,
+        tau_frac,
+        boundary_r95,
+        stevens_gamma,
+        nw.as_deref(),
+        cw.as_deref(),
+        cb_cfg,
+    )
+}
+
+/// Rust-side 22-argument compatibility wrapper forwarding to `evaluate_metrics_impl`.
 #[allow(clippy::too_many_arguments)]
 pub fn js_evaluate_metrics_with_options(
     graph: &JsCsrGraph,
@@ -1918,6 +2277,7 @@ pub fn js_evaluate_metrics_with_options(
         stevens_gamma,
         nw.as_deref(),
         cw.as_deref(),
+        None,
     )
 }
 
@@ -1954,6 +2314,7 @@ pub fn js_evaluate_metrics(
         patch_radius,
         canvas_size,
         pad_frac,
+        None,
         None,
         None,
         None,
