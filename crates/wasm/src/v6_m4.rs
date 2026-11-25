@@ -18,7 +18,10 @@ use egraph::layout::{
 use egraph::neighborhood::{DogVaradhanConfig, KnnGraph};
 use wasm_bindgen::{JsCast, prelude::*};
 
-use crate::v6::{JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize};
+use crate::v6::{
+    JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_u32,
+    parse_non_negative_usize, parse_optional_f64_sequence, parse_u32_sequence,
+};
 use crate::v6_m2::{JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities};
 use crate::v6_m3::{
     JsSgdSolver, get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
@@ -45,12 +48,7 @@ pub(crate) fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, Js
     )))
 }
 
-fn parse_non_negative_u32(value: f64, name: &str) -> Result<u32, JsError> {
-    let v = parse_non_negative_usize(value, name)?;
-    u32::try_from(v).map_err(|_| JsError::new(&format!("{name} must be <= u32::MAX, got {value}")))
-}
-
-fn parse_f64_sequence(val: &JsValue, name: &str) -> Result<Vec<f64>, JsError> {
+pub(crate) fn parse_f64_sequence(val: &JsValue, name: &str) -> Result<Vec<f64>, JsError> {
     if let Some(arr) = val.dyn_ref::<js_sys::Float64Array>() {
         return Ok(arr.to_vec());
     }
@@ -77,30 +75,6 @@ fn parse_f64_sequence(val: &JsValue, name: &str) -> Result<Vec<f64>, JsError> {
             .as_f64()
             .ok_or_else(|| JsError::new(&format!("{name} entries must be numbers")))?;
         out.push(num);
-    }
-    Ok(out)
-}
-
-fn parse_u32_sequence(val: &JsValue, name: &str) -> Result<Vec<u32>, JsError> {
-    if let Some(arr) = val.dyn_ref::<js_sys::Uint32Array>() {
-        return Ok(arr.to_vec());
-    }
-    if val.is_null() || val.is_undefined() || val.is_string() || !val.is_object() {
-        return Err(JsError::new(&format!(
-            "{name} must be a Uint32Array or integer array"
-        )));
-    }
-    let iter = js_sys::try_iter(val)
-        .map_err(|err| JsError::new(&format!("failed to iterate {name}: {err:?}")))?
-        .ok_or_else(|| JsError::new(&format!("{name} must be a Uint32Array or integer array")))?;
-    let mut out = Vec::new();
-    for item_res in iter {
-        let item =
-            item_res.map_err(|err| JsError::new(&format!("failed to read {name}: {err:?}")))?;
-        let num = item
-            .as_f64()
-            .ok_or_else(|| JsError::new(&format!("{name} entries must be integers")))?;
-        out.push(parse_non_negative_u32(num, name)?);
     }
     Ok(out)
 }
@@ -714,6 +688,7 @@ impl JsForceAtlas2Solver {
     #[wasm_bindgen(constructor)]
     pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsForceAtlas2Solver, JsError> {
         let mut cfg = ForceAtlas2Config::default();
+        let mut node_radii: Option<Vec<f64>> = None;
         if check_options_arg(options, "ForceAtlas2Solver")? {
             cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
             cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
@@ -731,9 +706,18 @@ impl JsForceAtlas2Solver {
             )?;
             cfg.jitter_tolerance = opt_f64_prop(options, "jitterTolerance", cfg.jitter_tolerance)?;
             cfg.max_displacement = opt_maybe_f64_prop(options, "maxDisplacement")?;
+            cfg.prevent_overlap = opt_bool_prop(options, "preventOverlap", cfg.prevent_overlap)?;
+            cfg.default_node_radius =
+                opt_f64_prop(options, "defaultNodeRadius", cfg.default_node_radius)?;
+            node_radii =
+                parse_optional_f64_sequence(&get_prop(options, "nodeRadii")?, "nodeRadii")?;
             cfg.seed = opt_seed_prop(options)?;
         }
-        let inner = ForceAtlas2Solver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
+        let inner = match node_radii {
+            Some(radii) => ForceAtlas2Solver::<f32>::with_node_radii(graph.inner(), cfg, radii),
+            None => ForceAtlas2Solver::<f32>::new(graph.inner(), cfg),
+        }
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -792,6 +776,18 @@ impl JsForceAtlas2Solver {
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
         self.inner.num_nodes()
+    }
+
+    /// Returns the per-node collision radii (`Float64Array`).
+    #[wasm_bindgen(js_name = nodeRadii)]
+    pub fn node_radii(&self) -> Vec<f64> {
+        self.inner.node_radii().to_vec()
+    }
+
+    /// Returns the effective per-step vertex displacement cap.
+    #[wasm_bindgen(getter, js_name = maxDisplacement)]
+    pub fn max_displacement(&self) -> f64 {
+        self.inner.max_displacement()
     }
 }
 

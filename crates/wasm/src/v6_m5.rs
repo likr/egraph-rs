@@ -33,7 +33,7 @@ use crate::v6_m4::{check_options_arg, parse_pacmap_graph_config};
 const DEFAULT_JITTER_SCALE: f64 = 0.5;
 const DEFAULT_GAMMA_TETHER: f64 = 0.5;
 
-fn csr_f64_to_f32(graph: &CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
+pub(crate) fn csr_f64_to_f32(graph: &CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
     let weights_f32: Option<Vec<f32>> = graph
         .weights()
         .map(|ws| {

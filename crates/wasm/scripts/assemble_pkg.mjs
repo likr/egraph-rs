@@ -205,12 +205,51 @@ const requiredM5 = [
   "projectClusteredLayoutWithRadii",
 ];
 
+const requiredW1 = [
+  "LeidenResult",
+  "leidenCommunities",
+  "LinLogSolver",
+  "FruchtermanReingoldSolver",
+  "BackboneResult",
+  "BackboneSolver",
+  "extractQuadrilateralBackbone",
+  "ClusterRefineSolver",
+  "GroupInABoxSolver",
+  "refineClusterLayout",
+  "squarifiedTreemap",
+  "GTreeOverlapRemoval",
+  "ForbidOverlapRemoval",
+  "PartitionAgreementResult",
+  "ClassDensityResult",
+  "NorMetricsResult",
+  "partitionAgreement",
+  "cqKmeans",
+  "cqHac",
+  "distanceConsistency",
+  "distributionConsistency",
+  "classDensityMeasure",
+  "sepmeKnng",
+  "sepmeRng",
+  "sepmeGab",
+  "sepmeGong",
+  "neighborhoodHit",
+  "silhouetteScore",
+  "calinskiHarabaszScore",
+  "daviesBouldinScore",
+  "pairwiseDistanceOverlapError",
+  "sprawlterNn",
+  "sprawlterNnRadii",
+  "norMetrics",
+  "norMetricsWithoutGraph",
+];
+
 const missingExports = [
   ...requiredCoreAndM1,
   ...requiredM2,
   ...requiredM3,
   ...requiredM4,
   ...requiredM5,
+  ...requiredW1,
 ].filter((name) => !exportedNames.has(name));
 if (missingExports.length > 0) {
   throw new Error(
@@ -508,7 +547,47 @@ export type MetricTarget =
     | "np1"
     | "np2"
     | "drng"
-    | "dgg";
+    | "dgg"
+    | "dsc"
+    | "dc"
+    | "cdm"
+    | "hdm"
+    | "2d-hdm"
+    | "sepmeKnng"
+    | "sepme_knng"
+    | "sepme-knng"
+    | "sepmeKnng2"
+    | "sepme_knng2"
+    | "sepme-knng2"
+    | "sepmeRng"
+    | "sepme_rng"
+    | "sepmeGab"
+    | "sepme_gab"
+    | "sepmeGong"
+    | "sepme_gong"
+    | "neighborhoodHit"
+    | "neighborhood_hit"
+    | "m_nh"
+    | "silhouette"
+    | "calinskiHarabasz"
+    | "calinski_harabasz"
+    | "ch"
+    | "daviesBouldin"
+    | "davies_bouldin"
+    | "db"
+    | "cqKmeansAri"
+    | "cq_kmeans_ari"
+    | "cqKmeansAmi"
+    | "cq_kmeans_ami"
+    | "cqHacHom"
+    | "cq_hac_hom"
+    | "cqHacAmi"
+    | "cq_hac_ami"
+    | "pairwiseDistanceOverlapError"
+    | "pairwise_distance_overlap_error"
+    | "pdoe"
+    | "sprawlterNn"
+    | "sprawlter_nn";
 
 /**
  * Plain JavaScript record returned by \`MetricReport.toRecord()\`.
@@ -538,6 +617,67 @@ export interface MetricReportRecord {
     adjustedPatchNig?: number;
     clusterAreaFaithfulness?: number;
     landmarkStratifiedRta?: number;
+    dsc?: number;
+    dc?: number;
+    cdm?: number;
+    hdm?: number;
+    sepmeKnng?: number;
+    sepmeRng?: number;
+    sepmeGab?: number;
+    sepmeGong?: number;
+    neighborhoodHit?: number;
+    silhouette?: number;
+    calinskiHarabasz?: number;
+    daviesBouldin?: number;
+    cqKmeansAri?: number;
+    cqKmeansAmi?: number;
+    cqHacHom?: number;
+    cqHacAmi?: number;
+    pairwiseDistanceOverlapError?: number;
+    sprawlterNn?: number;
+}
+
+/**
+ * Configuration parameters for W1-6 cluster-separation, CVI, and Sprawlter targets in \`evaluateMetrics\`.
+ */
+export interface ClusterBaselineOptions {
+    sepmeKnngK?: number | null;
+    neighborhoodHitK?: number | null;
+    dcGridSize?: number | null;
+    cdmGridSize?: number | null;
+    cdmBandwidth?: number | null;
+    numBins?: number | null;
+    gongGamma?: number | null;
+    kmeansNInit?: number | null;
+    kmeansMaxIters?: number | null;
+    seed?: number | null;
+    sprawlterNodeRadius?: number | null;
+}
+
+/**
+ * Unified options object accepted as the 4th argument to \`evaluateMetrics\`.
+ */
+export interface MetricConfigOptions extends ClusterBaselineOptions {
+    numPivots?: number | null;
+    numSamples?: number | null;
+    seed?: number | null;
+    idealEdgeLength?: number | null;
+    communityLabels?: Uint32Array | number[] | null;
+    numLandmarks?: number | null;
+    numTriplets?: number | null;
+    minDegree?: number | null;
+    patchRadius?: number | null;
+    canvasSize?: number | null;
+    padFrac?: number | null;
+    gMax?: number | null;
+    sigmaCells?: number | null;
+    kappa?: number | null;
+    tauFrac?: number | null;
+    boundaryR95?: number | null;
+    stevensGamma?: number | null;
+    nodeWeights?: Float64Array | Float32Array | number[] | null;
+    clusterWeights?: Float64Array | Float32Array | number[] | null;
+    clusterBaselines?: ClusterBaselineOptions | null;
 }
 
 /**
@@ -590,7 +730,7 @@ const gcafDtsReplacements = [
   ],
   [
     /export function evaluateMetrics\([^;]+\): MetricReport;/,
-    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): MetricReport;",
+    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], options?: MetricConfigOptions | null): MetricReport;\nexport function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null, clusterBaselineOptions?: ClusterBaselineOptions | null): MetricReport;",
   ],
 ];
 
@@ -1204,7 +1344,154 @@ export interface ForceAtlas2Options {
   outboundAttractionDistribution?: boolean | null;
   jitterTolerance?: number | null;
   maxDisplacement?: number | null;
+  preventOverlap?: boolean | null;
+  defaultNodeRadius?: number | null;
+  nodeRadii?: Float64Array | Float32Array | number[] | null;
   seed?: number | null;
+}
+
+export type LeidenObjective = "modularity" | "cpm";
+
+export interface LeidenOptions {
+  objective?: LeidenObjective | string | null;
+  resolution?: number | null;
+  randomness?: number | null;
+  maxPasses?: number | null;
+  minQualityGain?: number | null;
+  seed?: number | null;
+}
+
+export interface LeidenRecord {
+  labels: Uint32Array;
+  numCommunities: number;
+  quality: number;
+  modularity: number;
+  passes: number;
+}
+
+export type LinLogRepulsion = "edge_repulsion" | "node_repulsion";
+
+export interface LinLogOptions {
+  iterations?: number | null;
+  repulsionModel?: LinLogRepulsion | string | null;
+  attractionExponent?: number | null;
+  repulsionExponent?: number | null;
+  theta?: number | null;
+  useBarnesHut?: boolean | null;
+  gravity?: number | null;
+  edgeWeightInfluence?: number | null;
+  maxDisplacement?: number | null;
+  seed?: number | null;
+}
+
+export type FrBackend = "exact" | "barnes_hut" | "grid";
+
+export interface FruchtermanReingoldOptions {
+  iterations?: number | null;
+  backend?: FrBackend | string | null;
+  k?: number | null;
+  area?: number | null;
+  initialTemperature?: number | null;
+  gravity?: number | null;
+  theta?: number | null;
+  seed?: number | null;
+}
+
+export type BackboneLayoutMode = "stress" | "stress_majorization" | "sgd";
+
+export interface BackboneOptions {
+  retainRatio?: number | null;
+  umstWeightScale?: number | null;
+  nonBackboneWeightScale?: number | null;
+  layoutMode?: BackboneLayoutMode | string | null;
+  iterations?: number | null;
+  seed?: number | null;
+}
+
+export interface BackboneRecord {
+  umstEdges: Uint32Array;
+  backboneEdges: Uint32Array;
+  simmelianWeights: Float64Array;
+  edgeWeights: Float64Array;
+}
+
+export type ClusterRefineMethod = "kmeans" | "hac";
+
+export interface ClusterRefineOptions {
+  method?: ClusterRefineMethod | string | null;
+  maxRounds?: number | null;
+  kmeansNInit?: number | null;
+  kmeansMaxIters?: number | null;
+  shiftStep?: number | null;
+  margin?: number | null;
+  seed?: number | null;
+}
+
+export type GibBoxLayoutMode = "treemap" | "squarified_treemap" | "force_directed";
+export type GibIntraLayoutMode = "fr" | "sgd_full" | "yifan_hu";
+
+export interface GroupInABoxOptions {
+  boxMode?: GibBoxLayoutMode | string | null;
+  intraMode?: GibIntraLayoutMode | string | null;
+  totalWidth?: number | null;
+  totalHeight?: number | null;
+  boxPadding?: number | null;
+  intraIterations?: number | null;
+  fdIterations?: number | null;
+  clusterWeights?: Float64Array | Float32Array | number[] | null;
+  seed?: number | null;
+}
+
+export interface GibBoxRecord {
+  clusterId: number;
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  nodeCount: number;
+  weight: number;
+}
+
+export interface GTreeOptions {
+  maxIterations?: number | null;
+  padding?: number | null;
+  compactTMax?: number | null;
+  seed?: number | null;
+}
+
+export type ForbidVariant = "forbid" | "forbid_prime" | "sparse_forbid";
+
+export interface ForbidOptions {
+  variant?: ForbidVariant | string | null;
+  maxScaleIters?: number | null;
+  sgdIterations?: number | null;
+  sparseK?: number | null;
+  overlapWeightK?: number | null;
+  scaleStep?: number | null;
+  padding?: number | null;
+  seed?: number | null;
+}
+
+export interface PartitionAgreementRecord {
+  ari: number;
+  ami: number;
+  homogeneity: number;
+  completeness: number;
+  vMeasure: number;
+  fmi: number;
+}
+
+export interface ClassDensityRecord {
+  cdm: number;
+  hdm: number;
+}
+
+export interface NorMetricsRecord {
+  ooNni: number;
+  spChA: number;
+  gsBbIar: number;
+  nmDmImse: number;
+  elRsd: number;
 }
 
 export interface YifanHuOptions {
@@ -1567,6 +1854,169 @@ for (const [pattern, replacement] of m5DtsReplacements) {
   const updated = indexDts.replace(pattern, replacement);
   if (updated === indexDts) {
     throw new Error(`Failed to refine M5 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
+  }
+  indexDts = updated;
+}
+
+const w1DtsReplacements = [
+  [
+    /(export class LeidenResult \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): LeidenRecord;",
+  ],
+  [
+    /export function leidenCommunities\([^;]+\): LeidenResult;/,
+    "export function leidenCommunities(graph: CsrGraph, options?: LeidenOptions | null): LeidenResult;",
+  ],
+  [
+    /(export class LinLogSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: LinLogOptions | null);",
+  ],
+  [
+    /(export class FruchtermanReingoldSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: FruchtermanReingoldOptions | null);",
+  ],
+  [
+    /(export class BackboneResult \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): BackboneRecord;",
+  ],
+  [
+    /export function extractQuadrilateralBackbone\([^;]+\): BackboneResult;/,
+    "export function extractQuadrilateralBackbone(graph: CsrGraph, options?: BackboneOptions | null): BackboneResult;",
+  ],
+  [
+    /(export class BackboneSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: BackboneOptions | null);",
+  ],
+  [
+    /(export class ClusterRefineSolver \{[\s\S]*?)static fromGraph\([^;]+\): ClusterRefineSolver;/,
+    "$1static fromGraph(graph: CsrGraph, clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null): ClusterRefineSolver;",
+  ],
+  [
+    /(export class ClusterRefineSolver \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null);",
+  ],
+  [
+    /export function refineClusterLayout\([^;]+\): number;/,
+    "export function refineClusterLayout(layout: Layout2d, clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null): number;",
+  ],
+  [
+    /export function squarifiedTreemap\([^;]+\): Float64Array;/,
+    "export function squarifiedTreemap(weights: Float64Array | Float32Array | number[], width?: number | null, height?: number | null, x?: number | null, y?: number | null): Float64Array;",
+  ],
+  [
+    /(export class GroupInABoxSolver \{[\s\S]*?)boxes\(\): Array<any>;/,
+    "$1boxes(): GibBoxRecord[];",
+  ],
+  [
+    /(export class GroupInABoxSolver \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(graph: CsrGraph, clusterLabels: Uint32Array | number[], options?: GroupInABoxOptions | null);",
+  ],
+  [
+    /(export class GTreeOverlapRemoval \{[\s\S]*?)static fromRadii\([^;]+\): GTreeOverlapRemoval;/,
+    "$1static fromRadii(radii: Float32Array | number[], options?: GTreeOptions | null): GTreeOverlapRemoval;",
+  ],
+  [
+    /(export class GTreeOverlapRemoval \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: GTreeOptions | null);",
+  ],
+  [
+    /(export class ForbidOverlapRemoval \{[\s\S]*?)static fromRadii\([^;]+\): ForbidOverlapRemoval;/,
+    "$1static fromRadii(radii: Float32Array | number[], options?: ForbidOptions | null): ForbidOverlapRemoval;",
+  ],
+  [
+    /(export class ForbidOverlapRemoval \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: ForbidOptions | null);",
+  ],
+  [
+    /(export class PartitionAgreementResult \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): PartitionAgreementRecord;",
+  ],
+  [
+    /(export class ClassDensityResult \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): ClassDensityRecord;",
+  ],
+  [
+    /(export class NorMetricsResult \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): NorMetricsRecord;",
+  ],
+  [
+    /export function partitionAgreement\([^;]+\): PartitionAgreementResult;/,
+    "export function partitionAgreement(labelsTrue: Uint32Array | number[], labelsPred: Uint32Array | number[]): PartitionAgreementResult;",
+  ],
+  [
+    /export function cqKmeans\([^;]+\): PartitionAgreementResult;/,
+    "export function cqKmeans(layout: Layout2d, communityLabels: Uint32Array | number[], nInit?: number | null, maxIters?: number | null, seed?: number | null): PartitionAgreementResult;",
+  ],
+  [
+    /export function cqHac\([^;]+\): PartitionAgreementResult;/,
+    "export function cqHac(layout: Layout2d, communityLabels: Uint32Array | number[]): PartitionAgreementResult;",
+  ],
+  [
+    /export function distanceConsistency\([^;]+\): number;/,
+    "export function distanceConsistency(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function distributionConsistency\([^;]+\): number;/,
+    "export function distributionConsistency(layout: Layout2d, labels: Uint32Array | number[], gridSize?: number | null): number;",
+  ],
+  [
+    /export function classDensityMeasure\([^;]+\): ClassDensityResult;/,
+    "export function classDensityMeasure(layout: Layout2d, labels: Uint32Array | number[], gridSize?: number | null, bandwidth?: number | null): ClassDensityResult;",
+  ],
+  [
+    /export function sepmeKnng\([^;]+\): number;/,
+    "export function sepmeKnng(layout: Layout2d, labels: Uint32Array | number[], k?: number | null): number;",
+  ],
+  [
+    /export function sepmeRng\([^;]+\): number;/,
+    "export function sepmeRng(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function sepmeGab\([^;]+\): number;/,
+    "export function sepmeGab(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function sepmeGong\([^;]+\): number;/,
+    "export function sepmeGong(layout: Layout2d, labels: Uint32Array | number[], gamma?: number | null): number;",
+  ],
+  [
+    /export function neighborhoodHit\([^;]+\): number;/,
+    "export function neighborhoodHit(layout: Layout2d, labels: Uint32Array | number[], k?: number | null): number;",
+  ],
+  [
+    /export function silhouetteScore\([^;]+\): number;/,
+    "export function silhouetteScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function calinskiHarabaszScore\([^;]+\): number;/,
+    "export function calinskiHarabaszScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function daviesBouldinScore\([^;]+\): number;/,
+    "export function daviesBouldinScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
+  ],
+  [
+    /export function pairwiseDistanceOverlapError\([^;]+\): number;/,
+    "export function pairwiseDistanceOverlapError(layout: Layout2d, labels: Uint32Array | number[], numBins?: number | null): number;",
+  ],
+  [
+    /export function sprawlterNn\([^;]+\): number;/,
+    "export function sprawlterNn(layout: Layout2d, halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): number;",
+  ],
+  [
+    /export function norMetrics\([^;]+\): NorMetricsResult;/,
+    "export function norMetrics(graph: CsrGraph, origLayout: Layout2d, adjustedLayout: Layout2d, halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): NorMetricsResult;",
+  ],
+  [
+    /export function norMetricsWithoutGraph\([^;]+\): NorMetricsResult;/,
+    "export function norMetricsWithoutGraph(origLayout: Layout2d, adjustedLayout: Layout2d, halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): NorMetricsResult;",
+  ],
+];
+
+for (const [pattern, replacement] of w1DtsReplacements) {
+  const updated = indexDts.replace(pattern, replacement);
+  if (updated === indexDts) {
+    throw new Error(`Failed to refine W1 TypeScript declaration matching ${pattern} in ${wasmDtsPath}`);
   }
   indexDts = updated;
 }
