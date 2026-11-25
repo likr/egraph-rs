@@ -27,7 +27,12 @@ pub struct ForceAtlas2Config {
     pub theta: f64,
     /// Whether to use $O(N \log N)$ Barnes-Hut quadtree repulsion (`default: true`).
     pub use_barnes_hut: bool,
-    /// Whether to use LinLog logarithmic attraction $\log(1 + d)$ (`default: false`).
+    /// Whether to use Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
+    /// $F_{\mathrm{att}}(d) = w \frac{\ln(1 + d)}{d} (p_v - p_u)$ (`default: false`).
+    ///
+    /// Note: This ForceAtlas2 logarithmic mode decays linearly to zero as $d \to 0$ and is
+    /// distinct from Noack (2007) true LinLog (`LinLogSolver`), whose constant unit attraction
+    /// $w_{uv} \frac{p_v - p_u}{\|p_v - p_u\|}$ does not vanish as $d \to 0$.
     pub linlog_mode: bool,
     /// Whether to use strong gravity proportional to distance from origin (`default: false`).
     pub strong_gravity: bool,
