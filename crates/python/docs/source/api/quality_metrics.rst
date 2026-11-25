@@ -1,7 +1,7 @@
 Quality Metrics Module
 ======================
 
-This module provides selective v6 metrics (``evaluate_metrics``, Scale-Normalized Stress ``SNS``, sweep-line crossings, ``StaticKdTree`` ``NP1``/``NP2``, ``PRISM`` distortion, ``dRNG``/``dGG``) alongside legacy metric functions.
+This module provides selective v6 metrics (``evaluate_metrics``, Scale-Normalized Stress ``SNS``, sweep-line crossings, ``StaticKdTree`` ``NP1``/``NP2``, ``PRISM`` distortion, Eades et al. 2017 unweighted ``S_RNG``/``S_GG`` via ``drng_preservation``/``dgg_preservation``) alongside legacy metric functions.
 
 Selective Dispatcher
 --------------------

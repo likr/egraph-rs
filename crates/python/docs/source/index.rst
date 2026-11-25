@@ -26,7 +26,7 @@ Features
   * **Classical & Post-Processing**: ``StressMajorizationSolver``, ``KamadaKawaiSolver``, ``PrismOverlapRemoval``, ``FdebSolver``, DAG layering, and separation constraints
 
 * Community detection and coarsening (``kmeans_plus_plus``, ``spectral_clustering``, ``louvain_communities``, ``label_propagation``, ``coarsen_graph``)
-* Selective quality metrics (``evaluate_metrics``, Scale-Normalized Stress ``SNS``, sweep-line crossings, ``NP1``/``NP2``, ``PRISM`` distortion, ``dRNG``/``dGG``)
+* Selective quality metrics (``evaluate_metrics``, Scale-Normalized Stress ``SNS``, sweep-line crossings, ``NP1``/``NP2``, ``PRISM`` distortion, Eades 2017 ``S_RNG``/``S_GG`` via ``drng_preservation``/``dgg_preservation``)
 
 Indices and tables
 ==================

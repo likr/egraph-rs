@@ -12,7 +12,7 @@ egraph v6 provides a unified, zero-copy toolkit for:
 * **Ecosystem interoperability** - ``egraph.interop`` conversions for SciPy CSR matrices, NetworkX graphs, and igraph
 * **SOTA & unified layout solvers** - Track A ``TsNetSolver``, Track B ``SgdSolver.sparse_barrier_dog`` & ``GuMapSolver``, ``SpatialIntruderRefiner``, ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``ForceAtlas2Solver``, ``YifanHuSolver``, ``PrismOverlapRemoval``, and ``FdebSolver``
 * **Non-Euclidean geometries** - Poincare hyperbolic disk, spherical surface, and 2D torus via ``ManifoldLayout2d``
-* **Selective quality evaluation** - ``evaluate_metrics`` with closed-form and sampled Scale-Normalized Stress (``SNS``), sweep-line crossings, ``StaticKdTree`` ``NP1``/``NP2``, ``PRISM`` distortion, and ``dRNG``/``dGG``
+* **Selective quality evaluation** - ``evaluate_metrics`` with closed-form and sampled Scale-Normalized Stress (``SNS``), sweep-line crossings, ``StaticKdTree`` ``NP1``/``NP2``, ``PRISM`` distortion, and Eades et al. (2017) unweighted ``S_RNG``/``S_GG`` (``drng_preservation``/``dgg_preservation``)
 
 Key Features
 ------------
@@ -31,8 +31,8 @@ Layout Solvers
 
 * **Track A (``TsNetSolver``)**: Pure 1+2-hop CSR + node-wise adaptive perplexity (``pure_2hop``), custom ``from_knn``, and ``from_probabilities`` with ``ibFFT``, Barnes-Hut, or Exact repulsion
 * **Track B (``SgdSolver`` / ``GuMapSolver`` / ``SpatialIntruderRefiner``)**: Regularized Chebyshev DoG landmarks, 3-tier sparse barrier SGD, GuMap, and 2D ``StaticKdTree`` spatial intruder refinement
-* **Unified Force & Multilevel Models**: ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``SgdSolver.sgd2``, ``ForceAtlas2Solver``, ``YifanHuSolver``
-* **Classical & Post-Processing**: ``StressMajorizationSolver``, ``KamadaKawaiSolver``, $O(N \log N)$ Delaunay ``PrismOverlapRemoval``, ``SeparationConstraint`` projections, DAG layering, and ``FdebSolver`` edge bundling
+* **Unified Force & Multilevel Models**: ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``SgdSolver.ortmann_sparse_stress``, ``SgdSolver.largevis``, ``SgdSolver.drgraph``, ``SgdSolver.graph_cne``, ``SgdSolver.sgd2`` (diagonal-preconditioned mini-batch stress SGD), ``MaxentStressSolver``, ``GripSolver``, ``GemSolver``, ``SelLayoutSolver``, ``SfcLayoutSolver``, ``ForceAtlas2Solver``, ``YifanHuSolver``
+* **Classical & Post-Processing**: ``StressMajorizationSolver``, ``KamadaKawaiSolver``, ``hde`` / ``hde_nd``, $O(N \log N)$ Delaunay ``PrismOverlapRemoval``, ``PfsPrimeOverlapRemoval``, ``SeparationConstraint`` projections, DAG layering, and ``FdebSolver`` edge bundling
 
 Quality Metrics
 ^^^^^^^^^^^^^^^
