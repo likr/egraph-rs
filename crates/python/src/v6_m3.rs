@@ -3109,7 +3109,11 @@ impl PySgdSolver {
         )
     }
 
-    /// Construct a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` `SgdSolver`.
+    /// Construct a doubly-stochastic mini-batch diagonal-preconditioned stress SGD `SgdSolver`
+    /// using `SgdScheduleKind::Squared`.
+    ///
+    /// Note: This implements diagonal-preconditioned mini-batch stress SGD and is distinct
+    /// from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -3139,6 +3143,194 @@ impl PySgdSolver {
     ) -> PyResult<Self> {
         super::v6_m4::build_sgd2_solver(
             py, graph, t_max, eps, step_scale, batch_size, damping, seed, dtype,
+        )
+    }
+
+    /// Construct an Ortmann et al. (2016) Sparse Stress `SgdSolver` from a `CsrGraph`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            num_pivots = StrictUsize(100),
+            pivot_strategy = "kmeans_sp",
+            iterations = StrictUsize(200),
+            eta_max = None,
+            eta_min = None,
+            eps = StrictF64(0.1),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, num_pivots=100, pivot_strategy='kmeans_sp', iterations=200, eta_max=None, eta_min=None, eps=0.1, seed=42, dtype='float64')"
+    )]
+    fn ortmann_sparse_stress(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        num_pivots: StrictUsize,
+        pivot_strategy: &str,
+        iterations: StrictUsize,
+        eta_max: Option<StrictF64>,
+        eta_min: Option<StrictF64>,
+        eps: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_w2::build_ortmann_sparse_stress_solver(
+            py,
+            graph,
+            num_pivots,
+            pivot_strategy,
+            iterations,
+            eta_max,
+            eta_min,
+            eps,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a Tang et al. (2016) negative-sampling `LargeVis` `SgdSolver` from a `CsrGraph`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            iterations = StrictUsize(200),
+            negative_samples = StrictUsize(5),
+            gamma = StrictF64(7.0),
+            initial_lr = StrictF64(1.0),
+            min_lr = StrictF64(1e-4),
+            degree_exponent = StrictF64(0.75),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, iterations=200, negative_samples=5, gamma=7.0, initial_lr=1.0, min_lr=1e-4, degree_exponent=0.75, seed=42, dtype='float64')"
+    )]
+    fn largevis(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        iterations: StrictUsize,
+        negative_samples: StrictUsize,
+        gamma: StrictF64,
+        initial_lr: StrictF64,
+        min_lr: StrictF64,
+        degree_exponent: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_w2::build_largevis_solver(
+            py,
+            graph,
+            iterations,
+            negative_samples,
+            gamma,
+            initial_lr,
+            min_lr,
+            degree_exponent,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a Zhu et al. (2020) multilevel negative-sampling `DRGraph` `SgdSolver` from a `CsrGraph`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            k_order = StrictUsize(1),
+            negative_samples = StrictUsize(5),
+            b = StrictF64(2.0),
+            gamma_coarse = StrictF64(0.01),
+            gamma_fine = StrictF64(0.1),
+            coarsen_stop_ratio = StrictF64(0.8),
+            iterations = StrictUsize(400),
+            initial_lr = StrictF64(1.0),
+            min_lr = StrictF64(1e-4),
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, k_order=1, negative_samples=5, b=2.0, gamma_coarse=0.01, gamma_fine=0.1, coarsen_stop_ratio=0.8, iterations=400, initial_lr=1.0, min_lr=1e-4, seed=42, dtype='float64')"
+    )]
+    fn drgraph(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        k_order: StrictUsize,
+        negative_samples: StrictUsize,
+        b: StrictF64,
+        gamma_coarse: StrictF64,
+        gamma_fine: StrictF64,
+        coarsen_stop_ratio: StrictF64,
+        iterations: StrictUsize,
+        initial_lr: StrictF64,
+        min_lr: StrictF64,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_w2::build_drgraph_solver(
+            py,
+            graph,
+            k_order,
+            negative_samples,
+            b,
+            gamma_coarse,
+            gamma_fine,
+            coarsen_stop_ratio,
+            iterations,
+            initial_lr,
+            min_lr,
+            seed,
+            dtype,
+        )
+    }
+
+    /// Construct a Bohm et al. (2025) `Graph-CNE` contrastive neighbor embedding `SgdSolver` from a `CsrGraph`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (
+            graph,
+            *,
+            objective = "infonce",
+            negative_samples = StrictUsize(5),
+            iterations = StrictUsize(400),
+            initial_lr = StrictF64(1.0),
+            min_lr = StrictF64(1e-4),
+            repulsion_weight = StrictF64(1.0),
+            row_normalize = true,
+            seed = StrictU64(42),
+            dtype = ScalarDtype::F64
+        ),
+        text_signature = "(graph, *, objective='infonce', negative_samples=5, iterations=400, initial_lr=1.0, min_lr=1e-4, repulsion_weight=1.0, row_normalize=True, seed=42, dtype='float64')"
+    )]
+    fn graph_cne(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        objective: &str,
+        negative_samples: StrictUsize,
+        iterations: StrictUsize,
+        initial_lr: StrictF64,
+        min_lr: StrictF64,
+        repulsion_weight: StrictF64,
+        row_normalize: bool,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        super::v6_w2::build_graph_cne_solver(
+            py,
+            graph,
+            objective,
+            negative_samples,
+            iterations,
+            initial_lr,
+            min_lr,
+            repulsion_weight,
+            row_normalize,
+            seed,
+            dtype,
         )
     }
 

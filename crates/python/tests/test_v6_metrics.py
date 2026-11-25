@@ -183,7 +183,7 @@ class TestV6MetricsAndSpatial(unittest.TestCase):
         # Torus crossing wrap fixture.
         coords_torus = np.array([[0.9, 0.1], [0.1, 0.9], [0.9, 0.9], [0.1, 0.1]])
 
-        # 4x4 grid for NP1/NP2/dRNG/dGG/Gabriel/node_resolution/aspect_ratio.
+        # 4x4 grid for NP1/NP2/S_RNG(drng)/S_GG(dgg)/Gabriel/node_resolution/aspect_ratio.
         grid_g, grid_l64 = _make_grid(4, 4)
 
         # Star graph for angular_resolution.

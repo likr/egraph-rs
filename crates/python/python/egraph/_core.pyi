@@ -64,8 +64,10 @@ __all__ = [
     "GTreeOverlapRemoval",
     "GaussianKernel",
     "GaussianKernelBuilder",
+    "GemSolver",
     "Graph",
     "GraphAdapter",
+    "GripSolver",
     "GroupInABoxSolver",
     "GuMap",
     "GuMapBuilder",
@@ -92,6 +94,7 @@ __all__ = [
     "LowRankMultiscaleDiffusionKernel",
     "LowRankMultiscaleDiffusionKernelBuilder",
     "ManifoldLayout2d",
+    "MaxentStressSolver",
     "MultiscaleDiffusionKernel",
     "NegLogDistance",
     "NegLogDistanceBuilder",
@@ -99,6 +102,7 @@ __all__ = [
     "NegLogSimDistanceBuilder",
     "Omega",
     "OverwrapRemoval",
+    "PfsPrimeOverlapRemoval",
     "PivotMds",
     "PivotedBandPassDiffusionKernel",
     "PivotedBandPassDiffusionKernelBuilder",
@@ -121,7 +125,9 @@ __all__ = [
     "SchedulerReciprocal",
     "ScreenedPoissonField2d",
     "ScreenedPoissonRefiner",
+    "SelLayoutSolver",
     "SeparationConstraint",
+    "SfcLayoutSolver",
     "Sgd",
     "SgdSolver",
     "Sparse12HopPairs",
@@ -213,6 +219,8 @@ __all__ = [
     "generate_layered_constraints",
     "graph_12hop_row_normalized_probabilities",
     "graph_row_normalized_probabilities",
+    "hde",
+    "hde_nd",
     "ideal_edge_lengths",
     "ideal_edge_lengths_v6",
     "ideal_edge_lengths_with_unit",
@@ -3115,6 +3123,62 @@ class SgdSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
+    @staticmethod
+    def ortmann_sparse_stress(
+        graph: CsrGraph,
+        *,
+        num_pivots: int = 100,
+        pivot_strategy: str = "kmeans_sp",
+        iterations: int = 200,
+        eta_max: float | None = None,
+        eta_min: float | None = None,
+        eps: float = 0.1,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def largevis(
+        graph: CsrGraph,
+        *,
+        iterations: int = 200,
+        negative_samples: int = 5,
+        gamma: float = 7.0,
+        initial_lr: float = 1.0,
+        min_lr: float = 1e-4,
+        degree_exponent: float = 0.75,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def drgraph(
+        graph: CsrGraph,
+        *,
+        k_order: int = 1,
+        negative_samples: int = 5,
+        b: float = 2.0,
+        gamma_coarse: float = 0.01,
+        gamma_fine: float = 0.1,
+        coarsen_stop_ratio: float = 0.8,
+        iterations: int = 400,
+        initial_lr: float = 1.0,
+        min_lr: float = 1e-4,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def graph_cne(
+        graph: CsrGraph,
+        *,
+        objective: str = "infonce",
+        negative_samples: int = 5,
+        iterations: int = 400,
+        initial_lr: float = 1.0,
+        min_lr: float = 1e-4,
+        repulsion_weight: float = 1.0,
+        row_normalize: bool = True,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
     def step(self, layout: Layout2d) -> str: ...
     def run_steps(self, layout: Layout2d, steps: int) -> str: ...
     def run(self, layout: Layout2d) -> str: ...
@@ -4530,3 +4594,244 @@ def nor_metrics(
     *,
     graph: CsrGraph | None = None,
 ) -> dict[str, float]: ...
+
+def hde(
+    graph: CsrGraph,
+    *,
+    dimensions: int = 50,
+    seed: int = 42,
+    tol: float = 1e-3,
+    max_sweeps: int = 100,
+    normalize: bool = True,
+    pivots: _IndexArrayLike | None = None,
+    dtype: _DtypeLike = "float64",
+) -> Layout2d: ...
+
+def hde_nd(
+    graph: CsrGraph,
+    *,
+    dimensions: int = 50,
+    output_dims: int = 2,
+    seed: int = 42,
+    tol: float = 1e-3,
+    max_sweeps: int = 100,
+    normalize: bool = True,
+    pivots: _IndexArrayLike | None = None,
+    dtype: _DtypeLike = "float64",
+) -> LayoutNd: ...
+
+@final
+class MaxentStressSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        q: float | None = None,
+        alpha_init: float = 1.0,
+        alpha_decay: float = 0.3,
+        alpha_min: float = 0.008,
+        stages: int = 5,
+        steps_per_stage: int = 50,
+        tol: float = 1e-3,
+        cg_tol: float = 0.1,
+        cg_max_iters: int = 10,
+        theta: float = 1.2,
+        use_barnes_hut: bool = True,
+        eps_sq: float = 1e-6,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> MaxentStressSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def current_alpha(self) -> float: ...
+    @property
+    def effective_q(self) -> float: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class GripSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        rounds_min: int = 5,
+        rounds_max: int = 30,
+        local_neighborhood_size: int = 20,
+        repulsion_scale: float = 0.05,
+        edge_length: float = 1.0,
+        temp_r: float = 0.15,
+        temp_s: float = 3.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GripSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def num_levels(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class GemSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        edge_length: float = 128.0,
+        gravity: float = 0.0625,
+        t_init: float = 128.0,
+        t_max: float = 256.0,
+        t_min: float = 3.0,
+        max_rounds: int | None = None,
+        oscillation_angle: float = 3.141592653589793,
+        rotation_angle: float = 1.0471975511965976,
+        oscillation_sensitivity: float = 0.3333333333333333,
+        rotation_sensitivity: float | None = None,
+        perturbation: float = 32.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GemSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class SelLayoutSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        tree_depth: int = 5,
+        pq_max_pops: int = 10,
+        mapping: str = "sigmoid",
+        layout_backend: str = "fr",
+        iterations: int = 200,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SelLayoutSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def modulated_weights(self) -> npt.NDArray[np.float64]: ...
+    @property
+    def se_target(self) -> float: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class PfsPrimeOverlapRemoval:
+    def __new__(
+        cls,
+        half_widths: _WeightArrayLike,
+        half_heights: _WeightArrayLike,
+        *,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> PfsPrimeOverlapRemoval: ...
+    @staticmethod
+    def from_radii(
+        radii: _WeightArrayLike,
+        *,
+        padding: float = 0.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> PfsPrimeOverlapRemoval: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    @property
+    def last_overlap_count(self) -> int: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+@final
+class SfcLayoutSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        curve: str = "hilbert",
+        scale: float = 100.0,
+        resolution_order: int | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SfcLayoutSolver: ...
+    def step(self, layout: Layout2d) -> str: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
+    def run(self, layout: Layout2d) -> str: ...
+    def vertex_order(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def iteration(self) -> int: ...
+    @property
+    def total_iterations(self) -> int: ...
+    @property
+    def is_finished(self) -> bool: ...
+    @property
+    def num_nodes(self) -> int: ...
+    @property
+    def dtype(self) -> str: ...
+    def __repr__(self) -> str: ...
