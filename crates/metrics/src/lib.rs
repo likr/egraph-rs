@@ -14,6 +14,8 @@
 //!   `adjusted_patch_nig_multiscale`).
 //! - [`cluster_area`]: Grid-based Cluster Area Faithfulness (`G-CAF`) combining
 //!   resolution, adjusted spatial purity, area proportion, and 8-connected coherence.
+//! - [`cluster_baselines`] *(feature `eval-baselines`)*: External/internal cluster
+//!   evaluation, visual separation, Sprawlter-NN, and Chen (2020) NOR baseline metrics.
 //! - [`rta`]: $O(N)$-RAM streaming Landmark-Stratified Random Triplet Accuracy
 //!   (`landmark_stratified_rta`).
 //! - [`dispatcher`]: Selective metric evaluation (`evaluate_metrics`,
@@ -21,6 +23,8 @@
 //!   executing only explicitly requested targets.
 
 pub mod cluster_area;
+#[cfg(feature = "eval-baselines")]
+pub mod cluster_baselines;
 pub mod community;
 pub mod crossings;
 pub mod dispatcher;
@@ -38,6 +42,8 @@ pub use cluster_area::{
     cluster_area_faithfulness_detail, cluster_area_faithfulness_detail_with_weights,
     cluster_area_faithfulness_with_weights,
 };
+#[cfg(feature = "eval-baselines")]
+pub use cluster_baselines::*;
 pub use community::{adjusted_patch_nig, adjusted_patch_nig_multiscale};
 pub use crossings::{
     CrossingPair, CrossingSummary, TorusCrossing, crossing_angle, crossing_angle_from_pairs,
@@ -46,6 +52,8 @@ pub use crossings::{
     max_crossing_pairs, sampled_crossing_number, sampled_crossing_number_with_rng,
     sampled_crosslessness,
 };
+#[cfg(feature = "eval-baselines")]
+pub use dispatcher::ClusterBaselineConfig;
 pub use dispatcher::{
     MetricConfig, MetricReport, MetricTarget, evaluate_metrics, evaluate_metrics_with_communities,
     evaluate_metrics_with_community_weights,

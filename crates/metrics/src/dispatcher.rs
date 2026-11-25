@@ -28,6 +28,14 @@ use crate::{
     validate_graph_layout,
 };
 
+#[cfg(feature = "eval-baselines")]
+use crate::cluster_baselines::{
+    calinski_harabasz_score, class_density_measure, cq_hac, cq_kmeans, davies_bouldin_score,
+    distance_consistency, distribution_consistency, neighborhood_hit_with_tree,
+    pairwise_distance_overlap_error, sepme_gab_with_tree, sepme_gong_with_tree,
+    sepme_knng_with_tree, sepme_rng_with_tree, silhouette_score, sprawlter_nn_radii,
+};
+
 /// Individual quality metric selectors passed to [`evaluate_metrics`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MetricTarget {
@@ -79,6 +87,180 @@ pub enum MetricTarget {
     ClusterAreaFaithfulness,
     /// Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`).
     LandmarkStratifiedRta,
+    /// Distance Consistency (`DSC`); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    Dsc,
+    /// Distribution Consistency (`DC`); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    Dc,
+    /// Class Density Measure (`CDM`); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    Cdm,
+    /// 2D Histogram Density Measure (`2D-HDM`); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    Hdm,
+    /// SepMe $k$-NN graph DIR CPT; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    SepmeKnng,
+    /// SepMe Relative Neighborhood Graph DIR CPT; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    SepmeRng,
+    /// SepMe Gabriel Graph DIR CPT; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    SepmeGab,
+    /// SepMe $\gamma$-Observable Neighbor Graph DIR CPT; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    SepmeGong,
+    /// Neighborhood Hit ($M_{\mathrm{NH}}$); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    NeighborhoodHit,
+    /// Silhouette coefficient; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    Silhouette,
+    /// Calinski-Harabasz Index; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    CalinskiHarabasz,
+    /// Davies-Bouldin Index; requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    DaviesBouldin,
+    /// $k$-means Cluster Quality (`CQ-kmeans` ARI); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    CqKmeansAri,
+    /// $k$-means Cluster Quality (`CQ-kmeans` AMI); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    CqKmeansAmi,
+    /// Average-linkage HAC Cluster Quality (`CQ-HAC` Homogeneity); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    CqHacHom,
+    /// Average-linkage HAC Cluster Quality (`CQ-HAC` AMI); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    CqHacAmi,
+    /// Pairwise Distance-Overlap Error (`PDOE`); requires `community_labels`.
+    #[cfg(feature = "eval-baselines")]
+    PairwiseDistanceOverlapError,
+    /// Sprawlter-NN composite overlap clutter measure using uniform `sprawlter_node_radius`.
+    #[cfg(feature = "eval-baselines")]
+    SprawlterNn,
+}
+
+/// Configuration parameters for `eval-baselines` cluster separation, CVI, and Sprawlter targets.
+#[cfg(feature = "eval-baselines")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClusterBaselineConfig {
+    /// Neighborhood size `k` for `SepmeKnng` (must be `>= 1`; default `2`).
+    pub sepme_knng_k: usize,
+    /// Neighborhood size `k` for `NeighborhoodHit` (must be `>= 1`; default `7`).
+    pub neighborhood_hit_k: usize,
+    /// Grid resolution for `Dc` (must be `>= 1`; default `20`).
+    pub dc_grid_size: usize,
+    /// Grid resolution for `Cdm` and `Hdm` (must be `>= 1`; default `64`).
+    pub cdm_grid_size: usize,
+    /// Optional Gaussian KDE bandwidth for `Cdm` (`None` uses `1.5 / cdm_grid_size as f64`).
+    pub cdm_bandwidth: Option<f64>,
+    /// Histogram bin count for `PairwiseDistanceOverlapError` (must be `>= 1`; default `100`).
+    pub num_bins: usize,
+    /// Observable angle parameter `gamma` in `[0.0, 1.0]` for `SepmeGong` (default `0.35`).
+    pub gong_gamma: f64,
+    /// Number of $k$-means++ initializations for `CqKmeans*` (must be `>= 1`; default `5`).
+    pub kmeans_n_init: usize,
+    /// Maximum Lloyd iterations for `CqKmeans*` (must be `>= 1`; default `100`).
+    pub kmeans_max_iters: usize,
+    /// Deterministic RNG seed for `CqKmeans*` (default `42`).
+    pub seed: u64,
+    /// Uniform square half-extent radius for `SprawlterNn` via the dispatcher (default `1.0`).
+    pub sprawlter_node_radius: f64,
+}
+
+#[cfg(feature = "eval-baselines")]
+impl Default for ClusterBaselineConfig {
+    fn default() -> Self {
+        Self {
+            sepme_knng_k: 2,
+            neighborhood_hit_k: 7,
+            dc_grid_size: 20,
+            cdm_grid_size: 64,
+            cdm_bandwidth: None,
+            num_bins: 100,
+            gong_gamma: 0.35,
+            kmeans_n_init: 5,
+            kmeans_max_iters: 100,
+            seed: 42,
+            sprawlter_node_radius: 1.0,
+        }
+    }
+}
+
+#[cfg(feature = "eval-baselines")]
+impl ClusterBaselineConfig {
+    /// Validates all cluster-baseline configuration parameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.sepme_knng_k == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::sepme_knng_k must be >= 1",
+            ));
+        }
+        if self.neighborhood_hit_k == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::neighborhood_hit_k must be >= 1",
+            ));
+        }
+        if self.dc_grid_size == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::dc_grid_size must be >= 1",
+            ));
+        }
+        if self.cdm_grid_size == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::cdm_grid_size must be >= 1",
+            ));
+        }
+        if let Some(bw) = self.cdm_bandwidth {
+            if !bw.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ClusterBaselineConfig::cdm_bandwidth",
+                ));
+            }
+            if bw <= 0.0 {
+                return Err(CoreError::invalid_input(
+                    "ClusterBaselineConfig::cdm_bandwidth must be strictly positive",
+                ));
+            }
+        }
+        if self.num_bins == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::num_bins must be >= 1",
+            ));
+        }
+        if !self.gong_gamma.is_finite() {
+            return Err(CoreError::non_finite("ClusterBaselineConfig::gong_gamma"));
+        }
+        if !(0.0..=1.0).contains(&self.gong_gamma) {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::gong_gamma must be in [0.0, 1.0]",
+            ));
+        }
+        if self.kmeans_n_init == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::kmeans_n_init must be >= 1",
+            ));
+        }
+        if self.kmeans_max_iters == 0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::kmeans_max_iters must be >= 1",
+            ));
+        }
+        if !self.sprawlter_node_radius.is_finite() {
+            return Err(CoreError::non_finite(
+                "ClusterBaselineConfig::sprawlter_node_radius",
+            ));
+        }
+        if self.sprawlter_node_radius <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "ClusterBaselineConfig::sprawlter_node_radius must be strictly positive",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Configuration parameters for parameterized targets in [`evaluate_metrics`].
@@ -112,6 +294,9 @@ pub struct MetricConfig {
     pub patch_nig_seed: u64,
     /// Configuration parameters for `ClusterAreaFaithfulness` (`G-CAF`).
     pub cluster_area: ClusterAreaConfig,
+    /// Configuration parameters for `eval-baselines` cluster/separation/Sprawlter targets.
+    #[cfg(feature = "eval-baselines")]
+    pub cluster_baselines: ClusterBaselineConfig,
 }
 
 impl Default for MetricConfig {
@@ -131,6 +316,8 @@ impl Default for MetricConfig {
             patch_nig_pad_frac: 0.04,
             patch_nig_seed: 42,
             cluster_area: ClusterAreaConfig::default(),
+            #[cfg(feature = "eval-baselines")]
+            cluster_baselines: ClusterBaselineConfig::default(),
         }
     }
 }
@@ -177,6 +364,8 @@ impl MetricConfig {
             ));
         }
         self.cluster_area.validate()?;
+        #[cfg(feature = "eval-baselines")]
+        self.cluster_baselines.validate()?;
         Ok(())
     }
 }
@@ -208,6 +397,42 @@ pub struct MetricReport {
     pub adjusted_patch_nig: Option<f64>,
     pub cluster_area_faithfulness: Option<f64>,
     pub landmark_stratified_rta: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub dsc: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub dc: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub cdm: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub hdm: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub sepme_knng: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub sepme_rng: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub sepme_gab: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub sepme_gong: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub neighborhood_hit: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub silhouette: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub calinski_harabasz: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub davies_bouldin: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub cq_kmeans_ari: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub cq_kmeans_ami: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub cq_hac_hom: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub cq_hac_ami: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub pairwise_distance_overlap_error: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub sprawlter_nn: Option<f64>,
 }
 
 #[derive(Default)]
@@ -236,6 +461,42 @@ struct RequestedFlags {
     adjusted_patch_nig: bool,
     cluster_area_faithfulness: bool,
     landmark_stratified_rta: bool,
+    #[cfg(feature = "eval-baselines")]
+    dsc: bool,
+    #[cfg(feature = "eval-baselines")]
+    dc: bool,
+    #[cfg(feature = "eval-baselines")]
+    cdm: bool,
+    #[cfg(feature = "eval-baselines")]
+    hdm: bool,
+    #[cfg(feature = "eval-baselines")]
+    sepme_knng: bool,
+    #[cfg(feature = "eval-baselines")]
+    sepme_rng: bool,
+    #[cfg(feature = "eval-baselines")]
+    sepme_gab: bool,
+    #[cfg(feature = "eval-baselines")]
+    sepme_gong: bool,
+    #[cfg(feature = "eval-baselines")]
+    neighborhood_hit: bool,
+    #[cfg(feature = "eval-baselines")]
+    silhouette: bool,
+    #[cfg(feature = "eval-baselines")]
+    calinski_harabasz: bool,
+    #[cfg(feature = "eval-baselines")]
+    davies_bouldin: bool,
+    #[cfg(feature = "eval-baselines")]
+    cq_kmeans_ari: bool,
+    #[cfg(feature = "eval-baselines")]
+    cq_kmeans_ami: bool,
+    #[cfg(feature = "eval-baselines")]
+    cq_hac_hom: bool,
+    #[cfg(feature = "eval-baselines")]
+    cq_hac_ami: bool,
+    #[cfg(feature = "eval-baselines")]
+    pairwise_distance_overlap_error: bool,
+    #[cfg(feature = "eval-baselines")]
+    sprawlter_nn: bool,
 }
 
 impl RequestedFlags {
@@ -267,6 +528,44 @@ impl RequestedFlags {
                 MetricTarget::AdjustedPatchNig => flags.adjusted_patch_nig = true,
                 MetricTarget::ClusterAreaFaithfulness => flags.cluster_area_faithfulness = true,
                 MetricTarget::LandmarkStratifiedRta => flags.landmark_stratified_rta = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::Dsc => flags.dsc = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::Dc => flags.dc = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::Cdm => flags.cdm = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::Hdm => flags.hdm = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::SepmeKnng => flags.sepme_knng = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::SepmeRng => flags.sepme_rng = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::SepmeGab => flags.sepme_gab = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::SepmeGong => flags.sepme_gong = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::NeighborhoodHit => flags.neighborhood_hit = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::Silhouette => flags.silhouette = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::CalinskiHarabasz => flags.calinski_harabasz = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::DaviesBouldin => flags.davies_bouldin = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::CqKmeansAri => flags.cq_kmeans_ari = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::CqKmeansAmi => flags.cq_kmeans_ami = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::CqHacHom => flags.cq_hac_hom = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::CqHacAmi => flags.cq_hac_ami = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::PairwiseDistanceOverlapError => {
+                    flags.pairwise_distance_overlap_error = true;
+                }
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::SprawlterNn => flags.sprawlter_nn = true,
             }
         }
         flags
@@ -274,14 +573,26 @@ impl RequestedFlags {
 
     #[inline]
     fn needs_kdtree(&self) -> bool {
-        self.np1
+        let base = self.np1
             || self.np2
             || self.sampled_np1
             || self.sampled_np2
             || self.gabriel_property
             || self.node_resolution
             || self.drng
-            || self.dgg
+            || self.dgg;
+        #[cfg(feature = "eval-baselines")]
+        {
+            base || self.sepme_knng
+                || self.sepme_rng
+                || self.sepme_gab
+                || self.sepme_gong
+                || self.neighborhood_hit
+        }
+        #[cfg(not(feature = "eval-baselines"))]
+        {
+            base
+        }
     }
 }
 
@@ -441,6 +752,54 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
             report.gabriel_graph_preservation =
                 Some(gabriel_graph_preservation_with_tree(graph, layout, tree)?);
         }
+        #[cfg(feature = "eval-baselines")]
+        {
+            if flags.sepme_knng {
+                let labels = community_labels.ok_or_else(|| {
+                    CoreError::invalid_input("SepmeKnng target requires community_labels")
+                })?;
+                report.sepme_knng = Some(sepme_knng_with_tree(
+                    layout,
+                    labels,
+                    config.cluster_baselines.sepme_knng_k,
+                    tree,
+                )?);
+            }
+            if flags.sepme_rng {
+                let labels = community_labels.ok_or_else(|| {
+                    CoreError::invalid_input("SepmeRng target requires community_labels")
+                })?;
+                report.sepme_rng = Some(sepme_rng_with_tree(layout, labels, tree)?);
+            }
+            if flags.sepme_gab {
+                let labels = community_labels.ok_or_else(|| {
+                    CoreError::invalid_input("SepmeGab target requires community_labels")
+                })?;
+                report.sepme_gab = Some(sepme_gab_with_tree(layout, labels, tree)?);
+            }
+            if flags.sepme_gong {
+                let labels = community_labels.ok_or_else(|| {
+                    CoreError::invalid_input("SepmeGong target requires community_labels")
+                })?;
+                report.sepme_gong = Some(sepme_gong_with_tree(
+                    layout,
+                    labels,
+                    config.cluster_baselines.gong_gamma,
+                    tree,
+                )?);
+            }
+            if flags.neighborhood_hit {
+                let labels = community_labels.ok_or_else(|| {
+                    CoreError::invalid_input("NeighborhoodHit target requires community_labels")
+                })?;
+                report.neighborhood_hit = Some(neighborhood_hit_with_tree(
+                    layout,
+                    labels,
+                    config.cluster_baselines.neighborhood_hit_k,
+                    tree,
+                )?);
+            }
+        }
     }
 
     if flags.aspect_ratio {
@@ -525,6 +884,116 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
             config.rta_seed,
         )?);
     }
+    #[cfg(feature = "eval-baselines")]
+    {
+        if flags.dsc {
+            let labels = community_labels
+                .ok_or_else(|| CoreError::invalid_input("Dsc target requires community_labels"))?;
+            report.dsc = Some(distance_consistency(layout, labels)?);
+        }
+        if flags.dc {
+            let labels = community_labels
+                .ok_or_else(|| CoreError::invalid_input("Dc target requires community_labels"))?;
+            report.dc = Some(distribution_consistency(
+                layout,
+                labels,
+                config.cluster_baselines.dc_grid_size,
+            )?);
+        }
+        if flags.cdm || flags.hdm {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("Cdm/Hdm target requires community_labels")
+            })?;
+            let (cdm, hdm) = class_density_measure(
+                layout,
+                labels,
+                config.cluster_baselines.cdm_grid_size,
+                config.cluster_baselines.cdm_bandwidth,
+            )?;
+            if flags.cdm {
+                report.cdm = Some(cdm);
+            }
+            if flags.hdm {
+                report.hdm = Some(hdm);
+            }
+        }
+        if flags.silhouette {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("Silhouette target requires community_labels")
+            })?;
+            report.silhouette = Some(silhouette_score(layout, labels)?);
+        }
+        if flags.calinski_harabasz {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("CalinskiHarabasz target requires community_labels")
+            })?;
+            report.calinski_harabasz = Some(calinski_harabasz_score(layout, labels)?);
+        }
+        if flags.davies_bouldin {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("DaviesBouldin target requires community_labels")
+            })?;
+            report.davies_bouldin = Some(davies_bouldin_score(layout, labels)?);
+        }
+        if flags.cq_kmeans_ari || flags.cq_kmeans_ami {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("CqKmeans target requires community_labels")
+            })?;
+            let pa = cq_kmeans(
+                layout,
+                labels,
+                config.cluster_baselines.kmeans_n_init,
+                config.cluster_baselines.kmeans_max_iters,
+                config.cluster_baselines.seed,
+            )?;
+            if flags.cq_kmeans_ari {
+                report.cq_kmeans_ari = Some(pa.ari);
+            }
+            if flags.cq_kmeans_ami {
+                report.cq_kmeans_ami = Some(pa.ami);
+            }
+        }
+        if flags.cq_hac_hom || flags.cq_hac_ami {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input("CqHac target requires community_labels")
+            })?;
+            let pa = cq_hac(layout, labels)?;
+            if flags.cq_hac_hom {
+                report.cq_hac_hom = Some(pa.homogeneity);
+            }
+            if flags.cq_hac_ami {
+                report.cq_hac_ami = Some(pa.ami);
+            }
+        }
+        if flags.pairwise_distance_overlap_error {
+            let labels = community_labels.ok_or_else(|| {
+                CoreError::invalid_input(
+                    "PairwiseDistanceOverlapError target requires community_labels",
+                )
+            })?;
+            report.pairwise_distance_overlap_error = Some(pairwise_distance_overlap_error(
+                layout,
+                labels,
+                config.cluster_baselines.num_bins,
+            )?);
+        }
+        if flags.sprawlter_nn {
+            let r_f64 = config.cluster_baselines.sprawlter_node_radius;
+            if !r_f64.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ClusterBaselineConfig::sprawlter_node_radius",
+                ));
+            }
+            if r_f64 <= 0.0 {
+                return Err(CoreError::invalid_input(
+                    "ClusterBaselineConfig::sprawlter_node_radius must be strictly positive",
+                ));
+            }
+            let r = S::from_f64(r_f64);
+            let radii = vec![r; layout.len()];
+            report.sprawlter_nn = Some(sprawlter_nn_radii(layout, &radii)?);
+        }
+    }
 
     Ok(report)
 }
@@ -565,6 +1034,8 @@ mod tests {
             patch_nig_pad_frac: 0.04,
             patch_nig_seed: 9,
             cluster_area: ClusterAreaConfig::default(),
+            #[cfg(feature = "eval-baselines")]
+            cluster_baselines: ClusterBaselineConfig::default(),
         };
         assert_eq!(MetricConfig::default().sns_num_pivots, 64);
 
@@ -908,6 +1379,194 @@ mod tests {
                 Some(&communities),
                 Some(&nw),
                 Some(&cw),
+            ),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
+    #[cfg(feature = "eval-baselines")]
+    #[test]
+    fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
+        let g = CsrGraph::<f64>::from_edges(
+            6,
+            &[(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3), (2, 3)],
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        let layout = Layout2d::from_xy(
+            vec![0.0, 0.2, 0.1, 5.0, 5.2, 5.1],
+            vec![0.0, 0.1, -0.1, 5.0, 5.1, 4.9],
+        )
+        .unwrap();
+        let communities = [0_u32, 0, 0, 1, 1, 1];
+        let cfg = MetricConfig::default();
+
+        // SprawlterNn works without community_labels; all other eval-baselines fields remain None.
+        let sprawl_only =
+            evaluate_metrics(&g, &layout, &[MetricTarget::SprawlterNn], &cfg).unwrap();
+        assert!(sprawl_only.sprawlter_nn.is_some());
+        assert!(sprawl_only.dsc.is_none());
+        assert!(sprawl_only.cq_kmeans_ari.is_none());
+
+        // Label-dependent targets error when community_labels is None.
+        for &target in &[
+            MetricTarget::Dsc,
+            MetricTarget::Dc,
+            MetricTarget::Cdm,
+            MetricTarget::Hdm,
+            MetricTarget::SepmeKnng,
+            MetricTarget::SepmeRng,
+            MetricTarget::SepmeGab,
+            MetricTarget::SepmeGong,
+            MetricTarget::NeighborhoodHit,
+            MetricTarget::Silhouette,
+            MetricTarget::CalinskiHarabasz,
+            MetricTarget::DaviesBouldin,
+            MetricTarget::CqKmeansAri,
+            MetricTarget::CqKmeansAmi,
+            MetricTarget::CqHacHom,
+            MetricTarget::CqHacAmi,
+            MetricTarget::PairwiseDistanceOverlapError,
+        ] {
+            assert!(
+                matches!(
+                    evaluate_metrics(&g, &layout, &[target], &cfg),
+                    Err(CoreError::InvalidInput(_))
+                ),
+                "expected InvalidInput when community_labels is None for {target:?}"
+            );
+        }
+
+        // Request all 18 eval-baselines targets and verify exact parity with standalone calls.
+        let baseline_targets = [
+            MetricTarget::Dsc,
+            MetricTarget::Dc,
+            MetricTarget::Cdm,
+            MetricTarget::Hdm,
+            MetricTarget::SepmeKnng,
+            MetricTarget::SepmeRng,
+            MetricTarget::SepmeGab,
+            MetricTarget::SepmeGong,
+            MetricTarget::NeighborhoodHit,
+            MetricTarget::Silhouette,
+            MetricTarget::CalinskiHarabasz,
+            MetricTarget::DaviesBouldin,
+            MetricTarget::CqKmeansAri,
+            MetricTarget::CqKmeansAmi,
+            MetricTarget::CqHacHom,
+            MetricTarget::CqHacAmi,
+            MetricTarget::PairwiseDistanceOverlapError,
+            MetricTarget::SprawlterNn,
+        ];
+        let rep = evaluate_metrics_with_communities(
+            &g,
+            &layout,
+            &baseline_targets,
+            &cfg,
+            Some(&communities),
+        )
+        .unwrap();
+
+        let cb = &cfg.cluster_baselines;
+        assert_eq!(
+            rep.dsc,
+            Some(distance_consistency(&layout, &communities).unwrap())
+        );
+        assert_eq!(
+            rep.dc,
+            Some(distribution_consistency(&layout, &communities, cb.dc_grid_size).unwrap())
+        );
+        let (cdm, hdm) =
+            class_density_measure(&layout, &communities, cb.cdm_grid_size, cb.cdm_bandwidth)
+                .unwrap();
+        assert_eq!(rep.cdm, Some(cdm));
+        assert_eq!(rep.hdm, Some(hdm));
+        assert_eq!(
+            rep.sepme_knng,
+            Some(
+                crate::cluster_baselines::sepme_knng(&layout, &communities, cb.sepme_knng_k)
+                    .unwrap()
+            )
+        );
+        assert_eq!(
+            rep.sepme_rng,
+            Some(crate::cluster_baselines::sepme_rng(&layout, &communities).unwrap())
+        );
+        assert_eq!(
+            rep.sepme_gab,
+            Some(crate::cluster_baselines::sepme_gab(&layout, &communities).unwrap())
+        );
+        assert_eq!(
+            rep.sepme_gong,
+            Some(
+                crate::cluster_baselines::sepme_gong(&layout, &communities, cb.gong_gamma).unwrap()
+            )
+        );
+        assert_eq!(
+            rep.neighborhood_hit,
+            Some(
+                crate::cluster_baselines::neighborhood_hit(
+                    &layout,
+                    &communities,
+                    cb.neighborhood_hit_k
+                )
+                .unwrap()
+            )
+        );
+        assert_eq!(
+            rep.silhouette,
+            Some(silhouette_score(&layout, &communities).unwrap())
+        );
+        assert_eq!(
+            rep.calinski_harabasz,
+            Some(calinski_harabasz_score(&layout, &communities).unwrap())
+        );
+        assert_eq!(
+            rep.davies_bouldin,
+            Some(davies_bouldin_score(&layout, &communities).unwrap())
+        );
+        let km = cq_kmeans(
+            &layout,
+            &communities,
+            cb.kmeans_n_init,
+            cb.kmeans_max_iters,
+            cb.seed,
+        )
+        .unwrap();
+        assert_eq!(rep.cq_kmeans_ari, Some(km.ari));
+        assert_eq!(rep.cq_kmeans_ami, Some(km.ami));
+        let hac = cq_hac(&layout, &communities).unwrap();
+        assert_eq!(rep.cq_hac_hom, Some(hac.homogeneity));
+        assert_eq!(rep.cq_hac_ami, Some(hac.ami));
+        assert_eq!(
+            rep.pairwise_distance_overlap_error,
+            Some(pairwise_distance_overlap_error(&layout, &communities, cb.num_bins).unwrap())
+        );
+        let radii = vec![cb.sprawlter_node_radius; layout.len()];
+        assert_eq!(
+            rep.sprawlter_nn,
+            Some(sprawlter_nn_radii(&layout, &radii).unwrap())
+        );
+
+        // Lazy config validation: invalid baseline config ignored when baseline targets not requested.
+        let bad_cb_cfg = MetricConfig {
+            cluster_baselines: ClusterBaselineConfig {
+                gong_gamma: 2.0,
+                ..cfg.cluster_baselines
+            },
+            ..cfg
+        };
+        assert!(bad_cb_cfg.validate().is_err());
+        assert!(evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_cb_cfg).is_ok());
+        assert!(matches!(
+            evaluate_metrics_with_communities(
+                &g,
+                &layout,
+                &[MetricTarget::SepmeGong],
+                &bad_cb_cfg,
+                Some(&communities),
             ),
             Err(CoreError::InvalidInput(_))
         ));
