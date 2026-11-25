@@ -552,6 +552,8 @@ export interface ClusterAreaReportRecord {
     resCombined: number;
     spatialCoherence: number;
     inFrac: number;
+    effectiveBoundaryR95: number;
+    gEff: number;
     numClusters: number;
     numNodes: number;
     clusterIds: Uint32Array;
@@ -588,7 +590,7 @@ const gcafDtsReplacements = [
   ],
   [
     /export function evaluateMetrics\([^;]+\): MetricReport;/,
-    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): MetricReport;",
+    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): MetricReport;",
   ],
 ];
 
@@ -618,11 +620,11 @@ indexDts = indexDts.replace(
 for (const [pattern, replacement] of [
   [
     /export function clusterAreaFaithfulness\([^;]+\): number;/,
-    "export function clusterAreaFaithfulness(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): number;",
+    "export function clusterAreaFaithfulness(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): number;",
   ],
   [
     /export function clusterAreaFaithfulnessDetail\([^;]+\): ClusterAreaReport;/,
-    "export function clusterAreaFaithfulnessDetail(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null): ClusterAreaReport;",
+    "export function clusterAreaFaithfulnessDetail(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): ClusterAreaReport;",
   ],
 ]) {
   const updated = indexDts.replace(pattern, replacement);

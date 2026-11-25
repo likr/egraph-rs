@@ -11,11 +11,12 @@ use egraph::metrics::{
     ClusterAreaConfig, ClusterAreaDetail, CrossingPair, CrossingSummary, LayoutDegeneracy,
     MetricConfig, MetricReport, MetricTarget, MinimumAngleSummary, RtaEvaluation, TorusCrossing,
     adjusted_patch_nig, adjusted_patch_nig_multiscale, all_pairs_bfs, angular_resolution,
-    aspect_ratio, bfs_single_source, cluster_area_faithfulness, cluster_area_faithfulness_detail,
-    crossing_angle, crossing_edges, crossing_edges_torus, crossing_number, crossing_summary,
-    crosslessness, edge_angle, evaluate_metrics_with_communities, gabriel_graph_edges,
-    gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
-    ideal_edge_lengths_with_unit, landmark_stratified_rta, landmark_stratified_rta_detail,
+    aspect_ratio, bfs_single_source, cluster_area_faithfulness_detail_with_weights,
+    cluster_area_faithfulness_with_weights, crossing_angle, crossing_edges, crossing_edges_torus,
+    crossing_number, crossing_summary, crosslessness, edge_angle,
+    evaluate_metrics_with_community_weights, gabriel_graph_edges, gabriel_graph_preservation,
+    gabriel_graph_property, ideal_edge_lengths, ideal_edge_lengths_with_unit,
+    landmark_stratified_rta, landmark_stratified_rta_detail,
     landmark_stratified_rta_from_landmarks, layout_degeneracy, minimum_angle,
     minimum_angle_summary, neighborhood_preservation_1hop, neighborhood_preservation_2hop,
     node_resolution, prism_distortion, prism_distortion_with_edges, relative_neighborhood_edges,
@@ -89,6 +90,40 @@ fn parse_u32_sequence(val: &JsValue, name: &str) -> Result<Vec<u32>, JsError> {
         out.push(parse_non_negative_u32(num, name)?);
     }
     Ok(out)
+}
+
+fn parse_optional_f64_sequence(val: &JsValue, name: &str) -> Result<Option<Vec<f64>>, JsError> {
+    if val.is_null() || val.is_undefined() {
+        return Ok(None);
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Float64Array>() {
+        return Ok(Some(arr.to_vec()));
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Float32Array>() {
+        return Ok(Some(arr.to_vec().into_iter().map(f64::from).collect()));
+    }
+    if val.is_string() || !val.is_object() {
+        return Err(JsError::new(&format!(
+            "{name} must be a Float64Array, Float32Array, or numeric array"
+        )));
+    }
+    let iter = js_sys::try_iter(val)
+        .map_err(|err| JsError::new(&format!("failed to iterate {name}: {err:?}")))?
+        .ok_or_else(|| {
+            JsError::new(&format!(
+                "{name} must be a Float64Array, Float32Array, or numeric array"
+            ))
+        })?;
+    let mut out = Vec::new();
+    for item_res in iter {
+        let item =
+            item_res.map_err(|err| JsError::new(&format!("failed to read {name}: {err:?}")))?;
+        let num = item
+            .as_f64()
+            .ok_or_else(|| JsError::new(&format!("{name} entries must be numbers")))?;
+        out.push(num);
+    }
+    Ok(Some(out))
 }
 
 pub(crate) fn parse_seed_u64(seed: Option<f64>) -> Result<u64, JsError> {
@@ -1118,6 +1153,16 @@ impl JsClusterAreaReport {
         self.inner.report.in_frac
     }
 
+    #[wasm_bindgen(getter, js_name = effectiveBoundaryR95)]
+    pub fn effective_boundary_r95(&self) -> f64 {
+        self.inner.report.effective_boundary_r95
+    }
+
+    #[wasm_bindgen(getter, js_name = gEff)]
+    pub fn g_eff(&self) -> usize {
+        self.inner.report.g_eff
+    }
+
     #[wasm_bindgen(getter, js_name = numClusters)]
     pub fn num_clusters(&self) -> usize {
         self.inner.report.num_clusters
@@ -1191,6 +1236,8 @@ impl JsClusterAreaReport {
             ("resCombined", r.res_combined),
             ("spatialCoherence", r.spatial_coherence),
             ("inFrac", r.in_frac),
+            ("effectiveBoundaryR95", r.effective_boundary_r95),
+            ("gEff", r.g_eff as f64),
             ("numClusters", r.num_clusters as f64),
             ("numNodes", r.num_nodes as f64),
         ] {
@@ -1582,8 +1629,12 @@ pub fn js_cluster_area_faithfulness(
     tau_frac: Option<f64>,
     boundary_r95: Option<f64>,
     stevens_gamma: Option<f64>,
+    node_weights: &JsValue,
+    cluster_weights: &JsValue,
 ) -> Result<f64, JsError> {
     let labels = parse_u32_sequence(community_labels, "communityLabels")?;
+    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
+    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
     let cfg = parse_cluster_area_config(
         g_max,
         sigma_cells,
@@ -1593,7 +1644,7 @@ pub fn js_cluster_area_faithfulness(
         stevens_gamma,
     )?;
     let soa = layout.inner().to_layout2d();
-    cluster_area_faithfulness(&soa, &labels, &cfg)
+    cluster_area_faithfulness_with_weights(&soa, &labels, &cfg, nw.as_deref(), cw.as_deref())
         .map(|r| r.caf)
         .map_err(core_err_to_js)
 }
@@ -1610,8 +1661,12 @@ pub fn js_cluster_area_faithfulness_detail(
     tau_frac: Option<f64>,
     boundary_r95: Option<f64>,
     stevens_gamma: Option<f64>,
+    node_weights: &JsValue,
+    cluster_weights: &JsValue,
 ) -> Result<JsClusterAreaReport, JsError> {
     let labels = parse_u32_sequence(community_labels, "communityLabels")?;
+    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
+    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
     let cfg = parse_cluster_area_config(
         g_max,
         sigma_cells,
@@ -1621,7 +1676,14 @@ pub fn js_cluster_area_faithfulness_detail(
         stevens_gamma,
     )?;
     let soa = layout.inner().to_layout2d();
-    let inner = cluster_area_faithfulness_detail(&soa, &labels, &cfg).map_err(core_err_to_js)?;
+    let inner = cluster_area_faithfulness_detail_with_weights(
+        &soa,
+        &labels,
+        &cfg,
+        nw.as_deref(),
+        cw.as_deref(),
+    )
+    .map_err(core_err_to_js)?;
     Ok(JsClusterAreaReport { inner })
 }
 
@@ -1724,6 +1786,8 @@ fn evaluate_metrics_impl(
     tau_frac: Option<f64>,
     boundary_r95: Option<f64>,
     stevens_gamma: Option<f64>,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
 ) -> Result<JsMetricReport, JsError> {
     let parsed_targets = parse_metric_targets(targets)?;
     let sns_num_pivots = match num_pivots {
@@ -1783,12 +1847,14 @@ fn evaluate_metrics_impl(
         cluster_area,
     };
     let soa = layout.inner().to_layout2d();
-    let report = evaluate_metrics_with_communities(
+    let report = evaluate_metrics_with_community_weights(
         graph.inner(),
         &soa,
         &parsed_targets,
         &cfg,
         community_labels,
+        node_weights,
+        cluster_weights,
     )
     .map_err(core_err_to_js)?;
     Ok(JsMetricReport { inner: report })
@@ -1818,12 +1884,16 @@ pub fn js_evaluate_metrics_with_options(
     tau_frac: Option<f64>,
     boundary_r95: Option<f64>,
     stevens_gamma: Option<f64>,
+    node_weights: &JsValue,
+    cluster_weights: &JsValue,
 ) -> Result<JsMetricReport, JsError> {
     let parsed_labels = if community_labels.is_null() || community_labels.is_undefined() {
         None
     } else {
         Some(parse_u32_sequence(community_labels, "communityLabels")?)
     };
+    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
+    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
     evaluate_metrics_impl(
         graph,
         layout,
@@ -1845,6 +1915,8 @@ pub fn js_evaluate_metrics_with_options(
         tau_frac,
         boundary_r95,
         stevens_gamma,
+        nw.as_deref(),
+        cw.as_deref(),
     )
 }
 
@@ -1881,6 +1953,8 @@ pub fn js_evaluate_metrics(
         patch_radius,
         canvas_size,
         pad_frac,
+        None,
+        None,
         None,
         None,
         None,

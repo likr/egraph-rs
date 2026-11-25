@@ -472,7 +472,11 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     assert.equal(arr.length, 2);
   }
   const cafRec = cafDet.toRecord();
-  assert.equal(Object.keys(cafRec).length, 20);
+  assert.equal(Object.keys(cafRec).length, 22);
+  assert.equal(cafDet.effectiveBoundaryR95, 2.0);
+  assert.equal(cafDet.gEff, 12);
+  assert.equal(cafRec.effectiveBoundaryR95, 2.0);
+  assert.equal(cafRec.gEff, 12);
   assert(Math.abs(cafRec.caf - cafValU32) < 1e-12);
   assert.deepEqual(Array.from(cafRec.clusterIds), [0, 1]);
   assert.deepEqual(Array.from(cafRec.counts), [25, 25]);
@@ -554,10 +558,48 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(Math.abs(gcafEvalRec.clusterAreaFaithfulness - expectedCustomCaf) < 1e-12);
   gcafEval.free();
 
+  // G6 nodeWeights & clusterWeights parity + evaluateMetrics forwarding
+  const imbNw = new Float64Array(24);
+  for (let i = 0; i < 24; i++) imbNw[i] = i < 20 ? 1.5 : 3.0;
+  const imbCw = new Float64Array([30.0, 12.0]);
+  const cafNw = clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, imbNw, null);
+  const cafCw = clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, null, imbCw);
+  assert(Math.abs(cafNw - cafCw) < 1e-12);
+  const evalCw = evaluateMetrics(
+    imbGraph,
+    imbLayout,
+    ["gcaf"],
+    null,
+    null,
+    null,
+    null,
+    imbLabels,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    imbCw,
+  );
+  assert(Math.abs(evalCw.clusterAreaFaithfulness - cafCw) < 1e-12);
+  evalCw.free();
+  assert.throws(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, imbNw, imbCw), Error);
+  assert.throws(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, null, [0.0, 1.0]), Error);
+
   // Degenerate boundaries: N=0, N=1, K=1, collapsed
   const l0 = Layout2d.zeros(0);
   const d0 = clusterAreaFaithfulnessDetail(l0, []);
   assert.equal(d0.caf, 0);
+  assert.equal(d0.effectiveBoundaryR95, 0);
+  assert.equal(d0.gEff, 0);
   assert.equal(d0.numClusters, 0);
   assert.equal(d0.numNodes, 0);
   const d0Rec = d0.toRecord();
@@ -570,6 +612,8 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
     "resCombined",
     "spatialCoherence",
     "inFrac",
+    "effectiveBoundaryR95",
+    "gEff",
     "numClusters",
     "numNodes",
     "clusterIds",

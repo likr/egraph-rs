@@ -35,8 +35,27 @@ use egraph_core::{CoreError, CoreResult, Layout2d, Scalar, VisitStamp};
 /// even when `boundary_r95` is `+inf` or very large.
 const H_MAX: usize = 1024;
 
+/// Minimum cluster dominance ratio $w_k(c) / w_{\mathrm{tot}}(c)$ required for a grid
+/// cell to participate in 8-connected spatial coherence (`C_coh`) without falling
+/// into a foreign-cluster barrier. Set to `0.30` (above `0.25`) to avoid 4-way
+/// tie fragility on checkerboard intersections.
+const COH_DOMINANCE_MIN: f64 = 0.30;
+
 /// Configuration parameters for [`cluster_area_faithfulness`] and
 /// [`cluster_area_faithfulness_detail`].
+///
+/// # Physical Ink Threshold & Stencil Coverage Limit
+/// Each in-bounds vertex splats a discrete Gaussian kernel with effective footprint
+/// area $\approx \pi (2\sigma)^2$ (truncated at radius $R = \lceil 3.5\sigma \rceil$
+/// grid cells). The global physical visibility threshold
+/// $\tau = \tau_{\mathrm{frac}} \, \rho_{\mathrm{canv}}$ is intentionally
+/// label-independent so that $\sum_k A_k^{\mathrm{vis}} = \sum_c \Phi(c)$ preserves
+/// partition of unity and isolated single-point noise does not saturate full
+/// $(2R+1)^2$ stencils. Because cluster $k$'s realizable visible area cannot exceed
+/// $\sim n_k \pi (2\sigma)^2$ (and strictly $\le n_k (2R+1)^2$), faithful target
+/// area proportion matching requires $p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$
+/// and $\rho_k / \rho_{\mathrm{canv}} \gtrsim \tau_{\mathrm{frac}}$, where
+/// $\rho_k = n_k / (p_k A_{\mathrm{disk}})$.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClusterAreaConfig {
     /// Maximum grid resolution along the unit radius $R_{95}$ (must be `>= 12`; default `128`).
@@ -45,14 +64,19 @@ pub struct ClusterAreaConfig {
     pub sigma_cells: f64,
     /// Over-compression / scatter-tolerance multiplier $\kappa$ (must be finite `> 0.0`; default `10.0`).
     pub kappa: f64,
-    /// Visibility saturation threshold fraction $\tau_{\mathrm{frac}}$ of $\rho_{\mathrm{canv}}$
-    /// (must be finite `> 0.0`; default `0.18`).
+    /// Physical visibility saturation threshold fraction $\tau_{\mathrm{frac}}$ of
+    /// $\rho_{\mathrm{canv}} = N / A_{\mathrm{disk}}$ (must be finite `> 0.0`; default `0.18`).
+    /// Preserved globally across all clusters to maintain partition of unity and suppress
+    /// isolated-point false positives.
     pub tau_frac: f64,
-    /// Radial inclusion boundary in units of $R_{95}$ (must be `> 0.0` and non-NaN; `+inf` is
-    /// accepted and safely bounded by the `H_MAX` grid limit; default `2.0`).
+    /// Radial inclusion boundary in units of $R_{95}$ (must be `> 0.0` and non-NaN; `+inf`
+    /// selects dense-grid resolution-protection mode bounded by `H_MAX` while preserving
+    /// `g_eff >= 12`; default `2.0`).
     pub boundary_r95: f64,
     /// Stevens power-law exponent $\gamma$ for Step 4 target cluster weights
-    /// $p_k^{(\gamma)} \propto n_k^\gamma$ (must be finite `> 0.0`; default `1.0`).
+    /// $p_k \propto (p_k^{(w)})^\gamma$ (must be finite `> 0.0`; default `1.0`).
+    /// Practical exponents $\gamma \in [0.7, 1.0]$ remain well within the discrete
+    /// Gaussian stencil coverage envelope $p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$.
     pub stevens_gamma: f64,
 }
 
@@ -142,10 +166,14 @@ pub struct ClusterAreaReport {
     pub res_deconv: f64,
     /// Target-weighted combined resolution $\sum_k p_k R_k$ in `[0.0, 1.0]`.
     pub res_combined: f64,
-    /// Footprint-weighted 8-connected spatial coherence $C_{\mathrm{coh}} = \sum_k q_k \, \mathrm{coherence}_k$ in `[0.0, 1.0]`.
+    /// Footprint-weighted 8-connected spatial coherence $C_{\mathrm{coh}}$ over active occupied cells in `[0.0, 1.0]`.
     pub spatial_coherence: f64,
-    /// Fraction of vertices inside the radial evaluation disk `boundary_r95 * R95`.
+    /// Fraction of vertices inside the effective radial evaluation disk `effective_boundary_r95 * R95`.
     pub in_frac: f64,
+    /// Effective radial evaluation boundary in units of $R_{95}$ (`0.0` for degenerate early exits).
+    pub effective_boundary_r95: f64,
+    /// Effective grid resolution $g_{\mathrm{eff}}$ in cells per $R_{95}$ (`0` for degenerate early exits).
+    pub g_eff: usize,
     /// Number of unique community labels $K$.
     pub num_clusters: usize,
     /// Total number of vertices $N$.
@@ -176,34 +204,103 @@ pub struct ClusterAreaDetail {
     pub res_deconv: Vec<f64>,
     /// Per-cluster contribution to `caf` divided by $p_k$ (length `K`).
     pub caf_per_cluster: Vec<f64>,
-    /// Per-cluster 8-connected spatial coherence (fraction of $A_k^{\mathrm{vis}}$ in largest
-    /// 8-connected occupied grid component, length `K`).
+    /// Per-cluster 8-connected spatial coherence over active occupied cells (length `K`).
     pub coherence: Vec<f64>,
 }
 
 /// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) on `layout` and `community_labels`.
+///
+/// See [`ClusterAreaConfig`] for the physical ink threshold and stencil coverage envelope
+/// ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness<S: Scalar>(
     layout: &Layout2d<S>,
     community_labels: &[u32],
     config: &ClusterAreaConfig,
 ) -> CoreResult<ClusterAreaReport> {
-    let detail = cluster_area_faithfulness_impl(layout, community_labels, config, false)?;
-    Ok(detail.report)
+    cluster_area_faithfulness_with_weights(layout, community_labels, config, None, None)
 }
 
 /// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) with full per-cluster diagnostics.
+///
+/// See [`ClusterAreaConfig`] for the physical ink threshold and stencil coverage envelope
+/// ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness_detail<S: Scalar>(
     layout: &Layout2d<S>,
     community_labels: &[u32],
     config: &ClusterAreaConfig,
 ) -> CoreResult<ClusterAreaDetail> {
-    cluster_area_faithfulness_impl(layout, community_labels, config, true)
+    cluster_area_faithfulness_detail_with_weights(layout, community_labels, config, None, None)
+}
+
+/// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) with optional positive finite
+/// target weights (`node_weights` or `cluster_weights`, mutually exclusive).
+///
+/// When `node_weights` is provided (`len == N`), weights are summed per community and
+/// normalized before applying Stevens $\gamma$: $p_k \propto (p_k^{(w)})^\gamma$.
+/// When `cluster_weights` is provided (`len == K`), weights correspond to sorted ascending
+/// unique community IDs (matching [`ClusterAreaDetail::cluster_ids`]).
+/// See [`ClusterAreaConfig`] for the stencil coverage limit ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
+pub fn cluster_area_faithfulness_with_weights<S: Scalar>(
+    layout: &Layout2d<S>,
+    community_labels: &[u32],
+    config: &ClusterAreaConfig,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
+) -> CoreResult<ClusterAreaReport> {
+    let detail = cluster_area_faithfulness_impl(
+        layout,
+        community_labels,
+        config,
+        node_weights,
+        cluster_weights,
+        false,
+    )?;
+    Ok(detail.report)
+}
+
+/// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) with full per-cluster diagnostics
+/// and optional positive finite target weights (`node_weights` or `cluster_weights`, mutually exclusive).
+///
+/// `cluster_weights` corresponds to sorted ascending unique community IDs (matching
+/// [`ClusterAreaDetail::cluster_ids`]).
+/// See [`ClusterAreaConfig`] for the stencil coverage limit ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
+pub fn cluster_area_faithfulness_detail_with_weights<S: Scalar>(
+    layout: &Layout2d<S>,
+    community_labels: &[u32],
+    config: &ClusterAreaConfig,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
+) -> CoreResult<ClusterAreaDetail> {
+    cluster_area_faithfulness_impl(
+        layout,
+        community_labels,
+        config,
+        node_weights,
+        cluster_weights,
+        true,
+    )
+}
+
+fn validate_positive_finite_weights(weights: &[f64], context: &'static str) -> CoreResult<()> {
+    for &w in weights {
+        if !w.is_finite() {
+            return Err(CoreError::non_finite(context));
+        }
+        if w <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "{context} entries must be strictly positive"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn cluster_area_faithfulness_impl<S: Scalar>(
     layout: &Layout2d<S>,
     community_labels: &[u32],
     config: &ClusterAreaConfig,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
     include_detail: bool,
 ) -> CoreResult<ClusterAreaDetail> {
     let n = layout.len();
@@ -214,8 +311,38 @@ fn cluster_area_faithfulness_impl<S: Scalar>(
             "cluster_area_faithfulness::community_labels",
         ));
     }
+    if node_weights.is_some() && cluster_weights.is_some() {
+        return Err(CoreError::invalid_input(
+            "node_weights and cluster_weights are mutually exclusive",
+        ));
+    }
     layout.validate_finite()?;
     config.validate()?;
+
+    if let Some(nw) = node_weights {
+        if nw.len() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                nw.len(),
+                "cluster_area_faithfulness::node_weights",
+            ));
+        }
+        validate_positive_finite_weights(nw, "cluster_area_faithfulness::node_weights")?;
+    }
+
+    let (cluster_ids, inv) = remap_community_labels(community_labels)?;
+    let k_count = cluster_ids.len();
+
+    if let Some(cw) = cluster_weights {
+        if cw.len() != k_count {
+            return Err(CoreError::dimension_mismatch(
+                k_count,
+                cw.len(),
+                "cluster_area_faithfulness::cluster_weights",
+            ));
+        }
+        validate_positive_finite_weights(cw, "cluster_area_faithfulness::cluster_weights")?;
+    }
 
     if n == 0 {
         return Ok(ClusterAreaDetail::default());
@@ -234,7 +361,16 @@ fn cluster_area_faithfulness_impl<S: Scalar>(
         ys.push(if y == 0.0 { 0.0 } else { y });
     }
 
-    cluster_area_core(&xs, &ys, community_labels, config, include_detail)
+    cluster_area_core(
+        &xs,
+        &ys,
+        cluster_ids,
+        inv,
+        config,
+        node_weights,
+        cluster_weights,
+        include_detail,
+    )
 }
 
 /// 8-pass 8-bit LSD radix sort on `u64` keys (falling back to `sort_unstable` for `N <= 1024`).
@@ -634,6 +770,35 @@ fn compute_stevens_weights(counts: &[usize], gamma: f64) -> Vec<f64> {
     w_vec
 }
 
+#[inline]
+fn apply_stevens_gamma(p_raw: &[f64], gamma: f64) -> Vec<f64> {
+    let k_count = p_raw.len();
+    if k_count == 0 {
+        return Vec::new();
+    }
+    let max_p = p_raw.iter().copied().fold(0.0_f64, f64::max);
+    if max_p <= 0.0 || !max_p.is_finite() {
+        return vec![0.0; k_count];
+    }
+    let mut w_vec = Vec::with_capacity(k_count);
+    let mut w_sum = 0.0_f64;
+    for &pk in p_raw {
+        let w = if (gamma - 1.0).abs() == 0.0 {
+            pk / max_p
+        } else {
+            (pk / max_p).powf(gamma)
+        };
+        w_vec.push(w);
+        w_sum += w;
+    }
+    if w_sum > 0.0 && w_sum.is_finite() {
+        for w in &mut w_vec {
+            *w = (*w / w_sum).clamp(0.0, 1.0);
+        }
+    }
+    w_vec
+}
+
 /// Fills `buf` (`len == 2 * r_stencil + 1`) with normalized 1D Gaussian stencil
 /// weights centered at fractional offset `frac` (`|frac| <= 0.5`).
 ///
@@ -710,15 +875,18 @@ fn degenerate_detail(
 }
 
 /// Non-generic `f64` core implementation keeping WASM binary footprint minimal.
+#[allow(clippy::too_many_arguments)]
 fn cluster_area_core(
     xs: &[f64],
     ys: &[f64],
-    community_labels: &[u32],
+    cluster_ids: Vec<u32>,
+    inv: Vec<u32>,
     config: &ClusterAreaConfig,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
     include_detail: bool,
 ) -> CoreResult<ClusterAreaDetail> {
     let n = xs.len();
-    let (cluster_ids, inv) = remap_community_labels(community_labels)?;
     let k_count = cluster_ids.len();
 
     let mut counts = vec![0usize; k_count];
@@ -726,12 +894,50 @@ fn cluster_area_core(
         counts[c as usize] += 1;
     }
     let n_f = n as f64;
-    let p_raw: Vec<f64> = counts
-        .iter()
-        .map(|&c| ((c as f64) / n_f).clamp(0.0, 1.0))
-        .collect();
+    let has_custom_weights = node_weights.is_some() || cluster_weights.is_some();
+    let p_raw: Vec<f64> = if let Some(nw) = node_weights {
+        let mut raw_w = vec![0.0_f64; k_count];
+        for i in 0..n {
+            raw_w[inv[i] as usize] += nw[i];
+        }
+        let mut sum_raw: f64 = raw_w.iter().sum();
+        if !sum_raw.is_finite() || sum_raw <= 0.0 {
+            let max_nw = nw.iter().copied().fold(0.0_f64, f64::max);
+            raw_w.fill(0.0);
+            for i in 0..n {
+                raw_w[inv[i] as usize] += nw[i] / max_nw;
+            }
+            sum_raw = raw_w.iter().sum();
+        }
+        raw_w
+            .into_iter()
+            .map(|w| (w / sum_raw).clamp(0.0, 1.0))
+            .collect()
+    } else if let Some(cw) = cluster_weights {
+        let mut raw_w = cw.to_vec();
+        let mut sum_raw: f64 = raw_w.iter().sum();
+        if !sum_raw.is_finite() || sum_raw <= 0.0 {
+            let max_cw = cw.iter().copied().fold(0.0_f64, f64::max);
+            for (slot, &w) in raw_w.iter_mut().zip(cw.iter()) {
+                *slot = w / max_cw;
+            }
+            sum_raw = raw_w.iter().sum();
+        }
+        raw_w
+            .into_iter()
+            .map(|w| (w / sum_raw).clamp(0.0, 1.0))
+            .collect()
+    } else {
+        counts
+            .iter()
+            .map(|&c| ((c as f64) / n_f).clamp(0.0, 1.0))
+            .collect()
+    };
+
     let p = if (config.stevens_gamma - 1.0).abs() == 0.0 {
         p_raw.clone()
+    } else if has_custom_weights {
+        apply_stevens_gamma(&p_raw, config.stevens_gamma)
     } else {
         compute_stevens_weights(&counts, config.stevens_gamma)
     };
@@ -830,19 +1036,40 @@ fn cluster_area_core(
         return Ok(degenerate_detail(cluster_ids, counts, p, n, include_detail));
     }
 
-    // Step 2: Grid sizing, frozen boundary_r95 OOM guard, and CSR counting sort.
+    // Step 2: Grid sizing, F1 resolution-preserving boundary clamping, and CSR counting sort.
+    let r_stencil = (3.5 * config.sigma_cells).ceil() as usize;
+    let stencil_len = 2 * r_stencil + 1;
+    let avail_h = (H_MAX - r_stencil - 1) as f64;
     let denom_g = 0.55 * (PI / n_f).sqrt();
     let raw_g = (config.sigma_cells / denom_g).floor();
-    let g_eff = if raw_g.is_finite() {
-        (raw_g as usize).clamp(12, config.g_max)
+    let g_eff_raw = if raw_g.is_finite() {
+        (raw_g.min(config.g_max as f64) as usize).clamp(12, config.g_max)
     } else {
         config.g_max
     };
+    let (g_eff, effective_b) = if config.boundary_r95.is_finite() {
+        let g_max_fit_f = (avail_h / config.boundary_r95).floor();
+        if g_max_fit_f >= 12.0 {
+            let g = if g_max_fit_f >= (g_eff_raw as f64) {
+                g_eff_raw
+            } else {
+                (g_max_fit_f as usize).max(12)
+            };
+            (g, config.boundary_r95)
+        } else {
+            let g = 12usize;
+            let max_b_grid = avail_h / (g as f64);
+            (g, config.boundary_r95.min(max_b_grid))
+        }
+    } else {
+        // Dense-grid resolution-protection mode for boundary_r95 = +inf:
+        // preserve g_eff >= 12 instead of crushing main-body resolution for far outliers.
+        let g = g_eff_raw;
+        let max_b_grid = avail_h / (g as f64);
+        (g, max_b_grid)
+    };
     let g_eff_f = g_eff as f64;
-    let r_stencil = (3.5 * config.sigma_cells).ceil() as usize;
-    let stencil_len = 2 * r_stencil + 1;
-    let max_b_grid = ((H_MAX - r_stencil - 1) as f64) / g_eff_f;
-    let effective_b = config.boundary_r95.min(max_b_grid);
+    let max_b_grid = avail_h / g_eff_f;
     let r_cut = effective_b * r95 * (1.0 + 1e-12);
 
     let mut in_counts = vec![0usize; k_count];
@@ -859,8 +1086,8 @@ fn cluster_area_core(
     }
     let in_frac = ((n_in as f64) / n_f).clamp(0.0, 1.0);
 
-    let h = if config.boundary_r95 <= max_b_grid {
-        ((config.boundary_r95 * g_eff_f).ceil() as usize + r_stencil + 1).min(H_MAX)
+    let h = if config.boundary_r95.is_finite() && config.boundary_r95 <= max_b_grid {
+        ((effective_b * g_eff_f).ceil() as usize + r_stencil + 1).min(H_MAX)
     } else {
         ((max_abs_in * g_eff_f).ceil() as usize + r_stencil + 1).min(H_MAX)
     };
@@ -900,7 +1127,7 @@ fn cluster_area_core(
     let a_disk = (PI / 0.95) * g_eff_f * g_eff_f;
     let rho_canv = n_f / a_disk;
     let tau = config.tau_frac * rho_canv;
-    let cap_density = config.kappa * rho_canv;
+    let uniform_gamma_one = !has_custom_weights && (config.stevens_gamma - 1.0).abs() == 0.0;
 
     // Global density accumulation across all in-bounds points.
     // Track subtraction-free pairwise weight sum Q_m = 2 * sum_{i < j} w_i * w_j
@@ -1021,11 +1248,25 @@ fn cluster_area_core(
             }
         }
 
+        let cap_density_k = if uniform_gamma_one {
+            config.kappa * rho_canv
+        } else if p[k] > 0.0 {
+            let target_area_k = p[k] * a_disk;
+            if target_area_k > 0.0 {
+                config.kappa * ((nk as f64) / target_area_k)
+            } else {
+                f64::INFINITY
+            }
+        } else {
+            f64::INFINITY
+        };
+
         let mut wk_sum = 0.0_f64;
         let mut e_sum = 0.0_f64;
         let mut a_vis_k = 0.0_f64;
         let mut num_k = 0.0_f64;
         let mut b_k = 0.0_f64;
+        let mut max_wk_k = 0.0_f64;
 
         for &cell in &touched {
             let wk = wk_grid[cell];
@@ -1033,13 +1274,16 @@ fn cluster_area_core(
             if wk <= 1e-15 || wt <= 1e-15 {
                 continue;
             }
+            if wk > max_wk_k {
+                max_wk_k = wk;
+            }
             let qk = qk_grid[cell];
             let qt = q_tot[cell];
             let ph = phi_all[cell];
             let frac = wk / wt;
             let wt2 = wt * wt;
             wk_sum += wk;
-            e_sum += frac * wt.min(cap_density);
+            e_sum += frac * wt.min(cap_density_k);
             a_vis_k += frac * ph;
             num_k += (qk / wt2) * ph;
             b_k += frac * (qt / wt2) * ph;
@@ -1061,7 +1305,7 @@ fn cluster_area_core(
                 }
                 m_shan = h_shan.exp();
             }
-            let denom_d = p_raw[k] * a_disk / config.kappa;
+            let denom_d = p[k] * a_disk / config.kappa;
             d_k[k] = if denom_d > 0.0 {
                 ((m_shan - m0_disc).max(0.0) / denom_d).clamp(0.0, 1.0)
             } else {
@@ -1078,53 +1322,66 @@ fn cluster_area_core(
             0.0
         };
 
-        // 8-connected cell-component spatial coherence over occupied touched cells.
-        if a_vis_k > 1e-15 {
-            bfs_stamp.clear();
-            let mut max_comp_mass = 0.0_f64;
-            for &start_cell in &touched {
-                if wk_grid[start_cell] <= 1e-15 || !bfs_stamp.visit(start_cell) {
-                    continue;
+        // 8-connected cell-component spatial coherence over active occupied cells.
+        // Active cells require both significant cluster density (tau.min(0.10 * max_wk_k),
+        // protecting small clusters in g_eff = g_max saturation while cutting 4*sigma tails)
+        // and non-burial dominance (wk / wt >= COH_DOMINANCE_MIN) over foreign barriers.
+        if a_vis_k > 1e-15 && max_wk_k > 1e-15 {
+            let wk_thresh_k = tau.min(0.10 * max_wk_k);
+            let is_active_cell = |cell: usize| -> bool {
+                let wk = wk_grid[cell];
+                let wt = w_tot[cell];
+                wk > 1e-15 && wt > 1e-15 && wk >= wk_thresh_k && (wk / wt) >= COH_DOMINANCE_MIN
+            };
+            let mut active_mass = 0.0_f64;
+            for &cell in &touched {
+                if is_active_cell(cell) {
+                    active_mass += (wk_grid[cell] / w_tot[cell]) * phi_all[cell];
                 }
-                stack.clear();
-                stack.push(start_cell);
-                let mut comp_mass = 0.0_f64;
-                while let Some(cell) = stack.pop() {
-                    let wk = wk_grid[cell];
-                    let wt = w_tot[cell];
-                    if wt > 1e-15 {
-                        comp_mass += (wk / wt) * phi_all[cell];
-                    }
-                    let iy = (cell / s) as isize;
-                    let ix = (cell % s) as isize;
-                    for dy_nb in -1isize..=1 {
-                        let ny = iy + dy_nb;
-                        if ny < 0 || ny >= s_i {
-                            continue;
-                        }
-                        let row_off = (ny as usize) * s;
-                        for dx_nb in -1isize..=1 {
-                            if dx_nb == 0 && dy_nb == 0 {
-                                continue;
-                            }
-                            let nx = ix + dx_nb;
-                            if nx < 0 || nx >= s_i {
-                                continue;
-                            }
-                            let ncell = row_off + (nx as usize);
-                            // Check splat_stamp before wk_grid to skip stale values from prior clusters.
-                            if splat_stamp.is_visited(ncell)
-                                && wk_grid[ncell] > 1e-15
-                                && bfs_stamp.visit(ncell)
-                            {
-                                stack.push(ncell);
-                            }
-                        }
-                    }
-                }
-                max_comp_mass = max_comp_mass.max(comp_mass);
             }
-            coherence[k] = (max_comp_mass / a_vis_k).clamp(0.0, 1.0);
+            if active_mass > 1e-15 {
+                bfs_stamp.clear();
+                let mut max_comp_mass = 0.0_f64;
+                for &start_cell in &touched {
+                    if !is_active_cell(start_cell) || !bfs_stamp.visit(start_cell) {
+                        continue;
+                    }
+                    stack.clear();
+                    stack.push(start_cell);
+                    let mut comp_mass = 0.0_f64;
+                    while let Some(cell) = stack.pop() {
+                        comp_mass += (wk_grid[cell] / w_tot[cell]) * phi_all[cell];
+                        let iy = (cell / s) as isize;
+                        let ix = (cell % s) as isize;
+                        for dy_nb in -1isize..=1 {
+                            let ny = iy + dy_nb;
+                            if ny < 0 || ny >= s_i {
+                                continue;
+                            }
+                            let row_off = (ny as usize) * s;
+                            for dx_nb in -1isize..=1 {
+                                if dx_nb == 0 && dy_nb == 0 {
+                                    continue;
+                                }
+                                let nx = ix + dx_nb;
+                                if nx < 0 || nx >= s_i {
+                                    continue;
+                                }
+                                let ncell = row_off + (nx as usize);
+                                // Check splat_stamp before wk_grid to skip stale values from prior clusters.
+                                if splat_stamp.is_visited(ncell)
+                                    && is_active_cell(ncell)
+                                    && bfs_stamp.visit(ncell)
+                                {
+                                    stack.push(ncell);
+                                }
+                            }
+                        }
+                    }
+                    max_comp_mass = max_comp_mass.max(comp_mass);
+                }
+                coherence[k] = (max_comp_mass / active_mass).clamp(0.0, 1.0);
+            }
         }
     }
 
@@ -1161,6 +1418,8 @@ fn cluster_area_core(
             res_combined,
             spatial_coherence: 0.0,
             in_frac,
+            effective_boundary_r95: effective_b,
+            g_eff,
             num_clusters: k_count,
             num_nodes: n,
         };
@@ -1247,6 +1506,8 @@ fn cluster_area_core(
         res_combined,
         spatial_coherence,
         in_frac,
+        effective_boundary_r95: effective_b,
+        g_eff,
         num_clusters: k_count,
         num_nodes: n,
     };
@@ -1761,17 +2022,17 @@ mod tests {
         assert!(detail.report.caf > 0.90, "caf={}", detail.report.caf);
         assert!(detail.report.purity_adj > 0.99);
         assert!(
-            (detail.coherence[0] - 0.25).abs() < 1e-3,
+            (detail.coherence[0] - 0.25).abs() < 0.005,
             "c0={}",
             detail.coherence[0]
         );
         assert!(
-            (detail.coherence[1] - 0.25).abs() < 1e-3,
+            (detail.coherence[1] - 0.25).abs() < 0.005,
             "c1={}",
             detail.coherence[1]
         );
         assert!(
-            (detail.report.spatial_coherence - 0.25).abs() < 1e-3,
+            (detail.report.spatial_coherence - 0.25).abs() < 0.005,
             "coherence={}",
             detail.report.spatial_coherence
         );
@@ -1792,7 +2053,7 @@ mod tests {
         labs_mix.extend(std::iter::repeat_n(1u32, 2000));
         let mix_layout = Layout2d::from_xy(xs_mix, ys_mix).unwrap();
         let mix_detail = cluster_area_faithfulness_detail(&mix_layout, &labs_mix, &cfg).unwrap();
-        assert!((mix_detail.coherence[0] - 0.25).abs() < 1e-3);
+        assert!((mix_detail.coherence[0] - 0.25).abs() < 0.005);
         assert!((mix_detail.coherence[1] - 1.0).abs() < 1e-6);
         let expected_mix_coh =
             mix_detail.q[0] * mix_detail.coherence[0] + mix_detail.q[1] * mix_detail.coherence[1];
@@ -1860,13 +2121,15 @@ mod tests {
 
         assert!(d07.report.prop_vis > d1.report.prop_vis);
         assert!(d07.report.caf > d1.report.caf);
-        // Step 3 physical fields & q-weighted scores must be bit-identical under gamma change.
+        // Step 3 purity & coherence and q-weighted scores are independent of gamma, while
+        // F4 scales E_k/D_k target densities and denominators with p[k].
         assert_eq!(d07.report.purity_adj, d1.report.purity_adj);
         assert_eq!(d07.report.spatial_coherence, d1.report.spatial_coherence);
         assert_eq!(d07.q, d1.q);
         assert_eq!(d07.purity, d1.purity);
-        assert_eq!(d07.res_density, d1.res_density);
-        assert_eq!(d07.res_deconv, d1.res_deconv);
+        assert!(d07.res_deconv[0] > d1.res_deconv[0]);
+        assert!(d07.res_deconv[1] <= d1.res_deconv[1]);
+        assert!(d07.res_density[0] >= d1.res_density[0]);
         assert_eq!(d07.coherence, d1.coherence);
     }
 
@@ -1886,6 +2149,8 @@ mod tests {
         assert!((r_b2.in_frac - 0.99).abs() < 1e-12);
         assert!((r_b2.caf - 0.99).abs() < 1e-2, "caf={}", r_b2.caf);
         assert!((r_b2.spatial_coherence - 1.0).abs() < 1e-12);
+        assert_eq!(r_b2.effective_boundary_r95, 2.0);
+        assert_eq!(r_b2.g_eff, 87);
 
         let r_inf = cluster_area_faithfulness(
             &layout,
@@ -1907,7 +2172,13 @@ mod tests {
         .unwrap();
         assert!((r_inf.in_frac - 1.0).abs() < 1e-12);
         assert!(r_inf.caf > 0.98 && r_inf.caf.is_finite());
-        assert_eq!(r_inf, r_1e9);
+        assert_eq!(r_inf.g_eff, 87);
+        assert!((r_inf.effective_boundary_r95 - 1020.0 / 87.0).abs() < 1e-12);
+
+        assert!((r_1e9.in_frac - 1.0).abs() < 1e-12);
+        assert!(r_1e9.caf > 0.90 && r_1e9.caf.is_finite());
+        assert_eq!(r_1e9.g_eff, 12);
+        assert_eq!(r_1e9.effective_boundary_r95, 85.0);
     }
 
     #[test]
@@ -2222,6 +2493,7 @@ mod tests {
     fn assert_report_close(a: &ClusterAreaReport, b: &ClusterAreaReport, tol: f64, ctx: &str) {
         assert_eq!(a.num_clusters, b.num_clusters, "{ctx}: num_clusters");
         assert_eq!(a.num_nodes, b.num_nodes, "{ctx}: num_nodes");
+        assert_eq!(a.g_eff, b.g_eff, "{ctx}: g_eff");
         for (name, va, vb) in [
             ("caf", a.caf, b.caf),
             ("purity_adj", a.purity_adj, b.purity_adj),
@@ -2235,6 +2507,11 @@ mod tests {
                 b.spatial_coherence,
             ),
             ("in_frac", a.in_frac, b.in_frac),
+            (
+                "effective_boundary_r95",
+                a.effective_boundary_r95,
+                b.effective_boundary_r95,
+            ),
         ] {
             assert!(
                 (va - vb).abs() < tol,
@@ -2997,8 +3274,9 @@ mod tests {
             Err(CoreError::InvalidInput(_))
         ));
 
-        // max_b_grid clamping: sigma_cells=100.0, boundary_r95=10.0, g_max=128
-        // produces non-trivial caf > 0.4 with clamped grid extent.
+        // F1 grid-extent clamping: sigma_cells=100.0, boundary_r95=10.0, g_max=128
+        // clamps g_eff to floor((1024 - 350 - 1) / 10.0) = 67 while preserving
+        // effective_boundary_r95 = 10.0 and in_frac = 1.0.
         let clamp_cfg = ClusterAreaConfig {
             g_max: 128,
             sigma_cells: 100.0,
@@ -3008,9 +3286,12 @@ mod tests {
         let clamp_det =
             cluster_area_faithfulness_detail(&layout_sep, &labels_sep, &clamp_cfg).unwrap();
         assert_detail_unit_interval(&clamp_det, "max_b_grid_clamp");
+        assert_eq!(clamp_det.report.g_eff, 67);
+        assert_eq!(clamp_det.report.effective_boundary_r95, 10.0);
+        assert!((clamp_det.report.in_frac - 1.0).abs() < 1e-12);
         assert!(
-            clamp_det.report.caf > 0.4,
-            "expected caf > 0.4 under max_b_grid clamping, got {}",
+            clamp_det.report.caf > 0.1,
+            "expected caf > 0.1 under F1 g_eff clamping, got {}",
             clamp_det.report.caf
         );
         assert_eq!(
@@ -3094,12 +3375,13 @@ mod tests {
         assert_detail_unit_interval(&det_slanted, "slanted_collinear_n80_per_cluster");
         assert!(det_slanted.report.caf > 0.2);
 
-        // Gap 2c: 8-connected diagonal-only bridge at g_max=12, sigma_cells=0.35, boundary_r95=inf.
-        // Cluster 0 has subclusters at (0,0) and (1,1) while Cluster 1 sets median=(0,0) and r95=2.4,
-        // placing the two subclusters at grid centers (h, h) and (h+5, h+5) with r_stencil=2
-        // so their 5x5 stencils touch exclusively via a single diagonal corner.
-        let mut xs_diag = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-        let mut ys_diag = vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        // Gap 2c: True 8-connected diagonal-only active bridge at g_max=12, sigma_cells=0.25, boundary_r95=inf.
+        // Cluster 0 has subclusters at (0,0) and (0.2,0.2) while Cluster 1 sets median=(0,0) and r95=2.4,
+        // placing the two subclusters at adjacent diagonal centers (h, h) and (h+1, h+1) where
+        // orthogonal neighbors (h, h+1) and (h+1, h) fall well below tau (inactive), so connectivity
+        // relies exclusively on the diagonal 8-neighbor link.
+        let mut xs_diag = vec![0.0, 0.0, 0.0, 0.2, 0.2, 0.2];
+        let mut ys_diag = vec![0.0, 0.0, 0.0, 0.2, 0.2, 0.2];
         let mut labs_diag = vec![0u32; 6];
         xs_diag.extend(std::iter::repeat_n(-2.4_f64, 48));
         ys_diag.extend(std::iter::repeat_n(0.0_f64, 48));
@@ -3108,7 +3390,7 @@ mod tests {
         labs_diag.extend(std::iter::repeat_n(1u32, 94));
         let cfg_diag = ClusterAreaConfig {
             g_max: 12,
-            sigma_cells: 0.35,
+            sigma_cells: 0.25,
             boundary_r95: f64::INFINITY,
             ..ClusterAreaConfig::default()
         };
@@ -3125,10 +3407,11 @@ mod tests {
             det_diag.coherence[0]
         );
 
-        // Shifting (1,1) slightly to (1.2,1.2) breaks the diagonal corner and drops coherence[0] to ~0.5.
+        // Shifting (0.2,0.2) to (0.4,0.4) moves to (h+2, h+2), breaking 8-connectivity and
+        // dropping coherence[0] cleanly to 0.50.
         for i in 3..6 {
-            xs_diag[i] = 1.2;
-            ys_diag[i] = 1.2;
+            xs_diag[i] = 0.4;
+            ys_diag[i] = 0.4;
         }
         let det_broken = cluster_area_faithfulness_detail(
             &Layout2d::from_xy(xs_diag, ys_diag).unwrap(),
@@ -3137,8 +3420,8 @@ mod tests {
         )
         .unwrap();
         assert!(
-            det_broken.coherence[0] < 0.55,
-            "expected broken bridge coherence[0] < 0.55, got {}",
+            (det_broken.coherence[0] - 0.50).abs() < 1e-12,
+            "expected broken bridge coherence[0] == 0.50, got {}",
             det_broken.coherence[0]
         );
     }
@@ -3243,5 +3526,421 @@ mod tests {
             assert_eq!(det.purity, base1500.purity, "{ctx}");
             assert_eq!(det.coherence, base1500.coherence, "{ctx}");
         }
+    }
+
+    #[test]
+    fn test_f1_gmax_2048_extreme_finite_and_inf_outlier_protection() {
+        // 1. g_max = 2048 with large raw g_eff: clamp g_eff instead of silently shrinking effective_b.
+        let mut rng = DeterministicRng::from_seed_u64(1001);
+        let n = 50_000usize;
+        let (x0, y0) = sample_disk_points(&mut rng, -1.0, 0.0, 0.4, n / 2);
+        let (x1, y1) = sample_disk_points(&mut rng, 1.0, 0.0, 0.4, n - n / 2);
+        let mut xs = x0;
+        xs.extend(x1);
+        let mut ys = y0;
+        ys.extend(y1);
+        let mut labels = vec![0u32; n / 2];
+        labels.extend(std::iter::repeat_n(1u32, n - n / 2));
+        let layout_big = Layout2d::from_xy(xs, ys).unwrap();
+        let cfg_2048 = ClusterAreaConfig {
+            g_max: 2048,
+            sigma_cells: 3.0,
+            boundary_r95: 2.0,
+            ..ClusterAreaConfig::default()
+        };
+        let rep_2048 = cluster_area_faithfulness(&layout_big, &labels, &cfg_2048).unwrap();
+        // r_stencil = ceil(3.5 * 3.0) = 11, avail_h = 1012, floor(1012 / 2.0) = 506 < raw_g (688).
+        assert_eq!(rep_2048.g_eff, 506);
+        assert_eq!(rep_2048.effective_boundary_r95, 2.0);
+        assert!((rep_2048.in_frac - 1.0).abs() < 1e-12);
+        assert!(rep_2048.caf > 0.7);
+
+        // 2. Extreme finite boundary_r95 > 85.0 at default sigma_cells = 0.85:
+        // keep g_eff = 12 and clamp effective_boundary_r95 = 85.0.
+        let (l_std, labs_std) = make_ideal_10_disks(200, 1.0, 10.0);
+        let rep_b200 = cluster_area_faithfulness(
+            &l_std,
+            &labs_std,
+            &ClusterAreaConfig {
+                boundary_r95: 200.0,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rep_b200.g_eff, 12);
+        assert_eq!(rep_b200.effective_boundary_r95, 85.0);
+        assert!((rep_b200.in_frac - 1.0).abs() < 1e-12);
+
+        // 3. boundary_r95 = +inf dense-grid outlier protection: far outlier does not crush g_eff to 12.
+        let (mut ox, mut oy) = sample_disk_points(&mut rng, 0.0, 0.0, 1.0, 999);
+        let mut olabs: Vec<u32> = (0..999).map(|i| if i < 500 { 0 } else { 1 }).collect();
+        ox.push(500.0);
+        oy.push(0.0);
+        olabs.push(1);
+        let l_out = Layout2d::from_xy(ox, oy).unwrap();
+        let rep_out = cluster_area_faithfulness(
+            &l_out,
+            &olabs,
+            &ClusterAreaConfig {
+                boundary_r95: f64::INFINITY,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            rep_out.g_eff > 12,
+            "expected g_eff > 12, got {}",
+            rep_out.g_eff
+        );
+        assert!((rep_out.effective_boundary_r95 - 1020.0 / (rep_out.g_eff as f64)).abs() < 1e-12);
+        assert!((rep_out.in_frac - 0.999).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_f2_coherence_shapes_saturation_and_barriers() {
+        let cfg = ClusterAreaConfig::default();
+        let mut rng = DeterministicRng::from_seed_u64(2027);
+
+        // 1. Single continuous disk + C-shape + L-shape -> coherence == 1.0.
+        let (dx, dy) = sample_disk_points(&mut rng, -8.0, 0.0, 2.0, 600);
+        let mut xs = dx;
+        let mut ys = dy;
+        let mut labs = vec![0u32; 600];
+
+        // C-shape arc (cluster 1) around (0, 0)
+        for i in 0..400usize {
+            let theta = 0.25 * PI + 1.5 * PI * (i as f64) / 399.0;
+            for &dr in &[-0.25, 0.0, 0.25] {
+                xs.push((2.5 + dr) * theta.cos());
+                ys.push((2.5 + dr) * theta.sin());
+                labs.push(1);
+            }
+        }
+        // L-shape (cluster 2) near (8, 0)
+        for i in 0..100usize {
+            let t = (i as f64) / 99.0 * 3.0;
+            xs.push(7.0 + t);
+            ys.push(-1.5);
+            labs.push(2);
+            xs.push(7.0);
+            ys.push(-1.5 + t);
+            labs.push(2);
+        }
+        let l_shapes = Layout2d::from_xy(xs, ys).unwrap();
+        let det_shapes = cluster_area_faithfulness_detail(&l_shapes, &labs, &cfg).unwrap();
+        assert!((det_shapes.coherence[0] - 1.0).abs() < 1e-12);
+        assert!((det_shapes.coherence[1] - 1.0).abs() < 1e-12);
+        assert!((det_shapes.coherence[2] - 1.0).abs() < 1e-12);
+
+        // 2. Simulated g_eff = g_max saturation where small connected cluster has max_wk < tau -> C_coh == 1.0.
+        let (sx0, sy0) = sample_disk_points(&mut rng, -5.0, 0.0, 1.0, 5000);
+        let mut sxs = sx0;
+        let mut sys = sy0;
+        let mut slabs = vec![0u32; 5000];
+        for i in 0..5usize {
+            sxs.push(5.0 + (i as f64) * 0.02);
+            sys.push(0.0);
+            slabs.push(1);
+        }
+        let l_sat = Layout2d::from_xy(sxs, sys).unwrap();
+        let det_sat = cluster_area_faithfulness_detail(
+            &l_sat,
+            &slabs,
+            &ClusterAreaConfig {
+                g_max: 12,
+                tau_frac: 5.0,
+                boundary_r95: f64::INFINITY,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert!((det_sat.report.in_frac - 1.0).abs() < 1e-12);
+        assert!((det_sat.coherence[1] - 1.0).abs() < 1e-12);
+
+        // 3. Symmetric 2 islands (normal-density uniform disks) separated by a 4*sigma edge-to-edge gap -> coherence == 0.50.
+        // Cluster 1 anchors at ±10 set r95 = 10.0 and with N = 1000, g_max = 20 -> g_eff = 20
+        // (1 unit = 2 cells, rho_canv ~ 0.756 / cell).
+        // Two disks of radius 2.0 (area ~ 50.3 cells^2, 38 pts -> density ~ rho_canv) centered at
+        // (-2.85, 0) and (+2.85, 0) have inner edges at -0.85 and +0.85 (edge-to-edge gap = 3.4 cells = 4 * sigma_cells).
+        let (ix, iy) = sample_disk_points(&mut rng, 0.0, 0.0, 2.0, 38);
+        let mut gx: Vec<f64> = ix.iter().map(|&x| x - 2.85).collect();
+        let mut gy: Vec<f64> = iy.clone();
+        let mut glabs = vec![0u32; 38];
+        gx.extend(ix.iter().map(|&x| x + 2.85));
+        gy.extend(iy);
+        glabs.extend(std::iter::repeat_n(0u32, 38));
+        gx.extend(std::iter::repeat_n(-10.0, 462));
+        gy.extend(std::iter::repeat_n(0.0, 462));
+        gx.extend(std::iter::repeat_n(10.0, 462));
+        gy.extend(std::iter::repeat_n(0.0, 462));
+        glabs.extend(std::iter::repeat_n(1u32, 924));
+        let l_gap = Layout2d::from_xy(gx, gy).unwrap();
+        let det_gap = cluster_area_faithfulness_detail(
+            &l_gap,
+            &glabs,
+            &ClusterAreaConfig {
+                g_max: 20,
+                boundary_r95: f64::INFINITY,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            (det_gap.coherence[0] - 0.50).abs() < 0.01,
+            "expected 4-sigma gap coherence ~ 0.50, got {}",
+            det_gap.coherence[0]
+        );
+
+        // 4. Symmetric 2 islands separated by a dense foreign-cluster barrier -> coherence == 0.50.
+        let mut bx = vec![-1.0; 20];
+        let mut by = vec![0.0; 20];
+        let mut blabs = vec![0u32; 20];
+        bx.extend(std::iter::repeat_n(1.0, 20));
+        by.extend(std::iter::repeat_n(0.0, 20));
+        blabs.extend(std::iter::repeat_n(0u32, 20));
+        // Dense foreign cluster 1 barrier right in the middle at (0, 0) plus anchors at ±10.
+        bx.extend(std::iter::repeat_n(0.0, 200));
+        by.extend(std::iter::repeat_n(0.0, 200));
+        bx.extend(std::iter::repeat_n(-10.0, 180));
+        by.extend(std::iter::repeat_n(0.0, 180));
+        bx.extend(std::iter::repeat_n(10.0, 180));
+        by.extend(std::iter::repeat_n(0.0, 180));
+        blabs.extend(std::iter::repeat_n(1u32, 560));
+        let l_bar = Layout2d::from_xy(bx, by).unwrap();
+        let det_bar = cluster_area_faithfulness_detail(
+            &l_bar,
+            &blabs,
+            &ClusterAreaConfig {
+                g_max: 20,
+                boundary_r95: f64::INFINITY,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            (det_bar.coherence[0] - 0.50).abs() < 1e-12,
+            "expected barrier coherence == 0.50, got {}",
+            det_bar.coherence[0]
+        );
+    }
+
+    #[test]
+    fn test_f4_stevens_gamma3_ideal_90_10_and_gamma1_zero_ulp() {
+        // 90:10 clusters with area ratio p_0 : p_1 = 0.9^3 : 0.1^3 = 729 : 1 -> radius ratio 27 : 1.
+        let mut rng = DeterministicRng::from_seed_u64(4040);
+        let r1 = 0.35_f64;
+        let r0 = r1 * 27.0; // 9.45
+        let (x0, y0) = sample_disk_points(&mut rng, -6.0, 0.0, r0, 9000);
+        let (x1, y1) = sample_disk_points(&mut rng, 8.0, 0.0, r1, 1000);
+        let mut xs = x0;
+        xs.extend(x1);
+        let mut ys = y0;
+        ys.extend(y1);
+        let mut labels = vec![0u32; 9000];
+        labels.extend(std::iter::repeat_n(1u32, 1000));
+        let layout = Layout2d::from_xy(xs, ys).unwrap();
+
+        let det_g3 = cluster_area_faithfulness_detail(
+            &layout,
+            &labels,
+            &ClusterAreaConfig {
+                stevens_gamma: 3.0,
+                ..ClusterAreaConfig::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            det_g3.res_density[1] > 0.95,
+            "expected F4 e_1 > 0.95, got {}",
+            det_g3.res_density[1]
+        );
+        assert!(
+            det_g3.res_deconv[1] > 0.95,
+            "expected F4 d_1 > 0.95, got {}",
+            det_g3.res_deconv[1]
+        );
+
+        // At gamma = 1.0, uniform node_weights = 1.0 matches unweighted Step 3/4 cleanly.
+        let det_unw =
+            cluster_area_faithfulness_detail(&layout, &labels, &ClusterAreaConfig::default())
+                .unwrap();
+        let nw_ones = vec![1.0_f64; 10_000];
+        let det_w_ones = cluster_area_faithfulness_detail_with_weights(
+            &layout,
+            &labels,
+            &ClusterAreaConfig::default(),
+            Some(&nw_ones),
+            None,
+        )
+        .unwrap();
+        assert_report_close(&det_unw.report, &det_w_ones.report, 1e-12, "gamma1_ones");
+    }
+
+    #[test]
+    fn test_g6_target_weights_and_validation() {
+        let (layout, labels) = make_ideal_10_disks(100, 1.0, 10.0);
+        let n = layout.len();
+
+        // 1. node_weights vs summed cluster_weights exact parity.
+        let nw: Vec<f64> = labels.iter().map(|&lbl| ((lbl + 1) as f64) * 0.5).collect();
+        let cw: Vec<f64> = (0..10u32).map(|k| 100.0 * ((k + 1) as f64) * 0.5).collect();
+        let cfg = ClusterAreaConfig::default();
+        let det_nw =
+            cluster_area_faithfulness_detail_with_weights(&layout, &labels, &cfg, Some(&nw), None)
+                .unwrap();
+        let det_cw =
+            cluster_area_faithfulness_detail_with_weights(&layout, &labels, &cfg, None, Some(&cw))
+                .unwrap();
+        assert_report_close(&det_nw.report, &det_cw.report, 1e-12, "nw_vs_cw");
+        assert_eq!(det_nw.p.len(), 10);
+        for k in 0..10 {
+            assert!((det_nw.p[k] - det_cw.p[k]).abs() < 1e-12);
+        }
+
+        // 2. Non-contiguous arbitrary u32 labels follow sorted cluster_ids order for cluster_weights.
+        let remapped: Vec<u32> = labels
+            .iter()
+            .map(|&k| match k {
+                0 => u32::MAX,
+                1 => 42,
+                _ => k + 100,
+            })
+            .collect();
+        // Sorted cluster_ids: [42 (old 1), 102..109 (old 2..9), u32::MAX (old 0)].
+        let mut cw_sorted = vec![cw[1]];
+        cw_sorted.extend_from_slice(&cw[2..10]);
+        cw_sorted.push(cw[0]);
+        let det_remap = cluster_area_faithfulness_detail_with_weights(
+            &layout,
+            &remapped,
+            &cfg,
+            None,
+            Some(&cw_sorted),
+        )
+        .unwrap();
+        assert_report_close(&det_cw.report, &det_remap.report, 1e-12, "cw_sorted_ids");
+        assert_eq!(det_remap.cluster_ids[0], 42);
+        assert_eq!(det_remap.cluster_ids[9], u32::MAX);
+
+        // 3. Stevens gamma != 1.0 applied after weight normalization: p_k \propto (p_k^(w))^gamma.
+        let cfg_g2 = ClusterAreaConfig {
+            stevens_gamma: 2.0,
+            ..cfg
+        };
+        let det_g2 = cluster_area_faithfulness_detail_with_weights(
+            &layout,
+            &labels,
+            &cfg_g2,
+            None,
+            Some(&cw),
+        )
+        .unwrap();
+        let sum_sq: f64 = cw.iter().map(|&w| w * w).sum();
+        for (k, &w) in cw.iter().enumerate() {
+            let expected_p = (w * w) / sum_sq;
+            assert!((det_g2.p[k] - expected_p).abs() < 1e-12);
+        }
+
+        // 4. Huge 1e308 weights do not overflow to inf/NaN.
+        let cw_huge: Vec<f64> = (1..=10).map(|k| (k as f64) * 1e307).collect();
+        let det_huge = cluster_area_faithfulness_detail_with_weights(
+            &layout,
+            &labels,
+            &cfg,
+            None,
+            Some(&cw_huge),
+        )
+        .unwrap();
+        assert_detail_unit_interval(&det_huge, "cw_1e308");
+        let nw_huge = vec![1e308_f64; n];
+        let det_nw_huge = cluster_area_faithfulness_detail_with_weights(
+            &layout,
+            &labels,
+            &cfg,
+            Some(&nw_huge),
+            None,
+        )
+        .unwrap();
+        assert_detail_unit_interval(&det_nw_huge, "nw_1e308");
+
+        // 5. All validation error paths (including n=0, n=1, k=1 before early returns).
+        assert!(matches!(
+            cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, Some(&nw), Some(&cw)),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            cluster_area_faithfulness_with_weights(
+                &layout,
+                &labels,
+                &cfg,
+                Some(&nw[..n - 1]),
+                None
+            ),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, None, Some(&cw[..9])),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut bad_nw = nw.clone();
+            bad_nw[0] = bad;
+            assert!(matches!(
+                cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, Some(&bad_nw), None),
+                Err(CoreError::NonFiniteValue { .. })
+            ));
+            let mut bad_cw = cw.clone();
+            bad_cw[0] = bad;
+            assert!(matches!(
+                cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, None, Some(&bad_cw)),
+                Err(CoreError::NonFiniteValue { .. })
+            ));
+        }
+        for bad in [0.0, -1.0] {
+            let mut bad_nw = nw.clone();
+            bad_nw[0] = bad;
+            assert!(matches!(
+                cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, Some(&bad_nw), None),
+                Err(CoreError::InvalidInput(_))
+            ));
+            let mut bad_cw = cw.clone();
+            bad_cw[0] = bad;
+            assert!(matches!(
+                cluster_area_faithfulness_with_weights(&layout, &labels, &cfg, None, Some(&bad_cw)),
+                Err(CoreError::InvalidInput(_))
+            ));
+        }
+
+        // Degenerate N=0, N=1, K=1 still validate weights strictly before early return.
+        let l0 = Layout2d::<f64>::from_xy(vec![], vec![]).unwrap();
+        assert!(cluster_area_faithfulness_with_weights(&l0, &[], &cfg, Some(&[]), None).is_ok());
+        assert!(
+            cluster_area_faithfulness_with_weights(&l0, &[], &cfg, Some(&[1.0]), None).is_err()
+        );
+        assert!(
+            cluster_area_faithfulness_with_weights(&l0, &[], &cfg, None, Some(&[1.0])).is_err()
+        );
+        let l1 = Layout2d::from_xy(vec![0.0], vec![0.0]).unwrap();
+        assert!(
+            cluster_area_faithfulness_with_weights(&l1, &[0], &cfg, Some(&[-1.0]), None).is_err()
+        );
+        assert!(
+            cluster_area_faithfulness_with_weights(&l1, &[0], &cfg, None, Some(&[0.0])).is_err()
+        );
+        let lk1 = Layout2d::from_xy(vec![0.0, 1.0], vec![0.0, 1.0]).unwrap();
+        assert!(
+            cluster_area_faithfulness_with_weights(&lk1, &[5, 5], &cfg, None, Some(&[1.0, 2.0]))
+                .is_err()
+        );
+        assert!(
+            cluster_area_faithfulness_with_weights(
+                &lk1,
+                &[5, 5],
+                &cfg,
+                Some(&[1.0, f64::NAN]),
+                None
+            )
+            .is_err()
+        );
     }
 }

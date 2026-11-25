@@ -227,6 +227,18 @@ pub(super) fn extract_optional_weights_1d(
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, u32>>() {
             return Ok(Some(arr.as_array().iter().map(|&v| f64::from(v)).collect()));
         }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i16>>() {
+            return Ok(Some(arr.as_array().iter().map(|&v| f64::from(v)).collect()));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i8>>() {
+            return Ok(Some(arr.as_array().iter().map(|&v| f64::from(v)).collect()));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, u16>>() {
+            return Ok(Some(arr.as_array().iter().map(|&v| f64::from(v)).collect()));
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, u8>>() {
+            return Ok(Some(arr.as_array().iter().map(|&v| f64::from(v)).collect()));
+        }
         return Err(PyTypeError::new_err(format!(
             "{name} must be a 1D numeric NumPy array"
         )));
@@ -1811,11 +1823,15 @@ fn adjusted_patch_nig_multiscale(
 /// accounting for spatial purity, visual area proportion, density/deconvolution resolution,
 /// and 8-connected spatial coherence.
 ///
+/// Optional positive finite `node_weights` (length `N`) or `cluster_weights` (length `K`
+/// ordered by sorted ascending unique community IDs) override uniform node counts before
+/// applying `stevens_gamma`.
+///
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0)),
-    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0)"
+    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), node_weights = None, cluster_weights = None),
+    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, node_weights=None, cluster_weights=None)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn cluster_area_faithfulness(
@@ -1828,8 +1844,12 @@ fn cluster_area_faithfulness(
     tau_frac: StrictF64,
     boundary_r95: StrictF64,
     stevens_gamma: StrictF64,
+    node_weights: Option<&Bound<'_, PyAny>>,
+    cluster_weights: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<f64> {
     let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let nw = extract_optional_weights_1d(node_weights, "node_weights")?;
+    let cw = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
     let config = ClusterAreaConfig {
         g_max: g_max.0,
         sigma_cells: sigma_cells.0,
@@ -1839,7 +1859,14 @@ fn cluster_area_faithfulness(
         stevens_gamma: stevens_gamma.0,
     };
     dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::cluster_area_faithfulness(&soa, &labels, &config).map(|r| r.caf)
+        egraph_metrics::cluster_area_faithfulness_with_weights(
+            &soa,
+            &labels,
+            &config,
+            nw.as_deref(),
+            cw.as_deref(),
+        )
+        .map(|r| r.caf)
     })
 }
 
@@ -1855,6 +1882,8 @@ fn populate_cluster_area_report_dict(
     dict.set_item("res_combined", report.res_combined)?;
     dict.set_item("spatial_coherence", report.spatial_coherence)?;
     dict.set_item("in_frac", report.in_frac)?;
+    dict.set_item("effective_boundary_r95", report.effective_boundary_r95)?;
+    dict.set_item("g_eff", report.g_eff)?;
     dict.set_item("num_clusters", report.num_clusters)?;
     dict.set_item("num_nodes", report.num_nodes)?;
     Ok(())
@@ -1864,16 +1893,17 @@ fn populate_cluster_area_report_dict(
 ///
 /// Returns a dictionary containing summary metrics (`caf`, `purity_adj`, `prop_vis`,
 /// `res_density`, `res_deconv`, `res_combined`, `spatial_coherence`, `in_frac`,
-/// `num_clusters`, `num_nodes`). When `return_per_cluster=True`, also includes
-/// `cluster_ids`, `counts`, `p`, `q`, `purity`, `resolution`,
+/// `effective_boundary_r95`, `g_eff`, `num_clusters`, `num_nodes`). When `return_per_cluster=True`,
+/// also includes `cluster_ids`, `counts`, `p`, `q`, `purity`, `resolution`,
 /// `res_density_per_cluster`, `res_deconv_per_cluster`, `caf_per_cluster`, and `coherence`
-/// as 1D NumPy arrays.
+/// as 1D NumPy arrays. Optional positive finite `node_weights` or `cluster_weights`
+/// (in sorted ascending `cluster_ids` order) override uniform node counts before `stevens_gamma`.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), return_per_cluster = false),
-    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, return_per_cluster=False)"
+    signature = (layout, community_labels, *, g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), node_weights = None, cluster_weights = None, return_per_cluster = false),
+    text_signature = "(layout, community_labels, *, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, node_weights=None, cluster_weights=None, return_per_cluster=False)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn cluster_area_faithfulness_detail(
@@ -1886,9 +1916,13 @@ fn cluster_area_faithfulness_detail(
     tau_frac: StrictF64,
     boundary_r95: StrictF64,
     stevens_gamma: StrictF64,
+    node_weights: Option<&Bound<'_, PyAny>>,
+    cluster_weights: Option<&Bound<'_, PyAny>>,
     return_per_cluster: bool,
 ) -> PyResult<Py<PyDict>> {
     let labels = extract_u32_1d(community_labels, "community_labels")?;
+    let nw = extract_optional_weights_1d(node_weights, "node_weights")?;
+    let cw = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
     let config = ClusterAreaConfig {
         g_max: g_max.0,
         sigma_cells: sigma_cells.0,
@@ -1900,12 +1934,24 @@ fn cluster_area_faithfulness_detail(
     let dict = PyDict::new(py);
     if !return_per_cluster {
         let report = dispatch_layout2d!(py, layout, |soa| {
-            egraph_metrics::cluster_area_faithfulness(&soa, &labels, &config)
+            egraph_metrics::cluster_area_faithfulness_with_weights(
+                &soa,
+                &labels,
+                &config,
+                nw.as_deref(),
+                cw.as_deref(),
+            )
         })?;
         populate_cluster_area_report_dict(&dict, &report)?;
     } else {
         let detail = dispatch_layout2d!(py, layout, |soa| {
-            egraph_metrics::cluster_area_faithfulness_detail(&soa, &labels, &config)
+            egraph_metrics::cluster_area_faithfulness_detail_with_weights(
+                &soa,
+                &labels,
+                &config,
+                nw.as_deref(),
+                cw.as_deref(),
+            )
         })?;
         populate_cluster_area_report_dict(&dict, &detail.report)?;
         dict.set_item("cluster_ids", PyArray1::from_vec(py, detail.cluster_ids))?;
@@ -2349,8 +2395,8 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// `MetricReport` snake_case field names.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0)),
-    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0)"
+    signature = (graph, layout, targets, *, num_pivots = StrictUsize(64), num_samples = StrictUsize(4096), seed = StrictU64(42), ideal_edge_length = StrictF64(1.0), community_labels = None, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), patch_radius = StrictUsize(8), canvas_size = StrictUsize(2048), pad_frac = StrictF64(0.04), g_max = StrictUsize(128), sigma_cells = StrictF64(0.85), kappa = StrictF64(10.0), tau_frac = StrictF64(0.18), boundary_r95 = StrictF64(2.0), stevens_gamma = StrictF64(1.0), node_weights = None, cluster_weights = None),
+    text_signature = "(graph, layout, targets, *, num_pivots=64, num_samples=4096, seed=42, ideal_edge_length=1.0, community_labels=None, num_landmarks=64, num_triplets=1000000, min_degree=2, patch_radius=8, canvas_size=2048, pad_frac=0.04, g_max=128, sigma_cells=0.85, kappa=10.0, tau_frac=0.18, boundary_r95=2.0, stevens_gamma=1.0, node_weights=None, cluster_weights=None)"
 )]
 #[allow(clippy::too_many_arguments)]
 fn evaluate_metrics(
@@ -2375,12 +2421,16 @@ fn evaluate_metrics(
     tau_frac: StrictF64,
     boundary_r95: StrictF64,
     stevens_gamma: StrictF64,
+    node_weights: Option<&Bound<'_, PyAny>>,
+    cluster_weights: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<BTreeMap<String, f64>> {
     let target_list = extract_metric_targets(targets)?;
     let comm_labels_vec = match community_labels {
         Some(obj) if !obj.is_none() => Some(extract_u32_1d(obj, "community_labels")?),
         _ => None,
     };
+    let nw = extract_optional_weights_1d(node_weights, "node_weights")?;
+    let cw = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
     let config = MetricConfig {
         sns_num_pivots: num_pivots.0,
         sns_seed: seed.0,
@@ -2406,12 +2456,14 @@ fn evaluate_metrics(
     };
     let g = graph.inner();
     let report = dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::evaluate_metrics_with_communities(
+        egraph_metrics::evaluate_metrics_with_community_weights(
             g,
             &soa,
             &target_list,
             &config,
             comm_labels_vec.as_deref(),
+            nw.as_deref(),
+            cw.as_deref(),
         )
     })?;
 

@@ -419,6 +419,8 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
         None,
         None,
         None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!((rep.crosslessness().unwrap() - expected_cl).abs() < 1e-12);
@@ -452,6 +454,8 @@ fn w3_five_new_metrics_and_dispatcher_parity() {
             None,
             None,
             None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -481,9 +485,19 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
     let sep_layout = JsLayout2d::from_coords(&coords).unwrap();
     let labels_js = u32_js(&labels);
     let mixed_labels_js = u32_js(&mixed_labels);
-    let caf_sep =
-        js_cluster_area_faithfulness(&sep_layout, &labels_js, None, None, None, None, None, None)
-            .unwrap();
+    let caf_sep = js_cluster_area_faithfulness(
+        &sep_layout,
+        &labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+    )
+    .unwrap();
     let det: JsClusterAreaReport = js_cluster_area_faithfulness_detail(
         &sep_layout,
         &labels_js,
@@ -493,6 +507,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         None,
         None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!((caf_sep - det.caf()).abs() < 1e-12);
@@ -507,6 +523,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
     assert!((0.0..=1.0).contains(&det.res_combined()));
     assert!((0.0..=1.0).contains(&det.spatial_coherence()));
     assert!((0.0..=1.0).contains(&det.in_frac()));
+    assert_eq!(det.effective_boundary_r95(), 2.0);
+    assert_eq!(det.g_eff(), 12);
     assert_eq!(det.num_clusters(), 2);
     assert_eq!(det.num_nodes(), 50);
 
@@ -553,6 +571,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         "resCombined",
         "spatialCoherence",
         "inFrac",
+        "effectiveBoundaryR95",
+        "gEff",
         "clusterIds",
         "counts",
         "p",
@@ -581,6 +601,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         None,
         None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!(caf_mixed < caf_sep);
@@ -595,9 +617,19 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
     let refl: Vec<f32> = coord_pairs.iter().flat_map(|p| [p[0], -p[1]]).collect();
     for variant in [scaled_shifted, rot90, refl] {
         let lv = JsLayout2d::from_coords(&variant).unwrap();
-        let caf_v =
-            js_cluster_area_faithfulness(&lv, &labels_js, None, None, None, None, None, None)
-                .unwrap();
+        let caf_v = js_cluster_area_faithfulness(
+            &lv,
+            &labels_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
+        )
+        .unwrap();
         assert!((caf_v - caf_sep).abs() < 1e-12);
     }
 
@@ -626,6 +658,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         None,
         Some(0.5),
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     let det_g20 = js_cluster_area_faithfulness_detail(
@@ -637,6 +671,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         None,
         Some(2.0),
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!((det_g05.p().iter().sum::<f64>() - 1.0).abs() < 1e-12);
@@ -652,6 +688,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         Some(f64::INFINITY),
         None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!((det_inf.in_frac() - 1.0).abs() < 1e-12);
@@ -666,8 +704,32 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         l5_arr.push(&JsValue::from_f64(v as f64));
     }
     assert_eq!(
-        js_cluster_area_faithfulness(&l5, &l5_u32_js, None, None, None, None, None, None).unwrap(),
-        js_cluster_area_faithfulness(&l5, &l5_arr, None, None, None, None, None, None).unwrap()
+        js_cluster_area_faithfulness(
+            &l5,
+            &l5_u32_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED
+        )
+        .unwrap(),
+        js_cluster_area_faithfulness(
+            &l5,
+            &l5_arr,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED
+        )
+        .unwrap()
     );
 
     // evaluateMetrics integration + lazy validation.
@@ -684,6 +746,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         Some(0.2),
         Some(2.5),
         Some(0.7),
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     for alias in [
@@ -713,6 +777,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             Some(0.2),
             Some(2.5),
             Some(0.7),
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .unwrap();
         let val = rep.cluster_area_faithfulness().unwrap();
@@ -749,6 +815,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_ok()
     );
@@ -775,6 +843,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -800,24 +870,50 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
 
     // Degenerate boundaries: N=0, N=1, K=1, collapsed coordinates.
     let l0 = JsLayout2d::zeros(0.0).unwrap();
-    let d0 =
-        js_cluster_area_faithfulness_detail(&l0, &u32_js(&[]), None, None, None, None, None, None)
-            .unwrap();
+    let d0 = js_cluster_area_faithfulness_detail(
+        &l0,
+        &u32_js(&[]),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+    )
+    .unwrap();
     assert_eq!(d0.caf(), 0.0);
+    assert_eq!(d0.effective_boundary_r95(), 0.0);
+    assert_eq!(d0.g_eff(), 0);
     assert_eq!(d0.num_clusters(), 0);
     assert_eq!(d0.num_nodes(), 0);
 
     let l1 = JsLayout2d::from_coords(&[1.0, 2.0]).unwrap();
-    let d1 =
-        js_cluster_area_faithfulness_detail(&l1, &u32_js(&[5]), None, None, None, None, None, None)
-            .unwrap();
+    let d1 = js_cluster_area_faithfulness_detail(
+        &l1,
+        &u32_js(&[5]),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+    )
+    .unwrap();
     assert_eq!(d1.caf(), 0.0);
+    assert_eq!(d1.effective_boundary_r95(), 0.0);
+    assert_eq!(d1.g_eff(), 0);
     assert_eq!(d1.num_clusters(), 1);
     assert_eq!(d1.num_nodes(), 1);
 
@@ -831,9 +927,13 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
         None,
         None,
         None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert_eq!(dk1.caf(), 0.0);
+    assert_eq!(dk1.effective_boundary_r95(), 0.0);
+    assert_eq!(dk1.g_eff(), 0);
     assert_eq!(dk1.num_clusters(), 1);
     assert_eq!(dk1.num_nodes(), 4);
 
@@ -847,11 +947,112 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
-            None
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .unwrap(),
         0.0
     );
+
+    // G6 nodeWeights & clusterWeights positive parity + adversarial non-panic errors.
+    let nw_vec: Vec<f64> = imb_labels
+        .iter()
+        .map(|&l| if l == 0 { 1.5 } else { 3.0 })
+        .collect();
+    let nw_js: JsValue = js_sys::Float64Array::from(nw_vec.as_slice()).into();
+    let cw_js: JsValue = js_sys::Float64Array::from([30.0_f64, 12.0].as_slice()).into();
+    let caf_nw = js_cluster_area_faithfulness(
+        &imb_layout,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &nw_js,
+        &JsValue::UNDEFINED,
+    )
+    .unwrap();
+    let caf_cw = js_cluster_area_faithfulness(
+        &imb_layout,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &cw_js,
+    )
+    .unwrap();
+    assert!((caf_nw - caf_cw).abs() < 1e-12);
+    let eval_cw = js_evaluate_metrics_with_options(
+        &imb_graph,
+        &imb_layout,
+        &gcaf_only,
+        None,
+        None,
+        None,
+        None,
+        &imb_labels_js,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &cw_js,
+    )
+    .unwrap();
+    assert!((eval_cw.cluster_area_faithfulness().unwrap() - caf_cw).abs() < 1e-12);
+
+    // Adversarial weight errors must return Err, never panic.
+    assert!(
+        js_cluster_area_faithfulness(
+            &imb_layout,
+            &imb_labels_js,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &nw_js,
+            &cw_js,
+        )
+        .is_err()
+    );
+    let bad_cw_neg: JsValue = js_sys::Float64Array::from([-1.0_f64, 2.0].as_slice()).into();
+    let bad_cw_nan: JsValue = js_sys::Float64Array::from([f64::NAN, 2.0].as_slice()).into();
+    let bad_cw_len: JsValue = js_sys::Float64Array::from([1.0_f64].as_slice()).into();
+    let bad_cw_str: JsValue = JsValue::from_str("12");
+    for bad_w in [&bad_cw_neg, &bad_cw_nan, &bad_cw_len, &bad_cw_str] {
+        assert!(
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &imb_labels_js,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &JsValue::UNDEFINED,
+                bad_w,
+            )
+            .is_err()
+        );
+    }
 
     // Adversarial error checks (must return Err, never panic).
     assert!(
@@ -863,7 +1064,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
-            None
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -892,8 +1095,19 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
     ];
     for bad in &bad_label_inputs {
         assert!(
-            js_cluster_area_faithfulness(&imb_layout, bad, None, None, None, None, None, None)
-                .is_err()
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                bad,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
+            )
+            .is_err()
         );
         assert!(
             js_cluster_area_faithfulness_detail(
@@ -904,7 +1118,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
-                None
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -930,14 +1146,27 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
     }
     for nullish in [JsValue::NULL, JsValue::UNDEFINED] {
         assert!(
-            js_cluster_area_faithfulness(&imb_layout, &nullish, None, None, None, None, None, None)
-                .is_err()
+            js_cluster_area_faithfulness(
+                &imb_layout,
+                &nullish,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
+            )
+            .is_err()
         );
         assert!(
             js_cluster_area_faithfulness_detail(
@@ -948,7 +1177,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
-                None
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -974,6 +1205,8 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -991,7 +1224,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             None,
             None,
-            None
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -1005,7 +1240,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
-                None
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -1020,7 +1257,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
-                None
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -1034,7 +1273,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             Some(0.0),
             None,
             None,
-            None
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -1047,7 +1288,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
             None,
             Some(-1.0),
             None,
-            None
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -1061,7 +1304,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 Some(bad_r95),
-                None
+                None,
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );
@@ -1076,7 +1321,9 @@ fn cluster_area_faithfulness_detail_invariance_and_adversarial() {
                 None,
                 None,
                 None,
-                Some(bad_gamma)
+                Some(bad_gamma),
+                &JsValue::UNDEFINED,
+                &JsValue::UNDEFINED,
             )
             .is_err()
         );

@@ -17,7 +17,8 @@
 //! - [`rta`]: $O(N)$-RAM streaming Landmark-Stratified Random Triplet Accuracy
 //!   (`landmark_stratified_rta`).
 //! - [`dispatcher`]: Selective metric evaluation (`evaluate_metrics`,
-//!   `evaluate_metrics_with_communities`) executing only explicitly requested targets.
+//!   `evaluate_metrics_with_communities`, `evaluate_metrics_with_community_weights`)
+//!   executing only explicitly requested targets.
 
 pub mod cluster_area;
 pub mod community;
@@ -34,7 +35,8 @@ use egraph_spatial::StaticKdTree;
 
 pub use cluster_area::{
     ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, cluster_area_faithfulness,
-    cluster_area_faithfulness_detail,
+    cluster_area_faithfulness_detail, cluster_area_faithfulness_detail_with_weights,
+    cluster_area_faithfulness_with_weights,
 };
 pub use community::{adjusted_patch_nig, adjusted_patch_nig_multiscale};
 pub use crossings::{
@@ -46,6 +48,7 @@ pub use crossings::{
 };
 pub use dispatcher::{
     MetricConfig, MetricReport, MetricTarget, evaluate_metrics, evaluate_metrics_with_communities,
+    evaluate_metrics_with_community_weights,
 };
 pub use geometry::{
     LayoutDegeneracy, MinimumAngleSummary, PrismDistortion, angular_resolution, aspect_ratio,

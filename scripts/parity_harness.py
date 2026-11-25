@@ -811,6 +811,9 @@ def _run_v6_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
     )
     for k in scalar_keys:
         assert abs(float(det64[k]) - float(det32[k])) < 1e-12, f"G-CAF scalar {k} drift"
+    assert abs(float(det64["effective_boundary_r95"]) - float(det32["effective_boundary_r95"])) < 1e-12
+    assert det64["effective_boundary_r95"] > 0.0
+    assert det64["g_eff"] == det32["g_eff"] >= 12
     assert det64["num_clusters"] == det32["num_clusters"] == 2
     assert det64["num_nodes"] == det32["num_nodes"] == 100
     vec_keys = (
@@ -886,17 +889,46 @@ def _run_v6_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     # Degenerate boundaries: N=0, N=1, K=1, collapsed
     d0 = eg.cluster_area_faithfulness_detail(eg.Layout2d.zeros(0), [], return_per_cluster=True)
-    assert d0["caf"] == 0.0 and d0["num_clusters"] == 0 and d0["num_nodes"] == 0
+    assert d0["caf"] == 0.0 and d0["effective_boundary_r95"] == 0.0 and d0["g_eff"] == 0
+    assert d0["num_clusters"] == 0 and d0["num_nodes"] == 0
     d1 = eg.cluster_area_faithfulness_detail(eg.Layout2d.from_coords([[1.0, 2.0]]), [5], return_per_cluster=True)
-    assert d1["caf"] == 0.0 and d1["num_clusters"] == 1 and d1["num_nodes"] == 1
+    assert d1["caf"] == 0.0 and d1["effective_boundary_r95"] == 0.0 and d1["g_eff"] == 0
+    assert d1["num_clusters"] == 1 and d1["num_nodes"] == 1
     dk1 = eg.cluster_area_faithfulness_detail(
         eg.Layout2d.from_coords([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
         [3, 3, 3, 3],
         return_per_cluster=True,
     )
-    assert dk1["caf"] == 0.0 and dk1["num_clusters"] == 1 and dk1["num_nodes"] == 4
+    assert dk1["caf"] == 0.0 and dk1["effective_boundary_r95"] == 0.0 and dk1["g_eff"] == 0
+    assert dk1["num_clusters"] == 1 and dk1["num_nodes"] == 4
     l_col = eg.Layout2d.from_coords([[2.0, -1.0]] * 6)
     assert float(eg.cluster_area_faithfulness(l_col, [0, 0, 0, 1, 1, 1])) == 0.0
+
+    # G6 target weights positive parity + adversarial checks
+    imb_nw = [1.5 if lbl == 0 else 3.0 for lbl in labels_imb]
+    imb_cw = [30.0, 12.0]
+    caf_nw = float(eg.cluster_area_faithfulness(l_imb, labels_imb, node_weights=imb_nw, stevens_gamma=2.0))
+    caf_cw = float(eg.cluster_area_faithfulness(l_imb, labels_imb, cluster_weights=imb_cw, stevens_gamma=2.0))
+    assert abs(caf_nw - caf_cw) < 1e-12
+    ev_cw = eg.evaluate_metrics(
+        g_imb, l_imb, ["gcaf"], community_labels=labels_imb, cluster_weights=imb_cw, stevens_gamma=2.0
+    )
+    assert abs(float(ev_cw["cluster_area_faithfulness"]) - caf_cw) < 1e-12
+    _assert_non_panic_error(
+        "gcaf/weights_mutually_exclusive",
+        lambda: eg.cluster_area_faithfulness(l_imb, labels_imb, node_weights=imb_nw, cluster_weights=imb_cw),
+        expected_types=(ValueError,),
+    )
+    _assert_non_panic_error(
+        "gcaf/weights_zero",
+        lambda: eg.cluster_area_faithfulness(l_imb, labels_imb, cluster_weights=[0.0, 1.0]),
+        expected_types=(ValueError,),
+    )
+    _assert_non_panic_error(
+        "gcaf/weights_bool",
+        lambda: eg.cluster_area_faithfulness(l_imb, labels_imb, cluster_weights=[True, False]),
+        expected_types=(TypeError,),
+    )
 
     # Adversarial non-panic error checks
     l_nan = eg.Layout2d.from_coords(coords_imb.copy())
@@ -2403,6 +2435,10 @@ if (typeof mod.clusterAreaFaithfulness === 'function') {{
     assert.ok(Number.isFinite(detDef[k]) && detDef[k] >= 0 && detDef[k] <= 1, `bad ${{k}}`);
     assert.ok(Math.abs(recDef[k] - detDef[k]) < 1e-12, `record mismatch ${{k}}`);
   }}
+  assert.ok(Number.isFinite(detDef.effectiveBoundaryR95) && detDef.effectiveBoundaryR95 > 0);
+  assert.ok(Math.abs(recDef.effectiveBoundaryR95 - detDef.effectiveBoundaryR95) < 1e-12);
+  assert.ok(Number.isInteger(detDef.gEff) && detDef.gEff >= 12);
+  assert.equal(recDef.gEff, detDef.gEff);
   assert.equal(detDef.numClusters, 2);
   assert.equal(detDef.numNodes, 24);
   if (typeof detDef.clusterIds === 'function') {{
@@ -2441,7 +2477,8 @@ if (typeof mod.clusterAreaFaithfulness === 'function') {{
   // Degenerate boundaries: N=0, N=1, K=1, collapsed
   const l0 = mod.Layout2d.zeros(0);
   const d0 = mod.clusterAreaFaithfulnessDetail(l0, []);
-  assert.equal(d0.caf, 0); assert.equal(d0.numClusters, 0); assert.equal(d0.numNodes, 0);
+  assert.equal(d0.caf, 0); assert.equal(d0.effectiveBoundaryR95, 0); assert.equal(d0.gEff, 0);
+  assert.equal(d0.numClusters, 0); assert.equal(d0.numNodes, 0);
   d0.free?.(); l0.free?.();
   const l1 = mod.Layout2d.fromCoords(new Float32Array([1, 2]));
   assert.equal(mod.clusterAreaFaithfulness(l1, [5]), 0);
@@ -2516,6 +2553,20 @@ if (typeof mod.clusterAreaFaithfulness === 'function') {{
   for (const br of [0, -1, Number.NaN, Number.NEGATIVE_INFINITY]) assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, br), `gcaf r95=${{br}}`);
   assertGcafErr(() => mod.evaluateMetrics(gImb, lImb, ['gcaf']), 'gcaf eval missing labels');
   assertGcafErr(() => mod.evaluateMetrics(gImb, lImb, ['clusterAreaFaithfulness'], null, null, null, null, imbLabels, null, null, null, null, null, null, 4), 'gcaf eval lazy gMax=4');
+
+  // G6 nodeWeights & clusterWeights parity + errors
+  const imbNw = new Float64Array(24);
+  for (let i = 0; i < 24; i++) imbNw[i] = i < 20 ? 1.5 : 3.0;
+  const imbCw = new Float64Array([30.0, 12.0]);
+  const cafNw = mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, 2.0, imbNw, null);
+  const cafCw = mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, 2.0, null, imbCw);
+  assert.ok(Math.abs(cafNw - cafCw) < 1e-12);
+  const evalCw = mod.evaluateMetrics(gImb, lImb, ['gcaf'], null, null, null, null, imbLabels, null, null, null, null, null, null, null, null, null, null, null, 2.0, null, imbCw);
+  assert.ok(Math.abs(evalCw.clusterAreaFaithfulness - cafCw) < 1e-12);
+  evalCw.free?.();
+  assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, null, imbNw, imbCw), 'gcaf both weights');
+  assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, null, null, [0.0, 1.0]), 'gcaf zero weight');
+  assertGcafErr(() => mod.clusterAreaFaithfulness(lImb, imbLabels, null, null, null, null, null, null, null, [true, false]), 'gcaf bool weight');
 
   lImb.free?.();
   gImb.free?.();
@@ -4833,6 +4884,14 @@ def run_cross_target_m5_parity(eg: Any, wasm_pkg: pathlib.Path) -> list[dict[str
     gcaf_imb_g20_det_py = eg.cluster_area_faithfulness_detail(
         l_imb24_py, imb24_labels, stevens_gamma=2.0, return_per_cluster=True
     )
+    imb24_nw = [1.5 if lbl == 0 else 3.0 for lbl in imb24_labels]
+    imb24_cw = [30.0, 12.0]
+    gcaf_imb_nw_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py, imb24_labels, stevens_gamma=2.0, node_weights=imb24_nw, return_per_cluster=True
+    )
+    gcaf_imb_cw_det_py = eg.cluster_area_faithfulness_detail(
+        l_imb24_py, imb24_labels, stevens_gamma=2.0, cluster_weights=imb24_cw, return_per_cluster=True
+    )
     gcaf_imb_eval_py = eg.evaluate_metrics(
         g_imb24_py,
         l_imb24_py,
@@ -5269,6 +5328,11 @@ const gcafImbCustomDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, 
 const gcafImbInfDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, Number.POSITIVE_INFINITY, null);
 const gcafImbG05Det = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 0.5);
 const gcafImbG20Det = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 2.0);
+const imb24Nw = new Float64Array(24);
+for (let i = 0; i < 24; i++) imb24Nw[i] = i < 20 ? 1.5 : 3.0;
+const imb24Cw = new Float64Array([30.0, 12.0]);
+const gcafImbNwDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 2.0, imb24Nw, null);
+const gcafImbCwDet = mod.clusterAreaFaithfulnessDetail(lImb24, imb24Labels, null, null, null, null, null, 2.0, null, imb24Cw);
 const gcafImbEval = mod.evaluateMetrics(gImb24, lImb24, ['gcaf'], null, null, null, null, imb24Labels, null, null, null, null, null, null, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
 const lInt20 = mod.Layout2d.fromCoords(new Float32Array(spec.int20_coords));
 const gcafInt20Det = mod.clusterAreaFaithfulnessDetail(lInt20, new Uint32Array(spec.int20_labels));
@@ -5291,6 +5355,8 @@ const readGcafDet = (d) => {
     resCombined: d.resCombined,
     spatialCoherence: d.spatialCoherence,
     inFrac: d.inFrac,
+    effectiveBoundaryR95: d.effectiveBoundaryR95,
+    gEff: d.gEff,
     numClusters: d.numClusters,
     numNodes: d.numNodes,
     clusterIds: Array.from(d.clusterIds()),
@@ -5312,6 +5378,8 @@ const readGcafDet = (d) => {
       resCombined: rec.resCombined,
       spatialCoherence: rec.spatialCoherence,
       inFrac: rec.inFrac,
+      effectiveBoundaryR95: rec.effectiveBoundaryR95,
+      gEff: rec.gEff,
       numClusters: rec.numClusters,
       numNodes: rec.numNodes,
       clusterIds: Array.from(rec.clusterIds),
@@ -5567,6 +5635,8 @@ const out = {
       imbInfDet: readGcafDet(gcafImbInfDet),
       imbG05Det: readGcafDet(gcafImbG05Det),
       imbG20Det: readGcafDet(gcafImbG20Det),
+      imbNwDet: readGcafDet(gcafImbNwDet),
+      imbCwDet: readGcafDet(gcafImbCwDet),
       imbEval: gcafImbEval.toRecord(),
       int20Det: readGcafDet(gcafInt20Det),
       b0: readGcafDet(gcafB0),
@@ -5581,7 +5651,7 @@ const out = {
   },
 };
 
-gcafGridDet.free?.(); gcafImbCustomDet.free?.(); gcafImbInfDet.free?.(); gcafImbG05Det.free?.(); gcafImbG20Det.free?.(); gcafImbEval.free?.();
+gcafGridDet.free?.(); gcafImbCustomDet.free?.(); gcafImbInfDet.free?.(); gcafImbG05Det.free?.(); gcafImbG20Det.free?.(); gcafImbNwDet.free?.(); gcafImbCwDet.free?.(); gcafImbEval.free?.();
 gcafInt20Det.free?.(); gcafB0.free?.(); gcafB1.free?.(); gcafBk1.free?.();
 lImb24.free?.(); gImb24.free?.(); lInt20.free?.(); lGcafB0.free?.(); lGcafB1.free?.(); lGcafBk1.free?.(); lGcafCol.free?.();
 w3MaSum.free?.(); w3Deg.free?.(); w3RtaDet.free?.(); w3RtaTbl.free?.(); w3Eval.free?.();
@@ -5699,6 +5769,7 @@ console.log(JSON.stringify(out));
             ("res_combined", "resCombined"),
             ("spatial_coherence", "spatialCoherence"),
             ("in_frac", "inFrac"),
+            ("effective_boundary_r95", "effectiveBoundaryR95"),
         )
         vec_map = (
             ("p", "p"),
@@ -5711,6 +5782,7 @@ console.log(JSON.stringify(out));
             ("coherence", "coherence"),
         )
         for src_obj in (ws_det, ws_det["rec"]):
+            assert py_det["g_eff"] == src_obj["gEff"], f"{label}: g_eff mismatch"
             assert py_det["num_clusters"] == src_obj["numClusters"], f"{label}: num_clusters mismatch"
             assert py_det["num_nodes"] == src_obj["numNodes"], f"{label}: num_nodes mismatch"
             assert list(py_det["cluster_ids"]) == src_obj["clusterIds"], f"{label}: cluster_ids mismatch"
@@ -5729,6 +5801,9 @@ console.log(JSON.stringify(out));
     check_gcaf_detail("gcaf/imb_inf_det", gcaf_imb_inf_det_py, gcaf_ws["imbInfDet"])
     check_gcaf_detail("gcaf/imb_g05_det", gcaf_imb_g05_det_py, gcaf_ws["imbG05Det"])
     check_gcaf_detail("gcaf/imb_g20_det", gcaf_imb_g20_det_py, gcaf_ws["imbG20Det"])
+    check_gcaf_detail("gcaf/imb_nw_det", gcaf_imb_nw_det_py, gcaf_ws["imbNwDet"])
+    check_gcaf_detail("gcaf/imb_cw_det", gcaf_imb_cw_det_py, gcaf_ws["imbCwDet"])
+    check_gcaf_detail("gcaf/imb_nw_vs_cw", gcaf_imb_nw_det_py, gcaf_ws["imbCwDet"])
     check_gcaf_detail("gcaf/int20_f32", gcaf_int20_f32_py, gcaf_ws["int20Det"])
     check_gcaf_detail("gcaf/int20_f64", gcaf_int20_f64_py, gcaf_ws["int20Det"])
     check_gcaf_detail("gcaf/b0", gcaf_b0_py, gcaf_ws["b0"])

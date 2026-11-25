@@ -1956,6 +1956,8 @@ def cluster_area_faithfulness(
     tau_frac: float = 0.18,
     boundary_r95: float = 2.0,
     stevens_gamma: float = 1.0,
+    node_weights: _WeightArrayLike | None = None,
+    cluster_weights: _WeightArrayLike | None = None,
 ) -> float: ...
 def cluster_area_faithfulness_detail(
     layout: Layout2d,
@@ -1967,6 +1969,8 @@ def cluster_area_faithfulness_detail(
     tau_frac: float = 0.18,
     boundary_r95: float = 2.0,
     stevens_gamma: float = 1.0,
+    node_weights: _WeightArrayLike | None = None,
+    cluster_weights: _WeightArrayLike | None = None,
     return_per_cluster: bool = False,
 ) -> dict[str, Any]: ...
 def landmark_stratified_rta(
@@ -2068,6 +2072,8 @@ def evaluate_metrics(
     tau_frac: float = 0.18,
     boundary_r95: float = 2.0,
     stevens_gamma: float = 1.0,
+    node_weights: _WeightArrayLike | None = None,
+    cluster_weights: _WeightArrayLike | None = None,
 ) -> dict[str, float]: ...
 def delaunay_triangulation(
     layout: Layout2d,

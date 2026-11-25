@@ -5,7 +5,7 @@ use egraph_spatial::StaticKdTree;
 
 use crate::{
     build_kdtree_f64,
-    cluster_area::{ClusterAreaConfig, cluster_area_faithfulness},
+    cluster_area::{ClusterAreaConfig, cluster_area_faithfulness_with_weights},
     community::adjusted_patch_nig,
     crossings::{
         crossing_number, crossing_summary, crosslessness_from_count, sampled_crossing_number,
@@ -312,6 +312,29 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
     config: &MetricConfig,
     community_labels: Option<&[u32]>,
 ) -> CoreResult<MetricReport> {
+    evaluate_metrics_with_community_weights(
+        graph,
+        layout,
+        targets,
+        config,
+        community_labels,
+        None,
+        None,
+    )
+}
+
+/// Evaluates strictly the metrics listed in `targets` with optional `community_labels` and
+/// optional positive finite G-CAF target weights (`node_weights` or `cluster_weights`,
+/// mutually exclusive, evaluated lazily when [`MetricTarget::ClusterAreaFaithfulness`] is requested).
+pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+    targets: &[MetricTarget],
+    config: &MetricConfig,
+    community_labels: Option<&[u32]>,
+    node_weights: Option<&[f64]>,
+    cluster_weights: Option<&[f64]>,
+) -> CoreResult<MetricReport> {
     validate_graph_layout(graph, layout, "evaluate_metrics")?;
     let flags = RequestedFlags::from_targets(targets);
     let mut report = MetricReport::default();
@@ -481,8 +504,16 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
         let labels = community_labels.ok_or_else(|| {
             CoreError::invalid_input("ClusterAreaFaithfulness target requires community_labels")
         })?;
-        report.cluster_area_faithfulness =
-            Some(cluster_area_faithfulness(layout, labels, &config.cluster_area)?.caf);
+        report.cluster_area_faithfulness = Some(
+            cluster_area_faithfulness_with_weights(
+                layout,
+                labels,
+                &config.cluster_area,
+                node_weights,
+                cluster_weights,
+            )?
+            .caf,
+        );
     }
     if flags.landmark_stratified_rta {
         report.landmark_stratified_rta = Some(landmark_stratified_rta(
@@ -502,10 +533,10 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
 mod tests {
     use super::*;
     use crate::{
-        crossing_angle, gabriel_graph_preservation, gabriel_graph_property,
-        neighborhood_preservation_1hop, neighborhood_preservation_2hop, node_resolution,
-        relative_neighborhood_preservation, sampled_neighborhood_preservation_1hop,
-        sampled_neighborhood_preservation_2hop,
+        cluster_area_faithfulness, crossing_angle, gabriel_graph_preservation,
+        gabriel_graph_property, neighborhood_preservation_1hop, neighborhood_preservation_2hop,
+        node_resolution, relative_neighborhood_preservation,
+        sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
     };
 
     #[test]
@@ -812,5 +843,73 @@ mod tests {
         assert!(rep32.cluster_area_faithfulness.unwrap().is_finite());
         assert!(cfg.validate().is_ok());
         assert!(bad_caf_cfg.validate().is_err());
+
+        // Weighted G-CAF via evaluate_metrics_with_community_weights + lazy weight validation.
+        let nw = [1.0, 2.0, 3.0, 4.0];
+        let cw = [3.0, 7.0];
+        let rep_nw = evaluate_metrics_with_community_weights(
+            &g,
+            &layout,
+            &[MetricTarget::ClusterAreaFaithfulness],
+            &cfg,
+            Some(&communities),
+            Some(&nw),
+            None,
+        )
+        .unwrap();
+        let rep_cw = evaluate_metrics_with_community_weights(
+            &g,
+            &layout,
+            &[MetricTarget::ClusterAreaFaithfulness],
+            &cfg,
+            Some(&communities),
+            None,
+            Some(&cw),
+        )
+        .unwrap();
+        assert_eq!(
+            rep_nw.cluster_area_faithfulness,
+            Some(
+                cluster_area_faithfulness_with_weights(
+                    &layout,
+                    &communities,
+                    &cfg.cluster_area,
+                    Some(&nw),
+                    None
+                )
+                .unwrap()
+                .caf
+            )
+        );
+        assert!(
+            (rep_nw.cluster_area_faithfulness.unwrap() - rep_cw.cluster_area_faithfulness.unwrap())
+                .abs()
+                < 1e-12
+        );
+        // Lazy when ClusterAreaFaithfulness is not requested.
+        assert!(
+            evaluate_metrics_with_community_weights(
+                &g,
+                &layout,
+                &[MetricTarget::AspectRatio],
+                &cfg,
+                Some(&communities),
+                Some(&[-1.0]),
+                Some(&[0.0]),
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            evaluate_metrics_with_community_weights(
+                &g,
+                &layout,
+                &[MetricTarget::ClusterAreaFaithfulness],
+                &cfg,
+                Some(&communities),
+                Some(&nw),
+                Some(&cw),
+            ),
+            Err(CoreError::InvalidInput(_))
+        ));
     }
 }
