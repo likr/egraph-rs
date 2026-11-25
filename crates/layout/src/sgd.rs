@@ -4,6 +4,7 @@
 use std::f64::consts::PI;
 
 use crate::coarse_backbone::{CoarseBackboneConfig, CoarseBackboneResult, coarse_backbone_init};
+use egraph_clustering::coarsen_graph;
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, ManifoldKind,
     ManifoldLayout2d, Scalar, SolverStatus, VisitStamp,
@@ -13,6 +14,7 @@ use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, Sparse12HopPairs,
     apply_relative_distance_floor, compute_horvitz_thompson_gamma,
     compute_regularized_dog_varadhan_landmarks, extract_sparse_1hop_2hop_pairs,
+    graph_row_normalized_probabilities,
 };
 
 const HINGE_BIT: u32 = 1u32 << 31;
@@ -385,7 +387,10 @@ impl PacmapGraphConfig {
     }
 }
 
-/// Configuration for doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2`.
+/// Configuration for doubly-stochastic mini-batch diagonal-preconditioned stress SGD.
+///
+/// Note: This diagonal-preconditioned stress SGD preset (using [`SgdScheduleKind::Squared`])
+/// is distinct from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sgd2Config {
     /// Total optimization iterations (`default: 60`).
@@ -416,7 +421,7 @@ impl Default for Sgd2Config {
 }
 
 impl Sgd2Config {
-    /// Validates all `(SGD)^2` hyperparameters.
+    /// Validates all diagonal-preconditioned stress SGD (`Sgd2Config`) hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.eps.is_finite() {
             return Err(CoreError::non_finite("Sgd2Config::eps"));
@@ -448,6 +453,377 @@ impl Sgd2Config {
             return Err(CoreError::invalid_input(format!(
                 "Sgd2Config::damping must be > 0, got {}",
                 self.damping
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Pivot selection strategy for [`SgdSolver::ortmann_sparse_stress`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OrtmannPivotStrategy {
+    /// K-means shortest-path medoid refinement initialized from Core-First MaxMin (`default`).
+    #[default]
+    KMeansSp,
+    /// Randomized MaxMin shortest-path sampling proportional to min distance to chosen pivots.
+    MaxMinRandomSp,
+    /// Deterministic Core-First MaxMin shortest-path pivot selection.
+    MaxMinSp,
+}
+
+/// Configuration for Ortmann et al. (2016) Sparse Stress SGD (`ortmann_sparse_stress`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OrtmannSparseStressConfig {
+    /// Number of shortest-path pivots (`default: 100`, must be `>= 1`).
+    pub num_pivots: usize,
+    /// Pivot selection strategy (`default: OrtmannPivotStrategy::KMeansSp`).
+    pub pivot_strategy: OrtmannPivotStrategy,
+    /// Total SGD iterations (`default: 200`).
+    pub iterations: usize,
+    /// Optional override for initial step size $\eta_{\max}$ (`default: None`).
+    pub eta_max: Option<f64>,
+    /// Optional override for minimum step size $\eta_{\min}$ (`default: None`).
+    pub eta_min: Option<f64>,
+    /// Minimum learning rate ratio $\varepsilon > 0$ when `eta_min` is `None` (`default: 0.1`).
+    pub eps: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for OrtmannSparseStressConfig {
+    fn default() -> Self {
+        Self {
+            num_pivots: 100,
+            pivot_strategy: OrtmannPivotStrategy::KMeansSp,
+            iterations: 200,
+            eta_max: None,
+            eta_min: None,
+            eps: 0.1,
+            seed: 42,
+        }
+    }
+}
+
+impl OrtmannSparseStressConfig {
+    /// Validates all `OrtmannSparseStressConfig` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.num_pivots == 0 {
+            return Err(CoreError::invalid_input(
+                "OrtmannSparseStressConfig::num_pivots must be >= 1",
+            ));
+        }
+        if !self.eps.is_finite() {
+            return Err(CoreError::non_finite("OrtmannSparseStressConfig::eps"));
+        }
+        if self.eps <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "OrtmannSparseStressConfig::eps must be > 0, got {}",
+                self.eps
+            )));
+        }
+        if let Some(emax) = self.eta_max {
+            if !emax.is_finite() {
+                return Err(CoreError::non_finite("OrtmannSparseStressConfig::eta_max"));
+            }
+            if emax <= 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "OrtmannSparseStressConfig::eta_max must be > 0, got {emax}"
+                )));
+            }
+        }
+        if let Some(emin) = self.eta_min {
+            if !emin.is_finite() {
+                return Err(CoreError::non_finite("OrtmannSparseStressConfig::eta_min"));
+            }
+            if emin <= 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "OrtmannSparseStressConfig::eta_min must be > 0, got {emin}"
+                )));
+            }
+        }
+        if let (Some(emin), Some(emax)) = (self.eta_min, self.eta_max)
+            && emin > emax
+        {
+            return Err(CoreError::invalid_input(format!(
+                "OrtmannSparseStressConfig::eta_min ({emin}) must be <= eta_max ({emax})"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for single-threaded deterministic `LargeVis` graph layout
+/// (`Tang et al., 2016`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LargeVisConfig {
+    /// Total optimization epochs (`default: 200`).
+    pub iterations: usize,
+    /// Number of negative samples drawn per positive edge draw (`default: 5`).
+    pub negative_samples: usize,
+    /// Negative repulsion weight $\gamma \ge 0$ (`default: 7.0`).
+    pub gamma: f64,
+    /// Initial learning rate (`default: 1.0`).
+    pub initial_lr: f64,
+    /// Minimum learning rate floor (`default: 1e-4`).
+    pub min_lr: f64,
+    /// Negative-sampling degree exponent $d_j^{\alpha}$ (`default: 0.75`).
+    pub degree_exponent: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for LargeVisConfig {
+    fn default() -> Self {
+        Self {
+            iterations: 200,
+            negative_samples: 5,
+            gamma: 7.0,
+            initial_lr: 1.0,
+            min_lr: 1e-4,
+            degree_exponent: 0.75,
+            seed: 42,
+        }
+    }
+}
+
+impl LargeVisConfig {
+    /// Validates all `LargeVisConfig` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.gamma.is_finite() {
+            return Err(CoreError::non_finite("LargeVisConfig::gamma"));
+        }
+        if self.gamma < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "LargeVisConfig::gamma must be >= 0, got {}",
+                self.gamma
+            )));
+        }
+        if !self.initial_lr.is_finite() {
+            return Err(CoreError::non_finite("LargeVisConfig::initial_lr"));
+        }
+        if self.initial_lr <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "LargeVisConfig::initial_lr must be > 0, got {}",
+                self.initial_lr
+            )));
+        }
+        if !self.min_lr.is_finite() {
+            return Err(CoreError::non_finite("LargeVisConfig::min_lr"));
+        }
+        if self.min_lr < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "LargeVisConfig::min_lr must be >= 0, got {}",
+                self.min_lr
+            )));
+        }
+        if self.min_lr > self.initial_lr {
+            return Err(CoreError::invalid_input(format!(
+                "LargeVisConfig::min_lr ({}) must be <= initial_lr ({})",
+                self.min_lr, self.initial_lr
+            )));
+        }
+        if !self.degree_exponent.is_finite() {
+            return Err(CoreError::non_finite("LargeVisConfig::degree_exponent"));
+        }
+        if self.degree_exponent < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "LargeVisConfig::degree_exponent must be >= 0, got {}",
+                self.degree_exponent
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for multilevel negative-sampling `DRGraph` layout (`Zhu et al., 2020`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DrGraphConfig {
+    /// Shortest-path neighborhood order $k \ge 1$ for sparse similarity $NS_{ij}$ (`default: 1`).
+    pub k_order: usize,
+    /// Number of uniform negative samples drawn per positive edge draw (`default: 5`).
+    pub negative_samples: usize,
+    /// Parameterized Cauchy kernel exponent $b > 0$ in $(1 + d^{2b})^{-1}$ (`default: 2.0`).
+    pub b: f64,
+    /// Repulsion weight $\gamma$ on the coarsest level (`default: 0.01`).
+    pub gamma_coarse: f64,
+    /// Repulsion weight $\gamma$ on finer levels (`default: 0.1`).
+    pub gamma_fine: f64,
+    /// Multilevel coarsening stop ratio $\rho \in (0, 1]$ (`default: 0.8`).
+    pub coarsen_stop_ratio: f64,
+    /// Total optimization iterations partitioned across the multilevel hierarchy (`default: 400`).
+    pub iterations: usize,
+    /// Initial learning rate (`default: 1.0`).
+    pub initial_lr: f64,
+    /// Minimum learning rate floor (`default: 1e-4`).
+    pub min_lr: f64,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for DrGraphConfig {
+    fn default() -> Self {
+        Self {
+            k_order: 1,
+            negative_samples: 5,
+            b: 2.0,
+            gamma_coarse: 0.01,
+            gamma_fine: 0.1,
+            coarsen_stop_ratio: 0.8,
+            iterations: 400,
+            initial_lr: 1.0,
+            min_lr: 1e-4,
+            seed: 42,
+        }
+    }
+}
+
+impl DrGraphConfig {
+    /// Validates all `DrGraphConfig` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.k_order == 0 {
+            return Err(CoreError::invalid_input(
+                "DrGraphConfig::k_order must be >= 1",
+            ));
+        }
+        if !self.b.is_finite() {
+            return Err(CoreError::non_finite("DrGraphConfig::b"));
+        }
+        if self.b <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "DrGraphConfig::b must be > 0, got {}",
+                self.b
+            )));
+        }
+        for (ctx, val) in [
+            ("DrGraphConfig::gamma_coarse", self.gamma_coarse),
+            ("DrGraphConfig::gamma_fine", self.gamma_fine),
+        ] {
+            if !val.is_finite() {
+                return Err(CoreError::non_finite(ctx));
+            }
+            if val < 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "{ctx} must be >= 0, got {val}"
+                )));
+            }
+        }
+        if !self.coarsen_stop_ratio.is_finite() {
+            return Err(CoreError::non_finite("DrGraphConfig::coarsen_stop_ratio"));
+        }
+        if self.coarsen_stop_ratio <= 0.0 || self.coarsen_stop_ratio > 1.0 {
+            return Err(CoreError::invalid_input(format!(
+                "DrGraphConfig::coarsen_stop_ratio must be in (0, 1], got {}",
+                self.coarsen_stop_ratio
+            )));
+        }
+        if !self.initial_lr.is_finite() {
+            return Err(CoreError::non_finite("DrGraphConfig::initial_lr"));
+        }
+        if self.initial_lr <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "DrGraphConfig::initial_lr must be > 0, got {}",
+                self.initial_lr
+            )));
+        }
+        if !self.min_lr.is_finite() {
+            return Err(CoreError::non_finite("DrGraphConfig::min_lr"));
+        }
+        if self.min_lr < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "DrGraphConfig::min_lr must be >= 0, got {}",
+                self.min_lr
+            )));
+        }
+        if self.min_lr > self.initial_lr {
+            return Err(CoreError::invalid_input(format!(
+                "DrGraphConfig::min_lr ({}) must be <= initial_lr ({})",
+                self.min_lr, self.initial_lr
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Contrastive loss objective family for [`SgdSolver::graph_cne`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GraphCneObjective {
+    /// InfoNCE contrastive objective with Cauchy kernel (`Böhm et al., 2025`, `default`).
+    #[default]
+    InfoNce,
+    /// Negative-sampled t-SNE objective on the attraction-repulsion spectrum (`Böhm et al., 2022`).
+    NegTSne,
+}
+
+/// Configuration for `Graph-CNE` contrastive neighbor embedding (`Böhm et al., 2025`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GraphCneConfig {
+    /// Contrastive loss objective (`default: GraphCneObjective::InfoNce`).
+    pub objective: GraphCneObjective,
+    /// Number of uniform negative samples drawn per positive edge draw (`default: 5`).
+    pub negative_samples: usize,
+    /// Total optimization epochs (`default: 400`).
+    pub iterations: usize,
+    /// Initial learning rate (`default: 1.0`).
+    pub initial_lr: f64,
+    /// Minimum learning rate floor (`default: 1e-4`).
+    pub min_lr: f64,
+    /// Repulsion scaling weight $\rho \ge 0$ (`default: 1.0`).
+    pub repulsion_weight: f64,
+    /// Apply row-normalized symmetrization $P = (D^{-1}A + A^T D^{-1})/(2N)$ (`default: true`).
+    pub row_normalize: bool,
+    /// Explicit deterministic RNG seed (`default: 42`).
+    pub seed: u64,
+}
+
+impl Default for GraphCneConfig {
+    fn default() -> Self {
+        Self {
+            objective: GraphCneObjective::InfoNce,
+            negative_samples: 5,
+            iterations: 400,
+            initial_lr: 1.0,
+            min_lr: 1e-4,
+            repulsion_weight: 1.0,
+            row_normalize: true,
+            seed: 42,
+        }
+    }
+}
+
+impl GraphCneConfig {
+    /// Validates all `GraphCneConfig` hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.initial_lr.is_finite() {
+            return Err(CoreError::non_finite("GraphCneConfig::initial_lr"));
+        }
+        if self.initial_lr <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "GraphCneConfig::initial_lr must be > 0, got {}",
+                self.initial_lr
+            )));
+        }
+        if !self.min_lr.is_finite() {
+            return Err(CoreError::non_finite("GraphCneConfig::min_lr"));
+        }
+        if self.min_lr < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "GraphCneConfig::min_lr must be >= 0, got {}",
+                self.min_lr
+            )));
+        }
+        if self.min_lr > self.initial_lr {
+            return Err(CoreError::invalid_input(format!(
+                "GraphCneConfig::min_lr ({}) must be <= initial_lr ({})",
+                self.min_lr, self.initial_lr
+            )));
+        }
+        if !self.repulsion_weight.is_finite() {
+            return Err(CoreError::non_finite("GraphCneConfig::repulsion_weight"));
+        }
+        if self.repulsion_weight < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "GraphCneConfig::repulsion_weight must be >= 0, got {}",
+                self.repulsion_weight
             )));
         }
         Ok(())
@@ -703,12 +1079,132 @@ struct Sgd2State {
     touched_nodes: Vec<u32>,
 }
 
+#[derive(Debug, Clone)]
+struct AliasTable {
+    prob: Vec<f64>,
+    alias: Vec<u32>,
+}
+
+impl AliasTable {
+    fn from_weights(weights: &[f64]) -> Option<Self> {
+        let k = weights.len();
+        if k == 0 {
+            return None;
+        }
+        let mut total = 0.0_f64;
+        for &w in weights {
+            if w.is_finite() && w > 0.0 {
+                total += w;
+            }
+        }
+        if !total.is_finite() || total <= 0.0 {
+            return None;
+        }
+        let scale = (k as f64) / total;
+        let mut scaled = vec![0.0_f64; k];
+        let mut small = Vec::with_capacity(k);
+        let mut large = Vec::with_capacity(k);
+        for (i, &w) in weights.iter().enumerate() {
+            let p = if w.is_finite() && w > 0.0 {
+                w * scale
+            } else {
+                0.0
+            };
+            scaled[i] = p;
+            if p < 1.0 {
+                small.push(i as u32);
+            } else {
+                large.push(i as u32);
+            }
+        }
+        let mut prob = vec![1.0_f64; k];
+        let mut alias: Vec<u32> = (0..k as u32).collect();
+        while let (Some(s_idx), Some(l_idx)) = (small.pop(), large.pop()) {
+            let s = s_idx as usize;
+            let l = l_idx as usize;
+            prob[s] = scaled[s].clamp(0.0, 1.0);
+            alias[s] = l_idx;
+            scaled[l] = ((scaled[l] + scaled[s]) - 1.0).max(0.0);
+            if scaled[l] < 1.0 {
+                small.push(l_idx);
+            } else {
+                large.push(l_idx);
+            }
+        }
+        while let Some(l_idx) = large.pop() {
+            prob[l_idx as usize] = 1.0;
+        }
+        while let Some(s_idx) = small.pop() {
+            prob[s_idx as usize] = 1.0;
+        }
+        Some(Self { prob, alias })
+    }
+
+    #[inline]
+    fn sample(&self, rng: &mut DeterministicRng) -> usize {
+        let k = self.prob.len();
+        let col = rng.gen_range_usize(k);
+        let coin = rng.next_f64();
+        if coin < self.prob[col] {
+            col
+        } else {
+            self.alias[col] as usize
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LargeVisState {
+    config: LargeVisConfig,
+    edges_u: Vec<u32>,
+    edges_v: Vec<u32>,
+    edge_alias: Option<AliasTable>,
+    neg_alias: Option<AliasTable>,
+}
+
+#[derive(Debug, Clone)]
+struct DrGraphLevel {
+    num_nodes: usize,
+    coarse_of_finer: Option<Vec<u32>>,
+    cluster_counts_of_finer: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Clone)]
+struct DrGraphState {
+    config: DrGraphConfig,
+    pos_u: Vec<u32>,
+    pos_v: Vec<u32>,
+    edge_alias: Option<AliasTable>,
+    levels: Vec<DrGraphLevel>,
+    fine_to_level: Vec<Vec<u32>>,
+    level_iters: Vec<usize>,
+    current_level: usize,
+    level_iter: usize,
+    initialized_coords: bool,
+    active_x: Vec<f64>,
+    active_y: Vec<f64>,
+    scratch_x: Vec<f64>,
+    scratch_y: Vec<f64>,
+    scratch_cnt: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct GraphCneState {
+    config: GraphCneConfig,
+    edges_u: Vec<u32>,
+    edges_v: Vec<u32>,
+    edge_alias: Option<AliasTable>,
+    neg_scratch: Vec<u32>,
+}
+
 /// Contiguous packed Stochastic Gradient Descent (SGD) layout solver.
 ///
 /// Supports symmetric and general two-sided spring pairs, one-sided hinge repulsion pairs,
-/// Track B 3-tier sparse barrier schedules, cache-blocked L2-resident shuffling, streaming
-/// negative sampling, compact-memory `SNAP-tFDP`, 3-tier `PaCMAP-Graph`, doubly-stochastic
-/// `(SGD)^2`, Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
+/// Ortmann (2016) sparse stress (`ortmann_sparse_stress`), Track B 3-tier sparse barrier
+/// schedules, cache-blocked L2-resident shuffling, streaming negative sampling, compact-memory
+/// `SNAP-tFDP`, 3-tier `PaCMAP-Graph`, `LargeVis`, `DRGraph`, `Graph-CNE`, doubly-stochastic
+/// diagonal-preconditioned stress SGD (`sgd2`, distinct from Ahmed et al. 2021 multi-criteria
+/// `(SGD)^2`), Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
 /// [`ManifoldLayout2d<S>`] stepping.
 #[derive(Debug, Clone)]
 pub struct SgdSolver<S: Scalar = f64> {
@@ -721,6 +1217,9 @@ pub struct SgdSolver<S: Scalar = f64> {
     snap_t_fdp: Option<SnapTFdpState>,
     pacmap: Option<PacmapState>,
     sgd2: Option<Sgd2State>,
+    largevis: Option<LargeVisState>,
+    drgraph: Option<DrGraphState>,
+    graph_cne: Option<GraphCneState>,
     schedule_cfg: SgdScheduleConfig,
     eta_min: f64,
     eta_max: f64,
@@ -1515,6 +2014,9 @@ impl<S: Scalar> SgdSolver<S> {
             snap_t_fdp: None,
             pacmap: None,
             sgd2: None,
+            largevis: None,
+            drgraph: None,
+            graph_cne: None,
             schedule_cfg,
             eta_min,
             eta_max,
@@ -1559,6 +2061,9 @@ impl<S: Scalar> SgdSolver<S> {
             snap_t_fdp: None,
             pacmap: None,
             sgd2: None,
+            largevis: None,
+            drgraph: None,
+            graph_cne: None,
             schedule_cfg,
             eta_min,
             eta_max,
@@ -2491,6 +2996,9 @@ impl<S: Scalar> SgdSolver<S> {
             }),
             pacmap: None,
             sgd2: None,
+            largevis: None,
+            drgraph: None,
+            graph_cne: None,
             schedule_cfg,
             eta_min: 0.0,
             eta_max: config.learning_rate,
@@ -2699,6 +3207,9 @@ impl<S: Scalar> SgdSolver<S> {
                     v_y: Vec::new(),
                 }),
                 sgd2: None,
+                largevis: None,
+                drgraph: None,
+                graph_cne: None,
                 schedule_cfg,
                 eta_min: config.learning_rate,
                 eta_max: config.learning_rate,
@@ -3119,6 +3630,9 @@ impl<S: Scalar> SgdSolver<S> {
                 v_y: vec![0.0; n],
             }),
             sgd2: None,
+            largevis: None,
+            drgraph: None,
+            graph_cne: None,
             schedule_cfg,
             eta_min: config.learning_rate,
             eta_max: config.learning_rate,
@@ -3128,8 +3642,11 @@ impl<S: Scalar> SgdSolver<S> {
         })
     }
 
-    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned `(SGD)^2` solver
+    /// Constructs a doubly-stochastic mini-batch diagonal-preconditioned stress SGD solver
     /// using [`SgdScheduleKind::Squared`] and zero per-step heap allocations.
+    ///
+    /// Note: This implements diagonal-preconditioned mini-batch stress SGD and is distinct
+    /// from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
     pub fn sgd2<W: Scalar>(graph: &CsrGraph<W>, config: Sgd2Config) -> CoreResult<Self> {
         config.validate()?;
         validate_graph_weights(graph, "SgdSolver::sgd2")?;
@@ -3158,6 +3675,579 @@ impl<S: Scalar> SgdSolver<S> {
             touched_nodes: Vec::with_capacity(touched_cap),
         });
         Ok(solver)
+    }
+
+    /// Constructs an Ortmann et al. (2016) Sparse Stress SGD solver using graph Voronoi
+    /// partitioning $R(p)$ (breaking distance ties in favor of the smallest current $|R(p)|$)
+    /// and directional region-adapted weights $w'_{ip} = |\{j \in R(p) : 2 d_{jp} \le d_{ip}\}| / d_{ip}^2$.
+    pub fn ortmann_sparse_stress<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: OrtmannSparseStressConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::ortmann_sparse_stress")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: config.iterations,
+            eps: config.eps,
+            kind: SgdScheduleKind::Exponential,
+            step_scale: 1.0,
+        };
+        if n <= 1 {
+            return Self::empty(n, schedule_cfg, config.seed);
+        }
+
+        let (sym_graph, positive_edges) = build_positive_canonical_csr(graph)?;
+        if positive_edges.is_empty() {
+            return Self::empty(n, schedule_cfg, config.seed);
+        }
+
+        let target_k = config.num_pivots.min(n);
+        let (pivots, piv_dists) = select_ortmann_pivots_and_dists(
+            &sym_graph,
+            target_k,
+            config.pivot_strategy,
+            config.seed,
+        )?;
+        let h = pivots.len();
+
+        let mut acc = DirectedPairAccumulator::<S>::with_capacity(positive_edges.len() + h * n);
+        let mut edges_1hop: Vec<(u32, u32)> = Vec::with_capacity(positive_edges.len());
+        for &(u, v, d_uv) in &positive_edges {
+            edges_1hop.push((u, v));
+            let w_uv = 1.0 / (d_uv * d_uv);
+            acc.push_f64(u, v, d_uv, d_uv, w_uv, w_uv);
+        }
+        // `extract_canonical_undirected_edges` may emit unsorted entries if input rows are unsorted.
+        if !edges_1hop.windows(2).all(|w| w[0] < w[1]) {
+            edges_1hop.sort_unstable();
+        }
+
+        // Incremental Voronoi assignment R(p): break distance ties on smallest current |R(p)|,
+        // then lowest pivot slot k (Ortmann et al. 2016, Section 3).
+        let mut r_counts = vec![0usize; h];
+        let mut r_dists: Vec<Vec<f64>> = vec![Vec::new(); h];
+        for j in 0..n {
+            let mut best: Option<(f64, usize, usize)> = None;
+            for k in 0..h {
+                let d = piv_dists[k * n + j];
+                if !d.is_finite() {
+                    continue;
+                }
+                let cand = (d, r_counts[k], k);
+                if best.is_none_or(|b| {
+                    cand.0
+                        .total_cmp(&b.0)
+                        .then_with(|| cand.1.cmp(&b.1))
+                        .then_with(|| cand.2.cmp(&b.2))
+                        .is_lt()
+                }) {
+                    best = Some(cand);
+                }
+            }
+            if let Some((d, _, best_k)) = best {
+                r_counts[best_k] += 1;
+                r_dists[best_k].push(d);
+            }
+        }
+        for dists_k in &mut r_dists {
+            dists_k.sort_unstable_by(f64::total_cmp);
+        }
+
+        for (k, &p_u32) in pivots.iter().enumerate() {
+            let p_usize = p_u32 as usize;
+            for i in 0..n {
+                if i == p_usize {
+                    continue;
+                }
+                let i_u32 = i as u32;
+                let edge_key = if p_u32 < i_u32 {
+                    (p_u32, i_u32)
+                } else {
+                    (i_u32, p_u32)
+                };
+                if edges_1hop.binary_search(&edge_key).is_ok() {
+                    continue;
+                }
+                let dpi = piv_dists[k * n + i];
+                if !dpi.is_finite() || dpi <= 0.0 {
+                    continue;
+                }
+                let count = r_dists[k].partition_point(|&dpj| dpj.is_finite() && 2.0 * dpj <= dpi);
+                if count == 0 {
+                    continue;
+                }
+                let w_pi = (count as f64) / (dpi * dpi);
+                acc.push_f64(p_u32, i_u32, dpi, dpi, 0.0, w_pi);
+            }
+        }
+
+        let storage = acc.into_storage();
+        let n_springs = storage.len();
+        let mut solver =
+            Self::from_pair_storage(n, storage, n_springs, 0, schedule_cfg, config.seed)?;
+        if solver.eta_max > 0.0 {
+            if let Some(emax) = config.eta_max {
+                solver.eta_max = emax;
+            }
+            if let Some(emin) = config.eta_min {
+                solver.eta_min = emin;
+            }
+            if solver.eta_min > solver.eta_max {
+                if config.eta_max.is_some() && config.eta_min.is_none() {
+                    solver.eta_min = solver.eta_max * config.eps.min(1.0);
+                } else {
+                    solver.eta_max = solver.eta_min;
+                }
+            }
+        } else {
+            solver.eta_min = 0.0;
+            solver.eta_max = 0.0;
+        }
+        Ok(solver)
+    }
+
+    /// Constructs a single-threaded deterministic `LargeVis` solver (`Tang et al., 2016`)
+    /// using Vose alias tables over positive edges and $d_j^{\alpha}$-weighted vertices.
+    pub fn largevis<W: Scalar>(graph: &CsrGraph<W>, config: LargeVisConfig) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::largevis")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: config.iterations,
+            eps: 0.01,
+            kind: SgdScheduleKind::Linear,
+            step_scale: config.initial_lr,
+        };
+        let status = if config.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+
+        let mut edges_u = Vec::new();
+        let mut edges_v = Vec::new();
+        let mut edge_weights = Vec::new();
+        let mut deg_w = vec![0.0_f64; n];
+
+        if n > 1 && graph.nnz() > 0 {
+            for (u, v, w) in extract_canonical_undirected_edges(graph) {
+                if w.is_finite() && w > 0.0 {
+                    edges_u.push(u);
+                    edges_v.push(v);
+                    edge_weights.push(w);
+                    deg_w[u as usize] += w;
+                    deg_w[v as usize] += w;
+                }
+            }
+        }
+
+        let edge_alias = AliasTable::from_weights(&edge_weights);
+        let neg_weights: Vec<f64> = deg_w
+            .into_iter()
+            .map(|dw| {
+                if dw > 0.0 {
+                    dw.powf(config.degree_exponent)
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let neg_alias = AliasTable::from_weights(&neg_weights);
+        let m = edges_u.len();
+
+        Ok(Self {
+            num_nodes: n,
+            pairs: PairStorage::Symmetric(Vec::new()),
+            num_springs: m,
+            num_hinges: 0,
+            block_order: Vec::new(),
+            streaming: None,
+            snap_t_fdp: None,
+            pacmap: None,
+            sgd2: None,
+            largevis: Some(LargeVisState {
+                config,
+                edges_u,
+                edges_v,
+                edge_alias,
+                neg_alias,
+            }),
+            drgraph: None,
+            graph_cne: None,
+            schedule_cfg,
+            eta_min: config.min_lr,
+            eta_max: config.initial_lr,
+            iter: 0,
+            status,
+            rng: DeterministicRng::from_seed_u64(config.seed),
+        })
+    }
+
+    /// Constructs a multilevel negative-sampling `DRGraph` solver (`Zhu et al., 2020`)
+    /// with random-merge coarsening, $b$-parameterized Cauchy proximity, and cooperative
+    /// coarse-to-fine stepping.
+    pub fn drgraph<W: Scalar>(graph: &CsrGraph<W>, config: DrGraphConfig) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::drgraph")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: config.iterations,
+            eps: 0.01,
+            kind: SgdScheduleKind::Linear,
+            step_scale: config.initial_lr,
+        };
+        let status = if config.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+
+        let mut rng = DeterministicRng::from_seed_u64(config.seed);
+
+        if n <= 1 || graph.nnz() == 0 {
+            let levels = vec![DrGraphLevel {
+                num_nodes: n,
+                coarse_of_finer: None,
+                cluster_counts_of_finer: None,
+            }];
+            return Ok(Self {
+                num_nodes: n,
+                pairs: PairStorage::Symmetric(Vec::new()),
+                num_springs: 0,
+                num_hinges: 0,
+                block_order: Vec::new(),
+                streaming: None,
+                snap_t_fdp: None,
+                pacmap: None,
+                sgd2: None,
+                largevis: None,
+                drgraph: Some(DrGraphState {
+                    config,
+                    pos_u: Vec::new(),
+                    pos_v: Vec::new(),
+                    edge_alias: None,
+                    levels,
+                    fine_to_level: vec![Vec::new()],
+                    level_iters: vec![config.iterations],
+                    current_level: 0,
+                    level_iter: 0,
+                    initialized_coords: false,
+                    active_x: vec![0.0; n],
+                    active_y: vec![0.0; n],
+                    scratch_x: vec![0.0; n],
+                    scratch_y: vec![0.0; n],
+                    scratch_cnt: vec![0.0; n],
+                }),
+                graph_cne: None,
+                schedule_cfg,
+                eta_min: config.min_lr,
+                eta_max: config.initial_lr,
+                iter: 0,
+                status,
+                rng,
+            });
+        }
+
+        let (sym_graph, positive_edges) = build_positive_canonical_csr(graph)?;
+        if positive_edges.is_empty() {
+            let levels = vec![DrGraphLevel {
+                num_nodes: n,
+                coarse_of_finer: None,
+                cluster_counts_of_finer: None,
+            }];
+            return Ok(Self {
+                num_nodes: n,
+                pairs: PairStorage::Symmetric(Vec::new()),
+                num_springs: 0,
+                num_hinges: 0,
+                block_order: Vec::new(),
+                streaming: None,
+                snap_t_fdp: None,
+                pacmap: None,
+                sgd2: None,
+                largevis: None,
+                drgraph: Some(DrGraphState {
+                    config,
+                    pos_u: Vec::new(),
+                    pos_v: Vec::new(),
+                    edge_alias: None,
+                    levels,
+                    fine_to_level: vec![Vec::new()],
+                    level_iters: vec![config.iterations],
+                    current_level: 0,
+                    level_iter: 0,
+                    initialized_coords: false,
+                    active_x: vec![0.0; n],
+                    active_y: vec![0.0; n],
+                    scratch_x: vec![0.0; n],
+                    scratch_y: vec![0.0; n],
+                    scratch_cnt: vec![0.0; n],
+                }),
+                graph_cne: None,
+                schedule_cfg,
+                eta_min: config.min_lr,
+                eta_max: config.initial_lr,
+                iter: 0,
+                status,
+                rng,
+            });
+        }
+
+        let (pos_u, pos_v, pos_weights) = compute_drgraph_similarities(&sym_graph, config.k_order)?;
+        let edge_alias = AliasTable::from_weights(&pos_weights);
+        let m = pos_u.len();
+
+        // Build random-merge multilevel coarsening hierarchy stopping when
+        // `|V^{l+1}| > coarsen_stop_ratio * |V^l|` (or trivial collapse <= 1).
+        let unweighted_base = {
+            let mut u1 = Vec::with_capacity(positive_edges.len());
+            let mut v1 = Vec::with_capacity(positive_edges.len());
+            for &(u, v, _) in &positive_edges {
+                u1.push(u);
+                v1.push(v);
+            }
+            let (indptr, indices) = build_symmetric_csr_from_sorted_pairs(n, &u1, &v1);
+            CsrGraph::<f64>::from_csr(&indptr, &indices, None, false, false)?
+        };
+
+        let mut level_graphs = Vec::new();
+        level_graphs.push(unweighted_base);
+        let mut levels = vec![DrGraphLevel {
+            num_nodes: n,
+            coarse_of_finer: None,
+            cluster_counts_of_finer: None,
+        }];
+        let mut perm: Vec<u32> = Vec::new();
+        let mut labels: Vec<u32> = Vec::new();
+
+        while levels.len() < 64 {
+            let cur_idx = level_graphs.len() - 1;
+            let cur_n = level_graphs[cur_idx].num_nodes();
+            if cur_n <= 2 {
+                break;
+            }
+            perm.clear();
+            perm.extend(0..cur_n as u32);
+            rng.shuffle(&mut perm);
+
+            labels.clear();
+            labels.resize(cur_n, u32::MAX);
+            let mut next_cid = 0u32;
+            {
+                let cur_g = &level_graphs[cur_idx];
+                for &u_u32 in &perm {
+                    let u = u_u32 as usize;
+                    if labels[u] != u32::MAX {
+                        continue;
+                    }
+                    labels[u] = next_cid;
+                    for &v_u32 in cur_g.neighbors(u) {
+                        let v = v_u32 as usize;
+                        if labels[v] == u32::MAX {
+                            labels[v] = next_cid;
+                        }
+                    }
+                    next_cid += 1;
+                }
+            }
+
+            let coarse_n = next_cid as usize;
+            if coarse_n <= 1
+                || coarse_n >= cur_n
+                || (coarse_n as f64) > config.coarsen_stop_ratio * (cur_n as f64)
+            {
+                break;
+            }
+            let coarsened = coarsen_graph(&level_graphs[cur_idx], &labels)?;
+            if coarsened.num_clusters <= 1
+                || coarsened.num_clusters >= cur_n
+                || (coarsened.num_clusters as f64) > config.coarsen_stop_ratio * (cur_n as f64)
+            {
+                break;
+            }
+            levels[cur_idx].coarse_of_finer = Some(coarsened.node_to_coarse);
+            levels[cur_idx].cluster_counts_of_finer = Some(coarsened.coarse_sizes);
+            levels.push(DrGraphLevel {
+                num_nodes: coarsened.num_clusters,
+                coarse_of_finer: None,
+                cluster_counts_of_finer: None,
+            });
+            level_graphs.push(coarsened.graph);
+        }
+
+        let num_levels = levels.len();
+        let mut fine_to_level = Vec::with_capacity(num_levels);
+        fine_to_level.push(Vec::new());
+        for l in 1..num_levels {
+            let mut map = Vec::with_capacity(n);
+            let step_map = levels[l - 1]
+                .coarse_of_finer
+                .as_ref()
+                .ok_or_else(|| CoreError::invalid_csr("missing coarse_of_finer mapping"))?;
+            if l == 1 {
+                map.extend_from_slice(step_map);
+            } else {
+                let prev = &fine_to_level[l - 1];
+                for &idx in prev {
+                    map.push(step_map[idx as usize]);
+                }
+            }
+            fine_to_level.push(map);
+        }
+
+        let mut level_iters = vec![0usize; num_levels];
+        if config.iterations > 0 {
+            let base = config.iterations / num_levels;
+            let rem = config.iterations % num_levels;
+            for (l, slot) in level_iters.iter_mut().enumerate() {
+                *slot = base + usize::from(l < rem);
+            }
+        }
+        let start_level = level_iters.iter().rposition(|&c| c > 0).unwrap_or(0);
+
+        Ok(Self {
+            num_nodes: n,
+            pairs: PairStorage::Symmetric(Vec::new()),
+            num_springs: m,
+            num_hinges: 0,
+            block_order: Vec::new(),
+            streaming: None,
+            snap_t_fdp: None,
+            pacmap: None,
+            sgd2: None,
+            largevis: None,
+            drgraph: Some(DrGraphState {
+                config,
+                pos_u,
+                pos_v,
+                edge_alias,
+                levels,
+                fine_to_level,
+                level_iters,
+                current_level: start_level,
+                level_iter: 0,
+                initialized_coords: false,
+                active_x: vec![0.0; n],
+                active_y: vec![0.0; n],
+                scratch_x: vec![0.0; n],
+                scratch_y: vec![0.0; n],
+                scratch_cnt: vec![0.0; n],
+            }),
+            graph_cne: None,
+            schedule_cfg,
+            eta_min: config.min_lr,
+            eta_max: config.initial_lr,
+            iter: 0,
+            status,
+            rng,
+        })
+    }
+
+    /// Constructs a `Graph-CNE` contrastive neighbor embedding solver (`Böhm et al., 2025`)
+    /// supporting [`GraphCneObjective::InfoNce`] and [`GraphCneObjective::NegTSne`].
+    pub fn graph_cne<W: Scalar>(graph: &CsrGraph<W>, config: GraphCneConfig) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "SgdSolver::graph_cne")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let schedule_cfg = SgdScheduleConfig {
+            t_max: config.iterations,
+            eps: 0.01,
+            kind: SgdScheduleKind::Linear,
+            step_scale: config.initial_lr,
+        };
+        let status = if config.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+
+        let mut edges_u = Vec::new();
+        let mut edges_v = Vec::new();
+        let mut edge_weights = Vec::new();
+
+        if n > 1 && graph.nnz() > 0 {
+            if config.row_normalize {
+                let probs = graph_row_normalized_probabilities(graph)?;
+                for u in 0..n {
+                    let u_u32 = u as u32;
+                    let (nbrs, vals) = probs.row(u);
+                    for (&v, &p_uv) in nbrs.iter().zip(vals.iter()) {
+                        if u_u32 < v && p_uv.is_finite() && p_uv > 0.0 {
+                            edges_u.push(u_u32);
+                            edges_v.push(v);
+                            edge_weights.push(p_uv);
+                        }
+                    }
+                }
+            } else {
+                for (u, v, w) in extract_canonical_undirected_edges(graph) {
+                    if w.is_finite() && w > 0.0 {
+                        edges_u.push(u);
+                        edges_v.push(v);
+                        edge_weights.push(w);
+                    }
+                }
+            }
+        }
+
+        let edge_alias = AliasTable::from_weights(&edge_weights);
+        let m = edges_u.len();
+
+        Ok(Self {
+            num_nodes: n,
+            pairs: PairStorage::Symmetric(Vec::new()),
+            num_springs: m,
+            num_hinges: 0,
+            block_order: Vec::new(),
+            streaming: None,
+            snap_t_fdp: None,
+            pacmap: None,
+            sgd2: None,
+            largevis: None,
+            drgraph: None,
+            graph_cne: Some(GraphCneState {
+                config,
+                edges_u,
+                edges_v,
+                edge_alias,
+                neg_scratch: Vec::with_capacity(config.negative_samples),
+            }),
+            schedule_cfg,
+            eta_min: config.min_lr,
+            eta_max: config.initial_lr,
+            iter: 0,
+            status,
+            rng: DeterministicRng::from_seed_u64(config.seed),
+        })
     }
 
     /// Returns the expected number of vertices in the layout.
@@ -3197,6 +4287,30 @@ impl<S: Scalar> SgdSolver<S> {
                 return 0.0;
             }
             return st.config.learning_rate;
+        }
+        if let Some(st) = &self.largevis {
+            let total = st.config.iterations;
+            if total == 0 || t >= total {
+                return 0.0;
+            }
+            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
+                .max(st.config.min_lr);
+        }
+        if let Some(st) = &self.drgraph {
+            let total = st.config.iterations;
+            if total == 0 || t >= total {
+                return 0.0;
+            }
+            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
+                .max(st.config.min_lr);
+        }
+        if let Some(st) = &self.graph_cne {
+            let total = st.config.iterations;
+            if total == 0 || t >= total {
+                return 0.0;
+            }
+            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
+                .max(st.config.min_lr);
         }
         let t_max = self.schedule_cfg.t_max;
         if t_max == 0 || t >= t_max {
@@ -3571,6 +4685,470 @@ impl<S: Scalar> SgdSolver<S> {
         Ok(self.finish_iteration())
     }
 
+    fn step_largevis(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let t = self.iter;
+        let Some(st) = self.largevis.as_ref() else {
+            return Ok(self.finish_iteration());
+        };
+        let total = st.config.iterations;
+        if n <= 1 || total == 0 || t >= total {
+            return Ok(self.finish_iteration());
+        }
+        if t == 0 {
+            scatter_collapsed_layout_if_needed(layout, 0.02, &mut self.rng);
+        }
+        let Some(edge_alias) = &st.edge_alias else {
+            return Ok(self.finish_iteration());
+        };
+
+        let lr = (st.config.initial_lr * (1.0 - (t as f64) / (total as f64))).max(st.config.min_lr);
+        if lr.is_finite() && lr > 0.0 {
+            let m = st.edges_u.len();
+            let gamma = st.config.gamma;
+            let neg_samples = st.config.negative_samples;
+            let (xs, ys) = layout.xy_mut();
+            for _ in 0..m {
+                let e_idx = edge_alias.sample(&mut self.rng);
+                let u_raw = st.edges_u[e_idx] as usize;
+                let v_raw = st.edges_v[e_idx] as usize;
+                let (u, v) = if (self.rng.next_u32() & 1) == 0 {
+                    (u_raw, v_raw)
+                } else {
+                    (v_raw, u_raw)
+                };
+
+                let dx = xs[u].to_f64() - xs[v].to_f64();
+                let dy = ys[u].to_f64() - ys[v].to_f64();
+                let d2 = dx * dx + dy * dy;
+                if d2.is_finite() {
+                    let grad = -2.0 / (1.0 + d2);
+                    let sx = (lr * grad * dx).clamp(-4.0, 4.0);
+                    let sy = (lr * grad * dy).clamp(-4.0, 4.0);
+                    if sx.is_finite() && sy.is_finite() {
+                        let ux = xs[u] + S::from_f64(sx);
+                        let uy = ys[u] + S::from_f64(sy);
+                        let vx = xs[v] - S::from_f64(sx);
+                        let vy = ys[v] - S::from_f64(sy);
+                        if ux.is_finite() && uy.is_finite() && vx.is_finite() && vy.is_finite() {
+                            xs[u] = ux;
+                            ys[u] = uy;
+                            xs[v] = vx;
+                            ys[v] = vy;
+                        }
+                    }
+                }
+
+                if let Some(neg_alias) = &st.neg_alias
+                    && gamma > 0.0
+                {
+                    for _ in 0..neg_samples {
+                        let k = neg_alias.sample(&mut self.rng);
+                        if k == u {
+                            continue;
+                        }
+                        let rdx = xs[u].to_f64() - xs[k].to_f64();
+                        let rdy = ys[u].to_f64() - ys[k].to_f64();
+                        let rd2 = rdx * rdx + rdy * rdy;
+                        if rd2.is_finite() && rd2 > 0.0 {
+                            let grad = (2.0 * gamma) / ((rd2 + 1e-6) * (1.0 + rd2));
+                            let sx = (lr * grad * rdx).clamp(-4.0, 4.0);
+                            let sy = (lr * grad * rdy).clamp(-4.0, 4.0);
+                            if sx.is_finite() && sy.is_finite() {
+                                let ux = xs[u] + S::from_f64(sx);
+                                let uy = ys[u] + S::from_f64(sy);
+                                if ux.is_finite() && uy.is_finite() {
+                                    xs[u] = ux;
+                                    ys[u] = uy;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(self.finish_iteration())
+    }
+
+    fn step_drgraph(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let t = self.iter;
+        let Some(st) = self.drgraph.as_mut() else {
+            return Ok(self.finish_iteration());
+        };
+        let total = st.config.iterations;
+        if n <= 1 || total == 0 || t >= total {
+            return Ok(self.finish_iteration());
+        }
+
+        if !st.initialized_coords {
+            let xs = layout.x();
+            let ys = layout.y();
+            let mut min_x = f64::INFINITY;
+            let mut max_x = f64::NEG_INFINITY;
+            let mut min_y = f64::INFINITY;
+            let mut max_y = f64::NEG_INFINITY;
+            for i in 0..n {
+                let x = xs[i].to_f64();
+                let y = ys[i].to_f64();
+                st.active_x[i] = x;
+                st.active_y[i] = y;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+            let l_init = st.current_level;
+            let ln = st.levels[l_init].num_nodes;
+            if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
+                for i in 0..ln {
+                    st.active_x[i] = self.rng.next_f64() - 0.5;
+                    st.active_y[i] = self.rng.next_f64() - 0.5;
+                }
+            } else if l_init > 0 {
+                let map = &st.fine_to_level[l_init];
+                st.scratch_x[..ln].fill(0.0);
+                st.scratch_y[..ln].fill(0.0);
+                st.scratch_cnt[..ln].fill(0.0);
+                for u in 0..n {
+                    let c = map[u] as usize;
+                    st.scratch_x[c] += st.active_x[u];
+                    st.scratch_y[c] += st.active_y[u];
+                    st.scratch_cnt[c] += 1.0;
+                }
+                for c in 0..ln {
+                    let cnt = st.scratch_cnt[c].max(1.0);
+                    st.active_x[c] = st.scratch_x[c] / cnt;
+                    st.active_y[c] = st.scratch_y[c] / cnt;
+                }
+            }
+            st.initialized_coords = true;
+        } else if st.current_level == 0 {
+            let xs = layout.x();
+            let ys = layout.y();
+            for i in 0..n {
+                st.active_x[i] = xs[i].to_f64();
+                st.active_y[i] = ys[i].to_f64();
+            }
+        }
+
+        let l = st.current_level;
+        let ln = st.levels[l].num_nodes;
+        let lr = (st.config.initial_lr * (1.0 - (t as f64) / (total as f64))).max(st.config.min_lr);
+        let gamma = if l == st.levels.len() - 1 && st.levels.len() > 1 {
+            st.config.gamma_coarse
+        } else {
+            st.config.gamma_fine
+        };
+        let b = st.config.b;
+        let neg_samples = st.config.negative_samples;
+
+        if let Some(edge_alias) = &st.edge_alias
+            && lr.is_finite()
+            && lr > 0.0
+            && ln > 1
+        {
+            let m = st.pos_u.len();
+            for _ in 0..m {
+                let e_idx = edge_alias.sample(&mut self.rng);
+                let u0 = st.pos_u[e_idx] as usize;
+                let v0 = st.pos_v[e_idx] as usize;
+                let (su, sv) = if l > 0 {
+                    let map = &st.fine_to_level[l];
+                    (map[u0] as usize, map[v0] as usize)
+                } else {
+                    (u0, v0)
+                };
+                let (u, v) = if (self.rng.next_u32() & 1) == 0 {
+                    (su, sv)
+                } else {
+                    (sv, su)
+                };
+
+                if u != v {
+                    let dx = st.active_x[u] - st.active_x[v];
+                    let dy = st.active_y[u] - st.active_y[v];
+                    let d2 = dx * dx + dy * dy;
+                    if d2.is_finite() {
+                        let d2_safe = if b < 1.0 { d2.max(1e-12) } else { d2 };
+                        let (pow_bm1, pow_b) = if (b - 2.0).abs() == 0.0 {
+                            (d2_safe, d2_safe * d2_safe)
+                        } else if (b - 1.0).abs() == 0.0 {
+                            (1.0, d2_safe)
+                        } else {
+                            (d2_safe.powf(b - 1.0), d2_safe.powf(b))
+                        };
+                        let attr_coeff = (2.0 * b * pow_bm1) / (1.0 + pow_b);
+                        if attr_coeff.is_finite() {
+                            let sx = (lr * attr_coeff * dx).clamp(-4.0, 4.0);
+                            let sy = (lr * attr_coeff * dy).clamp(-4.0, 4.0);
+                            if sx.is_finite() && sy.is_finite() {
+                                st.active_x[u] -= sx;
+                                st.active_y[u] -= sy;
+                                st.active_x[v] += sx;
+                                st.active_y[v] += sy;
+                            }
+                        }
+                    }
+                }
+
+                if gamma > 0.0 {
+                    for _ in 0..neg_samples {
+                        let k = self.rng.gen_range_usize(ln);
+                        if k == u {
+                            continue;
+                        }
+                        let rdx = st.active_x[u] - st.active_x[k];
+                        let rdy = st.active_y[u] - st.active_y[k];
+                        let rd2 = rdx * rdx + rdy * rdy;
+                        if rd2.is_finite() && rd2 > 0.0 {
+                            let pow_b = if (b - 2.0).abs() == 0.0 {
+                                rd2 * rd2
+                            } else if (b - 1.0).abs() == 0.0 {
+                                rd2
+                            } else {
+                                rd2.powf(b)
+                            };
+                            let rep_coeff = (2.0 * b * gamma) / ((rd2 + 1e-6) * (1.0 + pow_b));
+                            if rep_coeff.is_finite() {
+                                let sx = (lr * rep_coeff * rdx).clamp(-4.0, 4.0);
+                                let sy = (lr * rep_coeff * rdy).clamp(-4.0, 4.0);
+                                if sx.is_finite() && sy.is_finite() {
+                                    st.active_x[u] += sx;
+                                    st.active_y[u] += sy;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        st.level_iter += 1;
+        while st.current_level > 0 && st.level_iter >= st.level_iters[st.current_level] {
+            let finer = st.current_level - 1;
+            let fine_n = st.levels[finer].num_nodes;
+            if let (Some(coarse_of), Some(counts)) = (
+                st.levels[finer].coarse_of_finer.as_ref(),
+                st.levels[finer].cluster_counts_of_finer.as_ref(),
+            ) {
+                for u in 0..fine_n {
+                    let c = coarse_of[u] as usize;
+                    let cx = st.active_x[c];
+                    let cy = st.active_y[c];
+                    if counts[c] <= 1 {
+                        st.scratch_x[u] = cx;
+                        st.scratch_y[u] = cy;
+                    } else {
+                        let angle = std::f64::consts::TAU * self.rng.next_f64();
+                        let radius = 1e-4 * (0.25 + 0.75 * self.rng.next_f64());
+                        let (s, cs) = angle.sin_cos();
+                        st.scratch_x[u] = cx + radius * cs;
+                        st.scratch_y[u] = cy + radius * s;
+                    }
+                }
+                st.active_x[..fine_n].copy_from_slice(&st.scratch_x[..fine_n]);
+                st.active_y[..fine_n].copy_from_slice(&st.scratch_y[..fine_n]);
+            }
+            st.current_level = finer;
+            st.level_iter = 0;
+        }
+
+        let (xs_mut, ys_mut) = layout.xy_mut();
+        if st.current_level == 0 {
+            for i in 0..n {
+                let nx = S::from_f64(st.active_x[i]);
+                let ny = S::from_f64(st.active_y[i]);
+                if nx.is_finite() {
+                    xs_mut[i] = nx;
+                }
+                if ny.is_finite() {
+                    ys_mut[i] = ny;
+                }
+            }
+        } else {
+            let map = &st.fine_to_level[st.current_level];
+            for (u, &c) in map.iter().enumerate() {
+                let nx = S::from_f64(st.active_x[c as usize]);
+                let ny = S::from_f64(st.active_y[c as usize]);
+                if nx.is_finite() {
+                    xs_mut[u] = nx;
+                }
+                if ny.is_finite() {
+                    ys_mut[u] = ny;
+                }
+            }
+        }
+
+        Ok(self.finish_iteration())
+    }
+
+    fn step_graph_cne(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        let n = self.num_nodes;
+        let t = self.iter;
+        let Some(st) = self.graph_cne.as_mut() else {
+            return Ok(self.finish_iteration());
+        };
+        let total = st.config.iterations;
+        if n <= 1 || total == 0 || t >= total {
+            return Ok(self.finish_iteration());
+        }
+        if t == 0 {
+            scatter_collapsed_layout_if_needed(layout, 0.02, &mut self.rng);
+        }
+        let Some(edge_alias) = &st.edge_alias else {
+            return Ok(self.finish_iteration());
+        };
+
+        let lr = (st.config.initial_lr * (1.0 - (t as f64) / (total as f64))).max(st.config.min_lr);
+        if lr.is_finite() && lr > 0.0 {
+            let m = st.edges_u.len();
+            let neg_samples = st.config.negative_samples;
+            let rho = st.config.repulsion_weight;
+            let objective = st.config.objective;
+            let (xs, ys) = layout.xy_mut();
+            for _ in 0..m {
+                let e_idx = edge_alias.sample(&mut self.rng);
+                let u_raw = st.edges_u[e_idx] as usize;
+                let v_raw = st.edges_v[e_idx] as usize;
+                let (u, v) = if (self.rng.next_u32() & 1) == 0 {
+                    (u_raw, v_raw)
+                } else {
+                    (v_raw, u_raw)
+                };
+
+                st.neg_scratch.clear();
+                for _ in 0..neg_samples {
+                    let k = self.rng.gen_range_usize(n);
+                    if k != u {
+                        st.neg_scratch.push(k as u32);
+                    }
+                }
+
+                let ux_cur = xs[u].to_f64();
+                let uy_cur = ys[u].to_f64();
+                let dx_uv = ux_cur - xs[v].to_f64();
+                let dy_uv = uy_cur - ys[v].to_f64();
+                let d2_uv = dx_uv * dx_uv + dy_uv * dy_uv;
+                if !d2_uv.is_finite() {
+                    continue;
+                }
+                let w_uv = 1.0 / (1.0 + d2_uv);
+
+                match objective {
+                    GraphCneObjective::InfoNce => {
+                        let mut sum_neg_w = 0.0_f64;
+                        if rho > 0.0 {
+                            for &k_u32 in &st.neg_scratch {
+                                let k = k_u32 as usize;
+                                let dx = ux_cur - xs[k].to_f64();
+                                let dy = uy_cur - ys[k].to_f64();
+                                let d2 = dx * dx + dy * dy;
+                                if d2.is_finite() {
+                                    sum_neg_w += 1.0 / (1.0 + d2);
+                                }
+                            }
+                        }
+                        let denom = w_uv + rho * sum_neg_w;
+                        if !denom.is_finite() || denom <= 0.0 {
+                            continue;
+                        }
+                        let p_uv = w_uv / denom;
+                        let attr_coeff = 2.0 * lr * (1.0 - p_uv) * w_uv;
+                        let sx_pos = (attr_coeff * dx_uv).clamp(-4.0, 4.0);
+                        let sy_pos = (attr_coeff * dy_uv).clamp(-4.0, 4.0);
+
+                        let mut acc_rep_x = 0.0_f64;
+                        let mut acc_rep_y = 0.0_f64;
+                        if rho > 0.0 {
+                            for &k_u32 in &st.neg_scratch {
+                                let k = k_u32 as usize;
+                                let dx = ux_cur - xs[k].to_f64();
+                                let dy = uy_cur - ys[k].to_f64();
+                                let d2 = dx * dx + dy * dy;
+                                if d2.is_finite() {
+                                    let w_uk = 1.0 / (1.0 + d2);
+                                    let q_k = (rho * w_uk) / denom;
+                                    let rep_coeff = 2.0 * lr * q_k * w_uk;
+                                    acc_rep_x += (rep_coeff * dx).clamp(-4.0, 4.0);
+                                    acc_rep_y += (rep_coeff * dy).clamp(-4.0, 4.0);
+                                }
+                            }
+                        }
+
+                        if sx_pos.is_finite()
+                            && sy_pos.is_finite()
+                            && acc_rep_x.is_finite()
+                            && acc_rep_y.is_finite()
+                        {
+                            let ux_new = xs[u] + S::from_f64(acc_rep_x - sx_pos);
+                            let uy_new = ys[u] + S::from_f64(acc_rep_y - sy_pos);
+                            let vx_new = xs[v] + S::from_f64(sx_pos);
+                            let vy_new = ys[v] + S::from_f64(sy_pos);
+                            if ux_new.is_finite()
+                                && uy_new.is_finite()
+                                && vx_new.is_finite()
+                                && vy_new.is_finite()
+                            {
+                                xs[u] = ux_new;
+                                ys[u] = uy_new;
+                                xs[v] = vx_new;
+                                ys[v] = vy_new;
+                            }
+                        }
+                    }
+                    GraphCneObjective::NegTSne => {
+                        let attr_coeff = 2.0 * lr * w_uv;
+                        let sx_pos = (attr_coeff * dx_uv).clamp(-4.0, 4.0);
+                        let sy_pos = (attr_coeff * dy_uv).clamp(-4.0, 4.0);
+
+                        let mut acc_rep_x = 0.0_f64;
+                        let mut acc_rep_y = 0.0_f64;
+                        if rho > 0.0 && !st.neg_scratch.is_empty() {
+                            let rep_scale = rho / (st.neg_scratch.len() as f64);
+                            for &k_u32 in &st.neg_scratch {
+                                let k = k_u32 as usize;
+                                let dx = ux_cur - xs[k].to_f64();
+                                let dy = uy_cur - ys[k].to_f64();
+                                let d2 = dx * dx + dy * dy;
+                                if d2.is_finite() {
+                                    let w_uk = 1.0 / (1.0 + d2);
+                                    let rep_coeff = 2.0 * lr * rep_scale * w_uk * w_uk;
+                                    acc_rep_x += (rep_coeff * dx).clamp(-4.0, 4.0);
+                                    acc_rep_y += (rep_coeff * dy).clamp(-4.0, 4.0);
+                                }
+                            }
+                        }
+
+                        if sx_pos.is_finite()
+                            && sy_pos.is_finite()
+                            && acc_rep_x.is_finite()
+                            && acc_rep_y.is_finite()
+                        {
+                            let ux_new = xs[u] + S::from_f64(acc_rep_x - sx_pos);
+                            let uy_new = ys[u] + S::from_f64(acc_rep_y - sy_pos);
+                            let vx_new = xs[v] + S::from_f64(sx_pos);
+                            let vy_new = ys[v] + S::from_f64(sy_pos);
+                            if ux_new.is_finite()
+                                && uy_new.is_finite()
+                                && vx_new.is_finite()
+                                && vy_new.is_finite()
+                            {
+                                xs[u] = ux_new;
+                                ys[u] = uy_new;
+                                xs[v] = vx_new;
+                                ys[v] = vy_new;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(self.finish_iteration())
+    }
+
     /// Executes one SGD iteration on a non-Euclidean [`ManifoldLayout2d<S>`] across
     /// `HyperbolicPoincare`, `Spherical`, and `Torus2d` geometries.
     pub fn step_manifold(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
@@ -3582,9 +5160,15 @@ impl<S: Scalar> SgdSolver<S> {
             ));
         }
         layout.as_layout().validate_finite()?;
-        if self.snap_t_fdp.is_some() || self.pacmap.is_some() || self.sgd2.is_some() {
+        if self.snap_t_fdp.is_some()
+            || self.pacmap.is_some()
+            || self.sgd2.is_some()
+            || self.largevis.is_some()
+            || self.drgraph.is_some()
+            || self.graph_cne.is_some()
+        {
             return Err(CoreError::invalid_input(
-                "SgdSolver::step_manifold is not supported for SnapTFdp, PacmapGraph, or Sgd2 modes",
+                "SgdSolver::step_manifold is not supported for SnapTFdp, PacmapGraph, Sgd2, LargeVis, DrGraph, or GraphCne modes",
             ));
         }
         if self.status.is_finished() {
@@ -3880,6 +5464,601 @@ fn flush_sgd2_batch<S: Scalar>(
     st.touched_stamp.clear();
 }
 
+fn scatter_collapsed_layout_if_needed<S: Scalar>(
+    layout: &mut Layout2d<S>,
+    span: f64,
+    rng: &mut DeterministicRng,
+) {
+    let n = layout.len();
+    if n <= 1 {
+        return;
+    }
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for i in 0..n {
+        let x = xs[i].to_f64();
+        let y = ys[i].to_f64();
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
+        let (xs_mut, ys_mut) = layout.xy_mut();
+        for i in 0..n {
+            xs_mut[i] = S::from_f64(span * (rng.next_f64() - 0.5));
+            ys_mut[i] = S::from_f64(span * (rng.next_f64() - 0.5));
+        }
+    }
+}
+
+type CanonicalPositiveGraph = (CsrGraph<f64>, Vec<(u32, u32, f64)>);
+
+fn build_positive_canonical_csr<W: Scalar>(
+    graph: &CsrGraph<W>,
+) -> CoreResult<CanonicalPositiveGraph> {
+    let n = graph.num_nodes();
+    let raw_edges = extract_canonical_undirected_edges(graph);
+    let weighted = graph.is_weighted();
+    let mut positive_edges = Vec::with_capacity(raw_edges.len());
+    for (u, v, w) in raw_edges {
+        let w_pos = if weighted { w } else { 1.0 };
+        if w_pos.is_finite() && w_pos > 0.0 {
+            positive_edges.push((u, v, w_pos));
+        }
+    }
+    let mut pair_uv = Vec::with_capacity(positive_edges.len());
+    let mut pair_w = Vec::with_capacity(positive_edges.len());
+    for &(u, v, w) in &positive_edges {
+        pair_uv.push((u, v));
+        pair_w.push(w);
+    }
+    let weights_opt = if weighted {
+        Some(pair_w.as_slice())
+    } else {
+        None
+    };
+    let sym_graph = CsrGraph::<f64>::from_edges(n, &pair_uv, weights_opt, false, false)?;
+    Ok((sym_graph, positive_edges))
+}
+
+fn compute_mssp_dists(graph: &CsrGraph<f64>, pivots: &[u32]) -> CoreResult<Vec<f64>> {
+    let n = graph.num_nodes();
+    let h = pivots.len();
+    let mut piv_dists = vec![f64::INFINITY; h * n];
+    if graph.is_weighted() {
+        let mut dijk = DijkstraWorkspace::new(n);
+        for (k, &p) in pivots.iter().enumerate() {
+            dijk.dijkstra_from(graph, p as usize, &mut piv_dists[k * n..(k + 1) * n])?;
+        }
+    } else {
+        let mut bfs = BfsWorkspace::new(n);
+        for (k, &p) in pivots.iter().enumerate() {
+            bfs.bfs_from(graph, p as usize, &mut piv_dists[k * n..(k + 1) * n])?;
+        }
+    }
+    Ok(piv_dists)
+}
+
+fn select_weighted_maxmin_sp_pivots(
+    graph: &CsrGraph<f64>,
+    num_pivots: usize,
+    seed: u64,
+    min_degree: usize,
+) -> CoreResult<Vec<u32>> {
+    let n = graph.num_nodes();
+    if n == 0 || num_pivots == 0 {
+        return Ok(Vec::new());
+    }
+    let target = num_pivots.min(n);
+    if target == n {
+        return Ok((0..n as u32).collect());
+    }
+
+    let mut core_count = 0usize;
+    let mut non_iso_count = 0usize;
+    for u in 0..n {
+        let deg = graph.degree(u);
+        if deg >= min_degree {
+            core_count += 1;
+        }
+        if deg > 0 {
+            non_iso_count += 1;
+        }
+    }
+
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let first_pivot = if core_count > 0 {
+        let pick = rng.gen_range_usize(core_count);
+        (0..n)
+            .filter(|&u| graph.degree(u) >= min_degree)
+            .nth(pick)
+            .ok_or_else(|| CoreError::numerical_breakdown("failed to pick first core pivot"))?
+            as u32
+    } else if non_iso_count > 0 {
+        let pick = rng.gen_range_usize(non_iso_count);
+        (0..n)
+            .filter(|&u| graph.degree(u) > 0)
+            .nth(pick)
+            .ok_or_else(|| CoreError::numerical_breakdown("failed to pick first non-iso pivot"))?
+            as u32
+    } else {
+        rng.gen_range_usize(n) as u32
+    };
+
+    let mut pivots = Vec::with_capacity(target);
+    let mut chosen = vec![false; n];
+    let mut min_dist = vec![f64::INFINITY; n];
+    let mut dijk_dist = vec![f64::INFINITY; n];
+    let mut dijk = DijkstraWorkspace::new(n);
+
+    pivots.push(first_pivot);
+    chosen[first_pivot as usize] = true;
+    let mut last = first_pivot as usize;
+
+    for _ in 1..target {
+        dijk.dijkstra_from(graph, last, &mut dijk_dist)?;
+
+        let mut best_core: Option<(usize, f64)> = None;
+        let mut best_non_iso: Option<(usize, f64)> = None;
+        let mut best_any: Option<(usize, f64)> = None;
+
+        for u in 0..n {
+            let d = min_dist[u].min(dijk_dist[u]);
+            min_dist[u] = d;
+            if chosen[u] {
+                continue;
+            }
+            let deg = graph.degree(u);
+            if deg >= min_degree && best_core.is_none_or(|(_, bd)| d.total_cmp(&bd).is_gt()) {
+                best_core = Some((u, d));
+            }
+            if deg > 0 && best_non_iso.is_none_or(|(_, bd)| d.total_cmp(&bd).is_gt()) {
+                best_non_iso = Some((u, d));
+            }
+            if best_any.is_none_or(|(_, bd)| d.total_cmp(&bd).is_gt()) {
+                best_any = Some((u, d));
+            }
+        }
+
+        let next_pivot = best_core
+            .or(best_non_iso)
+            .or(best_any)
+            .ok_or_else(|| {
+                CoreError::numerical_breakdown("no unchosen vertex available for MaxMin pivot")
+            })?
+            .0 as u32;
+        chosen[next_pivot as usize] = true;
+        pivots.push(next_pivot);
+        last = next_pivot as usize;
+    }
+
+    Ok(pivots)
+}
+
+fn select_maxmin_random_sp_pivots(
+    graph: &CsrGraph<f64>,
+    target_k: usize,
+    seed: u64,
+) -> CoreResult<(Vec<u32>, Vec<f64>)> {
+    let n = graph.num_nodes();
+    if target_k == 0 || n == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    if target_k >= n {
+        let pivots: Vec<u32> = (0..n as u32).collect();
+        let dists = compute_mssp_dists(graph, &pivots)?;
+        return Ok((pivots, dists));
+    }
+
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let mut pivots = Vec::with_capacity(target_k);
+    let mut chosen = vec![false; n];
+    let mut piv_dists = vec![f64::INFINITY; target_k * n];
+    let mut min_d = vec![f64::INFINITY; n];
+    let weighted = graph.is_weighted();
+    let mut bfs = (!weighted).then(|| BfsWorkspace::new(n));
+    let mut dijk = weighted.then(|| DijkstraWorkspace::new(n));
+
+    let first = rng.gen_range_usize(n);
+    pivots.push(first as u32);
+    chosen[first] = true;
+    if let Some(ws) = bfs.as_mut() {
+        ws.bfs_from(graph, first, &mut piv_dists[0..n])?;
+    } else if let Some(ws) = dijk.as_mut() {
+        ws.dijkstra_from(graph, first, &mut piv_dists[0..n])?;
+    }
+    min_d.copy_from_slice(&piv_dists[0..n]);
+
+    for k in 1..target_k {
+        let mut inf_count = 0usize;
+        let mut finite_sum = 0.0_f64;
+        let mut last_unchosen = None;
+        for u in 0..n {
+            if chosen[u] {
+                continue;
+            }
+            last_unchosen = Some(u);
+            if !min_d[u].is_finite() {
+                inf_count += 1;
+            } else if min_d[u] > 0.0 {
+                finite_sum += min_d[u];
+            }
+        }
+        let next_u = if inf_count > 0 {
+            let pick = rng.gen_range_usize(inf_count);
+            let mut seen = 0usize;
+            let mut chosen_u = last_unchosen.unwrap_or(0);
+            for u in 0..n {
+                if !chosen[u] && !min_d[u].is_finite() {
+                    if seen == pick {
+                        chosen_u = u;
+                        break;
+                    }
+                    seen += 1;
+                }
+            }
+            chosen_u
+        } else if finite_sum.is_finite() && finite_sum > 0.0 {
+            let threshold = rng.next_f64() * finite_sum;
+            let mut acc = 0.0_f64;
+            let mut picked = last_unchosen.unwrap_or(0);
+            for u in 0..n {
+                if !chosen[u] && min_d[u].is_finite() && min_d[u] > 0.0 {
+                    acc += min_d[u];
+                    picked = u;
+                    if acc >= threshold {
+                        break;
+                    }
+                }
+            }
+            picked
+        } else {
+            let unchosen_total = n - k;
+            let pick = rng.gen_range_usize(unchosen_total);
+            let mut seen = 0usize;
+            let mut chosen_u = last_unchosen.unwrap_or(0);
+            for (u, &is_chosen) in chosen.iter().enumerate().take(n) {
+                if !is_chosen {
+                    if seen == pick {
+                        chosen_u = u;
+                        break;
+                    }
+                    seen += 1;
+                }
+            }
+            chosen_u
+        };
+
+        chosen[next_u] = true;
+        pivots.push(next_u as u32);
+        let row = &mut piv_dists[k * n..(k + 1) * n];
+        if let Some(ws) = bfs.as_mut() {
+            ws.bfs_from(graph, next_u, row)?;
+        } else if let Some(ws) = dijk.as_mut() {
+            ws.dijkstra_from(graph, next_u, row)?;
+        }
+        for u in 0..n {
+            min_d[u] = min_d[u].min(row[u]);
+        }
+    }
+
+    Ok((pivots, piv_dists))
+}
+
+fn select_kmeans_sp_pivots(
+    graph: &CsrGraph<f64>,
+    target_k: usize,
+    seed: u64,
+) -> CoreResult<(Vec<u32>, Vec<f64>)> {
+    let n = graph.num_nodes();
+    if target_k == 0 || n == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut pivots = if graph.is_weighted() {
+        select_weighted_maxmin_sp_pivots(graph, target_k, seed, 2)?
+    } else {
+        select_maxmin_sp_pivots(graph, target_k, seed, 2)?
+    };
+    let h = pivots.len();
+    let mut piv_dists = compute_mssp_dists(graph, &pivots)?;
+
+    if h < 2 || h >= n || h.saturating_mul(n) > 2_000_000 {
+        return Ok((pivots, piv_dists));
+    }
+
+    let mut max_finite = 0.0_f64;
+    for &d in &piv_dists {
+        if d.is_finite() {
+            max_finite = max_finite.max(d);
+        }
+    }
+    if max_finite <= 0.0 {
+        return Ok((pivots, piv_dists));
+    }
+    let fallback = 2.0 * max_finite;
+
+    let mut coords = vec![0.0_f64; n * h];
+    for j in 0..n {
+        for k in 0..h {
+            let d = piv_dists[k * n + j];
+            coords[j * h + k] = if d.is_finite() { d } else { fallback };
+        }
+    }
+
+    let mut assign = vec![0usize; n];
+    for j in 0..n {
+        let mut best_k = 0usize;
+        let mut best_d = f64::INFINITY;
+        for k in 0..h {
+            let d = piv_dists[k * n + j];
+            if d.is_finite() && d < best_d {
+                best_d = d;
+                best_k = k;
+            }
+        }
+        assign[j] = if best_d.is_finite() { best_k } else { j % h };
+    }
+
+    let mut centroids = vec![0.0_f64; h * h];
+    let mut counts = vec![0usize; h];
+    let mut new_pivots = vec![0u32; h];
+    let mut used = vec![false; n];
+
+    for round in 0..5 {
+        centroids.fill(0.0);
+        counts.fill(0);
+        for j in 0..n {
+            let c = assign[j];
+            counts[c] += 1;
+            let row_j = &coords[j * h..(j + 1) * h];
+            let row_c = &mut centroids[c * h..(c + 1) * h];
+            for d_idx in 0..h {
+                row_c[d_idx] += row_j[d_idx];
+            }
+        }
+        for c in 0..h {
+            let cnt = counts[c];
+            if cnt > 0 {
+                let inv = 1.0 / (cnt as f64);
+                let row_c = &mut centroids[c * h..(c + 1) * h];
+                for val in row_c.iter_mut() {
+                    *val *= inv;
+                }
+            } else {
+                let p = pivots[c] as usize;
+                centroids[c * h..(c + 1) * h].copy_from_slice(&coords[p * h..(p + 1) * h]);
+            }
+        }
+
+        if round > 0 {
+            for j in 0..n {
+                let row_j = &coords[j * h..(j + 1) * h];
+                let mut best_c = 0usize;
+                let mut best_sq = f64::INFINITY;
+                for c in 0..h {
+                    let row_c = &centroids[c * h..(c + 1) * h];
+                    let mut sq = 0.0_f64;
+                    for d_idx in 0..h {
+                        let diff = row_j[d_idx] - row_c[d_idx];
+                        sq += diff * diff;
+                    }
+                    if sq < best_sq {
+                        best_sq = sq;
+                        best_c = c;
+                    }
+                }
+                assign[j] = best_c;
+            }
+        }
+
+        used.fill(false);
+        for c in 0..h {
+            let row_c = &centroids[c * h..(c + 1) * h];
+            let mut best_in_cluster: Option<(usize, f64)> = None;
+            let mut best_any: Option<(usize, f64)> = None;
+            for j in 0..n {
+                if used[j] {
+                    continue;
+                }
+                let row_j = &coords[j * h..(j + 1) * h];
+                let mut sq = 0.0_f64;
+                for d_idx in 0..h {
+                    let diff = row_j[d_idx] - row_c[d_idx];
+                    sq += diff * diff;
+                }
+                if assign[j] == c && best_in_cluster.is_none_or(|(_, bsq)| sq < bsq) {
+                    best_in_cluster = Some((j, sq));
+                }
+                if best_any.is_none_or(|(_, bsq)| sq < bsq) {
+                    best_any = Some((j, sq));
+                }
+            }
+            if let Some((best_j, _)) = best_in_cluster.or(best_any) {
+                used[best_j] = true;
+                new_pivots[c] = best_j as u32;
+            }
+        }
+
+        if new_pivots == pivots {
+            break;
+        }
+        pivots.copy_from_slice(&new_pivots);
+    }
+
+    piv_dists = compute_mssp_dists(graph, &pivots)?;
+    Ok((pivots, piv_dists))
+}
+
+fn select_ortmann_pivots_and_dists(
+    graph: &CsrGraph<f64>,
+    target_k: usize,
+    strategy: OrtmannPivotStrategy,
+    seed: u64,
+) -> CoreResult<(Vec<u32>, Vec<f64>)> {
+    match strategy {
+        OrtmannPivotStrategy::MaxMinSp => {
+            let pivots = if graph.is_weighted() {
+                select_weighted_maxmin_sp_pivots(graph, target_k, seed, 2)?
+            } else {
+                select_maxmin_sp_pivots(graph, target_k, seed, 2)?
+            };
+            let piv_dists = compute_mssp_dists(graph, &pivots)?;
+            Ok((pivots, piv_dists))
+        }
+        OrtmannPivotStrategy::MaxMinRandomSp => {
+            select_maxmin_random_sp_pivots(graph, target_k, seed)
+        }
+        OrtmannPivotStrategy::KMeansSp => select_kmeans_sp_pivots(graph, target_k, seed),
+    }
+}
+
+fn compute_drgraph_similarities(
+    sym_graph: &CsrGraph<f64>,
+    k_order: usize,
+) -> CoreResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+    let n = sym_graph.num_nodes();
+    if n <= 1 || sym_graph.nnz() == 0 {
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
+    }
+
+    if k_order == 1 && !sym_graph.is_weighted() {
+        let probs = graph_row_normalized_probabilities(sym_graph)?;
+        let mut pos_u = Vec::with_capacity(sym_graph.num_edges());
+        let mut pos_v = Vec::with_capacity(sym_graph.num_edges());
+        let mut pos_w = Vec::with_capacity(sym_graph.num_edges());
+        for u in 0..n {
+            let u_u32 = u as u32;
+            let (nbrs, vals) = probs.row(u);
+            for (&v, &p_uv) in nbrs.iter().zip(vals.iter()) {
+                if u_u32 < v && p_uv.is_finite() && p_uv > 0.0 {
+                    pos_u.push(u_u32);
+                    pos_v.push(v);
+                    pos_w.push(p_uv);
+                }
+            }
+        }
+        return Ok((pos_u, pos_v, pos_w));
+    }
+
+    let mut raw_pairs: Vec<(u32, u32, f64)> = Vec::new();
+    let mut visited = VisitStamp::new(n);
+    let mut queue: Vec<(u32, usize)> = Vec::new();
+    let mut nbr_dists: Vec<(u32, f64)> = Vec::new();
+    let mut dist_scratch: Vec<f64> = Vec::new();
+    let mut dijk_dists = vec![f64::INFINITY; n];
+    let mut dijk = (sym_graph.is_weighted() && k_order >= 2).then(|| DijkstraWorkspace::new(n));
+    let weights_opt = sym_graph.weights();
+
+    for i in 0..n {
+        nbr_dists.clear();
+        if k_order == 1 {
+            let start = sym_graph.indptr()[i] as usize;
+            let end = sym_graph.indptr()[i + 1] as usize;
+            for pos in start..end {
+                let j = sym_graph.indices()[pos];
+                if (j as usize) != i {
+                    let d = weights_opt.map_or(1.0, |ws| ws[pos].to_f64());
+                    if d.is_finite() && d > 0.0 {
+                        nbr_dists.push((j, d));
+                    }
+                }
+            }
+        } else {
+            visited.clear();
+            visited.mark(i);
+            queue.clear();
+            queue.push((i as u32, 0));
+            let mut head = 0usize;
+            while head < queue.len() {
+                let (u_u32, depth) = queue[head];
+                head += 1;
+                if depth >= k_order {
+                    continue;
+                }
+                for &v_u32 in sym_graph.neighbors(u_u32 as usize) {
+                    if visited.visit(v_u32 as usize) {
+                        let next_depth = depth + 1;
+                        queue.push((v_u32, next_depth));
+                        if !sym_graph.is_weighted() {
+                            nbr_dists.push((v_u32, next_depth as f64));
+                        }
+                    }
+                }
+            }
+            if let Some(ws) = dijk.as_mut() {
+                ws.dijkstra_from(sym_graph, i, &mut dijk_dists)?;
+                for &(v_u32, depth) in &queue {
+                    if depth >= 1 {
+                        let d = dijk_dists[v_u32 as usize];
+                        if d.is_finite() && d > 0.0 {
+                            nbr_dists.push((v_u32, d));
+                        }
+                    }
+                }
+            }
+        }
+
+        if nbr_dists.is_empty() {
+            continue;
+        }
+        dist_scratch.clear();
+        for &(_, d) in &nbr_dists {
+            dist_scratch.push(d);
+        }
+        dist_scratch.sort_unstable_by(f64::total_cmp);
+        let sigma = dist_scratch[dist_scratch.len() / 2].max(1e-6);
+        let inv_2s2 = 0.5 / (sigma * sigma);
+        let min_d = dist_scratch[0];
+        let min_d2 = min_d * min_d;
+
+        let mut sum_w = 0.0_f64;
+        for &(_, d) in &nbr_dists {
+            sum_w += (-(d * d - min_d2) * inv_2s2).exp();
+        }
+        if !sum_w.is_finite() || sum_w <= 0.0 {
+            continue;
+        }
+        let inv_sum = 1.0 / sum_w;
+        let i_u32 = i as u32;
+        for &(j_u32, d) in &nbr_dists {
+            let ns_ji = (-(d * d - min_d2) * inv_2s2).exp() * inv_sum;
+            let (a, b) = if i_u32 < j_u32 {
+                (i_u32, j_u32)
+            } else {
+                (j_u32, i_u32)
+            };
+            raw_pairs.push((a, b, ns_ji));
+        }
+    }
+
+    raw_pairs.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(&y.1)));
+    let inv_2n = 0.5 / (n as f64);
+    let mut pos_u = Vec::with_capacity(raw_pairs.len());
+    let mut pos_v = Vec::with_capacity(raw_pairs.len());
+    let mut pos_w = Vec::with_capacity(raw_pairs.len());
+    let mut idx = 0usize;
+    while idx < raw_pairs.len() {
+        let (u, v, _) = raw_pairs[idx];
+        let mut sum_p = 0.0_f64;
+        while idx < raw_pairs.len() && raw_pairs[idx].0 == u && raw_pairs[idx].1 == v {
+            sum_p += raw_pairs[idx].2;
+            idx += 1;
+        }
+        let ns_uv = sum_p * inv_2n;
+        if ns_uv.is_finite() && ns_uv > 0.0 {
+            pos_u.push(u);
+            pos_v.push(v);
+            pos_w.push(ns_uv);
+        }
+    }
+    Ok((pos_u, pos_v, pos_w))
+}
+
 impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         if layout.len() != self.num_nodes {
@@ -3902,6 +6081,15 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
         }
         if self.sgd2.is_some() {
             return self.step_sgd2(layout);
+        }
+        if self.largevis.is_some() {
+            return self.step_largevis(layout);
+        }
+        if self.drgraph.is_some() {
+            return self.step_drgraph(layout);
+        }
+        if self.graph_cne.is_some() {
+            return self.step_graph_cne(layout);
         }
 
         let eta_f64 = self.eta_at(self.iter);
@@ -6587,5 +8775,775 @@ mod tests {
             row.dedup();
             assert_eq!(row.len(), 5);
         }
+    }
+
+    #[test]
+    fn test_w2_config_validations() {
+        assert!(OrtmannSparseStressConfig::default().validate().is_ok());
+        assert!(
+            OrtmannSparseStressConfig {
+                num_pivots: 0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        for bad in [0.0, -0.1, f64::NAN, f64::INFINITY] {
+            assert!(
+                OrtmannSparseStressConfig {
+                    eps: bad,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+            assert!(
+                OrtmannSparseStressConfig {
+                    eta_max: Some(bad),
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+            assert!(
+                OrtmannSparseStressConfig {
+                    eta_min: Some(bad),
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            OrtmannSparseStressConfig {
+                eta_min: Some(2.0),
+                eta_max: Some(1.0),
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(LargeVisConfig::default().validate().is_ok());
+        assert!(
+            LargeVisConfig {
+                gamma: -1.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            LargeVisConfig {
+                gamma: f64::NAN,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            LargeVisConfig {
+                initial_lr: 0.0,
+                min_lr: 0.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            LargeVisConfig {
+                min_lr: -1e-4,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            LargeVisConfig {
+                initial_lr: 0.5,
+                min_lr: 0.6,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            LargeVisConfig {
+                degree_exponent: -0.1,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(DrGraphConfig::default().validate().is_ok());
+        assert!(
+            DrGraphConfig {
+                k_order: 0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DrGraphConfig {
+                b: 0.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DrGraphConfig {
+                b: f64::INFINITY,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DrGraphConfig {
+                gamma_coarse: -0.01,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DrGraphConfig {
+                gamma_fine: f64::NAN,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        for bad_ratio in [0.0, -0.5, 1.01, f64::NAN] {
+            assert!(
+                DrGraphConfig {
+                    coarsen_stop_ratio: bad_ratio,
+                    ..Default::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert!(
+            DrGraphConfig {
+                initial_lr: 0.0,
+                min_lr: 0.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DrGraphConfig {
+                initial_lr: 0.5,
+                min_lr: 0.8,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(GraphCneConfig::default().validate().is_ok());
+        assert!(
+            GraphCneConfig {
+                initial_lr: -1.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            GraphCneConfig {
+                min_lr: -0.1,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            GraphCneConfig {
+                initial_lr: 0.2,
+                min_lr: 0.5,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            GraphCneConfig {
+                repulsion_weight: -0.1,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_ortmann_voronoi_tie_breaking_and_exact_weights_vs_bruteforce() {
+        // Construct a symmetric graph where two pivots are equidistant to a shared node,
+        // and the first pivot already owns a larger initial Voronoi cell |R(p)|.
+        // Vertices:
+        //   0 -- 1, 0 -- 2, 0 -- 3 (leaves 1, 2, 3 around pivot 0)
+        //   0 -- 4 -- 5 (bridge vertex 4 at dist 1 from pivot 0 and pivot 5)
+        //   5 -- 6 (only 1 leaf around pivot 5)
+        // If pivots = [0, 5] (`num_pivots = 2`, `MaxMinSp` picks 0/5 or `num_pivots = 7` etc.):
+        // Let's test `select_ortmann_pivots_and_dists` directly against brute force for ALL
+        // strategies AND test `ortmann_sparse_stress` with `num_pivots = 7` vs brute-force oracle,
+        // plus an explicit tie-break fixture using `num_pivots = 2` on a symmetric 6-node graph!
+        let edges = vec![(0, 1), (0, 2), (0, 3), (0, 4), (4, 5)];
+        let g = CsrGraph::<f64>::from_edges(6, &edges, None, false, false).unwrap();
+
+        for strategy in [
+            OrtmannPivotStrategy::MaxMinSp,
+            OrtmannPivotStrategy::MaxMinRandomSp,
+            OrtmannPivotStrategy::KMeansSp,
+        ] {
+            let cfg = OrtmannSparseStressConfig {
+                num_pivots: 2,
+                pivot_strategy: strategy,
+                iterations: 50,
+                seed: 7,
+                ..Default::default()
+            };
+            let solver = SgdSolver::<f64>::ortmann_sparse_stress(&g, cfg).unwrap();
+
+            // Brute-force oracle using the exact pivot set chosen for `strategy`.
+            let (sym_g, pos_edges) = build_positive_canonical_csr(&g).unwrap();
+            let (pivots, piv_dists) =
+                select_ortmann_pivots_and_dists(&sym_g, 2, strategy, 7).unwrap();
+            let n = g.num_nodes();
+            let h = pivots.len();
+            let mut r_counts = vec![0usize; h];
+            let mut r_dists = vec![Vec::new(); h];
+            for j in 0..n {
+                let mut best: Option<(f64, usize, usize)> = None;
+                for k in 0..h {
+                    let d = piv_dists[k * n + j];
+                    if !d.is_finite() {
+                        continue;
+                    }
+                    let cand = (d, r_counts[k], k);
+                    if best.is_none_or(|b| {
+                        cand.0
+                            .total_cmp(&b.0)
+                            .then_with(|| cand.1.cmp(&b.1))
+                            .then_with(|| cand.2.cmp(&b.2))
+                            .is_lt()
+                    }) {
+                        best = Some(cand);
+                    }
+                }
+                if let Some((d, _, bk)) = best {
+                    r_counts[bk] += 1;
+                    r_dists[bk].push(d);
+                }
+            }
+            let mut expected_pairs: Vec<(u32, u32, f64, f64, f64, f64)> = Vec::new();
+            for &(u, v, d_uv) in &pos_edges {
+                let w = 1.0 / (d_uv * d_uv);
+                expected_pairs.push((u, v, d_uv, d_uv, w, w));
+            }
+            let edge_set: HashSet<(u32, u32)> = pos_edges.iter().map(|&(u, v, _)| (u, v)).collect();
+            for (k, &p) in pivots.iter().enumerate() {
+                for i in 0..n {
+                    let i_u32 = i as u32;
+                    if i_u32 == p || edge_set.contains(&(p.min(i_u32), p.max(i_u32))) {
+                        continue;
+                    }
+                    let dpi = piv_dists[k * n + i];
+                    if !dpi.is_finite() || dpi <= 0.0 {
+                        continue;
+                    }
+                    let s_pi = r_dists[k].iter().filter(|&&dpj| 2.0 * dpj <= dpi).count();
+                    if s_pi > 0 {
+                        expected_pairs.push((p, i_u32, dpi, dpi, 0.0, (s_pi as f64) / (dpi * dpi)));
+                    }
+                }
+            }
+            assert_eq!(solver.num_springs(), expected_pairs.len());
+            let PairStorage::General(actual_pairs) = &solver.pairs else {
+                panic!("expected PairStorage::General for directional Ortmann pairs");
+            };
+            let mut actual_sorted: Vec<(u32, u32, f64, f64)> = actual_pairs
+                .iter()
+                .map(|p| (p.i, p.j_hinge & INDEX_MASK, p.wij, p.wji))
+                .collect();
+            actual_sorted.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            let mut exp_sorted: Vec<(u32, u32, f64, f64)> = expected_pairs
+                .iter()
+                .map(|&(u, v, _, _, wij, wji)| (u, v, wij, wji))
+                .collect();
+            exp_sorted.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            for (a, e) in actual_sorted.iter().zip(exp_sorted.iter()) {
+                assert_eq!(a.0, e.0);
+                assert_eq!(a.1, e.1);
+                assert!((a.2 - e.2).abs() < 1e-12);
+                assert!((a.3 - e.3).abs() < 1e-12);
+            }
+        }
+
+        // Direct tie-breaking check: graph 0-1, 0-2, 0-3, 0-4, 4-5, 5-6 (7 nodes) with
+        // all-pivot vs 2-pivot where `pivots` = [0, 5] leaves `4` tied at distance 1.
+        // At `j = 4`, `r_counts = [4, 0]` (`0,1,2,3` went to pivot 0), so smallest |R(p)|
+        // MUST assign `4` to pivot `5` (`r_counts[1] == 0 < 4`), NOT lowest pivot index `0`!
+        let edges2 = vec![(0, 1), (0, 2), (0, 3), (0, 4), (4, 5), (5, 6)];
+        let g2 = CsrGraph::<f64>::from_edges(7, &edges2, None, false, false).unwrap();
+        let mut solver_tie = SgdSolver::<f64>::ortmann_sparse_stress(
+            &g2,
+            OrtmannSparseStressConfig {
+                num_pivots: 2,
+                pivot_strategy: OrtmannPivotStrategy::MaxMinSp,
+                iterations: 60,
+                seed: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // Verify `r_counts` tie-breaking directly on the deterministic pivot pair `[0, 5]`:
+        let (sym2, _) = build_positive_canonical_csr(&g2).unwrap();
+        let d_tie = compute_mssp_dists(&sym2, &[0, 5]).unwrap();
+        let mut r_c = [0usize; 2];
+        let mut assigned_4 = 0usize;
+        for j in 0..7 {
+            let d0 = d_tie[j];
+            let d1 = d_tie[7 + j];
+            let bk = match d0.total_cmp(&d1) {
+                std::cmp::Ordering::Less => 0,
+                std::cmp::Ordering::Greater => 1,
+                std::cmp::Ordering::Equal => usize::from(r_c[1] < r_c[0]),
+            };
+            r_c[bk] += 1;
+            if j == 4 {
+                assigned_4 = bk;
+            }
+        }
+        assert_eq!(assigned_4, 1, "node 4 tie must break to smaller |R(p1)|");
+        assert_eq!(r_c, [4, 3]);
+        let mut l2 = circle_layout::<f64>(7, 1.0);
+        solver_tie.run(&mut l2).unwrap();
+        assert!(l2.is_all_finite());
+    }
+
+    #[test]
+    fn test_ortmann_sparse_stress_parity_weighted_and_edge_cases() {
+        let grid = grid_graph(4, 4);
+        let n = grid.num_nodes();
+
+        for strategy in [
+            OrtmannPivotStrategy::KMeansSp,
+            OrtmannPivotStrategy::MaxMinRandomSp,
+            OrtmannPivotStrategy::MaxMinSp,
+        ] {
+            let cfg = OrtmannSparseStressConfig {
+                num_pivots: 8,
+                pivot_strategy: strategy,
+                iterations: 60,
+                seed: 42,
+                ..Default::default()
+            };
+
+            // f64 bit-exact step() == run() + stress reduction.
+            let mut s_run = SgdSolver::<f64>::ortmann_sparse_stress(&grid, cfg).unwrap();
+            let mut s_step = SgdSolver::<f64>::ortmann_sparse_stress(&grid, cfg).unwrap();
+            let mut l_run = circle_layout::<f64>(n, 0.25);
+            let mut l_step = l_run.clone();
+            let stress_before = euclidean_apsp_stress(&grid, &l_run);
+            s_run.run(&mut l_run).unwrap();
+            s_step.run_steps(&mut l_step, 17).unwrap();
+            while !s_step.status().is_finished() {
+                s_step.step(&mut l_step).unwrap();
+            }
+            for i in 0..n {
+                assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
+                assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
+            }
+            let stress_after = euclidean_apsp_stress(&grid, &l_run);
+            assert!(
+                stress_after < stress_before * 0.25,
+                "Ortmann ({strategy:?}) failed to reduce stress: {stress_before} -> {stress_after}"
+            );
+
+            // f32 bit-exact step() == run().
+            let mut s32_run = SgdSolver::<f32>::ortmann_sparse_stress(&grid, cfg).unwrap();
+            let mut s32_step = SgdSolver::<f32>::ortmann_sparse_stress(&grid, cfg).unwrap();
+            let mut l32_run = circle_layout::<f32>(n, 0.25);
+            let mut l32_step = l32_run.clone();
+            s32_run.run(&mut l32_run).unwrap();
+            s32_step.run_steps(&mut l32_step, 13).unwrap();
+            s32_step.run(&mut l32_step).unwrap();
+            for i in 0..n {
+                assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+                assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+            }
+        }
+
+        // Seed determinism.
+        let cfg_a = OrtmannSparseStressConfig {
+            num_pivots: 6,
+            seed: 11,
+            iterations: 30,
+            ..Default::default()
+        };
+        let cfg_b = OrtmannSparseStressConfig { seed: 99, ..cfg_a };
+        let mut sa1 = SgdSolver::<f64>::ortmann_sparse_stress(&grid, cfg_a).unwrap();
+        let mut sa2 = SgdSolver::<f64>::ortmann_sparse_stress(&grid, cfg_a).unwrap();
+        let mut sb = SgdSolver::<f64>::ortmann_sparse_stress(&grid, cfg_b).unwrap();
+        let mut la1 = circle_layout::<f64>(n, 1.0);
+        let mut la2 = la1.clone();
+        let mut lb = la1.clone();
+        sa1.run(&mut la1).unwrap();
+        sa2.run(&mut la2).unwrap();
+        sb.run(&mut lb).unwrap();
+        for i in 0..n {
+            assert_eq!(la1.x()[i].to_bits(), la2.x()[i].to_bits());
+            assert_eq!(la1.y()[i].to_bits(), la2.y()[i].to_bits());
+        }
+        assert!((0..n).any(|i| la1.x()[i].to_bits() != lb.x()[i].to_bits()));
+
+        // Weighted graph uses DijkstraWorkspace (shortcut 0-2 weight 10 vs 0-1-2 weight 1+1=2).
+        let w_edges = vec![(0, 1), (1, 2), (2, 3), (0, 2)];
+        let w_vals = vec![1.0, 1.0, 4.0, 10.0];
+        let wg = CsrGraph::<f64>::from_edges(4, &w_edges, Some(&w_vals), false, false).unwrap();
+        let (wsym, _) = build_positive_canonical_csr(&wg).unwrap();
+        let w_dists = compute_mssp_dists(&wsym, &[0]).unwrap();
+        assert!((w_dists[2] - 2.0).abs() < 1e-12);
+        assert!((w_dists[3] - 6.0).abs() < 1e-12);
+        let mut w_solver = SgdSolver::<f64>::ortmann_sparse_stress(
+            &wg,
+            OrtmannSparseStressConfig {
+                num_pivots: 2,
+                iterations: 40,
+                eta_max: Some(2.0),
+                eta_min: Some(0.05),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!((w_solver.eta_max - 2.0).abs() < 1e-12);
+        assert!((w_solver.eta_min - 0.05).abs() < 1e-12);
+        let mut wl = circle_layout::<f64>(4, 1.0);
+        w_solver.run(&mut wl).unwrap();
+        assert!(wl.is_all_finite());
+
+        // Directed reciprocal edges + self-loop (sanitized) + zero-weight edge.
+        let dir_edges = vec![(0, 0), (0, 1), (1, 0), (1, 2), (2, 3), (3, 1)];
+        let dir_weights = vec![1.0, 5.0, 2.0, 3.0, 0.0, 4.0];
+        let dg =
+            CsrGraph::<f64>::from_edges(5, &dir_edges, Some(&dir_weights), true, true).unwrap();
+        let mut d_solver = SgdSolver::<f64>::ortmann_sparse_stress(
+            &dg,
+            OrtmannSparseStressConfig {
+                num_pivots: 3,
+                iterations: 20,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut dl = circle_layout::<f64>(5, 1.0);
+        d_solver.run(&mut dl).unwrap();
+        assert!(dl.is_all_finite());
+
+        // Degenerate graphs: N=0, N=1, edgeless, disconnected + isolated, collinear.
+        for deg_g in [
+            CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(6, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(8, &[(0, 1), (1, 2), (3, 4), (4, 5)], None, false, false)
+                .unwrap(),
+        ] {
+            let dn = deg_g.num_nodes();
+            let mut ds = SgdSolver::<f64>::ortmann_sparse_stress(
+                &deg_g,
+                OrtmannSparseStressConfig {
+                    num_pivots: 4,
+                    iterations: 15,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let xs: Vec<f64> = (0..dn).map(|i| i as f64).collect();
+            let ys = vec![0.0; dn];
+            let mut dl = Layout2d::from_xy(xs, ys).unwrap();
+            ds.run(&mut dl).unwrap();
+            assert!(dl.is_all_finite());
+        }
+
+        // Non-finite layout coordinates rejected on step, and CsrGraph rejects non-finite weights.
+        assert!(
+            CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::NAN]), false, false).is_err()
+        );
+        let mut nan_layout = Layout2d::from_xy(vec![f64::NAN; n], vec![0.0; n]).unwrap();
+        assert!(
+            SgdSolver::<f64>::ortmann_sparse_stress(&grid, OrtmannSparseStressConfig::default())
+                .unwrap()
+                .step(&mut nan_layout)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_w2_negative_sampling_solvers_parity_and_edge_cases() {
+        let barbell = barbell_graph(6);
+        let n = barbell.num_nodes();
+        let grid = grid_graph(4, 4);
+        let ng = grid.num_nodes();
+
+        // 1. LargeVis (f64 & f32 bit-exact step() == run(), seed parity, collapsed init).
+        let lv_cfg = LargeVisConfig {
+            iterations: 30,
+            negative_samples: 4,
+            gamma: 5.0,
+            seed: 42,
+            ..Default::default()
+        };
+        let mut lv_run = SgdSolver::<f64>::largevis(&barbell, lv_cfg).unwrap();
+        let mut lv_step = SgdSolver::<f64>::largevis(&barbell, lv_cfg).unwrap();
+        let mut l_lv_run = Layout2d::<f64>::zeros(n);
+        let mut l_lv_step = Layout2d::<f64>::zeros(n);
+        lv_run.run(&mut l_lv_run).unwrap();
+        lv_step.run_steps(&mut l_lv_step, 11).unwrap();
+        while !lv_step.status().is_finished() {
+            lv_step.step(&mut l_lv_step).unwrap();
+        }
+        assert!(l_lv_run.is_all_finite());
+        for i in 0..n {
+            assert_eq!(l_lv_run.x()[i].to_bits(), l_lv_step.x()[i].to_bits());
+            assert_eq!(l_lv_run.y()[i].to_bits(), l_lv_step.y()[i].to_bits());
+        }
+        assert!((0..n).any(|i| l_lv_run.x()[i].abs() > 1e-6 || l_lv_run.y()[i].abs() > 1e-6));
+
+        let mut lv32_run = SgdSolver::<f32>::largevis(&barbell, lv_cfg).unwrap();
+        let mut lv32_step = SgdSolver::<f32>::largevis(&barbell, lv_cfg).unwrap();
+        let mut l32_lv_run = circle_layout::<f32>(n, 0.5);
+        let mut l32_lv_step = l32_lv_run.clone();
+        lv32_run.run(&mut l32_lv_run).unwrap();
+        lv32_step.run_steps(&mut l32_lv_step, 7).unwrap();
+        lv32_step.run(&mut l32_lv_step).unwrap();
+        for i in 0..n {
+            assert_eq!(l32_lv_run.x()[i].to_bits(), l32_lv_step.x()[i].to_bits());
+            assert_eq!(l32_lv_run.y()[i].to_bits(), l32_lv_step.y()[i].to_bits());
+        }
+
+        // 2. DRGraph (k_order=1 and k_order=2, multilevel coarsening, f64 & f32 bit-exact).
+        for k_order in [1usize, 2usize] {
+            let dr_cfg = DrGraphConfig {
+                k_order,
+                negative_samples: 4,
+                b: 2.0,
+                iterations: 36,
+                coarsen_stop_ratio: 0.85,
+                seed: 42,
+                ..Default::default()
+            };
+            let mut dr_run = SgdSolver::<f64>::drgraph(&grid, dr_cfg).unwrap();
+            let mut dr_step = SgdSolver::<f64>::drgraph(&grid, dr_cfg).unwrap();
+            assert!(dr_run.drgraph.as_ref().unwrap().levels.len() >= 2);
+            let mut l_dr_run = Layout2d::<f64>::zeros(ng);
+            let mut l_dr_step = Layout2d::<f64>::zeros(ng);
+            dr_run.run(&mut l_dr_run).unwrap();
+            dr_step.run_steps(&mut l_dr_step, 13).unwrap();
+            while !dr_step.status().is_finished() {
+                dr_step.step(&mut l_dr_step).unwrap();
+            }
+            assert!(l_dr_run.is_all_finite());
+            for i in 0..ng {
+                assert_eq!(l_dr_run.x()[i].to_bits(), l_dr_step.x()[i].to_bits());
+                assert_eq!(l_dr_run.y()[i].to_bits(), l_dr_step.y()[i].to_bits());
+            }
+            assert!((0..ng).any(|i| l_dr_run.x()[i].abs() > 1e-6 || l_dr_run.y()[i].abs() > 1e-6));
+        }
+
+        let dr32_cfg = DrGraphConfig {
+            k_order: 1,
+            b: 1.0,
+            iterations: 24,
+            seed: 7,
+            ..Default::default()
+        };
+        let mut dr32_run = SgdSolver::<f32>::drgraph(&grid, dr32_cfg).unwrap();
+        let mut dr32_step = SgdSolver::<f32>::drgraph(&grid, dr32_cfg).unwrap();
+        let mut l32_dr_run = circle_layout::<f32>(ng, 1.0);
+        let mut l32_dr_step = l32_dr_run.clone();
+        dr32_run.run(&mut l32_dr_run).unwrap();
+        dr32_step.run_steps(&mut l32_dr_step, 9).unwrap();
+        dr32_step.run(&mut l32_dr_step).unwrap();
+        for i in 0..ng {
+            assert_eq!(l32_dr_run.x()[i].to_bits(), l32_dr_step.x()[i].to_bits());
+            assert_eq!(l32_dr_run.y()[i].to_bits(), l32_dr_step.y()[i].to_bits());
+        }
+
+        // 3. Graph-CNE (InfoNce & NegTSne, row_normalize true/false, f64 & f32 bit-exact).
+        for objective in [GraphCneObjective::InfoNce, GraphCneObjective::NegTSne] {
+            for row_normalize in [true, false] {
+                let cne_cfg = GraphCneConfig {
+                    objective,
+                    negative_samples: 4,
+                    iterations: 30,
+                    row_normalize,
+                    seed: 42,
+                    ..Default::default()
+                };
+                let mut cne_run = SgdSolver::<f64>::graph_cne(&barbell, cne_cfg).unwrap();
+                let mut cne_step = SgdSolver::<f64>::graph_cne(&barbell, cne_cfg).unwrap();
+                let mut l_run = Layout2d::<f64>::zeros(n);
+                let mut l_step = Layout2d::<f64>::zeros(n);
+                cne_run.run(&mut l_run).unwrap();
+                cne_step.run_steps(&mut l_step, 10).unwrap();
+                while !cne_step.status().is_finished() {
+                    cne_step.step(&mut l_step).unwrap();
+                }
+                assert!(l_run.is_all_finite());
+                for i in 0..n {
+                    assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
+                    assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
+                }
+
+                let mut cne32_run = SgdSolver::<f32>::graph_cne(&barbell, cne_cfg).unwrap();
+                let mut cne32_step = SgdSolver::<f32>::graph_cne(&barbell, cne_cfg).unwrap();
+                let mut l32_run = circle_layout::<f32>(n, 0.5);
+                let mut l32_step = l32_run.clone();
+                cne32_run.run(&mut l32_run).unwrap();
+                cne32_step.run_steps(&mut l32_step, 7).unwrap();
+                cne32_step.run(&mut l32_step).unwrap();
+                for i in 0..n {
+                    assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+                    assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+                }
+            }
+        }
+
+        // 4. Non-collapsed inputs remain distinct from zero-init, and different seeds differ.
+        let cne_s1 = GraphCneConfig {
+            iterations: 15,
+            seed: 101,
+            ..Default::default()
+        };
+        let cne_s2 = GraphCneConfig {
+            seed: 202,
+            ..cne_s1
+        };
+        let mut sc1 = SgdSolver::<f64>::graph_cne(&barbell, cne_s1).unwrap();
+        let mut sc2 = SgdSolver::<f64>::graph_cne(&barbell, cne_s2).unwrap();
+        let mut lc1 = circle_layout::<f64>(n, 1.0);
+        let mut lc2 = lc1.clone();
+        sc1.run(&mut lc1).unwrap();
+        sc2.run(&mut lc2).unwrap();
+        assert!((0..n).any(|i| lc1.x()[i].to_bits() != lc2.x()[i].to_bits()));
+
+        // 5. step_manifold guard & non-finite / dimension-mismatch guards.
+        let mut mf = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, n);
+        assert!(
+            SgdSolver::<f64>::largevis(&barbell, lv_cfg)
+                .unwrap()
+                .step_manifold(&mut mf)
+                .is_err()
+        );
+        assert!(
+            SgdSolver::<f64>::drgraph(&barbell, DrGraphConfig::default())
+                .unwrap()
+                .step_manifold(&mut mf)
+                .is_err()
+        );
+        assert!(
+            SgdSolver::<f64>::graph_cne(&barbell, GraphCneConfig::default())
+                .unwrap()
+                .step_manifold(&mut mf)
+                .is_err()
+        );
+        let mut bad_layout = Layout2d::from_xy(vec![f64::NAN; n], vec![0.0; n]).unwrap();
+        assert!(
+            SgdSolver::<f64>::largevis(&barbell, lv_cfg)
+                .unwrap()
+                .step(&mut bad_layout)
+                .is_err()
+        );
+        let mut wrong_len = Layout2d::<f64>::zeros(n + 1);
+        assert!(
+            SgdSolver::<f64>::drgraph(&barbell, DrGraphConfig::default())
+                .unwrap()
+                .step(&mut wrong_len)
+                .is_err()
+        );
+
+        // 6. Degenerate graphs: N=0, N=1, edgeless, disconnected + isolated, collinear,
+        //    weighted directed with reciprocal edges & self-loop.
+        let dir_w = CsrGraph::<f64>::from_edges(
+            6,
+            &[(0, 0), (0, 1), (1, 0), (1, 2), (2, 0), (3, 4)],
+            Some(&[1.0, 2.5, 1.5, 3.0, 4.0, 0.5]),
+            true,
+            true,
+        )
+        .unwrap();
+        let mut deg_cases = vec![
+            CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(5, &[], None, false, false).unwrap(),
+            CsrGraph::<f64>::from_edges(7, &[(0, 1), (1, 2), (3, 4)], None, false, false).unwrap(),
+            dir_w,
+        ];
+        for g in deg_cases.drain(..) {
+            let gn = g.num_nodes();
+            let xs: Vec<f64> = (0..gn).map(|i| i as f64).collect();
+            let ys = vec![0.0; gn];
+            let init = Layout2d::from_xy(xs, ys).unwrap();
+
+            let mut l1 = init.clone();
+            SgdSolver::<f64>::largevis(
+                &g,
+                LargeVisConfig {
+                    iterations: 10,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .run(&mut l1)
+            .unwrap();
+            assert!(l1.is_all_finite());
+
+            let mut l2 = init.clone();
+            SgdSolver::<f64>::drgraph(
+                &g,
+                DrGraphConfig {
+                    k_order: 2,
+                    iterations: 10,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .run(&mut l2)
+            .unwrap();
+            assert!(l2.is_all_finite());
+
+            let mut l3 = init;
+            SgdSolver::<f64>::graph_cne(
+                &g,
+                GraphCneConfig {
+                    iterations: 10,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .run(&mut l3)
+            .unwrap();
+            assert!(l3.is_all_finite());
+        }
+
+        // Non-finite layout coordinates rejected across all 3 solvers.
+        assert!(
+            CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::INFINITY]), false, false)
+                .is_err()
+        );
+        let mut inf_l = Layout2d::from_xy(vec![f64::INFINITY; n], vec![0.0; n]).unwrap();
+        assert!(
+            SgdSolver::<f64>::graph_cne(&barbell, GraphCneConfig::default())
+                .unwrap()
+                .step(&mut inf_l)
+                .is_err()
+        );
     }
 }

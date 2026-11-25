@@ -1036,8 +1036,11 @@ fn generate_y_pass_constraints<S: Scalar>(
     }
 }
 
-/// Removes overlaps between axis-aligned cluster bounding boxes while rigidly preserving
-/// relative node coordinates within each cluster.
+/// Performs a one-shot post-processing projection that removes overlaps between axis-aligned
+/// cluster bounding boxes via VPSC while rigidly translating each cluster's nodes.
+///
+/// Note: This rigid AABB VPSC post-processing pass is distinct from Dwyer et al. (2006)
+/// iterative constrained stress minimization (`IPSep-CoLa`).
 pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
     layout: &mut Layout2d<S>,
     cluster_ids: &[u32],
