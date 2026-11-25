@@ -1473,3 +1473,510 @@ fn cli_metrics_eval_baselines_18_targets() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+const W2_METHODS: [&str; 10] = [
+    "hde",
+    "sgd-ortmann",
+    "maxent",
+    "largevis",
+    "drgraph",
+    "graph-cne",
+    "grip",
+    "gem",
+    "sel",
+    "sfc",
+];
+
+fn assert_finite_layout_json(val: &serde_json::Value, expected_n: usize, ctx: &str) {
+    assert_eq!(
+        val["num_nodes"].as_u64(),
+        Some(expected_n as u64),
+        "{ctx}: num_nodes"
+    );
+    let xs = val["x"].as_array().expect("x array");
+    let ys = val["y"].as_array().expect("y array");
+    let coords = val["coords"].as_array().expect("coords array");
+    assert_eq!(xs.len(), expected_n, "{ctx}: x len");
+    assert_eq!(ys.len(), expected_n, "{ctx}: y len");
+    assert_eq!(coords.len(), expected_n, "{ctx}: coords len");
+    for i in 0..expected_n {
+        let xi = xs[i].as_f64().expect("x f64");
+        let yi = ys[i].as_f64().expect("y f64");
+        assert!(xi.is_finite(), "{ctx}: non-finite x[{i}]");
+        assert!(yi.is_finite(), "{ctx}: non-finite y[{i}]");
+    }
+}
+
+fn assert_no_pairwise_overlap(xs: &[f64], ys: &[f64], radius: f64, ctx: &str) {
+    let min_sep = 2.0 * radius - 1e-12;
+    for i in 0..xs.len() {
+        for j in (i + 1)..xs.len() {
+            let dx = (xs[i] - xs[j]).abs();
+            let dy = (ys[i] - ys[j]).abs();
+            assert!(
+                dx >= min_sep || dy >= min_sep,
+                "{ctx}: pair ({i}, {j}) overlaps at radius={radius}: dx={dx}, dy={dy}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cli_layout_w2_baselines_and_bench() {
+    for method in W2_METHODS {
+        let out = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "42",
+        ]);
+        let val: serde_json::Value = serde_json::from_str(&out).expect("parse layout json");
+        assert_eq!(val["method"], method);
+        assert_eq!(val["overlap_removal"], "none");
+        assert_finite_layout_json(&val, 34, method);
+        let xs: Vec<f64> = val["x"]
+            .as_array()
+            .expect("x")
+            .iter()
+            .map(|v| v.as_f64().expect("f64"))
+            .collect();
+        let ys: Vec<f64> = val["y"]
+            .as_array()
+            .expect("y")
+            .iter()
+            .map(|v| v.as_f64().expect("f64"))
+            .collect();
+        let span_x = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            - xs.iter().copied().fold(f64::INFINITY, f64::min);
+        let span_y = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            - ys.iter().copied().fold(f64::INFINITY, f64::min);
+        assert!(
+            span_x > 0.0 && span_y > 0.0,
+            "{method}: expected non-zero 2D coordinate span, got span_x={span_x}, span_y={span_y}"
+        );
+    }
+
+    for bench_method in ["hde", "sgd-ortmann", "maxent", "drgraph", "grip", "sfc"] {
+        let bench_out = run_egraph(&[
+            "bench",
+            "--dataset",
+            "karate",
+            "--method",
+            bench_method,
+            "--seed",
+            "42",
+        ]);
+        let bench_json: serde_json::Value =
+            serde_json::from_str(&bench_out).expect("parse bench json");
+        assert_eq!(bench_json["num_nodes"], 34);
+        assert_eq!(bench_json["method"], bench_method);
+        assert!(
+            bench_json["total_ms"].as_f64().expect("total_ms") >= 0.0,
+            "{bench_method}: total_ms"
+        );
+        let np2 = bench_json["neighborhood_preservation_2hop"]
+            .as_f64()
+            .expect("np2");
+        assert!(np2.is_finite(), "{bench_method}: finite np2");
+    }
+}
+
+#[test]
+fn cli_w2_determinism_with_seed() {
+    for method in W2_METHODS {
+        let out1 = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "42",
+        ]);
+        let out2 = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "42",
+        ]);
+        let v1: serde_json::Value = serde_json::from_str(&out1).expect("parse 1");
+        let v2: serde_json::Value = serde_json::from_str(&out2).expect("parse 2");
+        assert_eq!(
+            v1["coords"], v2["coords"],
+            "{method}: expected bit-exact deterministic coordinates for seed 42"
+        );
+    }
+
+    // `pfs-prime` overlap removal determinism.
+    let pfs1 = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "stress",
+        "--overlap-removal",
+        "pfs-prime",
+        "--prism-radius",
+        "0.05",
+        "--seed",
+        "42",
+    ]);
+    let pfs2 = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "stress",
+        "--overlap-removal",
+        "pfs-prime",
+        "--prism-radius",
+        "0.05",
+        "--seed",
+        "42",
+    ]);
+    let p1: serde_json::Value = serde_json::from_str(&pfs1).expect("parse pfs1");
+    let p2: serde_json::Value = serde_json::from_str(&pfs2).expect("parse pfs2");
+    assert_eq!(
+        p1["coords"], p2["coords"],
+        "pfs-prime: expected bit-exact deterministic coordinates for seed 42"
+    );
+
+    // Different seeds must produce distinct layouts on randomized/stochastic W2 methods.
+    for method in ["sgd-ortmann", "largevis", "drgraph", "graph-cne", "gem"] {
+        let out_a = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "42",
+        ]);
+        let out_b = run_egraph(&[
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            method,
+            "--seed",
+            "99",
+        ]);
+        let va: serde_json::Value = serde_json::from_str(&out_a).expect("parse seed 42");
+        let vb: serde_json::Value = serde_json::from_str(&out_b).expect("parse seed 99");
+        assert_ne!(
+            va["coords"], vb["coords"],
+            "{method}: expected distinct layouts for seed 42 vs 99"
+        );
+    }
+
+    // HDE replaces the initial layout directly, so `--init random` vs `--init pivot-mds` with same `--seed` must match.
+    let hde_pmds = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "hde",
+        "--init",
+        "pivot-mds",
+        "--seed",
+        "42",
+    ]);
+    let hde_rand = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "hde",
+        "--init",
+        "random",
+        "--seed",
+        "42",
+    ]);
+    let vp: serde_json::Value = serde_json::from_str(&hde_pmds).expect("parse hde pmds");
+    let vr: serde_json::Value = serde_json::from_str(&hde_rand).expect("parse hde rand");
+    assert_eq!(
+        vp["coords"], vr["coords"],
+        "hde output must depend on seed and ignore initial placement"
+    );
+}
+
+#[test]
+fn cli_layout_pfs_prime_overlap_removal_and_guards() {
+    let bin = env!("CARGO_BIN_EXE_egraph");
+
+    let out = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "stress",
+        "--overlap-removal",
+        "pfs-prime",
+        "--prism-radius",
+        "0.05",
+        "--seed",
+        "42",
+    ]);
+    let val: serde_json::Value = serde_json::from_str(&out).expect("parse pfs-prime json");
+    assert_eq!(val["overlap_removal"], "pfs-prime");
+    assert_eq!(val["overlaps_remaining"], 0);
+    assert_eq!(val["prism_applied"], false);
+    assert!(val["prism_overlaps_remaining"].is_null());
+    assert_finite_layout_json(&val, 34, "pfs-prime stress");
+    let xs: Vec<f64> = val["x"]
+        .as_array()
+        .expect("x")
+        .iter()
+        .map(|v| v.as_f64().expect("f64"))
+        .collect();
+    let ys: Vec<f64> = val["y"]
+        .as_array()
+        .expect("y")
+        .iter()
+        .map(|v| v.as_f64().expect("f64"))
+        .collect();
+    assert_no_pairwise_overlap(&xs, &ys, 0.05, "pfs-prime stress");
+
+    // `--overlap-radius` alias + large-scale `--method gem` (`edge_length = 128.0`).
+    let gem_out = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "gem",
+        "--overlap-removal",
+        "pfs-prime",
+        "--overlap-radius",
+        "0.1",
+        "--seed",
+        "42",
+    ]);
+    let gem_val: serde_json::Value = serde_json::from_str(&gem_out).expect("parse pfs-prime gem");
+    assert_eq!(gem_val["overlap_removal"], "pfs-prime");
+    assert_eq!(gem_val["overlaps_remaining"], 0);
+    assert_eq!(gem_val["prism_applied"], false);
+    assert_finite_layout_json(&gem_val, 34, "pfs-prime gem");
+    let gem_xs: Vec<f64> = gem_val["x"]
+        .as_array()
+        .expect("x")
+        .iter()
+        .map(|v| v.as_f64().expect("f64"))
+        .collect();
+    let gem_ys: Vec<f64> = gem_val["y"]
+        .as_array()
+        .expect("y")
+        .iter()
+        .map(|v| v.as_f64().expect("f64"))
+        .collect();
+    assert_no_pairwise_overlap(&gem_xs, &gem_ys, 0.1, "pfs-prime gem");
+
+    // Conflict guard between `--prism` and `--overlap-removal pfs-prime`.
+    let conflict_out = Command::new(bin)
+        .args([
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "stress",
+            "--prism",
+            "--overlap-removal",
+            "pfs-prime",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(!conflict_out.status.success());
+
+    // Invalid radius guard for `pfs-prime` (must fail fast).
+    for bad_radius in ["0.0", "-0.1", "NaN", "inf"] {
+        let t0 = std::time::Instant::now();
+        let bad_out = Command::new(bin)
+            .args([
+                "layout",
+                "--dataset",
+                "karate",
+                "--method",
+                "stress",
+                "--overlap-removal",
+                "pfs-prime",
+                "--prism-radius",
+                bad_radius,
+            ])
+            .output()
+            .expect("execute egraph binary");
+        assert!(
+            !bad_out.status.success(),
+            "expected non-zero exit for --overlap-removal pfs-prime --prism-radius {bad_radius}"
+        );
+        assert!(
+            t0.elapsed().as_secs_f64() < 5.0,
+            "expected fast rejection for --overlap-removal pfs-prime --prism-radius {bad_radius}"
+        );
+    }
+}
+
+#[test]
+fn cli_w2_degenerate_and_edge_case_graphs() {
+    let dir = temp_dir("degenerate_w2");
+    let n0_path = dir.join("n0.json");
+    let n1_path = dir.join("n1.json");
+    let n2_path = dir.join("n2.json");
+    let edgeless_path = dir.join("edgeless.json");
+    let disc_path = dir.join("disc.json");
+    let zero_w_path = dir.join("zero_w.json");
+
+    fs::write(&n0_path, r#"{"num_nodes": 0, "edges": []}"#).expect("write n0");
+    fs::write(&n1_path, r#"{"num_nodes": 1, "edges": []}"#).expect("write n1");
+    fs::write(&n2_path, r#"{"num_nodes": 2, "edges": [[0, 1]]}"#).expect("write n2");
+    fs::write(&edgeless_path, r#"{"num_nodes": 6, "edges": []}"#).expect("write edgeless");
+    fs::write(
+        &disc_path,
+        r#"{"num_nodes": 6, "edges": [[0, 1], [1, 2], [2, 0], [3, 4]]}"#,
+    )
+    .expect("write disc");
+    fs::write(
+        &zero_w_path,
+        r#"{"num_nodes": 3, "edges": [[0, 1], [1, 2]], "weights": [1.0, 0.0]}"#,
+    )
+    .expect("write zero_w");
+
+    let fixtures = [
+        ("n0", &n0_path, 0usize),
+        ("n1", &n1_path, 1usize),
+        ("n2", &n2_path, 2usize),
+        ("edgeless", &edgeless_path, 6usize),
+        ("disc", &disc_path, 6usize),
+    ];
+
+    for (label, path, expected_n) in fixtures {
+        let p = path.to_str().expect("utf8 path");
+        for method in W2_METHODS {
+            let out = run_egraph(&[
+                "layout",
+                "--input",
+                p,
+                "--method",
+                method,
+                "--overlap-removal",
+                "pfs-prime",
+                "--prism-radius",
+                "0.05",
+                "--seed",
+                "42",
+            ]);
+            let val: serde_json::Value = serde_json::from_str(&out).expect("parse layout");
+            let ctx = format!("{label}/{method}");
+            assert_eq!(val["overlaps_remaining"], 0, "{ctx}: overlaps_remaining");
+            assert_finite_layout_json(&val, expected_n, &ctx);
+        }
+
+        // SFC must guarantee zero co-location even without overlap removal for N >= 2.
+        if expected_n >= 2 {
+            let sfc_out = run_egraph(&["layout", "--input", p, "--method", "sfc", "--seed", "42"]);
+            let sfc_val: serde_json::Value =
+                serde_json::from_str(&sfc_out).expect("parse sfc layout");
+            assert_finite_layout_json(&sfc_val, expected_n, &format!("{label}/sfc-raw"));
+            let xs: Vec<f64> = sfc_val["x"]
+                .as_array()
+                .expect("x")
+                .iter()
+                .map(|v| v.as_f64().expect("f64"))
+                .collect();
+            let ys: Vec<f64> = sfc_val["y"]
+                .as_array()
+                .expect("y")
+                .iter()
+                .map(|v| v.as_f64().expect("f64"))
+                .collect();
+            for i in 0..expected_n {
+                for j in (i + 1)..expected_n {
+                    let dist_sq = (xs[i] - xs[j]).powi(2) + (ys[i] - ys[j]).powi(2);
+                    assert!(
+                        dist_sq > 1e-12,
+                        "{label}/sfc-raw: co-located vertices {i} and {j}"
+                    );
+                }
+            }
+        }
+    }
+
+    // Zero-weight edge rejection for `hde` vs clean handling across remaining W2 methods.
+    let bin = env!("CARGO_BIN_EXE_egraph");
+    let zero_p = zero_w_path.to_str().expect("utf8 path");
+    let hde_zero_out = Command::new(bin)
+        .args([
+            "layout", "--input", zero_p, "--method", "hde", "--seed", "42",
+        ])
+        .output()
+        .expect("execute egraph binary");
+    assert!(
+        !hde_zero_out.status.success(),
+        "expected hde to reject zero-weight edge"
+    );
+    let hde_stderr = String::from_utf8_lossy(&hde_zero_out.stderr);
+    assert!(
+        hde_stderr.contains("positive"),
+        "expected stderr mentioning positive weights for hde, got: {hde_stderr}"
+    );
+
+    for method in W2_METHODS.into_iter().filter(|m| *m != "hde") {
+        let out = run_egraph(&[
+            "layout", "--input", zero_p, "--method", method, "--seed", "42",
+        ]);
+        let val: serde_json::Value = serde_json::from_str(&out).expect("parse zero_w layout");
+        assert_finite_layout_json(&val, 3, &format!("zero_w/{method}"));
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_help_includes_w2_methods_and_clarified_docstrings() {
+    let layout_help = run_egraph(&["layout", "--help"]);
+    for method in W2_METHODS {
+        assert!(
+            layout_help.contains(method),
+            "layout --help missing method {method}"
+        );
+    }
+    assert!(
+        layout_help.contains("pfs-prime"),
+        "layout --help missing pfs-prime"
+    );
+    assert!(
+        layout_help.contains("linlog_mode"),
+        "layout --help missing linlog_mode distinction"
+    );
+    assert!(
+        layout_help.contains("muelder2008_space_filling") && layout_help.contains("Hilbert"),
+        "layout --help missing SFC canonical Hilbert/Morton & MISSING_PDF note"
+    );
+    assert!(
+        layout_help.contains("sgd2"),
+        "layout --help missing sgd2 single-criteria SGD clarification"
+    );
+
+    let metrics_help = run_egraph(&["metrics", "--help"]);
+    assert!(
+        metrics_help.contains("drng")
+            && metrics_help.contains("dgg")
+            && metrics_help.contains("S_RNG")
+            && metrics_help.contains("S_GG")
+            && metrics_help.contains("dRNG")
+            && metrics_help.contains("dGG"),
+        "metrics --help missing Eades 2017 S_RNG/S_GG vs Hong 2022 dRNG/dGG clarification"
+    );
+
+    let bench_help = run_egraph(&["bench", "--help"]);
+    for method in W2_METHODS {
+        assert!(
+            bench_help.contains(method),
+            "bench --help missing method {method}"
+        );
+    }
+}

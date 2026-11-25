@@ -14,19 +14,23 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use egraph::prelude::{
     BackboneConfig, BackboneSolver, ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport,
     ClusterBaselineConfig, ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver,
-    CoreError, CsrGraph, DeterministicRng, DogVaradhanConfig, FieldLayoutSolver, ForbidConfig,
-    ForbidOverlapRemoval, ForbidVariant, ForceAtlas2Config, ForceAtlas2Solver,
+    CoreError, CsrGraph, DeterministicRng, DogVaradhanConfig, DrGraphConfig, FieldLayoutSolver,
+    ForbidConfig, ForbidOverlapRemoval, ForbidVariant, ForceAtlas2Config, ForceAtlas2Solver,
     FruchtermanReingoldConfig, FruchtermanReingoldSolver, GTreeConfig, GTreeOverlapRemoval,
-    GroupInABoxConfig, GroupInABoxSolver, GuMapConfig, GuMapSolver, IbUmapConfig, IterativeSolver,
-    KMeansConfig, KamadaKawaiConfig, KamadaKawaiSolver, LabelPropagationConfig, Layout2d,
-    LeidenConfig, LeidenObjective, LinLogConfig, LinLogSolver, LouvainConfig, MetricConfig,
-    MetricReport, MetricTarget, PacmapGraphConfig, PivotMdsConfig, PrismConfig,
-    PrismOverlapRemoval, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
+    GemConfig, GemSolver, GraphCneConfig, GripConfig, GripSolver, GroupInABoxConfig,
+    GroupInABoxSolver, GuMapConfig, GuMapSolver, HdeConfig, IbUmapConfig, IterativeSolver,
+    KMeansConfig, KamadaKawaiConfig, KamadaKawaiSolver, LabelPropagationConfig, LargeVisConfig,
+    Layout2d, LeidenConfig, LeidenObjective, LinLogConfig, LinLogSolver, LouvainConfig,
+    MaxentStressConfig, MaxentStressSolver, MetricConfig, MetricReport, MetricTarget,
+    OrtmannSparseStressConfig, PacmapGraphConfig, PfsPrimeConfig, PfsPrimeOverlapRemoval,
+    PivotMdsConfig, PrismConfig, PrismOverlapRemoval, SelConfig, SelLayoutSolver, SfcConfig,
+    SfcLayoutSolver, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
     SpatialIntruderRefiner, SpatialRefinerConfig, SpectralClusteringConfig,
     StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver,
     YifanHuConfig, YifanHuSolver, cluster_area_faithfulness, cluster_area_faithfulness_detail,
-    evaluate_metrics, evaluate_metrics_with_communities, kmeans_plus_plus, koren_spectral_init,
-    label_propagation, leiden, louvain, normalize_layout_2d, pivot_mds, spectral_clustering,
+    evaluate_metrics, evaluate_metrics_with_communities, hde, kmeans_plus_plus,
+    koren_spectral_init, label_propagation, leiden, louvain, normalize_layout_2d, pivot_mds,
+    spectral_clustering,
 };
 use serde::Serialize;
 
@@ -68,7 +72,7 @@ pub enum LayoutMethod {
     /// Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD (`SgdSolver::sparse_barrier_dog`).
     #[value(name = "sgd-barrier-dog")]
     SgdBarrierDog,
-    /// Full all-pairs shortest-path SGD (`SgdSolver::full`).
+    /// Full all-pairs shortest-path SGD (`SgdSolver::full`); `egraph-cli` exposes single-criteria SGD presets (`sgd-full`, `sgd-ortmann`, `sgd-barrier-dog`, etc.) and does not expose multi-criteria `(SGD)^2` (`sgd2`).
     #[value(name = "sgd-full")]
     SgdFull,
     /// SNAP-tFDP streaming edge-attached negative SGD (`SgdSolver::snap_t_fdp`).
@@ -86,7 +90,7 @@ pub enum LayoutMethod {
     /// Interpolation-FFT batch Graph UMAP (`FieldLayoutSolver::ib_umap`).
     #[value(name = "ibumap")]
     Ibumap,
-    /// Barnes-Hut ForceAtlas2 (`ForceAtlas2Solver`).
+    /// Barnes-Hut ForceAtlas2 (`ForceAtlas2Solver`; its `linlog_mode` follows Jacomy et al. 2014 and differs from Noack `LinLogSolver`).
     #[value(name = "fa2")]
     Fa2,
     /// Multilevel Yifan Hu (`YifanHuSolver`).
@@ -98,7 +102,7 @@ pub enum LayoutMethod {
     /// Kamada-Kawai (`KamadaKawaiSolver`).
     #[value(name = "kk")]
     Kk,
-    /// Noack LinLog energy-model force-directed layout (`LinLogSolver`).
+    /// Noack (2007/2009) true LinLog energy-model force-directed layout (`LinLogSolver`, distinct from `ForceAtlas2Config::linlog_mode`).
     #[value(name = "linlog")]
     Linlog,
     /// Fruchterman-Reingold force-directed layout (`FruchtermanReingoldSolver`).
@@ -113,6 +117,36 @@ pub enum LayoutMethod {
     /// Group-in-a-Box clustered layout (`GroupInABoxSolver`).
     #[value(name = "gib")]
     Gib,
+    /// High-Dimensional Embedding (`hde`, Harel & Koren 2004).
+    #[value(name = "hde")]
+    Hde,
+    /// Ortmann et al. (2016) sparse stress SGD (`SgdSolver::ortmann_sparse_stress`).
+    #[value(name = "sgd-ortmann")]
+    SgdOrtmann,
+    /// Maxent-Stress layout with Barnes-Hut repulsion (`MaxentStressSolver`).
+    #[value(name = "maxent")]
+    Maxent,
+    /// LargeVis negative-sampling SGD layout (`SgdSolver::largevis`).
+    #[value(name = "largevis")]
+    Largevis,
+    /// DRGraph multilevel negative-sampling SGD layout (`SgdSolver::drgraph`).
+    #[value(name = "drgraph")]
+    Drgraph,
+    /// Graph-CNE InfoNCE / Neg-tSNE contrastive SGD layout (`SgdSolver::graph_cne`).
+    #[value(name = "graph-cne")]
+    GraphCne,
+    /// Multilevel GRIP graph drawing (`GripSolver`, Gajer & Kobourov 2002).
+    #[value(name = "grip")]
+    Grip,
+    /// GEM adaptive temperature force-directed layout (`GemSolver`, Frick et al. 1995).
+    #[value(name = "gem")]
+    Gem,
+    /// Structural Entropy Layout with adaptive edge-weight modulation (`SelLayoutSolver`, Xue et al. 2025).
+    #[value(name = "sel")]
+    Sel,
+    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayoutSolver`; `muelder2008_space_filling` PDF pending/`MISSING_PDF`, guarantees zero co-location).
+    #[value(name = "sfc")]
+    Sfc,
 }
 
 /// Supported layout initialization methods.
@@ -193,6 +227,9 @@ pub enum OverlapRemovalArg {
     /// Sparse FORBID overlap removal (`ForbidVariant::SparseForbid`).
     #[value(name = "sparse-forbid")]
     SparseForbid,
+    /// PFS' scanline node overlap removal (`PfsPrimeOverlapRemoval`).
+    #[value(name = "pfs-prime")]
+    PfsPrime,
 }
 
 /// Arguments for `egraph layout`.
@@ -222,7 +259,7 @@ pub struct LayoutArgs {
     /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`, alias for `--overlap-removal prism`).
     #[arg(long, default_value_t = false, conflicts_with = "overlap_removal")]
     pub prism: bool,
-    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`; default: `none`).
+    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`, `pfs-prime`; default: `none`).
     #[arg(long, value_enum)]
     pub overlap_removal: Option<OverlapRemovalArg>,
     /// Uniform node half-extent radius used when overlap removal (`--overlap-removal` or `--prism`) is enabled.
@@ -251,7 +288,7 @@ pub struct MetricsArgs {
     /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`), `adjusted-patch-nig`, and label-dependent `eval-baselines` targets (`dsc`, `dc`, `cdm`, `hdm`, `sepme-*`, `neighborhood-hit`, `silhouette`, `calinski-harabasz`, `davies-bouldin`, `cq-*`, `pairwise-distance-overlap-error`; `sprawlter-nn` does not require labels).
     #[arg(long, value_name = "FILE")]
     pub community_labels: Option<PathBuf>,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,dsc,dc,cdm,hdm,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,all`).
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,dsc,dc,cdm,hdm,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,all`; note `drng`/`dgg` compute Eades et al. 2017 unweighted `S_RNG`/`S_GG`, distinct from deferred Hong et al. 2022 `dRNG`/`dGG` and Fang et al. 2025 `dcRNG`/`dcGG`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
@@ -417,7 +454,9 @@ pub struct MetricsOutput {
     pub sampled_np2: Option<f64>,
     pub gabriel_graph_property: Option<f64>,
     pub node_resolution: Option<f64>,
+    /// Eades et al. (2017) unweighted shape-based `S_RNG` (distinct from deferred Hong et al. 2022 `dRNG` and Fang et al. 2025 `dcRNG`).
     pub relative_neighborhood_preservation: Option<f64>,
+    /// Eades et al. (2017) unweighted shape-based `S_GG` (distinct from deferred Hong et al. 2022 `dGG` and Fang et al. 2025 `dcGG`).
     pub gabriel_graph_preservation: Option<f64>,
     pub aspect_ratio: Option<f64>,
     pub angular_resolution: Option<f64>,
@@ -810,6 +849,85 @@ pub fn run_layout_method_with_communities(
             let mut solver = GroupInABoxSolver::new(graph, labels, cfg)?;
             solver.run(layout)?;
         }
+        LayoutMethod::Hde => {
+            let cfg = HdeConfig {
+                seed,
+                ..HdeConfig::default()
+            };
+            *layout = hde(graph, &cfg)?;
+        }
+        LayoutMethod::SgdOrtmann => {
+            let cfg = OrtmannSparseStressConfig {
+                seed,
+                ..OrtmannSparseStressConfig::default()
+            };
+            let mut solver = SgdSolver::ortmann_sparse_stress(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Maxent => {
+            let cfg = MaxentStressConfig {
+                seed,
+                ..MaxentStressConfig::default()
+            };
+            let mut solver = MaxentStressSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Largevis => {
+            let cfg = LargeVisConfig {
+                seed,
+                ..LargeVisConfig::default()
+            };
+            let mut solver = SgdSolver::largevis(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Drgraph => {
+            let cfg = DrGraphConfig {
+                seed,
+                ..DrGraphConfig::default()
+            };
+            let mut solver = SgdSolver::drgraph(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::GraphCne => {
+            let cfg = GraphCneConfig {
+                seed,
+                ..GraphCneConfig::default()
+            };
+            let mut solver = SgdSolver::graph_cne(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Grip => {
+            let cfg = GripConfig {
+                seed,
+                ..GripConfig::default()
+            };
+            let mut solver = GripSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Gem => {
+            let cfg = GemConfig {
+                seed,
+                ..GemConfig::default()
+            };
+            let mut solver = GemSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Sel => {
+            let cfg = SelConfig {
+                seed,
+                ..SelConfig::default()
+            };
+            let mut solver = SelLayoutSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Sfc => {
+            let cfg = SfcConfig {
+                seed,
+                ..SfcConfig::default()
+            };
+            let mut solver = SfcLayoutSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
     }
     Ok(())
 }
@@ -938,6 +1056,16 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
             forbid.run(&mut layout)?;
             (None, Some(forbid.last_overlap_count()))
         }
+        OverlapRemovalArg::PfsPrime => {
+            let pfs_cfg = PfsPrimeConfig {
+                seed: args.seed,
+                ..PfsPrimeConfig::default()
+            };
+            let radii = vec![args.prism_radius; graph.num_nodes()];
+            let mut pfs = PfsPrimeOverlapRemoval::from_radii(radii, pfs_cfg)?;
+            pfs.run(&mut layout)?;
+            (None, Some(pfs.last_overlap_count()))
+        }
     };
 
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -1051,6 +1179,9 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
             "node-resolution" => {
                 push_unique_target(&mut targets, MetricTarget::NodeResolution);
             }
+            // Eades et al. (2017) unweighted shape-based S_RNG / S_GG (distinct from
+            // deferred Hong et al. 2022 dRNG/dGG and Fang et al. 2025 dcRNG/dcGG);
+            // keep the legacy `drng`/`dgg` CLI target tokens intact for compatibility.
             "drng" | "relative-neighborhood-preservation" => {
                 push_unique_target(&mut targets, MetricTarget::RelativeNeighborhoodPreservation);
             }
@@ -1700,22 +1831,98 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_w2_layout_methods_and_pfs_prime_flags() {
+        for (method_str, expected) in [
+            ("hde", LayoutMethod::Hde),
+            ("sgd-ortmann", LayoutMethod::SgdOrtmann),
+            ("maxent", LayoutMethod::Maxent),
+            ("largevis", LayoutMethod::Largevis),
+            ("drgraph", LayoutMethod::Drgraph),
+            ("graph-cne", LayoutMethod::GraphCne),
+            ("grip", LayoutMethod::Grip),
+            ("gem", LayoutMethod::Gem),
+            ("sel", LayoutMethod::Sel),
+            ("sfc", LayoutMethod::Sfc),
+        ] {
+            let parsed_layout = Cli::try_parse_from([
+                "egraph",
+                "layout",
+                "--dataset",
+                "karate",
+                "--method",
+                method_str,
+                "--overlap-removal",
+                "pfs-prime",
+                "--overlap-radius",
+                "0.12",
+                "--seed",
+                "99",
+            ])
+            .expect("parse W2 layout method and pfs-prime");
+            match parsed_layout.command {
+                Commands::Layout(args) => {
+                    assert_eq!(args.method, expected);
+                    assert_eq!(args.overlap_removal, Some(OverlapRemovalArg::PfsPrime));
+                    assert!((args.prism_radius - 0.12).abs() < 1e-12);
+                    assert_eq!(args.seed, 99);
+                }
+                _ => panic!("expected Layout command"),
+            }
+
+            let parsed_bench = Cli::try_parse_from([
+                "egraph",
+                "bench",
+                "--dataset",
+                "karate",
+                "--method",
+                method_str,
+                "--seed",
+                "99",
+            ])
+            .expect("parse W2 bench method");
+            match parsed_bench.command {
+                Commands::Bench(args) => {
+                    assert_eq!(args.method, expected);
+                    assert_eq!(args.seed, 99);
+                }
+                _ => panic!("expected Bench command"),
+            }
+        }
+
+        let conflict = Cli::try_parse_from([
+            "egraph",
+            "layout",
+            "--dataset",
+            "karate",
+            "--prism",
+            "--overlap-removal",
+            "pfs-prime",
+        ]);
+        assert!(
+            conflict.is_err(),
+            "expected clap conflict between --prism and --overlap-removal pfs-prime"
+        );
+    }
+
+    #[test]
     fn execute_layout_rejects_conflicting_prism_and_overlap_removal_for_rust_callers() {
-        let args = LayoutArgs {
-            input: None,
-            dataset: Some("karate".to_string()),
-            method: LayoutMethod::Stress,
-            init: InitMethod::PivotMds,
-            community_labels: None,
-            refine: false,
-            cluster_refine: ClusterRefineArg::None,
-            prism: true,
-            overlap_removal: Some(OverlapRemovalArg::Gtree),
-            prism_radius: 0.05,
-            seed: 42,
-            output: None,
-        };
-        let err = execute_layout(&args).expect_err("runtime conflict guard");
-        assert!(matches!(err, CliError::InvalidInput(_)));
+        for mode in [OverlapRemovalArg::Gtree, OverlapRemovalArg::PfsPrime] {
+            let args = LayoutArgs {
+                input: None,
+                dataset: Some("karate".to_string()),
+                method: LayoutMethod::Stress,
+                init: InitMethod::PivotMds,
+                community_labels: None,
+                refine: false,
+                cluster_refine: ClusterRefineArg::None,
+                prism: true,
+                overlap_removal: Some(mode),
+                prism_radius: 0.05,
+                seed: 42,
+                output: None,
+            };
+            let err = execute_layout(&args).expect_err("runtime conflict guard");
+            assert!(matches!(err, CliError::InvalidInput(_)));
+        }
     }
 }
