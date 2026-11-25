@@ -22,6 +22,12 @@ This module provides cooperative v6 layout solvers and legacy layout classes.
    layout/fdeb_solver
    layout/stress_majorization_solver
    layout/kamada_kawai_solver
+   layout/maxent_stress_solver
+   layout/grip_solver
+   layout/gem_solver
+   layout/sel_layout_solver
+   layout/pfs_prime_overlap_removal
+   layout/sfc_layout_solver
    layout/full_sgd
    layout/sparse_sgd
    layout/schedulers

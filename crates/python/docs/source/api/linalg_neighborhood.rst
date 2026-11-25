@@ -45,6 +45,8 @@ Initialization, Spectral & Chebyshev Primitives
 .. autofunction:: egraph.pivot_mds_init
 .. autofunction:: egraph.koren_spectral_init
 .. autofunction:: egraph.classical_mds_2d
+.. autofunction:: egraph.hde
+.. autofunction:: egraph.hde_nd
 .. autofunction:: egraph.rd_mds
 .. autofunction:: egraph.normalize_layout_2d
 .. autofunction:: egraph.robust_normalize_layout_2d

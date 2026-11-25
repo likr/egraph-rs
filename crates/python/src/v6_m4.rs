@@ -1192,8 +1192,10 @@ pub(super) fn build_sgd2_solver(
 
 /// Cooperative ForceAtlas2 continuous force-directed layout solver.
 ///
-/// Supports Barnes-Hut quadtree or exact repulsion, LinLog attraction, gravity options,
-/// and both `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
+/// Supports Barnes-Hut quadtree or exact repulsion, `linlog_mode` (Jacomy et al. 2014
+/// ForceAtlas2 logarithmic attraction `w * ln(1 + d) / d * (p_v - p_u)`, which decays to
+/// zero as `d -> 0` and is distinct from Noack 2007 true LinLog `LinLogSolver`), gravity
+/// options, and both `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
 #[pyclass(name = "ForceAtlas2Solver", module = "egraph._core")]
 pub struct PyForceAtlas2Solver {
     inner: ForceAtlas2Inner,
@@ -2036,10 +2038,12 @@ fn project_rectangle_no_overlap_2d(
     write_back_solver_layout(layout, &soa)
 }
 
-/// Remove overlaps between axis-aligned cluster bounding boxes in `layout` in place while
-/// preserving intra-cluster relative coordinates.
+/// Remove overlaps between axis-aligned cluster bounding boxes in `layout` in place via VPSC
+/// while rigidly translating each cluster's intra-cluster coordinates.
 ///
-/// Releases the Python GIL during computation.
+/// Note: This rigid AABB VPSC post-processing pass is distinct from Dwyer et al. (2006)
+/// iterative constrained stress minimization (`IPSep-CoLa`). Releases the Python GIL during
+/// computation.
 #[pyfunction]
 #[pyo3(
     signature = (layout, cluster_ids, half_widths, half_heights),

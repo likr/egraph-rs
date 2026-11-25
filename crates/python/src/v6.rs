@@ -47,6 +47,8 @@ mod v6_m4;
 mod v6_m5;
 #[path = "v6_w1.rs"]
 mod v6_w1;
+#[path = "v6_w2.rs"]
+mod v6_w2;
 
 pub(crate) use v6_m4::{
     v6_cycle_edges_impl, v6_generate_layered_constraints_impl, v6_project_1d_impl,
@@ -2331,9 +2333,11 @@ fn prism_distortion(
     Ok((res.sigma_dist, res.sigma_disp))
 }
 
-/// Compute shape-based Relative Neighborhood Graph preservation (`dRNG`) in `[0.0, 1.0]`.
+/// Compute Eades et al. (2017) unweighted shape-based Relative Neighborhood Graph preservation (`S_RNG`) in `[0.0, 1.0]`.
 ///
-/// Releases the Python GIL during computation.
+/// Exposed as `drng_preservation` for backwards compatibility; distinct from Hong et al. (2022)
+/// degree-sensitive `dRNG` and Fang et al. (2025) degree-constrained `dcRNG` (deferred pending
+/// primary specification PDFs). Releases the Python GIL during computation.
 #[pyfunction]
 fn drng_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     let g = graph.inner();
@@ -2342,9 +2346,11 @@ fn drng_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) ->
     })
 }
 
-/// Compute shape-based Gabriel Graph preservation (`dGG`) in `[0.0, 1.0]`.
+/// Compute Eades et al. (2017) unweighted shape-based Gabriel Graph preservation (`S_GG`) in `[0.0, 1.0]`.
 ///
-/// Releases the Python GIL during computation.
+/// Exposed as `dgg_preservation` for backwards compatibility; distinct from Hong et al. (2022)
+/// degree-sensitive `dGG` and Fang et al. (2025) degree-constrained `dcGG` (deferred pending
+/// primary specification PDFs). Releases the Python GIL during computation.
 #[pyfunction]
 fn dgg_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     let g = graph.inner();
@@ -2405,7 +2411,8 @@ fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// `"sampled_crosslessness"`, `"neighborhood_preservation_1hop"` (`"np1"`),
 /// `"neighborhood_preservation_2hop"` (`"np2"`), `"sampled_np1"`, `"sampled_np2"`,
 /// `"gabriel_graph_property"`, `"node_resolution"`, `"relative_neighborhood_preservation"`
-/// (`"drng"`), `"gabriel_graph_preservation"` (`"dgg"`), `"aspect_ratio"`,
+/// (`"drng"`, Eades et al. 2017 unweighted `S_RNG`), `"gabriel_graph_preservation"`
+/// (`"dgg"`, Eades et al. 2017 unweighted `S_GG`), `"aspect_ratio"`,
 /// `"angular_resolution"`, `"minimum_angle"` (`"min_angle"`), `"minimum_angle_a1"`,
 /// `"layout_degeneracy"`, `"ideal_edge_lengths"`, `"adjusted_patch_nig"` (requires
 /// `community_labels`), `"cluster_area_faithfulness"` (`"gcaf"`, requires
@@ -3107,6 +3114,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     v6_m4::register_m4(m)?;
     v6_m5::register_m5(m)?;
     v6_w1::register_w1(m)?;
+    v6_w2::register_w2(m)?;
     Ok(())
 }
 
