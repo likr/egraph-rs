@@ -1,5 +1,5 @@
-//! Spatial proximity metrics (`gabriel_graph_property`, `node_resolution`, `dRNG`, `dGG`)
-//! accelerated via `StaticKdTree<2, f64>`.
+//! Spatial proximity metrics (`gabriel_graph_property`, `node_resolution`, and Eades et al.
+//! 2017 unweighted shape-based `S_RNG` / `S_GG`) accelerated via `StaticKdTree<2, f64>`.
 
 use std::cmp::Ordering;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI, TAU};
@@ -21,11 +21,14 @@ enum ProximityMode {
     RelativeNeighborhood,
 }
 
-/// Evaluates violations of the Gabriel graph condition across all edges in `graph`.
+/// Evaluates violations of the Gabriel graph condition across all unique edges yielded by
+/// `extract_unique_edges(graph)`.
 ///
-/// For each edge $(u, v)$, computes the disk with diameter $\overline{uv}$ (center $c_{uv}$,
+/// For each edge `(u, v)`, computes the disk with diameter $\overline{uv}$ (center $c_{uv}$,
 /// radius $r_{uv}$) and accumulates $\max(0, r_{uv} - \|p_i - c_{uv}\|)^2$ over vertices
-/// inside the disk via [`StaticKdTree::within_radius_into`].
+/// inside the disk via [`StaticKdTree::within_radius_into`]. On directed graphs, every stored
+/// directed edge `(u, v)` is evaluated independently (so reciprocal pairs `(u, v)` and `(v, u)`
+/// are both summed), and zero-length edges (`r_{uv} <= 0.0`) are skipped.
 pub fn gabriel_graph_property<W, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
@@ -176,8 +179,16 @@ pub fn gabriel_graph_edges_with_tree<S: Scalar>(
     proximity_edges_with_tree(layout, tree, ProximityMode::Gabriel)
 }
 
-/// Computes shape-based Relative Neighborhood Graph preservation (`dRNG`) in `[0.0, 1.0]`
-/// as Mean Jaccard Similarity between graph 1-hop neighborhoods and spatial `RNG(layout)`.
+/// Computes Eades et al. (2017) unweighted shape-based Relative Neighborhood Graph preservation
+/// (`S_RNG`) in `[0.0, 1.0]` as Mean Jaccard Similarity (`MJS`) between undirected graph
+/// 1-hop neighborhoods and spatial `RNG(layout)`.
+///
+/// Note: This implements the classical unweighted `S_RNG` metric of Eades et al. (JGAA 2017),
+/// not Hong et al. (PacificVis 2022) degree-sensitive `dRNG` or Fang et al. (PacificVis 2025)
+/// degree-constrained `dcRNG` (both deferred pending primary specification PDFs). Input graphs
+/// are deduplicated as undirected simple neighborhoods (directed graphs are symmetrized and
+/// self-loops are excluded). Returns `0.0` for `N == 0`, and scores `N == 1` or mutually
+/// isolated vertices (`deg_G == 0 && deg_RNG == 0`) as `1.0` (`0/0` convention).
 pub fn relative_neighborhood_preservation<W, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
@@ -209,8 +220,16 @@ pub fn relative_neighborhood_preservation_with_tree<W, S: Scalar>(
     Ok(mean_jaccard_graph_vs_edges(graph, &rng_edges))
 }
 
-/// Computes shape-based Gabriel Graph preservation (`dGG`) in `[0.0, 1.0]`
-/// as Mean Jaccard Similarity between graph 1-hop neighborhoods and spatial `GG(layout)`.
+/// Computes Eades et al. (2017) unweighted shape-based Gabriel Graph preservation (`S_GG`)
+/// in `[0.0, 1.0]` as Mean Jaccard Similarity (`MJS`) between undirected graph 1-hop
+/// neighborhoods and spatial `GG(layout)`.
+///
+/// Note: This implements the classical unweighted `S_GG` metric of Eades et al. (JGAA 2017),
+/// not Hong et al. (PacificVis 2022) degree-sensitive `dGG` or Fang et al. (PacificVis 2025)
+/// degree-constrained `dcGG` (both deferred pending primary specification PDFs). Input graphs
+/// are deduplicated as undirected simple neighborhoods (directed graphs are symmetrized and
+/// self-loops are excluded). Returns `0.0` for `N == 0`, and scores `N == 1` or mutually
+/// isolated vertices (`deg_G == 0 && deg_GG == 0`) as `1.0` (`0/0` convention).
 pub fn gabriel_graph_preservation<W, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
@@ -238,6 +257,8 @@ pub fn gabriel_graph_preservation_with_tree<W, S: Scalar>(
     Ok(mean_jaccard_graph_vs_edges(graph, &gg_edges))
 }
 
+/// Eades et al. (2017) Eq. (2) unweighted Mean Jaccard Similarity (`MJS`) between graph 1-hop
+/// and proximity edges.
 fn mean_jaccard_graph_vs_edges<W>(graph: &CsrGraph<W>, prox_edges: &[(u32, u32)]) -> f64 {
     let n = graph.num_nodes();
     if n == 0 {
@@ -308,6 +329,18 @@ fn proximity_edges_with_tree<S: Scalar>(
         pts.push([xs[i].to_f64(), ys[i].to_f64()]);
     }
 
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for &[x, y] in &pts {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    let d_max_bound = (max_x - min_x).hypot(max_y - min_y) * (1.0 + 1e-9);
+
     let mut sector_bounds = vec![[f64::INFINITY; NUM_SECTORS]; n];
     let mut r_max = vec![f64::INFINITY; n];
     let mut covered = vec![false; n];
@@ -319,13 +352,13 @@ fn proximity_edges_with_tree<S: Scalar>(
     for i in 0..n {
         let mut k = 32usize.min(n - 1);
         tree.k_nearest_excluding_self_into(i, k, &mut knn_buf)?;
-        update_sector_bounds(i, &pts, &knn_buf, mode, &mut sector_bounds[i]);
+        update_sector_bounds(i, &pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
         let mut bound = sector_bounds[i].iter().copied().fold(0.0_f64, f64::max);
 
         if !bound.is_finite() && n - 1 > 32 {
             k = 128usize.min(n - 1);
             tree.k_nearest_excluding_self_into(i, k, &mut knn_buf)?;
-            update_sector_bounds(i, &pts, &knn_buf, mode, &mut sector_bounds[i]);
+            update_sector_bounds(i, &pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
             bound = sector_bounds[i].iter().copied().fold(0.0_f64, f64::max);
         }
 
@@ -346,7 +379,8 @@ fn proximity_edges_with_tree<S: Scalar>(
         if !covered[i] {
             continue;
         }
-        tree.within_radius_into(&pts[i], r_max[i], &mut cand_buf)?;
+        let query_r = (r_max[i] * (1.0 + 1e-12)).min(f64::MAX);
+        tree.within_radius_into(&pts[i], query_r, &mut cand_buf)?;
         for &(j, d_ij_sq) in &cand_buf {
             if j == i || d_ij_sq <= 0.0 {
                 continue;
@@ -418,6 +452,7 @@ fn update_sector_bounds(
     pts: &[[f64; 2]],
     witnesses: &[(usize, f64)],
     mode: ProximityMode,
+    d_max_bound: f64,
     bounds: &mut [f64; NUM_SECTORS],
 ) {
     let px = pts[center][0];
@@ -441,8 +476,18 @@ fn update_sector_bounds(
             let phi1 = phi0 + SECTOR_WIDTH;
             let max_delta = wrap_abs_angle(theta_r - phi0).max(wrap_abs_angle(theta_r - phi1));
             if max_delta < max_allow {
+                let cos_min = max_delta.cos();
+                if let ProximityMode::RelativeNeighborhood = mode {
+                    // For RNG, `is_proximity_edge` requires `d_jr^2 < d_ij^2 * (1 - 1e-12)`.
+                    // A tiny witness `d_r << 1e-12 * d_ij` fails to shrink `d_jr^2` below the
+                    // tolerance threshold, so a witness only safely prunes up to `d_max_bound`
+                    // when `2 * d_r * cos_min - d_r^2/d_ij >= 1e-11 * d_ij`.
+                    if d_r < d_max_bound * (1e-11 / cos_min) {
+                        continue;
+                    }
+                }
                 let candidate = match mode {
-                    ProximityMode::Gabriel => (d_r / max_delta.cos()) * (1.0 + 1e-7),
+                    ProximityMode::Gabriel => (d_r / cos_min) * (1.0 + 1e-7),
                     ProximityMode::RelativeNeighborhood => d_r * (1.0 + 1e-7),
                 };
                 if candidate < *bound_slot {
@@ -462,11 +507,24 @@ fn is_proximity_edge(
     mode: ProximityMode,
     witness_buf: &mut Vec<(usize, f64)>,
 ) -> CoreResult<bool> {
-    let mid = [0.5 * (pts[i][0] + pts[j][0]), 0.5 * (pts[i][1] + pts[j][1])];
-    let query_r_sq = match mode {
+    // Difference-based midpoint avoids catastrophic cancellation at large coordinate offsets,
+    // and ULP padding on `query_r_sq` covers the remaining midpoint representability error.
+    let mid = [
+        pts[i][0] + 0.5 * (pts[j][0] - pts[i][0]),
+        pts[i][1] + 0.5 * (pts[j][1] - pts[i][1]),
+    ];
+    let base_r_sq = match mode {
         ProximityMode::Gabriel => 0.25 * d_ij_sq * (1.0 + 1e-11),
         ProximityMode::RelativeNeighborhood => 0.75 * d_ij_sq * (1.0 + 1e-11),
     };
+    let max_coord_abs = pts[i][0]
+        .abs()
+        .max(pts[i][1].abs())
+        .max(pts[j][0].abs())
+        .max(pts[j][1].abs());
+    let eps_mid = 4.0 * f64::EPSILON * max_coord_abs;
+    let padded_r = base_r_sq.sqrt() + eps_mid;
+    let query_r_sq = (padded_r * padded_r).min(f64::MAX);
     tree.within_radius_sq_into(&mid, query_r_sq, witness_buf)?;
 
     for &(r, _) in witness_buf.iter() {
@@ -498,13 +556,223 @@ fn dist_sq_2d(a: [f64; 2], b: [f64; 2]) -> f64 {
     dx * dx + dy * dy
 }
 
+/// Error-free Knuth `TwoSum` for `a - b`, exact for all finite `f64` when `|a|, |b| <= 0.25 * f64::MAX`.
 #[inline]
-fn cross_2d(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
-    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+fn two_diff(a: f64, b: f64) -> (f64, f64) {
+    let s = a - b;
+    let b_virt = s - a;
+    let a_virt = s - b_virt;
+    let b_err = (-b) - b_virt;
+    let a_err = a - a_virt;
+    (s, a_err + b_err)
+}
+
+#[inline]
+fn f64_to_mant_exp(v: f64) -> Option<(i64, i32)> {
+    if v == 0.0 {
+        return None;
+    }
+    let bits = v.to_bits();
+    let neg = (bits >> 63) != 0;
+    let exp_bits = ((bits >> 52) & 0x7ff) as i32;
+    let frac = bits & ((1_u64 << 52) - 1);
+    let (mag, exp) = if exp_bits == 0 {
+        (frac as i64, -1074)
+    } else {
+        ((frac | (1_u64 << 52)) as i64, exp_bits - 1075)
+    };
+    Some((if neg { -mag } else { mag }, exp))
+}
+
+#[inline]
+fn push_prod_term(u: f64, v: f64, sign: i8, terms: &mut [(i128, i32); 16], len: &mut usize) {
+    if let (Some((mu, eu)), Some((mv, ev))) = (f64_to_mant_exp(u), f64_to_mant_exp(v)) {
+        let prod = (mu as i128) * (mv as i128) * (sign as i128);
+        terms[*len] = (prod, eu + ev);
+        *len += 1;
+    }
+}
+
+fn push_cross_terms(
+    o: [f64; 2],
+    a: [f64; 2],
+    b: [f64; 2],
+    sign: i8,
+    terms: &mut [(i128, i32); 16],
+    len: &mut usize,
+) {
+    let (dx1_hi, dx1_lo) = two_diff(a[0], o[0]);
+    let (dy1_hi, dy1_lo) = two_diff(a[1], o[1]);
+    let (dx2_hi, dx2_lo) = two_diff(b[0], o[0]);
+    let (dy2_hi, dy2_lo) = two_diff(b[1], o[1]);
+
+    push_prod_term(dx1_hi, dy2_hi, sign, terms, len);
+    push_prod_term(dx1_hi, dy2_lo, sign, terms, len);
+    push_prod_term(dx1_lo, dy2_hi, sign, terms, len);
+    push_prod_term(dx1_lo, dy2_lo, sign, terms, len);
+
+    push_prod_term(dy1_hi, dx2_hi, -sign, terms, len);
+    push_prod_term(dy1_hi, dx2_lo, -sign, terms, len);
+    push_prod_term(dy1_lo, dx2_hi, -sign, terms, len);
+    push_prod_term(dy1_lo, dx2_lo, -sign, terms, len);
+}
+
+#[inline]
+fn add_limb_triple(limbs: &mut [u64; 68], word: usize, w0: u64, w1: u64, w2: u64) {
+    let (sum0, c0) = limbs[word].overflowing_add(w0);
+    limbs[word] = sum0;
+    let (sum1a, c1a) = limbs[word + 1].overflowing_add(w1);
+    let (sum1b, c1b) = sum1a.overflowing_add(u64::from(c0));
+    limbs[word + 1] = sum1b;
+    let (sum2a, c2a) = limbs[word + 2].overflowing_add(w2);
+    let (sum2b, c2b) = sum2a.overflowing_add(u64::from(c1a) + u64::from(c1b));
+    limbs[word + 2] = sum2b;
+    let mut carry = u64::from(c2a) + u64::from(c2b);
+    let mut idx = word + 3;
+    while carry != 0 && idx < limbs.len() {
+        let (sum, c) = limbs[idx].overflowing_add(carry);
+        limbs[idx] = sum;
+        carry = u64::from(c);
+        idx += 1;
+    }
+}
+
+/// Evaluates the exact sign of `\sum_k m_k * 2^{e_k}` with zero floating-point error,
+/// covering the full IEEE-754 finite exponent range (`|coords| <= 0.25 * f64::MAX`).
+fn exact_sum_sign(terms: &[(i128, i32)]) -> Ordering {
+    if terms.is_empty() {
+        return Ordering::Equal;
+    }
+    let mut min_e = i32::MAX;
+    let mut max_e = i32::MIN;
+    for &(_, e) in terms {
+        min_e = min_e.min(e);
+        max_e = max_e.max(e);
+    }
+    let num_limbs = ((max_e - min_e) as usize / 64 + 4).min(68);
+    let mut pos = [0_u64; 68];
+    let mut neg = [0_u64; 68];
+
+    for &(m, e) in terms {
+        if m == 0 {
+            continue;
+        }
+        let shift = (e - min_e) as usize;
+        let word = shift / 64;
+        let bit = (shift % 64) as u32;
+        let abs_m = m.unsigned_abs();
+        let w0 = (abs_m as u64) << bit;
+        let rest = abs_m >> (64 - bit);
+        let w1 = rest as u64;
+        let w2 = (rest >> 64) as u64;
+        if m > 0 {
+            add_limb_triple(&mut pos, word, w0, w1, w2);
+        } else {
+            add_limb_triple(&mut neg, word, w0, w1, w2);
+        }
+    }
+
+    for idx in (0..num_limbs).rev() {
+        match pos[idx].cmp(&neg[idx]) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+    }
+    Ordering::Equal
+}
+
+fn orient2d_exact(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> Ordering {
+    let mut terms = [(0_i128, 0_i32); 16];
+    let mut len = 0usize;
+    push_cross_terms(o, a, b, 1, &mut terms, &mut len);
+    exact_sum_sign(&terms[..len])
+}
+
+/// Exact orientation sign of `(a - o) x (b - o)` with a fast `f64` error-bound filter.
+#[inline]
+fn orient2d(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> Ordering {
+    let det_left = (a[0] - o[0]) * (b[1] - o[1]);
+    let det_right = (a[1] - o[1]) * (b[0] - o[0]);
+    let det = det_left - det_right;
+    let det_sum = det_left.abs() + det_right.abs();
+    if det_sum.is_finite() && (det_sum == 0.0 || det_sum > 1e-280) {
+        let err_bound = 8.0 * f64::EPSILON * det_sum;
+        if det.abs() > err_bound {
+            return if det > 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
+        }
+    }
+    orient2d_exact(o, a, b)
+}
+
+/// Exact comparison of `|(a - o) x (b1 - o)|` vs `|(a - o) x (b2 - o)|` with a fast `f64` filter.
+#[inline]
+fn cross_abs_cmp(o: [f64; 2], a: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> Ordering {
+    let dx = a[0] - o[0];
+    let dy = a[1] - o[1];
+
+    let l1 = dx * (b1[1] - o[1]);
+    let r1 = dy * (b1[0] - o[0]);
+    let det1 = l1 - r1;
+    let sum1 = l1.abs() + r1.abs();
+
+    let l2 = dx * (b2[1] - o[1]);
+    let r2 = dy * (b2[0] - o[0]);
+    let det2 = l2 - r2;
+    let sum2 = l2.abs() + r2.abs();
+
+    if sum1.is_finite()
+        && sum2.is_finite()
+        && (sum1 == 0.0 || sum1 > 1e-280)
+        && (sum2 == 0.0 || sum2 > 1e-280)
+    {
+        let err1 = 8.0 * f64::EPSILON * sum1;
+        let err2 = 8.0 * f64::EPSILON * sum2;
+        let abs1 = det1.abs();
+        let abs2 = det2.abs();
+        if abs1 - err1 > abs2 + err2 {
+            return Ordering::Greater;
+        }
+        if abs2 - err2 > abs1 + err1 {
+            return Ordering::Less;
+        }
+    }
+
+    let s1 = orient2d_exact(o, a, b1);
+    let s2 = orient2d_exact(o, a, b2);
+    match (s1, s2) {
+        (Ordering::Equal, Ordering::Equal) => Ordering::Equal,
+        (Ordering::Equal, _) => Ordering::Less,
+        (_, Ordering::Equal) => Ordering::Greater,
+        _ => {
+            let mut terms = [(0_i128, 0_i32); 16];
+            let mut len = 0usize;
+            let sign1 = if s1 == Ordering::Greater { 1 } else { -1 };
+            let sign2 = if s2 == Ordering::Greater { -1 } else { 1 };
+            push_cross_terms(o, a, b1, sign1, &mut terms, &mut len);
+            push_cross_terms(o, a, b2, sign2, &mut terms, &mut len);
+            exact_sum_sign(&terms[..len])
+        }
+    }
+}
+
+#[inline]
+fn dist_2d_safe(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let sq = dx * dx + dy * dy;
+    if sq.is_finite() && (sq > 0.0 || (dx == 0.0 && dy == 0.0)) {
+        sq.sqrt()
+    } else {
+        dx.hypot(dy)
+    }
 }
 
 /// Computes the exact Euclidean diameter $\max_{i, j} \|p_i - p_j\|_2$ in $O(N \log N)$ time
-/// via Andrew's monotone chain convex hull and rotating calipers.
+/// via exact-predicate Andrew's monotone chain convex hull and rotating calipers.
 fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
     let n = layout.len();
     if n <= 1 {
@@ -513,20 +781,42 @@ fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
     let xs = layout.x();
     let ys = layout.y();
     if n <= 64 {
-        let mut max_sq = 0.0_f64;
+        let mut best_d = 0.0_f64;
         for i in 0..n {
-            let xi = xs[i].to_f64();
-            let yi = ys[i].to_f64();
+            let p_i = [xs[i].to_f64(), ys[i].to_f64()];
             for j in (i + 1)..n {
-                let dx = xi - xs[j].to_f64();
-                let dy = yi - ys[j].to_f64();
-                max_sq = max_sq.max(dx * dx + dy * dy);
+                let p_j = [xs[j].to_f64(), ys[j].to_f64()];
+                best_d = best_d.max(dist_2d_safe(p_i, p_j));
             }
         }
-        return max_sq.sqrt();
+        return best_d;
     }
 
-    let mut pts: Vec<[f64; 2]> = (0..n).map(|i| [xs[i].to_f64(), ys[i].to_f64()]).collect();
+    // Canonicalize `-0.0` to `+0.0` so `total_cmp` and `dedup_by` (`==`) agree
+    // and never leave non-adjacent `(0.0, 0.0)` duplicates that collapse the hull.
+    let mut max_abs = 0.0_f64;
+    let mut pts: Vec<[f64; 2]> = (0..n)
+        .map(|i| {
+            let x = xs[i].to_f64() + 0.0;
+            let y = ys[i].to_f64() + 0.0;
+            max_abs = max_abs.max(x.abs()).max(y.abs());
+            [x, y]
+        })
+        .collect();
+    if max_abs == 0.0 {
+        return 0.0;
+    }
+    // Scale by an exact power of 2 when coordinates exceed `0.25 * f64::MAX` so `two_diff`
+    // and intermediate differences inside exact orientation predicates can never overflow.
+    let pre_scale = if max_abs > 1e300 { 0.125 } else { 1.0 };
+    if pre_scale != 1.0 {
+        for p in &mut pts {
+            p[0] *= pre_scale;
+            p[1] *= pre_scale;
+        }
+    }
+    let inv_scale = 1.0 / pre_scale;
+
     pts.sort_unstable_by(|a, b| a[0].total_cmp(&b[0]).then_with(|| a[1].total_cmp(&b[1])));
     pts.dedup_by(|b, a| a[0] == b[0] && a[1] == b[1]);
 
@@ -534,12 +824,14 @@ fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
         return 0.0;
     }
     if pts.len() == 2 {
-        return dist_sq_2d(pts[0], pts[1]).sqrt();
+        return dist_2d_safe(pts[0], pts[1]) * inv_scale;
     }
 
     let mut hull: Vec<[f64; 2]> = Vec::with_capacity(pts.len());
     for &p in &pts {
-        while hull.len() >= 2 && cross_2d(hull[hull.len() - 2], hull[hull.len() - 1], p) <= 0.0 {
+        while hull.len() >= 2
+            && orient2d(hull[hull.len() - 2], hull[hull.len() - 1], p) != Ordering::Greater
+        {
             hull.pop();
         }
         hull.push(p);
@@ -547,7 +839,7 @@ fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
     let lower_len = hull.len();
     for &p in pts.iter().rev().skip(1) {
         while hull.len() > lower_len
-            && cross_2d(hull[hull.len() - 2], hull[hull.len() - 1], p) <= 0.0
+            && orient2d(hull[hull.len() - 2], hull[hull.len() - 1], p) != Ordering::Greater
         {
             hull.pop();
         }
@@ -560,32 +852,44 @@ fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
         return 0.0;
     }
     if m == 2 {
-        return dist_sq_2d(hull[0], hull[1]).sqrt();
+        return dist_2d_safe(hull[0], hull[1]) * inv_scale;
+    }
+    if m <= 64 {
+        let mut best_d = 0.0_f64;
+        for i in 0..m {
+            for j in (i + 1)..m {
+                best_d = best_d.max(dist_2d_safe(hull[i], hull[j]));
+            }
+        }
+        return best_d * inv_scale;
     }
 
-    // Standard rotating calipers: walk antipodal vertex `j` around the CCW convex hull.
-    let mut max_sq = 0.0_f64;
+    // Standard rotating calipers with exact area comparisons on the strictly convex CCW hull.
+    let mut best_d = 0.0_f64;
     let mut j = 1usize;
     for i in 0..m {
         let next_i = (i + 1) % m;
-        loop {
+        best_d = best_d.max(dist_2d_safe(hull[i], hull[next_i]));
+        let mut steps = 0usize;
+        while steps < m {
             let next_j = (j + 1) % m;
-            let cur_area = cross_2d(hull[i], hull[next_i], hull[j]).abs();
-            let next_area = cross_2d(hull[i], hull[next_i], hull[next_j]).abs();
-            match next_area.total_cmp(&cur_area) {
-                Ordering::Greater => j = next_j,
+            match cross_abs_cmp(hull[i], hull[next_i], hull[next_j], hull[j]) {
+                Ordering::Greater => {
+                    j = next_j;
+                    steps += 1;
+                }
                 Ordering::Equal => {
-                    max_sq = max_sq.max(dist_sq_2d(hull[i], hull[next_j]));
-                    max_sq = max_sq.max(dist_sq_2d(hull[next_i], hull[next_j]));
+                    best_d = best_d.max(dist_2d_safe(hull[i], hull[next_j]));
+                    best_d = best_d.max(dist_2d_safe(hull[next_i], hull[next_j]));
                     break;
                 }
                 Ordering::Less => break,
             }
         }
-        max_sq = max_sq.max(dist_sq_2d(hull[i], hull[j]));
-        max_sq = max_sq.max(dist_sq_2d(hull[next_i], hull[j]));
+        best_d = best_d.max(dist_2d_safe(hull[i], hull[j]));
+        best_d = best_d.max(dist_2d_safe(hull[next_i], hull[j]));
     }
-    max_sq.sqrt()
+    best_d * inv_scale
 }
 
 #[cfg(test)]
@@ -657,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn test_planar_crystalline_drng_and_dgg_equal_one() {
+    fn test_planar_crystalline_s_rng_and_s_gg_equal_one() {
         // 1. 4x4 square lattice (planar crystalline grid).
         let mut grid_edges = Vec::new();
         let mut gx = Vec::new();
@@ -699,7 +1003,7 @@ mod tests {
         let grid3_layout = Layout2d::from_xy(g3x, g3y).unwrap();
         assert_eq!(node_resolution(&grid3_layout).unwrap(), 0.0);
 
-        // Rotated 4x4 grid preserves exact dRNG == 1.0 and dGG == 1.0 despite floating-point rotation.
+        // Rotated 4x4 grid preserves exact S_RNG == 1.0 and S_GG == 1.0 despite floating-point rotation.
         let (st, ct) = (0.37_f64).sin_cos();
         let rx: Vec<f64> = grid_layout
             .x()
@@ -901,5 +1205,904 @@ mod tests {
             node_resolution(&bad),
             Err(CoreError::NonFiniteValue { .. })
         ));
+    }
+
+    fn brute_gabriel_graph_property<W>(graph: &CsrGraph<W>, layout: &Layout2d<f64>) -> f64 {
+        let n = layout.len();
+        let xs = layout.x();
+        let ys = layout.y();
+        let mut sum = 0.0_f64;
+        for (u, v) in extract_unique_edges(graph) {
+            let ui = u as usize;
+            let vi = v as usize;
+            let r = 0.5 * (xs[ui] - xs[vi]).hypot(ys[ui] - ys[vi]);
+            if r <= 0.0 {
+                continue;
+            }
+            let cx = 0.5 * (xs[ui] + xs[vi]);
+            let cy = 0.5 * (ys[ui] + ys[vi]);
+            for i in 0..n {
+                if i == ui || i == vi {
+                    continue;
+                }
+                let d = (xs[i] - cx).hypot(ys[i] - cy);
+                if d < r {
+                    let viol = r - d;
+                    sum += viol * viol;
+                }
+            }
+        }
+        sum
+    }
+
+    fn brute_node_resolution(layout: &Layout2d<f64>) -> f64 {
+        let n = layout.len();
+        if n <= 1 {
+            return 0.0;
+        }
+        let xs = layout.x();
+        let ys = layout.y();
+        let mut d_max_sq = 0.0_f64;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d_sq = (xs[i] - xs[j]).powi(2) + (ys[i] - ys[j]).powi(2);
+                d_max_sq = d_max_sq.max(d_sq);
+            }
+        }
+        if d_max_sq <= 0.0 {
+            return (n as f64) * ((n - 1) as f64) * 0.5;
+        }
+        let thresh = d_max_sq.sqrt() / (n as f64).sqrt();
+        let mut sum = 0.0_f64;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = (xs[i] - xs[j]).hypot(ys[i] - ys[j]);
+                if d < thresh {
+                    let hinge = 1.0 - d / thresh;
+                    sum += hinge * hinge;
+                }
+            }
+        }
+        sum
+    }
+
+    fn assert_proximity_determinism_tree_and_dispatcher<W: Scalar, S: Scalar>(
+        graph: &CsrGraph<W>,
+        layout: &Layout2d<S>,
+    ) {
+        use crate::dispatcher::{MetricConfig, MetricTarget, evaluate_metrics};
+
+        let tree = build_kdtree_f64(layout).unwrap();
+
+        let gg_prop_1 = gabriel_graph_property(graph, layout).unwrap();
+        let gg_prop_2 = gabriel_graph_property(graph, layout).unwrap();
+        let gg_prop_tree = gabriel_graph_property_with_tree(graph, layout, &tree).unwrap();
+        assert_eq!(gg_prop_1.to_bits(), gg_prop_2.to_bits());
+        assert_eq!(gg_prop_1.to_bits(), gg_prop_tree.to_bits());
+
+        let nr_1 = node_resolution(layout).unwrap();
+        let nr_2 = node_resolution(layout).unwrap();
+        let nr_tree = node_resolution_with_tree(layout, &tree).unwrap();
+        assert_eq!(nr_1.to_bits(), nr_2.to_bits());
+        assert_eq!(nr_1.to_bits(), nr_tree.to_bits());
+
+        let rng_edges_1 = relative_neighborhood_edges(layout).unwrap();
+        let rng_edges_tree = relative_neighborhood_edges_with_tree(layout, &tree).unwrap();
+        assert_eq!(rng_edges_1, rng_edges_tree);
+
+        let gg_edges_1 = gabriel_graph_edges(layout).unwrap();
+        let gg_edges_tree = gabriel_graph_edges_with_tree(layout, &tree).unwrap();
+        assert_eq!(gg_edges_1, gg_edges_tree);
+
+        let s_rng_1 = relative_neighborhood_preservation(graph, layout).unwrap();
+        let s_rng_2 = relative_neighborhood_preservation(graph, layout).unwrap();
+        let s_rng_tree =
+            relative_neighborhood_preservation_with_tree(graph, layout, &tree).unwrap();
+        assert_eq!(s_rng_1.to_bits(), s_rng_2.to_bits());
+        assert_eq!(s_rng_1.to_bits(), s_rng_tree.to_bits());
+
+        let s_gg_1 = gabriel_graph_preservation(graph, layout).unwrap();
+        let s_gg_2 = gabriel_graph_preservation(graph, layout).unwrap();
+        let s_gg_tree = gabriel_graph_preservation_with_tree(graph, layout, &tree).unwrap();
+        assert_eq!(s_gg_1.to_bits(), s_gg_2.to_bits());
+        assert_eq!(s_gg_1.to_bits(), s_gg_tree.to_bits());
+
+        let targets = [
+            MetricTarget::GabrielGraphProperty,
+            MetricTarget::NodeResolution,
+            MetricTarget::RelativeNeighborhoodPreservation,
+            MetricTarget::GabrielGraphPreservation,
+        ];
+        let report = evaluate_metrics(graph, layout, &targets, &MetricConfig::default()).unwrap();
+        assert_eq!(
+            report.gabriel_graph_property.unwrap().to_bits(),
+            gg_prop_1.to_bits()
+        );
+        assert_eq!(report.node_resolution.unwrap().to_bits(), nr_1.to_bits());
+        assert_eq!(
+            report.relative_neighborhood_preservation.unwrap().to_bits(),
+            s_rng_1.to_bits()
+        );
+        assert_eq!(
+            report.gabriel_graph_preservation.unwrap().to_bits(),
+            s_gg_1.to_bits()
+        );
+    }
+
+    #[test]
+    fn test_empty_and_singleton_boundaries_all_12_functions_and_dispatcher() {
+        // N = 0 (empty graph & empty layout)
+        let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+        let l0 = Layout2d::<f64>::zeros(0);
+        let t0 = build_kdtree_f64(&l0).unwrap();
+        assert_eq!(gabriel_graph_property(&g0, &l0).unwrap(), 0.0);
+        assert_eq!(
+            gabriel_graph_property_with_tree(&g0, &l0, &t0).unwrap(),
+            0.0
+        );
+        assert_eq!(node_resolution(&l0).unwrap(), 0.0);
+        assert_eq!(node_resolution_with_tree(&l0, &t0).unwrap(), 0.0);
+        assert!(relative_neighborhood_edges(&l0).unwrap().is_empty());
+        assert!(
+            relative_neighborhood_edges_with_tree(&l0, &t0)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(gabriel_graph_edges(&l0).unwrap().is_empty());
+        assert!(gabriel_graph_edges_with_tree(&l0, &t0).unwrap().is_empty());
+        assert_eq!(relative_neighborhood_preservation(&g0, &l0).unwrap(), 0.0);
+        assert_eq!(
+            relative_neighborhood_preservation_with_tree(&g0, &l0, &t0).unwrap(),
+            0.0
+        );
+        assert_eq!(gabriel_graph_preservation(&g0, &l0).unwrap(), 0.0);
+        assert_eq!(
+            gabriel_graph_preservation_with_tree(&g0, &l0, &t0).unwrap(),
+            0.0
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g0, &l0);
+
+        // N = 1 (singleton graph & layout): S_RNG = 1.0, S_GG = 1.0 (0/0 convention).
+        let g1 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        let l1 = Layout2d::from_xy(vec![3.5], vec![-2.25]).unwrap();
+        let t1 = build_kdtree_f64(&l1).unwrap();
+        assert_eq!(gabriel_graph_property(&g1, &l1).unwrap(), 0.0);
+        assert_eq!(
+            gabriel_graph_property_with_tree(&g1, &l1, &t1).unwrap(),
+            0.0
+        );
+        assert_eq!(node_resolution(&l1).unwrap(), 0.0);
+        assert_eq!(node_resolution_with_tree(&l1, &t1).unwrap(), 0.0);
+        assert!(relative_neighborhood_edges(&l1).unwrap().is_empty());
+        assert!(
+            relative_neighborhood_edges_with_tree(&l1, &t1)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(gabriel_graph_edges(&l1).unwrap().is_empty());
+        assert!(gabriel_graph_edges_with_tree(&l1, &t1).unwrap().is_empty());
+        assert_eq!(relative_neighborhood_preservation(&g1, &l1).unwrap(), 1.0);
+        assert_eq!(
+            relative_neighborhood_preservation_with_tree(&g1, &l1, &t1).unwrap(),
+            1.0
+        );
+        assert_eq!(gabriel_graph_preservation(&g1, &l1).unwrap(), 1.0);
+        assert_eq!(
+            gabriel_graph_preservation_with_tree(&g1, &l1, &t1).unwrap(),
+            1.0
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g1, &l1);
+
+        // f32 singleton check.
+        let g1_32 = CsrGraph::<f32>::from_edges(1, &[], None, false, false).unwrap();
+        let l1_32 = Layout2d::from_xy(vec![1.25_f32], vec![-0.5_f32]).unwrap();
+        assert_proximity_determinism_tree_and_dispatcher(&g1_32, &l1_32);
+    }
+
+    #[test]
+    fn test_edgeless_disconnected_and_isolated_vertex_cases() {
+        // 1. Edgeless graph (|E| = 0, N = 4) with non-collocated layout.
+        let g_edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
+        let l_square =
+            Layout2d::from_xy(vec![0.0, 2.0, 2.0, 0.0], vec![0.0, 0.0, 2.0, 2.0]).unwrap();
+        assert_eq!(gabriel_graph_property(&g_edgeless, &l_square).unwrap(), 0.0);
+        assert_eq!(
+            relative_neighborhood_preservation(&g_edgeless, &l_square).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            gabriel_graph_preservation(&g_edgeless, &l_square).unwrap(),
+            0.0
+        );
+        assert!(
+            (node_resolution(&l_square).unwrap() - brute_node_resolution(&l_square)).abs() < 1e-12
+        );
+        assert_eq!(
+            gabriel_graph_edges(&l_square).unwrap(),
+            brute_gg_edges(&l_square)
+        );
+        assert_eq!(
+            relative_neighborhood_edges(&l_square).unwrap(),
+            brute_rng_edges(&l_square)
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g_edgeless, &l_square);
+
+        // 2. Two disjoint triangles: inter-component GG/RNG bridges lower S_RNG/S_GG < 1.0,
+        // and an inter-component node placed inside a Gabriel disk contributes to gabriel_graph_property.
+        let g_disjoint = CsrGraph::<f64>::from_edges(
+            6,
+            &[(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)],
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        let l_disjoint = Layout2d::from_xy(
+            vec![0.0, 4.0, 2.0, 2.0, 7.0, 7.0],
+            vec![0.0, 0.0, 3.0, 0.5, 0.0, 2.0],
+        )
+        .unwrap();
+        let gg_edges = gabriel_graph_edges(&l_disjoint).unwrap();
+        let rng_edges = relative_neighborhood_edges(&l_disjoint).unwrap();
+        assert_eq!(gg_edges, brute_gg_edges(&l_disjoint));
+        assert_eq!(rng_edges, brute_rng_edges(&l_disjoint));
+        let expected_s_gg = mean_jaccard_graph_vs_edges(&g_disjoint, &gg_edges);
+        let expected_s_rng = mean_jaccard_graph_vs_edges(&g_disjoint, &rng_edges);
+        assert!(expected_s_gg < 1.0 && expected_s_rng < 1.0);
+        assert!(
+            (gabriel_graph_preservation(&g_disjoint, &l_disjoint).unwrap() - expected_s_gg).abs()
+                < 1e-12
+        );
+        assert!(
+            (relative_neighborhood_preservation(&g_disjoint, &l_disjoint).unwrap()
+                - expected_s_rng)
+                .abs()
+                < 1e-12
+        );
+        let expected_gg_prop = brute_gabriel_graph_property(&g_disjoint, &l_disjoint);
+        assert!(expected_gg_prop > 0.0);
+        assert!(
+            (gabriel_graph_property(&g_disjoint, &l_disjoint).unwrap() - expected_gg_prop).abs()
+                < 1e-12
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g_disjoint, &l_disjoint);
+
+        // 3. Connected triangle (0,1,2) + isolated degree-0 vertex (3):
+        // (a) Separated isolated vertex has spatial neighbors (deg_p >= 1) so it scores 0.0
+        // and any cross-bridge to {0,1,2} lowers S_GG / S_RNG strictly below 1.0; verify exact MJS.
+        let g_iso =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 0)], None, false, false).unwrap();
+        let l_iso_sep = Layout2d::from_xy(
+            vec![0.0, 2.0, 1.0, 10.0],
+            vec![0.0, 0.0, 3.0_f64.sqrt(), 0.0],
+        )
+        .unwrap();
+        let sep_gg = brute_gg_edges(&l_iso_sep);
+        let sep_rng = brute_rng_edges(&l_iso_sep);
+        assert_eq!(gabriel_graph_edges(&l_iso_sep).unwrap(), sep_gg);
+        assert_eq!(relative_neighborhood_edges(&l_iso_sep).unwrap(), sep_rng);
+        assert_eq!(
+            gabriel_graph_preservation(&g_iso, &l_iso_sep)
+                .unwrap()
+                .to_bits(),
+            mean_jaccard_graph_vs_edges(&g_iso, &sep_gg).to_bits()
+        );
+        assert_eq!(
+            relative_neighborhood_preservation(&g_iso, &l_iso_sep)
+                .unwrap()
+                .to_bits(),
+            mean_jaccard_graph_vs_edges(&g_iso, &sep_rng).to_bits()
+        );
+        // Triangle (0,1,2) is preserved with 1-hop overlap, while vertex 3 has deg_g == 0 and deg_p >= 1 (0.0 Jaccard).
+        assert!(gabriel_graph_preservation(&g_iso, &l_iso_sep).unwrap() < 1.0);
+        assert!(relative_neighborhood_preservation(&g_iso, &l_iso_sep).unwrap() < 1.0);
+
+        // (b) Isolated vertex co-located onto vertex 0 at (0.0, 0.0):
+        // In GG, co-located points block all GG edges incident to 0 and 3 (deg_p == 0 for node 3 -> 0/0 = 1.0).
+        // In RNG, co-located points do NOT block RNG edges to {1, 2} (deg_p == 2 for node 3 -> 0.0 Jaccard).
+        let l_iso_coloc = Layout2d::from_xy(
+            vec![0.0, 2.0, 1.0, 0.0],
+            vec![0.0, 0.0, 3.0_f64.sqrt(), 0.0],
+        )
+        .unwrap();
+        let coloc_gg = brute_gg_edges(&l_iso_coloc);
+        let coloc_rng = brute_rng_edges(&l_iso_coloc);
+        assert_eq!(gabriel_graph_edges(&l_iso_coloc).unwrap(), coloc_gg);
+        assert_eq!(
+            relative_neighborhood_edges(&l_iso_coloc).unwrap(),
+            coloc_rng
+        );
+        assert!(
+            !coloc_gg
+                .iter()
+                .any(|&(u, v)| u == 0 || v == 0 || u == 3 || v == 3)
+        );
+        assert!(coloc_rng.iter().any(|&(u, v)| u == 3 || v == 3));
+        // For node 0: GG edges = {}, G edges = {1,2} -> 0.0. Nodes 1,2: GG = {1,2}, G = {0,1,2} -> 0.5 each. Node 3: 0/0 -> 1.0. Mean = 0.5.
+        assert!((gabriel_graph_preservation(&g_iso, &l_iso_coloc).unwrap() - 0.5).abs() < 1e-12);
+        assert_eq!(
+            relative_neighborhood_preservation(&g_iso, &l_iso_coloc)
+                .unwrap()
+                .to_bits(),
+            mean_jaccard_graph_vs_edges(&g_iso, &coloc_rng).to_bits()
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g_iso, &l_iso_coloc);
+    }
+
+    #[test]
+    fn test_signed_zero_diameter_colocated_pass2b_and_gabriel_property_colocation() {
+        // 1. Regression for signed-zero (-0.0 / +0.0) in euclidean_diameter_2d (n > 64 branch).
+        let mut xs_y = vec![-0.0_f64, -0.0_f64];
+        let mut ys_y = vec![0.0_f64, 1.0_f64];
+        xs_y.extend(std::iter::repeat_n(0.0_f64, 63));
+        ys_y.extend(std::iter::repeat_n(0.0_f64, 63));
+        let layout_sz_y = Layout2d::from_xy(xs_y, ys_y).unwrap();
+        assert_eq!(layout_sz_y.len(), 65);
+        assert!((euclidean_diameter_2d(&layout_sz_y) - 1.0).abs() < 1e-12);
+        let nr_sz_y = node_resolution(&layout_sz_y).unwrap();
+        assert!((nr_sz_y - brute_node_resolution(&layout_sz_y)).abs() < 1e-10);
+        // Must NOT trigger collapsed-layout branch (65 * 64 / 2 = 2080.0).
+        assert!(nr_sz_y < 2080.0);
+
+        let mut xs_x = vec![0.0_f64, 1.0_f64];
+        let mut ys_x = vec![-0.0_f64, -0.0_f64];
+        xs_x.extend(std::iter::repeat_n(0.0_f64, 63));
+        ys_x.extend(std::iter::repeat_n(0.0_f64, 63));
+        let layout_sz_x = Layout2d::from_xy(xs_x, ys_x).unwrap();
+        assert!((euclidean_diameter_2d(&layout_sz_x) - 1.0).abs() < 1e-12);
+        assert!(
+            (node_resolution(&layout_sz_x).unwrap() - brute_node_resolution(&layout_sz_x)).abs()
+                < 1e-10
+        );
+
+        // 2. > 128 co-located points (n = 160) exercising Pass 2b `uncovered` fallback.
+        let mut rng = DeterministicRng::from_seed_u64(2026);
+        let mut xs_160 = vec![0.0_f64; 135];
+        let mut ys_160 = vec![0.0_f64; 135];
+        for _ in 0..25 {
+            xs_160.push((rng.next_f64() - 0.5) * 20.0 + 5.0);
+            ys_160.push((rng.next_f64() - 0.5) * 20.0 + 5.0);
+        }
+        let layout_160 = Layout2d::from_xy(xs_160, ys_160).unwrap();
+        assert_eq!(
+            gabriel_graph_edges(&layout_160).unwrap(),
+            brute_gg_edges(&layout_160)
+        );
+        assert_eq!(
+            relative_neighborhood_edges(&layout_160).unwrap(),
+            brute_rng_edges(&layout_160)
+        );
+
+        // 3. gabriel_graph_property with zero-length edge and co-located 3rd vertex.
+        // Zero-length edge (0, 1) with p0 == p1 is skipped, even when vertex 2 sits nearby or on top.
+        let g_zero_edge = CsrGraph::<f64>::from_edges(3, &[(0, 1)], None, false, false).unwrap();
+        let l_zero_edge = Layout2d::from_xy(vec![1.0, 1.0, 1.0], vec![2.0, 2.0, 2.0]).unwrap();
+        assert_eq!(
+            gabriel_graph_property(&g_zero_edge, &l_zero_edge).unwrap(),
+            0.0
+        );
+
+        // Non-zero edge (0, 1) from (0,0) to (4,0): radius r = 2.0, center (2,0).
+        // Vertex 2 co-located at endpoint (0,0) -> dist == r, not strictly inside -> 0.0 violation.
+        let l_endpoint_coloc = Layout2d::from_xy(vec![0.0, 4.0, 0.0], vec![0.0, 0.0, 0.0]).unwrap();
+        assert_eq!(
+            gabriel_graph_property(&g_zero_edge, &l_endpoint_coloc).unwrap(),
+            0.0
+        );
+
+        // Vertex 2 at midpoint (2,0) -> dist == 0.0 < r -> violation = r^2 = 4.0.
+        let l_midpoint = Layout2d::from_xy(vec![0.0, 4.0, 2.0], vec![0.0, 0.0, 0.0]).unwrap();
+        assert!((gabriel_graph_property(&g_zero_edge, &l_midpoint).unwrap() - 4.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_directed_reciprocal_and_sanitized_self_loop_parallel_edges() {
+        let base_edges = [(0_u32, 1_u32), (1, 2), (2, 3), (3, 0), (0, 2)];
+        let g_undir = CsrGraph::<f64>::from_edges(4, &base_edges, None, false, false).unwrap();
+
+        let mut recip_edges = Vec::new();
+        for &(u, v) in &base_edges {
+            recip_edges.push((u, v));
+            recip_edges.push((v, u));
+        }
+        let g_dir_recip = CsrGraph::<f64>::from_edges(4, &recip_edges, None, true, false).unwrap();
+        let g_dir_oneway = CsrGraph::<f64>::from_edges(4, &base_edges, None, true, false).unwrap();
+
+        let layout = Layout2d::from_xy(vec![0.0, 4.0, 2.0, 1.9], vec![0.0, 0.0, 1.0, 0.2]).unwrap();
+
+        // S_RNG and S_GG deduplicate directed edges via undirected symmetrization.
+        assert_eq!(
+            relative_neighborhood_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            relative_neighborhood_preservation(&g_dir_recip, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            relative_neighborhood_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            relative_neighborhood_preservation(&g_dir_oneway, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            gabriel_graph_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            gabriel_graph_preservation(&g_dir_recip, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            gabriel_graph_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            gabriel_graph_preservation(&g_dir_oneway, &layout)
+                .unwrap()
+                .to_bits()
+        );
+
+        // gabriel_graph_property evaluates each directed edge yielded by extract_unique_edges.
+        let prop_undir = gabriel_graph_property(&g_undir, &layout).unwrap();
+        let prop_dir_recip = gabriel_graph_property(&g_dir_recip, &layout).unwrap();
+        let prop_dir_oneway = gabriel_graph_property(&g_dir_oneway, &layout).unwrap();
+        assert!(prop_undir > 0.0);
+        assert!((prop_dir_recip - 2.0 * prop_undir).abs() < 1e-12);
+        assert!((prop_dir_oneway - prop_undir).abs() < 1e-12);
+
+        // Sanitized construction with self-loops and parallel/reverse duplicates.
+        let dirty_edges = [
+            (0_u32, 0_u32),
+            (1, 1),
+            (0, 1),
+            (0, 1),
+            (1, 0),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (0, 2),
+            (2, 0),
+        ];
+        let g_sanitized_undir =
+            CsrGraph::<f64>::from_edges(4, &dirty_edges, None, false, true).unwrap();
+        let g_sanitized_dir =
+            CsrGraph::<f64>::from_edges(4, &dirty_edges, None, true, true).unwrap();
+
+        assert_eq!(
+            relative_neighborhood_preservation(&g_sanitized_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            relative_neighborhood_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            gabriel_graph_preservation(&g_sanitized_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            gabriel_graph_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            gabriel_graph_property(&g_sanitized_undir, &layout)
+                .unwrap()
+                .to_bits(),
+            prop_undir.to_bits()
+        );
+        assert_eq!(
+            relative_neighborhood_preservation(&g_sanitized_dir, &layout)
+                .unwrap()
+                .to_bits(),
+            relative_neighborhood_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            gabriel_graph_preservation(&g_sanitized_dir, &layout)
+                .unwrap()
+                .to_bits(),
+            gabriel_graph_preservation(&g_undir, &layout)
+                .unwrap()
+                .to_bits()
+        );
+        assert_proximity_determinism_tree_and_dispatcher(&g_dir_recip, &layout);
+    }
+
+    fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
+        graph: &CsrGraph<W>,
+        bad_layout: &Layout2d<S>,
+        valid_tree_same_len: &StaticKdTree<2, f64>,
+    ) {
+        assert!(matches!(
+            gabriel_graph_property(graph, bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_property_with_tree(graph, bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            node_resolution(bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            node_resolution_with_tree(bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_edges(bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_edges_with_tree(bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_edges(bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_edges_with_tree(bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_preservation(graph, bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_preservation_with_tree(graph, bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_preservation(graph, bad_layout),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_preservation_with_tree(graph, bad_layout, valid_tree_same_len),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
+        // 1. Non-finite (NaN, +Inf, -Inf) at N = 1 and N = 2 for f64 and f32 across all 12 functions.
+        let g1_64 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+        let t1 = build_kdtree_f64(&Layout2d::<f64>::zeros(1)).unwrap();
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let lx = Layout2d::from_xy(vec![bad], vec![0.0]).unwrap();
+            let ly = Layout2d::from_xy(vec![0.0], vec![bad]).unwrap();
+            assert_all_12_reject_non_finite(&g1_64, &lx, &t1);
+            assert_all_12_reject_non_finite(&g1_64, &ly, &t1);
+        }
+
+        let g2_64 = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+        let t2 = build_kdtree_f64(&Layout2d::<f64>::zeros(2)).unwrap();
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let l = Layout2d::from_xy(vec![0.0, bad], vec![0.0, 1.0]).unwrap();
+            assert_all_12_reject_non_finite(&g2_64, &l, &t2);
+        }
+
+        let g1_32 = CsrGraph::<f32>::from_edges(1, &[], None, false, false).unwrap();
+        let g2_32 = CsrGraph::<f32>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let l1 = Layout2d::from_xy(vec![bad], vec![0.0_f32]).unwrap();
+            let l2 = Layout2d::from_xy(vec![0.0_f32, 1.0], vec![0.0_f32, bad]).unwrap();
+            assert_all_12_reject_non_finite(&g1_32, &l1, &t1);
+            assert_all_12_reject_non_finite(&g2_32, &l2, &t2);
+        }
+
+        // 2. Extreme finite coordinates (1e200): must never panic or hang across all 12 functions.
+        let g3_64 =
+            CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2), (2, 0)], None, false, false).unwrap();
+        let l_huge = Layout2d::from_xy(vec![0.0, 1e200, -1e200], vec![0.0, 1e200, 0.0]).unwrap();
+        let t_huge = build_kdtree_f64(&l_huge).unwrap();
+        for res in [
+            gabriel_graph_property(&g3_64, &l_huge),
+            gabriel_graph_property_with_tree(&g3_64, &l_huge, &t_huge),
+            node_resolution(&l_huge),
+            node_resolution_with_tree(&l_huge, &t_huge),
+            relative_neighborhood_preservation(&g3_64, &l_huge),
+            relative_neighborhood_preservation_with_tree(&g3_64, &l_huge, &t_huge),
+            gabriel_graph_preservation(&g3_64, &l_huge),
+            gabriel_graph_preservation_with_tree(&g3_64, &l_huge, &t_huge),
+        ] {
+            assert!(matches!(res, Ok(_) | Err(CoreError::NonFiniteValue { .. })));
+        }
+        assert!(matches!(
+            relative_neighborhood_edges(&l_huge),
+            Ok(_) | Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_edges_with_tree(&l_huge, &t_huge),
+            Ok(_) | Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_edges(&l_huge),
+            Ok(_) | Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_edges_with_tree(&l_huge, &t_huge),
+            Ok(_) | Err(CoreError::NonFiniteValue { .. })
+        ));
+
+        // 3. DimensionMismatch: graph/layout mismatch and tree/layout mismatch across all applicable functions.
+        let l4 = Layout2d::from_xy(vec![0.0, 1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]).unwrap();
+        let t4 = build_kdtree_f64(&l4).unwrap();
+        let t3 = build_kdtree_f64(&Layout2d::<f64>::zeros(3)).unwrap();
+
+        // Graph (3) vs layout (4).
+        assert!(matches!(
+            gabriel_graph_property(&g3_64, &l4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_property_with_tree(&g3_64, &l4, &t4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_preservation(&g3_64, &l4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_preservation_with_tree(&g3_64, &l4, &t4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_preservation(&g3_64, &l4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_preservation_with_tree(&g3_64, &l4, &t4),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+
+        // Graph (4) & layout (4) vs tree (3).
+        let g4_64 = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2)], None, false, false).unwrap();
+        assert!(matches!(
+            gabriel_graph_property_with_tree(&g4_64, &l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            node_resolution_with_tree(&l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_edges_with_tree(&l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_edges_with_tree(&l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            relative_neighborhood_preservation_with_tree(&g4_64, &l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            gabriel_graph_preservation_with_tree(&g4_64, &l4, &t3),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_regression_rotated_collinear_and_near_collinear_diameter() {
+        // Reproduces Bug 1: rotated collinear & near-collinear layouts (n > 64) across angles
+        // including `(0.6, 0.8)` at n=90, `angle = 5.0959_f64` at n=80, n=200, and 50 random angles.
+        let mut xs_0608 = Vec::with_capacity(90);
+        let mut ys_0608 = Vec::with_capacity(90);
+        let mut rng0 = DeterministicRng::from_seed_u64(43);
+        for _ in 0..90 {
+            let t = (rng0.next_f64() - 0.5) * 50.0;
+            xs_0608.push(t * 0.6);
+            ys_0608.push(t * 0.8);
+        }
+        let l_0608 = Layout2d::from_xy(xs_0608, ys_0608).unwrap();
+        assert!((node_resolution(&l_0608).unwrap() - brute_node_resolution(&l_0608)).abs() < 1e-10);
+
+        let mut angles = vec![5.0959_f64, 0.37_f64, 1.2345_f64, 2.468_f64];
+        let mut rng_a = DeterministicRng::from_seed_u64(777);
+        for _ in 0..46 {
+            angles.push(rng_a.next_f64() * TAU);
+        }
+
+        for &eps in &[0.0_f64, 1e-15_f64] {
+            for (k, &angle) in angles.iter().enumerate() {
+                let (sa, ca) = angle.sin_cos();
+                for &n in &[80usize, 200usize] {
+                    if n == 200 && k >= 6 {
+                        continue;
+                    }
+                    let mut rng = DeterministicRng::from_seed_u64(5000 + k as u64);
+                    let mut xs = Vec::with_capacity(n);
+                    let mut ys = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        let t = (rng.next_f64() - 0.5) * 100.0;
+                        let perp = (rng.next_f64() - 0.5) * 2.0 * eps;
+                        xs.push(t * ca - perp * sa);
+                        ys.push(t * sa + perp * ca);
+                    }
+                    let layout = Layout2d::from_xy(xs, ys).unwrap();
+                    let got_diam = euclidean_diameter_2d(&layout);
+                    let mut exp_sq = 0.0_f64;
+                    for i in 0..n {
+                        for j in (i + 1)..n {
+                            let dx = layout.x()[i] - layout.x()[j];
+                            let dy = layout.y()[i] - layout.y()[j];
+                            exp_sq = exp_sq.max(dx * dx + dy * dy);
+                        }
+                    }
+                    let exp_diam = exp_sq.sqrt();
+                    assert!(
+                        (got_diam - exp_diam).abs() <= 1e-11 * exp_diam.max(1.0),
+                        "diameter mismatch at angle={angle}, eps={eps}, n={n}: got={got_diam} exp={exp_diam}"
+                    );
+                    let got_nr = node_resolution(&layout).unwrap();
+                    let exp_nr = brute_node_resolution(&layout);
+                    assert!(
+                        (got_nr - exp_nr).abs() <= 1e-9 * exp_nr.max(1.0),
+                        "node_resolution mismatch at angle={angle}, eps={eps}, n={n}: got={got_nr} exp={exp_nr}"
+                    );
+                }
+            }
+        }
+
+        // Also test > 64 hull vertices on a rotated thin convex ellipse (aspect ratio 1e13)
+        // to directly exercise the `m > 64` rotating calipers path with near-collinear jitter.
+        let (sa, ca) = (5.0959_f64).sin_cos();
+        let mut arc_x = Vec::with_capacity(200);
+        let mut arc_y = Vec::with_capacity(200);
+        for idx in 0..200 {
+            let theta = (idx as f64) * TAU / 200.0;
+            let lx = 50.0 * theta.cos();
+            let ly = 1e-12 * theta.sin();
+            arc_x.push(lx * ca - ly * sa);
+            arc_y.push(lx * sa + ly * ca);
+        }
+        let arc_layout = Layout2d::from_xy(arc_x, arc_y).unwrap();
+        let got_arc_diam = euclidean_diameter_2d(&arc_layout);
+        let mut exp_arc_sq = 0.0_f64;
+        for i in 0..200 {
+            for j in (i + 1)..200 {
+                let dx = arc_layout.x()[i] - arc_layout.x()[j];
+                let dy = arc_layout.y()[i] - arc_layout.y()[j];
+                exp_arc_sq = exp_arc_sq.max(dx * dx + dy * dy);
+            }
+        }
+        let exp_arc_diam = exp_arc_sq.sqrt();
+        assert!((got_arc_diam - exp_arc_diam).abs() <= 1e-11 * exp_arc_diam);
+        let got_arc_nr = node_resolution(&arc_layout).unwrap();
+        let exp_arc_nr = brute_node_resolution(&arc_layout);
+        assert!((got_arc_nr - exp_arc_nr).abs() <= 1e-9 * exp_arc_nr.max(1.0));
+
+        // Direct checks on exact geometric predicates (collinear, parallel, huge/tiny dynamic range).
+        assert_eq!(
+            orient2d([0.0, 0.0], [7.0, 3.0], [14.0, 6.0]),
+            Ordering::Equal
+        );
+        assert_eq!(
+            orient2d([0.0, 0.0], [1e-305, 1e-305], [2e-305, 2e-305]),
+            Ordering::Equal
+        );
+        assert_eq!(
+            cross_abs_cmp([0.0, 0.0], [10.0, 0.0], [5.0, 2.0], [8.0, -2.0]),
+            Ordering::Equal
+        );
+        assert_eq!(
+            cross_abs_cmp(
+                [0.0, 0.0],
+                [1e150, 1e150],
+                [2e150, 2e150 + 1e135],
+                [3e150, 3e150]
+            ),
+            Ordering::Greater
+        );
+
+        // n = 80 at 1e200 must never panic or misbehave.
+        let mut rng_huge = DeterministicRng::from_seed_u64(9001);
+        let huge_x: Vec<f64> = (0..80)
+            .map(|_| (rng_huge.next_f64() - 0.5) * 2e200)
+            .collect();
+        let huge_y: Vec<f64> = (0..80)
+            .map(|_| (rng_huge.next_f64() - 0.5) * 2e200)
+            .collect();
+        let huge_layout = Layout2d::from_xy(huge_x, huge_y).unwrap();
+        let huge_diam = euclidean_diameter_2d(&huge_layout);
+        assert!(huge_diam.is_finite() && huge_diam > 0.0);
+        assert!(matches!(
+            node_resolution(&huge_layout),
+            Ok(_) | Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_regression_rng_tiny_witness_sector_pruning_soundness() {
+        // Reproduces Bug 2a: near_cocircular (N = 7) in [0, 2] x [-1e-14, 1 + 1e-10].
+        let l_cocirc = Layout2d::from_xy(
+            vec![0.0, 2.0, 1.0, 1.0 + 1e-14, 0.0 + 1e-14, 2.0 - 1e-14, 1.0],
+            vec![0.0, 0.0, 1.0 + 1e-10, 1.0, -1e-14, 1e-14, 0.0],
+        )
+        .unwrap();
+        let got_cocirc = relative_neighborhood_edges(&l_cocirc).unwrap();
+        let exp_cocirc = brute_rng_edges(&l_cocirc);
+        assert_eq!(got_cocirc, exp_cocirc);
+
+        let g_cocirc =
+            CsrGraph::<f64>::from_edges(7, &[(0, 1), (1, 2), (2, 0), (3, 6)], None, false, false)
+                .unwrap();
+        assert_eq!(
+            relative_neighborhood_preservation(&g_cocirc, &l_cocirc)
+                .unwrap()
+                .to_bits(),
+            mean_jaccard_graph_vs_edges(&g_cocirc, &exp_cocirc).to_bits()
+        );
+
+        // Reproduces Bug 2b: 1e-17 tight cluster (17 points) around (0, 0) + distant point (1.0, 0.0).
+        let mut rng = DeterministicRng::from_seed_u64(31415);
+        let mut cx = Vec::with_capacity(18);
+        let mut cy = Vec::with_capacity(18);
+        for _ in 0..17 {
+            cx.push((rng.next_f64() - 0.5) * 1e-17);
+            cy.push((rng.next_f64() - 0.5) * 1e-17);
+        }
+        cx.push(1.0);
+        cy.push(0.0);
+        let l_cluster18 = Layout2d::from_xy(cx, cy).unwrap();
+        let got_cluster18 = relative_neighborhood_edges(&l_cluster18).unwrap();
+        let exp_cluster18 = brute_rng_edges(&l_cluster18);
+        assert_eq!(got_cluster18, exp_cluster18);
+
+        // Also test > 128 points in a 1e-17 tight cluster + distant point so k = 128 witnesses
+        // stay entirely inside the tight cluster.
+        let mut cx2 = Vec::with_capacity(141);
+        let mut cy2 = Vec::with_capacity(141);
+        for _ in 0..140 {
+            cx2.push((rng.next_f64() - 0.5) * 1e-17);
+            cy2.push((rng.next_f64() - 0.5) * 1e-17);
+        }
+        cx2.push(1.0);
+        cy2.push(0.0);
+        let l_cluster141 = Layout2d::from_xy(cx2, cy2).unwrap();
+        assert_eq!(
+            relative_neighborhood_edges(&l_cluster141).unwrap(),
+            brute_rng_edges(&l_cluster141)
+        );
+    }
+
+    #[test]
+    fn test_regression_gg_large_offset_midpoint_cancellation() {
+        // Reproduces Bug 3: 1-ULP-spaced cluster in [1e10, 1e10 + 1e-5]^2 (n = 40 and n = 80).
+        for &n in &[40usize, 80usize] {
+            let mut rng = DeterministicRng::from_seed_u64(20260 + n as u64);
+            let xs: Vec<f64> = (0..n).map(|_| 1e10 + rng.next_f64() * 1e-5).collect();
+            let ys: Vec<f64> = (0..n).map(|_| 1e10 + rng.next_f64() * 1e-5).collect();
+            let layout = Layout2d::from_xy(xs, ys).unwrap();
+
+            let got_gg = gabriel_graph_edges(&layout).unwrap();
+            let exp_gg = brute_gg_edges(&layout);
+            assert_eq!(got_gg, exp_gg, "GG edges mismatch at 1e10 offset for n={n}");
+
+            let got_rng = relative_neighborhood_edges(&layout).unwrap();
+            let exp_rng = brute_rng_edges(&layout);
+            assert_eq!(
+                got_rng, exp_rng,
+                "RNG edges mismatch at 1e10 offset for n={n}"
+            );
+
+            let edges: Vec<(u32, u32)> = (0..(n as u32 - 1)).map(|i| (i, i + 1)).collect();
+            let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+            assert_eq!(
+                gabriel_graph_preservation(&g, &layout).unwrap().to_bits(),
+                mean_jaccard_graph_vs_edges(&g, &exp_gg).to_bits()
+            );
+            assert_eq!(
+                relative_neighborhood_preservation(&g, &layout)
+                    .unwrap()
+                    .to_bits(),
+                mean_jaccard_graph_vs_edges(&g, &exp_rng).to_bits()
+            );
+        }
     }
 }
