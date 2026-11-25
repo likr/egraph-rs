@@ -812,6 +812,7 @@ export interface TsNetOptions {
   sigmaIters?: number | null;
   sigmaTolerance?: number | null;
   rowNormalize?: boolean | null;
+  jacobiPrecondition?: boolean | null;
   ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
   ibfftIntervals?: number | null;
   ibfftMinGridDim?: number | null;

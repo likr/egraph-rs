@@ -162,6 +162,12 @@ impl<S: Scalar> FitField2d<S> {
         self.config
     }
 
+    /// Returns the adaptive FFT grid geometry computed by the most recent evaluation.
+    #[inline]
+    pub fn grid_spec(&self) -> Option<IbFftGridSpec> {
+        self.ibfft.grid_spec()
+    }
+
     /// Updates `epsilon_r` without reallocating workspaces.
     pub fn set_epsilon_r(&mut self, epsilon_r: f64) -> CoreResult<()> {
         if !epsilon_r.is_finite() || epsilon_r <= 0.0 {

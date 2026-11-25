@@ -354,7 +354,7 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
                 np.testing.assert_array_equal(view_run, l_run.coords(copy=True))
                 np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-        # Verify default learning_rate=None across all 5 TsNetSolver constructors
+        # Verify default learning_rate=None and jacobi_precondition=True across all 5 TsNetSolver constructors
         for ctor in (
             eg.TsNetSolver.pure_2hop,
             eg.TsNetSolver.from_knn,
@@ -363,6 +363,7 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
             eg.TsNetSolver.from_graph_row_normalized,
         ):
             self.assertIsNone(inspect.signature(ctor).parameters["learning_rate"].default)
+            self.assertIs(inspect.signature(ctor).parameters["jacobi_precondition"].default, True)
 
         # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
         knn, _, _ = eg.build_pure_2hop_knn(g)
@@ -424,6 +425,89 @@ class TestV6ManifoldAndSolvers(unittest.TestCase):
         self.assertEqual(rn_beta.run(l_rn_beta), "completed")
         self.assertTrue(l_rn_beta.is_all_finite())
         self.assert_no_panic_raises((ValueError,), lambda: s_probs.step(eg.Layout2d.zeros(3)))
+
+    def test_tsnet_solver_jacobi_precondition_star_hub(self) -> None:
+        n = 20
+        star = eg.CsrGraph.from_edges(n, [(0, v) for v in range(1, n)], directed=False, sanitize=True)
+        init_coords = _seeded_coords(n, seed=19, scale=0.5)
+        init_coords[0] = [1.0, 0.0]
+        init_coords -= init_coords.mean(axis=0, keepdims=True)
+
+        knn, _, _ = eg.build_pure_2hop_knn(star)
+        perps = eg.compute_nodewise_2hop_perplexities(star)
+        probs = eg.graph_row_normalized_probabilities(star)
+
+        for dtype_str in ("float64", "float32"):
+            common: dict[str, Any] = {
+                "backend": "exact",
+                "iterations_stage1": 4,
+                "iterations_stage2": 2,
+                "iterations_stage3": 2,
+                "seed": 42,
+                "dtype": dtype_str,
+            }
+
+            def _mk_pure(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
+                return eg.TsNetSolver.pure_2hop(star, jacobi_precondition=jp, **cfg)
+
+            def _mk_knn(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
+                return eg.TsNetSolver.from_knn(knn, perps, jacobi_precondition=jp, **cfg)
+
+            def _mk_probs(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
+                return eg.TsNetSolver.from_probabilities(probs, jacobi_precondition=jp, **cfg)
+
+            def _mk_bfs(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
+                return eg.TsNetSolver.from_graph_partial_bfs(
+                    star, 8, 6.0, jacobi_precondition=jp, **cfg
+                )
+
+            def _mk_rn(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
+                return eg.TsNetSolver.from_graph_row_normalized(
+                    star, w2=0.0, jacobi_precondition=jp, **cfg
+                )
+
+            ctors: list[tuple[str, Callable[[bool], eg.TsNetSolver]]] = [
+                ("pure_2hop", _mk_pure),
+                ("from_knn", _mk_knn),
+                ("from_probabilities", _mk_probs),
+                ("from_graph_partial_bfs", _mk_bfs),
+                ("from_graph_row_normalized", _mk_rn),
+            ]
+            for name, make_solver in ctors:
+                s_on = make_solver(True)
+                s_off = make_solver(False)
+                l_on = eg.Layout2d.from_coords(_to_float_array(init_coords, dtype_str))
+                l_off = eg.Layout2d.from_coords(_to_float_array(init_coords, dtype_str))
+                self.assertEqual(s_on.run(l_on), "completed", msg=name)
+                self.assertEqual(s_off.run(l_off), "completed", msg=name)
+                self.assertTrue(l_on.is_all_finite(), msg=name)
+                self.assertTrue(l_off.is_all_finite(), msg=name)
+                coords_on = l_on.coords(copy=True)
+                coords_off = l_off.coords(copy=True)
+                self.assertFalse(
+                    np.allclose(coords_on, coords_off, atol=1e-6, rtol=1e-6),
+                    msg=f"{name} ({dtype_str}): expected jacobi_precondition=True vs False to differ on star hub",
+                )
+                r_hub_on = float(np.hypot(coords_on[0, 0], coords_on[0, 1]))
+                r_hub_off = float(np.hypot(coords_off[0, 0], coords_off[0, 1]))
+                self.assertLess(
+                    r_hub_on,
+                    r_hub_off,
+                    msg=f"{name} ({dtype_str}): expected jacobi_precondition=True to reduce hub overshoot ({r_hub_on} >= {r_hub_off})",
+                )
+
+        # Non-bool values must raise TypeError cleanly without PanicException
+        bad_values: tuple[Any, ...] = (1, 0, "true", None)
+        for bad_val in bad_values:
+
+            def _call_pure(val: Any = bad_val) -> eg.TsNetSolver:
+                return eg.TsNetSolver.pure_2hop(star, jacobi_precondition=val)
+
+            def _call_rn(val: Any = bad_val) -> eg.TsNetSolver:
+                return eg.TsNetSolver.from_graph_row_normalized(star, jacobi_precondition=val)
+
+            self.assert_no_panic_raises((TypeError,), _call_pure)
+            self.assert_no_panic_raises((TypeError,), _call_rn)
 
     def test_sgd_solver_all_constructors_schedules_and_manifolds(self) -> None:
         g = _make_grid(4, 4)

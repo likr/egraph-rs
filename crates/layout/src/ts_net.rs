@@ -111,6 +111,9 @@ pub struct TsNetConfig {
     pub lambda_r_stage3: f64,
     /// Optional explicit base gradient descent learning rate (`None` uses $O(N)$ scaling `max(200.0, N / 3.0)`).
     pub learning_rate: Option<f64>,
+    /// Enables per-vertex Jacobi preconditioning of the learning rate
+    /// `lr_i = stage_lr / max(1.0, N * P_{i.})` (`true` by default).
+    pub jacobi_precondition: bool,
     /// Momentum factor in `[0.0, 1.0)` (`0.8`).
     pub momentum: f64,
     /// Entropy softening constant $\varepsilon_r > 0$ (`0.05`).
@@ -150,6 +153,7 @@ impl TsNetConfig {
             lambda_c_stage3: 0.0,
             lambda_r_stage3: 0.0,
             learning_rate: None,
+            jacobi_precondition: true,
             momentum: 0.8,
             epsilon_r: 0.05,
             theta: 0.5,
@@ -301,6 +305,7 @@ pub struct TsNetSolver<S: Scalar = f64> {
     indptr: Vec<usize>,
     indices: Vec<u32>,
     p_vals: Vec<f64>,
+    inv_jacobi: Vec<f64>,
     attr_x: Vec<f64>,
     attr_y: Vec<f64>,
     vel_x: Vec<f64>,
@@ -390,6 +395,28 @@ impl<S: Scalar> TsNetSolver<S> {
             .map(|idx| compute_stage_lr(&stages[idx], n, base_lr, config.momentum))
             .unwrap_or(base_lr);
 
+        let inv_jacobi = if config.jacobi_precondition {
+            let n_f64 = n as f64;
+            let mut diag = vec![1.0_f64; n];
+            for i in 0..n {
+                let start = probs.indptr[i];
+                let end = probs.indptr[i + 1];
+                let mut row_sum = 0.0_f64;
+                for pos in start..end {
+                    if probs.indices[pos] as usize != i {
+                        row_sum += probs.values[pos];
+                    }
+                }
+                let scale = (n_f64 * row_sum).max(1.0);
+                if scale.is_finite() {
+                    diag[i] = 1.0 / scale;
+                }
+            }
+            diag
+        } else {
+            Vec::new()
+        };
+
         Ok(Self {
             config,
             stages,
@@ -397,6 +424,7 @@ impl<S: Scalar> TsNetSolver<S> {
             indptr: probs.indptr,
             indices: probs.indices,
             p_vals: probs.values,
+            inv_jacobi,
             attr_x: vec![0.0; n],
             attr_y: vec![0.0; n],
             vel_x: vec![0.0; n],
@@ -560,6 +588,13 @@ impl<S: Scalar> TsNetSolver<S> {
     #[inline]
     pub fn current_stage_lr(&self) -> f64 {
         self.active_stage_lr
+    }
+
+    /// Returns the precomputed per-vertex inverse Jacobi preconditioning factors
+    /// `1.0 / max(1.0, N * P_{i.})`, or an empty slice when disabled.
+    #[inline]
+    pub fn inv_jacobi(&self) -> &[f64] {
+        &self.inv_jacobi
     }
 
     fn enter_current_stage(&mut self) -> CoreResult<()> {
@@ -772,6 +807,7 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
         let lambda_sum = (stage.lambda_kl + stage.lambda_c + stage.lambda_r).max(MIN_LAMBDA_SUM);
         let stage_lr = self.active_stage_lr;
         let momentum = self.config.momentum;
+        let use_jacobi = self.config.jacobi_precondition;
 
         let use_fft_buffers = matches!(
             self.config.backend,
@@ -834,8 +870,13 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
                 let gx = if raw_gx.is_finite() { raw_gx } else { 0.0 };
                 let gy = if raw_gy.is_finite() { raw_gy } else { 0.0 };
 
-                let mut vx = momentum * self.vel_x[i] - stage_lr * gx;
-                let mut vy = momentum * self.vel_y[i] - stage_lr * gy;
+                let lr_i = if use_jacobi {
+                    stage_lr * self.inv_jacobi[i]
+                } else {
+                    stage_lr
+                };
+                let mut vx = momentum * self.vel_x[i] - lr_i * gx;
+                let mut vy = momentum * self.vel_y[i] - lr_i * gy;
                 if !vx.is_finite() {
                     vx = 0.0;
                 }
@@ -1059,6 +1100,7 @@ mod tests {
         assert_eq!(cfg.lambda_c_stage3, 0.0);
         assert_eq!(cfg.lambda_r_stage3, 0.0);
         assert_eq!(cfg.learning_rate, None);
+        assert!(cfg.jacobi_precondition);
         assert_eq!(cfg.resolve_learning_rate(16), 200.0);
         assert_eq!(cfg.resolve_learning_rate(600), 200.0);
         assert!((cfg.resolve_learning_rate(3000) - 1000.0).abs() < 1e-12);
@@ -1964,5 +2006,224 @@ mod tests {
             ),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_jacobi_precondition_weights_regular_isolated_and_hub() {
+        // 1. Regular cycle graph (N=16, deg=2): P_{i.} == 1/N, so inv_jacobi[i] == 1.0 everywhere.
+        let n_reg = 16;
+        let reg_edges: Vec<(u32, u32)> = (0..n_reg as u32)
+            .map(|i| (i, (i + 1) % (n_reg as u32)))
+            .collect();
+        let cycle = CsrGraph::<f64>::from_edges(n_reg, &reg_edges, None, false, false).unwrap();
+        let cfg_on = TsNetConfig::pure_2hop();
+        let s_reg_p2h = TsNetSolver::<f64>::from_graph_pure_2hop(&cycle, cfg_on).unwrap();
+        let s_reg_rn =
+            TsNetSolver::<f64>::from_graph_row_normalized(&cycle, 0.5, None, cfg_on).unwrap();
+        assert_eq!(s_reg_p2h.inv_jacobi().len(), n_reg);
+        assert_eq!(s_reg_rn.inv_jacobi().len(), n_reg);
+        for &w in s_reg_p2h.inv_jacobi().iter().chain(s_reg_rn.inv_jacobi()) {
+            assert!(
+                (w - 1.0).abs() < 1e-12,
+                "expected 1.0 on regular graph, got {w}"
+            );
+        }
+
+        // 2. Disconnected graph with isolated vertex (triangle 0-1-2 + isolated vertex 3).
+        let disc =
+            CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 0)], None, false, false).unwrap();
+        let s_disc =
+            TsNetSolver::<f64>::from_graph_row_normalized(&disc, 0.0, None, cfg_on).unwrap();
+        assert_eq!(s_disc.inv_jacobi().len(), 4);
+        assert_eq!(s_disc.inv_jacobi()[3], 1.0);
+        for &w in s_disc.inv_jacobi() {
+            assert!(w.is_finite() && w > 0.0 && w <= 1.0);
+        }
+
+        // 3. Star graph (N=20, hub 0, leaves 1..19): P_{0.} = 0.5, N * P_{0.} = 10 -> inv_jacobi[0] = 0.1.
+        let n_star = 20usize;
+        let star_edges: Vec<(u32, u32)> = (1..n_star as u32).map(|v| (0, v)).collect();
+        let star = CsrGraph::<f64>::from_edges(n_star, &star_edges, None, false, false).unwrap();
+        let s_star =
+            TsNetSolver::<f64>::from_graph_row_normalized(&star, 0.0, None, cfg_on).unwrap();
+        assert!((s_star.inv_jacobi()[0] - 0.1).abs() < 1e-12);
+        for leaf in 1..n_star {
+            assert!((s_star.inv_jacobi()[leaf] - 1.0).abs() < 1e-12);
+        }
+
+        // 4. Self-loops in raw SparseProbabilities are skipped when computing inv_jacobi.
+        let self_loop_probs = SparseProbabilities {
+            n_nodes: 4,
+            indptr: vec![0, 2, 3, 4, 4],
+            indices: vec![0, 1, 0, 2],
+            values: vec![100.0, 0.5, 0.5, 0.1],
+        };
+        let s_sl = TsNetSolver::<f64>::from_probabilities(self_loop_probs, cfg_on).unwrap();
+        assert!((s_sl.inv_jacobi()[0] - 0.5).abs() < 1e-12);
+        assert!((s_sl.inv_jacobi()[1] - 0.5).abs() < 1e-12);
+        assert!((s_sl.inv_jacobi()[2] - 1.0).abs() < 1e-12);
+        assert!((s_sl.inv_jacobi()[3] - 1.0).abs() < 1e-12);
+
+        // 5. jacobi_precondition = false leaves inv_jacobi empty and preserves f64/f32 step == run_steps.
+        let cfg_off = TsNetConfig {
+            backend: TsNetBackend::Exact,
+            jacobi_precondition: false,
+            iterations_stage1: 6,
+            iterations_stage2: 4,
+            iterations_stage3: 4,
+            ..TsNetConfig::pure_2hop()
+        };
+        let mut s64_run =
+            TsNetSolver::<f64>::from_graph_row_normalized(&star, 0.0, None, cfg_off).unwrap();
+        let mut s64_step =
+            TsNetSolver::<f64>::from_graph_row_normalized(&star, 0.0, None, cfg_off).unwrap();
+        assert!(s64_run.inv_jacobi().is_empty());
+        let mut l64_run = seeded_layout::<f64>(n_star, 0.5, 17);
+        let mut l64_step = l64_run.clone();
+        s64_run.run(&mut l64_run).unwrap();
+        s64_step.run_steps(&mut l64_step, 5).unwrap();
+        while !s64_step.status().is_finished() {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        for i in 0..n_star {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+
+        let mut s32_run =
+            TsNetSolver::<f32>::from_graph_row_normalized(&star, 0.0, None, cfg_off).unwrap();
+        let mut s32_step =
+            TsNetSolver::<f32>::from_graph_row_normalized(&star, 0.0, None, cfg_off).unwrap();
+        assert!(s32_run.inv_jacobi().is_empty());
+        let mut l32_run = seeded_layout::<f32>(n_star, 0.5, 17);
+        let mut l32_step = l32_run.clone();
+        s32_run.run(&mut l32_run).unwrap();
+        for _ in 0..14 {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        for i in 0..n_star {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
+    }
+
+    #[test]
+    fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
+        // Sink-barrel graph (N=1200): hub 0 connected to 600 leaves (1..=600) plus a tail/ring (601..=1199).
+        let n = 1200usize;
+        let mut edges: Vec<(u32, u32)> = (1..=600u32).map(|v| (0, v)).collect();
+        for u in 600..1199u32 {
+            edges.push((u, u + 1));
+        }
+        edges.push((1199, 601));
+        let barrel = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+
+        let make_init = || {
+            let mut l = seeded_layout::<f64>(n, 0.5, 42);
+            let (xs, ys) = l.xy_mut();
+            xs[0] = 1.0;
+            ys[0] = 0.0;
+            let mx = xs.iter().sum::<f64>() / (n as f64);
+            let my = ys.iter().sum::<f64>() / (n as f64);
+            for i in 0..n {
+                xs[i] -= mx;
+                ys[i] -= my;
+            }
+            l
+        };
+        let init_f64 = make_init();
+        let init_f32 = Layout2d::<f32>::from_xy(
+            init_f64.x().iter().map(|&v| v as f32).collect(),
+            init_f64.y().iter().map(|&v| v as f32).collect(),
+        )
+        .unwrap();
+
+        // Baseline without Jacobi: Stage 1 immediately ejects hub 0 and blows up ibfft grid to 512.
+        let cfg_off = TsNetConfig {
+            backend: TsNetBackend::FftInterpolation,
+            jacobi_precondition: false,
+            iterations_stage1: 10,
+            iterations_stage2: 0,
+            iterations_stage3: 0,
+            ..TsNetConfig::pure_2hop()
+        };
+        let mut s_off =
+            TsNetSolver::<f64>::from_graph_row_normalized(&barrel, 0.0, None, cfg_off).unwrap();
+        let mut l_off = init_f64.clone();
+        s_off.run_steps(&mut l_off, 2).unwrap();
+        let r_hub_off = l_off.x()[0].hypot(l_off.y()[0]);
+        let spec_off = s_off.fit_field.as_ref().unwrap().grid_spec().unwrap();
+        assert!(
+            r_hub_off > 100.0,
+            "expected baseline hub ejection without Jacobi, got r_hub_off={r_hub_off}"
+        );
+        assert!(
+            spec_off.nx == 512 || spec_off.ny == 512,
+            "expected baseline 512 grid blowup without Jacobi, got {spec_off:?}"
+        );
+
+        // With Jacobi preconditioning (f64 and f32): bounded hub displacement, nx/ny < 512, step == run_steps.
+        let cfg_on = TsNetConfig {
+            jacobi_precondition: true,
+            ..cfg_off
+        };
+
+        let mut s64_run =
+            TsNetSolver::<f64>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on).unwrap();
+        let mut s64_step =
+            TsNetSolver::<f64>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on).unwrap();
+        let mut l64_run = init_f64.clone();
+        let mut l64_step = init_f64;
+        assert_eq!(
+            s64_run.run_steps(&mut l64_run, 10).unwrap(),
+            SolverStatus::Completed
+        );
+        for _ in 0..10 {
+            s64_step.step(&mut l64_step).unwrap();
+        }
+        assert!(l64_run.is_all_finite());
+        let r_hub_64 = l64_run.x()[0].hypot(l64_run.y()[0]);
+        let spec_64 = s64_run.fit_field.as_ref().unwrap().grid_spec().unwrap();
+        assert!(
+            r_hub_64 < 20.0,
+            "expected bounded hub displacement (f64), got {r_hub_64}"
+        );
+        assert!(
+            spec_64.nx < 512 && spec_64.ny < 512,
+            "expected grid dims < 512 with Jacobi (f64), got {spec_64:?}"
+        );
+        for i in 0..n {
+            assert_eq!(l64_run.x()[i].to_bits(), l64_step.x()[i].to_bits());
+            assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
+        }
+
+        let mut s32_run =
+            TsNetSolver::<f32>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on).unwrap();
+        let mut s32_step =
+            TsNetSolver::<f32>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on).unwrap();
+        let mut l32_run = init_f32.clone();
+        let mut l32_step = init_f32;
+        assert_eq!(
+            s32_run.run_steps(&mut l32_run, 10).unwrap(),
+            SolverStatus::Completed
+        );
+        for _ in 0..10 {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        assert!(l32_run.is_all_finite());
+        let r_hub_32 = (l32_run.x()[0] as f64).hypot(l32_run.y()[0] as f64);
+        let spec_32 = s32_run.fit_field.as_ref().unwrap().grid_spec().unwrap();
+        assert!(
+            r_hub_32 < 20.0,
+            "expected bounded hub displacement (f32), got {r_hub_32}"
+        );
+        assert!(
+            spec_32.nx < 512 && spec_32.ny < 512,
+            "expected grid dims < 512 with Jacobi (f32), got {spec_32:?}"
+        );
+        for i in 0..n {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+        }
     }
 }

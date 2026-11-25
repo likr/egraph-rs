@@ -1217,6 +1217,7 @@ fn build_tsnet_config(
     lambda_c_stage3: f64,
     lambda_r_stage3: f64,
     learning_rate: Option<f64>,
+    jacobi_precondition: bool,
     momentum: f64,
     epsilon_r: f64,
     theta: f64,
@@ -1250,6 +1251,7 @@ fn build_tsnet_config(
         lambda_c_stage3,
         lambda_r_stage3,
         learning_rate,
+        jacobi_precondition,
         momentum,
         epsilon_r,
         theta,
@@ -1306,10 +1308,11 @@ impl PyTsNetSolver {
             interpolation_order = StrictUsize(1),
             min_grid_dim = StrictUsize(64),
             max_grid_dim = StrictUsize(512),
+            jacobi_precondition = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, backend='fft', *, perplexity_c=0.9, min_perplexity=5.0, max_perplexity=1200.0, power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, backend='fft', *, perplexity_c=0.9, min_perplexity=5.0, max_perplexity=1200.0, power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, jacobi_precondition=True, seed=42, dtype='float64')"
     )]
     fn pure_2hop(
         py: Python<'_>,
@@ -1338,6 +1341,7 @@ impl PyTsNetSolver {
         interpolation_order: StrictUsize,
         min_grid_dim: StrictUsize,
         max_grid_dim: StrictUsize,
+        jacobi_precondition: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1359,6 +1363,7 @@ impl PyTsNetSolver {
             lambda_c_stage3.0,
             lambda_r_stage3.0,
             learning_rate.map(|v| v.0),
+            jacobi_precondition,
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1412,10 +1417,11 @@ impl PyTsNetSolver {
             interpolation_order = StrictUsize(1),
             min_grid_dim = StrictUsize(64),
             max_grid_dim = StrictUsize(512),
+            jacobi_precondition = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn, perplexities=None, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(knn, perplexities=None, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, jacobi_precondition=True, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -1443,6 +1449,7 @@ impl PyTsNetSolver {
         interpolation_order: StrictUsize,
         min_grid_dim: StrictUsize,
         max_grid_dim: StrictUsize,
+        jacobi_precondition: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1464,6 +1471,7 @@ impl PyTsNetSolver {
             lambda_c_stage3.0,
             lambda_r_stage3.0,
             learning_rate.map(|v| v.0),
+            jacobi_precondition,
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1518,10 +1526,11 @@ impl PyTsNetSolver {
             interpolation_order = StrictUsize(1),
             min_grid_dim = StrictUsize(64),
             max_grid_dim = StrictUsize(512),
+            jacobi_precondition = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(probs, backend='fft', *, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(probs, backend='fft', *, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, jacobi_precondition=True, seed=42, dtype='float64')"
     )]
     fn from_probabilities(
         py: Python<'_>,
@@ -1543,6 +1552,7 @@ impl PyTsNetSolver {
         interpolation_order: StrictUsize,
         min_grid_dim: StrictUsize,
         max_grid_dim: StrictUsize,
+        jacobi_precondition: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1564,6 +1574,7 @@ impl PyTsNetSolver {
             lambda_c_stage3.0,
             lambda_r_stage3.0,
             learning_rate.map(|v| v.0),
+            jacobi_precondition,
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1617,10 +1628,11 @@ impl PyTsNetSolver {
             interpolation_order = StrictUsize(1),
             min_grid_dim = StrictUsize(64),
             max_grid_dim = StrictUsize(512),
+            jacobi_precondition = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, k=15, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, k=15, uniform_perplexity=15.0, *, backend='fft', power=2.0, sigma_iters=50, sigma_tolerance=1e-5, row_normalize=False, iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, jacobi_precondition=True, seed=42, dtype='float64')"
     )]
     fn from_graph_partial_bfs(
         py: Python<'_>,
@@ -1648,6 +1660,7 @@ impl PyTsNetSolver {
         interpolation_order: StrictUsize,
         min_grid_dim: StrictUsize,
         max_grid_dim: StrictUsize,
+        jacobi_precondition: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1669,6 +1682,7 @@ impl PyTsNetSolver {
             lambda_c_stage3.0,
             lambda_r_stage3.0,
             learning_rate.map(|v| v.0),
+            jacobi_precondition,
             momentum.0,
             epsilon_r.0,
             theta.0,
@@ -1723,10 +1737,11 @@ impl PyTsNetSolver {
             interpolation_order = StrictUsize(1),
             min_grid_dim = StrictUsize(64),
             max_grid_dim = StrictUsize(512),
+            jacobi_precondition = true,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, degree_beta=0.0, backend='fft', iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, degree_beta=0.0, backend='fft', iterations_stage1=250, iterations_stage2=250, iterations_stage3=500, exaggeration=4.0, lambda_c_stage1=0.1, lambda_c_stage2=0.01, lambda_c_stage3=0.0, lambda_r_stage3=0.0, learning_rate=None, momentum=0.8, epsilon_r=0.05, theta=0.5, intervals=25, interpolation_order=1, min_grid_dim=64, max_grid_dim=512, jacobi_precondition=True, seed=42, dtype='float64')"
     )]
     fn from_graph_row_normalized(
         py: Python<'_>,
@@ -1751,6 +1766,7 @@ impl PyTsNetSolver {
         interpolation_order: StrictUsize,
         min_grid_dim: StrictUsize,
         max_grid_dim: StrictUsize,
+        jacobi_precondition: bool,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -1772,6 +1788,7 @@ impl PyTsNetSolver {
             lambda_c_stage3.0,
             lambda_r_stage3.0,
             learning_rate.map(|v| v.0),
+            jacobi_precondition,
             momentum.0,
             epsilon_r.0,
             theta.0,

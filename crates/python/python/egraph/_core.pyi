@@ -2628,6 +2628,7 @@ class TsNetSolver:
         interpolation_order: int = 1,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
@@ -2658,6 +2659,7 @@ class TsNetSolver:
         interpolation_order: int = 1,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
@@ -2682,6 +2684,7 @@ class TsNetSolver:
         interpolation_order: int = 1,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
@@ -2712,6 +2715,7 @@ class TsNetSolver:
         interpolation_order: int = 1,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
@@ -2739,6 +2743,7 @@ class TsNetSolver:
         interpolation_order: int = 1,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...

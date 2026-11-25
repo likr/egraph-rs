@@ -997,6 +997,11 @@ fn parse_tsnet_config(
         if opt_bool_prop(backend_or_options, "rowNormalize", false)? {
             cfg.symmetrization = SymmetrizationMode::RowNormalized;
         }
+        cfg.jacobi_precondition = opt_bool_prop(
+            backend_or_options,
+            "jacobiPrecondition",
+            cfg.jacobi_precondition,
+        )?;
         cfg.iterations_stage1 = opt_usize_prop(
             backend_or_options,
             "iterationsStage1",

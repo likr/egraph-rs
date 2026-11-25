@@ -824,6 +824,7 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
 
   const dtsText = await readFile(new URL("../pkg/index.d.ts", import.meta.url), "utf8");
   assert(dtsText.includes("export interface TsNetOptions {"));
+  assert(dtsText.includes("jacobiPrecondition?: boolean | null;"));
   assert(dtsText.includes("export interface SparseBarrierDogOptions extends SparseBarrierOptions {"));
   assert(dtsText.includes("static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null"));
   assert(dtsText.includes("static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null"));
@@ -981,6 +982,45 @@ assert.throws(() => Layout2d.zeros(Number.NaN), Error);
   assert(tsRnLayout.isAllFinite());
   tsRnSolver.free();
   tsRnLayout.free();
+
+  // TsNetSolver jacobiPrecondition option on star graph + non-bool JsError validation
+  const starEdges = [];
+  for (let v = 1; v < 20; v++) {
+    starEdges.push(0, v);
+  }
+  const starGraph = eg.CsrGraph.fromEdgeList(20, new Uint32Array(starEdges), null, false, true);
+  const starInit = makeCircleCoords(20, 0.5);
+  starInit[0] = 1.0;
+  starInit[1] = 0.0;
+  for (const [label, mk] of [
+    ["pure2Hop", (jp) => TsNetSolver.pure2Hop(starGraph, { backend: "exact", iterationsStage1: 4, iterationsStage2: 2, iterationsStage3: 2, jacobiPrecondition: jp, seed: 42 })],
+    ["fromGraphRowNormalized", (jp) => TsNetSolver.fromGraphRowNormalized(starGraph, { w2: 0.0, backend: "exact", iterationsStage1: 4, iterationsStage2: 2, iterationsStage3: 2, jacobiPrecondition: jp, seed: 42 })],
+  ]) {
+    const sOn = mk(true);
+    const sOff = mk(false);
+    const lOn = eg.Layout2d.fromCoords(starInit);
+    const lOff = eg.Layout2d.fromCoords(starInit);
+    assert.equal(sOn.run(lOn), "completed", label);
+    assert.equal(sOff.run(lOff), "completed", label);
+    assert(lOn.isAllFinite(), label);
+    assert(lOff.isAllFinite(), label);
+    const vOn = Array.from(lOn.coordsView());
+    const vOff = Array.from(lOff.coordsView());
+    let maxDiff = 0;
+    for (let i = 0; i < vOn.length; i++) {
+      maxDiff = Math.max(maxDiff, Math.abs(vOn[i] - vOff[i]));
+    }
+    assert(maxDiff > 1e-4, `${label}: expected jacobiPrecondition true/false to diverge, diff=${maxDiff}`);
+    sOn.free();
+    sOff.free();
+    lOn.free();
+    lOff.free();
+  }
+  assert.throws(
+    () => TsNetSolver.pure2Hop(starGraph, { backend: "exact", jacobiPrecondition: 1 }),
+    (err) => !(err instanceof WebAssembly.RuntimeError),
+  );
+  starGraph.free();
   tsRunSolver.free();
   tsStepSolver.free();
   tsRunLayout.free();
