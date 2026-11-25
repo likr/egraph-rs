@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+eval-baselines = ["dep:egraph-clustering"]
+
 [dependencies]
 egraph-core.workspace = true
 egraph-linalg.workspace = true
 egraph-spatial.workspace = true
+egraph-clustering = { workspace = true, optional = true }
