@@ -48,12 +48,10 @@ fn root_reexports_and_refiner_packed_contract_compile_and_run() {
     pairs[0].w = 1.25;
     assert_eq!(pairs[0].w, 1.25);
 
-    let sched = SgdScheduleConfig {
-        t_max: 10,
-        eps: 0.01,
-        kind: SgdScheduleKind::Exponential,
-        step_scale: 1.0,
-    };
+    let sched = SgdScheduleConfig::new(10)
+        .with_eps(0.01)
+        .with_kind(SgdScheduleKind::Exponential)
+        .with_step_scale(1.0);
     let mut solver = SgdSolver::<f64>::from_packed_symmetric(3, pairs, 2, 1, sched, 42).unwrap();
     let mut layout = Layout2d::from_xy(vec![0.0, 0.2, 0.4], vec![0.0, 0.1, 0.0]).unwrap();
     assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);

@@ -59,7 +59,6 @@ pub struct SgdSolver<S: Scalar = f64> {
 
 impl<S: Scalar> SgdSolver<S> {
     /// Constructs an [`SgdSolver`] directly from pre-packed symmetric spring/hinge pairs.
-    #[doc(hidden)]
     pub fn from_packed_symmetric(
         num_nodes: usize,
         mut pairs: Vec<PackedSymPair<S>>,
@@ -112,7 +111,7 @@ impl<S: Scalar> SgdSolver<S> {
         }
 
         let (eta_min, eta_max) = eta_bounds_from_extrema(w_min, w_max, None, schedule_cfg.eps);
-        let status = if schedule_cfg.t_max == 0 {
+        let status = if schedule_cfg.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -157,7 +156,7 @@ impl<S: Scalar> SgdSolver<S> {
         }
         validate_schedule_config(&schedule_cfg)?;
         let (eta_min, eta_max) = compute_eta_bounds(&pairs, None, schedule_cfg.eps);
-        let status = if schedule_cfg.t_max == 0 {
+        let status = if schedule_cfg.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -215,6 +214,34 @@ impl<S: Scalar> SgdSolver<S> {
         self.num_hinges
     }
 
+    /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.
+    pub fn reset_schedule(&mut self, schedule_cfg: SgdScheduleConfig, seed: u64) -> CoreResult<()> {
+        if self.snap_t_fdp.is_some()
+            || self.pacmap.is_some()
+            || self.sgd2.is_some()
+            || self.largevis.is_some()
+            || self.drgraph.is_some()
+            || self.graph_cne.is_some()
+        {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::reset_schedule is only supported for pair-based SGD modes",
+            ));
+        }
+        validate_schedule_config(&schedule_cfg)?;
+        let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, None, schedule_cfg.eps);
+        self.schedule_cfg = schedule_cfg;
+        self.eta_min = eta_min;
+        self.eta_max = eta_max;
+        self.rng = DeterministicRng::from_seed_u64(seed);
+        self.iter = 0;
+        self.status = if schedule_cfg.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+        Ok(())
+    }
+
     /// Returns the learning rate $\eta$ for the upcoming iteration (`0.0` if finished).
     pub fn current_eta(&self) -> f64 {
         self.eta_at(self.iter)
@@ -259,7 +286,7 @@ impl<S: Scalar> SgdSolver<S> {
             return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
                 .max(st.config.min_lr);
         }
-        let t_max = self.schedule_cfg.t_max;
+        let t_max = self.schedule_cfg.iterations;
         if t_max == 0 || t >= t_max {
             return 0.0;
         }
@@ -370,7 +397,7 @@ impl<S: Scalar> SgdSolver<S> {
 
     pub(super) fn finish_iteration(&mut self) -> SolverStatus {
         self.iter += 1;
-        self.status = if self.iter >= self.schedule_cfg.t_max {
+        self.status = if self.iter >= self.schedule_cfg.iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running

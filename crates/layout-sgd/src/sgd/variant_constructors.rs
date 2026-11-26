@@ -281,7 +281,7 @@ impl<S: Scalar> SgdSolver<S> {
         validate_graph_weights(graph, "SgdSolver::sgd2")?;
 
         let schedule = SgdScheduleConfig {
-            t_max: config.t_max,
+            iterations: config.iterations,
             eps: config.eps,
             kind: SgdScheduleKind::Squared,
             step_scale: config.step_scale,

@@ -156,7 +156,7 @@ pub(super) fn build_pacmap_state<W: Scalar>(
 
     let total_iters = config.total_iterations();
     let schedule_cfg = SgdScheduleConfig {
-        t_max: total_iters,
+        iterations: total_iters,
         eps: 0.01,
         kind: SgdScheduleKind::Constant,
         step_scale: config.learning_rate,
@@ -339,14 +339,15 @@ pub(super) fn step_pacmap_state<S: Scalar>(
         return;
     }
 
-    let (w_nb, w_mn, w_fp) = if iter < st.config.phase1_iters {
-        let p1 = if st.config.phase1_iters <= 1 {
+    let [p1_iters, p2_iters, _] = st.config.phase_iterations;
+    let (w_nb, w_mn, w_fp) = if iter < p1_iters {
+        let p1 = if p1_iters <= 1 {
             0.0
         } else {
-            (iter as f64) / ((st.config.phase1_iters - 1) as f64)
+            (iter as f64) / ((p1_iters - 1) as f64)
         };
         (2.0, 1000.0 * (1.0 - p1) + 3.0 * p1, 1.0)
-    } else if iter < st.config.phase1_iters + st.config.phase2_iters {
+    } else if iter < p1_iters + p2_iters {
         (3.0, 3.0, 1.0)
     } else {
         (1.0, 0.0, 1.0)

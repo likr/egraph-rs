@@ -21,7 +21,7 @@ fn test_step_vs_run_bit_exact_f64_and_f32_all_modes_and_schedules() {
         SgdScheduleKind::Squared,
     ] {
         let sched = SgdScheduleConfig {
-            t_max: 15,
+            iterations: 15,
             eps: 0.01,
             kind,
             step_scale: 0.85,
@@ -75,7 +75,7 @@ fn test_step_vs_run_bit_exact_f64_and_f32_all_modes_and_schedules() {
 
     // Verify bit-exact step vs run for streaming negatives as well.
     let sched = SgdScheduleConfig {
-        t_max: 12,
+        iterations: 12,
         ..Default::default()
     };
     let mut sn1 =
@@ -101,7 +101,7 @@ fn test_step_vs_run_bit_exact_f64_and_f32_all_modes_and_schedules() {
 #[test]
 fn test_hinge_zero_force_when_separated_and_repels_close() {
     let sched = SgdScheduleConfig {
-        t_max: 10,
+        iterations: 10,
         eps: 0.01,
         kind: SgdScheduleKind::Constant,
         step_scale: 0.5,
@@ -175,7 +175,7 @@ fn test_hinge_zero_force_when_separated_and_repels_close() {
 #[test]
 fn test_manifolds_all_three_domain_invariants_and_stress_reduction() {
     let sched = SgdScheduleConfig {
-        t_max: 50,
+        iterations: 50,
         eps: 0.02,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
@@ -330,7 +330,7 @@ fn test_manifolds_all_three_domain_invariants_and_stress_reduction() {
             vec![1.0],
             vec![1.0],
             SgdScheduleConfig {
-                t_max: 5,
+                iterations: 5,
                 kind: SgdScheduleKind::Constant,
                 ..Default::default()
             },
@@ -401,4 +401,95 @@ fn test_full_weighted_directed_random_pair_and_omega_converge() {
     om_solver.run(&mut om_layout).unwrap();
     assert!(om_layout.is_all_finite());
     assert!(compute_np2(&g, &om_layout) >= 0.75);
+}
+
+#[test]
+fn test_reset_schedule_and_run_schedule_window_euclidean_and_manifold() {
+    use egraph_core::CoreError;
+
+    let g = grid_graph(3, 4);
+    let sched_a = SgdScheduleConfig::new(10)
+        .with_eps(0.01)
+        .with_kind(SgdScheduleKind::Exponential)
+        .with_step_scale(1.0);
+
+    // 1. Euclidean windowed execution matches full run bit-for-bit.
+    let mut s_full = SgdSolver::<f64>::full(&g, sched_a, 77).unwrap();
+    let mut s_win = SgdSolver::<f64>::full(&g, sched_a, 77).unwrap();
+    let mut l_full = circle_layout::<f64>(g.num_nodes(), 1.0);
+    let mut l_win = l_full.clone();
+
+    s_full.run(&mut l_full).unwrap();
+    assert_eq!(
+        s_win.run_schedule_window(&mut l_win, 0, 4).unwrap(),
+        SolverStatus::Running
+    );
+    assert_eq!(s_win.iteration(), 4);
+    assert_eq!(
+        s_win.run_schedule_window(&mut l_win, 4, 6).unwrap(),
+        SolverStatus::Completed
+    );
+    assert_eq!(s_win.iteration(), 10);
+    for (a, b) in l_full.x().iter().zip(l_win.x().iter()) {
+        assert_eq!(a.to_bits(), b.to_bits());
+    }
+    for (a, b) in l_full.y().iter().zip(l_win.y().iter()) {
+        assert_eq!(a.to_bits(), b.to_bits());
+    }
+
+    // 2. reset_schedule reuses pairs and updates schedule/RNG cleanly.
+    let springs_before = s_win.num_springs();
+    let sched_b = SgdScheduleConfig::new(6)
+        .with_eps(0.05)
+        .with_kind(SgdScheduleKind::Linear)
+        .with_step_scale(0.5);
+    s_win.reset_schedule(sched_b, 99).unwrap();
+    assert_eq!(s_win.num_springs(), springs_before);
+    assert_eq!(s_win.iteration(), 0);
+    assert_eq!(s_win.total_iterations(), 6);
+    assert_eq!(s_win.status(), SolverStatus::Initialized);
+    assert_eq!(
+        s_win.run_schedule_window(&mut l_win, 2, 3).unwrap(),
+        SolverStatus::Running
+    );
+    assert_eq!(s_win.iteration(), 5);
+    assert_eq!(
+        s_win.run_schedule_window(&mut l_win, 5, 4).unwrap(),
+        SolverStatus::Completed
+    );
+    assert_eq!(s_win.iteration(), 6);
+
+    // 3. Manifold windowed execution matches run_manifold bit-for-bit.
+    let mut sm_full = SgdSolver::<f64>::full(&g, sched_a, 55).unwrap();
+    let mut sm_win = SgdSolver::<f64>::full(&g, sched_a, 55).unwrap();
+    let mut m_full =
+        ManifoldLayout2d::from_layout(ManifoldKind::Torus2d, circle_layout(g.num_nodes(), 0.2))
+            .unwrap();
+    let mut m_win = m_full.clone();
+    sm_full.run_manifold(&mut m_full).unwrap();
+    assert_eq!(
+        sm_win
+            .run_schedule_window_manifold(&mut m_win, 0, 3)
+            .unwrap(),
+        SolverStatus::Running
+    );
+    assert_eq!(
+        sm_win
+            .run_schedule_window_manifold(&mut m_win, 3, 7)
+            .unwrap(),
+        SolverStatus::Completed
+    );
+    assert_eq!(m_full, m_win);
+
+    // 4. Guards: invalid layout len / NaN and reset_schedule on non-pair mode.
+    let mut wrong = Layout2d::<f64>::zeros(2);
+    assert!(matches!(
+        s_win.run_schedule_window(&mut wrong, 0, 1),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    let mut sgd2_solver = SgdSolver::<f64>::sgd2(&g, Default::default()).unwrap();
+    assert!(matches!(
+        sgd2_solver.reset_schedule(sched_b, 1),
+        Err(CoreError::InvalidInput(_))
+    ));
 }

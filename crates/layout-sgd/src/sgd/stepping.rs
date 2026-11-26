@@ -90,6 +90,103 @@ impl<S: Scalar> SgdSolver<S> {
         }
         Ok(self.status)
     }
+
+    /// Executes `count` Euclidean SGD iterations over schedule indices `start_iter..start_iter + count`
+    /// (stopping early if `schedule.iterations` is reached).
+    pub fn run_schedule_window(
+        &mut self,
+        layout: &mut Layout2d<S>,
+        start_iter: usize,
+        count: usize,
+    ) -> CoreResult<SolverStatus> {
+        if layout.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                layout.len(),
+                "SgdSolver::run_schedule_window",
+            ));
+        }
+        layout.validate_finite()?;
+        if count == 0 {
+            return Ok(self.status);
+        }
+        let total = self.schedule_cfg.iterations;
+        if start_iter >= total {
+            self.iter = total;
+            self.status = SolverStatus::Completed;
+            return Ok(self.status);
+        }
+        self.iter = start_iter;
+        self.status = if start_iter == 0 {
+            SolverStatus::Initialized
+        } else {
+            SolverStatus::Running
+        };
+        for _ in 0..count {
+            if self.status.is_finished() {
+                break;
+            }
+            let st = self.step(layout)?;
+            if st.is_finished() {
+                break;
+            }
+        }
+        Ok(self.status)
+    }
+
+    /// Executes `count` non-Euclidean manifold SGD iterations over schedule indices
+    /// `start_iter..start_iter + count` (stopping early if `schedule.iterations` is reached).
+    pub fn run_schedule_window_manifold(
+        &mut self,
+        layout: &mut ManifoldLayout2d<S>,
+        start_iter: usize,
+        count: usize,
+    ) -> CoreResult<SolverStatus> {
+        if layout.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                layout.len(),
+                "SgdSolver::run_schedule_window_manifold",
+            ));
+        }
+        layout.as_layout().validate_finite()?;
+        if self.snap_t_fdp.is_some()
+            || self.pacmap.is_some()
+            || self.sgd2.is_some()
+            || self.largevis.is_some()
+            || self.drgraph.is_some()
+            || self.graph_cne.is_some()
+        {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::run_schedule_window_manifold is not supported for SnapTFdp, PacmapGraph, Sgd2, LargeVis, DrGraph, or GraphCne modes",
+            ));
+        }
+        if count == 0 {
+            return Ok(self.status);
+        }
+        let total = self.schedule_cfg.iterations;
+        if start_iter >= total {
+            self.iter = total;
+            self.status = SolverStatus::Completed;
+            return Ok(self.status);
+        }
+        self.iter = start_iter;
+        self.status = if start_iter == 0 {
+            SolverStatus::Initialized
+        } else {
+            SolverStatus::Running
+        };
+        for _ in 0..count {
+            if self.status.is_finished() {
+                break;
+            }
+            let st = self.step_manifold(layout)?;
+            if st.is_finished() {
+                break;
+            }
+        }
+        Ok(self.status)
+    }
 }
 
 impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
@@ -193,6 +290,6 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
     }
 
     fn total_iterations(&self) -> usize {
-        self.schedule_cfg.t_max
+        self.schedule_cfg.iterations
     }
 }

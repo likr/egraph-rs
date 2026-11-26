@@ -12,7 +12,7 @@ fn test_sgd2_and_squared_schedule_convergence_and_bit_exact() {
 
     // Verify SgdScheduleKind::Squared decay curve & eta_min clamping.
     let sq_sched = SgdScheduleConfig {
-        t_max: 11,
+        iterations: 11,
         eps: 0.05,
         kind: SgdScheduleKind::Squared,
         step_scale: 1.0,
@@ -33,7 +33,7 @@ fn test_sgd2_and_squared_schedule_convergence_and_bit_exact() {
 
     // Test Sgd2 with small batch_size=7 so multiple mini-batches + tail flush are exercised.
     let cfg = Sgd2Config {
-        t_max: 40,
+        iterations: 40,
         eps: 0.01,
         step_scale: 1.0,
         batch_size: 7,

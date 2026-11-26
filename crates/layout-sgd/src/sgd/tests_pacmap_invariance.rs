@@ -130,9 +130,7 @@ fn test_pacmap_graph_1hop_and_2hop_vertex_permutation_invariance() {
         n_neighbors: 5,
         mn_ratio: 0.0,
         fp_ratio: 0.0,
-        phase1_iters: 1,
-        phase2_iters: 1,
-        phase3_iters: 1,
+        phase_iterations: [1, 1, 1],
         seed: 42,
         ..Default::default()
     };
@@ -199,9 +197,7 @@ fn test_pacmap_graph_non_hub_2hop_and_fp_fallback_on_hub_and_small_graphs() {
         n_neighbors: 4,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 4,
-        phase2_iters: 4,
-        phase3_iters: 4,
+        phase_iterations: [4, 4, 4],
         seed: 31,
         ..Default::default()
     };
@@ -250,9 +246,7 @@ fn test_pacmap_graph_non_hub_2hop_and_fp_fallback_on_hub_and_small_graphs() {
         n_neighbors: 4,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 2,
-        phase2_iters: 2,
-        phase3_iters: 2,
+        phase_iterations: [2, 2, 2],
         seed: 42,
         ..Default::default()
     };

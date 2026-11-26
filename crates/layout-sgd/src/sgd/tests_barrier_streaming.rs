@@ -118,7 +118,7 @@ fn test_streaming_negatives_separates_non_edges_and_converges() {
         hinge_only: true,
     };
     let sched = SgdScheduleConfig {
-        t_max: 60,
+        iterations: 60,
         eps: 0.01,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
@@ -178,7 +178,7 @@ fn test_streaming_negatives_unsorted_csr_never_repels_1hop_edges() {
         hinge_only: true,
     };
     let sched = SgdScheduleConfig {
-        t_max: 60,
+        iterations: 60,
         eps: 0.01,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
@@ -283,9 +283,7 @@ fn test_sparse_barrier_degree_weight_beta_and_pacmap_backbone_fem_grid() {
         n_neighbors: 8,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 40,
-        phase2_iters: 40,
-        phase3_iters: 60,
+        phase_iterations: [40, 40, 60],
         num_landmarks: 24,
         seed: 42,
         ..PacmapGraphConfig::default()

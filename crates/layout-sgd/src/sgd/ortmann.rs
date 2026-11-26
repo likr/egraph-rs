@@ -197,7 +197,7 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
     }
 
     let schedule_cfg = SgdScheduleConfig {
-        t_max: config.iterations,
+        iterations: config.iterations,
         eps: config.eps,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,

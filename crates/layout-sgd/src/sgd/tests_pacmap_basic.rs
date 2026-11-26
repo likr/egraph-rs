@@ -12,9 +12,7 @@ fn test_pacmap_graph_three_tier_three_phase_and_bit_exact() {
         n_neighbors: 6,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 30,
-        phase2_iters: 30,
-        phase3_iters: 60,
+        phase_iterations: [30, 30, 60],
         learning_rate: 0.5,
         seed: 42,
         keep_all_1hop: false,
@@ -155,9 +153,7 @@ fn test_pacmap_graph_three_tier_three_phase_and_bit_exact() {
         SgdSolver::<f64>::pacmap_graph(
             &grid,
             PacmapGraphConfig {
-                phase1_iters: 0,
-                phase2_iters: 0,
-                phase3_iters: 0,
+                phase_iterations: [0, 0, 0],
                 ..cfg
             }
         )
@@ -215,9 +211,7 @@ fn test_pacmap_graph_keep_all_1hop_and_fp_2hop_exclusion() {
         n_neighbors: 6,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 5,
-        phase2_iters: 5,
-        phase3_iters: 5,
+        phase_iterations: [5, 5, 5],
         seed: 17,
         keep_all_1hop: false,
         ..Default::default()
@@ -306,9 +300,7 @@ fn test_pacmap_graph_keep_all_1hop_and_fp_2hop_exclusion() {
         n_neighbors: 4,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 2,
-        phase2_iters: 2,
-        phase3_iters: 2,
+        phase_iterations: [2, 2, 2],
         seed: 17,
         keep_all_1hop: false,
         ..Default::default()

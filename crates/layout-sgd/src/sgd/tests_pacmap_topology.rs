@@ -19,9 +19,7 @@ fn test_pacmap_graph_max_1hop_degree_weight_and_external_landmarks() {
         n_neighbors: 4,
         mn_ratio: 0.0,
         fp_ratio: 0.0,
-        phase1_iters: 2,
-        phase2_iters: 2,
-        phase3_iters: 2,
+        phase_iterations: [2, 2, 2],
         keep_all_1hop: true,
         max_1hop_per_node: None,
         ..Default::default()
@@ -46,9 +44,7 @@ fn test_pacmap_graph_max_1hop_degree_weight_and_external_landmarks() {
         n_neighbors: 6,
         keep_all_1hop: true,
         degree_weight_beta: 0.0,
-        phase1_iters: 2,
-        phase2_iters: 2,
-        phase3_iters: 5,
+        phase_iterations: [2, 2, 5],
         seed: 42,
         ..Default::default()
     };
@@ -102,9 +98,7 @@ fn test_pacmap_graph_max_1hop_degree_weight_and_external_landmarks() {
         n_neighbors: 6,
         mn_ratio: 0.5,
         fp_ratio: 2.0,
-        phase1_iters: 4,
-        phase2_iters: 4,
-        phase3_iters: 6,
+        phase_iterations: [4, 4, 6],
         degree_weight_beta: 0.25,
         seed: 99,
         ..Default::default()
@@ -188,9 +182,7 @@ fn test_pacmap_graph_2hop_prefers_low_degree_bridges_and_adamic_adar() {
         n_neighbors: 6,
         mn_ratio: 0.0,
         fp_ratio: 0.0,
-        phase1_iters: 1,
-        phase2_iters: 1,
-        phase3_iters: 1,
+        phase_iterations: [1, 1, 1],
         seed: 42,
         ..Default::default()
     };
@@ -226,9 +218,7 @@ fn test_pacmap_graph_2hop_prefers_low_degree_bridges_and_adamic_adar() {
         n_neighbors: 10,
         mn_ratio: 0.0,
         fp_ratio: 0.0,
-        phase1_iters: 1,
-        phase2_iters: 1,
-        phase3_iters: 1,
+        phase_iterations: [1, 1, 1],
         seed: 42,
         ..Default::default()
     };
@@ -253,9 +243,7 @@ fn test_pacmap_graph_2hop_suppresses_super_hubs_and_star_safety() {
         n_neighbors: 4,
         mn_ratio: 0.0,
         fp_ratio: 0.0,
-        phase1_iters: 2,
-        phase2_iters: 2,
-        phase3_iters: 2,
+        phase_iterations: [2, 2, 2],
         seed: 42,
         ..Default::default()
     };

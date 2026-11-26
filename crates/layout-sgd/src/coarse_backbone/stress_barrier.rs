@@ -228,7 +228,7 @@ pub(super) fn optimize_coarse_stress_and_barrier<W: Scalar, S: Scalar>(
 
             let step_scale = 1.0 - 0.7 * (round as f64) / (n_rounds.max(1) as f64);
             let sched = SgdScheduleConfig {
-                t_max: round_iters,
+                iterations: round_iters,
                 eps: 0.01,
                 kind: SgdScheduleKind::Exponential,
                 step_scale,

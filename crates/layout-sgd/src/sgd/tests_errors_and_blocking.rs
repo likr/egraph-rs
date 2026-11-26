@@ -269,7 +269,7 @@ fn test_cache_blocked_shuffle_over_threshold_step_eq_run() {
     }
 
     let sched = SgdScheduleConfig {
-        t_max: 6,
+        iterations: 6,
         eps: 0.05,
         kind: SgdScheduleKind::Exponential,
         step_scale: 0.2,

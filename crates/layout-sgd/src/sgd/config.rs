@@ -19,10 +19,11 @@ pub enum SgdScheduleKind {
 }
 
 /// Learning rate schedule parameters for [`super::SgdSolver`].
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SgdScheduleConfig {
     /// Total number of scheduled SGD iterations (`default: 60`).
-    pub t_max: usize,
+    pub iterations: usize,
     /// Minimum learning rate ratio $\varepsilon > 0$ controlling $\eta_{\min} = \varepsilon / w_{\max}$ (`default: 0.01`).
     pub eps: f64,
     /// Decay curve family (`default: SgdScheduleKind::Exponential`).
@@ -34,11 +35,43 @@ pub struct SgdScheduleConfig {
 impl Default for SgdScheduleConfig {
     fn default() -> Self {
         Self {
-            t_max: 60,
+            iterations: 60,
             eps: 0.01,
             kind: SgdScheduleKind::Exponential,
             step_scale: 1.0,
         }
+    }
+}
+
+impl SgdScheduleConfig {
+    /// Creates a new schedule configuration with `iterations` and default decay settings.
+    #[inline]
+    pub fn new(iterations: usize) -> Self {
+        Self {
+            iterations,
+            ..Self::default()
+        }
+    }
+
+    /// Sets the minimum learning rate ratio `eps`.
+    #[inline]
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Sets the learning rate decay curve `kind`.
+    #[inline]
+    pub fn with_kind(mut self, kind: SgdScheduleKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Sets the multiplicative `step_scale`.
+    #[inline]
+    pub fn with_step_scale(mut self, step_scale: f64) -> Self {
+        self.step_scale = step_scale;
+        self
     }
 }
 
@@ -256,12 +289,12 @@ pub struct PacmapGraphConfig {
     pub mn_ratio: f64,
     /// Ratio of Further (`FP`) repulsive pairs relative to `n_neighbors` (`default: 2.0`).
     pub fp_ratio: f64,
-    /// Phase 1 (global unfolding, $w_{\mathrm{MN}}: 1000 \to 3$) iterations (`default: 100`).
-    pub phase1_iters: usize,
-    /// Phase 2 (scaffold locking, $w = (3, 3, 1)$) iterations (`default: 100`).
-    pub phase2_iters: usize,
-    /// Phase 3 (local refinement, $w = (1, 0, 1)$) iterations (`default: 250`).
-    pub phase3_iters: usize,
+    /// Phase iteration counts `[phase1, phase2, phase3]` (`default: [100, 100, 250]`).
+    ///
+    /// - Phase 1: global unfolding, $w_{\mathrm{MN}}: 1000 \to 3$.
+    /// - Phase 2: scaffold locking, $w = (3, 3, 1)$.
+    /// - Phase 3: local refinement, $w = (1, 0, 1)$.
+    pub phase_iterations: [usize; 3],
     /// Adam optimizer learning rate (`default: 1.0`).
     pub learning_rate: f64,
     /// Explicit deterministic RNG seed (`default: 42`).
@@ -284,9 +317,7 @@ impl Default for PacmapGraphConfig {
             n_neighbors: 10,
             mn_ratio: 0.5,
             fp_ratio: 2.0,
-            phase1_iters: 100,
-            phase2_iters: 100,
-            phase3_iters: 250,
+            phase_iterations: [100, 100, 250],
             learning_rate: 1.0,
             seed: 42,
             keep_all_1hop: false,
@@ -348,10 +379,9 @@ impl PacmapGraphConfig {
                 self.learning_rate
             )));
         }
-        let _ = self
-            .phase1_iters
-            .checked_add(self.phase2_iters)
-            .and_then(|s| s.checked_add(self.phase3_iters))
+        let _ = self.phase_iterations[0]
+            .checked_add(self.phase_iterations[1])
+            .and_then(|s| s.checked_add(self.phase_iterations[2]))
             .ok_or_else(|| {
                 CoreError::invalid_input("PacmapGraphConfig total iterations overflow")
             })?;
@@ -360,7 +390,7 @@ impl PacmapGraphConfig {
 
     #[inline]
     pub(super) fn total_iterations(&self) -> usize {
-        self.phase1_iters + self.phase2_iters + self.phase3_iters
+        self.phase_iterations[0] + self.phase_iterations[1] + self.phase_iterations[2]
     }
 }
 
@@ -371,7 +401,7 @@ impl PacmapGraphConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sgd2Config {
     /// Total optimization iterations (`default: 60`).
-    pub t_max: usize,
+    pub iterations: usize,
     /// Minimum learning rate ratio $\varepsilon > 0$ (`default: 0.01`).
     pub eps: f64,
     /// Multiplicative step scale (`default: 1.0`).
@@ -387,7 +417,7 @@ pub struct Sgd2Config {
 impl Default for Sgd2Config {
     fn default() -> Self {
         Self {
-            t_max: 60,
+            iterations: 60,
             eps: 0.01,
             step_scale: 1.0,
             batch_size: 4096,

@@ -41,7 +41,7 @@ pub(super) fn build_largevis_state<W: Scalar>(
     }
 
     let schedule_cfg = SgdScheduleConfig {
-        t_max: config.iterations,
+        iterations: config.iterations,
         eps: 0.01,
         kind: SgdScheduleKind::Linear,
         step_scale: config.initial_lr,
