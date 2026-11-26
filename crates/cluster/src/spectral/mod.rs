@@ -7,17 +7,20 @@ use egraph_linalg::smallest_sym_laplacian_eigenpairs;
 
 use crate::kmeans::{KMeansConfig, kmeans_plus_plus};
 
+#[cfg(test)]
+mod tests;
+
 /// Configuration for [`spectral_clustering`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpectralClusteringConfig {
     /// Target number of clusters (`>= 1`). Clamped to `graph.num_nodes()` when `k > n`.
     pub k: usize,
     /// Maximum iterations for the Lanczos/Jacobi Laplacian eigensolver.
-    pub max_eigen_iters: usize,
+    pub max_eigen_iterations: usize,
     /// Convergence tolerance for Laplacian eigenpairs (`> 0.0`).
     pub eigen_tol: f64,
     /// Maximum Lloyd iterations for the post-normalization K-Means++ step.
-    pub kmeans_max_iters: usize,
+    pub kmeans_max_iterations: usize,
     /// Convergence tolerance for K-Means++.
     pub kmeans_tol: f64,
     /// Deterministic PRNG seed controlling eigensolver initialization and K-Means++.
@@ -28,17 +31,29 @@ impl Default for SpectralClusteringConfig {
     fn default() -> Self {
         Self {
             k: 2,
-            max_eigen_iters: 300,
+            max_eigen_iterations: 300,
             eigen_tol: 1e-4,
-            kmeans_max_iters: 100,
+            kmeans_max_iterations: 100,
             kmeans_tol: 1e-4,
             seed: 42,
         }
     }
 }
 
-/// Renumbers labels into canonical `0..c` in ascending order of first appearance.
-fn canonicalize_labels(labels: &mut [u32]) {
+/// Output of [`spectral_clustering`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpectralClusteringResult {
+    /// Canonical cluster assignment in `0..num_clusters` for each vertex.
+    pub labels: Vec<u32>,
+    /// Number of distinct non-empty clusters detected.
+    pub num_clusters: usize,
+    /// Number of Lanczos thick-restart iterations executed (`0` when using dense fallback or trivial graphs).
+    pub eigen_iterations: usize,
+}
+
+/// Renumbers labels into canonical `0..c` in ascending order of first appearance and
+/// returns the number of distinct clusters.
+fn canonicalize_labels(labels: &mut [u32]) -> usize {
     let mut max_label = 0usize;
     for &l in labels.iter() {
         if (l as usize) > max_label {
@@ -55,6 +70,7 @@ fn canonicalize_labels(labels: &mut [u32]) {
         }
         *label = remap[idx];
     }
+    next_id as usize
 }
 
 /// Orthogonalizes `candidate` against the `num_cols` columns stored in row-major `basis`
@@ -182,11 +198,12 @@ fn find_missing_nullspace_mode<W: Scalar>(
 /// $L_{\mathrm{sym}} = I - D^{-1/2} A D^{-1/2}$ via
 /// [`smallest_sym_laplacian_eigenpairs`], restores the leading $\lambda_0 = 0$ nullspace
 /// mode when present, L2-normalizes each vertex row, clusters the normalized embedding with
-/// [`kmeans_plus_plus`], and returns canonical `0..c` cluster labels.
+/// [`kmeans_plus_plus`], and returns a [`SpectralClusteringResult`] with canonical `0..c`
+/// cluster labels.
 pub fn spectral_clustering<W: Scalar>(
     graph: &CsrGraph<W>,
     config: &SpectralClusteringConfig,
-) -> CoreResult<Vec<u32>> {
+) -> CoreResult<SpectralClusteringResult> {
     if graph.is_directed() {
         return Err(CoreError::invalid_input(
             "spectral_clustering requires an undirected graph",
@@ -195,8 +212,10 @@ pub fn spectral_clustering<W: Scalar>(
     if config.k == 0 {
         return Err(CoreError::invalid_input("k must be >= 1"));
     }
-    if config.max_eigen_iters == 0 {
-        return Err(CoreError::invalid_input("max_eigen_iters must be >= 1"));
+    if config.max_eigen_iterations == 0 {
+        return Err(CoreError::invalid_input(
+            "max_eigen_iterations must be >= 1",
+        ));
     }
     if !config.eigen_tol.is_finite() {
         return Err(CoreError::non_finite("SpectralClusteringConfig::eigen_tol"));
@@ -206,8 +225,10 @@ pub fn spectral_clustering<W: Scalar>(
             "eigen_tol must be strictly positive",
         ));
     }
-    if config.kmeans_max_iters == 0 {
-        return Err(CoreError::invalid_input("kmeans_max_iters must be >= 1"));
+    if config.kmeans_max_iterations == 0 {
+        return Err(CoreError::invalid_input(
+            "kmeans_max_iterations must be >= 1",
+        ));
     }
     if !config.kmeans_tol.is_finite() {
         return Err(CoreError::non_finite(
@@ -220,11 +241,19 @@ pub fn spectral_clustering<W: Scalar>(
 
     let n = graph.num_nodes();
     if n == 0 {
-        return Ok(Vec::new());
+        return Ok(SpectralClusteringResult {
+            labels: Vec::new(),
+            num_clusters: 0,
+            eigen_iterations: 0,
+        });
     }
     let effective_k = config.k.min(n);
     if n == 1 || effective_k == 1 {
-        return Ok(vec![0; n]);
+        return Ok(SpectralClusteringResult {
+            labels: vec![0; n],
+            num_clusters: 1,
+            eigen_iterations: 0,
+        });
     }
 
     let req_modes = (effective_k - 1).max(1);
@@ -232,9 +261,10 @@ pub fn spectral_clustering<W: Scalar>(
         graph,
         req_modes,
         config.eigen_tol,
-        config.max_eigen_iters,
+        config.max_eigen_iterations,
         config.seed,
     )?;
+    let eigen_iterations = eig.iterations;
 
     let null_mode =
         find_missing_nullspace_mode(graph, &eig.inv_sqrt_deg, &eig.vectors, eig.num_modes);
@@ -266,158 +296,16 @@ pub fn spectral_clustering<W: Scalar>(
 
     let kmeans_cfg = KMeansConfig {
         k: effective_k,
-        max_iters: config.kmeans_max_iters,
+        max_iterations: config.kmeans_max_iterations,
         tol: config.kmeans_tol,
         n_init: if effective_k <= 32 { 10 } else { 3 },
         seed: config.seed,
     };
     let mut labels = kmeans_plus_plus(&row_norm_embed, n, n_cols, &kmeans_cfg)?.labels;
-    canonicalize_labels(&mut labels);
-    Ok(labels)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_barbell(clique_size: usize) -> CsrGraph<f64> {
-        let n = clique_size * 2;
-        let mut edges = Vec::new();
-        for i in 0..clique_size {
-            for j in (i + 1)..clique_size {
-                edges.push((i as u32, j as u32));
-                edges.push(((clique_size + i) as u32, (clique_size + j) as u32));
-            }
-        }
-        edges.push(((clique_size - 1) as u32, clique_size as u32));
-        CsrGraph::from_edges(n, &edges, None, false, false).unwrap()
-    }
-
-    #[test]
-    fn test_spectral_recovers_barbell_and_three_cliques() {
-        let barbell = make_barbell(5);
-        let labels = spectral_clustering(&barbell, &SpectralClusteringConfig::default()).unwrap();
-        assert_eq!(labels.len(), 10);
-        assert_eq!(labels[..5], [0, 0, 0, 0, 0]);
-        assert_eq!(labels[5..], [1, 1, 1, 1, 1]);
-
-        // Three 5-cliques connected as a ring of 3 weak bridges.
-        let mut edges = Vec::new();
-        for c in 0..3u32 {
-            let base = c * 5;
-            for i in 0..5 {
-                for j in (i + 1)..5 {
-                    edges.push((base + i, base + j));
-                }
-            }
-        }
-        edges.push((0, 5));
-        edges.push((6, 10));
-        edges.push((11, 1));
-        let tri_clique = CsrGraph::<f64>::from_edges(15, &edges, None, false, false).unwrap();
-        let cfg3 = SpectralClusteringConfig {
-            k: 3,
-            ..Default::default()
-        };
-        let l3 = spectral_clustering(&tri_clique, &cfg3).unwrap();
-        assert_eq!(l3[0..5], [0, 0, 0, 0, 0]);
-        assert_eq!(l3[5..10], [1, 1, 1, 1, 1]);
-        assert_eq!(l3[10..15], [2, 2, 2, 2, 2]);
-    }
-
-    #[test]
-    fn test_spectral_disconnected_cliques_and_seed_determinism() {
-        let mut edges = Vec::new();
-        for i in 0..5u32 {
-            for j in (i + 1)..5 {
-                edges.push((i, j));
-                edges.push((5 + i, 5 + j));
-            }
-        }
-        let disc = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
-        let cfg = SpectralClusteringConfig {
-            k: 2,
-            seed: 77,
-            ..Default::default()
-        };
-        let l1 = spectral_clustering(&disc, &cfg).unwrap();
-        let l2 = spectral_clustering(&disc, &cfg).unwrap();
-        assert_eq!(l1, l2);
-        assert_eq!(l1[..5], [0, 0, 0, 0, 0]);
-        assert_eq!(l1[5..], [1, 1, 1, 1, 1]);
-    }
-
-    #[test]
-    fn test_spectral_lanczos_large_barbell_and_weighted_f32() {
-        // n = 60 (> 48 dense threshold) exercises the Lanczos eigensolver path.
-        let large_barbell = make_barbell(30);
-        let labels =
-            spectral_clustering(&large_barbell, &SpectralClusteringConfig::default()).unwrap();
-        assert_eq!(labels.len(), 60);
-        assert_eq!(labels[..30], [0; 30]);
-        assert_eq!(labels[30..], [1; 30]);
-
-        // Weighted f32 graph: strong cliques (10.0) joined by weak bridge (0.05).
-        let mut edges = Vec::new();
-        let mut weights = Vec::new();
-        for i in 0..4u32 {
-            for j in (i + 1)..4 {
-                edges.push((i, j));
-                weights.push(10.0_f32);
-                edges.push((4 + i, 4 + j));
-                weights.push(10.0_f32);
-            }
-        }
-        edges.push((3, 4));
-        weights.push(0.05_f32);
-        let wg = CsrGraph::from_edges(8, &edges, Some(&weights), false, false).unwrap();
-        let wl = spectral_clustering(&wg, &SpectralClusteringConfig::default()).unwrap();
-        assert_eq!(wl[..4], [0, 0, 0, 0]);
-        assert_eq!(wl[4..], [1, 1, 1, 1]);
-    }
-
-    #[test]
-    fn test_spectral_degenerate_and_error_cases() {
-        let cfg = SpectralClusteringConfig::default();
-
-        let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-        assert!(spectral_clustering(&empty, &cfg).unwrap().is_empty());
-
-        let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-        assert_eq!(spectral_clustering(&single, &cfg).unwrap(), vec![0]);
-
-        let edgeless = CsrGraph::<f64>::from_edges(6, &[], None, false, false).unwrap();
-        let le = spectral_clustering(&edgeless, &cfg).unwrap();
-        assert_eq!(le.len(), 6);
-        assert!(le.iter().all(|&l| l < 2));
-
-        let directed =
-            CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], None, true, false).unwrap();
-        assert!(matches!(
-            spectral_clustering(&directed, &cfg),
-            Err(CoreError::InvalidInput(_))
-        ));
-
-        let barbell = make_barbell(3);
-        assert!(matches!(
-            spectral_clustering(
-                &barbell,
-                &SpectralClusteringConfig {
-                    k: 0,
-                    ..Default::default()
-                }
-            ),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            spectral_clustering(
-                &barbell,
-                &SpectralClusteringConfig {
-                    eigen_tol: 0.0,
-                    ..Default::default()
-                }
-            ),
-            Err(CoreError::InvalidInput(_))
-        ));
-    }
+    let num_clusters = canonicalize_labels(&mut labels);
+    Ok(SpectralClusteringResult {
+        labels,
+        num_clusters,
+        eigen_iterations,
+    })
 }

@@ -13,7 +13,7 @@ pub struct KMeansConfig {
     /// Target number of clusters (`>= 1`, `<= n`).
     pub k: usize,
     /// Maximum number of Lloyd refinement iterations per initialization.
-    pub max_iters: usize,
+    pub max_iterations: usize,
     /// Convergence tolerance on maximum centroid Euclidean movement.
     pub tol: f64,
     /// Number of independent K-Means++ initializations; the lowest-inertia run is returned.
@@ -26,7 +26,7 @@ impl Default for KMeansConfig {
     fn default() -> Self {
         Self {
             k: 2,
-            max_iters: 100,
+            max_iterations: 100,
             tol: 1e-4,
             n_init: 1,
             seed: 42,
@@ -41,6 +41,10 @@ pub struct KMeansResult {
     pub labels: Vec<u32>,
     /// Flat row-major centroids of shape `(k, dims)`.
     pub centroids: Vec<f64>,
+    /// Number of target clusters `k`.
+    pub k: usize,
+    /// Feature dimensionality `dims` of each point and centroid row.
+    pub dims: usize,
     /// Total within-cluster sum of squared Euclidean distances to assigned centroids.
     pub inertia: f64,
     /// Number of Lloyd iterations executed in the best initialization.

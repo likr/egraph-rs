@@ -6,7 +6,7 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar, Vis
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LabelPropagationConfig {
     /// Maximum number of asynchronous propagation sweeps over all vertices.
-    pub max_iters: usize,
+    pub max_iterations: usize,
     /// Deterministic PRNG seed controlling Fisher-Yates vertex shuffles and tie-breaking.
     pub seed: u64,
 }
@@ -14,14 +14,28 @@ pub struct LabelPropagationConfig {
 impl Default for LabelPropagationConfig {
     fn default() -> Self {
         Self {
-            max_iters: 100,
+            max_iterations: 100,
             seed: 42,
         }
     }
 }
 
-/// Renumbers labels into canonical `0..c` order of first appearance by vertex index.
-fn canonicalize_labels(labels: &mut [u32], n: usize) {
+/// Output of [`label_propagation`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelPropagationResult {
+    /// Canonical community assignment in `0..num_communities` for each vertex.
+    pub labels: Vec<u32>,
+    /// Number of distinct non-empty communities detected.
+    pub num_communities: usize,
+    /// Number of asynchronous propagation sweeps executed.
+    pub iterations: usize,
+    /// Whether propagation reached a fixed point (`!changed` on the final sweep).
+    pub converged: bool,
+}
+
+/// Renumbers labels into canonical `0..c` order of first appearance by vertex index and
+/// returns the number of distinct communities.
+fn canonicalize_labels(labels: &mut [u32], n: usize) -> usize {
     let mut remap = vec![u32::MAX; n.max(1)];
     let mut next_id = 0u32;
     for label in labels.iter_mut() {
@@ -32,6 +46,7 @@ fn canonicalize_labels(labels: &mut [u32], n: usize) {
         }
         *label = remap[idx];
     }
+    next_id as usize
 }
 
 /// Detects communities on an undirected [`CsrGraph`] via asynchronous Label Propagation.
@@ -42,14 +57,14 @@ fn canonicalize_labels(labels: &mut [u32], n: usize) {
 pub fn label_propagation<W: Scalar>(
     graph: &CsrGraph<W>,
     config: &LabelPropagationConfig,
-) -> CoreResult<Vec<u32>> {
+) -> CoreResult<LabelPropagationResult> {
     if graph.is_directed() {
         return Err(CoreError::invalid_input(
             "label_propagation requires an undirected graph",
         ));
     }
-    if config.max_iters == 0 {
-        return Err(CoreError::invalid_input("max_iters must be >= 1"));
+    if config.max_iterations == 0 {
+        return Err(CoreError::invalid_input("max_iterations must be >= 1"));
     }
 
     if let Some(ws) = graph.weights() {
@@ -68,10 +83,20 @@ pub fn label_propagation<W: Scalar>(
 
     let n = graph.num_nodes();
     if n == 0 {
-        return Ok(Vec::new());
+        return Ok(LabelPropagationResult {
+            labels: Vec::new(),
+            num_communities: 0,
+            iterations: 0,
+            converged: true,
+        });
     }
     if n == 1 {
-        return Ok(vec![0]);
+        return Ok(LabelPropagationResult {
+            labels: vec![0],
+            num_communities: 1,
+            iterations: 0,
+            converged: true,
+        });
     }
 
     let mut labels: Vec<u32> = (0..n as u32).collect();
@@ -83,8 +108,11 @@ pub fn label_propagation<W: Scalar>(
 
     let mut rng = DeterministicRng::from_seed_u64(config.seed);
     let weights_opt = graph.weights();
+    let mut iterations = 0usize;
+    let mut converged = false;
 
-    for _iter in 0..config.max_iters {
+    for iter in 1..=config.max_iterations {
+        iterations = iter;
         rng.shuffle(&mut order);
         let mut changed = false;
 
@@ -160,12 +188,18 @@ pub fn label_propagation<W: Scalar>(
         }
 
         if !changed {
+            converged = true;
             break;
         }
     }
 
-    canonicalize_labels(&mut labels, n);
-    Ok(labels)
+    let num_communities = canonicalize_labels(&mut labels, n);
+    Ok(LabelPropagationResult {
+        labels,
+        num_communities,
+        iterations,
+        converged,
+    })
 }
 
 #[cfg(test)]
@@ -186,14 +220,17 @@ mod tests {
         let barbell = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
 
         let cfg = LabelPropagationConfig {
-            max_iters: 100,
+            max_iterations: 100,
             seed: 42,
         };
-        let l1 = label_propagation(&barbell, &cfg).unwrap();
-        let l2 = label_propagation(&barbell, &cfg).unwrap();
-        assert_eq!(l1, l2);
-        assert_eq!(l1[..5], [0, 0, 0, 0, 0]);
-        assert_eq!(l1[5..], [1, 1, 1, 1, 1]);
+        let r1 = label_propagation(&barbell, &cfg).unwrap();
+        let r2 = label_propagation(&barbell, &cfg).unwrap();
+        assert_eq!(r1, r2);
+        assert_eq!(r1.num_communities, 2);
+        assert!(r1.converged);
+        assert!(r1.iterations >= 1 && r1.iterations <= cfg.max_iterations);
+        assert_eq!(r1.labels[..5], [0, 0, 0, 0, 0]);
+        assert_eq!(r1.labels[5..], [1, 1, 1, 1, 1]);
 
         // Weighted f32 graph preserves weighted community structure.
         let mut w_edges = Vec::new();
@@ -209,9 +246,42 @@ mod tests {
         w_edges.push((3, 4));
         w_vals.push(0.2_f32);
         let wg = CsrGraph::from_edges(8, &w_edges, Some(&w_vals), false, false).unwrap();
-        let wl = label_propagation(&wg, &cfg).unwrap();
-        assert_eq!(wl[..4], [0, 0, 0, 0]);
-        assert_eq!(wl[4..], [1, 1, 1, 1]);
+        let wr = label_propagation(&wg, &cfg).unwrap();
+        assert_eq!(wr.num_communities, 2);
+        assert!(wr.converged);
+        assert_eq!(wr.labels[..4], [0, 0, 0, 0]);
+        assert_eq!(wr.labels[4..], [1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn test_label_propagation_disconnected_and_convergence_budget() {
+        // Two disconnected 4-cliques should converge to 2 communities cleanly.
+        let mut edges = Vec::new();
+        for i in 0..4u32 {
+            for j in (i + 1)..4 {
+                edges.push((i, j));
+                edges.push((4 + i, 4 + j));
+            }
+        }
+        let disc = CsrGraph::<f64>::from_edges(8, &edges, None, false, false).unwrap();
+        let res = label_propagation(&disc, &LabelPropagationConfig::default()).unwrap();
+        assert_eq!(res.num_communities, 2);
+        assert!(res.converged);
+        assert!(res.iterations >= 2);
+        assert_eq!(res.labels[..4], [0, 0, 0, 0]);
+        assert_eq!(res.labels[4..], [1, 1, 1, 1]);
+
+        // Restricting to max_iterations = 1 stops without reaching fixed-point convergence.
+        let limited = label_propagation(
+            &disc,
+            &LabelPropagationConfig {
+                max_iterations: 1,
+                seed: 42,
+            },
+        )
+        .unwrap();
+        assert_eq!(limited.iterations, 1);
+        assert!(!limited.converged);
     }
 
     #[test]
@@ -219,16 +289,25 @@ mod tests {
         let cfg = LabelPropagationConfig::default();
 
         let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-        assert!(label_propagation(&empty, &cfg).unwrap().is_empty());
+        let r_empty = label_propagation(&empty, &cfg).unwrap();
+        assert!(r_empty.labels.is_empty());
+        assert_eq!(r_empty.num_communities, 0);
+        assert_eq!(r_empty.iterations, 0);
+        assert!(r_empty.converged);
 
         let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-        assert_eq!(label_propagation(&single, &cfg).unwrap(), vec![0]);
+        let r_single = label_propagation(&single, &cfg).unwrap();
+        assert_eq!(r_single.labels, vec![0]);
+        assert_eq!(r_single.num_communities, 1);
+        assert_eq!(r_single.iterations, 0);
+        assert!(r_single.converged);
 
         let edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
-        assert_eq!(
-            label_propagation(&edgeless, &cfg).unwrap(),
-            vec![0, 1, 2, 3]
-        );
+        let r_edgeless = label_propagation(&edgeless, &cfg).unwrap();
+        assert_eq!(r_edgeless.labels, vec![0, 1, 2, 3]);
+        assert_eq!(r_edgeless.num_communities, 4);
+        assert_eq!(r_edgeless.iterations, 1);
+        assert!(r_edgeless.converged);
 
         let directed =
             CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], None, true, false).unwrap();
@@ -242,7 +321,7 @@ mod tests {
             label_propagation(
                 &g,
                 &LabelPropagationConfig {
-                    max_iters: 0,
+                    max_iterations: 0,
                     seed: 42
                 }
             ),

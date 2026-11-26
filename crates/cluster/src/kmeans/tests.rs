@@ -17,9 +17,11 @@ fn test_kmeans_well_separated_clusters_and_canonical_labels() {
     };
     let res = kmeans_plus_plus(&pts, 6, 2, &cfg).unwrap();
     assert_eq!(res.labels, vec![0, 0, 0, 1, 1, 1]);
+    assert_eq!(res.k, 2);
+    assert_eq!(res.dims, 2);
     assert!(res.converged);
     assert!(res.inertia < 1.0);
-    assert_eq!(res.centroids.len(), 4);
+    assert_eq!(res.centroids.len(), res.k * res.dims);
     assert!((res.centroids[0] - 10.0).abs() < 1e-12);
     assert!((res.centroids[1] - 9.966666666666667).abs() < 1e-12);
     assert!((res.centroids[2] + 10.0).abs() < 1e-12);
@@ -37,6 +39,8 @@ fn test_kmeans_seed_determinism_and_duplicate_points() {
     let r1 = kmeans_plus_plus(&pts, 5, 2, &cfg).unwrap();
     let r2 = kmeans_plus_plus(&pts, 5, 2, &cfg).unwrap();
     assert_eq!(r1, r2);
+    assert_eq!(r1.k, 3);
+    assert_eq!(r1.dims, 2);
     assert_eq!(r1.centroids.len(), 6);
 
     // Identical points should still return finite centroids and valid 0..k labels.
@@ -51,6 +55,8 @@ fn test_kmeans_seed_determinism_and_duplicate_points() {
         },
     )
     .unwrap();
+    assert_eq!(r_id.k, 2);
+    assert_eq!(r_id.dims, 2);
     assert!(r_id.centroids.iter().all(|v| v.is_finite()));
     assert!(r_id.labels.iter().all(|&l| l < 2));
     assert_eq!(r_id.inertia, 0.0);
@@ -63,12 +69,14 @@ fn test_kmeans_seed_determinism_and_duplicate_points() {
         2,
         &KMeansConfig {
             k: 3,
-            max_iters: 10,
+            max_iterations: 10,
             seed: 7,
             ..Default::default()
         },
     )
     .unwrap();
+    assert_eq!(r_reseed.k, 3);
+    assert_eq!(r_reseed.dims, 2);
     assert!(r_reseed.centroids.iter().all(|v| v.is_finite()));
     assert!(r_reseed.labels.iter().all(|&l| l < 3));
     assert!(r_reseed.inertia >= 0.0 && r_reseed.inertia < 1e-12);
@@ -85,8 +93,28 @@ fn test_kmeans_seed_determinism_and_duplicate_points() {
         },
     )
     .unwrap();
+    assert_eq!(r_k_eq_n.k, 4);
+    assert_eq!(r_k_eq_n.dims, 2);
     assert_eq!(r_k_eq_n.labels, vec![0, 1, 2, 3]);
     assert!(r_k_eq_n.inertia < 1e-12);
+
+    // n == 1, k == 1, dims == 3 singleton boundary.
+    let single = kmeans_plus_plus(
+        &[2.0, -3.0, 4.5],
+        1,
+        3,
+        &KMeansConfig {
+            k: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(single.labels, vec![0]);
+    assert_eq!(single.k, 1);
+    assert_eq!(single.dims, 3);
+    assert_eq!(single.centroids, vec![2.0, -3.0, 4.5]);
+    assert_eq!(single.inertia, 0.0);
+    assert!(single.converged);
 }
 
 #[test]
@@ -135,5 +163,17 @@ fn test_kmeans_validation_errors() {
             }
         ),
         Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        kmeans_plus_plus(
+            &[0.0, 0.0, 1.0, 1.0],
+            2,
+            2,
+            &KMeansConfig {
+                max_iterations: 0,
+                ..Default::default()
+            }
+        ),
+        Err(CoreError::InvalidInput(_))
     ));
 }

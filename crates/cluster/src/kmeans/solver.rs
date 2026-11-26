@@ -103,7 +103,7 @@ fn run_single_kmeans(
     let mut iterations = 0usize;
     let mut converged = false;
 
-    for iter in 1..=config.max_iters {
+    for iter in 1..=config.max_iterations {
         iterations = iter;
         counts.fill(0);
         next_centroids.fill(0.0);
@@ -213,6 +213,8 @@ fn run_single_kmeans(
     KMeansResult {
         labels,
         centroids,
+        k,
+        dims,
         inertia,
         iterations,
         converged,
@@ -270,8 +272,8 @@ pub fn kmeans_plus_plus(
     if config.k == 0 {
         return Err(CoreError::invalid_input("k must be >= 1"));
     }
-    if config.max_iters == 0 {
-        return Err(CoreError::invalid_input("max_iters must be >= 1"));
+    if config.max_iterations == 0 {
+        return Err(CoreError::invalid_input("max_iterations must be >= 1"));
     }
     if config.n_init == 0 {
         return Err(CoreError::invalid_input("n_init must be >= 1"));

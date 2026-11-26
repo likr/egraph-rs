@@ -17,10 +17,10 @@ pub use coarsen::{
     project_clustered_layout_with_radii,
 };
 pub use kmeans::{KMeansConfig, KMeansResult, kmeans_plus_plus};
-pub use label_propagation::{LabelPropagationConfig, label_propagation};
+pub use label_propagation::{LabelPropagationConfig, LabelPropagationResult, label_propagation};
 pub use leiden::{LeidenConfig, LeidenObjective, LeidenResult, leiden};
 pub use louvain::{LouvainConfig, LouvainResult, louvain};
-pub use spectral::{SpectralClusteringConfig, spectral_clustering};
+pub use spectral::{SpectralClusteringConfig, SpectralClusteringResult, spectral_clustering};
 
 /// Returns the crate version string.
 pub fn crate_version() -> &'static str {
