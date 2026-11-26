@@ -2,9 +2,12 @@
 //! zero-per-iteration-allocation Jacobi Preconditioned Conjugate Gradient [`PcgWorkspace`].
 
 mod config;
+mod nd;
 mod pcg;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 pub use config::StressMajorizationConfig;
 pub use pcg::PcgWorkspace;
@@ -26,6 +29,9 @@ pub struct StressMajorizationSolver<S: Scalar = f64> {
     rhs_y: Vec<f64>,
     sol_x: Vec<f64>,
     sol_y: Vec<f64>,
+    nd_dims: Option<usize>,
+    nd_rhs: Vec<f64>,
+    nd_sol: Vec<f64>,
     pcg: PcgWorkspace,
     prev_stress: Option<f64>,
     iter: usize,
@@ -171,6 +177,9 @@ impl<S: Scalar> StressMajorizationSolver<S> {
             rhs_y: vec![0.0; n],
             sol_x: vec![0.0; n],
             sol_y: vec![0.0; n],
+            nd_dims: None,
+            nd_rhs: Vec::new(),
+            nd_sol: Vec::new(),
             pcg: PcgWorkspace::new(n),
             prev_stress: None,
             iter: 0,
@@ -185,7 +194,7 @@ impl<S: Scalar> StressMajorizationSolver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`LayoutNd`](egraph_core::LayoutNd).
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
@@ -195,6 +204,24 @@ impl<S: Scalar> StressMajorizationSolver<S> {
     #[inline]
     pub fn last_stress(&self) -> Option<f64> {
         self.prev_stress
+    }
+
+    /// Returns the current lifecycle status of the solver.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the configured maximum iteration budget.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.config.max_iterations
     }
 
     /// Evaluates total weighted stress $\sum_{i < j} w_{ij} (\|x_i - x_j\| - d_{ij})^2$ for `layout`.

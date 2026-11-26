@@ -2,15 +2,17 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd, Scalar, SolverStatus,
 };
 use egraph_linalg::csr_matrix::CsrMatrix;
 use egraph_linalg_amg::amg_pcg::{AmgPcgConfig, AmgPcgSolver, AmgPcgWorkspace};
-use egraph_linalg_mds::mds::{PivotMdsConfig, pivot_mds};
-use egraph_spatial_trees::ArenaQuadtree2d;
+use egraph_linalg_mds::mds::{HdeConfig, PivotMdsConfig, hde_nd, pivot_mds};
+use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
 
 use super::config::MaxentStressConfig;
-use super::graph_prep::{MaxentEdge, extract_canonical_positive_edges, is_layout_collapsed};
+use super::graph_prep::{
+    MaxentEdge, extract_canonical_positive_edges, is_layout_collapsed, is_layout_collapsed_nd,
+};
 
 /// Cooperative Gansner et al. (2013) Maxent-Stress layout solver.
 #[derive(Debug, Clone)]
@@ -28,6 +30,7 @@ pub struct MaxentStressSolver<S: Scalar = f64> {
     pub(super) amg: AmgPcgSolver,
     pub(super) amg_ws: AmgPcgWorkspace,
     pub(super) quadtree: ArenaQuadtree2d<f64>,
+    pub(super) octree: ArenaOctree3d<f64>,
     pub(super) x_cur: Vec<f64>,
     pub(super) y_cur: Vec<f64>,
     pub(super) next_x: Vec<f64>,
@@ -38,6 +41,14 @@ pub struct MaxentStressSolver<S: Scalar = f64> {
     pub(super) rep_y: Vec<f64>,
     pub(super) rhs_x: Vec<f64>,
     pub(super) rhs_y: Vec<f64>,
+    pub(super) nd_dims: Option<usize>,
+    pub(super) nd_cur: Vec<f64>,
+    pub(super) nd_next: Vec<f64>,
+    pub(super) nd_stress_rhs: Vec<f64>,
+    pub(super) nd_rep: Vec<f64>,
+    pub(super) nd_comp_sum: Vec<f64>,
+    pub(super) nd_rhs_axis: Vec<f64>,
+    pub(super) nd_next_axis: Vec<f64>,
     pub(super) stage_idx: usize,
     pub(super) stage_step: usize,
     pub(super) total_iter_executed: usize,
@@ -194,6 +205,7 @@ impl<S: Scalar> MaxentStressSolver<S> {
             amg,
             amg_ws,
             quadtree: ArenaQuadtree2d::new(),
+            octree: ArenaOctree3d::new(),
             x_cur: vec![0.0; n],
             y_cur: vec![0.0; n],
             next_x: vec![0.0; n],
@@ -204,6 +216,14 @@ impl<S: Scalar> MaxentStressSolver<S> {
             rep_y: vec![0.0; n],
             rhs_x: vec![0.0; n],
             rhs_y: vec![0.0; n],
+            nd_dims: None,
+            nd_cur: Vec::new(),
+            nd_next: Vec::new(),
+            nd_stress_rhs: Vec::new(),
+            nd_rep: Vec::new(),
+            nd_comp_sum: Vec::new(),
+            nd_rhs_axis: Vec::new(),
+            nd_next_axis: Vec::new(),
             stage_idx: 0,
             stage_step: 0,
             total_iter_executed: 0,
@@ -235,6 +255,24 @@ impl<S: Scalar> MaxentStressSolver<S> {
     #[inline]
     pub fn effective_q(&self) -> f64 {
         self.effective_q
+    }
+
+    /// Returns the current lifecycle status of the solver.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.total_iter_executed
+    }
+
+    /// Returns the configured maximum iteration budget.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.total_iterations_budget
     }
 
     pub(super) fn initialize_collapsed_layout(
@@ -270,6 +308,41 @@ impl<S: Scalar> MaxentStressSolver<S> {
         for i in 0..n {
             dst_x[i] = S::from_f64(rng.next_f64() - 0.5);
             dst_y[i] = S::from_f64(rng.next_f64() - 0.5);
+        }
+        Ok(())
+    }
+
+    pub(super) fn initialize_collapsed_layout_nd(
+        &mut self,
+        layout: &mut LayoutNd<S>,
+    ) -> CoreResult<()> {
+        let n = self.num_nodes;
+        let d = layout.dims();
+        let edge_pairs: Vec<(u32, u32)> = self.edges.iter().map(|e| (e.u, e.v)).collect();
+        let edge_dists: Vec<f64> = self.edges.iter().map(|e| e.d).collect();
+        let weights_opt = if self.all_unit_edges {
+            None
+        } else {
+            Some(edge_dists.as_slice())
+        };
+        let init_graph = CsrGraph::from_edges(n, &edge_pairs, weights_opt, false, false)?;
+        let hde_cfg = HdeConfig {
+            output_dims: d,
+            seed: self.config.seed,
+            ..Default::default()
+        };
+
+        if let Ok(hde_layout) = hde_nd::<f64, S>(&init_graph, &hde_cfg)
+            && !is_layout_collapsed_nd(&hde_layout)
+        {
+            layout.coords_mut().copy_from_slice(hde_layout.coords());
+            return Ok(());
+        }
+
+        // Deterministic fallback if HDE produces a degenerate/collapsed configuration.
+        let mut rng = DeterministicRng::from_seed_u64(self.config.seed);
+        for v in layout.coords_mut().iter_mut() {
+            *v = S::from_f64(rng.next_f64() - 0.5);
         }
         Ok(())
     }

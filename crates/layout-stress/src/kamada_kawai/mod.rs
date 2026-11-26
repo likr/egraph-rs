@@ -1,8 +1,11 @@
 //! Pure-Rust Kamada-Kawai (1989) spring layout solver with `|det| <= 1e-12` Hessian
 //! singularity guard and bounded inner/outer iteration limits.
 
+mod nd;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Scalar, SolverStatus,
@@ -68,6 +71,12 @@ pub struct KamadaKawaiSolver<S: Scalar = f64> {
     k: Vec<f64>,
     x_buf: Vec<f64>,
     y_buf: Vec<f64>,
+    nd_dims: Option<usize>,
+    nd_coords: Vec<f64>,
+    nd_grad: Vec<f64>,
+    nd_hessian: Vec<f64>,
+    nd_delta: Vec<f64>,
+    nd_xm: Vec<f64>,
     iter: usize,
     status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -203,6 +212,12 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
             k,
             x_buf: vec![0.0; n],
             y_buf: vec![0.0; n],
+            nd_dims: None,
+            nd_coords: Vec::new(),
+            nd_grad: Vec::new(),
+            nd_hessian: Vec::new(),
+            nd_delta: Vec::new(),
+            nd_xm: Vec::new(),
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -215,10 +230,28 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`LayoutNd`](egraph_core::LayoutNd).
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the current lifecycle status of the solver.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the configured maximum iteration budget.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.max_iterations
     }
 
     fn select_node(&self) -> Option<(usize, f64)> {

@@ -16,10 +16,13 @@
 
 mod config;
 mod graph_prep;
+mod nd;
 mod solver;
 mod step;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 pub use config::MaxentStressConfig;
 pub use solver::MaxentStressSolver;

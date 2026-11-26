@@ -1,4 +1,4 @@
-use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
 
 const COLLAPSED_SPAN_EPS: f64 = 1e-12;
 
@@ -15,6 +15,15 @@ pub(super) fn norm2_pair(xs: &[f64], ys: &[f64]) -> f64 {
     let mut sum = 0.0_f64;
     for (&x, &y) in xs.iter().zip(ys.iter()) {
         sum += x * x + y * y;
+    }
+    sum.sqrt()
+}
+
+#[inline]
+pub(super) fn norm2_slice(xs: &[f64]) -> f64 {
+    let mut sum = 0.0_f64;
+    for &x in xs {
+        sum += x * x;
     }
     sum.sqrt()
 }
@@ -39,6 +48,28 @@ pub(super) fn is_layout_collapsed<S: Scalar>(layout: &Layout2d<S>) -> bool {
         max_y = max_y.max(y);
     }
     (max_x - min_x) < COLLAPSED_SPAN_EPS && (max_y - min_y) < COLLAPSED_SPAN_EPS
+}
+
+pub(super) fn is_layout_collapsed_nd<S: Scalar>(layout: &LayoutNd<S>) -> bool {
+    let n = layout.num_nodes();
+    if n < 2 {
+        return false;
+    }
+    let d = layout.dims();
+    let coords = layout.coords();
+    for a in 0..d {
+        let mut min_v = coords[a].to_f64();
+        let mut max_v = min_v;
+        for i in 1..n {
+            let v = coords[i * d + a].to_f64();
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
+        if (max_v - min_v) >= COLLAPSED_SPAN_EPS {
+            return false;
+        }
+    }
+    true
 }
 
 pub(super) fn extract_canonical_positive_edges<W: Scalar>(
