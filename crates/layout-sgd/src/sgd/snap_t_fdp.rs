@@ -162,6 +162,7 @@ pub(super) fn build_snap_t_fdp_state<W: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Linear,
         step_scale: config.learning_rate,
+        max_mu: None,
     };
     let status = if config.iterations == 0 {
         SolverStatus::Completed

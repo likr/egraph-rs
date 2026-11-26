@@ -16,6 +16,7 @@ fn test_sgd2_and_squared_schedule_convergence_and_bit_exact() {
         eps: 0.05,
         kind: SgdScheduleKind::Squared,
         step_scale: 1.0,
+        ..Default::default()
     };
     let mut sq_solver = SgdSolver::<f64>::full(&g, sq_sched, 42).unwrap();
     let mut etas = Vec::new();

@@ -189,6 +189,16 @@ pub(super) fn validate_schedule_config(cfg: &SgdScheduleConfig) -> CoreResult<()
             cfg.step_scale
         )));
     }
+    if let Some(max_mu) = cfg.max_mu {
+        if !max_mu.is_finite() {
+            return Err(CoreError::non_finite("SgdScheduleConfig::max_mu"));
+        }
+        if max_mu <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SgdScheduleConfig::max_mu must be > 0, got {max_mu}"
+            )));
+        }
+    }
     Ok(())
 }
 

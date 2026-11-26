@@ -1,7 +1,8 @@
 use std::f64::consts::PI;
 
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, Layout2d, ManifoldKind, ManifoldLayout2d, Scalar,
+    CoreError, CoreResult, DeterministicRng, Layout2d, ManifoldKind, ManifoldLayout2d,
+    ManifoldMetric, Scalar,
 };
 
 use super::pairs::{HINGE_BIT, INDEX_MASK, PackedGenPair, PackedSymPair, PairSpec};
@@ -17,20 +18,31 @@ pub(super) fn fast_hypot<S: Scalar>(dx: S, dy: S) -> S {
 }
 
 #[inline]
+fn capped_mu<S: Scalar>(eta: S, w: S, max_mu: S) -> S {
+    if w.is_finite() && w > S::ZERO {
+        let raw = eta * w;
+        if max_mu.is_finite() {
+            raw.min(max_mu)
+        } else {
+            raw
+        }
+    } else {
+        S::ZERO
+    }
+}
+
+#[inline]
 pub(super) fn apply_euclidean_sym_pair<S: Scalar>(
     xs: &mut [S],
     ys: &mut [S],
     eta: S,
+    max_mu: S,
     p: PackedSymPair<S>,
 ) {
     let i = p.i as usize;
     let j = (p.j_hinge & INDEX_MASK) as usize;
     let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
-    let mu = if p.w.is_finite() && p.w > S::ZERO {
-        (eta * p.w).min(S::ONE)
-    } else {
-        S::ZERO
-    };
+    let mu = capped_mu(eta, p.w, max_mu);
     if !p.d.is_finite() || p.d <= S::ZERO || !mu.is_finite() || mu <= S::ZERO {
         return;
     }
@@ -65,21 +77,14 @@ pub(super) fn apply_euclidean_gen_pair<S: Scalar>(
     xs: &mut [S],
     ys: &mut [S],
     eta: S,
+    max_mu: S,
     p: &PackedGenPair<S>,
 ) {
     if !p.dij.is_finite() || !p.dji.is_finite() || p.dij <= S::ZERO || p.dji <= S::ZERO {
         return;
     }
-    let mu_i = if p.wij.is_finite() && p.wij > S::ZERO {
-        (eta * p.wij).min(S::ONE)
-    } else {
-        S::ZERO
-    };
-    let mu_j = if p.wji.is_finite() && p.wji > S::ZERO {
-        (eta * p.wji).min(S::ONE)
-    } else {
-        S::ZERO
-    };
+    let mu_i = capped_mu(eta, p.wij, max_mu);
+    let mu_j = capped_mu(eta, p.wji, max_mu);
     if mu_i <= S::ZERO && mu_j <= S::ZERO {
         return;
     }
@@ -115,20 +120,39 @@ pub(super) fn apply_euclidean_gen_pair<S: Scalar>(
 }
 
 #[inline]
-fn clamp_manifold_tangent_step<S: Scalar>(kind: ManifoldKind, vx: S, vy: S) -> CoreResult<(S, S)> {
+fn clamp_manifold_tangent_step<S: Scalar>(
+    kind: ManifoldKind,
+    metric: ManifoldMetric,
+    vx: S,
+    vy: S,
+) -> CoreResult<(S, S)> {
     let vxf = vx.to_f64();
     let vyf = vy.to_f64();
     if !vxf.is_finite() || !vyf.is_finite() {
         return Ok((S::ZERO, S::ZERO));
+    }
+    if kind == ManifoldKind::Torus2d {
+        let half_lx = 0.5 * metric.scale * metric.aspect;
+        let half_ly = 0.5 * metric.scale;
+        let cx = if vxf.abs() > half_lx {
+            S::from_f64(vxf.clamp(-half_lx, half_lx))
+        } else {
+            vx
+        };
+        let cy = if vyf.abs() > half_ly {
+            S::from_f64(vyf.clamp(-half_ly, half_ly))
+        } else {
+            vy
+        };
+        return Ok((cx, cy));
     }
     let len = vxf.hypot(vyf);
     if !len.is_finite() || len == 0.0 {
         return Ok((S::ZERO, S::ZERO));
     }
     let max_step = match kind {
-        ManifoldKind::HyperbolicPoincare => 8.0,
-        ManifoldKind::Spherical => PI,
-        ManifoldKind::Torus2d => 0.5,
+        ManifoldKind::HyperbolicPoincare | ManifoldKind::HyperbolicLorentz => 8.0 * metric.scale,
+        ManifoldKind::Spherical => PI * metric.scale,
         _ => return Err(CoreError::unsupported("unsupported manifold kind")),
     };
     if len > max_step {
@@ -140,14 +164,15 @@ fn clamp_manifold_tangent_step<S: Scalar>(kind: ManifoldKind, vx: S, vy: S) -> C
 }
 
 #[inline]
-fn apply_clamped_manifold_vertex_step<S: Scalar>(
+pub(super) fn apply_clamped_manifold_vertex_step<S: Scalar>(
     layout: &mut ManifoldLayout2d<S>,
     idx: usize,
     vx: S,
     vy: S,
 ) -> CoreResult<()> {
     let kind = layout.kind();
-    let (cvx, cvy) = clamp_manifold_tangent_step(kind, vx, vy)?;
+    let metric = layout.metric();
+    let (cvx, cvy) = clamp_manifold_tangent_step(kind, metric, vx, vy)?;
     layout.apply_tangent_step(idx, cvx, cvy)?;
     // Guard f32 rounding at Spherical [0, 2*pi) x [0, pi] boundary.
     if kind == ManifoldKind::Spherical {
@@ -171,21 +196,14 @@ fn apply_clamped_manifold_vertex_step<S: Scalar>(
 pub(super) fn apply_manifold_pair<S: Scalar>(
     layout: &mut ManifoldLayout2d<S>,
     eta: S,
+    max_mu: S,
     p: PairSpec<S>,
 ) -> CoreResult<()> {
     if !p.dij.is_finite() || !p.dji.is_finite() || p.dij <= S::ZERO || p.dji <= S::ZERO {
         return Ok(());
     }
-    let mu_i = if p.wij.is_finite() && p.wij > S::ZERO {
-        (eta * p.wij).min(S::ONE)
-    } else {
-        S::ZERO
-    };
-    let mu_j = if p.wji.is_finite() && p.wji > S::ZERO {
-        (eta * p.wji).min(S::ONE)
-    } else {
-        S::ZERO
-    };
+    let mu_i = capped_mu(eta, p.wij, max_mu);
+    let mu_j = capped_mu(eta, p.wji, max_mu);
     if mu_i <= S::ZERO && mu_j <= S::ZERO {
         return Ok(());
     }
@@ -251,4 +269,38 @@ pub(super) fn scatter_collapsed_layout_if_needed<S: Scalar>(
             ys_mut[i] = S::from_f64(span * (rng.next_f64() - 0.5));
         }
     }
+}
+
+pub(super) fn scatter_collapsed_manifold_layout_if_needed<S: Scalar>(
+    layout: &mut ManifoldLayout2d<S>,
+    span: f64,
+    rng: &mut DeterministicRng,
+) -> CoreResult<()> {
+    let n = layout.len();
+    if n <= 1 {
+        return Ok(());
+    }
+    let xs = layout.x();
+    let ys = layout.y();
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for i in 0..n {
+        let x = xs[i].to_f64();
+        let y = ys[i].to_f64();
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
+        let s = span * layout.scale();
+        for i in 0..n {
+            let vx = S::from_f64(s * (rng.next_f64() - 0.5));
+            let vy = S::from_f64(s * (rng.next_f64() - 0.5));
+            apply_clamped_manifold_vertex_step(layout, i, vx, vy)?;
+        }
+    }
+    Ok(())
 }

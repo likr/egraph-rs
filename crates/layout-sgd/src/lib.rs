@@ -10,8 +10,8 @@ pub use coarse_backbone::{
 pub use sgd::{
     BarrierSymmetry, DrGraphConfig, GraphCneConfig, GraphCneObjective, LargeVisConfig,
     OrtmannPivotStrategy, OrtmannSparseStressConfig, PacmapGraphConfig, Sgd2Config,
-    SgdScheduleConfig, SgdScheduleKind, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
-    SparseBarrierStats, StreamingNegativeConfig,
+    SgdScheduleConfig, SgdScheduleKind, SgdScheduleWindowLayout, SgdSolver, SnapTFdpConfig,
+    SparseBarrierConfig, SparseBarrierStats, StreamingNegativeConfig,
 };
 
 /// Returns the crate version.

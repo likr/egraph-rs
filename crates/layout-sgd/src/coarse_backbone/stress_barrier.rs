@@ -232,6 +232,7 @@ pub(super) fn optimize_coarse_stress_and_barrier<W: Scalar, S: Scalar>(
                 eps: 0.01,
                 kind: SgdScheduleKind::Exponential,
                 step_scale,
+                max_mu: None,
             };
             let mut solver = SgdSolver::<S>::from_pairs_with_hinges(
                 n_l,

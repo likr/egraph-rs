@@ -30,6 +30,8 @@ pub struct SgdScheduleConfig {
     pub kind: SgdScheduleKind,
     /// Multiplicative step scale applied to $\eta(t)$ (`default: 1.0`).
     pub step_scale: f64,
+    /// Optional upper bound on per-pair step factor $\mu = \min(\eta w, \mu_{\max})$ (`default: None`, using `1.0`).
+    pub max_mu: Option<f64>,
 }
 
 impl Default for SgdScheduleConfig {
@@ -39,6 +41,7 @@ impl Default for SgdScheduleConfig {
             eps: 0.01,
             kind: SgdScheduleKind::Exponential,
             step_scale: 1.0,
+            max_mu: None,
         }
     }
 }
@@ -71,6 +74,13 @@ impl SgdScheduleConfig {
     #[inline]
     pub fn with_step_scale(mut self, step_scale: f64) -> Self {
         self.step_scale = step_scale;
+        self
+    }
+
+    /// Sets the optional upper bound `max_mu` on per-pair step factor $\mu$.
+    #[inline]
+    pub fn with_max_mu(mut self, max_mu: Option<f64>) -> Self {
+        self.max_mu = max_mu;
         self
     }
 }

@@ -8,14 +8,14 @@ use super::pairs::{
 
 #[derive(Debug, Clone)]
 pub(super) struct Sgd2State {
-    batch_size: usize,
-    damping: f64,
-    grad_x: Vec<f64>,
-    grad_y: Vec<f64>,
-    h_x: Vec<f64>,
-    h_y: Vec<f64>,
-    touched_stamp: VisitStamp,
-    touched_nodes: Vec<u32>,
+    pub(super) batch_size: usize,
+    pub(super) damping: f64,
+    pub(super) grad_x: Vec<f64>,
+    pub(super) grad_y: Vec<f64>,
+    pub(super) h_x: Vec<f64>,
+    pub(super) h_y: Vec<f64>,
+    pub(super) touched_stamp: VisitStamp,
+    pub(super) touched_nodes: Vec<u32>,
     pub(super) nd_scratch: Option<Sgd2NdScratch>,
 }
 

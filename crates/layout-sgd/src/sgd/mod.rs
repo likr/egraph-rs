@@ -8,6 +8,9 @@ mod drgraph_coarsen;
 mod graph_cne;
 mod graph_sampling;
 mod largevis;
+mod manifold_drgraph;
+mod manifold_sampling_variants;
+mod manifold_variants;
 mod nd;
 mod nd_variants;
 mod ortmann;
@@ -34,6 +37,10 @@ mod tests_core;
 #[cfg(test)]
 mod tests_errors_and_blocking;
 #[cfg(test)]
+mod tests_manifold;
+#[cfg(test)]
+mod tests_manifold_modes;
+#[cfg(test)]
 mod tests_nd;
 #[cfg(test)]
 mod tests_nd_edge_cases;
@@ -59,6 +66,7 @@ pub use config::{
 #[doc(hidden)]
 pub use pairs::PackedSymPair;
 pub use solver::SgdSolver;
+pub use stepping::SgdScheduleWindowLayout;
 pub use variant_config::{
     DrGraphConfig, GraphCneConfig, GraphCneObjective, LargeVisConfig, OrtmannPivotStrategy,
     OrtmannSparseStressConfig,

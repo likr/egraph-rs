@@ -287,6 +287,7 @@ impl<S: Scalar> SgdSolver<S> {
             eps: config.eps,
             kind: SgdScheduleKind::Squared,
             step_scale: config.step_scale,
+            max_mu: None,
         };
         let n = graph.num_nodes();
         let mut solver = if n <= 256 {

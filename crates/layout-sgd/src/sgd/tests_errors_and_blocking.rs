@@ -273,6 +273,7 @@ fn test_cache_blocked_shuffle_over_threshold_step_eq_run() {
         eps: 0.05,
         kind: SgdScheduleKind::Exponential,
         step_scale: 0.2,
+        ..Default::default()
     };
 
     let mut s64_run =
@@ -318,10 +319,9 @@ fn test_cache_blocked_shuffle_over_threshold_step_eq_run() {
 }
 
 #[test]
-fn test_run_schedule_window_rejects_non_pair_variants() {
+fn test_run_schedule_window_supports_all_variant_modes() {
     let g = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3), (3, 0)], None, false, false)
         .unwrap();
-    let mut layout = Layout2d::<f64>::zeros(4);
     let mut non_pair_solvers = vec![
         SgdSolver::<f64>::snap_t_fdp(&g, Default::default()).unwrap(),
         SgdSolver::<f64>::pacmap_graph(&g, Default::default()).unwrap(),
@@ -331,9 +331,9 @@ fn test_run_schedule_window_rejects_non_pair_variants() {
         SgdSolver::<f64>::graph_cne(&g, Default::default()).unwrap(),
     ];
     for solver in &mut non_pair_solvers {
-        assert!(matches!(
-            solver.run_schedule_window(&mut layout, 0, 1),
-            Err(CoreError::InvalidInput(_))
-        ));
+        let mut layout = circle_layout::<f64>(4, 1.0);
+        solver.run_schedule_window(&mut layout, 0, 2).unwrap();
+        assert!(layout.is_all_finite());
+        assert_eq!(solver.iteration(), 2);
     }
 }

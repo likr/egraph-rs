@@ -122,6 +122,7 @@ fn test_streaming_negatives_separates_non_edges_and_converges() {
         eps: 0.01,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
+        ..Default::default()
     };
     let mut solver = SgdSolver::<f64>::streaming_negatives(&barbell, neg_cfg, sched, 42).unwrap();
     assert_eq!(solver.num_springs(), barbell.num_edges());
@@ -182,6 +183,7 @@ fn test_streaming_negatives_unsorted_csr_never_repels_1hop_edges() {
         eps: 0.01,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
+        ..Default::default()
     };
 
     let mut s_unsorted =

@@ -25,6 +25,7 @@ fn test_step_vs_run_bit_exact_f64_and_f32_all_modes_and_schedules() {
             eps: 0.01,
             kind,
             step_scale: 0.85,
+            ..Default::default()
         };
 
         let mut s1_f64 = SgdSolver::<f64>::full(&g, sched, 123).unwrap();
@@ -105,6 +106,7 @@ fn test_hinge_zero_force_when_separated_and_repels_close() {
         eps: 0.01,
         kind: SgdScheduleKind::Constant,
         step_scale: 0.5,
+        ..Default::default()
     };
 
     let mut far_solver = SgdSolver::<f64>::from_pairs_with_hinges(
@@ -179,6 +181,7 @@ fn test_manifolds_all_three_domain_invariants_and_stress_reduction() {
         eps: 0.02,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
+        ..Default::default()
     };
 
     // 1. Hyperbolic Poincare disk on a 7-node binary tree.
@@ -481,15 +484,14 @@ fn test_reset_schedule_and_run_schedule_window_euclidean_and_manifold() {
     );
     assert_eq!(m_full, m_win);
 
-    // 4. Guards: invalid layout len / NaN and reset_schedule on non-pair mode.
+    // 4. Guards: invalid layout len and reset_schedule on sgd2 mode.
     let mut wrong = Layout2d::<f64>::zeros(2);
     assert!(matches!(
         s_win.run_schedule_window(&mut wrong, 0, 1),
         Err(CoreError::DimensionMismatch { .. })
     ));
     let mut sgd2_solver = SgdSolver::<f64>::sgd2(&g, Default::default()).unwrap();
-    assert!(matches!(
-        sgd2_solver.reset_schedule(sched_b, 1),
-        Err(CoreError::InvalidInput(_))
-    ));
+    sgd2_solver.reset_schedule(sched_b, 1).unwrap();
+    assert_eq!(sgd2_solver.total_iterations(), 6);
+    assert_eq!(sgd2_solver.iteration(), 0);
 }

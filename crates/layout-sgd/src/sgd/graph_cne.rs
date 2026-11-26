@@ -14,10 +14,13 @@ use super::variant_config::{GraphCneConfig, GraphCneObjective};
 #[derive(Debug, Clone)]
 pub(super) struct GraphCneState {
     pub(super) config: GraphCneConfig,
-    edges_u: Vec<u32>,
-    edges_v: Vec<u32>,
-    edge_alias: Option<AliasTable>,
-    neg_scratch: Vec<u32>,
+    pub(super) edges_u: Vec<u32>,
+    pub(super) edges_v: Vec<u32>,
+    pub(super) edge_alias: Option<AliasTable>,
+    pub(super) neg_scratch: Vec<u32>,
+    pub(super) neg_tx: Vec<f64>,
+    pub(super) neg_ty: Vec<f64>,
+    pub(super) neg_w: Vec<f64>,
     pub(super) nd_scratch: Option<GraphCneNdScratch>,
 }
 
@@ -49,6 +52,7 @@ pub(super) fn build_graph_cne_state<W: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Linear,
         step_scale: config.initial_lr,
+        max_mu: None,
     };
     let status = if config.iterations == 0 {
         SolverStatus::Completed
@@ -97,6 +101,9 @@ pub(super) fn build_graph_cne_state<W: Scalar>(
             edges_v,
             edge_alias,
             neg_scratch: Vec::with_capacity(config.negative_samples),
+            neg_tx: Vec::with_capacity(config.negative_samples),
+            neg_ty: Vec::with_capacity(config.negative_samples),
+            neg_w: Vec::with_capacity(config.negative_samples),
             nd_scratch: None,
         },
         schedule_cfg,

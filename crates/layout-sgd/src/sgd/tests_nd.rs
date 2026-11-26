@@ -121,6 +121,7 @@ pub(super) fn build_nd_mode_pair<S: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Exponential,
         step_scale: 0.9,
+        ..Default::default()
     };
     let dog_cfg = DogVaradhanConfig {
         n_landmarks: 6,

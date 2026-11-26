@@ -1,5 +1,5 @@
 use egraph_core::{
-    CoreError, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
+    CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
 };
 use egraph_linalg_mds::{PivotMdsConfig, pivot_mds};
 
@@ -226,12 +226,13 @@ fn test_snap_t_fdp_bit_exact_compact_memory_and_convergence() {
         assert!(SgdSolver::<f64>::snap_t_fdp(&grid, bad).is_err());
     }
     let mut m_layout = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, grid.num_nodes());
-    assert!(matches!(
+    assert!(
         SgdSolver::<f64>::snap_t_fdp(&grid, cfg)
             .unwrap()
-            .step_manifold(&mut m_layout),
-        Err(CoreError::InvalidInput(_))
-    ));
+            .step_manifold(&mut m_layout)
+            .is_ok()
+    );
+    assert!(m_layout.as_layout().is_all_finite());
 }
 
 #[test]

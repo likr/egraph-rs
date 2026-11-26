@@ -13,10 +13,10 @@ use super::variant_config::LargeVisConfig;
 #[derive(Debug, Clone)]
 pub(super) struct LargeVisState {
     pub(super) config: LargeVisConfig,
-    edges_u: Vec<u32>,
-    edges_v: Vec<u32>,
-    edge_alias: Option<AliasTable>,
-    neg_alias: Option<AliasTable>,
+    pub(super) edges_u: Vec<u32>,
+    pub(super) edges_v: Vec<u32>,
+    pub(super) edge_alias: Option<AliasTable>,
+    pub(super) neg_alias: Option<AliasTable>,
 }
 
 pub(super) struct BuiltLargeVis {
@@ -47,6 +47,7 @@ pub(super) fn build_largevis_state<W: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Linear,
         step_scale: config.initial_lr,
+        max_mu: None,
     };
     let status = if config.iterations == 0 {
         SolverStatus::Completed

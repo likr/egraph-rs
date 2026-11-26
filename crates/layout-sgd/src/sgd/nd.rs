@@ -52,13 +52,19 @@ pub(super) fn apply_euclidean_sym_pair_nd<S: Scalar>(
     coords: &mut [S],
     dims: usize,
     eta: S,
+    max_mu: S,
     p: PackedSymPair<S>,
 ) {
     let i = p.i as usize;
     let j = (p.j_hinge & INDEX_MASK) as usize;
     let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
     let mu = if p.w.is_finite() && p.w > S::ZERO {
-        (eta * p.w).min(S::ONE)
+        let raw = eta * p.w;
+        if max_mu.is_finite() {
+            raw.min(max_mu)
+        } else {
+            raw
+        }
     } else {
         S::ZERO
     };
@@ -96,18 +102,29 @@ pub(super) fn apply_euclidean_gen_pair_nd<S: Scalar>(
     coords: &mut [S],
     dims: usize,
     eta: S,
+    max_mu: S,
     p: &PackedGenPair<S>,
 ) {
     if !p.dij.is_finite() || !p.dji.is_finite() || p.dij <= S::ZERO || p.dji <= S::ZERO {
         return;
     }
     let mu_i = if p.wij.is_finite() && p.wij > S::ZERO {
-        (eta * p.wij).min(S::ONE)
+        let raw = eta * p.wij;
+        if max_mu.is_finite() {
+            raw.min(max_mu)
+        } else {
+            raw
+        }
     } else {
         S::ZERO
     };
     let mu_j = if p.wji.is_finite() && p.wji > S::ZERO {
-        (eta * p.wji).min(S::ONE)
+        let raw = eta * p.wji;
+        if max_mu.is_finite() {
+            raw.min(max_mu)
+        } else {
+            raw
+        }
     } else {
         S::ZERO
     };
@@ -203,6 +220,11 @@ fn validate_nd_step_preconditions<S: Scalar>(
                 "SgdSolver::step: cannot switch from Layout2d to LayoutNd on stateful solver",
             ));
         }
+        ActiveLayoutKind::Manifold(_) => {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::step: cannot switch from ManifoldLayout2d to LayoutNd on stateful solver",
+            ));
+        }
         ActiveLayoutKind::Nd(prev) if prev != dims => {
             return Err(CoreError::dimension_mismatch(
                 prev,
@@ -270,6 +292,7 @@ impl<S: Scalar> IterativeSolver<S, LayoutNd<S>> for SgdSolver<S> {
         let eta_f64 = self.eta_at(self.iter);
         if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
             let eta = S::from_f64(eta_f64);
+            let max_mu = self.max_mu_scalar();
             let coords = layout.coords_mut();
             match &mut self.pairs {
                 PairStorage::Symmetric(pairs) => {
@@ -278,21 +301,21 @@ impl<S: Scalar> IterativeSolver<S, LayoutNd<S>> for SgdSolver<S> {
                         &mut self.block_order,
                         &mut self.rng,
                         |&p| {
-                            apply_euclidean_sym_pair_nd(coords, dims, eta, p);
+                            apply_euclidean_sym_pair_nd(coords, dims, eta, max_mu, p);
                             Ok(())
                         },
                     )?;
                 }
                 PairStorage::General(pairs) => {
                     try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
-                        apply_euclidean_gen_pair_nd(coords, dims, eta, p);
+                        apply_euclidean_gen_pair_nd(coords, dims, eta, max_mu, p);
                         Ok(())
                     })?;
                 }
             }
             let coords = layout.coords_mut();
             self.run_streaming_negatives(eta, |e, p| {
-                apply_euclidean_sym_pair_nd(coords, dims, e, p);
+                apply_euclidean_sym_pair_nd(coords, dims, e, max_mu, p);
                 Ok(())
             })?;
         }

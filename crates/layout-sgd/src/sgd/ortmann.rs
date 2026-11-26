@@ -201,6 +201,7 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         eps: config.eps,
         kind: SgdScheduleKind::Exponential,
         step_scale: 1.0,
+        max_mu: None,
     };
     if n <= 1 {
         return Ok(BuiltOrtmann {

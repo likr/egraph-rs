@@ -1,6 +1,7 @@
 use egraph_clustering::coarsen_graph;
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar, SolverStatus, VisitStamp,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, ManifoldLayout2d, Scalar, SolverStatus,
+    VisitStamp,
 };
 use egraph_linalg::DijkstraWorkspace;
 use egraph_neighborhood::graph_row_normalized_probabilities;
@@ -37,6 +38,7 @@ pub(super) struct DrGraphState {
     pub(super) scratch_x: Vec<f64>,
     pub(super) scratch_y: Vec<f64>,
     pub(super) scratch_cnt: Vec<f64>,
+    pub(super) active_manifold: Option<ManifoldLayout2d<f64>>,
     pub(super) nd_scratch: Option<DrGraphNdScratch>,
 }
 
@@ -210,6 +212,7 @@ pub(super) fn build_drgraph_state<W: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Linear,
         step_scale: config.initial_lr,
+        max_mu: None,
     };
     let status = if config.iterations == 0 {
         SolverStatus::Completed
@@ -239,6 +242,7 @@ pub(super) fn build_drgraph_state<W: Scalar>(
         scratch_x: vec![0.0; n],
         scratch_y: vec![0.0; n],
         scratch_cnt: vec![0.0; n],
+        active_manifold: None,
         nd_scratch: None,
     };
 
@@ -396,6 +400,7 @@ pub(super) fn build_drgraph_state<W: Scalar>(
             scratch_x: vec![0.0; n],
             scratch_y: vec![0.0; n],
             scratch_cnt: vec![0.0; n],
+            active_manifold: None,
             nd_scratch: None,
         },
         schedule_cfg,

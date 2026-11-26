@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, Scalar, SolverStatus};
+use egraph_core::{CoreError, CoreResult, DeterministicRng, ManifoldKind, Scalar, SolverStatus};
 
 #[allow(unused_imports)]
 use egraph_core::{IterativeSolver, Layout2d, ManifoldLayout2d};
@@ -7,6 +7,7 @@ use super::config::{SgdScheduleConfig, SgdScheduleKind};
 use super::drgraph_coarsen::DrGraphState;
 use super::graph_cne::GraphCneState;
 use super::largevis::LargeVisState;
+use super::manifold_sampling_variants::{reset_drgraph_schedule, scale_pacmap_phase_iterations};
 use super::pacmap::PacmapState;
 use super::pairs::{
     INDEX_MASK, MAX_PACKED_NODES, PackedSymPair, PairStorage, compute_eta_bounds,
@@ -20,6 +21,7 @@ pub(super) enum ActiveLayoutKind {
     Unset,
     Euclidean2d,
     Nd(usize),
+    Manifold(ManifoldKind),
 }
 
 #[derive(Debug, Clone)]
@@ -242,24 +244,79 @@ impl<S: Scalar> SgdSolver<S> {
         self.schedule_cfg.iterations
     }
 
+    /// Returns `true` since all [`SgdSolver`] modes support [`ManifoldLayout2d<S>`].
+    #[inline]
+    pub fn supports_manifold(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    pub(super) fn max_mu_scalar(&self) -> S {
+        match self.schedule_cfg.max_mu {
+            Some(m) => S::from_f64(m),
+            None => S::ONE,
+        }
+    }
+
     /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.
     pub fn reset_schedule(&mut self, schedule_cfg: SgdScheduleConfig, seed: u64) -> CoreResult<()> {
-        if self.snap_t_fdp.is_some()
-            || self.pacmap.is_some()
-            || self.sgd2.is_some()
-            || self.largevis.is_some()
-            || self.drgraph.is_some()
-            || self.graph_cne.is_some()
-        {
-            return Err(CoreError::invalid_input(
-                "SgdSolver::reset_schedule is only supported for pair-based SGD modes",
-            ));
-        }
         validate_schedule_config(&schedule_cfg)?;
-        let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, None, schedule_cfg.eps);
+        if let Some(st) = self.snap_t_fdp.as_mut() {
+            st.config.iterations = schedule_cfg.iterations;
+            st.config.learning_rate = schedule_cfg.step_scale;
+            st.config.seed = seed;
+            self.eta_min = 0.0;
+            self.eta_max = schedule_cfg.step_scale;
+        } else if let Some(st) = self.pacmap.as_mut() {
+            st.config.phase_iterations =
+                scale_pacmap_phase_iterations(st.config.phase_iterations, schedule_cfg.iterations);
+            st.config.learning_rate = schedule_cfg.step_scale;
+            st.config.seed = seed;
+            st.grad_x.fill(0.0);
+            st.grad_y.fill(0.0);
+            st.m_x.fill(0.0);
+            st.m_y.fill(0.0);
+            st.v_x.fill(0.0);
+            st.v_y.fill(0.0);
+            st.nd_scratch = None;
+            self.eta_min = schedule_cfg.step_scale;
+            self.eta_max = schedule_cfg.step_scale;
+        } else if let Some(st) = self.sgd2.as_mut() {
+            st.grad_x.fill(0.0);
+            st.grad_y.fill(0.0);
+            st.h_x.fill(0.0);
+            st.h_y.fill(0.0);
+            st.touched_nodes.clear();
+            st.touched_stamp.clear();
+            st.nd_scratch = None;
+            let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, None, schedule_cfg.eps);
+            self.eta_min = eta_min;
+            self.eta_max = eta_max;
+        } else if let Some(st) = self.largevis.as_mut() {
+            st.config.iterations = schedule_cfg.iterations;
+            st.config.initial_lr = schedule_cfg.step_scale;
+            st.config.min_lr = (schedule_cfg.step_scale * schedule_cfg.eps).max(0.0);
+            st.config.seed = seed;
+            self.eta_min = st.config.min_lr;
+            self.eta_max = st.config.initial_lr;
+        } else if let Some(st) = self.drgraph.as_mut() {
+            reset_drgraph_schedule(st, &schedule_cfg, seed);
+            self.eta_min = st.config.min_lr;
+            self.eta_max = st.config.initial_lr;
+        } else if let Some(st) = self.graph_cne.as_mut() {
+            st.config.iterations = schedule_cfg.iterations;
+            st.config.initial_lr = schedule_cfg.step_scale;
+            st.config.min_lr = (schedule_cfg.step_scale * schedule_cfg.eps).max(0.0);
+            st.config.seed = seed;
+            self.eta_min = st.config.min_lr;
+            self.eta_max = st.config.initial_lr;
+        } else {
+            let extra = self.streaming.as_ref().map(|s| s.weight);
+            let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, extra, schedule_cfg.eps);
+            self.eta_min = eta_min;
+            self.eta_max = eta_max;
+        }
         self.schedule_cfg = schedule_cfg;
-        self.eta_min = eta_min;
-        self.eta_max = eta_max;
         self.rng = DeterministicRng::from_seed_u64(seed);
         self.iter = 0;
         self.status = if schedule_cfg.iterations == 0 {

@@ -19,12 +19,12 @@ pub(super) struct PacmapState {
     pub(super) nb_weights: Vec<f64>,
     pub(super) mn_pairs: Vec<(u32, u32)>,
     pub(super) fp_pairs: Vec<(u32, u32)>,
-    grad_x: Vec<f64>,
-    grad_y: Vec<f64>,
-    m_x: Vec<f64>,
-    m_y: Vec<f64>,
-    v_x: Vec<f64>,
-    v_y: Vec<f64>,
+    pub(super) grad_x: Vec<f64>,
+    pub(super) grad_y: Vec<f64>,
+    pub(super) m_x: Vec<f64>,
+    pub(super) m_y: Vec<f64>,
+    pub(super) v_x: Vec<f64>,
+    pub(super) v_y: Vec<f64>,
     pub(super) nd_scratch: Option<PacmapNdScratch>,
 }
 
@@ -162,6 +162,7 @@ pub(super) fn build_pacmap_state<W: Scalar>(
         eps: 0.01,
         kind: SgdScheduleKind::Constant,
         step_scale: config.learning_rate,
+        max_mu: None,
     };
     let status = if total_iters == 0 {
         SolverStatus::Completed

@@ -154,26 +154,27 @@ fn test_negative_sampling_solvers_parity_and_edge_cases() {
     sc2.run(&mut lc2).unwrap();
     assert!((0..n).any(|i| lc1.x()[i].to_bits() != lc2.x()[i].to_bits()));
 
-    // 5. step_manifold guard & non-finite / dimension-mismatch guards.
+    // 5. step_manifold support & non-finite / dimension-mismatch guards.
     let mut mf = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, n);
     assert!(
         SgdSolver::<f64>::largevis(&barbell, lv_cfg)
             .unwrap()
             .step_manifold(&mut mf)
-            .is_err()
+            .is_ok()
     );
     assert!(
         SgdSolver::<f64>::drgraph(&barbell, DrGraphConfig::default())
             .unwrap()
             .step_manifold(&mut mf)
-            .is_err()
+            .is_ok()
     );
     assert!(
         SgdSolver::<f64>::graph_cne(&barbell, GraphCneConfig::default())
             .unwrap()
             .step_manifold(&mut mf)
-            .is_err()
+            .is_ok()
     );
+    assert!(mf.as_layout().is_all_finite());
     let mut bad_layout = Layout2d::from_xy(vec![f64::NAN; n], vec![0.0; n]).unwrap();
     assert!(
         SgdSolver::<f64>::largevis(&barbell, lv_cfg)
