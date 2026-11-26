@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import unittest
 
@@ -36,7 +38,7 @@ def _grid_graph(rows: int, cols: int) -> eg.CsrGraph:
     return eg.CsrGraph.from_edges(rows * cols, edges, directed=False, sanitize=True)
 
 
-class TestV6M5AreaBackbone(unittest.TestCase):
+class TestCoarseBackbone(unittest.TestCase):
     def test_louvain_coarsen_hierarchy_and_disconnected_floor(self) -> None:
         edges: list[tuple[int, int]] = []
         for c in range(4):
@@ -65,7 +67,7 @@ class TestV6M5AreaBackbone(unittest.TestCase):
         self.assertEqual(hd["num_clusters"], 4)
         self.assertEqual(hd["coarse_graph"].num_edges, 0)
 
-    def test_pitfall7_centroid_alignment_and_radii_projection_f64_f32(self) -> None:
+    def test_centroid_alignment_and_radii_projection_f64_f32(self) -> None:
         for dtype in ("float64", "float32"):
             coarse = eg.Layout2d.from_coords(
                 np.array([[5.0, -3.0], [-5.0, 2.0]], dtype=np.float64 if dtype == "float64" else np.float32)
@@ -94,7 +96,7 @@ class TestV6M5AreaBackbone(unittest.TestCase):
             dists = np.hypot(p_coords[:5, 0] - 5.0, p_coords[:5, 1] + 3.0)
             self.assertTrue(bool(np.all(dists <= 1.0 + 1e-5)))
 
-    def test_pivoted_rhgh_landmarks_and_pitfall5_coarse_backbone(self) -> None:
+    def test_pivoted_rhgh_landmarks_and_coarse_backbone(self) -> None:
         path = eg.CsrGraph.from_edges(10, [(i, i + 1) for i in range(9)], directed=False, sanitize=True)
         lm, st = eg.compute_pivoted_rhgh_landmarks(path, num_landmarks=10, min_degree=1, num_probes=32, seed=42)
         self.assertTrue(st["all_converged"])
@@ -199,7 +201,7 @@ class TestV6M5AreaBackbone(unittest.TestCase):
             eg.SgdSolver.pacmap_graph(g, num_landmarks=0)
 
     def test_collinear_two_cluster_normalization_and_zero_weight_rcf(self) -> None:
-        # Challenger reproducer: 20-node two-10-clique graph connected by (9, 10).
+        # Two-clique 20-node graph connected by bridge edge (9, 10).
         edges = (
             [(i, j) for i in range(10) for j in range(i + 1, 10)]
             + [(10 + i, 10 + j) for i in range(10) for j in range(i + 1, 10)]

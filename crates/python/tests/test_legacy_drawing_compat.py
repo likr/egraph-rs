@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import unittest
 
 import egraph as eg
 import numpy as np
 
 
-class TestV6DkeLegacyCompat(unittest.TestCase):
+class TestLegacyDrawingCompat(unittest.TestCase):
     def test_legacy_graph_drawing_and_metrics_patterns(self) -> None:
         edges = np.array([[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]], dtype=np.uintp)
         g = eg.Graph.from_edges_numpy(6, edges)
@@ -168,3 +170,7 @@ class TestV6DkeLegacyCompat(unittest.TestCase):
         sm = eg.StressMajorization(g, d, lambda _e: 1.0)
         sm.run(d)
         self.assertTrue(np.all(np.isfinite(d.to_numpy())))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib
 import sys
 import unittest
@@ -20,7 +22,7 @@ def _ig() -> Any:
     return importlib.import_module("igraph")
 
 
-class TestV6ScipyInterop(unittest.TestCase):
+class TestScipyInterop(unittest.TestCase):
     def test_from_and_to_scipy_csr_roundtrip(self) -> None:
         sp = _sp()
         adj = np.array(
@@ -92,7 +94,7 @@ class TestV6ScipyInterop(unittest.TestCase):
             eg.to_scipy_csr("not_a_graph")  # type: ignore[arg-type]
 
 
-class TestV6NetworkxInterop(unittest.TestCase):
+class TestNetworkxInterop(unittest.TestCase):
     def test_from_and_to_networkx_undirected_with_labels_and_layout(self) -> None:
         nx = _nx()
         G = nx.Graph()
@@ -138,7 +140,7 @@ class TestV6NetworkxInterop(unittest.TestCase):
             eg.from_networkx([[0, 1]])
 
 
-class TestV6IgraphInterop(unittest.TestCase):
+class TestIgraphInterop(unittest.TestCase):
     def test_from_igraph_undirected_directed_and_weighted(self) -> None:
         ig = _ig()
         g_ig = ig.Graph(n=4, edges=[(0, 1), (1, 2), (2, 3), (3, 0)], directed=False)
@@ -174,7 +176,7 @@ class TestV6IgraphInterop(unittest.TestCase):
                     eg.from_igraph(object())
 
 
-class TestV6InteropEndToEndWorkflows(unittest.TestCase):
+class TestInteropEndToEndWorkflows(unittest.TestCase):
     def test_karate_interop_pipeline_solvers_refiner_and_metrics(self) -> None:
         nx = _nx()
         G = nx.karate_club_graph()
@@ -221,3 +223,7 @@ class TestV6InteropEndToEndWorkflows(unittest.TestCase):
         self.assertIn("pos", G_pos.nodes[nodes[0]])
         sp_mat = eg.to_scipy_csr(csr)
         self.assertEqual(sp_mat.shape, (csr.num_nodes, csr.num_nodes))
+
+
+if __name__ == "__main__":
+    unittest.main()

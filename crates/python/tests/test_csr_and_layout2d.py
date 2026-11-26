@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gc
 import importlib.metadata
 import inspect
@@ -7,7 +9,7 @@ import egraph as eg
 import numpy as np
 
 
-class TestV6CsrGraph(unittest.TestCase):
+class TestCsrGraph(unittest.TestCase):
     def test_from_csr_undirected_and_directed_sanitization(self) -> None:
         # Undirected CSR with self-loop (0, 0), duplicate/asymmetric weights, and missing reverse edge
         indptr = np.array([0, 3, 4, 4], dtype=np.uint32)
@@ -165,7 +167,7 @@ class TestV6CsrGraph(unittest.TestCase):
             eg.CsrGraph.from_edges(2, [(0, 1)], weights="bad")  # type: ignore[arg-type]
 
 
-class TestV6Layout2d(unittest.TestCase):
+class TestLayout2d(unittest.TestCase):
     def test_zero_copy_roundtrip_f64_and_f32(self) -> None:
         for dtype_arg, np_dtype, expected_str in (
             ("float64", np.float64, "float64"),
@@ -289,8 +291,8 @@ class TestV6Layout2d(unittest.TestCase):
         with self.assertRaises(TypeError):
             eg.Layout2d.from_coords("not_coords")  # type: ignore[arg-type]
 
-    def test_hybrid_package_exports_and_docstrings(self) -> None:
-        # Both v6 and legacy classes are exposed on top-level `egraph`
+    def test_package_exports_and_docstrings(self) -> None:
+        # Both CSR/SoA and Petgraph-based classes are exposed on top-level `egraph`
         self.assertIs(eg.CsrGraph, eg._core.CsrGraph)
         self.assertIs(eg.Layout2d, eg._core.Layout2d)
         self.assertIs(eg.Graph, eg._core.Graph)

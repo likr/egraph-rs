@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import inspect
 import math
 import unittest
 
@@ -22,7 +25,7 @@ def _grid_graph(rows: int = 3, cols: int = 3) -> eg.CsrGraph:
     return eg.CsrGraph.from_edges(rows * cols, edges, directed=False, sanitize=True)
 
 
-class TestV6CoreM5Parity(unittest.TestCase):
+class TestCoreLayoutApiParity(unittest.TestCase):
     def test_csr_graph_parity_methods(self) -> None:
         g = eg.CsrGraph.from_edges(
             5, [(0, 1), (1, 2), (2, 0), (3, 4)], weights=[2.0, 3.0, 4.0, 5.0]
@@ -138,7 +141,7 @@ class TestV6CoreM5Parity(unittest.TestCase):
         self.assertAlmostEqual(wy, 0.75, places=6)
 
 
-class TestV6DatasetSpatialMetricsM5Parity(unittest.TestCase):
+class TestDatasetSpatialMetricsApiParity(unittest.TestCase):
     def test_dataset_loader_and_parse_csr_csv(self) -> None:
         karate = eg.load_dataset("karate")
         self.assertEqual(karate.num_nodes, 34)
@@ -202,7 +205,7 @@ class TestV6DatasetSpatialMetricsM5Parity(unittest.TestCase):
         self.assertTrue(math.isfinite(d_len) and math.isfinite(d_dir))
 
 
-class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
+class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
     def test_linalg_and_neighborhood_functions(self) -> None:
         g = _grid_graph(3, 3)
 
@@ -269,7 +272,7 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
         self.assertTrue(np.all(f2 >= d_floor - 1e-12))
         self.assertTrue(np.all(f3 >= d_floor - 1e-12))
 
-    def test_solvers_tsnet_tfdp_ibumap_m5_options_and_getters(self) -> None:
+    def test_solvers_tsnet_tfdp_ibumap_options_and_getters(self) -> None:
         g = _grid_graph(3, 3)
 
         for dtype in ("float64", "float32"):
@@ -339,8 +342,6 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
             self.assertGreater(ibumap.total_fft_2d_calls, 0)
 
         # Default degree=None alignment across DoG APIs and 64/4096 metric defaults
-        import inspect
-
         self.assertIsNone(inspect.signature(eg.compute_regularized_dog_varadhan_landmarks).parameters["degree"].default)
         self.assertIsNone(inspect.signature(eg.SgdSolver.sparse_barrier_dog).parameters["degree"].default)
         self.assertIsNone(inspect.signature(eg.GuMapSolver.from_graph_dog).parameters["degree"].default)
@@ -363,3 +364,7 @@ class TestV6LinalgNeighborhoodSolverM5Parity(unittest.TestCase):
             g, l_m, ["sampled_sns", "sampled_crossing_number"], num_pivots=64, num_samples=4096, seed=42
         )
         self.assertEqual(ev_def, ev_exp)
+
+
+if __name__ == "__main__":
+    unittest.main()

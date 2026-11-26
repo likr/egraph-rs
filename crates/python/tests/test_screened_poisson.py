@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import unittest
 
@@ -5,8 +7,8 @@ import egraph as eg
 import numpy as np
 
 
-class TestV6M5ScreenedPoisson(unittest.TestCase):
-    def test_finite_difference_gradient_and_pitfall1_sign(self) -> None:
+class TestScreenedPoisson(unittest.TestCase):
+    def test_finite_difference_gradient_and_outward_sign(self) -> None:
         rng = np.random.default_rng(77)
         xs = []
         ys = []
@@ -71,7 +73,7 @@ class TestV6M5ScreenedPoisson(unittest.TestCase):
                 self.assertLess(max_err / max_grad, 1e-2)
                 self.assertLess(max_err, 2e-4)
 
-                # Core must expand outward from core center (Pitfall #1).
+                # Core must expand outward from core center.
                 cx = float(np.mean(coords_base[:10, 0]))
                 cy = float(np.mean(coords_base[:10, 1]))
                 radial_dot = sum(
@@ -81,7 +83,7 @@ class TestV6M5ScreenedPoisson(unittest.TestCase):
                 )
                 self.assertGreater(radial_dot, 0.0)
 
-    def test_unilateral_whitespace_invariance_and_pitfall2_plateau(self) -> None:
+    def test_unilateral_whitespace_invariance_and_plateau(self) -> None:
         # Early exit when rho_V <= rho_max everywhere.
         gx, gy = np.meshgrid(np.arange(8, dtype=np.float64), np.arange(8, dtype=np.float64))
         grid_coords = np.column_stack([gx.ravel(), gy.ravel()])
@@ -93,7 +95,7 @@ class TestV6M5ScreenedPoisson(unittest.TestCase):
         np.testing.assert_array_equal(res_ee["force_x"], np.zeros(64))
         np.testing.assert_array_equal(res_ee["force_y"], np.zeros(64))
 
-        # Pitfall #2 plateau interior radial force comparison: ScreenedPoisson vs SingleGaussian.
+        # Plateau interior radial force comparison: ScreenedPoisson vs SingleGaussian.
         side = 36
         lin = np.linspace(-1.0, 1.0, side)
         px, py = np.meshgrid(lin, lin)
