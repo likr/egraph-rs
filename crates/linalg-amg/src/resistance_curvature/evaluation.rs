@@ -202,10 +202,11 @@ pub(super) fn evaluate_effective_resistances(
 
         // Exact diagonal Jacobi control variate (M^-1 = D^-1):
         // R_uv = (1/d_u + 1/d_v - 2*w_uv/(d_u*d_v)) + ||(I - D^-1 L) Z (e_u - e_v)||^2.
-        // Under tight PCG tolerance (rel_tol <= 1e-4), L Z == b_rhs so D^-1 L Z == D^-1 b_rhs
-        // with zero extra SpMVs; for loose caller rel_tol, compute L Z explicitly via SpMM.
+        // Only when every PCG column actually converged within 1e-4 relative residual does
+        // L Z == b_rhs hold accurately enough to reuse D^-1 b_rhs with zero extra SpMVs;
+        // loose tolerances or non-converged iteration caps fall back to explicit L Z SpMM.
         let mut l_mat_z = Vec::new();
-        let residual_rhs: &[f64] = if config.amg_config.rel_tol <= 1e-4 {
+        let residual_rhs: &[f64] = if batch.all_converged && batch.max_relative_residual <= 1e-4 {
             &b_rhs
         } else {
             l_mat_z.resize(total, 0.0);

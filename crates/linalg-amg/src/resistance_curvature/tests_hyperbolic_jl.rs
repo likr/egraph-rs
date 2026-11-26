@@ -312,3 +312,124 @@ fn test_open_24x24_quad_uv_sphere_and_per_component_foster_normalization() {
     let sum_p: f64 = flow.vertex_curvatures.iter().sum();
     assert!((sum_p - (289.0 - flow.foster_sum)).abs() < 1e-10);
 }
+
+#[test]
+fn test_non_converged_tight_rel_tol_and_loose_abs_tol_use_explicit_lz_spmm() {
+    use egraph_core::DeterministicRng;
+
+    let grid_16x16 = make_open_grid(16, 16, false);
+    let max_iter_cfg = EffectiveResistanceConfig {
+        exact: Some(false),
+        jl_dim: 32,
+        amg_config: AmgPcgConfig {
+            rel_tol: 1e-10,
+            abs_tol: 0.0,
+            max_iterations: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let er = compute_effective_resistances(&grid_16x16, &max_iter_cfg).unwrap();
+    assert!(!er.used_exact);
+    assert!(!er.amg_all_converged);
+    assert!(er.amg_max_relative_residual > 1e-4);
+    assert!(
+        er.effective_resistances
+            .iter()
+            .all(|&r| r.is_finite() && r >= 0.0)
+    );
+
+    // Independently reconstruct Z after 1 PCG step and verify explicit L * Z SpMM was used
+    // (not the `&b_rhs` shortcut, which would miscompute D^-1 L Z when PCG has not converged).
+    let l_mat = super::graph_ops::build_combinatorial_laplacian_from_edges(
+        er.num_nodes,
+        &er.edge_u,
+        &er.edge_v,
+        &er.conductances,
+    )
+    .unwrap();
+    let m = er.num_edges;
+    let k_jl = max_iter_cfg.jl_dim;
+    let inv_sqrt_k = 1.0 / (k_jl as f64).sqrt();
+    let total = er.num_nodes * k_jl;
+    let mut b_rhs = vec![0.0_f64; total];
+    let mut rng = DeterministicRng::from_seed_u64(max_iter_cfg.seed);
+    let mut bits = 0u64;
+    let mut bit_rem = 0u32;
+    for e in 0..m {
+        let u_off = (er.edge_u[e] as usize) * k_jl;
+        let v_off = (er.edge_v[e] as usize) * k_jl;
+        let s = er.conductances[e].sqrt() * inv_sqrt_k;
+        for c in 0..k_jl {
+            if bit_rem == 0 {
+                bits = rng.next_u64();
+                bit_rem = 64;
+            }
+            let signed = if (bits & 1) == 0 { s } else { -s };
+            bits >>= 1;
+            bit_rem -= 1;
+            b_rhs[u_off + c] += signed;
+            b_rhs[v_off + c] -= signed;
+        }
+    }
+    let solver =
+        crate::AmgPcgSolver::with_near_nullspace(&l_mat, None, max_iter_cfg.amg_config).unwrap();
+    let mut ws = solver.new_workspace();
+    let mut z_sol = vec![0.0_f64; total];
+    let batch = solver
+        .solve_batch(&b_rhs, &mut z_sol, k_jl, &mut ws)
+        .unwrap();
+    assert!(!batch.all_converged);
+    assert!(batch.max_relative_residual > 1e-4);
+
+    let mut l_mat_z = vec![0.0_f64; total];
+    l_mat.spmm(&z_sol, &mut l_mat_z, k_jl).unwrap();
+    let mut diag = vec![0.0_f64; er.num_nodes];
+    for e in 0..m {
+        diag[er.edge_u[e] as usize] += er.conductances[e];
+        diag[er.edge_v[e] as usize] += er.conductances[e];
+    }
+    for (i, (&d, z_row)) in diag.iter().zip(z_sol.chunks_exact_mut(k_jl)).enumerate() {
+        let inv_d = 1.0 / d;
+        let lz_row = &l_mat_z[i * k_jl..(i + 1) * k_jl];
+        for c in 0..k_jl {
+            z_row[c] -= lz_row[c] * inv_d;
+        }
+    }
+    for e in 0..m {
+        let u = er.edge_u[e] as usize;
+        let v = er.edge_v[e] as usize;
+        let r_det = (1.0 / diag[u] + 1.0 / diag[v]
+            - 2.0 * er.conductances[e] / (diag[u] * diag[v]))
+            .max(0.0);
+        let r_res: f64 = (0..k_jl)
+            .map(|c| {
+                let diff = z_sol[u * k_jl + c] - z_sol[v * k_jl + c];
+                diff * diff
+            })
+            .sum();
+        assert!((er.effective_resistances[e] - (r_det + r_res)).abs() < 1e-12);
+    }
+
+    // Loose abs_tol with tight rel_tol also converges early with max_relative_residual > 1e-4,
+    // which must likewise trigger the explicit L * Z SpMM fallback cleanly.
+    let loose_abs_cfg = EffectiveResistanceConfig {
+        exact: Some(false),
+        jl_dim: 32,
+        amg_config: AmgPcgConfig {
+            rel_tol: 1e-10,
+            abs_tol: 1e2,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let er_abs = compute_effective_resistances(&grid_16x16, &loose_abs_cfg).unwrap();
+    assert!(er_abs.amg_all_converged);
+    assert!(er_abs.amg_max_relative_residual > 1e-4);
+    assert!(
+        er_abs
+            .effective_resistances
+            .iter()
+            .all(|&r| r.is_finite() && r >= 0.0)
+    );
+}
