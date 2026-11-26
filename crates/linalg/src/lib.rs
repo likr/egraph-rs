@@ -35,7 +35,10 @@ pub use eigen::{
     EigenResult, LanczosEigen, SubspaceEigen, smallest_sym_laplacian_eigenpairs,
     symmetric_eigen_jacobi,
 };
-pub use shortest_path::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
+pub use shortest_path::{
+    BfsWorkspace, DijkstraWorkspace, all_pairs_dijkstra, all_pairs_dijkstra_into,
+    dijkstra_single_source, select_maxmin_sp_pivots,
+};
 
 /// Returns the crate version string.
 pub fn crate_version() -> &'static str {

@@ -325,6 +325,51 @@ impl Default for DijkstraWorkspace {
     }
 }
 
+/// Computes single-source weighted shortest-path distances from `source` on `graph`,
+/// returning a length-`N` vector (`f64::INFINITY` for unreachable vertices).
+///
+/// Unweighted graphs treat every edge as length `1.0`. Rejects negative or non-finite
+/// edge weights and out-of-bounds `source`.
+pub fn dijkstra_single_source<W: Scalar>(
+    graph: &CsrGraph<W>,
+    source: usize,
+) -> CoreResult<Vec<f64>> {
+    let n = graph.num_nodes();
+    let mut dist = vec![f64::INFINITY; n];
+    let mut ws = DijkstraWorkspace::new(n);
+    ws.dijkstra_from(graph, source, &mut dist)?;
+    Ok(dist)
+}
+
+/// Computes an all-pairs shortest-path (APSP) distance matrix via repeated single-source
+/// Dijkstra into a reusable flat row-major `out` buffer of length `N * N`.
+pub fn all_pairs_dijkstra_into<W: Scalar>(
+    graph: &CsrGraph<W>,
+    out: &mut Vec<f64>,
+    ws: &mut DijkstraWorkspace,
+) -> CoreResult<()> {
+    let n = graph.num_nodes();
+    let total = n
+        .checked_mul(n)
+        .ok_or_else(|| CoreError::invalid_input("APSP matrix size overflow"))?;
+    out.resize(total, f64::INFINITY);
+    for src in 0..n {
+        let row_start = src * n;
+        ws.dijkstra_from(graph, src, &mut out[row_start..row_start + n])?;
+    }
+    Ok(())
+}
+
+/// Computes an all-pairs shortest-path (APSP) flat row-major `N * N` distance matrix using
+/// repeated single-source Dijkstra (`f64::INFINITY` for unreachable pairs).
+pub fn all_pairs_dijkstra<W: Scalar>(graph: &CsrGraph<W>) -> CoreResult<Vec<f64>> {
+    let n = graph.num_nodes();
+    let mut out = Vec::new();
+    let mut ws = DijkstraWorkspace::new(n);
+    all_pairs_dijkstra_into(graph, &mut out, &mut ws)?;
+    Ok(out)
+}
+
 /// Selects well-spaced shortest-path pivots via Core-First MaxMin BFS using `seed`.
 ///
 /// Prioritizes vertices with `degree >= min_degree` so scale-free hubs/cores are covered

@@ -84,3 +84,86 @@ fn test_maxmin_sp_pivots_core_first_and_fallback() {
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     assert_eq!(select_maxmin_sp_pivots(&single, 5, 42, 2).unwrap(), vec![0]);
 }
+
+#[test]
+fn test_dijkstra_single_source_and_all_pairs_dijkstra() {
+    // Weighted graph: 0-1 (1.5), 1-2 (2.5), 0-2 (10.0), isolated node 3.
+    let g = CsrGraph::<f64>::from_edges(
+        4,
+        &[(0, 1), (1, 2), (0, 2)],
+        Some(&[1.5, 2.5, 10.0]),
+        false,
+        false,
+    )
+    .unwrap();
+    let d0 = dijkstra_single_source(&g, 0).unwrap();
+    assert_eq!(d0, vec![0.0, 1.5, 4.0, f64::INFINITY]);
+
+    let apsp = all_pairs_dijkstra(&g).unwrap();
+    assert_eq!(
+        apsp,
+        vec![
+            0.0,
+            1.5,
+            4.0,
+            f64::INFINITY,
+            1.5,
+            0.0,
+            2.5,
+            f64::INFINITY,
+            4.0,
+            2.5,
+            0.0,
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::INFINITY,
+            0.0,
+        ]
+    );
+
+    // Directed graph asymmetry + unweighted default weight 1.0.
+    let dg = CsrGraph::<f32>::from_edges(3, &[(0, 1), (1, 2)], None, true, false).unwrap();
+    let apsp_dir = all_pairs_dijkstra(&dg).unwrap();
+    assert_eq!(
+        apsp_dir,
+        vec![
+            0.0,
+            1.0,
+            2.0,
+            f64::INFINITY,
+            0.0,
+            1.0,
+            f64::INFINITY,
+            f64::INFINITY,
+            0.0,
+        ]
+    );
+
+    // Empty and singleton graphs.
+    let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    assert!(all_pairs_dijkstra(&empty).unwrap().is_empty());
+    assert!(matches!(
+        dijkstra_single_source(&empty, 0),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+
+    let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+    assert_eq!(dijkstra_single_source(&single, 0).unwrap(), vec![0.0]);
+    assert_eq!(all_pairs_dijkstra(&single).unwrap(), vec![0.0]);
+
+    // Reject negative and out-of-bounds source.
+    let neg = CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[-1.0]), false, false).unwrap();
+    assert!(matches!(
+        dijkstra_single_source(&neg, 0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        all_pairs_dijkstra(&neg),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        dijkstra_single_source(&g, 4),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+}
