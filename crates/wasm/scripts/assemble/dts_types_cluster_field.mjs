@@ -1,0 +1,255 @@
+export const clusterFieldTypeDecls = `export type CoarseEdgeLengthMode = "conductanceInverse" | "resistanceCurvatureFlow";
+
+export type CoarseDistanceBackend = "rhgh" | "chebyshevDog" | "shortestPath";
+
+export interface CoarseLouvainOptions {
+  maxCoarseNodes?: number | null;
+  resolution?: number | null;
+  resolutionDecay?: number | null;
+  maxPasses?: number | null;
+  minModularityGain?: number | null;
+  maxOuterRounds?: number | null;
+  seed?: number | null;
+}
+
+export interface RhghLandmarkOptions {
+  gamma?: number | null;
+  pExp?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  numProbes?: number | null;
+  relTol?: number | null;
+  maxIterations?: number | null;
+  normalize1hop?: boolean | null;
+  seed?: number | null;
+}
+
+export interface CoarseBackboneOptions extends CoarseLouvainOptions {
+  edgeLengthMode?: CoarseEdgeLengthMode | string | null;
+  distanceBackend?: CoarseDistanceBackend | string | null;
+  alpha?: number | null;
+  c0?: number | null;
+  kappa?: number | null;
+  gammaW?: number | null;
+  gammaM?: number | null;
+  muOv?: number | null;
+  mGap?: number | null;
+  coarsePivots?: number | null;
+  coarseNegPerNode?: number | null;
+  coarseTMax?: number | null;
+  rhghGamma?: number | null;
+  rhghP?: number | null;
+  rcfSteps?: number | null;
+  rcfEta?: number | null;
+  jitterScale?: number | null;
+  gammaTether?: number | null;
+  targetStd?: number | null;
+  robustQuantile?: number | null;
+}
+
+export interface PacmapBackboneOptions extends PacmapGraphOptions, CoarseBackboneOptions {}
+
+export type DensityFieldKernel = "screenedPoisson" | "singleGaussian";
+
+export interface ScreenedPoissonOptions {
+  kernel?: DensityFieldKernel | string | null;
+  gridSize?: number | null;
+  paddingFactor?: number | null;
+  marginRatio?: number | null;
+  sigmaRatio?: number | null;
+  sigma?: number | null;
+  screeningLengthRatio?: number | null;
+  kappa?: number | null;
+  rhoMaxFactor?: number | null;
+  rhoMax?: number | null;
+  exactAdjoint?: boolean | null;
+}
+
+export interface ScreenedPoissonRefinerOptions extends ScreenedPoissonOptions {
+  iterations?: number | null;
+  stepSize?: number | null;
+  momentum?: number | null;
+  maxStepRatio?: number | null;
+  anchorWeight?: number | null;
+  gammaTether?: number | null;
+  recenter?: boolean | null;
+  energyTol?: number | null;
+  seed?: number | null;
+}
+
+export interface Sgd2Options {
+  tMax?: number | null;
+  eps?: number | null;
+  stepScale?: number | null;
+  batchSize?: number | null;
+  damping?: number | null;
+  seed?: number | null;
+}
+
+export interface ForceAtlas2Options {
+  iterations?: number | null;
+  theta?: number | null;
+  useBarnesHut?: boolean | null;
+  /**
+   * Enables Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
+   * \`w * (ln(1 + d) / d) * (p_v - p_u)\` (which decays linearly to \`0\` as \`d -> 0\`).
+   * Distinct from Noack (2007) true LinLog (\`LinLogSolver\`).
+   */
+  linlogMode?: boolean | null;
+  strongGravity?: boolean | null;
+  gravity?: number | null;
+  scalingRatio?: number | null;
+  edgeWeightInfluence?: number | null;
+  outboundAttractionDistribution?: boolean | null;
+  jitterTolerance?: number | null;
+  maxDisplacement?: number | null;
+  preventOverlap?: boolean | null;
+  defaultNodeRadius?: number | null;
+  nodeRadii?: Float64Array | Float32Array | number[] | null;
+  seed?: number | null;
+}
+
+export type LeidenObjective = "modularity" | "cpm";
+
+export interface LeidenOptions {
+  objective?: LeidenObjective | string | null;
+  resolution?: number | null;
+  randomness?: number | null;
+  maxPasses?: number | null;
+  minQualityGain?: number | null;
+  seed?: number | null;
+}
+
+export interface LeidenRecord {
+  labels: Uint32Array;
+  numCommunities: number;
+  quality: number;
+  modularity: number;
+  passes: number;
+}
+
+export type LinLogRepulsion = "edge_repulsion" | "node_repulsion";
+
+export interface LinLogOptions {
+  iterations?: number | null;
+  repulsionModel?: LinLogRepulsion | string | null;
+  attractionExponent?: number | null;
+  repulsionExponent?: number | null;
+  theta?: number | null;
+  useBarnesHut?: boolean | null;
+  gravity?: number | null;
+  edgeWeightInfluence?: number | null;
+  maxDisplacement?: number | null;
+  seed?: number | null;
+}
+
+export type FrBackend = "exact" | "barnes_hut" | "grid";
+
+export interface FruchtermanReingoldOptions {
+  iterations?: number | null;
+  backend?: FrBackend | string | null;
+  k?: number | null;
+  area?: number | null;
+  initialTemperature?: number | null;
+  gravity?: number | null;
+  theta?: number | null;
+  seed?: number | null;
+}
+
+export type BackboneLayoutMode = "stress" | "stress_majorization" | "sgd";
+
+export interface BackboneOptions {
+  retainRatio?: number | null;
+  umstWeightScale?: number | null;
+  nonBackboneWeightScale?: number | null;
+  layoutMode?: BackboneLayoutMode | string | null;
+  iterations?: number | null;
+  seed?: number | null;
+}
+
+export interface BackboneRecord {
+  umstEdges: Uint32Array;
+  backboneEdges: Uint32Array;
+  simmelianWeights: Float64Array;
+  edgeWeights: Float64Array;
+}
+
+export type ClusterRefineMethod = "kmeans" | "hac";
+
+export interface ClusterRefineOptions {
+  method?: ClusterRefineMethod | string | null;
+  maxRounds?: number | null;
+  kmeansNInit?: number | null;
+  kmeansMaxIters?: number | null;
+  shiftStep?: number | null;
+  margin?: number | null;
+  seed?: number | null;
+}
+
+export type GibBoxLayoutMode = "treemap" | "squarified_treemap" | "force_directed";
+export type GibIntraLayoutMode = "fr" | "sgd_full" | "yifan_hu";
+
+export interface GroupInABoxOptions {
+  boxMode?: GibBoxLayoutMode | string | null;
+  intraMode?: GibIntraLayoutMode | string | null;
+  totalWidth?: number | null;
+  totalHeight?: number | null;
+  boxPadding?: number | null;
+  intraIterations?: number | null;
+  fdIterations?: number | null;
+  clusterWeights?: Float64Array | Float32Array | number[] | null;
+  seed?: number | null;
+}
+
+export interface GibBoxRecord {
+  clusterId: number;
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  nodeCount: number;
+  weight: number;
+}
+
+export interface GTreeOptions {
+  maxIterations?: number | null;
+  padding?: number | null;
+  compactTMax?: number | null;
+  seed?: number | null;
+}
+
+export type ForbidVariant = "forbid" | "forbid_prime" | "sparse_forbid";
+
+export interface ForbidOptions {
+  variant?: ForbidVariant | string | null;
+  maxScaleIters?: number | null;
+  sgdIterations?: number | null;
+  sparseK?: number | null;
+  overlapWeightK?: number | null;
+  scaleStep?: number | null;
+  padding?: number | null;
+  seed?: number | null;
+}
+
+export interface PartitionAgreementRecord {
+  ari: number;
+  ami: number;
+  homogeneity: number;
+  completeness: number;
+  vMeasure: number;
+  fmi: number;
+}
+
+export interface ClassDensityRecord {
+  cdm: number;
+  hdm: number;
+}
+
+export interface NorMetricsRecord {
+  ooNni: number;
+  spChA: number;
+  gsBbIar: number;
+  nmDmImse: number;
+  elRsd: number;
+}
+`;
