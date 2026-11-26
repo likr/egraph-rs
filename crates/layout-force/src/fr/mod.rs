@@ -11,11 +11,14 @@
 
 mod config;
 mod helpers;
+mod manifold;
 mod nd;
 mod solver;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 

@@ -4,6 +4,8 @@ use egraph_core::{
 };
 use egraph_spatial_trees::ArenaQuadtree2d;
 
+use crate::manifold_utils::ActiveLayoutKind;
+
 use super::config::{FrBackend, FruchtermanReingoldConfig};
 use super::helpers::{GridCell, GridEntry, clamp_cell_coord, extract_canonical_undirected_edges};
 use super::nd::FrNdScratch;
@@ -31,7 +33,7 @@ pub struct FruchtermanReingoldSolver<S: Scalar = f64> {
     pub(super) quadtree: ArenaQuadtree2d<f64>,
     grid_entries: Vec<GridEntry>,
     grid_cells: Vec<GridCell>,
-    pub(super) active_dims: usize,
+    pub(super) active_layout: ActiveLayoutKind,
     pub(super) nd_scratch: Option<FrNdScratch>,
     pub(super) rng: DeterministicRng,
     pub(super) iter: usize,
@@ -87,7 +89,7 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
             quadtree: ArenaQuadtree2d::new(),
             grid_entries: Vec::new(),
             grid_cells: Vec::new(),
-            active_dims: 0,
+            active_layout: ActiveLayoutKind::Unset,
             nd_scratch: None,
             rng: DeterministicRng::from_seed_u64(config.seed),
             iter: 0,
@@ -142,7 +144,7 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
         self.initial_temperature * (rem / (self.config.iterations as f64))
     }
 
-    fn next_unit_vector(&mut self) -> (f64, f64) {
+    pub(super) fn next_unit_vector(&mut self) -> (f64, f64) {
         let angle = self.rng.next_f64() * std::f64::consts::TAU;
         (angle.cos(), angle.sin())
     }
@@ -250,15 +252,7 @@ impl<S: Scalar> IterativeSolver<S> for FruchtermanReingoldSolver<S> {
             ));
         }
         layout.validate_finite()?;
-        if self.active_dims == 0 {
-            self.active_dims = 2;
-        } else if self.active_dims != 2 {
-            return Err(CoreError::dimension_mismatch(
-                self.active_dims,
-                2,
-                "FruchtermanReingoldSolver::step::dims",
-            ));
-        }
+        self.active_layout.lock_2d("FruchtermanReingoldSolver")?;
 
         if self.status.is_finished() {
             return Ok(self.status);

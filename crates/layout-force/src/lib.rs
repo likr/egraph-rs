@@ -8,6 +8,8 @@ pub mod fr;
 pub mod gem;
 #[cfg(feature = "baselines")]
 pub mod linlog;
+#[cfg(feature = "baselines")]
+mod manifold_utils;
 
 pub use continuous_fdp::{
     ContinuousFdp, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,

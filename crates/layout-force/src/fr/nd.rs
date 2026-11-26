@@ -228,15 +228,11 @@ impl<S: Scalar> IterativeSolver<S, LayoutNd<S>> for FruchtermanReingoldSolver<S>
             return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
         }
         layout.validate_finite()?;
-        if self.active_dims == 0 {
-            self.active_dims = dims;
-        } else if self.active_dims != dims {
-            return Err(CoreError::dimension_mismatch(
-                self.active_dims,
-                dims,
-                "FruchtermanReingoldSolver::step::dims",
-            ));
-        }
+        self.active_layout.lock_nd(
+            dims,
+            "FruchtermanReingoldSolver",
+            "FruchtermanReingoldSolver::step::dims",
+        )?;
         if matches!(self.config.backend, FrBackend::BarnesHut | FrBackend::Grid)
             && dims != 2
             && dims != 3
