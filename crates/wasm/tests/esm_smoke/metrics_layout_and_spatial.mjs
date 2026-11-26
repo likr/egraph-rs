@@ -13,15 +13,15 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     RtaEvaluation,
     adjustedPatchNig,
     adjustedPatchNigMultiscale,
-    angularResolutionV6,
-    aspectRatioV6,
+    angularResolution,
+    aspectRatio,
     crosslessness,
     dggPreservation,
     drngPreservation,
     edgeAngle,
     evaluateMetrics,
-    gabrielGraphPropertyV6,
-    idealEdgeLengthsV6,
+    gabrielGraphProperty,
+    idealEdgeLengths,
     landmarkStratifiedRta,
     landmarkStratifiedRtaDetail,
     landmarkStratifiedRtaFromLandmarks,
@@ -29,8 +29,8 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     minimumAngle,
     minimumAngleSummary,
     neighborhoodPreservation1Hop,
-    neighborhoodPreservation2HopV6,
-    nodeResolutionV6,
+    neighborhoodPreservation2Hop,
+    nodeResolution,
     prismDistortion,
     sampledCrossingNumber,
     sampledCrosslessness,
@@ -142,14 +142,14 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   torusLayout.free();
 
   assert(Math.abs(neighborhoodPreservation1Hop(grid, gridLayout) - 1.0) < 1e-6);
-  assert(Math.abs(neighborhoodPreservation2HopV6(grid, gridLayout) - 1.0) < 1e-6);
+  assert(Math.abs(neighborhoodPreservation2Hop(grid, gridLayout) - 1.0) < 1e-6);
   assert(Math.abs(drngPreservation(grid, gridLayout) - 1.0) < 1e-6);
   assert(Math.abs(dggPreservation(grid, gridLayout) - 1.0) < 1e-6);
-  assert.equal(gabrielGraphPropertyV6(grid, gridLayout), 0);
-  assert(nodeResolutionV6(gridLayout) > 0);
-  assert(Math.abs(aspectRatioV6(gridLayout) - 1.0) < 1e-6);
-  assert(angularResolutionV6(grid, gridLayout) > 0);
-  assert(Math.abs(idealEdgeLengthsV6(grid, gridLayout)) < 1e-6);
+  assert.equal(gabrielGraphProperty(grid, gridLayout), 0);
+  assert(nodeResolution(gridLayout) > 0);
+  assert(Math.abs(aspectRatio(gridLayout) - 1.0) < 1e-6);
+  assert(angularResolution(grid, gridLayout) > 0);
+  assert(Math.abs(idealEdgeLengths(grid, gridLayout)) < 1e-6);
 
   assert(Math.abs(edgeAngle(1, 0, 0, 1) - Math.PI / 2) < 1e-12);
   assert.equal(edgeAngle(0, 0, 1, 0), undefined);

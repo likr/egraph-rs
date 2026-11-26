@@ -148,22 +148,22 @@ pub fn js_torus_crossing_number(graph: &JsCsrGraph, layout: &JsLayout2d) -> Resu
 }
 
 /// Computes the one-sided hinge node-resolution violation sum of `layout`.
-#[wasm_bindgen(js_name = nodeResolutionV6)]
-pub fn js_node_resolution_v6(layout: &JsLayout2d) -> Result<f64, JsError> {
+#[wasm_bindgen(js_name = nodeResolution)]
+pub fn js_node_resolution(layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     node_resolution(&soa).map_err(core_err_to_js)
 }
 
 /// Computes the PCA aspect ratio $\sigma_2 / \sigma_1 \in [0.0, 1.0]$ of `layout`.
-#[wasm_bindgen(js_name = aspectRatioV6)]
-pub fn js_aspect_ratio_v6(layout: &JsLayout2d) -> Result<f64, JsError> {
+#[wasm_bindgen(js_name = aspectRatio)]
+pub fn js_aspect_ratio(layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     aspect_ratio(&soa).map_err(core_err_to_js)
 }
 
 /// Computes the exponential angular-resolution penalty sum over incident edge pairs.
-#[wasm_bindgen(js_name = angularResolutionV6)]
-pub fn js_angular_resolution_v6(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+#[wasm_bindgen(js_name = angularResolution)]
+pub fn js_angular_resolution(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     angular_resolution(graph.inner(), &soa).map_err(core_err_to_js)
 }

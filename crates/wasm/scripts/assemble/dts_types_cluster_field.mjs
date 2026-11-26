@@ -214,6 +214,7 @@ export interface GibBoxRecord {
 export interface GTreeOptions {
   maxIterations?: number | null;
   padding?: number | null;
+  /** Optional compact per-step expansion cap (must be > 1.0 when provided). */
   compactTMax?: number | null;
   seed?: number | null;
 }

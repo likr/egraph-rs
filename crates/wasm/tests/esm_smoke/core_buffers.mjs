@@ -211,15 +211,22 @@ export function runCoreBuffersSmoke({ eg, webPkg }) {
 }
 
 export function runLegacyAbsenceSmoke({ eg }) {
-  // Verify legacy exports are absent by default and InfoMap is omitted
-  assert.equal(typeof eg.InfoMap, "undefined");
-  if (typeof eg.Graph === "function") {
-    const legacyGraph = new eg.Graph();
-    const u = legacyGraph.addNode(0);
-    const v = legacyGraph.addNode(1);
-    legacyGraph.addEdge(u, v, 1);
-    assert.equal(legacyGraph.nodeCount(), 2);
-    assert.equal(legacyGraph.edgeCount(), 1);
-    legacyGraph.free();
+  // Verify all legacy v5 globals and InfoMap are completely removed
+  for (const removed of [
+    "InfoMap",
+    "Graph",
+    "DiGraph",
+    "DrawingEuclidean2d",
+    "DrawingHyperbolic2d",
+    "DrawingSpherical2d",
+    "DrawingTorus2d",
+    "FullSgd",
+    "SparseSgd",
+    "DistanceMatrix",
+    "OverwrapRemoval",
+    "Rng",
+    "stress",
+  ]) {
+    assert.equal(typeof eg[removed], "undefined", `expected legacy symbol ${removed} to be absent`);
   }
 }

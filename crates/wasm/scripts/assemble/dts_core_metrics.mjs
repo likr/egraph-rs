@@ -49,7 +49,7 @@ export function applyCheckedReplacements(dts, replacements, domainLabel, wasmDts
   return updatedDts;
 }
 
-// Build pkg/index.d.ts from egraph_wasm.d.ts, preserving all core and legacy declarations
+// Build pkg/index.d.ts from egraph_wasm.d.ts, preserving all core declarations
 // while adding CsrGraphOptions and Layout2d.prototype.coordsView().
 export function applyCoreAndMetricsDts(wasmDts, wasmDtsPath) {
   let indexDts = wasmDts;

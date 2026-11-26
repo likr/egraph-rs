@@ -7,16 +7,16 @@ use egraph_wasm::metrics_cluster_rta::{
     js_landmark_stratified_rta_from_landmarks,
 };
 use egraph_wasm::metrics_crossings::{
-    js_angular_resolution_v6, js_aspect_ratio_v6, js_crosslessness, js_edge_angle,
-    js_layout_degeneracy, js_minimum_angle, js_minimum_angle_summary, js_node_resolution_v6,
-    js_sampled_crossing_number, js_sampled_crosslessness, js_sweep_crossing_angle,
-    js_sweep_crossing_number, js_torus_crossing_number,
+    js_angular_resolution, js_aspect_ratio, js_crosslessness, js_edge_angle, js_layout_degeneracy,
+    js_minimum_angle, js_minimum_angle_summary, js_node_resolution, js_sampled_crossing_number,
+    js_sampled_crosslessness, js_sweep_crossing_angle, js_sweep_crossing_number,
+    js_torus_crossing_number,
 };
 use egraph_wasm::metrics_eval::js_evaluate_metrics_with_options;
 use egraph_wasm::metrics_functions::{
     js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_dgg_preservation,
-    js_drng_preservation, js_gabriel_graph_property_v6, js_ideal_edge_lengths_v6,
-    js_neighborhood_preservation_1hop, js_neighborhood_preservation_2hop_v6, js_prism_distortion,
+    js_drng_preservation, js_gabriel_graph_property, js_ideal_edge_lengths,
+    js_neighborhood_preservation_1hop, js_neighborhood_preservation_2hop, js_prism_distortion,
     js_sampled_np1, js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
 };
 use util::fixtures::{make_grid_4x4_with_layout, u32_typed_js};
@@ -69,14 +69,14 @@ fn stress_and_crossings_and_torus() {
 fn neighborhood_proximity_geometry_and_prism() {
     let (grid, layout) = make_grid_4x4_with_layout();
     assert!((js_neighborhood_preservation_1hop(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
-    assert!((js_neighborhood_preservation_2hop_v6(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
+    assert!((js_neighborhood_preservation_2hop(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert_eq!(
         js_sampled_np1(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
         js_neighborhood_preservation_1hop(&grid, &layout).unwrap()
     );
     assert_eq!(
         js_sampled_np2(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
-        js_neighborhood_preservation_2hop_v6(&grid, &layout).unwrap()
+        js_neighborhood_preservation_2hop(&grid, &layout).unwrap()
     );
     let snp1_a = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
     let snp1_b = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
@@ -84,11 +84,11 @@ fn neighborhood_proximity_geometry_and_prism() {
     assert!((0.0..=1.0).contains(&snp1_a));
     assert!((js_drng_preservation(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert!((js_dgg_preservation(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
-    assert_eq!(js_gabriel_graph_property_v6(&grid, &layout).unwrap(), 0.0);
-    assert!((js_aspect_ratio_v6(&layout).unwrap() - 1.0).abs() < 1e-6);
-    assert!(js_node_resolution_v6(&layout).unwrap() > 0.0);
-    assert!(js_angular_resolution_v6(&grid, &layout).unwrap() > 0.0);
-    assert!(js_ideal_edge_lengths_v6(&grid, &layout).unwrap().abs() < 1e-6);
+    assert_eq!(js_gabriel_graph_property(&grid, &layout).unwrap(), 0.0);
+    assert!((js_aspect_ratio(&layout).unwrap() - 1.0).abs() < 1e-6);
+    assert!(js_node_resolution(&layout).unwrap() > 0.0);
+    assert!(js_angular_resolution(&grid, &layout).unwrap() > 0.0);
+    assert!(js_ideal_edge_lengths(&grid, &layout).unwrap().abs() < 1e-6);
 
     // edgeAngle vector checks
     let right = js_edge_angle(1.0, 0.0, 0.0, 1.0).expect("90 deg");

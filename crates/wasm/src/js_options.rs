@@ -325,7 +325,6 @@ pub(crate) fn parse_amg_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsErr
         "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
             Ok(LaplacianKind::SymmetricNormalized)
         }
-        "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
         _ => Err(JsError::new(&format!(
             "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetric_normalized'"
         ))),

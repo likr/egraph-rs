@@ -3,8 +3,8 @@ mod util;
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::metrics_crossings::{
-    js_aspect_ratio_v6, js_crossing_edges, js_crossing_edges_torus, js_crossing_summary,
-    js_node_resolution_v6, js_sampled_crossing_number, js_sweep_crossing_number,
+    js_aspect_ratio, js_crossing_edges, js_crossing_edges_torus, js_crossing_summary,
+    js_node_resolution, js_sampled_crossing_number, js_sweep_crossing_number,
 };
 use egraph_wasm::metrics_eval::js_evaluate_metrics;
 use egraph_wasm::metrics_functions::{
@@ -93,8 +93,8 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
     let mut nan_layout = JsLayout2d::zeros(16.0).unwrap();
     nan_layout.set_x(0.0, f32::NAN).unwrap();
     assert!(js_scale_normalized_stress(&grid, &nan_layout).is_err());
-    assert!(js_node_resolution_v6(&nan_layout).is_err());
-    assert!(js_aspect_ratio_v6(&nan_layout).is_err());
+    assert!(js_node_resolution(&nan_layout).is_err());
+    assert!(js_aspect_ratio(&nan_layout).is_err());
 
     // Seed and sample/pivot bounds
     assert!(js_sampled_scale_normalized_stress(&grid, &layout, Some(0.0), Some(42.0)).is_err());
@@ -179,6 +179,12 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
     let parsed = js_parse_csr_csv("3,2\n0,1\n1,2\n", Some(false), Some(true)).unwrap();
     assert_eq!(parsed.num_nodes(), 3);
     assert_eq!(parsed.num_edges(), 2);
+
+    let parsed_w =
+        js_parse_csr_csv("3,2\n0,1,2.5\n1, 2, 1.25\n", Some(false), Some(false)).unwrap();
+    assert!(parsed_w.is_weighted());
+    assert_eq!(parsed_w.weights().unwrap(), vec![2.5_f32, 2.5, 1.25, 1.25]);
+    assert!(js_parse_csr_csv("3,2\n0,1,2.0\n1,2\n", Some(false), Some(false)).is_err());
 
     let rects = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0, 5.0, 0.0]).unwrap();
     let overlaps = js_rectangle_overlaps(&rects, &[0.5, 0.5, 0.5], &[0.5, 0.5, 0.5]).unwrap();

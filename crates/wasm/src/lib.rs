@@ -15,25 +15,6 @@
 //!   [`sgd`], [`sgd_barrier`], [`sgd_baselines`], [`sgd_pacmap`], [`spatial_dataset`],
 //!   [`spatial_refiner`], [`stress_kamada`], [`stress_multilevel_baselines`], [`t_fdp`],
 //!   [`tsnet`])
-//! * Opt-in legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
-//!   quality metrics, and RNG modules (behind the `legacy` feature flag).
-
-#[cfg(feature = "legacy")]
-pub mod clustering;
-#[cfg(feature = "legacy")]
-pub mod distance_matrix;
-#[cfg(feature = "legacy")]
-pub mod drawing;
-#[cfg(feature = "legacy")]
-pub mod edge_bundling;
-#[cfg(feature = "legacy")]
-pub mod graph;
-#[cfg(feature = "legacy")]
-pub mod layout;
-#[cfg(feature = "legacy")]
-pub mod quality_metrics;
-#[cfg(feature = "legacy")]
-pub mod rng;
 
 pub mod backbone;
 pub mod cluster_layout;

@@ -38,6 +38,9 @@ pub struct JsGTreeOverlapRemoval {
 #[wasm_bindgen(js_class = GTreeOverlapRemoval)]
 impl JsGTreeOverlapRemoval {
     /// Constructs a `GTreeOverlapRemoval` solver from per-node `halfWidths` and `halfHeights`.
+    ///
+    /// When `options.compactTMax` is set, it must satisfy `compactTMax > 1.0` (`null`/`undefined`
+    /// disables compact expansion capping; values `<= 1.0` throw `Error`).
     #[wasm_bindgen(constructor)]
     pub fn new(
         half_widths: &[f32],
@@ -52,6 +55,9 @@ impl JsGTreeOverlapRemoval {
     }
 
     /// Constructs a `GTreeOverlapRemoval` solver with uniform square `radii`.
+    ///
+    /// When `options.compactTMax` is set, it must satisfy `compactTMax > 1.0` (`null`/`undefined`
+    /// disables compact expansion capping; values `<= 1.0` throw `Error`).
     #[wasm_bindgen(js_name = fromRadii)]
     pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsGTreeOverlapRemoval, JsError> {
         let cfg = parse_gtree_config(options, "GTreeOverlapRemoval.fromRadii")?;

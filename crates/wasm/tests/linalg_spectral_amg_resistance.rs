@@ -283,6 +283,24 @@ fn amg_pcg_solver_hardened_and_cooperative() {
     assert_eq!(zero_res.iterations(), 0);
     assert!(hub_solver.solve(&[1.0; 5], None).is_err());
     assert!(hub_solver.solve(&[f64::NAN; 13], None).is_err());
+    assert!(
+        JsAmgPcgSolver::from_graph_laplacian(
+            &hub,
+            Some("random_walk".to_owned()),
+            Some(0.0),
+            &JsValue::UNDEFINED,
+        )
+        .is_err()
+    );
+    assert!(
+        JsAmgPcgSolver::from_graph_laplacian(
+            &hub,
+            Some("rw".to_owned()),
+            Some(0.0),
+            &JsValue::UNDEFINED,
+        )
+        .is_err()
+    );
 }
 
 #[wasm_bindgen_test]

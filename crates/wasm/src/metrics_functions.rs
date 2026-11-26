@@ -40,36 +40,28 @@ pub(crate) fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         "sampledcrossingnumber" | "sampledcrossings" => Ok(MetricTarget::SampledCrossingNumber),
         "crosslessness" => Ok(MetricTarget::Crosslessness),
         "sampledcrosslessness" => Ok(MetricTarget::SampledCrosslessness),
-        "neighborhoodpreservation1hop" | "neighborhoodpreservation" | "np1" => {
-            Ok(MetricTarget::NeighborhoodPreservation1Hop)
-        }
-        "neighborhoodpreservation2hop" | "neighborhoodpreservation2hopv6" | "np2" => {
-            Ok(MetricTarget::NeighborhoodPreservation2Hop)
-        }
+        "neighborhoodpreservation1hop" | "np1" => Ok(MetricTarget::NeighborhoodPreservation1Hop),
+        "neighborhoodpreservation2hop" | "np2" => Ok(MetricTarget::NeighborhoodPreservation2Hop),
         "sampledneighborhoodpreservation1hop"
         | "sampledneighborhoodpreservation"
         | "samplednp1" => Ok(MetricTarget::SampledNp1),
-        "sampledneighborhoodpreservation2hop"
-        | "sampledneighborhoodpreservation2hopv6"
-        | "samplednp2" => Ok(MetricTarget::SampledNp2),
-        "gabrielgraphproperty" | "gabrielgraphpropertyv6" | "gabrielproperty" => {
-            Ok(MetricTarget::GabrielGraphProperty)
-        }
-        "noderesolution" | "noderesolutionv6" => Ok(MetricTarget::NodeResolution),
+        "sampledneighborhoodpreservation2hop" | "samplednp2" => Ok(MetricTarget::SampledNp2),
+        "gabrielgraphproperty" | "gabrielproperty" => Ok(MetricTarget::GabrielGraphProperty),
+        "noderesolution" => Ok(MetricTarget::NodeResolution),
         "relativeneighborhoodpreservation" | "drngpreservation" | "drng" => {
             Ok(MetricTarget::RelativeNeighborhoodPreservation)
         }
         "gabrielgraphpreservation" | "dggpreservation" | "dgg" => {
             Ok(MetricTarget::GabrielGraphPreservation)
         }
-        "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
-        "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
+        "aspectratio" => Ok(MetricTarget::AspectRatio),
+        "angularresolution" => Ok(MetricTarget::AngularResolution),
         "minimumangle" | "minangle" | "minimumanglea2" | "minanglea2" => {
             Ok(MetricTarget::MinimumAngle)
         }
         "minimumanglea1" | "minanglea1" => Ok(MetricTarget::MinimumAngleA1),
         "layoutdegeneracy" => Ok(MetricTarget::LayoutDegeneracy),
-        "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
+        "idealedgelengths" => Ok(MetricTarget::IdealEdgeLengths),
         "adjustedpatchnig" | "patchnig" => Ok(MetricTarget::AdjustedPatchNig),
         "clusterareafaithfulness" | "clusterarea" | "gcaf" => {
             Ok(MetricTarget::ClusterAreaFaithfulness)
@@ -156,8 +148,8 @@ pub fn js_neighborhood_preservation_1hop(
 }
 
 /// Computes `StaticKdTree`-accelerated 2-hop neighborhood preservation (`NP2`) in `[0.0, 1.0]`.
-#[wasm_bindgen(js_name = neighborhoodPreservation2HopV6)]
-pub fn js_neighborhood_preservation_2hop_v6(
+#[wasm_bindgen(js_name = neighborhoodPreservation2Hop)]
+pub fn js_neighborhood_preservation_2hop(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
 ) -> Result<f64, JsError> {
@@ -202,18 +194,15 @@ pub fn js_sampled_np2(
 }
 
 /// Computes Gabriel graph condition violations across `graph` edges under `layout`.
-#[wasm_bindgen(js_name = gabrielGraphPropertyV6)]
-pub fn js_gabriel_graph_property_v6(
-    graph: &JsCsrGraph,
-    layout: &JsLayout2d,
-) -> Result<f64, JsError> {
+#[wasm_bindgen(js_name = gabrielGraphProperty)]
+pub fn js_gabriel_graph_property(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     gabriel_graph_property(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
 /// Evaluates ideal edge-length preservation error sum for `graph` under `layout`.
-#[wasm_bindgen(js_name = idealEdgeLengthsV6)]
-pub fn js_ideal_edge_lengths_v6(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+#[wasm_bindgen(js_name = idealEdgeLengths)]
+pub fn js_ideal_edge_lengths(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     ideal_edge_lengths(graph.inner(), &soa).map_err(core_err_to_js)
 }

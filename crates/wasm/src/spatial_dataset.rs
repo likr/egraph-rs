@@ -134,7 +134,7 @@ pub fn js_rectangle_overlaps(
     Ok(flat)
 }
 
-/// Parses an edge-list CSV string (`num_nodes,num_edges` header + `u,v` rows) into a `CsrGraph`.
+/// Parses an edge-list CSV string (`num_nodes,num_edges` header + `u,v` or weighted `u,v,w` rows) into a `CsrGraph`.
 #[wasm_bindgen(js_name = parseCsrCsv)]
 pub fn js_parse_csr_csv(
     csv: &str,

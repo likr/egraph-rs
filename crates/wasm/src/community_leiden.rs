@@ -46,7 +46,7 @@ impl JsLeidenResult {
         self.inner.quality
     }
 
-    /// Returns the resolution-weighted modularity $Q_\gamma$.
+    /// Returns the standard normalized modularity $Q$ evaluated at $\gamma = 1.0$.
     #[wasm_bindgen(getter)]
     pub fn modularity(&self) -> f64 {
         self.inner.modularity
