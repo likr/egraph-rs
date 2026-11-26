@@ -1,254 +1,160 @@
 Graph Basics
 ============
 
-This tutorial covers the fundamentals of creating and manipulating graphs in egraph.
+This tutorial covers the fundamentals of creating and inspecting graphs in egraph v6.
 
-Creating Graphs
----------------
+Creating CSR Graphs
+-------------------
 
-egraph provides two main graph types: **Graph** (undirected) and **DiGraph** (directed).
+egraph v6 uses a single zero-copy Compressed Sparse Row (CSR) graph representation,
+:class:`egraph.CsrGraph`, for both undirected and directed graphs.
 
-Creating an Empty Graph
-^^^^^^^^^^^^^^^^^^^^^^^
+Creating an Undirected or Directed Graph
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import egraph as eg
 
-    # Create an undirected graph
-    graph = eg.Graph()
-    
+    # Create an undirected graph from an edge list
+    graph = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2), (0, 2)])
+    print(f"Undirected: {graph.num_nodes} nodes, {graph.num_edges} edges")
+
     # Create a directed graph
-    digraph = eg.DiGraph()
+    digraph = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2), (2, 0)], directed=True)
+    print(f"Directed: {digraph.num_nodes} nodes, {digraph.num_edges} edges")
 
-Adding Nodes
-^^^^^^^^^^^^
+.. testoutput:: python
 
-Nodes can be added with associated data:
+    Undirected: 3 nodes, 3 edges
+    Directed: 3 nodes, 3 edges
+
+Creating Weighted Graphs
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Edges can carry positive scalar weights for stress, shortest-path, and community algorithms:
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    
-    # Add nodes with data
-    node0 = graph.add_node("Alice")
-    node1 = graph.add_node("Bob")
-    node2 = graph.add_node("Charlie")
-    
-    print(f"Added {graph.node_count()} nodes")
+    weighted = eg.CsrGraph.from_edges(
+        3,
+        [(0, 1), (1, 2), (0, 2)],
+        weights=[1.0, 2.5, 1.5],
+    )
+    print(f"Weighted: {weighted.is_weighted}, edges={weighted.num_edges}")
 
 .. testoutput:: python
 
-    Added 3 nodes
+    Weighted: True, edges=3
 
-The `add_node()` method returns a node index that you use to reference the node later.
+Inspecting Graph Topology
+-------------------------
 
-Adding Edges
-^^^^^^^^^^^^
-
-Edges connect nodes and can also carry data:
+Adjacency, Degrees, and CSR Arrays
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    
-    # Add nodes
-    alice = graph.add_node("Alice")
-    bob = graph.add_node("Bob")
-    charlie = graph.add_node("Charlie")
-    
-    # Add edges with data (e.g., relationship type)
-    graph.add_edge(alice, bob, "friend")
-    graph.add_edge(bob, charlie, "colleague")
-    graph.add_edge(alice, charlie, "friend")
-    
-    print(f"Graph has {graph.node_count()} nodes and {graph.edge_count()} edges")
+    graph = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (1, 3)])
+    print(f"Degree of node 1: {graph.degree(1)}")
+    print(f"Neighbors of node 1: {graph.neighbors(1).tolist()}")
 
 .. testoutput:: python
 
-    Graph has 3 nodes and 3 edges
+    Degree of node 1: 3
+    Neighbors of node 1: [0, 2, 3]
 
-Accessing Graph Data
----------------------
-
-Retrieving Node Data
-^^^^^^^^^^^^^^^^^^^^
+Largest Connected Component & Subgraphs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    alice = graph.add_node("Alice")
-    bob = graph.add_node("Bob")
-    
-    # Get node data
-    print(f"Node {alice}: {graph.node_weight(alice)}")
-    print(f"Node {bob}: {graph.node_weight(bob)}")
+    graph = eg.CsrGraph.from_edges(5, [(0, 1), (1, 2), (3, 4)])
+    lcc, orig_ids = graph.largest_connected_component()
+    print(f"LCC has {lcc.num_nodes} nodes, {lcc.num_edges} edges")
 
 .. testoutput:: python
 
-    Node 0: Alice
-    Node 1: Bob
-
-Iterating Over Nodes
-^^^^^^^^^^^^^^^^^^^^^
-
-.. testcode:: python
-
-    import egraph as eg
-
-    graph = eg.Graph()
-    graph.add_node("Alice")
-    graph.add_node("Bob")
-    graph.add_node("Charlie")
-    
-    # Iterate over all nodes
-    for node_idx in graph.node_indices():
-        data = graph.node_weight(node_idx)
-        print(f"Node {node_idx}: {data}")
-
-.. testoutput:: python
-
-    Node 0: Alice
-    Node 1: Bob
-    Node 2: Charlie
-
-Iterating Over Edges
-^^^^^^^^^^^^^^^^^^^^^
-
-.. testcode:: python
-
-    import egraph as eg
-
-    graph = eg.Graph()
-    alice = graph.add_node("Alice")
-    bob = graph.add_node("Bob")
-    charlie = graph.add_node("Charlie")
-    
-    graph.add_edge(alice, bob, "friend")
-    graph.add_edge(bob, charlie, "colleague")
-    
-    # Iterate over all edges
-    for edge_idx in graph.edge_indices():
-        source, target = graph.edge_endpoints(edge_idx)
-        data = graph.edge_weight(edge_idx)
-        print(f"Edge {source} -> {target}: {data}")
-
-.. testoutput:: python
-
-    Edge 0 -> 1: friend
-    Edge 1 -> 2: colleague
+    LCC has 3 nodes, 2 edges
 
 Working with NetworkX
 ---------------------
 
-egraph integrates seamlessly with NetworkX for graph creation and analysis.
+``egraph.interop`` integrates directly with NetworkX, igraph, and SciPy CSR matrices.
 
 Converting from NetworkX
-^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import networkx as nx
     import egraph as eg
 
-    # Create a NetworkX graph
     nx_graph = nx.karate_club_graph()
-    
-    # Convert to egraph
-    graph = eg.Graph()
-    node_map = {}
-    
-    for node in nx_graph.nodes:
-        node_map[node] = graph.add_node(node)
-    
-    for u, v in nx_graph.edges:
-        graph.add_edge(node_map[u], node_map[v], (u, v))
-    
-    print(f"Converted graph: {graph.node_count()} nodes, {graph.edge_count()} edges")
+    graph, nodes = eg.from_networkx(nx_graph)
+    print(f"Converted graph: {graph.num_nodes} nodes, {graph.num_edges} edges")
 
 .. testoutput:: python
 
     Converted graph: 34 nodes, 78 edges
 
-Using NetworkX Algorithms
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Using NetworkX Algorithms with egraph Layouts
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-You can use NetworkX for graph analysis and egraph for layout:
+You can combine NetworkX analysis with egraph v6 layout solvers:
 
 .. testcode:: python
 
     import networkx as nx
     import egraph as eg
 
-    # Create and analyze with NetworkX
     nx_graph = nx.karate_club_graph()
     communities = nx.community.greedy_modularity_communities(nx_graph)
-    
-    # Convert to egraph for layout
-    graph = eg.Graph()
-    node_map = {}
-    for node in nx_graph.nodes:
-        node_map[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(node_map[u], node_map[v], (u, v))
-    
-    # Apply layout
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
+
+    graph, _ = eg.from_networkx(nx_graph)
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+    eg.StressMajorizationSolver.from_graph(graph).run(layout)
+
     print(f"Found {len(communities)} communities")
-    print(f"Layout computed for {graph.node_count()} nodes")
+    print(f"Layout computed for {graph.num_nodes} nodes")
 
 .. testoutput:: python
 
     Found 3 communities
     Layout computed for 34 nodes
 
-Directed Graphs
----------------
-
-DiGraph works similarly to Graph but maintains edge direction:
+Built-in Datasets & CSV Parsing
+-------------------------------
 
 .. testcode:: python
 
     import egraph as eg
 
-    digraph = eg.DiGraph()
-    
-    # Add nodes
-    a = digraph.add_node("A")
-    b = digraph.add_node("B")
-    c = digraph.add_node("C")
-    
-    # Add directed edges
-    digraph.add_edge(a, b, "depends_on")
-    digraph.add_edge(b, c, "depends_on")
-    digraph.add_edge(c, a, "depends_on")  # Creates a cycle
-    
-    print(f"DiGraph: {digraph.node_count()} nodes, {digraph.edge_count()} edges")
+    karate = eg.load_dataset("karate")
+    csv_graph = eg.parse_csr_csv("3,2\n0,1,1.5\n1,2,2.0\n")
+    print(f"karate: {karate.num_nodes} nodes, csv weighted: {csv_graph.is_weighted}")
 
 .. testoutput:: python
 
-    DiGraph: 3 nodes, 3 edges
+    karate: 34 nodes, csv weighted: True
 
 Best Practices
 --------------
 
-1. **Use meaningful node data**: Store relevant information in nodes for later reference
-2. **Keep track of node indices**: Store the mapping between your data and node indices
-3. **Choose the right graph type**: Use DiGraph only when direction matters
-4. **Leverage NetworkX**: Use NetworkX for graph algorithms and egraph for layout
+1. **Use ``CsrGraph.from_edges`` or ``CsrGraph.from_csr``** for zero-copy graph construction.
+2. **Use ``sanitize=True``** (the default) when loading raw edge lists that may contain duplicate edges or self-loops.
+3. **Use ``directed=True``** only when edge direction matters (for DAG layering or directed stress/crossings).
+4. **Leverage ``egraph.interop``** for NetworkX, igraph, and SciPy conversions.
 
 Next Steps
 ----------
 
 * :doc:`02_layout_algorithms` - Learn about different layout algorithms
-* :doc:`03_drawing_and_visualization` - Explore drawing spaces and visualization
+* :doc:`03_drawing_and_visualization` - Explore coordinate buffers and visualization
 * :doc:`../examples/index` - See more complex examples

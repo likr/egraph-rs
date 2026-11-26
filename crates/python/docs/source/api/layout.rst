@@ -1,7 +1,7 @@
 Layout Module
 =============
 
-This module provides cooperative v6 layout solvers and legacy layout classes.
+This module provides cooperative v6 layout solvers.
 
 .. autofunction:: egraph.coarse_backbone_init
 
@@ -28,11 +28,3 @@ This module provides cooperative v6 layout solvers and legacy layout classes.
    layout/sel_layout_solver
    layout/pfs_prime_overlap_removal
    layout/sfc_layout_solver
-   layout/full_sgd
-   layout/sparse_sgd
-   layout/schedulers
-   layout/stress_majorization
-   layout/kamada_kawai
-   layout/classical_mds
-   layout/pivot_mds
-   layout/overwrap_removal

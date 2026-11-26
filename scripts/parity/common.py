@@ -157,11 +157,6 @@ def make_asymmetric_coords(n: int, scale: float = 1.0) -> list[tuple[float, floa
     ]
 
 
-def extract_coords_legacy(drawing: Any, n: int) -> list[tuple[float, float]]:
-    """Extract 2D coordinates from a legacy DrawingEuclidean2d object."""
-    return [(float(drawing.x(i)), float(drawing.y(i))) for i in range(n)]
-
-
 def assert_finite_coords(coords: list[tuple[float, float]], label: str) -> None:
     """Assert that every (x, y) coordinate pair is finite."""
     for idx, (x, y) in enumerate(coords):

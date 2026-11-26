@@ -55,18 +55,8 @@ fi
 export RUST_FONTCONFIG_DLOPEN=1
 
 HARD_FAILS=0
-LEGACY_WARNS=0
 
 pass() { echo "[PASS] $*"; }
-warn_legacy() {
-  LEGACY_WARNS=$((LEGACY_WARNS + 1))
-  if [[ "$MODE" == "strict" ]]; then
-    HARD_FAILS=$((HARD_FAILS + 1))
-    echo "[FAIL] $*"
-  else
-    echo "[WARN-LEGACY] $*"
-  fi
-}
 fail_hard() {
   HARD_FAILS=$((HARD_FAILS + 1))
   echo "[FAIL] $*"
@@ -85,8 +75,6 @@ has_workspace_pkg() {
 }
 
 FORBIDDEN_RE='(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'
-FORBIDDEN_NO_GETRANDOM_RE='(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)'
-GETRANDOM_RE='(^|[^[:alnum:]_-])getrandom([^[:alnum:]_-]|$)'
 
 check_cargo_tree_crate() {
   local label="$1"
@@ -113,65 +101,19 @@ check_cargo_tree_crate() {
 
   forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_RE" || true)"
   if [[ -n "$forbidden" ]]; then
-    if [[ "$policy" == "hard" ]]; then
-      fail_hard "$label dependency tree pulls forbidden crates:"
-    else
-      warn_legacy "$label dependency tree pulls forbidden crates:"
-    fi
+    fail_hard "$label dependency tree pulls forbidden crates:"
     printf '%s\n' "$forbidden" | sed 's/^/       /'
   else
     pass "$label dependency tree is free of rayon/linfa/getrandom/wgpu"
   fi
 }
 
-check_cargo_tree_legacy_crate() {
-  local label="$1"
-  shift
-
-  local tree_out tree_err err_file rc=0 forbidden getrandom_hits
-  err_file="$(mktemp)"
-  if tree_out="$(cargo tree --quiet --edges normal -e features "$@" 2>"$err_file")"; then
-    rc=0
-  else
-    rc=$?
-  fi
-  tree_err="$(cat "$err_file" 2>/dev/null || true)"
-  rm -f "$err_file"
-
-  if [[ "$rc" -ne 0 ]]; then
-    fail_hard "$label cargo tree failed (exit $rc):"
-    if [[ -n "$tree_err" ]]; then
-      printf '%s\n' "$tree_err" | sed 's/^/       /'
-    fi
-    return 0
-  fi
-
-  forbidden="$(printf '%s\n' "$tree_out" | grep -E "$FORBIDDEN_NO_GETRANDOM_RE" || true)"
-  if [[ -n "$forbidden" ]]; then
-    fail_hard "$label dependency tree pulls forbidden crates (rayon/linfa/wgpu):"
-    printf '%s\n' "$forbidden" | sed 's/^/       /'
-  else
-    pass "$label dependency tree is free of rayon/linfa/wgpu"
-  fi
-
-  getrandom_hits="$(printf '%s\n' "$tree_out" | grep -E "$GETRANDOM_RE" || true)"
-  if [[ -n "$getrandom_hits" ]]; then
-    warn_legacy "$label dependency tree pulls legacy getrandom:"
-    printf '%s\n' "$getrandom_hits" | sed 's/^/       /'
-  else
-    pass "$label dependency tree is free of getrandom"
-  fi
-}
-
 # 1. Dependency tree gate (rayon / linfa / getrandom / wgpu)
-# Pure-Rust core/spatial/metrics/linalg/neighborhood/clustering/layout/facade/cli crates
-# and `egraph-wasm` (both default `full = ["delaunay"]` and `--no-default-features`)
+# All workspace crates (including `egraph-python` and `egraph-wasm` default/minimal)
 # ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
-# Legacy-featured crates (`petgraph-clustering`, `egraph-python`, `egraph-wasm --features legacy`)
-# fail_hard on rayon/linfa/wgpu and warn_legacy ONLY on legacy `getrandom`.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-layout-neighbor)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-layout-neighbor|egraph-python)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
     egraph-metrics|egraph-metrics-cluster)
@@ -222,17 +164,13 @@ if [[ -n "$TARGET_CRATE" ]]; then
     egraph-wasm)
       check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
       check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-      check_cargo_tree_legacy_crate "egraph-wasm (--features legacy)" -p egraph-wasm --features legacy
-      ;;
-    petgraph-clustering|egraph-python)
-      check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
       ;;
     *)
-      check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
+      check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-multilevel egraph egraph-cli; do
+  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-multilevel egraph egraph-cli egraph-python; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
@@ -266,13 +204,7 @@ else
   if has_workspace_pkg "egraph-wasm"; then
     check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
     check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
-    check_cargo_tree_legacy_crate "egraph-wasm (--features legacy)" -p egraph-wasm --features legacy
   fi
-  for legacy_crate in petgraph-clustering egraph-python; do
-    if has_workspace_pkg "$legacy_crate"; then
-      check_cargo_tree_legacy_crate "$legacy_crate" -p "$legacy_crate"
-    fi
-  done
 fi
 
 # 2. Static source scan for OS threads / GPU / rayon / non-deterministic RNG
@@ -292,7 +224,7 @@ if [[ -d "$REPO_ROOT/crates" ]]; then
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
     | grep -vE '#\[cfg\(test\)\]' || true)"
   if [[ -n "$RNG_HITS" ]]; then
-    warn_legacy "Non-deterministic RNG (thread_rng/from_entropy) found in src/:"
+    fail_hard "Non-deterministic RNG (thread_rng/from_entropy) found in src/:"
     printf '%s\n' "$RNG_HITS" | head -n 20 | sed 's/^/       /'
   else
     pass "Zero thread_rng/from_entropy calls in crates/*/src/"
@@ -408,13 +340,13 @@ PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT")"
 
 if [[ -n "$PKG_ISSUES" ]]; then
   while IFS= read -r line; do
-    warn_legacy "Packaging metadata drift: $line"
+    fail_hard "Packaging metadata drift: $line"
   done <<< "$PKG_ISSUES"
 else
   pass "Cross-target packaging metadata is aligned"
 fi
 
-echo "=== Invariant Summary (mode=$MODE): hard_fails=$HARD_FAILS legacy_warns=$LEGACY_WARNS ==="
+echo "=== Invariant Summary (mode=$MODE): hard_fails=$HARD_FAILS ==="
 if [[ "$HARD_FAILS" -gt 0 ]]; then
   exit 1
 fi

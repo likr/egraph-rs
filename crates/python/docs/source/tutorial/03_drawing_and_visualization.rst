@@ -1,43 +1,36 @@
 Drawing and Visualization
 =========================
 
-This tutorial covers drawing spaces, visualization techniques, and integration with matplotlib.
+This tutorial covers coordinate buffers, geometric spaces, and integration with matplotlib.
 
-Understanding Drawing Spaces
------------------------------
+Understanding Coordinate Spaces
+-------------------------------
 
-egraph supports multiple geometric spaces for graph layout:
+egraph v6 supports multiple coordinate containers and geometric spaces:
 
-* **Euclidean**: Standard 2D and n-dimensional space
-* **Hyperbolic**: Poincaré disk model for hierarchical graphs
-* **Spherical**: Sphere surface for global connectivity
-* **Torus**: Periodic boundaries for wrapping layouts
+* **Euclidean 2D**: :class:`egraph.Layout2d` (zero-copy ``float64`` or ``float32`` SoA buffers)
+* **Euclidean nD**: :class:`egraph.LayoutNd` (arbitrary-dimensional embeddings)
+* **Manifold 2D**: :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"spherical"``, ``"torus"``)
 
-Euclidean 2D Drawing
---------------------
+Euclidean 2D Layout
+-------------------
 
-The most common drawing space for standard graph visualization.
-
-Creating a Drawing
-^^^^^^^^^^^^^^^^^^
+Creating a Layout
+^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(5)]
-    for i in range(4):
-        graph.add_edge(nodes[i], nodes[i+1], (i, i+1))
-    
-    # Create 2D Euclidean drawing with random initial positions
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    print(f"Created 2D drawing for {graph.node_count()} nodes")
+    graph = eg.CsrGraph.from_edges(5, [(i, i + 1) for i in range(4)])
+
+    # Create 2D Euclidean layout with deterministic random initial positions
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+    print(f"Created 2D layout for {layout.num_nodes} nodes")
 
 .. testoutput:: python
 
-    Created 2D drawing for 5 nodes
+    Created 2D layout for 5 nodes
 
 Accessing Coordinates
 ^^^^^^^^^^^^^^^^^^^^^
@@ -46,16 +39,10 @@ Accessing Coordinates
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(3)]
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Get coordinates for each node
+    layout = eg.Layout2d.init(3, seed=42)
+
     for i in range(3):
-        x = drawing.x(i)
-        y = drawing.y(i)
-        print(f"Node {i}: ({x:.2f}, {y:.2f})")
+        print(f"Node {i}: ({layout.x(i):.2f}, {layout.y(i):.2f})")
 
 .. testoutput:: python
     :options: +SKIP
@@ -64,146 +51,50 @@ Accessing Coordinates
     Node 1: (1.23, 4.56)
     Node 2: (-2.34, 3.45)
 
-Setting Coordinates
-^^^^^^^^^^^^^^^^^^^
+Setting Coordinates & Zero-Copy NumPy Views
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(3)]
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Set specific positions
-    drawing.set_x(0, 0.0)
-    drawing.set_y(0, 0.0)
-    drawing.set_x(1, 1.0)
-    drawing.set_y(1, 0.0)
-    drawing.set_x(2, 0.5)
-    drawing.set_y(2, 1.0)
-    
+    layout = eg.Layout2d.zeros(3)
+    layout.set_x(0, 0.0)
+    layout.set_y(0, 0.0)
+    layout.set_x(1, 1.0)
+    layout.set_y(1, 0.0)
+    layout.set_x(2, 0.5)
+    layout.set_y(2, 1.0)
+
+    view = layout.coords(copy=False)
+    assert view.shape == (3, 2)
     print("Coordinates set manually")
 
 .. testoutput:: python
 
     Coordinates set manually
 
-N-Dimensional Euclidean Drawing
---------------------------------
+Non-Euclidean Manifold Layouts
+------------------------------
 
-For higher-dimensional layouts (3D, 4D, etc.), see the :doc:`../examples/sgd_3d` example which demonstrates 3D graph layouts using SGD algorithms.
-
-Hyperbolic 2D Drawing
----------------------
-
-Hyperbolic space is ideal for hierarchical graphs and trees.
+Use :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic"``,
+``"spherical"``, ``"torus"``) with :meth:`egraph.SgdSolver.run_manifold`.
 
 .. testcode:: python
 
     import egraph as eg
 
-    # Create a tree-like graph
-    graph = eg.Graph()
-    root = graph.add_node(0)
-    
-    # Add two levels
-    level1 = [graph.add_node(i) for i in range(1, 4)]
-    for node in level1:
-        graph.add_edge(root, node, (root, node))
-    
-    level2 = [graph.add_node(i) for i in range(4, 10)]
-    for i, node in enumerate(level2):
-        parent = level1[i % 3]
-        graph.add_edge(parent, node, (parent, node))
-    
-    # Create hyperbolic drawing
-    drawing = eg.DrawingHyperbolic2d.initial_placement(graph)
-    
-    # Apply layout
-    rng = eg.Rng.seed_from(42)
-    sgd = eg.SparseSgd().h(5).build(graph, lambda _: 0.5, rng)
-    scheduler = sgd.scheduler(50, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
-    print(f"Hyperbolic layout for {graph.node_count()} nodes")
+    graph = eg.CsrGraph.from_edges(6, [(i, (i + 1) % 6) for i in range(6)])
+    for kind in ("hyperbolic", "spherical", "torus"):
+        manifold = eg.ManifoldLayout2d.zeros(kind, graph.num_nodes)
+        sgd = eg.SgdSolver.full(graph, t_max=30, seed=42)
+        sgd.run_manifold(manifold)
+        assert manifold.coords().shape == (6, 2)
+    print("Manifold layouts complete")
 
 .. testoutput:: python
 
-    Hyperbolic layout for 10 nodes
-
-Spherical 2D Drawing
---------------------
-
-Spherical layouts are useful for global networks.
-
-.. testcode:: python
-
-    import egraph as eg
-    import networkx as nx
-
-    # Create a graph
-    nx_graph = nx.karate_club_graph()
-    graph = eg.Graph()
-    for node in nx_graph.nodes:
-        graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(u, v, (u, v))
-    
-    # Create spherical drawing
-    drawing = eg.DrawingSpherical2d.initial_placement(graph)
-    
-    # Apply layout
-    rng = eg.Rng.seed_from(42)
-    sgd = eg.SparseSgd().h(10).build(graph, lambda _: 0.3, rng)
-    scheduler = sgd.scheduler(50, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
-    print(f"Spherical layout for {graph.node_count()} nodes")
-
-.. testoutput:: python
-
-    Spherical layout for 34 nodes
-
-Torus 2D Drawing
-----------------
-
-Torus layouts have periodic boundaries, useful for certain network types.
-
-.. testcode:: python
-
-    import egraph as eg
-
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(10)]
-    for i in range(9):
-        graph.add_edge(nodes[i], nodes[i+1], (i, i+1))
-    graph.add_edge(nodes[9], nodes[0], (9, 0))  # Wrap around
-    
-    # Create torus drawing
-    drawing = eg.DrawingTorus2d.initial_placement(graph)
-    
-    # Apply layout
-    rng = eg.Rng.seed_from(42)
-    sgd = eg.SparseSgd().h(5).build(graph, lambda _: 0.1, rng)
-    scheduler = sgd.scheduler(50, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
-    print(f"Torus layout for {graph.node_count()} nodes")
-
-.. testoutput:: python
-
-    Torus layout for 10 nodes
+    Manifold layouts complete
 
 Visualization with Matplotlib
 ------------------------------
@@ -217,30 +108,19 @@ Basic Visualization
     import egraph as eg
     import matplotlib.pyplot as plt
 
-    # Create and layout graph
     nx_graph = nx.karate_club_graph()
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    # Extract positions for NetworkX
-    pos = {node: (drawing.x(idx), drawing.y(idx)) 
-           for node, idx in indices.items()}
-    
-    # Visualize
+    graph, nodes = eg.from_networkx(nx_graph)
+
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+    eg.StressMajorizationSolver.from_graph(graph).run(layout)
+
+    coords = layout.coords(copy=True)
+    pos = {node: (float(coords[i, 0]), float(coords[i, 1]))
+           for i, node in enumerate(nodes)}
+
     plt.figure(figsize=(10, 8))
-    nx.draw(nx_graph, pos, node_color='lightblue', 
-            node_size=300, with_labels=True)
-    # plt.savefig('karate_club.png')
-    # plt.show()
-    
+    nx.draw(nx_graph, pos, node_color="lightblue", node_size=300, with_labels=True)
+    plt.close()
     print("Visualization created")
 
 .. testoutput:: python
@@ -248,7 +128,7 @@ Basic Visualization
     Visualization created
 
 Customizing Visualization
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. testcode:: python
 
@@ -257,110 +137,48 @@ Customizing Visualization
     import matplotlib.pyplot as plt
 
     nx_graph = nx.karate_club_graph()
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    pos = {node: (drawing.x(idx), drawing.y(idx)) 
-           for node, idx in indices.items()}
-    
-    # Compute node degrees for sizing
+    graph, nodes = eg.from_networkx(nx_graph)
+
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+    eg.StressMajorizationSolver.from_graph(graph).run(layout)
+
+    coords = layout.coords(copy=True)
+    pos = {node: (float(coords[i, 0]), float(coords[i, 1]))
+           for i, node in enumerate(nodes)}
+
     degrees = dict(nx_graph.degree())
-    node_sizes = [degrees[node] * 50 for node in nx_graph.nodes]
-    
-    # Color by community
+    node_sizes = [degrees[node] * 50 for node in nx_graph.nodes()]
+
     communities = nx.community.greedy_modularity_communities(nx_graph)
     node_colors = []
-    for node in nx_graph.nodes:
+    for node in nx_graph.nodes():
         for i, comm in enumerate(communities):
             if node in comm:
                 node_colors.append(i)
                 break
-    
-    # Create visualization
+
     plt.figure(figsize=(12, 10))
-    nx.draw(nx_graph, pos, 
-            node_color=node_colors,
-            node_size=node_sizes,
-            cmap=plt.cm.Set3,
-            with_labels=True,
-            font_size=8,
-            edge_color='gray',
-            alpha=0.7)
-    # plt.title('Karate Club Network')
-    # plt.savefig('karate_club_styled.png', dpi=300, bbox_inches='tight')
-    # plt.show()
-    
+    nx.draw(
+        nx_graph,
+        pos,
+        node_color=node_colors,
+        node_size=node_sizes,
+        cmap=plt.cm.Set3,
+        with_labels=True,
+        font_size=8,
+        edge_color="gray",
+        alpha=0.7,
+    )
+    plt.close()
     print("Styled visualization created")
 
 .. testoutput:: python
 
     Styled visualization created
 
-Choosing the Right Drawing Space
----------------------------------
-
-In v6, use :class:`egraph.Layout2d` for Euclidean 2D layouts and :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic"``, ``"spherical"``, ``"torus"``) with :meth:`egraph.SgdSolver.run_manifold`.
-
-.. testcode:: python
-
-    import egraph as eg
-
-    graph = eg.CsrGraph.from_edges(6, [(i, (i + 1) % 6) for i in range(6)])
-    manifold = eg.ManifoldLayout2d.zeros("hyperbolic", graph.num_nodes)
-    sgd = eg.SgdSolver.full(graph, t_max=30, seed=42)
-    sgd.run_manifold(manifold)
-    assert manifold.coords().shape == (6, 2)
-    print("Manifold layout kind:", manifold.kind)
-
-.. testoutput:: python
-
-    Manifold layout kind: hyperbolic
-
-**Euclidean 2D**
-- Most common choice
-- Good for general-purpose visualization
-- Easy to interpret
-
-**Euclidean nD**
-- For high-dimensional data
-- Useful for dimensionality reduction
-- Can project to 2D/3D for visualization
-
-**Hyperbolic 2D**
-- Hierarchical structures
-- Trees and DAGs
-- Focus+context visualization
-
-**Spherical 2D**
-- Global networks
-- No preferred direction
-- Uniform connectivity
-
-**Torus 2D**
-- Periodic structures
-- Grid-like networks
-- Avoiding edge effects
-
-Best Practices
---------------
-
-1. **Start with Euclidean 2D**: It's the most intuitive and widely supported
-2. **Match space to structure**: Use hyperbolic for trees, spherical for global networks
-3. **Iterate on layout**: Run algorithms multiple times with different parameters
-4. **Visualize incrementally**: Check intermediate results during development
-5. **Export high-quality**: Use high DPI for publication-quality figures
-
 Next Steps
 ----------
 
-* :doc:`../examples/index` - See complete visualization examples
-* :doc:`../api/drawing` - Detailed drawing API reference
+* :doc:`../examples/index` - See complete v6 examples
+* :doc:`../api/drawing` - Detailed coordinate buffer API reference
 * :doc:`../getting_started/overview` - Review library capabilities

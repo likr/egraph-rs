@@ -11,7 +11,7 @@ EGRAPH_PARALLEL_WORKERS, and worktree-local .venv.
 
 Modes (composable):
   --fast                   Tier 0: fmt check + clippy/nextest on modified or --crate targets + thread scan
-  --rust                   Full workspace fmt check, clippy (excl. legacy petgraph-linalg-kernel unless --strict), release nextest
+  --rust                   Full workspace fmt check, clippy, release nextest
   --python                 Build crates/python into worktree .venv via maturin develop --release & run tests/mypy
   --wasm                   Check wasm32 + run wasm-pack test --node crates/wasm
   --invariants             Run scripts/check_invariants.sh
@@ -183,7 +183,7 @@ if [[ "$RUN_FAST" -eq 1 ]]; then
   fi
   if [[ "${#FAST_CRATES[@]}" -eq 0 ]]; then
     echo "[verify] No changed library crates detected; running baseline smoke crate check."
-    for fallback in egraph-core petgraph-algorithm-connected-components; do
+    for fallback in egraph-core; do
       if python3 "$VERIFY_HELPERS" has-package "$fallback"; then FAST_CRATES=("$fallback"); break; fi
     done
   fi
@@ -199,7 +199,7 @@ if [[ "$RUN_FAST" -eq 1 ]]; then
         echo "[verify] Skipping standalone host test run for egraph-wasm (cdylib); run ./scripts/verify.sh --wasm"
         ;;
       *)
-        [[ "$c" != "petgraph-linalg-kernel" || "$STRICT" -eq 1 ]] && run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
+        run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
         run_step "test_$c" run_cargo_test_args -p "$c"
         ;;
     esac
@@ -216,11 +216,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   if [[ "$STRICT" -eq 1 ]]; then
     run_step "clippy_workspace_strict" cargo clippy --workspace --all-targets --all-features -- -D warnings
   else
-    run_step "clippy_workspace_non_legacy" bash -c "
-      set -euo pipefail
-      PKGS=\$(python3 '$VERIFY_HELPERS' list-packages --exclude petgraph-linalg-kernel --format clippy-args)
-      eval \"cargo clippy --no-deps --all-targets \$PKGS -- -D warnings\"
-    "
+    run_step "clippy_workspace" cargo clippy --workspace --all-targets -- -D warnings
   fi
   RUST_META_PKGS="$(python3 "$VERIFY_HELPERS" list-packages || true)"
   has_rust_pkg() { printf '%s\n' "$RUST_META_PKGS" | grep -qx "$1"; }
@@ -282,7 +278,7 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
       test_constraints_and_layering.py test_csr_and_layout2d.py test_force_and_overlap_solvers.py
       test_force_bundling_and_validation.py test_geometry_and_stress_metrics.py test_grip_gem_sel_pfs_sfc.py
       test_gumap_refiner_and_stress_solvers.py test_hde_and_sgd_presets.py test_interop.py
-      test_legacy_drawing_compat.py test_maxent_stress_solver.py test_neighbor_and_sgd_solvers.py
+      test_maxent_stress_solver.py test_neighbor_and_sgd_solvers.py
       test_neighborhood_knn_and_landmarks.py test_rta_crosslessness_and_metric_errors.py
       test_screened_poisson.py test_spectral_and_chebyshev_linalg.py test_tsnet_and_sgd_solvers.py
     )
@@ -314,7 +310,6 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
     for t in "${WASM_MINIMAL_TARGETS[@]}"; do WASM_MINIMAL_FLAGS+=(--test "$t"); done
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
     run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features "${WASM_MINIMAL_FLAGS[@]}"
-    run_step "wasm_test_legacy" wasm-pack test --node "$REPO_ROOT/crates/wasm" --features legacy
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then

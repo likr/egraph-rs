@@ -16,7 +16,6 @@ from parity.py_embedding_classic_solvers import (
 )
 from parity.py_force_overlap_layering import run_force_overlap_layering_python_checks
 from parity.py_gcaf import run_gcaf_python_checks
-from parity.py_legacy import run_legacy_python_suite
 from parity.py_linalg_neighborhood import run_linalg_neighborhood_python_checks
 from parity.wasm_node_metrics_and_community import run_wasm_node_parity
 from parity.xtarget_classic_and_overlap_baselines import (
@@ -91,8 +90,6 @@ def run_all_suites(
         eg_mod = eg
         if hasattr(eg, "CsrGraph") and hasattr(eg, "Layout2d"):
             results.extend(run_csr_layout_python_suite(eg))
-        if hasattr(eg, "Graph") and hasattr(eg, "PivotMds"):
-            results.extend(run_legacy_python_suite(eg))
 
     if wasm_pkg is not None:
         results.extend(run_wasm_node_parity(wasm_pkg))

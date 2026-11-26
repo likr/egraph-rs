@@ -42,7 +42,7 @@ Evaluate layouts selectively without wasted computation using ``evaluate_metrics
 * **Scale-Normalized Stress (``SNS``)** - Optimal-scale closed-form and $O(kN)$ pivot-sampled variants
 * **Edge Crossings** - Bentley-Ottmann sweep-line exact count, crossing angle, torus crossings, and sampled estimation
 * **Neighborhood Preservation** - ``StaticKdTree``-accelerated 1-hop (``NP1``) and 2-hop (``NP2``)
-* **Proximity & Overlap Fidelity** - ``prism_distortion``, ``drng_preservation``, ``dgg_preservation``, ``gabriel_graph_property_v6``, ``node_resolution_v6``, ``aspect_ratio_v6``, ``angular_resolution_v6``, ``ideal_edge_lengths_v6``
+* **Proximity & Overlap Fidelity** - ``prism_distortion``, ``drng_preservation``, ``dgg_preservation``, ``gabriel_graph_property``, ``node_resolution``, ``aspect_ratio``, ``angular_resolution``, ``ideal_edge_lengths``
 
 Next Steps
 ----------

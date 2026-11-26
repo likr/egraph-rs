@@ -53,7 +53,7 @@ if (typeof mod.scaleNormalizedStress === 'function') {
   assert.equal(typeof indexMod.scaleNormalizedStress, 'function');
   assert.equal(typeof indexMod.sweepCrossingNumber, 'function');
   assert.equal(typeof indexMod.neighborhoodPreservation1Hop, 'function');
-  assert.equal(typeof indexMod.neighborhoodPreservation2HopV6, 'function');
+  assert.equal(typeof indexMod.neighborhoodPreservation2Hop, 'function');
   assert.equal(typeof indexMod.prismDistortion, 'function');
   assert.equal(typeof indexMod.evaluateMetrics, 'function');
   assert.equal(typeof indexMod.MetricReport, 'function');
@@ -82,7 +82,7 @@ if (typeof mod.scaleNormalizedStress === 'function') {
 
   const cr = mod.sweepCrossingNumber(gBb, lBb);
   const np1 = mod.neighborhoodPreservation1Hop(gBb, lBb);
-  const np2 = mod.neighborhoodPreservation2HopV6(gBb, lBb);
+  const np2 = mod.neighborhoodPreservation2Hop(gBb, lBb);
   assert.ok(Number.isInteger(cr) && cr >= 0);
   assert.ok(Number.isFinite(np1) && np1 >= 0.0 && np1 <= 1.0);
   assert.ok(Number.isFinite(np2) && np2 >= 0.0 && np2 <= 1.0);

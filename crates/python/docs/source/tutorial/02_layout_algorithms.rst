@@ -1,335 +1,192 @@
 Layout Algorithms
 =================
 
-This tutorial explores the different layout algorithms available in egraph and when to use each one.
+This tutorial explores the different layout algorithms available in egraph v6 and when to use each one.
 
 Understanding Layout Algorithms
 --------------------------------
 
-Layout algorithms compute positions for graph nodes to create aesthetically pleasing visualizations. Different algorithms have different strengths:
-
-* **Speed vs Quality**: Some algorithms are faster but produce lower quality layouts
-* **Graph Size**: Some algorithms scale better to large graphs
-* **Graph Structure**: Some algorithms work better for specific graph types
+Layout algorithms compute positions for graph nodes to create readable visualizations.
+All iterative solvers in egraph v6 share a uniform cooperative stepping interface
+(``step(layout)``, ``run_steps(layout, steps)``, ``run(layout)``) over :class:`egraph.Layout2d`.
 
 Stress Majorization
 -------------------
 
-Stress Majorization is an iterative algorithm that minimizes the stress function, producing high-quality layouts.
+Stress Majorization is an iterative algorithm that minimizes graph-theoretic stress, producing high-quality layouts.
 
-**Best for**: Small to medium graphs where quality is important
+**Best for**: Small to medium graphs where stress accuracy is important
 
 .. testcode:: python
 
     import egraph as eg
-    import networkx as nx
 
-    # Create a graph
-    nx_graph = nx.karate_club_graph()
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    # Create initial drawing
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    
-    # Apply Stress Majorization
-    sm = eg.StressMajorization(graph, drawing, lambda _: 100)
-    sm.run(drawing)
-    
-    print(f"Layout computed for {graph.node_count()} nodes")
+    graph = eg.load_dataset("karate")
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+
+    solver = eg.StressMajorizationSolver.from_graph(graph)
+    solver.run(layout)
+
+    print(f"Layout computed for {graph.num_nodes} nodes")
 
 .. testoutput:: python
 
     Layout computed for 34 nodes
 
-**Parameters**:
-- `graph`: The graph to layout
-- `drawing`: Initial node positions
-- `length`: Function that returns desired edge length (lambda edge_index: length)
-
 Kamada-Kawai
 ------------
 
-Kamada-Kawai is a spring-based algorithm that treats edges as springs.
+Kamada-Kawai is a spring-based algorithm that treats all pairs as springs at graph distance.
 
-**Best for**: Small graphs, tree-like structures
+**Best for**: Small graphs and tree-like structures
 
 .. testcode:: python
 
     import egraph as eg
 
-    # Create a simple graph
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(6)]
-    graph.add_edge(nodes[0], nodes[1], (0, 1))
-    graph.add_edge(nodes[0], nodes[2], (0, 2))
-    graph.add_edge(nodes[1], nodes[3], (1, 3))
-    graph.add_edge(nodes[1], nodes[4], (1, 4))
-    graph.add_edge(nodes[2], nodes[5], (2, 5))
-    
-    # Apply Kamada-Kawai
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    kk = eg.KamadaKawai(graph, lambda _: 100)
-    kk.run(drawing)
-    print(f"Kamada-Kawai layout for {graph.node_count()} nodes complete")
+    graph = eg.CsrGraph.from_edges(6, [(0, 1), (0, 2), (1, 3), (1, 4), (2, 5)])
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+
+    kk = eg.KamadaKawaiSolver.from_graph(graph)
+    kk.run(layout)
+    print(f"Kamada-Kawai layout for {graph.num_nodes} nodes complete")
 
 .. testoutput:: python
 
     Kamada-Kawai layout for 6 nodes complete
 
-
 SGD (Stochastic Gradient Descent)
 ----------------------------------
 
-SGD algorithms are fast and scalable, making them ideal for large graphs.
+SGD algorithms are fast and scalable, making them ideal for medium to large graphs.
 
-FullSgd
-^^^^^^^
+Full Stress SGD
+^^^^^^^^^^^^^^^
 
-Computes all-pairs shortest paths for accurate layouts.
-
-**Best for**: Small to medium graphs where accuracy is important
+Computes all-pairs shortest paths for accurate layouts on small to medium graphs.
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(10)]
-    for i in range(9):
-        graph.add_edge(nodes[i], nodes[i+1], (i, i+1))
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    rng = eg.Rng.seed_from(42)
-    
-    # Create FullSgd instance
-    sgd = eg.FullSgd().build(graph, lambda _: 30)
-    
-    # Run with scheduler
-    scheduler = sgd.scheduler(100, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
-    print("FullSgd layout complete")
+    graph = eg.CsrGraph.from_edges(10, [(i, i + 1) for i in range(9)])
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+
+    sgd = eg.SgdSolver.full(graph, t_max=60, seed=42)
+    sgd.run(layout)
+    print("Full SGD layout complete")
 
 .. testoutput:: python
 
-    FullSgd layout complete
+    Full SGD layout complete
 
-SparseSgd
-^^^^^^^^^
+Regularized DoG Sparse Barrier SGD
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Uses pivot nodes for efficient computation on large graphs.
-
-**Best for**: Large graphs (hundreds to thousands of nodes)
+Uses :math:`O(|E|)` Chebyshev DoG landmarks and 3-tier sparse barrier SGD for large graphs.
 
 .. testcode:: python
 
     import egraph as eg
-    import networkx as nx
 
-    # Create a larger graph
-    nx_graph = nx.les_miserables_graph()
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    rng = eg.Rng.seed_from(42)
-    
-    # Create SparseSgd with 50 pivot nodes
-    sgd = eg.SparseSgd().h(50).build(graph, lambda _: 30, rng)
-    
-    # Run optimization
-    scheduler = sgd.scheduler(100, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
-    print(f"SparseSgd layout for {graph.node_count()} nodes complete")
+    graph = eg.load_dataset("lesmis")
+    layout = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
+
+    sgd = eg.SgdSolver.sparse_barrier_dog(graph, t_max=60, seed=42)
+    sgd.run(layout)
+    print(f"Sparse barrier SGD layout for {graph.num_nodes} nodes complete")
 
 .. testoutput:: python
 
-    SparseSgd layout for 77 nodes complete
+    Sparse barrier SGD layout for 77 nodes complete
 
-**Parameters**:
-- `h(n)`: Number of pivot nodes (default: 30)
+Omega (Spectral + Random-Pair SGD)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Omega
-^^^^^
-
-Uses spectral coordinates for initialization, combining spectral methods with SGD.
-
-**Best for**: Graphs with clear community structure
+Combines spectral coordinates from ``rd_mds`` with random-pair SGD.
 
 .. testcode:: python
 
     import egraph as eg
-    import networkx as nx
 
-    nx_graph = nx.karate_club_graph()
-    graph = eg.Graph()
-    for node in nx_graph.nodes:
-        graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(u, v, (u, v))
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    rng = eg.Rng.seed_from(42)
-    # Step 1: Compute spectral embedding with RdMds
-    rdmds = eg.RdMds().d(2)
-    embedding = rdmds.embedding(graph, lambda _: 1.0, eg.CgSolver(), rng)
+    graph = eg.load_dataset("karate")
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
 
-    # Step 2: Create Omega instance and build SGD
-    sgd = eg.Omega().k(30).build(graph, embedding, rng)
-    
-    # Step 3: Run optimization with scheduler
-    scheduler = sgd.scheduler(100, 0.1)
-    def step(eta):
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-    scheduler.run(step)
-    
+    embedding = eg.rd_mds(graph, dims=2, seed=42)
+    sgd = eg.SgdSolver.omega(graph, embedding.coords(), k=20, t_max=60, seed=42)
+    sgd.run(layout)
     print("Omega layout complete")
 
 .. testoutput:: python
 
     Omega layout complete
 
-**Parameters**:
-- `k(n)`: Number of random pairs per node (default: 30)
-- `min_dist(float)`: Minimum distance between node pairs (default: 1e-3)
-
 MDS (Multidimensional Scaling)
 -------------------------------
 
-MDS algorithms preserve distances in lower dimensions.
+MDS algorithms preserve graph-theoretic distances in low-dimensional embeddings.
 
-ClassicalMds
-^^^^^^^^^^^^
+Classical MDS
+^^^^^^^^^^^^^
 
-Uses eigendecomposition for exact distance preservation.
-
-**Best for**: Small graphs where distance preservation is critical
+Uses exact all-pairs shortest paths and eigendecomposition for small graphs.
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(8)]
-    for i in range(7):
-        graph.add_edge(nodes[i], nodes[i+1], (i, i+1))
-    
-    # Apply Classical MDS
-    mds = eg.ClassicalMds(graph, lambda _: 1.0)
-    drawing = mds.run(2)
-    print("ClassicalMds layout complete")
+    graph = eg.CsrGraph.from_edges(8, [(i, i + 1) for i in range(7)])
+    layout = eg.classical_mds_2d(graph)
+    assert layout.num_nodes == 8
+    print("Classical MDS layout complete")
 
 .. testoutput:: python
 
-    ClassicalMds layout complete
+    Classical MDS layout complete
 
+Pivot MDS
+^^^^^^^^^
 
-PivotMds
-^^^^^^^^
-
-Scalable variant using landmark nodes.
-
-**Best for**: Large graphs where approximate distance preservation is acceptable
+Scalable landmark-based MDS for fast initialization on larger graphs.
 
 .. testcode:: python
 
     import egraph as eg
-    import networkx as nx
 
-    nx_graph = nx.les_miserables_graph()
-    graph = eg.Graph()
-    indices = {}
-    for node in nx_graph.nodes:
-        indices[node] = graph.add_node(node)
-    for u, v in nx_graph.edges:
-        graph.add_edge(indices[u], indices[v], (u, v))
-    
-    # Use 20 pivot nodes with PivotMds
-    # Create a list of pivot node indices
-    import random
-    random.seed(42)
-    pivot_indices = random.sample(range(graph.node_count()), min(20, graph.node_count()))
-    
-    mds = eg.PivotMds(graph, lambda _: 1.0, pivot_indices)
-    drawing = mds.run(2)
+    graph = eg.load_dataset("lesmis")
+    layout = eg.pivot_mds_init(graph, num_pivots=20, seed=42)
+    assert layout.is_all_finite()
+    print(f"Pivot MDS layout for {layout.num_nodes} nodes complete")
 
-Choosing the Right Algorithm
------------------------------
+.. testoutput:: python
 
-Use this decision tree to select an algorithm:
-
-1. **Graph size < 100 nodes**
-   
-   * High quality needed → Stress Majorization
-   * Tree-like structure → Kamada-Kawai
-   * Fast computation → FullSgd
-
-2. **Graph size 100-1000 nodes**
-   
-   * Community structure → Omega
-   * General purpose → SparseSgd
-   * Distance preservation → PivotMds
-
-3. **Graph size > 1000 nodes**
-   
-   * Use SparseSgd or PivotMds
-   * Increase pivot nodes for better quality
+    Pivot MDS layout for 77 nodes complete
 
 Customizing Edge Lengths
 -------------------------
 
-All algorithms accept a length function to customize edge lengths:
+Weighted edges in ``CsrGraph`` are respected directly by shortest-path and stress solvers:
 
 .. testcode:: python
 
     import egraph as eg
 
-    graph = eg.Graph()
-    nodes = [graph.add_node(i) for i in range(5)]
-    
-    # Add edges with different weights
-    e1 = graph.add_edge(nodes[0], nodes[1], 1.0)
-    e2 = graph.add_edge(nodes[1], nodes[2], 2.0)
-    e3 = graph.add_edge(nodes[2], nodes[3], 1.0)
-    e4 = graph.add_edge(nodes[3], nodes[4], 3.0)
-    
-    # Pre-fetch edge weights to avoid borrow conflicts
-    edge_weights = {i: graph.edge_weight(i) for i in range(graph.edge_count())}
-    
-    # Use edge weights as lengths
-    def edge_length(edge_idx):
-        return edge_weights[edge_idx]
-    
-    drawing = eg.DrawingEuclidean2d.initial_placement(graph)
-    sm = eg.StressMajorization(graph, drawing, edge_length)
-    sm.run(drawing)
+    graph = eg.CsrGraph.from_edges(
+        5,
+        [(0, 1), (1, 2), (2, 3), (3, 4)],
+        weights=[1.0, 2.0, 1.0, 3.0],
+    )
+    layout = eg.Layout2d.init(graph.num_nodes, seed=42)
+    eg.StressMajorizationSolver.from_graph(graph).run(layout)
     print("Custom edge lengths applied")
 
 .. testoutput:: python
 
     Custom edge lengths applied
 
-
 Next Steps
 ----------
 
-* :doc:`03_drawing_and_visualization` - Learn about drawing spaces and visualization
-* :doc:`../examples/index` - See algorithm-specific examples
+* :doc:`03_drawing_and_visualization` - Learn about coordinate buffers and visualization
+* :doc:`../examples/index` - See Track A / Track B and manifold examples
 * :doc:`../api/layout` - Detailed API reference

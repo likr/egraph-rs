@@ -303,7 +303,6 @@ jobs:
             --test tfdp_and_ibumap_solvers \
             --test tsnet_backends_and_row_normalized \
             --test tsnet_preconditioning_and_stats
-          wasm-pack test --node crates/wasm --features legacy
           (cd crates/wasm && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
           if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
             node crates/wasm/scripts/assemble_pkg.mjs

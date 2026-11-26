@@ -1,7 +1,7 @@
 Examples
 ========
 
-This section provides practical examples demonstrating ``egraph`` v6 and legacy features.
+This section provides practical examples demonstrating ``egraph`` v6 features.
 
 .. toctree::
    :maxdepth: 2
@@ -12,14 +12,6 @@ This section provides practical examples demonstrating ``egraph`` v6 and legacy 
    prism_overlap_removal
    fdeb
    manifold_layouts
-   sgd
-   stress_majorization
-   kamada_kawai
-   sgd_3d
-   sgd_hyperbolic_2d
-   sgd_spherical_2d
-   sgd_torus
-   overwrap_removal
 
 Overview
 --------
@@ -35,18 +27,6 @@ v6 Solvers & Workflows
 * :doc:`prism_overlap_removal` - $O(N \log N)$ Delaunay PRISM overlap removal and ``prism_distortion``
 * :doc:`fdeb` - Cooperative Force-Directed Edge Bundling (``FdebSolver``)
 * :doc:`manifold_layouts` - Non-Euclidean ``ManifoldLayout2d`` (Hyperbolic, Spherical, Torus)
-
-Classic & Legacy Examples
--------------------------
-
-* :doc:`sgd` - Stochastic Gradient Descent (legacy ``SparseSgd`` / ``FullSgd``)
-* :doc:`stress_majorization` - Stress Majorization
-* :doc:`kamada_kawai` - Kamada-Kawai
-* :doc:`sgd_3d` - Three-dimensional graph layouts
-* :doc:`sgd_hyperbolic_2d` - Hyperbolic 2D SGD (legacy drawing)
-* :doc:`sgd_spherical_2d` - Spherical 2D SGD (legacy drawing)
-* :doc:`sgd_torus` - Torus 2D SGD (legacy drawing)
-* :doc:`overwrap_removal` - Legacy overlap removal (superseded by :doc:`prism_overlap_removal`)
 
 Quick Example
 -------------

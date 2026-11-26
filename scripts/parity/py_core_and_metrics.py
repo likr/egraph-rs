@@ -260,9 +260,7 @@ def run_geometry_metrics_spatial_checks(eg: Any) -> list[dict[str, Any]]:
         assert float(eg.sweep_crossing_number(fg, l32)) == cr_sweep
 
         np1 = float(eg.neighborhood_preservation_1hop(fg, l64))
-        assert abs(np1 - float(eg.neighborhood_preservation(fg, l64))) < 1e-12
-        np2 = float(eg.neighborhood_preservation_2hop_v6(fg, l64))
-        assert abs(np2 - float(eg.neighborhood_preservation_2hop(fg, l64))) < 1e-12
+        np2 = float(eg.neighborhood_preservation_2hop(fg, l64))
         assert 0.0 <= np1 <= 1.0 and 0.0 <= np2 <= 1.0
 
         sig_dist_sim, sig_disp_sim = eg.prism_distortion(l64, l64_sim)
@@ -292,7 +290,7 @@ def run_geometry_metrics_spatial_checks(eg: Any) -> list[dict[str, Any]]:
         assert abs(report["neighborhood_preservation_2hop"] - np2) < 1e-12
         assert abs(report["relative_neighborhood_preservation"] - float(eg.drng_preservation(fg, l64))) < 1e-12
         assert abs(report["gabriel_graph_preservation"] - float(eg.dgg_preservation(fg, l64))) < 1e-12
-        assert abs(report["aspect_ratio"] - float(eg.aspect_ratio_v6(l64))) < 1e-12
+        assert abs(report["aspect_ratio"] - float(eg.aspect_ratio(l64))) < 1e-12
 
         dt_edges, dt_tris = eg.delaunay_triangulation(l64)
         assert dt_edges.dtype == np.uint32 and dt_edges.ndim == 2 and dt_edges.shape[1] == 2
@@ -325,7 +323,7 @@ def run_geometry_metrics_spatial_checks(eg: Any) -> list[dict[str, Any]]:
         ("scale_normalized_stress", eg.scale_normalized_stress),
         ("sweep_crossing_number", eg.sweep_crossing_number),
         ("neighborhood_preservation_1hop", eg.neighborhood_preservation_1hop),
-        ("neighborhood_preservation_2hop_v6", eg.neighborhood_preservation_2hop_v6),
+        ("neighborhood_preservation_2hop", eg.neighborhood_preservation_2hop),
     )
     for fn_name, metric_fn in metric_fns:
         assert_non_panic_error(

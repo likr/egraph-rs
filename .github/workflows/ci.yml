@@ -42,8 +42,7 @@ jobs:
 
       - name: Run clippy
         run: |
-          PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output(['cargo','metadata','--no-deps','--format-version','1'],text=True)); print(' '.join('-p '+p['name'] for p in d['packages'] if p['name']!='petgraph-linalg-kernel'))")
-          eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
+          cargo clippy --workspace --all-targets -- -D warnings
           cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial-trees -p egraph-spatial-fft -p egraph-spatial-crossings -p egraph-spatial -p egraph-metrics-geometry -p egraph-metrics-cluster -p egraph-metrics -p egraph-linalg -p egraph-linalg-mds -p egraph-linalg-amg -p egraph-neighborhood -p egraph-clustering -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-neighbor -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout -p egraph -p egraph-cli -- -D warnings
           cargo clippy --no-deps --all-targets --no-default-features -p egraph-spatial-trees -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset -- -D warnings
           cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout -- -D warnings
@@ -67,16 +66,12 @@ jobs:
             echo "::error::workspace dependency tree pulls rayon/linfa/wgpu"
             exit 1
           fi
-          for crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-spatial egraph-metrics-geometry egraph-metrics-cluster egraph-metrics egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-multilevel egraph-layout egraph egraph-cli egraph-wasm; do
+          for crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-spatial egraph-metrics-geometry egraph-metrics-cluster egraph-metrics egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-multilevel egraph-layout egraph egraph-cli egraph-python egraph-wasm; do
             if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$crate dependency tree pulls forbidden crate"
               exit 1
             fi
           done
-          if cargo tree -p petgraph-quality-metrics --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)'; then
-            echo "::error::petgraph-quality-metrics dependency tree pulls rayon/linfa/wgpu"
-            exit 1
-          fi
           for spec in \
             "egraph --no-default-features" \
             "egraph --all-features" \
@@ -172,7 +167,6 @@ jobs:
               crates/python/tests/test_gumap_refiner_and_stress_solvers.py
               crates/python/tests/test_hde_and_sgd_presets.py
               crates/python/tests/test_interop.py
-              crates/python/tests/test_legacy_drawing_compat.py
               crates/python/tests/test_maxent_stress_solver.py
               crates/python/tests/test_neighbor_and_sgd_solvers.py
               crates/python/tests/test_neighborhood_knn_and_landmarks.py
@@ -262,7 +256,6 @@ jobs:
             --test tfdp_and_ibumap_solvers \
             --test tsnet_backends_and_row_normalized \
             --test tsnet_preconditioning_and_stats
-          wasm-pack test --node crates/wasm --features legacy
 
       - name: Build optimized web bundle and assemble pkg
         run: |

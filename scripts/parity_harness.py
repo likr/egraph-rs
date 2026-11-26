@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Cross-target golden fixture & adversarial contract harness for egraph.
 
-Supports legacy Python bindings (`Graph` / `DrawingEuclidean2d`), modern
-`CsrGraph` / `Layout2d` APIs, and optional Node.js WASM cross-checking via
-`--wasm-pkg`.
+Supports `CsrGraph` / `Layout2d` Python bindings and optional Node.js WASM
+cross-checking via `--wasm-pkg`.
 """
 
 from __future__ import annotations

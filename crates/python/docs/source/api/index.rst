@@ -15,6 +15,3 @@ This section provides detailed documentation for all modules, classes, and funct
    linalg_neighborhood
    quality_metrics
    dataset
-   algorithm
-   distance_matrix
-   rng
