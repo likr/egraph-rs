@@ -5,7 +5,7 @@ use crate::js_convert::{
     parse_seed_u64,
 };
 use egraph::core::SolverStatus;
-use egraph::layout::PacmapGraphConfig;
+use egraph::layout::{FieldRepulsionBackend, PacmapGraphConfig};
 use egraph::linalg::{
     AmgPcgConfig, EffectiveResistanceConfig, LaplacianKind, ResistanceCurvatureConfig,
 };
@@ -393,4 +393,15 @@ pub(crate) fn parse_resistance_curvature_options(
     }
     cfg.validate().map_err(core_err_to_js)?;
     Ok(cfg)
+}
+
+pub(crate) fn parse_field_repulsion_backend(raw: &str) -> Result<FieldRepulsionBackend, JsError> {
+    match normalize_enum_token(raw).as_str() {
+        "ibfft" | "fft" => Ok(FieldRepulsionBackend::IbFft),
+        "barneshut" | "bh" => Ok(FieldRepulsionBackend::BarnesHut),
+        "exact" => Ok(FieldRepulsionBackend::Exact),
+        _ => Err(JsError::new(&format!(
+            "unknown FieldRepulsionBackend {raw:?}; expected 'ibfft', 'barnes_hut', or 'exact'"
+        ))),
+    }
 }

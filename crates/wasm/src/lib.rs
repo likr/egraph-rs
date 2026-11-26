@@ -3,11 +3,15 @@
 //! This crate provides JavaScript/WebAssembly bindings for `egraph`, exposing:
 //!
 //! * Zero-copy CSR graphs, linear-memory 2D/ND layouts, quality metrics, spatial/dataset
-//!   utilities, spectral/neighborhood primitives, clustering, and cooperative iterative solvers
-//!   ([`csr_graph`], [`dog_varadhan`], [`layout_buffers`], [`linalg_amg`], [`linalg_chebyshev`],
-//!   [`linalg_matrix`], [`linalg_resistance`], [`linalg_spectral`], [`metrics_report`],
-//!   [`metrics_crossings`], [`metrics_cluster_rta`], [`metrics_functions`], [`metrics_eval`],
-//!   [`neighborhood_knn`], [`neighborhood_types`], [`spatial_dataset`], [`v6`])
+//!   utilities, spectral/neighborhood primitives, clustering, coarsening, and cooperative
+//!   iterative solvers ([`coarsen_backbone`], [`community`], [`constraints_layering`],
+//!   [`csr_graph`], [`dog_varadhan`], [`fdeb`], [`force_multilevel`], [`gumap`], [`ib_umap`],
+//!   [`layout_buffers`], [`linalg_amg`], [`linalg_chebyshev`], [`linalg_matrix`],
+//!   [`linalg_resistance`], [`linalg_spectral`], [`manifold`], [`metrics_cluster_rta`],
+//!   [`metrics_crossings`], [`metrics_eval`], [`metrics_functions`], [`metrics_report`],
+//!   [`neighborhood_knn`], [`neighborhood_types`], [`overlap_prism`], [`rhgh_landmarks`],
+//!   [`screened_poisson`], [`sgd`], [`sgd_barrier`], [`sgd_pacmap`], [`spatial_dataset`],
+//!   [`spatial_refiner`], [`stress_kamada`], [`t_fdp`], [`tsnet`], [`v6`])
 //! * Opt-in legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
 //!   quality metrics, and RNG modules (behind the `legacy` feature flag).
 
@@ -28,8 +32,15 @@ pub mod quality_metrics;
 #[cfg(feature = "legacy")]
 pub mod rng;
 
+pub mod coarsen_backbone;
+pub mod community;
+pub mod constraints_layering;
 pub mod csr_graph;
 pub mod dog_varadhan;
+pub mod fdeb;
+pub mod force_multilevel;
+pub mod gumap;
+pub mod ib_umap;
 mod js_convert;
 mod js_options;
 pub mod layout_buffers;
@@ -38,6 +49,7 @@ pub mod linalg_chebyshev;
 pub mod linalg_matrix;
 pub mod linalg_resistance;
 pub mod linalg_spectral;
+pub mod manifold;
 pub mod metrics_cluster_rta;
 pub mod metrics_crossings;
 pub mod metrics_eval;
@@ -45,12 +57,22 @@ pub mod metrics_functions;
 pub mod metrics_report;
 pub mod neighborhood_knn;
 pub mod neighborhood_types;
+pub mod overlap_prism;
+pub mod rhgh_landmarks;
+pub mod screened_poisson;
+pub mod sgd;
+pub mod sgd_barrier;
+pub mod sgd_pacmap;
+mod sgd_sampling;
+mod solver_runner;
 pub mod spatial_dataset;
+pub mod spatial_refiner;
+pub mod stress_kamada;
+pub mod t_fdp;
+pub mod tsnet;
+mod tsnet_options;
 
 pub mod v6;
-mod v6_m3;
-mod v6_m4;
-mod v6_m5;
 mod v6_w1;
 mod v6_w2;
 

@@ -32,7 +32,7 @@ use crate::js_options::{
     opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
-use crate::v6_m3::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
 fn set_js_prop(obj: &js_sys::Object, key: &str, val: &JsValue) -> Result<(), JsError> {
     js_sys::Reflect::set(obj, &JsValue::from_str(key), val)
