@@ -8,6 +8,7 @@ use super::config::{PacmapGraphConfig, SgdScheduleConfig, SgdScheduleKind};
 use super::graph_sampling::{
     build_symmetric_csr_from_sorted_pairs, extract_canonical_undirected_edges,
 };
+use super::nd_variants::PacmapNdScratch;
 use super::pacmap_pairs::{LandmarkTable, collect_pacmap_tier_pairs};
 use super::pairs::{MAX_PACKED_NODES, validate_graph_weights};
 
@@ -24,6 +25,7 @@ pub(super) struct PacmapState {
     m_y: Vec<f64>,
     v_x: Vec<f64>,
     v_y: Vec<f64>,
+    pub(super) nd_scratch: Option<PacmapNdScratch>,
 }
 
 pub(super) enum PacmapExternalLandmarks<'a> {
@@ -184,6 +186,7 @@ pub(super) fn build_pacmap_state<W: Scalar>(
                 m_y: Vec::new(),
                 v_x: Vec::new(),
                 v_y: Vec::new(),
+                nd_scratch: None,
             },
             schedule_cfg,
             status,
@@ -321,6 +324,7 @@ pub(super) fn build_pacmap_state<W: Scalar>(
             m_y: vec![0.0; n],
             v_x: vec![0.0; n],
             v_y: vec![0.0; n],
+            nd_scratch: None,
         },
         schedule_cfg,
         status,

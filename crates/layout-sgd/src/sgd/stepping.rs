@@ -210,6 +210,20 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self
+            .pacmap
+            .as_ref()
+            .is_some_and(|st| st.nd_scratch.is_some())
+            || self.sgd2.as_ref().is_some_and(|st| st.nd_scratch.is_some())
+            || self
+                .drgraph
+                .as_ref()
+                .is_some_and(|st| st.nd_scratch.is_some())
+        {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::step: cannot switch from LayoutNd to Layout2d on stateful solver",
+            ));
+        }
         if self.status.is_finished() {
             return Ok(self.status);
         }

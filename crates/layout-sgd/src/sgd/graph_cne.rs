@@ -1,10 +1,12 @@
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd, Scalar, SolverStatus,
 };
 use egraph_neighborhood::graph_row_normalized_probabilities;
 
 use super::config::{SgdScheduleConfig, SgdScheduleKind};
 use super::graph_sampling::{AliasTable, extract_canonical_undirected_edges};
+use super::nd::scatter_collapsed_layout_nd_if_needed;
+use super::nd_variants::{GraphCneNdScratch, nd_dist_sq_f64};
 use super::pairs::{MAX_PACKED_NODES, validate_graph_weights};
 use super::update::scatter_collapsed_layout_if_needed;
 use super::variant_config::{GraphCneConfig, GraphCneObjective};
@@ -16,6 +18,7 @@ pub(super) struct GraphCneState {
     edges_v: Vec<u32>,
     edge_alias: Option<AliasTable>,
     neg_scratch: Vec<u32>,
+    pub(super) nd_scratch: Option<GraphCneNdScratch>,
 }
 
 pub(super) struct BuiltGraphCne {
@@ -94,6 +97,7 @@ pub(super) fn build_graph_cne_state<W: Scalar>(
             edges_v,
             edge_alias,
             neg_scratch: Vec::with_capacity(config.negative_samples),
+            nd_scratch: None,
         },
         schedule_cfg,
         status,
@@ -260,6 +264,141 @@ pub(super) fn step_graph_cne_state<S: Scalar>(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+pub(super) fn step_graph_cne_state_nd<S: Scalar>(
+    st: &mut GraphCneState,
+    rng: &mut DeterministicRng,
+    num_nodes: usize,
+    iter: usize,
+    layout: &mut LayoutNd<S>,
+) {
+    let total = st.config.iterations;
+    if num_nodes <= 1 || total == 0 || iter >= total {
+        return;
+    }
+    if iter == 0 {
+        scatter_collapsed_layout_nd_if_needed(layout, 0.02, rng);
+    }
+    let Some(edge_alias) = &st.edge_alias else {
+        return;
+    };
+    let lr = (st.config.initial_lr * (1.0 - (iter as f64) / (total as f64))).max(st.config.min_lr);
+    if !lr.is_finite() || lr <= 0.0 {
+        return;
+    }
+
+    let dims = layout.dims();
+    let m = st.edges_u.len();
+    let neg_samples = st.config.negative_samples;
+    let rho = st.config.repulsion_weight;
+    let objective = st.config.objective;
+    let sc = st
+        .nd_scratch
+        .get_or_insert_with(|| GraphCneNdScratch::new(neg_samples, dims));
+    if sc.acc_rep.len() != dims {
+        sc.acc_rep.resize(dims, 0.0);
+    }
+
+    let coords = layout.coords_mut();
+    for _ in 0..m {
+        let e_idx = edge_alias.sample(rng);
+        let u_raw = st.edges_u[e_idx] as usize;
+        let v_raw = st.edges_v[e_idx] as usize;
+        let (u, v) = if (rng.next_u32() & 1) == 0 {
+            (u_raw, v_raw)
+        } else {
+            (v_raw, u_raw)
+        };
+
+        st.neg_scratch.clear();
+        for _ in 0..neg_samples {
+            let k = rng.gen_range_usize(num_nodes);
+            if k != u {
+                st.neg_scratch.push(k as u32);
+            }
+        }
+
+        let (bu, bv) = (u * dims, v * dims);
+        let d2_uv = nd_dist_sq_f64(coords, bu, bv, dims);
+        if !d2_uv.is_finite() {
+            continue;
+        }
+        let w_uv = 1.0 / (1.0 + d2_uv);
+        sc.acc_rep.fill(0.0);
+
+        let attr_coeff = match objective {
+            GraphCneObjective::InfoNce => {
+                sc.neg_w.clear();
+                let mut sum_neg_w = 0.0_f64;
+                if rho > 0.0 {
+                    for &k_u32 in &st.neg_scratch {
+                        let d2 = nd_dist_sq_f64(coords, bu, (k_u32 as usize) * dims, dims);
+                        let w_uk = if d2.is_finite() {
+                            1.0 / (1.0 + d2)
+                        } else {
+                            0.0
+                        };
+                        sc.neg_w.push(w_uk);
+                        sum_neg_w += w_uk;
+                    }
+                }
+                let denom = w_uv + rho * sum_neg_w;
+                if !denom.is_finite() || denom <= 0.0 {
+                    continue;
+                }
+                if rho > 0.0 {
+                    for (&k_u32, &w_uk) in st.neg_scratch.iter().zip(sc.neg_w.iter()) {
+                        if w_uk > 0.0 {
+                            let bk = (k_u32 as usize) * dims;
+                            let rep_coeff = 2.0 * lr * ((rho * w_uk) / denom) * w_uk;
+                            for a in 0..dims {
+                                let dx = coords[bu + a].to_f64() - coords[bk + a].to_f64();
+                                sc.acc_rep[a] += (rep_coeff * dx).clamp(-4.0, 4.0);
+                            }
+                        }
+                    }
+                }
+                2.0 * lr * (1.0 - w_uv / denom) * w_uv
+            }
+            GraphCneObjective::NegTSne => {
+                if rho > 0.0 && !st.neg_scratch.is_empty() {
+                    let rep_scale = rho / (st.neg_scratch.len() as f64);
+                    for &k_u32 in &st.neg_scratch {
+                        let bk = (k_u32 as usize) * dims;
+                        let d2 = nd_dist_sq_f64(coords, bu, bk, dims);
+                        if d2.is_finite() {
+                            let w_uk = 1.0 / (1.0 + d2);
+                            let rep_coeff = 2.0 * lr * rep_scale * w_uk * w_uk;
+                            for a in 0..dims {
+                                let dx = coords[bu + a].to_f64() - coords[bk + a].to_f64();
+                                sc.acc_rep[a] += (rep_coeff * dx).clamp(-4.0, 4.0);
+                            }
+                        }
+                    }
+                }
+                2.0 * lr * w_uv
+            }
+        };
+
+        let all_ok = (0..dims).all(|a| {
+            let s_pos =
+                (attr_coeff * (coords[bu + a].to_f64() - coords[bv + a].to_f64())).clamp(-4.0, 4.0);
+            let rep_a = sc.acc_rep[a];
+            s_pos.is_finite()
+                && rep_a.is_finite()
+                && (coords[bu + a] + S::from_f64(rep_a - s_pos)).is_finite()
+                && (coords[bv + a] + S::from_f64(s_pos)).is_finite()
+        });
+        if all_ok {
+            for a in 0..dims {
+                let s_pos = (attr_coeff * (coords[bu + a].to_f64() - coords[bv + a].to_f64()))
+                    .clamp(-4.0, 4.0);
+                coords[bu + a] += S::from_f64(sc.acc_rep[a] - s_pos);
+                coords[bv + a] += S::from_f64(s_pos);
             }
         }
     }

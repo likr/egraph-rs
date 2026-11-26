@@ -8,6 +8,8 @@ mod drgraph_coarsen;
 mod graph_cne;
 mod graph_sampling;
 mod largevis;
+mod nd;
+mod nd_variants;
 mod ortmann;
 mod ortmann_pivots;
 mod pacmap;
@@ -31,6 +33,10 @@ mod tests_barrier_streaming;
 mod tests_core;
 #[cfg(test)]
 mod tests_errors_and_blocking;
+#[cfg(test)]
+mod tests_nd;
+#[cfg(test)]
+mod tests_nd_edge_cases;
 #[cfg(test)]
 mod tests_negative_sampling;
 #[cfg(test)]

@@ -9,6 +9,7 @@ use super::config::{SgdScheduleConfig, SgdScheduleKind};
 use super::graph_sampling::{
     AliasTable, build_positive_canonical_csr, build_symmetric_csr_from_sorted_pairs,
 };
+use super::nd_variants::DrGraphNdScratch;
 use super::pairs::{MAX_PACKED_NODES, validate_graph_weights};
 use super::variant_config::DrGraphConfig;
 
@@ -36,6 +37,7 @@ pub(super) struct DrGraphState {
     pub(super) scratch_x: Vec<f64>,
     pub(super) scratch_y: Vec<f64>,
     pub(super) scratch_cnt: Vec<f64>,
+    pub(super) nd_scratch: Option<DrGraphNdScratch>,
 }
 
 pub(super) struct BuiltDrGraph {
@@ -237,6 +239,7 @@ pub(super) fn build_drgraph_state<W: Scalar>(
         scratch_x: vec![0.0; n],
         scratch_y: vec![0.0; n],
         scratch_cnt: vec![0.0; n],
+        nd_scratch: None,
     };
 
     if n <= 1 || graph.nnz() == 0 {
@@ -393,6 +396,7 @@ pub(super) fn build_drgraph_state<W: Scalar>(
             scratch_x: vec![0.0; n],
             scratch_y: vec![0.0; n],
             scratch_cnt: vec![0.0; n],
+            nd_scratch: None,
         },
         schedule_cfg,
         status,

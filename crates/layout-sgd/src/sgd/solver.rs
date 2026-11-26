@@ -214,6 +214,24 @@ impl<S: Scalar> SgdSolver<S> {
         self.num_hinges
     }
 
+    /// Returns the current solver execution status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of completed iterations.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the total scheduled iteration count.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.schedule_cfg.iterations
+    }
+
     /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.
     pub fn reset_schedule(&mut self, schedule_cfg: SgdScheduleConfig, seed: u64) -> CoreResult<()> {
         if self.snap_t_fdp.is_some()
