@@ -20,6 +20,8 @@ pub struct EigenResult {
     pub num_modes: usize,
     /// Whether the dense Jacobi fallback path was used instead of iterative Lanczos.
     pub used_dense_fallback: bool,
+    /// Number of Lanczos thick-restart iterations executed (`0` when using dense Jacobi fallback).
+    pub iterations: usize,
 }
 
 /// Pure-Rust SpMV-only block thick-restart Lanczos eigensolver with two-pass MGS
@@ -68,8 +70,21 @@ impl LanczosEigen {
         &self,
         n: usize,
         k: usize,
-        mut matvec: F,
+        matvec: F,
     ) -> CoreResult<(Vec<f64>, Vec<f64>)>
+    where
+        F: FnMut(&[f64], &mut [f64]) -> CoreResult<()>,
+    {
+        let (lambdas, vectors, _) = self.largest_eigenpairs_with_iters(n, k, matvec)?;
+        Ok((lambdas, vectors))
+    }
+
+    pub(crate) fn largest_eigenpairs_with_iters<F>(
+        &self,
+        n: usize,
+        k: usize,
+        mut matvec: F,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>, usize)>
     where
         F: FnMut(&[f64], &mut [f64]) -> CoreResult<()>,
     {
@@ -131,6 +146,7 @@ impl LanczosEigen {
         let mut final_evals = Vec::new();
         let mut final_evecs = Vec::new();
         let mut final_m = m_sub;
+        let mut executed_iters = 0usize;
         let mut w_orig_norms = vec![0.0_f64; eff_b];
 
         for iter in 0..self.max_iters {
@@ -213,6 +229,7 @@ impl LanczosEigen {
                 final_evals = evals;
                 final_evecs = evecs;
                 final_m = effective_m;
+                executed_iters = iter + 1;
                 break;
             }
 
@@ -246,7 +263,7 @@ impl LanczosEigen {
             }
         }
 
-        Ok((lambdas_desc, vectors))
+        Ok((lambdas_desc, vectors, executed_iters))
     }
 }
 
@@ -288,6 +305,7 @@ pub fn smallest_sym_laplacian_eigenpairs<W: Scalar>(
             num_nodes: n,
             num_modes: 0,
             used_dense_fallback: true,
+            iterations: 0,
         });
     }
 
@@ -314,6 +332,7 @@ pub fn smallest_sym_laplacian_eigenpairs<W: Scalar>(
             num_nodes: n,
             num_modes: actual_modes,
             used_dense_fallback: true,
+            iterations: 0,
         });
     }
 
@@ -321,13 +340,14 @@ pub fn smallest_sym_laplacian_eigenpairs<W: Scalar>(
     let k_total = actual_modes + 1;
     let lanczos = LanczosEigen::new(tol, max_iters, seed);
     let mut tmp = vec![0.0_f64; n];
-    let (mu_desc, mu_vecs) = lanczos.largest_eigenpairs(n, k_total, |x, y| {
-        l_sym.spmv(x, &mut tmp)?;
-        for i in 0..n {
-            y[i] = SHIFT * x[i] - tmp[i];
-        }
-        Ok(())
-    })?;
+    let (mu_desc, mu_vecs, iterations) =
+        lanczos.largest_eigenpairs_with_iters(n, k_total, |x, y| {
+            l_sym.spmv(x, &mut tmp)?;
+            for i in 0..n {
+                y[i] = SHIFT * x[i] - tmp[i];
+            }
+            Ok(())
+        })?;
 
     let lambdas: Vec<f64> = mu_desc[1..=actual_modes]
         .iter()
@@ -347,5 +367,6 @@ pub fn smallest_sym_laplacian_eigenpairs<W: Scalar>(
         num_nodes: n,
         num_modes: actual_modes,
         used_dense_fallback: false,
+        iterations,
     })
 }

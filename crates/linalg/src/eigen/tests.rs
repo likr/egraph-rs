@@ -87,6 +87,7 @@ fn test_lanczos_matches_jacobi_on_16x16_grid_principal_angle() {
     let n_modes = 8; // Avoid splitting degenerate (p, q)/(q, p) pair at boundary.
     let res = smallest_sym_laplacian_eigenpairs(&grid, n_modes, 1e-5, 500, 42).unwrap();
     assert!(!res.used_dense_fallback);
+    assert!(res.iterations >= 1);
     assert_eq!(res.num_nodes, n);
     assert_eq!(res.num_modes, n_modes);
 
@@ -188,15 +189,24 @@ fn test_eigen_edge_cases_empty_singleton_edgeless_disconnected() {
     let re = smallest_sym_laplacian_eigenpairs(&empty, 4, 1e-6, 100, 42).unwrap();
     assert_eq!(re.num_modes, 0);
     assert!(re.used_dense_fallback);
+    assert_eq!(re.iterations, 0);
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     let rs = smallest_sym_laplacian_eigenpairs(&single, 4, 1e-6, 100, 42).unwrap();
     assert_eq!(rs.num_modes, 0);
+    assert_eq!(rs.iterations, 0);
+
+    // Small grid hits dense Jacobi fallback with 0 Lanczos iterations.
+    let small_grid = make_grid_2d(4, 4, false);
+    let r_small = smallest_sym_laplacian_eigenpairs(&small_grid, 2, 1e-6, 100, 42).unwrap();
+    assert!(r_small.used_dense_fallback);
+    assert_eq!(r_small.iterations, 0);
 
     // Large edgeless graph (triggers Lanczos invariant-subspace recovery for L_sym = I)
     let edgeless = CsrGraph::<f64>::from_edges(60, &[], None, false, false).unwrap();
     let r_iso = smallest_sym_laplacian_eigenpairs(&edgeless, 3, 1e-6, 100, 42).unwrap();
     assert!(!r_iso.used_dense_fallback);
+    assert!(r_iso.iterations >= 1);
     assert_eq!(r_iso.num_modes, 3);
     for &lam in &r_iso.lambdas {
         assert!((lam - 1.0).abs() < 1e-10);
