@@ -46,6 +46,12 @@ if [[ "$MODE" != "report" && "$MODE" != "strict" ]]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$REPO_ROOT/scripts/verify_helpers.py" ]]; then
+  VERIFY_HELPERS="$REPO_ROOT/scripts/verify_helpers.py"
+else
+  VERIFY_HELPERS="$SCRIPT_DIR/verify_helpers.py"
+fi
 export RUST_FONTCONFIG_DLOPEN=1
 
 HARD_FAILS=0
@@ -72,7 +78,7 @@ if [[ ! -f "$REPO_ROOT/Cargo.lock" ]]; then
   cargo generate-lockfile >/dev/null 2>&1 || cargo metadata --format-version 1 >/dev/null 2>&1 || true
 fi
 
-WORKSPACE_PKGS="$(cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' || true)"
+WORKSPACE_PKGS="$(python3 "$VERIFY_HELPERS" list-packages || true)"
 
 has_workspace_pkg() {
   printf '%s\n' "$WORKSPACE_PKGS" | grep -qx "$1"
@@ -158,7 +164,7 @@ check_cargo_tree_legacy_crate() {
 }
 
 # 1. Dependency tree gate (rayon / linfa / getrandom / wgpu)
-# Pure-Rust v6 core/spatial/metrics/linalg/neighborhood/clustering/layout/facade/cli crates
+# Pure-Rust core/spatial/metrics/linalg/neighborhood/clustering/layout/facade/cli crates
 # and `egraph-wasm` (both default `full = ["delaunay"]` and `--no-default-features`)
 # ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
 # Legacy-featured crates (`petgraph-clustering`, `egraph-python`, `egraph-wasm --features legacy`)
@@ -175,6 +181,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
     egraph-dataset)
       check_cargo_tree_crate "egraph-dataset (default)" "hard" -p egraph-dataset
+      check_cargo_tree_crate "egraph-dataset (--all-features)" "hard" -p egraph-dataset --all-features
       check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
       ;;
     egraph)
@@ -184,6 +191,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
     egraph-layout)
       check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
+      check_cargo_tree_crate "egraph-layout (--all-features)" "hard" -p egraph-layout --all-features
       check_cargo_tree_crate "egraph-layout (--no-default-features)" "hard" -p egraph-layout --no-default-features
       check_cargo_tree_crate "egraph-layout (--no-default-features --features baselines)" "hard" -p egraph-layout --no-default-features --features baselines
       ;;
@@ -214,12 +222,13 @@ if [[ -n "$TARGET_CRATE" ]]; then
     egraph-wasm)
       check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
       check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+      check_cargo_tree_legacy_crate "egraph-wasm (--features legacy)" -p egraph-wasm --features legacy
       ;;
     petgraph-clustering|egraph-python)
       check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
       ;;
     *)
-      check_cargo_tree_crate "$TARGET_CRATE" "legacy" -p "$TARGET_CRATE"
+      check_cargo_tree_legacy_crate "$TARGET_CRATE" -p "$TARGET_CRATE"
       ;;
   esac
 else
@@ -228,7 +237,7 @@ else
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
   done
-  for crate in egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel; do
+  for crate in egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--all-features)" "hard" -p "$crate" --all-features
     fi
@@ -257,6 +266,7 @@ else
   if has_workspace_pkg "egraph-wasm"; then
     check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
     check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+    check_cargo_tree_legacy_crate "egraph-wasm (--features legacy)" -p egraph-wasm --features legacy
   fi
   for legacy_crate in petgraph-clustering egraph-python; do
     if has_workspace_pkg "$legacy_crate"; then
@@ -309,12 +319,12 @@ check_wasm32_target() {
   fi
   check_wasm32_variant "$crate" ""
   case "$crate" in
-    egraph|egraph-layout|egraph-wasm|egraph-metrics-cluster|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-multilevel)
+    egraph|egraph-dataset|egraph-layout|egraph-wasm|egraph-metrics-cluster|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-multilevel)
       check_wasm32_variant "$crate" " (--no-default-features)" --no-default-features
       ;;
   esac
   case "$crate" in
-    egraph|egraph-metrics|egraph-metrics-cluster|egraph-layout-stress|egraph-layout-force|egraph-layout-multilevel)
+    egraph|egraph-layout|egraph-metrics|egraph-metrics-cluster|egraph-layout-stress|egraph-layout-force|egraph-layout-multilevel)
       check_wasm32_variant "$crate" " (--all-features)" --all-features
       ;;
   esac
@@ -341,20 +351,30 @@ if [[ -n "$TARGET_CRATE" ]]; then
   esac
 else
   for wasm_crate in \
-    egraph \
+    egraph-core \
+    egraph-ffi \
+    egraph-petgraph \
+    egraph-dataset \
+    egraph-spatial \
     egraph-spatial-trees \
     egraph-spatial-fft \
     egraph-spatial-crossings \
-    egraph-linalg-mds \
-    egraph-linalg-amg \
+    egraph-metrics \
     egraph-metrics-geometry \
     egraph-metrics-cluster \
+    egraph-linalg \
+    egraph-linalg-mds \
+    egraph-linalg-amg \
+    egraph-neighborhood \
+    egraph-clustering \
+    egraph-layout \
     egraph-layout-constraints \
     egraph-layout-stress \
     egraph-layout-force \
     egraph-layout-neighbor \
     egraph-layout-sgd \
     egraph-layout-multilevel \
+    egraph \
     egraph-wasm; do
     check_wasm32_target "$wasm_crate"
   done
@@ -384,152 +404,7 @@ else
 fi
 
 # 5. Cross-target packaging metadata check
-PKG_ISSUES="$(python3 - "$REPO_ROOT" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    tomllib = None
-
-root = pathlib.Path(sys.argv[1])
-issues = []
-
-
-def load_toml(path: pathlib.Path) -> dict:
-    txt = path.read_text(encoding="utf-8")
-    if tomllib is not None:
-        return tomllib.loads(txt)
-    # Minimal fallback for Python < 3.11 without tomllib
-    data = {"_raw": txt}
-    ws_ver = re.search(r'^\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', txt, re.M | re.S)
-    if ws_ver:
-        data.setdefault("workspace", {}).setdefault("package", {})["version"] = ws_ver.group(1)
-    pkg_sec = re.search(r'^\[package\][^\[]*', txt, re.M | re.S)
-    if pkg_sec:
-        sec = pkg_sec.group(0)
-        if re.search(r'^version\.workspace\s*=\s*true', sec, re.M) or re.search(r'^version\s*=\s*\{\s*workspace\s*=\s*true', sec, re.M):
-            data.setdefault("package", {})["version"] = {"workspace": True}
-        else:
-            m = re.search(r'^version\s*=\s*"([^"]+)"', sec, re.M)
-            if m:
-                data.setdefault("package", {})["version"] = m.group(1)
-    return data
-
-
-root_cargo_path = root / "Cargo.toml"
-ws_version = None
-ws_deps = {}
-if root_cargo_path.exists():
-    root_data = load_toml(root_cargo_path)
-    ws_version = root_data.get("workspace", {}).get("package", {}).get("version")
-    ws_deps = root_data.get("workspace", {}).get("dependencies", {})
-
-
-def resolve_cargo_version(cargo_path: pathlib.Path) -> str | None:
-    data = load_toml(cargo_path)
-    ver = data.get("package", {}).get("version")
-    if isinstance(ver, dict) and ver.get("workspace") is True:
-        return ws_version
-    if isinstance(ver, str):
-        return ver
-    return None
-
-
-for sub in (
-    "core",
-    "ffi",
-    "petgraph",
-    "dataset",
-    "spatial-trees",
-    "spatial-fft",
-    "spatial-crossings",
-    "spatial",
-    "metrics-geometry",
-    "metrics-cluster",
-    "metrics",
-    "linalg",
-    "linalg-mds",
-    "linalg-amg",
-    "neighborhood",
-    "cluster",
-    "layout-constraints",
-    "layout-stress",
-    "layout-force",
-    "layout-neighbor",
-    "layout-sgd",
-    "layout-multilevel",
-    "layout",
-    "egraph",
-    "cli",
-):
-    sub_toml = root / "crates" / sub / "Cargo.toml"
-    if sub_toml.exists() and ws_version:
-        sub_ver = resolve_cargo_version(sub_toml)
-        if sub_ver != ws_version:
-            issues.append(f"crates/{sub}/Cargo.toml version ({sub_ver}) != workspace version ({ws_version})")
-
-py_toml = root / "crates" / "python" / "Cargo.toml"
-py_proj = root / "crates" / "python" / "pyproject.toml"
-if py_toml.exists() and py_proj.exists():
-    py_cargo_data = load_toml(py_toml)
-    py_cargo_ver = resolve_cargo_version(py_toml)
-    if ws_version and py_cargo_ver != ws_version:
-        issues.append(f"crates/python/Cargo.toml version ({py_cargo_ver}) != workspace version ({ws_version})")
-
-    if tomllib is not None:
-        pyo3_spec = py_cargo_data.get("dependencies", {}).get("pyo3")
-        pyo3_features = []
-        if isinstance(pyo3_spec, dict):
-            pyo3_features.extend(pyo3_spec.get("features", []))
-            if pyo3_spec.get("workspace") is True and isinstance(ws_deps.get("pyo3"), dict):
-                pyo3_features.extend(ws_deps["pyo3"].get("features", []))
-        pyproj_data = load_toml(py_proj)
-        req_py = str(pyproj_data.get("project", {}).get("requires-python", ""))
-        proj_deps = pyproj_data.get("project", {}).get("dependencies", [])
-    else:
-        t_txt = py_toml.read_text(encoding="utf-8")
-        r_txt = root_cargo_path.read_text(encoding="utf-8") if root_cargo_path.exists() else ""
-        p_txt = py_proj.read_text(encoding="utf-8")
-        pyo3_features = re.findall(r'abi3-py\d+', t_txt + ("\n" + r_txt if "pyo3.workspace" in t_txt else ""))
-        m_req = re.search(r'^requires-python\s*=\s*"([^"]+)"', p_txt, re.M)
-        req_py = m_req.group(1) if m_req else ""
-        m_deps = re.search(r'^dependencies\s*=\s*\[([^\]]*)\]', p_txt, re.M | re.S)
-        proj_deps = re.findall(r'"([^"]+)"', m_deps.group(1)) if m_deps else []
-
-    if any(f in pyo3_features for f in ("abi3-py37", "abi3-py38", "abi3-py39")) or "abi3-py310" not in pyo3_features:
-        issues.append(f"Python pyo3 abi3 features ({pyo3_features}) must enable abi3-py310")
-    if not req_py.startswith(">=3.10"):
-        issues.append(f"crates/python/pyproject.toml requires-python ({req_py!r}) must be '>=3.10'")
-    if not any(re.match(r"^\s*numpy(\b|[<>=!~])", str(d)) for d in proj_deps):
-        issues.append("crates/python/pyproject.toml omits runtime numpy dependency")
-
-wasm_toml = root / "crates" / "wasm" / "Cargo.toml"
-wasm_pkg = root / "crates" / "wasm" / "package.json"
-if wasm_toml.exists() and wasm_pkg.exists():
-    wasm_cargo_ver = resolve_cargo_version(wasm_toml)
-    wasm_pkg_data = json.loads(wasm_pkg.read_text(encoding="utf-8"))
-    wasm_pkg_ver = wasm_pkg_data.get("version")
-    if ws_version and wasm_cargo_ver != ws_version:
-        issues.append(f"crates/wasm/Cargo.toml version ({wasm_cargo_ver}) != workspace version ({ws_version})")
-    if ws_version and wasm_pkg_ver != ws_version:
-        issues.append(f"crates/wasm/package.json version ({wasm_pkg_ver}) != workspace version ({ws_version})")
-    if wasm_cargo_ver != wasm_pkg_ver:
-        issues.append(f"WASM Cargo.toml version ({wasm_cargo_ver}) != package.json version ({wasm_pkg_ver})")
-    repo_meta = wasm_pkg_data.get("repository")
-    if not isinstance(repo_meta, dict) or repo_meta.get("type") != "git" or repo_meta.get("directory") != "crates/wasm":
-        issues.append("crates/wasm/package.json repository must specify type='git' and directory='crates/wasm' for npm provenance")
-    repo_url = repo_meta.get("url", "") if isinstance(repo_meta, dict) else ""
-    if "github.com/likr/egraph-rs" not in str(repo_url):
-        issues.append(f"crates/wasm/package.json repository.url ({repo_url!r}) must point to github.com/likr/egraph-rs")
-
-for i in issues:
-    print(i)
-PY
-)"
+PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT")"
 
 if [[ -n "$PKG_ISSUES" ]]; then
   while IFS= read -r line; do

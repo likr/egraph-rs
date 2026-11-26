@@ -276,7 +276,33 @@ jobs:
         id: size
         run: |
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5
+          wasm-pack test --node crates/wasm --no-default-features \
+            --test coarsen_backbone_and_hde \
+            --test community_clustering_and_backbone \
+            --test csr_and_layout_buffers \
+            --test force_multilevel_and_classic_solvers \
+            --test grip_gem_sel_pfs_sfc_solvers \
+            --test gumap_solver \
+            --test linalg_neighborhood_boundaries \
+            --test linalg_spectral_amg_resistance \
+            --test manifold_layouts_and_fdeb \
+            --test metrics_cluster_area \
+            --test metrics_cluster_area_errors \
+            --test metrics_cluster_area_weights \
+            --test metrics_cluster_baselines \
+            --test metrics_evaluate_and_spatial \
+            --test metrics_layout_and_crossings \
+            --test neighborhood_knn_and_varadhan \
+            --test overlap_and_layering_constraints \
+            --test screened_poisson_field_and_refiner \
+            --test sgd_barrier_and_pair_solvers \
+            --test sgd_snap_pacmap_and_sgd2 \
+            --test solver_stats_and_dog_getters \
+            --test spatial_intruder_refiner \
+            --test stress_and_maxent_solvers \
+            --test tfdp_and_ibumap_solvers \
+            --test tsnet_backends_and_row_normalized \
+            --test tsnet_preconditioning_and_stats
           wasm-pack test --node crates/wasm --features legacy
           (cd crates/wasm && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
           if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then

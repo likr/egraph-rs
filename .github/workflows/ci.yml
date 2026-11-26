@@ -78,17 +78,25 @@ jobs:
             exit 1
           fi
           for spec in \
+            "egraph --no-default-features" \
+            "egraph --all-features" \
+            "egraph-dataset --no-default-features" \
+            "egraph-dataset --all-features" \
             "egraph-spatial --features delaunay" \
+            "egraph-spatial --all-features" \
             "egraph-spatial-trees --features delaunay" \
             "egraph-metrics --all-features" \
             "egraph-metrics-cluster --all-features" \
             "egraph-layout --no-default-features" \
             "egraph-layout --no-default-features --features baselines" \
+            "egraph-layout --all-features" \
             "egraph-layout-constraints --no-default-features" \
             "egraph-layout-constraints --no-default-features --features baselines" \
+            "egraph-layout-constraints --all-features" \
             "egraph-layout-stress --all-features" \
             "egraph-layout-force --all-features" \
             "egraph-layout-sgd --no-default-features" \
+            "egraph-layout-sgd --features delaunay" \
             "egraph-layout-multilevel --no-default-features" \
             "egraph-layout-multilevel --no-default-features --features baselines" \
             "egraph-layout-multilevel --all-features" \
@@ -146,10 +154,36 @@ jobs:
         shell: bash
         run: |
           if [[ -f crates/python/python/egraph/_core.pyi ]]; then
-            shopt -s nullglob
-            V6_PY_TESTS=(crates/python/tests/test_v6_*.py)
-            mypy --strict crates/python/python/egraph ${V6_PY_TESTS[@]+"${V6_PY_TESTS[@]}"}
+            TYPED_PY_TESTS=(
+              crates/python/tests/test_amg_and_effective_resistance.py
+              crates/python/tests/test_api_options_parity.py
+              crates/python/tests/test_cluster_area_faithfulness.py
+              crates/python/tests/test_cluster_area_faithfulness_weights.py
+              crates/python/tests/test_cluster_baselines_and_metrics_dispatch.py
+              crates/python/tests/test_clustering_and_manifold.py
+              crates/python/tests/test_coarse_backbone.py
+              crates/python/tests/test_community_and_clustered_layouts.py
+              crates/python/tests/test_constraints_and_layering.py
+              crates/python/tests/test_csr_and_layout2d.py
+              crates/python/tests/test_force_and_overlap_solvers.py
+              crates/python/tests/test_force_bundling_and_validation.py
+              crates/python/tests/test_geometry_and_stress_metrics.py
+              crates/python/tests/test_grip_gem_sel_pfs_sfc.py
+              crates/python/tests/test_gumap_refiner_and_stress_solvers.py
+              crates/python/tests/test_hde_and_sgd_presets.py
+              crates/python/tests/test_interop.py
+              crates/python/tests/test_legacy_drawing_compat.py
+              crates/python/tests/test_maxent_stress_solver.py
+              crates/python/tests/test_neighbor_and_sgd_solvers.py
+              crates/python/tests/test_neighborhood_knn_and_landmarks.py
+              crates/python/tests/test_rta_crosslessness_and_metric_errors.py
+              crates/python/tests/test_screened_poisson.py
+              crates/python/tests/test_spectral_and_chebyshev_linalg.py
+              crates/python/tests/test_tsnet_and_sgd_solvers.py
+            )
+            mypy --strict crates/python/python/egraph "${TYPED_PY_TESTS[@]}"
             stubtest egraph
+            mypy --strict --ignore-missing-imports scripts/verify_helpers.py scripts/parity_harness.py scripts/parity/
           fi
 
       - name: Upload Linux wheel for docs-check
@@ -201,7 +235,33 @@ jobs:
         run: |
           cargo check -p egraph-wasm --target wasm32-unknown-unknown
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5 --test v6_w1 --test v6_w2
+          wasm-pack test --node crates/wasm --no-default-features \
+            --test coarsen_backbone_and_hde \
+            --test community_clustering_and_backbone \
+            --test csr_and_layout_buffers \
+            --test force_multilevel_and_classic_solvers \
+            --test grip_gem_sel_pfs_sfc_solvers \
+            --test gumap_solver \
+            --test linalg_neighborhood_boundaries \
+            --test linalg_spectral_amg_resistance \
+            --test manifold_layouts_and_fdeb \
+            --test metrics_cluster_area \
+            --test metrics_cluster_area_errors \
+            --test metrics_cluster_area_weights \
+            --test metrics_cluster_baselines \
+            --test metrics_evaluate_and_spatial \
+            --test metrics_layout_and_crossings \
+            --test neighborhood_knn_and_varadhan \
+            --test overlap_and_layering_constraints \
+            --test screened_poisson_field_and_refiner \
+            --test sgd_barrier_and_pair_solvers \
+            --test sgd_snap_pacmap_and_sgd2 \
+            --test solver_stats_and_dog_getters \
+            --test spatial_intruder_refiner \
+            --test stress_and_maxent_solvers \
+            --test tfdp_and_ibumap_solvers \
+            --test tsnet_backends_and_row_normalized \
+            --test tsnet_preconditioning_and_stats
           wasm-pack test --node crates/wasm --features legacy
 
       - name: Build optimized web bundle and assemble pkg

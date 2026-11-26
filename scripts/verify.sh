@@ -31,20 +31,9 @@ Options:
 EOF
 }
 
-RUN_FAST=0
-RUN_RUST=0
-RUN_PYTHON=0
-RUN_WASM=0
-RUN_INVARIANTS=0
-RUN_PARITY=0
-RUN_DOCS=0
-STRICT=0
-RELEASE_PY=1
-DEBUG_RUST=0
-BUILD_WASM=0
-TEST_FILTER=""
-JSON_SUMMARY=""
-CRATES=()
+RUN_FAST=0; RUN_RUST=0; RUN_PYTHON=0; RUN_WASM=0; RUN_INVARIANTS=0; RUN_PARITY=0; RUN_DOCS=0
+STRICT=0; RELEASE_PY=1; DEBUG_RUST=0; BUILD_WASM=0
+TEST_FILTER=""; JSON_SUMMARY=""; CRATES=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,9 +47,7 @@ while [[ $# -gt 0 ]]; do
     --all) RUN_RUST=1; RUN_PYTHON=1; RUN_WASM=1; RUN_INVARIANTS=1; RUN_PARITY=1; shift ;;
     --crate)
       IFS=',' read -ra _parts <<< "${2:-}"
-      for p in "${_parts[@]}"; do
-        [[ -n "$p" ]] && CRATES+=("$p")
-      done
+      for p in "${_parts[@]}"; do [[ -n "$p" ]] && CRATES+=("$p"); done
       shift 2
       ;;
     --test) TEST_FILTER="${2:-}"; shift 2 ;;
@@ -71,17 +58,11 @@ while [[ $# -gt 0 ]]; do
     --strict) STRICT=1; shift ;;
     --json-summary) JSON_SUMMARY="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *)
-      echo "Unknown option: $1" >&2
-      usage >&2
-      exit 2
-      ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ $((RUN_FAST + RUN_RUST + RUN_PYTHON + RUN_WASM + RUN_INVARIANTS + RUN_PARITY + RUN_DOCS)) -eq 0 ]]; then
-  RUN_FAST=1
-fi
+[[ $((RUN_FAST + RUN_RUST + RUN_PYTHON + RUN_WASM + RUN_INVARIANTS + RUN_PARITY + RUN_DOCS)) -eq 0 ]] && RUN_FAST=1
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -95,13 +76,11 @@ helper_path() {
   fi
 }
 
+VERIFY_HELPERS="$(helper_path verify_helpers.py)"
+
 # Single-thread & build environment hygiene
 export RUST_FONTCONFIG_DLOPEN=1
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export RAYON_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 RAYON_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 
 if command -v sccache >/dev/null 2>&1 && [[ -z "${RUSTC_WRAPPER:-}" ]]; then
   export RUSTC_WRAPPER=sccache
@@ -110,27 +89,18 @@ fi
 
 PARALLEL_WORKERS="${EGRAPH_PARALLEL_WORKERS:-1}"
 if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
-  if [[ "$PARALLEL_WORKERS" -le 1 ]]; then
-    export CARGO_BUILD_JOBS=8
-  elif [[ "$PARALLEL_WORKERS" -eq 2 ]]; then
-    export CARGO_BUILD_JOBS=5
-  elif [[ "$PARALLEL_WORKERS" -eq 3 ]]; then
-    export CARGO_BUILD_JOBS=4
-  else
-    export CARGO_BUILD_JOBS=2
+  if [[ "$PARALLEL_WORKERS" -le 1 ]]; then export CARGO_BUILD_JOBS=8
+  elif [[ "$PARALLEL_WORKERS" -eq 2 ]]; then export CARGO_BUILD_JOBS=5
+  elif [[ "$PARALLEL_WORKERS" -eq 3 ]]; then export CARGO_BUILD_JOBS=4
+  else export CARGO_BUILD_JOBS=2
   fi
 fi
 
 export VIRTUAL_ENV="$REPO_ROOT/.venv"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
-
 cd "$REPO_ROOT"
 
-if command -v cargo-nextest >/dev/null 2>&1; then
-  TEST_RUNNER="nextest"
-else
-  TEST_RUNNER="cargo-test"
-fi
+if command -v cargo-nextest >/dev/null 2>&1; then TEST_RUNNER="nextest"; else TEST_RUNNER="cargo-test"; fi
 
 run_cargo_test_args() {
   if [[ "$TEST_RUNNER" == "nextest" ]]; then
@@ -140,117 +110,40 @@ run_cargo_test_args() {
   fi
 }
 
-OVERALL_START="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
+OVERALL_START="$(python3 "$VERIFY_HELPERS" now)"
 STEP_RECORDS_FILE="$(mktemp "${TMPDIR:-/tmp}/egraph_verify_steps.XXXXXX")"
-DOCS_TMP_DIR=""
-FINAL_STATUS="pass"
-REACHED_END=0
+DOCS_TMP_DIR=""; FINAL_STATUS="pass"; REACHED_END=0
 
 write_json_summary() {
   local exit_code=$?
   if [[ "$exit_code" -eq 0 && ( "$FINAL_STATUS" != "pass" || "$REACHED_END" -ne 1 ) ]]; then
-    exit_code=1
-    FINAL_STATUS="fail"
+    exit_code=1; FINAL_STATUS="fail"
   elif [[ "$exit_code" -ne 0 ]]; then
     FINAL_STATUS="fail"
   fi
   if [[ -n "$JSON_SUMMARY" ]]; then
     mkdir -p "$(dirname "$JSON_SUMMARY")"
     local sccache_info=""
-    if command -v sccache >/dev/null 2>&1; then
-      sccache_info="$(sccache --show-stats 2>/dev/null | head -n 15 || true)"
-    fi
-    python3 - "$JSON_SUMMARY" "$FINAL_STATUS" "$REPO_ROOT" "$PARALLEL_WORKERS" "$CARGO_BUILD_JOBS" "${RUSTC_WRAPPER:-none}" "$OVERALL_START" "$STEP_RECORDS_FILE" "$sccache_info" <<'PY'
-import json, pathlib, subprocess, sys, time
-out_path = pathlib.Path(sys.argv[1])
-status = sys.argv[2]
-repo_root = sys.argv[3]
-workers = int(sys.argv[4])
-jobs = int(sys.argv[5])
-wrapper = sys.argv[6]
-start_ts = float(sys.argv[7])
-records_file = pathlib.Path(sys.argv[8])
-sccache_info = sys.argv[9]
-
-steps = []
-if records_file.exists():
-    for line in records_file.read_text().splitlines():
-        if line.strip():
-            steps.append(json.loads(line))
-
-branch = subprocess.check_output(["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
-sha = subprocess.check_output(["git", "-C", repo_root, "rev-parse", "--short", "HEAD"], text=True).strip()
-
-payload = {
-    "status": status,
-    "worktree": repo_root,
-    "branch": branch,
-    "head_sha": sha,
-    "parallel_workers": workers,
-    "cargo_build_jobs": jobs,
-    "rustc_wrapper": wrapper,
-    "total_elapsed_sec": round(time.time() - start_ts, 3),
-    "steps": steps,
-    "sccache_stats": sccache_info,
-}
-out_path.write_text(json.dumps(payload, indent=2) + "\n")
-PY
+    command -v sccache >/dev/null 2>&1 && sccache_info="$(sccache --show-stats 2>/dev/null | head -n 15 || true)"
+    python3 "$VERIFY_HELPERS" write-summary \
+      "$JSON_SUMMARY" "$FINAL_STATUS" "$REPO_ROOT" "$PARALLEL_WORKERS" \
+      "$CARGO_BUILD_JOBS" "${RUSTC_WRAPPER:-none}" "$OVERALL_START" \
+      "$STEP_RECORDS_FILE" "$sccache_info"
   fi
   rm -f "$STEP_RECORDS_FILE"
-  if [[ -n "${DOCS_TMP_DIR:-}" ]]; then
-    rm -rf "$DOCS_TMP_DIR"
-  fi
+  [[ -n "${DOCS_TMP_DIR:-}" ]] && rm -rf "$DOCS_TMP_DIR"
   exit "$exit_code"
 }
 trap write_json_summary EXIT
 
 run_step() {
-  local name="$1"
+  local name="$1" t0 rc=0
   shift
-  local t0 t1 elapsed rc=0
-  t0="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
+  t0="$(python3 "$VERIFY_HELPERS" now)"
   echo "=== [verify] $name ==="
-  if "$@"; then
-    rc=0
-  else
-    rc=$?
-    FINAL_STATUS="fail"
-  fi
-  t1="$(python3 -c 'import time; print(f"{time.time():.3f}")')"
-  elapsed="$(python3 -c "print(round($t1 - $t0, 3))")"
-  python3 - "$STEP_RECORDS_FILE" "$name" "$rc" "$elapsed" <<'PY'
-import json, sys
-with open(sys.argv[1], "a") as f:
-    f.write(json.dumps({"name": sys.argv[2], "status": "pass" if int(sys.argv[3]) == 0 else "fail", "elapsed_sec": float(sys.argv[4])}) + "\n")
-PY
-  if [[ "$rc" -ne 0 ]]; then
-    return "$rc"
-  fi
-}
-
-detect_changed_crates() {
-  python3 - "$REPO_ROOT" <<'PY'
-import pathlib, re, subprocess, sys
-
-root = pathlib.Path(sys.argv[1])
-changed = set()
-for cmd in (["git", "-C", str(root), "diff", "--name-only", "HEAD"],
-            ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"]):
-    out = subprocess.check_output(cmd, text=True).splitlines()
-    changed.update(out)
-
-pkgs = []
-for toml in root.glob("crates/**/Cargo.toml"):
-    crate_dir = toml.parent.relative_to(root).as_posix() + "/"
-    if any(f.startswith(crate_dir) for f in changed):
-        txt = toml.read_text()
-        m = re.search(r'^name\s*=\s*"([^"]+)"', txt, re.M)
-        if m and m.group(1) not in ("egraph-python", "egraph-wasm"):
-            pkgs.append(m.group(1))
-
-for p in sorted(set(pkgs)):
-    print(p)
-PY
+  if "$@"; then rc=0; else rc=$?; FINAL_STATUS="fail"; fi
+  python3 "$VERIFY_HELPERS" record-step "$STEP_RECORDS_FILE" "$name" "$rc" "$t0"
+  [[ "$rc" -eq 0 ]] || return "$rc"
 }
 
 ensure_venv() {
@@ -265,37 +158,35 @@ ensure_docs_venv() {
   ensure_venv
   if ! "$VIRTUAL_ENV/bin/python" -c "import sphinx, sphinx_rtd_theme, matplotlib" >/dev/null 2>&1; then
     local req_file="$REPO_ROOT/crates/python/docs/requirements.txt"
-    if command -v uv >/dev/null 2>&1; then
-      uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$req_file"
-    else
-      "$VIRTUAL_ENV/bin/python" -m pip install -r "$req_file"
-    fi
+    if command -v uv >/dev/null 2>&1; then uv pip install --python "$VIRTUAL_ENV/bin/python" -r "$req_file"
+    else "$VIRTUAL_ENV/bin/python" -m pip install -r "$req_file"; fi
+  fi
+}
+
+build_wasm_release_bundle() {
+  (cd "$REPO_ROOT/crates/wasm" && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
+  [[ -f "$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs" ]] && node "$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs"
+  if command -v wasm-opt >/dev/null 2>&1 && [[ -f "$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm" ]]; then
+    wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+      "$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm" -o "$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm"
   fi
 }
 
 # --- Tier 0: --fast ---
 if [[ "$RUN_FAST" -eq 1 ]]; then
   run_step "rust_fmt_check" cargo fmt --all -- --check
-
   FAST_CRATES=()
   if [[ "${#CRATES[@]}" -gt 0 ]]; then
     FAST_CRATES=(${CRATES[@]+"${CRATES[@]}"})
   else
-    while IFS= read -r line; do
-      [[ -n "$line" ]] && FAST_CRATES+=("$line")
-    done < <(detect_changed_crates)
+    while IFS= read -r line; do [[ -n "$line" ]] && FAST_CRATES+=("$line"); done < <(python3 "$VERIFY_HELPERS" detect-changed-crates "$REPO_ROOT")
   fi
-
   if [[ "${#FAST_CRATES[@]}" -eq 0 ]]; then
     echo "[verify] No changed library crates detected; running baseline smoke crate check."
     for fallback in egraph-core petgraph-algorithm-connected-components; do
-      if cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c "import sys,json; pkgs={p['name'] for p in json.load(sys.stdin)['packages']}; sys.exit(0 if '$fallback' in pkgs else 1)"; then
-        FAST_CRATES=("$fallback")
-        break
-      fi
+      if python3 "$VERIFY_HELPERS" has-package "$fallback"; then FAST_CRATES=("$fallback"); break; fi
     done
   fi
-
   for c in ${FAST_CRATES[@]+"${FAST_CRATES[@]}"}; do
     case "$c" in
       egraph-python)
@@ -308,14 +199,11 @@ if [[ "$RUN_FAST" -eq 1 ]]; then
         echo "[verify] Skipping standalone host test run for egraph-wasm (cdylib); run ./scripts/verify.sh --wasm"
         ;;
       *)
-        if [[ "$c" != "petgraph-linalg-kernel" || "$STRICT" -eq 1 ]]; then
-          run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
-        fi
+        [[ "$c" != "petgraph-linalg-kernel" || "$STRICT" -eq 1 ]] && run_step "clippy_$c" cargo clippy --no-deps --all-targets -p "$c" -- -D warnings
         run_step "test_$c" run_cargo_test_args -p "$c"
         ;;
     esac
   done
-
   run_step "thread_scan" bash -c "
     HITS=\$(grep -rnE 'std::thread::|rayon::|web_sys::Worker|SharedArrayBuffer|wgpu::' '$REPO_ROOT/crates' --include='*.rs' --exclude-dir=target --exclude-dir=.worktrees | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true)
     if [[ -n \"\$HITS\" ]]; then echo \"\$HITS\"; exit 1; fi
@@ -328,84 +216,79 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   if [[ "$STRICT" -eq 1 ]]; then
     run_step "clippy_workspace_strict" cargo clippy --workspace --all-targets --all-features -- -D warnings
   else
-    run_step "clippy_workspace_non_legacy" bash -c '
+    run_step "clippy_workspace_non_legacy" bash -c "
       set -euo pipefail
-      PKGS=$(python3 -c "import json,subprocess; d=json.loads(subprocess.check_output([\"cargo\",\"metadata\",\"--no-deps\",\"--format-version\",\"1\"],text=True)); print(\" \".join(\"-p \"+p[\"name\"] for p in d[\"packages\"] if p[\"name\"]!=\"petgraph-linalg-kernel\"))")
-      eval "cargo clippy --no-deps --all-targets $PKGS -- -D warnings"
-    '
+      PKGS=\$(python3 '$VERIFY_HELPERS' list-packages --exclude petgraph-linalg-kernel --format clippy-args)
+      eval \"cargo clippy --no-deps --all-targets \$PKGS -- -D warnings\"
+    "
   fi
-  RUST_META_PKGS="$(cargo metadata --no-deps --format-version 1 2>/dev/null | python3 -c 'import json,sys; print("\n".join(p["name"] for p in json.load(sys.stdin)["packages"]))' || true)"
-  has_rust_pkg() {
-    printf '%s\n' "$RUST_META_PKGS" | grep -qx "$1"
+  RUST_META_PKGS="$(python3 "$VERIFY_HELPERS" list-packages || true)"
+  has_rust_pkg() { printf '%s\n' "$RUST_META_PKGS" | grep -qx "$1"; }
+  run_pkg_matrix() {
+    local runner="$1" suffix="$2" flag_str="$3" pkg flags=()
+    shift 3
+    [[ -n "$flag_str" ]] && read -ra flags <<< "$flag_str"
+    for pkg in "$@"; do
+      has_rust_pkg "$pkg" || continue
+      if [[ "$runner" == "clippy" ]]; then
+        run_step "clippy_${pkg}_${suffix}" cargo clippy --no-deps --all-targets ${flags[@]+"${flags[@]}"} -p "$pkg" -- -D warnings
+      else
+        run_step "rust_${pkg}_${suffix}" run_cargo_test_args ${flags[@]+"${flags[@]}"} -p "$pkg"
+      fi
+    done
   }
-  for pkg in egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph; do
-    if has_rust_pkg "$pkg"; then
-      run_step "clippy_${pkg}_all_features" cargo clippy --no-deps --all-targets --all-features -p "$pkg" -- -D warnings
-    fi
-  done
-  for pkg in egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph; do
-    if has_rust_pkg "$pkg"; then
-      run_step "clippy_${pkg}_no_default_features" cargo clippy --no-deps --all-targets --no-default-features -p "$pkg" -- -D warnings
-    fi
-  done
-  for pkg in egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel; do
-    if has_rust_pkg "$pkg"; then
-      run_step "clippy_${pkg}_no_default_features_baselines" cargo clippy --no-deps --all-targets --no-default-features --features baselines -p "$pkg" -- -D warnings
-    fi
-  done
-  RUST_TEST_ARGS=()
-  if [[ "$DEBUG_RUST" -eq 0 ]]; then
-    RUST_TEST_ARGS+=(--release)
-  fi
-  run_step "rust_workspace_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --workspace
-  for pkg in egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph; do
-    if has_rust_pkg "$pkg"; then
-      run_step "rust_${pkg}_all_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --all-features -p "$pkg"
-    fi
-  done
-  for pkg in egraph-dataset egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph; do
-    if has_rust_pkg "$pkg"; then
-      run_step "rust_${pkg}_no_default_features" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features -p "$pkg"
-    fi
-  done
-  for pkg in egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel; do
-    if has_rust_pkg "$pkg"; then
-      run_step "rust_${pkg}_no_default_features_baselines" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} --no-default-features --features baselines -p "$pkg"
-    fi
-  done
-  if has_rust_pkg "egraph-cli"; then
-    run_step "rust_cli_tests" run_cargo_test_args ${RUST_TEST_ARGS[@]+"${RUST_TEST_ARGS[@]}"} -p egraph-cli
-  fi
+
+  ALL_FEAT_CRATES=(egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
+  NO_DEF_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
+  BASELINES_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel)
+  DELAUNAY_CRATES=(egraph-spatial egraph-spatial-trees egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel)
+
+  run_pkg_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
+  run_pkg_matrix clippy "no_default_features" "--no-default-features" "${NO_DEF_CRATES[@]}"
+  run_pkg_matrix clippy "no_default_features_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
+  run_pkg_matrix clippy "delaunay" "--features delaunay" "${DELAUNAY_CRATES[@]}"
+
+  RUST_REL_FLAG=""
+  [[ "$DEBUG_RUST" -eq 0 ]] && RUST_REL_FLAG="--release"
+  run_step "rust_workspace_tests" run_cargo_test_args ${RUST_REL_FLAG:+$RUST_REL_FLAG} --workspace
+  run_pkg_matrix test "all_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--all-features" "${ALL_FEAT_CRATES[@]}"
+  run_pkg_matrix test "no_default_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_CRATES[@]}"
+  run_pkg_matrix test "no_default_features_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
+  run_pkg_matrix test "delaunay" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features delaunay" "${DELAUNAY_CRATES[@]}"
+  has_rust_pkg "egraph-cli" && run_step "rust_cli_tests" run_cargo_test_args ${RUST_REL_FLAG:+$RUST_REL_FLAG} -p egraph-cli
 fi
 
 # --- Python ---
 if [[ "$RUN_PYTHON" -eq 1 ]]; then
   run_step "python_venv" ensure_venv
   MATURIN_FLAGS=()
-  if [[ "$RELEASE_PY" -eq 1 ]]; then
-    MATURIN_FLAGS+=(--release)
-  fi
+  [[ "$RELEASE_PY" -eq 1 ]] && MATURIN_FLAGS+=(--release)
   run_step "python_maturin_develop" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/maturin' develop ${MATURIN_FLAGS[*]:-}"
 
   if [[ -n "$TEST_FILTER" ]]; then
-    if [[ "$TEST_FILTER" == tests.* ]]; then
-      PY_TARGET="$TEST_FILTER"
-    elif [[ "$TEST_FILTER" == test_* || "$TEST_FILTER" == *.* ]]; then
-      PY_TARGET="tests.$TEST_FILTER"
-    else
-      PY_TARGET="tests.test_$TEST_FILTER"
-    fi
+    if [[ "$TEST_FILTER" == tests.* ]]; then PY_TARGET="$TEST_FILTER"
+    elif [[ "$TEST_FILTER" == test_* || "$TEST_FILTER" == *.* ]]; then PY_TARGET="tests.$TEST_FILTER"
+    else PY_TARGET="tests.test_$TEST_FILTER"; fi
     run_step "python_test_scoped" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/python' -m unittest '$PY_TARGET'"
   else
     run_step "python_unittest_all" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/python' -m unittest discover -s tests"
   fi
 
   if [[ -f "$REPO_ROOT/crates/python/python/egraph/_core.pyi" ]]; then
-    V6_PY_TESTS=()
-    while IFS= read -r py_test; do
-      [[ -n "$py_test" ]] && V6_PY_TESTS+=("$py_test")
-    done < <(find "$REPO_ROOT/crates/python/tests" -maxdepth 1 -name 'test_v6_*.py' | sort)
-    run_step "python_mypy" "$VIRTUAL_ENV/bin/mypy" --strict "$REPO_ROOT/crates/python/python/egraph" ${V6_PY_TESTS[@]+"${V6_PY_TESTS[@]}"}
+    TYPED_PY_TEST_NAMES=(
+      test_amg_and_effective_resistance.py test_api_options_parity.py test_cluster_area_faithfulness.py
+      test_cluster_area_faithfulness_weights.py test_cluster_baselines_and_metrics_dispatch.py
+      test_clustering_and_manifold.py test_coarse_backbone.py test_community_and_clustered_layouts.py
+      test_constraints_and_layering.py test_csr_and_layout2d.py test_force_and_overlap_solvers.py
+      test_force_bundling_and_validation.py test_geometry_and_stress_metrics.py test_grip_gem_sel_pfs_sfc.py
+      test_gumap_refiner_and_stress_solvers.py test_hde_and_sgd_presets.py test_interop.py
+      test_legacy_drawing_compat.py test_maxent_stress_solver.py test_neighbor_and_sgd_solvers.py
+      test_neighborhood_knn_and_landmarks.py test_rta_crosslessness_and_metric_errors.py
+      test_screened_poisson.py test_spectral_and_chebyshev_linalg.py test_tsnet_and_sgd_solvers.py
+    )
+    TYPED_PY_TESTS=()
+    for py_test in "${TYPED_PY_TEST_NAMES[@]}"; do TYPED_PY_TESTS+=("$REPO_ROOT/crates/python/tests/$py_test"); done
+    run_step "python_mypy" "$VIRTUAL_ENV/bin/mypy" --strict "$REPO_ROOT/crates/python/python/egraph" "${TYPED_PY_TESTS[@]}"
     run_step "python_stubtest" "$VIRTUAL_ENV/bin/stubtest" egraph
   fi
 fi
@@ -416,27 +299,27 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
   if [[ -n "$TEST_FILTER" ]]; then
     run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
   else
+    WASM_MINIMAL_TARGETS=(
+      coarsen_backbone_and_hde community_clustering_and_backbone csr_and_layout_buffers
+      force_multilevel_and_classic_solvers grip_gem_sel_pfs_sfc_solvers gumap_solver
+      linalg_neighborhood_boundaries linalg_spectral_amg_resistance manifold_layouts_and_fdeb
+      metrics_cluster_area metrics_cluster_area_errors metrics_cluster_area_weights
+      metrics_cluster_baselines metrics_evaluate_and_spatial metrics_layout_and_crossings
+      neighborhood_knn_and_varadhan overlap_and_layering_constraints screened_poisson_field_and_refiner
+      sgd_barrier_and_pair_solvers sgd_snap_pacmap_and_sgd2 solver_stats_and_dog_getters
+      spatial_intruder_refiner stress_and_maxent_solvers tfdp_and_ibumap_solvers
+      tsnet_backends_and_row_normalized tsnet_preconditioning_and_stats
+    )
+    WASM_MINIMAL_FLAGS=()
+    for t in "${WASM_MINIMAL_TARGETS[@]}"; do WASM_MINIMAL_FLAGS+=(--test "$t"); done
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
-    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features --test v6_core --test v6_metrics --test v6_linalg_neighborhood --test v6_layout_clustering --test v6_m4 --test v6_m5 --test v6_w1 --test v6_w2
+    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features "${WASM_MINIMAL_FLAGS[@]}"
     run_step "wasm_test_legacy" wasm-pack test --node "$REPO_ROOT/crates/wasm" --features legacy
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
-    run_step "wasm_build_release" bash -c "
-      set -euo pipefail
-      (cd '$REPO_ROOT/crates/wasm' && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
-      if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
-        node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
-      fi
-      if command -v wasm-opt >/dev/null 2>&1 && [[ -f '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' ]]; then
-        wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
-          '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' \
-          -o '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm'
-      fi
-    "
-    if [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]]; then
-      run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
-    fi
+    run_step "wasm_build_release" build_wasm_release_bundle
+    [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]] && run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
   fi
 fi
 
@@ -447,19 +330,13 @@ if [[ "$RUN_INVARIANTS" -eq 1 ]]; then
   if [[ "${#CRATES[@]}" -gt 1 ]]; then
     for idx in "${!CRATES[@]}"; do
       INV_ARGS=(--mode "$INV_MODE" --crate "${CRATES[$idx]}")
-      if [[ "$BUILD_WASM" -eq 1 && "$idx" -eq 0 ]]; then
-        INV_ARGS+=(--check-wasm-size)
-      fi
+      [[ "$BUILD_WASM" -eq 1 && "$idx" -eq 0 ]] && INV_ARGS+=(--check-wasm-size)
       run_step "invariants_${CRATES[$idx]}" "$INV_BIN" "${INV_ARGS[@]}"
     done
   else
     INV_ARGS=(--mode "$INV_MODE")
-    if [[ "${#CRATES[@]}" -eq 1 ]]; then
-      INV_ARGS+=(--crate "${CRATES[0]}")
-    fi
-    if [[ "$BUILD_WASM" -eq 1 ]]; then
-      INV_ARGS+=(--check-wasm-size)
-    fi
+    [[ "${#CRATES[@]}" -eq 1 ]] && INV_ARGS+=(--crate "${CRATES[0]}")
+    [[ "$BUILD_WASM" -eq 1 ]] && INV_ARGS+=(--check-wasm-size)
     run_step "invariants" "$INV_BIN" ${INV_ARGS[@]+"${INV_ARGS[@]}"}
   fi
 fi
@@ -469,9 +346,7 @@ if [[ "$RUN_PARITY" -eq 1 ]]; then
   run_step "python_venv_for_parity" ensure_venv
   PARITY_BIN="$(helper_path parity_harness.py)"
   PARITY_ARGS=()
-  if [[ -d "$REPO_ROOT/crates/wasm/pkg" ]]; then
-    PARITY_ARGS+=(--wasm-pkg "$REPO_ROOT/crates/wasm/pkg")
-  fi
+  [[ -d "$REPO_ROOT/crates/wasm/pkg" ]] && PARITY_ARGS+=(--wasm-pkg "$REPO_ROOT/crates/wasm/pkg")
   run_step "parity_harness" "$VIRTUAL_ENV/bin/python" "$PARITY_BIN" ${PARITY_ARGS[@]+"${PARITY_ARGS[@]}"}
 fi
 
@@ -481,43 +356,24 @@ if [[ "$RUN_DOCS" -eq 1 ]]; then
   if ! "$VIRTUAL_ENV/bin/python" -c "import egraph" >/dev/null 2>&1; then
     run_step "python_maturin_develop_for_docs" bash -c "cd '$REPO_ROOT/crates/python' && '$VIRTUAL_ENV/bin/maturin' develop --release"
   fi
-  if [[ ! -f "$REPO_ROOT/crates/wasm/pkg/index.d.ts" ]]; then
-    run_step "wasm_build_release_for_docs" bash -c "
-      set -euo pipefail
-      (cd '$REPO_ROOT/crates/wasm' && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
-      if [[ -f '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs' ]]; then
-        node '$REPO_ROOT/crates/wasm/scripts/assemble_pkg.mjs'
-      fi
-      if command -v wasm-opt >/dev/null 2>&1 && [[ -f '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' ]]; then
-        wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
-          '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm' \
-          -o '$REPO_ROOT/crates/wasm/pkg/egraph_wasm_bg.wasm'
-      fi
-    "
-  fi
+  [[ ! -f "$REPO_ROOT/crates/wasm/pkg/index.d.ts" ]] && run_step "wasm_build_release_for_docs" build_wasm_release_bundle
   DOCS_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/egraph_verify_docs.XXXXXX")"
   run_step "docs_sphinx_html" "$VIRTUAL_ENV/bin/python" -m sphinx -b html "$REPO_ROOT/crates/python/docs/source" "$DOCS_TMP_DIR/sphinx_html"
   run_step "docs_sphinx_doctest" "$VIRTUAL_ENV/bin/python" -m sphinx -b doctest "$REPO_ROOT/crates/python/docs/source" "$DOCS_TMP_DIR/sphinx_doctest"
   run_step "docs_typedoc" bash -c "
     set -euo pipefail
-    if [[ ! -x '$REPO_ROOT/crates/wasm/node_modules/.bin/typedoc' ]]; then
-      npm ci --prefix '$REPO_ROOT/crates/wasm'
-    fi
+    [[ -x '$REPO_ROOT/crates/wasm/node_modules/.bin/typedoc' ]] || npm ci --prefix '$REPO_ROOT/crates/wasm'
     npx --prefix '$REPO_ROOT/crates/wasm' typedoc --options '$REPO_ROOT/crates/wasm/typedoc.json' --out '$DOCS_TMP_DIR/typedoc'
   "
   run_step "docs_js_examples_build" bash -c "
     set -euo pipefail
     if [[ ! -d '$REPO_ROOT/js/examples/node_modules' ]]; then
-      if [[ -f '$REPO_ROOT/js/examples/package-lock.json' ]]; then
-        npm --prefix '$REPO_ROOT/js/examples' ci
-      else
-        npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund
-      fi
+      if [[ -f '$REPO_ROOT/js/examples/package-lock.json' ]]; then npm --prefix '$REPO_ROOT/js/examples' ci
+      else npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund; fi
     fi
     npm --prefix '$REPO_ROOT/js/examples' run build
   "
-  rm -rf "$DOCS_TMP_DIR"
-  DOCS_TMP_DIR=""
+  rm -rf "$DOCS_TMP_DIR"; DOCS_TMP_DIR=""
 fi
 
 REACHED_END=1
