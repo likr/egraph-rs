@@ -11,7 +11,6 @@ const EXACT_ENTROPY_MIN_DIST: f64 = 1e-12;
 /// Lazily allocated N-D scratch buffers for [`TsNetSolver`] on [`LayoutNd`].
 #[derive(Debug, Clone)]
 pub(super) struct TsNetNdScratch<S: Scalar> {
-    pub(super) dims: usize,
     pub(super) attr: Vec<f64>,
     pub(super) vel: Vec<f64>,
     pub(super) rep: Vec<S>,
@@ -81,7 +80,6 @@ impl<S: Scalar> TsNetSolver<S> {
         };
 
         self.nd_scratch = Some(TsNetNdScratch {
-            dims,
             attr: vec![0.0; total],
             vel: vec![0.0; total],
             rep: vec![S::ZERO; rep_len],
@@ -423,16 +421,8 @@ impl<S: Scalar> IterativeSolver<S, LayoutNd<S>> for TsNetSolver<S> {
             return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
         }
         layout.validate_finite()?;
-
-        if let Some(scratch) = &self.nd_scratch
-            && scratch.dims != dims
-        {
-            return Err(CoreError::dimension_mismatch(
-                scratch.dims,
-                dims,
-                "TsNetSolver::step::dims",
-            ));
-        }
+        self.active_layout
+            .lock_nd(dims, "TsNetSolver", "TsNetSolver::step::dims")?;
 
         let effective_backend = self.resolve_nd_backend(dims)?;
 

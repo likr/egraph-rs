@@ -7,9 +7,11 @@ use egraph_neighborhood::{
 use egraph_spatial_fft::{FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats};
 use egraph_spatial_trees::ArenaQuadtree2d;
 
+use crate::manifold_utils::ActiveLayoutKind;
 use crate::validation::validate_sparse_probabilities;
 
 use super::config::{TsNetBackend, TsNetConfig, TsNetStage, compute_stage_lr};
+use super::manifold::TsNetManifoldScratch;
 use super::nd::TsNetNdScratch;
 
 /// Cooperative, zero-allocation-per-step unified tsNET solver implementing [`IterativeSolver`](egraph_core::IterativeSolver).
@@ -34,7 +36,9 @@ pub struct TsNetSolver<S: Scalar = f64> {
     pub(super) fit_field: Option<FitField2d<S>>,
     pub(super) fit_out: FitFieldOutput<S>,
     pub(super) quadtree: ArenaQuadtree2d<S>,
+    pub(super) active_layout: ActiveLayoutKind,
     pub(super) nd_scratch: Option<TsNetNdScratch<S>>,
+    pub(super) manifold_scratch: Option<TsNetManifoldScratch>,
     pub(super) status: SolverStatus,
     pub(super) iteration: usize,
     pub(super) total_iterations: usize,
@@ -163,7 +167,9 @@ impl<S: Scalar> TsNetSolver<S> {
             fit_field,
             fit_out,
             quadtree: ArenaQuadtree2d::new(),
+            active_layout: ActiveLayoutKind::Unset,
             nd_scratch: None,
+            manifold_scratch: None,
             status,
             iteration: 0,
             total_iterations,

@@ -5,18 +5,12 @@ use egraph_neighborhood::{
     compute_regularized_dog_varadhan_landmarks,
 };
 
+use crate::manifold_utils::ActiveLayoutKind;
 use crate::validation::{compute_12hop_alt_distances, validate_sparse_probabilities};
 
 use super::config::GuMapConfig;
 
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ActiveLayoutKind {
-    Unset,
-    Euclidean2d,
-    Nd(usize),
-}
 
 /// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`) layout solver.
 ///

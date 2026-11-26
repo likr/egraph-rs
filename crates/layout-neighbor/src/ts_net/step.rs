@@ -176,6 +176,7 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        self.active_layout.lock_2d("TsNetSolver")?;
 
         if self.status.is_finished() {
             return Ok(self.status);

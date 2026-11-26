@@ -1,6 +1,7 @@
 mod config_and_constructors;
 mod convergence_and_backends;
 mod jacobi_and_lr;
+mod manifold;
 mod nd;
 
 use egraph_core::{CsrGraph, DeterministicRng, Layout2d, Scalar};

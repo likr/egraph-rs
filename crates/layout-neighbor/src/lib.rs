@@ -2,6 +2,7 @@
 
 pub mod field_layout;
 pub mod gumap;
+mod manifold_utils;
 pub mod ts_net;
 mod validation;
 

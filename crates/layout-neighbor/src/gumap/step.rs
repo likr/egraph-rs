@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CoreResult, IterativeSolver, Layout2d, Scalar, SolverStatus};
 
-use super::solver::{ActiveLayoutKind, GuMapSolver};
+use super::solver::GuMapSolver;
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
@@ -16,15 +16,7 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
             ));
         }
         layout.validate_finite()?;
-        match self.active_layout {
-            ActiveLayoutKind::Unset => self.active_layout = ActiveLayoutKind::Euclidean2d,
-            ActiveLayoutKind::Euclidean2d => {}
-            ActiveLayoutKind::Nd(_) => {
-                return Err(CoreError::invalid_input(
-                    "GuMapSolver::step: cannot switch from LayoutNd to Layout2d on stateful solver",
-                ));
-            }
-        }
+        self.active_layout.lock_2d("GuMapSolver")?;
 
         if self.status.is_finished() {
             return Ok(self.status);

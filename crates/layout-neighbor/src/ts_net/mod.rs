@@ -6,6 +6,7 @@
 //! perplexity preset ([`TsNetConfig::pure_2hop`]).
 
 mod config;
+mod manifold;
 mod nd;
 mod solver;
 mod step;
