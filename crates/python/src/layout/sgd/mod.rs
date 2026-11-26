@@ -10,10 +10,12 @@ mod omega;
 mod random_pair_sparse_sgd;
 mod schedulers;
 mod sgd;
+mod sgd_pairs;
 mod sparse;
 
 use pyo3::prelude::*;
 
+#[allow(unused_imports)]
 pub use self::diffusion_kernel::{
     PyBandPassDiffusionKernel, PyBandPassDiffusionKernelBuilder, PyDiffusionKernel,
     PyLowRankDiffusionKernel, PyLowRankDiffusionKernelBuilder, PyLowRankMultiscaleDiffusionKernel,
@@ -46,18 +48,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRandomPairSparseSgd>()?;
     m.add_class::<PyOmega>()?;
     m.add_class::<PySgd>()?;
-    m.add_class::<PyDiffusionKernel>()?;
-    m.add_class::<PyBandPassDiffusionKernel>()?;
-    m.add_class::<PyBandPassDiffusionKernelBuilder>()?;
-    m.add_class::<PyLowRankDiffusionKernel>()?;
-    m.add_class::<PyLowRankDiffusionKernelBuilder>()?;
-    m.add_class::<PyLowRankMultiscaleDiffusionKernel>()?;
-    m.add_class::<PyLowRankMultiscaleDiffusionKernelBuilder>()?;
-    m.add_class::<PyMultiscaleDiffusionKernel>()?;
-    m.add_class::<PyPivotedDiffusionKernel>()?;
-    m.add_class::<PyPivotedBandPassDiffusionKernel>()?;
-    m.add_class::<PyPivotedBandPassDiffusionKernelBuilder>()?;
-    m.add_class::<PyPivotedMultiscaleDiffusionKernel>()?;
+    diffusion_kernel::register(m)?;
 
     Ok(())
 }

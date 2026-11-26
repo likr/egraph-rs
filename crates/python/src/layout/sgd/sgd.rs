@@ -1,12 +1,17 @@
+//! Legacy `Sgd` Python bindings.
+
+use super::schedulers::{
+    PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
+    PySchedulerReciprocal,
+};
+use super::sgd_pairs::{
+    append_hinge_pairs_from_numpy, build_sgd_from_numpy_hinge_pairs, build_sgd_from_numpy_pairs,
+    build_sgd_from_numpy_pairs_with_hinges,
+};
 use crate::FloatType;
 use crate::drawing::{
     DrawingType, PyDrawing, PyDrawingEuclidean, PyDrawingEuclidean2d, PyDrawingHyperbolic2d,
     PyDrawingSpherical2d, PyDrawingTorus2d,
-};
-use crate::layout::knn::{extract_f64_array_1d, extract_index_array_1d_with_isize};
-use crate::layout::sgd::schedulers::{
-    PySchedulerConstant, PySchedulerExponential, PySchedulerLinear, PySchedulerQuadratic,
-    PySchedulerReciprocal,
 };
 use petgraph_drawing::Drawing;
 use petgraph_layout_sgd::{
@@ -14,90 +19,6 @@ use petgraph_layout_sgd::{
     SchedulerReciprocal, Sgd,
 };
 use pyo3::prelude::*;
-
-type SgdPairTuple = (usize, usize, FloatType, FloatType, FloatType, FloatType);
-
-fn extract_validated_pairs_1d(
-    sources: &Bound<'_, PyAny>,
-    targets: &Bound<'_, PyAny>,
-    distances: &Bound<'_, PyAny>,
-    weights: &Bound<'_, PyAny>,
-    n_nodes: Option<usize>,
-    prefix: &str,
-) -> PyResult<Vec<SgdPairTuple>> {
-    let src_name = if prefix.is_empty() {
-        "sources".to_string()
-    } else {
-        format!("{prefix}_sources")
-    };
-    let tgt_name = if prefix.is_empty() {
-        "targets".to_string()
-    } else {
-        format!("{prefix}_targets")
-    };
-    let dist_name = if prefix.is_empty() {
-        "distances".to_string()
-    } else {
-        format!("{prefix}_distances")
-    };
-    let wt_name = if prefix.is_empty() {
-        "weights".to_string()
-    } else {
-        format!("{prefix}_weights")
-    };
-
-    let src = extract_index_array_1d_with_isize(sources, &src_name)?;
-    let tgt = extract_index_array_1d_with_isize(targets, &tgt_name)?;
-    let d_arr = extract_f64_array_1d(distances, &dist_name)?;
-    let w_arr = extract_f64_array_1d(weights, &wt_name)?;
-    let d_view = d_arr.as_array();
-    let w_view = w_arr.as_array();
-
-    let len = src.len();
-    if tgt.len() != len || d_view.len() != len || w_view.len() != len {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "array lengths must match: {src_name}={}, {tgt_name}={}, {dist_name}={}, {wt_name}={}",
-            len,
-            tgt.len(),
-            d_view.len(),
-            w_view.len()
-        )));
-    }
-
-    let mut pairs = Vec::with_capacity(len);
-    for (idx, (((&u, &v), &d), &w)) in src
-        .iter()
-        .zip(tgt.iter())
-        .zip(d_view.iter())
-        .zip(w_view.iter())
-        .enumerate()
-    {
-        if let Some(n) = n_nodes
-            && (u >= n || v >= n)
-        {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "pair index ({u}, {v}) at position {idx} is out of bounds for n_nodes={n}"
-            )));
-        }
-        if u == v {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "self-loop pair ({u}, {u}) at position {idx} is not allowed"
-            )));
-        }
-        if !d.is_finite() || d <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "{dist_name}[{idx}] must be finite and > 0, got {d}"
-            )));
-        }
-        if !w.is_finite() || w <= 0.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "{wt_name}[{idx}] must be finite and > 0, got {w}"
-            )));
-        }
-        pairs.push((u, v, d, d, w, w));
-    }
-    Ok(pairs)
-}
 
 #[pyclass]
 #[pyo3(name = "Sgd")]
@@ -151,75 +72,34 @@ impl PySgd {
     /// :rtype: None
     fn apply(&mut self, drawing: &Bound<PyDrawing>, eta: FloatType) -> PyResult<()> {
         let drawing_type = drawing.borrow().drawing_type();
+        macro_rules! apply_drawing {
+            ($ty:ty, $msg:literal) => {{
+                let mut concrete = drawing
+                    .clone()
+                    .cast::<$ty>()
+                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err($msg))?
+                    .borrow_mut();
+                self.sgd
+                    .try_validate_bounds(concrete.drawing().len())
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                self.sgd.apply(concrete.drawing_mut(), eta);
+                Ok(())
+            }};
+        }
         Python::attach(|_py| match drawing_type {
             DrawingType::Euclidean2d => {
-                let mut drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingEuclidean2d>()
-                    .map_err(|_| {
-                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingEuclidean2d")
-                    })?
-                    .borrow_mut();
-                self.sgd
-                    .try_validate_bounds(drawing.drawing().len())
-                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
-                self.sgd.apply(drawing.drawing_mut(), eta);
-                Ok(())
+                apply_drawing!(PyDrawingEuclidean2d, "invalid DrawingEuclidean2d")
             }
             DrawingType::Euclidean => {
-                let mut drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingEuclidean>()
-                    .map_err(|_| {
-                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingEuclidean")
-                    })?
-                    .borrow_mut();
-                self.sgd
-                    .try_validate_bounds(drawing.drawing().len())
-                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
-                self.sgd.apply(drawing.drawing_mut(), eta);
-                Ok(())
+                apply_drawing!(PyDrawingEuclidean, "invalid DrawingEuclidean")
             }
             DrawingType::Hyperbolic2d => {
-                let mut drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingHyperbolic2d>()
-                    .map_err(|_| {
-                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingHyperbolic2d")
-                    })?
-                    .borrow_mut();
-                self.sgd
-                    .try_validate_bounds(drawing.drawing().len())
-                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
-                self.sgd.apply(drawing.drawing_mut(), eta);
-                Ok(())
+                apply_drawing!(PyDrawingHyperbolic2d, "invalid DrawingHyperbolic2d")
             }
             DrawingType::Spherical2d => {
-                let mut drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingSpherical2d>()
-                    .map_err(|_| {
-                        pyo3::exceptions::PyTypeError::new_err("invalid DrawingSpherical2d")
-                    })?
-                    .borrow_mut();
-                self.sgd
-                    .try_validate_bounds(drawing.drawing().len())
-                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
-                self.sgd.apply(drawing.drawing_mut(), eta);
-                Ok(())
+                apply_drawing!(PyDrawingSpherical2d, "invalid DrawingSpherical2d")
             }
-            DrawingType::Torus2d => {
-                let mut drawing = drawing
-                    .clone()
-                    .cast::<PyDrawingTorus2d>()
-                    .map_err(|_| pyo3::exceptions::PyTypeError::new_err("invalid DrawingTorus2d"))?
-                    .borrow_mut();
-                self.sgd
-                    .try_validate_bounds(drawing.drawing().len())
-                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
-                self.sgd.apply(drawing.drawing_mut(), eta);
-                Ok(())
-            }
+            DrawingType::Torus2d => apply_drawing!(PyDrawingTorus2d, "invalid DrawingTorus2d"),
         })
     }
 
@@ -261,10 +141,8 @@ impl PySgd {
         weights: &Bound<'_, PyAny>,
         n_nodes: Option<usize>,
     ) -> PyResult<PySgd> {
-        let pairs = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
-        Ok(PySgd::new_with_sgd(
-            petgraph_layout_sgd::Sgd::from_node_pairs(pairs),
-        ))
+        let sgd = build_sgd_from_numpy_pairs(sources, targets, distances, weights, n_nodes)?;
+        Ok(PySgd::new_with_sgd(sgd))
     }
 
     /// Build an `Sgd` instance containing only one-sided hinge repulsion pairs from NumPy arrays.
@@ -293,11 +171,8 @@ impl PySgd {
         weights: &Bound<'_, PyAny>,
         n_nodes: Option<usize>,
     ) -> PyResult<PySgd> {
-        let hinges = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
-        Ok(PySgd::new_with_sgd(Sgd::new_with_hinge_pairs(
-            Vec::new(),
-            hinges,
-        )))
+        let sgd = build_sgd_from_numpy_hinge_pairs(sources, targets, distances, weights, n_nodes)?;
+        Ok(PySgd::new_with_sgd(sgd))
     }
 
     /// Build an `Sgd` instance combining two-sided spring pairs and one-sided hinge pairs.
@@ -346,19 +221,18 @@ impl PySgd {
         hinge_weights: &Bound<'_, PyAny>,
         n_nodes: Option<usize>,
     ) -> PyResult<PySgd> {
-        let springs =
-            extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
-        let hinges = extract_validated_pairs_1d(
+        let sgd = build_sgd_from_numpy_pairs_with_hinges(
+            sources,
+            targets,
+            distances,
+            weights,
             hinge_sources,
             hinge_targets,
             hinge_distances,
             hinge_weights,
             n_nodes,
-            "hinge",
         )?;
-        Ok(PySgd::new_with_sgd(Sgd::new_with_hinge_pairs(
-            springs, hinges,
-        )))
+        Ok(PySgd::new_with_sgd(sgd))
     }
 
     /// Append validated one-sided hinge repulsion pairs from 1D NumPy arrays.
@@ -384,9 +258,7 @@ impl PySgd {
         weights: &Bound<'_, PyAny>,
         n_nodes: Option<usize>,
     ) -> PyResult<()> {
-        let hinges = extract_validated_pairs_1d(sources, targets, distances, weights, n_nodes, "")?;
-        self.sgd.add_hinge_pairs(hinges);
-        Ok(())
+        append_hinge_pairs_from_numpy(&mut self.sgd, sources, targets, distances, weights, n_nodes)
     }
 
     /// Return the number of two-sided spring pairs in this `Sgd` instance.

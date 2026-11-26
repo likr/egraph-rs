@@ -1,18 +1,6 @@
-/// Graph layout quality metrics for evaluating drawing aesthetics
-///
-/// This module provides a collection of metrics to quantitatively assess the quality
-/// of graph layouts. These metrics can be used to compare different layout algorithms,
-/// tune parameters, or optimize layouts for specific aesthetic criteria.
-///
-/// The metrics include various aspects of drawing quality such as:
-/// - Stress: How well distances in the layout match the graph-theoretical distances
-/// - Angular resolution: The minimum angle between edges at a node
-/// - Crossing angle: The angles at which edges cross
-/// - Crossing number: The number of edge crossings in the layout
-/// - Aspect ratio: The balance between width and height of the drawing
-/// - Neighborhood preservation: How well local neighborhoods are preserved in the layout
-/// - Node resolution: How evenly distributed the nodes are in the drawing space
-/// - Gabriel graph property: A measure of whether the layout respects theoretical constraints
+//! Neighborhood preservation, geometric resolution, ideal edge length, and stress metrics.
+
+use super::{DualBinaryInput, extract_dual_binary};
 use crate::{
     FloatType,
     csr_graph::PyCsrGraph,
@@ -21,8 +9,7 @@ use crate::{
     graph::{GraphType, PyGraphAdapter},
     layout_buffers::PyLayout2d,
     metrics::{
-        csr_angular_resolution_impl, csr_aspect_ratio_impl, csr_crossing_angle_impl,
-        csr_crossing_edges_impl, csr_crossing_number_impl, csr_gabriel_graph_property_impl,
+        csr_angular_resolution_impl, csr_aspect_ratio_impl, csr_gabriel_graph_property_impl,
         csr_ideal_edge_lengths_impl, csr_neighborhood_preservation_1hop_impl,
         csr_neighborhood_preservation_2hop_impl, csr_node_resolution_impl,
     },
@@ -30,47 +17,11 @@ use crate::{
 use petgraph_algorithm_shortest_path::DistanceMatrix;
 use petgraph_drawing::Drawing;
 use petgraph_quality_metrics::{
-    CrossingEdges, angular_resolution, aspect_ratio, crossing_angle_with_crossing_edges,
-    crossing_number_with_crossing_edges, gabriel_graph_property, ideal_edge_lengths,
+    angular_resolution, aspect_ratio, gabriel_graph_property, ideal_edge_lengths,
     neighborhood_preservation, neighborhood_preservation_2hop, node_resolution, stress,
-    try_crossing_angle, try_crossing_edges, try_crossing_edges_torus, try_crossing_number,
 };
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-
-enum DualBinaryInput<'py> {
-    Csr(PyRef<'py, PyCsrGraph>, PyRef<'py, PyLayout2d>),
-    Legacy(PyRef<'py, PyGraphAdapter>, PyRef<'py, PyDrawingEuclidean2d>),
-}
-
-fn extract_dual_binary<'py>(
-    graph: &Bound<'py, PyAny>,
-    drawing: &Bound<'py, PyAny>,
-    fn_name: &str,
-) -> PyResult<DualBinaryInput<'py>> {
-    if let Ok(csr) = graph.cast::<PyCsrGraph>() {
-        let layout = drawing.cast::<PyLayout2d>().map_err(|_| {
-            PyTypeError::new_err(format!(
-                "{fn_name}: expected Layout2d when graph is CsrGraph"
-            ))
-        })?;
-        return Ok(DualBinaryInput::Csr(csr.borrow(), layout.borrow()));
-    }
-    if let Ok(legacy_graph) = graph.cast::<PyGraphAdapter>() {
-        let legacy_drawing = drawing.cast::<PyDrawingEuclidean2d>().map_err(|_| {
-            PyTypeError::new_err(format!(
-                "{fn_name}: expected DrawingEuclidean2d when graph is Graph or DiGraph"
-            ))
-        })?;
-        return Ok(DualBinaryInput::Legacy(
-            legacy_graph.borrow(),
-            legacy_drawing.borrow(),
-        ));
-    }
-    Err(PyTypeError::new_err(format!(
-        "{fn_name}: graph must be CsrGraph, Graph, or DiGraph"
-    )))
-}
 
 fn check_graph_drawing_len(graph: &PyGraphAdapter, drawing_len: usize) -> PyResult<()> {
     let n = match graph.graph() {
@@ -83,101 +34,6 @@ fn check_graph_drawing_len(graph: &PyGraphAdapter, drawing_len: usize) -> PyResu
         )));
     }
     Ok(())
-}
-
-/// Python class for storing information about crossing edges in a graph drawing
-///
-/// This class is used to efficiently cache the computation of edge crossings,
-/// which can be expensive for large graphs. Once computed, the crossing information
-/// can be reused for multiple metrics like crossing number and crossing angle.
-#[pyclass]
-#[pyo3(name = "CrossingEdges")]
-pub struct PyCrossingEdges {
-    crossing_edges: CrossingEdges<FloatType>,
-}
-
-/// Computes the crossing edges in a graph drawing
-///
-/// This function identifies all pairs of edges that cross in the drawing.
-/// The result is cached in a CrossingEdges object that can be reused for
-/// other metrics like crossing number and crossing angle.
-///
-/// :param graph: The graph being drawn
-/// :type graph: Graph or DiGraph
-/// :param drawing: The drawing to analyze
-/// :type drawing: Drawing
-/// :return: An object containing information about crossing edges
-/// :rtype: CrossingEdges
-/// :raises: NotImplementedError if the drawing type is not supported
-#[pyfunction]
-#[pyo3(name = "crossing_edges")]
-fn py_crossing_edges<'py>(
-    py: Python<'py>,
-    graph: &Bound<'py, PyAny>,
-    drawing: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyAny>> {
-    if let Ok(csr) = graph.cast::<PyCsrGraph>() {
-        let layout = drawing.cast::<PyLayout2d>().map_err(|_| {
-            PyTypeError::new_err("crossing_edges(CsrGraph, layout) expects a Layout2d drawing")
-        })?;
-        let list = csr_crossing_edges_impl(py, &csr.borrow(), &layout.borrow())?;
-        return Ok(pyo3::types::PyList::new(py, list)?.into_any());
-    }
-    let graph = graph.cast::<PyGraphAdapter>().map_err(|_| {
-        PyTypeError::new_err(
-            "crossing_edges expects (CsrGraph, Layout2d) or legacy (Graph, Drawing)",
-        )
-    })?;
-    let drawing = drawing.cast::<PyDrawing>().map_err(|_| {
-        PyTypeError::new_err(
-            "crossing_edges expects (CsrGraph, Layout2d) or legacy (Graph, Drawing)",
-        )
-    })?;
-    let graph_borrowed = graph.borrow();
-    let drawing_type = drawing.borrow().drawing_type();
-    let crossing_edges = match drawing_type {
-        DrawingType::Euclidean2d => {
-            let drawing = drawing
-                .clone()
-                .cast::<PyDrawingEuclidean2d>()
-                .map_err(|e| PyTypeError::new_err(e.to_string()))?
-                .borrow();
-            match graph_borrowed.graph() {
-                GraphType::Graph(native_graph) => {
-                    try_crossing_edges(native_graph, drawing.drawing())
-                        .map_err(PyValueError::new_err)?
-                }
-                GraphType::DiGraph(native_graph) => {
-                    try_crossing_edges(native_graph, drawing.drawing())
-                        .map_err(PyValueError::new_err)?
-                }
-            }
-        }
-        DrawingType::Torus2d => {
-            let drawing = drawing
-                .clone()
-                .cast::<PyDrawingTorus2d>()
-                .map_err(|e| PyTypeError::new_err(e.to_string()))?
-                .borrow();
-            match graph_borrowed.graph() {
-                GraphType::Graph(native_graph) => {
-                    try_crossing_edges_torus(native_graph, drawing.drawing())
-                        .map_err(PyValueError::new_err)?
-                }
-                GraphType::DiGraph(native_graph) => {
-                    try_crossing_edges_torus(native_graph, drawing.drawing())
-                        .map_err(PyValueError::new_err)?
-                }
-            }
-        }
-        _ => {
-            return Err(PyNotImplementedError::new_err(
-                "unsupported drawing type for crossing_edges",
-            ));
-        }
-    };
-    let py_obj = Py::new(py, PyCrossingEdges { crossing_edges })?;
-    Ok(py_obj.into_bound(py).into_any())
 }
 
 /// Computes the angular resolution of a graph drawing
@@ -231,90 +87,6 @@ fn py_aspect_ratio(py: Python<'_>, drawing: &Bound<'_, PyAny>) -> PyResult<Float
     Err(PyTypeError::new_err(
         "aspect_ratio: drawing must be DrawingEuclidean2d or Layout2d",
     ))
-}
-
-/// Computes the crossing-angle penalty in a graph drawing
-///
-/// Crossing angle measures the angles at which edges cross. Angles closer to 90 degrees
-/// (perpendicular crossings) yield lower `cos^2(theta)` penalties.
-///
-/// :param graph: The graph being drawn
-/// :type graph: Graph, DiGraph, or CsrGraph
-/// :param drawing: The drawing or layout to analyze
-/// :type drawing: DrawingEuclidean2d or Layout2d
-/// :return: The crossing-angle penalty
-/// :rtype: float
-#[pyfunction]
-#[pyo3(name = "crossing_angle")]
-fn py_crossing_angle(
-    py: Python<'_>,
-    graph: &Bound<'_, PyAny>,
-    drawing: &Bound<'_, PyAny>,
-) -> PyResult<FloatType> {
-    match extract_dual_binary(graph, drawing, "crossing_angle")? {
-        DualBinaryInput::Csr(csr, layout) => csr_crossing_angle_impl(py, &csr, &layout),
-        DualBinaryInput::Legacy(g, d) => match g.graph() {
-            GraphType::Graph(native_graph) => try_crossing_angle(native_graph, d.drawing()),
-            GraphType::DiGraph(native_graph) => try_crossing_angle(native_graph, d.drawing()),
-        }
-        .map_err(PyValueError::new_err),
-    }
-}
-
-/// Computes the average crossing angle using pre-computed crossing edges
-///
-/// This function is more efficient when crossing edges have already been computed.
-///
-/// :param crossing_edges: Pre-computed crossing edges information
-/// :type crossing_edges: CrossingEdges
-/// :return: The average crossing angle in radians
-/// :rtype: float
-#[pyfunction]
-#[pyo3(name = "crossing_angle_with_crossing_edges")]
-fn py_crossing_angle_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> FloatType {
-    crossing_angle_with_crossing_edges(&crossing_edges.crossing_edges)
-}
-
-/// Computes the number of edge crossings in a graph drawing
-///
-/// Crossing number is the total number of pairs of edges that cross in the drawing.
-/// Lower values generally indicate clearer, more readable layouts.
-///
-/// :param graph: The graph being drawn
-/// :type graph: Graph, DiGraph, or CsrGraph
-/// :param drawing: The drawing or layout to analyze
-/// :type drawing: DrawingEuclidean2d or Layout2d
-/// :return: The number of edge crossings
-/// :rtype: float
-#[pyfunction]
-#[pyo3(name = "crossing_number")]
-fn py_crossing_number(
-    py: Python<'_>,
-    graph: &Bound<'_, PyAny>,
-    drawing: &Bound<'_, PyAny>,
-) -> PyResult<FloatType> {
-    match extract_dual_binary(graph, drawing, "crossing_number")? {
-        DualBinaryInput::Csr(csr, layout) => csr_crossing_number_impl(py, &csr, &layout),
-        DualBinaryInput::Legacy(g, d) => match g.graph() {
-            GraphType::Graph(native_graph) => try_crossing_number(native_graph, d.drawing()),
-            GraphType::DiGraph(native_graph) => try_crossing_number(native_graph, d.drawing()),
-        }
-        .map_err(PyValueError::new_err),
-    }
-}
-
-/// Computes the number of edge crossings using pre-computed crossing edges
-///
-/// This function is more efficient when crossing edges have already been computed.
-///
-/// :param crossing_edges: Pre-computed crossing edges information
-/// :type crossing_edges: CrossingEdges
-/// :return: The number of edge crossings
-/// :rtype: float
-#[pyfunction]
-#[pyo3(name = "crossing_number_with_crossing_edges")]
-fn py_crossing_number_with_crossing_edges(crossing_edges: &PyCrossingEdges) -> FloatType {
-    crossing_number_with_crossing_edges(&crossing_edges.crossing_edges)
 }
 
 /// Computes how well a drawing satisfies the Gabriel graph property
@@ -648,20 +420,14 @@ fn py_stress(
     })
 }
 
-pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_angular_resolution, m)?)?;
     m.add_function(wrap_pyfunction!(py_aspect_ratio, m)?)?;
-    m.add_function(wrap_pyfunction!(py_crossing_angle, m)?)?;
-    m.add_function(wrap_pyfunction!(py_crossing_angle_with_crossing_edges, m)?)?;
-    m.add_function(wrap_pyfunction!(py_crossing_edges, m)?)?;
-    m.add_function(wrap_pyfunction!(py_crossing_number, m)?)?;
-    m.add_function(wrap_pyfunction!(py_crossing_number_with_crossing_edges, m)?)?;
     m.add_function(wrap_pyfunction!(py_gabriel_graph_property, m)?)?;
     m.add_function(wrap_pyfunction!(py_ideal_edge_lengths, m)?)?;
     m.add_function(wrap_pyfunction!(py_neighborhood_preservation, m)?)?;
     m.add_function(wrap_pyfunction!(py_neighborhood_preservation_2hop, m)?)?;
     m.add_function(wrap_pyfunction!(py_node_resolution, m)?)?;
-
     m.add_function(wrap_pyfunction!(py_stress, m)?)?;
     Ok(())
 }
