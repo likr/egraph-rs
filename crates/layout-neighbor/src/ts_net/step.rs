@@ -144,7 +144,7 @@ impl<S: Scalar> TsNetSolver<S> {
         Ok(())
     }
 
-    fn advance_stage_counters(&mut self) {
+    pub(super) fn advance_stage_counters(&mut self) {
         self.iteration += 1;
         self.stage_iter += 1;
         if self.stage_iter < self.stages[self.stage_idx].iterations {

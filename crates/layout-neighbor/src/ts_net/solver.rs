@@ -10,6 +10,7 @@ use egraph_spatial_trees::ArenaQuadtree2d;
 use crate::validation::validate_sparse_probabilities;
 
 use super::config::{TsNetBackend, TsNetConfig, TsNetStage, compute_stage_lr};
+use super::nd::TsNetNdScratch;
 
 /// Cooperative, zero-allocation-per-step unified tsNET solver implementing [`IterativeSolver`](egraph_core::IterativeSolver).
 #[derive(Debug, Clone)]
@@ -33,6 +34,7 @@ pub struct TsNetSolver<S: Scalar = f64> {
     pub(super) fit_field: Option<FitField2d<S>>,
     pub(super) fit_out: FitFieldOutput<S>,
     pub(super) quadtree: ArenaQuadtree2d<S>,
+    pub(super) nd_scratch: Option<TsNetNdScratch<S>>,
     pub(super) status: SolverStatus,
     pub(super) iteration: usize,
     pub(super) total_iterations: usize,
@@ -161,6 +163,7 @@ impl<S: Scalar> TsNetSolver<S> {
             fit_field,
             fit_out,
             quadtree: ArenaQuadtree2d::new(),
+            nd_scratch: None,
             status,
             iteration: 0,
             total_iterations,
@@ -352,5 +355,23 @@ impl<S: Scalar> TsNetSolver<S> {
     #[inline]
     pub fn inv_jacobi(&self) -> &[f64] {
         &self.inv_jacobi
+    }
+
+    /// Returns the current lifecycle status of the solver.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of completed optimization iterations.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iteration
+    }
+
+    /// Returns the total configured optimization iterations across all stages.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.total_iterations
     }
 }

@@ -317,4 +317,22 @@ impl<S: Scalar> GuMapSolver<S> {
     pub fn b(&self) -> f64 {
         self.b
     }
+
+    /// Returns the current lifecycle status of the solver.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of completed optimization iterations.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.epoch
+    }
+
+    /// Returns the total configured optimization iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.config.iterations
+    }
 }

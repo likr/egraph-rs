@@ -2,10 +2,13 @@
 //! and cooperative [`IterativeSolver`](egraph_core::IterativeSolver) stepping.
 
 mod config;
+mod nd;
 mod solver;
 mod step;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 pub use config::GuMapConfig;
 pub use solver::GuMapSolver;
