@@ -3,13 +3,14 @@ name = "egraph-metrics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 default = []
-eval-baselines = ["dep:egraph-clustering"]
+eval-baselines = ["egraph-metrics-cluster/eval-baselines"]
 
 [dependencies]
 egraph-core.workspace = true
-egraph-linalg.workspace = true
-egraph-spatial.workspace = true
-egraph-clustering = { workspace = true, optional = true }
+egraph-spatial-trees.workspace = true
+egraph-metrics-geometry.workspace = true
+egraph-metrics-cluster.workspace = true
