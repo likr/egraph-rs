@@ -87,7 +87,7 @@ pub fn cq_kmeans<S: Scalar>(
 
     let cfg = KMeansConfig {
         k,
-        max_iters,
+        max_iterations: max_iters,
         tol: 1e-4,
         n_init,
         seed,
