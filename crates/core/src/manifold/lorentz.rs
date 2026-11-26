@@ -22,10 +22,20 @@ fn lorentz_eta_minus_one(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, 
         return (0.0, t1, r1, t2, r2);
     }
     if r1 == 0.0 {
-        return (t2 - 1.0, t1, r1, t2, r2);
+        let eta_m1 = if r2 > 1e150 {
+            t2 - 1.0
+        } else {
+            (r2 * r2) / (t2 + 1.0)
+        };
+        return (eta_m1, t1, r1, t2, r2);
     }
     if r2 == 0.0 {
-        return (t1 - 1.0, t1, r1, t2, r2);
+        let eta_m1 = if r1 > 1e150 {
+            t1 - 1.0
+        } else {
+            (r1 * r1) / (t1 + 1.0)
+        };
+        return (eta_m1, t1, r1, t2, r2);
     }
 
     // Factor t1*t2 - r1*r2 = (1 + r1^2 + r2^2) / (t1*t2 + r1*r2) and
@@ -123,13 +133,25 @@ pub fn lorentz_log_map<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> (S, S) {
     }
 
     let (eta_m1, t1, r1, t2, r2) = lorentz_eta_minus_one(x1f, y1f, x2f, y2f);
-    let dist = if eta_m1.is_finite() {
+    let dist = if r1 == 0.0 {
+        r2.asinh()
+    } else if r2 == 0.0 {
+        r1.asinh()
+    } else if eta_m1.is_finite() {
         2.0 * (0.5 * eta_m1).sqrt().asinh()
     } else {
         lorentz_distance(x1, y1, x2, y2).to_f64()
     };
     if dist <= 1e-15 {
         return (S::ZERO, S::ZERO);
+    }
+    if r1 == 0.0 {
+        let scale = dist / r2;
+        return (S::from_f64(x2f * scale), S::from_f64(y2f * scale));
+    }
+    if r2 == 0.0 {
+        let scale = dist / r1;
+        return (S::from_f64(-x1f * scale), S::from_f64(-y1f * scale));
     }
 
     // Compute <v, e_a>_L = (x2 - x1) - (x1 / (1 + t1)) * ((t2 - t1) + (eta - 1)) stably.

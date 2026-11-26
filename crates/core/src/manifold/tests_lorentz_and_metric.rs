@@ -215,3 +215,32 @@ fn test_rescale_geodesic_all_manifolds() {
     assert_eq!(tor.as_layout(), &tor_coords_before);
     assert!((tor.scale() - 3.0).abs() < 1e-12);
 }
+
+#[test]
+fn test_lorentz_near_origin_log_map_precision() {
+    let pairs = [
+        ((0.0_f64, 0.0_f64), (1e-9_f64, -2e-9_f64)),
+        ((1e-9, -2e-9), (0.0, 0.0)),
+        ((0.0, 0.0), (1e-12, 0.0)),
+        ((1e-12, 0.0), (0.0, 0.0)),
+        ((0.0, 0.0), (1e-6, 0.0)),
+        ((1e-6, 0.0), (0.0, 0.0)),
+        ((1e-12, 0.0), (2e-12, 1e-12)),
+    ];
+    for ((x1, y1), (x2, y2)) in pairs {
+        let d = lorentz_distance(x1, y1, x2, y2);
+        let (vx, vy) = lorentz_log_map(x1, y1, x2, y2);
+        let v_norm = vx.hypot(vy);
+        let rel_err = (v_norm - d).abs() / d.max(1e-30);
+        assert!(
+            rel_err < 1e-12,
+            "near-origin log_map norm mismatch for ({x1},{y1})->({x2},{y2}): norm={v_norm}, d={d}, rel_err={rel_err}"
+        );
+        let (rx, ry) = lorentz_exp_map(x1, y1, vx, vy);
+        let roundtrip_err = lorentz_distance(rx, ry, x2, y2) / d.max(1e-30);
+        assert!(
+            roundtrip_err < 1e-12,
+            "near-origin exp(log) roundtrip mismatch for ({x1},{y1})->({x2},{y2}): err={roundtrip_err}"
+        );
+    }
+}
