@@ -1,4 +1,4 @@
-use egraph_core::CoreResult;
+use egraph_core::{CoreResult, Scalar};
 
 use crate::fft_r2c::{Complex32, R2cFft2dWorkspaceF32};
 
@@ -27,7 +27,7 @@ pub(super) fn read_real_cell(buf: &[Complex32], stride: usize, row: usize, col: 
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn solve_density_pipeline_f32(
+pub(super) fn solve_density_pipeline_f32<S: Scalar>(
     config: &ScreenedPoissonConfig,
     h: f64,
     sigma_eff: f64,
@@ -35,6 +35,7 @@ pub(super) fn solve_density_pipeline_f32(
     rho_max_eff: f64,
     ws: &mut R2cFft2dWorkspaceF32,
     grid_buf: &mut [Complex32],
+    density_grid: &mut Vec<S>,
     excess_mask: &mut [u64],
     kx_sq: &mut [f32],
     ky_sq: &mut [f32],
@@ -80,6 +81,19 @@ pub(super) fn solve_density_pipeline_f32(
         }
     }
     ws.c2r_2d(grid_buf, pad_dim, pad_dim)?;
+
+    // Capture the interior G x G smoothed empirical density rho_V before delta_rho overwrites grid_buf.
+    let half_g = g / 2;
+    density_grid.clear();
+    density_grid.reserve(g * g);
+    for v in 0..g {
+        let row_off = v * stride;
+        for pair_idx in 0..half_g {
+            let slot = grid_buf[row_off + pair_idx];
+            density_grid.push(S::from_f64((slot.re as f64).max(0.0)));
+            density_grid.push(S::from_f64((slot.im as f64).max(0.0)));
+        }
+    }
 
     // Unilateral excess source: delta_rho = max(0, rho_V - rho_max), mu_ent === 0.
     excess_mask.fill(0u64);

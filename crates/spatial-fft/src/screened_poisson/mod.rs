@@ -27,6 +27,8 @@ pub struct ScreenedPoissonField2d<S: Scalar = f64> {
     config: ScreenedPoissonConfig,
     ws: R2cFft2dWorkspaceF32,
     grid_buf: Vec<Complex32>,
+    density_grid: Vec<S>,
+    density_grid_dim: usize,
     excess_mask: Vec<u64>,
     kx_sq: Vec<f32>,
     ky_sq: Vec<f32>,
@@ -52,6 +54,8 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             config,
             ws: R2cFft2dWorkspaceF32::new(),
             grid_buf: vec![Complex32::ZERO; pad_dim * stride],
+            density_grid: Vec::new(),
+            density_grid_dim: 0,
             excess_mask: vec![0u64; mask_words],
             kx_sq: vec![0.0; stride],
             ky_sq: vec![0.0; pad_dim],
@@ -82,14 +86,16 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             self.gauss_x.resize(stride, 0.0);
             self.gauss_y.resize(new_pad, 0.0);
         }
+        self.density_grid_dim = 0;
         self.config = config;
         Ok(())
     }
 
-    /// Returns total heap bytes allocated by internal `f32` grids, bitmasks, and FFT tables.
+    /// Returns total heap bytes allocated by internal `f32` grids, bitmasks, density snapshot, and FFT tables.
     pub fn workspace_memory_bytes(&self) -> usize {
         use std::mem::size_of;
         self.grid_buf.capacity() * size_of::<Complex32>()
+            + self.density_grid.capacity() * size_of::<S>()
             + self.excess_mask.capacity() * size_of::<u64>()
             + (self.kx_sq.capacity()
                 + self.ky_sq.capacity()
@@ -97,6 +103,29 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
                 + self.gauss_y.capacity())
                 * size_of::<f32>()
             + self.ws.workspace_memory_bytes()
+    }
+
+    /// Returns the row-major $G \times G$ smoothed empirical density $\rho_V$ from the most
+    /// recent non-empty evaluation (`None` before evaluation or after an empty evaluation).
+    #[inline]
+    pub fn density_grid(&self) -> Option<&[S]> {
+        if self.density_grid_dim > 0
+            && self.density_grid.len() == self.density_grid_dim * self.density_grid_dim
+        {
+            Some(&self.density_grid)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the interior grid dimension $G$ of [`Self::density_grid`] (`0` when unpopulated).
+    #[inline]
+    pub fn density_grid_dim(&self) -> usize {
+        if self.density_grid().is_some() {
+            self.density_grid_dim
+        } else {
+            0
+        }
     }
 
     /// Evaluates unilateral Screened Poisson energy and forces over the adaptive bounding box of `layout`.
@@ -124,6 +153,7 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
         }
         if xs.is_empty() {
             out.resize_and_zero(0);
+            self.density_grid_dim = 0;
             return Ok(());
         }
         let mut min_x = f64::INFINITY;
@@ -141,10 +171,10 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             min_y = min_y.min(y);
             max_y = max_y.max(y);
         }
-        self.evaluate_xy_in_bounds(xs, ys, [min_x, max_x, min_y, max_y], out)
+        self.evaluate_xy_in_bounds(xs, ys, [min_x, min_y, max_x, max_y], out)
     }
 
-    /// Evaluates unilateral Screened Poisson energy and forces inside fixed `bounds = [min_x, max_x, min_y, max_y]`.
+    /// Evaluates unilateral Screened Poisson energy and forces inside fixed `bounds = [min_x, min_y, max_x, max_y]`.
     pub fn evaluate_in_bounds(
         &mut self,
         layout: &Layout2d<S>,
@@ -154,7 +184,7 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
         self.evaluate_xy_in_bounds(layout.x(), layout.y(), bounds, out)
     }
 
-    /// Slice-based variant of [`Self::evaluate_in_bounds`].
+    /// Slice-based variant of [`Self::evaluate_in_bounds`] expecting `bounds = [min_x, min_y, max_x, max_y]`.
     pub fn evaluate_xy_in_bounds(
         &mut self,
         xs: &[S],
@@ -169,21 +199,22 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
                 "ScreenedPoissonField2d::evaluate_xy_in_bounds",
             ));
         }
-        let [min_x, max_x, min_y, max_y] = bounds;
+        let [min_x, min_y, max_x, max_y] = bounds;
         if !min_x.is_finite()
-            || !max_x.is_finite()
             || !min_y.is_finite()
+            || !max_x.is_finite()
             || !max_y.is_finite()
             || max_x < min_x
             || max_y < min_y
         {
             return Err(CoreError::invalid_input(format!(
-                "bounds must be finite with min <= max, got {bounds:?}"
+                "bounds [min_x, min_y, max_x, max_y] must be finite with min <= max, got {bounds:?}"
             )));
         }
 
         let n = xs.len();
         out.resize_and_zero(n);
+        self.density_grid_dim = 0;
         if n == 0 {
             return Ok(());
         }
@@ -254,6 +285,7 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             rho_max_eff,
             &mut self.ws,
             &mut self.grid_buf,
+            &mut self.density_grid,
             &mut self.excess_mask,
             &mut self.kx_sq,
             &mut self.ky_sq,
@@ -261,6 +293,10 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             &mut self.gauss_y,
         )?;
 
+        self.density_grid_dim = g;
+        out.density_grid_dim = g;
+        out.density_grid.resize(self.density_grid.len(), S::ZERO);
+        out.density_grid.copy_from_slice(&self.density_grid);
         out.energy = stats.energy;
         out.stats = stats;
         if stats.early_exit_no_excess {

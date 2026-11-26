@@ -35,7 +35,7 @@ fn run_fd_gradient_check(exact_adjoint: bool, rho_max: Option<f64>, sigma: f64, 
         ..ScreenedPoissonConfig::default()
     };
     let mut field = ScreenedPoissonField2d::<f64>::new(cfg).unwrap();
-    let bounds = [-5.0, 5.0, -5.0, 5.0];
+    let bounds = [-5.0, -5.0, 5.0, 5.0];
     let mut base_out = ScreenedPoissonOutput::new();
     field
         .evaluate_xy_in_bounds(&xs, &ys, bounds, &mut base_out)
@@ -162,7 +162,7 @@ fn test_unilateral_whitespace_invariance_and_early_exit() {
     let mut field2 = ScreenedPoissonField2d::<f64>::new(cfg2).unwrap();
     let mut out2 = ScreenedPoissonOutput::new();
     field2
-        .evaluate_xy_in_bounds(&cxs, &cys, [-5.0, 5.0, -5.0, 5.0], &mut out2)
+        .evaluate_xy_in_bounds(&cxs, &cys, [-5.0, -5.0, 5.0, 5.0], &mut out2)
         .unwrap();
     assert!(!out2.stats.early_exit_no_excess);
     let outlier_fx = out2.force_x[32];
@@ -196,7 +196,7 @@ fn test_pitfall2_plateau_expansion_screened_poisson_vs_single_gaussian() {
         }
     }
     let n = xs.len();
-    let bounds = [-3.0, 3.0, -3.0, 3.0];
+    let bounds = [-3.0, -3.0, 3.0, 3.0];
 
     let sp_cfg = ScreenedPoissonConfig {
         kernel: DensityFieldKernel::ScreenedPoisson,
@@ -251,12 +251,15 @@ fn test_pitfall2_plateau_expansion_screened_poisson_vs_single_gaussian() {
 }
 
 #[test]
-fn test_default_2048_memory_budget_and_finite_eval() {
+fn test_default_512_memory_budget_and_finite_eval() {
     let mut field = ScreenedPoissonField2d::<f64>::new(ScreenedPoissonConfig::default()).unwrap();
+    assert_eq!(field.config().grid_size, 512);
+    assert!(field.density_grid().is_none());
+    assert_eq!(field.density_grid_dim(), 0);
     let mem = field.workspace_memory_bytes();
     assert!(
-        mem <= 75_000_000,
-        "2048x2048 padded f32 workspace exceeded 75 MB budget: {mem} bytes"
+        mem <= 6_000_000,
+        "512x512 padded f32 workspace exceeded 6 MB budget: {mem} bytes"
     );
 
     let mut rng = DeterministicRng::from_seed_u64(2048);
@@ -269,9 +272,59 @@ fn test_default_2048_memory_budget_and_finite_eval() {
     }
     let mut out = ScreenedPoissonOutput::new();
     field.evaluate_xy(&xs, &ys, &mut out).unwrap();
-    assert_eq!(out.stats.grid_dim, 2048);
-    assert_eq!(out.stats.pad_dim, 4096);
+    assert_eq!(out.stats.grid_dim, 512);
+    assert_eq!(out.stats.pad_dim, 1024);
     assert!(out.energy.is_finite());
     assert!(out.force_x.iter().all(|v| v.is_finite()));
     assert!(out.force_y.iter().all(|v| v.is_finite()));
+
+    let fg = field.density_grid().expect("density_grid populated");
+    let og = out.density_grid().expect("output density_grid populated");
+    assert_eq!(field.density_grid_dim(), 512);
+    assert_eq!(out.density_grid_dim(), 512);
+    assert_eq!(fg.len(), 512 * 512);
+    assert_eq!(fg, og);
+    assert!(fg.iter().all(|v| v.is_finite() && *v >= 0.0));
+}
+
+#[test]
+fn test_density_grid_early_exit_f32_and_asymmetric_bounds_order() {
+    let cfg = ScreenedPoissonConfig {
+        grid_size: 64,
+        padding_factor: 2,
+        rho_max: Some(100.0),
+        ..ScreenedPoissonConfig::default()
+    };
+    let mut field = ScreenedPoissonField2d::<f32>::new(cfg).unwrap();
+    let mut out = ScreenedPoissonOutput::new();
+    let xs = vec![-2.0_f32, 4.0, 0.5, 1.0];
+    let ys = vec![-10.0_f32, 20.0, 2.0, -3.0];
+
+    // Bounds must follow [min_x, min_y, max_x, max_y].
+    assert!(
+        field
+            .evaluate_xy_in_bounds(&xs, &ys, [-2.0, 4.0, -10.0, 20.0], &mut out)
+            .is_err()
+    );
+    assert!(field.density_grid().is_none());
+
+    field.evaluate_xy(&xs, &ys, &mut out).unwrap();
+    assert!(out.stats.early_exit_no_excess);
+    let auto_grid = field
+        .density_grid()
+        .expect("early exit still populates density_grid")
+        .to_vec();
+    assert_eq!(auto_grid.len(), 64 * 64);
+
+    let mut out_bounds = ScreenedPoissonOutput::new();
+    field
+        .evaluate_xy_in_bounds(&xs, &ys, [-2.0, -10.0, 4.0, 20.0], &mut out_bounds)
+        .unwrap();
+    assert_eq!(out_bounds.density_grid().unwrap(), auto_grid.as_slice());
+
+    let empty: [f32; 0] = [];
+    field.evaluate_xy(&empty, &empty, &mut out_bounds).unwrap();
+    assert!(field.density_grid().is_none());
+    assert_eq!(field.density_grid_dim(), 0);
+    assert!(out_bounds.density_grid().is_none());
 }

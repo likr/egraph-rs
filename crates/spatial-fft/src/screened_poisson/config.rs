@@ -15,7 +15,7 @@ pub enum DensityFieldKernel {
 pub struct ScreenedPoissonConfig {
     /// Density kernel operator (`default: DensityFieldKernel::ScreenedPoisson`).
     pub kernel: DensityFieldKernel,
-    /// Active interior grid resolution $G \times G$ (`default: 2048`, power of two `>= 16`).
+    /// Active interior grid resolution $G \times G$ (`default: 512`, power of two `>= 16`).
     pub grid_size: usize,
     /// Zero-padding multiplier (`1` or `2`, `default: 2`).
     pub padding_factor: usize,
@@ -42,7 +42,7 @@ impl Default for ScreenedPoissonConfig {
     fn default() -> Self {
         Self {
             kernel: DensityFieldKernel::ScreenedPoisson,
-            grid_size: 2048,
+            grid_size: 512,
             padding_factor: 2,
             margin_ratio: 0.1,
             sigma_ratio: 0.015,
@@ -158,6 +158,11 @@ pub struct ScreenedPoissonOutput<S: Scalar = f64> {
     pub energy: f64,
     /// Evaluation telemetry.
     pub stats: ScreenedPoissonStats,
+    /// Row-major smoothed empirical density $\rho_V$ on the interior $G \times G$ grid
+    /// (`row * G + col`, where row tracks $y$ and col tracks $x$).
+    pub density_grid: Vec<S>,
+    /// Interior grid dimension $G$ for [`Self::density_grid`] (`0` when unpopulated).
+    pub density_grid_dim: usize,
 }
 
 impl<S: Scalar> Default for ScreenedPoissonOutput<S> {
@@ -174,6 +179,30 @@ impl<S: Scalar> ScreenedPoissonOutput<S> {
             force_y: Vec::new(),
             energy: 0.0,
             stats: ScreenedPoissonStats::default(),
+            density_grid: Vec::new(),
+            density_grid_dim: 0,
+        }
+    }
+
+    /// Returns the row-major $G \times G$ smoothed empirical density $\rho_V$ if populated.
+    #[inline]
+    pub fn density_grid(&self) -> Option<&[S]> {
+        if self.density_grid_dim > 0
+            && self.density_grid.len() == self.density_grid_dim * self.density_grid_dim
+        {
+            Some(&self.density_grid)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the interior grid dimension $G$ of [`Self::density_grid`] (`0` when unpopulated).
+    #[inline]
+    pub fn density_grid_dim(&self) -> usize {
+        if self.density_grid().is_some() {
+            self.density_grid_dim
+        } else {
+            0
         }
     }
 
@@ -184,5 +213,7 @@ impl<S: Scalar> ScreenedPoissonOutput<S> {
         self.force_y.fill(S::ZERO);
         self.energy = 0.0;
         self.stats = ScreenedPoissonStats::default();
+        self.density_grid.clear();
+        self.density_grid_dim = 0;
     }
 }
