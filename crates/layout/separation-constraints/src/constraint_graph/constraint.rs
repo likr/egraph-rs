@@ -11,7 +11,7 @@
 /// For example, in a 2D layout, a constraint might enforce that node A is at least 50 pixels
 /// to the left of node B.
 ///
-/// See Section 2 in the IPSEP-COLA paper [2].
+/// See Section 2 in the IPSEP-COLA paper \[2\].
 #[derive(Clone, Debug)]
 pub struct Constraint<S> {
     /// Index (`usize`) of the variable on the left side.

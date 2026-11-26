@@ -62,10 +62,10 @@
 //!
 //! ## References
 //!
-//! [1] Dwyer, T., Marriott, K., & Stuckey, P. J. (2006). "Fast node overlap removal—correction."
+//! \[1\] Dwyer, T., Marriott, K., & Stuckey, P. J. (2006). "Fast node overlap removal—correction."
 //! In International Symposium on Graph Drawing (pp. 446-447).
 //!
-//! [2] Dwyer, T., Koren, Y., & Marriott, K. (2006). "IPSEP-COLA: An incremental procedure for
+//! \[2\] Dwyer, T., Koren, Y., & Marriott, K. (2006). "IPSEP-COLA: An incremental procedure for
 //! separation constraint layout of graphs." IEEE Transactions on Visualization and Computer Graphics,
 //! 12(5), 821-828.
 
