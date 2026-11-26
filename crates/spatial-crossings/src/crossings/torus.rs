@@ -68,7 +68,50 @@ fn wrap_torus_pos<S: Scalar>(value: S) -> f64 {
     if w == 0.0 { 0.0 } else { w }
 }
 
-/// Splits a 2D torus edge `(x1, y1) -> (x2, y2)` into 1, 2, or 3 Euclidean segments on `[0, 1]^2`
+/// Largest IEEE-754 f64 strictly below 1.0 so clipped endpoints stay in [0, 1) with zero ULP gap.
+const TORUS_MAX: f64 = 1.0 - 0.5 * f64::EPSILON;
+
+#[inline]
+fn canon_zero(v: f64) -> f64 {
+    if v == 0.0 { 0.0 } else { v }
+}
+
+#[inline]
+fn clamp_unit(v: f64) -> f64 {
+    canon_zero(v.clamp(0.0, TORUS_MAX))
+}
+
+#[inline]
+fn best_axis_shift(p0: f64, p1: f64) -> i32 {
+    let d = p1 - p0;
+    if d > 0.5 {
+        -1
+    } else if d < -0.5 {
+        1
+    } else {
+        0
+    }
+}
+
+#[inline]
+fn unwrapped_delta(p0: f64, p1: f64, shift: i32) -> f64 {
+    match shift {
+        0 => p1 - p0,
+        1 => (1.0 - p0) + p1,
+        _ => (p1 - 1.0) - p0,
+    }
+}
+
+#[inline]
+fn axis_cut(p0: f64, d: f64, shift: i32) -> Option<f64> {
+    match shift {
+        -1 => Some(canon_zero((-p0 / d).clamp(0.0, 1.0))),
+        1 => Some(canon_zero(((1.0 - p0) / d).clamp(0.0, 1.0))),
+        _ => None,
+    }
+}
+
+/// Splits a 2D torus edge `(x1, y1) -> (x2, y2)` into 1, 2, or 3 Euclidean segments in `[0, 1)^2`
 /// under unit `[0, 1)^2` aspect ratio.
 pub fn torus_edge_segments<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> CoreResult<Vec<[f64; 4]>> {
     torus_edge_segments_with_extents(x1, y1, x2, y2, 1.0, 1.0)
@@ -94,145 +137,153 @@ fn torus_edge_segments_with_extents<S: Scalar>(
         ));
     }
 
-    let px = wrap_torus_pos(x1);
-    let py = wrap_torus_pos(y1);
-    let qx = wrap_torus_pos(x2);
-    let qy = wrap_torus_pos(y2);
+    let x0 = wrap_torus_pos(x1);
+    let y0 = wrap_torus_pos(y1);
+    let x1_w = wrap_torus_pos(x2);
+    let y1_w = wrap_torus_pos(y2);
 
-    // Find periodic shift (dx, dy) in {-1, 0, +1}^2 minimizing physical distance.
-    let mut best_d = f64::INFINITY;
-    let mut best_dx = 0_i32;
-    let mut best_dy = 0_i32;
-    for dy in -1..=1 {
-        let y_shift = py + dy as f64;
-        for dx in -1..=1 {
-            let x_shift = px + dx as f64;
-            let d = (lx * (x_shift - qx)).hypot(ly * (y_shift - qy));
-            if d < best_d {
-                best_d = d;
-                best_dx = dx;
-                best_dy = dy;
-            }
-        }
-    }
+    // Since the torus box is axis-aligned, minimizing physical distance decouples per axis.
+    let best_dx = best_axis_shift(x0, x1_w);
+    let best_dy = best_axis_shift(y0, y1_w);
 
     if best_dx == 0 && best_dy == 0 {
-        return Ok(vec![[px, py, qx, qy]]);
+        return Ok(vec![[x0, y0, x1_w, y1_w]]);
     }
 
-    // Largest IEEE-754 f64 strictly below 1.0 so clipped endpoints stay in [0, 1) with zero ULP gap.
-    let torus_max = f64::from_bits(1.0_f64.to_bits() - 1);
+    let dx = unwrapped_delta(x0, x1_w, best_dx);
+    let dy = unwrapped_delta(y0, y1_w, best_dy);
 
-    if best_dx == 0 {
-        let (x0, y0, x1_w, y1_w) = if py < qy {
-            (px, py, qx, qy)
-        } else {
-            (qx, qy, px, py)
-        };
-        let denom = y0 - y1_w + 1.0;
-        let x2_cross = if denom.abs() <= 1e-15 {
-            0.5 * (x0 + x1_w)
-        } else {
-            (y0 * x1_w - y1_w * x0 + x0) / denom
-        };
-        let xw = wrap_torus_pos(x2_cross);
-        return Ok(vec![[x0, y0, xw, 0.0], [xw, torus_max, x1_w, y1_w]]);
+    let mut cuts = [0.0_f64, 1.0, 0.0, 0.0];
+    let mut n_cuts = 2usize;
+    let tx = axis_cut(x0, dx, best_dx);
+    let ty = axis_cut(y0, dy, best_dy);
+    for t in [tx, ty].into_iter().flatten() {
+        cuts[n_cuts] = t;
+        n_cuts += 1;
     }
+    cuts[..n_cuts].sort_unstable_by(f64::total_cmp);
 
-    if best_dy == 0 {
-        let (x0, y0, x1_w, y1_w) = if px < qx {
-            (px, py, qx, qy)
-        } else {
-            (qx, qy, px, py)
-        };
-        let denom = x0 - x1_w + 1.0;
-        let y2_cross = if denom.abs() <= 1e-15 {
-            0.5 * (y0 + y1_w)
-        } else {
-            (x0 * y1_w - x1_w * y0 + y0) / denom
-        };
-        let yw = wrap_torus_pos(y2_cross);
-        return Ok(vec![[x0, y0, 0.0, yw], [torus_max, yw, x1_w, y1_w]]);
-    }
-
-    let (x0, y0, x1_w, y1_w) = if px < qx {
-        (px, py, qx, qy)
-    } else {
-        (qx, qy, px, py)
-    };
-    let cx = x0 - x1_w + 1.0;
-    let opp = best_dx * best_dy < 0;
-    let cy = if opp {
-        y0 - y1_w - 1.0
-    } else {
-        y0 - y1_w + 1.0
-    };
-    let x2_cross = if opp {
-        (cy * x0 - cx * y0 + cx) / cy
-    } else {
-        (cy * x0 - cx * y0) / cy
-    };
-    let y2_cross = (cx * y0 - cy * x0) / cx;
-
-    if opp {
-        if x2_cross < 0.0 {
-            let yw = wrap_torus_pos(y2_cross);
-            let xw = wrap_torus_pos(x2_cross + 1.0);
-            Ok(vec![
-                [x0, y0, 0.0, yw],
-                [torus_max, yw, xw, torus_max],
-                [xw, 0.0, x1_w, y1_w],
-            ])
-        } else {
-            let xw = wrap_torus_pos(x2_cross);
-            let yw = wrap_torus_pos(y2_cross + 1.0);
-            Ok(vec![
-                [x0, y0, xw, torus_max],
-                [xw, 0.0, 0.0, yw],
-                [torus_max, yw, x1_w, y1_w],
-            ])
+    let eval_axis = |t: f64, p0: f64, p1_w: f64, d: f64, shift: i32, cell: i32, tc: Option<f64>| {
+        if tc == Some(t) {
+            return match (shift, cell) {
+                (1, 0) | (-1, -1) => TORUS_MAX,
+                (1, 1) | (-1, 0) => 0.0,
+                _ => clamp_unit(p0 - cell as f64 + t * d),
+            };
         }
-    } else if y2_cross < 0.0 {
-        let xw = wrap_torus_pos(x2_cross);
-        let yw = wrap_torus_pos(y2_cross + 1.0);
-        Ok(vec![
-            [x0, y0, xw, 0.0],
-            [xw, torus_max, 0.0, yw],
-            [torus_max, yw, x1_w, y1_w],
-        ])
+        let raw = if t == 0.0 {
+            p0 - cell as f64
+        } else if t == 1.0 {
+            p1_w + (shift - cell) as f64
+        } else {
+            (p0 - cell as f64) + t * d
+        };
+        clamp_unit(raw)
+    };
+
+    let mut pieces = Vec::with_capacity(n_cuts - 1);
+    for w in cuts[..n_cuts].windows(2) {
+        let (t_a, t_b) = (w[0], w[1]);
+        if t_b <= t_a {
+            continue;
+        }
+        let cx = if tx.is_some_and(|tc| t_a >= tc) {
+            best_dx
+        } else {
+            0
+        };
+        let cy = if ty.is_some_and(|tc| t_a >= tc) {
+            best_dy
+        } else {
+            0
+        };
+        pieces.push([
+            eval_axis(t_a, x0, x1_w, dx, best_dx, cx, tx),
+            eval_axis(t_a, y0, y1_w, dy, best_dy, cy, ty),
+            eval_axis(t_b, x0, x1_w, dx, best_dx, cx, tx),
+            eval_axis(t_b, y0, y1_w, dy, best_dy, cy, ty),
+        ]);
+    }
+    Ok(pieces)
+}
+
+#[inline]
+fn clip_seg_to_unit_torus(ax: f64, ay: f64, bx: f64, by: f64) -> Option<[f64; 4]> {
+    let (dx, dy) = (bx - ax, by - ay);
+    let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+    for (p, q) in [(-dx, ax), (dx, 1.0 - ax), (-dy, ay), (dy, 1.0 - ay)] {
+        if p == 0.0 {
+            if q < -1e-12 {
+                return None;
+            }
+        } else if p < 0.0 {
+            t0 = t0.max(q / p);
+        } else {
+            t1 = t1.min(q / p);
+        }
+    }
+    if t0 > t1 + 1e-12 {
+        return None;
+    }
+    let ta = t0.clamp(0.0, 1.0);
+    let tb = t1.max(t0).clamp(0.0, 1.0);
+    let eval_x = |t: f64| {
+        clamp_unit(if t == 0.0 {
+            ax
+        } else if t == 1.0 {
+            bx
+        } else {
+            ax + t * dx
+        })
+    };
+    let eval_y = |t: f64| {
+        clamp_unit(if t == 0.0 {
+            ay
+        } else if t == 1.0 {
+            by
+        } else {
+            ay + t * dy
+        })
+    };
+    Some([eval_x(ta), eval_y(ta), eval_x(tb), eval_y(tb)])
+}
+
+#[inline]
+fn crossing_in_unit_box(a: &Seg, b: &Seg) -> bool {
+    let (dx1, dy1, dx2, dy2) = (a.x2 - a.x1, a.y2 - a.y1, b.x2 - b.x1, b.y2 - b.y1);
+    let det = dx1 * dy2 - dy1 * dx2;
+    if det != 0.0 {
+        let t = ((b.x1 - a.x1) * dy2 - (b.y1 - a.y1) * dx2) / det;
+        let xi = (a.x1 + t * dx1).clamp(a.x_min.max(b.x_min), a.x_max.min(b.x_max));
+        let yi = (a.y1 + t * dy1).clamp(a.y_min.max(b.y_min), a.y_max.min(b.y_max));
+        (-1e-12..1.0).contains(&xi) && (-1e-12..1.0).contains(&yi)
     } else {
-        let yw = wrap_torus_pos(y2_cross);
-        let xw = wrap_torus_pos(x2_cross + 1.0);
-        Ok(vec![
-            [x0, y0, 0.0, yw],
-            [torus_max, yw, xw, 0.0],
-            [xw, torus_max, x1_w, y1_w],
-        ])
+        a.x_min.max(b.x_min) < 1.0
+            && a.x_max.min(b.x_max) >= -1e-12
+            && a.y_min.max(b.y_min) < 1.0
+            && a.y_max.min(b.y_max) >= -1e-12
     }
 }
 
 #[inline]
-fn torus_crossing_angle_metrics(a: &Seg, b: &Seg, lx: f64, ly: f64) -> (Option<f64>, f64) {
-    let dx1 = lx * (a.x2 - a.x1);
-    let dy1 = ly * (a.y2 - a.y1);
-    let dx2 = lx * (b.x2 - b.x1);
-    let dy2 = ly * (b.y2 - b.y1);
-    let len1 = dx1.hypot(dy1);
-    let len2 = dx2.hypot(dy2);
+fn torus_crossing_angle_metrics(
+    (dx1, dy1): (f64, f64),
+    (dx2, dy2): (f64, f64),
+) -> (Option<f64>, f64) {
+    let (len1, len2) = (dx1.hypot(dy1), dx2.hypot(dy2));
     if len1 == 0.0 || len2 == 0.0 {
         return (None, 0.0);
     }
-    let ux1 = dx1 / len1;
-    let uy1 = dy1 / len1;
-    let ux2 = dx2 / len2;
-    let uy2 = dy2 / len2;
-    let cos_val = (ux1 * ux2 + uy1 * uy2).clamp(-1.0, 1.0);
+    let cos_val = ((dx1 / len1) * (dx2 / len2) + (dy1 / len1) * (dy2 / len2)).clamp(-1.0, 1.0);
     let acute = cos_val.abs().acos().min(FRAC_PI_2);
     let cos_sq = cos_val * cos_val;
-    (
-        Some(if acute == 0.0 { 0.0 } else { acute }),
-        if cos_sq == 0.0 { 0.0 } else { cos_sq },
-    )
+    (Some(canon_zero(acute)), canon_zero(cos_sq))
+}
+
+struct TorusSubsegments {
+    sub_segs: Vec<Seg>,
+    orig_edge_of_sub: Vec<usize>,
+    orig_disps: Vec<(f64, f64)>,
 }
 
 fn build_torus_subsegments<S: Scalar>(
@@ -241,7 +292,7 @@ fn build_torus_subsegments<S: Scalar>(
     lx: f64,
     ly: f64,
     context: &'static str,
-) -> CoreResult<(Vec<Seg>, Vec<usize>)> {
+) -> CoreResult<TorusSubsegments> {
     layout.validate_finite()?;
     let n = layout.len();
     let xs = layout.x();
@@ -249,30 +300,61 @@ fn build_torus_subsegments<S: Scalar>(
 
     let mut sub_segs: Vec<Seg> = Vec::with_capacity(edges.len());
     let mut orig_edge_of_sub: Vec<usize> = Vec::with_capacity(edges.len());
+    let mut orig_disps: Vec<(f64, f64)> = Vec::with_capacity(edges.len());
 
     for (edge_id, &(u, v)) in edges.iter().enumerate() {
-        let ui = u as usize;
-        let vi = v as usize;
+        let (ui, vi) = (u as usize, v as usize);
         if ui >= n {
             return Err(CoreError::index_out_of_bounds(ui, n, context));
         }
         if vi >= n {
             return Err(CoreError::index_out_of_bounds(vi, n, context));
         }
-        let pieces = torus_edge_segments_with_extents(xs[ui], ys[ui], xs[vi], ys[vi], lx, ly)?;
-        for piece in pieces {
-            let sub_id = sub_segs.len();
-            sub_segs.push(Seg::from_endpoints(
-                sub_id, u, v, piece[0], piece[1], piece[2], piece[3],
-            ));
-            orig_edge_of_sub.push(edge_id);
+        let (x0, y0) = (wrap_torus_pos(xs[ui]), wrap_torus_pos(ys[ui]));
+        let (x1_w, y1_w) = (wrap_torus_pos(xs[vi]), wrap_torus_pos(ys[vi]));
+        let best_dx = best_axis_shift(x0, x1_w);
+        let best_dy = best_axis_shift(y0, y1_w);
+        orig_disps.push((
+            lx * unwrapped_delta(x0, x1_w, best_dx),
+            ly * unwrapped_delta(y0, y1_w, best_dy),
+        ));
+
+        let cx_shifts = [0, best_dx];
+        let cx_len = if best_dx == 0 { 1 } else { 2 };
+        let cy_shifts = [0, best_dy];
+        let cy_len = if best_dy == 0 { 1 } else { 2 };
+
+        for &cy in &cy_shifts[..cy_len] {
+            let sy0 = canon_zero(if cy == 0 { y0 } else { y0 - cy as f64 });
+            let sy1 = canon_zero(y1_w + (best_dy - cy) as f64);
+            for &cx in &cx_shifts[..cx_len] {
+                let sx0 = canon_zero(if cx == 0 { x0 } else { x0 - cx as f64 });
+                let sx1 = canon_zero(x1_w + (best_dx - cx) as f64);
+                if clip_seg_to_unit_torus(sx0, sy0, sx1, sy1).is_none() {
+                    continue;
+                }
+                sub_segs.push(Seg::from_endpoints(
+                    sub_segs.len(),
+                    u,
+                    v,
+                    sx0,
+                    sy0,
+                    sx1,
+                    sy1,
+                ));
+                orig_edge_of_sub.push(edge_id);
+            }
         }
     }
 
     if sub_segs.len() > u32::MAX as usize {
         return Err(CoreError::invalid_input("edge count exceeds u32::MAX"));
     }
-    Ok((sub_segs, orig_edge_of_sub))
+    Ok(TorusSubsegments {
+        sub_segs,
+        orig_edge_of_sub,
+        orig_disps,
+    })
 }
 
 /// Returns all piecewise Euclidean edge sub-segments in `[0, 1)^2` for `graph` under `layout`,
@@ -284,24 +366,14 @@ pub fn torus_layout_edge_segments<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     let (lx, ly) = layout.torus_extents()?;
     let coords = layout.torus_layout()?;
     coords.validate_finite()?;
-    let n = coords.len();
-    let xs = coords.x();
-    let ys = coords.y();
+    let (n, xs, ys) = (coords.len(), coords.x(), coords.y());
     let edges = extract_csr_edges(graph);
     let mut out = Vec::with_capacity(edges.len());
     for &(u, v) in &edges {
-        let ui = u as usize;
-        let vi = v as usize;
-        if ui >= n {
+        let (ui, vi) = (u as usize, v as usize);
+        if ui >= n || vi >= n {
             return Err(CoreError::index_out_of_bounds(
-                ui,
-                n,
-                "torus_layout_edge_segments",
-            ));
-        }
-        if vi >= n {
-            return Err(CoreError::index_out_of_bounds(
-                vi,
+                ui.max(vi),
                 n,
                 "torus_layout_edge_segments",
             ));
@@ -322,12 +394,11 @@ pub fn torus_crossing_number<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     let (lx, ly) = layout.torus_extents()?;
     let coords = layout.torus_layout()?;
     let edges = extract_csr_edges(graph);
-    let (sub_segs, orig_edge_of_sub) =
-        build_torus_subsegments(&edges, coords, lx, ly, "torus_crossing_number")?;
+    let data = build_torus_subsegments(&edges, coords, lx, ly, "torus_crossing_number")?;
     let mut seen_edges = PairSet::default();
-    sweep_segments_with(&sub_segs, |sub_a, sub_b| {
-        let ea = orig_edge_of_sub[sub_a];
-        let eb = orig_edge_of_sub[sub_b];
+    sweep_segments_with(&data.sub_segs, |sub_a, sub_b| {
+        let ea = data.orig_edge_of_sub[sub_a];
+        let eb = data.orig_edge_of_sub[sub_b];
         if ea != eb {
             seen_edges.insert(pack_pair(ea, eb));
         }
@@ -353,53 +424,52 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
 ) -> CoreResult<Vec<TorusCrossing>> {
     let (lx, ly) = layout.torus_extents()?;
     let coords = layout.torus_layout()?;
-    let (sub_segs, orig_edge_of_sub) =
-        build_torus_subsegments(edges, coords, lx, ly, "torus_crossing_edges_from_edges")?;
+    let data = build_torus_subsegments(edges, coords, lx, ly, "torus_crossing_edges_from_edges")?;
 
-    let pairs = sweep_segments(&sub_segs);
-    let mut out = Vec::with_capacity(pairs.len());
+    let pairs = sweep_segments(&data.sub_segs);
+    let mut candidates: Vec<(bool, TorusCrossing)> = Vec::with_capacity(pairs.len());
     for key in pairs {
         let (sub_a, sub_b) = unpack_pair(key);
-        let sa = &sub_segs[sub_a];
-        let sb = &sub_segs[sub_b];
-        let ea = orig_edge_of_sub[sub_a];
-        let eb = orig_edge_of_sub[sub_b];
+        let sa = &data.sub_segs[sub_a];
+        let sb = &data.sub_segs[sub_b];
+        let ea = data.orig_edge_of_sub[sub_a];
+        let eb = data.orig_edge_of_sub[sub_b];
         if ea == eb {
             continue;
         }
-        let (angle_rad, cos_sq) = torus_crossing_angle_metrics(sa, sb, lx, ly);
-        if ea <= eb {
-            out.push(TorusCrossing {
-                edge_a: ea,
-                edge_b: eb,
-                u1: sa.u,
-                v1: sa.v,
-                u2: sb.u,
-                v2: sb.v,
-                seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
-                seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
-                angle_rad,
-                cos_sq,
-            });
+        let (edge_a, edge_b, sa_ord, sb_ord) = if ea <= eb {
+            (ea, eb, sa, sb)
         } else {
-            out.push(TorusCrossing {
-                edge_a: eb,
-                edge_b: ea,
-                u1: sb.u,
-                v1: sb.v,
-                u2: sa.u,
-                v2: sa.v,
-                seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
-                seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
+            (eb, ea, sb, sa)
+        };
+        let (angle_rad, cos_sq) =
+            torus_crossing_angle_metrics(data.orig_disps[edge_a], data.orig_disps[edge_b]);
+        let seg_a = clip_seg_to_unit_torus(sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2)
+            .unwrap_or([sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2]);
+        let seg_b = clip_seg_to_unit_torus(sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2)
+            .unwrap_or([sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2]);
+        let in_box = crossing_in_unit_box(sa_ord, sb_ord);
+        candidates.push((
+            in_box,
+            TorusCrossing {
+                edge_a,
+                edge_b,
+                u1: sa_ord.u,
+                v1: sa_ord.v,
+                u2: sb_ord.u,
+                v2: sb_ord.v,
+                seg_a,
+                seg_b,
                 angle_rad,
                 cos_sq,
-            });
-        }
+            },
+        ));
     }
-    out.sort_unstable_by(|a, b| {
+    candidates.sort_unstable_by(|(in_a, a), (in_b, b)| {
         a.edge_a
             .cmp(&b.edge_a)
             .then_with(|| a.edge_b.cmp(&b.edge_b))
+            .then_with(|| (!in_a).cmp(&(!in_b)))
             .then_with(|| a.angle_rad.is_none().cmp(&b.angle_rad.is_none()))
             .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
             .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
@@ -411,6 +481,11 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
             .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
     });
     let mut seen_edges = PairSet::default();
-    out.retain(|item| seen_edges.insert(pack_pair(item.edge_a, item.edge_b)));
+    let mut out = Vec::with_capacity(candidates.len());
+    for (_, item) in candidates {
+        if seen_edges.insert(pack_pair(item.edge_a, item.edge_b)) {
+            out.push(item);
+        }
+    }
     Ok(out)
 }

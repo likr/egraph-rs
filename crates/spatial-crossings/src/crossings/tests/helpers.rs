@@ -1,9 +1,10 @@
-use egraph_core::{Layout2d, Scalar};
+use egraph_core::{Layout2d, Scalar, wrap_torus_coord};
 
 use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
-use super::super::geometry::{Seg, build_segments, crossing_angle_metrics, segments_cross};
-use super::super::torus::torus_edge_segments;
+use super::super::TorusLayoutView;
+use super::super::geometry::{Seg, build_segments, segments_cross};
+use super::super::torus::torus_crossing_edges_from_edges;
 
 pub(super) fn brute_force_pairs<S: Scalar>(
     edges: &[(u32, u32)],
@@ -82,86 +83,204 @@ pub(super) fn assert_streaming_matches_find(
     );
 }
 
-pub(super) fn torus_brute_force<S: Scalar>(
-    label: &str,
+#[derive(Debug, Clone, Copy)]
+pub(super) struct OracleCrossing {
+    pub(super) edge_a: usize,
+    pub(super) edge_b: usize,
+    pub(super) angle_rad: Option<f64>,
+    pub(super) cos_sq: f64,
+}
+
+struct OracleBaseSeg {
+    u: u32,
+    v: u32,
+    x0: f64,
+    y0: f64,
+    x1_w: f64,
+    y1_w: f64,
+    sx: i32,
+    sy: i32,
+    dx_phys: f64,
+    dy_phys: f64,
+}
+
+/// Independent 9-shift O(M^2) torus crossing oracle using unwrapped minimum-image segments.
+pub(super) fn torus_oracle_with_extents<S: Scalar>(
     edges: &[(u32, u32)],
     layout: &Layout2d<S>,
-) -> Vec<TorusCrossing> {
-    let mut sub_segs = Vec::new();
-    let mut orig_edge = Vec::new();
-    for (eid, &(u, v)) in edges.iter().enumerate() {
-        let pieces = torus_edge_segments(
-            layout.x()[u as usize],
-            layout.y()[u as usize],
-            layout.x()[v as usize],
-            layout.y()[v as usize],
-        )
-        .unwrap();
-        for p in pieces {
-            for coord in p {
-                assert!(
-                    coord.is_finite() && (0.0..1.0).contains(&coord),
-                    "{label}: torus segment coord out of [0, 1): {p:?}"
-                );
-            }
-            let id = sub_segs.len();
-            sub_segs.push(Seg::from_endpoints(id, u, v, p[0], p[1], p[2], p[3]));
-            orig_edge.push(eid);
-        }
+    lx: f64,
+    ly: f64,
+) -> Vec<OracleCrossing> {
+    let mut base_segs: Vec<OracleBaseSeg> = Vec::with_capacity(edges.len());
+    for &(u, v) in edges {
+        let x0 = wrap_torus_coord(layout.x()[u as usize]).to_f64();
+        let y0 = wrap_torus_coord(layout.y()[u as usize]).to_f64();
+        let x1_w = wrap_torus_coord(layout.x()[v as usize]).to_f64();
+        let y1_w = wrap_torus_coord(layout.y()[v as usize]).to_f64();
+        let sx = if x1_w - x0 > 0.5 {
+            -1
+        } else if x1_w - x0 < -0.5 {
+            1
+        } else {
+            0
+        };
+        let sy = if y1_w - y0 > 0.5 {
+            -1
+        } else if y1_w - y0 < -0.5 {
+            1
+        } else {
+            0
+        };
+        let (dx, dy) = (
+            match sx {
+                0 => x1_w - x0,
+                1 => (1.0 - x0) + x1_w,
+                _ => (x1_w - 1.0) - x0,
+            },
+            match sy {
+                0 => y1_w - y0,
+                1 => (1.0 - y0) + y1_w,
+                _ => (y1_w - 1.0) - y0,
+            },
+        );
+        base_segs.push(OracleBaseSeg {
+            u,
+            v,
+            x0,
+            y0,
+            x1_w,
+            y1_w,
+            sx,
+            sy,
+            dx_phys: lx * dx,
+            dy_phys: ly * dy,
+        });
     }
-    let mut expected = Vec::new();
-    for i in 0..sub_segs.len() {
-        for j in (i + 1)..sub_segs.len() {
-            if segments_cross(&sub_segs[i], &sub_segs[j]) {
-                let ea = orig_edge[i];
-                let eb = orig_edge[j];
-                let sa = &sub_segs[i];
-                let sb = &sub_segs[j];
-                let (angle_rad, cos_sq) = crossing_angle_metrics(sa, sb);
-                if ea <= eb {
-                    expected.push(TorusCrossing {
-                        edge_a: ea,
-                        edge_b: eb,
-                        u1: sa.u,
-                        v1: sa.v,
-                        u2: sb.u,
-                        v2: sb.v,
-                        seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
-                        seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
-                        angle_rad,
-                        cos_sq,
-                    });
-                } else {
-                    expected.push(TorusCrossing {
-                        edge_a: eb,
-                        edge_b: ea,
-                        u1: sb.u,
-                        v1: sb.v,
-                        u2: sa.u,
-                        v2: sa.v,
-                        seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
-                        seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
-                        angle_rad,
-                        cos_sq,
-                    });
+
+    let mut out = Vec::new();
+    for (i, a) in base_segs.iter().enumerate() {
+        let ax_list = [0, a.sx];
+        let ax_len = if a.sx == 0 { 1 } else { 2 };
+        let ay_list = [0, a.sy];
+        let ay_len = if a.sy == 0 { 1 } else { 2 };
+        for (j, b) in base_segs.iter().enumerate().skip(i + 1) {
+            if a.u == a.v || b.u == b.v || a.u == b.u || a.u == b.v || a.v == b.u || a.v == b.v {
+                continue;
+            }
+            let bx_list = [0, b.sx];
+            let bx_len = if b.sx == 0 { 1 } else { 2 };
+            let by_list = [0, b.sy];
+            let by_len = if b.sy == 0 { 1 } else { 2 };
+            let mut crossed = false;
+            'shift_loop: for &ay in &ay_list[..ay_len] {
+                for &ax in &ax_list[..ax_len] {
+                    let sa = Seg::from_endpoints(
+                        i,
+                        a.u,
+                        a.v,
+                        if ax == 0 { a.x0 } else { a.x0 - ax as f64 },
+                        if ay == 0 { a.y0 } else { a.y0 - ay as f64 },
+                        a.x1_w + (a.sx - ax) as f64,
+                        a.y1_w + (a.sy - ay) as f64,
+                    );
+                    for &by in &by_list[..by_len] {
+                        for &bx in &bx_list[..bx_len] {
+                            let sb = Seg::from_endpoints(
+                                j,
+                                b.u,
+                                b.v,
+                                if bx == 0 { b.x0 } else { b.x0 - bx as f64 },
+                                if by == 0 { b.y0 } else { b.y0 - by as f64 },
+                                b.x1_w + (b.sx - bx) as f64,
+                                b.y1_w + (b.sy - by) as f64,
+                            );
+                            if segments_cross(&sa, &sb) {
+                                crossed = true;
+                                break 'shift_loop;
+                            }
+                        }
+                    }
                 }
             }
+            if crossed {
+                let len1 = a.dx_phys.hypot(a.dy_phys);
+                let len2 = b.dx_phys.hypot(b.dy_phys);
+                let (angle_rad, cos_sq) = if len1 == 0.0 || len2 == 0.0 {
+                    (None, 0.0)
+                } else {
+                    let cos_v = ((a.dx_phys / len1) * (b.dx_phys / len2)
+                        + (a.dy_phys / len1) * (b.dy_phys / len2))
+                        .clamp(-1.0, 1.0);
+                    let ang = cos_v.abs().acos().min(std::f64::consts::FRAC_PI_2);
+                    (Some(if ang == 0.0 { 0.0 } else { ang }), cos_v * cos_v)
+                };
+                out.push(OracleCrossing {
+                    edge_a: i,
+                    edge_b: j,
+                    angle_rad,
+                    cos_sq,
+                });
+            }
         }
     }
-    expected.sort_unstable_by(|a, b| {
-        a.edge_a
-            .cmp(&b.edge_a)
-            .then_with(|| a.edge_b.cmp(&b.edge_b))
-            .then_with(|| a.angle_rad.is_none().cmp(&b.angle_rad.is_none()))
-            .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
-            .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
-            .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
-            .then_with(|| a.seg_a[3].total_cmp(&b.seg_a[3]))
-            .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
-            .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
-            .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
-            .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
-    });
-    expected.dedup_by(|a, b| a.edge_a == b.edge_a && a.edge_b == b.edge_b);
-    expected
+    out
+}
+
+pub(super) fn assert_torus_matches_oracle<S: Scalar, L: TorusLayoutView<S> + ?Sized>(
+    label: &str,
+    edges: &[(u32, u32)],
+    view: &L,
+) -> Vec<TorusCrossing> {
+    let (lx, ly) = view.torus_extents().unwrap();
+    let coords = view.torus_layout().unwrap();
+    let expected = torus_oracle_with_extents(edges, coords, lx, ly);
+    let got = torus_crossing_edges_from_edges(edges, view).unwrap();
+    assert_eq!(
+        got.len(),
+        expected.len(),
+        "{label}: count mismatch (got={}, expected={})",
+        got.len(),
+        expected.len()
+    );
+    for (g, e) in got.iter().zip(&expected) {
+        assert_eq!(g.edge_a, e.edge_a, "{label}: edge_a mismatch");
+        assert_eq!(g.edge_b, e.edge_b, "{label}: edge_b mismatch");
+        assert_eq!((g.u1, g.v1), edges[g.edge_a], "{label}: edge_a endpoints");
+        assert_eq!((g.u2, g.v2), edges[g.edge_b], "{label}: edge_b endpoints");
+        match (g.angle_rad, e.angle_rad) {
+            (Some(ga), Some(ea)) => {
+                assert!(
+                    (ga - ea).abs() <= 1e-11,
+                    "{label}: angle mismatch for ({}, {}): got {ga}, expected {ea}",
+                    g.edge_a,
+                    g.edge_b
+                );
+            }
+            (None, None) => {}
+            _ => panic!(
+                "{label}: angle Option mismatch for ({}, {}): got {:?}, expected {:?}",
+                g.edge_a, g.edge_b, g.angle_rad, e.angle_rad
+            ),
+        }
+        assert!(
+            (g.cos_sq - e.cos_sq).abs() <= 1e-11,
+            "{label}: cos_sq mismatch for ({}, {}): got {}, expected {}",
+            g.edge_a,
+            g.edge_b,
+            g.cos_sq,
+            e.cos_sq
+        );
+        for c in g.seg_a.into_iter().chain(g.seg_b) {
+            assert!(
+                c.is_finite() && (0.0..1.0).contains(&c),
+                "{label}: TorusCrossing seg coord out of [0, 1): {c}"
+            );
+            assert_ne!(
+                c.to_bits(),
+                (-0.0_f64).to_bits(),
+                "{label}: TorusCrossing seg coord has -0.0"
+            );
+        }
+    }
+    got
 }
