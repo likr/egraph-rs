@@ -178,24 +178,35 @@ fn test_nd_edge_cases_coincident_degenerate_and_error_guards() {
     ));
 
     let mut l_d3 = LayoutNd::<f64>::init(ng, 3, 1, 1.0).unwrap();
-    let mut l_d5 = LayoutNd::<f64>::init(ng, 5, 1, 1.0).unwrap();
+    let mut l_d4 = LayoutNd::<f64>::init(ng, 4, 1, 1.0).unwrap();
+    let mut l_d2 = LayoutNd::<f64>::init(ng, 2, 1, 1.0).unwrap();
     let mut l_2d = Layout2d::<f64>::init(ng, 1, 1.0).unwrap();
-    for mut s in [
-        SgdSolver::<f64>::pacmap_graph(&g_grid, Default::default()).unwrap(),
-        SgdSolver::<f64>::sgd2(&g_grid, Default::default()).unwrap(),
-        SgdSolver::<f64>::drgraph(&g_grid, Default::default()).unwrap(),
-    ] {
-        s.step(&mut l_d3).unwrap();
-        assert!(matches!(
-            s.step(&mut l_d5),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-        assert!(matches!(s.step(&mut l_2d), Err(CoreError::InvalidInput(_))));
+    for mode in 0..17 {
+        // 3D -> 4D and 3D -> 2D (Layout2d)
+        let (mut s_3d, mut s_2d, name) =
+            build_nd_mode_pair::<f64>(mode, &g_grid, &lms, &emb[..ng * 2]);
+        s_3d.step(&mut l_d3).unwrap();
+        assert!(
+            matches!(
+                s_3d.step(&mut l_d4),
+                Err(CoreError::DimensionMismatch { .. })
+            ),
+            "{name}: expected 3D->4D rejection"
+        );
+        assert!(
+            matches!(s_3d.step(&mut l_2d), Err(CoreError::InvalidInput(_))),
+            "{name}: expected 3D->Layout2d rejection"
+        );
+
+        // Layout2d -> 3D and Layout2d -> Nd(2D)
+        s_2d.step(&mut l_2d).unwrap();
+        assert!(
+            matches!(s_2d.step(&mut l_d3), Err(CoreError::InvalidInput(_))),
+            "{name}: expected Layout2d->3D rejection"
+        );
+        assert!(
+            matches!(s_2d.step(&mut l_d2), Err(CoreError::InvalidInput(_))),
+            "{name}: expected Layout2d->Nd(2D) rejection"
+        );
     }
-    let mut s_pm_2d = SgdSolver::<f64>::pacmap_graph(&g_grid, Default::default()).unwrap();
-    s_pm_2d.step(&mut l_2d).unwrap();
-    assert!(matches!(
-        s_pm_2d.step(&mut l_d3),
-        Err(CoreError::InvalidInput(_))
-    ));
 }

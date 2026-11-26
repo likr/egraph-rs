@@ -10,7 +10,7 @@ use super::pairs::{
     HINGE_BIT, INDEX_MASK, PackedGenPair, PackedSymPair, PairStorage, try_for_each_shuffled_pair,
 };
 use super::sgd2::step_sgd2_state_nd;
-use super::solver::SgdSolver;
+use super::solver::{ActiveLayoutKind, SgdSolver};
 
 #[inline]
 pub(super) fn nd_norm<S: Scalar>(
@@ -180,7 +180,7 @@ pub(super) fn scatter_collapsed_layout_nd_if_needed<S: Scalar>(
 }
 
 fn validate_nd_step_preconditions<S: Scalar>(
-    solver: &SgdSolver<S>,
+    solver: &mut SgdSolver<S>,
     layout: &LayoutNd<S>,
 ) -> CoreResult<usize> {
     let dims = layout.dims();
@@ -196,50 +196,21 @@ fn validate_nd_step_preconditions<S: Scalar>(
     }
     layout.validate_finite()?;
 
-    if let Some(st) = solver.pacmap.as_ref() {
-        if let Some(sc) = st.nd_scratch.as_ref() {
-            if sc.dims != dims {
-                return Err(CoreError::dimension_mismatch(
-                    sc.dims,
-                    dims,
-                    "SgdSolver::step::pacmap::dims",
-                ));
-            }
-        } else if solver.iter > 0 {
+    match solver.active_layout {
+        ActiveLayoutKind::Unset => solver.active_layout = ActiveLayoutKind::Nd(dims),
+        ActiveLayoutKind::Euclidean2d => {
             return Err(CoreError::invalid_input(
-                "SgdSolver::step: cannot switch from Layout2d to LayoutNd on stateful PaCMAP solver",
+                "SgdSolver::step: cannot switch from Layout2d to LayoutNd on stateful solver",
             ));
         }
-    }
-    if let Some(st) = solver.sgd2.as_ref() {
-        if let Some(sc) = st.nd_scratch.as_ref() {
-            if sc.dims != dims {
-                return Err(CoreError::dimension_mismatch(
-                    sc.dims,
-                    dims,
-                    "SgdSolver::step::sgd2::dims",
-                ));
-            }
-        } else if solver.iter > 0 {
-            return Err(CoreError::invalid_input(
-                "SgdSolver::step: cannot switch from Layout2d to LayoutNd on stateful Sgd2 solver",
+        ActiveLayoutKind::Nd(prev) if prev != dims => {
+            return Err(CoreError::dimension_mismatch(
+                prev,
+                dims,
+                "SgdSolver::step::dims",
             ));
         }
-    }
-    if let Some(st) = solver.drgraph.as_ref() {
-        if let Some(sc) = st.nd_scratch.as_ref() {
-            if sc.dims != dims {
-                return Err(CoreError::dimension_mismatch(
-                    sc.dims,
-                    dims,
-                    "SgdSolver::step::drgraph::dims",
-                ));
-            }
-        } else if st.initialized_coords {
-            return Err(CoreError::invalid_input(
-                "SgdSolver::step: cannot switch from Layout2d to LayoutNd on stateful DRGraph solver",
-            ));
-        }
+        ActiveLayoutKind::Nd(_) => {}
     }
     Ok(dims)
 }

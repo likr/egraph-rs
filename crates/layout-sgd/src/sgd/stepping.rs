@@ -9,7 +9,7 @@ use super::pacmap::step_pacmap_state;
 use super::pairs::{PairStorage, try_for_each_shuffled_pair};
 use super::sgd2::step_sgd2_state;
 use super::snap_t_fdp::step_snap_t_fdp_state;
-use super::solver::SgdSolver;
+use super::solver::{ActiveLayoutKind, SgdSolver};
 use super::update::{apply_euclidean_gen_pair, apply_euclidean_sym_pair, apply_manifold_pair};
 
 impl<S: Scalar> SgdSolver<S> {
@@ -24,6 +24,11 @@ impl<S: Scalar> SgdSolver<S> {
             ));
         }
         layout.as_layout().validate_finite()?;
+        if matches!(self.active_layout, ActiveLayoutKind::Nd(_)) {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::step_manifold: cannot switch from LayoutNd to ManifoldLayout2d",
+            ));
+        }
         if self.snap_t_fdp.is_some()
             || self.pacmap.is_some()
             || self.sgd2.is_some()
@@ -210,19 +215,14 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
             ));
         }
         layout.validate_finite()?;
-        if self
-            .pacmap
-            .as_ref()
-            .is_some_and(|st| st.nd_scratch.is_some())
-            || self.sgd2.as_ref().is_some_and(|st| st.nd_scratch.is_some())
-            || self
-                .drgraph
-                .as_ref()
-                .is_some_and(|st| st.nd_scratch.is_some())
-        {
-            return Err(CoreError::invalid_input(
-                "SgdSolver::step: cannot switch from LayoutNd to Layout2d on stateful solver",
-            ));
+        match self.active_layout {
+            ActiveLayoutKind::Unset => self.active_layout = ActiveLayoutKind::Euclidean2d,
+            ActiveLayoutKind::Euclidean2d => {}
+            ActiveLayoutKind::Nd(_) => {
+                return Err(CoreError::invalid_input(
+                    "SgdSolver::step: cannot switch from LayoutNd to Layout2d on stateful solver",
+                ));
+            }
         }
         if self.status.is_finished() {
             return Ok(self.status);

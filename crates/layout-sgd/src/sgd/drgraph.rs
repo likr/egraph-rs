@@ -226,7 +226,7 @@ pub(super) fn step_drgraph_state_nd<S: Scalar>(
     let total_len = num_nodes * dims;
     let sc = st
         .nd_scratch
-        .get_or_insert_with(|| DrGraphNdScratch::new(dims, num_nodes, total_len));
+        .get_or_insert_with(|| DrGraphNdScratch::new(num_nodes, total_len));
     let total = st.config.iterations;
     if num_nodes <= 1 || total == 0 || iter >= total {
         return;

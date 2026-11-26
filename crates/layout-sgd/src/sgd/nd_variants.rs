@@ -6,7 +6,6 @@ use super::snap_t_fdp::SnapTFdpState;
 
 #[derive(Debug, Clone)]
 pub(super) struct PacmapNdScratch {
-    pub(super) dims: usize,
     grad: Vec<f64>,
     m: Vec<f64>,
     v: Vec<f64>,
@@ -14,15 +13,13 @@ pub(super) struct PacmapNdScratch {
 
 #[derive(Debug, Clone)]
 pub(super) struct Sgd2NdScratch {
-    pub(super) dims: usize,
     pub(super) grad: Vec<f64>,
     pub(super) h: Vec<f64>,
 }
 
 impl Sgd2NdScratch {
-    pub(super) fn new(dims: usize, total_len: usize) -> Self {
+    pub(super) fn new(total_len: usize) -> Self {
         Self {
-            dims,
             grad: vec![0.0; total_len],
             h: vec![0.0; total_len],
         }
@@ -31,16 +28,14 @@ impl Sgd2NdScratch {
 
 #[derive(Debug, Clone)]
 pub(super) struct DrGraphNdScratch {
-    pub(super) dims: usize,
     pub(super) active: Vec<f64>,
     pub(super) scratch: Vec<f64>,
     pub(super) scratch_cnt: Vec<f64>,
 }
 
 impl DrGraphNdScratch {
-    pub(super) fn new(dims: usize, num_nodes: usize, total_len: usize) -> Self {
+    pub(super) fn new(num_nodes: usize, total_len: usize) -> Self {
         Self {
-            dims,
             active: vec![0.0; total_len],
             scratch: vec![0.0; total_len],
             scratch_cnt: vec![0.0; num_nodes],
@@ -322,7 +317,6 @@ pub(super) fn step_pacmap_state_nd<S: Scalar>(
     let dims = layout.dims();
     let total_len = num_nodes * dims;
     let sc = st.nd_scratch.get_or_insert_with(|| PacmapNdScratch {
-        dims,
         grad: vec![0.0; total_len],
         m: vec![0.0; total_len],
         v: vec![0.0; total_len],

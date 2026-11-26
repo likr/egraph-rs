@@ -21,7 +21,7 @@ use super::pairs::{
 };
 use super::sgd2::build_sgd2_state;
 use super::snap_t_fdp::build_snap_t_fdp_state;
-use super::solver::{SgdSolver, StreamingState};
+use super::solver::{ActiveLayoutKind, SgdSolver, StreamingState};
 use super::sparse_barrier::{build_sparse_barrier_dog, build_sparse_barrier_from_landmarks};
 #[allow(unused_imports)]
 use super::variant_config::GraphCneObjective;
@@ -178,6 +178,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max: config.learning_rate,
             iter: 0,
             status: built.status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: built.rng,
         })
     }
@@ -267,6 +268,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max: config.learning_rate,
             iter: 0,
             status: built.status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: built.rng,
         })
     }
@@ -356,6 +358,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max: config.initial_lr,
             iter: 0,
             status: built.status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: built.rng,
         })
     }
@@ -383,6 +386,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max: config.initial_lr,
             iter: 0,
             status: built.status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: built.rng,
         })
     }
@@ -409,6 +413,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max: config.initial_lr,
             iter: 0,
             status: built.status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: built.rng,
         })
     }

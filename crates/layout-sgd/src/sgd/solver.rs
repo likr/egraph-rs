@@ -15,6 +15,13 @@ use super::pairs::{
 use super::sgd2::Sgd2State;
 use super::snap_t_fdp::SnapTFdpState;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ActiveLayoutKind {
+    Unset,
+    Euclidean2d,
+    Nd(usize),
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct StreamingState<S: Scalar> {
     pub(super) negatives_per_node: usize,
@@ -54,6 +61,7 @@ pub struct SgdSolver<S: Scalar = f64> {
     pub(super) eta_max: f64,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
+    pub(super) active_layout: ActiveLayoutKind,
     pub(super) rng: DeterministicRng,
 }
 
@@ -137,6 +145,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max,
             iter: 0,
             status,
+            active_layout: ActiveLayoutKind::Unset,
             rng,
         })
     }
@@ -184,6 +193,7 @@ impl<S: Scalar> SgdSolver<S> {
             eta_max,
             iter: 0,
             status,
+            active_layout: ActiveLayoutKind::Unset,
             rng,
         })
     }

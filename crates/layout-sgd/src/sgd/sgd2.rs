@@ -242,7 +242,7 @@ pub(super) fn step_sgd2_state_nd<S: Scalar>(
     let total_len = num_nodes * dims;
     let sc = st
         .nd_scratch
-        .get_or_insert_with(|| Sgd2NdScratch::new(dims, total_len));
+        .get_or_insert_with(|| Sgd2NdScratch::new(total_len));
     if num_nodes <= 1 || !eta_f64.is_finite() || eta_f64 <= 0.0 || eta_max <= 0.0 {
         return Ok(());
     }
