@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
 use egraph_metrics_cluster::{
     cluster_area::cluster_area_faithfulness_with_weights, community::adjusted_patch_nig,
 };
@@ -37,21 +37,64 @@ use egraph_metrics_cluster::cluster_baselines::{
 #[cfg(feature = "eval-baselines")]
 use super::baselines::evaluate_eval_baseline_targets;
 use super::config::{MetricConfig, MetricInputs};
+use super::evaluate_nd::evaluate_metrics_nd_with_inputs;
 use super::report::{MetricReport, MetricTarget, RequestedFlags};
+
+/// Layout types supported by [`evaluate_metrics`] and related dispatcher entry points.
+pub trait MetricLayout<S: Scalar> {
+    /// Dispatches target-selective evaluation against `graph` using auxiliary `inputs`.
+    #[doc(hidden)]
+    fn evaluate_with_inputs_dispatch<W: Scalar>(
+        &self,
+        graph: &CsrGraph<W>,
+        targets: &[MetricTarget],
+        config: &MetricConfig,
+        inputs: &MetricInputs<'_, S>,
+    ) -> CoreResult<MetricReport>;
+}
+
+impl<S: Scalar> MetricLayout<S> for Layout2d<S> {
+    #[inline]
+    fn evaluate_with_inputs_dispatch<W: Scalar>(
+        &self,
+        graph: &CsrGraph<W>,
+        targets: &[MetricTarget],
+        config: &MetricConfig,
+        inputs: &MetricInputs<'_, S>,
+    ) -> CoreResult<MetricReport> {
+        evaluate_metrics_2d_with_inputs(graph, self, targets, config, inputs)
+    }
+}
+
+impl<S: Scalar> MetricLayout<S> for LayoutNd<S> {
+    #[inline]
+    fn evaluate_with_inputs_dispatch<W: Scalar>(
+        &self,
+        graph: &CsrGraph<W>,
+        targets: &[MetricTarget],
+        config: &MetricConfig,
+        inputs: &MetricInputs<'_, S>,
+    ) -> CoreResult<MetricReport> {
+        evaluate_metrics_nd_with_inputs(graph, self, targets, config, inputs)
+    }
+}
 
 /// Evaluates strictly the metrics listed in `targets`, skipping all unrequested work.
 ///
-/// Shares a single [`StaticKdTree<2, f64>`] across requested spatial/neighborhood targets,
-/// a single sweep-line pass across `CrossingEdges`/`CrossingNumber`/`CrossingAngle`/`Crosslessness`,
+/// Supports both 2D [`Layout2d`] and N-D [`LayoutNd`] coordinates via [`MetricLayout`].
+/// On [`Layout2d`], shares a single [`StaticKdTree<2, f64>`] across requested spatial/neighborhood
+/// targets, a single sweep-line pass across `CrossingEdges`/`CrossingNumber`/`CrossingAngle`/`Crosslessness`,
 /// a single torus crossing pass across `TorusCrossingNumber`/`CrossingEdgesTorus`,
 /// a single sampling pass across `SampledCrossingNumber`/`SampledCrosslessness`, and
 /// a single angular scan across `MinimumAngle`/`MinimumAngleA1`.
+/// On [`LayoutNd`], shares one `NdSpatialIndex` (and one `DynamicKdTree<f64>` for `eval-baselines`
+/// separation targets) and returns [`CoreError::UnsupportedOperation`] for 2D-only targets.
 /// For [`MetricTarget::AdjustedPatchNig`], [`MetricTarget::ClusterAreaFaithfulness`],
 /// [`MetricTarget::PrismDistortion`], or `eval-baselines` targets, use
 /// [`evaluate_metrics_with_communities`] or [`evaluate_metrics_with_inputs`].
-pub fn evaluate_metrics<W: Scalar, S: Scalar>(
+pub fn evaluate_metrics<W: Scalar, S: Scalar, L: MetricLayout<S>>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     targets: &[MetricTarget],
     config: &MetricConfig,
 ) -> CoreResult<MetricReport> {
@@ -59,11 +102,11 @@ pub fn evaluate_metrics<W: Scalar, S: Scalar>(
 }
 
 /// Evaluates strictly the metrics listed in `targets` with optional `labels`
-/// (required when [`MetricTarget::AdjustedPatchNig`] or [`MetricTarget::ClusterAreaFaithfulness`]
-/// is requested).
-pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
+/// (required when [`MetricTarget::AdjustedPatchNig`], [`MetricTarget::ClusterAreaFaithfulness`],
+/// or labeled `eval-baselines` targets are requested).
+pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar, L: MetricLayout<S>>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     targets: &[MetricTarget],
     config: &MetricConfig,
     labels: Option<&[u32]>,
@@ -78,9 +121,9 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
 /// Evaluates strictly the metrics listed in `targets` with optional `labels` and
 /// optional positive finite G-CAF target weights (`node_weights` or `cluster_weights`,
 /// mutually exclusive, evaluated lazily when [`MetricTarget::ClusterAreaFaithfulness`] is requested).
-pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
+pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar, L: MetricLayout<S>>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     targets: &[MetricTarget],
     config: &MetricConfig,
     labels: Option<&[u32]>,
@@ -99,7 +142,17 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
 /// Evaluates strictly the metrics listed in `targets` using optional auxiliary [`MetricInputs`]
 /// (`labels`, `node_weights`, `cluster_weights`, `original_layout`, `sprawlter_half_widths`,
 /// `sprawlter_half_heights`), validating inputs lazily per requested target.
-pub fn evaluate_metrics_with_inputs<W: Scalar, S: Scalar>(
+pub fn evaluate_metrics_with_inputs<W: Scalar, S: Scalar, L: MetricLayout<S>>(
+    graph: &CsrGraph<W>,
+    layout: &L,
+    targets: &[MetricTarget],
+    config: &MetricConfig,
+    inputs: &MetricInputs<'_, S>,
+) -> CoreResult<MetricReport> {
+    layout.evaluate_with_inputs_dispatch(graph, targets, config, inputs)
+}
+
+fn evaluate_metrics_2d_with_inputs<W: Scalar, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
     targets: &[MetricTarget],
