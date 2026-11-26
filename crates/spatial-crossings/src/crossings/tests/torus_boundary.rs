@@ -7,7 +7,7 @@ use super::super::{
     torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
     torus_layout_edge_segments,
 };
-use super::helpers::assert_torus_matches_oracle;
+use super::helpers::{assert_torus_matches_oracle, assert_torus_pair_intersects};
 
 fn assert_segments_valid(segs: &[[f64; 4]], label: &str) {
     for seg in segs {
@@ -359,4 +359,129 @@ fn test_torus_sub_ulp_unclipped_copy_and_disjoint_neighbor_regression() {
         c.seg_a,
         c.seg_b
     );
+}
+
+#[test]
+fn test_torus_clipping_boundary_snap_and_sterbenz_reproducers() {
+    let edges = [(0, 1), (2, 3)];
+    let g = CsrGraph::<f64>::from_edges(4, &edges, None, false, false).unwrap();
+
+    // REPRO_R4_A_a0_s146: direct [0, TORUS_MAX]^2 clipping keeps endpoint-touching segments intersecting.
+    let repro_a = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.95, 0.75, 0.95, 0.9],
+        vec![0.9, 0.1, 1.0 - 1e-12, 0.95],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &repro_a).unwrap(), 1);
+    let pairs_a = torus_crossing_edges(&g, &repro_a).unwrap();
+    assert_eq!(pairs_a.len(), 1);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges, &repro_a)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_torus_pair_intersects("REPRO_R4_A_a0_s146", &pairs_a[0]);
+    assert_torus_matches_oracle("REPRO_R4_A_a0_s146", &edges, &repro_a);
+
+    // REPRO_R4_B_f64_y0_residual: snapping constrained y=0.0 eliminates 2.77e-17 residual.
+    let repro_b_f64 = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.5, 0.25, 0.0, 0.411_784_202_862_037_9],
+        vec![0.0, 0.0, 0.25, 0.857_126_664_672_255_7],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &repro_b_f64).unwrap(), 1);
+    let pairs_b_f64 = torus_crossing_edges(&g, &repro_b_f64).unwrap();
+    assert_eq!(pairs_b_f64.len(), 1);
+    assert_torus_pair_intersects("REPRO_R4_B_f64_y0_residual", &pairs_b_f64[0]);
+    assert_torus_matches_oracle("REPRO_R4_B_f64_y0_residual", &edges, &repro_b_f64);
+
+    // REPRO_R4_B_f32_y0_residual: snapping constrained y=0.0 eliminates 6.62e-24 f32 residual.
+    let near_one_f32 = 1.0_f32 - 0.5 * f32::EPSILON;
+    let repro_b_f32 = ManifoldLayout2d::<f32>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![near_one_f32, 0.07138637, 0.95, 0.5 * f32::EPSILON],
+        vec![0.5 * f32::EPSILON, 0.7705116, 0.0, 0.0],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &repro_b_f32).unwrap(), 1);
+    let pairs_b_f32 = torus_crossing_edges(&g, &repro_b_f32).unwrap();
+    assert_eq!(pairs_b_f32.len(), 1);
+    assert_torus_pair_intersects("REPRO_R4_B_f32_y0_residual", &pairs_b_f32[0]);
+    assert_torus_matches_oracle("REPRO_R4_B_f32_y0_residual", &edges, &repro_b_f32);
+
+    // REPRO_R4_C_missed_dd_sub_ulp: Sterbenz shift for y>=0.9 avoids 1.0 + 1e-16 absorption.
+    let eps = f64::EPSILON;
+    let repro_c = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![eps, 1e-12, 0.0, 0.277_488_775_723_142_7],
+        vec![1.0 - eps, 1.0 - eps, 1e-16, 0.616_063_961_723_204_7],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &repro_c).unwrap(), 1);
+    let pairs_c = torus_crossing_edges(&g, &repro_c).unwrap();
+    assert_eq!(pairs_c.len(), 1);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges, &repro_c)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_torus_pair_intersects("REPRO_R4_C_missed_dd_sub_ulp", &pairs_c[0]);
+}
+
+#[test]
+fn test_torus_non_sub_ulp_randomized_intersecting_segments() {
+    let pool = [
+        0.0,
+        1e-6,
+        0.07,
+        0.19,
+        0.31,
+        0.47,
+        0.61,
+        0.73,
+        0.89,
+        1.0 - 3e-6,
+    ];
+    let aspects = [(1.0, 1.0), (3.0, 0.5), (0.5, 2.5), (2.0, 0.75)];
+    for (aspect_idx, (lx, ly)) in aspects.iter().enumerate() {
+        for seed in 1..=150u64 {
+            let mut rng =
+                DeterministicRng::from_seed_u64(420_000 + (aspect_idx as u64) * 1000 + seed);
+            let n = 14usize;
+            let mut xs = Vec::with_capacity(n);
+            let mut ys = Vec::with_capacity(n);
+            for i in 0..n {
+                if i < 8 {
+                    xs.push(pool[rng.gen_range_usize(pool.len())]);
+                    ys.push(pool[rng.gen_range_usize(pool.len())]);
+                } else {
+                    xs.push(0.05 + 0.90 * rng.next_f64());
+                    ys.push(0.05 + 0.90 * rng.next_f64());
+                }
+            }
+            let mut tor = ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Torus2d, xs, ys).unwrap();
+            tor.set_torus_extents(*lx, *ly).unwrap();
+
+            let mut edges = Vec::new();
+            for _ in 0..24 {
+                let u = rng.gen_range_usize(n) as u32;
+                let v = rng.gen_range_usize(n) as u32;
+                if u != v && !edges.contains(&(u.min(v), u.max(v))) {
+                    edges.push((u.min(v), u.max(v)));
+                }
+            }
+            let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+            let label = format!("non_sub_ulp_a{aspect_idx}_s{seed}");
+            let got = assert_torus_matches_oracle(&label, &edges, &tor);
+            assert_eq!(torus_crossing_number(&g, &tor).unwrap(), got.len());
+            assert_eq!(torus_crossing_edges(&g, &tor).unwrap().len(), got.len());
+            for pair in &got {
+                assert_torus_pair_intersects(&label, pair);
+            }
+        }
+    }
 }

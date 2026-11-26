@@ -16,6 +16,7 @@ mod sweep;
 #[cfg(test)]
 mod tests;
 mod torus;
+mod torus_clip;
 
 use band_reorder::finalize_pairs;
 use geometry::{build_segments, crossing_angle_metrics, extract_csr_edges};

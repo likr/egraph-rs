@@ -3,7 +3,9 @@ use egraph_core::{Layout2d, Scalar, wrap_torus_coord};
 use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
 use super::super::TorusLayoutView;
-use super::super::geometry::{Seg, build_segments, segments_cross};
+use super::super::geometry::{
+    Seg, build_segments, segments_cross, segments_geometrically_intersect,
+};
 use super::super::torus::torus_crossing_edges_from_edges;
 
 pub(super) fn brute_force_pairs<S: Scalar>(
@@ -283,4 +285,31 @@ pub(super) fn assert_torus_matches_oracle<S: Scalar, L: TorusLayoutView<S> + ?Si
         }
     }
     got
+}
+
+pub(super) fn assert_torus_pair_intersects(label: &str, c: &TorusCrossing) {
+    for coord in c.seg_a.into_iter().chain(c.seg_b) {
+        assert!(
+            coord.is_finite() && (0.0..1.0).contains(&coord),
+            "{label}: TorusCrossing coord out of [0, 1): {coord}"
+        );
+        assert_ne!(
+            coord.to_bits(),
+            (-0.0_f64).to_bits(),
+            "{label}: TorusCrossing coord has -0.0"
+        );
+    }
+    assert!(
+        segments_geometrically_intersect(
+            &Seg::from_endpoints(
+                0, c.u1, c.v1, c.seg_a[0], c.seg_a[1], c.seg_a[2], c.seg_a[3]
+            ),
+            &Seg::from_endpoints(
+                1, c.u2, c.v2, c.seg_b[0], c.seg_b[1], c.seg_b[2], c.seg_b[3]
+            ),
+        ),
+        "{label}: clipped TorusCrossing segments must intersect: seg_a={:?}, seg_b={:?}",
+        c.seg_a,
+        c.seg_b
+    );
 }
