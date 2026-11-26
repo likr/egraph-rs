@@ -36,6 +36,16 @@ pub struct StressMajorizationSolver<S: Scalar = f64> {
 impl<S: Scalar> StressMajorizationSolver<S> {
     /// Constructs a [`StressMajorizationSolver`] by computing all-pairs shortest paths via
     /// [`BfsWorkspace`] (unweighted) or [`DijkstraWorkspace`] (weighted).
+    #[inline]
+    pub fn new<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: StressMajorizationConfig,
+    ) -> CoreResult<Self> {
+        Self::from_graph(graph, config)
+    }
+
+    /// Constructs a [`StressMajorizationSolver`] by computing all-pairs shortest paths via
+    /// [`BfsWorkspace`] (unweighted) or [`DijkstraWorkspace`] (weighted).
     pub fn from_graph<W: Scalar>(
         graph: &CsrGraph<W>,
         config: StressMajorizationConfig,

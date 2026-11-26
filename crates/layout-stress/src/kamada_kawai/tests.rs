@@ -90,7 +90,7 @@ fn test_kamada_kawai_degenerate_collinear_det_zero_no_infinite_loop() {
     let cfg = KamadaKawaiConfig {
         eps: 1e-3,
         max_inner_iters: 50,
-        max_outer_iters: Some(60),
+        max_iterations: Some(60),
     };
     let mut solver = KamadaKawaiSolver::<f64>::from_distance_matrix(3, &dists, cfg).unwrap();
     let mut layout = Layout2d::from_xy(vec![0.0, 0.5, 1.0], vec![0.0, 0.0, 0.0]).unwrap();
@@ -99,9 +99,9 @@ fn test_kamada_kawai_degenerate_collinear_det_zero_no_infinite_loop() {
     assert!(solver.iteration() <= 60);
     assert!(layout.is_all_finite());
 
-    // Also verify default (10 * n).max(100) bound on n = 15.
+    // Also verify default (10 * n).max(100) bound on n = 15 and `new()` constructor parity.
     let g15 = grid_graph(3, 5);
-    let s15 = KamadaKawaiSolver::<f64>::from_graph(&g15, KamadaKawaiConfig::default()).unwrap();
+    let s15 = KamadaKawaiSolver::<f64>::new(&g15, KamadaKawaiConfig::default()).unwrap();
     assert_eq!(s15.total_iterations(), 150);
 }
 
@@ -151,12 +151,12 @@ fn test_kamada_kawai_edge_cases_disconnected_and_errors() {
         Err(CoreError::InvalidInput(_))
     ));
 
-    // max_outer_iters = Some(0) finishes immediately; dimension mismatch & NaN rejected.
+    // max_iterations = Some(0) finishes immediately; dimension mismatch & NaN rejected.
     let g2 = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
     let s_zero = KamadaKawaiSolver::<f64>::from_graph(
         &g2,
         KamadaKawaiConfig {
-            max_outer_iters: Some(0),
+            max_iterations: Some(0),
             ..cfg
         },
     )

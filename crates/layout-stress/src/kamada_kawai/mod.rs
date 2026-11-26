@@ -21,7 +21,7 @@ pub struct KamadaKawaiConfig {
     /// Maximum Newton-Raphson inner iterations per selected node (`default: 50`).
     pub max_inner_iters: usize,
     /// Optional cap on outer node-selection steps (`None` uses `(10 * n).max(100)`).
-    pub max_outer_iters: Option<usize>,
+    pub max_iterations: Option<usize>,
 }
 
 impl Default for KamadaKawaiConfig {
@@ -29,7 +29,7 @@ impl Default for KamadaKawaiConfig {
         Self {
             eps: 1e-2,
             max_inner_iters: 50,
-            max_outer_iters: None,
+            max_iterations: None,
         }
     }
 }
@@ -63,7 +63,7 @@ impl KamadaKawaiConfig {
 pub struct KamadaKawaiSolver<S: Scalar = f64> {
     config: KamadaKawaiConfig,
     num_nodes: usize,
-    max_outer_iters: usize,
+    max_iterations: usize,
     l: Vec<f64>,
     k: Vec<f64>,
     x_buf: Vec<f64>,
@@ -74,6 +74,13 @@ pub struct KamadaKawaiSolver<S: Scalar = f64> {
 }
 
 impl<S: Scalar> KamadaKawaiSolver<S> {
+    /// Constructs a [`KamadaKawaiSolver`] from a [`CsrGraph`] using [`BfsWorkspace`]
+    /// (unweighted) or [`DijkstraWorkspace`] (weighted).
+    #[inline]
+    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: KamadaKawaiConfig) -> CoreResult<Self> {
+        Self::from_graph(graph, config)
+    }
+
     /// Constructs a [`KamadaKawaiSolver`] from a [`CsrGraph`] using [`BfsWorkspace`]
     /// (unweighted) or [`DijkstraWorkspace`] (weighted).
     pub fn from_graph<W: Scalar>(
@@ -179,10 +186,10 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
             }
         }
 
-        let max_outer_iters = config
-            .max_outer_iters
+        let max_iterations = config
+            .max_iterations
             .unwrap_or_else(|| n.saturating_mul(10).max(100));
-        let status = if max_outer_iters == 0 {
+        let status = if max_iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -191,7 +198,7 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
         Ok(Self {
             config,
             num_nodes: n,
-            max_outer_iters,
+            max_iterations,
             l,
             k,
             x_buf: vec![0.0; n],
@@ -388,7 +395,7 @@ impl<S: Scalar> IterativeSolver<S> for KamadaKawaiSolver<S> {
         }
 
         self.iter += 1;
-        self.status = if self.iter >= self.max_outer_iters {
+        self.status = if self.iter >= self.max_iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
@@ -408,6 +415,6 @@ impl<S: Scalar> IterativeSolver<S> for KamadaKawaiSolver<S> {
 
     #[inline]
     fn total_iterations(&self) -> usize {
-        self.max_outer_iters
+        self.max_iterations
     }
 }
