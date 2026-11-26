@@ -84,6 +84,11 @@ pub fn evaluate_metrics_nd_with_inputs<W: Scalar, S: Scalar>(
 ) -> CoreResult<MetricReport> {
     validate_graph_layout_nd(graph, layout)?;
     let flags = RequestedFlags::from_targets(targets);
+    if flags.geodesic_distortion {
+        return Err(CoreError::unsupported(
+            "MetricTarget::GeodesicDistortion is only supported on ManifoldLayout2d",
+        ));
+    }
     if let Some(target_name) = first_unsupported_nd_target(&flags) {
         return Err(CoreError::unsupported(format!(
             "MetricTarget::{target_name} is only supported on 2D layouts"

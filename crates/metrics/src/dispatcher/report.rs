@@ -8,6 +8,9 @@ pub enum MetricTarget {
     ScaleNormalizedStress,
     /// $O(kN)$ degree-stratified pivot-sampled Scale-Normalized Stress (`SNS`).
     SampledScaleNormalizedStress,
+    /// Miller et al. (2024) Eq. (2) Geodesic Distortion without post-hoc rescaling
+    /// (supported on [`egraph_core::ManifoldLayout2d`]).
+    GeodesicDistortion,
     /// Exact sweep-line edge crossing count.
     CrossingNumber,
     /// Exact sweep-line list of non-adjacent crossing edge pairs.
@@ -128,6 +131,7 @@ pub enum MetricTarget {
 pub struct MetricReport {
     pub scale_normalized_stress: Option<f64>,
     pub sampled_scale_normalized_stress: Option<f64>,
+    pub geodesic_distortion: Option<f64>,
     pub crossing_number: Option<usize>,
     pub crossing_edges: Option<Vec<CrossingPair>>,
     pub crossing_angle: Option<f64>,
@@ -207,6 +211,7 @@ pub struct MetricReport {
 pub(super) struct RequestedFlags {
     pub(super) sns: bool,
     pub(super) sampled_sns: bool,
+    pub(super) geodesic_distortion: bool,
     pub(super) crossing_number: bool,
     pub(super) crossing_edges: bool,
     pub(super) crossing_angle: bool,
@@ -280,6 +285,7 @@ impl RequestedFlags {
             match target {
                 MetricTarget::ScaleNormalizedStress => flags.sns = true,
                 MetricTarget::SampledScaleNormalizedStress => flags.sampled_sns = true,
+                MetricTarget::GeodesicDistortion => flags.geodesic_distortion = true,
                 MetricTarget::CrossingNumber => flags.crossing_number = true,
                 MetricTarget::CrossingEdges => flags.crossing_edges = true,
                 MetricTarget::CrossingAngle => flags.crossing_angle = true,

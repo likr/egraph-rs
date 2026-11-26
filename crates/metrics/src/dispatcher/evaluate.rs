@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, ManifoldLayout2d, Scalar};
 use egraph_metrics_cluster::{
     cluster_area::cluster_area_faithfulness_with_weights, community::adjusted_patch_nig,
 };
@@ -37,6 +37,7 @@ use egraph_metrics_cluster::cluster_baselines::{
 #[cfg(feature = "eval-baselines")]
 use super::baselines::evaluate_eval_baseline_targets;
 use super::config::{MetricConfig, MetricInputs};
+use super::evaluate_manifold::evaluate_metrics_manifold_with_inputs;
 use super::evaluate_nd::evaluate_metrics_nd_with_inputs;
 use super::report::{MetricReport, MetricTarget, RequestedFlags};
 
@@ -76,6 +77,19 @@ impl<S: Scalar> MetricLayout<S> for LayoutNd<S> {
         inputs: &MetricInputs<'_, S>,
     ) -> CoreResult<MetricReport> {
         evaluate_metrics_nd_with_inputs(graph, self, targets, config, inputs)
+    }
+}
+
+impl<S: Scalar> MetricLayout<S> for ManifoldLayout2d<S> {
+    #[inline]
+    fn evaluate_with_inputs_dispatch<W: Scalar>(
+        &self,
+        graph: &CsrGraph<W>,
+        targets: &[MetricTarget],
+        config: &MetricConfig,
+        inputs: &MetricInputs<'_, S>,
+    ) -> CoreResult<MetricReport> {
+        evaluate_metrics_manifold_with_inputs(graph, self, targets, config, inputs)
     }
 }
 
@@ -161,6 +175,11 @@ fn evaluate_metrics_2d_with_inputs<W: Scalar, S: Scalar>(
 ) -> CoreResult<MetricReport> {
     validate_graph_layout(graph, layout, "evaluate_metrics")?;
     let flags = RequestedFlags::from_targets(targets);
+    if flags.geodesic_distortion {
+        return Err(CoreError::unsupported(
+            "MetricTarget::GeodesicDistortion is only supported on ManifoldLayout2d",
+        ));
+    }
     let mut report = MetricReport::default();
 
     if flags.sns {

@@ -3,9 +3,12 @@
 #[cfg(feature = "eval-baselines")]
 mod baselines;
 #[cfg(feature = "eval-baselines")]
+mod baselines_manifold;
+#[cfg(feature = "eval-baselines")]
 mod baselines_nd;
 mod config;
 mod evaluate;
+mod evaluate_manifold;
 mod evaluate_nd;
 mod report;
 
