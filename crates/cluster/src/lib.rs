@@ -32,7 +32,7 @@ mod tests {
     use super::crate_version;
 
     #[test]
-    fn m3_scaffold_ok() {
+    fn clustering_crate_version_is_non_empty() {
         assert!(!crate_version().is_empty());
     }
 }
