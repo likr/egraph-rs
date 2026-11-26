@@ -269,6 +269,35 @@ fn test_sparse_probabilities_from_csr_validation_and_rw_options() {
     assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![-0.1]).is_err());
     assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![f64::NAN]).is_err());
     assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![f64::INFINITY]).is_err());
+    // Asymmetric edge (0, 1) missing (1, 0)
+    assert!(matches!(
+        SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![0.5]),
+        Err(CoreError::InvalidCsr(_))
+    ));
+    // Asymmetric probability values (0, 1)=0.5 vs (1, 0)=0.25
+    assert!(matches!(
+        SparseProbabilities::from_csr(2, vec![0, 1, 2], vec![1, 0], vec![0.5, 0.25]),
+        Err(CoreError::InvalidCsr(_))
+    ));
+    // Unsorted / duplicate column indices within a row
+    assert!(matches!(
+        SparseProbabilities::from_csr(
+            3,
+            vec![0, 2, 3, 4],
+            vec![2, 1, 0, 0],
+            vec![0.25, 0.25, 0.25, 0.25]
+        ),
+        Err(CoreError::InvalidCsr(_))
+    ));
+    assert!(matches!(
+        SparseProbabilities::from_csr(
+            2,
+            vec![0, 2, 4],
+            vec![1, 1, 0, 0],
+            vec![0.25, 0.25, 0.25, 0.25]
+        ),
+        Err(CoreError::InvalidCsr(_))
+    ));
 
     // graph_12hop_row_normalized_probabilities_with_options with TwoStepRandomWalk
     let mut edges: Vec<(u32, u32)> = (1..=20u32).map(|v| (0, v)).collect();

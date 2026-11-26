@@ -125,6 +125,39 @@ impl SparseProbabilities {
                 )));
             }
         }
+        for u in 0..n_nodes {
+            let start = indptr[u] as usize;
+            let end = indptr[u + 1] as usize;
+            let row = &indices[start..end];
+            if !row.windows(2).all(|w| w[0] < w[1]) {
+                return Err(CoreError::invalid_csr(format!(
+                    "SparseProbabilities row {u} indices must be strictly sorted and duplicate-free"
+                )));
+            }
+        }
+        for u in 0..n_nodes {
+            let u32_u = u as u32;
+            let start = indptr[u] as usize;
+            let end = indptr[u + 1] as usize;
+            for pos in start..end {
+                let v = indices[pos] as usize;
+                let v_start = indptr[v] as usize;
+                let v_end = indptr[v + 1] as usize;
+                let Ok(rev_offset) = indices[v_start..v_end].binary_search(&u32_u) else {
+                    return Err(CoreError::invalid_csr(format!(
+                        "SparseProbabilities must be symmetric: missing reverse entry ({v}, {u})"
+                    )));
+                };
+                let p_uv = values[pos];
+                let p_vu = values[v_start + rev_offset];
+                let tol = 1e-12 * 1.0_f64.max(p_uv).max(p_vu);
+                if (p_uv - p_vu).abs() > tol {
+                    return Err(CoreError::invalid_csr(format!(
+                        "SparseProbabilities asymmetric probability for ({u}, {v}): {p_uv} != {p_vu}"
+                    )));
+                }
+            }
+        }
         Ok(Self {
             n_nodes,
             indptr,
