@@ -1,6 +1,7 @@
 use std::f64::consts::TAU;
 
 use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_spatial_trees::StaticKdTree;
 
 use crate::{build_undirected_adjacency, extract_unique_edges, validate_graph_layout};
 
@@ -115,6 +116,12 @@ pub struct LayoutDegeneracy {
     pub duplicate_nodes_f64: usize,
     /// Fraction `duplicate_nodes_f64 / num_nodes` (`0.0` when `num_nodes == 0`).
     pub duplicate_ratio_f64: f64,
+    /// Excess duplicate fraction $1 - n_{\mathrm{uniq}} / N$ using exact `f64` coordinates (`0.0` when `num_nodes == 0`).
+    pub excess_duplicate_ratio: f64,
+    /// Fraction of vertices with at least one other distinct vertex within Euclidean distance
+    /// $\tau = 10^{-7} \cdot \mathrm{diag}$ ($\mathrm{diag} = \sqrt{\mathrm{bbox\_width}^2 + \mathrm{bbox\_height}^2}$;
+    /// `0.0` when `num_nodes <= 1`, `1.0` when `num_nodes >= 2` and `diag == 0.0`).
+    pub near_collision_ratio: f64,
     /// Number of unique non-self-loop edges whose endpoints coincide (`hypot(dx, dy) == 0.0`).
     pub zero_length_edges: usize,
     /// Fraction `zero_length_edges / num_edges` (`0.0` when `num_edges == 0`).
@@ -160,6 +167,7 @@ pub fn layout_degeneracy<W, S: Scalar>(
     let ys = layout.y();
     let mut keys_f32 = Vec::with_capacity(n);
     let mut keys_f64 = Vec::with_capacity(n);
+    let mut points = Vec::with_capacity(n);
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_y = f64::INFINITY;
@@ -173,6 +181,7 @@ pub fn layout_degeneracy<W, S: Scalar>(
         min_y = min_y.min(y64);
         max_y = max_y.max(y64);
         keys_f64.push((x64.to_bits(), y64.to_bits()));
+        points.push([x64, y64]);
 
         let x32 = canonical_f32(x64 as f32);
         let y32 = canonical_f32(y64 as f32);
@@ -198,6 +207,7 @@ pub fn layout_degeneracy<W, S: Scalar>(
 
     keys_f64.sort_unstable();
     let mut dup_f64 = 0usize;
+    let mut excess_dup64 = 0usize;
     let mut run64 = 1usize;
     for i in 1..n {
         if keys_f64[i] == keys_f64[i - 1] {
@@ -205,12 +215,14 @@ pub fn layout_degeneracy<W, S: Scalar>(
         } else {
             if run64 > 1 {
                 dup_f64 += run64;
+                excess_dup64 += run64 - 1;
             }
             run64 = 1;
         }
     }
     if run64 > 1 {
         dup_f64 += run64;
+        excess_dup64 += run64 - 1;
     }
 
     let mut zero_edges = 0usize;
@@ -225,6 +237,24 @@ pub fn layout_degeneracy<W, S: Scalar>(
     let bbox_width = (max_x - min_x).max(0.0);
     let bbox_height = (max_y - min_y).max(0.0);
     let is_bbox_degenerate = bbox_width <= 1e-12 || bbox_height <= 1e-12;
+    let diag = bbox_width.hypot(bbox_height);
+    let near_collision_ratio = if n <= 1 {
+        0.0
+    } else if diag == 0.0 {
+        1.0
+    } else {
+        let tau = 1e-7 * diag;
+        let tree = StaticKdTree::<2, f64>::build(&points)?;
+        let mut near_collisions = 0usize;
+        for i in 0..n {
+            if let Some((_, d2)) = tree.nearest_excluding_self(i)?
+                && d2.sqrt() <= tau
+            {
+                near_collisions += 1;
+            }
+        }
+        near_collisions as f64 / n as f64
+    };
 
     Ok(LayoutDegeneracy {
         num_nodes: n,
@@ -233,6 +263,8 @@ pub fn layout_degeneracy<W, S: Scalar>(
         duplicate_ratio_f32: dup_f32 as f64 / n as f64,
         duplicate_nodes_f64: dup_f64,
         duplicate_ratio_f64: dup_f64 as f64 / n as f64,
+        excess_duplicate_ratio: excess_dup64 as f64 / n as f64,
+        near_collision_ratio,
         zero_length_edges: zero_edges,
         zero_length_edge_ratio: if m == 0 {
             0.0

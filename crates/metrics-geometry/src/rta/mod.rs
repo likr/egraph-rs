@@ -134,3 +134,61 @@ pub fn landmark_stratified_rta_from_landmarks<S: Scalar>(
     };
     evaluate_rta_core(layout, landmark_ids, provider, num_triplets, seed)
 }
+
+/// Evaluates Landmark-Stratified Random Triplet Accuracy from a precomputed flat row-major
+/// `(num_landmarks, N)` `f64` distance table, mapping `f64::INFINITY` to the unreachable
+/// sentinel (`u32::MAX`) and rejecting `NaN`, negative values, `-inf`, non-integer finite values,
+/// or finite values exceeding `u32::MAX`.
+pub fn landmark_stratified_rta_from_landmarks_f64<S: Scalar>(
+    layout: &Layout2d<S>,
+    landmark_ids: &[u32],
+    landmark_dists: &[f64],
+    num_triplets: usize,
+    seed: u64,
+) -> CoreResult<RtaEvaluation> {
+    layout.validate_finite()?;
+    if num_triplets == 0 {
+        return Err(CoreError::invalid_input("num_triplets must be >= 1"));
+    }
+    let n = layout.len();
+    let p_l = landmark_ids.len();
+    let expected = p_l
+        .checked_mul(n)
+        .ok_or_else(|| CoreError::invalid_input("landmark distance table size overflow"))?;
+    if landmark_dists.len() != expected {
+        return Err(CoreError::dimension_mismatch(
+            expected,
+            landmark_dists.len(),
+            "landmark_stratified_rta_from_landmarks_f64::landmark_dists",
+        ));
+    }
+    for &lid in landmark_ids {
+        if (lid as usize) >= n {
+            return Err(CoreError::index_out_of_bounds(
+                lid as usize,
+                n,
+                "landmark_stratified_rta_from_landmarks_f64::landmark_ids",
+            ));
+        }
+    }
+
+    let mut dists_u32 = Vec::with_capacity(landmark_dists.len());
+    for &d in landmark_dists {
+        if d.is_nan() {
+            return Err(CoreError::non_finite(
+                "landmark_stratified_rta_from_landmarks_f64::landmark_dists",
+            ));
+        }
+        if d == f64::INFINITY {
+            dists_u32.push(u32::MAX);
+        } else if !d.is_finite() || d < 0.0 || d > (u32::MAX as f64) || d.fract() != 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "landmark_dists entries must be non-negative finite integers <= u32::MAX or +inf, got {d}"
+            )));
+        } else {
+            dists_u32.push(d as u32);
+        }
+    }
+
+    landmark_stratified_rta_from_landmarks(layout, landmark_ids, &dists_u32, num_triplets, seed)
+}

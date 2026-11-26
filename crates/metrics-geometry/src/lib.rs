@@ -51,7 +51,7 @@ pub use proximity::{
 };
 pub use rta::{
     RtaEvaluation, landmark_stratified_rta, landmark_stratified_rta_detail,
-    landmark_stratified_rta_from_landmarks,
+    landmark_stratified_rta_from_landmarks, landmark_stratified_rta_from_landmarks_f64,
 };
 pub use stress::{
     BfsScratch, StressEvaluation, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source,

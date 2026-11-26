@@ -242,3 +242,67 @@ fn test_rta_huge_synthetic_distances_no_oom_and_oracle_parity() {
     assert_eq!(s_cnt.sorted_nodes, exp_nodes);
     assert_eq!(s_cnt.sorted_dists, exp_dists);
 }
+
+#[test]
+fn test_rta_from_landmarks_f64_infinity_and_validation() {
+    let layout = Layout2d::from_xy(
+        vec![0.0, 1.0, 2.0, 3.0, 10.0, 11.0],
+        vec![0.0, 0.0, 0.0, 0.0, 5.0, 5.0],
+    )
+    .unwrap();
+    let lm_ids = [0_u32, 4_u32];
+    let dists_u32 = [
+        0_u32,
+        1,
+        2,
+        3,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        0,
+        1,
+    ];
+    let dists_f64 = [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::INFINITY,
+        0.0,
+        1.0,
+    ];
+
+    let ref_eval =
+        landmark_stratified_rta_from_landmarks(&layout, &lm_ids, &dists_u32, 1000, 42).unwrap();
+    let f64_eval =
+        landmark_stratified_rta_from_landmarks_f64(&layout, &lm_ids, &dists_f64, 1000, 42).unwrap();
+    assert_eq!(f64_eval, ref_eval);
+
+    // Reject NaN, negative, -inf, fractional non-integer, and > u32::MAX as f64.
+    let mut bad_nan = dists_f64;
+    bad_nan[1] = f64::NAN;
+    assert!(matches!(
+        landmark_stratified_rta_from_landmarks_f64(&layout, &lm_ids, &bad_nan, 1000, 42),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+
+    for bad_val in [-1.0, -0.5, f64::NEG_INFINITY, 1.5, (u32::MAX as f64) + 1.0] {
+        let mut bad = dists_f64;
+        bad[1] = bad_val;
+        assert!(
+            matches!(
+                landmark_stratified_rta_from_landmarks_f64(&layout, &lm_ids, &bad, 1000, 42),
+                Err(CoreError::InvalidInput(_))
+            ),
+            "expected InvalidInput for {bad_val}"
+        );
+    }
+}

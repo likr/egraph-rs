@@ -322,5 +322,63 @@ fn test_layout_degeneracy_brute_force_oracle_and_edge_cases() {
         assert_eq!(got.duplicate_nodes_f64, brute_dup64);
         assert_eq!(got.duplicate_nodes_f32, brute_dup32);
         assert_eq!(got.zero_length_edges, brute_zero);
+
+        let mut unique_pts = Vec::new();
+        for i in 0..n {
+            let p = (
+                if xs[i] == 0.0 { 0.0 } else { xs[i] }.to_bits(),
+                if ys[i] == 0.0 { 0.0 } else { ys[i] }.to_bits(),
+            );
+            if !unique_pts.contains(&p) {
+                unique_pts.push(p);
+            }
+        }
+        let expected_excess = (n - unique_pts.len()) as f64 / n as f64;
+        assert!((got.excess_duplicate_ratio - expected_excess).abs() < 1e-12);
     }
+}
+
+#[test]
+fn test_layout_degeneracy_excess_duplicate_and_near_collision_ratios() {
+    // 1. Two pairs in 6 nodes -> excess_duplicate_ratio = 2/6 vs duplicate_ratio_f64 = 4/6.
+    let g6 = CsrGraph::<f64>::from_edges(6, &[(0, 1), (2, 3), (4, 5)], None, false, false).unwrap();
+    let l6 = Layout2d::from_xy(
+        vec![0.0, 0.0, 1.0, 1.0, 2.0, 3.0],
+        vec![0.0, 0.0, 1.0, 1.0, 0.0, 2.0],
+    )
+    .unwrap();
+    let deg6 = layout_degeneracy(&g6, &l6).unwrap();
+    assert!((deg6.duplicate_ratio_f64 - (4.0 / 6.0)).abs() < 1e-12);
+    assert!((deg6.excess_duplicate_ratio - (2.0 / 6.0)).abs() < 1e-12);
+    assert!((deg6.near_collision_ratio - (4.0 / 6.0)).abs() < 1e-12);
+
+    // 2. Boundary around tau = 1e-7 * diag:
+    // Bounding box [0, 10] x [0, 0] -> diag = 10.0, tau = 1e-6.
+    // Nodes (0, 1) are 0.5e-6 < tau apart (near collision), while node 2 is 2.0e-6 > tau
+    // from both, and node 3 is at (10.0, 0.0).
+    let g4 = CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
+    let l_tau =
+        Layout2d::from_xy(vec![0.0, 0.5e-6, 2.5e-6, 10.0], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+    let deg_tau = layout_degeneracy(&g4, &l_tau).unwrap();
+    assert_eq!(deg_tau.excess_duplicate_ratio, 0.0);
+    assert!((deg_tau.near_collision_ratio - 0.5).abs() < 1e-12);
+
+    // 3. Collapsed layout (diag == 0.0) with n >= 2 -> near_collision_ratio = 1.0.
+    let collapsed = Layout2d::<f64>::zeros(4);
+    let deg_col = layout_degeneracy(&g4, &collapsed).unwrap();
+    assert!((deg_col.near_collision_ratio - 1.0).abs() < 1e-12);
+    assert!((deg_col.excess_duplicate_ratio - 0.75).abs() < 1e-12);
+
+    // 4. n <= 1 -> both ratios are 0.0.
+    let g1 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+    let l1 = Layout2d::from_xy(vec![3.0], vec![4.0]).unwrap();
+    let deg1 = layout_degeneracy(&g1, &l1).unwrap();
+    assert_eq!(deg1.excess_duplicate_ratio, 0.0);
+    assert_eq!(deg1.near_collision_ratio, 0.0);
+
+    let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    let l0 = Layout2d::<f64>::zeros(0);
+    let deg0 = layout_degeneracy(&g0, &l0).unwrap();
+    assert_eq!(deg0.excess_duplicate_ratio, 0.0);
+    assert_eq!(deg0.near_collision_ratio, 0.0);
 }
