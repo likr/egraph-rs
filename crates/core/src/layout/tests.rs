@@ -190,3 +190,54 @@ fn test_layout_nd_parity_methods() {
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
+
+#[test]
+fn test_layout_nd_2d_bit_exact_parity_f64_and_f32() {
+    for &n in &[3usize, 5, 7, 11, 13] {
+        // Non-symmetric f64 coordinates exercising non-power-of-2 division rounding.
+        let mut l2_64 = Layout2d::<f64>::init(n, 100 + n as u64, 7.3).unwrap();
+        for i in 0..n {
+            l2_64.x_mut()[i] += (i as f64) * 1.37 + 0.19;
+            l2_64.y_mut()[i] -= (i as f64) * 0.83 - 2.41;
+        }
+        let mut nd_64 = LayoutNd::<f64>::from_flat(n, 2, l2_64.to_interleaved()).unwrap();
+
+        l2_64.center_and_normalize_std().unwrap();
+        nd_64.center_and_normalize_std().unwrap();
+        for i in 0..n {
+            assert_eq!(
+                nd_64.get(i, 0).unwrap().to_bits(),
+                l2_64.x()[i].to_bits(),
+                "f64 x bit-exact mismatch at n={n}, i={i}"
+            );
+            assert_eq!(
+                nd_64.get(i, 1).unwrap().to_bits(),
+                l2_64.y()[i].to_bits(),
+                "f64 y bit-exact mismatch at n={n}, i={i}"
+            );
+        }
+
+        // Non-symmetric f32 coordinates with non-unit target_std.
+        let mut l2_32 = Layout2d::<f32>::init(n, 200 + n as u64, 5.1).unwrap();
+        for i in 0..n {
+            l2_32.x_mut()[i] += (i as f32) * 1.13 + 0.31;
+            l2_32.y_mut()[i] -= (i as f32) * 0.71 - 1.79;
+        }
+        let mut nd_32 = LayoutNd::<f32>::from_flat(n, 2, l2_32.to_interleaved()).unwrap();
+
+        l2_32.center_and_normalize_to_std(2.75_f32).unwrap();
+        nd_32.center_and_normalize_to_std(2.75_f32).unwrap();
+        for i in 0..n {
+            assert_eq!(
+                nd_32.get(i, 0).unwrap().to_bits(),
+                l2_32.x()[i].to_bits(),
+                "f32 x bit-exact mismatch at n={n}, i={i}"
+            );
+            assert_eq!(
+                nd_32.get(i, 1).unwrap().to_bits(),
+                l2_32.y()[i].to_bits(),
+                "f32 y bit-exact mismatch at n={n}, i={i}"
+            );
+        }
+    }
+}

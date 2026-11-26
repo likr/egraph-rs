@@ -229,7 +229,7 @@ impl<S: Scalar> LayoutNd<S> {
 
         let n = self.num_nodes;
         let d = self.dims;
-        let inv_n = 1.0 / (n as f64);
+        let n_f64 = n as f64;
         let mut means = vec![0.0_f64; d];
         for i in 0..n {
             let base = i * d;
@@ -238,17 +238,19 @@ impl<S: Scalar> LayoutNd<S> {
             }
         }
         for mean in &mut means {
-            *mean *= inv_n;
+            *mean /= n_f64;
         }
 
         let mut sum_sq = 0.0_f64;
         for i in 0..n {
             let base = i * d;
+            let mut node_sq = 0.0_f64;
             for axis in 0..d {
                 let centered = self.coords[base + axis].to_f64() - means[axis];
                 self.coords[base + axis] = S::from_f64(centered);
-                sum_sq += centered * centered;
+                node_sq += centered * centered;
             }
+            sum_sq += node_sq;
         }
 
         let std_dev = (sum_sq / ((n * d) as f64)).sqrt();
