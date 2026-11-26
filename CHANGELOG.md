@@ -5,6 +5,29 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-alpha.8] - 2026-11-26
+
+### Added
+
+- **G-CAF v2 Cluster Area Faithfulness (`egraph-metrics`, `egraph`, `egraph-cli`, Python, WASM)**:
+  - Added `cluster_area_faithfulness`, `cluster_area_faithfulness_detail`, and `MetricTarget::ClusterAreaFaithfulness` (`gcaf`) with $O(N + K)$ CSR bucketing, `VisitStamp` sparse grid reuse, deterministic shuffled Welzl MEC normalization, Stevens $\gamma$ scaling, positive arbitrary `target_weights`, `effective_boundary_r95` / `g_eff` reporting, and 8-connected spatial coherence.
+  - Added `egraph metrics` CLI `--gcaf-*` hyperparameter flags, `--gcaf-detail` JSON reporting, `adjusted-patch-nig` target registration, and automatic `gcaf` / `adjusted-patch-nig` expansion under `--targets all` when `--community-labels` is supplied.
+- **Phase W1 Priority Baselines (`baselines` & `eval-baselines` features)**:
+  - Implemented strictly single-threaded native `Leiden` community detection (Modularity & CPM) in `egraph-clustering`.
+  - Implemented Noack (2007) `LinLogSolver` (`NodeRepulsion` / `EdgeRepulsion`), `FruchtermanReingoldSolver`, `ForceAtlas2Config::prevent_overlap`, Quadrilateral Simmelian `BackboneSolver`, Cai (2024) `ClusterRefineSolver`, `GroupInABoxSolver` (Squarified Treemap area allocation), `GTreeOverlapRemoval`, and `ForbidOverlapRemoval` in `egraph-layout`, exposed across Rust, Python, WASM, and CLI.
+  - Added `cluster_baselines` quality metrics (`CQ-kmeans`, `CQ-HAC`, `ARI`, `AMI`, `HOM`, `V-Measure`, `FMI`, `DSC`, `DC`, `CDM`, `HDM`, `SepMe`, `M_NH`, `Silhouette`, `Calinski-Harabasz`, `Davies-Bouldin`, `Pairwise Distance-Overlap Error`, `Sprawlter-NN`, and Chen et al. 2020 NOR-5 metrics).
+- **Phase W2 Layout & Spectral Diversity Baselines**:
+  - Added Harel–Koren High-Dimensional Embedding (`HDE` in `egraph-linalg`), Ortmann Sparse Stress (`SgdSolver::ortmann_sparse_stress`), `MaxentStressSolver` (using `AmgPcgSolver` + general $q$-power Barnes–Hut `ArenaQuadtree2d`), deterministic alias-table negative-sampling DR presets (`SgdSolver::{largevis, drgraph, graph_cne}`), `GripSolver`, `GemSolver`, `SelLayoutSolver`, `PfsPrimeOverlapRemoval`, and `SfcLayoutSolver`, with cross-target parity checks (`scripts/parity_harness.py`) and WASM integration tests (`v6_w1`, `v6_w2`).
+
+### Changed
+
+- **WASM Packaging Policy**: Removed the `600 KiB` WASM gzip size limit enforcement gate from invariant scripts, CI/release workflows, and templates while retaining informational size reporting.
+- **Specification Clarifications**: Documented exact spec distinctions for `ForceAtlas2Config::linlog_mode` (Jacomy 2014 attraction vs. Noack 2007 `LinLog`), `SgdSolver::sgd2` (diagonal-preconditioned stress SGD), `proximity.rs` (`S_RNG` / `S_GG`, Eades et al. 2017 unweighted shape metrics), and `project_clustered_rectangle_no_overlap_2d` (single-shot rigid cluster-AABB VPSC post-processing).
+
+### Fixed
+
+- **G-CAF v2 Boundary & Numerical Hardening**: Clamped `g_eff` rather than silently shrinking `boundary_r95` when `g_max > 510`, updated `spatial_coherence` to peak-protected single-pass active thresholding, aligned Step 3 deconvolution/density resolution targets with `p[k]` for Stevens $\gamma \ne 1$ and custom weights, fixed `proximity.rs` `-0.0` diameter and edge cases, ensured strict orthogonal-order preservation (`oo_nni == 0`) in `PfsPrimeOverlapRemoval`, and relaxed `mec_100k_circle_timing` wall-clock thresholds for shared CI runners.
+
 ## [6.0.0-alpha.7] - 2026-11-24
 
 ### Added
