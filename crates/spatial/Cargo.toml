@@ -3,11 +3,13 @@ name = "egraph-spatial"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 default = []
-delaunay = ["dep:spade"]
+delaunay = ["egraph-spatial-trees/delaunay"]
 
 [dependencies]
-egraph-core.workspace = true
-spade = { workspace = true, optional = true }
+egraph-spatial-crossings.workspace = true
+egraph-spatial-fft.workspace = true
+egraph-spatial-trees.workspace = true

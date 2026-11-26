@@ -14,33 +14,55 @@
 //! - [`RectangleOverlapSweep`]: $O(N \log N + K)$ axis-aligned rectangle overlap detector.
 //! - [`Delaunay2d`] (`delaunay` feature): Deterministic `u32` Delaunay triangulation over `spade`.
 
-pub mod crossings;
-#[cfg(feature = "delaunay")]
-pub mod delaunay;
-pub mod fft;
-pub mod fft_r2c;
-pub mod fit_field;
-pub mod ibfft;
-pub mod kdtree;
-pub mod overlap;
-pub mod quadtree;
-pub mod screened_poisson;
+#![warn(missing_docs)]
 
-pub use crossings::{
-    CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, sampled_crossing_number,
-    sampled_crossing_number_edges, torus_crossing_edges, torus_crossing_edges_from_edges,
-    torus_edge_segments,
-};
 #[cfg(feature = "delaunay")]
-pub use delaunay::Delaunay2d;
-pub use fft::{Complex64, Fft2dWorkspace};
-pub use fft_r2c::{Complex32, R2cFft2dWorkspaceF32};
-pub use fit_field::{FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats};
-pub use ibfft::{IbFft2d, IbFftConfig, IbFftGridSpec, InterpolationOrder};
-pub use kdtree::{KdQueryScratch, StaticKdTree};
-pub use overlap::{Rect2d, RectangleOverlapSweep};
-pub use quadtree::ArenaQuadtree2d;
-pub use screened_poisson::{
-    DensityFieldKernel, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
-    ScreenedPoissonStats,
+pub use egraph_spatial_trees::Delaunay2d;
+#[cfg(feature = "delaunay")]
+pub use egraph_spatial_trees::delaunay;
+pub use egraph_spatial_trees::{
+    ArenaQuadtree2d, KdQueryScratch, Rect2d, RectangleOverlapSweep, StaticKdTree, kdtree, overlap,
+    quadtree,
 };
+
+pub use egraph_spatial_fft::{
+    Complex32, Complex64, DensityFieldKernel, Fft2dWorkspace, FitField2d, FitFieldConfig,
+    FitFieldOutput, FitFieldStats, IbFft2d, IbFftConfig, IbFftGridSpec, InterpolationOrder,
+    R2cFft2dWorkspaceF32, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
+    ScreenedPoissonStats, fft, fft_r2c, fit_field, ibfft, screened_poisson,
+};
+
+pub use egraph_spatial_crossings::{
+    CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, crossings,
+    sampled_crossing_number, sampled_crossing_number_edges, torus_crossing_edges,
+    torus_crossing_edges_from_edges, torus_edge_segments,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ArenaQuadtree2d, Complex64, Fft2dWorkspace, FitFieldConfig, Rect2d, RectangleOverlapSweep,
+        ScreenedPoissonConfig, StaticKdTree, SweepLineCrossings, torus_edge_segments,
+    };
+
+    #[test]
+    fn spatial_umbrella_reexports_work() {
+        let _tree = ArenaQuadtree2d::<f64>::new();
+        let _kd = StaticKdTree::<2, f64>::build(&[[0.0, 0.0], [1.0, 1.0]]).unwrap();
+        let _rect = Rect2d::new(0.0, 1.0, 0.0, 1.0).unwrap();
+        assert!(!RectangleOverlapSweep::has_overlaps(&[_rect]).unwrap());
+
+        let mut ws = Fft2dWorkspace::new();
+        let mut buf = [Complex64::new(1.0, 0.0), Complex64::ZERO];
+        ws.fft_1d(&mut buf, false).unwrap();
+        assert!(FitFieldConfig::default().validate().is_ok());
+        assert!(ScreenedPoissonConfig::default().validate().is_ok());
+
+        let _ = std::any::type_name::<SweepLineCrossings>();
+        assert_eq!(torus_edge_segments(0.1, 0.2, 0.3, 0.4).unwrap().len(), 1);
+        #[cfg(feature = "delaunay")]
+        {
+            let _ = std::any::type_name::<super::Delaunay2d>();
+        }
+    }
+}
