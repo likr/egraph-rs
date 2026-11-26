@@ -280,4 +280,32 @@ fn test_gumap_nd_edge_cases_and_validation() {
         s_err.step(&mut l_inf),
         Err(CoreError::NonFiniteValue { .. })
     ));
+
+    // Mid-run dimension and Layout2d <-> LayoutNd switching rejection.
+    let mut l_d3 = seeded_layout_nd::<f64>(9, 3, 1.0, 3);
+    let mut l_d4 = seeded_layout_nd::<f64>(9, 4, 1.0, 3);
+    let mut l_d2 = seeded_layout_nd::<f64>(9, 2, 1.0, 3);
+    let mut l_2d = Layout2d::<f64>::init(9, 3, 1.0).unwrap();
+
+    let mut s_nd = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
+    s_nd.step(&mut l_d3).unwrap();
+    assert!(matches!(
+        s_nd.step(&mut l_d4),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        s_nd.step(&mut l_2d),
+        Err(CoreError::InvalidInput(_))
+    ));
+
+    let mut s_2d = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
+    s_2d.step(&mut l_2d).unwrap();
+    assert!(matches!(
+        s_2d.step(&mut l_d3),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        s_2d.step(&mut l_d2),
+        Err(CoreError::InvalidInput(_))
+    ));
 }

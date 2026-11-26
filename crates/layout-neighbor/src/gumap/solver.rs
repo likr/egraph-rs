@@ -11,6 +11,13 @@ use super::config::GuMapConfig;
 
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ActiveLayoutKind {
+    Unset,
+    Euclidean2d,
+    Nd(usize),
+}
+
 /// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`) layout solver.
 ///
 /// Uses the `dist_sq.powf(b)` identity ($d^{2b} = (d^2)^b$, $d^{2b-2} = (d^2)^b / d^2$)
@@ -26,6 +33,7 @@ pub struct GuMapSolver<S: Scalar = f64> {
     pub(super) edge_weight: Vec<f32>,
     pub(super) epoch: usize,
     pub(super) status: SolverStatus,
+    pub(super) active_layout: ActiveLayoutKind,
     pub(super) rng: DeterministicRng,
     _marker: std::marker::PhantomData<S>,
 }
@@ -93,6 +101,7 @@ impl<S: Scalar> GuMapSolver<S> {
             edge_weight,
             epoch: 0,
             status,
+            active_layout: ActiveLayoutKind::Unset,
             rng: DeterministicRng::from_seed_u64(config.seed),
             _marker: std::marker::PhantomData,
         }
