@@ -5,7 +5,7 @@
 //! `egraph-layout-stress`, providing cooperative `step()`/`run_steps(k)` layout execution across
 //! Native Rust, Python (PyO3), and WebAssembly (`wasm32-unknown-unknown`) targets.
 
-pub use egraph_layout_constraints::{constraints, layering, prism};
+pub use egraph_layout_constraints::{constraints, layering, prism, twin_declutter};
 #[cfg(feature = "baselines")]
 pub use egraph_layout_constraints::{forbid, gtree, pfs_prime};
 pub use egraph_layout_force::{continuous_fdp, fdeb};
@@ -43,7 +43,8 @@ pub use continuous_fdp::{
 pub use density_field::{ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig};
 pub use fdeb::{FdebConfig, FdebSolver};
 pub use field_layout::{
-    FieldLayout, FieldLayoutSolver, FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig,
+    DEFAULT_MAX_2HOP_PER_NODE, FieldFftStats, FieldLayout, FieldLayoutSolver,
+    FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig,
 };
 #[cfg(feature = "baselines")]
 pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
@@ -62,7 +63,9 @@ pub use group_in_a_box::{
 pub use gtree::{GTreeConfig, GTreeOverlapRemoval};
 pub use gumap::{GuMapConfig, GuMapSolver};
 pub use kamada_kawai::{KamadaKawaiConfig, KamadaKawaiSolver};
-pub use layering::{LayeringMethod, assign_layers, cycle_edges, remove_cycles};
+pub use layering::{
+    LayeringMethod, assign_layers, cycle_edges, remove_cycles, transitive_reduction,
+};
 #[cfg(feature = "baselines")]
 pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
 #[cfg(feature = "baselines")]
@@ -85,6 +88,7 @@ pub use sgd::{
 };
 pub use stress_majorization::{PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver};
 pub use ts_net::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
+pub use twin_declutter::{TwinDeclutterConfig, TwinDeclutterer, declutter_twins_2d};
 
 /// Returns the crate version string.
 pub fn crate_version() -> &'static str {

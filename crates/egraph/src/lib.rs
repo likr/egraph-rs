@@ -26,10 +26,11 @@ pub mod linalg {
         DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS,
         DEFAULT_SPECTRUM_SAFETY_FACTOR, DijkstraWorkspace, EigenResult, LanczosEigen,
         LaplacianKind, SpectralMomentStats, SubspaceEigen, adaptive_chebyshev_degree,
-        adaptive_chebyshev_degree_scaled, anisotropic_laplacian, build_dog_terms,
-        build_regularized_dog_terms, chebyshev, combinatorial_laplacian,
-        compute_chebyshev_bandpass_coefficients, compute_chebyshev_sqrt_filter_coefficients,
-        crate_version, csr_matrix, eigen, exp_scaled_bessel_i, exp_scaled_bessel_i_all, laplacian,
+        adaptive_chebyshev_degree_scaled, all_pairs_dijkstra, all_pairs_dijkstra_into,
+        anisotropic_laplacian, build_dog_terms, build_regularized_dog_terms, chebyshev,
+        combinatorial_laplacian, compute_chebyshev_bandpass_coefficients,
+        compute_chebyshev_sqrt_filter_coefficients, crate_version, csr_matrix,
+        dijkstra_single_source, eigen, exp_scaled_bessel_i, exp_scaled_bessel_i_all, laplacian,
         project_psd_spectral_filter, random_walk_laplacian, select_maxmin_sp_pivots,
         shifted_normalized_laplacian, shortest_path, smallest_sym_laplacian_eigenpairs,
         spectral_moment_stats, symmetric_eigen_jacobi, symmetric_normalized_laplacian,
@@ -38,8 +39,8 @@ pub mod linalg {
         AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
         EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
         ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry, amg_pcg,
-        classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature,
-        resistance_curvature_flow,
+        classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
+        compute_effective_resistances, resistance_curvature, resistance_curvature_flow,
     };
     pub use egraph_linalg_mds::{
         HdeConfig, PivotMdsConfig, RdMds, classical_mds, classical_mds_2d,
@@ -88,12 +89,16 @@ pub mod prelude {
 
     #[cfg(feature = "linalg")]
     pub use egraph_linalg::{
-        AnisotropicLaplacianConfig, AnisotropicLaplacianResult, ChebyshevDogConfig,
+        AnisotropicLaplacianConfig, AnisotropicLaplacianResult, BfsWorkspace, ChebyshevDogConfig,
         ChebyshevDogKernel, ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
         DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS,
-        DEFAULT_SPECTRUM_SAFETY_FACTOR, LaplacianKind, adaptive_chebyshev_degree,
-        adaptive_chebyshev_degree_scaled, anisotropic_laplacian, combinatorial_laplacian,
-        select_maxmin_sp_pivots, symmetric_normalized_laplacian,
+        DEFAULT_SPECTRUM_SAFETY_FACTOR, DijkstraWorkspace, EigenResult, LaplacianKind,
+        SpectralMomentStats, adaptive_chebyshev_degree, adaptive_chebyshev_degree_scaled,
+        all_pairs_dijkstra, all_pairs_dijkstra_into, anisotropic_laplacian,
+        build_regularized_dog_terms, combinatorial_laplacian, dijkstra_single_source,
+        random_walk_laplacian, select_maxmin_sp_pivots, shifted_normalized_laplacian,
+        smallest_sym_laplacian_eigenpairs, spectral_moment_stats, symmetric_eigen_jacobi,
+        symmetric_normalized_laplacian,
     };
 
     #[cfg(feature = "linalg")]
@@ -101,48 +106,53 @@ pub mod prelude {
         AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
         EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
         ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-        classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature_flow,
+        classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
+        compute_effective_resistances, resistance_curvature_flow,
     };
 
     #[cfg(feature = "linalg")]
     pub use egraph_linalg_mds::{
-        HdeConfig, PivotMdsConfig, RdMds, classical_mds_2d, hde, hde_nd, hde_nd_with_pivots,
-        hde_with_pivots, koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds,
-        representative_mds, robust_normalize_layout_2d,
+        HdeConfig, PivotMdsConfig, RdMds, classical_mds, classical_mds_2d,
+        classical_mds_from_distances, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots,
+        koren_spectral_init, normalize_layout_2d, pivot_mds, pivot_mds_from_distances,
+        pivot_mds_with_pivots, rd_mds, representative_mds, robust_normalize_layout_2d,
     };
 
     #[cfg(feature = "neighborhood")]
     pub use egraph_neighborhood::{
         DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, HybridKnnConfig, KnnGraph,
-        PerplexityConfig, RhghLandmarkConfig, RhghLandmarkStats, Sparse12HopPairs,
-        SparseProbabilities, SymmetrizationMode, apply_relative_distance_floor,
+        PerplexityConfig, RhghLandmarkConfig, RhghLandmarkStats, RhghLandmarks, Sparse12HopPairs,
+        SparseProbabilities, SymmetrizationMode, TwoHopSamplingMode, apply_relative_distance_floor,
         build_capped_12hop_knn, build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn,
         build_pure_2hop_knn, build_rerank_knn, compute_diffusion_embedding,
         compute_fuzzy_simplicial_set, compute_pivoted_rhgh_landmarks,
-        compute_regularized_dog_varadhan_landmarks,
+        compute_pivoted_rhgh_landmarks_result, compute_regularized_dog_varadhan_landmarks,
         compute_regularized_dog_varadhan_landmarks_from_matrix, compute_resistance_embedding,
         extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs,
-        graph_12hop_row_normalized_probabilities,
+        extract_sparse_1hop_2hop_pairs_with_mode, graph_12hop_row_normalized_probabilities,
         graph_12hop_row_normalized_probabilities_with_degree_decay,
-        graph_row_normalized_probabilities, symmetrize_row_normalized,
+        graph_12hop_row_normalized_probabilities_with_options, graph_row_normalized_probabilities,
+        symmetrize_row_normalized,
     };
 
     #[cfg(feature = "layout")]
     pub use egraph_layout::{
         BarrierSymmetry, CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats,
         CoarseDistanceBackend, CoarseEdgeLengthMode, ConstraintProjector, ContinuousFdp,
-        DrGraphConfig, FdebConfig, FdebSolver, FieldLayout, FieldLayoutSolver,
-        FieldRepulsionBackend, ForceAtlas2Config, ForceAtlas2Solver, GraphCneConfig,
-        GraphCneObjective, GuMapConfig, GuMapSolver, IbUmapConfig, KamadaKawaiConfig,
-        KamadaKawaiSolver, LargeVisConfig, LayeringMethod, OrtmannPivotStrategy,
-        OrtmannSparseStressConfig, PacmapGraphConfig, PrismConfig, PrismOverlapRemoval,
-        RhoSchedule, ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig, SeparationConstraint,
-        Sgd2Config, SgdScheduleConfig, SgdScheduleKind, SgdSolver, SnapTFdpConfig,
-        SparseBarrierConfig, SparseBarrierStats, SpatialIntruderRefiner, SpatialRefinerConfig,
-        StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetBackend, TsNetConfig,
-        TsNetSolver, TsNetStage, YifanHuConfig, YifanHuSolver, assign_layers, coarse_backbone_init,
-        cycle_edges, generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
-        project_rectangle_no_overlap_2d, remove_cycles,
+        DEFAULT_MAX_2HOP_PER_NODE, DrGraphConfig, FdebConfig, FdebSolver, FieldFftStats,
+        FieldLayout, FieldLayoutSolver, FieldRepulsionBackend, ForceAtlas2Config,
+        ForceAtlas2Solver, GraphCneConfig, GraphCneObjective, GuMapConfig, GuMapSolver,
+        IbUmapConfig, KamadaKawaiConfig, KamadaKawaiSolver, LargeVisConfig, LayeringMethod,
+        OrtmannPivotStrategy, OrtmannSparseStressConfig, PacmapGraphConfig, PrismConfig,
+        PrismOverlapRemoval, RhoSchedule, ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig,
+        SeparationConstraint, Sgd2Config, SgdScheduleConfig, SgdScheduleKind, SgdSolver,
+        SnapTFdpConfig, SparseBarrierConfig, SparseBarrierStats, SpatialIntruderRefiner,
+        SpatialRefinerConfig, StressMajorizationConfig, StressMajorizationSolver, TFdpConfig,
+        TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage, TwinDeclutterConfig, TwinDeclutterer,
+        YifanHuConfig, YifanHuSolver, assign_layers, coarse_backbone_init, cycle_edges,
+        declutter_twins_2d, generate_layered_constraints,
+        project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d, remove_cycles,
+        transitive_reduction,
     };
 
     #[cfg(all(feature = "layout", feature = "baselines"))]
@@ -161,43 +171,55 @@ pub mod prelude {
     #[cfg(feature = "clustering")]
     pub use egraph_clustering::{
         CoarseLouvainConfig, CoarsenedGraph, CoarsenedHierarchy, CoarsenedHierarchyLevel,
-        KMeansConfig, KMeansResult, LabelPropagationConfig, LeidenConfig, LeidenObjective,
-        LeidenResult, LouvainConfig, LouvainResult, SpectralClusteringConfig,
-        align_clustered_centroids, coarsen_graph, kmeans_plus_plus, label_propagation, leiden,
-        louvain, louvain_coarsen, project_clustered_layout, project_clustered_layout_with_radii,
-        spectral_clustering,
+        KMeansConfig, KMeansResult, LabelPropagationConfig, LabelPropagationResult, LeidenConfig,
+        LeidenObjective, LeidenResult, LouvainConfig, LouvainResult, SpectralClusteringConfig,
+        SpectralClusteringResult, align_clustered_centroids, coarsen_graph, kmeans_plus_plus,
+        label_propagation, leiden, louvain, louvain_coarsen, project_clustered_layout,
+        project_clustered_layout_with_radii, spectral_clustering,
     };
 
     #[cfg(feature = "metrics")]
     pub use egraph_metrics::{
-        ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, LayoutDegeneracy, MetricConfig,
-        MetricReport, MetricTarget, MinimumAngleSummary, RtaEvaluation, adjusted_patch_nig,
-        adjusted_patch_nig_multiscale, all_pairs_bfs, bfs_single_source, cluster_area_faithfulness,
-        cluster_area_faithfulness_detail, cluster_area_faithfulness_detail_with_weights,
-        cluster_area_faithfulness_with_weights, crossing_edges, crossing_edges_torus,
-        crossing_number, crossing_summary, crosslessness, crosslessness_from_count,
-        evaluate_metrics, evaluate_metrics_with_communities,
-        evaluate_metrics_with_community_weights, gabriel_graph_edges, ideal_edge_lengths,
-        ideal_edge_lengths_scaled, ideal_edge_lengths_with_unit, landmark_stratified_rta,
-        landmark_stratified_rta_detail, landmark_stratified_rta_from_landmarks, layout_degeneracy,
-        max_crossing_pairs, minimum_angle, minimum_angle_summary, neighborhood_preservation_1hop,
-        neighborhood_preservation_2hop, prism_distortion_with_edges, relative_neighborhood_edges,
-        sampled_crossing_number, sampled_crosslessness, sampled_neighborhood_preservation_1hop,
+        AdjustedPatchNigDetail, BfsScratch, ClusterAreaConfig, ClusterAreaDetail,
+        ClusterAreaReport, LayoutDegeneracy, MetricConfig, MetricInputs, MetricReport,
+        MetricTarget, MinimumAngleSummary, PrismDistortion, RtaEvaluation, StressEvaluation,
+        TorusCrossing, adjusted_patch_nig, adjusted_patch_nig_detail,
+        adjusted_patch_nig_multiscale, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source,
+        cluster_area_faithfulness, cluster_area_faithfulness_detail,
+        cluster_area_faithfulness_detail_with_weights, cluster_area_faithfulness_with_weights,
+        crossing_angle, crossing_angle_from_pairs, crossing_edges, crossing_edges_torus,
+        crossing_edges_torus_from_edges, crossing_number, crossing_number_from_pairs,
+        crossing_summary, crosslessness, crosslessness_from_count, edge_angle, evaluate_metrics,
+        evaluate_metrics_with_communities, evaluate_metrics_with_community_weights,
+        evaluate_metrics_with_inputs, gabriel_graph_edges, ideal_edge_lengths,
+        ideal_edge_lengths_from_distances, ideal_edge_lengths_scaled, ideal_edge_lengths_with_unit,
+        landmark_stratified_rta, landmark_stratified_rta_detail,
+        landmark_stratified_rta_from_landmarks, landmark_stratified_rta_from_landmarks_f64,
+        layout_degeneracy, max_crossing_pairs, minimum_angle, minimum_angle_summary,
+        neighborhood_preservation_1hop, neighborhood_preservation_2hop, prism_distortion,
+        prism_distortion_with_edges, relative_neighborhood_edges, sampled_crossing_number,
+        sampled_crosslessness, sampled_neighborhood_preservation_1hop,
         sampled_neighborhood_preservation_2hop, sampled_scale_normalized_stress,
-        scale_normalized_stress, scale_normalized_stress_from_distances,
+        sampled_scale_normalized_stress_detail, scale_normalized_stress,
+        scale_normalized_stress_detail, scale_normalized_stress_from_distances,
+        scale_normalized_stress_from_distances_detail, scale_normalized_stress_from_pairs,
     };
 
     #[cfg(all(feature = "metrics", feature = "eval-baselines"))]
     pub use egraph_metrics::{
         ClusterBaselineConfig, NorMetrics, PartitionAgreement, calinski_harabasz_score,
         class_density_measure, cq_hac, cq_kmeans, davies_bouldin_score, distance_consistency,
-        distribution_consistency, neighborhood_hit, nor_metrics, nor_metrics_without_graph,
-        pairwise_distance_overlap_error, partition_agreement, sepme_gab, sepme_gong, sepme_knng,
-        sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
+        distribution_consistency, histogram_density_measure, neighborhood_hit, nor_metrics,
+        nor_metrics_without_graph, pairwise_distance_overlap_error, partition_agreement, sepme_gab,
+        sepme_gong, sepme_knng, sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
     };
 
     #[cfg(feature = "dataset")]
-    pub use egraph_dataset::parse_csr_csv;
+    pub use egraph_dataset::{
+        DatasetInfo, dataset_catalog, dataset_info, generate_hyperbolic_tree, generate_layered_dag,
+        generate_sbm_graph, generate_spherical_grid, generate_spherical_icosphere,
+        generate_torus_grid, generate_weighted_graph, list_datasets, parse_csr_csv,
+    };
 
     #[cfg(feature = "petgraph")]
     pub use egraph_petgraph::{

@@ -51,9 +51,7 @@ fn facade_layout_smoke() {
     let mut solver = TsNetSolver::<f64>::from_graph_pure_2hop(
         &graph,
         TsNetConfig {
-            iterations_stage1: 2,
-            iterations_stage2: 2,
-            iterations_stage3: 2,
+            stage_iterations: [2, 2, 2],
             ..TsNetConfig::pure_2hop()
         },
     )
@@ -154,15 +152,8 @@ fn facade_resistance_curvature_manifold_smoke() {
         0.7,
     )
     .expect("from_layout_scaled hyperbolic");
-    let mut sgd_hyp = SgdSolver::<f64>::full(
-        &length_graph,
-        SgdScheduleConfig {
-            t_max: 8,
-            ..Default::default()
-        },
-        42,
-    )
-    .expect("sgd full hyp");
+    let mut sgd_hyp =
+        SgdSolver::<f64>::full(&length_graph, SgdScheduleConfig::new(8), 42).expect("sgd full hyp");
     let st_hyp = sgd_hyp.run_manifold(&mut ml_hyp).expect("run_manifold hyp");
     assert!(st_hyp.is_finished());
     assert!(ml_hyp.as_layout().is_all_finite());
@@ -172,11 +163,7 @@ fn facade_resistance_curvature_manifold_smoke() {
         .expect("random_init spherical");
     let mut sgd_sph = SgdSolver::<f64>::full(
         &length_graph,
-        SgdScheduleConfig {
-            t_max: 8,
-            step_scale: 0.1,
-            ..Default::default()
-        },
+        SgdScheduleConfig::new(8).with_step_scale(0.1),
         42,
     )
     .expect("sgd full sph");
@@ -211,10 +198,7 @@ fn facade_resistance_curvature_manifold_smoke() {
         .expect("random_init torus");
     let mut sgd_tor = SgdSolver::<f64>::full(
         &flow_tor.to_length_graph().expect("torus length graph"),
-        SgdScheduleConfig {
-            t_max: 8,
-            ..Default::default()
-        },
+        SgdScheduleConfig::new(8),
         42,
     )
     .expect("sgd full tor");
@@ -274,7 +258,7 @@ fn facade_baselines_smoke() {
     let mut refine = ClusterRefineSolver::<f64>::new(
         leiden_res.labels.clone(),
         ClusterRefineConfig {
-            max_rounds: 2,
+            max_iterations: 2,
             ..ClusterRefineConfig::default()
         },
     )
@@ -320,12 +304,12 @@ fn facade_baselines_smoke() {
     let report = evaluate_metrics_with_communities(
         &graph,
         &layout,
-        &[MetricTarget::Dsc, MetricTarget::SprawlterNn],
+        &[MetricTarget::DistanceConsistency, MetricTarget::SprawlterNn],
         &MetricConfig::default(),
         Some(&leiden_res.labels),
     )
     .expect("eval-baselines dispatcher");
-    assert!(report.dsc.is_some());
+    assert!(report.distance_consistency.is_some());
     assert!(report.sprawlter_nn.is_some());
 }
 
@@ -451,7 +435,7 @@ fn facade_multilevel_and_stress_baselines_smoke() {
     let mut gem = GemSolver::<f64>::new(
         &graph,
         GemConfig {
-            max_rounds: Some(4),
+            max_iterations: Some(4),
             ..GemConfig::default()
         },
     )
