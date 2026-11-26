@@ -273,7 +273,7 @@ fn test_default_flow_spheres_open_planar_hyperbolic_and_irregular() {
         assert_eq!(res.suggested_geometry, SuggestedGeometry::Spherical);
     }
 
-    // Open planar 18x18 grids (quad and triangulated, N=324 > 256) must never become Torus2d or Spherical.
+    // Open planar 18x18 grids (quad and triangulated, N=324 > 256) must classify as Euclidean.
     for tri in [false, true] {
         let mut open_edges = Vec::new();
         let rows = 18usize;
@@ -295,8 +295,14 @@ fn test_default_flow_spheres_open_planar_hyperbolic_and_irregular() {
         let open_grid =
             CsrGraph::<f64>::from_edges(rows * cols, &open_edges, None, false, false).unwrap();
         let res = resistance_curvature_flow(&open_grid, &default_cfg).unwrap();
-        assert_ne!(res.suggested_geometry, SuggestedGeometry::Spherical);
-        assert_ne!(res.suggested_geometry, SuggestedGeometry::Torus2d);
+        assert!(!res.used_exact);
+        assert_eq!(
+            res.suggested_geometry,
+            SuggestedGeometry::Euclidean,
+            "open 18x18 tri={tri} default seed=42: mean={}, std={}",
+            res.mean_link_curvature,
+            res.std_link_curvature
+        );
     }
 
     // Hyperbolic 3-ary tree of depth 5 (N=364 > 256) classifies as HyperbolicPoincare.
@@ -364,4 +370,69 @@ fn test_default_flow_spheres_open_planar_hyperbolic_and_irregular() {
         ),
         SuggestedGeometry::HyperbolicPoincare
     );
+    // Non-regular graph under JL noise stays Euclidean within margin, while exact keeps sharp thresholds.
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            612, -0.12, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::Euclidean
+    );
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            612, 0.25, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::Euclidean
+    );
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            612, -0.50, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::HyperbolicPoincare
+    );
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            612, -0.12, 0.25, 0.0, 0.15, -0.05, 0.2, 0.05, true, 128, false
+        ),
+        SuggestedGeometry::HyperbolicPoincare
+    );
+}
+
+#[test]
+fn test_default_flow_open_planar_grids_euclidean_across_seeds() {
+    let default_cfg = ResistanceCurvatureConfig::default();
+    for &(rows, cols) in &[(18usize, 18usize), (20, 20)] {
+        for tri in [false, true] {
+            let mut open_edges = Vec::new();
+            for r in 0..rows {
+                for c in 0..cols {
+                    let u = (r * cols + c) as u32;
+                    if c + 1 < cols {
+                        open_edges.push((u, u + 1));
+                    }
+                    if r + 1 < rows {
+                        open_edges.push((u, u + cols as u32));
+                    }
+                    if tri && r + 1 < rows && c + 1 < cols {
+                        open_edges.push((u, u + cols as u32 + 1));
+                    }
+                }
+            }
+            let open_grid =
+                CsrGraph::<f64>::from_edges(rows * cols, &open_edges, None, false, false).unwrap();
+            for seed in 40..=55u64 {
+                let mut cfg = default_cfg;
+                cfg.resistance.seed = seed;
+                let res = resistance_curvature_flow(&open_grid, &cfg).unwrap();
+                assert!(!res.used_exact);
+                assert_eq!(
+                    res.suggested_geometry,
+                    SuggestedGeometry::Euclidean,
+                    "open {rows}x{cols} tri={tri} seed={seed}: mean={}, std={}, foster={}",
+                    res.mean_link_curvature,
+                    res.std_link_curvature,
+                    res.foster_rel_err
+                );
+            }
+        }
+    }
 }

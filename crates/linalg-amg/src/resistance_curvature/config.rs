@@ -384,8 +384,8 @@ pub fn classify_geometry_from_curvature(
 /// When `used_exact` is `false`, `torus_std_threshold` is scaled smoothly by $O(1/\sqrt{k_{\mathrm{JL}}})$
 /// to absorb Johnson-Lindenstrauss variance amplified across curvature-flow steps on both 4-regular
 /// and 6-regular flat tori ($N > 256$), and a symmetric $O(1/\sqrt{k_{\mathrm{JL}}})$ margin is applied
-/// to the curvature thresholds on non-closed-spherical regular graphs (`leaf_fraction == 0.0` and
-/// `deg_cv < 0.02`) so Foster-sum JL fluctuations do not trigger false Spherical/Hyperbolic labels.
+/// to the curvature thresholds on all non-closed-spherical graphs so Foster-sum JL fluctuations do
+/// not trigger false Spherical/Hyperbolic labels on flat tori or open planar Euclidean grids.
 #[allow(clippy::too_many_arguments)]
 pub fn classify_geometry_from_curvature_with_sampling(
     num_edges: usize,
@@ -419,9 +419,10 @@ pub fn classify_geometry_from_curvature_with_sampling(
         // especially on 6-regular triangulated tori where R_e is smaller (~1/3).
         torus_std_threshold * (1.0 + 28.0 * jl_scale)
     };
-    let (effective_hyp_threshold, effective_sph_threshold) = if !used_exact && is_regular_closed {
+    let (effective_hyp_threshold, effective_sph_threshold) = if !used_exact {
         // Global Foster-sum JL noise shifts mean link curvature by O(1 / sqrt(jl_dim))
-        // on regular graphs; guard against spurious Hyperbolic/Spherical flips on tori.
+        // across both regular and non-regular graphs; guard against spurious Hyperbolic/Spherical
+        // flips on flat tori and open planar Euclidean grids.
         let jl_mean_margin = 0.35 * jl_scale;
         (
             hyperbolic_threshold - jl_mean_margin,
