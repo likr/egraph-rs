@@ -7,17 +7,22 @@ repository.workspace = true
 
 [features]
 default = ["delaunay"]
-delaunay = ["egraph-spatial/delaunay", "egraph-layout-constraints/delaunay", "egraph-layout-sgd/delaunay"]
-baselines = ["egraph-layout-constraints/baselines", "egraph-layout-force/baselines", "egraph-layout-stress/baselines"]
+delaunay = [
+    "egraph-layout-constraints/delaunay",
+    "egraph-layout-multilevel/delaunay",
+    "egraph-layout-sgd/delaunay",
+]
+baselines = [
+    "egraph-layout-constraints/baselines",
+    "egraph-layout-force/baselines",
+    "egraph-layout-multilevel/baselines",
+    "egraph-layout-stress/baselines",
+]
 
 [dependencies]
-egraph-core.workspace = true
-egraph-spatial.workspace = true
-egraph-linalg.workspace = true
-egraph-neighborhood.workspace = true
-egraph-clustering.workspace = true
 egraph-layout-constraints.workspace = true
 egraph-layout-force.workspace = true
-egraph-layout-stress.workspace = true
+egraph-layout-multilevel.workspace = true
 egraph-layout-neighbor.workspace = true
 egraph-layout-sgd.workspace = true
+egraph-layout-stress.workspace = true

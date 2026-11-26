@@ -1,23 +1,9 @@
 //! Single-threaded, pure-Rust graph layout solvers and spatial refiners for `egraph-rs`.
 //!
-//! `egraph-layout` builds on `egraph-core`, `egraph-spatial`, `egraph-linalg`, and
-//! `egraph-neighborhood` to provide cooperative `step()`/`run_steps(k)` layout execution across
+//! `egraph-layout` is a thin umbrella over `egraph-layout-constraints`, `egraph-layout-force`,
+//! `egraph-layout-multilevel`, `egraph-layout-neighbor`, `egraph-layout-sgd`, and
+//! `egraph-layout-stress`, providing cooperative `step()`/`run_steps(k)` layout execution across
 //! Native Rust, Python (PyO3), and WebAssembly (`wasm32-unknown-unknown`) targets.
-
-#[cfg(feature = "baselines")]
-pub mod backbone;
-#[cfg(feature = "baselines")]
-pub mod cluster_refine;
-pub mod density_field;
-#[cfg(feature = "baselines")]
-pub mod grip;
-#[cfg(feature = "baselines")]
-pub mod group_in_a_box;
-pub mod refiner;
-#[cfg(feature = "baselines")]
-pub mod sel;
-#[cfg(feature = "baselines")]
-pub mod sfc;
 
 pub use egraph_layout_constraints::{constraints, layering, prism};
 #[cfg(feature = "baselines")]
@@ -25,6 +11,9 @@ pub use egraph_layout_constraints::{forbid, gtree, pfs_prime};
 pub use egraph_layout_force::{continuous_fdp, fdeb};
 #[cfg(feature = "baselines")]
 pub use egraph_layout_force::{fr, gem, linlog};
+#[cfg(feature = "baselines")]
+pub use egraph_layout_multilevel::{backbone, cluster_refine, grip, group_in_a_box, sel, sfc};
+pub use egraph_layout_multilevel::{density_field, refiner};
 pub use egraph_layout_neighbor::{field_layout, gumap, ts_net};
 pub use egraph_layout_sgd::{coarse_backbone, sgd};
 #[cfg(feature = "baselines")]
