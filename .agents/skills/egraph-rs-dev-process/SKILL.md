@@ -19,7 +19,7 @@ This skill details the general development rules, comment conventions, parallel 
 ## Crate Granularity, Module Size & Snapshot Naming Rules
 - **Crate Granularity for Fast Compilation**:
   - Split independent Rust core algorithm families and subsystems into cohesive, domain-scoped crates with narrow dependency graphs so incremental builds (`cargo check/test -p <crate>`) avoid recompiling unrelated solvers; re-export unified APIs through `crates/egraph`.
-  - Register any newly split workspace crate in root `Cargo.toml`, `scripts/verify.sh`, `scripts/check_invariants.sh`, and `.github/workflows/ci.yml` (preserving strict single-thread and `getrandom`-free invariants).
+  - Register any newly split workspace crate in root `Cargo.toml`, `scripts/verify_helpers.py` (`V6_CRATE_SUBDIRS`), `scripts/verify.sh`, `scripts/check_invariants.sh`, `.github/workflows/ci.yml`, and `.github/workflows/release.yml` (preserving strict single-thread and `getrandom`-free invariants).
 - **Module Decomposition (`<= ~500` Lines per File)**:
   - Target **roughly 500 lines or fewer** per hand-written source file (`.rs`, `.py`, `.js`/`.mjs`/`.ts`). Split along cohesive domain responsibilities (e.g., `<domain>/mod.rs`, `config.rs`, `solver.rs`, `helpers.rs`, `tests.rs`, and domain-scoped files under `crates/python/src/` and `crates/wasm/src/`) rather than arbitrary line counts.
   - Move bulky unit test blocks into dedicated `#[cfg(test)] mod tests;` (`tests.rs`) files or integration tests (`tests/<domain>.rs`). Do not further bloat pre-existing oversized files; refactor them in dedicated passes.

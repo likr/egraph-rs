@@ -53,9 +53,9 @@
 |---|---|
 | [`scripts/setup_venv.sh`](../scripts/setup_venv.sh) | Provision isolated worktree-local Python 3.12 `.venv` (`maturin`, `pytest`, `numpy`, `scipy`, `networkx`, `mypy`, `ruff`) via `uv`. |
 | [`scripts/worktree.sh`](../scripts/worktree.sh) | Manage parallel git worktrees under `.worktrees/<slug>` (`wt/<slug>` branch + isolated `.venv`), verify inside worktrees, and safely clean up. |
-| [`scripts/verify.sh`](../scripts/verify.sh) | Tiered verification runner (`--fast`, `--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, `--all`, `--json-summary`) auto-configuring `sccache`, single-thread env vars, `CARGO_BUILD_JOBS` from `EGRAPH_PARALLEL_WORKERS`, and `nextest`. |
+| [`scripts/verify.sh`](../scripts/verify.sh) | Tiered verification runner (`--fast`, `--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, `--all`, `--json-summary`) auto-configuring `sccache`, single-thread env vars, `CARGO_BUILD_JOBS` from `EGRAPH_PARALLEL_WORKERS`, `nextest`, and helper CLI [`scripts/verify_helpers.py`](../scripts/verify_helpers.py) (`<= ~500L`). |
 | [`scripts/check_invariants.sh`](../scripts/check_invariants.sh) | Enforce `cargo tree` (`rayon`/`linfa`/`wgpu`=0), static source scan, `wasm32-unknown-unknown` build, and packaging metadata alignment (`--mode report` or `--mode strict`). |
-| [`scripts/parity_harness.py`](../scripts/parity_harness.py) | Deterministic golden fixtures, reproducibility, adversarial non-panic input tests, and optional Node.js WASM parity checks. |
+| [`scripts/parity_harness.py`](../scripts/parity_harness.py) | Cross-target parity runner delegating to [`scripts/parity/`](../scripts/parity/__init__.py) (30 modules) for deterministic golden fixtures, reproducibility, adversarial non-panic input tests, and optional Node.js WASM parity checks. |
 | [`clippy.toml`](../clippy.toml) | Blocks `std::thread::{spawn, scope, Builder, JoinHandle}` workspace-wide via Clippy. |
 
 ---

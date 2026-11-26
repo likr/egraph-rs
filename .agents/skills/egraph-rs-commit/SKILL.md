@@ -29,13 +29,13 @@ All commit messages for changes in this repository must strictly adhere to the *
 
 ## Scoping Rules
 - **Crate-specific changes**: Always specify the crate name as the scope if the modification is localized to one crate.
-  - Examples: `egraph-wasm`, `egraph-layout`, `petgraph-layout-mds`, `petgraph-layout-kernel-sgd`
+  - Examples: `egraph-wasm`, `egraph-layout-sgd`, `egraph-spatial-trees`, `egraph-metrics-cluster`, `egraph-linalg-amg`, `petgraph-layout-mds`
 - **Paired multi-crate changes**: Comma-separated short scopes are acceptable when fixing tightly coupled dependencies (e.g., `fix(python,linalg): align ndarray to 0.17 for clean sdist and CI builds`).
 - **Project-wide changes**: Omit the scope for root configuration, CI/release workflows, verification scripts, documentation, repository guidelines, or broad-sweeping multi-crate modifications.
-  - Examples: `chore: refine workflow, ci, and harness after M6 review`, `docs: add CHANGELOG and fix package README links`
+  - Examples: `chore: refine verification harness and ci feature matrix`, `docs: add CHANGELOG and fix package README links`
 
 ## Examples
-- `feat(petgraph-layout-kernel-sgd): add DiffusionKernel random access interface`
+- `feat(egraph-layout-sgd): add sparse barrier and pacmap constructors`
 - `fix(petgraph-clustering): correct Louvain modularity calculation`
 - `test(petgraph-layout-sgd): add comprehensive tests for schedulers`
 - `refactor(petgraph-algorithm-shortest-path): optimize distance calculation`

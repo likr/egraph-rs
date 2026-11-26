@@ -19,7 +19,7 @@ This document consolidates the project overview, requirements, and product goals
 - **Algorithms**: Support layout techniques, layering, community detection, edge-bundling, and triangulation.
 - **Geometry**: Draw in Euclidean (2D/nD), Spherical, Hyperbolic, and Torus spaces.
 - **Language Integration**: Maintain PyO3 bindings for Python and wasm-bindgen bindings for WebAssembly/JavaScript.
-- **Modularity**: Implement a modular crate-based workspace design (15+ specialized crates).
+- **Modularity**: Implement a modular crate-based workspace design (27 modern `egraph*` crates across 45 total workspace crates).
 
 ## User Experience Goals
 

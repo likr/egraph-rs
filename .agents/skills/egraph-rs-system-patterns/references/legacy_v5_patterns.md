@@ -48,7 +48,7 @@ Force-directed layout with a concrete `Sgd<S>` struct rather than a trait-based 
 - **Scaling & Validation**: `PivotMds` computes $(n/k)^{1/4} C V \mathrm{diag}(e^{-1/4}) \approx U \Sigma^{1/2}$ with zero-eigenvalue and disconnected-graph finite-coordinate guards; `ClassicalMds` validates square matrices fallibly.
 
 ### RdMds (Resistance-distance MDS)
-- Computes spectral embeddings using the graph Laplacian (`crates/linalg/rdmds/`, configuring `d`, `shift`, `eigenvalue_max_iterations`, `cg_max_iterations`, `eigenvalue_tolerance`, `cg_tolerance`).
+- Computes spectral embeddings using the graph Laplacian (`crates/linalg/kernel/`, configuring `d`, `shift`, `eigenvalue_max_iterations`, `cg_max_iterations`, `eigenvalue_tolerance`, `cg_tolerance`).
 
 ### Omega
 - **Location**: `crates/layout/omega/` (`k` random pairs per node, `min_dist`).

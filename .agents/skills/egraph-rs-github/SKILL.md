@@ -29,8 +29,8 @@ Follow these conventions alongside [`.agents/AGENTS.md`](../../AGENTS.md), [`egr
 4. **History & Tag Immutability**:
    - **Never** run `git push --force` / `--force-with-lease` on `master`.
    - **Never** move or delete pushed release tags (`v6.*`). Recover from a failed release workflow by fixing `master` and tagging the next version (`egraph-rs-release`).
-5. **Milestone-Cadenced Commits & Stage Pushes (No End-of-Project Batching)**:
-   - In multi-milestone tasks, commit atomically as soon as each milestone/wave (e.g., W0, W1, M4.1) passes its verification gate rather than keeping dirty changes across multiple milestones and splitting dozens of commits at the end.
+5. **Stage-Cadenced Commits & Pushes (No End-of-Project Batching)**:
+   - In multi-stage tasks, commit atomically as soon as each verified stage or crate group passes its verification gate rather than keeping dirty changes across multiple stages and splitting dozens of commits at the end.
    - Push to `origin/master` autonomously at major stage boundaries once scope-matched `./scripts/verify.sh` passes, and ensure all verified task commits are pushed before reporting task completion.
    - Keep only the final release version-bump commit, annotated `v6.*` tag, and registry publish at the final release gate.
 
