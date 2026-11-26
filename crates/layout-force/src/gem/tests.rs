@@ -93,8 +93,14 @@ fn test_gem_config_validation() {
 #[test]
 fn test_gem_step_run_bit_exact_f64_and_f32() {
     let g = cycle_graph(12);
+    let default_solver = GemSolver::<f64>::new(&g, GemConfig::default()).unwrap();
+    assert_eq!(default_solver.total_iterations(), 48);
+    let large_g = cycle_graph(150);
+    let large_solver = GemSolver::<f64>::new(&large_g, GemConfig::default()).unwrap();
+    assert_eq!(large_solver.total_iterations(), 400);
+
     let cfg = GemConfig {
-        max_rounds: Some(25),
+        max_iterations: Some(25),
         ..GemConfig::default()
     };
 
@@ -153,7 +159,7 @@ fn test_gem_step_run_bit_exact_f64_and_f32() {
 #[test]
 fn test_gem_edge_cases_n0_n1_edgeless_disconnected_weighted_directed_and_rotation_clamp() {
     let cfg = GemConfig {
-        max_rounds: Some(15),
+        max_iterations: Some(15),
         ..GemConfig::default()
     };
 
@@ -171,12 +177,12 @@ fn test_gem_edge_cases_n0_n1_edgeless_disconnected_weighted_directed_and_rotatio
     assert_eq!(l1.x()[0], 2.0);
     assert_eq!(l1.y()[0], -3.0);
 
-    // max_rounds = 0 -> Completed immediately
+    // max_iterations = 0 -> Completed immediately
     let g2 = cycle_graph(4);
     let s_zero = GemSolver::<f64>::new(
         &g2,
         GemConfig {
-            max_rounds: Some(0),
+            max_iterations: Some(0),
             ..cfg
         },
     )
@@ -224,7 +230,7 @@ fn test_gem_edge_cases_n0_n1_edgeless_disconnected_weighted_directed_and_rotatio
         GemConfig {
             rotation_sensitivity: Some(5.0),
             oscillation_sensitivity: 2.0,
-            max_rounds: Some(30),
+            max_iterations: Some(30),
             ..GemConfig::default()
         },
     )

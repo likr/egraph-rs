@@ -13,8 +13,8 @@ pub struct GemConfig {
     pub t_max: f64,
     /// Global mean-temperature convergence threshold $T_{\min}$ (`default: 3.0`).
     pub t_min: f64,
-    /// Optional maximum rounds (`None` uses $4 \max(1, N)$, `default: None`).
-    pub max_rounds: Option<usize>,
+    /// Optional maximum iterations (`None` uses `min(4 * max(1, N), 400)`, `default: None`).
+    pub max_iterations: Option<usize>,
     /// Oscillation detection opening angle $\alpha_o \in (0, \pi]$ (`default: PI`).
     pub oscillation_angle: f64,
     /// Rotation detection opening angle $\alpha_r \in (0, \pi]$ (`default: PI / 3.0`).
@@ -37,7 +37,7 @@ impl Default for GemConfig {
             t_init: 128.0,
             t_max: 256.0,
             t_min: 3.0,
-            max_rounds: None,
+            max_iterations: None,
             oscillation_angle: std::f64::consts::PI,
             rotation_angle: std::f64::consts::PI / 3.0,
             oscillation_sensitivity: 1.0 / 3.0,

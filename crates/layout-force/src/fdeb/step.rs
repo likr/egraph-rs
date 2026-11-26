@@ -1,87 +1,99 @@
 use std::mem;
 
-use egraph_core::{CoreResult, Scalar, SolverStatus};
+use egraph_core::{CoreError, CoreResult, IterativeSolver, Layout2d, Scalar, SolverStatus};
 
 use super::MIN_EDGE_LEN;
-use super::solver::FdebSolver;
+use super::compatibility::edge_compatibility;
+use super::solver::{EdgePair, FdebSolver};
 
 const MIN_SEG_DIST: f64 = 1e-12;
 const MAX_SPRING_ALPHA_KP: f64 = 0.45;
 
 impl<S: Scalar> FdebSolver<S> {
-    /// Executes a single FDEB force iteration (subdividing edges when entering a new cycle)
-    /// and returns the updated [`SolverStatus`].
-    pub fn step(&mut self) -> CoreResult<SolverStatus> {
-        if self.status.is_finished() {
-            return Ok(self.status);
+    fn initialize_polylines(&mut self, layout: &Layout2d<S>) {
+        let xs = layout.x();
+        let ys = layout.y();
+
+        for ep in &mut self.edges {
+            let ux = xs[ep.source as usize].to_f64();
+            let uy = ys[ep.source as usize].to_f64();
+            let vx = xs[ep.target as usize].to_f64();
+            let vy = ys[ep.target as usize].to_f64();
+            ep.length = (vx - ux).hypot(vy - uy);
         }
 
-        if self.num_edges == 0 {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
-        }
-
-        while self.current_cycle < self.cycle_iters.len()
-            && self.cycle_iters[self.current_cycle] == 0
-        {
-            self.current_cycle += 1;
-            self.alpha *= self.config.s_step;
-        }
-
-        if self.current_cycle >= self.cycle_iters.len() || self.iter >= self.total_iterations {
-            self.status = SolverStatus::Completed;
-            return Ok(self.status);
-        }
-
-        if self.cycle_iter == 0 {
-            self.subdivide_edges();
-        }
-
-        self.apply_forces_and_integrate();
-
-        self.iter += 1;
-        self.cycle_iter += 1;
-        while self.current_cycle < self.cycle_iters.len()
-            && self.cycle_iter >= self.cycle_iters[self.current_cycle]
-        {
-            self.cycle_iter = 0;
-            self.current_cycle += 1;
-            self.alpha *= self.config.s_step;
-        }
-
-        self.status =
-            if self.iter >= self.total_iterations || self.current_cycle >= self.cycle_iters.len() {
-                SolverStatus::Completed
-            } else {
-                SolverStatus::Running
-            };
-
-        Ok(self.status)
-    }
-
-    /// Executes up to `steps` iterations or stops early upon completion.
-    pub fn run_steps(&mut self, steps: usize) -> CoreResult<SolverStatus> {
-        for _ in 0..steps {
-            if self.status.is_finished() {
-                break;
+        // Pre-compute compatible edge pairs.
+        self.edge_pairs.clear();
+        let num_edges = self.num_edges;
+        for p in 0..num_edges {
+            let ep = self.edges[p];
+            if ep.length <= MIN_EDGE_LEN {
+                continue;
             }
-            let st = self.step()?;
-            if st.is_finished() {
-                break;
+            let p1x = xs[ep.source as usize].to_f64();
+            let p1y = ys[ep.source as usize].to_f64();
+            let p2x = xs[ep.target as usize].to_f64();
+            let p2y = ys[ep.target as usize].to_f64();
+
+            for (q, &eq) in self.edges.iter().enumerate().skip(p + 1) {
+                if eq.length <= MIN_EDGE_LEN {
+                    continue;
+                }
+                let q1x = xs[eq.source as usize].to_f64();
+                let q1y = ys[eq.source as usize].to_f64();
+                let q2x = xs[eq.target as usize].to_f64();
+                let q2y = ys[eq.target as usize].to_f64();
+
+                let (c_e, cos_theta) = edge_compatibility(
+                    p1x, p1y, p2x, p2y, ep.length, q1x, q1y, q2x, q2y, eq.length,
+                );
+                if c_e >= self.config.minimum_edge_compatibility {
+                    let theta = cos_theta.clamp(-1.0, 1.0).acos();
+                    self.edge_pairs.push(EdgePair {
+                        p: p as u32,
+                        q: q as u32,
+                        compatibility: c_e,
+                        same_dir: theta < std::f64::consts::FRAC_PI_2,
+                    });
+                }
             }
         }
-        Ok(self.status)
-    }
 
-    /// Runs the solver to completion.
-    pub fn run(&mut self) -> CoreResult<SolverStatus> {
-        while !self.status.is_finished() {
-            let st = self.step()?;
-            if st.is_finished() {
-                break;
-            }
+        // Initialize unsubdivided 2-point polylines per edge (source, target).
+        let init_pts = num_edges * 2;
+        self.edge_offsets.clear();
+        self.edge_offsets.reserve(num_edges + 1);
+        self.work_x.clear();
+        self.work_x.reserve(self.max_total_pts);
+        self.work_y.clear();
+        self.work_y.reserve(self.max_total_pts);
+        self.points_x.clear();
+        self.points_x.reserve(self.max_total_pts);
+        self.points_y.clear();
+        self.points_y.reserve(self.max_total_pts);
+        self.scratch_x = Vec::with_capacity(self.max_total_pts);
+        self.scratch_y = Vec::with_capacity(self.max_total_pts);
+
+        self.edge_offsets.push(0u32);
+        for (e_idx, ep) in self.edges.iter().enumerate() {
+            let sx = xs[ep.source as usize];
+            let sy = ys[ep.source as usize];
+            let tx = xs[ep.target as usize];
+            let ty = ys[ep.target as usize];
+            self.work_x.push(sx.to_f64());
+            self.work_y.push(sy.to_f64());
+            self.work_x.push(tx.to_f64());
+            self.work_y.push(ty.to_f64());
+            self.points_x.push(sx);
+            self.points_y.push(sy);
+            self.points_x.push(tx);
+            self.points_y.push(ty);
+            self.edge_offsets.push(((e_idx + 1) * 2) as u32);
         }
-        Ok(self.status)
+
+        self.vx.resize(init_pts, 0.0);
+        self.vy.resize(init_pts, 0.0);
+        self.initialized_polylines = true;
     }
 
     fn subdivide_edges(&mut self) {
@@ -236,5 +248,83 @@ impl<S: Scalar> FdebSolver<S> {
             self.points_x[i] = S::from_f64(self.work_x[i]);
             self.points_y[i] = S::from_f64(self.work_y[i]);
         }
+    }
+}
+
+impl<S: Scalar> IterativeSolver<S> for FdebSolver<S> {
+    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+        if layout.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                layout.len(),
+                "FdebSolver::step",
+            ));
+        }
+        layout.validate_finite()?;
+
+        if self.status.is_finished() {
+            return Ok(self.status);
+        }
+
+        if !self.initialized_polylines {
+            self.initialize_polylines(layout);
+        }
+
+        if self.num_edges == 0 {
+            self.status = SolverStatus::Converged;
+            return Ok(self.status);
+        }
+
+        while self.current_cycle < self.cycle_iters.len()
+            && self.cycle_iters[self.current_cycle] == 0
+        {
+            self.current_cycle += 1;
+            self.alpha *= self.config.s_step;
+        }
+
+        if self.current_cycle >= self.cycle_iters.len() || self.iter >= self.total_iterations {
+            self.status = SolverStatus::Completed;
+            return Ok(self.status);
+        }
+
+        if self.cycle_iter == 0 {
+            self.subdivide_edges();
+        }
+
+        self.apply_forces_and_integrate();
+
+        self.iter += 1;
+        self.cycle_iter += 1;
+        while self.current_cycle < self.cycle_iters.len()
+            && self.cycle_iter >= self.cycle_iters[self.current_cycle]
+        {
+            self.cycle_iter = 0;
+            self.current_cycle += 1;
+            self.alpha *= self.config.s_step;
+        }
+
+        self.status =
+            if self.iter >= self.total_iterations || self.current_cycle >= self.cycle_iters.len() {
+                SolverStatus::Completed
+            } else {
+                SolverStatus::Running
+            };
+
+        Ok(self.status)
+    }
+
+    #[inline]
+    fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    #[inline]
+    fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    #[inline]
+    fn total_iterations(&self) -> usize {
+        self.total_iterations
     }
 }

@@ -1,6 +1,6 @@
 //! Integration tests for Force-Directed Edge Bundling (`FdebSolver`).
 
-use egraph_core::{CoreError, CsrGraph, Layout2d, SolverStatus};
+use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_layout_force::fdeb::{FdebConfig, FdebSolver};
 
 #[test]
@@ -19,32 +19,37 @@ fn test_fdeb_step_vs_run_collinear_zero_length_and_bundling() {
         false,
     )
     .unwrap();
-    let layout64 = Layout2d::from_xy(
+    let mut layout64_run = Layout2d::from_xy(
         vec![0.0_f64, 10.0, 0.0, 10.0, 10.0, 0.0, 5.0, 5.0],
         vec![0.0_f64, 0.0, 0.3, 0.3, 0.3, 0.3, 2.0, 2.0],
     )
     .unwrap();
+    let mut layout64_step = layout64_run.clone();
 
     let cfg = FdebConfig {
         cycles: 4,
-        i0: 30,
+        steps_per_cycle: 30,
         ..Default::default()
     };
 
     // f64 bit-exact step == run
-    let mut s64_run = FdebSolver::new(&graph, &layout64, cfg).unwrap();
-    let mut s64_step = FdebSolver::new(&graph, &layout64, cfg).unwrap();
+    let mut s64_run = FdebSolver::new(&graph, cfg).unwrap();
+    let mut s64_step = FdebSolver::new(&graph, cfg).unwrap();
     assert_eq!(s64_run.status(), SolverStatus::Initialized);
+    assert_eq!(s64_run.num_nodes(), 8);
     assert_eq!(s64_run.num_edges(), 4);
-    assert_eq!(s64_run.edge_offsets(), &[0, 2, 4, 6, 8]);
+    assert!(s64_run.edge_offsets().is_empty());
 
-    assert_eq!(s64_run.run().unwrap(), SolverStatus::Completed);
+    assert_eq!(
+        s64_run.run(&mut layout64_run).unwrap(),
+        SolverStatus::Completed
+    );
     assert!(s64_run.is_finished());
     assert_eq!(s64_run.iteration(), s64_run.total_iterations());
 
-    let _ = s64_step.run_steps(7).unwrap();
+    let _ = s64_step.run_steps(&mut layout64_step, 7).unwrap();
     while !s64_step.is_finished() {
-        s64_step.step().unwrap();
+        s64_step.step(&mut layout64_step).unwrap();
     }
     assert_eq!(s64_run.edge_offsets(), s64_step.edge_offsets());
     for i in 0..s64_run.points_x().len() {
@@ -77,16 +82,17 @@ fn test_fdeb_step_vs_run_collinear_zero_length_and_bundling() {
     );
 
     // f32 bit-exact step == run
-    let layout32 = Layout2d::from_xy(
-        layout64.x().iter().map(|&v| v as f32).collect(),
-        layout64.y().iter().map(|&v| v as f32).collect(),
+    let mut layout32_run = Layout2d::from_xy(
+        layout64_run.x().iter().map(|&v| v as f32).collect(),
+        layout64_run.y().iter().map(|&v| v as f32).collect(),
     )
     .unwrap();
-    let mut s32_run = FdebSolver::new(&graph, &layout32, cfg).unwrap();
-    let mut s32_step = FdebSolver::new(&graph, &layout32, cfg).unwrap();
-    s32_run.run().unwrap();
+    let mut layout32_step = layout32_run.clone();
+    let mut s32_run = FdebSolver::new(&graph, cfg).unwrap();
+    let mut s32_step = FdebSolver::new(&graph, cfg).unwrap();
+    s32_run.run(&mut layout32_run).unwrap();
     while !s32_step.is_finished() {
-        s32_step.step().unwrap();
+        s32_step.step(&mut layout32_step).unwrap();
     }
     for i in 0..s32_run.points_x().len() {
         assert_eq!(
@@ -101,14 +107,13 @@ fn test_fdeb_step_vs_run_collinear_zero_length_and_bundling() {
         assert!(s32_run.points_y()[i].is_finite());
     }
 
-    // Input layout was passed by reference and remains untouched!
-    assert_eq!(layout64.x()[0], 0.0);
+    // Node coordinates remain unchanged by FDEB edge bundling.
+    assert_eq!(layout64_run.x()[0], 0.0);
 
-    // Invalid config and dimension mismatch checks.
+    // Invalid config, dimension mismatch, and non-finite guards.
     assert!(matches!(
-        FdebSolver::new(
+        FdebSolver::<f64>::new(
             &graph,
-            &layout64,
             FdebConfig {
                 minimum_edge_compatibility: 1.5,
                 ..Default::default()
@@ -116,9 +121,15 @@ fn test_fdeb_step_vs_run_collinear_zero_length_and_bundling() {
         ),
         Err(CoreError::InvalidInput(_))
     ));
-    let wrong_layout = Layout2d::<f64>::zeros(2);
+    let mut wrong_layout = Layout2d::<f64>::zeros(2);
+    let mut guard_solver = FdebSolver::<f64>::new(&graph, cfg).unwrap();
     assert!(matches!(
-        FdebSolver::new(&graph, &wrong_layout, cfg),
+        guard_solver.step(&mut wrong_layout),
         Err(CoreError::DimensionMismatch { .. })
+    ));
+    let mut bad_layout = Layout2d::from_xy(vec![f64::NAN; 8], vec![0.0; 8]).unwrap();
+    assert!(matches!(
+        guard_solver.step(&mut bad_layout),
+        Err(CoreError::NonFiniteValue { .. })
     ));
 }

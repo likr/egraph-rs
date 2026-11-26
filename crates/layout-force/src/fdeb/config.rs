@@ -8,7 +8,7 @@ pub struct FdebConfig {
     /// Initial force step size (`default: 0.1`).
     pub s0: f64,
     /// Initial number of iterations in cycle 0 (`default: 90`).
-    pub i0: usize,
+    pub steps_per_cycle: usize,
     /// Multiplicative step-size decay factor per cycle (`default: 0.5`).
     pub s_step: f64,
     /// Multiplicative iteration-count decay factor per cycle (`default: 2.0 / 3.0`).
@@ -24,7 +24,7 @@ impl Default for FdebConfig {
         Self {
             cycles: 6,
             s0: 0.1,
-            i0: 90,
+            steps_per_cycle: 90,
             s_step: 0.5,
             i_step: 2.0 / 3.0,
             spring_k: 0.1,

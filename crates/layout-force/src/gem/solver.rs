@@ -13,7 +13,7 @@ const MIN_NORM: f64 = 1e-18;
 pub struct GemSolver<S: Scalar = f64> {
     config: GemConfig,
     num_nodes: usize,
-    max_rounds: usize,
+    max_iterations: usize,
     sigma_r: f64,
     cos_osc_thresh: f64,
     sin_rot_thresh: f64,
@@ -40,9 +40,9 @@ impl<S: Scalar> GemSolver<S> {
         config.validate()?;
         let (n, adj_indptr, adj_indices, adj_weights) = extract_undirected_adj(graph)?;
 
-        let max_rounds = config
-            .max_rounds
-            .unwrap_or_else(|| n.saturating_mul(4).max(1));
+        let max_iterations = config
+            .max_iterations
+            .unwrap_or_else(|| n.saturating_mul(4).clamp(1, 400));
         let sigma_r = config
             .rotation_sensitivity
             .unwrap_or_else(|| 1.0 / (2.0 * (n.max(1) as f64)));
@@ -56,7 +56,7 @@ impl<S: Scalar> GemSolver<S> {
         }
 
         let t0 = config.t_init.min(config.t_max);
-        let status = if max_rounds == 0 {
+        let status = if max_iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -65,7 +65,7 @@ impl<S: Scalar> GemSolver<S> {
         Ok(Self {
             config,
             num_nodes: n,
-            max_rounds,
+            max_iterations,
             sigma_r,
             cos_osc_thresh,
             sin_rot_thresh,
@@ -268,7 +268,7 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
         self.iter += 1;
         self.status = if mean_temp <= self.config.t_min {
             SolverStatus::Converged
-        } else if self.iter >= self.max_rounds {
+        } else if self.iter >= self.max_iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
@@ -288,7 +288,7 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
 
     #[inline]
     fn total_iterations(&self) -> usize {
-        self.max_rounds
+        self.max_iterations
     }
 }
 

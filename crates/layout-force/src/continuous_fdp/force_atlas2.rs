@@ -177,4 +177,22 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
     pub fn max_displacement(&self) -> f64 {
         self.max_displacement
     }
+
+    /// Returns `true` if ForceAtlas2 logarithmic attraction mode is enabled.
+    #[inline]
+    pub fn linlog_mode(&self) -> bool {
+        self.config.linlog_mode
+    }
+
+    /// Returns `true` if strong gravity mode is enabled.
+    #[inline]
+    pub fn strong_gravity(&self) -> bool {
+        self.config.strong_gravity
+    }
+
+    /// Returns `true` if Barnes-Hut quadtree repulsion is enabled.
+    #[inline]
+    pub fn use_barnes_hut(&self) -> bool {
+        self.config.use_barnes_hut
+    }
 }

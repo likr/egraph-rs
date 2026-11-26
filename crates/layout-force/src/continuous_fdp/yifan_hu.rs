@@ -213,4 +213,10 @@ impl<S: Scalar> YifanHuSolver<S> {
     pub fn current_level(&self) -> usize {
         self.current_level
     }
+
+    /// Returns the finest-level optimal distance parameter $K_0$.
+    #[inline]
+    pub fn optimal_distance(&self) -> f64 {
+        self.levels[0].optimal_distance
+    }
 }
