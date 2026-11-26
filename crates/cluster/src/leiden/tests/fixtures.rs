@@ -87,13 +87,23 @@ pub(super) fn oracle_quality_and_modularity<W: Scalar>(
     } else {
         let mut q = 0.0_f64;
         for c in 0..num_communities {
-            q += two_e_c[c] / two_m - resolution * (k_c[c] / two_m).powi(2);
+            q += two_e_c[c] / two_m - (k_c[c] / two_m).powi(2);
         }
         q
     };
 
     let quality = match objective {
-        LeidenObjective::Modularity => modularity,
+        LeidenObjective::Modularity => {
+            if two_m <= 0.0 {
+                0.0
+            } else {
+                let mut q_gamma = 0.0_f64;
+                for c in 0..num_communities {
+                    q_gamma += two_e_c[c] / two_m - resolution * (k_c[c] / two_m).powi(2);
+                }
+                q_gamma
+            }
+        }
         LeidenObjective::Cpm => {
             let mut h = 0.0_f64;
             for c in 0..num_communities {

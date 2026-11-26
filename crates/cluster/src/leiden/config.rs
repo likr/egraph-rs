@@ -48,7 +48,7 @@ pub struct LeidenResult {
     /// Objective quality value: normalized $Q_\gamma$ for `Modularity`, or unnormalized
     /// $\sum_C [E(C, C) - \gamma \binom{\|C\|}{2}]$ (Traag Eq. (A.4)) for `Cpm`.
     pub quality: f64,
-    /// Standard normalized modularity $Q_\gamma$ evaluated with `config.resolution` (`0.0` if `2m == 0`).
+    /// Standard normalized modularity $Q$ evaluated at $\gamma = 1.0$ (`0.0` if `2m == 0`).
     pub modularity: f64,
     /// Number of multi-level passes committed.
     pub passes: usize,

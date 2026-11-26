@@ -132,7 +132,7 @@ pub struct MetricConfig {
     pub crossing_num_samples: usize,
     /// Explicit RNG seed for `SampledCrossingNumber`, `SampledCrosslessness`, `SampledNp1`, and `SampledNp2`.
     pub crossing_seed: u64,
-    /// Target edge length fallback for unweighted graphs in `IdealEdgeLengths`.
+    /// Unit target edge-length scale factor in `IdealEdgeLengths` (uniform length on unweighted graphs, weight multiplier on weighted graphs).
     pub ideal_edge_length: f64,
     /// Number of Core-First MaxMin shortest-path landmarks for `LandmarkStratifiedRta`.
     pub rta_num_landmarks: usize,

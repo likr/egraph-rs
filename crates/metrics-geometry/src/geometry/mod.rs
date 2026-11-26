@@ -192,6 +192,64 @@ pub fn ideal_edge_lengths_with_unit<W, S: Scalar>(
     Ok(sum)
 }
 
+/// Evaluates [`ideal_edge_lengths`] scaled by `unit_edge_length > 0.0`.
+///
+/// Uses `graph.weights() * unit_edge_length` on weighted graphs (skipping edges whose scaled
+/// target length is non-positive or non-finite), and delegates to [`ideal_edge_lengths_with_unit`]
+/// on unweighted graphs.
+pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+    unit_edge_length: f64,
+) -> CoreResult<f64> {
+    validate_graph_layout(graph, layout, "ideal_edge_lengths_scaled")?;
+    if !unit_edge_length.is_finite() {
+        return Err(CoreError::non_finite(
+            "ideal_edge_lengths_scaled::unit_edge_length",
+        ));
+    }
+    if unit_edge_length <= 0.0 {
+        return Err(CoreError::invalid_input(
+            "unit_edge_length must be strictly positive",
+        ));
+    }
+    let Some(weights) = graph.weights() else {
+        return ideal_edge_lengths_with_unit(graph, layout, unit_edge_length);
+    };
+
+    let n = layout.len();
+    let xs = layout.x();
+    let ys = layout.y();
+    let directed = graph.is_directed();
+    let indptr = graph.indptr();
+    let indices = graph.indices();
+    let mut sum = 0.0_f64;
+
+    for u in 0..n {
+        let u32_u = u as u32;
+        let xu = xs[u].to_f64();
+        let yu = ys[u].to_f64();
+        let start = indptr[u] as usize;
+        let end = indptr[u + 1] as usize;
+        for pos in start..end {
+            let v = indices[pos];
+            if v == u32_u || (!directed && u32_u >= v) {
+                continue;
+            }
+            let target_len = weights[pos].to_f64() * unit_edge_length;
+            if !target_len.is_finite() || target_len <= 0.0 {
+                continue;
+            }
+            let vi = v as usize;
+            let actual = (xu - xs[vi].to_f64()).hypot(yu - ys[vi].to_f64());
+            let err = (actual - target_len) / target_len;
+            sum += err * err;
+        }
+    }
+
+    Ok(sum)
+}
+
 /// Evaluates [`ideal_edge_lengths`] using a flat row-major `N * N` target distance matrix.
 pub fn ideal_edge_lengths_from_distances<W, S: Scalar>(
     graph: &CsrGraph<W>,

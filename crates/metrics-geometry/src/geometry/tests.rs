@@ -41,6 +41,16 @@ fn test_ideal_edge_lengths_unit_weighted_and_distances() {
     let g_w =
         CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], Some(&[2.0, 3.0]), false, false).unwrap();
     assert!(ideal_edge_lengths(&g_w, &l).unwrap().abs() < 1e-12);
+    assert!(ideal_edge_lengths_scaled(&g_w, &l, 1.0).unwrap().abs() < 1e-12);
+
+    let l_scaled = Layout2d::from_xy(vec![0.0, 5.0, 12.5], vec![0.0, 0.0, 0.0]).unwrap();
+    assert!(
+        ideal_edge_lengths_scaled(&g_w, &l_scaled, 2.5)
+            .unwrap()
+            .abs()
+            < 1e-12
+    );
+    assert!((ideal_edge_lengths_scaled(&g_unw, &l, 2.5).unwrap() - 0.08).abs() < 1e-12);
 
     let dm = vec![0.0, 2.0, 5.0, 2.0, 0.0, 3.0, 5.0, 3.0, 0.0];
     assert!(
@@ -53,6 +63,14 @@ fn test_ideal_edge_lengths_unit_weighted_and_distances() {
     assert!(matches!(
         ideal_edge_lengths_with_unit(&g_unw, &l, 0.0),
         Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        ideal_edge_lengths_scaled(&g_w, &l, 0.0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        ideal_edge_lengths_scaled(&g_w, &l, f64::NAN),
+        Err(CoreError::NonFiniteValue { .. })
     ));
 }
 

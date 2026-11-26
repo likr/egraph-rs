@@ -109,14 +109,28 @@ fn evaluate_base_partition<W: Scalar>(
         for c in 0..num_communities {
             let st = sigma_tot[c];
             if st > 0.0 || sigma_in[c] > 0.0 {
-                q += (sigma_in[c] / total_weight_2m) - resolution * (st / total_weight_2m).powi(2);
+                q += (sigma_in[c] / total_weight_2m) - (st / total_weight_2m).powi(2);
             }
         }
         q
     };
 
     let quality = match objective {
-        LeidenObjective::Modularity => modularity,
+        LeidenObjective::Modularity => {
+            if total_weight_2m <= 0.0 {
+                0.0
+            } else {
+                let mut q_gamma = 0.0_f64;
+                for c in 0..num_communities {
+                    let st = sigma_tot[c];
+                    if st > 0.0 || sigma_in[c] > 0.0 {
+                        q_gamma += (sigma_in[c] / total_weight_2m)
+                            - resolution * (st / total_weight_2m).powi(2);
+                    }
+                }
+                q_gamma
+            }
+        }
         LeidenObjective::Cpm => {
             let mut h = 0.0_f64;
             for c in 0..num_communities {

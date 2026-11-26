@@ -32,7 +32,7 @@ pub use crossings::{
 };
 pub use geometry::{
     LayoutDegeneracy, MinimumAngleSummary, PrismDistortion, angular_resolution, aspect_ratio,
-    edge_angle, ideal_edge_lengths, ideal_edge_lengths_from_distances,
+    edge_angle, ideal_edge_lengths, ideal_edge_lengths_from_distances, ideal_edge_lengths_scaled,
     ideal_edge_lengths_with_unit, layout_degeneracy, minimum_angle, minimum_angle_summary,
     prism_distortion, prism_distortion_with_edges,
 };

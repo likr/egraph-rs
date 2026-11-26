@@ -8,8 +8,8 @@ use egraph_metrics_geometry::{
         crossing_number, crossing_summary, crosslessness_from_count, sampled_crossing_number,
     },
     geometry::{
-        angular_resolution, aspect_ratio, ideal_edge_lengths, ideal_edge_lengths_with_unit,
-        layout_degeneracy, minimum_angle_summary,
+        angular_resolution, aspect_ratio, ideal_edge_lengths_scaled, layout_degeneracy,
+        minimum_angle_summary,
     },
     neighborhood::{
         neighborhood_preservation_1hop_with_tree, neighborhood_preservation_2hop_with_tree,
@@ -197,12 +197,11 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
                 "ideal_edge_length must be strictly positive",
             ));
         }
-        let val = if graph.is_weighted() {
-            ideal_edge_lengths(graph, layout)?
-        } else {
-            ideal_edge_lengths_with_unit(graph, layout, config.ideal_edge_length)?
-        };
-        report.ideal_edge_lengths = Some(val);
+        report.ideal_edge_lengths = Some(ideal_edge_lengths_scaled(
+            graph,
+            layout,
+            config.ideal_edge_length,
+        )?);
     }
     if flags.adjusted_patch_nig {
         let labels = community_labels.ok_or_else(|| {

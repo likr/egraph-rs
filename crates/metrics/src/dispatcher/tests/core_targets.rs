@@ -383,4 +383,34 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
         ),
         Err(CoreError::InvalidInput(_))
     ));
+
+    // Weighted graphs scale edge weights by MetricConfig::ideal_edge_length.
+    let g_weighted =
+        CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], Some(&[1.0, 2.0]), false, false).unwrap();
+    let l_weighted = Layout2d::from_xy(vec![0.0, 2.5, 7.5], vec![0.0, 0.0, 0.0]).unwrap();
+    let scaled_cfg = MetricConfig {
+        ideal_edge_length: 2.5,
+        ..cfg
+    };
+    let rep_scaled = evaluate_metrics(
+        &g_weighted,
+        &l_weighted,
+        &[MetricTarget::IdealEdgeLengths],
+        &scaled_cfg,
+    )
+    .unwrap();
+    assert!(rep_scaled.ideal_edge_lengths.unwrap().abs() < 1e-12);
+    let rep_unit = evaluate_metrics(
+        &g_weighted,
+        &l_weighted,
+        &[MetricTarget::IdealEdgeLengths],
+        &cfg,
+    )
+    .unwrap();
+    assert!(
+        (rep_unit.ideal_edge_lengths.unwrap()
+            - ideal_edge_lengths(&g_weighted, &l_weighted).unwrap())
+        .abs()
+            < 1e-12
+    );
 }

@@ -287,3 +287,56 @@ fn test_leiden_outer_restarts_convergence_and_max_passes_bound() {
         assert!(r1.passes <= max_passes);
     }
 }
+
+#[test]
+fn test_leiden_cpm_reports_standard_gamma_one_modularity() {
+    for graph in [parse_test_csv(KARATE_CSV), make_two_cliques_barbell(6)] {
+        let res_cpm = leiden(
+            &graph,
+            &LeidenConfig {
+                objective: LeidenObjective::Cpm,
+                resolution: 0.1,
+                seed: 42,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (_, expected_q1) = oracle_quality_and_modularity(
+            &graph,
+            &res_cpm.labels,
+            res_cpm.num_communities,
+            LeidenObjective::Modularity,
+            1.0,
+        );
+        let (q_01, _) = oracle_quality_and_modularity(
+            &graph,
+            &res_cpm.labels,
+            res_cpm.num_communities,
+            LeidenObjective::Modularity,
+            0.1,
+        );
+        assert!((res_cpm.modularity - expected_q1).abs() < 1e-12);
+        assert!(res_cpm.modularity < q_01 - 1e-3);
+
+        let res_mod_gamma = leiden(
+            &graph,
+            &LeidenConfig {
+                objective: LeidenObjective::Modularity,
+                resolution: 2.0,
+                seed: 42,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (expected_q2, expected_m1) = oracle_quality_and_modularity(
+            &graph,
+            &res_mod_gamma.labels,
+            res_mod_gamma.num_communities,
+            LeidenObjective::Modularity,
+            2.0,
+        );
+        assert!((res_mod_gamma.quality - expected_q2).abs() < 1e-12);
+        assert!((res_mod_gamma.modularity - expected_m1).abs() < 1e-12);
+        assert!(res_mod_gamma.modularity > res_mod_gamma.quality + 1e-3);
+    }
+}

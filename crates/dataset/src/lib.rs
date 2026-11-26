@@ -6,21 +6,41 @@ use std::collections::HashMap;
 
 /// Parses an edge-list CSV string into a [`CsrGraph<W>`].
 ///
-/// Expected format is a header line `num_nodes,num_edges` followed by `num_edges` lines of `u,v`.
+/// Expected format is a header line `num_nodes,num_edges` followed by `num_edges` lines of
+/// either `u,v` (unweighted) or `u,v,w` (weighted, finite scalar weight `w`). All edge rows in
+/// a single CSV must share the same column count (2 or 3).
 pub fn parse_csr_csv<W: Scalar>(
     input: &str,
     directed: bool,
     sanitize: bool,
 ) -> CoreResult<CsrGraph<W>> {
-    let mut tokens = input.split_ascii_whitespace();
-    let header = tokens
+    let mut rows = input.lines().map(str::trim).filter(|line| !line.is_empty());
+    let header = rows
         .next()
         .ok_or_else(|| CoreError::invalid_input("dataset CSV is empty"))?;
     let (num_nodes, expected_edges) = parse_usize_pair(header, "CSV header")?;
 
     let mut edges = Vec::with_capacity(expected_edges);
-    for (row_idx, row) in tokens.enumerate() {
-        let (u_usize, v_usize) = parse_usize_pair(row, "CSV edge row")?;
+    let mut weights: Option<Vec<W>> = None;
+    let mut expected_cols: Option<usize> = None;
+
+    for (row_idx, row) in rows.enumerate() {
+        let (u_usize, v_usize, weight_opt) = parse_edge_row::<W>(row, row_idx)?;
+        let row_cols = if weight_opt.is_some() { 3 } else { 2 };
+        match expected_cols {
+            None => {
+                expected_cols = Some(row_cols);
+                if row_cols == 3 {
+                    weights = Some(Vec::with_capacity(expected_edges));
+                }
+            }
+            Some(prev_cols) if prev_cols != row_cols => {
+                return Err(CoreError::invalid_input(format!(
+                    "inconsistent CSV column count at edge row {row_idx}: expected {prev_cols}, got {row_cols}"
+                )));
+            }
+            Some(_) => {}
+        }
         let u = u32::try_from(u_usize).map_err(|_| {
             CoreError::invalid_input(format!(
                 "vertex index {u_usize} overflows u32 at row {row_idx}"
@@ -32,6 +52,9 @@ pub fn parse_csr_csv<W: Scalar>(
             ))
         })?;
         edges.push((u, v));
+        if let (Some(ws), Some(w)) = (weights.as_mut(), weight_opt) {
+            ws.push(w);
+        }
     }
 
     if edges.len() != expected_edges {
@@ -42,17 +65,19 @@ pub fn parse_csr_csv<W: Scalar>(
         ));
     }
 
-    CsrGraph::from_edges(num_nodes, &edges, None, directed, sanitize)
+    CsrGraph::from_edges(num_nodes, &edges, weights.as_deref(), directed, sanitize)
 }
 
 fn parse_usize_pair(token: &str, context: &str) -> CoreResult<(usize, usize)> {
     let mut parts = token.split(',');
     let a = parts
         .next()
-        .ok_or_else(|| CoreError::invalid_input(format!("missing first integer in {context}")))?;
+        .ok_or_else(|| CoreError::invalid_input(format!("missing first integer in {context}")))?
+        .trim();
     let b = parts
         .next()
-        .ok_or_else(|| CoreError::invalid_input(format!("missing second integer in {context}")))?;
+        .ok_or_else(|| CoreError::invalid_input(format!("missing second integer in {context}")))?
+        .trim();
     if parts.next().is_some() {
         return Err(CoreError::invalid_input(format!(
             "expected exactly two comma-separated integers in {context}: '{token}'"
@@ -65,6 +90,57 @@ fn parse_usize_pair(token: &str, context: &str) -> CoreResult<(usize, usize)> {
         CoreError::invalid_input(format!("invalid integer '{b}' in {context}: {err}"))
     })?;
     Ok((first, second))
+}
+
+fn parse_edge_row<W: Scalar>(row: &str, row_idx: usize) -> CoreResult<(usize, usize, Option<W>)> {
+    let mut parts = row.split(',');
+    let a = parts
+        .next()
+        .ok_or_else(|| CoreError::invalid_input(format!("missing source vertex at row {row_idx}")))?
+        .trim();
+    let b = parts
+        .next()
+        .ok_or_else(|| CoreError::invalid_input(format!("missing target vertex at row {row_idx}")))?
+        .trim();
+    let w_part = parts.next().map(str::trim);
+    if parts.next().is_some() {
+        return Err(CoreError::invalid_input(format!(
+            "expected 2 or 3 comma-separated columns in CSV edge row {row_idx}: '{row}'"
+        )));
+    }
+    let u = a.parse::<usize>().map_err(|err| {
+        CoreError::invalid_input(format!(
+            "invalid integer '{a}' in CSV edge row {row_idx}: {err}"
+        ))
+    })?;
+    let v = b.parse::<usize>().map_err(|err| {
+        CoreError::invalid_input(format!(
+            "invalid integer '{b}' in CSV edge row {row_idx}: {err}"
+        ))
+    })?;
+    let w_opt = match w_part {
+        None => None,
+        Some(w_str) => {
+            let wf = w_str.parse::<f64>().map_err(|err| {
+                CoreError::invalid_input(format!(
+                    "invalid weight '{w_str}' in CSV edge row {row_idx}: {err}"
+                ))
+            })?;
+            if !wf.is_finite() {
+                return Err(CoreError::non_finite(
+                    "egraph_dataset::parse_csr_csv::weight",
+                ));
+            }
+            let w = W::from_f64(wf);
+            if !w.is_finite() {
+                return Err(CoreError::non_finite(
+                    "egraph_dataset::parse_csr_csv::weight",
+                ));
+            }
+            Some(w)
+        }
+    };
+    Ok((u, v, w_opt))
 }
 
 #[cfg(feature = "petgraph")]
@@ -273,8 +349,29 @@ mod tests {
             parse_csr_csv::<f64>("3,2\n0,1\n", false, false),
             Err(CoreError::DimensionMismatch { .. })
         ));
+        let wg = parse_csr_csv::<f64>("3,2\n0,1,2.5\n1, 2, 1.25\n", false, false).unwrap();
+        assert!(wg.is_weighted());
+        assert_eq!(wg.num_edges(), 2);
+        assert_eq!(wg.weights().unwrap(), &[2.5, 2.5, 1.25, 1.25]);
+
         assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,1,2\n", false, false),
+            parse_csr_csv::<f64>("3,1\n0,1,2,3\n", false, false),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            parse_csr_csv::<f64>("3,2\n0,1,2.0\n1,2\n", false, false),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            parse_csr_csv::<f64>("3,1\n0,1,nan\n", false, false),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            parse_csr_csv::<f64>("3,1\n0,1,inf\n", false, false),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+        assert!(matches!(
+            parse_csr_csv::<f64>("3,1\n0,1,abc\n", false, false),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
@@ -296,6 +393,14 @@ mod tests {
         assert!(!g.is_directed());
         assert!(g.weights().is_none());
         assert_eq!(g.neighbors(1), &[0, 2]);
+
+        let wg = parse_csr_csv::<f32>("3,2\n0,1,1.5\n1,2,3.25\n", false, false).unwrap();
+        assert!(wg.is_weighted());
+        assert_eq!(wg.weights().unwrap(), &[1.5_f32, 1.5, 3.25, 3.25]);
+        assert!(matches!(
+            parse_csr_csv::<f32>("3,1\n0,1,1e300\n", false, false),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
 
         // Sanitize deduplicates undirected edges and removes self-loops.
         let dirty = "3,3\n0,1\n1,0\n0,0\n";

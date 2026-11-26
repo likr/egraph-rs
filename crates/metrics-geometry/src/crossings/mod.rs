@@ -21,7 +21,9 @@ pub fn crossing_number<W, S: Scalar>(
     SweepLineCrossings::count(graph, layout)
 }
 
-/// Computes the legacy crossing-angle penalty $\sum \cos^2(\theta)$ over all crossing edge pairs.
+/// Computes the crossing-angle penalty $\sum \cos^2(\theta)$ over all crossing edge pairs.
+///
+/// Lower values indicate crossings closer to perpendicular (`0.0` = all perpendicular crossings).
 pub fn crossing_angle<W, S: Scalar>(graph: &CsrGraph<W>, layout: &Layout2d<S>) -> CoreResult<f64> {
     Ok(crossing_summary(graph, layout)?.angle_cos_sq_sum)
 }
