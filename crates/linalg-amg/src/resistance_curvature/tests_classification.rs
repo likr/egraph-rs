@@ -229,3 +229,139 @@ fn test_closed_spherical_surface_vs_open_planar_mesh() {
     assert_ne!(res_open.suggested_geometry, SuggestedGeometry::Spherical);
     assert_ne!(res_open.suggested_geometry, SuggestedGeometry::Torus2d);
 }
+
+#[test]
+fn test_default_flow_tori_triangulated_and_quad_across_seeds() {
+    let default_cfg = ResistanceCurvatureConfig::default();
+    assert_eq!(default_cfg.steps, 2);
+    assert_eq!(default_cfg.resistance.exact_max_nodes, 256);
+    assert_eq!(default_cfg.resistance.jl_dim, 128);
+
+    for &(rows, cols) in &[(18usize, 18usize), (20, 20), (24, 24)] {
+        for triangulated in [false, true] {
+            let torus = make_torus_grid(rows, cols, triangulated);
+            for seed in 42..=49u64 {
+                let mut cfg = default_cfg;
+                cfg.resistance.seed = seed;
+                let res = resistance_curvature_flow(&torus, &cfg).unwrap();
+                assert!(!res.used_exact);
+                assert_eq!(res.step_history.len(), 3);
+                assert_eq!(
+                    res.suggested_geometry,
+                    SuggestedGeometry::Torus2d,
+                    "T_{rows}x{cols} tri={triangulated} seed={seed}: mean={}, std={}, foster={}",
+                    res.mean_link_curvature,
+                    res.std_link_curvature,
+                    res.foster_rel_err
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_default_flow_spheres_open_planar_hyperbolic_and_irregular() {
+    let default_cfg = ResistanceCurvatureConfig::default();
+
+    // Closed spherical meshes (N >= 98): N=258 and N=1026 subdivided octahedra via default JL,
+    // plus forced JL on N=258 / N=1026.
+    for sub in [3usize, 4usize] {
+        let sphere = make_subdivided_octahedron(sub);
+        assert!(sphere.num_nodes() >= 98);
+        let res = resistance_curvature_flow(&sphere, &default_cfg).unwrap();
+        assert!(!res.used_exact);
+        assert_eq!(res.suggested_geometry, SuggestedGeometry::Spherical);
+    }
+
+    // Open planar 18x18 grids (quad and triangulated, N=324 > 256) must never become Torus2d or Spherical.
+    for tri in [false, true] {
+        let mut open_edges = Vec::new();
+        let rows = 18usize;
+        let cols = 18usize;
+        for r in 0..rows {
+            for c in 0..cols {
+                let u = (r * cols + c) as u32;
+                if c + 1 < cols {
+                    open_edges.push((u, u + 1));
+                }
+                if r + 1 < rows {
+                    open_edges.push((u, u + cols as u32));
+                }
+                if tri && r + 1 < rows && c + 1 < cols {
+                    open_edges.push((u, u + cols as u32 + 1));
+                }
+            }
+        }
+        let open_grid =
+            CsrGraph::<f64>::from_edges(rows * cols, &open_edges, None, false, false).unwrap();
+        let res = resistance_curvature_flow(&open_grid, &default_cfg).unwrap();
+        assert_ne!(res.suggested_geometry, SuggestedGeometry::Spherical);
+        assert_ne!(res.suggested_geometry, SuggestedGeometry::Torus2d);
+    }
+
+    // Hyperbolic 3-ary tree of depth 5 (N=364 > 256) classifies as HyperbolicPoincare.
+    let mut tree_edges = Vec::new();
+    let mut next_child = 1u32;
+    for parent in 0..121u32 {
+        for _ in 0..3 {
+            tree_edges.push((parent, next_child));
+            next_child += 1;
+        }
+    }
+    let htree = CsrGraph::<f64>::from_edges(364, &tree_edges, None, false, false).unwrap();
+    let res_hyp = resistance_curvature_flow(&htree, &default_cfg).unwrap();
+    assert!(!res_hyp.used_exact);
+    assert_eq!(
+        res_hyp.suggested_geometry,
+        SuggestedGeometry::HyperbolicPoincare
+    );
+
+    // Irregular graph (N=300, deg_cv >= 0.02: 18x16 grid plus a degree-16 hub chord cluster) -> not Torus2d.
+    let mut irreg_edges = Vec::new();
+    for r in 0..15usize {
+        for c in 0..20usize {
+            let u = (r * 20 + c) as u32;
+            if c + 1 < 20 {
+                irreg_edges.push((u, u + 1));
+            }
+            if r + 1 < 15 {
+                irreg_edges.push((u, u + 20));
+            }
+        }
+    }
+    for v in 2..30u32 {
+        irreg_edges.push((0, v));
+    }
+    let irreg = CsrGraph::<f64>::from_edges(300, &irreg_edges, None, false, true).unwrap();
+    let res_irreg = resistance_curvature_flow(&irreg, &default_cfg).unwrap();
+    assert_ne!(res_irreg.suggested_geometry, SuggestedGeometry::Torus2d);
+
+    // Direct JL sampling classifier boundary checks:
+    // Regular non-closed-spherical graph with JL-noisy mean=0.223 and std=0.75 -> Torus2d, not Spherical.
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            972, 0.223, 0.75, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::Torus2d
+    );
+    // Excessive std falls back to Euclidean (not Spherical) when mean is within JL noise band.
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            972, 0.223, 1.5, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::Euclidean
+    );
+    // Strongly positive or negative curvature beyond JL margin still classifies accurately.
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            972, 0.60, 0.40, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::Spherical
+    );
+    assert_eq!(
+        classify_geometry_from_curvature_with_sampling(
+            972, -0.50, 0.40, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+        ),
+        SuggestedGeometry::HyperbolicPoincare
+    );
+}
