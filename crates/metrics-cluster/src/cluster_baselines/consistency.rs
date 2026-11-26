@@ -156,57 +156,15 @@ pub fn distribution_consistency<S: Scalar>(
     Ok((1.0 - weighted_entropy / denom).clamp(0.0, 1.0))
 }
 
-/// Computes Tatu et al. (2009) Class Density Measure (`CDM`) and `3x3` Moore-smoothed
-/// Histogram Density Measure (`2D-HDM`), both normalized to `[0.0, 1.0]` (`1.0` = maximally
-/// separated, `0.0` = identical overlapping distributions).
-///
-/// - `CDM` evaluates unit-normalized Gaussian KDE densities per class (default `bandwidth =
-///   1.5 / grid_size as f64`) and averages pairwise L1 separation $\frac{1}{2\binom{K}{2}}
-///   \sum_{c < d} \sum_g |\tilde{\rho}_g^c - \tilde{\rho}_g^d|$.
-/// - `HDM` applies $3\times 3$ Moore-neighborhood smoothing to per-class grid counts and computes
-///   `1.0 - sum(U * H) / (log2(K) * sum(U))` (`hdm_paper = 100.0 * hdm`).
-///
-/// Returns `Ok((0.0, 0.0))` when `N == 0` or `K < 2`.
-pub fn class_density_measure<S: Scalar>(
-    layout: &Layout2d<S>,
-    labels: &[u32],
+fn histogram_density_measure_core(
+    us: &[f64],
+    vs: &[f64],
+    comp: &[u32],
+    k: usize,
     grid_size: usize,
-    bandwidth: Option<f64>,
-) -> CoreResult<(f64, f64)> {
-    if grid_size == 0 {
-        return Err(CoreError::invalid_input(
-            "class_density_measure requires grid_size >= 1",
-        ));
-    }
-    let bw = match bandwidth {
-        Some(h) => {
-            if !h.is_finite() {
-                return Err(CoreError::non_finite("class_density_measure::bandwidth"));
-            }
-            if h <= 0.0 {
-                return Err(CoreError::invalid_input(
-                    "class_density_measure requires bandwidth > 0.0",
-                ));
-            }
-            h
-        }
-        None => 1.5 / grid_size as f64,
-    };
-    validate_layout_labels(layout, labels, "class_density_measure")?;
-
-    let n = layout.len();
-    let (comp, sizes, k) = compact_labels(labels);
-    if n == 0 || k < 2 {
-        return Ok((0.0, 0.0));
-    }
-
-    let num_cells = grid_size
-        .checked_mul(grid_size)
-        .ok_or_else(|| CoreError::invalid_input("class_density_measure grid_size^2 overflow"))?;
-    let (us, vs) = normalized_unit_coords(layout);
+) -> f64 {
+    let n = us.len();
     let g_f = grid_size as f64;
-
-    // 1. 2D-HDM via 3x3 Moore-smoothed sparse `(cell, class)` entries (O(N log N) time & O(N) RAM).
     let mut hdm_entries: Vec<(usize, u32)> = Vec::with_capacity(n.saturating_mul(9));
     for i in 0..n {
         let gx = ((us[i] * g_f).floor() as isize).clamp(0, grid_size as isize - 1);
@@ -254,11 +212,97 @@ pub fn class_density_measure<S: Scalar>(
         hdm_total_u += u_total;
         idx = end;
     }
-    let hdm = if hdm_total_u <= 0.0 {
+    if hdm_total_u <= 0.0 {
         0.0
     } else {
         (1.0 - hdm_weighted_entropy / ((k as f64).log2() * hdm_total_u)).clamp(0.0, 1.0)
+    }
+}
+
+/// Computes Tatu et al. (2009) `3x3` Moore-smoothed 2D Histogram Density Measure (`2D-HDM`)
+/// normalized to `[0.0, 1.0]` (`1.0` = maximally separated, `0.0` = overlapping or `N == 0` / `K < 2`).
+///
+/// Applies $3\times 3$ Moore-neighborhood smoothing to per-class grid counts over a
+/// `grid_size x grid_size` partition of the normalized `[0, 1]^2` layout box and returns
+/// `1.0 - sum(U * H) / (log2(K) * sum(U))` (`hdm_paper = 100.0 * hdm`).
+pub fn histogram_density_measure<S: Scalar>(
+    layout: &Layout2d<S>,
+    labels: &[u32],
+    grid_size: usize,
+) -> CoreResult<f64> {
+    if grid_size == 0 {
+        return Err(CoreError::invalid_input(
+            "histogram_density_measure requires grid_size >= 1",
+        ));
+    }
+    grid_size.checked_mul(grid_size).ok_or_else(|| {
+        CoreError::invalid_input("histogram_density_measure grid_size^2 overflow")
+    })?;
+    validate_layout_labels(layout, labels, "histogram_density_measure")?;
+
+    let n = layout.len();
+    let (comp, _, k) = compact_labels(labels);
+    if n == 0 || k < 2 {
+        return Ok(0.0);
+    }
+
+    let (us, vs) = normalized_unit_coords(layout);
+    Ok(histogram_density_measure_core(
+        &us, &vs, &comp, k, grid_size,
+    ))
+}
+
+/// Computes Tatu et al. (2009) Class Density Measure (`CDM`) and `3x3` Moore-smoothed
+/// Histogram Density Measure (`2D-HDM`), both normalized to `[0.0, 1.0]` (`1.0` = maximally
+/// separated, `0.0` = identical overlapping distributions).
+///
+/// - `CDM` evaluates unit-normalized Gaussian KDE densities per class (default `bandwidth =
+///   1.5 / grid_size as f64`) and averages pairwise L1 separation $\frac{1}{2\binom{K}{2}}
+///   \sum_{c < d} \sum_g |\tilde{\rho}_g^c - \tilde{\rho}_g^d|$.
+/// - `HDM` delegates to [`histogram_density_measure`].
+///
+/// Returns `Ok((0.0, 0.0))` when `N == 0` or `K < 2`.
+pub fn class_density_measure<S: Scalar>(
+    layout: &Layout2d<S>,
+    labels: &[u32],
+    grid_size: usize,
+    bandwidth: Option<f64>,
+) -> CoreResult<(f64, f64)> {
+    if grid_size == 0 {
+        return Err(CoreError::invalid_input(
+            "class_density_measure requires grid_size >= 1",
+        ));
+    }
+    let bw = match bandwidth {
+        Some(h) => {
+            if !h.is_finite() {
+                return Err(CoreError::non_finite("class_density_measure::bandwidth"));
+            }
+            if h <= 0.0 {
+                return Err(CoreError::invalid_input(
+                    "class_density_measure requires bandwidth > 0.0",
+                ));
+            }
+            h
+        }
+        None => 1.5 / grid_size as f64,
     };
+    validate_layout_labels(layout, labels, "class_density_measure")?;
+
+    let n = layout.len();
+    let (comp, sizes, k) = compact_labels(labels);
+    if n == 0 || k < 2 {
+        return Ok((0.0, 0.0));
+    }
+
+    let num_cells = grid_size
+        .checked_mul(grid_size)
+        .ok_or_else(|| CoreError::invalid_input("class_density_measure grid_size^2 overflow"))?;
+    let (us, vs) = normalized_unit_coords(layout);
+    let g_f = grid_size as f64;
+
+    // 1. 2D-HDM via 3x3 Moore-smoothed sparse `(cell, class)` entries (O(N log N) time & O(N) RAM).
+    let hdm = histogram_density_measure_core(&us, &vs, &comp, k, grid_size);
 
     // 2. 2D-CDM via per-class CSR point grouping + single reusable grid with VisitStamp.
     let mut class_offsets = vec![0usize; k + 1];

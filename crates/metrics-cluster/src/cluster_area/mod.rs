@@ -40,16 +40,16 @@ pub use config::{ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport};
 
 use coherence::cluster_area_core;
 
-/// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) on `layout` and `community_labels`.
+/// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) on `layout` and `labels`.
 ///
 /// See [`ClusterAreaConfig`] for the physical ink threshold and stencil coverage envelope
 /// ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     config: &ClusterAreaConfig,
 ) -> CoreResult<ClusterAreaReport> {
-    cluster_area_faithfulness_with_weights(layout, community_labels, config, None, None)
+    cluster_area_faithfulness_with_weights(layout, labels, config, None, None)
 }
 
 /// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) with full per-cluster diagnostics.
@@ -58,10 +58,10 @@ pub fn cluster_area_faithfulness<S: Scalar>(
 /// ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness_detail<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     config: &ClusterAreaConfig,
 ) -> CoreResult<ClusterAreaDetail> {
-    cluster_area_faithfulness_detail_with_weights(layout, community_labels, config, None, None)
+    cluster_area_faithfulness_detail_with_weights(layout, labels, config, None, None)
 }
 
 /// Evaluates Grid-based Cluster Area Faithfulness (`G-CAF`) with optional positive finite
@@ -74,14 +74,14 @@ pub fn cluster_area_faithfulness_detail<S: Scalar>(
 /// See [`ClusterAreaConfig`] for the stencil coverage limit ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness_with_weights<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     config: &ClusterAreaConfig,
     node_weights: Option<&[f64]>,
     cluster_weights: Option<&[f64]>,
 ) -> CoreResult<ClusterAreaReport> {
     let detail = cluster_area_faithfulness_impl(
         layout,
-        community_labels,
+        labels,
         config,
         node_weights,
         cluster_weights,
@@ -98,19 +98,12 @@ pub fn cluster_area_faithfulness_with_weights<S: Scalar>(
 /// See [`ClusterAreaConfig`] for the stencil coverage limit ($p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$).
 pub fn cluster_area_faithfulness_detail_with_weights<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     config: &ClusterAreaConfig,
     node_weights: Option<&[f64]>,
     cluster_weights: Option<&[f64]>,
 ) -> CoreResult<ClusterAreaDetail> {
-    cluster_area_faithfulness_impl(
-        layout,
-        community_labels,
-        config,
-        node_weights,
-        cluster_weights,
-        true,
-    )
+    cluster_area_faithfulness_impl(layout, labels, config, node_weights, cluster_weights, true)
 }
 
 fn validate_positive_finite_weights(weights: &[f64], context: &'static str) -> CoreResult<()> {
@@ -129,18 +122,18 @@ fn validate_positive_finite_weights(weights: &[f64], context: &'static str) -> C
 
 fn cluster_area_faithfulness_impl<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     config: &ClusterAreaConfig,
     node_weights: Option<&[f64]>,
     cluster_weights: Option<&[f64]>,
     include_detail: bool,
 ) -> CoreResult<ClusterAreaDetail> {
     let n = layout.len();
-    if community_labels.len() != n {
+    if labels.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            community_labels.len(),
-            "cluster_area_faithfulness::community_labels",
+            labels.len(),
+            "cluster_area_faithfulness::labels",
         ));
     }
     if node_weights.is_some() && cluster_weights.is_some() {
@@ -162,7 +155,7 @@ fn cluster_area_faithfulness_impl<S: Scalar>(
         validate_positive_finite_weights(nw, "cluster_area_faithfulness::node_weights")?;
     }
 
-    let (cluster_ids, inv) = remap_community_labels(community_labels)?;
+    let (cluster_ids, inv) = remap_labels(labels)?;
     let k_count = cluster_ids.len();
 
     if let Some(cw) = cluster_weights {
@@ -241,7 +234,7 @@ fn radix_sort_u64(keys: &mut Vec<u64>, scratch: &mut Vec<u64>) {
 
 /// Maps arbitrary `u32` labels to sorted `cluster_ids` and dense `0..K` indices `inv`
 /// without `HashMap`, matching `np.unique(labels, return_inverse=True)`.
-fn remap_community_labels(labels: &[u32]) -> CoreResult<(Vec<u32>, Vec<u32>)> {
+fn remap_labels(labels: &[u32]) -> CoreResult<(Vec<u32>, Vec<u32>)> {
     let n = labels.len();
     if n == 0 {
         return Ok((Vec::new(), Vec::new()));
@@ -271,7 +264,7 @@ fn remap_community_labels(labels: &[u32]) -> CoreResult<(Vec<u32>, Vec<u32>)> {
     } else {
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_input(
-                "community_labels length exceeds u32 index range",
+                "labels length exceeds u32 index range",
             ));
         }
         let mut keys = Vec::with_capacity(n);

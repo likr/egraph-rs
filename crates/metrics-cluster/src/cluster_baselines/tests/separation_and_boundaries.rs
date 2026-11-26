@@ -287,4 +287,30 @@ fn test_degenerate_f32_and_error_cases() {
         distance_consistency(&l2, &[0]),
         Err(CoreError::DimensionMismatch { .. })
     ));
+    assert!(matches!(
+        histogram_density_measure(&l2, &[0, 1], 0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        histogram_density_measure(&l2, &[0], 16),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+}
+
+#[test]
+fn test_histogram_density_measure_matches_class_density_measure_and_boundaries() {
+    let l = Layout2d::from_xy(
+        vec![0.0, 0.1, 0.2, 5.0, 5.1, 5.2],
+        vec![0.0, 0.1, -0.1, 5.0, 5.1, 4.9],
+    )
+    .unwrap();
+    let labels = [0_u32, 0, 0, 1, 1, 1];
+    let (_, cdm_hdm) = class_density_measure(&l, &labels, 16, None).unwrap();
+    let standalone_hdm = histogram_density_measure(&l, &labels, 16).unwrap();
+    assert!((cdm_hdm - standalone_hdm).abs() < 1e-12);
+    assert!(standalone_hdm > 0.9);
+
+    let empty = Layout2d::<f64>::zeros(0);
+    assert_eq!(histogram_density_measure(&empty, &[], 16).unwrap(), 0.0);
+    assert_eq!(histogram_density_measure(&l, &[0; 6], 16).unwrap(), 0.0);
 }

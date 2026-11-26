@@ -22,11 +22,14 @@ pub use cluster_area::{
 pub use cluster_baselines::{
     NorMetrics, PartitionAgreement, calinski_harabasz_score, class_density_measure, cq_hac,
     cq_kmeans, davies_bouldin_score, distance_consistency, distribution_consistency,
-    neighborhood_hit, nor_metrics, nor_metrics_without_graph, pairwise_distance_overlap_error,
-    partition_agreement, sepme_gab, sepme_gong, sepme_knng, sepme_rng, silhouette_score,
-    sprawlter_nn, sprawlter_nn_radii,
+    histogram_density_measure, neighborhood_hit, nor_metrics, nor_metrics_without_graph,
+    pairwise_distance_overlap_error, partition_agreement, sepme_gab, sepme_gong, sepme_knng,
+    sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
 };
-pub use community::{adjusted_patch_nig, adjusted_patch_nig_multiscale};
+pub use community::{
+    AdjustedPatchNigDetail, adjusted_patch_nig, adjusted_patch_nig_detail,
+    adjusted_patch_nig_multiscale,
+};
 
 /// Returns the crate version.
 pub fn crate_version() -> &'static str {

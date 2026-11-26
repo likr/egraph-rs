@@ -142,3 +142,71 @@ fn test_adjusted_patch_nig_validation_errors() {
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
+
+#[test]
+fn test_adjusted_patch_nig_detail_diagnostics_and_degenerate_sparse() {
+    // Small sparse 16-node layout on a 2048x2048 canvas with patch_radius=4 -> all singletons -> degenerate.
+    let mut xs = Vec::with_capacity(16);
+    let mut ys = Vec::with_capacity(16);
+    let mut labels = Vec::with_capacity(16);
+    for i in 0..16 {
+        let c = (i / 4) as u32;
+        xs.push((i % 4) as f64 * 10.0 + (c as f64) * 0.1);
+        ys.push((i / 4) as f64 * 10.0);
+        labels.push(c % 2);
+    }
+    let sparse = Layout2d::from_xy(xs, ys).unwrap();
+    let deg = adjusted_patch_nig_detail(&sparse, &labels, 4, 2048, 0.04, 42).unwrap();
+    assert!(deg.is_degenerate);
+    assert_eq!(deg.nig, 0.0);
+    assert_eq!(deg.num_nonempty_patches, 16);
+    assert!((deg.singleton_patch_ratio - 1.0).abs() < 1e-12);
+    assert!(deg.recommended_patch_radius > 4);
+
+    // Re-evaluating at recommended_patch_radius resolves singleton collapse.
+    let rec = adjusted_patch_nig_detail(
+        &sparse,
+        &labels,
+        deg.recommended_patch_radius,
+        2048,
+        0.04,
+        42,
+    )
+    .unwrap();
+    assert!(!rec.is_degenerate);
+    assert!(rec.h_null > 1e-12);
+    assert!(rec.singleton_patch_ratio < 0.5);
+    assert!(
+        (rec.nig
+            - adjusted_patch_nig(
+                &sparse,
+                &labels,
+                deg.recommended_patch_radius,
+                2048,
+                0.04,
+                42
+            )
+            .unwrap())
+        .abs()
+            < 1e-12
+    );
+
+    // N == 0 and N == 1 and uniform-label degeneracies.
+    let empty = Layout2d::<f64>::zeros(0);
+    let d0 = adjusted_patch_nig_detail(&empty, &[], 8, 2048, 0.04, 42).unwrap();
+    assert!(d0.is_degenerate);
+    assert_eq!(d0.num_nonempty_patches, 0);
+    assert_eq!(d0.singleton_patch_ratio, 0.0);
+
+    let one = Layout2d::from_xy(vec![0.0], vec![0.0]).unwrap();
+    let d1 = adjusted_patch_nig_detail(&one, &[0], 8, 2048, 0.04, 42).unwrap();
+    assert!(d1.is_degenerate);
+    assert_eq!(d1.num_nonempty_patches, 1);
+    assert_eq!(d1.singleton_patch_ratio, 1.0);
+
+    let mono = vec![7u32; 16];
+    let d_mono = adjusted_patch_nig_detail(&sparse, &mono, 256, 2048, 0.04, 42).unwrap();
+    assert!(d_mono.is_degenerate);
+    assert_eq!(d_mono.nig, 0.0);
+    assert!(d_mono.num_nonempty_patches >= 1);
+}

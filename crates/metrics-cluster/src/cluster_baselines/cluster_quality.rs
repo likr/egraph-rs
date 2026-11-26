@@ -55,13 +55,13 @@ fn normalized_coords_for_cq<S: Scalar>(layout: &Layout2d<S>) -> Option<Vec<f64>>
 }
 
 /// Evaluates Cluster Quality via $k$-means++ clustering on centered, RMS-normalized 2D
-/// layout coordinates (`CQ-kmeans`), returning [`PartitionAgreement`] against `community_labels`.
+/// layout coordinates (`CQ-kmeans`), returning [`PartitionAgreement`] against `labels`.
 ///
 /// Returns [`PartitionAgreement::default()`] (all zeros) on degenerate cases (`n < 2`, `k < 2`,
 /// `k >= n`, or collapsed coordinates with `span <= 1e-15` or `rms <= 1e-15`).
 pub fn cq_kmeans<S: Scalar>(
     layout: &Layout2d<S>,
-    community_labels: &[u32],
+    labels: &[u32],
     n_init: usize,
     max_iters: usize,
     seed: u64,
@@ -74,10 +74,10 @@ pub fn cq_kmeans<S: Scalar>(
             "cq_kmeans requires max_iters >= 1",
         ));
     }
-    validate_layout_labels(layout, community_labels, "cq_kmeans")?;
+    validate_layout_labels(layout, labels, "cq_kmeans")?;
 
     let n = layout.len();
-    let (_, _, k) = compact_labels(community_labels);
+    let (_, _, k) = compact_labels(labels);
     if n < 2 || k < 2 || k >= n {
         return Ok(PartitionAgreement::default());
     }
@@ -93,7 +93,7 @@ pub fn cq_kmeans<S: Scalar>(
         seed,
     };
     let res = kmeans_plus_plus(&points_flat, n, 2, &cfg)?;
-    partition_agreement(community_labels, &res.labels)
+    partition_agreement(labels, &res.labels)
 }
 
 struct DisjointSet {
@@ -126,20 +126,17 @@ impl DisjointSet {
 
 /// Evaluates Cluster Quality via exact $O(N^2)$ Murtagh NN-chain average-linkage (UPGMA)
 /// hierarchical agglomerative clustering on centered, RMS-normalized 2D layout coordinates
-/// (`CQ-HAC`), returning [`PartitionAgreement`] against `community_labels`.
+/// (`CQ-HAC`), returning [`PartitionAgreement`] against `labels`.
 ///
 /// Collects all $N - 1$ dendrogram merges, sorts by `(height, step)`, and cuts at `K` clusters
 /// to match `scipy.cluster.hierarchy.linkage(method='average')` + `fcluster(criterion='maxclust')`.
 /// Allocates an $O(N^2)$ symmetric distance matrix. Returns [`PartitionAgreement::default()`] on
 /// degenerate cases (`n < 2`, `k < 2`, `k >= n`, or collapsed coordinates).
-pub fn cq_hac<S: Scalar>(
-    layout: &Layout2d<S>,
-    community_labels: &[u32],
-) -> CoreResult<PartitionAgreement> {
-    validate_layout_labels(layout, community_labels, "cq_hac")?;
+pub fn cq_hac<S: Scalar>(layout: &Layout2d<S>, labels: &[u32]) -> CoreResult<PartitionAgreement> {
+    validate_layout_labels(layout, labels, "cq_hac")?;
 
     let n = layout.len();
-    let (_, _, k) = compact_labels(community_labels);
+    let (_, _, k) = compact_labels(labels);
     if n < 2 || k < 2 || k >= n {
         return Ok(PartitionAgreement::default());
     }
@@ -259,5 +256,5 @@ pub fn cq_hac<S: Scalar>(
         *slot = root_to_label[r];
     }
 
-    partition_agreement(community_labels, &pred_labels)
+    partition_agreement(labels, &pred_labels)
 }

@@ -22,7 +22,10 @@ use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 
 pub use agreement::partition_agreement;
 pub use cluster_quality::{cq_hac, cq_kmeans};
-pub use consistency::{class_density_measure, distance_consistency, distribution_consistency};
+pub use consistency::{
+    class_density_measure, distance_consistency, distribution_consistency,
+    histogram_density_measure,
+};
 pub use internal_scores::{
     calinski_harabasz_score, davies_bouldin_score, pairwise_distance_overlap_error,
     silhouette_score,
