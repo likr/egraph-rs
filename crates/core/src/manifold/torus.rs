@@ -1,3 +1,4 @@
+use crate::csr::CsrGraph;
 use crate::scalar::Scalar;
 
 /// Wraps a scalar coordinate into the half-open unit torus interval `[0, 1)`.
@@ -8,7 +9,7 @@ pub fn wrap_torus_coord<S: Scalar>(value: S) -> S {
         return S::ZERO;
     }
     let w = f.rem_euclid(1.0);
-    let wrapped = if w >= 1.0 { 0.0 } else { w };
+    let wrapped = if w >= 1.0 || w == 0.0 { 0.0 } else { w };
     let res = S::from_f64(wrapped);
     // Guard f32 rounding where values like `-1e-9` can round up to `1.0_f32`.
     if res >= S::ONE { S::ZERO } else { res }
@@ -44,4 +45,105 @@ fn wrap_1d_signed_delta(mut d: f64) -> f64 {
 pub fn torus_distance<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> S {
     let (dx, dy) = torus_delta(x1, y1, x2, y2);
     dx.hypot(dy)
+}
+
+/// Extracts canonical undirected simple edge pairs `(min(u, v), max(u, v))` (`u != v`).
+pub(super) fn extract_unique_undirected_edges<W>(graph: &CsrGraph<W>) -> Vec<(u32, u32)> {
+    let n = graph.num_nodes();
+    let directed = graph.is_directed();
+    let mut edges = Vec::with_capacity(graph.num_edges());
+    for u in 0..n {
+        let u32_u = u as u32;
+        for &v in graph.neighbors(u) {
+            if v as usize >= n || v == u32_u {
+                continue;
+            }
+            if !directed {
+                if u32_u < v {
+                    edges.push((u32_u, v));
+                }
+            } else {
+                edges.push((u32_u.min(v), u32_u.max(v)));
+            }
+        }
+    }
+    if directed {
+        edges.sort_unstable();
+        edges.dedup();
+    }
+    edges
+}
+
+/// Finds the optimal 1D circular cut `c in [0, 1)` (Chen et al. 2021) minimizing the number
+/// of boundary-wrapped edges and breaking ties by maximizing the empty gap width.
+pub(super) fn optimal_torus_cut_1d<S: Scalar>(coords: &[S], edges: &[(u32, u32)]) -> f64 {
+    if coords.is_empty() {
+        return 0.0;
+    }
+    let wrapped: Vec<f64> = coords
+        .iter()
+        .map(|&c| {
+            let w = wrap_torus_coord(c).to_f64();
+            if w == 0.0 { 0.0 } else { w }
+        })
+        .collect();
+
+    let mut unique = wrapped.clone();
+    unique.sort_unstable_by(f64::total_cmp);
+    unique.dedup();
+    let m = unique.len();
+    if m <= 1 {
+        return (unique[0] + 0.5).rem_euclid(1.0);
+    }
+
+    let mut diff = vec![0_isize; m];
+    for &(u, v) in edges {
+        let p = wrapped[u as usize];
+        let q = wrapped[v as usize];
+        let (a, b) = if p <= q { (p, q) } else { (q, p) };
+        let span = b - a;
+        if span == 0.0 {
+            continue;
+        }
+        let ia = unique
+            .binary_search_by(|val| val.total_cmp(&a))
+            .unwrap_or_else(|i| i.min(m - 1));
+        let ib = unique
+            .binary_search_by(|val| val.total_cmp(&b))
+            .unwrap_or_else(|i| i.min(m - 1));
+        if ia == ib {
+            continue;
+        }
+        if span <= 0.5 {
+            diff[ia] += 1;
+            diff[ib] -= 1;
+        } else {
+            diff[0] += 1;
+            diff[ia] -= 1;
+            diff[ib] += 1;
+        }
+    }
+
+    let mut cur = 0_isize;
+    let mut best_wrap = isize::MAX;
+    let mut best_width = -1.0_f64;
+    let mut best_cut = 0.0_f64;
+    for k in 0..m {
+        cur += diff[k];
+        let width = if k + 1 < m {
+            unique[k + 1] - unique[k]
+        } else {
+            1.0 + unique[0] - unique[m - 1]
+        };
+        if cur < best_wrap || (cur == best_wrap && width > best_width) {
+            best_wrap = cur;
+            best_width = width;
+            best_cut = (unique[k] + 0.5 * width).rem_euclid(1.0);
+        }
+    }
+    if best_cut >= 1.0 || best_cut == 0.0 {
+        0.0
+    } else {
+        best_cut
+    }
 }

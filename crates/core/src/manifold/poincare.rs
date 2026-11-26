@@ -1,14 +1,15 @@
 use crate::error::{CoreError, CoreResult};
 use crate::scalar::Scalar;
 
-/// Maximum radius enforced inside the open Poincaré unit disk to keep `1 - ||p||^2 > 0`.
-const POINCARE_EPS_F64: f64 = 1e-5;
-const POINCARE_EPS_F32: f64 = 1e-4;
+/// Maximum boundary margin enforced inside the open Poincaré unit disk (`f64`).
+pub const POINCARE_EPS_F64: f64 = 1e-5;
+/// Maximum boundary margin enforced inside the open Poincaré unit disk (`f32`).
+pub const POINCARE_EPS_F32: f32 = 1e-4;
 
 #[inline]
 pub(super) fn poincare_max_radius<S: Scalar>() -> f64 {
     if std::mem::size_of::<S>() == 4 {
-        1.0 - POINCARE_EPS_F32
+        1.0 - f64::from(POINCARE_EPS_F32)
     } else {
         1.0 - POINCARE_EPS_F64
     }

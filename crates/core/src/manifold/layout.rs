@@ -1,14 +1,15 @@
 use std::f64::consts::TAU;
 
-use super::ManifoldKind;
+use super::lorentz::{lorentz_distance, lorentz_exp_map, lorentz_log_map};
 use super::poincare::{
-    clamp_poincare_point, poincare_distance, poincare_einstein_midpoint, poincare_exp_map,
-    poincare_log_map, poincare_max_radius, poincare_mobius_add,
+    clamp_poincare_point, poincare_distance, poincare_exp_map, poincare_log_map,
+    poincare_max_radius,
 };
 use super::spherical::{
     project_spherical_coords, spherical_distance, spherical_exp_map, spherical_log_map,
 };
-use super::torus::{torus_delta, torus_distance, wrap_torus_point};
+use super::torus::{torus_delta, wrap_torus_point};
+use super::{ManifoldKind, ManifoldMetric};
 use crate::error::{CoreError, CoreResult};
 use crate::layout::Layout2d;
 use crate::rng::DeterministicRng;
@@ -19,21 +20,55 @@ use crate::scalar::Scalar;
 pub struct ManifoldLayout2d<S: Scalar = f64> {
     kind: ManifoldKind,
     layout: Layout2d<S>,
+    metric: ManifoldMetric,
 }
 
 impl<S: Scalar> ManifoldLayout2d<S> {
+    #[inline]
+    pub(super) fn from_parts_unchecked(
+        kind: ManifoldKind,
+        layout: Layout2d<S>,
+        metric: ManifoldMetric,
+    ) -> Self {
+        Self {
+            kind,
+            layout,
+            metric,
+        }
+    }
+
+    #[inline]
+    pub(super) fn metric_ref(&self) -> ManifoldMetric {
+        self.metric
+    }
+
+    #[inline]
+    pub(super) fn metric_mut(&mut self) -> &mut ManifoldMetric {
+        &mut self.metric
+    }
+
+    #[inline]
+    pub(super) fn xy_mut(&mut self) -> (&mut [S], &mut [S]) {
+        self.layout.xy_mut()
+    }
+
     /// Creates a zero-initialized manifold layout of `n` vertices.
     pub fn zeros(kind: ManifoldKind, n: usize) -> Self {
         Self {
             kind,
             layout: Layout2d::zeros(n),
+            metric: ManifoldMetric::default(),
         }
     }
 
     /// Wraps an existing [`Layout2d<S>`], validates finiteness, and projects all vertices
     /// onto `kind`'s canonical domain.
     pub fn from_layout(kind: ManifoldKind, layout: Layout2d<S>) -> CoreResult<Self> {
-        let mut manifold = Self { kind, layout };
+        let mut manifold = Self {
+            kind,
+            layout,
+            metric: ManifoldMetric::default(),
+        };
         manifold.project_all()?;
         Ok(manifold)
     }
@@ -67,10 +102,11 @@ impl<S: Scalar> ManifoldLayout2d<S> {
     /// Creates a deterministically seeded safe random initialization on `kind`.
     ///
     /// For [`ManifoldKind::HyperbolicPoincare`], points are sampled uniformly by area inside the
-    /// open disk of radius `scale.min(1 - eps)` (`0 < scale < 1`), breaking the zero-tangent
-    /// deadlock of [`ManifoldLayout2d::zeros`] under manifold SGD. For
-    /// [`ManifoldKind::Spherical`], points are sampled uniformly by surface area on $S^2$. For
-    /// [`ManifoldKind::Torus2d`], points are sampled uniformly in $[0, 1)^2$.
+    /// open disk of radius `scale.min(1 - eps)` (`0 < scale < 1`). For
+    /// [`ManifoldKind::HyperbolicLorentz`], spatial hyperboloid coordinates are sampled inside a
+    /// disk of radius `scale` (`scale > 0`). For [`ManifoldKind::Spherical`], points are sampled
+    /// uniformly by surface area on $S^2$. For [`ManifoldKind::Torus2d`], points are sampled
+    /// uniformly in $[0, 1)^2$.
     pub fn random_init(kind: ManifoldKind, n: usize, scale: f64, seed: u64) -> CoreResult<Self> {
         if !scale.is_finite() {
             return Err(CoreError::non_finite(
@@ -104,6 +140,15 @@ impl<S: Scalar> ManifoldLayout2d<S> {
                     ys.push(py);
                 }
             }
+            ManifoldKind::HyperbolicLorentz => {
+                for _ in 0..n {
+                    let r = scale * rng.next_f64().sqrt();
+                    let theta = TAU * rng.next_f64();
+                    let (s, c) = theta.sin_cos();
+                    xs.push(S::from_f64(r * c));
+                    ys.push(S::from_f64(r * s));
+                }
+            }
             ManifoldKind::Spherical => {
                 for _ in 0..n {
                     let lon = TAU * rng.next_f64();
@@ -126,6 +171,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         Ok(Self {
             kind,
             layout: Layout2d::from_xy(xs, ys)?,
+            metric: ManifoldMetric::default(),
         })
     }
 
@@ -133,8 +179,8 @@ impl<S: Scalar> ManifoldLayout2d<S> {
     /// scaling coordinates inside `max_radius` (`0 < max_radius < 1`) on
     /// [`ManifoldKind::HyperbolicPoincare`], avoiding boundary rim collapse.
     ///
-    /// For [`ManifoldKind::Spherical`] and [`ManifoldKind::Torus2d`], projects `layout` onto
-    /// the manifold domain identically to [`ManifoldLayout2d::from_layout`].
+    /// For other manifold kinds, projects `layout` onto the manifold domain identically to
+    /// [`ManifoldLayout2d::from_layout`].
     pub fn from_layout_scaled(
         kind: ManifoldKind,
         layout: &Layout2d<S>,
@@ -187,6 +233,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         Ok(Self {
             kind,
             layout: Layout2d::from_xy(xs, ys)?,
+            metric: ManifoldMetric::default(),
         })
     }
 
@@ -263,7 +310,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         Ok(())
     }
 
-    /// Computes the exact geodesic distance between vertices `i` and `j` on the manifold.
+    /// Computes the exact metric-scaled geodesic distance between vertices `i` and `j`.
     pub fn geodesic_distance(&self, i: usize, j: usize) -> CoreResult<S> {
         let n = self.len();
         if i >= n {
@@ -284,15 +331,26 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         let y1 = self.layout.y()[i];
         let x2 = self.layout.x()[j];
         let y2 = self.layout.y()[j];
+        let s = self.metric.scale;
         Ok(match self.kind {
-            ManifoldKind::HyperbolicPoincare => poincare_distance(x1, y1, x2, y2),
-            ManifoldKind::Spherical => spherical_distance(x1, y1, x2, y2),
-            ManifoldKind::Torus2d => torus_distance(x1, y1, x2, y2),
+            ManifoldKind::HyperbolicPoincare => {
+                S::from_f64(s * poincare_distance(x1, y1, x2, y2).to_f64())
+            }
+            ManifoldKind::HyperbolicLorentz => {
+                S::from_f64(s * lorentz_distance(x1, y1, x2, y2).to_f64())
+            }
+            ManifoldKind::Spherical => S::from_f64(s * spherical_distance(x1, y1, x2, y2).to_f64()),
+            ManifoldKind::Torus2d => {
+                let (dx_norm, dy_norm) = torus_delta(x2, y2, x1, y1);
+                let lx = s * self.metric.aspect;
+                let ly = s;
+                S::from_f64((lx * dx_norm.to_f64()).hypot(ly * dy_norm.to_f64()))
+            }
         })
     }
 
-    /// Computes the Riemannian logarithmic map (tangent vector at vertex `i` pointing toward `j`
-    /// with Euclidean norm equal to the geodesic distance).
+    /// Computes the metric-scaled Riemannian logarithmic map (tangent vector at vertex `i`
+    /// pointing toward `j` with Euclidean norm equal to the geodesic distance).
     pub fn tangent_delta(&self, i: usize, j: usize) -> CoreResult<(S, S)> {
         let n = self.len();
         if i >= n {
@@ -313,14 +371,33 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         let y1 = self.layout.y()[i];
         let x2 = self.layout.x()[j];
         let y2 = self.layout.y()[j];
+        let s = self.metric.scale;
         Ok(match self.kind {
-            ManifoldKind::HyperbolicPoincare => poincare_log_map(x1, y1, x2, y2),
-            ManifoldKind::Spherical => spherical_log_map(x1, y1, x2, y2),
-            ManifoldKind::Torus2d => torus_delta(x2, y2, x1, y1),
+            ManifoldKind::HyperbolicPoincare => {
+                let (vx, vy) = poincare_log_map(x1, y1, x2, y2);
+                (S::from_f64(s * vx.to_f64()), S::from_f64(s * vy.to_f64()))
+            }
+            ManifoldKind::HyperbolicLorentz => {
+                let (vx, vy) = lorentz_log_map(x1, y1, x2, y2);
+                (S::from_f64(s * vx.to_f64()), S::from_f64(s * vy.to_f64()))
+            }
+            ManifoldKind::Spherical => {
+                let (vx, vy) = spherical_log_map(x1, y1, x2, y2);
+                (S::from_f64(s * vx.to_f64()), S::from_f64(s * vy.to_f64()))
+            }
+            ManifoldKind::Torus2d => {
+                let (dx_norm, dy_norm) = torus_delta(x2, y2, x1, y1);
+                let lx = s * self.metric.aspect;
+                let ly = s;
+                (
+                    S::from_f64(lx * dx_norm.to_f64()),
+                    S::from_f64(ly * dy_norm.to_f64()),
+                )
+            }
         })
     }
 
-    /// Advances vertex `i` along the geodesic defined by tangent vector `(vx, vy)`.
+    /// Advances vertex `i` along the geodesic defined by metric-scaled tangent vector `(vx, vy)`.
     pub fn apply_tangent_step(&mut self, i: usize, vx: S, vy: S) -> CoreResult<()> {
         let n = self.len();
         if i >= n {
@@ -337,83 +414,38 @@ impl<S: Scalar> ManifoldLayout2d<S> {
         }
         let x = self.layout.x()[i];
         let y = self.layout.y()[i];
+        let s = self.metric.scale;
         let (nx, ny) = match self.kind {
-            ManifoldKind::HyperbolicPoincare => poincare_exp_map(x, y, vx, vy),
-            ManifoldKind::Spherical => spherical_exp_map(x, y, vx, vy),
-            ManifoldKind::Torus2d => wrap_torus_point(x + vx, y + vy),
+            ManifoldKind::HyperbolicPoincare => poincare_exp_map(
+                x,
+                y,
+                S::from_f64(vx.to_f64() / s),
+                S::from_f64(vy.to_f64() / s),
+            ),
+            ManifoldKind::HyperbolicLorentz => lorentz_exp_map(
+                x,
+                y,
+                S::from_f64(vx.to_f64() / s),
+                S::from_f64(vy.to_f64() / s),
+            ),
+            ManifoldKind::Spherical => spherical_exp_map(
+                x,
+                y,
+                S::from_f64(vx.to_f64() / s),
+                S::from_f64(vy.to_f64() / s),
+            ),
+            ManifoldKind::Torus2d => {
+                let lx = s * self.metric.aspect;
+                let ly = s;
+                wrap_torus_point(
+                    S::from_f64(x.to_f64() + vx.to_f64() / lx),
+                    S::from_f64(y.to_f64() + vy.to_f64() / ly),
+                )
+            }
         };
         self.layout.x_mut()[i] = nx;
         self.layout.y_mut()[i] = ny;
         Ok(())
-    }
-
-    /// Computes the closed-form Möbius-equivariant hyperbolic centroid (Einstein midpoint) of all
-    /// vertices in the Poincaré disk.
-    ///
-    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
-    pub fn poincare_centroid(&self) -> CoreResult<(S, S)> {
-        if self.kind != ManifoldKind::HyperbolicPoincare {
-            return Err(CoreError::unsupported(
-                "poincare_centroid is only supported on HyperbolicPoincare manifolds",
-            ));
-        }
-        poincare_einstein_midpoint(self.layout.x(), self.layout.y())
-    }
-
-    /// Isometrically recenters all Poincaré disk points at `(cx, cy)` via the holomorphic disk
-    /// automorphism $z \mapsto (-c) \oplus_M z = \frac{z - c}{1 - \bar{c} z}$.
-    ///
-    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
-    pub fn recenter_poincare(&mut self, cx: S, cy: S) -> CoreResult<()> {
-        if self.kind != ManifoldKind::HyperbolicPoincare {
-            return Err(CoreError::unsupported(
-                "recenter_poincare is only supported on HyperbolicPoincare manifolds",
-            ));
-        }
-        if !cx.is_finite() || !cy.is_finite() {
-            return Err(CoreError::non_finite("ManifoldLayout2d::recenter_poincare"));
-        }
-        self.layout.validate_finite()?;
-        let (ccx, ccy) = clamp_poincare_point(cx, cy);
-        let neg_cx = -ccx;
-        let neg_cy = -ccy;
-        let (xs, ys) = self.layout.xy_mut();
-        for i in 0..xs.len() {
-            let (nx, ny) = poincare_mobius_add(neg_cx, neg_cy, xs[i], ys[i]);
-            xs[i] = nx;
-            ys[i] = ny;
-        }
-        Ok(())
-    }
-
-    /// Isometrically recenters the Poincaré disk layout so vertex `index` moves to the origin `(0, 0)`.
-    ///
-    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
-    pub fn recenter_poincare_at(&mut self, index: usize) -> CoreResult<()> {
-        if self.kind != ManifoldKind::HyperbolicPoincare {
-            return Err(CoreError::unsupported(
-                "recenter_poincare_at is only supported on HyperbolicPoincare manifolds",
-            ));
-        }
-        let n = self.len();
-        if index >= n {
-            return Err(CoreError::index_out_of_bounds(
-                index,
-                n,
-                "ManifoldLayout2d::recenter_poincare_at",
-            ));
-        }
-        let cx = self.layout.x()[index];
-        let cy = self.layout.y()[index];
-        self.recenter_poincare(cx, cy)
-    }
-
-    /// Isometrically recenters the Poincaré disk layout so its Einstein midpoint lies at `(0, 0)`.
-    ///
-    /// Returns [`CoreError::UnsupportedOperation`] on non-Poincaré manifolds.
-    pub fn center_poincare_centroid(&mut self) -> CoreResult<()> {
-        let (cx, cy) = self.poincare_centroid()?;
-        self.recenter_poincare(cx, cy)
     }
 }
 
@@ -421,6 +453,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
 fn project_point<S: Scalar>(kind: ManifoldKind, x: S, y: S) -> (S, S) {
     match kind {
         ManifoldKind::HyperbolicPoincare => clamp_poincare_point(x, y),
+        ManifoldKind::HyperbolicLorentz => (x, y),
         ManifoldKind::Spherical => project_spherical_coords(x, y),
         ManifoldKind::Torus2d => wrap_torus_point(x, y),
     }

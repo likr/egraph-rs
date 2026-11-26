@@ -17,11 +17,12 @@ pub use csr::CsrGraph;
 pub use error::{CoreError, CoreResult};
 pub use layout::{Layout2d, LayoutNd};
 pub use manifold::{
-    ManifoldKind, ManifoldLayout2d, cartesian_to_spherical, clamp_poincare_point,
-    poincare_distance, poincare_einstein_midpoint, poincare_exp_map, poincare_log_map,
-    poincare_mobius_add, project_spherical_coords, spherical_distance, spherical_exp_map,
-    spherical_log_map, spherical_to_cartesian, torus_delta, torus_distance, wrap_torus_coord,
-    wrap_torus_point,
+    ManifoldKind, ManifoldLayout2d, ManifoldMetric, POINCARE_EPS_F32, POINCARE_EPS_F64,
+    cartesian_to_spherical, clamp_poincare_point, lorentz_distance, lorentz_einstein_midpoint,
+    lorentz_exp_map, lorentz_log_map, lorentz_to_poincare_point, poincare_distance,
+    poincare_einstein_midpoint, poincare_exp_map, poincare_log_map, poincare_mobius_add,
+    project_spherical_coords, spherical_distance, spherical_exp_map, spherical_log_map,
+    spherical_to_cartesian, torus_delta, torus_distance, wrap_torus_coord, wrap_torus_point,
 };
 pub use rng::DeterministicRng;
 pub use scalar::Scalar;
