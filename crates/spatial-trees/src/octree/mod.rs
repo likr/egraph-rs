@@ -89,6 +89,7 @@ pub struct ArenaOctree3d<S: Scalar = f64> {
     masses: Vec<f64>,
     leaf_of_point: Vec<u32>,
     next_in_leaf: Vec<u32>,
+    reinsert_stack: Vec<(usize, usize, usize)>,
     _marker: PhantomData<S>,
 }
 
@@ -109,6 +110,7 @@ impl<S: Scalar> ArenaOctree3d<S> {
             masses: Vec::new(),
             leaf_of_point: Vec::new(),
             next_in_leaf: Vec::new(),
+            reinsert_stack: Vec::new(),
             _marker: PhantomData,
         }
     }
@@ -122,6 +124,7 @@ impl<S: Scalar> ArenaOctree3d<S> {
         self.masses.clear();
         self.leaf_of_point.clear();
         self.next_in_leaf.clear();
+        self.reinsert_stack.clear();
     }
 
     /// Returns the number of points indexed in the tree.

@@ -48,7 +48,7 @@ impl<S: Scalar> ArenaOctree3d<S> {
             }
 
             if node.is_leaf {
-                if node_idx == own_leaf {
+                if node_idx == own_leaf || theta_sq == 0.0 {
                     let mut p = node.leaf_head;
                     while p != u32::MAX {
                         let other = p as usize;

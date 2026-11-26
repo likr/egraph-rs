@@ -451,3 +451,49 @@ fn test_octree_empty_single_coincident_and_validation() {
         Err(CoreError::IndexOutOfBounds { .. })
     ));
 }
+
+#[test]
+fn test_octree_near_coincident_chain_and_theta_zero_exactness() {
+    let mut tree = ArenaOctree3d::new();
+    // Repro A: 3 points with pair inside COINCIDENT_DIST_SQ and third outside.
+    let (xs_a, zeros_a) = ([0.0, 0.5e-6, 1.5e-6], [0.0; 3]);
+    tree.build_xyz(&xs_a, &zeros_a, &zeros_a).unwrap();
+    let (ex_ax, ex_ay, ex_az) =
+        brute_coulomb_maxent(&xs_a, &zeros_a, &zeros_a, &[1.0; 3], 1.0, 1e-12);
+    let mut out_a = vec![0.0; 9];
+    tree.compute_coulomb_repulsion_flat(0.0, 1e-12, &mut out_a)
+        .unwrap();
+    for i in 0..3 {
+        assert!((out_a[i * 3] - ex_ax[i]).abs() <= 1e-9);
+        assert!((out_a[i * 3 + 1] - ex_ay[i]).abs() <= 1e-9);
+        assert!((out_a[i * 3 + 2] - ex_az[i]).abs() <= 1e-9);
+    }
+
+    // Repro B: 200 chained near-coincident points + far point + nearby observer.
+    let mut xs_b: Vec<f64> = (0..200).map(|k| k as f64 * 0.8e-6).collect();
+    let (mut ys_b, mut zs_b) = (vec![0.0; 200], vec![0.0; 200]);
+    xs_b.extend_from_slice(&[10.0, 0.0]);
+    ys_b.extend_from_slice(&[0.0, 2e-4]);
+    zs_b.extend_from_slice(&[0.0, 0.0]);
+    let n_b = xs_b.len();
+    tree.build_xyz(&xs_b, &ys_b, &zs_b).unwrap();
+    let (ex_bx, ex_by, ex_bz) =
+        brute_coulomb_maxent(&xs_b, &ys_b, &zs_b, &vec![1.0; n_b], 1.0, 1e-10);
+    let mut out_b = vec![0.0; n_b * 3];
+    tree.compute_coulomb_repulsion_flat(0.0, 1e-10, &mut out_b)
+        .unwrap();
+    for i in 0..n_b {
+        for (a, ex) in [ex_bx[i], ex_by[i], ex_bz[i]].into_iter().enumerate() {
+            assert!((out_b[i * 3 + a] - ex).abs() <= 1e-8);
+        }
+    }
+    tree.compute_coulomb_repulsion_flat(0.5, 1e-10, &mut out_b)
+        .unwrap();
+    let obs = n_b - 1;
+    let err = ((out_b[obs * 3] - ex_bx[obs]).powi(2)
+        + (out_b[obs * 3 + 1] - ex_by[obs]).powi(2)
+        + (out_b[obs * 3 + 2] - ex_bz[obs]).powi(2))
+    .sqrt();
+    let ref_norm = (ex_bx[obs].powi(2) + ex_by[obs].powi(2) + ex_bz[obs].powi(2)).sqrt();
+    assert!(err / ref_norm < 1e-2, "rel_err={}", err / ref_norm);
+}

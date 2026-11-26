@@ -239,163 +239,88 @@ impl<S: Scalar> ArenaOctree3d<S> {
         self.nodes.push(ArenaNode3d::new(center, half_span));
 
         for i in 0..n {
-            self.insert_iterative(
-                i,
-                self.coords_x[i],
-                self.coords_y[i],
-                self.coords_z[i],
-                self.masses[i],
-            );
+            self.insert_iterative(i);
         }
         Ok(())
     }
 
-    fn insert_iterative(&mut self, point_idx: usize, x: f64, y: f64, z: f64, mass: f64) {
-        let mut cur = 0usize;
-        let mut depth = 0usize;
+    fn insert_iterative(&mut self, root_point_idx: usize) {
+        self.reinsert_stack.clear();
+        self.reinsert_stack.push((0, 0, root_point_idx));
 
-        loop {
-            let node = self.nodes[cur];
-            if node.point_count == 0 {
-                let slot = &mut self.nodes[cur];
-                slot.point_count = 1;
-                slot.total_mass = mass;
-                slot.com = [x, y, z];
-                slot.leaf_head = point_idx as u32;
-                self.leaf_of_point[point_idx] = cur as u32;
-                self.next_in_leaf[point_idx] = u32::MAX;
-                return;
-            }
+        while let Some((mut cur, mut depth, point_idx)) = self.reinsert_stack.pop() {
+            let x = self.coords_x[point_idx];
+            let y = self.coords_y[point_idx];
+            let z = self.coords_z[point_idx];
+            let mass = self.masses[point_idx];
 
-            Self::accumulate_com(&mut self.nodes[cur], x, y, z, mass);
-
-            if node.is_leaf {
-                let ref_idx = node.leaf_head as usize;
-                let dx = self.coords_x[ref_idx] - x;
-                let dy = self.coords_y[ref_idx] - y;
-                let dz = self.coords_z[ref_idx] - z;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-
-                if !dist_sq.is_finite()
-                    || dist_sq < COINCIDENT_DIST_SQ
-                    || node.is_unsplitable_at_depth(depth)
-                {
-                    self.next_in_leaf[point_idx] = self.nodes[cur].leaf_head;
-                    self.nodes[cur].leaf_head = point_idx as u32;
+            loop {
+                let node = self.nodes[cur];
+                if node.point_count == 0 {
+                    let slot = &mut self.nodes[cur];
+                    slot.point_count = 1;
+                    slot.total_mass = mass;
+                    slot.com = [x, y, z];
+                    slot.leaf_head = point_idx as u32;
                     self.leaf_of_point[point_idx] = cur as u32;
-                    return;
+                    self.next_in_leaf[point_idx] = u32::MAX;
+                    break;
                 }
 
-                // Subdivide leaf and re-insert its existing point chain into child octants.
-                let head = self.nodes[cur].leaf_head;
-                self.nodes[cur].leaf_head = u32::MAX;
-                let base_child = self.subdivide_node(cur);
+                Self::accumulate_com(&mut self.nodes[cur], x, y, z, mass);
 
-                let mut existing = head;
-                while existing != u32::MAX {
-                    let e_idx = existing as usize;
-                    let next = self.next_in_leaf[e_idx];
-                    self.next_in_leaf[e_idx] = u32::MAX;
-                    let ex = self.coords_x[e_idx];
-                    let ey = self.coords_y[e_idx];
-                    let ez = self.coords_z[e_idx];
-                    let em = self.masses[e_idx];
-                    let oct = self.nodes[cur].octant(ex, ey, ez);
-                    self.insert_into_subtree(base_child + oct, depth + 1, e_idx, ex, ey, ez, em);
-                    existing = next;
-                }
+                if node.is_leaf {
+                    let head = node.leaf_head as usize;
+                    let dx = self.coords_x[head] - x;
+                    let dy = self.coords_y[head] - y;
+                    let dz = self.coords_z[head] - z;
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
 
-                let oct_new = self.nodes[cur].octant(x, y, z);
-                cur = base_child + oct_new;
-                depth += 1;
-            } else {
-                let oct = node.octant(x, y, z);
-                cur = node.children[oct] as usize;
-                depth += 1;
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn insert_into_subtree(
-        &mut self,
-        mut cur: usize,
-        mut depth: usize,
-        point_idx: usize,
-        x: f64,
-        y: f64,
-        z: f64,
-        mass: f64,
-    ) {
-        loop {
-            let node = self.nodes[cur];
-            if node.point_count == 0 {
-                let slot = &mut self.nodes[cur];
-                slot.point_count = 1;
-                slot.total_mass = mass;
-                slot.com = [x, y, z];
-                slot.leaf_head = point_idx as u32;
-                self.leaf_of_point[point_idx] = cur as u32;
-                self.next_in_leaf[point_idx] = u32::MAX;
-                return;
-            }
-
-            Self::accumulate_com(&mut self.nodes[cur], x, y, z, mass);
-
-            if node.is_leaf {
-                let ref_idx = node.leaf_head as usize;
-                let dx = self.coords_x[ref_idx] - x;
-                let dy = self.coords_y[ref_idx] - y;
-                let dz = self.coords_z[ref_idx] - z;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-
-                if !dist_sq.is_finite()
-                    || dist_sq < COINCIDENT_DIST_SQ
-                    || node.is_unsplitable_at_depth(depth)
-                {
-                    self.next_in_leaf[point_idx] = self.nodes[cur].leaf_head;
-                    self.nodes[cur].leaf_head = point_idx as u32;
-                    self.leaf_of_point[point_idx] = cur as u32;
-                    return;
-                }
-
-                let head = self.nodes[cur].leaf_head;
-                self.nodes[cur].leaf_head = u32::MAX;
-                let base_child = self.subdivide_node(cur);
-
-                let mut existing = head;
-                while existing != u32::MAX {
-                    let e_idx = existing as usize;
-                    let next = self.next_in_leaf[e_idx];
-                    self.next_in_leaf[e_idx] = u32::MAX;
-                    let ex = self.coords_x[e_idx];
-                    let ey = self.coords_y[e_idx];
-                    let ez = self.coords_z[e_idx];
-                    let em = self.masses[e_idx];
-                    let oct = self.nodes[cur].octant(ex, ey, ez);
-                    let child = base_child + oct;
-                    let c_node = &mut self.nodes[child];
-                    if c_node.point_count == 0 {
-                        c_node.point_count = 1;
-                        c_node.total_mass = em;
-                        c_node.com = [ex, ey, ez];
-                        c_node.leaf_head = e_idx as u32;
-                    } else {
-                        Self::accumulate_com(c_node, ex, ey, ez, em);
-                        self.next_in_leaf[e_idx] = c_node.leaf_head;
-                        c_node.leaf_head = e_idx as u32;
+                    if !dist_sq.is_finite()
+                        || dist_sq < COINCIDENT_DIST_SQ
+                        || node.is_unsplitable_at_depth(depth)
+                    {
+                        // Keep `leaf_head` as fixed anchor and splice after it so chained
+                        // points cannot drift beyond `sqrt(COINCIDENT_DIST_SQ)` from `head`.
+                        self.next_in_leaf[point_idx] = self.next_in_leaf[head];
+                        self.next_in_leaf[head] = point_idx as u32;
+                        self.leaf_of_point[point_idx] = cur as u32;
+                        break;
                     }
-                    self.leaf_of_point[e_idx] = child as u32;
-                    existing = next;
-                }
 
-                let oct_new = self.nodes[cur].octant(x, y, z);
-                cur = base_child + oct_new;
-                depth += 1;
-            } else {
-                let oct = node.octant(x, y, z);
-                cur = node.children[oct] as usize;
-                depth += 1;
+                    // Detach existing leaf chain, mark parent internal, and re-insert every
+                    // point into child octants with full coincidence and subdivision checks.
+                    let existing_head = self.nodes[cur].leaf_head;
+                    self.nodes[cur].leaf_head = u32::MAX;
+                    let base_child = self.subdivide_node(cur);
+
+                    let oct_new = self.nodes[cur].octant(x, y, z);
+                    self.reinsert_stack
+                        .push((base_child + oct_new, depth + 1, point_idx));
+
+                    let chain_start = self.reinsert_stack.len();
+                    let mut existing = existing_head;
+                    while existing != u32::MAX {
+                        let e_idx = existing as usize;
+                        let next = self.next_in_leaf[e_idx];
+                        self.next_in_leaf[e_idx] = u32::MAX;
+                        let oct = self.nodes[cur].octant(
+                            self.coords_x[e_idx],
+                            self.coords_y[e_idx],
+                            self.coords_z[e_idx],
+                        );
+                        self.reinsert_stack
+                            .push((base_child + oct, depth + 1, e_idx));
+                        existing = next;
+                    }
+                    // Pop `existing_head` first to preserve anchor ordering in child leaves.
+                    self.reinsert_stack[chain_start..].reverse();
+                    break;
+                } else {
+                    let oct = node.octant(x, y, z);
+                    cur = node.children[oct] as usize;
+                    depth += 1;
+                }
             }
         }
     }
