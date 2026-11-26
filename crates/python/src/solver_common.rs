@@ -200,22 +200,40 @@ macro_rules! impl_dual_solver {
 
             fn solver_status(&self) -> egraph::core::SolverStatus {
                 match self {
-                    Self::F64(s) => egraph::core::IterativeSolver::status(s),
-                    Self::F32(s) => egraph::core::IterativeSolver::status(s),
+                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
+                        f64,
+                        egraph::core::Layout2d<f64>,
+                    >>::status(s),
+                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
+                        f32,
+                        egraph::core::Layout2d<f32>,
+                    >>::status(s),
                 }
             }
 
             fn solver_iteration(&self) -> usize {
                 match self {
-                    Self::F64(s) => egraph::core::IterativeSolver::iteration(s),
-                    Self::F32(s) => egraph::core::IterativeSolver::iteration(s),
+                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
+                        f64,
+                        egraph::core::Layout2d<f64>,
+                    >>::iteration(s),
+                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
+                        f32,
+                        egraph::core::Layout2d<f32>,
+                    >>::iteration(s),
                 }
             }
 
             fn solver_total_iterations(&self) -> usize {
                 match self {
-                    Self::F64(s) => egraph::core::IterativeSolver::total_iterations(s),
-                    Self::F32(s) => egraph::core::IterativeSolver::total_iterations(s),
+                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
+                        f64,
+                        egraph::core::Layout2d<f64>,
+                    >>::total_iterations(s),
+                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
+                        f32,
+                        egraph::core::Layout2d<f32>,
+                    >>::total_iterations(s),
                 }
             }
         }
