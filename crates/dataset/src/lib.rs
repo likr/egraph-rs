@@ -1,8 +1,15 @@
+pub mod catalog;
+pub mod synthetic;
+
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 #[cfg(feature = "petgraph")]
 use petgraph::{EdgeType, graph::IndexType, prelude::*};
-#[cfg(feature = "petgraph")]
-use std::collections::HashMap;
+
+pub use catalog::{DatasetInfo, dataset_catalog, dataset_info, list_datasets};
+pub use synthetic::{
+    generate_hyperbolic_tree, generate_layered_dag, generate_sbm_graph, generate_spherical_grid,
+    generate_spherical_icosphere, generate_torus_grid, generate_weighted_graph,
+};
 
 /// Parses an edge-list CSV string into a [`CsrGraph<W>`].
 ///
@@ -157,14 +164,14 @@ fn parse<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(input: &str) -> Gr
     let n = rows[0][0];
     let m = rows[0][1];
     let mut graph = Graph::with_capacity(n, m);
-    let mut indices = HashMap::new();
-    for u in 0..n {
-        indices.insert(u, graph.add_node(N::default()));
+    let mut indices = Vec::with_capacity(n);
+    for _ in 0..n {
+        indices.push(graph.add_node(N::default()));
     }
     for row in &rows[1..] {
         let u = row[0];
         let v = row[1];
-        graph.add_edge(indices[&u], indices[&v], E::default());
+        graph.add_edge(indices[u], indices[v], E::default());
     }
     graph
 }
@@ -325,133 +332,4 @@ pub fn dataset_lesmis_csr() -> CsrGraph<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_csr_csv_valid_and_errors() {
-        let csv = "4,3\n0,1\r\n1,2\n2,3\n";
-        let g = parse_csr_csv::<f64>(csv, false, false).unwrap();
-        assert_eq!(g.num_nodes(), 4);
-        assert_eq!(g.num_edges(), 3);
-        assert!(!g.is_directed());
-        assert_eq!(g.neighbors(1), &[0, 2]);
-
-        let dg = parse_csr_csv::<f64>("3,2\n0,1\n1,0\n", true, false).unwrap();
-        assert!(dg.is_directed());
-        assert_eq!(dg.num_edges(), 2);
-
-        assert!(matches!(
-            parse_csr_csv::<f64>("", false, false),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,2\n0,1\n", false, false),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-        let wg = parse_csr_csv::<f64>("3,2\n0,1,2.5\n1, 2, 1.25\n", false, false).unwrap();
-        assert!(wg.is_weighted());
-        assert_eq!(wg.num_edges(), 2);
-        assert_eq!(wg.weights().unwrap(), &[2.5, 2.5, 1.25, 1.25]);
-
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,1,2,3\n", false, false),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,2\n0,1,2.0\n1,2\n", false, false),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,1,nan\n", false, false),
-            Err(CoreError::NonFiniteValue { .. })
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,1,inf\n", false, false),
-            Err(CoreError::NonFiniteValue { .. })
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,1,abc\n", false, false),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,5\n", false, false),
-            Err(CoreError::IndexOutOfBounds { .. })
-        ));
-        assert!(matches!(
-            parse_csr_csv::<f64>("3,1\n0,0\n", false, false),
-            Err(CoreError::InvalidCsr(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_csr_csv_f32() {
-        let csv = "4,3\n0,1\n1,2\n2,3\n";
-        let g: CsrGraph<f32> = parse_csr_csv::<f32>(csv, false, false).unwrap();
-        assert_eq!(g.num_nodes(), 4);
-        assert_eq!(g.num_edges(), 3);
-        assert!(!g.is_directed());
-        assert!(g.weights().is_none());
-        assert_eq!(g.neighbors(1), &[0, 2]);
-
-        let wg = parse_csr_csv::<f32>("3,2\n0,1,1.5\n1,2,3.25\n", false, false).unwrap();
-        assert!(wg.is_weighted());
-        assert_eq!(wg.weights().unwrap(), &[1.5_f32, 1.5, 3.25, 3.25]);
-        assert!(matches!(
-            parse_csr_csv::<f32>("3,1\n0,1,1e300\n", false, false),
-            Err(CoreError::NonFiniteValue { .. })
-        ));
-
-        // Sanitize deduplicates undirected edges and removes self-loops.
-        let dirty = "3,3\n0,1\n1,0\n0,0\n";
-        let clean = parse_csr_csv::<f32>(dirty, false, true).unwrap();
-        assert_eq!(clean.num_nodes(), 3);
-        assert_eq!(clean.num_edges(), 1);
-        assert_eq!(clean.neighbors(0), &[1]);
-
-        let dg = parse_csr_csv::<f32>("3,2\n0,1\n1,0\n", true, false).unwrap();
-        assert!(dg.is_directed());
-        assert_eq!(dg.num_edges(), 2);
-
-        assert!(matches!(
-            parse_csr_csv::<f32>("3,2\n0,1\n", false, false),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-    }
-
-    #[cfg(all(
-        feature = "petgraph",
-        feature = "1138_bus",
-        feature = "3elt",
-        feature = "dwt_1005",
-        feature = "dwt_2680",
-        feature = "poli",
-        feature = "qh882",
-        feature = "USpowerGrid",
-        feature = "karate",
-        feature = "lesmis"
-    ))]
-    #[test]
-    fn test_all_embedded_datasets_match_petgraph_counts() {
-        let cases: Vec<(UnGraph<(), ()>, CsrGraph<f64>)> = vec![
-            (dataset_1138_bus(), dataset_1138_bus_csr()),
-            (dataset_3_elt(), dataset_3_elt_csr()),
-            (dataset_dwt_1005(), dataset_dwt_1005_csr()),
-            (dataset_dwt_2680(), dataset_dwt_2680_csr()),
-            (dataset_poli(), dataset_poli_csr()),
-            (dataset_qh882(), dataset_qh882_csr()),
-            (dataset_uspower_grid(), dataset_uspower_grid_csr()),
-            (dataset_karate(), dataset_karate_csr()),
-            (dataset_lesmis(), dataset_lesmis_csr()),
-        ];
-
-        for (pg, csr) in cases {
-            assert_eq!(csr.num_nodes(), pg.node_count());
-            assert_eq!(csr.num_edges(), pg.edge_count());
-            assert!(!csr.is_directed());
-            for u in 0..csr.num_nodes() {
-                assert_eq!(csr.degree(u), pg.neighbors(NodeIndex::new(u)).count());
-            }
-        }
-    }
-}
+mod tests;
