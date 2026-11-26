@@ -20,14 +20,19 @@ pub use cluster_area::{
 };
 #[cfg(feature = "eval-baselines")]
 pub use cluster_baselines::{
-    NorMetrics, PartitionAgreement, calinski_harabasz_score, calinski_harabasz_score_nd,
-    class_density_measure, cq_hac, cq_hac_nd, cq_kmeans, cq_kmeans_nd, davies_bouldin_score,
-    davies_bouldin_score_nd, distance_consistency, distance_consistency_nd,
-    distribution_consistency, distribution_consistency_nd, histogram_density_measure,
-    neighborhood_hit, neighborhood_hit_nd, nor_metrics, nor_metrics_without_graph,
-    pairwise_distance_overlap_error, pairwise_distance_overlap_error_nd, partition_agreement,
-    sepme_gab, sepme_gab_nd, sepme_gong, sepme_gong_nd, sepme_knng, sepme_knng_nd, sepme_rng,
-    sepme_rng_nd, silhouette_score, silhouette_score_nd, sprawlter_nn, sprawlter_nn_radii,
+    NorMetrics, PartitionAgreement, calinski_harabasz_score, calinski_harabasz_score_manifold,
+    calinski_harabasz_score_nd, class_density_measure, cq_hac, cq_hac_manifold, cq_hac_nd,
+    cq_kmeans, cq_kmeans_manifold, cq_kmeans_nd, davies_bouldin_score,
+    davies_bouldin_score_manifold, davies_bouldin_score_nd, distance_consistency,
+    distance_consistency_manifold, distance_consistency_nd, distribution_consistency,
+    distribution_consistency_manifold, distribution_consistency_nd, histogram_density_measure,
+    neighborhood_hit, neighborhood_hit_manifold, neighborhood_hit_nd, nor_metrics,
+    nor_metrics_without_graph, pairwise_distance_overlap_error,
+    pairwise_distance_overlap_error_manifold, pairwise_distance_overlap_error_nd,
+    partition_agreement, sepme_gab, sepme_gab_manifold, sepme_gab_nd, sepme_gong,
+    sepme_gong_manifold, sepme_gong_nd, sepme_knng, sepme_knng_manifold, sepme_knng_nd, sepme_rng,
+    sepme_rng_manifold, sepme_rng_nd, silhouette_score, silhouette_score_manifold,
+    silhouette_score_nd, sprawlter_nn, sprawlter_nn_radii,
 };
 pub use community::{
     AdjustedPatchNigDetail, adjusted_patch_nig, adjusted_patch_nig_detail,

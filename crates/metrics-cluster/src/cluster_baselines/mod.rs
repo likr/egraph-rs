@@ -12,6 +12,10 @@ mod agreement;
 mod cluster_quality;
 mod consistency;
 mod internal_scores;
+mod manifold_centroid;
+mod manifold_quality;
+mod manifold_scores;
+mod manifold_sep;
 mod nd_consistency_scores;
 mod nd_proximity;
 mod nd_quality_sep;
@@ -32,6 +36,16 @@ pub use consistency::{
 pub use internal_scores::{
     calinski_harabasz_score, davies_bouldin_score, pairwise_distance_overlap_error,
     silhouette_score,
+};
+pub use manifold_quality::{cq_hac_manifold, cq_kmeans_manifold};
+pub use manifold_scores::{
+    calinski_harabasz_score_manifold, davies_bouldin_score_manifold, distance_consistency_manifold,
+    distribution_consistency_manifold, pairwise_distance_overlap_error_manifold,
+    silhouette_score_manifold,
+};
+pub use manifold_sep::{
+    neighborhood_hit_manifold, sepme_gab_manifold, sepme_gong_manifold, sepme_knng_manifold,
+    sepme_rng_manifold,
 };
 pub use nd_consistency_scores::{
     calinski_harabasz_score_nd, davies_bouldin_score_nd, distance_consistency_nd,
