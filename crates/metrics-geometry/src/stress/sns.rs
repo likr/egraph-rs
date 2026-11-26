@@ -145,6 +145,31 @@ pub fn scale_normalized_stress_from_distances<S: Scalar>(
     )
 }
 
+const DISTANCE_SYMMETRY_TOL: f64 = 1e-9;
+
+fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> CoreResult<()> {
+    for i in 0..n {
+        let row_i = i * n;
+        for j in (i + 1)..n {
+            let d_ij = distances[row_i + j];
+            let d_ji = distances[j * n + i];
+            if d_ij.is_nan() && d_ji.is_nan() {
+                continue;
+            }
+            if d_ij == d_ji {
+                continue;
+            }
+            let tol = DISTANCE_SYMMETRY_TOL * 1.0_f64.max(d_ij.abs()).max(d_ji.abs());
+            if !d_ij.is_finite() || !d_ji.is_finite() || (d_ij - d_ji).abs() > tol {
+                return Err(CoreError::invalid_input(format!(
+                    "distance matrix must be symmetric: distances[{i}, {j}] = {d_ij} != distances[{j}, {i}] = {d_ji}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Computes full [`StressEvaluation`] details from precomputed `N * N` `distances` and optional `weights`.
 pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
     layout: &Layout2d<S>,
@@ -175,6 +200,7 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
     if n <= 1 {
         return Ok(StressEvaluation::default());
     }
+    validate_distance_matrix_symmetry(distances, n)?;
 
     let xs = layout.x();
     let ys = layout.y();

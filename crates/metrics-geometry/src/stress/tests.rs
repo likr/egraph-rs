@@ -448,3 +448,44 @@ fn test_degree_stratified_pivot_coverage_and_exact_parity() {
     let s32_b = sampled_scale_normalized_stress(&g, &l32_scaled, 32, 99).unwrap();
     assert!((s32_a - s32_b).abs() < 1e-6);
 }
+
+#[test]
+fn test_scale_normalized_stress_from_distances_rejects_asymmetric_matrices() {
+    let layout = Layout2d::<f64>::from_xy(vec![0.0, 1.0, 2.0], vec![0.0, 0.0, 0.0]).unwrap();
+    // Asymmetric finite off-diagonal entries: d[0, 2] = 2.0 != d[2, 0] = 3.0.
+    let asym = vec![0.0, 1.0, 2.0, 1.0, 0.0, 1.0, 3.0, 1.0, 0.0];
+    assert!(matches!(
+        scale_normalized_stress_from_distances(&layout, &asym, None),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        scale_normalized_stress_from_distances_detail(&layout, &asym, None),
+        Err(CoreError::InvalidInput(_))
+    ));
+
+    // Asymmetric non-finite / zero entries (even when upper triangle is 0.0 or Inf).
+    let asym_inf = vec![0.0, 1.0, f64::INFINITY, 1.0, 0.0, 1.0, 2.0, 1.0, 0.0];
+    assert!(matches!(
+        scale_normalized_stress_from_distances(&layout, &asym_inf, None),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        scale_normalized_stress_from_distances_detail(&layout, &asym_inf, None),
+        Err(CoreError::InvalidInput(_))
+    ));
+
+    // Symmetric matrix with INFINITY unreachable pairs and tiny numerical roundoff passes.
+    let sym_inf = vec![
+        0.0,
+        1.0,
+        f64::INFINITY,
+        1.0 + 1e-13,
+        0.0,
+        1.0,
+        f64::INFINITY,
+        1.0,
+        0.0,
+    ];
+    assert!(scale_normalized_stress_from_distances(&layout, &sym_inf, None).is_ok());
+    assert!(scale_normalized_stress_from_distances_detail(&layout, &sym_inf, None).is_ok());
+}
