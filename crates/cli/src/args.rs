@@ -1,0 +1,349 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::Serialize;
+
+/// Top-level `egraph` CLI parser.
+#[derive(Debug, Parser)]
+#[command(
+    name = "egraph",
+    version,
+    about = "Single-threaded pure-Rust graph drawing, quality metrics, clustering, and benchmarking CLI"
+)]
+pub struct Cli {
+    /// Subcommand to execute.
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+/// Supported CLI subcommands.
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Compute a 2D graph layout and output coordinates + execution stats as JSON.
+    Layout(LayoutArgs),
+    /// Evaluate quality metrics on a graph and an existing 2D JSON layout.
+    Metrics(MetricsArgs),
+    /// Cluster a graph using Louvain, Leiden, spectral clustering, label propagation, or K-Means++.
+    Cluster(ClusterArgs),
+    /// Run a reproducible layout + metrics timing benchmark.
+    Bench(BenchArgs),
+}
+
+/// Supported layout algorithms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayoutMethod {
+    /// Pure 1+2-Hop adaptive Fit-tsNET (`TsNetSolver::from_graph_pure_2hop`).
+    #[value(name = "tsnet-pure2hop")]
+    TsnetPure2hop,
+    /// Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD (`SgdSolver::sparse_barrier_dog`).
+    #[value(name = "sgd-barrier-dog")]
+    SgdBarrierDog,
+    /// Full all-pairs shortest-path SGD (`SgdSolver::full`); `egraph-cli` exposes single-criteria SGD presets (`sgd-full`, `sgd-ortmann`, `sgd-barrier-dog`, etc.) and does not expose multi-criteria `(SGD)^2` (`sgd2`).
+    #[value(name = "sgd-full")]
+    SgdFull,
+    /// SNAP-tFDP streaming edge-attached negative SGD (`SgdSolver::snap_t_fdp`).
+    #[value(name = "sgd-snap")]
+    SgdSnap,
+    /// 3-tier PaCMAP-Graph SGD (`SgdSolver::pacmap_graph`).
+    #[value(name = "sgd-pacmap")]
+    SgdPacmap,
+    /// Graph UMAP (`GuMapSolver::from_graph_dog`).
+    #[value(name = "gumap")]
+    Gumap,
+    /// Interpolation-FFT bounded Student-t FDP (`FieldLayoutSolver::t_fdp`).
+    #[value(name = "tfdp")]
+    Tfdp,
+    /// Interpolation-FFT batch Graph UMAP (`FieldLayoutSolver::ib_umap`).
+    #[value(name = "ibumap")]
+    Ibumap,
+    /// Barnes-Hut ForceAtlas2 (`ForceAtlas2Solver`; its `linlog_mode` follows Jacomy et al. 2014 and differs from Noack `LinLogSolver`).
+    #[value(name = "fa2")]
+    Fa2,
+    /// Multilevel Yifan Hu (`YifanHuSolver`).
+    #[value(name = "yifanhu")]
+    YifanHu,
+    /// Stress Majorization (`StressMajorizationSolver`).
+    #[value(name = "stress")]
+    Stress,
+    /// Kamada-Kawai (`KamadaKawaiSolver`).
+    #[value(name = "kk")]
+    Kk,
+    /// Noack (2007/2009) true LinLog energy-model force-directed layout (`LinLogSolver`, distinct from `ForceAtlas2Config::linlog_mode`).
+    #[value(name = "linlog")]
+    Linlog,
+    /// Fruchterman-Reingold force-directed layout (`FruchtermanReingoldSolver`).
+    #[value(name = "fr")]
+    Fr,
+    /// Barnes-Hut ForceAtlas2 with overlap prevention (`ForceAtlas2Solver` with `prevent_overlap = true`).
+    #[value(name = "fa2-overlap")]
+    Fa2Overlap,
+    /// Quadrilateral Simmelian Backbone layout (`BackboneSolver`).
+    #[value(name = "backbone")]
+    Backbone,
+    /// Group-in-a-Box clustered layout (`GroupInABoxSolver`).
+    #[value(name = "gib")]
+    Gib,
+    /// High-Dimensional Embedding (`hde`, Harel & Koren 2004).
+    #[value(name = "hde")]
+    Hde,
+    /// Ortmann et al. (2016) sparse stress SGD (`SgdSolver::ortmann_sparse_stress`).
+    #[value(name = "sgd-ortmann")]
+    SgdOrtmann,
+    /// Maxent-Stress layout with Barnes-Hut repulsion (`MaxentStressSolver`).
+    #[value(name = "maxent")]
+    Maxent,
+    /// LargeVis negative-sampling SGD layout (`SgdSolver::largevis`).
+    #[value(name = "largevis")]
+    Largevis,
+    /// DRGraph multilevel negative-sampling SGD layout (`SgdSolver::drgraph`).
+    #[value(name = "drgraph")]
+    Drgraph,
+    /// Graph-CNE InfoNCE / Neg-tSNE contrastive SGD layout (`SgdSolver::graph_cne`).
+    #[value(name = "graph-cne")]
+    GraphCne,
+    /// Multilevel GRIP graph drawing (`GripSolver`, Gajer & Kobourov 2002).
+    #[value(name = "grip")]
+    Grip,
+    /// GEM adaptive temperature force-directed layout (`GemSolver`, Frick et al. 1995).
+    #[value(name = "gem")]
+    Gem,
+    /// Structural Entropy Layout with adaptive edge-weight modulation (`SelLayoutSolver`, Xue et al. 2025).
+    #[value(name = "sel")]
+    Sel,
+    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayoutSolver`; `muelder2008_space_filling` PDF pending/`MISSING_PDF`, guarantees zero co-location).
+    #[value(name = "sfc")]
+    Sfc,
+}
+
+/// Supported layout initialization methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InitMethod {
+    /// Normalized Core-First MaxMin PivotMDS (`pivot_mds`).
+    #[value(name = "pivot-mds")]
+    PivotMds,
+    /// Koren degree-normalized spectral initialization (`koren_spectral_init`).
+    #[value(name = "koren")]
+    Koren,
+    /// Deterministic uniform/Gaussian random initialization (`DeterministicRng`).
+    #[value(name = "random")]
+    Random,
+}
+
+/// Supported clustering methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterMethod {
+    /// Two-phase multi-level Louvain modularity maximization.
+    #[value(name = "louvain")]
+    Louvain,
+    /// Leiden modularity maximization (`leiden` with `LeidenObjective::Modularity`).
+    #[value(name = "leiden-mod")]
+    LeidenMod,
+    /// Leiden Constant Potts Model maximization (`leiden` with `LeidenObjective::Cpm`).
+    #[value(name = "leiden-cpm")]
+    LeidenCpm,
+    /// Ng-Jordan-Weiss spectral clustering.
+    #[value(name = "spectral")]
+    Spectral,
+    /// Asynchronous deterministic Label Propagation.
+    #[value(name = "label-prop")]
+    LabelProp,
+    /// K-Means++ over normalized 2D PivotMDS coordinates.
+    #[value(name = "kmeans")]
+    Kmeans,
+}
+
+/// Post-layout cluster refinement strategy (`--cluster-refine`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterRefineArg {
+    /// No cluster refinement.
+    #[default]
+    #[value(name = "none")]
+    None,
+    /// K-Means cluster assignment refinement (`ClusterRefineMethod::Kmeans`).
+    #[value(name = "kmeans")]
+    Kmeans,
+    /// Hierarchical Agglomerative Clustering refinement (`ClusterRefineMethod::Hac`).
+    #[value(name = "hac")]
+    Hac,
+}
+
+/// Post-layout node overlap removal strategy (`--overlap-removal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlapRemovalArg {
+    /// No overlap removal.
+    #[default]
+    #[value(name = "none")]
+    None,
+    /// Proximity stress overlap removal (`PrismOverlapRemoval`).
+    #[value(name = "prism")]
+    Prism,
+    /// Delaunay/KdTree GTree overlap removal (`GTreeOverlapRemoval`).
+    #[value(name = "gtree")]
+    Gtree,
+    /// FORBID stress-based overlap removal (`ForbidVariant::Forbid`).
+    #[value(name = "forbid")]
+    Forbid,
+    /// FORBID' stress-based overlap removal (`ForbidVariant::ForbidPrime`).
+    #[value(name = "forbid-prime")]
+    ForbidPrime,
+    /// Sparse FORBID overlap removal (`ForbidVariant::SparseForbid`).
+    #[value(name = "sparse-forbid")]
+    SparseForbid,
+    /// PFS' scanline node overlap removal (`PfsPrimeOverlapRemoval`).
+    #[value(name = "pfs-prime")]
+    PfsPrime,
+}
+
+/// Arguments for `egraph layout`.
+#[derive(Debug, Args)]
+pub struct LayoutArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name (`1138_bus`, `3_elt`, `dwt_1005`, `dwt_2680`, `poli`, `qh882`, `uspower_grid`, `karate`, `lesmis`).
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Layout algorithm to execute.
+    #[arg(long, value_enum, default_value_t = LayoutMethod::TsnetPure2hop)]
+    pub method: LayoutMethod,
+    /// Initial layout placement strategy.
+    #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
+    pub init: InitMethod,
+    /// Optional community labels file (JSON or plain-text/CSV integer list) for `gib` and `--cluster-refine` (auto-clustered via Leiden when omitted).
+    #[arg(long, value_name = "FILE")]
+    pub community_labels: Option<PathBuf>,
+    /// Apply post-layout 2D spatial intruder refinement (`SpatialIntruderRefiner`).
+    #[arg(long, default_value_t = false)]
+    pub refine: bool,
+    /// Post-layout cluster refinement method (`none`, `kmeans`, `hac`).
+    #[arg(long, value_enum, default_value_t = ClusterRefineArg::None)]
+    pub cluster_refine: ClusterRefineArg,
+    /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`, alias for `--overlap-removal prism`).
+    #[arg(long, default_value_t = false, conflicts_with = "overlap_removal")]
+    pub prism: bool,
+    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`, `pfs-prime`; default: `none`).
+    #[arg(long, value_enum)]
+    pub overlap_removal: Option<OverlapRemovalArg>,
+    /// Uniform node half-extent radius used when overlap removal (`--overlap-removal` or `--prism`) is enabled.
+    #[arg(long, visible_alias = "overlap-radius", default_value_t = 0.05)]
+    pub prism_radius: f64,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph metrics`.
+#[derive(Debug, Args)]
+pub struct MetricsArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Input 2D coordinates JSON file.
+    #[arg(long, value_name = "FILE")]
+    pub layout: PathBuf,
+    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`), `adjusted-patch-nig`, and label-dependent `eval-baselines` targets (`dsc`, `dc`, `cdm`, `hdm`, `sepme-*`, `neighborhood-hit`, `silhouette`, `calinski-harabasz`, `davies-bouldin`, `cq-*`, `pairwise-distance-overlap-error`; `sprawlter-nn` does not require labels).
+    #[arg(long, value_name = "FILE")]
+    pub community_labels: Option<PathBuf>,
+    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,dsc,dc,cdm,hdm,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,all`; note `drng`/`dgg` compute Eades et al. 2017 unweighted `S_RNG`/`S_GG`, distinct from deferred Hong et al. 2022 `dRNG`/`dGG` and Fang et al. 2025 `dcRNG`/`dcGG`).
+    #[arg(long, default_value = "sns,crossings,np1,np2")]
+    pub targets: String,
+    /// Number of BFS pivot sources for `sampled-sns`.
+    #[arg(long, default_value_t = 64)]
+    pub num_pivots: usize,
+    /// Number of edge-pair / node samples for `sampled-crossings`, `sampled-np1`, and `sampled-np2`.
+    #[arg(long, default_value_t = 4096)]
+    pub num_samples: usize,
+    /// Ideal edge length fallback for unweighted graphs.
+    #[arg(long, default_value_t = 1.0)]
+    pub ideal_edge_length: f64,
+    /// Deterministic RNG seed for sampled metrics.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Maximum G-CAF grid resolution along unit radius R95 (`>= 12`).
+    #[arg(long, default_value_t = 128)]
+    pub gcaf_g_max: usize,
+    /// Gaussian splatting kernel standard deviation in grid cells for G-CAF.
+    #[arg(long, default_value_t = 0.85)]
+    pub gcaf_sigma_cells: f64,
+    /// Over-compression / scatter-tolerance multiplier kappa for G-CAF.
+    #[arg(long, default_value_t = 10.0)]
+    pub gcaf_kappa: f64,
+    /// Physical visibility threshold fraction tau_frac for G-CAF.
+    #[arg(long, default_value_t = 0.18)]
+    pub gcaf_tau_frac: f64,
+    /// Radial evaluation boundary in units of R95 for G-CAF (`inf` allowed).
+    #[arg(long, default_value_t = 2.0)]
+    pub gcaf_boundary_r95: f64,
+    /// Stevens power-law exponent gamma for G-CAF target cluster weights.
+    #[arg(long, default_value_t = 1.0)]
+    pub gcaf_stevens_gamma: f64,
+    /// Include per-cluster G-CAF diagnostics (`gcaf_detail`) in JSON output.
+    #[arg(long, default_value_t = false)]
+    pub gcaf_detail: bool,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph cluster`.
+#[derive(Debug, Args)]
+pub struct ClusterArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Clustering algorithm to execute.
+    #[arg(long, value_enum, default_value_t = ClusterMethod::Louvain)]
+    pub method: ClusterMethod,
+    /// Target number of clusters (used by `spectral` and `kmeans`).
+    #[arg(long, default_value_t = 2)]
+    pub k: usize,
+    /// Resolution parameter gamma for `leiden-mod` and `leiden-cpm`.
+    #[arg(long, default_value_t = 1.0)]
+    pub resolution: f64,
+    /// Randomness (temperature) parameter for Leiden refinement (`> 0.0`).
+    #[arg(long, default_value_t = 0.01)]
+    pub randomness: f64,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
+
+/// Arguments for `egraph bench`.
+#[derive(Debug, Args)]
+pub struct BenchArgs {
+    /// Input graph file (`.json`, `.mtx`, or `.csv`).
+    #[arg(long, value_name = "FILE", conflicts_with = "dataset")]
+    pub input: Option<PathBuf>,
+    /// Embedded benchmark dataset name.
+    #[arg(long, value_name = "NAME", conflicts_with = "input")]
+    pub dataset: Option<String>,
+    /// Layout algorithm to benchmark.
+    #[arg(long, value_enum, default_value_t = LayoutMethod::TsnetPure2hop)]
+    pub method: LayoutMethod,
+    /// Initial layout placement strategy.
+    #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
+    pub init: InitMethod,
+    /// Deterministic RNG seed.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+    /// Optional output JSON file path (writes to stdout if omitted).
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+}
