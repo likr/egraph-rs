@@ -2,6 +2,7 @@ use std::f64::consts::FRAC_PI_2;
 
 use egraph_core::{CsrGraph, DeterministicRng, ManifoldKind, ManifoldLayout2d};
 
+use super::super::geometry::{Seg, segments_geometrically_intersect};
 use super::super::{
     torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
     torus_layout_edge_segments,
@@ -270,4 +271,92 @@ fn test_torus_snapped_and_cornered_randomized_oracle() {
             );
         }
     }
+}
+
+#[test]
+fn test_torus_sub_ulp_unclipped_copy_and_disjoint_neighbor_regression() {
+    let edges = [(0, 1), (2, 3)];
+    let g = CsrGraph::<f64>::from_edges(4, &edges, None, false, false).unwrap();
+    let eps = f64::EPSILON;
+    let near_one = f64::from_bits(1.0_f64.to_bits() - 1);
+
+    // Exact (0, 0)-centered copy intersects at (-0.5*eps, 0.0) while cx=-1 copy loses
+    // 0.5*eps to 1.0 + 0.5*eps == 1.0 rounding; emitting all <= 4 lattice copies preserves it.
+    let sub_ulp_eps = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.5 * eps, 1.0 - eps, 0.5 * eps, near_one],
+        vec![eps, 1.0 - 0.5 * eps, 0.95, 0.0],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &sub_ulp_eps).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &sub_ulp_eps).unwrap().len(), 1);
+    let pairs_eps = assert_torus_matches_oracle("sub_ulp_eps_crossing", &edges, &sub_ulp_eps);
+    assert_eq!(pairs_eps.len(), 1);
+    assert!(segments_geometrically_intersect(
+        &Seg::from_endpoints(
+            0,
+            0,
+            1,
+            pairs_eps[0].seg_a[0],
+            pairs_eps[0].seg_a[1],
+            pairs_eps[0].seg_a[2],
+            pairs_eps[0].seg_a[3],
+        ),
+        &Seg::from_endpoints(
+            1,
+            2,
+            3,
+            pairs_eps[0].seg_b[0],
+            pairs_eps[0].seg_b[1],
+            pairs_eps[0].seg_b[2],
+            pairs_eps[0].seg_b[3],
+        ),
+    ));
+
+    // Tiny non-0.5*eps coordinate variant where (0, 0)-centered copy crosses while cx=-1 misses.
+    let sub_ulp_tiny_cross = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![1e-20, 1.0 - eps, 1e-20, near_one],
+        vec![1.5 * eps, 1.0 - 1.5 * eps, 0.95, 0.0],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &sub_ulp_tiny_cross).unwrap(), 1);
+    assert_eq!(
+        torus_crossing_edges(&g, &sub_ulp_tiny_cross).unwrap().len(),
+        1
+    );
+    assert_torus_matches_oracle("sub_ulp_tiny_crossing", &edges, &sub_ulp_tiny_cross);
+
+    // Near-boundary non-crossing variant must remain 0 and match oracle without false positives.
+    let sub_ulp_tiny_miss = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![1e-20, 1.0 - 1e-15, 1e-20, 1.0 - 5e-16],
+        vec![1e-15, 1.0 - 1e-16, 0.95, 0.0],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &sub_ulp_tiny_miss).unwrap(), 0);
+    assert_torus_matches_oracle("sub_ulp_tiny_non_crossing", &edges, &sub_ulp_tiny_miss);
+
+    // Crossing at (1.0 - 5e-13, 0.5) must select the [0, 1)^2 cell with intersecting
+    // clipped sub-segments rather than the disjoint neighbor cell at xi = -5e-13.
+    let near_one_cell = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.9, 0.1, 1.0 - 1e-12, 0.0],
+        vec![0.3, 0.7, 0.7, 0.3],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &near_one_cell).unwrap(), 1);
+    let pairs_near_one =
+        assert_torus_matches_oracle("near_one_intersecting_cell", &edges, &near_one_cell);
+    assert_eq!(pairs_near_one.len(), 1);
+    let c = &pairs_near_one[0];
+    assert!(
+        segments_geometrically_intersect(
+            &Seg::from_endpoints(0, 0, 1, c.seg_a[0], c.seg_a[1], c.seg_a[2], c.seg_a[3]),
+            &Seg::from_endpoints(1, 2, 3, c.seg_b[0], c.seg_b[1], c.seg_b[2], c.seg_b[3]),
+        ),
+        "clipped TorusCrossing segments must intersect: seg_a={:?}, seg_b={:?}",
+        c.seg_a,
+        c.seg_b
+    );
 }

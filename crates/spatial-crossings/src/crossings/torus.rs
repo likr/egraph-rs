@@ -6,7 +6,7 @@ use egraph_core::{
 };
 
 use super::TorusCrossing;
-use super::geometry::{Seg, extract_csr_edges};
+use super::geometry::{Seg, extract_csr_edges, segments_geometrically_intersect};
 use super::pair_set::{PairSet, pack_pair, unpack_pair};
 use super::sweep::{sweep_segments, sweep_segments_with};
 
@@ -64,8 +64,7 @@ impl<S: Scalar> TorusLayoutView<S> for ManifoldLayout2d<S> {
 
 #[inline]
 fn wrap_torus_pos<S: Scalar>(value: S) -> f64 {
-    let w = wrap_torus_coord(value).to_f64();
-    if w == 0.0 { 0.0 } else { w }
+    canon_zero(wrap_torus_coord(value).to_f64())
 }
 
 /// Largest IEEE-754 f64 strictly below 1.0 so clipped endpoints stay in [0, 1) with zero ULP gap.
@@ -187,16 +186,10 @@ fn torus_edge_segments_with_extents<S: Scalar>(
         if t_b <= t_a {
             continue;
         }
-        let cx = if tx.is_some_and(|tc| t_a >= tc) {
-            best_dx
-        } else {
-            0
-        };
-        let cy = if ty.is_some_and(|tc| t_a >= tc) {
-            best_dy
-        } else {
-            0
-        };
+        let (cx, cy) = (
+            tx.map_or(0, |tc| if t_a >= tc { best_dx } else { 0 }),
+            ty.map_or(0, |tc| if t_a >= tc { best_dy } else { 0 }),
+        );
         pieces.push([
             eval_axis(t_a, x0, x1_w, dx, best_dx, cx, tx),
             eval_axis(t_a, y0, y1_w, dy, best_dy, cy, ty),
@@ -227,41 +220,39 @@ fn clip_seg_to_unit_torus(ax: f64, ay: f64, bx: f64, by: f64) -> Option<[f64; 4]
     }
     let ta = t0.clamp(0.0, 1.0);
     let tb = t1.max(t0).clamp(0.0, 1.0);
-    let eval_x = |t: f64| {
-        clamp_unit(if t == 0.0 {
-            ax
+    let eval = |a: f64, b: f64, d: f64, t: f64| {
+        let v = if t == 0.0 {
+            a
         } else if t == 1.0 {
-            bx
+            b
         } else {
-            ax + t * dx
-        })
+            a + t * d
+        };
+        clamp_unit(v)
     };
-    let eval_y = |t: f64| {
-        clamp_unit(if t == 0.0 {
-            ay
-        } else if t == 1.0 {
-            by
-        } else {
-            ay + t * dy
-        })
-    };
-    Some([eval_x(ta), eval_y(ta), eval_x(tb), eval_y(tb)])
+    Some([
+        eval(ax, bx, dx, ta),
+        eval(ay, by, dy, ta),
+        eval(ax, bx, dx, tb),
+        eval(ay, by, dy, tb),
+    ])
 }
 
 #[inline]
-fn crossing_in_unit_box(a: &Seg, b: &Seg) -> bool {
+fn crossing_point(a: &Seg, b: &Seg) -> (f64, f64) {
     let (dx1, dy1, dx2, dy2) = (a.x2 - a.x1, a.y2 - a.y1, b.x2 - b.x1, b.y2 - b.y1);
     let det = dx1 * dy2 - dy1 * dx2;
     if det != 0.0 {
         let t = ((b.x1 - a.x1) * dy2 - (b.y1 - a.y1) * dx2) / det;
-        let xi = (a.x1 + t * dx1).clamp(a.x_min.max(b.x_min), a.x_max.min(b.x_max));
-        let yi = (a.y1 + t * dy1).clamp(a.y_min.max(b.y_min), a.y_max.min(b.y_max));
-        (-1e-12..1.0).contains(&xi) && (-1e-12..1.0).contains(&yi)
+        (
+            (a.x1 + t * dx1).clamp(a.x_min.max(b.x_min), a.x_max.min(b.x_max)),
+            (a.y1 + t * dy1).clamp(a.y_min.max(b.y_min), a.y_max.min(b.y_max)),
+        )
     } else {
-        a.x_min.max(b.x_min) < 1.0
-            && a.x_max.min(b.x_max) >= -1e-12
-            && a.y_min.max(b.y_min) < 1.0
-            && a.y_max.min(b.y_max) >= -1e-12
+        (
+            0.5 * (a.x_min.max(b.x_min) + a.x_max.min(b.x_max)),
+            0.5 * (a.y_min.max(b.y_min) + a.y_max.min(b.y_max)),
+        )
     }
 }
 
@@ -294,9 +285,7 @@ fn build_torus_subsegments<S: Scalar>(
     context: &'static str,
 ) -> CoreResult<TorusSubsegments> {
     layout.validate_finite()?;
-    let n = layout.len();
-    let xs = layout.x();
-    let ys = layout.y();
+    let (n, xs, ys) = (layout.len(), layout.x(), layout.y());
 
     let mut sub_segs: Vec<Seg> = Vec::with_capacity(edges.len());
     let mut orig_edge_of_sub: Vec<usize> = Vec::with_capacity(edges.len());
@@ -304,11 +293,8 @@ fn build_torus_subsegments<S: Scalar>(
 
     for (edge_id, &(u, v)) in edges.iter().enumerate() {
         let (ui, vi) = (u as usize, v as usize);
-        if ui >= n {
-            return Err(CoreError::index_out_of_bounds(ui, n, context));
-        }
-        if vi >= n {
-            return Err(CoreError::index_out_of_bounds(vi, n, context));
+        if ui >= n || vi >= n {
+            return Err(CoreError::index_out_of_bounds(ui.max(vi), n, context));
         }
         let (x0, y0) = (wrap_torus_pos(xs[ui]), wrap_torus_pos(ys[ui]));
         let (x1_w, y1_w) = (wrap_torus_pos(xs[vi]), wrap_torus_pos(ys[vi]));
@@ -324,15 +310,14 @@ fn build_torus_subsegments<S: Scalar>(
         let cy_shifts = [0, best_dy];
         let cy_len = if best_dy == 0 { 1 } else { 2 };
 
+        // Emit all <= 4 integer lattice copies without pre-clipping to [0, 1]^2 so Sterbenz-exact
+        // (0, 0)-centered copies are preserved even when an intersection near a wrap edge lies slightly outside.
         for &cy in &cy_shifts[..cy_len] {
             let sy0 = canon_zero(if cy == 0 { y0 } else { y0 - cy as f64 });
             let sy1 = canon_zero(y1_w + (best_dy - cy) as f64);
             for &cx in &cx_shifts[..cx_len] {
                 let sx0 = canon_zero(if cx == 0 { x0 } else { x0 - cx as f64 });
                 let sx1 = canon_zero(x1_w + (best_dx - cx) as f64);
-                if clip_seg_to_unit_torus(sx0, sy0, sx1, sy1).is_none() {
-                    continue;
-                }
                 sub_segs.push(Seg::from_endpoints(
                     sub_segs.len(),
                     u,
@@ -427,7 +412,7 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
     let data = build_torus_subsegments(edges, coords, lx, ly, "torus_crossing_edges_from_edges")?;
 
     let pairs = sweep_segments(&data.sub_segs);
-    let mut candidates: Vec<(bool, TorusCrossing)> = Vec::with_capacity(pairs.len());
+    let mut candidates: Vec<((bool, bool, bool), TorusCrossing)> = Vec::with_capacity(pairs.len());
     for key in pairs {
         let (sub_a, sub_b) = unpack_pair(key);
         let sa = &data.sub_segs[sub_a];
@@ -444,13 +429,35 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
         };
         let (angle_rad, cos_sq) =
             torus_crossing_angle_metrics(data.orig_disps[edge_a], data.orig_disps[edge_b]);
-        let seg_a = clip_seg_to_unit_torus(sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2)
-            .unwrap_or([sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2]);
-        let seg_b = clip_seg_to_unit_torus(sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2)
-            .unwrap_or([sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2]);
-        let in_box = crossing_in_unit_box(sa_ord, sb_ord);
+        let (xi, yi) = crossing_point(sa_ord, sb_ord);
+        let in_box = (0.0..1.0).contains(&xi) && (0.0..1.0).contains(&yi);
+        let clipped_a = clip_seg_to_unit_torus(sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2);
+        let clipped_b = clip_seg_to_unit_torus(sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2);
+        let clipped_intersect = match (clipped_a, clipped_b) {
+            (Some(ca), Some(cb)) => segments_geometrically_intersect(
+                &Seg::from_endpoints(0, 0, 1, ca[0], ca[1], ca[2], ca[3]),
+                &Seg::from_endpoints(1, 2, 3, cb[0], cb[1], cb[2], cb[3]),
+            ),
+            _ => false,
+        };
+        let (seg_a, seg_b) = match (clipped_a, clipped_b) {
+            (Some(ca), Some(cb)) if in_box || clipped_intersect => (ca, cb),
+            _ => {
+                let (kx, ky) = (canon_zero(-xi.floor()), canon_zero(-yi.floor()));
+                let clip_shifted = |s: &Seg| {
+                    let (x1, y1, x2, y2) = (s.x1 + kx, s.y1 + ky, s.x2 + kx, s.y2 + ky);
+                    clip_seg_to_unit_torus(x1, y1, x2, y2).unwrap_or([
+                        clamp_unit(x1),
+                        clamp_unit(y1),
+                        clamp_unit(x2),
+                        clamp_unit(y2),
+                    ])
+                };
+                (clip_shifted(sa_ord), clip_shifted(sb_ord))
+            }
+        };
         candidates.push((
-            in_box,
+            (in_box && clipped_intersect, clipped_intersect, in_box),
             TorusCrossing {
                 edge_a,
                 edge_b,
@@ -465,20 +472,20 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
             },
         ));
     }
-    candidates.sort_unstable_by(|(in_a, a), (in_b, b)| {
+    let cmp_seg = |p: &[f64; 4], q: &[f64; 4]| {
+        p[0].total_cmp(&q[0])
+            .then_with(|| p[1].total_cmp(&q[1]))
+            .then_with(|| p[2].total_cmp(&q[2]))
+            .then_with(|| p[3].total_cmp(&q[3]))
+    };
+    candidates.sort_unstable_by(|(ra, a), (rb, b)| {
         a.edge_a
             .cmp(&b.edge_a)
             .then_with(|| a.edge_b.cmp(&b.edge_b))
-            .then_with(|| (!in_a).cmp(&(!in_b)))
+            .then_with(|| rb.cmp(ra))
             .then_with(|| a.angle_rad.is_none().cmp(&b.angle_rad.is_none()))
-            .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
-            .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
-            .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
-            .then_with(|| a.seg_a[3].total_cmp(&b.seg_a[3]))
-            .then_with(|| a.seg_b[0].total_cmp(&b.seg_b[0]))
-            .then_with(|| a.seg_b[1].total_cmp(&b.seg_b[1]))
-            .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
-            .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
+            .then_with(|| cmp_seg(&a.seg_a, &b.seg_a))
+            .then_with(|| cmp_seg(&a.seg_b, &b.seg_b))
     });
     let mut seen_edges = PairSet::default();
     let mut out = Vec::with_capacity(candidates.len());
