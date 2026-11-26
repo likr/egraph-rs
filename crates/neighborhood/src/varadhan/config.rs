@@ -15,7 +15,7 @@ pub struct DogVaradhanConfig {
     pub alpha: Option<f64>,
     /// Optional explicit rank-1 positivity floor $\beta \in [0, 1)$ (`None` uses `beta_auto`).
     pub beta_floor: Option<f64>,
-    /// Optional Chebyshev polynomial degree (`None` uses [`adaptive_chebyshev_degree`]).
+    /// Optional Chebyshev polynomial degree (`None` uses [`egraph_linalg::adaptive_chebyshev_degree`]).
     pub degree: Option<usize>,
     /// Number of Core-First MaxMin shortest-path landmarks (`default: 64`).
     pub n_landmarks: usize,
