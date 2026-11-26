@@ -14,7 +14,7 @@ mod graph_ops;
 pub use config::{
     EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
     ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-    classify_geometry_from_curvature,
+    classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
 };
 pub use evaluation::compute_effective_resistances;
 pub use flow::resistance_curvature_flow;
@@ -24,7 +24,9 @@ pub(super) const MAX_EXACT_NODES: usize = 512;
 pub(super) const EXACT_JACOBI_MAX_SWEEPS: usize = 120;
 pub(super) const EXACT_JACOBI_TOL: f64 = 1e-12;
 pub(super) const LINK_RESISTANCE_EPS: f64 = 1e-15;
-pub(super) const TORUS_DEG_CV_THRESHOLD: f64 = 0.15;
+pub(super) const TORUS_DEG_CV_THRESHOLD: f64 = 0.02;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_classification;

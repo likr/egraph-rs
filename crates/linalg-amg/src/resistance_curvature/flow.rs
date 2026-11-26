@@ -2,10 +2,12 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 
 use super::config::{
     ResistanceCurvatureConfig, ResistanceCurvatureFlowResult, ResistanceCurvatureStep,
-    classify_geometry_from_curvature,
+    classify_geometry_from_curvature_with_sampling,
 };
 use super::evaluation::{compute_curvatures, evaluate_effective_resistances, resolve_exact_flag};
-use super::graph_ops::{count_components, degree_regularity_stats, extract_canonical_edges};
+use super::graph_ops::{
+    count_components, degree_regularity_stats, extract_canonical_edges, is_closed_spherical_surface,
+};
 
 /// Runs Devriendt-Lambiotte resistance curvature flow on `graph` and classifies geometry.
 pub fn resistance_curvature_flow<W: Scalar>(
@@ -19,6 +21,8 @@ pub fn resistance_curvature_flow<W: Scalar>(
     let m = canonical.edge_u.len();
     let num_components = count_components(n, &canonical.edge_u, &canonical.edge_v);
     let (leaf_fraction, deg_cv) = degree_regularity_stats(n, &canonical.edge_u, &canonical.edge_v);
+    let closed_spherical =
+        is_closed_spherical_surface(n, &canonical.edge_u, &canonical.edge_v, leaf_fraction);
 
     let mut edge_lengths = canonical.edge_lengths;
     let mut conductances = canonical.conductances;
@@ -125,7 +129,7 @@ pub fn resistance_curvature_flow<W: Scalar>(
         amg_max_relative_residual: final_eval.amg_max_relative_residual,
     });
 
-    let suggested_geometry = classify_geometry_from_curvature(
+    let suggested_geometry = classify_geometry_from_curvature_with_sampling(
         m,
         final_curv.mean_link,
         final_curv.std_link,
@@ -134,6 +138,9 @@ pub fn resistance_curvature_flow<W: Scalar>(
         config.hyperbolic_threshold,
         config.spherical_threshold,
         config.torus_std_threshold,
+        final_eval.used_exact,
+        config.resistance.jl_dim,
+        closed_spherical,
     );
 
     Ok(ResistanceCurvatureFlowResult {

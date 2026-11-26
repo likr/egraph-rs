@@ -190,6 +190,112 @@ pub(super) fn degree_regularity_stats(
     (leaf_fraction, std_deg / mean_deg)
 }
 
+/// Checks in $O(\alpha(G) |E|)$ time via Chiba-Nishizeki triangle counting whether the
+/// non-isolated subgraph forms a closed triangulated spherical surface (every edge belongs to
+/// $\ge 2$ triangles, no leaves/degree-2 vertices, and positive Euler characteristic $V - E + T > 0$).
+///
+/// This distinguishes closed 3D triangulated spheres (e.g. `can_96`, `sierpinski3d`, icospheres)
+/// from triangulated tori ($V - E + T = 0$), 4-regular tori ($T = 0$), and open planar meshes.
+pub(super) fn is_closed_spherical_surface(
+    num_nodes: usize,
+    edge_u: &[u32],
+    edge_v: &[u32],
+    leaf_fraction: f64,
+) -> bool {
+    let m = edge_u.len();
+    if num_nodes < 4 || m == 0 || leaf_fraction > 0.0 {
+        return false;
+    }
+
+    let mut deg = vec![0usize; num_nodes];
+    for (&u, &v) in edge_u.iter().zip(edge_v.iter()) {
+        deg[u as usize] += 1;
+        deg[v as usize] += 1;
+    }
+
+    let mut active_nodes = 0usize;
+    for &d in &deg {
+        if d > 0 {
+            if d < 3 {
+                // Edges incident to degree-1 or degree-2 vertices cannot lie in >= 2 triangles.
+                return false;
+            }
+            active_nodes += 1;
+        }
+    }
+
+    let mut out_deg = vec![0usize; num_nodes];
+    for (&u, &v) in edge_u.iter().zip(edge_v.iter()) {
+        let ui = u as usize;
+        let vi = v as usize;
+        if (deg[ui], ui) < (deg[vi], vi) {
+            out_deg[ui] += 1;
+        } else {
+            out_deg[vi] += 1;
+        }
+    }
+
+    let mut out_indptr = Vec::with_capacity(num_nodes + 1);
+    out_indptr.push(0usize);
+    let mut total_out = 0usize;
+    for &od in &out_deg {
+        total_out += od;
+        out_indptr.push(total_out);
+    }
+    let mut cursor = out_indptr[..num_nodes].to_vec();
+    let mut out_targets = vec![(0u32, 0usize); total_out];
+    for (edge_idx, (&u, &v)) in edge_u.iter().zip(edge_v.iter()).enumerate() {
+        let ui = u as usize;
+        let vi = v as usize;
+        if (deg[ui], ui) < (deg[vi], vi) {
+            let pos = cursor[ui];
+            out_targets[pos] = (v, edge_idx);
+            cursor[ui] += 1;
+        } else {
+            let pos = cursor[vi];
+            out_targets[pos] = (u, edge_idx);
+            cursor[vi] += 1;
+        }
+    }
+
+    let mut visited = VisitStamp::new(num_nodes);
+    let mut edge_to_w = vec![0usize; num_nodes];
+    let mut edge_tri = vec![0usize; m];
+    let mut num_triangles = 0usize;
+
+    for u in 0..num_nodes {
+        let u_start = out_indptr[u];
+        let u_end = out_indptr[u + 1];
+        if u_start == u_end {
+            continue;
+        }
+        visited.clear();
+        for &(w, e_uw) in &out_targets[u_start..u_end] {
+            let wi = w as usize;
+            visited.mark(wi);
+            edge_to_w[wi] = e_uw;
+        }
+        for &(v, e_uv) in &out_targets[u_start..u_end] {
+            let vi = v as usize;
+            for &(w, e_vw) in &out_targets[out_indptr[vi]..out_indptr[vi + 1]] {
+                let wi = w as usize;
+                if visited.is_visited(wi) {
+                    num_triangles += 1;
+                    edge_tri[e_uv] += 1;
+                    edge_tri[e_vw] += 1;
+                    edge_tri[edge_to_w[wi]] += 1;
+                }
+            }
+        }
+    }
+
+    if edge_tri.iter().any(|&c| c < 2) {
+        return false;
+    }
+    let euler = (active_nodes as isize) - (m as isize) + (num_triangles as isize);
+    euler > 0
+}
+
 pub(super) fn build_combinatorial_laplacian_from_edges(
     num_nodes: usize,
     edge_u: &[u32],

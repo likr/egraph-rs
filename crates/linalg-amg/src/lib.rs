@@ -11,7 +11,8 @@ pub use amg_pcg::{
 pub use resistance_curvature::{
     EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
     ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-    classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature_flow,
+    classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
+    compute_effective_resistances, resistance_curvature_flow,
 };
 
 /// Returns the crate version string.

@@ -45,7 +45,7 @@ impl SuggestedGeometry {
 /// Configuration for [`compute_effective_resistances`](super::compute_effective_resistances).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EffectiveResistanceConfig {
-    /// Number of Spielman-Srivastava Johnson-Lindenstrauss projection columns (`default: 64`).
+    /// Number of Spielman-Srivastava Johnson-Lindenstrauss projection columns (`default: 128`).
     pub jl_dim: usize,
     /// Deterministic PRNG seed for JL Rademacher edge probes (`default: 42`).
     pub seed: u64,
@@ -55,7 +55,7 @@ pub struct EffectiveResistanceConfig {
     /// Optional exact solver override: `Some(true)` forces dense $L^\dagger$ (allowed for $N \le 512$),
     /// `Some(false)` forces JL + `AmgPcgSolver`, and `None` uses exact when $N \le \mathrm{exact\_max\_nodes}$.
     pub exact: Option<bool>,
-    /// Automatic exact-solver node threshold when `exact` is `None` (`default: 64`).
+    /// Automatic exact-solver node threshold when `exact` is `None` (`default: 256`).
     pub exact_max_nodes: usize,
     /// Relative eigenvalue threshold for Moore-Penrose pseudoinverse $L^\dagger$ (`default: 1e-12`).
     pub eig_eps: f64,
@@ -66,11 +66,11 @@ pub struct EffectiveResistanceConfig {
 impl Default for EffectiveResistanceConfig {
     fn default() -> Self {
         Self {
-            jl_dim: 64,
+            jl_dim: 128,
             seed: 42,
             weights_are_lengths: true,
             exact: None,
-            exact_max_nodes: 64,
+            exact_max_nodes: 256,
             eig_eps: 1e-12,
             amg_config: AmgPcgConfig::default(),
         }
@@ -363,8 +363,46 @@ pub fn classify_geometry_from_curvature(
     spherical_threshold: f64,
     torus_std_threshold: f64,
 ) -> SuggestedGeometry {
+    classify_geometry_from_curvature_with_sampling(
+        num_edges,
+        mean_link_curvature,
+        std_link_curvature,
+        leaf_fraction,
+        deg_cv,
+        hyperbolic_threshold,
+        spherical_threshold,
+        torus_std_threshold,
+        true,
+        1,
+        false,
+    )
+}
+
+/// Classifies a target 2D geometry from link resistance curvature, degree regularity, JL
+/// sampling regime (`used_exact`, `jl_dim`), and closed-surface topological predicate.
+///
+/// When `used_exact` is `false`, `torus_std_threshold` is scaled smoothly by $O(1/\sqrt{k_{\mathrm{JL}}})$
+/// so Johnson-Lindenstrauss resistance noise on regular flat tori ($N > 256$) does not trigger
+/// false Euclidean fallback, while `deg_cv < 0.02` guards against irregular meshes.
+#[allow(clippy::too_many_arguments)]
+pub fn classify_geometry_from_curvature_with_sampling(
+    num_edges: usize,
+    mean_link_curvature: f64,
+    std_link_curvature: f64,
+    leaf_fraction: f64,
+    deg_cv: f64,
+    hyperbolic_threshold: f64,
+    spherical_threshold: f64,
+    torus_std_threshold: f64,
+    used_exact: bool,
+    jl_dim: usize,
+    is_closed_spherical_surface: bool,
+) -> SuggestedGeometry {
     if num_edges == 0 {
         return SuggestedGeometry::Euclidean;
+    }
+    if is_closed_spherical_surface {
+        return SuggestedGeometry::Spherical;
     }
     if mean_link_curvature < hyperbolic_threshold {
         return SuggestedGeometry::HyperbolicPoincare;
@@ -372,9 +410,16 @@ pub fn classify_geometry_from_curvature(
     if mean_link_curvature > spherical_threshold {
         return SuggestedGeometry::Spherical;
     }
+    let effective_torus_std_threshold = if used_exact {
+        torus_std_threshold
+    } else {
+        // JL variance scales as 1 / sqrt(jl_dim); covers 4-regular and 6-regular tori.
+        let jl_scale = (64.0 / (jl_dim.max(1) as f64)).sqrt();
+        torus_std_threshold * (1.0 + 16.0 * jl_scale)
+    };
     if leaf_fraction == 0.0
         && deg_cv < TORUS_DEG_CV_THRESHOLD
-        && std_link_curvature <= torus_std_threshold
+        && std_link_curvature <= effective_torus_std_threshold
     {
         SuggestedGeometry::Torus2d
     } else {
