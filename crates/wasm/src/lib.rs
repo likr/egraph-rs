@@ -2,8 +2,10 @@
 //!
 //! This crate provides JavaScript/WebAssembly bindings for `egraph`, exposing:
 //!
-//! * v6 zero-copy CSR graphs, linear-memory 2D/ND layouts, quality metrics, spectral/neighborhood
-//!   primitives, clustering, and cooperative iterative solvers ([`v6`])
+//! * Zero-copy CSR graphs, linear-memory 2D/ND layouts, quality metrics, spatial/dataset
+//!   utilities, spectral/neighborhood primitives, clustering, and cooperative iterative solvers
+//!   ([`csr_graph`], [`layout_buffers`], [`metrics_report`], [`metrics_crossings`],
+//!   [`metrics_cluster_rta`], [`metrics_functions`], [`metrics_eval`], [`spatial_dataset`], [`v6`])
 //! * Opt-in legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
 //!   quality metrics, and RNG modules (behind the `legacy` feature flag).
 
@@ -23,6 +25,17 @@ pub mod layout;
 pub mod quality_metrics;
 #[cfg(feature = "legacy")]
 pub mod rng;
+
+pub mod csr_graph;
+mod js_convert;
+mod js_options;
+pub mod layout_buffers;
+pub mod metrics_cluster_rta;
+pub mod metrics_crossings;
+pub mod metrics_eval;
+pub mod metrics_functions;
+pub mod metrics_report;
+pub mod spatial_dataset;
 
 pub mod v6;
 mod v6_m2;

@@ -12,7 +12,7 @@ use egraph::clustering::{
     project_clustered_layout, spectral_clustering,
 };
 use egraph::core::{
-    CoreError, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
+    CoreError, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d,
     poincare_distance, poincare_mobius_add, spherical_distance, torus_distance, wrap_torus_point,
 };
 use egraph::layout::{
@@ -22,16 +22,24 @@ use egraph::layout::{
     StreamingNegativeConfig, StressMajorizationConfig, StressMajorizationSolver, TsNetBackend,
     TsNetConfig, TsNetSolver,
 };
-use egraph::neighborhood::{DogVaradhanConfig, DogVaradhanStats, SymmetrizationMode};
-use egraph::spatial::{FitFieldStats, InterpolationOrder};
+use egraph::neighborhood::{DogVaradhanStats, SymmetrizationMode};
+use egraph::spatial::FitFieldStats;
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{
+    core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_opt_usize_param,
+    parse_optional_usize, parse_seed_u64,
 };
+use crate::js_options::{
+    get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
+    parse_dog_config_from_options_or_args, parse_ibfft_order, reject_extra_args_with_options,
+    solver_status_str,
+};
+use crate::layout_buffers::JsLayout2d;
 use crate::v6_m2::{
     JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities, JsSpectralMomentStats,
-    parse_opt_usize_param, parse_optional_usize,
 };
 
 const DEFAULT_KMEANS_K: usize = 2;
@@ -54,22 +62,6 @@ const DEFAULT_UNIFORM_PERPLEXITY: f64 = 30.0;
 const DEFAULT_RANDOM_PAIRS_PER_NODE: usize = 30;
 const DEFAULT_OMEGA_MIN_DIST: f64 = 1e-3;
 const DEFAULT_GUMAP_MAX_2HOP: usize = 32;
-
-pub(crate) fn normalize_enum_token(raw: &str) -> String {
-    raw.chars()
-        .filter(|ch| !matches!(ch, '_' | '-' | ' '))
-        .map(|ch| ch.to_ascii_lowercase())
-        .collect()
-}
-
-pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
-    match status {
-        SolverStatus::Initialized => "initialized",
-        SolverStatus::Running => "running",
-        SolverStatus::Converged => "converged",
-        SolverStatus::Completed => "completed",
-    }
-}
 
 fn parse_manifold_kind(raw: &str) -> Result<ManifoldKind, JsError> {
     match normalize_enum_token(raw).as_str() {
@@ -124,117 +116,6 @@ fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsError> {
             "unknown BarrierSymmetry {raw:?}; expected 'sym_max' or 'sym_avg'"
         ))),
     }
-}
-
-pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
-    if let Some(num) = val.as_f64() {
-        let ord = parse_non_negative_usize(num, "ibfftOrder")?;
-        return InterpolationOrder::from_order(ord).map_err(core_err_to_js);
-    }
-    if let Some(raw) = val.as_string() {
-        return match normalize_enum_token(&raw).as_str() {
-            "bilinear" | "1" => Ok(InterpolationOrder::Bilinear),
-            "cubic" | "3" => Ok(InterpolationOrder::Cubic),
-            _ => Err(JsError::new(&format!(
-                "unknown ibfftOrder {raw:?}; expected 'bilinear' (1) or 'cubic' (3)"
-            ))),
-        };
-    }
-    Err(JsError::new(
-        "ibfftOrder must be 'bilinear', 'cubic', 1, or 3",
-    ))
-}
-
-pub(crate) fn is_plain_js_object(val: &JsValue) -> bool {
-    val.is_object()
-        && !js_sys::Array::is_array(val)
-        && !js_sys::ArrayBuffer::is_view(val)
-        && !val.is_function()
-}
-
-pub(crate) fn get_prop(obj: &JsValue, key: &str) -> Result<JsValue, JsError> {
-    js_sys::Reflect::get(obj, &JsValue::from_str(key))
-        .map_err(|err| JsError::new(&format!("failed to read options.{key}: {err:?}")))
-}
-
-pub(crate) fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(default);
-    }
-    let num = val
-        .as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be an integer number")))?;
-    parse_non_negative_usize(num, key)
-}
-
-pub(crate) fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(None);
-    }
-    let num = val
-        .as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be an integer number")))?;
-    parse_non_negative_usize(num, key).map(Some)
-}
-
-pub(crate) fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(default);
-    }
-    val.as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
-}
-
-pub(crate) fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(None);
-    }
-    val.as_f64()
-        .map(Some)
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
-}
-
-pub(crate) fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(default);
-    }
-    val.as_bool()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
-}
-
-pub(crate) fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(None);
-    }
-    val.as_string()
-        .map(Some)
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a string")))
-}
-
-pub(crate) fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsError> {
-    let val = get_prop(obj, "seed")?;
-    if val.is_undefined() || val.is_null() {
-        return parse_seed_u64(None);
-    }
-    let num = val
-        .as_f64()
-        .ok_or_else(|| JsError::new("options.seed must be a non-negative safe integer"))?;
-    parse_seed_u64(Some(num))
-}
-
-pub(crate) fn reject_extra_args_with_options(has_extra: bool) -> Result<(), JsError> {
-    if has_extra {
-        return Err(JsError::new(
-            "unexpected trailing positional argument when passing an options object",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_layout_for_solver(
@@ -1884,89 +1765,6 @@ fn default_inv_sq_weights_f32(dists: &[f32]) -> Vec<f32> {
             }
         })
         .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn parse_dog_config_from_options_or_args(
-    maybe_options: &JsValue,
-    seed: u64,
-    degree: Option<f64>,
-    num_landmarks: Option<f64>,
-    degree_normalize: Option<bool>,
-    p_exp: Option<f64>,
-    eps_psd: Option<f64>,
-    t_coarse: Option<f64>,
-    t1: Option<f64>,
-    t2: Option<f64>,
-    alpha: Option<f64>,
-    beta_floor: Option<f64>,
-    min_degree: Option<f64>,
-    jl_dim: Option<f64>,
-) -> Result<DogVaradhanConfig, JsError> {
-    let mut cfg = DogVaradhanConfig {
-        seed,
-        ..DogVaradhanConfig::default()
-    };
-    if is_plain_js_object(maybe_options) {
-        let deg_primary = opt_maybe_usize_prop(maybe_options, "degree")?;
-        let deg_alt = opt_maybe_usize_prop(maybe_options, "dogDegree")?;
-        cfg.degree = deg_primary.or(deg_alt);
-
-        let lm_primary = opt_maybe_usize_prop(maybe_options, "numLandmarks")?;
-        let lm_alt = opt_maybe_usize_prop(maybe_options, "dogNumLandmarks")?;
-        cfg.n_landmarks = lm_primary.or(lm_alt).unwrap_or(cfg.n_landmarks);
-
-        cfg.min_degree = opt_usize_prop(maybe_options, "minDegree", cfg.min_degree)?;
-        cfg.jl_dim = opt_usize_prop(maybe_options, "jlDim", cfg.jl_dim)?;
-
-        let dn_val = get_prop(maybe_options, "degreeNormalize")?;
-        let dn_alt = get_prop(maybe_options, "dogDegreeNormalize")?;
-        if !dn_val.is_undefined() && !dn_val.is_null() {
-            cfg.degree_normalize = dn_val
-                .as_bool()
-                .ok_or_else(|| JsError::new("options.degreeNormalize must be a boolean"))?;
-        } else if !dn_alt.is_undefined() && !dn_alt.is_null() {
-            cfg.degree_normalize = dn_alt
-                .as_bool()
-                .ok_or_else(|| JsError::new("options.dogDegreeNormalize must be a boolean"))?;
-        }
-
-        let p_primary = opt_maybe_f64_prop(maybe_options, "pExp")?;
-        let p_alt = opt_maybe_f64_prop(maybe_options, "dogPExp")?;
-        cfg.p_exp = p_primary.or(p_alt).unwrap_or(cfg.p_exp);
-
-        let psd_primary = opt_maybe_f64_prop(maybe_options, "epsPsd")?;
-        let psd_alt = opt_maybe_f64_prop(maybe_options, "dogEpsPsd")?;
-        cfg.eps_psd = psd_primary.or(psd_alt).unwrap_or(cfg.eps_psd);
-
-        let tc_primary = opt_maybe_f64_prop(maybe_options, "tCoarse")?;
-        let tc_alt = opt_maybe_f64_prop(maybe_options, "dogTCoarse")?;
-        cfg.t_coarse = tc_primary.or(tc_alt).unwrap_or(cfg.t_coarse);
-
-        cfg.t1 = opt_maybe_f64_prop(maybe_options, "t1")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogT1")?);
-        cfg.t2 = opt_maybe_f64_prop(maybe_options, "t2")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogT2")?);
-        cfg.alpha = opt_maybe_f64_prop(maybe_options, "alpha")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogAlpha")?);
-        cfg.beta_floor = opt_maybe_f64_prop(maybe_options, "betaFloor")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogBetaFloor")?);
-        return Ok(cfg);
-    }
-
-    cfg.degree = parse_opt_usize_param(degree, "degree")?;
-    cfg.n_landmarks = parse_optional_usize(num_landmarks, cfg.n_landmarks, "numLandmarks")?;
-    cfg.min_degree = parse_optional_usize(min_degree, cfg.min_degree, "minDegree")?;
-    cfg.jl_dim = parse_optional_usize(jl_dim, cfg.jl_dim, "jlDim")?;
-    cfg.degree_normalize = degree_normalize.unwrap_or(cfg.degree_normalize);
-    cfg.p_exp = p_exp.unwrap_or(cfg.p_exp);
-    cfg.eps_psd = eps_psd.unwrap_or(cfg.eps_psd);
-    cfg.t_coarse = t_coarse.unwrap_or(cfg.t_coarse);
-    cfg.t1 = t1;
-    cfg.t2 = t2;
-    cfg.alpha = alpha;
-    cfg.beta_floor = beta_floor;
-    Ok(cfg)
 }
 
 /// Cooperative SoA `u32` SGD solver supporting 3-tier sparse barrier, streaming negatives,

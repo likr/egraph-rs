@@ -22,17 +22,17 @@ use egraph::metrics::{
 };
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{
+    core_err_to_js, csr_f64_to_f32, ffi_err_to_js, parse_f64_sequence, parse_non_negative_usize,
     parse_optional_f64_sequence, parse_seed_u64, parse_u32_sequence,
 };
-use crate::v6_m3::{
-    get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
-    opt_string_prop, opt_usize_prop, run_layout_in_place, run_steps_layout_in_place,
-    solver_status_str, step_layout_in_place,
+use crate::js_options::{
+    check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
 };
-use crate::v6_m4::{check_options_arg, parse_f64_sequence};
-use crate::v6_m5::csr_f64_to_f32;
+use crate::layout_buffers::JsLayout2d;
+use crate::v6_m3::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
 fn set_js_prop(obj: &js_sys::Object, key: &str, val: &JsValue) -> Result<(), JsError> {
     js_sys::Reflect::set(obj, &JsValue::from_str(key), val)

@@ -36,14 +36,16 @@ use egraph::neighborhood::{
 };
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, JsLayoutNd, core_err_to_js, ffi_err_to_js, parse_non_negative_usize,
-    parse_seed_u64,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{
+    core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_opt_usize_param,
+    parse_optional_usize, parse_seed_u64,
 };
-use crate::v6_m3::{
+use crate::js_options::{
     get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
     opt_usize_prop, solver_status_str,
 };
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 
 const DEFAULT_NUM_PIVOTS: usize = 50;
 const DEFAULT_MIN_DEGREE: usize = 2;
@@ -69,24 +71,6 @@ const DEFAULT_VARADHAN_LANDMARKS: usize = 64;
 const DEFAULT_P_EXP: f64 = 0.5;
 const DEFAULT_T_COARSE: f64 = 48.0;
 const DEFAULT_SPARSE_MAX_2HOP: usize = 32;
-
-pub(crate) fn parse_optional_usize(
-    value: Option<f64>,
-    default: usize,
-    name: &str,
-) -> Result<usize, JsError> {
-    match value {
-        None => Ok(default),
-        Some(v) => parse_non_negative_usize(v, name),
-    }
-}
-
-pub(crate) fn parse_opt_usize_param(
-    value: Option<f64>,
-    name: &str,
-) -> Result<Option<usize>, JsError> {
-    value.map(|v| parse_non_negative_usize(v, name)).transpose()
-}
 
 fn parse_optional_target_std(value: &JsValue) -> Result<Option<f64>, JsError> {
     if value.is_undefined() {

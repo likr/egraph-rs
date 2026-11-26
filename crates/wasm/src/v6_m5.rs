@@ -19,44 +19,23 @@ use egraph::spatial::{
 };
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{
+    core_err_to_js, csr_f64_to_f32, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64,
 };
+use crate::js_options::{
+    check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, parse_pacmap_graph_config,
+    solver_status_str,
+};
+use crate::layout_buffers::JsLayout2d;
 use crate::v6_m2::JsDogVaradhanLandmarks;
 use crate::v6_m3::{
-    JsSgdSolver, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
-    opt_seed_prop, opt_string_prop, opt_usize_prop, run_layout_in_place, run_steps_layout_in_place,
-    solver_status_str, step_layout_in_place,
+    JsSgdSolver, run_layout_in_place, run_steps_layout_in_place, step_layout_in_place,
 };
-use crate::v6_m4::{check_options_arg, parse_pacmap_graph_config};
 
 const DEFAULT_JITTER_SCALE: f64 = 0.5;
 const DEFAULT_GAMMA_TETHER: f64 = 0.5;
-
-pub(crate) fn csr_f64_to_f32(graph: &CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
-    let weights_f32: Option<Vec<f32>> = graph
-        .weights()
-        .map(|ws| {
-            ws.iter()
-                .map(|&w| {
-                    let wf = w as f32;
-                    if !wf.is_finite() {
-                        return Err(JsError::new("coarsened edge weight overflowed f32"));
-                    }
-                    Ok(wf)
-                })
-                .collect::<Result<Vec<f32>, JsError>>()
-        })
-        .transpose()?;
-    CsrGraph::<f32>::from_csr(
-        graph.indptr(),
-        graph.indices(),
-        weights_f32.as_deref(),
-        graph.is_directed(),
-        false,
-    )
-    .map_err(core_err_to_js)
-}
 
 fn parse_coarse_edge_length_mode(raw: &str) -> Result<CoarseEdgeLengthMode, JsError> {
     match normalize_enum_token(raw).as_str() {

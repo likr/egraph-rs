@@ -13,15 +13,17 @@ use egraph::layout::{
 use egraph::linalg::{HdeConfig, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots};
 use wasm_bindgen::prelude::*;
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, JsLayoutNd, core_err_to_js, parse_non_negative_u32, parse_u32_sequence,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{core_err_to_js, parse_non_negative_u32, parse_u32_sequence};
+use crate::js_options::{
+    check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
+    solver_status_str,
 };
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 use crate::v6_m3::{
-    JsSgdSolver, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
-    opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, run_layout_in_place,
-    run_steps_layout_in_place, solver_status_str, step_layout_in_place,
+    JsSgdSolver, run_layout_in_place, run_steps_layout_in_place, step_layout_in_place,
 };
-use crate::v6_m4::check_options_arg;
 
 fn opt_maybe_u32_prop(obj: &JsValue, key: &str) -> Result<Option<u32>, JsError> {
     let val = get_prop(obj, key)?;

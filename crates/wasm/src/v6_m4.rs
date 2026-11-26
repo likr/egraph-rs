@@ -9,25 +9,29 @@
 use egraph::core::{CoreError, IterativeSolver};
 use egraph::layout::{
     ConstraintProjector, FdebConfig, FdebSolver, FieldLayoutSolver, FieldRepulsionBackend,
-    ForceAtlas2Config, ForceAtlas2Solver, IbUmapConfig, LayeringMethod, PacmapGraphConfig,
-    PrismConfig, PrismOverlapRemoval, SeparationConstraint, Sgd2Config, SgdSolver, SnapTFdpConfig,
-    TFdpConfig, YifanHuConfig, YifanHuSolver, assign_layers, cycle_edges,
-    generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
-    project_rectangle_no_overlap_2d, remove_cycles,
+    ForceAtlas2Config, ForceAtlas2Solver, IbUmapConfig, LayeringMethod, PrismConfig,
+    PrismOverlapRemoval, SeparationConstraint, Sgd2Config, SgdSolver, SnapTFdpConfig, TFdpConfig,
+    YifanHuConfig, YifanHuSolver, assign_layers, cycle_edges, generate_layered_constraints,
+    project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d, remove_cycles,
 };
 use egraph::neighborhood::{DogVaradhanConfig, KnnGraph};
 use wasm_bindgen::{JsCast, prelude::*};
 
-use crate::v6::{
-    JsCsrGraph, JsLayout2d, core_err_to_js, ffi_err_to_js, parse_non_negative_u32,
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{
+    core_err_to_js, ffi_err_to_js, parse_f64_sequence, parse_non_negative_u32,
     parse_non_negative_usize, parse_optional_f64_sequence, parse_u32_sequence,
 };
+use crate::js_options::{
+    check_options_arg, get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop,
+    opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
+    parse_dog_config_from_options_or_args, parse_ibfft_order, parse_pacmap_graph_config,
+    reject_extra_args_with_options, solver_status_str,
+};
+use crate::layout_buffers::JsLayout2d;
 use crate::v6_m2::{JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities};
 use crate::v6_m3::{
-    JsSgdSolver, get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
-    opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
-    parse_dog_config_from_options_or_args, parse_ibfft_order, reject_extra_args_with_options,
-    run_layout_in_place, run_steps_layout_in_place, solver_status_str, step_layout_in_place,
+    JsSgdSolver, run_layout_in_place, run_steps_layout_in_place, step_layout_in_place,
 };
 
 const DEFAULT_IBUMAP_MAX_2HOP: usize = 30;
@@ -35,49 +39,6 @@ const DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP: usize = 32;
 const DEFAULT_IBUMAP_SIGMA_ITERS: usize = 64;
 const DEFAULT_IBUMAP_SIGMA_TOL: f64 = 1e-5;
 const DEFAULT_MIN_LAYER_DISTANCE: f32 = 1.0;
-
-pub(crate) fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, JsError> {
-    if options.is_undefined() || options.is_null() {
-        return Ok(false);
-    }
-    if is_plain_js_object(options) {
-        return Ok(true);
-    }
-    Err(JsError::new(&format!(
-        "{ctx}: options must be a plain object, null, or undefined"
-    )))
-}
-
-pub(crate) fn parse_f64_sequence(val: &JsValue, name: &str) -> Result<Vec<f64>, JsError> {
-    if let Some(arr) = val.dyn_ref::<js_sys::Float64Array>() {
-        return Ok(arr.to_vec());
-    }
-    if let Some(arr) = val.dyn_ref::<js_sys::Float32Array>() {
-        return Ok(arr.to_vec().into_iter().map(f64::from).collect());
-    }
-    if val.is_null() || val.is_undefined() || val.is_string() || !val.is_object() {
-        return Err(JsError::new(&format!(
-            "{name} must be a Float64Array, Float32Array, or numeric iterable"
-        )));
-    }
-    let iter = js_sys::try_iter(val)
-        .map_err(|err| JsError::new(&format!("failed to iterate {name}: {err:?}")))?
-        .ok_or_else(|| {
-            JsError::new(&format!(
-                "{name} must be a Float64Array, Float32Array, or numeric iterable"
-            ))
-        })?;
-    let mut out = Vec::new();
-    for item_res in iter {
-        let item =
-            item_res.map_err(|err| JsError::new(&format!("failed to read {name}: {err:?}")))?;
-        let num = item
-            .as_f64()
-            .ok_or_else(|| JsError::new(&format!("{name} entries must be numbers")))?;
-        out.push(num);
-    }
-    Ok(out)
-}
 
 fn parse_field_repulsion_backend(raw: &str) -> Result<FieldRepulsionBackend, JsError> {
     match normalize_enum_token(raw).as_str() {
@@ -594,28 +555,6 @@ pub(crate) fn sgd_snap_t_fdp(
     }
     let inner = SgdSolver::<f32>::snap_t_fdp(graph.inner(), cfg).map_err(core_err_to_js)?;
     Ok(JsSgdSolver::from_inner(inner))
-}
-
-pub(crate) fn parse_pacmap_graph_config(
-    options: &JsValue,
-    ctx: &str,
-) -> Result<PacmapGraphConfig, JsError> {
-    let mut cfg = PacmapGraphConfig::default();
-    if check_options_arg(options, ctx)? {
-        cfg.n_neighbors = opt_usize_prop(options, "nNeighbors", cfg.n_neighbors)?;
-        cfg.mn_ratio = opt_f64_prop(options, "mnRatio", cfg.mn_ratio)?;
-        cfg.fp_ratio = opt_f64_prop(options, "fpRatio", cfg.fp_ratio)?;
-        cfg.phase1_iters = opt_usize_prop(options, "phase1Iters", cfg.phase1_iters)?;
-        cfg.phase2_iters = opt_usize_prop(options, "phase2Iters", cfg.phase2_iters)?;
-        cfg.phase3_iters = opt_usize_prop(options, "phase3Iters", cfg.phase3_iters)?;
-        cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
-        cfg.keep_all_1hop = opt_bool_prop(options, "keepAll1hop", cfg.keep_all_1hop)?;
-        cfg.max_1hop_per_node = opt_maybe_usize_prop(options, "max1hopPerNode")?;
-        cfg.degree_weight_beta = opt_f64_prop(options, "degreeWeightBeta", cfg.degree_weight_beta)?;
-        cfg.num_landmarks = opt_usize_prop(options, "numLandmarks", cfg.num_landmarks)?;
-        cfg.seed = opt_seed_prop(options)?;
-    }
-    Ok(cfg)
 }
 
 pub(crate) fn sgd_pacmap_graph(
