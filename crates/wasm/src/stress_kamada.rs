@@ -1,6 +1,5 @@
 //! Cooperative `StressMajorizationSolver` and `KamadaKawaiSolver` (`f32`) WebAssembly bindings.
 
-use egraph::core::IterativeSolver;
 use egraph::layout::{
     KamadaKawaiConfig, KamadaKawaiSolver, StressMajorizationConfig, StressMajorizationSolver,
 };

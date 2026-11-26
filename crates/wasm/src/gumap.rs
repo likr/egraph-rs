@@ -1,6 +1,5 @@
 //! Cooperative Graph UMAP (`GuMap`) layout solver (`f32`) WebAssembly bindings.
 
-use egraph::core::IterativeSolver;
 use egraph::layout::{GuMapConfig, GuMapSolver};
 use wasm_bindgen::prelude::*;
 

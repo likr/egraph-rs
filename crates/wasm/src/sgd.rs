@@ -1,6 +1,6 @@
 //! Cooperative SoA `u32` `SgdSolver` (`f32`) core bindings and manifold execution methods.
 
-use egraph::core::{CoreError, IterativeSolver};
+use egraph::core::CoreError;
 use egraph::layout::{SgdScheduleConfig, SgdScheduleKind, SgdSolver, SparseBarrierStats};
 use egraph::neighborhood::DogVaradhanStats;
 use wasm_bindgen::prelude::*;

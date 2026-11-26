@@ -1,6 +1,5 @@
 //! Cooperative ForceAtlas2 and multilevel Yifan Hu WebAssembly bindings (`f32`).
 
-use egraph::core::IterativeSolver;
 use egraph::layout::{ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver};
 use wasm_bindgen::prelude::*;
 

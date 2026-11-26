@@ -1,6 +1,5 @@
 //! Cooperative unified `TsNetSolver` (`f32`) WebAssembly bindings.
 
-use egraph::core::IterativeSolver;
 use egraph::layout::TsNetSolver;
 use egraph::spatial::FitFieldStats;
 use wasm_bindgen::prelude::*;

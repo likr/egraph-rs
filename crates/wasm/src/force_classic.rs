@@ -1,7 +1,6 @@
 //! WebAssembly bindings for classic force-directed layout solvers (Noack LinLog and
 //! Fruchterman-Reingold; `f32`-backed layouts with `f64` internal solver math).
 
-use egraph::core::IterativeSolver;
 use egraph::layout::{
     FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver, LinLogConfig, LinLogRepulsion,
     LinLogSolver,
