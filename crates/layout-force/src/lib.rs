@@ -1,5 +1,25 @@
 //! Force-directed placement and edge bundling solvers for `egraph-rs`.
 
+pub mod continuous_fdp;
+pub mod fdeb;
+#[cfg(feature = "baselines")]
+pub mod fr;
+#[cfg(feature = "baselines")]
+pub mod gem;
+#[cfg(feature = "baselines")]
+pub mod linlog;
+
+pub use continuous_fdp::{
+    ContinuousFdp, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,
+};
+pub use fdeb::{FdebConfig, FdebSolver};
+#[cfg(feature = "baselines")]
+pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
+#[cfg(feature = "baselines")]
+pub use gem::{GemConfig, GemSolver};
+#[cfg(feature = "baselines")]
+pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
+
 /// Returns the crate version.
 pub fn crate_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
