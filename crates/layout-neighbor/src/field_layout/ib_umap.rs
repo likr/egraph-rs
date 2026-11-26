@@ -13,6 +13,9 @@ use super::config::{FieldRepulsionBackend, IbUmapConfig};
 use super::quadtree::FieldQuadtree;
 use super::solver::{FieldLayoutSolver, FieldSolverMode};
 
+/// Default per-node 2-hop cap used across 1+2-hop priority CSR builders (`32`).
+pub const DEFAULT_MAX_2HOP_PER_NODE: usize = 32;
+
 const DEFAULT_SIGMA_ITERS: usize = 64;
 const DEFAULT_SIGMA_TOL: f64 = 1e-5;
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
@@ -134,17 +137,17 @@ impl<S: Scalar> FieldLayoutSolver<S> {
     pub fn ib_umap_from_knn(
         knn: &KnnGraph,
         sigma_iters: usize,
-        sigma_tol: f64,
+        sigma_tolerance: f64,
         config: IbUmapConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
-        let probs = compute_fuzzy_simplicial_set(knn, sigma_iters, sigma_tol)?;
+        let probs = compute_fuzzy_simplicial_set(knn, sigma_iters, sigma_tolerance)?;
         Self::ib_umap_from_fuzzy_set(probs, None, config)
     }
 
     fn build_ib_umap_inner(
         n: usize,
-        indptr: Vec<usize>,
+        indptr: Vec<u32>,
         indices: Vec<u32>,
         edge_weights: Vec<f32>,
         degrees: Option<&[u32]>,
@@ -162,13 +165,13 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             for (i, eta_out) in hub_eta.iter_mut().enumerate() {
                 let deg_i = match degrees {
                     Some(deg) => deg[i],
-                    None => (indptr[i + 1] - indptr[i]) as u32,
+                    None => indptr[i + 1] - indptr[i],
                 };
                 *eta_out = 1.0 / (deg_i.max(1) as f64);
             }
         }
 
-        let total_iterations = config.n_epochs;
+        let total_iterations = config.iterations;
         let status = if total_iterations == 0 {
             SolverStatus::Completed
         } else {
@@ -194,11 +197,14 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             vel_y: Vec::new(),
             next_x: vec![0.0; n],
             next_y: vec![0.0; n],
+            scaled_x: Vec::new(),
+            scaled_y: Vec::new(),
             phi_1: vec![S::ZERO; buf_len],
             rep_x: vec![S::ZERO; n],
             rep_y: vec![S::ZERO; n],
             fft_ws: Fft2dWorkspace::new(),
             ibfft,
+            last_fft_stats: None,
             quadtree: ArenaQuadtree2d::new(),
             field_quadtree: FieldQuadtree::new(),
             rng: DeterministicRng::from_seed_u64(config.seed),

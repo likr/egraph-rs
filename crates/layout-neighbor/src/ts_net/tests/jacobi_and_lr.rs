@@ -11,9 +11,7 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
     let g = make_barbell_graph(3); // n = 6
     let cfg_small = TsNetConfig {
         backend: TsNetBackend::Exact,
-        iterations_stage1: 2,
-        iterations_stage2: 2,
-        iterations_stage3: 2,
+        stage_iterations: [2, 2, 2],
         lambda_c_stage1: 0.1,
         lambda_c_stage2: 0.01,
         lambda_c_stage3: 0.0,
@@ -39,9 +37,7 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
     let g30 = make_grid_graph(5, 6); // n = 30
     let cfg_30 = TsNetConfig {
         backend: TsNetBackend::Exact,
-        iterations_stage1: 2,
-        iterations_stage2: 2,
-        iterations_stage3: 2,
+        stage_iterations: [2, 2, 2],
         lambda_c_stage1: 0.1,
         lambda_c_stage2: 0.01,
         lambda_c_stage3: 0.0,
@@ -69,9 +65,7 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
     let g120 = make_grid_graph(10, 12); // n = 120
     let cfg_120 = TsNetConfig {
         backend: TsNetBackend::BarnesHut,
-        iterations_stage1: 2,
-        iterations_stage2: 2,
-        iterations_stage3: 2,
+        stage_iterations: [2, 2, 2],
         lambda_c_stage1: 0.1,
         lambda_c_stage2: 0.01,
         lambda_c_stage3: 0.0,
@@ -95,13 +89,11 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
 
 #[test]
 fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
-    // 1. Small-N Stage 3 with lambda_c == 0.0 and lambda_r == 0.0 is capped at 2 * N.
+    // 1. Small-N Stage 3 with lambda_c == 0.0 and lambda_r == 0.0 resolves to max(10.0, N / 3.0) = 10.0 (<= 2 * N = 12.0).
     let g6 = make_barbell_graph(3); // N = 6
     let cfg_s3 = TsNetConfig {
         backend: TsNetBackend::Exact,
-        iterations_stage1: 0,
-        iterations_stage2: 0,
-        iterations_stage3: 2,
+        stage_iterations: [0, 0, 2],
         lambda_c_stage3: 0.0,
         lambda_r_stage3: 0.0,
         learning_rate: None,
@@ -110,7 +102,7 @@ fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
     let mut solver6 = TsNetSolver::<f64>::from_graph_pure_2hop(&g6, cfg_s3).unwrap();
     let mut l6 = seeded_layout::<f64>(6, 0.5, 13);
     solver6.step(&mut l6).unwrap();
-    assert!((solver6.current_stage_lr() - 12.0).abs() < 1e-12);
+    assert!((solver6.current_stage_lr() - 10.0).abs() < 1e-12);
     assert!(l6.is_all_finite());
 
     // 2. Large-N Stage 3 (N = 3000) resolves to N/3 = 1000.0 and is never clipped by 2 * N.
@@ -150,16 +142,22 @@ fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
         lambda_r: 0.0,
     };
     let lr99 = cfg_auto.resolve_learning_rate(99);
-    assert!((lr99 - 200.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage1_c, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage2_c, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage3_no_r, 99, lr99, cfg_auto.momentum) - 198.0).abs() < 1e-12);
+    assert!((lr99 - 33.0).abs() < 1e-12);
+    assert!((compute_stage_lr(&stage1_c, 99, lr99, cfg_auto.momentum) - 33.0).abs() < 1e-12);
+    assert!((compute_stage_lr(&stage2_c, 99, lr99, cfg_auto.momentum) - 33.0).abs() < 1e-12);
+    assert!((compute_stage_lr(&stage3_no_r, 99, lr99, cfg_auto.momentum) - 33.0).abs() < 1e-12);
 
     let lr100 = cfg_auto.resolve_learning_rate(100);
-    assert!((lr100 - 200.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage1_c, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage2_c, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12);
-    assert!((compute_stage_lr(&stage3_no_r, 100, lr100, cfg_auto.momentum) - 200.0).abs() < 1e-12);
+    assert!((lr100 - 100.0 / 3.0).abs() < 1e-12);
+    assert!(
+        (compute_stage_lr(&stage1_c, 100, lr100, cfg_auto.momentum) - 100.0 / 3.0).abs() < 1e-12
+    );
+    assert!(
+        (compute_stage_lr(&stage2_c, 100, lr100, cfg_auto.momentum) - 100.0 / 3.0).abs() < 1e-12
+    );
+    assert!(
+        (compute_stage_lr(&stage3_no_r, 100, lr100, cfg_auto.momentum) - 100.0 / 3.0).abs() < 1e-12
+    );
     // With explicit larger learning_rate=500.0 at n=100, Stage 1/2 use 500.0 (not capped at 200.0).
     assert!((compute_stage_lr(&stage1_c, 100, 500.0, cfg_auto.momentum) - 500.0).abs() < 1e-12);
     assert!((compute_stage_lr(&stage2_c, 100, 500.0, cfg_auto.momentum) - 500.0).abs() < 1e-12);
@@ -247,9 +245,7 @@ fn test_jacobi_precondition_weights_regular_isolated_and_hub() {
     let cfg_off = TsNetConfig {
         backend: TsNetBackend::Exact,
         jacobi_precondition: false,
-        iterations_stage1: 6,
-        iterations_stage2: 4,
-        iterations_stage3: 4,
+        stage_iterations: [6, 4, 4],
         ..TsNetConfig::pure_2hop()
     };
     let mut s64_run =
@@ -321,9 +317,7 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
     let cfg_off = TsNetConfig {
         backend: TsNetBackend::FftInterpolation,
         jacobi_precondition: false,
-        iterations_stage1: 10,
-        iterations_stage2: 0,
-        iterations_stage3: 0,
+        stage_iterations: [10, 0, 0],
         ..TsNetConfig::pure_2hop()
     };
     let mut s_off =

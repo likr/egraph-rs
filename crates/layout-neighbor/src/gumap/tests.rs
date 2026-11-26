@@ -53,7 +53,7 @@ fn seeded_layout<S: Scalar>(n: usize, scale: f64, seed: u64) -> Layout2d<S> {
 #[test]
 fn test_gumap_config_defaults_ab_and_validation() {
     let cfg = GuMapConfig::default();
-    assert_eq!(cfg.n_epochs, 200);
+    assert_eq!(cfg.iterations, 200);
     assert_eq!(cfg.negative_sample_rate, 5);
     assert_eq!(cfg.learning_rate, 1.0);
     assert_eq!(cfg.min_dist, 0.1);
@@ -109,14 +109,14 @@ fn test_gumap_config_defaults_ab_and_validation() {
 fn test_gumap_step_vs_run_bit_exact_f64_and_f32() {
     let grid = grid_graph(4, 4);
     let cfg = GuMapConfig {
-        n_epochs: 25,
+        iterations: 25,
         seed: 99,
         ..Default::default()
     };
     let dog_cfg = DogVaradhanConfig::default();
 
-    // f64 bit-exact parity
-    let mut s_run = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+    // f64 bit-exact parity (and `GuMapSolver::new` parity)
+    let mut s_run = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
     let mut s_step = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
     let mut l_run = seeded_layout::<f64>(grid.num_nodes(), 1.0, 17);
     let mut l_step = l_run.clone();
@@ -161,7 +161,7 @@ fn test_gumap_step_vs_run_bit_exact_f64_and_f32() {
 fn test_gumap_dist_sq_powf_b_and_dog_separates_barbell_clusters() {
     let barbell = barbell_graph(6);
     let cfg = GuMapConfig {
-        n_epochs: 150,
+        iterations: 150,
         negative_sample_rate: 5,
         learning_rate: 1.0,
         seed: 42,
@@ -172,6 +172,8 @@ fn test_gumap_dist_sq_powf_b_and_dog_separates_barbell_clusters() {
     assert!(solver.num_edges() > 0);
     let (a, b) = solver.ab();
     assert!(a > 0.0 && b > 0.0);
+    assert_eq!(solver.a(), a);
+    assert_eq!(solver.b(), b);
 
     // Also test starting from all-zeros layout (triggers deterministic spread init).
     let mut layout = Layout2d::<f64>::zeros(barbell.num_nodes());
@@ -220,7 +222,10 @@ fn test_gumap_edge_cases_and_validation_errors() {
 
     // Zero epochs completes immediately
     let grid = grid_graph(3, 3);
-    let cfg_zero = GuMapConfig { n_epochs: 0, ..cfg };
+    let cfg_zero = GuMapConfig {
+        iterations: 0,
+        ..cfg
+    };
     let s_zero =
         GuMapSolver::<f64>::from_graph_dog(&grid, 16, &DogVaradhanConfig::default(), cfg_zero)
             .unwrap();
@@ -285,7 +290,7 @@ fn test_gumap_from_landmarks_bit_exact_and_validation() {
     let n = grid.num_nodes();
     let dog_cfg = DogVaradhanConfig::default();
     let cfg = GuMapConfig {
-        n_epochs: 20,
+        iterations: 20,
         seed: 55,
         ..Default::default()
     };
@@ -347,7 +352,7 @@ fn test_gumap_symmetric_negative_updates_both_endpoints_and_step_parity() {
     let init = Layout2d::from_xy(vec![0.0, 1.0, 0.25], vec![0.0, 0.0, 0.25]).unwrap();
 
     let cfg_sym = GuMapConfig {
-        n_epochs: 1,
+        iterations: 1,
         negative_sample_rate: 20,
         learning_rate: 1.0,
         symmetric_negative: true,
@@ -380,7 +385,7 @@ fn test_gumap_symmetric_negative_updates_both_endpoints_and_step_parity() {
     let dog_cfg = DogVaradhanConfig::default();
     for sym in [true, false] {
         let cfg = GuMapConfig {
-            n_epochs: 15,
+            iterations: 15,
             symmetric_negative: sym,
             seed: 77,
             ..Default::default()

@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CoreResult};
 use egraph_neighborhood::find_ab_params;
-use egraph_spatial_fft::IbFftConfig;
+use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
 /// Repulsion approximation backend used by [`FieldLayoutSolver`](super::FieldLayoutSolver).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -92,7 +92,7 @@ pub struct TFdpConfig {
     /// Repulsion evaluation backend (`IbFft` by default).
     pub backend: FieldRepulsionBackend,
     /// Total optimization steps (`default: 200`).
-    pub total_iterations: usize,
+    pub iterations: usize,
     /// Base gradient descent learning rate (`default: 1.0`).
     pub learning_rate: f64,
     /// Velocity momentum coefficient in `[0.0, 1.0)` (`default: 0.8`).
@@ -103,7 +103,7 @@ pub struct TFdpConfig {
     pub alpha: f64,
     /// Repulsive kernel exponent $\gamma > 0$ in $(1 + d^2)^{-\gamma}$ (`default: 1.0`).
     pub gamma: f64,
-    /// Dynamic repulsion schedule $\rho(t)$ across `0..total_iterations`.
+    /// Dynamic repulsion schedule $\rho(t)$ across `0..iterations`.
     pub rho: RhoSchedule,
     /// Interpolation-based 2D FFT grid configuration.
     pub ibfft: IbFftConfig,
@@ -115,7 +115,7 @@ impl Default for TFdpConfig {
     fn default() -> Self {
         Self {
             backend: FieldRepulsionBackend::IbFft,
-            total_iterations: 200,
+            iterations: 200,
             learning_rate: 1.0,
             momentum: 0.8,
             theta: 0.5,
@@ -179,6 +179,30 @@ impl TFdpConfig {
         self.rho.validate()?;
         self.ibfft.validate()
     }
+
+    /// Returns the configured FFT interpolation order (`ibfft.order`).
+    #[inline]
+    pub fn interpolation_order(&self) -> InterpolationOrder {
+        self.ibfft.order
+    }
+
+    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
+    #[inline]
+    pub fn intervals(&self) -> usize {
+        self.ibfft.intervals
+    }
+
+    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
+    #[inline]
+    pub fn min_grid_dim(&self) -> usize {
+        self.ibfft.min_grid_dim
+    }
+
+    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
+    #[inline]
+    pub fn max_grid_dim(&self) -> usize {
+        self.ibfft.max_grid_dim
+    }
 }
 
 /// Configuration for `ibUMAP` (interpolation-based batch Graph UMAP).
@@ -186,8 +210,8 @@ impl TFdpConfig {
 pub struct IbUmapConfig {
     /// Repulsion evaluation backend (`IbFft` by default).
     pub backend: FieldRepulsionBackend,
-    /// Total optimization epochs (`default: 200`).
-    pub n_epochs: usize,
+    /// Total optimization iterations (`default: 200`).
+    pub iterations: usize,
     /// Initial learning rate $\alpha_0$ (`default: 1.0`).
     pub learning_rate: f64,
     /// Target minimum separation in the 2D embedding (`default: 0.1`).
@@ -216,7 +240,7 @@ impl Default for IbUmapConfig {
     fn default() -> Self {
         Self {
             backend: FieldRepulsionBackend::IbFft,
-            n_epochs: 200,
+            iterations: 200,
             learning_rate: 1.0,
             min_dist: 0.1,
             spread: 1.0,
@@ -329,5 +353,29 @@ impl IbUmapConfig {
             )));
         }
         self.ibfft.validate()
+    }
+
+    /// Returns the configured FFT interpolation order (`ibfft.order`).
+    #[inline]
+    pub fn interpolation_order(&self) -> InterpolationOrder {
+        self.ibfft.order
+    }
+
+    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
+    #[inline]
+    pub fn intervals(&self) -> usize {
+        self.ibfft.intervals
+    }
+
+    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
+    #[inline]
+    pub fn min_grid_dim(&self) -> usize {
+        self.ibfft.min_grid_dim
+    }
+
+    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
+    #[inline]
+    pub fn max_grid_dim(&self) -> usize {
+        self.ibfft.max_grid_dim
     }
 }

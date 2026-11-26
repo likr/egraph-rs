@@ -15,7 +15,7 @@ fn test_ib_umap_step_vs_run_bit_exact_f64_and_f32_all_backends() {
     ] {
         let cfg = IbUmapConfig {
             backend,
-            n_epochs: 20,
+            iterations: 20,
             seed: 55,
             ..Default::default()
         };
@@ -65,7 +65,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
         &dog_cfg,
         IbUmapConfig {
             backend: FieldRepulsionBackend::Exact,
-            n_epochs: 25,
+            iterations: 25,
             ..Default::default()
         },
     )
@@ -76,7 +76,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
         &dog_cfg,
         IbUmapConfig {
             backend: FieldRepulsionBackend::IbFft,
-            n_epochs: 25,
+            iterations: 25,
             ..Default::default()
         },
     )
@@ -87,7 +87,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
         &dog_cfg,
         IbUmapConfig {
             backend: FieldRepulsionBackend::BarnesHut,
-            n_epochs: 25,
+            iterations: 25,
             theta: 0.0,
             ..Default::default()
         },
@@ -114,7 +114,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
         32,
         &dog_cfg,
         IbUmapConfig {
-            n_epochs: 150,
+            iterations: 150,
             ..Default::default()
         },
     )
@@ -153,7 +153,7 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
             p.push(0);
             p.push(24);
             for i in 1..star.num_nodes() {
-                p.push(24 + i);
+                p.push((24 + i) as u32);
             }
             p
         },
@@ -179,7 +179,7 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
 
     let cfg_damped = IbUmapConfig {
         backend: FieldRepulsionBackend::Exact,
-        n_epochs: 10,
+        iterations: 10,
         learning_rate: 1.0,
         tau_scale: 4.0,
         hub_damping: true,

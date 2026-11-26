@@ -4,8 +4,8 @@ use egraph_neighborhood::find_ab_params;
 /// Hyperparameters for [`GuMapSolver`](super::GuMapSolver).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GuMapConfig {
-    /// Total number of optimization epochs (`default: 200`).
-    pub n_epochs: usize,
+    /// Total number of optimization iterations (`default: 200`).
+    pub iterations: usize,
     /// Number of negative samples drawn per attractive edge (`default: 5`).
     pub negative_sample_rate: usize,
     /// Initial SGD learning rate (`default: 1.0`).
@@ -31,7 +31,7 @@ pub struct GuMapConfig {
 impl Default for GuMapConfig {
     fn default() -> Self {
         Self {
-            n_epochs: 200,
+            iterations: 200,
             negative_sample_rate: 5,
             learning_rate: 1.0,
             min_dist: 0.1,

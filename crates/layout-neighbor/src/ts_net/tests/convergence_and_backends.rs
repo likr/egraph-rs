@@ -20,9 +20,7 @@ fn test_step_vs_run_bit_exact_f64_and_f32() {
     ] {
         let cfg = TsNetConfig {
             backend,
-            iterations_stage1: 8,
-            iterations_stage2: 8,
-            iterations_stage3: 8,
+            stage_iterations: [8, 8, 8],
             lambda_r_stage3: 0.6,
             ..TsNetConfig::pure_2hop()
         };
@@ -89,9 +87,7 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
         let cfg_small = TsNetConfig {
             backend,
             learning_rate: Some(15.0),
-            iterations_stage1: 80,
-            iterations_stage2: 80,
-            iterations_stage3: 100,
+            stage_iterations: [80, 80, 100],
             lambda_r_stage3: 0.4,
             ..TsNetConfig::pure_2hop()
         };
@@ -139,9 +135,7 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
         let cfg_classic = TsNetConfig {
             backend,
             learning_rate: Some(50.0),
-            iterations_stage1: 40,
-            iterations_stage2: 60,
-            iterations_stage3: 40,
+            stage_iterations: [40, 60, 40],
             lambda_c_stage2: 1.2,
             lambda_c_stage3: 0.01,
             lambda_r_stage3: 0.6,
@@ -230,9 +224,7 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
         let cfg_pre = TsNetConfig {
             backend,
             learning_rate: Some(15.0),
-            iterations_stage1: 40,
-            iterations_stage2: 40,
-            iterations_stage3: 0,
+            stage_iterations: [40, 40, 0],
             ..TsNetConfig::pure_2hop()
         };
         let mut post_stage2 = seeded_layout::<f64>(grid.num_nodes(), 0.5, 99);
@@ -244,9 +236,7 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
         let cfg_no_rep = TsNetConfig {
             backend,
             learning_rate: Some(15.0),
-            iterations_stage1: 0,
-            iterations_stage2: 0,
-            iterations_stage3: 40,
+            stage_iterations: [0, 0, 40],
             lambda_c_stage3: 0.01,
             lambda_r_stage3: 0.0,
             ..TsNetConfig::pure_2hop()
@@ -287,9 +277,7 @@ fn test_fit_field_fft_call_counts_and_linear_fft_forces_bilinear() {
     ] {
         let cfg = TsNetConfig {
             backend,
-            iterations_stage1: 2,
-            iterations_stage2: 1,
-            iterations_stage3: 2,
+            stage_iterations: [2, 1, 2],
             lambda_r_stage3: 0.6,
             ibfft: IbFftConfig {
                 order: InterpolationOrder::Cubic,
@@ -336,9 +324,7 @@ fn test_fit_field_fft_call_counts_and_linear_fft_forces_bilinear() {
     for backend in [TsNetBackend::Exact, TsNetBackend::BarnesHut] {
         let cfg = TsNetConfig {
             backend,
-            iterations_stage1: 2,
-            iterations_stage2: 0,
-            iterations_stage3: 0,
+            stage_iterations: [2, 0, 0],
             ..TsNetConfig::pure_2hop()
         };
         let mut solver = TsNetSolver::<f64>::from_graph_pure_2hop(&grid, cfg).unwrap();

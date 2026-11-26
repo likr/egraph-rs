@@ -17,7 +17,7 @@ fn test_t_fdp_step_vs_run_bit_exact_f64_and_f32_all_backends() {
     ] {
         let cfg = TFdpConfig {
             backend,
-            total_iterations: 20,
+            iterations: 20,
             seed: 77,
             ..Default::default()
         };
@@ -78,7 +78,7 @@ fn test_t_fdp_ibfft_vs_exact_and_barnes_hut_consistency() {
             &barbell,
             TFdpConfig {
                 backend: FieldRepulsionBackend::Exact,
-                total_iterations: 15,
+                iterations: 15,
                 gamma,
                 ..Default::default()
             },
@@ -88,7 +88,7 @@ fn test_t_fdp_ibfft_vs_exact_and_barnes_hut_consistency() {
             &barbell,
             TFdpConfig {
                 backend: FieldRepulsionBackend::IbFft,
-                total_iterations: 15,
+                iterations: 15,
                 gamma,
                 ..Default::default()
             },
@@ -98,7 +98,7 @@ fn test_t_fdp_ibfft_vs_exact_and_barnes_hut_consistency() {
             &barbell,
             TFdpConfig {
                 backend: FieldRepulsionBackend::BarnesHut,
-                total_iterations: 15,
+                iterations: 15,
                 theta: 0.0,
                 gamma,
                 ..Default::default()
@@ -135,7 +135,7 @@ fn test_t_fdp_and_ib_umap_from_knn_and_t_fdp_separates_barbell() {
     let mut s_fdp = FieldLayoutSolver::<f64>::t_fdp(
         &barbell,
         TFdpConfig {
-            total_iterations: 150,
+            iterations: 150,
             ..Default::default()
         },
     )
@@ -170,7 +170,7 @@ fn test_t_fdp_and_ib_umap_from_knn_and_t_fdp_separates_barbell() {
     let mut s_knn_fdp = FieldLayoutSolver::<f64>::t_fdp_from_knn(
         &knn,
         TFdpConfig {
-            total_iterations: 30,
+            iterations: 30,
             ..Default::default()
         },
     )
@@ -184,7 +184,7 @@ fn test_t_fdp_and_ib_umap_from_knn_and_t_fdp_separates_barbell() {
         64,
         1e-5,
         IbUmapConfig {
-            n_epochs: 30,
+            iterations: 30,
             ..Default::default()
         },
     )
@@ -213,7 +213,7 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
         &dir_graph,
         TFdpConfig {
             backend: FieldRepulsionBackend::IbFft,
-            total_iterations: 20,
+            iterations: 20,
             alpha: 2.0,
             gamma: 1.0,
             ..Default::default()
@@ -221,8 +221,13 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     )
     .unwrap();
     assert!(s_fdp.ab().is_none());
+    assert!(s_fdp.a().is_none());
+    assert!(s_fdp.b().is_none());
     let mut l_fdp = seeded_layout::<f64>(24, 2.0, 11);
     s_fdp.step(&mut l_fdp).unwrap();
+    let stats = s_fdp.last_fft_stats().unwrap();
+    assert!(stats.total_fft_2d_calls > 0);
+    assert!(stats.nx < 512 && stats.ny < 512);
 
     // Warmed-up solver buffers must retain capacities with zero reallocations on subsequent steps.
     let attr_cap = s_fdp.attr_x.capacity();
@@ -238,13 +243,43 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     assert_eq!(s_fdp.phi_1.capacity(), phi_cap);
     assert!(l_fdp.is_all_finite());
 
+    // Span guard prevents 512x512 FFT blowup on huge coordinate spans and matches Exact forces.
+    let mut wide_layout = seeded_layout::<f64>(24, 5000.0, 17);
+    let mut wide_exact = wide_layout.clone();
+    let mut s_wide_fft = FieldLayoutSolver::<f64>::t_fdp(
+        &dir_graph,
+        TFdpConfig {
+            backend: FieldRepulsionBackend::IbFft,
+            iterations: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut s_wide_exact = FieldLayoutSolver::<f64>::t_fdp(
+        &dir_graph,
+        TFdpConfig {
+            backend: FieldRepulsionBackend::Exact,
+            iterations: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    s_wide_fft.run(&mut wide_layout).unwrap();
+    s_wide_exact.run(&mut wide_exact).unwrap();
+    let wide_stats = s_wide_fft.last_fft_stats().unwrap();
+    assert!(
+        wide_stats.nx < 512 && wide_stats.ny < 512,
+        "span guard failed to prevent 512 grid blowup: {wide_stats:?}"
+    );
+    assert!(wide_layout.is_all_finite());
+
     let mut s_umap = FieldLayoutSolver::<f64>::ib_umap(
         &dir_graph,
         16,
         &DogVaradhanConfig::default(),
         IbUmapConfig {
             backend: FieldRepulsionBackend::BarnesHut,
-            n_epochs: 15,
+            iterations: 15,
             a: Some(1.6),
             b: Some(0.9),
             ..Default::default()
@@ -252,6 +287,8 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     )
     .unwrap();
     assert_eq!(s_umap.ab(), Some((1.6, 0.9)));
+    assert_eq!(s_umap.a(), Some(1.6));
+    assert_eq!(s_umap.b(), Some(0.9));
     let mut l_umap = seeded_layout::<f64>(24, 2.0, 11);
     s_umap.step(&mut l_umap).unwrap();
     let qt_node_cap = s_umap.field_quadtree.nodes.capacity();

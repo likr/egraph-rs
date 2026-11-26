@@ -29,7 +29,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             }
         }
 
-        let (indptr, indices, edge_weights) = extract_symmetric_csr_edges(graph);
+        let (indptr, indices, edge_weights) = extract_symmetric_csr_edges(graph)?;
         Self::build_t_fdp_inner(n, indptr, indices, edge_weights, config)
     }
 
@@ -67,13 +67,13 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             }
         }
 
-        let (indptr, indices, edge_weights) = symmetrize_pair_list(n, pairs);
+        let (indptr, indices, edge_weights) = symmetrize_pair_list(n, pairs)?;
         Self::build_t_fdp_inner(n, indptr, indices, edge_weights, config)
     }
 
     fn build_t_fdp_inner(
         n: usize,
-        indptr: Vec<usize>,
+        indptr: Vec<u32>,
         indices: Vec<u32>,
         edge_weights: Vec<f32>,
         config: TFdpConfig,
@@ -83,7 +83,7 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         } else {
             None
         };
-        let total_iterations = config.total_iterations;
+        let total_iterations = config.iterations;
         let status = if total_iterations == 0 {
             SolverStatus::Completed
         } else {
@@ -120,11 +120,14 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             vel_y: vec![0.0; n],
             next_x: vec![0.0; n],
             next_y: vec![0.0; n],
+            scaled_x: vec![S::ZERO; buf_len],
+            scaled_y: vec![S::ZERO; buf_len],
             phi_1: vec![S::ZERO; buf_len],
             rep_x: vec![S::ZERO; n],
             rep_y: vec![S::ZERO; n],
             fft_ws: Fft2dWorkspace::new(),
             ibfft,
+            last_fft_stats: None,
             quadtree: ArenaQuadtree2d::new(),
             field_quadtree: FieldQuadtree::new(),
             rng: DeterministicRng::from_seed_u64(config.seed),
@@ -135,10 +138,12 @@ impl<S: Scalar> FieldLayoutSolver<S> {
     }
 }
 
-fn extract_symmetric_csr_edges<W: Scalar>(graph: &CsrGraph<W>) -> (Vec<usize>, Vec<u32>, Vec<f32>) {
+fn extract_symmetric_csr_edges<W: Scalar>(
+    graph: &CsrGraph<W>,
+) -> CoreResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
     let n = graph.num_nodes();
     if n == 0 {
-        return (vec![0], Vec::new(), Vec::new());
+        return Ok((vec![0], Vec::new(), Vec::new()));
     }
     let mut pairs: Vec<(u32, u32, f32)> = Vec::with_capacity(if graph.is_directed() {
         graph.nnz() * 2
@@ -171,9 +176,9 @@ fn extract_symmetric_csr_edges<W: Scalar>(graph: &CsrGraph<W>) -> (Vec<usize>, V
 fn symmetrize_pair_list(
     n: usize,
     mut pairs: Vec<(u32, u32, f32)>,
-) -> (Vec<usize>, Vec<u32>, Vec<f32>) {
+) -> CoreResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
     if pairs.is_empty() {
-        return (vec![0; n + 1], Vec::new(), Vec::new());
+        return Ok((vec![0; n + 1], Vec::new(), Vec::new()));
     }
     pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
@@ -201,14 +206,16 @@ fn symmetrize_pair_list(
     pairs.truncate(write_idx);
 
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0);
+    indptr.push(0u32);
     let mut total = 0usize;
     for &d in &deg {
         total += d;
-        indptr.push(total);
+        let ptr = u32::try_from(total)
+            .map_err(|_| CoreError::invalid_csr("FieldLayoutSolver edge nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
     drop(deg);
-    let mut cursor = indptr[..n].to_vec();
+    let mut cursor: Vec<usize> = indptr[..n].iter().map(|&p| p as usize).collect();
     let mut indices = vec![0u32; total];
     let mut weights = vec![0.0_f32; total];
     for (u, v, w) in pairs {
@@ -217,5 +224,5 @@ fn symmetrize_pair_list(
         weights[p] = w;
         cursor[u as usize] += 1;
     }
-    (indptr, indices, weights)
+    Ok((indptr, indices, weights))
 }

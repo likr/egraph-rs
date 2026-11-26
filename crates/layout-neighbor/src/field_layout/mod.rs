@@ -11,4 +11,5 @@ mod t_fdp;
 mod tests;
 
 pub use config::{FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig};
-pub use solver::{FieldLayout, FieldLayoutSolver};
+pub use ib_umap::DEFAULT_MAX_2HOP_PER_NODE;
+pub use solver::{FieldFftStats, FieldLayout, FieldLayoutSolver};

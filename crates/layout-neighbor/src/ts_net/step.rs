@@ -26,7 +26,7 @@ impl<S: Scalar> TsNetSolver<S> {
 
         let need_entropy = stage.lambda_r > 0.0;
         if matches!(
-            self.config.backend,
+            self.resolved_backend,
             TsNetBackend::FftInterpolation | TsNetBackend::LinearFft
         ) {
             let needs_rebuild = match &self.fit_field {
@@ -35,7 +35,7 @@ impl<S: Scalar> TsNetSolver<S> {
             };
             if needs_rebuild {
                 self.fit_field = Some(FitField2d::new(FitFieldConfig {
-                    ibfft: self.config.effective_ibfft(),
+                    ibfft: self.config.effective_ibfft_for(self.resolved_backend),
                     epsilon_r: self.config.epsilon_r,
                     compute_entropy: need_entropy,
                 })?);
@@ -51,8 +51,8 @@ impl<S: Scalar> TsNetSolver<S> {
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();
-            let start = self.indptr[i];
-            let end = self.indptr[i + 1];
+            let start = self.indptr[i] as usize;
+            let end = self.indptr[i + 1] as usize;
             let mut ax = 0.0_f64;
             let mut ay = 0.0_f64;
             for pos in start..end {
@@ -195,7 +195,7 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
 
         self.compute_attractions(layout.x(), layout.y(), stage.exaggeration);
 
-        match self.config.backend {
+        match self.resolved_backend {
             TsNetBackend::Exact => {
                 self.compute_exact_repulsion(layout.x(), layout.y(), compute_entropy);
             }
@@ -210,6 +210,11 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
                 self.last_fft_stats = Some(self.fit_out.stats);
                 self.total_fft_2d_calls += self.fit_out.stats.total_fft_2d_calls;
             }
+            TsNetBackend::Auto => {
+                return Err(CoreError::numerical_breakdown(
+                    "TsNetBackend::Auto was not resolved at construction",
+                ));
+            }
         }
 
         let n = self.num_nodes;
@@ -221,7 +226,7 @@ impl<S: Scalar> IterativeSolver<S> for TsNetSolver<S> {
         let use_jacobi = self.config.jacobi_precondition;
 
         let use_fft_buffers = matches!(
-            self.config.backend,
+            self.resolved_backend,
             TsNetBackend::FftInterpolation | TsNetBackend::LinearFft
         );
 

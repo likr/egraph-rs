@@ -1,8 +1,8 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, SolverStatus};
 use egraph_neighborhood::{
-    KnnGraph, SparseProbabilities, build_pure_2hop_knn, compute_knn_probabilities,
-    compute_nodewise_2hop_perplexities, graph_12hop_row_normalized_probabilities_with_degree_decay,
-    partial_bfs_knn,
+    KnnGraph, SparseProbabilities, TwoHopSamplingMode, build_pure_2hop_knn,
+    compute_knn_probabilities, compute_nodewise_2hop_perplexities,
+    graph_12hop_row_normalized_probabilities_with_options, partial_bfs_knn,
 };
 use egraph_spatial_fft::{FitField2d, FitFieldConfig, FitFieldOutput, FitFieldStats};
 use egraph_spatial_trees::ArenaQuadtree2d;
@@ -15,9 +15,10 @@ use super::config::{TsNetBackend, TsNetConfig, TsNetStage, compute_stage_lr};
 #[derive(Debug, Clone)]
 pub struct TsNetSolver<S: Scalar = f64> {
     pub(super) config: TsNetConfig,
+    pub(super) resolved_backend: TsNetBackend,
     pub(super) stages: Vec<TsNetStage>,
     pub(super) num_nodes: usize,
-    pub(super) indptr: Vec<usize>,
+    pub(super) indptr: Vec<u32>,
     pub(super) indices: Vec<u32>,
     pub(super) p_vals: Vec<f64>,
     pub(super) inv_jacobi: Vec<f64>,
@@ -45,6 +46,13 @@ pub struct TsNetSolver<S: Scalar = f64> {
 }
 
 impl<S: Scalar> TsNetSolver<S> {
+    /// Constructs a [`TsNetSolver`] directly from a [`CsrGraph`] using the Pure 1+2-Hop
+    /// adaptive perplexity preset (`TsNetConfig::pure_2hop()`).
+    #[inline]
+    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: TsNetConfig) -> CoreResult<Self> {
+        Self::from_graph_pure_2hop(graph, config)
+    }
+
     /// Constructs a [`TsNetSolver`] from precomputed sparse symmetric joint probabilities `probs`.
     pub fn from_probabilities(probs: SparseProbabilities, config: TsNetConfig) -> CoreResult<Self> {
         let stages = config.stages().to_vec();
@@ -77,15 +85,16 @@ impl<S: Scalar> TsNetSolver<S> {
             SolverStatus::Initialized
         };
 
+        let resolved_backend = config.resolve_backend(n);
         let mut fit_field = None;
         let mut fit_out = FitFieldOutput::new();
         if matches!(
-            config.backend,
+            resolved_backend,
             TsNetBackend::FftInterpolation | TsNetBackend::LinearFft
         ) {
             let init_entropy = first_active.is_some_and(|idx| stages[idx].lambda_r > 0.0);
             fit_field = Some(FitField2d::new(FitFieldConfig {
-                ibfft: config.effective_ibfft(),
+                ibfft: config.effective_ibfft_for(resolved_backend),
                 epsilon_r: config.epsilon_r,
                 compute_entropy: init_entropy,
             })?);
@@ -97,12 +106,12 @@ impl<S: Scalar> TsNetSolver<S> {
             }
         }
 
-        let (rep_len, ent_len) = match config.backend {
+        let (rep_len, ent_len) = match resolved_backend {
             TsNetBackend::Exact | TsNetBackend::BarnesHut => {
                 let any_entropy = stages.iter().any(|s| s.iterations > 0 && s.lambda_r > 0.0);
                 (n, if any_entropy { n } else { 0 })
             }
-            TsNetBackend::FftInterpolation | TsNetBackend::LinearFft => (0, 0),
+            TsNetBackend::FftInterpolation | TsNetBackend::LinearFft | TsNetBackend::Auto => (0, 0),
         };
 
         let base_lr = config.resolve_learning_rate(n);
@@ -114,8 +123,8 @@ impl<S: Scalar> TsNetSolver<S> {
             let n_f64 = n as f64;
             let mut diag = vec![1.0_f64; n];
             for i in 0..n {
-                let start = probs.indptr[i];
-                let end = probs.indptr[i + 1];
+                let start = probs.indptr[i] as usize;
+                let end = probs.indptr[i + 1] as usize;
                 let mut row_sum = 0.0_f64;
                 for pos in start..end {
                     if probs.indices[pos] as usize != i {
@@ -134,6 +143,7 @@ impl<S: Scalar> TsNetSolver<S> {
 
         Ok(Self {
             config,
+            resolved_backend,
             stages,
             num_nodes: n,
             indptr: probs.indptr,
@@ -228,7 +238,8 @@ impl<S: Scalar> TsNetSolver<S> {
     }
 
     /// Constructs a [`TsNetSolver`] directly from a graph using row-normalized 1+2-hop
-    /// affinities with symmetric degree decay $(d_i d_j)^{-\mathrm{degree\_beta}}$.
+    /// affinities with symmetric degree decay $(d_i d_j)^{-\mathrm{degree\_beta}}$ and
+    /// [`TwoHopSamplingMode::TwoStepRandomWalk`].
     pub fn from_graph_row_normalized_with_degree_decay<W: Scalar>(
         graph: &CsrGraph<W>,
         w2: f64,
@@ -236,12 +247,37 @@ impl<S: Scalar> TsNetSolver<S> {
         degree_beta: f64,
         config: TsNetConfig,
     ) -> CoreResult<Self> {
-        config.validate()?;
-        let probs = graph_12hop_row_normalized_probabilities_with_degree_decay(
+        Self::from_graph_row_normalized_with_options(
             graph,
             w2,
             max_2hop_per_node,
             degree_beta,
+            TwoHopSamplingMode::TwoStepRandomWalk,
+            None,
+            config,
+        )
+    }
+
+    /// Constructs a [`TsNetSolver`] directly from a graph using row-normalized 1+2-hop
+    /// affinities with configurable [`TwoHopSamplingMode`], optional `max_bridge_degree`,
+    /// and symmetric degree decay $(d_i d_j)^{-\mathrm{degree\_beta}}$.
+    pub fn from_graph_row_normalized_with_options<W: Scalar>(
+        graph: &CsrGraph<W>,
+        w2: f64,
+        max_2hop_per_node: Option<usize>,
+        degree_beta: f64,
+        sampling_mode: TwoHopSamplingMode,
+        max_bridge_degree: Option<usize>,
+        config: TsNetConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let probs = graph_12hop_row_normalized_probabilities_with_options(
+            graph,
+            w2,
+            max_2hop_per_node,
+            degree_beta,
+            sampling_mode,
+            max_bridge_degree,
             config.seed,
         )?;
         Self::from_probabilities(probs, config)
@@ -291,6 +327,12 @@ impl<S: Scalar> TsNetSolver<S> {
     #[inline]
     pub fn config(&self) -> &TsNetConfig {
         &self.config
+    }
+
+    /// Returns the concrete backend resolved at construction (expanding [`TsNetBackend::Auto`]).
+    #[inline]
+    pub fn resolved_backend(&self) -> TsNetBackend {
+        self.resolved_backend
     }
 
     /// Returns the number of vertices expected in [`Layout2d`](egraph_core::Layout2d).

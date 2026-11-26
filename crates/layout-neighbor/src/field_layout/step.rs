@@ -1,7 +1,7 @@
 use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 
 use super::config::{FieldRepulsionBackend, IbUmapConfig, TFdpConfig};
-use super::solver::FieldLayoutSolver;
+use super::solver::{FieldFftStats, FieldLayoutSolver};
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 0.05;
@@ -32,8 +32,8 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             for i in 0..n {
                 let xi = xs[i].to_f64();
                 let yi = ys[i].to_f64();
-                let start = self.indptr[i];
-                let end = self.indptr[i + 1];
+                let start = self.indptr[i] as usize;
+                let end = self.indptr[i + 1] as usize;
                 let mut fx = 0.0_f64;
                 let mut fy = 0.0_f64;
                 for pos in start..end {
@@ -60,15 +60,72 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                 let ibfft = self.ibfft.as_mut().ok_or_else(|| {
                     CoreError::numerical_breakdown("IbFft2d workspace missing for FieldLayout")
                 })?;
-                ibfft.prepare_xy(&mut self.fft_ws, layout.x(), layout.y())?;
-                let soft = ibfft.grid_spec().map_or(0.0, |spec| spec.softening_sq);
-                ibfft.evaluate_isotropic_kernel(
-                    &mut self.fft_ws,
-                    |d2| 1.0 / (1.0 + soft + d2).powf(gamma),
-                    &mut self.phi_1,
-                    &mut self.rep_x,
-                    &mut self.rep_y,
-                )?;
+                let xs = layout.x();
+                let ys = layout.y();
+                let mut min_x = xs[0].to_f64();
+                let mut max_x = min_x;
+                let mut min_y = ys[0].to_f64();
+                let mut max_y = min_y;
+                for i in 1..n {
+                    let x = xs[i].to_f64();
+                    let y = ys[i].to_f64();
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                    min_y = min_y.min(y);
+                    max_y = max_y.max(y);
+                }
+                let span_cap = (ibfft.config().max_grid_dim as f64) * 0.4;
+                let max_span = (max_x - min_x).max(max_y - min_y);
+                let before_calls = self.fft_ws.fft_2d_call_count();
+                let particle_fwd;
+                if max_span > span_cap && max_span.is_finite() && span_cap > 0.0 {
+                    // Guard against adaptive FFT grid blowup (`512x512`) on expanding coordinates
+                    // via an exact algebraic rescaling identity:
+                    // (x' - y') / (1 + d'^2 / scale^2)^gamma * (1/scale) == (x - y) / (1 + d^2)^gamma.
+                    let cx = 0.5 * (min_x + max_x);
+                    let cy = 0.5 * (min_y + max_y);
+                    let scale = span_cap / max_span;
+                    let inv_scale = max_span / span_cap;
+                    let inv_scale_sq = inv_scale * inv_scale;
+                    for i in 0..n {
+                        self.scaled_x[i] = S::from_f64((xs[i].to_f64() - cx) * scale);
+                        self.scaled_y[i] = S::from_f64((ys[i].to_f64() - cy) * scale);
+                    }
+                    particle_fwd =
+                        ibfft.prepare_xy(&mut self.fft_ws, &self.scaled_x, &self.scaled_y)?;
+                    let soft = ibfft.grid_spec().map_or(0.0, |spec| spec.softening_sq);
+                    ibfft.evaluate_isotropic_kernel(
+                        &mut self.fft_ws,
+                        |d2| 1.0 / (1.0 + soft + d2 * inv_scale_sq).powf(gamma),
+                        &mut self.phi_1,
+                        &mut self.rep_x,
+                        &mut self.rep_y,
+                    )?;
+                    for i in 0..n {
+                        self.rep_x[i] = S::from_f64(self.rep_x[i].to_f64() * inv_scale);
+                        self.rep_y[i] = S::from_f64(self.rep_y[i].to_f64() * inv_scale);
+                    }
+                } else {
+                    particle_fwd = ibfft.prepare_xy(&mut self.fft_ws, xs, ys)?;
+                    let soft = ibfft.grid_spec().map_or(0.0, |spec| spec.softening_sq);
+                    ibfft.evaluate_isotropic_kernel(
+                        &mut self.fft_ws,
+                        |d2| 1.0 / (1.0 + soft + d2).powf(gamma),
+                        &mut self.phi_1,
+                        &mut self.rep_x,
+                        &mut self.rep_y,
+                    )?;
+                }
+                let total_calls = self.fft_ws.fft_2d_call_count().saturating_sub(before_calls);
+                let spec = ibfft.grid_spec();
+                self.last_fft_stats = Some(FieldFftStats {
+                    particle_forward_ffts: particle_fwd,
+                    kernel_forward_ffts: u64::from(total_calls > particle_fwd),
+                    inverse_ffts: total_calls.saturating_sub(particle_fwd + 1),
+                    total_fft_2d_calls: total_calls,
+                    nx: spec.map_or(0, |s| s.nx),
+                    ny: spec.map_or(0, |s| s.ny),
+                });
             }
             FieldRepulsionBackend::BarnesHut => {
                 if (gamma - 1.0).abs() <= 1e-12 {
@@ -220,8 +277,8 @@ impl<S: Scalar> FieldLayoutSolver<S> {
             for i in 0..n {
                 let xi = xs[i].to_f64();
                 let yi = ys[i].to_f64();
-                let start = self.indptr[i];
-                let end = self.indptr[i + 1];
+                let start = self.indptr[i] as usize;
+                let end = self.indptr[i + 1] as usize;
                 let mut fx = 0.0_f64;
                 let mut fy = 0.0_f64;
                 for pos in start..end {
@@ -256,7 +313,8 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                 let ibfft = self.ibfft.as_mut().ok_or_else(|| {
                     CoreError::numerical_breakdown("IbFft2d workspace missing for FieldLayout")
                 })?;
-                ibfft.prepare_xy(&mut self.fft_ws, layout.x(), layout.y())?;
+                let before_calls = self.fft_ws.fft_2d_call_count();
+                let particle_fwd = ibfft.prepare_xy(&mut self.fft_ws, layout.x(), layout.y())?;
                 let soft = ibfft.grid_spec().map_or(0.0, |spec| spec.softening_sq);
                 let eps_eff = REPULSIVE_DIST_SQ_EPS + soft;
                 ibfft.evaluate_isotropic_kernel(
@@ -269,6 +327,16 @@ impl<S: Scalar> FieldLayoutSolver<S> {
                     &mut self.rep_x,
                     &mut self.rep_y,
                 )?;
+                let total_calls = self.fft_ws.fft_2d_call_count().saturating_sub(before_calls);
+                let spec = ibfft.grid_spec();
+                self.last_fft_stats = Some(FieldFftStats {
+                    particle_forward_ffts: particle_fwd,
+                    kernel_forward_ffts: u64::from(total_calls > particle_fwd),
+                    inverse_ffts: total_calls.saturating_sub(particle_fwd + 1),
+                    total_fft_2d_calls: total_calls,
+                    nx: spec.map_or(0, |s| s.nx),
+                    ny: spec.map_or(0, |s| s.ny),
+                });
             }
             FieldRepulsionBackend::BarnesHut => {
                 self.field_quadtree.build_xy(layout.x(), layout.y())?;

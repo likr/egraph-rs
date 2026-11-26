@@ -92,7 +92,7 @@ fn test_field_layout_edge_cases_and_error_guards() {
     let mut sd_fdp = FieldLayoutSolver::<f64>::t_fdp(
         &disc,
         TFdpConfig {
-            total_iterations: 15,
+            iterations: 15,
             ..tfdp_cfg
         },
     )
@@ -102,7 +102,7 @@ fn test_field_layout_edge_cases_and_error_guards() {
         16,
         &dog_cfg,
         IbUmapConfig {
-            n_epochs: 15,
+            iterations: 15,
             ..ib_cfg
         },
     )
@@ -117,7 +117,7 @@ fn test_field_layout_edge_cases_and_error_guards() {
     let zero_fdp = FieldLayoutSolver::<f64>::t_fdp(
         &disc,
         TFdpConfig {
-            total_iterations: 0,
+            iterations: 0,
             ..tfdp_cfg
         },
     )
@@ -129,7 +129,7 @@ fn test_field_layout_edge_cases_and_error_guards() {
         16,
         &dog_cfg,
         IbUmapConfig {
-            n_epochs: 0,
+            iterations: 0,
             ..ib_cfg
         },
     )
@@ -247,7 +247,7 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
     let n = g.num_nodes();
     let dog_cfg = DogVaradhanConfig::default();
     let cfg = IbUmapConfig {
-        n_epochs: 15,
+        iterations: 15,
         seed: 67,
         ..Default::default()
     };

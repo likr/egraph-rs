@@ -38,7 +38,8 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
         }
 
         let alpha = S::from_f64(
-            self.config.learning_rate * (1.0 - (self.epoch as f64) / (self.config.n_epochs as f64)),
+            self.config.learning_rate
+                * (1.0 - (self.epoch as f64) / (self.config.iterations as f64)),
         );
         let a_s = S::from_f64(self.a);
         let b_s = S::from_f64(self.b);
@@ -136,7 +137,7 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
         }
 
         self.epoch += 1;
-        self.status = if self.epoch >= self.config.n_epochs {
+        self.status = if self.epoch >= self.config.iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
@@ -156,6 +157,6 @@ impl<S: Scalar> IterativeSolver<S> for GuMapSolver<S> {
 
     #[inline]
     fn total_iterations(&self) -> usize {
-        self.config.n_epochs
+        self.config.iterations
     }
 }

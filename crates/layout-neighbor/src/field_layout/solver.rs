@@ -7,6 +7,17 @@ use egraph_spatial_trees::ArenaQuadtree2d;
 use super::config::{FieldRepulsionBackend, IbUmapConfig, TFdpConfig};
 use super::quadtree::FieldQuadtree;
 
+/// Telemetry counters from the most recent `IbFft` step on [`FieldLayoutSolver`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FieldFftStats {
+    pub particle_forward_ffts: u64,
+    pub kernel_forward_ffts: u64,
+    pub inverse_ffts: u64,
+    pub total_fft_2d_calls: u64,
+    pub nx: usize,
+    pub ny: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum FieldSolverMode {
     TFdp {
@@ -29,7 +40,7 @@ pub struct FieldLayoutSolver<S: Scalar = f64> {
     pub(super) mode: FieldSolverMode,
     pub(super) backend: FieldRepulsionBackend,
     pub(super) num_nodes: usize,
-    pub(super) indptr: Vec<usize>,
+    pub(super) indptr: Vec<u32>,
     pub(super) indices: Vec<u32>,
     pub(super) edge_weights: Vec<f32>,
     pub(super) hub_eta: Vec<f64>,
@@ -39,11 +50,14 @@ pub struct FieldLayoutSolver<S: Scalar = f64> {
     pub(super) vel_y: Vec<f64>,
     pub(super) next_x: Vec<f64>,
     pub(super) next_y: Vec<f64>,
+    pub(super) scaled_x: Vec<S>,
+    pub(super) scaled_y: Vec<S>,
     pub(super) phi_1: Vec<S>,
     pub(super) rep_x: Vec<S>,
     pub(super) rep_y: Vec<S>,
     pub(super) fft_ws: Fft2dWorkspace,
     pub(super) ibfft: Option<IbFft2d<S>>,
+    pub(super) last_fft_stats: Option<FieldFftStats>,
     pub(super) quadtree: ArenaQuadtree2d<S>,
     pub(super) field_quadtree: FieldQuadtree,
     pub(super) rng: DeterministicRng,
@@ -80,12 +94,36 @@ impl<S: Scalar> FieldLayoutSolver<S> {
         self.fft_ws.fft_2d_call_count()
     }
 
+    /// Returns telemetry counters from the most recent `IbFft` step, if any.
+    #[inline]
+    pub fn last_fft_stats(&self) -> Option<FieldFftStats> {
+        self.last_fft_stats
+    }
+
     /// Returns the resolved UMAP `(a, b)` parameters when in `ibUMAP` mode, or `None` for `t-FDP`.
     #[inline]
     pub fn ab(&self) -> Option<(f64, f64)> {
         match self.mode {
             FieldSolverMode::TFdp { .. } => None,
             FieldSolverMode::IbUmap { a, b, .. } => Some((a, b)),
+        }
+    }
+
+    /// Returns the resolved UMAP curve parameter `a` in `ibUMAP` mode, or `None` for `t-FDP`.
+    #[inline]
+    pub fn a(&self) -> Option<f64> {
+        match self.mode {
+            FieldSolverMode::TFdp { .. } => None,
+            FieldSolverMode::IbUmap { a, .. } => Some(a),
+        }
+    }
+
+    /// Returns the resolved UMAP curve parameter `b` in `ibUMAP` mode, or `None` for `t-FDP`.
+    #[inline]
+    pub fn b(&self) -> Option<f64> {
+        match self.mode {
+            FieldSolverMode::TFdp { .. } => None,
+            FieldSolverMode::IbUmap { b, .. } => Some(b),
         }
     }
 

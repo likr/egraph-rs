@@ -16,6 +16,8 @@ pub enum TsNetBackend {
     FftInterpolation,
     /// Linear-time fused 2D FFT interpolation enforcing [`InterpolationOrder::Bilinear`] ($p=1$).
     LinearFft,
+    /// Adaptive backend: [`Exact`](Self::Exact) for $N \le 256$ and [`LinearFft`](Self::LinearFft) ($p=1$) for $N > 256$.
+    Auto,
 }
 
 /// Hyperparameters governing a single optimization stage of [`TsNetSolver`](super::TsNetSolver).
@@ -76,12 +78,8 @@ pub struct TsNetConfig {
     pub sigma_tolerance: f64,
     /// Symmetrization strategy for high-dimensional probabilities (`StandardTsne`).
     pub symmetrization: SymmetrizationMode,
-    /// Number of iterations in Stage 1 (early exaggeration, `250`).
-    pub iterations_stage1: usize,
-    /// Number of iterations in Stage 2 (compression relaxation, `250`).
-    pub iterations_stage2: usize,
-    /// Number of iterations in Stage 3 (fine-tuning / entropy repulsion, `500`).
-    pub iterations_stage3: usize,
+    /// Iteration counts `[stage1, stage2, stage3]` for the 3 optimization stages (`[250, 250, 500]`).
+    pub stage_iterations: [usize; 3],
     /// Early exaggeration factor applied in Stage 1 (`4.0`).
     pub exaggeration: f64,
     /// Compression weight $\lambda_c$ in Stage 1 (`0.1`).
@@ -92,8 +90,10 @@ pub struct TsNetConfig {
     pub lambda_c_stage3: f64,
     /// Repulsion weight $\lambda_r$ in Stage 3 (`0.0`).
     pub lambda_r_stage3: f64,
-    /// Optional explicit base gradient descent learning rate (`None` uses $O(N)$ scaling `max(200.0, N / 3.0)`).
+    /// Optional explicit base gradient descent learning rate (`None` uses `max(10.0, N / learning_rate_divisor)`).
     pub learning_rate: Option<f64>,
+    /// Divisor applied to $N$ in automatic learning-rate scaling (`3.0`).
+    pub learning_rate_divisor: f64,
     /// Enables per-vertex Jacobi preconditioning of the learning rate
     /// `lr_i = stage_lr / max(1.0, N * P_{i.})` (`true` by default).
     pub jacobi_precondition: bool,
@@ -103,7 +103,7 @@ pub struct TsNetConfig {
     pub epsilon_r: f64,
     /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`0.5`).
     pub theta: f64,
-    /// Interpolation-based 2D FFT grid configuration (`Bilinear` $p=1$, `intervals=25`, `64..=512`).
+    /// Interpolation-based 2D FFT grid configuration (`Cubic` $p=3$ for `FftInterpolation`, `intervals=25`, `64..=512`).
     pub ibfft: IbFftConfig,
     /// Deterministic explicit RNG seed (`42`).
     pub seed: u64,
@@ -127,51 +127,69 @@ impl TsNetConfig {
             sigma_iters: 50,
             sigma_tolerance: 1e-5,
             symmetrization: SymmetrizationMode::StandardTsne,
-            iterations_stage1: 250,
-            iterations_stage2: 250,
-            iterations_stage3: 500,
+            stage_iterations: [250, 250, 500],
             exaggeration: 4.0,
             lambda_c_stage1: 0.1,
             lambda_c_stage2: 0.01,
             lambda_c_stage3: 0.0,
             lambda_r_stage3: 0.0,
             learning_rate: None,
+            learning_rate_divisor: 3.0,
             jacobi_precondition: true,
             momentum: 0.8,
             epsilon_r: 0.05,
             theta: 0.5,
-            ibfft: IbFftConfig::default(),
+            ibfft: IbFftConfig {
+                order: InterpolationOrder::Cubic,
+                ..IbFftConfig::default()
+            },
             seed: 42,
         }
     }
 
+    /// Resolves [`TsNetBackend::Auto`] for a graph with `num_nodes` vertices
+    /// (`Exact` for $N \le 256$, `LinearFft` for $N > 256$).
+    #[inline]
+    pub fn resolve_backend(&self, num_nodes: usize) -> TsNetBackend {
+        match self.backend {
+            TsNetBackend::Auto => {
+                if num_nodes <= 256 {
+                    TsNetBackend::Exact
+                } else {
+                    TsNetBackend::LinearFft
+                }
+            }
+            other => other,
+        }
+    }
+
     /// Resolves the effective base learning rate for a graph with `num_nodes` vertices:
-    /// explicit `Some(lr)` or automatic $O(N)$ scaling `200.0_f64.max((num_nodes as f64) / 3.0)`.
+    /// explicit `Some(lr)` or automatic $O(N)$ scaling `10.0_f64.max((num_nodes as f64) / self.learning_rate_divisor)`.
     #[inline]
     pub fn resolve_learning_rate(&self, num_nodes: usize) -> f64 {
         self.learning_rate
-            .unwrap_or_else(|| 200.0_f64.max((num_nodes as f64) / 3.0))
+            .unwrap_or_else(|| 10.0_f64.max((num_nodes as f64) / self.learning_rate_divisor))
     }
 
     /// Returns the 3 optimization stages defined by this configuration.
     pub fn stages(&self) -> [TsNetStage; 3] {
         [
             TsNetStage {
-                iterations: self.iterations_stage1,
+                iterations: self.stage_iterations[0],
                 exaggeration: self.exaggeration,
                 lambda_kl: 1.0,
                 lambda_c: self.lambda_c_stage1,
                 lambda_r: 0.0,
             },
             TsNetStage {
-                iterations: self.iterations_stage2,
+                iterations: self.stage_iterations[1],
                 exaggeration: 1.0,
                 lambda_kl: 1.0,
                 lambda_c: self.lambda_c_stage2,
                 lambda_r: 0.0,
             },
             TsNetStage {
-                iterations: self.iterations_stage3,
+                iterations: self.stage_iterations[2],
                 exaggeration: 1.0,
                 lambda_kl: 1.0,
                 lambda_c: self.lambda_c_stage3,
@@ -240,6 +258,12 @@ impl TsNetConfig {
                 "learning_rate must be finite and > 0.0, got {lr}"
             )));
         }
+        if !self.learning_rate_divisor.is_finite() || self.learning_rate_divisor <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "learning_rate_divisor must be finite and > 0.0, got {}",
+                self.learning_rate_divisor
+            )));
+        }
         if !self.momentum.is_finite() || self.momentum < 0.0 || self.momentum >= 1.0 {
             return Err(CoreError::invalid_input(format!(
                 "momentum must be finite and in [0.0, 1.0), got {}",
@@ -261,12 +285,36 @@ impl TsNetConfig {
         self.ibfft.validate()
     }
 
-    pub(super) fn effective_ibfft(&self) -> IbFftConfig {
+    pub(super) fn effective_ibfft_for(&self, resolved_backend: TsNetBackend) -> IbFftConfig {
         let mut cfg = self.ibfft;
-        if self.backend == TsNetBackend::LinearFft {
+        if resolved_backend == TsNetBackend::LinearFft {
             cfg.order = InterpolationOrder::Bilinear;
         }
         cfg
+    }
+
+    /// Returns the configured FFT interpolation order (`ibfft.order`).
+    #[inline]
+    pub fn interpolation_order(&self) -> InterpolationOrder {
+        self.ibfft.order
+    }
+
+    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
+    #[inline]
+    pub fn intervals(&self) -> usize {
+        self.ibfft.intervals
+    }
+
+    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
+    #[inline]
+    pub fn min_grid_dim(&self) -> usize {
+        self.ibfft.min_grid_dim
+    }
+
+    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
+    #[inline]
+    pub fn max_grid_dim(&self) -> usize {
+        self.ibfft.max_grid_dim
     }
 
     pub(super) fn perplexity_config(&self) -> PerplexityConfig {

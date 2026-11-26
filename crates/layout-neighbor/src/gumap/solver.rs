@@ -77,7 +77,7 @@ impl<S: Scalar> GuMapSolver<S> {
         bucket_offsets.clear();
         drop(bucket_offsets);
 
-        let status = if config.n_epochs == 0 {
+        let status = if config.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -141,6 +141,18 @@ impl<S: Scalar> GuMapSolver<S> {
         }
         drop(cursor);
         (n, bucket_offsets, edge_src, edge_tgt, edge_weight)
+    }
+
+    /// Constructs a [`GuMapSolver`] directly from a [`CsrGraph`] using default regularized DoG
+    /// Varadhan landmark ALT distances and `DEFAULT_MAX_2HOP_PER_NODE`.
+    #[inline]
+    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: GuMapConfig) -> CoreResult<Self> {
+        Self::from_graph_dog(
+            graph,
+            crate::field_layout::DEFAULT_MAX_2HOP_PER_NODE,
+            &DogVaradhanConfig::default(),
+            config,
+        )
     }
 
     /// Constructs a [`GuMapSolver`] directly from a precomputed fuzzy simplicial set [`SparseProbabilities`].
@@ -292,5 +304,17 @@ impl<S: Scalar> GuMapSolver<S> {
     #[inline]
     pub fn ab(&self) -> (f64, f64) {
         (self.a, self.b)
+    }
+
+    /// Returns the resolved UMAP curve parameter `a`.
+    #[inline]
+    pub fn a(&self) -> f64 {
+        self.a
+    }
+
+    /// Returns the resolved UMAP curve parameter `b`.
+    #[inline]
+    pub fn b(&self) -> f64 {
+        self.b
     }
 }

@@ -32,7 +32,7 @@ pub(crate) fn validate_sparse_probabilities(probs: &SparseProbabilities) -> Core
             )));
         }
     }
-    let nnz = probs.indptr[n];
+    let nnz = probs.indptr[n] as usize;
     if probs.indices.len() != nnz {
         return Err(CoreError::dimension_mismatch(
             nnz,
