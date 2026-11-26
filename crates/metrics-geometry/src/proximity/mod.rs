@@ -1,10 +1,21 @@
 //! Spatial proximity metrics (`gabriel_graph_property`, `node_resolution`, and Eades et al.
 //! 2017 unweighted shape-based `S_RNG` / `S_GG`) accelerated via `StaticKdTree<2, f64>`.
 
-mod exact_predicates;
+pub(crate) mod exact_predicates;
+mod nd;
 mod sector_pruning;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
+
+pub use nd::{
+    gabriel_graph_edges_nd, gabriel_graph_edges_nd_with_index, gabriel_graph_preservation_nd,
+    gabriel_graph_preservation_nd_with_index, gabriel_graph_property_nd,
+    gabriel_graph_property_nd_with_index, node_resolution_nd, node_resolution_nd_with_index,
+    relative_neighborhood_edges_nd, relative_neighborhood_edges_nd_with_index,
+    relative_neighborhood_preservation_nd, relative_neighborhood_preservation_nd_with_index,
+};
 
 use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar, VisitStamp};
 use egraph_spatial_trees::StaticKdTree;

@@ -1,9 +1,12 @@
 //! Geometric shape, edge-length, angular, and PRISM layout-preservation metrics.
 
 mod angles_degeneracy;
+mod nd;
 mod prism;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 
@@ -11,6 +14,10 @@ use crate::{extract_unique_edges, validate_graph_layout};
 
 pub use angles_degeneracy::{
     LayoutDegeneracy, MinimumAngleSummary, layout_degeneracy, minimum_angle, minimum_angle_summary,
+};
+pub use nd::{
+    ideal_edge_lengths_from_distances_nd, ideal_edge_lengths_nd, ideal_edge_lengths_scaled_nd,
+    ideal_edge_lengths_with_unit_nd, layout_degeneracy_nd, layout_degeneracy_nd_with_index,
 };
 pub use prism::{PrismDistortion, prism_distortion, prism_distortion_with_edges};
 

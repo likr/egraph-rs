@@ -1,8 +1,8 @@
-use egraph_core::{CoreResult, DeterministicRng, Layout2d, Scalar};
+use egraph_core::{CoreResult, DeterministicRng};
 
 use super::RtaEvaluation;
 use super::row_stats::{
-    RowProvider, RowScratch, counting_sort_row, is_layout_collapsed, scan_row_octaves,
+    RowProvider, RowScratch, RtaCoordSpace, counting_sort_row, scan_row_octaves,
 };
 
 #[inline]
@@ -40,16 +40,16 @@ fn gen_range_u128(rng: &mut DeterministicRng, upper_exclusive: u128) -> u128 {
     }
 }
 
-pub(super) fn evaluate_rta_core<W, S: Scalar>(
-    layout: &Layout2d<S>,
+pub(super) fn evaluate_rta_core<W, L: RtaCoordSpace>(
+    layout: &L,
     landmark_ids: &[u32],
     mut provider: RowProvider<'_, W>,
     num_triplets: usize,
     seed: u64,
 ) -> CoreResult<RtaEvaluation> {
-    let n = layout.len();
+    let n = layout.num_nodes();
     let p_l = landmark_ids.len();
-    if n < 3 || p_l == 0 || is_layout_collapsed(layout) {
+    if n < 3 || p_l == 0 || layout.is_collapsed() {
         return Ok(RtaEvaluation {
             rta: 0.0,
             num_landmarks: p_l,
@@ -121,8 +121,6 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
         });
     }
 
-    let xs = layout.x();
-    let ys = layout.y();
     let n_strata = strata.len();
 
     // Exact deterministic enumeration fallback when comparable triplets <= num_triplets.
@@ -135,8 +133,6 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
         for (i, &lid) in landmark_ids.iter().enumerate() {
             let row = provider.row(i, lid)?;
             let src = lid as usize;
-            let px = xs[src].to_f64();
-            let py = ys[src].to_f64();
 
             valid_nodes.clear();
             valid_dists.clear();
@@ -153,18 +149,14 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
             for a in 0..(m_v - 1) {
                 let u = valid_nodes[a] as usize;
                 let d1 = valid_dists[a];
-                let dx1 = xs[u].to_f64() - px;
-                let dy1 = ys[u].to_f64() - py;
-                let r1_sq = dx1 * dx1 + dy1 * dy1;
+                let r1_sq = layout.dist_sq(src, u);
                 for b in (a + 1)..m_v {
                     let d2 = valid_dists[b];
                     if d1 == d2 {
                         continue;
                     }
                     let v = valid_nodes[b] as usize;
-                    let dx2 = xs[v].to_f64() - px;
-                    let dy2 = ys[v].to_f64() - py;
-                    let r2_sq = dx2 * dx2 + dy2 * dy2;
+                    let r2_sq = layout.dist_sq(src, v);
                     total_eval += 1;
                     if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
                         total_ok += 1;
@@ -231,8 +223,6 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
         let row = provider.row(i, lid)?;
         let oct_offsets = counting_sort_row(row, &mut scratch);
         let src = lid as usize;
-        let px = xs[src].to_f64();
-        let py = ys[src].to_f64();
 
         for (s_idx, &k_draw) in row_alloc.iter().enumerate() {
             if k_draw == 0 {
@@ -260,12 +250,8 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
                     let v = scratch.sorted_nodes[pos2] as usize;
                     let d1 = scratch.sorted_dists[pos1];
                     let d2 = scratch.sorted_dists[pos2];
-                    let dx1 = xs[u].to_f64() - px;
-                    let dy1 = ys[u].to_f64() - py;
-                    let dx2 = xs[v].to_f64() - px;
-                    let dy2 = ys[v].to_f64() - py;
-                    let r1_sq = dx1 * dx1 + dy1 * dy1;
-                    let r2_sq = dx2 * dx2 + dy2 * dy2;
+                    let r1_sq = layout.dist_sq(src, u);
+                    let r2_sq = layout.dist_sq(src, v);
                     eval_cnt += 1;
                     if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
                         ok_cnt += 1;
@@ -321,12 +307,8 @@ pub(super) fn evaluate_rta_core<W, S: Scalar>(
                     let v = scratch.sorted_nodes[pos2] as usize;
                     let d1 = scratch.sorted_dists[pos1];
                     let d2 = scratch.sorted_dists[pos2];
-                    let dx1 = xs[u].to_f64() - px;
-                    let dy1 = ys[u].to_f64() - py;
-                    let dx2 = xs[v].to_f64() - px;
-                    let dy2 = ys[v].to_f64() - py;
-                    let r1_sq = dx1 * dx1 + dy1 * dy1;
-                    let r2_sq = dx2 * dx2 + dy2 * dy2;
+                    let r1_sq = layout.dist_sq(src, u);
+                    let r2_sq = layout.dist_sq(src, v);
                     eval_cnt += 1;
                     if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
                         ok_cnt += 1;

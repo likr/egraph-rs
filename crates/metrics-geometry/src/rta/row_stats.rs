@@ -1,5 +1,54 @@
-use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
 use egraph_linalg::BfsWorkspace;
+
+pub(super) trait RtaCoordSpace {
+    fn num_nodes(&self) -> usize;
+    fn is_collapsed(&self) -> bool;
+    fn dist_sq(&self, a: usize, b: usize) -> f64;
+}
+
+impl<S: Scalar> RtaCoordSpace for Layout2d<S> {
+    #[inline]
+    fn num_nodes(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn is_collapsed(&self) -> bool {
+        is_layout_collapsed(self)
+    }
+
+    #[inline]
+    fn dist_sq(&self, a: usize, b: usize) -> f64 {
+        let dx = self.x()[b].to_f64() - self.x()[a].to_f64();
+        let dy = self.y()[b].to_f64() - self.y()[a].to_f64();
+        dx * dx + dy * dy
+    }
+}
+
+impl<S: Scalar> RtaCoordSpace for LayoutNd<S> {
+    #[inline]
+    fn num_nodes(&self) -> usize {
+        LayoutNd::num_nodes(self)
+    }
+
+    #[inline]
+    fn is_collapsed(&self) -> bool {
+        is_layout_collapsed_nd(self)
+    }
+
+    #[inline]
+    fn dist_sq(&self, a: usize, b: usize) -> f64 {
+        let dims = self.dims();
+        let coords = self.coords();
+        let mut sum = 0.0_f64;
+        for d in 0..dims {
+            let diff = coords[b * dims + d].to_f64() - coords[a * dims + d].to_f64();
+            sum += diff * diff;
+        }
+        sum
+    }
+}
 
 #[inline]
 pub(super) fn is_layout_collapsed<S: Scalar>(layout: &Layout2d<S>) -> bool {
@@ -22,6 +71,29 @@ pub(super) fn is_layout_collapsed<S: Scalar>(layout: &Layout2d<S>) -> bool {
         max_y = max_y.max(y);
     }
     (max_x - min_x) <= 1e-15 && (max_y - min_y) <= 1e-15
+}
+
+#[inline]
+pub(super) fn is_layout_collapsed_nd<S: Scalar>(layout: &LayoutNd<S>) -> bool {
+    let n = layout.num_nodes();
+    if n == 0 {
+        return true;
+    }
+    let dims = layout.dims();
+    let coords = layout.coords();
+    for d in 0..dims {
+        let mut min_v = f64::INFINITY;
+        let mut max_v = f64::NEG_INFINITY;
+        for i in 0..n {
+            let v = coords[i * dims + d].to_f64();
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
+        if (max_v - min_v) > 1e-15 {
+            return false;
+        }
+    }
+    true
 }
 
 #[inline]

@@ -15,6 +15,7 @@
 
 pub mod crossings;
 pub mod geometry;
+mod nd_index;
 pub mod neighborhood;
 pub mod proximity;
 pub mod rta;
@@ -23,6 +24,12 @@ pub mod stress;
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 use egraph_spatial_trees::StaticKdTree;
 
+#[doc(hidden)]
+pub use nd_index::{
+    NdSpatialIndex, build_nd_spatial_index, euclidean_diameter_nd, validate_graph_layout_nd,
+    validate_index_layout_nd, validate_layout_nd,
+};
+
 pub use crossings::{
     CrossingPair, CrossingSummary, TorusCrossing, crossing_angle, crossing_angle_from_pairs,
     crossing_edges, crossing_edges_torus, crossing_edges_torus_from_edges, crossing_number,
@@ -30,35 +37,60 @@ pub use crossings::{
     max_crossing_pairs, sampled_crossing_number, sampled_crossing_number_with_rng,
     sampled_crosslessness,
 };
+#[doc(hidden)]
+pub use geometry::layout_degeneracy_nd_with_index;
 pub use geometry::{
     LayoutDegeneracy, MinimumAngleSummary, PrismDistortion, angular_resolution, aspect_ratio,
-    edge_angle, ideal_edge_lengths, ideal_edge_lengths_from_distances, ideal_edge_lengths_scaled,
-    ideal_edge_lengths_with_unit, layout_degeneracy, minimum_angle, minimum_angle_summary,
+    edge_angle, ideal_edge_lengths, ideal_edge_lengths_from_distances,
+    ideal_edge_lengths_from_distances_nd, ideal_edge_lengths_nd, ideal_edge_lengths_scaled,
+    ideal_edge_lengths_scaled_nd, ideal_edge_lengths_with_unit, ideal_edge_lengths_with_unit_nd,
+    layout_degeneracy, layout_degeneracy_nd, minimum_angle, minimum_angle_summary,
     prism_distortion, prism_distortion_with_edges,
 };
 pub use neighborhood::{
-    neighborhood_preservation_1hop, neighborhood_preservation_1hop_with_tree,
-    neighborhood_preservation_2hop, neighborhood_preservation_2hop_with_tree,
-    sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_1hop_with_tree,
-    sampled_neighborhood_preservation_2hop, sampled_neighborhood_preservation_2hop_with_tree,
+    neighborhood_preservation_1hop, neighborhood_preservation_1hop_nd,
+    neighborhood_preservation_1hop_with_tree, neighborhood_preservation_2hop,
+    neighborhood_preservation_2hop_nd, neighborhood_preservation_2hop_with_tree,
+    sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_1hop_nd,
+    sampled_neighborhood_preservation_1hop_with_tree, sampled_neighborhood_preservation_2hop,
+    sampled_neighborhood_preservation_2hop_nd, sampled_neighborhood_preservation_2hop_with_tree,
+};
+#[doc(hidden)]
+pub use neighborhood::{
+    neighborhood_preservation_1hop_nd_with_index, neighborhood_preservation_2hop_nd_with_index,
+    sampled_neighborhood_preservation_1hop_nd_with_index,
+    sampled_neighborhood_preservation_2hop_nd_with_index,
 };
 pub use proximity::{
-    gabriel_graph_edges, gabriel_graph_edges_with_tree, gabriel_graph_preservation,
-    gabriel_graph_preservation_with_tree, gabriel_graph_property, gabriel_graph_property_with_tree,
-    node_resolution, node_resolution_with_tree, relative_neighborhood_edges,
+    gabriel_graph_edges, gabriel_graph_edges_nd, gabriel_graph_edges_with_tree,
+    gabriel_graph_preservation, gabriel_graph_preservation_nd,
+    gabriel_graph_preservation_with_tree, gabriel_graph_property, gabriel_graph_property_nd,
+    gabriel_graph_property_with_tree, node_resolution, node_resolution_nd,
+    node_resolution_with_tree, relative_neighborhood_edges, relative_neighborhood_edges_nd,
     relative_neighborhood_edges_with_tree, relative_neighborhood_preservation,
-    relative_neighborhood_preservation_with_tree,
+    relative_neighborhood_preservation_nd, relative_neighborhood_preservation_with_tree,
+};
+#[doc(hidden)]
+pub use proximity::{
+    gabriel_graph_edges_nd_with_index, gabriel_graph_preservation_nd_with_index,
+    gabriel_graph_property_nd_with_index, node_resolution_nd_with_index,
+    relative_neighborhood_edges_nd_with_index, relative_neighborhood_preservation_nd_with_index,
 };
 pub use rta::{
     RtaEvaluation, landmark_stratified_rta, landmark_stratified_rta_detail,
-    landmark_stratified_rta_from_landmarks, landmark_stratified_rta_from_landmarks_f64,
+    landmark_stratified_rta_detail_nd, landmark_stratified_rta_from_landmarks,
+    landmark_stratified_rta_from_landmarks_f64, landmark_stratified_rta_from_landmarks_f64_nd,
+    landmark_stratified_rta_from_landmarks_nd, landmark_stratified_rta_nd,
 };
 pub use stress::{
     BfsScratch, StressEvaluation, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source,
     sampled_scale_normalized_stress, sampled_scale_normalized_stress_detail,
-    scale_normalized_stress, scale_normalized_stress_detail,
+    sampled_scale_normalized_stress_detail_nd, sampled_scale_normalized_stress_nd,
+    scale_normalized_stress, scale_normalized_stress_detail, scale_normalized_stress_detail_nd,
     scale_normalized_stress_from_distances, scale_normalized_stress_from_distances_detail,
-    scale_normalized_stress_from_pairs,
+    scale_normalized_stress_from_distances_detail_nd, scale_normalized_stress_from_distances_nd,
+    scale_normalized_stress_from_pairs, scale_normalized_stress_from_pairs_nd,
+    scale_normalized_stress_nd,
 };
 
 #[doc(hidden)]

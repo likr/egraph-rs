@@ -147,7 +147,7 @@ pub fn scale_normalized_stress_from_distances<S: Scalar>(
 
 const DISTANCE_SYMMETRY_TOL: f64 = 1e-9;
 
-fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> CoreResult<()> {
+pub(super) fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> CoreResult<()> {
     for i in 0..n {
         let row_i = i * n;
         for j in (i + 1)..n {

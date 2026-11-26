@@ -226,7 +226,7 @@ fn dist_2d_safe(a: [f64; 2], b: [f64; 2]) -> f64 {
 
 /// Computes the exact Euclidean diameter $\max_{i, j} \|p_i - p_j\|_2$ in $O(N \log N)$ time
 /// via exact-predicate Andrew's monotone chain convex hull and rotating calipers.
-pub(super) fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
+pub(crate) fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
     let n = layout.len();
     if n <= 1 {
         return 0.0;

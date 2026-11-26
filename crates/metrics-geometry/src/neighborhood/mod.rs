@@ -1,8 +1,11 @@
 //! 1-hop and 2-hop neighborhood preservation metrics backed by `StaticKdTree<2, f64>`.
 
+mod nd;
 mod sampled;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar, VisitStamp};
 use egraph_spatial_trees::StaticKdTree;
@@ -11,6 +14,14 @@ use crate::{
     build_kdtree_f64, build_undirected_adjacency, validate_graph_layout, validate_tree_layout,
 };
 
+pub use nd::{
+    neighborhood_preservation_1hop_nd, neighborhood_preservation_1hop_nd_with_index,
+    neighborhood_preservation_2hop_nd, neighborhood_preservation_2hop_nd_with_index,
+    sampled_neighborhood_preservation_1hop_nd,
+    sampled_neighborhood_preservation_1hop_nd_with_index,
+    sampled_neighborhood_preservation_2hop_nd,
+    sampled_neighborhood_preservation_2hop_nd_with_index,
+};
 pub use sampled::{
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_1hop_with_tree,
     sampled_neighborhood_preservation_2hop, sampled_neighborhood_preservation_2hop_with_tree,

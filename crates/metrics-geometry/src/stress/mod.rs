@@ -7,12 +7,21 @@
 //! accumulated in `f64`.
 
 mod bfs;
+mod nd;
 mod sampled;
 mod sns;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 pub use bfs::{BfsScratch, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source};
+pub use nd::{
+    sampled_scale_normalized_stress_detail_nd, sampled_scale_normalized_stress_nd,
+    scale_normalized_stress_detail_nd, scale_normalized_stress_from_distances_detail_nd,
+    scale_normalized_stress_from_distances_nd, scale_normalized_stress_from_pairs_nd,
+    scale_normalized_stress_nd,
+};
 pub use sampled::{sampled_scale_normalized_stress, sampled_scale_normalized_stress_detail};
 pub use sns::{
     scale_normalized_stress, scale_normalized_stress_detail,

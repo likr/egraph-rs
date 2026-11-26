@@ -135,12 +135,12 @@ pub struct LayoutDegeneracy {
 }
 
 #[inline]
-fn canonical_f32(v: f32) -> f32 {
+pub(super) fn canonical_f32(v: f32) -> f32 {
     if v == 0.0 { 0.0 } else { v }
 }
 
 #[inline]
-fn canonical_f64(v: f64) -> f64 {
+pub(super) fn canonical_f64(v: f64) -> f64 {
     if v == 0.0 { 0.0 } else { v }
 }
 
