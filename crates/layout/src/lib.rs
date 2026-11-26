@@ -8,42 +8,28 @@
 pub mod backbone;
 #[cfg(feature = "baselines")]
 pub mod cluster_refine;
-pub mod coarse_backbone;
-pub mod constraints;
-pub mod continuous_fdp;
 pub mod density_field;
-pub mod fdeb;
-pub mod field_layout;
-#[cfg(feature = "baselines")]
-pub mod forbid;
-#[cfg(feature = "baselines")]
-pub mod fr;
-#[cfg(feature = "baselines")]
-pub mod gem;
 #[cfg(feature = "baselines")]
 pub mod grip;
 #[cfg(feature = "baselines")]
 pub mod group_in_a_box;
-#[cfg(feature = "baselines")]
-pub mod gtree;
-pub mod gumap;
-pub mod kamada_kawai;
-pub mod layering;
-#[cfg(feature = "baselines")]
-pub mod linlog;
-#[cfg(feature = "baselines")]
-pub mod maxent;
-#[cfg(feature = "baselines")]
-pub mod pfs_prime;
-pub mod prism;
 pub mod refiner;
 #[cfg(feature = "baselines")]
 pub mod sel;
 #[cfg(feature = "baselines")]
 pub mod sfc;
-pub mod sgd;
-pub mod stress_majorization;
-pub mod ts_net;
+
+pub use egraph_layout_constraints::{constraints, layering, prism};
+#[cfg(feature = "baselines")]
+pub use egraph_layout_constraints::{forbid, gtree, pfs_prime};
+pub use egraph_layout_force::{continuous_fdp, fdeb};
+#[cfg(feature = "baselines")]
+pub use egraph_layout_force::{fr, gem, linlog};
+pub use egraph_layout_neighbor::{field_layout, gumap, ts_net};
+pub use egraph_layout_sgd::{coarse_backbone, sgd};
+#[cfg(feature = "baselines")]
+pub use egraph_layout_stress::maxent;
+pub use egraph_layout_stress::{kamada_kawai, stress_majorization};
 
 #[cfg(feature = "baselines")]
 pub use backbone::{
@@ -121,7 +107,7 @@ mod tests {
     use super::crate_version;
 
     #[test]
-    fn m3_scaffold_ok() {
+    fn layout_crate_version_non_empty() {
         assert!(!crate_version().is_empty());
     }
 }
