@@ -51,11 +51,13 @@ impl PartialOrd for Candidate {
     }
 }
 
-/// Reusable scratch workspace for [`super::StaticKdTree`] $k$-NN queries without per-query allocations.
+/// Reusable scratch workspace for [`super::StaticKdTree`] and [`super::DynamicKdTree`] $k$-NN queries
+/// without per-query allocations.
 #[derive(Debug, Clone, Default)]
 pub struct KdQueryScratch {
     pub(super) heap: BinaryHeap<Candidate>,
     pub(super) stack: Vec<(u32, f64)>,
+    pub(super) query_buf: Vec<f64>,
 }
 
 impl KdQueryScratch {
@@ -64,6 +66,7 @@ impl KdQueryScratch {
         Self {
             heap: BinaryHeap::with_capacity(k),
             stack: Vec::with_capacity(64),
+            query_buf: Vec::new(),
         }
     }
 }

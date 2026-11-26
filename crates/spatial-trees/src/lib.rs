@@ -3,12 +3,14 @@
 #[cfg(feature = "delaunay")]
 pub mod delaunay;
 pub mod kdtree;
+pub mod octree;
 pub mod overlap;
 pub mod quadtree;
 
 #[cfg(feature = "delaunay")]
 pub use delaunay::Delaunay2d;
-pub use kdtree::{KdQueryScratch, StaticKdTree};
+pub use kdtree::{DynamicKdTree, KdQueryScratch, StaticKdTree};
+pub use octree::ArenaOctree3d;
 pub use overlap::{Rect2d, RectangleOverlapSweep};
 pub use quadtree::ArenaQuadtree2d;
 

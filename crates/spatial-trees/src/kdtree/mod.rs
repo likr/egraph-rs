@@ -8,11 +8,16 @@ use std::marker::PhantomData;
 
 use egraph_core::{CoreError, CoreResult, Layout2d, LayoutNd, Scalar};
 
+mod dynamic;
+mod dynamic_query;
 mod query;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_dynamic;
 mod types;
 
+pub use dynamic::DynamicKdTree;
 pub use types::KdQueryScratch;
 use types::{KdEntry, KdNode, LEAF_SIZE};
 
