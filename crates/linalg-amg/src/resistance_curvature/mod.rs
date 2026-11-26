@@ -30,3 +30,5 @@ pub(super) const TORUS_DEG_CV_THRESHOLD: f64 = 0.02;
 mod tests;
 #[cfg(test)]
 mod tests_classification;
+#[cfg(test)]
+mod tests_hyperbolic_jl;

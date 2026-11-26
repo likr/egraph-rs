@@ -103,12 +103,16 @@ pub(super) fn extract_canonical_edges<W: Scalar>(
     })
 }
 
-pub(super) fn count_components(num_nodes: usize, edge_u: &[u32], edge_v: &[u32]) -> usize {
+pub(super) fn compute_components(
+    num_nodes: usize,
+    edge_u: &[u32],
+    edge_v: &[u32],
+) -> (usize, Vec<usize>, Vec<usize>) {
     if num_nodes == 0 {
-        return 0;
+        return (0, Vec::new(), Vec::new());
     }
     if edge_u.is_empty() {
-        return num_nodes;
+        return (num_nodes, (0..num_nodes).collect(), vec![1; num_nodes]);
     }
 
     let mut deg = vec![0usize; num_nodes];
@@ -137,22 +141,34 @@ pub(super) fn count_components(num_nodes: usize, edge_u: &[u32], edge_v: &[u32])
     let mut visited = VisitStamp::new(num_nodes);
     let mut queue = VecDeque::new();
     let mut components = 0usize;
+    let mut comp_id = vec![0usize; num_nodes];
+    let mut comp_sizes = Vec::new();
     for start in 0..num_nodes {
         if !visited.visit(start) {
             continue;
         }
+        let cid = components;
         components += 1;
+        let mut size = 0usize;
+        comp_id[start] = cid;
         queue.push_back(start);
         while let Some(u) = queue.pop_front() {
+            size += 1;
             for &v32 in &adj[indptr[u]..indptr[u + 1]] {
                 let v = v32 as usize;
                 if visited.visit(v) {
+                    comp_id[v] = cid;
                     queue.push_back(v);
                 }
             }
         }
+        comp_sizes.push(size);
     }
-    components
+    (components, comp_id, comp_sizes)
+}
+
+pub(super) fn count_components(num_nodes: usize, edge_u: &[u32], edge_v: &[u32]) -> usize {
+    compute_components(num_nodes, edge_u, edge_v).0
 }
 
 pub(super) fn degree_regularity_stats(

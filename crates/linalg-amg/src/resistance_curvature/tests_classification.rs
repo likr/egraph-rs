@@ -343,49 +343,50 @@ fn test_default_flow_spheres_open_planar_hyperbolic_and_irregular() {
     assert_ne!(res_irreg.suggested_geometry, SuggestedGeometry::Torus2d);
 
     // Direct JL sampling classifier boundary checks:
-    // Regular non-closed-spherical graph with JL-noisy mean=0.223 and std=0.75 -> Torus2d, not Spherical.
+    // Regular non-closed-spherical graph with flat mean curvature and residual JL spread
+    // std <= torus_std_threshold * (1 + 8 * sqrt(64/128)) (~0.3328) -> Torus2d.
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            972, 0.223, 0.75, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+            972, 0.03, 0.25, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::Torus2d
     );
-    // Excessive std falls back to Euclidean (not Spherical) when mean is within JL noise band.
+    // Excessive std (> 0.3328) falls back to Euclidean.
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            972, 0.223, 1.5, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+            972, 0.03, 0.40, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::Euclidean
     );
-    // Strongly positive or negative curvature beyond JL margin still classifies accurately.
+    // Sharp thresholds (-0.05 / 0.2) apply identically in JL mode without mean widening.
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            972, 0.60, 0.40, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+            972, 0.21, 0.15, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::Spherical
     );
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            972, -0.50, 0.40, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
+            972, -0.06, 0.15, 0.0, 0.0, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::HyperbolicPoincare
     );
-    // Non-regular graph under JL noise stays Euclidean within margin, while exact keeps sharp thresholds.
+    // Non-regular graph keeps sharp -0.05 / 0.2 boundaries in both JL and exact modes.
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            612, -0.12, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+            612, -0.03, 0.30, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::Euclidean
     );
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            612, 0.25, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+            612, 0.21, 0.30, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
         ),
-        SuggestedGeometry::Euclidean
+        SuggestedGeometry::Spherical
     );
     assert_eq!(
         classify_geometry_from_curvature_with_sampling(
-            612, -0.50, 0.68, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
+            612, -0.06, 0.30, 0.0, 0.15, -0.05, 0.2, 0.05, false, 128, false
         ),
         SuggestedGeometry::HyperbolicPoincare
     );

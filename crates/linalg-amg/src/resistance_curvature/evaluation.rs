@@ -158,6 +158,13 @@ pub(super) fn evaluate_effective_resistances(
             effective_resistances[e] = r_uv.max(0.0);
         }
     } else {
+        let mut diag = vec![0.0_f64; num_nodes];
+        for e in 0..m {
+            let w = conductances[e];
+            diag[edge_u[e] as usize] += w;
+            diag[edge_v[e] as usize] += w;
+        }
+
         let k_jl = config.jl_dim;
         let inv_sqrt_k = 1.0 / (k_jl as f64).sqrt();
         let total = num_nodes
@@ -193,15 +200,45 @@ pub(super) fn evaluate_effective_resistances(
         amg_max_relative_residual = batch.max_relative_residual;
         amg_all_converged = batch.all_converged;
 
+        // Exact diagonal Jacobi control variate (M^-1 = D^-1):
+        // R_uv = (1/d_u + 1/d_v - 2*w_uv/(d_u*d_v)) + ||(I - D^-1 L) Z (e_u - e_v)||^2.
+        // Under tight PCG tolerance (rel_tol <= 1e-4), L Z == b_rhs so D^-1 L Z == D^-1 b_rhs
+        // with zero extra SpMVs; for loose caller rel_tol, compute L Z explicitly via SpMM.
+        let mut l_mat_z = Vec::new();
+        let residual_rhs: &[f64] = if config.amg_config.rel_tol <= 1e-4 {
+            &b_rhs
+        } else {
+            l_mat_z.resize(total, 0.0);
+            l_mat.spmm(&z_sol, &mut l_mat_z, k_jl)?;
+            &l_mat_z
+        };
+        for ((&d, z_row), rhs_row) in diag
+            .iter()
+            .zip(z_sol.chunks_exact_mut(k_jl))
+            .zip(residual_rhs.chunks_exact(k_jl))
+        {
+            if d > 0.0 {
+                let inv_d = 1.0 / d;
+                for c in 0..k_jl {
+                    z_row[c] -= rhs_row[c] * inv_d;
+                }
+            }
+        }
+
         for e in 0..m {
-            let u_row = &z_sol[(edge_u[e] as usize) * k_jl..((edge_u[e] as usize) + 1) * k_jl];
-            let v_row = &z_sol[(edge_v[e] as usize) * k_jl..((edge_v[e] as usize) + 1) * k_jl];
-            let mut r_uv = 0.0_f64;
+            let u = edge_u[e] as usize;
+            let v = edge_v[e] as usize;
+            let du = diag[u];
+            let dv = diag[v];
+            let r_det = (1.0 / du + 1.0 / dv - 2.0 * conductances[e] / (du * dv)).max(0.0);
+            let u_row = &z_sol[u * k_jl..(u + 1) * k_jl];
+            let v_row = &z_sol[v * k_jl..(v + 1) * k_jl];
+            let mut r_res = 0.0_f64;
             for c in 0..k_jl {
                 let diff = u_row[c] - v_row[c];
-                r_uv += diff * diff;
+                r_res += diff * diff;
             }
-            effective_resistances[e] = r_uv.max(0.0);
+            effective_resistances[e] = r_det + r_res;
         }
     }
 
@@ -225,6 +262,51 @@ pub(super) fn evaluate_effective_resistances(
         amg_max_relative_residual,
         amg_all_converged,
     })
+}
+
+/// Rescales JL effective resistances per connected component so each non-trivial component
+/// satisfies Foster's identity $\sum_{e \in E_k} w_e R_e = |V_k| - 1$, returning the updated
+/// `(foster_sum, foster_rel_err)`.
+pub(super) fn foster_normalize_per_component(
+    num_components: usize,
+    comp_id: &[usize],
+    comp_sizes: &[usize],
+    edge_u: &[u32],
+    conductances: &[f64],
+    expected_foster: f64,
+    effective_resistances: &mut [f64],
+) -> (f64, f64) {
+    if effective_resistances.is_empty() || num_components == 0 {
+        return (0.0, 0.0);
+    }
+
+    let mut comp_obs = vec![0.0_f64; num_components];
+    for e in 0..edge_u.len() {
+        let cid = comp_id[edge_u[e] as usize];
+        comp_obs[cid] += conductances[e] * effective_resistances[e];
+    }
+
+    let mut comp_scale = vec![1.0_f64; num_components];
+    for cid in 0..num_components {
+        let sz = comp_sizes[cid];
+        let obs = comp_obs[cid];
+        if sz > 1 && obs > 0.0 {
+            comp_scale[cid] = ((sz - 1) as f64) / obs;
+        }
+    }
+
+    let mut foster_sum = 0.0_f64;
+    for e in 0..edge_u.len() {
+        let cid = comp_id[edge_u[e] as usize];
+        effective_resistances[e] *= comp_scale[cid];
+        foster_sum += conductances[e] * effective_resistances[e];
+    }
+    let foster_rel_err = if expected_foster > 0.0 {
+        (foster_sum - expected_foster).abs() / expected_foster
+    } else {
+        foster_sum.abs()
+    };
+    (foster_sum, foster_rel_err)
 }
 
 pub(super) fn compute_curvatures(

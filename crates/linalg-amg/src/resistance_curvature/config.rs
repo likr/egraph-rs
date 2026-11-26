@@ -381,11 +381,11 @@ pub fn classify_geometry_from_curvature(
 /// Classifies a target 2D geometry from link resistance curvature, degree regularity, JL
 /// sampling regime (`used_exact`, `jl_dim`), and closed-surface topological predicate.
 ///
-/// When `used_exact` is `false`, `torus_std_threshold` is scaled smoothly by $O(1/\sqrt{k_{\mathrm{JL}}})$
-/// to absorb Johnson-Lindenstrauss variance amplified across curvature-flow steps on both 4-regular
-/// and 6-regular flat tori ($N > 256$), and a symmetric $O(1/\sqrt{k_{\mathrm{JL}}})$ margin is applied
-/// to the curvature thresholds on all non-closed-spherical graphs so Foster-sum JL fluctuations do
-/// not trigger false Spherical/Hyperbolic labels on flat tori or open planar Euclidean grids.
+/// Both exact and JL modes use the sharp `hyperbolic_threshold` and `spherical_threshold` bounds
+/// directly (without shifting mean thresholds), because the Jacobi $D^{-1}$ control variate and
+/// per-component Foster normalization eliminate global Foster drift and local correlation bias.
+/// When `used_exact` is `false`, only `torus_std_threshold` is scaled by $O(1/\sqrt{k_{\mathrm{JL}}})$
+/// to absorb the residual per-edge JL curvature spread on flat regular tori.
 #[allow(clippy::too_many_arguments)]
 pub fn classify_geometry_from_curvature_with_sampling(
     num_edges: usize,
@@ -415,26 +415,14 @@ pub fn classify_geometry_from_curvature_with_sampling(
     let effective_torus_std_threshold = if used_exact {
         torus_std_threshold
     } else {
-        // JL resistance variance scales as 1 / sqrt(jl_dim) and grows over flow steps,
-        // especially on 6-regular triangulated tori where R_e is smaller (~1/3).
-        torus_std_threshold * (1.0 + 28.0 * jl_scale)
+        // Residual JL resistance variance after the Jacobi control variate scales as
+        // 1 / sqrt(jl_dim) across curvature-flow steps on regular flat tori.
+        torus_std_threshold * (1.0 + 8.0 * jl_scale)
     };
-    let (effective_hyp_threshold, effective_sph_threshold) = if !used_exact {
-        // Global Foster-sum JL noise shifts mean link curvature by O(1 / sqrt(jl_dim))
-        // across both regular and non-regular graphs; guard against spurious Hyperbolic/Spherical
-        // flips on flat tori and open planar Euclidean grids.
-        let jl_mean_margin = 0.35 * jl_scale;
-        (
-            hyperbolic_threshold - jl_mean_margin,
-            spherical_threshold + jl_mean_margin,
-        )
-    } else {
-        (hyperbolic_threshold, spherical_threshold)
-    };
-    if mean_link_curvature < effective_hyp_threshold {
+    if mean_link_curvature < hyperbolic_threshold {
         return SuggestedGeometry::HyperbolicPoincare;
     }
-    if mean_link_curvature > effective_sph_threshold {
+    if mean_link_curvature > spherical_threshold {
         return SuggestedGeometry::Spherical;
     }
     if is_regular_closed && std_link_curvature <= effective_torus_std_threshold {

@@ -4,9 +4,13 @@ use super::config::{
     ResistanceCurvatureConfig, ResistanceCurvatureFlowResult, ResistanceCurvatureStep,
     classify_geometry_from_curvature_with_sampling,
 };
-use super::evaluation::{compute_curvatures, evaluate_effective_resistances, resolve_exact_flag};
+use super::evaluation::{
+    compute_curvatures, evaluate_effective_resistances, foster_normalize_per_component,
+    resolve_exact_flag,
+};
 use super::graph_ops::{
-    count_components, degree_regularity_stats, extract_canonical_edges, is_closed_spherical_surface,
+    compute_components, degree_regularity_stats, extract_canonical_edges,
+    is_closed_spherical_surface,
 };
 
 /// Runs Devriendt-Lambiotte resistance curvature flow on `graph` and classifies geometry.
@@ -19,7 +23,8 @@ pub fn resistance_curvature_flow<W: Scalar>(
     let use_exact = resolve_exact_flag(n, &config.resistance)?;
     let canonical = extract_canonical_edges(graph, config.resistance.weights_are_lengths)?;
     let m = canonical.edge_u.len();
-    let num_components = count_components(n, &canonical.edge_u, &canonical.edge_v);
+    let (num_components, comp_id, comp_sizes) =
+        compute_components(n, &canonical.edge_u, &canonical.edge_v);
     let (leaf_fraction, deg_cv) = degree_regularity_stats(n, &canonical.edge_u, &canonical.edge_v);
     let closed_spherical =
         is_closed_spherical_surface(n, &canonical.edge_u, &canonical.edge_v, leaf_fraction);
@@ -30,7 +35,7 @@ pub fn resistance_curvature_flow<W: Scalar>(
 
     for step_idx in 0..config.steps {
         let step_seed = config.resistance.seed.wrapping_add(step_idx as u64);
-        let eval = evaluate_effective_resistances(
+        let mut eval = evaluate_effective_resistances(
             n,
             num_components,
             &canonical.edge_u,
@@ -40,6 +45,19 @@ pub fn resistance_curvature_flow<W: Scalar>(
             use_exact,
             step_seed,
         )?;
+        if !eval.used_exact {
+            let (foster_sum, foster_rel_err) = foster_normalize_per_component(
+                num_components,
+                &comp_id,
+                &comp_sizes,
+                &canonical.edge_u,
+                &conductances,
+                eval.expected_foster,
+                &mut eval.effective_resistances,
+            );
+            eval.foster_sum = foster_sum;
+            eval.foster_rel_err = foster_rel_err;
+        }
         let curv = compute_curvatures(
             n,
             &canonical.edge_u,
@@ -95,7 +113,7 @@ pub fn resistance_curvature_flow<W: Scalar>(
     }
 
     let final_seed = config.resistance.seed.wrapping_add(config.steps as u64);
-    let final_eval = evaluate_effective_resistances(
+    let mut final_eval = evaluate_effective_resistances(
         n,
         num_components,
         &canonical.edge_u,
@@ -105,6 +123,19 @@ pub fn resistance_curvature_flow<W: Scalar>(
         use_exact,
         final_seed,
     )?;
+    if !final_eval.used_exact {
+        let (foster_sum, foster_rel_err) = foster_normalize_per_component(
+            num_components,
+            &comp_id,
+            &comp_sizes,
+            &canonical.edge_u,
+            &conductances,
+            final_eval.expected_foster,
+            &mut final_eval.effective_resistances,
+        );
+        final_eval.foster_sum = foster_sum;
+        final_eval.foster_rel_err = foster_rel_err;
+    }
     let final_curv = compute_curvatures(
         n,
         &canonical.edge_u,
