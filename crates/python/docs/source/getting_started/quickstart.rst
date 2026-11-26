@@ -64,7 +64,7 @@ You can switch solvers on the same ``CsrGraph`` and ``Layout2d`` buffer, includi
     stats = barrier.dog_stats()
     assert stats is not None and layout_b.is_all_finite()
 
-    # M4: Bounded Student-t FDP with ibFFT repulsion (float32)
+    # Bounded Student-t FDP with ibFFT repulsion (float32)
     layout_f32 = eg.pivot_mds_init(graph, num_pivots=6, seed=42, dtype="float32")
     tfdp = eg.TFdpSolver(graph, backend="ibfft", total_iterations=50, seed=42, dtype="float32")
     tfdp.run(layout_f32)

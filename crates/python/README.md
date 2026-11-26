@@ -113,7 +113,7 @@ barrier_sgd = eg.SgdSolver.sparse_barrier_dog(graph, seed=42)
 barrier_sgd.run(layout_b)
 print("DoG barrier stats:", barrier_sgd.dog_stats())
 
-# M4: SNAP-tFDP (low-memory edge-incident negative sampling)
+# SNAP-tFDP (low-memory edge-incident negative sampling)
 layout_snap = eg.pivot_mds_init(graph, num_pivots=8, seed=42)
 snap = eg.SgdSolver.snap_t_fdp(graph, iterations=200, seed=42)
 snap.run(layout_snap)

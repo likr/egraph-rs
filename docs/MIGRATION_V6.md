@@ -376,7 +376,7 @@ await runProgressive(
 ## Additional v6 Solver & Space Upgrades
 
 - **Track B Sparse Barrier SGD & GuMap**: Replace `SparseSgd.barrier(...).build_barrier_from_landmark_tables(...)` + manual scheduler loops with `SgdSolver.sparse_barrier_dog(graph, seed=42)` (or `SgdSolver.sparseBarrierDog(graph, { seed: 42 })` in WASM) and `SpatialIntruderRefiner(graph)` for 2D `StaticKdTree` post-refinement.
-- **Unified M4 Solvers**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp` / `snapTFdp`, `SgdSolver.pacmap_graph` / `pacmapGraph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, and reference-passing `FdebSolver` (`edge_offsets()`, `points()`).
+- **Unified Force, Multilevel & Edge-Bundling Solvers**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp` / `snapTFdp`, `SgdSolver.pacmap_graph` / `pacmapGraph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, and reference-passing `FdebSolver` (`edge_offsets()`, `points()`).
 - **Non-Euclidean Spaces**: Replace `DrawingHyperbolic2d`, `DrawingSpherical2d`, and `DrawingTorus2d` with `ManifoldLayout2d` (`"hyperbolic"`, `"spherical"`, `"torus"`) + `SgdSolver.step_manifold` / `run_manifold` (`stepManifold` / `runManifold`).
 - **Further Reading**:
   - [Python README](../crates/python/README.md)
