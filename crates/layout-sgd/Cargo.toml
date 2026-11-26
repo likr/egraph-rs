@@ -1,0 +1,19 @@
+[package]
+name = "egraph-layout-sgd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+delaunay = ["egraph-spatial-trees/delaunay"]
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial-trees.workspace = true
+egraph-linalg.workspace = true
+egraph-linalg-mds.workspace = true
+egraph-linalg-amg.workspace = true
+egraph-neighborhood.workspace = true
+egraph-clustering.workspace = true

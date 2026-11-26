@@ -1,0 +1,17 @@
+[package]
+name = "egraph-metrics-cluster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+eval-baselines = ["dep:egraph-clustering"]
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial-trees.workspace = true
+egraph-spatial-crossings.workspace = true
+egraph-metrics-geometry.workspace = true
+egraph-clustering = { workspace = true, optional = true }

@@ -1,0 +1,14 @@
+[package]
+name = "egraph-layout-force"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+baselines = []
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial-trees.workspace = true

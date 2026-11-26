@@ -1,0 +1,21 @@
+[package]
+name = "egraph-layout-stress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+baselines = [
+    "dep:egraph-linalg-mds",
+    "dep:egraph-linalg-amg",
+    "dep:egraph-spatial-trees",
+]
+
+[dependencies]
+egraph-core.workspace = true
+egraph-linalg.workspace = true
+egraph-linalg-mds = { workspace = true, optional = true }
+egraph-linalg-amg = { workspace = true, optional = true }
+egraph-spatial-trees = { workspace = true, optional = true }

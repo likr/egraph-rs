@@ -1,0 +1,31 @@
+[package]
+name = "egraph-layout-multilevel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+delaunay = ["egraph-layout-sgd/delaunay"]
+baselines = [
+    "dep:egraph-linalg",
+    "dep:egraph-layout-constraints",
+    "dep:egraph-layout-stress",
+    "dep:egraph-layout-force",
+    "dep:egraph-layout-neighbor",
+    "egraph-layout-force?/baselines",
+]
+
+[dependencies]
+egraph-core.workspace = true
+egraph-spatial-trees.workspace = true
+egraph-spatial-fft.workspace = true
+egraph-neighborhood.workspace = true
+egraph-clustering.workspace = true
+egraph-layout-sgd.workspace = true
+egraph-linalg = { workspace = true, optional = true }
+egraph-layout-constraints = { workspace = true, optional = true }
+egraph-layout-stress = { workspace = true, optional = true }
+egraph-layout-force = { workspace = true, optional = true }
+egraph-layout-neighbor = { workspace = true, optional = true }
