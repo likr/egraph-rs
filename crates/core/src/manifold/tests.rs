@@ -229,3 +229,24 @@ fn test_poincare_mobius_centroid_and_safe_init_f64_f32() {
         Err(CoreError::UnsupportedOperation(_))
     ));
 }
+
+#[test]
+fn test_manifold_layout_init_copy_and_validate_finite() {
+    let m1 = ManifoldLayout2d::<f64>::init(ManifoldKind::HyperbolicPoincare, 12, 42, 0.25).unwrap();
+    let m_ref =
+        ManifoldLayout2d::<f64>::random_init(ManifoldKind::HyperbolicPoincare, 12, 0.25, 42)
+            .unwrap();
+    assert_eq!(m1, m_ref);
+    m1.validate_finite().unwrap();
+
+    let mut m_copy = m1.copy();
+    assert_eq!(m_copy, m1);
+    m_copy.set_point(0, 0.0, 0.0).unwrap();
+    assert_ne!(m_copy, m1);
+
+    let mut bad = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, 2);
+    assert!(matches!(
+        bad.set_point(0, f64::NAN, 0.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+}

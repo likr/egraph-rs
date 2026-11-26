@@ -30,12 +30,12 @@ impl SolverStatus {
 /// Implementing `step()` lets WebAssembly `requestAnimationFrame` loops and Python
 /// progressive visualizers advance a few iterations at a time without blocking a single
 /// thread, while sharing identical math with batch `run()`.
-pub trait IterativeSolver<S: Scalar = f64> {
+pub trait IterativeSolver<S: Scalar = f64, L = Layout2d<S>> {
     /// Executes a single iteration on `layout` and returns the updated [`SolverStatus`].
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus>;
+    fn step(&mut self, layout: &mut L) -> CoreResult<SolverStatus>;
 
     /// Executes up to `steps` iterations or stops early if the solver reaches a terminal status.
-    fn run_steps(&mut self, layout: &mut Layout2d<S>, steps: usize) -> CoreResult<SolverStatus> {
+    fn run_steps(&mut self, layout: &mut L, steps: usize) -> CoreResult<SolverStatus> {
         for _ in 0..steps {
             if self.status().is_finished() {
                 break;
@@ -49,7 +49,7 @@ pub trait IterativeSolver<S: Scalar = f64> {
     }
 
     /// Runs the solver to completion (or early convergence).
-    fn run(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
+    fn run(&mut self, layout: &mut L) -> CoreResult<SolverStatus> {
         while !self.status().is_finished() {
             let status = self.step(layout)?;
             if status.is_finished() {
@@ -181,5 +181,56 @@ mod tests {
             SolverStatus::Converged
         );
         assert_eq!(conv_solver.iteration(), 2);
+    }
+
+    #[test]
+    fn test_iterative_solver_generic_layout_type() {
+        use crate::layout::LayoutNd;
+
+        struct NdDecaySolver {
+            iter: usize,
+            total: usize,
+            status: SolverStatus,
+        }
+
+        impl IterativeSolver<f64, LayoutNd<f64>> for NdDecaySolver {
+            fn step(&mut self, layout: &mut LayoutNd<f64>) -> CoreResult<SolverStatus> {
+                if self.status.is_finished() {
+                    return Ok(self.status);
+                }
+                for v in layout.coords_mut() {
+                    *v *= 0.5;
+                }
+                self.iter += 1;
+                self.status = if self.iter >= self.total {
+                    SolverStatus::Completed
+                } else {
+                    SolverStatus::Running
+                };
+                Ok(self.status)
+            }
+
+            fn status(&self) -> SolverStatus {
+                self.status
+            }
+
+            fn iteration(&self) -> usize {
+                self.iter
+            }
+
+            fn total_iterations(&self) -> usize {
+                self.total
+            }
+        }
+
+        let mut layout = LayoutNd::from_flat(2, 3, vec![4.0, 8.0, 12.0, -4.0, 0.0, 2.0]).unwrap();
+        let mut solver = NdDecaySolver {
+            iter: 0,
+            total: 2,
+            status: SolverStatus::Initialized,
+        };
+        assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);
+        assert_eq!(solver.iteration(), 2);
+        assert_eq!(layout.coords(), &[1.0, 2.0, 3.0, -1.0, 0.0, 0.5]);
     }
 }

@@ -5,6 +5,48 @@ use crate::error::{CoreError, CoreResult};
 use crate::visit_stamp::VisitStamp;
 
 impl<W> CsrGraph<W> {
+    /// Returns `true` if the graph is (weakly) connected.
+    ///
+    /// Empty (`0`-node) and singleton (`1`-node) graphs are considered connected (`true`).
+    pub fn is_connected(&self) -> bool {
+        if self.num_nodes <= 1 {
+            return true;
+        }
+
+        // For directed graphs, traverse both outgoing and incoming edges for weak connectivity.
+        let reverse_adj = if self.directed {
+            Some(self.build_reverse_adjacency())
+        } else {
+            None
+        };
+
+        let mut visited = VisitStamp::new(self.num_nodes);
+        let mut queue = VecDeque::new();
+        visited.visit(0);
+        queue.push_back(0u32);
+        let mut seen = 0usize;
+
+        while let Some(u) = queue.pop_front() {
+            seen += 1;
+            for &v in self.neighbors(u as usize) {
+                if visited.visit(v as usize) {
+                    queue.push_back(v);
+                }
+            }
+            if let Some((rev_indptr, rev_indices)) = &reverse_adj {
+                let rs = rev_indptr[u as usize] as usize;
+                let re = rev_indptr[u as usize + 1] as usize;
+                for &v in &rev_indices[rs..re] {
+                    if visited.visit(v as usize) {
+                        queue.push_back(v);
+                    }
+                }
+            }
+        }
+
+        seen == self.num_nodes
+    }
+
     /// Returns the sorted original vertex IDs belonging to the largest (weakly) connected component.
     ///
     /// Ties are broken deterministically in favor of the component containing the smallest node ID.

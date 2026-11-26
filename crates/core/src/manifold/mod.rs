@@ -9,6 +9,7 @@ mod torus;
 mod tests;
 
 /// Supported 2D non-Euclidean manifold geometries.
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ManifoldKind {
     /// 2D Poincaré unit disk model of hyperbolic space (`x^2 + y^2 < 1`).

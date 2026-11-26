@@ -32,6 +32,7 @@ pub(super) fn manifold_kind_str(kind: ManifoldKind) -> &'static str {
         ManifoldKind::HyperbolicPoincare => "hyperbolic",
         ManifoldKind::Spherical => "spherical",
         ManifoldKind::Torus2d => "torus",
+        _ => "unknown",
     }
 }
 

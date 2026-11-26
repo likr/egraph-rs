@@ -1,6 +1,8 @@
 use std::f64::consts::PI;
 
-use egraph_core::{CoreResult, DeterministicRng, Layout2d, ManifoldKind, ManifoldLayout2d, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, Layout2d, ManifoldKind, ManifoldLayout2d, Scalar,
+};
 
 use super::pairs::{HINGE_BIT, INDEX_MASK, PackedGenPair, PackedSymPair, PairSpec};
 
@@ -113,26 +115,27 @@ pub(super) fn apply_euclidean_gen_pair<S: Scalar>(
 }
 
 #[inline]
-fn clamp_manifold_tangent_step<S: Scalar>(kind: ManifoldKind, vx: S, vy: S) -> (S, S) {
+fn clamp_manifold_tangent_step<S: Scalar>(kind: ManifoldKind, vx: S, vy: S) -> CoreResult<(S, S)> {
     let vxf = vx.to_f64();
     let vyf = vy.to_f64();
     if !vxf.is_finite() || !vyf.is_finite() {
-        return (S::ZERO, S::ZERO);
+        return Ok((S::ZERO, S::ZERO));
     }
     let len = vxf.hypot(vyf);
     if !len.is_finite() || len == 0.0 {
-        return (S::ZERO, S::ZERO);
+        return Ok((S::ZERO, S::ZERO));
     }
     let max_step = match kind {
         ManifoldKind::HyperbolicPoincare => 8.0,
         ManifoldKind::Spherical => PI,
         ManifoldKind::Torus2d => 0.5,
+        _ => return Err(CoreError::unsupported("unsupported manifold kind")),
     };
     if len > max_step {
         let scale = max_step / len;
-        (S::from_f64(vxf * scale), S::from_f64(vyf * scale))
+        Ok((S::from_f64(vxf * scale), S::from_f64(vyf * scale)))
     } else {
-        (vx, vy)
+        Ok((vx, vy))
     }
 }
 
@@ -144,7 +147,7 @@ fn apply_clamped_manifold_vertex_step<S: Scalar>(
     vy: S,
 ) -> CoreResult<()> {
     let kind = layout.kind();
-    let (cvx, cvy) = clamp_manifold_tangent_step(kind, vx, vy);
+    let (cvx, cvy) = clamp_manifold_tangent_step(kind, vx, vy)?;
     layout.apply_tangent_step(idx, cvx, cvy)?;
     // Guard f32 rounding at Spherical [0, 2*pi) x [0, pi] boundary.
     if kind == ManifoldKind::Spherical {

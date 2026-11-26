@@ -1,6 +1,14 @@
 //! Contiguous Structure-of-Arrays (`Layout2d`) and arbitrary-dimensional (`LayoutNd`) buffers.
 
+mod nd;
+
+#[cfg(test)]
+mod tests;
+
+pub use nd::LayoutNd;
+
 use crate::error::{CoreError, CoreResult};
+use crate::rng::DeterministicRng;
 use crate::scalar::Scalar;
 
 /// Structure-of-Arrays (SoA) 2D node layout storing contiguous `x` and `y` coordinate slices.
@@ -20,6 +28,30 @@ impl<S: Scalar> Layout2d<S> {
             x: vec![S::ZERO; n],
             y: vec![S::ZERO; n],
         }
+    }
+
+    /// Creates a deterministically seeded uniform random 2D layout in `[-0.5 * scale, 0.5 * scale)^2`.
+    pub fn init(num_nodes: usize, seed: u64, scale: f64) -> CoreResult<Self> {
+        if !scale.is_finite() || !S::from_f64(scale).is_finite() {
+            return Err(CoreError::non_finite("Layout2d::init::scale"));
+        }
+        if scale <= 0.0 {
+            return Err(CoreError::invalid_input("scale must be strictly positive"));
+        }
+        let mut rng = DeterministicRng::from_seed_u64(seed);
+        let mut x = Vec::with_capacity(num_nodes);
+        let mut y = Vec::with_capacity(num_nodes);
+        for _ in 0..num_nodes {
+            x.push(S::from_f64((rng.next_f64() - 0.5) * scale));
+            y.push(S::from_f64((rng.next_f64() - 0.5) * scale));
+        }
+        Ok(Self { x, y })
+    }
+
+    /// Returns a cloned copy of the layout.
+    #[inline]
+    pub fn copy(&self) -> Self {
+        self.clone()
     }
 
     /// Creates a 2D layout from owned `x` and `y` vectors, checking equal lengths.
@@ -211,210 +243,5 @@ impl<S: Scalar> Layout2d<S> {
             self.y[i] = S::from_f64(self.y[i].to_f64() * scale);
         }
         Ok(())
-    }
-}
-
-/// Flat row-major `d`-dimensional coordinate layout (`num_nodes * dims`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct LayoutNd<S: Scalar = f64> {
-    coords: Vec<S>,
-    num_nodes: usize,
-    dims: usize,
-}
-
-impl<S: Scalar> LayoutNd<S> {
-    /// Creates a zero-initialized `dims`-dimensional layout for `num_nodes` vertices.
-    pub fn zeros(num_nodes: usize, dims: usize) -> CoreResult<Self> {
-        if dims == 0 {
-            return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
-        }
-        let total = num_nodes
-            .checked_mul(dims)
-            .ok_or_else(|| CoreError::invalid_input("LayoutNd size overflow"))?;
-        Ok(Self {
-            coords: vec![S::ZERO; total],
-            num_nodes,
-            dims,
-        })
-    }
-
-    /// Creates a `LayoutNd` from a flat row-major coordinate vector of length `num_nodes * dims`.
-    pub fn from_flat(num_nodes: usize, dims: usize, coords: Vec<S>) -> CoreResult<Self> {
-        if dims == 0 {
-            return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
-        }
-        let expected = num_nodes
-            .checked_mul(dims)
-            .ok_or_else(|| CoreError::invalid_input("LayoutNd size overflow"))?;
-        if coords.len() != expected {
-            return Err(CoreError::dimension_mismatch(
-                expected,
-                coords.len(),
-                "LayoutNd::from_flat",
-            ));
-        }
-        Ok(Self {
-            coords,
-            num_nodes,
-            dims,
-        })
-    }
-
-    /// Returns the dimensionality of the embedding space.
-    #[inline]
-    pub fn dims(&self) -> usize {
-        self.dims
-    }
-
-    /// Returns the number of vertices in the layout.
-    #[inline]
-    pub fn num_nodes(&self) -> usize {
-        self.num_nodes
-    }
-
-    /// Returns `true` if the layout contains zero vertices.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.num_nodes == 0
-    }
-
-    /// Returns an immutable slice over the flat row-major coordinate buffer.
-    #[inline]
-    pub fn coords(&self) -> &[S] {
-        &self.coords
-    }
-
-    /// Returns a mutable slice over the flat row-major coordinate buffer.
-    #[inline]
-    pub fn coords_mut(&mut self) -> &mut [S] {
-        &mut self.coords
-    }
-
-    /// Returns the `dims`-element coordinate slice for `node`.
-    pub fn node(&self, node: usize) -> CoreResult<&[S]> {
-        if node >= self.num_nodes {
-            return Err(CoreError::index_out_of_bounds(
-                node,
-                self.num_nodes,
-                "LayoutNd::node",
-            ));
-        }
-        let start = node * self.dims;
-        Ok(&self.coords[start..start + self.dims])
-    }
-
-    /// Returns a mutable `dims`-element coordinate slice for `node`.
-    pub fn node_mut(&mut self, node: usize) -> CoreResult<&mut [S]> {
-        if node >= self.num_nodes {
-            return Err(CoreError::index_out_of_bounds(
-                node,
-                self.num_nodes,
-                "LayoutNd::node_mut",
-            ));
-        }
-        let start = node * self.dims;
-        Ok(&mut self.coords[start..start + self.dims])
-    }
-
-    /// Returns `true` if all coordinates are finite.
-    #[inline]
-    pub fn is_all_finite(&self) -> bool {
-        self.coords.iter().all(|v| v.is_finite())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_layout2d_interleaved_roundtrip_and_mutators() {
-        let mut layout = Layout2d::from_interleaved(&[1.0_f64, 2.0, 3.0, 4.0]).unwrap();
-        assert_eq!(layout.len(), 2);
-        assert!(!layout.is_empty());
-        assert_eq!(layout.x(), &[1.0, 3.0]);
-        assert_eq!(layout.y(), &[2.0, 4.0]);
-
-        layout.x_mut()[0] = 5.0;
-        layout.y_mut()[1] = 6.0;
-        let mut out = vec![0.0_f64; 4];
-        layout.write_interleaved(&mut out).unwrap();
-        assert_eq!(out, vec![5.0, 2.0, 3.0, 6.0]);
-
-        assert!(matches!(
-            Layout2d::<f64>::from_interleaved(&[1.0, 2.0, 3.0]),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-        assert!(matches!(
-            layout.write_interleaved(&mut [0.0; 2]),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-        assert!(matches!(
-            Layout2d::from_xy(vec![1.0], vec![1.0, 2.0]),
-            Err(CoreError::DimensionMismatch { .. })
-        ));
-    }
-
-    #[test]
-    fn test_layout2d_center_and_normalize_std() {
-        let mut layout = Layout2d::from_xy(
-            vec![10.0_f64, 12.0, 14.0, 10.0],
-            vec![-5.0_f64, -3.0, -5.0, -7.0],
-        )
-        .unwrap();
-        layout.center_and_normalize_std().unwrap();
-        let n = layout.len() as f64;
-        let mean_x = layout.x().iter().sum::<f64>() / n;
-        let mean_y = layout.y().iter().sum::<f64>() / n;
-        assert!(mean_x.abs() < 1e-12);
-        assert!(mean_y.abs() < 1e-12);
-        let var: f64 = layout
-            .x()
-            .iter()
-            .zip(layout.y().iter())
-            .map(|(&x, &y)| x * x + y * y)
-            .sum::<f64>()
-            / (2.0 * n);
-        assert!((var.sqrt() - 1.0).abs() < 1e-12);
-
-        // Collapsed / 1-node / empty / non-finite edge cases.
-        let mut collapsed = Layout2d::from_xy(vec![3.0, 3.0], vec![7.0, 7.0]).unwrap();
-        collapsed.center_and_normalize_std().unwrap();
-        assert_eq!(collapsed.x(), &[0.0, 0.0]);
-        assert_eq!(collapsed.y(), &[0.0, 0.0]);
-
-        let mut single = Layout2d::from_xy(vec![9.0], vec![-4.0]).unwrap();
-        single.center_and_normalize_std().unwrap();
-        assert_eq!(single.x(), &[0.0]);
-        assert_eq!(single.y(), &[0.0]);
-
-        let mut empty = Layout2d::<f32>::zeros(0);
-        assert!(empty.is_empty());
-        empty.center_and_normalize_std().unwrap();
-
-        let mut bad = Layout2d::from_xy(vec![0.0, f64::NAN], vec![0.0, 1.0]).unwrap();
-        assert!(!bad.is_all_finite());
-        assert!(matches!(
-            bad.center_and_normalize_std(),
-            Err(CoreError::NonFiniteValue { .. })
-        ));
-    }
-
-    #[test]
-    fn test_layout_nd() {
-        let mut nd = LayoutNd::<f32>::zeros(2, 3).unwrap();
-        assert_eq!(nd.dims(), 3);
-        assert_eq!(nd.num_nodes(), 2);
-        assert!(nd.is_all_finite());
-        nd.node_mut(1).unwrap().copy_from_slice(&[1.0, 2.0, 3.0]);
-        assert_eq!(nd.node(1).unwrap(), &[1.0, 2.0, 3.0]);
-        assert!(matches!(
-            LayoutNd::<f64>::zeros(2, 0),
-            Err(CoreError::InvalidInput(_))
-        ));
-        assert!(matches!(
-            nd.node(2),
-            Err(CoreError::IndexOutOfBounds { .. })
-        ));
     }
 }

@@ -154,6 +154,99 @@ impl<W> CsrGraph<W> {
         }
         Ok(self.degree(node))
     }
+
+    /// Returns all logical edge pairs `(u, v)` in the graph.
+    ///
+    /// For directed graphs, emits every stored `(u, v)` entry in row order; for undirected
+    /// graphs, emits each canonical pair `u < v` once (`num_edges()` total).
+    pub fn edges(&self) -> Vec<(u32, u32)> {
+        let mut out = Vec::with_capacity(self.num_edges());
+        for u in 0..self.num_nodes {
+            let u32_u = u as u32;
+            for &v in self.neighbors(u) {
+                if self.directed || u32_u < v {
+                    out.push((u32_u, v));
+                }
+            }
+        }
+        out
+    }
+
+    #[inline]
+    fn find_neighbor_pos(&self, u: usize, v: usize) -> Option<usize> {
+        if u >= self.num_nodes || v >= self.num_nodes {
+            return None;
+        }
+        let start = self.indptr[u] as usize;
+        let end = self.indptr[u + 1] as usize;
+        let target = v as u32;
+        // Linear scan handles unsorted duplicate-free rows permitted by `sanitize = false`.
+        self.indices[start..end]
+            .iter()
+            .position(|&nbr| nbr == target)
+            .map(|offset| start + offset)
+    }
+
+    /// Returns `true` if edge `(u, v)` exists in the graph (`false` if either vertex is out of bounds).
+    #[inline]
+    pub fn has_edge(&self, u: usize, v: usize) -> bool {
+        self.find_neighbor_pos(u, v).is_some()
+    }
+
+    /// Fallible variant of [`CsrGraph::has_edge`] returning [`CoreError::IndexOutOfBounds`].
+    #[inline]
+    pub fn try_has_edge(&self, u: usize, v: usize) -> CoreResult<bool> {
+        if u >= self.num_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                u,
+                self.num_nodes,
+                "CsrGraph::try_has_edge",
+            ));
+        }
+        if v >= self.num_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                v,
+                self.num_nodes,
+                "CsrGraph::try_has_edge",
+            ));
+        }
+        Ok(self.has_edge(u, v))
+    }
+
+    /// Returns the weight of edge `(u, v)`, or `None` if the edge is absent, out of bounds,
+    /// or the graph is unweighted (`self.weights().is_none()`).
+    #[inline]
+    pub fn edge_weight(&self, u: usize, v: usize) -> Option<W>
+    where
+        W: Copy,
+    {
+        let weights = self.weights.as_ref()?;
+        let pos = self.find_neighbor_pos(u, v)?;
+        Some(weights[pos])
+    }
+
+    /// Fallible variant of [`CsrGraph::edge_weight`] returning [`CoreError::IndexOutOfBounds`].
+    #[inline]
+    pub fn try_edge_weight(&self, u: usize, v: usize) -> CoreResult<Option<W>>
+    where
+        W: Copy,
+    {
+        if u >= self.num_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                u,
+                self.num_nodes,
+                "CsrGraph::try_edge_weight",
+            ));
+        }
+        if v >= self.num_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                v,
+                self.num_nodes,
+                "CsrGraph::try_edge_weight",
+            ));
+        }
+        Ok(self.edge_weight(u, v))
+    }
 }
 
 impl<W: Scalar> CsrGraph<W> {

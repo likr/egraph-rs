@@ -45,6 +45,27 @@ impl<S: Scalar> ManifoldLayout2d<S> {
 
     /// Creates a deterministically seeded safe random initialization on `kind`.
     ///
+    /// Arguments follow the `(kind, num_nodes, seed, scale)` convention shared with
+    /// [`Layout2d::init`] and [`LayoutNd::init`], delegating to [`Self::random_init`].
+    #[inline]
+    pub fn init(kind: ManifoldKind, num_nodes: usize, seed: u64, scale: f64) -> CoreResult<Self> {
+        Self::random_init(kind, num_nodes, scale, seed)
+    }
+
+    /// Returns a cloned copy of the manifold layout.
+    #[inline]
+    pub fn copy(&self) -> Self {
+        self.clone()
+    }
+
+    /// Validates that every coordinate in the manifold layout is finite.
+    #[inline]
+    pub fn validate_finite(&self) -> CoreResult<()> {
+        self.layout.validate_finite()
+    }
+
+    /// Creates a deterministically seeded safe random initialization on `kind`.
+    ///
     /// For [`ManifoldKind::HyperbolicPoincare`], points are sampled uniformly by area inside the
     /// open disk of radius `scale.min(1 - eps)` (`0 < scale < 1`), breaking the zero-tangent
     /// deadlock of [`ManifoldLayout2d::zeros`] under manifold SGD. For
