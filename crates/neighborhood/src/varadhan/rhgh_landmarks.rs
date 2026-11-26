@@ -3,10 +3,10 @@
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
 // Keep AMG-PCG imports isolated on a dedicated line for clean downstream crate splitting.
-use egraph_linalg_amg::{AmgPcgConfig, AmgPcgSolver};
 use egraph_linalg::{
     CsrMatrix, select_maxmin_sp_pivots, spectral_moment_stats, symmetric_normalized_laplacian,
 };
+use egraph_linalg_amg::{AmgPcgConfig, AmgPcgSolver};
 
 use crate::perplexity::compute_2hop_neighborhood_sizes;
 
