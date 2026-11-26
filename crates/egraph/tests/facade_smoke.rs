@@ -342,7 +342,7 @@ fn facade_petgraph_smoke() {
 
 #[cfg(all(feature = "linalg", feature = "layout"))]
 #[test]
-fn facade_w2_core_smoke() {
+fn facade_hde_and_negative_sampling_smoke() {
     let graph = CsrGraph::<f64>::from_edges(
         6,
         &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 3)],
@@ -420,7 +420,7 @@ fn facade_w2_core_smoke() {
 
 #[cfg(all(feature = "layout", feature = "baselines", feature = "dataset"))]
 #[test]
-fn facade_w2_baselines_smoke() {
+fn facade_multilevel_and_stress_baselines_smoke() {
     let graph = egraph::dataset::dataset_karate_csr();
     let mut layout = Layout2d::<f64>::zeros(graph.num_nodes());
 
