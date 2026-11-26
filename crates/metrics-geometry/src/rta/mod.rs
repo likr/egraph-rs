@@ -5,10 +5,13 @@
 //! and evaluates exact enumeration deterministically whenever `total_comparable <= num_triplets`.
 
 mod evaluate;
+mod manifold;
 mod nd;
 mod row_stats;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
@@ -18,6 +21,10 @@ use egraph_linalg::{BfsWorkspace, select_maxmin_sp_pivots};
 use crate::validate_graph_layout;
 
 use evaluate::evaluate_rta_core;
+pub use manifold::{
+    landmark_stratified_rta_detail_manifold, landmark_stratified_rta_from_landmarks_f64_manifold,
+    landmark_stratified_rta_from_landmarks_manifold, landmark_stratified_rta_manifold,
+};
 pub use nd::{
     landmark_stratified_rta_detail_nd, landmark_stratified_rta_from_landmarks_f64_nd,
     landmark_stratified_rta_from_landmarks_nd, landmark_stratified_rta_nd,

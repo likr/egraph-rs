@@ -5,12 +5,18 @@ use egraph_spatial_crossings::{
     SweepLineCrossings, sampled_crossing_number_edges, torus_crossing_edges_from_edges,
 };
 
-pub use egraph_spatial_crossings::{CrossingPair, CrossingSummary, TorusCrossing};
+pub use egraph_spatial_crossings::{
+    CrossingPair, CrossingSummary, TorusCrossing, TorusLayoutView, crossing_edges_hyperbolic,
+    crossing_edges_spherical, hyperbolic_crossing_number, spherical_crossing_number,
+    torus_crossing_number,
+};
 
 use crate::{extract_unique_edges, validate_graph_layout};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 
 /// Counts the exact number of non-adjacent crossing edge pairs in `graph` under `layout`.
 pub fn crossing_number<W, S: Scalar>(
@@ -58,20 +64,23 @@ pub fn crossing_angle_from_pairs(pairs: &[CrossingPair]) -> f64 {
     pairs.iter().map(|p| p.cos_sq).sum()
 }
 
-/// Finds all crossing edge sub-segment pairs for `graph` laid out on the unit torus `[0, 1)^2`.
-pub fn crossing_edges_torus<W, S: Scalar>(
+/// Finds all crossing edge sub-segment pairs for `graph` laid out on a 2D torus
+/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+pub fn crossing_edges_torus<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<Vec<TorusCrossing>> {
-    validate_graph_layout(graph, layout, "crossing_edges_torus")?;
+    let coords = layout.torus_layout()?;
+    validate_graph_layout(graph, coords, "crossing_edges_torus")?;
     let edges = extract_unique_edges(graph);
     torus_crossing_edges_from_edges(&edges, layout)
 }
 
-/// Finds all crossing edge sub-segment pairs for an explicit edge slice on `[0, 1)^2`.
-pub fn crossing_edges_torus_from_edges<S: Scalar>(
+/// Finds all crossing edge sub-segment pairs for an explicit edge slice on a 2D torus
+/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+pub fn crossing_edges_torus_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     edges: &[(u32, u32)],
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<Vec<TorusCrossing>> {
     torus_crossing_edges_from_edges(edges, layout)
 }

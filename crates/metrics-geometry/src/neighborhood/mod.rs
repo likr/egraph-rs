@@ -1,9 +1,12 @@
 //! 1-hop and 2-hop neighborhood preservation metrics backed by `StaticKdTree<2, f64>`.
 
+mod manifold;
 mod nd;
 mod sampled;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
@@ -12,6 +15,14 @@ use egraph_spatial_trees::StaticKdTree;
 
 use crate::{
     build_kdtree_f64, build_undirected_adjacency, validate_graph_layout, validate_tree_layout,
+};
+
+#[doc(hidden)]
+pub use manifold::k_nearest_manifold_excluding_self_into;
+pub use manifold::{
+    neighborhood_preservation_1hop_manifold, neighborhood_preservation_2hop_manifold,
+    sampled_neighborhood_preservation_1hop_manifold,
+    sampled_neighborhood_preservation_2hop_manifold,
 };
 
 pub use nd::{

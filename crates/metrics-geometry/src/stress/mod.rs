@@ -7,15 +7,25 @@
 //! accumulated in `f64`.
 
 mod bfs;
+mod manifold;
 mod nd;
 mod sampled;
 mod sns;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_manifold;
+#[cfg(test)]
 mod tests_nd;
 
 pub use bfs::{BfsScratch, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source};
+pub use manifold::{
+    geodesic_distortion, sampled_scale_normalized_stress_detail_manifold,
+    sampled_scale_normalized_stress_manifold, scale_normalized_stress_detail_manifold,
+    scale_normalized_stress_from_distances_detail_manifold,
+    scale_normalized_stress_from_distances_manifold, scale_normalized_stress_from_pairs_manifold,
+    scale_normalized_stress_manifold,
+};
 pub use nd::{
     sampled_scale_normalized_stress_detail_nd, sampled_scale_normalized_stress_nd,
     scale_normalized_stress_detail_nd, scale_normalized_stress_from_distances_detail_nd,

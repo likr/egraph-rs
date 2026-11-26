@@ -2,12 +2,25 @@
 //! 2017 unweighted shape-based `S_RNG` / `S_GG`) accelerated via `StaticKdTree<2, f64>`.
 
 pub(crate) mod exact_predicates;
+mod manifold;
 mod nd;
 mod sector_pruning;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_manifold;
+#[cfg(test)]
 mod tests_nd;
+
+#[doc(hidden)]
+pub use manifold::{
+    gabriel_graph_edges_manifold, manifold_geodesic_diameter, manifold_geodesic_interpolate_point,
+    manifold_point_distance_to_node, relative_neighborhood_edges_manifold,
+};
+pub use manifold::{
+    gabriel_graph_preservation_manifold, gabriel_graph_property_manifold, node_resolution_manifold,
+    relative_neighborhood_preservation_manifold,
+};
 
 pub use nd::{
     gabriel_graph_edges_nd, gabriel_graph_edges_nd_with_index, gabriel_graph_preservation_nd,

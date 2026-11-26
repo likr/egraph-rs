@@ -1,4 +1,4 @@
-use egraph_core::{CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
+use egraph_core::{CoreResult, CsrGraph, Layout2d, LayoutNd, ManifoldLayout2d, Scalar};
 use egraph_linalg::BfsWorkspace;
 
 pub(super) trait RtaCoordSpace {
@@ -48,6 +48,43 @@ impl<S: Scalar> RtaCoordSpace for LayoutNd<S> {
         }
         sum
     }
+}
+
+impl<S: Scalar> RtaCoordSpace for ManifoldLayout2d<S> {
+    #[inline]
+    fn num_nodes(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn is_collapsed(&self) -> bool {
+        is_manifold_collapsed(self)
+    }
+
+    #[inline]
+    fn dist_sq(&self, a: usize, b: usize) -> f64 {
+        let d = self
+            .geodesic_distance(a, b)
+            .map(|v| v.to_f64())
+            .unwrap_or(0.0);
+        d * d
+    }
+}
+
+#[inline]
+pub(super) fn is_manifold_collapsed<S: Scalar>(layout: &ManifoldLayout2d<S>) -> bool {
+    let n = layout.len();
+    if n <= 1 {
+        return true;
+    }
+    for i in 1..n {
+        if let Ok(d) = layout.geodesic_distance(0, i)
+            && d.to_f64() > 1e-15
+        {
+            return false;
+        }
+    }
+    true
 }
 
 #[inline]

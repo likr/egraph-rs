@@ -1,10 +1,13 @@
 //! Geometric shape, edge-length, angular, and PRISM layout-preservation metrics.
 
 mod angles_degeneracy;
+mod manifold;
 mod nd;
 mod prism;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
@@ -14,6 +17,11 @@ use crate::{extract_unique_edges, validate_graph_layout};
 
 pub use angles_degeneracy::{
     LayoutDegeneracy, MinimumAngleSummary, layout_degeneracy, minimum_angle, minimum_angle_summary,
+};
+pub use manifold::{
+    ideal_edge_lengths_from_distances_manifold, ideal_edge_lengths_manifold,
+    ideal_edge_lengths_scaled_manifold, ideal_edge_lengths_with_unit_manifold,
+    layout_degeneracy_manifold,
 };
 pub use nd::{
     ideal_edge_lengths_from_distances_nd, ideal_edge_lengths_nd, ideal_edge_lengths_scaled_nd,
