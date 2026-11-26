@@ -7,8 +7,10 @@
 //! - [`FitField2d`]: Fused C1 (KL Student-$t$) + C2 (entropy) repulsion sharing particle FFTs.
 //! - [`R2cFft2dWorkspaceF32`]: In-place `f32` 2D Real-to-Complex (`R2C`/`C2R`) Radix-2 FFT workspace.
 //! - [`ScreenedPoissonField2d`]: Unilateral upper-bound Screened Poisson density field evaluator.
-//! - [`ArenaQuadtree2d`]: Flat `Vec`-backed Barnes-Hut quadtree.
+//! - [`ArenaQuadtree2d`]: Flat `Vec`-backed Barnes-Hut 2D quadtree.
+//! - [`ArenaOctree3d`]: Flat `Vec`-backed Barnes-Hut 3D octree.
 //! - [`StaticKdTree`]: Flat median-split static $D$-dimensional KD-tree.
+//! - [`DynamicKdTree`]: Flat median-split runtime-dimension KD-tree.
 //! - [`SweepLineCrossings`]: Exact $O((|E|+K)\log|E|)$ sweep-line crossing detector, torus segments,
 //!   and deterministic sampled crossing estimation.
 //! - [`RectangleOverlapSweep`]: $O(N \log N + K)$ axis-aligned rectangle overlap detector.
@@ -21,8 +23,8 @@ pub use egraph_spatial_trees::Delaunay2d;
 #[cfg(feature = "delaunay")]
 pub use egraph_spatial_trees::delaunay;
 pub use egraph_spatial_trees::{
-    ArenaQuadtree2d, KdQueryScratch, Rect2d, RectangleOverlapSweep, StaticKdTree, kdtree, overlap,
-    quadtree,
+    ArenaOctree3d, ArenaQuadtree2d, DynamicKdTree, KdQueryScratch, Rect2d, RectangleOverlapSweep,
+    StaticKdTree, kdtree, octree, overlap, quadtree,
 };
 
 pub use egraph_spatial_fft::{
@@ -41,14 +43,17 @@ pub use egraph_spatial_crossings::{
 #[cfg(test)]
 mod tests {
     use super::{
-        ArenaQuadtree2d, Complex64, Fft2dWorkspace, FitFieldConfig, Rect2d, RectangleOverlapSweep,
-        ScreenedPoissonConfig, StaticKdTree, SweepLineCrossings, torus_edge_segments,
+        ArenaOctree3d, ArenaQuadtree2d, Complex64, DynamicKdTree, Fft2dWorkspace, FitFieldConfig,
+        Rect2d, RectangleOverlapSweep, ScreenedPoissonConfig, StaticKdTree, SweepLineCrossings,
+        torus_edge_segments,
     };
 
     #[test]
     fn spatial_umbrella_reexports_work() {
         let _tree = ArenaQuadtree2d::<f64>::new();
+        let _octree = ArenaOctree3d::<f64>::new();
         let _kd = StaticKdTree::<2, f64>::build(&[[0.0, 0.0], [1.0, 1.0]]).unwrap();
+        let _dkd = DynamicKdTree::<f64>::from_flat(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], 2, 3).unwrap();
         let _rect = Rect2d::new(0.0, 1.0, 0.0, 1.0).unwrap();
         assert!(!RectangleOverlapSweep::has_overlaps(&[_rect]).unwrap());
 
