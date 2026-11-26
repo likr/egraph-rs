@@ -67,7 +67,7 @@ fn test_torus_edge_segments_bounds_and_crossing_parity() {
             }
         }
 
-        let expected = torus_brute_force(&edges, &layout);
+        let expected = torus_brute_force(&format!("seed {seed}"), &edges, &layout);
         let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
         assert_eq!(
             got.len(),
@@ -106,7 +106,7 @@ fn test_torus_steep_and_clustered_parity() {
                 edges.push((u, v));
             }
         }
-        let expected = torus_brute_force(&edges, &layout);
+        let expected = torus_brute_force(&format!("torus steep seed {seed}"), &edges, &layout);
         let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
         assert_eq!(got, expected, "torus steep seed {seed}");
     }
@@ -132,7 +132,7 @@ fn test_torus_steep_and_clustered_parity() {
                 edges.push((u, v));
             }
         }
-        let expected = torus_brute_force(&edges, &layout);
+        let expected = torus_brute_force(&format!("torus clustered seed {seed}"), &edges, &layout);
         let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
         assert_eq!(got, expected, "torus clustered seed {seed}");
     }
@@ -149,7 +149,7 @@ fn test_torus_corner_wrap_sort_tie_break() {
     )
     .unwrap();
     let edges = vec![(0, 1), (2, 3), (4, 5), (6, 7), (0, 3), (1, 2)];
-    let expected = torus_brute_force(&edges, &layout);
+    let expected = torus_brute_force("torus corner wrap", &edges, &layout);
     let got = torus_crossing_edges_from_edges(&edges, &layout).unwrap();
     assert_eq!(got, expected, "torus corner wrap exact parity");
     for item in &got {
@@ -200,7 +200,8 @@ fn test_f32_sweep_and_out_of_unit_torus_oracles() {
                 edges.push((u, v));
             }
         }
-        let expected64 = torus_brute_force(&edges, &layout64);
+        let expected64 =
+            torus_brute_force(&format!("out_of_unit_torus_f64_{seed}"), &edges, &layout64);
         let got64 = torus_crossing_edges_from_edges(&edges, &layout64).unwrap();
         assert_eq!(got64, expected64, "out_of_unit_torus_f64_{seed}");
 
@@ -209,7 +210,8 @@ fn test_f32_sweep_and_out_of_unit_torus_oracles() {
             ys.iter().map(|&v| v as f32).collect(),
         )
         .unwrap();
-        let expected32 = torus_brute_force(&edges, &layout32);
+        let expected32 =
+            torus_brute_force(&format!("out_of_unit_torus_f32_{seed}"), &edges, &layout32);
         let got32 = torus_crossing_edges_from_edges(&edges, &layout32).unwrap();
         assert_eq!(got32, expected32, "out_of_unit_torus_f32_{seed}");
     }

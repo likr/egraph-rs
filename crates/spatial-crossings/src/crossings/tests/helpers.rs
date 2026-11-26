@@ -83,6 +83,7 @@ pub(super) fn assert_streaming_matches_find(
 }
 
 pub(super) fn torus_brute_force<S: Scalar>(
+    label: &str,
     edges: &[(u32, u32)],
     layout: &Layout2d<S>,
 ) -> Vec<TorusCrossing> {
@@ -97,6 +98,12 @@ pub(super) fn torus_brute_force<S: Scalar>(
         )
         .unwrap();
         for p in pieces {
+            for coord in p {
+                assert!(
+                    coord.is_finite() && (0.0..1.0).contains(&coord),
+                    "{label}: torus segment coord out of [0, 1): {p:?}"
+                );
+            }
             let id = sub_segs.len();
             sub_segs.push(Seg::from_endpoints(id, u, v, p[0], p[1], p[2], p[3]));
             orig_edge.push(eid);
