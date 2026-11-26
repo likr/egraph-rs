@@ -14,7 +14,7 @@
 //!   [`overlap_prism`], [`overlap_tree_forbid`], [`rhgh_landmarks`], [`screened_poisson`],
 //!   [`sgd`], [`sgd_barrier`], [`sgd_baselines`], [`sgd_pacmap`], [`spatial_dataset`],
 //!   [`spatial_refiner`], [`stress_kamada`], [`stress_multilevel_baselines`], [`t_fdp`],
-//!   [`tsnet`], [`v6`])
+//!   [`tsnet`])
 //! * Opt-in legacy `petgraph`-based graph, drawing, layout, edge bundling, clustering,
 //!   quality metrics, and RNG modules (behind the `legacy` feature flag).
 
@@ -85,8 +85,6 @@ pub mod stress_multilevel_baselines;
 pub mod t_fdp;
 pub mod tsnet;
 mod tsnet_options;
-
-pub mod v6;
 
 use wasm_bindgen::prelude::*;
 

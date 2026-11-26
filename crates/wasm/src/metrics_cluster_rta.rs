@@ -291,7 +291,7 @@ pub fn js_cluster_area_faithfulness(
         .map_err(core_err_to_js)
 }
 
-/// Computes Grid-based Cluster Area Faithfulness (`G-CAF`) with per-cluster diagnostics ([`ClusterAreaReport`]).
+/// Computes Grid-based Cluster Area Faithfulness (`G-CAF`) with per-cluster diagnostics ([`JsClusterAreaReport`]).
 #[wasm_bindgen(js_name = clusterAreaFaithfulnessDetail)]
 #[allow(clippy::too_many_arguments)]
 pub fn js_cluster_area_faithfulness_detail(

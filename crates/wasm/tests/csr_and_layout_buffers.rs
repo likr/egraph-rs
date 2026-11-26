@@ -1,4 +1,5 @@
-use egraph_wasm::v6::{JsCsrGraph, JsLayout2d, wasm_memory};
+use egraph_wasm::csr_graph::JsCsrGraph;
+use egraph_wasm::layout_buffers::{JsLayout2d, JsLayoutNd, wasm_memory};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -142,4 +143,66 @@ fn layout2d_lifecycle_linear_memory_and_errors() {
     assert!(layout.y(-1.0).is_err());
     assert!(layout.set_x(1.5, 0.0).is_err());
     assert!(layout.set_y(99.0, 0.0).is_err());
+}
+
+#[wasm_bindgen_test]
+fn csr_graph_degrees_subgraph_and_lcc() {
+    // Disconnected graph: component {0,1} and larger component {2,3,4,5}
+    let edges = [0u32, 1, 2, 3, 3, 4, 4, 5, 5, 2];
+    let weights = [1.5f32, 2.0, 2.0, 2.0, 2.0];
+    let g = JsCsrGraph::from_edge_list(
+        6.0,
+        &edges,
+        Some(weights.to_vec()),
+        &JsValue::from_bool(false),
+        Some(true),
+    )
+    .unwrap();
+
+    assert_eq!(g.nnz(), 10);
+    assert!(g.is_weighted());
+    assert_eq!(g.degree(2.0).unwrap(), 2);
+    assert_eq!(g.neighbors(2.0).unwrap(), vec![3, 5]);
+    assert!(g.degree(99.0).is_err());
+
+    let sub = g.induced_subgraph(&[2, 3, 4]).unwrap();
+    assert_eq!(sub.num_nodes(), 3);
+    assert_eq!(sub.num_edges(), 2);
+
+    let lcc = g.largest_connected_component();
+    assert_eq!(lcc.graph().num_nodes(), 4);
+    assert_eq!(lcc.original_node_ids(), vec![2, 3, 4, 5]);
+    assert_eq!(lcc.node_ids(), vec![2, 3, 4, 5]);
+}
+
+#[wasm_bindgen_test]
+fn layout_2d_and_nd_lifecycle() {
+    let mut l2 = JsLayout2d::init(8.0, Some(123.0)).unwrap();
+    assert_eq!(l2.num_nodes(), 8);
+    assert!(!l2.is_empty());
+    assert!(l2.is_all_finite());
+    assert_eq!(l2.copy_coords().len(), 16);
+
+    l2.normalize_std(Some(2.0)).unwrap();
+    let coords = l2.copy_coords();
+    let mut mean_x = 0.0f64;
+    let mut mean_y = 0.0f64;
+    for i in 0..8 {
+        mean_x += coords[2 * i] as f64 / 8.0;
+        mean_y += coords[2 * i + 1] as f64 / 8.0;
+    }
+    assert!(mean_x.abs() < 1e-4 && mean_y.abs() < 1e-4);
+
+    let nd = JsLayoutNd::zeros(4.0, 3.0).unwrap();
+    assert_eq!(nd.num_nodes(), 4);
+    assert_eq!(nd.dim(), 3);
+    assert_eq!(nd.len(), 4);
+    assert_eq!(nd.coords_len(), 12);
+    assert!(nd.coords_ptr() > 0);
+    assert!(!nd.is_empty());
+    assert!(nd.is_all_finite());
+
+    let nd2 = JsLayoutNd::from_coords(2.0, 3.0, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    assert_eq!(nd2.copy_coords(), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    assert!(JsLayoutNd::from_coords(2.0, 3.0, &[1.0]).is_err());
 }

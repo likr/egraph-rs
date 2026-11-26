@@ -81,28 +81,82 @@ serde_json = "1.0"
 wasm-bindgen-test = "0.3.54"
 
 [[test]]
-name = "v6_core"
+name = "coarsen_backbone_and_hde"
 
 [[test]]
-name = "v6_metrics"
+name = "community_clustering_and_backbone"
 
 [[test]]
-name = "v6_linalg_neighborhood"
+name = "csr_and_layout_buffers"
 
 [[test]]
-name = "v6_layout_clustering"
+name = "force_multilevel_and_classic_solvers"
 
 [[test]]
-name = "v6_m4"
+name = "grip_gem_sel_pfs_sfc_solvers"
 
 [[test]]
-name = "v6_m5"
+name = "gumap_solver"
 
 [[test]]
-name = "v6_w1"
+name = "linalg_neighborhood_boundaries"
 
 [[test]]
-name = "v6_w2"
+name = "linalg_spectral_amg_resistance"
+
+[[test]]
+name = "manifold_layouts_and_fdeb"
+
+[[test]]
+name = "metrics_cluster_area"
+
+[[test]]
+name = "metrics_cluster_area_errors"
+
+[[test]]
+name = "metrics_cluster_area_weights"
+
+[[test]]
+name = "metrics_cluster_baselines"
+
+[[test]]
+name = "metrics_evaluate_and_spatial"
+
+[[test]]
+name = "metrics_layout_and_crossings"
+
+[[test]]
+name = "neighborhood_knn_and_varadhan"
+
+[[test]]
+name = "overlap_and_layering_constraints"
+
+[[test]]
+name = "screened_poisson_field_and_refiner"
+
+[[test]]
+name = "sgd_barrier_and_pair_solvers"
+
+[[test]]
+name = "sgd_snap_pacmap_and_sgd2"
+
+[[test]]
+name = "solver_stats_and_dog_getters"
+
+[[test]]
+name = "spatial_intruder_refiner"
+
+[[test]]
+name = "stress_and_maxent_solvers"
+
+[[test]]
+name = "tfdp_and_ibumap_solvers"
+
+[[test]]
+name = "tsnet_backends_and_row_normalized"
+
+[[test]]
+name = "tsnet_preconditioning_and_stats"
 
 [[test]]
 name = "classical_mds"
