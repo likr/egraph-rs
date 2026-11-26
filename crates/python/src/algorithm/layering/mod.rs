@@ -7,9 +7,9 @@ use pyo3::prelude::*;
 
 mod longest_path;
 
+use crate::constraints_layering::cycle_edges_csr_impl;
 use crate::csr_graph::PyCsrGraph;
 use crate::graph::{GraphType, PyGraphAdapter};
-use crate::v6_m4::v6_cycle_edges_impl;
 use longest_path::PyLongestPath;
 
 /// Register the layering module and its classes with Python.
@@ -30,7 +30,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction]
 fn cycle_edges<'py>(py: Python<'py>, graph: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     if let Ok(csr) = graph.cast::<PyCsrGraph>() {
-        return v6_cycle_edges_impl(py, &csr.borrow()).map(Bound::into_any);
+        return cycle_edges_csr_impl(py, &csr.borrow()).map(Bound::into_any);
     }
     if let Ok(adapter) = graph.cast::<PyGraphAdapter>() {
         let borrowed = adapter.borrow();

@@ -13,8 +13,12 @@
 //! - `layout_nd`: `LayoutNd` arbitrary-dimensional coordinate buffer bindings
 //! - `metrics`: Layout quality evaluation metrics backed by `egraph-metrics`
 //! - `spatial_dataset`: Delaunay triangulation, rectangle overlap, and dataset loader bindings
-//! - `linalg`: Sparse matrix, spectral initialization, Chebyshev diffusion, and AMG-PCG bindings
+//! - `linalg`: Sparse matrix, spectral initialization, Chebyshev diffusion, AMG-PCG, and HDE bindings
 //! - `neighborhood`: Neighborhood graph construction, perplexity, probability, and DoG bindings
+//! - `community`: Clustering, community detection, coarsening, and centroid prolongation bindings
+//! - `manifold`: Non-Euclidean `ManifoldLayout2d` and geodesic metric bindings
+//! - `solvers`: Cooperative layout solvers, overlap removal, edge bundling, and density field bindings
+//! - `constraints_layering`: Separation constraint, 1D/2D overlap projection, and layering bindings
 //! - `ffi_convert` / `array_extract` / `solver_common`: Shared FFI conversion and dual-precision solver helpers
 //! - `graph`: Graph data structures (Graph, DiGraph)
 //! - `drawing`: Drawing spaces (Euclidean, Hyperbolic, Spherical, Torus)
@@ -31,6 +35,8 @@ mod algorithm;
 mod array;
 mod array_extract;
 mod clustering;
+mod community;
+mod constraints_layering;
 mod csr_graph;
 mod distance_matrix;
 mod drawing;
@@ -40,18 +46,14 @@ mod layout;
 mod layout_buffers;
 mod layout_nd;
 mod linalg;
+mod manifold;
 mod metrics;
 mod neighborhood;
 mod quality_metrics;
 mod rng;
 mod solver_common;
+mod solvers;
 mod spatial_dataset;
-// Temporary module declarations retained until solver, community, and baseline modules are split.
-mod v6_m3;
-mod v6_m4;
-mod v6_m5;
-mod v6_w1;
-mod v6_w2;
 
 /// Standard floating-point precision type used in python bindings.
 pub type FloatType = f64;
@@ -91,11 +93,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     spatial_dataset::register(m)?;
     linalg::register(m)?;
     neighborhood::register(m)?;
-    v6_m3::register_m3(m)?;
-    v6_m4::register_m4(m)?;
-    v6_m5::register_m5(m)?;
-    v6_w1::register_w1(m)?;
-    v6_w2::register_w2(m)?;
+    community::register(m)?;
+    manifold::register(m)?;
+    solvers::register(m)?;
+    constraints_layering::register(m)?;
     graph::register(m)?;
     drawing::register(m)?;
     distance_matrix::register(m)?;

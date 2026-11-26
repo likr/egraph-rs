@@ -1,9 +1,9 @@
 use crate::FloatType;
+use crate::constraints_layering::{layering_constraints_csr_impl, project_1d_csr_impl};
 use crate::csr_graph::PyCsrGraph;
 use crate::drawing::PyDrawingEuclidean2d;
 use crate::ffi_convert::StrictF64;
 use crate::graph::{GraphType, PyGraphAdapter};
-use crate::v6_m4::{v6_generate_layered_constraints_impl, v6_project_1d_impl};
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
     Constraint, generate_layered_constraints, project_1d,
@@ -140,7 +140,7 @@ fn py_project_1d<'py>(
             "project_1d(coords, constraints) takes 2 arguments",
         ));
     }
-    let arr = v6_project_1d_impl(py, target, arg2)?;
+    let arr = project_1d_csr_impl(py, target, arg2)?;
     Ok(Some(arr))
 }
 
@@ -263,12 +263,7 @@ fn py_generate_layered_constraints<'py>(
                 ));
             }
         };
-        let cs = v6_generate_layered_constraints_impl(
-            py,
-            &csr.borrow(),
-            layers_obj,
-            min_layer_distance,
-        )?;
+        let cs = layering_constraints_csr_impl(py, &csr.borrow(), layers_obj, min_layer_distance)?;
         return Ok(cs.into_pyobject(py)?.into_any());
     }
 

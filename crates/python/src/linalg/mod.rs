@@ -4,6 +4,7 @@ mod amg;
 mod amg_helpers;
 mod chebyshev;
 mod curvature_flow;
+mod hde;
 mod matrix;
 mod resistance;
 mod spectral;
@@ -23,5 +24,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     curvature_flow::register(m)?;
     spectral::register(m)?;
     chebyshev::register(m)?;
+    hde::register(m)?;
     Ok(())
 }

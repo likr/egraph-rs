@@ -1,5 +1,6 @@
 //! Layout quality metrics bindings backed by `egraph-metrics`.
 
+mod cluster_baselines;
 mod cluster_eval;
 mod dispatcher;
 mod neighborhood_geometry;
@@ -24,6 +25,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     stress_crossings::register(m)?;
     neighborhood_geometry::register(m)?;
     cluster_eval::register(m)?;
+    cluster_baselines::register(m)?;
     dispatcher::register(m)?;
     Ok(())
 }
