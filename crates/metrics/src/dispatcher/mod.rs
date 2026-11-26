@@ -1,5 +1,7 @@
 //! Target-selective metric evaluation dispatcher avoiding unnecessary computation.
 
+#[cfg(feature = "eval-baselines")]
+mod baselines;
 mod config;
 mod evaluate;
 mod report;
@@ -9,8 +11,9 @@ mod tests;
 
 #[cfg(feature = "eval-baselines")]
 pub use config::ClusterBaselineConfig;
-pub use config::MetricConfig;
+pub use config::{MetricConfig, MetricInputs};
 pub use evaluate::{
     evaluate_metrics, evaluate_metrics_with_communities, evaluate_metrics_with_community_weights,
+    evaluate_metrics_with_inputs,
 };
 pub use report::{MetricReport, MetricTarget};

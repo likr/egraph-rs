@@ -2,9 +2,10 @@ use super::super::*;
 use crate::{
     ClusterAreaConfig, adjusted_patch_nig, angular_resolution, aspect_ratio,
     cluster_area_faithfulness, cluster_area_faithfulness_with_weights, crossing_angle,
-    crossing_number, crosslessness, gabriel_graph_preservation, gabriel_graph_property,
-    ideal_edge_lengths, landmark_stratified_rta, minimum_angle_summary,
-    neighborhood_preservation_1hop, neighborhood_preservation_2hop, node_resolution,
+    crossing_edges, crossing_edges_torus, crossing_number, crosslessness,
+    gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
+    landmark_stratified_rta, minimum_angle_summary, neighborhood_preservation_1hop,
+    neighborhood_preservation_2hop, node_resolution, prism_distortion,
     relative_neighborhood_preservation, sampled_crossing_number, sampled_crosslessness,
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
     sampled_scale_normalized_stress, scale_normalized_stress,
@@ -413,4 +414,59 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
         .abs()
             < 1e-12
     );
+
+    // CrossingEdges, TorusCrossingNumber, CrossingEdgesTorus, and PrismDistortion via MetricInputs.
+    let torus_l = Layout2d::from_xy(vec![0.1, 0.9, 0.2, 0.8], vec![0.1, 0.9, 0.8, 0.2]).unwrap();
+    let perturbed_l =
+        Layout2d::from_xy(vec![0.0, 2.0, 1.0, 0.0], vec![0.0, 0.0, 1.5, 1.0]).unwrap();
+    let inputs = MetricInputs {
+        original_layout: Some(&layout),
+        ..MetricInputs::default()
+    };
+    let ext_targets = [
+        MetricTarget::CrossingNumber,
+        MetricTarget::CrossingEdges,
+        MetricTarget::CrossingAngle,
+        MetricTarget::Crosslessness,
+        MetricTarget::TorusCrossingNumber,
+        MetricTarget::CrossingEdgesTorus,
+        MetricTarget::PrismDistortion,
+    ];
+    let rep_ext =
+        evaluate_metrics_with_inputs(&g, &perturbed_l, &ext_targets, &cfg, &inputs).unwrap();
+    let expected_edges = crossing_edges(&g, &perturbed_l).unwrap();
+    assert_eq!(rep_ext.crossing_number, Some(expected_edges.len()));
+    assert_eq!(
+        rep_ext.crossing_edges.as_deref(),
+        Some(expected_edges.as_slice())
+    );
+    assert!(
+        (rep_ext.crossing_angle.unwrap() - crossing_angle(&g, &perturbed_l).unwrap()).abs() < 1e-12
+    );
+    assert!(
+        (rep_ext.crosslessness.unwrap() - crosslessness(&g, &perturbed_l).unwrap()).abs() < 1e-12
+    );
+    let expected_torus = crossing_edges_torus(&g, &torus_l).unwrap();
+    let rep_torus = evaluate_metrics(
+        &g,
+        &torus_l,
+        &[
+            MetricTarget::TorusCrossingNumber,
+            MetricTarget::CrossingEdgesTorus,
+        ],
+        &cfg,
+    )
+    .unwrap();
+    assert_eq!(rep_torus.torus_crossing_number, Some(expected_torus.len()));
+    assert_eq!(
+        rep_torus.crossing_edges_torus.as_deref(),
+        Some(expected_torus.as_slice())
+    );
+    let expected_prism = prism_distortion(&layout, &perturbed_l).unwrap();
+    assert_eq!(rep_ext.prism_sigma_dist, Some(expected_prism.sigma_dist));
+    assert_eq!(rep_ext.prism_sigma_disp, Some(expected_prism.sigma_disp));
+    assert!(matches!(
+        evaluate_metrics(&g, &perturbed_l, &[MetricTarget::PrismDistortion], &cfg),
+        Err(CoreError::InvalidInput(_))
+    ));
 }

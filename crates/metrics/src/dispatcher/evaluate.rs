@@ -5,11 +5,13 @@ use egraph_metrics_cluster::{
 use egraph_metrics_geometry::{
     build_kdtree_f64,
     crossings::{
-        crossing_number, crossing_summary, crosslessness_from_count, sampled_crossing_number,
+        crossing_angle_from_pairs, crossing_edges, crossing_edges_torus, crossing_number,
+        crossing_number_from_pairs, crossing_summary, crosslessness_from_count,
+        sampled_crossing_number,
     },
     geometry::{
         angular_resolution, aspect_ratio, ideal_edge_lengths_scaled, layout_degeneracy,
-        minimum_angle_summary,
+        minimum_angle_summary, prism_distortion,
     },
     neighborhood::{
         neighborhood_preservation_1hop_with_tree, neighborhood_preservation_2hop_with_tree,
@@ -28,33 +30,35 @@ use egraph_spatial_trees::StaticKdTree;
 
 #[cfg(feature = "eval-baselines")]
 use egraph_metrics_cluster::cluster_baselines::{
-    calinski_harabasz_score, class_density_measure, cq_hac, cq_kmeans, davies_bouldin_score,
-    distance_consistency, distribution_consistency, neighborhood_hit_with_tree,
-    pairwise_distance_overlap_error, sepme_gab_with_tree, sepme_gong_with_tree,
-    sepme_knng_with_tree, sepme_rng_with_tree, silhouette_score, sprawlter_nn_radii,
+    neighborhood_hit_with_tree, sepme_gab_with_tree, sepme_gong_with_tree, sepme_knng_with_tree,
+    sepme_rng_with_tree,
 };
 
-use super::config::MetricConfig;
+#[cfg(feature = "eval-baselines")]
+use super::baselines::evaluate_eval_baseline_targets;
+use super::config::{MetricConfig, MetricInputs};
 use super::report::{MetricReport, MetricTarget, RequestedFlags};
 
 /// Evaluates strictly the metrics listed in `targets`, skipping all unrequested work.
 ///
 /// Shares a single [`StaticKdTree<2, f64>`] across requested spatial/neighborhood targets,
-/// a single sweep-line pass across `CrossingNumber`/`CrossingAngle`/`Crosslessness`,
+/// a single sweep-line pass across `CrossingEdges`/`CrossingNumber`/`CrossingAngle`/`Crosslessness`,
+/// a single torus crossing pass across `TorusCrossingNumber`/`CrossingEdgesTorus`,
 /// a single sampling pass across `SampledCrossingNumber`/`SampledCrosslessness`, and
 /// a single angular scan across `MinimumAngle`/`MinimumAngleA1`.
-/// For [`MetricTarget::AdjustedPatchNig`] and [`MetricTarget::ClusterAreaFaithfulness`],
-/// use [`evaluate_metrics_with_communities`].
+/// For [`MetricTarget::AdjustedPatchNig`], [`MetricTarget::ClusterAreaFaithfulness`],
+/// [`MetricTarget::PrismDistortion`], or `eval-baselines` targets, use
+/// [`evaluate_metrics_with_communities`] or [`evaluate_metrics_with_inputs`].
 pub fn evaluate_metrics<W: Scalar, S: Scalar>(
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
     targets: &[MetricTarget],
     config: &MetricConfig,
 ) -> CoreResult<MetricReport> {
-    evaluate_metrics_with_communities(graph, layout, targets, config, None)
+    evaluate_metrics_with_inputs(graph, layout, targets, config, &MetricInputs::default())
 }
 
-/// Evaluates strictly the metrics listed in `targets` with optional `community_labels`
+/// Evaluates strictly the metrics listed in `targets` with optional `labels`
 /// (required when [`MetricTarget::AdjustedPatchNig`] or [`MetricTarget::ClusterAreaFaithfulness`]
 /// is requested).
 pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
@@ -62,20 +66,16 @@ pub fn evaluate_metrics_with_communities<W: Scalar, S: Scalar>(
     layout: &Layout2d<S>,
     targets: &[MetricTarget],
     config: &MetricConfig,
-    community_labels: Option<&[u32]>,
+    labels: Option<&[u32]>,
 ) -> CoreResult<MetricReport> {
-    evaluate_metrics_with_community_weights(
-        graph,
-        layout,
-        targets,
-        config,
-        community_labels,
-        None,
-        None,
-    )
+    let inputs = MetricInputs {
+        labels,
+        ..MetricInputs::default()
+    };
+    evaluate_metrics_with_inputs(graph, layout, targets, config, &inputs)
 }
 
-/// Evaluates strictly the metrics listed in `targets` with optional `community_labels` and
+/// Evaluates strictly the metrics listed in `targets` with optional `labels` and
 /// optional positive finite G-CAF target weights (`node_weights` or `cluster_weights`,
 /// mutually exclusive, evaluated lazily when [`MetricTarget::ClusterAreaFaithfulness`] is requested).
 pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
@@ -83,9 +83,28 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
     layout: &Layout2d<S>,
     targets: &[MetricTarget],
     config: &MetricConfig,
-    community_labels: Option<&[u32]>,
+    labels: Option<&[u32]>,
     node_weights: Option<&[f64]>,
     cluster_weights: Option<&[f64]>,
+) -> CoreResult<MetricReport> {
+    let inputs = MetricInputs {
+        labels,
+        node_weights,
+        cluster_weights,
+        ..MetricInputs::default()
+    };
+    evaluate_metrics_with_inputs(graph, layout, targets, config, &inputs)
+}
+
+/// Evaluates strictly the metrics listed in `targets` using optional auxiliary [`MetricInputs`]
+/// (`labels`, `node_weights`, `cluster_weights`, `original_layout`, `sprawlter_half_widths`,
+/// `sprawlter_half_heights`), validating inputs lazily per requested target.
+pub fn evaluate_metrics_with_inputs<W: Scalar, S: Scalar>(
+    graph: &CsrGraph<W>,
+    layout: &Layout2d<S>,
+    targets: &[MetricTarget],
+    config: &MetricConfig,
+    inputs: &MetricInputs<'_, S>,
 ) -> CoreResult<MetricReport> {
     validate_graph_layout(graph, layout, "evaluate_metrics")?;
     let flags = RequestedFlags::from_targets(targets);
@@ -103,7 +122,19 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
         )?);
     }
 
-    if flags.crossing_angle {
+    if flags.crossing_edges {
+        let pairs = crossing_edges(graph, layout)?;
+        if flags.crossing_number {
+            report.crossing_number = Some(crossing_number_from_pairs(&pairs));
+        }
+        if flags.crossing_angle {
+            report.crossing_angle = Some(crossing_angle_from_pairs(&pairs));
+        }
+        if flags.crosslessness {
+            report.crosslessness = Some(crosslessness_from_count(graph, pairs.len() as f64)?);
+        }
+        report.crossing_edges = Some(pairs);
+    } else if flags.crossing_angle {
         let summary = crossing_summary(graph, layout)?;
         report.crossing_angle = Some(summary.angle_cos_sq_sum);
         if flags.crossing_number {
@@ -119,6 +150,16 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
         }
         if flags.crosslessness {
             report.crosslessness = Some(crosslessness_from_count(graph, count as f64)?);
+        }
+    }
+
+    if flags.torus_crossing_number || flags.crossing_edges_torus {
+        let pairs = crossing_edges_torus(graph, layout)?;
+        if flags.torus_crossing_number {
+            report.torus_crossing_number = Some(pairs.len());
+        }
+        if flags.crossing_edges_torus {
+            report.crossing_edges_torus = Some(pairs);
         }
     }
 
@@ -155,7 +196,7 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
             tree,
             &flags,
             config,
-            community_labels,
+            inputs.labels,
             &mut report,
         )?;
     }
@@ -203,10 +244,18 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
             config.ideal_edge_length,
         )?);
     }
-    if flags.adjusted_patch_nig {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input("AdjustedPatchNig target requires community_labels")
+    if flags.prism_distortion {
+        let orig = inputs.original_layout.ok_or_else(|| {
+            CoreError::invalid_input("PrismDistortion target requires original_layout")
         })?;
+        let pd = prism_distortion(orig, layout)?;
+        report.prism_sigma_dist = Some(pd.sigma_dist);
+        report.prism_sigma_disp = Some(pd.sigma_disp);
+    }
+    if flags.adjusted_patch_nig {
+        let labels = inputs
+            .labels
+            .ok_or_else(|| CoreError::invalid_input("AdjustedPatchNig target requires labels"))?;
         report.adjusted_patch_nig = Some(adjusted_patch_nig(
             layout,
             labels,
@@ -217,16 +266,16 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
         )?);
     }
     if flags.cluster_area_faithfulness {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input("ClusterAreaFaithfulness target requires community_labels")
+        let labels = inputs.labels.ok_or_else(|| {
+            CoreError::invalid_input("ClusterAreaFaithfulness target requires labels")
         })?;
         report.cluster_area_faithfulness = Some(
             cluster_area_faithfulness_with_weights(
                 layout,
                 labels,
                 &config.cluster_area,
-                node_weights,
-                cluster_weights,
+                inputs.node_weights,
+                inputs.cluster_weights,
             )?
             .caf,
         );
@@ -242,7 +291,7 @@ pub fn evaluate_metrics_with_community_weights<W: Scalar, S: Scalar>(
         )?);
     }
     #[cfg(feature = "eval-baselines")]
-    evaluate_eval_baseline_targets(layout, &flags, config, community_labels, &mut report)?;
+    evaluate_eval_baseline_targets(graph, layout, &flags, config, inputs, &mut report)?;
 
     Ok(report)
 }
@@ -254,7 +303,7 @@ fn evaluate_kdtree_targets<W: Scalar, S: Scalar>(
     tree: &StaticKdTree<2, f64>,
     flags: &RequestedFlags,
     config: &MetricConfig,
-    community_labels: Option<&[u32]>,
+    labels: Option<&[u32]>,
     report: &mut MetricReport,
 ) -> CoreResult<()> {
     if flags.np1 {
@@ -302,169 +351,50 @@ fn evaluate_kdtree_targets<W: Scalar, S: Scalar>(
             Some(gabriel_graph_preservation_with_tree(graph, layout, tree)?);
     }
     #[cfg(not(feature = "eval-baselines"))]
-    let _ = community_labels;
+    let _ = labels;
     #[cfg(feature = "eval-baselines")]
     {
         if flags.sepme_knng {
-            let labels = community_labels.ok_or_else(|| {
-                CoreError::invalid_input("SepmeKnng target requires community_labels")
-            })?;
+            let lbls = labels
+                .ok_or_else(|| CoreError::invalid_input("SepmeKnng target requires labels"))?;
             report.sepme_knng = Some(sepme_knng_with_tree(
                 layout,
-                labels,
+                lbls,
                 config.cluster_baselines.sepme_knng_k,
                 tree,
             )?);
         }
         if flags.sepme_rng {
-            let labels = community_labels.ok_or_else(|| {
-                CoreError::invalid_input("SepmeRng target requires community_labels")
-            })?;
-            report.sepme_rng = Some(sepme_rng_with_tree(layout, labels, tree)?);
+            let lbls = labels
+                .ok_or_else(|| CoreError::invalid_input("SepmeRng target requires labels"))?;
+            report.sepme_rng = Some(sepme_rng_with_tree(layout, lbls, tree)?);
         }
         if flags.sepme_gab {
-            let labels = community_labels.ok_or_else(|| {
-                CoreError::invalid_input("SepmeGab target requires community_labels")
-            })?;
-            report.sepme_gab = Some(sepme_gab_with_tree(layout, labels, tree)?);
+            let lbls = labels
+                .ok_or_else(|| CoreError::invalid_input("SepmeGab target requires labels"))?;
+            report.sepme_gab = Some(sepme_gab_with_tree(layout, lbls, tree)?);
         }
         if flags.sepme_gong {
-            let labels = community_labels.ok_or_else(|| {
-                CoreError::invalid_input("SepmeGong target requires community_labels")
-            })?;
+            let lbls = labels
+                .ok_or_else(|| CoreError::invalid_input("SepmeGong target requires labels"))?;
             report.sepme_gong = Some(sepme_gong_with_tree(
                 layout,
-                labels,
+                lbls,
                 config.cluster_baselines.gong_gamma,
                 tree,
             )?);
         }
         if flags.neighborhood_hit {
-            let labels = community_labels.ok_or_else(|| {
-                CoreError::invalid_input("NeighborhoodHit target requires community_labels")
+            let lbls = labels.ok_or_else(|| {
+                CoreError::invalid_input("NeighborhoodHit target requires labels")
             })?;
             report.neighborhood_hit = Some(neighborhood_hit_with_tree(
                 layout,
-                labels,
+                lbls,
                 config.cluster_baselines.neighborhood_hit_k,
                 tree,
             )?);
         }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "eval-baselines")]
-fn evaluate_eval_baseline_targets<S: Scalar>(
-    layout: &Layout2d<S>,
-    flags: &RequestedFlags,
-    config: &MetricConfig,
-    community_labels: Option<&[u32]>,
-    report: &mut MetricReport,
-) -> CoreResult<()> {
-    if flags.dsc {
-        let labels = community_labels
-            .ok_or_else(|| CoreError::invalid_input("Dsc target requires community_labels"))?;
-        report.dsc = Some(distance_consistency(layout, labels)?);
-    }
-    if flags.dc {
-        let labels = community_labels
-            .ok_or_else(|| CoreError::invalid_input("Dc target requires community_labels"))?;
-        report.dc = Some(distribution_consistency(
-            layout,
-            labels,
-            config.cluster_baselines.dc_grid_size,
-        )?);
-    }
-    if flags.cdm || flags.hdm {
-        let labels = community_labels
-            .ok_or_else(|| CoreError::invalid_input("Cdm/Hdm target requires community_labels"))?;
-        let (cdm, hdm) = class_density_measure(
-            layout,
-            labels,
-            config.cluster_baselines.cdm_grid_size,
-            config.cluster_baselines.cdm_bandwidth,
-        )?;
-        if flags.cdm {
-            report.cdm = Some(cdm);
-        }
-        if flags.hdm {
-            report.hdm = Some(hdm);
-        }
-    }
-    if flags.silhouette {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input("Silhouette target requires community_labels")
-        })?;
-        report.silhouette = Some(silhouette_score(layout, labels)?);
-    }
-    if flags.calinski_harabasz {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input("CalinskiHarabasz target requires community_labels")
-        })?;
-        report.calinski_harabasz = Some(calinski_harabasz_score(layout, labels)?);
-    }
-    if flags.davies_bouldin {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input("DaviesBouldin target requires community_labels")
-        })?;
-        report.davies_bouldin = Some(davies_bouldin_score(layout, labels)?);
-    }
-    if flags.cq_kmeans_ari || flags.cq_kmeans_ami {
-        let labels = community_labels
-            .ok_or_else(|| CoreError::invalid_input("CqKmeans target requires community_labels"))?;
-        let pa = cq_kmeans(
-            layout,
-            labels,
-            config.cluster_baselines.kmeans_n_init,
-            config.cluster_baselines.kmeans_max_iters,
-            config.cluster_baselines.seed,
-        )?;
-        if flags.cq_kmeans_ari {
-            report.cq_kmeans_ari = Some(pa.ari);
-        }
-        if flags.cq_kmeans_ami {
-            report.cq_kmeans_ami = Some(pa.ami);
-        }
-    }
-    if flags.cq_hac_hom || flags.cq_hac_ami {
-        let labels = community_labels
-            .ok_or_else(|| CoreError::invalid_input("CqHac target requires community_labels"))?;
-        let pa = cq_hac(layout, labels)?;
-        if flags.cq_hac_hom {
-            report.cq_hac_hom = Some(pa.homogeneity);
-        }
-        if flags.cq_hac_ami {
-            report.cq_hac_ami = Some(pa.ami);
-        }
-    }
-    if flags.pairwise_distance_overlap_error {
-        let labels = community_labels.ok_or_else(|| {
-            CoreError::invalid_input(
-                "PairwiseDistanceOverlapError target requires community_labels",
-            )
-        })?;
-        report.pairwise_distance_overlap_error = Some(pairwise_distance_overlap_error(
-            layout,
-            labels,
-            config.cluster_baselines.num_bins,
-        )?);
-    }
-    if flags.sprawlter_nn {
-        let r_f64 = config.cluster_baselines.sprawlter_node_radius;
-        if !r_f64.is_finite() {
-            return Err(CoreError::non_finite(
-                "ClusterBaselineConfig::sprawlter_node_radius",
-            ));
-        }
-        if r_f64 <= 0.0 {
-            return Err(CoreError::invalid_input(
-                "ClusterBaselineConfig::sprawlter_node_radius must be strictly positive",
-            ));
-        }
-        let r = S::from_f64(r_f64);
-        let radii = vec![r; layout.len()];
-        report.sprawlter_nn = Some(sprawlter_nn_radii(layout, &radii)?);
     }
     Ok(())
 }

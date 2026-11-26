@@ -33,20 +33,22 @@ pub mod dispatcher;
 #[cfg(feature = "eval-baselines")]
 pub use dispatcher::ClusterBaselineConfig;
 pub use dispatcher::{
-    MetricConfig, MetricReport, MetricTarget, evaluate_metrics, evaluate_metrics_with_communities,
-    evaluate_metrics_with_community_weights,
+    MetricConfig, MetricInputs, MetricReport, MetricTarget, evaluate_metrics,
+    evaluate_metrics_with_communities, evaluate_metrics_with_community_weights,
+    evaluate_metrics_with_inputs,
 };
 #[cfg(feature = "eval-baselines")]
 pub use egraph_metrics_cluster::cluster_baselines::{
     NorMetrics, PartitionAgreement, calinski_harabasz_score, class_density_measure, cq_hac,
     cq_kmeans, davies_bouldin_score, distance_consistency, distribution_consistency,
-    neighborhood_hit, nor_metrics, nor_metrics_without_graph, pairwise_distance_overlap_error,
-    partition_agreement, sepme_gab, sepme_gong, sepme_knng, sepme_rng, silhouette_score,
-    sprawlter_nn, sprawlter_nn_radii,
+    histogram_density_measure, neighborhood_hit, nor_metrics, nor_metrics_without_graph,
+    pairwise_distance_overlap_error, partition_agreement, sepme_gab, sepme_gong, sepme_knng,
+    sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
 };
 pub use egraph_metrics_cluster::{
-    ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport, adjusted_patch_nig,
-    adjusted_patch_nig_multiscale, cluster_area_faithfulness, cluster_area_faithfulness_detail,
+    AdjustedPatchNigDetail, ClusterAreaConfig, ClusterAreaDetail, ClusterAreaReport,
+    adjusted_patch_nig, adjusted_patch_nig_detail, adjusted_patch_nig_multiscale,
+    cluster_area_faithfulness, cluster_area_faithfulness_detail,
     cluster_area_faithfulness_detail_with_weights, cluster_area_faithfulness_with_weights,
 };
 pub use egraph_metrics_geometry::{
@@ -60,14 +62,14 @@ pub use egraph_metrics_geometry::{
     gabriel_graph_preservation_with_tree, gabriel_graph_property, gabriel_graph_property_with_tree,
     ideal_edge_lengths, ideal_edge_lengths_from_distances, ideal_edge_lengths_scaled,
     ideal_edge_lengths_with_unit, landmark_stratified_rta, landmark_stratified_rta_detail,
-    landmark_stratified_rta_from_landmarks, layout_degeneracy, max_crossing_pairs, minimum_angle,
-    minimum_angle_summary, neighborhood_preservation_1hop,
-    neighborhood_preservation_1hop_with_tree, neighborhood_preservation_2hop,
-    neighborhood_preservation_2hop_with_tree, node_resolution, node_resolution_with_tree,
-    prism_distortion, prism_distortion_with_edges, relative_neighborhood_edges,
-    relative_neighborhood_edges_with_tree, relative_neighborhood_preservation,
-    relative_neighborhood_preservation_with_tree, sampled_crossing_number,
-    sampled_crossing_number_with_rng, sampled_crosslessness,
+    landmark_stratified_rta_from_landmarks, landmark_stratified_rta_from_landmarks_f64,
+    layout_degeneracy, max_crossing_pairs, minimum_angle, minimum_angle_summary,
+    neighborhood_preservation_1hop, neighborhood_preservation_1hop_with_tree,
+    neighborhood_preservation_2hop, neighborhood_preservation_2hop_with_tree, node_resolution,
+    node_resolution_with_tree, prism_distortion, prism_distortion_with_edges,
+    relative_neighborhood_edges, relative_neighborhood_edges_with_tree,
+    relative_neighborhood_preservation, relative_neighborhood_preservation_with_tree,
+    sampled_crossing_number, sampled_crossing_number_with_rng, sampled_crosslessness,
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_1hop_with_tree,
     sampled_neighborhood_preservation_2hop, sampled_neighborhood_preservation_2hop_with_tree,
     sampled_scale_normalized_stress, sampled_scale_normalized_stress_detail,

@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult};
+use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 use egraph_metrics_cluster::cluster_area::ClusterAreaConfig;
 
 /// Configuration parameters for `eval-baselines` cluster separation, CVI, and Sprawlter targets.
@@ -9,11 +9,11 @@ pub struct ClusterBaselineConfig {
     pub sepme_knng_k: usize,
     /// Neighborhood size `k` for `NeighborhoodHit` (must be `>= 1`; default `7`).
     pub neighborhood_hit_k: usize,
-    /// Grid resolution for `Dc` (must be `>= 1`; default `20`).
+    /// Grid resolution for `DistributionConsistency` (must be `>= 1`; default `20`).
     pub dc_grid_size: usize,
-    /// Grid resolution for `Cdm` and `Hdm` (must be `>= 1`; default `64`).
+    /// Grid resolution for `ClassDensityMeasure` and `HistogramDensityMeasure` (must be `>= 1`; default `64`).
     pub cdm_grid_size: usize,
-    /// Optional Gaussian KDE bandwidth for `Cdm` (`None` uses `1.5 / cdm_grid_size as f64`).
+    /// Optional Gaussian KDE bandwidth for `ClassDensityMeasure` (`None` uses `1.5 / cdm_grid_size as f64`).
     pub cdm_bandwidth: Option<f64>,
     /// Histogram bin count for `PairwiseDistanceOverlapError` (must be `>= 1`; default `100`).
     pub num_bins: usize,
@@ -225,5 +225,44 @@ impl MetricConfig {
         #[cfg(feature = "eval-baselines")]
         self.cluster_baselines.validate()?;
         Ok(())
+    }
+}
+
+/// Optional auxiliary inputs passed to [`super::evaluate_metrics_with_inputs`].
+#[derive(Debug, Clone, Copy)]
+pub struct MetricInputs<'a, S: Scalar = f64> {
+    /// Optional cluster/community label slice of length `N`.
+    pub labels: Option<&'a [u32]>,
+    /// Optional positive finite vertex weights of length `N` for `ClusterAreaFaithfulness`
+    /// (mutually exclusive with `cluster_weights`).
+    pub node_weights: Option<&'a [f64]>,
+    /// Optional positive finite cluster weights of length `K` for `ClusterAreaFaithfulness`
+    /// (mutually exclusive with `node_weights`).
+    pub cluster_weights: Option<&'a [f64]>,
+    /// Optional reference layout of length `N` required by `PrismDistortion` and `NorMetrics`.
+    pub original_layout: Option<&'a Layout2d<S>>,
+    /// Optional per-node rectangle half-widths of length `N` for `SprawlterNn` and `NorMetrics`.
+    pub sprawlter_half_widths: Option<&'a [S]>,
+    /// Optional per-node rectangle half-heights of length `N` for `SprawlterNn` and `NorMetrics`.
+    pub sprawlter_half_heights: Option<&'a [S]>,
+}
+
+impl<'a, S: Scalar> Default for MetricInputs<'a, S> {
+    fn default() -> Self {
+        Self {
+            labels: None,
+            node_weights: None,
+            cluster_weights: None,
+            original_layout: None,
+            sprawlter_half_widths: None,
+            sprawlter_half_heights: None,
+        }
+    }
+}
+
+impl<'a, S: Scalar> MetricInputs<'a, S> {
+    /// Creates empty [`MetricInputs`] with all optional fields set to `None`.
+    pub fn new() -> Self {
+        Self::default()
     }
 }

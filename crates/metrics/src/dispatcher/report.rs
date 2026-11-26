@@ -1,4 +1,7 @@
+use egraph_metrics_geometry::{CrossingPair, TorusCrossing};
+
 /// Individual quality metric selectors passed to [`super::evaluate_metrics`].
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MetricTarget {
     /// Exact closed-form Scale-Normalized Stress (`SNS`).
@@ -7,6 +10,8 @@ pub enum MetricTarget {
     SampledScaleNormalizedStress,
     /// Exact sweep-line edge crossing count.
     CrossingNumber,
+    /// Exact sweep-line list of non-adjacent crossing edge pairs.
+    CrossingEdges,
     /// Exact sweep-line edge crossing-angle penalty ($\sum \cos^2(\theta)$).
     CrossingAngle,
     /// $O(\text{num\_samples})$ deterministic sampled crossing count.
@@ -15,6 +20,10 @@ pub enum MetricTarget {
     Crosslessness,
     /// DRGraph Eq. (17) sampled crosslessness $1 - \sqrt{\hat{c} / c_{\max}} \in [0.0, 1.0]$.
     SampledCrosslessness,
+    /// Exact edge crossing count on the unit torus `[0, 1)^2`.
+    TorusCrossingNumber,
+    /// Exact list of crossing edge sub-segment pairs on the unit torus `[0, 1)^2`.
+    CrossingEdgesTorus,
     /// 1-hop neighborhood preservation (`NP1`).
     NeighborhoodPreservation1Hop,
     /// 2-hop neighborhood preservation (`NP2`).
@@ -45,78 +54,88 @@ pub enum MetricTarget {
     LayoutDegeneracy,
     /// Weighted or unit ideal edge-length relative squared error.
     IdealEdgeLengths,
-    /// Adjusted Patch Normalized Information Gain (`Adjusted Patch-NIG`); requires `community_labels`.
+    /// PRISM layout-preservation distortion ($\sigma_{\mathrm{dist}}, \sigma_{\mathrm{disp}}$);
+    /// requires `original_layout` in [`super::MetricInputs`].
+    PrismDistortion,
+    /// Adjusted Patch Normalized Information Gain (`Adjusted Patch-NIG`); requires `labels`.
     AdjustedPatchNig,
-    /// Grid-based Cluster Area Faithfulness (`G-CAF`); requires `community_labels`.
+    /// Grid-based Cluster Area Faithfulness (`G-CAF`); requires `labels`.
     ClusterAreaFaithfulness,
     /// Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`).
     LandmarkStratifiedRta,
-    /// Distance Consistency (`DSC`); requires `community_labels`.
+    /// Distance Consistency (`DSC`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    Dsc,
-    /// Distribution Consistency (`DC`); requires `community_labels`.
+    DistanceConsistency,
+    /// Distribution Consistency (`DC`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    Dc,
-    /// Class Density Measure (`CDM`); requires `community_labels`.
+    DistributionConsistency,
+    /// Class Density Measure (`CDM`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    Cdm,
-    /// 2D Histogram Density Measure (`2D-HDM`); requires `community_labels`.
+    ClassDensityMeasure,
+    /// 2D Histogram Density Measure (`2D-HDM`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    Hdm,
-    /// SepMe $k$-NN graph DIR CPT; requires `community_labels`.
+    HistogramDensityMeasure,
+    /// SepMe $k$-NN graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
     SepmeKnng,
-    /// SepMe Relative Neighborhood Graph DIR CPT; requires `community_labels`.
+    /// SepMe Relative Neighborhood Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
     SepmeRng,
-    /// SepMe Gabriel Graph DIR CPT; requires `community_labels`.
+    /// SepMe Gabriel Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
     SepmeGab,
-    /// SepMe $\gamma$-Observable Neighbor Graph DIR CPT; requires `community_labels`.
+    /// SepMe $\gamma$-Observable Neighbor Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
     SepmeGong,
-    /// Neighborhood Hit ($M_{\mathrm{NH}}$); requires `community_labels`.
+    /// Neighborhood Hit ($M_{\mathrm{NH}}$); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     NeighborhoodHit,
-    /// Silhouette coefficient; requires `community_labels`.
+    /// Silhouette coefficient; requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    Silhouette,
-    /// Calinski-Harabasz Index; requires `community_labels`.
+    SilhouetteScore,
+    /// Calinski-Harabasz Index; requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    CalinskiHarabasz,
-    /// Davies-Bouldin Index; requires `community_labels`.
+    CalinskiHarabaszScore,
+    /// Davies-Bouldin Index; requires `labels`.
     #[cfg(feature = "eval-baselines")]
-    DaviesBouldin,
-    /// $k$-means Cluster Quality (`CQ-kmeans` ARI); requires `community_labels`.
+    DaviesBouldinScore,
+    /// $k$-means Cluster Quality (`CQ-kmeans` ARI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     CqKmeansAri,
-    /// $k$-means Cluster Quality (`CQ-kmeans` AMI); requires `community_labels`.
+    /// $k$-means Cluster Quality (`CQ-kmeans` AMI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     CqKmeansAmi,
-    /// Average-linkage HAC Cluster Quality (`CQ-HAC` Homogeneity); requires `community_labels`.
+    /// Average-linkage HAC Cluster Quality (`CQ-HAC` Homogeneity); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     CqHacHom,
-    /// Average-linkage HAC Cluster Quality (`CQ-HAC` AMI); requires `community_labels`.
+    /// Average-linkage HAC Cluster Quality (`CQ-HAC` AMI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     CqHacAmi,
-    /// Pairwise Distance-Overlap Error (`PDOE`); requires `community_labels`.
+    /// Pairwise Distance-Overlap Error (`PDOE`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     PairwiseDistanceOverlapError,
-    /// Sprawlter-NN composite overlap clutter measure using uniform `sprawlter_node_radius`.
+    /// Sprawlter-NN composite overlap clutter measure using per-node half-extents or uniform `sprawlter_node_radius`.
     #[cfg(feature = "eval-baselines")]
     SprawlterNn,
+    /// Chen et al. (2020) 5-metric Node Overlap Removal (`NOR`) summary;
+    /// requires `original_layout` in [`super::MetricInputs`].
+    #[cfg(feature = "eval-baselines")]
+    NorMetrics,
 }
 
 /// Selective evaluation report containing `Some(...)` strictly for requested [`MetricTarget`]s.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct MetricReport {
     pub scale_normalized_stress: Option<f64>,
     pub sampled_scale_normalized_stress: Option<f64>,
     pub crossing_number: Option<usize>,
+    pub crossing_edges: Option<Vec<CrossingPair>>,
     pub crossing_angle: Option<f64>,
     pub sampled_crossing_number: Option<f64>,
     pub crosslessness: Option<f64>,
     pub sampled_crosslessness: Option<f64>,
+    pub torus_crossing_number: Option<usize>,
+    pub crossing_edges_torus: Option<Vec<TorusCrossing>>,
     pub neighborhood_preservation_1hop: Option<f64>,
     pub neighborhood_preservation_2hop: Option<f64>,
     pub sampled_np1: Option<f64>,
@@ -131,17 +150,19 @@ pub struct MetricReport {
     pub minimum_angle_a1: Option<f64>,
     pub layout_degeneracy: Option<f64>,
     pub ideal_edge_lengths: Option<f64>,
+    pub prism_sigma_dist: Option<f64>,
+    pub prism_sigma_disp: Option<f64>,
     pub adjusted_patch_nig: Option<f64>,
     pub cluster_area_faithfulness: Option<f64>,
     pub landmark_stratified_rta: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub dsc: Option<f64>,
+    pub distance_consistency: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub dc: Option<f64>,
+    pub distribution_consistency: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub cdm: Option<f64>,
+    pub class_density_measure: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub hdm: Option<f64>,
+    pub histogram_density_measure: Option<f64>,
     #[cfg(feature = "eval-baselines")]
     pub sepme_knng: Option<f64>,
     #[cfg(feature = "eval-baselines")]
@@ -153,11 +174,11 @@ pub struct MetricReport {
     #[cfg(feature = "eval-baselines")]
     pub neighborhood_hit: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub silhouette: Option<f64>,
+    pub silhouette_score: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub calinski_harabasz: Option<f64>,
+    pub calinski_harabasz_score: Option<f64>,
     #[cfg(feature = "eval-baselines")]
-    pub davies_bouldin: Option<f64>,
+    pub davies_bouldin_score: Option<f64>,
     #[cfg(feature = "eval-baselines")]
     pub cq_kmeans_ari: Option<f64>,
     #[cfg(feature = "eval-baselines")]
@@ -170,6 +191,16 @@ pub struct MetricReport {
     pub pairwise_distance_overlap_error: Option<f64>,
     #[cfg(feature = "eval-baselines")]
     pub sprawlter_nn: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub nor_oo_nni: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub nor_sp_ch_a: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub nor_gs_bb_iar: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub nor_nm_dm_imse: Option<f64>,
+    #[cfg(feature = "eval-baselines")]
+    pub nor_el_rsd: Option<f64>,
 }
 
 #[derive(Default)]
@@ -177,10 +208,13 @@ pub(super) struct RequestedFlags {
     pub(super) sns: bool,
     pub(super) sampled_sns: bool,
     pub(super) crossing_number: bool,
+    pub(super) crossing_edges: bool,
     pub(super) crossing_angle: bool,
     pub(super) sampled_crossing_number: bool,
     pub(super) crosslessness: bool,
     pub(super) sampled_crosslessness: bool,
+    pub(super) torus_crossing_number: bool,
+    pub(super) crossing_edges_torus: bool,
     pub(super) np1: bool,
     pub(super) np2: bool,
     pub(super) sampled_np1: bool,
@@ -195,17 +229,18 @@ pub(super) struct RequestedFlags {
     pub(super) minimum_angle_a1: bool,
     pub(super) layout_degeneracy: bool,
     pub(super) ideal_edge_lengths: bool,
+    pub(super) prism_distortion: bool,
     pub(super) adjusted_patch_nig: bool,
     pub(super) cluster_area_faithfulness: bool,
     pub(super) landmark_stratified_rta: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) dsc: bool,
+    pub(super) distance_consistency: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) dc: bool,
+    pub(super) distribution_consistency: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) cdm: bool,
+    pub(super) class_density_measure: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) hdm: bool,
+    pub(super) histogram_density_measure: bool,
     #[cfg(feature = "eval-baselines")]
     pub(super) sepme_knng: bool,
     #[cfg(feature = "eval-baselines")]
@@ -217,11 +252,11 @@ pub(super) struct RequestedFlags {
     #[cfg(feature = "eval-baselines")]
     pub(super) neighborhood_hit: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) silhouette: bool,
+    pub(super) silhouette_score: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) calinski_harabasz: bool,
+    pub(super) calinski_harabasz_score: bool,
     #[cfg(feature = "eval-baselines")]
-    pub(super) davies_bouldin: bool,
+    pub(super) davies_bouldin_score: bool,
     #[cfg(feature = "eval-baselines")]
     pub(super) cq_kmeans_ari: bool,
     #[cfg(feature = "eval-baselines")]
@@ -234,6 +269,8 @@ pub(super) struct RequestedFlags {
     pub(super) pairwise_distance_overlap_error: bool,
     #[cfg(feature = "eval-baselines")]
     pub(super) sprawlter_nn: bool,
+    #[cfg(feature = "eval-baselines")]
+    pub(super) nor_metrics: bool,
 }
 
 impl RequestedFlags {
@@ -244,10 +281,13 @@ impl RequestedFlags {
                 MetricTarget::ScaleNormalizedStress => flags.sns = true,
                 MetricTarget::SampledScaleNormalizedStress => flags.sampled_sns = true,
                 MetricTarget::CrossingNumber => flags.crossing_number = true,
+                MetricTarget::CrossingEdges => flags.crossing_edges = true,
                 MetricTarget::CrossingAngle => flags.crossing_angle = true,
                 MetricTarget::SampledCrossingNumber => flags.sampled_crossing_number = true,
                 MetricTarget::Crosslessness => flags.crosslessness = true,
                 MetricTarget::SampledCrosslessness => flags.sampled_crosslessness = true,
+                MetricTarget::TorusCrossingNumber => flags.torus_crossing_number = true,
+                MetricTarget::CrossingEdgesTorus => flags.crossing_edges_torus = true,
                 MetricTarget::NeighborhoodPreservation1Hop => flags.np1 = true,
                 MetricTarget::NeighborhoodPreservation2Hop => flags.np2 = true,
                 MetricTarget::SampledNp1 => flags.sampled_np1 = true,
@@ -262,17 +302,18 @@ impl RequestedFlags {
                 MetricTarget::MinimumAngleA1 => flags.minimum_angle_a1 = true,
                 MetricTarget::LayoutDegeneracy => flags.layout_degeneracy = true,
                 MetricTarget::IdealEdgeLengths => flags.ideal_edge_lengths = true,
+                MetricTarget::PrismDistortion => flags.prism_distortion = true,
                 MetricTarget::AdjustedPatchNig => flags.adjusted_patch_nig = true,
                 MetricTarget::ClusterAreaFaithfulness => flags.cluster_area_faithfulness = true,
                 MetricTarget::LandmarkStratifiedRta => flags.landmark_stratified_rta = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::Dsc => flags.dsc = true,
+                MetricTarget::DistanceConsistency => flags.distance_consistency = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::Dc => flags.dc = true,
+                MetricTarget::DistributionConsistency => flags.distribution_consistency = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::Cdm => flags.cdm = true,
+                MetricTarget::ClassDensityMeasure => flags.class_density_measure = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::Hdm => flags.hdm = true,
+                MetricTarget::HistogramDensityMeasure => flags.histogram_density_measure = true,
                 #[cfg(feature = "eval-baselines")]
                 MetricTarget::SepmeKnng => flags.sepme_knng = true,
                 #[cfg(feature = "eval-baselines")]
@@ -284,11 +325,11 @@ impl RequestedFlags {
                 #[cfg(feature = "eval-baselines")]
                 MetricTarget::NeighborhoodHit => flags.neighborhood_hit = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::Silhouette => flags.silhouette = true,
+                MetricTarget::SilhouetteScore => flags.silhouette_score = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::CalinskiHarabasz => flags.calinski_harabasz = true,
+                MetricTarget::CalinskiHarabaszScore => flags.calinski_harabasz_score = true,
                 #[cfg(feature = "eval-baselines")]
-                MetricTarget::DaviesBouldin => flags.davies_bouldin = true,
+                MetricTarget::DaviesBouldinScore => flags.davies_bouldin_score = true,
                 #[cfg(feature = "eval-baselines")]
                 MetricTarget::CqKmeansAri => flags.cq_kmeans_ari = true,
                 #[cfg(feature = "eval-baselines")]
@@ -303,6 +344,8 @@ impl RequestedFlags {
                 }
                 #[cfg(feature = "eval-baselines")]
                 MetricTarget::SprawlterNn => flags.sprawlter_nn = true,
+                #[cfg(feature = "eval-baselines")]
+                MetricTarget::NorMetrics => flags.nor_metrics = true,
             }
         }
         flags

@@ -1,9 +1,9 @@
 use super::super::*;
 use crate::cluster_baselines::{
     calinski_harabasz_score, class_density_measure, cq_hac, cq_kmeans, davies_bouldin_score,
-    distance_consistency, distribution_consistency, neighborhood_hit,
-    pairwise_distance_overlap_error, sepme_gab, sepme_gong, sepme_knng, sepme_rng,
-    silhouette_score, sprawlter_nn_radii,
+    distance_consistency, distribution_consistency, histogram_density_measure, neighborhood_hit,
+    nor_metrics, pairwise_distance_overlap_error, sepme_gab, sepme_gong, sepme_knng, sepme_rng,
+    silhouette_score, sprawlter_nn, sprawlter_nn_radii,
 };
 use egraph_core::{CoreError, CsrGraph, Layout2d};
 
@@ -25,26 +25,27 @@ fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
     let communities = [0_u32, 0, 0, 1, 1, 1];
     let cfg = MetricConfig::default();
 
-    // SprawlterNn works without community_labels; all other eval-baselines fields remain None.
+    // SprawlterNn works without labels; all other eval-baselines fields remain None.
     let sprawl_only = evaluate_metrics(&g, &layout, &[MetricTarget::SprawlterNn], &cfg).unwrap();
     assert!(sprawl_only.sprawlter_nn.is_some());
-    assert!(sprawl_only.dsc.is_none());
+    assert!(sprawl_only.distance_consistency.is_none());
     assert!(sprawl_only.cq_kmeans_ari.is_none());
+    assert!(sprawl_only.nor_oo_nni.is_none());
 
-    // Label-dependent targets error when community_labels is None.
+    // Label-dependent targets error when labels is None.
     for &target in &[
-        MetricTarget::Dsc,
-        MetricTarget::Dc,
-        MetricTarget::Cdm,
-        MetricTarget::Hdm,
+        MetricTarget::DistanceConsistency,
+        MetricTarget::DistributionConsistency,
+        MetricTarget::ClassDensityMeasure,
+        MetricTarget::HistogramDensityMeasure,
         MetricTarget::SepmeKnng,
         MetricTarget::SepmeRng,
         MetricTarget::SepmeGab,
         MetricTarget::SepmeGong,
         MetricTarget::NeighborhoodHit,
-        MetricTarget::Silhouette,
-        MetricTarget::CalinskiHarabasz,
-        MetricTarget::DaviesBouldin,
+        MetricTarget::SilhouetteScore,
+        MetricTarget::CalinskiHarabaszScore,
+        MetricTarget::DaviesBouldinScore,
         MetricTarget::CqKmeansAri,
         MetricTarget::CqKmeansAmi,
         MetricTarget::CqHacHom,
@@ -56,24 +57,24 @@ fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
                 evaluate_metrics(&g, &layout, &[target], &cfg),
                 Err(CoreError::InvalidInput(_))
             ),
-            "expected InvalidInput when community_labels is None for {target:?}"
+            "expected InvalidInput when labels is None for {target:?}"
         );
     }
 
-    // Request all 18 eval-baselines targets and verify exact parity with standalone calls.
+    // Request all eval-baselines targets and verify exact parity with standalone calls.
     let baseline_targets = [
-        MetricTarget::Dsc,
-        MetricTarget::Dc,
-        MetricTarget::Cdm,
-        MetricTarget::Hdm,
+        MetricTarget::DistanceConsistency,
+        MetricTarget::DistributionConsistency,
+        MetricTarget::ClassDensityMeasure,
+        MetricTarget::HistogramDensityMeasure,
         MetricTarget::SepmeKnng,
         MetricTarget::SepmeRng,
         MetricTarget::SepmeGab,
         MetricTarget::SepmeGong,
         MetricTarget::NeighborhoodHit,
-        MetricTarget::Silhouette,
-        MetricTarget::CalinskiHarabasz,
-        MetricTarget::DaviesBouldin,
+        MetricTarget::SilhouetteScore,
+        MetricTarget::CalinskiHarabaszScore,
+        MetricTarget::DaviesBouldinScore,
         MetricTarget::CqKmeansAri,
         MetricTarget::CqKmeansAmi,
         MetricTarget::CqHacHom,
@@ -87,17 +88,17 @@ fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
 
     let cb = &cfg.cluster_baselines;
     assert_eq!(
-        rep.dsc,
+        rep.distance_consistency,
         Some(distance_consistency(&layout, &communities).unwrap())
     );
     assert_eq!(
-        rep.dc,
+        rep.distribution_consistency,
         Some(distribution_consistency(&layout, &communities, cb.dc_grid_size).unwrap())
     );
     let (cdm, hdm) =
         class_density_measure(&layout, &communities, cb.cdm_grid_size, cb.cdm_bandwidth).unwrap();
-    assert_eq!(rep.cdm, Some(cdm));
-    assert_eq!(rep.hdm, Some(hdm));
+    assert_eq!(rep.class_density_measure, Some(cdm));
+    assert_eq!(rep.histogram_density_measure, Some(hdm));
     assert_eq!(
         rep.sepme_knng,
         Some(sepme_knng(&layout, &communities, cb.sepme_knng_k).unwrap())
@@ -119,15 +120,15 @@ fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
         Some(neighborhood_hit(&layout, &communities, cb.neighborhood_hit_k).unwrap())
     );
     assert_eq!(
-        rep.silhouette,
+        rep.silhouette_score,
         Some(silhouette_score(&layout, &communities).unwrap())
     );
     assert_eq!(
-        rep.calinski_harabasz,
+        rep.calinski_harabasz_score,
         Some(calinski_harabasz_score(&layout, &communities).unwrap())
     );
     assert_eq!(
-        rep.davies_bouldin,
+        rep.davies_bouldin_score,
         Some(davies_bouldin_score(&layout, &communities).unwrap())
     );
     let km = cq_kmeans(
@@ -152,6 +153,66 @@ fn test_eval_baselines_dispatcher_targets_and_lazy_validation() {
         rep.sprawlter_nn,
         Some(sprawlter_nn_radii(&layout, &radii).unwrap())
     );
+
+    // Standalone HistogramDensityMeasure without ClassDensityMeasure.
+    let hdm_only = evaluate_metrics_with_communities(
+        &g,
+        &layout,
+        &[MetricTarget::HistogramDensityMeasure],
+        &cfg,
+        Some(&communities),
+    )
+    .unwrap();
+    assert_eq!(
+        hdm_only.histogram_density_measure,
+        Some(histogram_density_measure(&layout, &communities, cb.cdm_grid_size).unwrap())
+    );
+    assert!(hdm_only.class_density_measure.is_none());
+
+    // NorMetrics + per-node sprawlter half-extents via MetricInputs.
+    let adjusted = Layout2d::from_xy(
+        vec![-0.5, 0.5, 0.1, 4.5, 5.5, 5.1],
+        vec![0.0, 0.2, -0.5, 5.0, 5.2, 4.5],
+    )
+    .unwrap();
+    let hw = [0.2, 0.3, 0.25, 0.4, 0.2, 0.35];
+    let hh = [0.15, 0.25, 0.2, 0.3, 0.15, 0.25];
+    let inputs = MetricInputs {
+        original_layout: Some(&layout),
+        sprawlter_half_widths: Some(&hw),
+        sprawlter_half_heights: Some(&hh),
+        ..MetricInputs::default()
+    };
+    let rep_nor = evaluate_metrics_with_inputs(
+        &g,
+        &adjusted,
+        &[MetricTarget::NorMetrics, MetricTarget::SprawlterNn],
+        &cfg,
+        &inputs,
+    )
+    .unwrap();
+    let exp_nor = nor_metrics(&g, &layout, &adjusted, &hw, &hh).unwrap();
+    assert_eq!(rep_nor.nor_oo_nni, Some(exp_nor.oo_nni));
+    assert_eq!(rep_nor.nor_sp_ch_a, Some(exp_nor.sp_ch_a));
+    assert_eq!(rep_nor.nor_gs_bb_iar, Some(exp_nor.gs_bb_iar));
+    assert_eq!(rep_nor.nor_nm_dm_imse, Some(exp_nor.nm_dm_imse));
+    assert_eq!(rep_nor.nor_el_rsd, Some(exp_nor.el_rsd));
+    assert_eq!(
+        rep_nor.sprawlter_nn,
+        Some(sprawlter_nn(&adjusted, &hw, &hh).unwrap())
+    );
+    assert!(matches!(
+        evaluate_metrics(&g, &adjusted, &[MetricTarget::NorMetrics], &cfg),
+        Err(CoreError::InvalidInput(_))
+    ));
+    let bad_half = MetricInputs {
+        sprawlter_half_widths: Some(&hw),
+        ..MetricInputs::default()
+    };
+    assert!(matches!(
+        evaluate_metrics_with_inputs(&g, &adjusted, &[MetricTarget::SprawlterNn], &cfg, &bad_half),
+        Err(CoreError::InvalidInput(_))
+    ));
 
     // Lazy config validation: invalid baseline config ignored when baseline targets not requested.
     let bad_cb_cfg = MetricConfig {
