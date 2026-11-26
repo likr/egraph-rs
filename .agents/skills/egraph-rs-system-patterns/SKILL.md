@@ -11,6 +11,7 @@ This skill details the v6 architecture and algorithmic patterns used across `egr
 
 - **Target Parity**: Native Rust, Python (PyO3 `abi3-py310`), and WebAssembly (`wasm-bindgen` single-`.wasm` pure ESM) operate over shared, strictly single-threaded pure CPU Rust crates.
 - **Zero-Copy & Cooperative Design**: Flat `u32`-indexed `CsrGraph` and Structure-of-Arrays `Layout2d<S>` / `LayoutNd<S>` / `ManifoldLayout2d<S>` buffers avoid `HashMap` allocations in inner loops, exclude host objects (`Py<PyAny>`, `JsValue`) from Rust cores, and expose bit-exact `IterativeSolver<S>::step()` / `run_steps(k)` / `run()` loops alongside explicit `DeterministicRng::from_seed_u64(seed)`.
+- **Crate Granularity, Module Size & Snapshot Naming**: Partition Rust core algorithm families into cohesive, narrowly-dependent crates to keep incremental builds fast (re-exporting via `crates/egraph`); keep each hand-written source file within roughly `500` lines using cohesive directory submodules (`mod.rs`, `config.rs`, `solver.rs`, `tests.rs`) and domain-scoped binding modules (`crates/python/src/<domain>.rs`, `crates/wasm/src/<domain>.rs`); never name modules, files, or tests after workflow phases/milestones.
 - **Legacy Reference**: Historical `petgraph`-based v5 crate patterns (`Sgd`, `PivotMds`, `RdMds`, `Omega`, `TsNet`/`BhTsNet`/`FitTsNet`/`LTsNet`, `GuMap`, `DiffusionKernel`, `petgraph-clustering`, `petgraph-algorithm-layering`) are archived in [Legacy v5 Patterns](./references/legacy_v5_patterns.md).
 
 ## Community Detection
@@ -63,7 +64,7 @@ All v6 layout solvers implement `egraph_core::IterativeSolver<S>` with cooperati
   - Pure-Rust `u32` Structure-of-Arrays (SoA) SGD engine storing packed `PackedSymPair<S>` (`i`, `j_hinge` with `HINGE_BIT = 1u32 << 31` bit-packed hinge flag, `d`, `w`) or `PackedGenPair<S>` for asymmetric weights/distances.
   - **Cache-Blocked Shuffle**: For pair counts `> BLOCK_SHUFFLE_THRESHOLD` (`65_536`), `try_for_each_shuffled_pair` shuffles `BLOCK_SIZE` (`16_384`) block indices and intra-block slices rather than full-array Fisher-Yates, preserving cache locality while keeping `step()` and `run()` RNG consumption identical.
   - **3-Tier Sparse Barrier & Streaming Negatives**: `SparseBarrierConfig` builds Tier 1 (1-hop), Tier 2 (2-hop), and Tier 3 (non-2-hop DoG-Varadhan / MaxMin pivot pairs with optional one-sided hinge repulsion and Horvitz-Thompson $\gamma_{\mathrm{eff}}$ scaling) via `SgdSolver::sparse_barrier_from_landmarks` / `sparse_barrier_dog`; `StreamingNegativeConfig` supports minimal-RAM on-the-fly non-edge negative sampling (`step()`/`run()`); `FullSgd`, `RandomPairSgd`, and `Omega` constructors share the same solver core.
-  - **M4 Compact & Scheduled Extensions**:
+  - **Compact & Scheduled SGD Extensions**:
     - `SnapTFdpConfig` (`SgdSolver::snap_t_fdp`): Streams canonical undirected 1-hop edges directly from CSR into flat `u32` `edges_u`, `edges_v`, and `edge_order` arrays (12 bytes/edge base footprint without temporary tuple vectors or materialized negatives) and samples `negatives_per_edge` ($k=3$) uniform negatives on-the-fly (`< 512 MB` at 1M nodes, `< 1.3 GiB` Peak RSS on 4M-node `com-LiveJournal` in M6 benchmarks).
     - `PacmapGraphConfig` (`SgdSolver::pacmap_graph`): 3-tier near/mid-near/further graph loss across 3 optimization phases.
     - `Sgd2Config` (`SgdSolver::sgd2`) & `SgdScheduleKind::Squared`: Doubly stochastic SGD with squared progress decay $\eta(t) = \max(\eta_{\max}(1 - t)^2, \eta_{\min})$.
@@ -89,7 +90,7 @@ All v6 layout solvers implement `egraph_core::IterativeSolver<S>` with cooperati
 - **`KamadaKawaiSolver<S>` (`crates/layout/src/kamada_kawai.rs`)**:
   - Cooperative Kamada-Kawai (1989) solver selecting the max-gradient vertex per `step()` with `|det| <= 1e-12` Hessian singularity guard falling back to bounded steepest descent.
 
-## Unified Facade, CLI & Cross-Target Integration (M5)
+## Unified Facade, CLI & Cross-Target Integration
 
 - **`egraph` Facade Crate (`crates/egraph`)**:
   - Unconditionally re-exports `egraph-core` and feature-gates `spatial`, `delaunay`, `linalg`, `neighborhood`, `layout`, `clustering`, `metrics`, `dataset`, and optional `petgraph` (excluded from `default` so pure-Rust and WASM consumers remain `petgraph`-free and `getrandom`-free), exposing `egraph::prelude::*`.

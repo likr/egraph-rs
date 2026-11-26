@@ -21,7 +21,16 @@
    - Prefer `u32`-indexed `CsrGraph` and contiguous SoA `Layout2d` buffers over `petgraph` + `HashMap` inside inner loops.
    - Keep host objects (`Py<PyAny>`, `JsValue`) outside the Rust core.
    - All iterative algorithms expose cooperative `step()` / `run_steps(k)` execution for non-blocking single-thread browser `requestAnimationFrame` loops.
-4. **Language Rules**:
+4. **Rust-Core-First Sequential Workflow**:
+   - Always implement, test, and verify Rust core crates first (`./scripts/verify.sh --fast`, `--rust`, `--invariants`) to stabilize the Rust API before implementing or modifying Python (`crates/python`) and WebAssembly (`crates/wasm`) bindings.
+   - Once the Rust core is verified and stable, Python and WASM binding work may proceed in parallel against the settled Rust API (`--python`, `--wasm`, `--parity`, `--docs`).
+5. **Compile-Time Crate Granularity & File Size Discipline (`<= ~500` Lines)**:
+   - Partition Rust core functionality into cohesive, domain-scoped crates with narrow, acyclic dependency edges so incremental edits recompile minimal compilation units rather than monolithic crates.
+   - Decompose hand-written source files (`.rs`, `.py`, `.js`/`.mjs`/`.ts`) into cohesive submodules so each file stays within roughly **500 lines**; move large unit test suites into dedicated `tests.rs` submodules or domain-named integration test files. Existing oversized crates/files are refactored in dedicated passes without expanding them further.
+6. **Timeless, Snapshot-Clean Naming (No Phase/Milestone Identifiers)**:
+   - Name all crates, files, modules, types, functions, test files, test functions, and code comments strictly by **domain, algorithm, or capability**—never by implementation workflow phases, milestones, waves, or lanes (e.g., forbidden: `v6_m*`, `v6_w*`, `m4_lane*`, `phase_*`, `step0_*`, `stage*`).
+   - Keep the codebase readable as a self-contained timeless snapshot; record workflow phases/milestones only in external roadmaps, issues, PRs, or changelogs.
+7. **Language Rules**:
    - All files under `.agents/` and all code comments (Rust, Python, JS/TS) **MUST be written in English**.
    - All user-facing replies and reports **MUST be written in Japanese**.
 
@@ -53,7 +62,7 @@
 
 ## 5. Skills Index
 
-- [egraph-rs-parallel-dev](skills/egraph-rs-parallel-dev/SKILL.md): Multi-agent + git worktree parallel execution playbook, 12-core/24-GiB resource budgeting, and M0–M6 disjoint file/crate ownership matrix.
+- [egraph-rs-parallel-dev](skills/egraph-rs-parallel-dev/SKILL.md): Multi-agent + git worktree parallel execution playbook, 12-core/24-GiB resource budgeting, and Rust-core-first two-stage disjoint crate/binding ownership rules.
 - [egraph-rs-verification](skills/egraph-rs-verification/SKILL.md): Tiered Rust, Python, WASM, invariant, and parity verification commands.
 - [egraph-rs-system-patterns](skills/egraph-rs-system-patterns/SKILL.md): Core algorithmic and architectural patterns across layouts, kernels, clustering, and bindings.
 - [egraph-rs-dev-process](skills/egraph-rs-dev-process/SKILL.md): General engineering workflow, comment standards, autonomous verified commit/push completion gate, and skill maintenance rules.
