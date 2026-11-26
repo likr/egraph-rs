@@ -183,3 +183,13 @@ pub(crate) fn csr_f64_to_f32(graph: &CsrGraph<f64>) -> Result<CsrGraph<f32>, JsE
     )
     .map_err(core_err_to_js)
 }
+
+pub(crate) fn set_js_prop(obj: &js_sys::Object, key: &str, val: &JsValue) -> Result<(), JsError> {
+    js_sys::Reflect::set(obj, &JsValue::from_str(key), val)
+        .map(|_| ())
+        .map_err(|err| JsError::new(&format!("failed to set {key}: {err:?}")))
+}
+
+pub(crate) fn set_f64_prop(obj: &js_sys::Object, key: &str, val: f64) -> Result<(), JsError> {
+    set_js_prop(obj, key, &JsValue::from_f64(val))
+}
