@@ -58,6 +58,11 @@
 | [`scripts/parity_harness.py`](../scripts/parity_harness.py) | Cross-target parity runner delegating to [`scripts/parity/`](../scripts/parity/__init__.py) (30 modules) for deterministic golden fixtures, reproducibility, adversarial non-panic input tests, and optional Node.js WASM parity checks. |
 | [`clippy.toml`](../clippy.toml) | Blocks `std::thread::{spawn, scope, Builder, JoinHandle}` workspace-wide via Clippy. |
 
+### Final Audit & Verification Efficiency Guardrails
+- **Deliverable vs. Scratch Harness Boundary**: Apply adversarial bypass hardening only to committed repository deliverables, never unboundedly to disposable scratch audit scripts (cap scratch harness fixes at `<= 2` iterations; stop immediately and advance if `>= 2` consecutive iterations produce zero target-repo diffs).
+- **Structured Sync Over Static Shell Parsing**: Verify crate/test/CI matrix alignment via structured sources (`Cargo.toml`, `scripts/verify_helpers.py`, `.github/workflows/*.yml`) and live `./scripts/verify.sh --json-summary` output rather than building static Bash interpreters.
+- **Final-Gate SHA Deduplication**: On an unchanged `HEAD` SHA, run `./scripts/verify.sh --all --build-wasm --docs --json-summary <path>` once in Phase 1; Phase 2 reviewers/challengers/auditors consume that summary and run complementary forensic/adversarial/non-`verify.sh` checks (`tsc`, Playwright, isolated probes), reserving at most one independent full re-run for a mandatory post-victory audit.
+
 ---
 
 ## 5. Skills Index
