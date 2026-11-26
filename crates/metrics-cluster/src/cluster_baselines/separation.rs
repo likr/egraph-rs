@@ -32,7 +32,7 @@ pub(super) fn dir_cpt_from_degree_counts(
     macro_sum / k_classes as f64
 }
 
-fn dir_cpt_from_undirected_edges(
+pub(super) fn dir_cpt_from_undirected_edges(
     n: usize,
     comp: &[u32],
     class_sizes: &[usize],

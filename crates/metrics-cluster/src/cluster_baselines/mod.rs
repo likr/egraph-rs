@@ -12,13 +12,16 @@ mod agreement;
 mod cluster_quality;
 mod consistency;
 mod internal_scores;
+mod nd_consistency_scores;
+mod nd_proximity;
+mod nd_quality_sep;
 mod nor;
 mod separation;
 mod sprawlter;
 #[cfg(test)]
 mod tests;
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout2d, LayoutNd, Scalar};
 
 pub use agreement::partition_agreement;
 pub use cluster_quality::{cq_hac, cq_kmeans};
@@ -29,6 +32,21 @@ pub use consistency::{
 pub use internal_scores::{
     calinski_harabasz_score, davies_bouldin_score, pairwise_distance_overlap_error,
     silhouette_score,
+};
+pub use nd_consistency_scores::{
+    calinski_harabasz_score_nd, davies_bouldin_score_nd, distance_consistency_nd,
+    distribution_consistency_nd, pairwise_distance_overlap_error_nd, silhouette_score_nd,
+};
+#[doc(hidden)]
+pub use nd_proximity::build_dynamic_kdtree_f64;
+pub use nd_quality_sep::{
+    cq_hac_nd, cq_kmeans_nd, neighborhood_hit_nd, sepme_gab_nd, sepme_gong_nd, sepme_knng_nd,
+    sepme_rng_nd,
+};
+#[doc(hidden)]
+pub use nd_quality_sep::{
+    neighborhood_hit_nd_with_tree, sepme_gab_nd_with_tree, sepme_gong_nd_with_tree,
+    sepme_knng_nd_with_tree, sepme_rng_nd_with_tree,
 };
 pub use nor::{nor_metrics, nor_metrics_without_graph};
 pub use separation::{neighborhood_hit, sepme_gab, sepme_gong, sepme_knng, sepme_rng};
@@ -85,6 +103,23 @@ pub(super) fn validate_layout_labels<S: Scalar>(
     if layout.len() != labels.len() {
         return Err(CoreError::dimension_mismatch(
             layout.len(),
+            labels.len(),
+            context,
+        ));
+    }
+    layout.validate_finite()?;
+    Ok(())
+}
+
+#[inline]
+pub(super) fn validate_layout_nd_labels<S: Scalar>(
+    layout: &LayoutNd<S>,
+    labels: &[u32],
+    context: &'static str,
+) -> CoreResult<()> {
+    if layout.num_nodes() != labels.len() {
+        return Err(CoreError::dimension_mismatch(
+            layout.num_nodes(),
             labels.len(),
             context,
         ));

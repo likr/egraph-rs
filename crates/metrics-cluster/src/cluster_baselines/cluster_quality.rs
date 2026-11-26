@@ -158,6 +158,11 @@ pub fn cq_hac<S: Scalar>(layout: &Layout2d<S>, labels: &[u32]) -> CoreResult<Par
         }
     }
 
+    let pred_labels = upgma_hac_labels(n, k, &mut dist);
+    partition_agreement(labels, &pred_labels)
+}
+
+pub(super) fn upgma_hac_labels(n: usize, k: usize, dist: &mut [f64]) -> Vec<u32> {
     let mut active_slots: Vec<usize> = (0..n).collect();
     let mut size = vec![1usize; n];
     let mut node_id: Vec<usize> = (0..n).collect();
@@ -256,5 +261,5 @@ pub fn cq_hac<S: Scalar>(layout: &Layout2d<S>, labels: &[u32]) -> CoreResult<Par
         *slot = root_to_label[r];
     }
 
-    partition_agreement(labels, &pred_labels)
+    pred_labels
 }

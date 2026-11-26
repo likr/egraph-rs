@@ -71,6 +71,7 @@ pub(super) fn brute_gong_edges(layout: &Layout2d<f64>, gamma: f64) -> Vec<(usize
     edges
 }
 
+mod nd;
 mod nor_sprawlter_and_stability;
 mod parity_and_agreement;
 mod separation_and_boundaries;

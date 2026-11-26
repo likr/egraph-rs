@@ -20,11 +20,14 @@ pub use cluster_area::{
 };
 #[cfg(feature = "eval-baselines")]
 pub use cluster_baselines::{
-    NorMetrics, PartitionAgreement, calinski_harabasz_score, class_density_measure, cq_hac,
-    cq_kmeans, davies_bouldin_score, distance_consistency, distribution_consistency,
-    histogram_density_measure, neighborhood_hit, nor_metrics, nor_metrics_without_graph,
-    pairwise_distance_overlap_error, partition_agreement, sepme_gab, sepme_gong, sepme_knng,
-    sepme_rng, silhouette_score, sprawlter_nn, sprawlter_nn_radii,
+    NorMetrics, PartitionAgreement, calinski_harabasz_score, calinski_harabasz_score_nd,
+    class_density_measure, cq_hac, cq_hac_nd, cq_kmeans, cq_kmeans_nd, davies_bouldin_score,
+    davies_bouldin_score_nd, distance_consistency, distance_consistency_nd,
+    distribution_consistency, distribution_consistency_nd, histogram_density_measure,
+    neighborhood_hit, neighborhood_hit_nd, nor_metrics, nor_metrics_without_graph,
+    pairwise_distance_overlap_error, pairwise_distance_overlap_error_nd, partition_agreement,
+    sepme_gab, sepme_gab_nd, sepme_gong, sepme_gong_nd, sepme_knng, sepme_knng_nd, sepme_rng,
+    sepme_rng_nd, silhouette_score, silhouette_score_nd, sprawlter_nn, sprawlter_nn_radii,
 };
 pub use community::{
     AdjustedPatchNigDetail, adjusted_patch_nig, adjusted_patch_nig_detail,
