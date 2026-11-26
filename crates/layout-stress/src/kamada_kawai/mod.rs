@@ -1,12 +1,16 @@
 //! Pure-Rust Kamada-Kawai (1989) spring layout solver with `|det| <= 1e-12` Hessian
 //! singularity guard and bounded inner/outer iteration limits.
 
+mod manifold;
 mod nd;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_manifold;
+#[cfg(test)]
 mod tests_nd;
 
+use crate::manifold_utils::ActiveLayoutKind;
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Scalar, SolverStatus,
 };
@@ -71,7 +75,7 @@ pub struct KamadaKawaiSolver<S: Scalar = f64> {
     k: Vec<f64>,
     x_buf: Vec<f64>,
     y_buf: Vec<f64>,
-    nd_dims: Option<usize>,
+    active_layout: ActiveLayoutKind,
     nd_coords: Vec<f64>,
     nd_grad: Vec<f64>,
     nd_hessian: Vec<f64>,
@@ -212,7 +216,7 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
             k,
             x_buf: vec![0.0; n],
             y_buf: vec![0.0; n],
-            nd_dims: None,
+            active_layout: ActiveLayoutKind::Unset,
             nd_coords: Vec::new(),
             nd_grad: Vec::new(),
             nd_hessian: Vec::new(),
@@ -308,6 +312,7 @@ impl<S: Scalar> IterativeSolver<S> for KamadaKawaiSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        self.active_layout.lock_2d("KamadaKawaiSolver")?;
 
         if self.status.is_finished() {
             return Ok(self.status);

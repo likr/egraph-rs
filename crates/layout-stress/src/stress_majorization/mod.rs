@@ -2,16 +2,20 @@
 //! zero-per-iteration-allocation Jacobi Preconditioned Conjugate Gradient [`PcgWorkspace`].
 
 mod config;
+mod manifold;
 mod nd;
 mod pcg;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
 pub use config::StressMajorizationConfig;
 pub use pcg::PcgWorkspace;
 
+use crate::manifold_utils::ActiveLayoutKind;
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Scalar, SolverStatus,
 };
@@ -29,7 +33,7 @@ pub struct StressMajorizationSolver<S: Scalar = f64> {
     rhs_y: Vec<f64>,
     sol_x: Vec<f64>,
     sol_y: Vec<f64>,
-    nd_dims: Option<usize>,
+    active_layout: ActiveLayoutKind,
     nd_rhs: Vec<f64>,
     nd_sol: Vec<f64>,
     pcg: PcgWorkspace,
@@ -177,7 +181,7 @@ impl<S: Scalar> StressMajorizationSolver<S> {
             rhs_y: vec![0.0; n],
             sol_x: vec![0.0; n],
             sol_y: vec![0.0; n],
-            nd_dims: None,
+            active_layout: ActiveLayoutKind::Unset,
             nd_rhs: Vec::new(),
             nd_sol: Vec::new(),
             pcg: PcgWorkspace::new(n),
@@ -269,6 +273,7 @@ impl<S: Scalar> IterativeSolver<S> for StressMajorizationSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        self.active_layout.lock_2d("StressMajorizationSolver")?;
 
         if self.status.is_finished() {
             return Ok(self.status);

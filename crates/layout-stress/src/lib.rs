@@ -1,6 +1,7 @@
 //! Stress majorization, Kamada-Kawai, and maxent-stress graph layout solvers for `egraph-rs`.
 
 pub mod kamada_kawai;
+mod manifold_utils;
 #[cfg(feature = "baselines")]
 pub mod maxent;
 pub mod stress_majorization;

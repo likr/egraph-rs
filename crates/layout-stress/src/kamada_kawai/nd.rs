@@ -189,16 +189,8 @@ impl<S: Scalar> IterativeSolver<S, LayoutNd<S>> for KamadaKawaiSolver<S> {
             ));
         }
         layout.validate_finite()?;
-        if let Some(expected_dims) = self.nd_dims
-            && d != expected_dims
-        {
-            return Err(CoreError::dimension_mismatch(
-                expected_dims,
-                d,
-                "KamadaKawaiSolver::step::dims",
-            ));
-        }
-        self.nd_dims = Some(d);
+        self.active_layout
+            .lock_nd(d, "KamadaKawaiSolver", "KamadaKawaiSolver::step::dims")?;
 
         if self.status.is_finished() {
             return Ok(self.status);
