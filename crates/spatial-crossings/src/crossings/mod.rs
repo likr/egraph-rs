@@ -1,5 +1,5 @@
-//! Exact $O((|E|+K)\log|E|)$ sweep-line edge-crossing analysis, torus crossings, and
-//! $O(M)$ deterministic edge-pair sampling.
+//! Exact $O((|E|+K)\log|E|)$ sweep-line edge-crossing analysis, non-Euclidean geodesic
+//! crossings (torus, spherical, hyperbolic), and $O(M)$ deterministic edge-pair sampling.
 
 use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar};
 
@@ -8,8 +8,10 @@ mod band;
 mod band_reorder;
 mod collector;
 mod geometry;
+mod hyperbolic;
 mod pair_set;
 mod sampling;
+mod spherical;
 mod sweep;
 #[cfg(test)]
 mod tests;
@@ -17,9 +19,14 @@ mod torus;
 
 use band_reorder::finalize_pairs;
 use geometry::{build_segments, crossing_angle_metrics, extract_csr_edges};
+pub use hyperbolic::{crossing_edges_hyperbolic, hyperbolic_crossing_number};
 pub use sampling::{sampled_crossing_number, sampled_crossing_number_edges};
+pub use spherical::{crossing_edges_spherical, spherical_crossing_number};
 use sweep::{sweep_segments, sweep_segments_with};
-pub use torus::{torus_crossing_edges, torus_crossing_edges_from_edges, torus_edge_segments};
+pub use torus::{
+    TorusLayoutView, torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
+    torus_edge_segments, torus_layout_edge_segments,
+};
 
 /// Details of a single crossing pair between two non-adjacent edges.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,15 +53,23 @@ pub struct CrossingSummary {
     pub min_angle_rad: Option<f64>,
 }
 
-/// Crossing pair of periodic `[0, 1)^2` torus edge sub-segments.
+/// Crossing pair of periodic `[0, 1)^2` torus edge sub-segments with physical aspect-aware angles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TorusCrossing {
     pub edge_a: usize,
     pub edge_b: usize,
+    pub u1: u32,
+    pub v1: u32,
+    pub u2: u32,
+    pub v2: u32,
     /// `[x1, y1, x2, y2]` coordinates of the first crossing sub-segment.
     pub seg_a: [f64; 4],
     /// `[x1, y1, x2, y2]` coordinates of the second crossing sub-segment.
     pub seg_b: [f64; 4],
+    /// Acute crossing angle in `[0, pi/2]` radians in physical `(Lx, Ly)` coordinates.
+    pub angle_rad: Option<f64>,
+    /// $\cos^2(\theta)$ of the crossing angle (`0.0` when angle is undefined).
+    pub cos_sq: f64,
 }
 
 /// Exact $O((|E|+K)\log|E|)$ x-sweep edge-crossing counter, angle evaluator, and pair finder.
@@ -109,11 +124,7 @@ impl SweepLineCrossings {
         sweep_segments_with(&segs, |a, b| {
             count += 1;
             let (angle_rad, cos_sq) = crossing_angle_metrics(&segs[a], &segs[b]);
-            // Use Neumaier compensated summation so accumulation is deterministic (independent
-            // of hash-table bucket order) and keeps floating-point error at O(eps) rather than
-            // O(K * eps) on high-crossing graphs. Note that IEEE-754 addition order differs from
-            // sorting all pairs by (edge_a, edge_b) first, so angle_cos_sq_sum agrees within
-            // O(eps * K) while count and min_angle_rad are bit-exact.
+            // Neumaier compensated summation for deterministic O(eps) accumulation.
             let t = cos_sq_sum + cos_sq;
             cos_sq_comp += if cos_sq_sum.abs() >= cos_sq.abs() {
                 (cos_sq_sum - t) + cos_sq

@@ -2,7 +2,7 @@ use egraph_core::{Layout2d, Scalar};
 
 use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
-use super::super::geometry::{Seg, build_segments, segments_cross};
+use super::super::geometry::{Seg, build_segments, crossing_angle_metrics, segments_cross};
 use super::super::torus::torus_edge_segments;
 
 pub(super) fn brute_force_pairs<S: Scalar>(
@@ -117,19 +117,32 @@ pub(super) fn torus_brute_force<S: Scalar>(
                 let eb = orig_edge[j];
                 let sa = &sub_segs[i];
                 let sb = &sub_segs[j];
+                let (angle_rad, cos_sq) = crossing_angle_metrics(sa, sb);
                 if ea <= eb {
                     expected.push(TorusCrossing {
                         edge_a: ea,
                         edge_b: eb,
+                        u1: sa.u,
+                        v1: sa.v,
+                        u2: sb.u,
+                        v2: sb.v,
                         seg_a: [sa.x1, sa.y1, sa.x2, sa.y2],
                         seg_b: [sb.x1, sb.y1, sb.x2, sb.y2],
+                        angle_rad,
+                        cos_sq,
                     });
                 } else {
                     expected.push(TorusCrossing {
                         edge_a: eb,
                         edge_b: ea,
+                        u1: sb.u,
+                        v1: sb.v,
+                        u2: sa.u,
+                        v2: sa.v,
                         seg_a: [sb.x1, sb.y1, sb.x2, sb.y2],
                         seg_b: [sa.x1, sa.y1, sa.x2, sa.y2],
+                        angle_rad,
+                        cos_sq,
                     });
                 }
             }
