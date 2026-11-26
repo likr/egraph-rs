@@ -316,3 +316,24 @@ fn test_cache_blocked_shuffle_over_threshold_step_eq_run() {
         assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
     }
 }
+
+#[test]
+fn test_run_schedule_window_rejects_non_pair_variants() {
+    let g = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3), (3, 0)], None, false, false)
+        .unwrap();
+    let mut layout = Layout2d::<f64>::zeros(4);
+    let mut non_pair_solvers = vec![
+        SgdSolver::<f64>::snap_t_fdp(&g, Default::default()).unwrap(),
+        SgdSolver::<f64>::pacmap_graph(&g, Default::default()).unwrap(),
+        SgdSolver::<f64>::sgd2(&g, Default::default()).unwrap(),
+        SgdSolver::<f64>::largevis(&g, Default::default()).unwrap(),
+        SgdSolver::<f64>::drgraph(&g, Default::default()).unwrap(),
+        SgdSolver::<f64>::graph_cne(&g, Default::default()).unwrap(),
+    ];
+    for solver in &mut non_pair_solvers {
+        assert!(matches!(
+            solver.run_schedule_window(&mut layout, 0, 1),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+}

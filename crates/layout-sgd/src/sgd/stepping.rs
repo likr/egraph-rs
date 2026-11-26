@@ -107,6 +107,17 @@ impl<S: Scalar> SgdSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.snap_t_fdp.is_some()
+            || self.pacmap.is_some()
+            || self.sgd2.is_some()
+            || self.largevis.is_some()
+            || self.drgraph.is_some()
+            || self.graph_cne.is_some()
+        {
+            return Err(CoreError::invalid_input(
+                "SgdSolver::run_schedule_window is not supported for SnapTFdp, PacmapGraph, Sgd2, LargeVis, DrGraph, or GraphCne modes",
+            ));
+        }
         if count == 0 {
             return Ok(self.status);
         }
