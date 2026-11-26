@@ -14,6 +14,8 @@ fn assert_no_overlaps<S: Scalar>(layout: &Layout2d<S>, hw: &[S], hh: &[S]) {
 
 #[test]
 fn test_forbid_validation_and_degenerate_inputs() {
+    assert_eq!(ForbidVariant::default(), ForbidVariant::SparseForbid);
+    assert_eq!(ForbidConfig::default().variant, ForbidVariant::SparseForbid);
     assert!(matches!(
         ForbidConfig {
             scale_step: 0.0,

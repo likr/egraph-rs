@@ -271,10 +271,14 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
     assert_eq!(deep_layers[0], 0);
     assert_eq!(deep_layers[deep_n - 1], deep_n - 1);
 
-    // 5. Undirected graph rejected cleanly.
+    // 5. Undirected graph rejected cleanly across layering and layered constraint generation.
     let undir = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
     assert!(matches!(
         cycle_edges(&undir),
+        Err(CoreError::UnsupportedOperation(_))
+    ));
+    assert!(matches!(
+        generate_layered_constraints(&undir, &[0, 1], 1.0_f64),
         Err(CoreError::UnsupportedOperation(_))
     ));
 }

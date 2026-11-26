@@ -9,6 +9,7 @@ pub mod layering;
 #[cfg(feature = "baselines")]
 pub mod pfs_prime;
 pub mod prism;
+pub mod twin_declutter;
 
 pub use constraints::{
     ConstraintProjector, SeparationConstraint, generate_layered_constraints,
@@ -18,10 +19,13 @@ pub use constraints::{
 pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
 #[cfg(feature = "baselines")]
 pub use gtree::{GTreeConfig, GTreeOverlapRemoval};
-pub use layering::{LayeringMethod, assign_layers, cycle_edges, remove_cycles};
+pub use layering::{
+    LayeringMethod, assign_layers, cycle_edges, remove_cycles, transitive_reduction,
+};
 #[cfg(feature = "baselines")]
 pub use pfs_prime::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
 pub use prism::{PrismConfig, PrismOverlapRemoval, SparsePcgWorkspace};
+pub use twin_declutter::{TwinDeclutterConfig, TwinDeclutterer, declutter_twins_2d};
 
 /// Returns the crate version.
 pub fn crate_version() -> &'static str {

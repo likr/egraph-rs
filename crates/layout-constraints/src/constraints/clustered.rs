@@ -9,16 +9,16 @@ use super::overlap_2d::project_rectangle_no_overlap_2d;
 /// iterative constrained stress minimization (`IPSep-CoLa`).
 pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
     layout: &mut Layout2d<S>,
-    cluster_ids: &[u32],
+    labels: &[u32],
     half_widths: &[S],
     half_heights: &[S],
 ) -> CoreResult<()> {
     let n = layout.len();
-    if cluster_ids.len() != n {
+    if labels.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            cluster_ids.len(),
-            "project_clustered_rectangle_no_overlap_2d::cluster_ids",
+            labels.len(),
+            "project_clustered_rectangle_no_overlap_2d::labels",
         ));
     }
     if half_widths.len() != n {
@@ -53,7 +53,7 @@ pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
         return Ok(());
     }
 
-    let mut members: Vec<(u32, u32)> = cluster_ids
+    let mut members: Vec<(u32, u32)> = labels
         .iter()
         .enumerate()
         .map(|(i, &cid)| (cid, i as u32))

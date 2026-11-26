@@ -8,18 +8,18 @@ pub(super) const SGD2_EPS: f64 = 0.01;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ForbidVariant {
     /// Original FORBID: scales current adjusted layout `X'` across binary-search passes.
-    #[default]
     Forbid,
     /// `FORBID'`: resets each binary-search pass by scaling the initial layout `X`.
     ForbidPrime,
     /// Sparse FORBID: combines `StaticKdTree` `sparse_k`-NN pairs with all active overlaps $\mathcal{O}(X')$.
+    #[default]
     SparseForbid,
 }
 
 /// Hyperparameters for [`super::ForbidOverlapRemoval`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ForbidConfig {
-    /// FORBID variant (`default: ForbidVariant::Forbid`).
+    /// FORBID variant (`default: ForbidVariant::SparseForbid`).
     pub variant: ForbidVariant,
     /// Maximum number of binary-search scaling iterations (`default: 20`).
     pub max_scale_iters: usize,
@@ -40,7 +40,7 @@ pub struct ForbidConfig {
 impl Default for ForbidConfig {
     fn default() -> Self {
         Self {
-            variant: ForbidVariant::Forbid,
+            variant: ForbidVariant::SparseForbid,
             max_scale_iters: 20,
             sgd_iterations: 30,
             sparse_k: 30,

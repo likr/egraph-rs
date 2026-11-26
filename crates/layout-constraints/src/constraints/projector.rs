@@ -355,6 +355,11 @@ pub fn generate_layered_constraints<W: Scalar, S: Scalar>(
     layers: &[usize],
     min_layer_distance: S,
 ) -> CoreResult<Vec<SeparationConstraint<S>>> {
+    if !graph.is_directed() {
+        return Err(CoreError::unsupported(
+            "generate_layered_constraints requires a directed CsrGraph",
+        ));
+    }
     let n = graph.num_nodes();
     if layers.len() != n {
         return Err(CoreError::dimension_mismatch(

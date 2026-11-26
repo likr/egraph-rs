@@ -5,12 +5,14 @@
 //! `NetworkSimplex` layering minimizing total edge span $\sum (\mathrm{layer}\[v\] - \mathrm{layer}\[u\])$.
 
 mod network_simplex;
+mod transitive_reduction;
 
 use std::collections::VecDeque;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 
 use network_simplex::network_simplex_on_dag;
+pub use transitive_reduction::transitive_reduction;
 
 /// Layer assignment algorithm for [`assign_layers`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
