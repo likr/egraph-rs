@@ -35,9 +35,11 @@ pub use egraph_spatial_fft::{
 };
 
 pub use egraph_spatial_crossings::{
-    CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, crossings,
-    sampled_crossing_number, sampled_crossing_number_edges, torus_crossing_edges,
-    torus_crossing_edges_from_edges, torus_edge_segments,
+    CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, TorusLayoutView,
+    crossing_edges_hyperbolic, crossing_edges_spherical, crossings, hyperbolic_crossing_number,
+    sampled_crossing_number, sampled_crossing_number_edges, spherical_crossing_number,
+    torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
+    torus_edge_segments, torus_layout_edge_segments,
 };
 
 #[cfg(test)]
