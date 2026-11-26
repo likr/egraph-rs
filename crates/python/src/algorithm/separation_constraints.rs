@@ -1,7 +1,9 @@
 use crate::FloatType;
+use crate::csr_graph::PyCsrGraph;
 use crate::drawing::PyDrawingEuclidean2d;
+use crate::ffi_convert::StrictF64;
 use crate::graph::{GraphType, PyGraphAdapter};
-use crate::v6::{PyCsrGraph, StrictF64, v6_generate_layered_constraints_impl, v6_project_1d_impl};
+use crate::v6_m4::{v6_generate_layered_constraints_impl, v6_project_1d_impl};
 use petgraph_drawing::Drawing;
 use petgraph_layout_separation_constraints::{
     Constraint, generate_layered_constraints, project_1d,

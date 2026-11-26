@@ -5,7 +5,7 @@ use egraph::{
     core as egraph_core, layout as egraph_layout, neighborhood as egraph_neighborhood,
     spatial as egraph_spatial,
 };
-use egraph_core::{CoreError, CoreResult, IterativeSolver, SolverStatus};
+use egraph_core::{CoreError, CoreResult, SolverStatus};
 use egraph_layout::{
     ConstraintProjector, FdebConfig, FdebSolver, FieldLayoutSolver, FieldRepulsionBackend,
     ForceAtlas2Config, ForceAtlas2Solver, LayeringMethod, PacmapGraphConfig, PrismConfig,
@@ -24,18 +24,18 @@ use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArray, PyUntypedArrayMe
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
-use super::v6_m2::{
-    PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_f64_2d,
-    extract_usize_1d,
+use super::v6_m3::{PySgdSolver, SgdInner};
+use crate::array_extract::{extract_f64_1d, extract_f64_2d, extract_usize_1d};
+use crate::csr_graph::PyCsrGraph;
+use crate::ffi_convert::{
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
+    extract_u32_1d, is_non_sequence_container, normalize_enum_key, solver_status_str,
 };
-use super::v6_m3::{
-    DualIterativeSolver, PySgdSolver, SgdInner, SolverAction, SolverLayout, execute_solver_action,
-    extract_solver_layout, impl_dual_solver, normalize_enum_key, solver_status_str,
-    vec_f64_to_f32_checked, write_back_solver_layout,
-};
-use super::{
-    Layout2dInner, PyCsrGraph, PyLayout2d, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_optional_weights_1d, extract_u32_1d, is_non_sequence_container,
+use crate::layout_buffers::{Layout2dInner, PyLayout2d};
+use crate::neighborhood::{PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities};
+use crate::solver_common::{
+    DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
+    impl_dual_solver, vec_f64_to_f32_checked, write_back_solver_layout,
 };
 
 fn parse_field_backend(raw: &str) -> Result<FieldRepulsionBackend, String> {

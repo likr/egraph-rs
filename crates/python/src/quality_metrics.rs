@@ -15,15 +15,16 @@
 /// - Gabriel graph property: A measure of whether the layout respects theoretical constraints
 use crate::{
     FloatType,
+    csr_graph::PyCsrGraph,
     distance_matrix::{DistanceMatrixType, PyDistanceMatrix},
     drawing::{DrawingType, PyDrawing, PyDrawingEuclidean2d, PyDrawingTorus2d},
     graph::{GraphType, PyGraphAdapter},
-    v6::{
-        PyCsrGraph, PyLayout2d, v6_angular_resolution_impl, v6_aspect_ratio_impl,
-        v6_crossing_angle_impl, v6_crossing_edges_impl, v6_crossing_number_impl,
-        v6_gabriel_graph_property_impl, v6_ideal_edge_lengths_impl,
-        v6_neighborhood_preservation_1hop_impl, v6_neighborhood_preservation_2hop_impl,
-        v6_node_resolution_impl,
+    layout_buffers::PyLayout2d,
+    metrics::{
+        csr_angular_resolution_impl, csr_aspect_ratio_impl, csr_crossing_angle_impl,
+        csr_crossing_edges_impl, csr_crossing_number_impl, csr_gabriel_graph_property_impl,
+        csr_ideal_edge_lengths_impl, csr_neighborhood_preservation_1hop_impl,
+        csr_neighborhood_preservation_2hop_impl, csr_node_resolution_impl,
     },
 };
 use petgraph_algorithm_shortest_path::DistanceMatrix;
@@ -38,7 +39,7 @@ use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 enum DualBinaryInput<'py> {
-    V6(PyRef<'py, PyCsrGraph>, PyRef<'py, PyLayout2d>),
+    Csr(PyRef<'py, PyCsrGraph>, PyRef<'py, PyLayout2d>),
     Legacy(PyRef<'py, PyGraphAdapter>, PyRef<'py, PyDrawingEuclidean2d>),
 }
 
@@ -53,7 +54,7 @@ fn extract_dual_binary<'py>(
                 "{fn_name}: expected Layout2d when graph is CsrGraph"
             ))
         })?;
-        return Ok(DualBinaryInput::V6(csr.borrow(), layout.borrow()));
+        return Ok(DualBinaryInput::Csr(csr.borrow(), layout.borrow()));
     }
     if let Ok(legacy_graph) = graph.cast::<PyGraphAdapter>() {
         let legacy_drawing = drawing.cast::<PyDrawingEuclidean2d>().map_err(|_| {
@@ -119,7 +120,7 @@ fn py_crossing_edges<'py>(
         let layout = drawing.cast::<PyLayout2d>().map_err(|_| {
             PyTypeError::new_err("crossing_edges(CsrGraph, layout) expects a Layout2d drawing")
         })?;
-        let list = v6_crossing_edges_impl(py, &csr.borrow(), &layout.borrow())?;
+        let list = csr_crossing_edges_impl(py, &csr.borrow(), &layout.borrow())?;
         return Ok(pyo3::types::PyList::new(py, list)?.into_any());
     }
     let graph = graph.cast::<PyGraphAdapter>().map_err(|_| {
@@ -198,7 +199,7 @@ fn py_angular_resolution(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "angular_resolution")? {
-        DualBinaryInput::V6(csr, layout) => v6_angular_resolution_impl(py, &csr, &layout),
+        DualBinaryInput::Csr(csr, layout) => csr_angular_resolution_impl(py, &csr, &layout),
         DualBinaryInput::Legacy(g, d) => {
             check_graph_drawing_len(&g, d.len())?;
             Ok(match g.graph() {
@@ -222,7 +223,7 @@ fn py_angular_resolution(
 #[pyo3(name = "aspect_ratio")]
 fn py_aspect_ratio(py: Python<'_>, drawing: &Bound<'_, PyAny>) -> PyResult<FloatType> {
     if let Ok(layout) = drawing.cast::<PyLayout2d>() {
-        return v6_aspect_ratio_impl(py, &layout.borrow());
+        return csr_aspect_ratio_impl(py, &layout.borrow());
     }
     if let Ok(legacy_drawing) = drawing.cast::<PyDrawingEuclidean2d>() {
         return Ok(aspect_ratio(legacy_drawing.borrow().drawing()));
@@ -251,7 +252,7 @@ fn py_crossing_angle(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "crossing_angle")? {
-        DualBinaryInput::V6(csr, layout) => v6_crossing_angle_impl(py, &csr, &layout),
+        DualBinaryInput::Csr(csr, layout) => csr_crossing_angle_impl(py, &csr, &layout),
         DualBinaryInput::Legacy(g, d) => match g.graph() {
             GraphType::Graph(native_graph) => try_crossing_angle(native_graph, d.drawing()),
             GraphType::DiGraph(native_graph) => try_crossing_angle(native_graph, d.drawing()),
@@ -293,7 +294,7 @@ fn py_crossing_number(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "crossing_number")? {
-        DualBinaryInput::V6(csr, layout) => v6_crossing_number_impl(py, &csr, &layout),
+        DualBinaryInput::Csr(csr, layout) => csr_crossing_number_impl(py, &csr, &layout),
         DualBinaryInput::Legacy(g, d) => match g.graph() {
             GraphType::Graph(native_graph) => try_crossing_number(native_graph, d.drawing()),
             GraphType::DiGraph(native_graph) => try_crossing_number(native_graph, d.drawing()),
@@ -336,7 +337,7 @@ fn py_gabriel_graph_property(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "gabriel_graph_property")? {
-        DualBinaryInput::V6(csr, layout) => v6_gabriel_graph_property_impl(py, &csr, &layout),
+        DualBinaryInput::Csr(csr, layout) => csr_gabriel_graph_property_impl(py, &csr, &layout),
         DualBinaryInput::Legacy(g, d) => {
             check_graph_drawing_len(&g, d.len())?;
             Ok(match g.graph() {
@@ -383,7 +384,7 @@ fn py_ideal_edge_lengths(
                 "ideal_edge_lengths(CsrGraph, Layout2d) does not accept a distance_matrix argument",
             ));
         }
-        return v6_ideal_edge_lengths_impl(py, &csr.borrow(), &layout.borrow());
+        return csr_ideal_edge_lengths_impl(py, &csr.borrow(), &layout.borrow());
     }
 
     let legacy_graph = graph.cast::<PyGraphAdapter>().map_err(|_| {
@@ -489,8 +490,8 @@ fn py_neighborhood_preservation(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "neighborhood_preservation")? {
-        DualBinaryInput::V6(csr, layout) => {
-            v6_neighborhood_preservation_1hop_impl(py, &csr, &layout)
+        DualBinaryInput::Csr(csr, layout) => {
+            csr_neighborhood_preservation_1hop_impl(py, &csr, &layout)
         }
         DualBinaryInput::Legacy(g, d) => {
             check_graph_drawing_len(&g, d.len())?;
@@ -526,8 +527,8 @@ fn py_neighborhood_preservation_2hop(
     drawing: &Bound<'_, PyAny>,
 ) -> PyResult<FloatType> {
     match extract_dual_binary(graph, drawing, "neighborhood_preservation_2hop")? {
-        DualBinaryInput::V6(csr, layout) => {
-            v6_neighborhood_preservation_2hop_impl(py, &csr, &layout)
+        DualBinaryInput::Csr(csr, layout) => {
+            csr_neighborhood_preservation_2hop_impl(py, &csr, &layout)
         }
         DualBinaryInput::Legacy(g, d) => {
             check_graph_drawing_len(&g, d.len())?;
@@ -556,7 +557,7 @@ fn py_neighborhood_preservation_2hop(
 #[pyo3(name = "node_resolution")]
 fn py_node_resolution(py: Python<'_>, drawing: &Bound<'_, PyAny>) -> PyResult<FloatType> {
     if let Ok(layout) = drawing.cast::<PyLayout2d>() {
-        return v6_node_resolution_impl(py, &layout.borrow());
+        return csr_node_resolution_impl(py, &layout.borrow());
     }
     let legacy_drawing = drawing.cast::<PyDrawing>().map_err(|_| {
         PyTypeError::new_err("node_resolution: drawing must be Drawing or Layout2d")

@@ -11,7 +11,7 @@ use egraph_clustering::{
     louvain_coarsen as clu_louvain_coarsen,
     project_clustered_layout_with_radii as clu_project_clustered_layout_with_radii,
 };
-use egraph_core::{CoreError, CoreResult, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{CoreError, Layout2d};
 use egraph_layout::{
     CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats, CoarseDistanceBackend,
     CoarseEdgeLengthMode, PacmapGraphConfig, ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig,
@@ -29,15 +29,18 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use super::v6_m2::{PyDogVaradhanLandmarks, extract_f64_1d};
-use super::v6_m3::{
-    DualIterativeSolver, PySgdSolver, SgdInner, SolverAction, SolverLayout, execute_solver_action,
-    extract_solver_layout, impl_dual_solver, normalize_enum_key, solver_status_str,
-    write_back_solver_layout,
+use super::v6_m3::{PySgdSolver, SgdInner};
+use crate::array_extract::extract_f64_1d;
+use crate::csr_graph::PyCsrGraph;
+use crate::ffi_convert::{
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
+    ffi_error_to_py, normalize_enum_key, solver_status_str,
 };
-use super::{
-    Layout2dInner, PyCsrGraph, PyLayout2d, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_u32_1d, ffi_error_to_py,
+use crate::layout_buffers::{Layout2dInner, PyLayout2d};
+use crate::neighborhood::PyDogVaradhanLandmarks;
+use crate::solver_common::{
+    DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
+    impl_dual_solver, write_back_solver_layout,
 };
 
 fn parse_coarse_edge_length_mode(raw: &str) -> Result<CoarseEdgeLengthMode, String> {

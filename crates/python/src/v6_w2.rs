@@ -1,8 +1,7 @@
 //! Wave 2 (W2-1..W2-4) Python bindings for HDE, Ortmann Sparse Stress, LargeVis,
 //! DRGraph, Graph-CNE, Maxent-Stress, GRIP, GEM, SEL, PFS', and SFC layout solvers.
 
-use egraph::{core as egraph_core, layout as egraph_layout, linalg as egraph_linalg};
-use egraph_core::{CoreError, CoreResult, IterativeSolver, SolverStatus};
+use egraph::{layout as egraph_layout, linalg as egraph_linalg};
 use egraph_layout::{
     DrGraphConfig, GemConfig, GemSolver, GraphCneConfig, GraphCneObjective, GripConfig, GripSolver,
     LargeVisConfig, MaxentStressConfig, MaxentStressSolver, OrtmannPivotStrategy,
@@ -17,14 +16,18 @@ use numpy::PyArray1;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use super::v6_m2::extract_f64_1d;
-use super::v6_m3::{
-    DualIterativeSolver, PySgdSolver, SgdInner, SolverAction, SolverLayout, execute_solver_action,
-    impl_dual_solver, normalize_enum_key, solver_status_str, vec_f64_to_f32_checked,
+use super::v6_m3::{PySgdSolver, SgdInner};
+use crate::array_extract::extract_f64_1d;
+use crate::csr_graph::PyCsrGraph;
+use crate::ffi_convert::{
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
+    normalize_enum_key, solver_status_str,
 };
-use super::{
-    PyCsrGraph, PyLayout2d, PyLayoutNd, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_u32_1d,
+use crate::layout_buffers::PyLayout2d;
+use crate::layout_nd::PyLayoutNd;
+use crate::solver_common::{
+    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+    vec_f64_to_f32_checked,
 };
 
 // ---------------------------------------------------------------------------

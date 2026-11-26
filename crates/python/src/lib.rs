@@ -8,7 +8,14 @@
 //!
 //! # Module Organization
 //!
-//! - `v6`: v6 zero-copy `CsrGraph` and `Layout2d` bindings backed by `egraph-core` and `egraph-ffi`
+//! - `csr_graph`: `CsrGraph` CSR graph bindings backed by `egraph-core` and `egraph-ffi`
+//! - `layout_buffers`: `Layout2d` interleaved zero-copy coordinate buffer bindings
+//! - `layout_nd`: `LayoutNd` arbitrary-dimensional coordinate buffer bindings
+//! - `metrics`: Layout quality evaluation metrics backed by `egraph-metrics`
+//! - `spatial_dataset`: Delaunay triangulation, rectangle overlap, and dataset loader bindings
+//! - `linalg`: Sparse matrix, spectral initialization, Chebyshev diffusion, and AMG-PCG bindings
+//! - `neighborhood`: Neighborhood graph construction, perplexity, probability, and DoG bindings
+//! - `ffi_convert` / `array_extract` / `solver_common`: Shared FFI conversion and dual-precision solver helpers
 //! - `graph`: Graph data structures (Graph, DiGraph)
 //! - `drawing`: Drawing spaces (Euclidean, Hyperbolic, Spherical, Torus)
 //! - `distance_matrix`: Distance matrix operations
@@ -22,14 +29,29 @@ use pyo3::prelude::*;
 
 mod algorithm;
 mod array;
+mod array_extract;
 mod clustering;
+mod csr_graph;
 mod distance_matrix;
 mod drawing;
+mod ffi_convert;
 mod graph;
 mod layout;
+mod layout_buffers;
+mod layout_nd;
+mod linalg;
+mod metrics;
+mod neighborhood;
 mod quality_metrics;
 mod rng;
-mod v6;
+mod solver_common;
+mod spatial_dataset;
+// Temporary module declarations retained until solver, community, and baseline modules are split.
+mod v6_m3;
+mod v6_m4;
+mod v6_m5;
+mod v6_w1;
+mod v6_w2;
 
 /// Standard floating-point precision type used in python bindings.
 pub type FloatType = f64;
@@ -57,12 +79,23 @@ fn pep440_version(semver: &str) -> String {
 
 /// Creates and initializes the `egraph._core` Python extension module.
 ///
-/// Registers the v6 zero-copy core types (`CsrGraph`, `Layout2d`) alongside the legacy
-/// graph drawing modules for incremental milestone migration.
+/// Registers core `CsrGraph`, `Layout2d`, `LayoutNd`, metrics, spatial, linear algebra,
+/// neighborhood, clustering, and layout solver bindings alongside legacy graph drawing modules.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", pep440_version(env!("CARGO_PKG_VERSION")))?;
-    v6::register(m)?;
+    csr_graph::register(m)?;
+    layout_buffers::register(m)?;
+    layout_nd::register(m)?;
+    metrics::register(m)?;
+    spatial_dataset::register(m)?;
+    linalg::register(m)?;
+    neighborhood::register(m)?;
+    v6_m3::register_m3(m)?;
+    v6_m4::register_m4(m)?;
+    v6_m5::register_m5(m)?;
+    v6_w1::register_w1(m)?;
+    v6_w2::register_w2(m)?;
     graph::register(m)?;
     drawing::register(m)?;
     distance_matrix::register(m)?;

@@ -2,12 +2,8 @@
 //! Quadrilateral Simmelian Backbone extraction & layout, Cluster-refine & Group-in-a-Box,
 //! GTree & FORBID node overlap removal, and `eval-baselines` cluster/separation metrics.
 
-use egraph::{
-    clustering as egraph_clustering, core as egraph_core, layout as egraph_layout,
-    metrics as egraph_metrics,
-};
+use egraph::{clustering as egraph_clustering, layout as egraph_layout, metrics as egraph_metrics};
 use egraph_clustering::{LeidenConfig, LeidenObjective, leiden as clu_leiden};
-use egraph_core::{CoreError, CoreResult, IterativeSolver, SolverStatus};
 use egraph_layout::{
     BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver, ClusterRefineConfig,
     ClusterRefineMethod, ClusterRefineSolver, ForbidConfig, ForbidOverlapRemoval, ForbidVariant,
@@ -25,16 +21,16 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use super::v6_m2::extract_f64_1d;
-use super::v6_m3::{
-    DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
-    impl_dual_solver, normalize_enum_key, solver_status_str, vec_f64_to_f32_checked,
-    write_back_solver_layout,
+use crate::array_extract::extract_f64_1d;
+use crate::csr_graph::PyCsrGraph;
+use crate::ffi_convert::{
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
+    extract_u32_1d, normalize_enum_key, pairs_to_u32_array2, solver_status_str,
 };
-use super::{
-    Layout2dInner, PyCsrGraph, PyLayout2d, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_optional_weights_1d, extract_u32_1d, layout_f32_to_f64,
-    pairs_to_u32_array2,
+use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d, layout_f32_to_f64};
+use crate::solver_common::{
+    DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
+    impl_dual_solver, vec_f64_to_f32_checked, write_back_solver_layout,
 };
 
 // ---------------------------------------------------------------------------

@@ -13,10 +13,9 @@ use egraph_clustering::{
     spectral_clustering as clu_spectral_clustering,
 };
 use egraph_core::{
-    CoreError, CoreResult, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d, SolverStatus,
-    poincare_distance as core_poincare_distance, poincare_mobius_add as core_poincare_mobius_add,
-    spherical_distance as core_spherical_distance, torus_distance as core_torus_distance,
-    wrap_torus_point as core_wrap_torus_point,
+    CoreError, ManifoldKind, ManifoldLayout2d, poincare_distance as core_poincare_distance,
+    poincare_mobius_add as core_poincare_mobius_add, spherical_distance as core_spherical_distance,
+    torus_distance as core_torus_distance, wrap_torus_point as core_wrap_torus_point,
 };
 use egraph_layout::{
     BarrierSymmetry, GuMapConfig, GuMapSolver, KamadaKawaiConfig, KamadaKawaiSolver,
@@ -32,23 +31,18 @@ use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList};
 
-use super::v6_m2::{
-    PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities, extract_f64_1d, extract_f64_2d,
-    extract_perplexities,
+use crate::array_extract::{extract_f64_1d, extract_f64_2d, extract_perplexities};
+use crate::csr_graph::PyCsrGraph;
+use crate::ffi_convert::{
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
+    is_non_sequence_container, normalize_enum_key, solver_status_str,
 };
-use super::{
-    Layout2dInner, PyCsrGraph, PyLayout2d, ScalarDtype, StrictF64, StrictU64, StrictUsize,
-    core_error_to_py, extract_layout_inner, extract_u32_1d, ffi_error_to_py,
-    is_non_sequence_container,
+use crate::layout_buffers::{Layout2dInner, PyLayout2d, extract_layout_inner};
+use crate::neighborhood::{PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities};
+use crate::solver_common::{
+    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+    layout_f32_to_f64_checked, layout_f64_to_f32_checked, vec_f64_to_f32_checked,
 };
-
-pub(super) fn normalize_enum_key(raw: &str) -> String {
-    raw.trim()
-        .chars()
-        .filter(|c| *c != '_' && *c != '-' && *c != ' ')
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
-}
 
 fn parse_manifold_kind(raw: &str) -> Result<ManifoldKind, String> {
     match normalize_enum_key(raw).as_str() {
@@ -102,15 +96,6 @@ fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, String> {
         _ => Err(format!(
             "unknown barrier_sym {raw:?}; expected 'sym_max' or 'sym_avg'"
         )),
-    }
-}
-
-pub(super) fn solver_status_str(status: SolverStatus) -> &'static str {
-    match status {
-        SolverStatus::Initialized => "initialized",
-        SolverStatus::Running => "running",
-        SolverStatus::Converged => "converged",
-        SolverStatus::Completed => "completed",
     }
 }
 
@@ -246,236 +231,12 @@ fn extract_distance_matrix_2d(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f64>, usi
     Ok((flat, nrows))
 }
 
-pub(super) fn vec_f64_to_f32_checked(values: &[f64], ctx: &str) -> PyResult<Vec<f32>> {
-    let mut out = Vec::with_capacity(values.len());
-    for &v in values {
-        if !v.is_finite() {
-            return Err(PyValueError::new_err(format!("non-finite value in {ctx}")));
-        }
-        let vf = v as f32;
-        if !vf.is_finite() {
-            return Err(PyValueError::new_err(format!(
-                "{ctx} entry {v} overflows float32"
-            )));
-        }
-        out.push(vf);
-    }
-    Ok(out)
-}
-
-pub(super) enum SolverLayout {
-    F64(Layout2d<f64>),
-    F32(Layout2d<f32>),
-}
-
-fn layout_f32_to_f64_checked(soa32: &Layout2d<f32>) -> CoreResult<Layout2d<f64>> {
-    let x: Vec<f64> = soa32.x().iter().map(|&v| f64::from(v)).collect();
-    let y: Vec<f64> = soa32.y().iter().map(|&v| f64::from(v)).collect();
-    Layout2d::from_xy(x, y)
-}
-
-fn layout_f64_to_f32_checked(soa64: &Layout2d<f64>) -> CoreResult<Layout2d<f32>> {
-    let x: Vec<f32> = soa64.x().iter().map(|&v| v as f32).collect();
-    let y: Vec<f32> = soa64.y().iter().map(|&v| v as f32).collect();
-    Layout2d::from_xy(x, y)
-}
-
-pub(super) fn extract_solver_layout(
-    layout: &Bound<'_, PyLayout2d>,
-    target_dtype: ScalarDtype,
-) -> PyResult<SolverLayout> {
-    let borrowed = layout.try_borrow()?;
-    match (borrowed.inner(), target_dtype) {
-        (Layout2dInner::F64(buf), ScalarDtype::F64) => Ok(SolverLayout::F64(buf.to_layout2d())),
-        (Layout2dInner::F32(buf), ScalarDtype::F32) => Ok(SolverLayout::F32(buf.to_layout2d())),
-        (Layout2dInner::F32(buf), ScalarDtype::F64) => {
-            layout_f32_to_f64_checked(&buf.to_layout2d())
-                .map(SolverLayout::F64)
-                .map_err(core_error_to_py)
-        }
-        (Layout2dInner::F64(buf), ScalarDtype::F32) => {
-            layout_f64_to_f32_checked(&buf.to_layout2d())
-                .map(SolverLayout::F32)
-                .map_err(core_error_to_py)
-        }
-    }
-}
-
-pub(super) fn write_back_solver_layout(
-    layout: &Bound<'_, PyLayout2d>,
-    soa: &SolverLayout,
-) -> PyResult<()> {
-    let mut borrowed = layout.try_borrow_mut()?;
-    match (borrowed.inner_mut(), soa) {
-        (Layout2dInner::F64(buf), SolverLayout::F64(l64)) => {
-            buf.copy_from_layout2d(l64).map_err(ffi_error_to_py)
-        }
-        (Layout2dInner::F32(buf), SolverLayout::F32(l32)) => {
-            buf.copy_from_layout2d(l32).map_err(ffi_error_to_py)
-        }
-        (Layout2dInner::F32(buf), SolverLayout::F64(l64)) => {
-            let n = l64.len();
-            if buf.len() != n {
-                return Err(PyValueError::new_err(format!(
-                    "layout length mismatch: expected {n}, got {}",
-                    buf.len()
-                )));
-            }
-            for (i, [px, py_coord]) in buf
-                .as_mut_slice()
-                .as_chunks_mut::<2>()
-                .0
-                .iter_mut()
-                .enumerate()
-            {
-                *px = l64.x()[i] as f32;
-                *py_coord = l64.y()[i] as f32;
-            }
-            Ok(())
-        }
-        (Layout2dInner::F64(buf), SolverLayout::F32(l32)) => {
-            let n = l32.len();
-            if buf.len() != n {
-                return Err(PyValueError::new_err(format!(
-                    "layout length mismatch: expected {n}, got {}",
-                    buf.len()
-                )));
-            }
-            for (i, [px, py_coord]) in buf
-                .as_mut_slice()
-                .as_chunks_mut::<2>()
-                .0
-                .iter_mut()
-                .enumerate()
-            {
-                *px = f64::from(l32.x()[i]);
-                *py_coord = f64::from(l32.y()[i]);
-            }
-            Ok(())
-        }
-    }
-}
-
-pub(super) trait DualIterativeSolver: Send {
-    fn dtype(&self) -> ScalarDtype;
-    fn step_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus>;
-    fn run_steps_layout(
-        &mut self,
-        layout: &mut SolverLayout,
-        steps: usize,
-    ) -> CoreResult<SolverStatus>;
-    fn run_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus>;
-    fn solver_status(&self) -> SolverStatus;
-    fn solver_iteration(&self) -> usize;
-    fn solver_total_iterations(&self) -> usize;
-}
-
-macro_rules! impl_dual_solver {
-    ($enum_name:ident, $solver_ty:ident) => {
-        pub(super) enum $enum_name {
-            F64($solver_ty<f64>),
-            F32($solver_ty<f32>),
-        }
-
-        impl DualIterativeSolver for $enum_name {
-            fn dtype(&self) -> ScalarDtype {
-                match self {
-                    Self::F64(_) => ScalarDtype::F64,
-                    Self::F32(_) => ScalarDtype::F32,
-                }
-            }
-
-            fn step_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus> {
-                match (self, layout) {
-                    (Self::F64(s), SolverLayout::F64(l)) => s.step(l),
-                    (Self::F32(s), SolverLayout::F32(l)) => s.step(l),
-                    _ => Err(CoreError::invalid_input(
-                        "internal solver layout dtype mismatch",
-                    )),
-                }
-            }
-
-            fn run_steps_layout(
-                &mut self,
-                layout: &mut SolverLayout,
-                steps: usize,
-            ) -> CoreResult<SolverStatus> {
-                match (self, layout) {
-                    (Self::F64(s), SolverLayout::F64(l)) => s.run_steps(l, steps),
-                    (Self::F32(s), SolverLayout::F32(l)) => s.run_steps(l, steps),
-                    _ => Err(CoreError::invalid_input(
-                        "internal solver layout dtype mismatch",
-                    )),
-                }
-            }
-
-            fn run_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus> {
-                match (self, layout) {
-                    (Self::F64(s), SolverLayout::F64(l)) => s.run(l),
-                    (Self::F32(s), SolverLayout::F32(l)) => s.run(l),
-                    _ => Err(CoreError::invalid_input(
-                        "internal solver layout dtype mismatch",
-                    )),
-                }
-            }
-
-            fn solver_status(&self) -> SolverStatus {
-                match self {
-                    Self::F64(s) => s.status(),
-                    Self::F32(s) => s.status(),
-                }
-            }
-
-            fn solver_iteration(&self) -> usize {
-                match self {
-                    Self::F64(s) => s.iteration(),
-                    Self::F32(s) => s.iteration(),
-                }
-            }
-
-            fn solver_total_iterations(&self) -> usize {
-                match self {
-                    Self::F64(s) => s.total_iterations(),
-                    Self::F32(s) => s.total_iterations(),
-                }
-            }
-        }
-    };
-}
-
-pub(super) use impl_dual_solver;
-
 impl_dual_solver!(TsNetInner, TsNetSolver);
 impl_dual_solver!(SgdInner, SgdSolver);
 impl_dual_solver!(GuMapInner, GuMapSolver);
 impl_dual_solver!(RefinerInner, SpatialIntruderRefiner);
 impl_dual_solver!(StressMajorizationInner, StressMajorizationSolver);
 impl_dual_solver!(KamadaKawaiInner, KamadaKawaiSolver);
-
-pub(super) enum SolverAction {
-    Step,
-    RunSteps(usize),
-    Run,
-}
-
-pub(super) fn execute_solver_action<I: DualIterativeSolver>(
-    inner: &mut I,
-    py: Python<'_>,
-    layout: &Bound<'_, PyLayout2d>,
-    action: SolverAction,
-) -> PyResult<&'static str> {
-    let target_dtype = inner.dtype();
-    let mut soa = extract_solver_layout(layout, target_dtype)?;
-    let status = py
-        .detach(|| match action {
-            SolverAction::Step => inner.step_layout(&mut soa),
-            SolverAction::RunSteps(steps) => inner.run_steps_layout(&mut soa, steps),
-            SolverAction::Run => inner.run_layout(&mut soa),
-        })
-        .map_err(core_error_to_py)?;
-    write_back_solver_layout(layout, &soa)?;
-    Ok(solver_status_str(status))
-}
 
 // ---------------------------------------------------------------------------
 // Clustering functions (`egraph-clustering`)
@@ -4542,10 +4303,11 @@ pub(super) fn register_m3(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::egraph_core::SolverStatus;
     use super::{
-        BarrierSymmetry, ManifoldKind, SgdScheduleKind, SolverStatus, TsNetBackend,
-        default_inv_sq_weights, manifold_kind_str, parse_barrier_symmetry, parse_manifold_kind,
-        parse_sgd_schedule_kind, parse_tsnet_backend, solver_status_str,
+        BarrierSymmetry, ManifoldKind, SgdScheduleKind, TsNetBackend, default_inv_sq_weights,
+        manifold_kind_str, parse_barrier_symmetry, parse_manifold_kind, parse_sgd_schedule_kind,
+        parse_tsnet_backend, solver_status_str,
     };
 
     #[test]

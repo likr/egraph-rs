@@ -7,8 +7,9 @@ use pyo3::prelude::*;
 
 mod longest_path;
 
+use crate::csr_graph::PyCsrGraph;
 use crate::graph::{GraphType, PyGraphAdapter};
-use crate::v6::{PyCsrGraph, v6_cycle_edges_impl};
+use crate::v6_m4::v6_cycle_edges_impl;
 use longest_path::PyLongestPath;
 
 /// Register the layering module and its classes with Python.
