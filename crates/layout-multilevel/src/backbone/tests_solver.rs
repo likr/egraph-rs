@@ -36,6 +36,7 @@ fn test_backbone_solver_step_vs_run_bit_exact_modes_and_dtypes() {
             retain_ratio: 0.25,
             umst_weight_scale: 1.5,
             non_backbone_weight_scale: 0.2,
+            use_weights: true,
             layout_mode: mode,
             iterations: 25,
             seed: 77,
@@ -199,4 +200,40 @@ fn test_backbone_degenerate_directed_and_validation_errors() {
         s_disc.step(&mut wrong_l),
         Err(CoreError::DimensionMismatch { .. })
     ));
+
+    // Weighted K_4 with one weak edge: `use_weights: true` prioritizes heavier edges while
+    // `use_weights: false` preserves unweighted symmetry.
+    let k4_edges = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+    let k4_w = CsrGraph::from_edges(
+        4,
+        &k4_edges,
+        Some(&[0.1, 10.0, 10.0, 10.0, 10.0, 10.0]),
+        false,
+        false,
+    )
+    .unwrap();
+    let res_unweighted = extract_quadrilateral_backbone(
+        &k4_w,
+        &BackboneConfig {
+            retain_ratio: 0.0,
+            use_weights: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(res_unweighted.umst_edges.len(), 6);
+    assert_eq!(res_unweighted.edge_weights, vec![1.0; 6]);
+
+    let res_weighted = extract_quadrilateral_backbone(
+        &k4_w,
+        &BackboneConfig {
+            retain_ratio: 0.0,
+            use_weights: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(!res_weighted.umst_edges.contains(&(0, 1)));
+    assert_eq!(res_weighted.umst_edges.len(), 5);
+    assert!(res_weighted.backbone_csr.is_weighted());
 }

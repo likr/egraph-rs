@@ -16,8 +16,8 @@ pub enum ClusterRefineMethod {
 pub struct ClusterRefineConfig {
     /// Geometric clustering and vertex shift strategy (`default: ClusterRefineMethod::Kmeans`).
     pub method: ClusterRefineMethod,
-    /// Maximum outer refinement rounds (`default: 10`).
-    pub max_rounds: usize,
+    /// Maximum outer refinement iterations (`default: 10`).
+    pub max_iterations: usize,
     /// Number of K-Means++ initializations per round (`default: 5`).
     pub kmeans_n_init: usize,
     /// Maximum Lloyd iterations per K-Means++ initialization (`default: 100`).
@@ -34,7 +34,7 @@ impl Default for ClusterRefineConfig {
     fn default() -> Self {
         Self {
             method: ClusterRefineMethod::Kmeans,
-            max_rounds: 10,
+            max_iterations: 10,
             kmeans_n_init: 5,
             kmeans_max_iters: 100,
             shift_step: 1.0,

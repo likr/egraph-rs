@@ -21,7 +21,7 @@ pub(super) fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
 #[test]
 fn test_refiner_config_defaults_and_validation() {
     let cfg = SpatialRefinerConfig::default();
-    assert_eq!(cfg.rounds, 4);
+    assert_eq!(cfg.iterations, 4);
     assert_eq!(cfg.k_cap, 32);
     assert_eq!(cfg.margin_scale, 1.2);
     assert_eq!(cfg.w_anchor, 1.0);
@@ -32,7 +32,7 @@ fn test_refiner_config_defaults_and_validation() {
     assert_eq!(cfg.round_decay, 0.75);
     assert_eq!(cfg.k_cap_decay, 1.0);
     assert_eq!(cfg.k_cap_min, 1);
-    assert_eq!(cfg.t_max, 20);
+    assert_eq!(cfg.sgd_iterations, 20);
     assert_eq!(cfg.eps, 0.05);
     assert!(cfg.hinge_fp);
     assert_eq!(cfg.min_sep_ratio, 0.0);
@@ -170,7 +170,7 @@ fn test_refiner_step_vs_run_bit_exact_f64_and_f32_and_two_sided_fn() {
 
     for hinge_fp in [true, false] {
         let cfg = SpatialRefinerConfig {
-            rounds: 3,
+            iterations: 3,
             w_fn: 0.2,
             hinge_fp,
             seed: 77,
@@ -230,17 +230,27 @@ fn test_refiner_edge_cases_and_errors() {
         assert_eq!(r.stats().rounds_executed, 0);
     }
 
-    // rounds == 0 completes immediately, t_max == 0 converges immediately.
+    // iterations == 0 completes immediately, sgd_iterations == 0 converges immediately.
     let grid = grid_graph(3, 3);
-    let r_zero_rounds =
-        SpatialIntruderRefiner::<f64>::new(&grid, SpatialRefinerConfig { rounds: 0, ..cfg })
-            .unwrap();
+    let r_zero_rounds = SpatialIntruderRefiner::<f64>::new(
+        &grid,
+        SpatialRefinerConfig {
+            iterations: 0,
+            ..cfg
+        },
+    )
+    .unwrap();
     assert_eq!(r_zero_rounds.status(), SolverStatus::Completed);
     assert_eq!(r_zero_rounds.total_iterations(), 0);
 
-    let mut r_zero_tmax =
-        SpatialIntruderRefiner::<f64>::new(&grid, SpatialRefinerConfig { t_max: 0, ..cfg })
-            .unwrap();
+    let mut r_zero_tmax = SpatialIntruderRefiner::<f64>::new(
+        &grid,
+        SpatialRefinerConfig {
+            sgd_iterations: 0,
+            ..cfg
+        },
+    )
+    .unwrap();
     let mut l9 = Layout2d::<f64>::zeros(9);
     assert_eq!(r_zero_tmax.step(&mut l9).unwrap(), SolverStatus::Converged);
 

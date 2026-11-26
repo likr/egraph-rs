@@ -3,8 +3,8 @@ use egraph_core::{CoreError, CoreResult};
 /// Hyperparameters for [`SpatialIntruderRefiner`](super::SpatialIntruderRefiner).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpatialRefinerConfig {
-    /// Maximum number of outer active-set refinement rounds (`default: 4`).
-    pub rounds: usize,
+    /// Maximum number of outer active-set refinement iterations (`default: 4`).
+    pub iterations: usize,
     /// Per-node spatial $k$-NN cap (`default: 32`).
     pub k_cap: usize,
     /// Repulsive hinge target multiplier relative to local empirical $k_u$-NN radius (`default: 1.2`).
@@ -26,7 +26,7 @@ pub struct SpatialRefinerConfig {
     /// Minimum lower bound for decayed `k_cap` (`default: 1`).
     pub k_cap_min: usize,
     /// Inner `SgdSolver` iterations executed per active round (`default: 20`).
-    pub t_max: usize,
+    pub sgd_iterations: usize,
     /// Exponential scheduler minimum learning rate ratio (`default: 0.05`).
     pub eps: f64,
     /// Whether Tier 3 FPs use one-sided hinge repulsion instead of two-sided springs (`default: true`).
@@ -42,7 +42,7 @@ pub struct SpatialRefinerConfig {
 impl Default for SpatialRefinerConfig {
     fn default() -> Self {
         Self {
-            rounds: 4,
+            iterations: 4,
             k_cap: 32,
             margin_scale: 1.2,
             w_anchor: 1.0,
@@ -53,7 +53,7 @@ impl Default for SpatialRefinerConfig {
             round_decay: 0.75,
             k_cap_decay: 1.0,
             k_cap_min: 1,
-            t_max: 20,
+            sgd_iterations: 20,
             eps: 0.05,
             hinge_fp: true,
             min_sep_ratio: 0.0,

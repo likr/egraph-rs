@@ -39,6 +39,8 @@ pub struct GroupInABoxConfig {
     pub intra_iterations: usize,
     /// Number of inter-cluster force-directed iterations in `ForceDirected` mode (`default: 100`).
     pub fd_iterations: usize,
+    /// When `true`, uniformly rescale `ForceDirected` boxes into `[0, total_width] x [0, total_height]` (`default: true`).
+    pub fit_bounds: bool,
     /// Deterministic explicit RNG seed (`default: 42`).
     pub seed: u64,
 }
@@ -53,6 +55,7 @@ impl Default for GroupInABoxConfig {
             box_padding: 0.05,
             intra_iterations: 100,
             fd_iterations: 100,
+            fit_bounds: true,
             seed: 42,
         }
     }

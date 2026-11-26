@@ -46,6 +46,7 @@ pub struct ClusterRefineSolver<S: Scalar = f64> {
     gt_labels: Vec<u32>,
     edges: Vec<(u32, u32)>,
     last_moved_count: usize,
+    cumulative_moved_count: usize,
     iter: usize,
     status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -57,38 +58,38 @@ impl<S: Scalar> ClusterRefineSolver<S> {
     /// When `config.method == ClusterRefineMethod::Hac` and no graph edges are provided, the
     /// step scale $\ell$ falls back to the mean 1-nearest-neighbor Euclidean distance in the
     /// current layout.
-    pub fn new(cluster_labels: Vec<u32>, config: ClusterRefineConfig) -> CoreResult<Self> {
-        Self::build(cluster_labels, Vec::new(), config)
+    pub fn new(labels: Vec<u32>, config: ClusterRefineConfig) -> CoreResult<Self> {
+        Self::build(labels, Vec::new(), config)
     }
 
     /// Constructs a [`ClusterRefineSolver`] with graph topology for computing mean edge length
     /// $\ell$ during [`ClusterRefineMethod::Hac`] shifts.
     pub fn from_graph<W: Scalar>(
         graph: &CsrGraph<W>,
-        cluster_labels: Vec<u32>,
+        labels: Vec<u32>,
         config: ClusterRefineConfig,
     ) -> CoreResult<Self> {
         let n = graph.num_nodes();
-        if cluster_labels.len() != n {
+        if labels.len() != n {
             return Err(CoreError::dimension_mismatch(
                 n,
-                cluster_labels.len(),
-                "ClusterRefineSolver::from_graph::cluster_labels",
+                labels.len(),
+                "ClusterRefineSolver::from_graph::labels",
             ));
         }
         let edges = extract_unique_undirected_edges(graph);
-        Self::build(cluster_labels, edges, config)
+        Self::build(labels, edges, config)
     }
 
     fn build(
-        cluster_labels: Vec<u32>,
+        labels: Vec<u32>,
         edges: Vec<(u32, u32)>,
         config: ClusterRefineConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
-        let n = cluster_labels.len();
-        let (gt_labels, num_clusters) = canonicalize_labels(&cluster_labels);
-        let status = if config.max_rounds == 0 {
+        let n = labels.len();
+        let (gt_labels, num_clusters) = canonicalize_labels(&labels);
+        let status = if config.max_iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -100,6 +101,7 @@ impl<S: Scalar> ClusterRefineSolver<S> {
             gt_labels,
             edges,
             last_moved_count: 0,
+            cumulative_moved_count: 0,
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -110,6 +112,12 @@ impl<S: Scalar> ClusterRefineSolver<S> {
     #[inline]
     pub fn last_moved_count(&self) -> usize {
         self.last_moved_count
+    }
+
+    /// Returns the cumulative number of misplaced-vertex shifts executed across all completed steps.
+    #[inline]
+    pub fn cumulative_moved_count(&self) -> usize {
+        self.cumulative_moved_count
     }
 
     /// Returns the expected number of vertices in [`Layout2d`].
@@ -172,7 +180,7 @@ impl<S: Scalar> IterativeSolver<S> for ClusterRefineSolver<S> {
                 }
                 let km_cfg = KMeansConfig {
                     k,
-                    max_iters: self.config.kmeans_max_iters,
+                    max_iterations: self.config.kmeans_max_iters,
                     tol: 1e-4,
                     n_init: self.config.kmeans_n_init,
                     seed: self.config.seed.wrapping_add(self.iter as u64),
@@ -198,6 +206,7 @@ impl<S: Scalar> IterativeSolver<S> for ClusterRefineSolver<S> {
         }
 
         self.last_moved_count = misplaced.len();
+        self.cumulative_moved_count += misplaced.len();
         if misplaced.is_empty() {
             self.status = SolverStatus::Converged;
             return Ok(self.status);
@@ -281,7 +290,7 @@ impl<S: Scalar> IterativeSolver<S> for ClusterRefineSolver<S> {
         }
 
         self.iter += 1;
-        self.status = if self.iter >= self.config.max_rounds {
+        self.status = if self.iter >= self.config.max_iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
@@ -298,25 +307,27 @@ impl<S: Scalar> IterativeSolver<S> for ClusterRefineSolver<S> {
     }
 
     fn total_iterations(&self) -> usize {
-        self.config.max_rounds
+        self.config.max_iterations
     }
 }
 
 /// Runs [`ClusterRefineSolver`] to completion on `layout` and returns the total number of
 /// misplaced-vertex shifts executed across all rounds.
-pub fn refine_cluster_layout<S: Scalar>(
+pub fn refine_cluster_layout<S: Scalar, W: Scalar>(
     layout: &mut Layout2d<S>,
-    cluster_labels: &[u32],
+    labels: &[u32],
+    graph: Option<&CsrGraph<W>>,
     config: &ClusterRefineConfig,
 ) -> CoreResult<usize> {
-    let mut solver = ClusterRefineSolver::new(cluster_labels.to_vec(), *config)?;
-    let mut total_moved = 0usize;
+    let mut solver = match graph {
+        Some(g) => ClusterRefineSolver::from_graph(g, labels.to_vec(), *config)?,
+        None => ClusterRefineSolver::new(labels.to_vec(), *config)?,
+    };
     while !solver.status().is_finished() {
         let st = solver.step(layout)?;
-        total_moved += solver.last_moved_count();
         if st.is_finished() {
             break;
         }
     }
-    Ok(total_moved)
+    Ok(solver.cumulative_moved_count())
 }

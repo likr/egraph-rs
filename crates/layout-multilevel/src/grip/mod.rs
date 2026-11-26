@@ -120,6 +120,13 @@ impl GripConfig {
 }
 
 /// Cooperative GRIP (Gajer & Kobourov, 2002) multilevel layout solver implementing [`IterativeSolver`].
+///
+/// GRIP builds an independent-set (MIS) filtration of the graph and places vertices
+/// bottom-up from the coarsest level using deterministic seed-driven geometry. For
+/// `num_nodes >= 2`, running [`GripSolver::step`] or [`GripSolver::run`] replaces
+/// initial `layout` coordinates with the generated MIS placement rather than
+/// refining the input coordinates incrementally. For `num_nodes <= 1`, [`GripSolver`]
+/// validates `layout` length/finiteness and converges immediately without modifying it.
 #[derive(Debug, Clone)]
 pub struct GripSolver<S: Scalar = f64> {
     config: GripConfig,
@@ -263,6 +270,11 @@ impl<S: Scalar> GripSolver<S> {
 }
 
 impl<S: Scalar> IterativeSolver<S> for GripSolver<S> {
+    /// Executes one scheduled GRIP refinement step and writes the updated coordinates into
+    /// `layout`.
+    ///
+    /// Note that for `num_nodes >= 2`, GRIP's MIS filtration initializes and updates vertex
+    /// positions internally from `config.seed`, overwriting any prior coordinates in `layout`.
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         if layout.len() != self.num_nodes {
             return Err(CoreError::dimension_mismatch(

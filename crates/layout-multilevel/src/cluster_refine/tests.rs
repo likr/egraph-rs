@@ -32,7 +32,7 @@ fn kmeans_cq(layout: &Layout2d<f64>, gt_labels: &[u32], k: usize) -> f64 {
         &KMeansConfig {
             k,
             n_init: 5,
-            max_iters: 100,
+            max_iterations: 100,
             tol: 1e-4,
             seed: 7,
         },
@@ -98,7 +98,7 @@ fn test_cluster_kmeans_and_hac_improve_planted_overlapping_clusters() {
     // Cluster-kmeans improvement + step == run bit-exactness.
     let km_cfg = ClusterRefineConfig {
         method: ClusterRefineMethod::Kmeans,
-        max_rounds: 10,
+        max_iterations: 10,
         ..Default::default()
     };
     let mut km_batch = orig.clone();
@@ -122,7 +122,7 @@ fn test_cluster_kmeans_and_hac_improve_planted_overlapping_clusters() {
     // Cluster-HAC improvement via from_graph + step == run bit-exactness.
     let hac_cfg = ClusterRefineConfig {
         method: ClusterRefineMethod::Hac,
-        max_rounds: 10,
+        max_iterations: 10,
         ..Default::default()
     };
     let mut hac_batch = orig.clone();
@@ -160,10 +160,25 @@ fn test_cluster_kmeans_and_hac_improve_planted_overlapping_clusters() {
     }
     assert_eq!(f32_batch, f32_step);
 
-    let mut convenience_layout = orig;
-    let moved = refine_cluster_layout(&mut convenience_layout, &labels, &km_cfg).unwrap();
+    let mut convenience_layout = orig.clone();
+    let moved = refine_cluster_layout(
+        &mut convenience_layout,
+        &labels,
+        None::<&CsrGraph<f64>>,
+        &km_cfg,
+    )
+    .unwrap();
     assert!(moved > 0);
+    assert_eq!(moved, s_batch.cumulative_moved_count());
     assert_eq!(convenience_layout, km_batch);
+
+    let mut hac_convenience_layout = orig;
+    let moved_hac =
+        refine_cluster_layout(&mut hac_convenience_layout, &labels, Some(&graph), &hac_cfg)
+            .unwrap();
+    assert!(moved_hac > 0);
+    assert_eq!(moved_hac, sh_batch.cumulative_moved_count());
+    assert_eq!(hac_convenience_layout, hac_batch);
 }
 
 #[test]

@@ -31,7 +31,7 @@ fn test_refiner_hub_fallback_path_and_coincident_jitter() {
     ys[402] = ys[1];
 
     let cfg = SpatialRefinerConfig {
-        rounds: 2,
+        iterations: 2,
         k_cap: 16,
         ..Default::default()
     };
@@ -196,7 +196,7 @@ fn test_refiner_medium_hub_non_hub_2hop_and_super_hub_fallback() {
 
     // Clean medium-hub layout with k_cap = 4 remains completely undisturbed.
     let clean_cfg = SpatialRefinerConfig {
-        rounds: 2,
+        iterations: 2,
         k_cap: 4,
         ..Default::default()
     };
@@ -223,7 +223,7 @@ fn test_refiner_medium_hub_non_hub_2hop_and_super_hub_fallback() {
     let mut r_nonhub = SpatialIntruderRefiner::<f64>::new(
         &g_med,
         SpatialRefinerConfig {
-            rounds: 1,
+            iterations: 1,
             k_cap: 2,
             ..Default::default()
         },
@@ -245,7 +245,7 @@ fn test_refiner_medium_hub_non_hub_2hop_and_super_hub_fallback() {
     let intr_init = Layout2d::from_xy(intr_x.clone(), intr_y.clone()).unwrap();
 
     let intr_cfg = SpatialRefinerConfig {
-        rounds: 2,
+        iterations: 2,
         k_cap: 8,
         seed: 19,
         ..Default::default()
@@ -325,7 +325,7 @@ fn test_refiner_medium_hub_non_hub_2hop_and_super_hub_fallback() {
     let mut r_super = SpatialIntruderRefiner::<f64>::new(
         &g_super,
         SpatialRefinerConfig {
-            rounds: 2,
+            iterations: 2,
             k_cap: 16,
             seed: 23,
             ..Default::default()

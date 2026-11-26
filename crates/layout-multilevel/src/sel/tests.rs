@@ -193,6 +193,35 @@ fn test_sel_edge_cases_n0_n1_edgeless_disconnected_directed_depth1() {
     assert_eq!(sdir.run(&mut ldir).unwrap(), SolverStatus::Completed);
     assert!(ldir.is_all_finite());
 
+    // Nested backend config overrides
+    let fr_override = SelConfig {
+        layout_backend: SelLayoutBackend::Fr,
+        fr_config: Some(FruchtermanReingoldConfig {
+            iterations: 12,
+            seed: 9,
+            ..Default::default()
+        }),
+        ..SelConfig::default()
+    };
+    let mut sfr = SelLayoutSolver::<f64>::new(&gdir, fr_override).unwrap();
+    assert_eq!(sfr.total_iterations(), 12);
+    let mut lfr = Layout2d::<f64>::zeros(4);
+    assert_eq!(sfr.run(&mut lfr).unwrap(), SolverStatus::Completed);
+
+    let tfdp_override = SelConfig {
+        layout_backend: SelLayoutBackend::TFdp,
+        t_fdp_config: Some(TFdpConfig {
+            iterations: 8,
+            seed: 9,
+            ..Default::default()
+        }),
+        ..SelConfig::default()
+    };
+    let mut stf = SelLayoutSolver::<f64>::new(&gdir, tfdp_override).unwrap();
+    assert_eq!(stf.total_iterations(), 8);
+    let mut ltf = Layout2d::<f64>::zeros(4);
+    assert_eq!(stf.run(&mut ltf).unwrap(), SolverStatus::Completed);
+
     // Non-finite and dimension mismatch guards
     let mut bad = Layout2d::<f64>::from_xy(vec![f64::NAN; 4], vec![0.0; 4]).unwrap();
     let mut sdir2 = SelLayoutSolver::<f64>::new(&gdir, cfg).unwrap();

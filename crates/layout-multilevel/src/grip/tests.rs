@@ -207,7 +207,15 @@ fn test_grip_edge_cases_n0_n1_n2_edgeless_disconnected_directed() {
     assert_eq!(sdir.run(&mut ldir).unwrap(), SolverStatus::Completed);
     assert!(ldir.is_all_finite());
 
-    // Non-finite input and dimension mismatch guards
+    // Non-finite input and dimension mismatch guards (including empty and singleton graphs)
+    let mut s0_bad = GripSolver::<f64>::new(&g0, cfg).unwrap();
+    let mut l0_wrong = Layout2d::<f64>::zeros(1);
+    assert!(s0_bad.step(&mut l0_wrong).is_err());
+
+    let mut l1_nan = Layout2d::from_xy(vec![f64::NAN], vec![0.0]).unwrap();
+    let mut s1_bad = GripSolver::<f64>::new(&g1, cfg).unwrap();
+    assert!(s1_bad.step(&mut l1_nan).is_err());
+
     let mut l_bad = Layout2d::<f64>::from_xy(vec![f64::NAN; 4], vec![0.0; 4]).unwrap();
     let mut sdir2 = GripSolver::<f64>::new(&gdir, cfg).unwrap();
     assert!(sdir2.step(&mut l_bad).is_err());

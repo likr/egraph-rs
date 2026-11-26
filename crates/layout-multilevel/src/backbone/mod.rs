@@ -49,6 +49,9 @@ pub struct BackboneConfig {
     /// Layout edge weight scale assigned to non-backbone edges, finite `>= 0.0` (`default: 0.0`,
     /// omitting non-backbone edges as in Nocaj et al. 2015 §3.2).
     pub non_backbone_weight_scale: f64,
+    /// When `true` and the input graph carries edge weights, incorporate input edge weights into
+    /// Simmelian ranking, UMST priority, and output backbone weights (`default: true`).
+    pub use_weights: bool,
     /// Layout optimization backend (`default: BackboneLayoutMode::StressMajorization`).
     pub layout_mode: BackboneLayoutMode,
     /// Maximum layout optimization iterations (`default: 100`).
@@ -63,6 +66,7 @@ impl Default for BackboneConfig {
             retain_ratio: 0.2,
             umst_weight_scale: 1.0,
             non_backbone_weight_scale: 0.0,
+            use_weights: true,
             layout_mode: BackboneLayoutMode::StressMajorization,
             iterations: 100,
             seed: 42,
@@ -211,10 +215,7 @@ impl<S: Scalar> BackboneSolver<S> {
                 BackboneInnerSolver::StressMajorization(Box::new(solver))
             }
             BackboneLayoutMode::Sgd => {
-                let sched = SgdScheduleConfig {
-                    t_max: config.iterations,
-                    ..Default::default()
-                };
+                let sched = SgdScheduleConfig::new(config.iterations);
                 let solver = if !backbone.backbone_csr.is_weighted() {
                     SgdSolver::full(&backbone.backbone_csr, sched, config.seed)?
                 } else {

@@ -63,10 +63,14 @@ pub struct SelConfig {
     pub mapping: SelWeightMapping,
     /// Force-directed layout backend (`default: SelLayoutBackend::Fr`).
     pub layout_backend: SelLayoutBackend,
-    /// Number of iterations forwarded to the backend solver (`default: 200`).
+    /// Number of iterations forwarded to the backend solver when the nested backend config is `None` (`default: 200`).
     pub iterations: usize,
-    /// Explicit deterministic RNG seed forwarded to the backend solver (`default: 42`).
+    /// Explicit deterministic RNG seed forwarded to the backend solver when the nested backend config is `None` (`default: 42`).
     pub seed: u64,
+    /// Optional nested configuration for [`SelLayoutBackend::Fr`] (`default: None`).
+    pub fr_config: Option<FruchtermanReingoldConfig>,
+    /// Optional nested configuration for [`SelLayoutBackend::TFdp`] (`default: None`).
+    pub t_fdp_config: Option<TFdpConfig>,
 }
 
 impl Default for SelConfig {
@@ -78,6 +82,8 @@ impl Default for SelConfig {
             layout_backend: SelLayoutBackend::Fr,
             iterations: 200,
             seed: 42,
+            fr_config: None,
+            t_fdp_config: None,
         }
     }
 }
@@ -90,6 +96,12 @@ impl SelConfig {
         }
         if self.pq_max_pops == 0 {
             return Err(CoreError::invalid_input("pq_max_pops must be >= 1"));
+        }
+        if let Some(fr) = self.fr_config {
+            fr.validate()?;
+        }
+        if let Some(t_fdp) = self.t_fdp_config {
+            t_fdp.validate()?;
         }
         Ok(())
     }
@@ -139,21 +151,23 @@ impl<S: Scalar> SelLayoutSolver<S> {
 
         let backend = match config.layout_backend {
             SelLayoutBackend::Fr => {
-                let fr_cfg = FruchtermanReingoldConfig {
-                    iterations: config.iterations,
-                    seed: config.seed,
-                    ..FruchtermanReingoldConfig::default()
-                };
+                let fr_cfg = config
+                    .fr_config
+                    .unwrap_or_else(|| FruchtermanReingoldConfig {
+                        iterations: config.iterations,
+                        seed: config.seed,
+                        ..FruchtermanReingoldConfig::default()
+                    });
                 SelBackendSolver::Fr(Box::new(FruchtermanReingoldSolver::new(
                     &mod_graph, fr_cfg,
                 )?))
             }
             SelLayoutBackend::TFdp => {
-                let tfdp_cfg = TFdpConfig {
-                    total_iterations: config.iterations,
+                let tfdp_cfg = config.t_fdp_config.unwrap_or_else(|| TFdpConfig {
+                    iterations: config.iterations,
                     seed: config.seed,
                     ..TFdpConfig::default()
-                };
+                });
                 SelBackendSolver::TFdp(Box::new(FieldLayoutSolver::t_fdp(&mod_graph, tfdp_cfg)?))
             }
         };

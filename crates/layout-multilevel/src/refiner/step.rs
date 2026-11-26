@@ -39,7 +39,8 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
             self.scale_initialized = true;
         }
 
-        if n <= 2 || self.u1.is_empty() || self.config.t_max == 0 || self.k_eff_round == 0 {
+        if n <= 2 || self.u1.is_empty() || self.config.sgd_iterations == 0 || self.k_eff_round == 0
+        {
             self.status = SolverStatus::Converged;
             return Ok(self.status);
         }
@@ -355,12 +356,10 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
         condition_weights_packed(&mut packed, MAX_WEIGHT_RATIO);
 
         let scale_r = self.config.round_decay.powi(r as i32);
-        let sched = SgdScheduleConfig {
-            t_max: self.config.t_max,
-            eps: self.config.eps,
-            kind: SgdScheduleKind::Exponential,
-            step_scale: scale_r,
-        };
+        let sched = SgdScheduleConfig::new(self.config.sgd_iterations)
+            .with_eps(self.config.eps)
+            .with_kind(SgdScheduleKind::Exponential)
+            .with_step_scale(scale_r);
 
         let mut sgd = SgdSolver::<S>::from_packed_symmetric(
             n, packed, n_springs, n_hinges, sched, round_seed,
@@ -399,7 +398,7 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
                 0
             };
         }
-        self.status = if self.round >= self.config.rounds {
+        self.status = if self.round >= self.config.iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
@@ -419,6 +418,6 @@ impl<S: Scalar> IterativeSolver<S> for SpatialIntruderRefiner<S> {
 
     #[inline]
     fn total_iterations(&self) -> usize {
-        self.config.rounds
+        self.config.iterations
     }
 }

@@ -5,6 +5,7 @@ pub(super) const WEIGHT_TIE_EPS: f64 = 1e-12;
 pub(super) struct SimpleUndirectedGraph {
     pub(super) num_nodes: usize,
     pub(super) edges: Vec<(u32, u32)>,
+    pub(super) input_weights: Option<Vec<f64>>,
     pub(super) adj_indptr: Vec<u32>,
     pub(super) adj_indices: Vec<u32>,
     pub(super) adj_edge_id: Vec<u32>,
@@ -31,35 +32,87 @@ pub(super) fn build_simple_undirected_graph<W: Scalar>(
         }
     }
 
-    let mut edges: Vec<(u32, u32)> = Vec::with_capacity(graph.num_edges());
-    if !graph.is_directed() {
-        for u in 0..n {
-            let u32_u = u as u32;
-            for &v_u32 in graph.neighbors(u) {
-                if u32_u < v_u32 {
-                    edges.push((u32_u, v_u32));
+    let (edges, input_weights) = if let Some(ws) = graph.weights() {
+        let indptr = graph.indptr();
+        let mut weighted_edges: Vec<(u32, u32, f64)> = Vec::with_capacity(graph.num_edges());
+        if !graph.is_directed() {
+            for (u, &start_u32) in indptr.iter().enumerate().take(n) {
+                let u32_u = u as u32;
+                let row_start = start_u32 as usize;
+                for (offset, &v_u32) in graph.neighbors(u).iter().enumerate() {
+                    if u32_u < v_u32 {
+                        weighted_edges.push((u32_u, v_u32, ws[row_start + offset].to_f64()));
+                    }
+                }
+            }
+        } else {
+            for (u, &start_u32) in indptr.iter().enumerate().take(n) {
+                let u32_u = u as u32;
+                let row_start = start_u32 as usize;
+                for (offset, &v_u32) in graph.neighbors(u).iter().enumerate() {
+                    if u32_u != v_u32 {
+                        let (a, b) = if u32_u < v_u32 {
+                            (u32_u, v_u32)
+                        } else {
+                            (v_u32, u32_u)
+                        };
+                        weighted_edges.push((a, b, ws[row_start + offset].to_f64()));
+                    }
                 }
             }
         }
-        edges.sort_unstable();
-        edges.dedup();
+        weighted_edges.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let mut dedup_edges = Vec::with_capacity(weighted_edges.len());
+        let mut dedup_weights = Vec::with_capacity(weighted_edges.len());
+        let mut idx = 0usize;
+        while idx < weighted_edges.len() {
+            let (u, v, _) = weighted_edges[idx];
+            let mut sum = 0.0_f64;
+            let mut cnt = 0usize;
+            while idx < weighted_edges.len()
+                && weighted_edges[idx].0 == u
+                && weighted_edges[idx].1 == v
+            {
+                sum += weighted_edges[idx].2;
+                cnt += 1;
+                idx += 1;
+            }
+            dedup_edges.push((u, v));
+            dedup_weights.push(sum / (cnt as f64));
+        }
+        (dedup_edges, Some(dedup_weights))
     } else {
-        for u in 0..n {
-            let u32_u = u as u32;
-            for &v_u32 in graph.neighbors(u) {
-                if u32_u != v_u32 {
-                    let pair = if u32_u < v_u32 {
-                        (u32_u, v_u32)
-                    } else {
-                        (v_u32, u32_u)
-                    };
-                    edges.push(pair);
+        let mut edges: Vec<(u32, u32)> = Vec::with_capacity(graph.num_edges());
+        if !graph.is_directed() {
+            for u in 0..n {
+                let u32_u = u as u32;
+                for &v_u32 in graph.neighbors(u) {
+                    if u32_u < v_u32 {
+                        edges.push((u32_u, v_u32));
+                    }
                 }
             }
+            edges.sort_unstable();
+            edges.dedup();
+        } else {
+            for u in 0..n {
+                let u32_u = u as u32;
+                for &v_u32 in graph.neighbors(u) {
+                    if u32_u != v_u32 {
+                        let pair = if u32_u < v_u32 {
+                            (u32_u, v_u32)
+                        } else {
+                            (v_u32, u32_u)
+                        };
+                        edges.push(pair);
+                    }
+                }
+            }
+            edges.sort_unstable();
+            edges.dedup();
         }
-        edges.sort_unstable();
-        edges.dedup();
-    }
+        (edges, None)
+    };
 
     let m = edges.len();
     let two_m = m
@@ -103,6 +156,7 @@ pub(super) fn build_simple_undirected_graph<W: Scalar>(
     Ok(SimpleUndirectedGraph {
         num_nodes: n,
         edges,
+        input_weights,
         adj_indptr,
         adj_indices,
         adj_edge_id,
@@ -190,9 +244,18 @@ struct RankedNeighbor {
     tie_end: usize,
 }
 
+#[cfg(test)]
 pub(super) fn compute_simmelian_prefix_jaccard(
     g: &SimpleUndirectedGraph,
     q_edge: &[u64],
+) -> Vec<f64> {
+    compute_simmelian_prefix_jaccard_with_weights(g, q_edge, false)
+}
+
+pub(super) fn compute_simmelian_prefix_jaccard_with_weights(
+    g: &SimpleUndirectedGraph,
+    q_edge: &[u64],
+    use_weights: bool,
 ) -> Vec<f64> {
     let n = g.num_nodes;
     let m = g.edges.len();
@@ -208,6 +271,7 @@ pub(super) fn compute_simmelian_prefix_jaccard(
     }
 
     let mut q_norm = vec![0.0_f64; m];
+    let mut has_nonzero_q = false;
     for (e_idx, &(u, v)) in g.edges.iter().enumerate() {
         let q_uv = q_edge[e_idx];
         if q_uv > 0 {
@@ -216,6 +280,21 @@ pub(super) fn compute_simmelian_prefix_jaccard(
             let denom = qu.sqrt() * qv.sqrt();
             if denom > 0.0 && denom.is_finite() {
                 q_norm[e_idx] = (q_uv as f64) / denom;
+                has_nonzero_q = true;
+            }
+        }
+    }
+
+    if use_weights && let Some(ref iw) = g.input_weights {
+        let max_iw = iw.iter().copied().fold(0.0_f64, f64::max);
+        if max_iw > 0.0 {
+            for e_idx in 0..m {
+                let iw_norm = iw[e_idx] / max_iw;
+                if has_nonzero_q {
+                    q_norm[e_idx] *= iw_norm;
+                } else {
+                    q_norm[e_idx] = iw_norm;
+                }
             }
         }
     }

@@ -176,7 +176,7 @@ fn test_gib_treemap_and_fd_modes_and_step_equivalence() {
     let dy_edgeless = (l_batch.y()[edgeless_start] - l_batch.y()[edgeless_start + 1]).abs();
     assert!(dx_edgeless + dy_edgeless > 1e-3);
 
-    // 2. FD-GIB mode with SgdFull.
+    // 2. FD-GIB mode with SgdFull + fit_bounds clamping into small canvas.
     let cfg_fd = GroupInABoxConfig {
         box_mode: GibBoxLayoutMode::ForceDirected,
         intra_mode: GibIntraLayoutMode::SgdFull,
@@ -189,6 +189,25 @@ fn test_gib_treemap_and_fd_modes_and_step_equivalence() {
     s_fd.run(&mut l_fd).unwrap();
     verify_boxes_disjoint_and_nodes_inside(s_fd.boxes(), &l_fd, &labels);
     assert!(compute_prop_vis(s_fd.boxes()) >= 0.90);
+
+    let cfg_fit = GroupInABoxConfig {
+        box_mode: GibBoxLayoutMode::ForceDirected,
+        intra_mode: GibIntraLayoutMode::Fr,
+        total_width: 12.0,
+        total_height: 8.0,
+        intra_iterations: 15,
+        fd_iterations: 30,
+        fit_bounds: true,
+        ..Default::default()
+    };
+    let mut l_fit = Layout2d::<f64>::zeros(n);
+    let mut s_fit = GroupInABoxSolver::<f64>::new(&graph, labels.clone(), cfg_fit).unwrap();
+    s_fit.run(&mut l_fit).unwrap();
+    for b in s_fit.boxes() {
+        assert!(b.x_min >= -1e-9 && b.x_max <= 12.0 + 1e-9);
+        assert!(b.y_min >= -1e-9 && b.y_max <= 8.0 + 1e-9);
+    }
+    verify_boxes_disjoint_and_nodes_inside(s_fit.boxes(), &l_fit, &labels);
 
     // 3. YifanHu intra mode + with_cluster_weights + f32 precision.
     let custom_weights = vec![5.0, 2.0, 2.0, 1.0, 1.0];

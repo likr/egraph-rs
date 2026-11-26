@@ -30,7 +30,7 @@ use placement::{
 
 /// Cooperative Group-in-a-Box (GIB) graph layout solver implementing [`IterativeSolver`].
 ///
-/// Cluster boxes are ordered canonically by ascending first-appearance order in `cluster_labels`.
+/// Cluster boxes are ordered canonically by ascending first-appearance order in `labels`.
 /// Each [`IterativeSolver::step`] advances every active intra-cluster layout sub-solver by one
 /// iteration and affinely maps each cluster's coordinates (uniformly and aspect-preserving) into
 /// its padded [`GibBox`].
@@ -49,45 +49,45 @@ impl<S: Scalar> GroupInABoxSolver<S> {
     /// count (`node_count`).
     pub fn new<W: Scalar>(
         graph: &CsrGraph<W>,
-        cluster_labels: Vec<u32>,
+        labels: Vec<u32>,
         config: GroupInABoxConfig,
     ) -> CoreResult<Self> {
-        let (_, _, counts) = canonical_cluster_groups(&cluster_labels)?;
+        let (_, _, counts) = canonical_cluster_groups(&labels)?;
         let weights: Vec<f64> = counts.into_iter().map(|c| c as f64).collect();
-        Self::build(graph, &cluster_labels, weights, config)
+        Self::build(graph, &labels, weights, config)
     }
 
     /// Constructs a [`GroupInABoxSolver`] with explicit positive finite `cluster_weights`.
     ///
     /// `cluster_weights` must have length equal to the number of distinct cluster labels in
-    /// `cluster_labels` and is indexed by canonical first-appearance cluster order (matching the
+    /// `labels` and is indexed by canonical first-appearance cluster order (matching the
     /// order of [`GroupInABoxSolver::boxes`]).
     pub fn with_cluster_weights<W: Scalar>(
         graph: &CsrGraph<W>,
-        cluster_labels: Vec<u32>,
+        labels: Vec<u32>,
         cluster_weights: Vec<f64>,
         config: GroupInABoxConfig,
     ) -> CoreResult<Self> {
-        Self::build(graph, &cluster_labels, cluster_weights, config)
+        Self::build(graph, &labels, cluster_weights, config)
     }
 
     fn build<W: Scalar>(
         graph: &CsrGraph<W>,
-        cluster_labels: &[u32],
+        labels: &[u32],
         cluster_weights: Vec<f64>,
         config: GroupInABoxConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
         let n = graph.num_nodes();
-        if cluster_labels.len() != n {
+        if labels.len() != n {
             return Err(CoreError::dimension_mismatch(
                 n,
-                cluster_labels.len(),
-                "GroupInABoxSolver::cluster_labels",
+                labels.len(),
+                "GroupInABoxSolver::labels",
             ));
         }
 
-        let (canon_of_node, orig_cluster_ids, counts) = canonical_cluster_groups(cluster_labels)?;
+        let (canon_of_node, orig_cluster_ids, counts) = canonical_cluster_groups(labels)?;
         let k = orig_cluster_ids.len();
 
         if cluster_weights.len() != k {
@@ -185,10 +185,7 @@ impl<S: Scalar> GroupInABoxSolver<S> {
                     }
                     GibIntraLayoutMode::SgdFull => IntraSolver::Sgd(Box::new(SgdSolver::full(
                         &sub_g,
-                        SgdScheduleConfig {
-                            t_max: config.intra_iterations,
-                            ..Default::default()
-                        },
+                        SgdScheduleConfig::new(config.intra_iterations),
                         sub_seed,
                     )?)),
                     GibIntraLayoutMode::YifanHu => {

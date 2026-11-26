@@ -237,19 +237,36 @@ pub(super) fn compute_force_directed_boxes<W: Scalar>(
         min_y = min_y.min(bys[c] - hh[c]);
         max_y = max_y.max(bys[c] + hh[c]);
     }
-    let shift_x = 0.5 * config.total_width - 0.5 * (min_x + max_x);
-    let shift_y = 0.5 * config.total_height - 0.5 * (min_y + max_y);
+    let width = (max_x - min_x).max(0.0);
+    let height = (max_y - min_y).max(0.0);
+    let mid_x = 0.5 * (min_x + max_x);
+    let mid_y = 0.5 * (min_y + max_y);
+    let scale = if config.fit_bounds
+        && width > 0.0
+        && height > 0.0
+        && (width > config.total_width || height > config.total_height)
+    {
+        (config.total_width / width)
+            .min(config.total_height / height)
+            .min(1.0)
+    } else {
+        1.0
+    };
+    let target_cx = 0.5 * config.total_width;
+    let target_cy = 0.5 * config.total_height;
 
     let mut boxes = Vec::with_capacity(k);
     for c in 0..k {
-        let cx_c = bxs[c] + shift_x;
-        let cy_c = bys[c] + shift_y;
+        let cx_c = target_cx + (bxs[c] - mid_x) * scale;
+        let cy_c = target_cy + (bys[c] - mid_y) * scale;
+        let hw_c = hw[c] * scale;
+        let hh_c = hh[c] * scale;
         boxes.push(GibBox {
             cluster_id: orig_cluster_ids[c],
-            x_min: cx_c - hw[c],
-            x_max: cx_c + hw[c],
-            y_min: cy_c - hh[c],
-            y_max: cy_c + hh[c],
+            x_min: cx_c - hw_c,
+            x_max: cx_c + hw_c,
+            y_min: cy_c - hh_c,
+            y_max: cy_c + hh_c,
             node_count: counts[c],
             weight: cluster_weights[c],
         });

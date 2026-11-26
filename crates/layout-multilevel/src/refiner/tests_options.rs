@@ -18,7 +18,7 @@ fn test_refiner_w_anchor2_and_hub_fallback() {
     }
     let clean_layout = Layout2d::from_xy(clean_x.clone(), clean_y.clone()).unwrap();
     let cfg_a2 = SpatialRefinerConfig {
-        rounds: 2,
+        iterations: 2,
         w_anchor2: 0.25,
         seed: 42,
         ..Default::default()
@@ -101,7 +101,7 @@ fn test_refiner_w_anchor2_and_hub_fallback() {
     hys[402] = hys[1];
 
     let cfg_hub_a2 = SpatialRefinerConfig {
-        rounds: 1,
+        iterations: 1,
         k_cap: 16,
         w_fn: 0.0,
         w_anchor2: 0.25,
@@ -134,7 +134,7 @@ fn test_refiner_dynamic_k_cap_decay_and_set_k_cap() {
     let init = Layout2d::from_xy(xs, ys).unwrap();
 
     let cfg = SpatialRefinerConfig {
-        rounds: 4,
+        iterations: 4,
         k_cap: 12,
         k_cap_decay: 0.5,
         k_cap_min: 4,
@@ -169,7 +169,7 @@ fn test_refiner_dynamic_k_cap_decay_and_set_k_cap() {
     let mut r_dyn = SpatialIntruderRefiner::<f64>::new(
         &grid,
         SpatialRefinerConfig {
-            rounds: 3,
+            iterations: 3,
             k_cap: 6,
             ..Default::default()
         },

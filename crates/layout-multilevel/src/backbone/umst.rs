@@ -1,7 +1,7 @@
 use egraph_core::{CoreResult, CsrGraph, Scalar};
 
 use super::simmelian::{
-    WEIGHT_TIE_EPS, build_simple_undirected_graph, compute_simmelian_prefix_jaccard,
+    WEIGHT_TIE_EPS, build_simple_undirected_graph, compute_simmelian_prefix_jaccard_with_weights,
     count_quadrangles,
 };
 use super::{BackboneConfig, BackboneResult};
@@ -73,13 +73,37 @@ pub fn extract_quadrilateral_backbone<W: Scalar>(
     }
 
     let q_edge = count_quadrangles(&simple);
-    let simmelian_weights = compute_simmelian_prefix_jaccard(&simple, &q_edge);
+    let simmelian_weights =
+        compute_simmelian_prefix_jaccard_with_weights(&simple, &q_edge, config.use_weights);
 
-    // Sort edge indices descending by Simmelian weight (tie-break deterministically by edge ID).
+    let priority_weights: Vec<f64> = if config.use_weights
+        && let Some(ref iw) = simple.input_weights
+    {
+        let max_iw = iw.iter().copied().fold(0.0_f64, f64::max);
+        let has_sim = simmelian_weights.iter().any(|&w| w > WEIGHT_TIE_EPS);
+        if max_iw > 0.0 {
+            (0..m)
+                .map(|e_idx| {
+                    let iw_norm = iw[e_idx] / max_iw;
+                    if has_sim {
+                        simmelian_weights[e_idx] * iw_norm
+                    } else {
+                        iw_norm
+                    }
+                })
+                .collect()
+        } else {
+            simmelian_weights.clone()
+        }
+    } else {
+        simmelian_weights.clone()
+    };
+
+    // Sort edge indices descending by ranking priority (tie-break deterministically by edge ID).
     let mut order: Vec<usize> = (0..m).collect();
     order.sort_unstable_by(|&a, &b| {
-        simmelian_weights[b]
-            .total_cmp(&simmelian_weights[a])
+        priority_weights[b]
+            .total_cmp(&priority_weights[a])
             .then_with(|| a.cmp(&b))
     });
 
@@ -89,9 +113,9 @@ pub fn extract_quadrilateral_backbone<W: Scalar>(
     let mut to_union: Vec<(u32, u32)> = Vec::new();
     let mut b_start = 0usize;
     while b_start < m {
-        let anchor_w = simmelian_weights[order[b_start]];
+        let anchor_w = priority_weights[order[b_start]];
         let mut b_end = b_start + 1;
-        while b_end < m && (anchor_w - simmelian_weights[order[b_end]]).abs() <= WEIGHT_TIE_EPS {
+        while b_end < m && (anchor_w - priority_weights[order[b_end]]).abs() <= WEIGHT_TIE_EPS {
             b_end += 1;
         }
         to_union.clear();
@@ -111,9 +135,9 @@ pub fn extract_quadrilateral_backbone<W: Scalar>(
     let mut in_backbone = in_umst.clone();
     if config.retain_ratio > 0.0 {
         let k = ((config.retain_ratio * (m as f64)).ceil() as usize).clamp(1, m);
-        let w_thr = simmelian_weights[order[k - 1]];
+        let w_thr = priority_weights[order[k - 1]];
         for &e_idx in &order {
-            if simmelian_weights[e_idx] >= w_thr - WEIGHT_TIE_EPS {
+            if priority_weights[e_idx] >= w_thr - WEIGHT_TIE_EPS {
                 in_backbone[e_idx] = true;
             } else {
                 break;
@@ -135,12 +159,19 @@ pub fn extract_quadrilateral_backbone<W: Scalar>(
         if in_backbone[e_idx] {
             backbone_edges.push(pair);
         }
-        let w = if in_umst[e_idx] {
+        let base_scale = if in_umst[e_idx] {
             config.umst_weight_scale
         } else if in_backbone[e_idx] {
             1.0
         } else {
             config.non_backbone_weight_scale
+        };
+        let w = if config.use_weights
+            && let Some(ref iw) = simple.input_weights
+        {
+            base_scale * iw[e_idx]
+        } else {
+            base_scale
         };
         edge_weights.push(w);
 

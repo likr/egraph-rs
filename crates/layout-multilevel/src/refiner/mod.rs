@@ -92,7 +92,8 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
         let use_exact_2hop = two_hop_work <= threshold;
 
         let k_eff = if n > 1 { config.k_cap.min(n - 1) } else { 0 };
-        let trivial_early = n <= 2 || u1.is_empty() || config.rounds == 0 || config.t_max == 0;
+        let trivial_early =
+            n <= 2 || u1.is_empty() || config.iterations == 0 || config.sgd_iterations == 0;
 
         let (adj2, u2_hub, v2_hub, k_arr, used_hub_fallback) = if trivial_early {
             (None, Vec::new(), Vec::new(), vec![0usize; n], false)
@@ -119,7 +120,7 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             s_indptr.push(s_acc);
         }
 
-        let status = if config.rounds == 0 {
+        let status = if config.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -138,7 +139,7 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
             scale_ratio: 1.0,
             used_hub_fallback,
             hinge_fp: config.hinge_fp,
-            round_stats: Vec::with_capacity(config.rounds),
+            round_stats: Vec::with_capacity(config.iterations),
         };
 
         let k_cap_capacity = config.k_cap;
@@ -212,8 +213,10 @@ impl<S: Scalar> SpatialIntruderRefiner<S> {
         }
         let n = self.num_nodes;
         let new_k_eff = if n > 1 { k_cap.min(n - 1) } else { 0 };
-        let trivial_early =
-            n <= 2 || self.u1.is_empty() || self.config.rounds == 0 || self.config.t_max == 0;
+        let trivial_early = n <= 2
+            || self.u1.is_empty()
+            || self.config.iterations == 0
+            || self.config.sgd_iterations == 0;
         if k_cap > self.k_cap_capacity && !trivial_early {
             self.k_arr = compute_capped_2hop_sizes(&self.adj1, &self.deg, new_k_eff);
             if self.adj2.is_none() && (self.config.w_fn > 0.0 || self.config.w_anchor2 > 0.0) {
