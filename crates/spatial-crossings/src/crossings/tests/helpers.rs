@@ -3,10 +3,15 @@ use egraph_core::{Layout2d, Scalar, wrap_torus_coord};
 use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
 use super::super::TorusLayoutView;
+use super::super::double_double::dd_mul_f64;
 use super::super::geometry::{
     Seg, build_segments, segments_cross, segments_geometrically_intersect,
 };
 use super::super::torus::torus_crossing_edges_from_edges;
+use super::super::torus_clip::{dd_unwrapped_delta, torus_crossing_angle_metrics};
+use super::super::torus_exact::{
+    ShiftedF64, ShiftedPt, ShiftedSeg, segs_intersect_exact_f64, torus_segments_intersect,
+};
 
 pub(super) fn brute_force_pairs<S: Scalar>(
     edges: &[(u32, u32)],
@@ -102,11 +107,11 @@ struct OracleBaseSeg {
     y1_w: f64,
     sx: i32,
     sy: i32,
-    dx_phys: f64,
-    dy_phys: f64,
+    dx_phys: super::super::double_double::Dd,
+    dy_phys: super::super::double_double::Dd,
 }
 
-/// Independent 9-shift O(M^2) torus crossing oracle using unwrapped minimum-image segments.
+/// Independent 9-shift O(M^2) torus crossing oracle using exact shifted minimum-image segments.
 pub(super) fn torus_oracle_with_extents<S: Scalar>(
     edges: &[(u32, u32)],
     layout: &Layout2d<S>,
@@ -133,18 +138,6 @@ pub(super) fn torus_oracle_with_extents<S: Scalar>(
         } else {
             0
         };
-        let (dx, dy) = (
-            match sx {
-                0 => x1_w - x0,
-                1 => (1.0 - x0) + x1_w,
-                _ => (x1_w - 1.0) - x0,
-            },
-            match sy {
-                0 => y1_w - y0,
-                1 => (1.0 - y0) + y1_w,
-                _ => (y1_w - 1.0) - y0,
-            },
-        );
         base_segs.push(OracleBaseSeg {
             u,
             v,
@@ -154,8 +147,8 @@ pub(super) fn torus_oracle_with_extents<S: Scalar>(
             y1_w,
             sx,
             sy,
-            dx_phys: lx * dx,
-            dy_phys: ly * dy,
+            dx_phys: dd_mul_f64(dd_unwrapped_delta(x0, x1_w, sx), lx),
+            dy_phys: dd_mul_f64(dd_unwrapped_delta(y0, y1_w, sy), ly),
         });
     }
 
@@ -176,27 +169,29 @@ pub(super) fn torus_oracle_with_extents<S: Scalar>(
             let mut crossed = false;
             'shift_loop: for &ay in &ay_list[..ay_len] {
                 for &ax in &ax_list[..ax_len] {
-                    let sa = Seg::from_endpoints(
-                        i,
-                        a.u,
-                        a.v,
-                        if ax == 0 { a.x0 } else { a.x0 - ax as f64 },
-                        if ay == 0 { a.y0 } else { a.y0 - ay as f64 },
-                        a.x1_w + (a.sx - ax) as f64,
-                        a.y1_w + (a.sy - ay) as f64,
+                    let sa = ShiftedSeg::from_shifted(
+                        ShiftedPt::new(
+                            ShiftedF64::new(a.x0, -ax as i8),
+                            ShiftedF64::new(a.y0, -ay as i8),
+                        ),
+                        ShiftedPt::new(
+                            ShiftedF64::new(a.x1_w, (a.sx - ax) as i8),
+                            ShiftedF64::new(a.y1_w, (a.sy - ay) as i8),
+                        ),
                     );
                     for &by in &by_list[..by_len] {
                         for &bx in &bx_list[..bx_len] {
-                            let sb = Seg::from_endpoints(
-                                j,
-                                b.u,
-                                b.v,
-                                if bx == 0 { b.x0 } else { b.x0 - bx as f64 },
-                                if by == 0 { b.y0 } else { b.y0 - by as f64 },
-                                b.x1_w + (b.sx - bx) as f64,
-                                b.y1_w + (b.sy - by) as f64,
+                            let sb = ShiftedSeg::from_shifted(
+                                ShiftedPt::new(
+                                    ShiftedF64::new(b.x0, -bx as i8),
+                                    ShiftedF64::new(b.y0, -by as i8),
+                                ),
+                                ShiftedPt::new(
+                                    ShiftedF64::new(b.x1_w, (b.sx - bx) as i8),
+                                    ShiftedF64::new(b.y1_w, (b.sy - by) as i8),
+                                ),
                             );
-                            if segments_cross(&sa, &sb) {
+                            if torus_segments_intersect(&sa, &sb) {
                                 crossed = true;
                                 break 'shift_loop;
                             }
@@ -205,17 +200,8 @@ pub(super) fn torus_oracle_with_extents<S: Scalar>(
                 }
             }
             if crossed {
-                let len1 = a.dx_phys.hypot(a.dy_phys);
-                let len2 = b.dx_phys.hypot(b.dy_phys);
-                let (angle_rad, cos_sq) = if len1 == 0.0 || len2 == 0.0 {
-                    (None, 0.0)
-                } else {
-                    let cos_v = ((a.dx_phys / len1) * (b.dx_phys / len2)
-                        + (a.dy_phys / len1) * (b.dy_phys / len2))
-                        .clamp(-1.0, 1.0);
-                    let ang = cos_v.abs().acos().min(std::f64::consts::FRAC_PI_2);
-                    (Some(if ang == 0.0 { 0.0 } else { ang }), cos_v * cos_v)
-                };
+                let (angle_rad, cos_sq) =
+                    torus_crossing_angle_metrics((a.dx_phys, a.dy_phys), (b.dx_phys, b.dy_phys));
                 out.push(OracleCrossing {
                     edge_a: i,
                     edge_b: j,
@@ -299,6 +285,12 @@ pub(super) fn assert_torus_pair_intersects(label: &str, c: &TorusCrossing) {
             "{label}: TorusCrossing coord has -0.0"
         );
     }
+    assert!(
+        segs_intersect_exact_f64(c.seg_a, c.seg_b),
+        "{label}: clipped TorusCrossing segments must exact-intersect: seg_a={:?}, seg_b={:?}",
+        c.seg_a,
+        c.seg_b
+    );
     assert!(
         segments_geometrically_intersect(
             &Seg::from_endpoints(

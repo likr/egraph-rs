@@ -1,9 +1,8 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
-use super::geometry::{
-    Seg, intersection_x, seg_y_err, segments_geometrically_intersect, within_band,
-};
+use super::cross_pred::CrossPred;
+use super::geometry::{Seg, seg_y_err, within_band};
 use super::pair_set::{InlinePairSet, PairSet, pack_pair};
 
 #[derive(Debug, Clone, Copy)]
@@ -31,8 +30,17 @@ impl Ord for OrderedF64 {
 
 pub(super) trait CrossingCollector {
     fn on_vertical_pair(&mut self, a: usize, b: usize);
-    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, eps_y: f64, dt_probe: f64);
-    fn on_band_pair(
+    fn on_swap_pair<P: CrossPred>(
+        &mut self,
+        s1: &Seg,
+        s2: &Seg,
+        sweep_x: f64,
+        eps_y: f64,
+        dt_probe: f64,
+        pred: &P,
+    );
+    #[allow(clippy::too_many_arguments)]
+    fn on_band_pair<P: CrossPred>(
         &mut self,
         s_lo: &Seg,
         s_hi: &Seg,
@@ -40,6 +48,7 @@ pub(super) trait CrossingCollector {
         eps_y: f64,
         dt_probe: f64,
         opt_xi: Option<f64>,
+        pred: &P,
     );
     fn evict_before(&mut self, x_evt: f64);
     fn flush_at_x(&mut self, sweep_x: f64, next_x: f64, segs: &[Seg], eps_y: f64, dt_probe: f64);
@@ -56,14 +65,22 @@ impl CrossingCollector for PairSetCollector {
     }
 
     #[inline]
-    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, _sweep_x: f64, _eps_y: f64, _dt_probe: f64) {
-        if !s1.shares_endpoint(s2) && segments_geometrically_intersect(s1, s2) {
+    fn on_swap_pair<P: CrossPred>(
+        &mut self,
+        s1: &Seg,
+        s2: &Seg,
+        _sweep_x: f64,
+        _eps_y: f64,
+        _dt_probe: f64,
+        pred: &P,
+    ) {
+        if !s1.shares_endpoint(s2) && pred.intersect(s1, s2) {
             self.reported.insert(pack_pair(s1.id, s2.id));
         }
     }
 
     #[inline]
-    fn on_band_pair(
+    fn on_band_pair<P: CrossPred>(
         &mut self,
         s_lo: &Seg,
         s_hi: &Seg,
@@ -71,6 +88,7 @@ impl CrossingCollector for PairSetCollector {
         _eps_y: f64,
         _dt_probe: f64,
         _opt_xi: Option<f64>,
+        _pred: &P,
     ) {
         self.reported.insert(pack_pair(s_lo.id, s_hi.id));
     }
@@ -211,19 +229,26 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
     }
 
     #[inline]
-    fn on_swap_pair(&mut self, s1: &Seg, s2: &Seg, sweep_x: f64, _eps_y: f64, _dt_probe: f64) {
-        if !s1.shares_endpoint(s2) && segments_geometrically_intersect(s1, s2) {
-            if s1.slope == s2.slope
-                && (s1.x2 - s1.x1) * (s2.y2 - s2.y1) - (s1.y2 - s1.y1) * (s2.x2 - s2.x1) == 0.0
-            {
+    fn on_swap_pair<P: CrossPred>(
+        &mut self,
+        s1: &Seg,
+        s2: &Seg,
+        sweep_x: f64,
+        _eps_y: f64,
+        _dt_probe: f64,
+        pred: &P,
+    ) {
+        if !s1.shares_endpoint(s2) && pred.intersect(s1, s2) {
+            if pred.is_collinear_det_zero(s1, s2) {
                 // Collinear/parallel pairs with det == 0.0 are emitted exclusively at `sweep_x == l`
                 // inside `on_band_pair` without cross-x_evt tracking.
                 return;
             }
             let pair = pack_pair(s1.id, s2.id);
             if !self.is_reported(pair) {
-                let x_base = if s1.slope < s2.slope {
-                    intersection_x(s1, s2).map_or(sweep_x, |xi| sweep_x.max(xi))
+                let x_base = if pred.cmp_slope(s1, s2) == Ordering::Less {
+                    pred.intersection_x(s1, s2)
+                        .map_or(sweep_x, |xi| sweep_x.max(xi))
                 } else {
                     sweep_x
                 };
@@ -233,7 +258,7 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
     }
 
     #[inline]
-    fn on_band_pair(
+    fn on_band_pair<P: CrossPred>(
         &mut self,
         s_lo: &Seg,
         s_hi: &Seg,
@@ -241,6 +266,7 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
         eps_y: f64,
         _dt_probe: f64,
         opt_xi: Option<f64>,
+        pred: &P,
     ) {
         match opt_xi {
             None => {
@@ -249,7 +275,7 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                 if sweep_x == l {
                     let pair = pack_pair(s_lo.id, s_hi.id);
                     if !self.is_reported(pair) {
-                        let x_base = if s_lo.slope == s_hi.slope {
+                        let x_base = if pred.cmp_slope(s_lo, s_hi) == Ordering::Equal {
                             f64::NAN
                         } else {
                             sweep_x
@@ -259,10 +285,14 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                 }
             }
             Some(xi) => {
-                if xi < sweep_x && s_lo.slope <= s_hi.slope {
+                if pred.xi_lt_sweep(s_lo, s_hi, xi, sweep_x)
+                    && pred.cmp_slope(s_lo, s_hi) != Ordering::Greater
+                {
                     return;
                 }
-                if xi == sweep_x || within_band(s_lo, s_hi, sweep_x, eps_y) {
+                if pred.xi_eq_sweep(s_lo, s_hi, xi, sweep_x)
+                    || within_band(s_lo, s_hi, sweep_x, eps_y)
+                {
                     let pair = pack_pair(s_lo.id, s_hi.id);
                     if !self.is_reported(pair) {
                         self.emit_pair_unchecked(pair, s_lo.id, s_hi.id, sweep_x.max(xi));

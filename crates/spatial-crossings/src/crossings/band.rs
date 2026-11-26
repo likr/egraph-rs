@@ -4,9 +4,8 @@ use std::collections::BinaryHeap;
 use super::active_tree::ActiveSegmentTree;
 use super::band_reorder::sort_band_post_x;
 use super::collector::CrossingCollector;
-use super::geometry::{
-    Seg, cmp_post_x, intersection_x, seg_y_err, segments_geometrically_intersect, within_band,
-};
+use super::cross_pred::CrossPred;
+use super::geometry::{Seg, seg_y_err, within_band};
 use super::pair_set::{InlinePairSet, pack_pair};
 use super::sweep::{EventKind, SweepEvent};
 
@@ -80,7 +79,7 @@ fn collect_band_around_seed(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn check_eps_bands_at_x<C: CrossingCollector>(
+pub(super) fn check_eps_bands_at_x<C: CrossingCollector, P: CrossPred>(
     touched_edges: &[usize],
     x_evt: f64,
     eps_y: f64,
@@ -89,6 +88,7 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector>(
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
     collector: &mut C,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
     let cur_stamp = scratch.stamp;
@@ -125,6 +125,7 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
         if let Some(right) = tree.next_edge(last_edge) {
@@ -139,6 +140,7 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
 
@@ -147,13 +149,13 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector>(
             for (pos, &e) in scratch.band_edges.iter().enumerate() {
                 scratch.cluster.push((pos, e));
             }
-            check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
+            check_band_pairs(x_evt, eps_y, segs, events, collector, scratch, pred);
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
+pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector, P: CrossPred>(
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
@@ -161,6 +163,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
     collector: &mut C,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     scratch.stamp = scratch.stamp.wrapping_add(1).max(1);
     let cur_stamp = scratch.stamp;
@@ -190,7 +193,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
         let is_sorted = scratch
             .band_edges
             .windows(2)
-            .all(|w| cmp_post_x(&segs[w[0]], &segs[w[1]], x_evt) != Ordering::Greater);
+            .all(|w| pred.cmp_post_x(&segs[w[0]], &segs[w[1]], x_evt) != Ordering::Greater);
         if is_sorted {
             continue;
         }
@@ -202,8 +205,8 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
             scratch.cluster.push((pos, e));
             scratch.band_nodes.push(tree.node_of_edge[e]);
         }
-        check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
-        sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch);
+        check_band_pairs(x_evt, eps_y, segs, events, collector, scratch, pred);
+        sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch, pred);
 
         if let (Some(&first_e), Some(&last_e)) =
             (scratch.band_edges.first(), scratch.band_edges.last())
@@ -220,6 +223,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
                     &mut scratch.scheduled_at_x,
+                    pred,
                 );
             }
             if let Some(right) = tree.next_edge(last_e) {
@@ -234,6 +238,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
                     &mut scratch.scheduled_at_x,
+                    pred,
                 );
             }
         }
@@ -250,6 +255,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
     }
@@ -257,13 +263,14 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector>(
 
 /// Checks all crossing pairs inside `scratch.cluster` while pruning same-vertex star fans
 /// via 4-slot Misra-Gries heavy-hitter detection so pure or nested stars remain $O(|C|)$.
-pub(super) fn check_band_pairs<C: CrossingCollector>(
+pub(super) fn check_band_pairs<C: CrossingCollector, P: CrossPred>(
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     events: &mut BinaryHeap<Reverse<SweepEvent>>,
     collector: &mut C,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     scratch.cur_buf.clear();
     scratch.cur_buf.extend_from_slice(&scratch.cluster);
@@ -302,6 +309,7 @@ pub(super) fn check_band_pairs<C: CrossingCollector>(
                         scratch.dt_probe,
                         &scratch.processed_int_at_x,
                         &mut scratch.scheduled_at_x,
+                        pred,
                     );
                 }
             }
@@ -329,6 +337,7 @@ pub(super) fn check_band_pairs<C: CrossingCollector>(
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
                     &mut scratch.scheduled_at_x,
+                    pred,
                 );
             }
         }
@@ -375,7 +384,7 @@ fn dominant_shared_vertex(items: &[(usize, usize)], segs: &[Seg]) -> Option<u32>
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn check_adjacent_and_schedule<C: CrossingCollector>(
+pub(super) fn check_adjacent_and_schedule<C: CrossingCollector, P: CrossPred>(
     lower: usize,
     upper: usize,
     sweep_x: f64,
@@ -386,26 +395,27 @@ pub(super) fn check_adjacent_and_schedule<C: CrossingCollector>(
     dt_probe: f64,
     processed_int_at_x: &InlinePairSet,
     scheduled_at_x: &mut InlinePairSet,
+    pred: &P,
 ) {
     let s_lo = &segs[lower];
     let s_hi = &segs[upper];
     let shares_ep = s_lo.shares_endpoint(s_hi);
-    if shares_ep && s_lo.slope <= s_hi.slope {
+    if shares_ep && pred.cmp_slope(s_lo, s_hi) != Ordering::Greater {
         return;
     }
-    if !segments_geometrically_intersect(s_lo, s_hi) {
+    if !pred.intersect(s_lo, s_hi) {
         return;
     }
     let can_schedule = s_lo.x2 > sweep_x
         && s_hi.x2 > sweep_x
-        && s_lo.slope > s_hi.slope
-        && !(s_lo.x2 == s_hi.x2 && s_lo.y2 == s_hi.y2);
+        && pred.cmp_slope(s_lo, s_hi) == Ordering::Greater
+        && !pred.same_right_endpoint(s_lo, s_hi);
     if shares_ep && !can_schedule {
         return;
     }
-    let opt_xi = intersection_x(s_lo, s_hi);
+    let opt_xi = pred.intersection_x(s_lo, s_hi);
     if !shares_ep {
-        collector.on_band_pair(s_lo, s_hi, sweep_x, eps_y, dt_probe, opt_xi);
+        collector.on_band_pair(s_lo, s_hi, sweep_x, eps_y, dt_probe, opt_xi, pred);
     }
     // Schedule interior swaps even when segments share graph vertex IDs (e.g. wrapped torus pieces)
     // so sweep order stays valid past interior crossings, while skipping shared right tips.

@@ -1,17 +1,26 @@
+use std::cmp::Ordering;
+
 use egraph_core::{
     CoreError, CoreResult, CsrGraph, Layout2d, ManifoldKind, ManifoldLayout2d, Scalar,
 };
 
 use super::TorusCrossing;
-use super::geometry::{Seg, extract_csr_edges, segments_geometrically_intersect};
+use super::cross_pred::TorusExactPred;
+use super::double_double::{Dd, dd_mul_f64};
+use super::geometry::{Seg, extract_csr_edges};
 use super::pair_set::{PairSet, pack_pair, unpack_pair};
-use super::sweep::{sweep_segments, sweep_segments_with};
+use super::sweep::{sweep_segments_pred, sweep_segments_with_pred};
 pub use super::torus_clip::torus_edge_segments;
 use super::torus_clip::{
-    best_axis_shift, canon_zero, clamp_unit, clip_seg_to_shifted_box, clip_seg_to_unit_torus,
-    crossing_point, torus_crossing_angle_metrics, torus_edge_segments_with_extents,
-    unwrapped_delta, wrap_torus_pos,
+    ClippedTorusSeg, TORUS_MAX, best_axis_shift, clamp_unit, clip_shifted_seg_to_torus,
+    dd_unwrapped_delta, torus_crossing_angle_metrics, torus_edge_segments_with_extents,
+    wrap_torus_pos,
 };
+use super::torus_exact::{
+    ShiftedF64, ShiftedPt, ShiftedSeg, dd_intersection_xy, exact_intersection_in_torus_max_box,
+    exact_intersection_in_unit_box, exact_xi_cmp, exact_yi_cmp,
+};
+use super::torus_repair::{both_intersect, ensure_intersecting_pair};
 
 /// Read-only view of a 2D torus layout providing normalized coordinates and physical extents `(Lx, Ly)`.
 pub trait TorusLayoutView<S: Scalar> {
@@ -67,8 +76,9 @@ impl<S: Scalar> TorusLayoutView<S> for ManifoldLayout2d<S> {
 
 struct TorusSubsegments {
     sub_segs: Vec<Seg>,
+    shifted_segs: Vec<ShiftedSeg>,
     orig_edge_of_sub: Vec<usize>,
-    orig_disps: Vec<(f64, f64)>,
+    orig_disps: Vec<(Dd, Dd)>,
 }
 
 fn build_torus_subsegments<S: Scalar>(
@@ -82,8 +92,9 @@ fn build_torus_subsegments<S: Scalar>(
     let (n, xs, ys) = (layout.len(), layout.x(), layout.y());
 
     let mut sub_segs: Vec<Seg> = Vec::with_capacity(edges.len());
+    let mut shifted_segs: Vec<ShiftedSeg> = Vec::with_capacity(edges.len());
     let mut orig_edge_of_sub: Vec<usize> = Vec::with_capacity(edges.len());
-    let mut orig_disps: Vec<(f64, f64)> = Vec::with_capacity(edges.len());
+    let mut orig_disps: Vec<(Dd, Dd)> = Vec::with_capacity(edges.len());
 
     for (edge_id, &(u, v)) in edges.iter().enumerate() {
         let (ui, vi) = (u as usize, v as usize);
@@ -95,44 +106,41 @@ fn build_torus_subsegments<S: Scalar>(
         let best_dx = best_axis_shift(x0, x1_w);
         let best_dy = best_axis_shift(y0, y1_w);
         orig_disps.push((
-            lx * unwrapped_delta(x0, x1_w, best_dx),
-            ly * unwrapped_delta(y0, y1_w, best_dy),
+            dd_mul_f64(dd_unwrapped_delta(x0, x1_w, best_dx), lx),
+            dd_mul_f64(dd_unwrapped_delta(y0, y1_w, best_dy), ly),
         ));
 
-        // For non-wrapping edges near `1.0`, also emit the Sterbenz-exact `shift = 1` copy
-        // (`x - 1.0` in `[-0.6, 0)`) so sub-ULP endpoints near `0.0` do not lose precision via `1.0 + tiny`.
         let (cx_shifts, cx_len) = if best_dx != 0 {
             ([0, best_dx], 2usize)
-        } else if x0 >= 0.9 || x1_w >= 0.9 {
-            ([0, 1], 2usize)
         } else {
             ([0, 0], 1usize)
         };
         let (cy_shifts, cy_len) = if best_dy != 0 {
             ([0, best_dy], 2usize)
-        } else if y0 >= 0.9 || y1_w >= 0.9 {
-            ([0, 1], 2usize)
         } else {
             ([0, 0], 1usize)
         };
 
-        // Emit all <= 4 integer lattice copies without pre-clipping to [0, 1]^2 so Sterbenz-exact
-        // copies are preserved even when an intersection near a wrap edge lies slightly outside.
+        // Emit only canonical lattice copies {0, best_dx} x {0, best_dy} whose exact
+        // shifted bounding box overlaps `[0, 1)^2`, preserving exact `(base, shift)` coordinates.
         for &cy in &cy_shifts[..cy_len] {
-            let sy0 = canon_zero(if cy == 0 { y0 } else { y0 - cy as f64 });
-            let sy1 = canon_zero(y1_w + (best_dy - cy) as f64);
+            let sy0 = ShiftedF64::new(y0, -cy as i8);
+            let sy1 = ShiftedF64::new(y1_w, (best_dy - cy) as i8);
             for &cx in &cx_shifts[..cx_len] {
-                let sx0 = canon_zero(if cx == 0 { x0 } else { x0 - cx as f64 });
-                let sx1 = canon_zero(x1_w + (best_dx - cx) as f64);
-                sub_segs.push(Seg::from_endpoints(
-                    sub_segs.len(),
-                    u,
-                    v,
-                    sx0,
-                    sy0,
-                    sx1,
-                    sy1,
-                ));
+                let sx0 = ShiftedF64::new(x0, -cx as i8);
+                let sx1 = ShiftedF64::new(x1_w, (best_dx - cx) as i8);
+                let p0 = ShiftedPt::new(sx0, sy0);
+                let p1 = ShiftedPt::new(sx1, sy1);
+                let meta = ShiftedSeg::from_shifted(p0, p1);
+                if meta.x_max.cmp_exact(ShiftedF64::ZERO) == Ordering::Less
+                    || meta.x_min.cmp_exact(ShiftedF64::ONE) != Ordering::Less
+                    || meta.y_max.cmp_exact(ShiftedF64::ZERO) == Ordering::Less
+                    || meta.y_min.cmp_exact(ShiftedF64::ONE) != Ordering::Less
+                {
+                    continue;
+                }
+                sub_segs.push(Seg::from_shifted(sub_segs.len(), u, v, p0, p1));
+                shifted_segs.push(meta);
                 orig_edge_of_sub.push(edge_id);
             }
         }
@@ -143,6 +151,7 @@ fn build_torus_subsegments<S: Scalar>(
     }
     Ok(TorusSubsegments {
         sub_segs,
+        shifted_segs,
         orig_edge_of_sub,
         orig_disps,
     })
@@ -186,8 +195,9 @@ pub fn torus_crossing_number<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     let coords = layout.torus_layout()?;
     let edges = extract_csr_edges(graph);
     let data = build_torus_subsegments(&edges, coords, lx, ly, "torus_crossing_number")?;
+    let pred = TorusExactPred(&data.shifted_segs);
     let mut seen_edges = PairSet::default();
-    sweep_segments_with(&data.sub_segs, |sub_a, sub_b| {
+    sweep_segments_with_pred(&data.sub_segs, &pred, |sub_a, sub_b| {
         let ea = data.orig_edge_of_sub[sub_a];
         let eb = data.orig_edge_of_sub[sub_b];
         if ea != eb {
@@ -216,8 +226,9 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
     let (lx, ly) = layout.torus_extents()?;
     let coords = layout.torus_layout()?;
     let data = build_torus_subsegments(edges, coords, lx, ly, "torus_crossing_edges_from_edges")?;
+    let pred = TorusExactPred(&data.shifted_segs);
 
-    let pairs = sweep_segments(&data.sub_segs);
+    let pairs = sweep_segments_pred(&data.sub_segs, &pred);
     let mut candidates: Vec<((bool, bool, bool), TorusCrossing)> = Vec::with_capacity(pairs.len());
     for key in pairs {
         let (sub_a, sub_b) = unpack_pair(key);
@@ -233,51 +244,74 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
         } else {
             (eb, ea, sb, sa)
         };
+        let ma = &data.shifted_segs[sa_ord.id];
+        let mb = &data.shifted_segs[sb_ord.id];
         let (angle_rad, cos_sq) =
             torus_crossing_angle_metrics(data.orig_disps[edge_a], data.orig_disps[edge_b]);
-        let (xi, yi) = crossing_point(sa_ord, sb_ord);
-        let in_box = (0.0..1.0).contains(&xi) && (0.0..1.0).contains(&yi);
-        let clipped_a = clip_seg_to_unit_torus(sa_ord.x1, sa_ord.y1, sa_ord.x2, sa_ord.y2);
-        let clipped_b = clip_seg_to_unit_torus(sb_ord.x1, sb_ord.y1, sb_ord.x2, sb_ord.y2);
-        let clipped_intersect = match (clipped_a, clipped_b) {
-            (Some(ca), Some(cb)) => segments_geometrically_intersect(
-                &Seg::from_endpoints(0, 0, 1, ca[0], ca[1], ca[2], ca[3]),
-                &Seg::from_endpoints(1, 2, 3, cb[0], cb[1], cb[2], cb[3]),
-            ),
-            _ => false,
-        };
-        let (seg_a, seg_b, final_intersect) = match (clipped_a, clipped_b) {
-            (Some(ca), Some(cb)) if in_box && clipped_intersect => (ca, cb, true),
-            (Some(ca), Some(cb)) if clipped_intersect => (ca, cb, true),
-            _ => {
-                let (kx, ky) = (canon_zero(-xi.floor()), canon_zero(-yi.floor()));
-                let clip_shifted = |s: &Seg| {
-                    clip_seg_to_shifted_box(s.x1, s.y1, s.x2, s.y2, kx, ky).unwrap_or([
-                        clamp_unit(s.x1 + kx),
-                        clamp_unit(s.y1 + ky),
-                        clamp_unit(s.x2 + kx),
-                        clamp_unit(s.y2 + ky),
-                    ])
-                };
-                let ca = clip_shifted(sa_ord);
-                let cb = clip_shifted(sb_ord);
-                let shifted_intersect = segments_geometrically_intersect(
-                    &Seg::from_endpoints(0, 0, 1, ca[0], ca[1], ca[2], ca[3]),
-                    &Seg::from_endpoints(1, 2, 3, cb[0], cb[1], cb[2], cb[3]),
-                );
-                if shifted_intersect {
-                    (ca, cb, true)
-                } else if let (Some(ua), Some(ub)) = (clipped_a, clipped_b) {
-                    if in_box {
-                        (ua, ub, false)
-                    } else {
-                        (ca, cb, false)
-                    }
-                } else {
-                    (ca, cb, false)
+
+        let in_box = exact_intersection_in_unit_box(ma.p1, ma.p2, mb.p1, mb.p2);
+        let (kx, ky) = if in_box {
+            (0_i8, 0_i8)
+        } else {
+            let kx = match exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, 0.0) {
+                Some(Ordering::Less) => 1,
+                Some(_)
+                    if exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, 1.0) != Some(Ordering::Less) =>
+                {
+                    -1
                 }
-            }
+                _ => 0,
+            };
+            let ky = match exact_yi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, 0.0) {
+                Some(Ordering::Less) => 1,
+                Some(_)
+                    if exact_yi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, 1.0) != Some(Ordering::Less) =>
+                {
+                    -1
+                }
+                _ => 0,
+            };
+            (kx, ky)
         };
+
+        let shift_pt = |p: ShiftedPt| ShiftedPt::new(p.x.shifted_by(kx), p.y.shifted_by(ky));
+        let non_gap = exact_intersection_in_torus_max_box(
+            shift_pt(ma.p1),
+            shift_pt(ma.p2),
+            shift_pt(mb.p1),
+            shift_pt(mb.p2),
+            TORUS_MAX,
+        );
+
+        let clipped_a = clip_shifted_seg_to_torus(ma.p1, ma.p2, kx, ky);
+        let clipped_b = clip_shifted_seg_to_torus(mb.p1, mb.p2, kx, ky);
+        let clamp_shifted = |m: &ShiftedSeg| ClippedTorusSeg {
+            coords: [
+                clamp_unit(m.p1.x.shifted_by(kx).to_f64()),
+                clamp_unit(m.p1.y.shifted_by(ky).to_f64()),
+                clamp_unit(m.p2.x.shifted_by(kx).to_f64()),
+                clamp_unit(m.p2.y.shifted_by(ky).to_f64()),
+            ],
+            free_dd: [None; 4],
+        };
+        let ca = clipped_a.unwrap_or_else(|| clamp_shifted(ma));
+        let cb = clipped_b.unwrap_or_else(|| clamp_shifted(mb));
+
+        let (seg_a, seg_b, final_intersect) = if non_gap {
+            let (xi_s, yi_s) = dd_intersection_xy(
+                shift_pt(ma.p1),
+                shift_pt(ma.p2),
+                shift_pt(mb.p1),
+                shift_pt(mb.p2),
+            )
+            .unwrap_or((Dd::from_f64(ca.coords[0]), Dd::from_f64(ca.coords[1])));
+            let (ra, rb) = ensure_intersecting_pair(&ca, &cb, xi_s, yi_s);
+            (ra, rb, true)
+        } else {
+            let isect = both_intersect(ca.coords, cb.coords);
+            (ca.coords, cb.coords, isect)
+        };
+
         candidates.push((
             (in_box && final_intersect, final_intersect, in_box),
             TorusCrossing {

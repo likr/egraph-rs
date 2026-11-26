@@ -7,16 +7,22 @@ mod active_tree;
 mod band;
 mod band_reorder;
 mod collector;
+mod cross_pred;
+mod double_double;
+mod exact_limbs;
 mod geometry;
 mod hyperbolic;
 mod pair_set;
 mod sampling;
+mod shifted_coords;
 mod spherical;
 mod sweep;
 #[cfg(test)]
 mod tests;
 mod torus;
 mod torus_clip;
+mod torus_exact;
+mod torus_repair;
 
 use band_reorder::finalize_pairs;
 use geometry::{build_segments, crossing_angle_metrics, extract_csr_edges};

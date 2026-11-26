@@ -5,17 +5,19 @@ use super::CrossingPair;
 use super::active_tree::ActiveSegmentTree;
 use super::band::{BandScratch, check_adjacent_and_schedule, check_band_pairs};
 use super::collector::CrossingCollector;
-use super::geometry::{Seg, cmp_post_x, crossing_angle_metrics, seg_y_err};
+use super::cross_pred::CrossPred;
+use super::geometry::{Seg, crossing_angle_metrics, seg_y_err};
 use super::pair_set::{PairSet, pack_pair, unpack_pair};
 use super::sweep::SweepEvent;
 
 #[allow(clippy::too_many_arguments)]
-fn emit_flipped_pairs<C: CrossingCollector>(
+fn emit_flipped_pairs<C: CrossingCollector, P: CrossPred>(
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     collector: &mut C,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     let k = scratch.cluster.len();
     if k <= 1 {
@@ -33,6 +35,7 @@ fn emit_flipped_pairs<C: CrossingCollector>(
                         x_evt,
                         eps_y,
                         scratch.dt_probe,
+                        pred,
                     );
                 }
             }
@@ -68,6 +71,7 @@ fn emit_flipped_pairs<C: CrossingCollector>(
                             x_evt,
                             eps_y,
                             scratch.dt_probe,
+                            pred,
                         );
                     }
                     scratch.rest_buf[out] = scratch.cur_buf[r];
@@ -96,13 +100,14 @@ fn emit_flipped_pairs<C: CrossingCollector>(
 /// cyclic adjacent inversion spans by `(slope, id)`, notifies `collector.on_swap_pair` for every
 /// flipped pair, and writes the reordered edge indices back to `tree` and `scratch.band_edges`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn sort_band_post_x<C: CrossingCollector>(
+pub(super) fn sort_band_post_x<C: CrossingCollector, P: CrossPred>(
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     tree: &mut ActiveSegmentTree,
     collector: &mut C,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     let k = scratch.cluster.len();
     if k <= 32 {
@@ -112,7 +117,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
             let key = scratch.cluster[i];
             let mut j = i;
             while j > 0
-                && cmp_post_x(&segs[key.1], &segs[scratch.cluster[j - 1].1], x_evt)
+                && pred.cmp_post_x(&segs[key.1], &segs[scratch.cluster[j - 1].1], x_evt)
                     == Ordering::Less
             {
                 scratch.cluster[j] = scratch.cluster[j - 1];
@@ -135,7 +140,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
                 let mut r = mid;
                 let mut out = lo;
                 while l < mid && r < hi {
-                    if cmp_post_x(
+                    if pred.cmp_post_x(
                         &segs[scratch.cur_buf[l].1],
                         &segs[scratch.cur_buf[r].1],
                         x_evt,
@@ -172,7 +177,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
         let mut had_inversion = false;
         let mut i = 0usize;
         while i + 1 < k {
-            if cmp_post_x(
+            if pred.cmp_post_x(
                 &segs[scratch.cluster[i].1],
                 &segs[scratch.cluster[i + 1].1],
                 x_evt,
@@ -182,7 +187,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
                 let lo = i;
                 let mut hi = i + 1;
                 while hi + 1 < k
-                    && cmp_post_x(
+                    && pred.cmp_post_x(
                         &segs[scratch.cluster[hi].1],
                         &segs[scratch.cluster[hi + 1].1],
                         x_evt,
@@ -192,9 +197,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
                 }
                 if hi > lo + 1 {
                     scratch.cluster[lo..=hi].sort_unstable_by(|a, b| {
-                        segs[a.1]
-                            .slope
-                            .total_cmp(&segs[b.1].slope)
+                        pred.cmp_slope(&segs[a.1], &segs[b.1])
                             .then_with(|| a.1.cmp(&b.1))
                     });
                 } else {
@@ -211,16 +214,14 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
         pass += 1;
         if pass >= k {
             scratch.cluster.sort_unstable_by(|a, b| {
-                segs[a.1]
-                    .slope
-                    .total_cmp(&segs[b.1].slope)
+                pred.cmp_slope(&segs[a.1], &segs[b.1])
                     .then_with(|| a.1.cmp(&b.1))
             });
             break;
         }
     }
 
-    emit_flipped_pairs(x_evt, eps_y, segs, collector, scratch);
+    emit_flipped_pairs(x_evt, eps_y, segs, collector, scratch, pred);
 
     scratch.band_edges.clear();
     for (&node_id, &(_, edge_id)) in scratch.band_nodes.iter().zip(scratch.cluster.iter()) {
@@ -231,7 +232,7 @@ pub(super) fn sort_band_post_x<C: CrossingCollector>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn handle_intersection<C: CrossingCollector>(
+pub(super) fn handle_intersection<C: CrossingCollector, P: CrossPred>(
     e1: usize,
     e2: usize,
     x_evt: f64,
@@ -242,6 +243,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
     collector: &mut C,
     touched_edges: &mut Vec<usize>,
     scratch: &mut BandScratch,
+    pred: &P,
 ) {
     if !tree.is_active(e1) || !tree.is_active(e2) {
         return;
@@ -258,7 +260,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
 
     if r1 + 1 == r2 {
         tree.swap_adjacent_edges(e1, e2);
-        collector.on_swap_pair(&segs[e1], &segs[e2], x_evt, eps_y, scratch.dt_probe);
+        collector.on_swap_pair(&segs[e1], &segs[e2], x_evt, eps_y, scratch.dt_probe, pred);
         scratch.processed_int_at_x.insert(pack_pair(e1, e2));
         // After swap, `e2` precedes `e1`.
         let left = tree.prev_edge(e2);
@@ -303,6 +305,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
         if let Some(right) = right {
@@ -317,6 +320,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
         return;
@@ -352,8 +356,8 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
     for (pos, &edge) in scratch.band_edges.iter().enumerate() {
         scratch.cluster.push((pos, edge));
     }
-    check_band_pairs(x_evt, eps_y, segs, events, collector, scratch);
-    sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch);
+    check_band_pairs(x_evt, eps_y, segs, events, collector, scratch, pred);
+    sort_band_post_x(x_evt, eps_y, segs, tree, collector, scratch, pred);
 
     if let (Some(&first_e), Some(&last_e)) = (scratch.band_edges.first(), scratch.band_edges.last())
     {
@@ -369,6 +373,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
         if let Some(right) = tree.next_edge(last_e) {
@@ -383,6 +388,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
                 scratch.dt_probe,
                 &scratch.processed_int_at_x,
                 &mut scratch.scheduled_at_x,
+                pred,
             );
         }
     }
@@ -399,6 +405,7 @@ pub(super) fn handle_intersection<C: CrossingCollector>(
             scratch.dt_probe,
             &scratch.processed_int_at_x,
             &mut scratch.scheduled_at_x,
+            pred,
         );
     }
 }

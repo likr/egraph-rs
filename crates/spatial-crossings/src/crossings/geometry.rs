@@ -3,6 +3,9 @@ use std::f64::consts::FRAC_PI_2;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 
+use super::double_double::dd_div;
+use super::torus_exact::ShiftedPt;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Seg {
     pub(super) id: usize,
@@ -12,6 +15,10 @@ pub(super) struct Seg {
     pub(super) y1: f64,
     pub(super) x2: f64,
     pub(super) y2: f64,
+    pub(super) sx1: i8,
+    pub(super) sy1: i8,
+    pub(super) sx2: i8,
+    pub(super) sy2: i8,
     pub(super) x_min: f64,
     pub(super) x_max: f64,
     pub(super) y_min: f64,
@@ -49,6 +56,48 @@ impl Seg {
             y1,
             x2,
             y2,
+            sx1: 0,
+            sy1: 0,
+            sx2: 0,
+            sy2: 0,
+            x_min: x1.min(x2),
+            x_max: x1.max(x2),
+            y_min: y1.min(y2),
+            y_max: y1.max(y2),
+            slope,
+            is_vertical,
+        }
+    }
+
+    pub(super) fn from_shifted(id: usize, u: u32, v: u32, a: ShiftedPt, b: ShiftedPt) -> Self {
+        let (p1, p2) = if a.cmp_exact(b) != Ordering::Greater {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let is_vertical = p1.x.cmp_exact(p2.x) == Ordering::Equal;
+        let x1 = p1.x.to_f64();
+        let y1 = p1.y.to_f64();
+        let x2 = p2.x.to_f64();
+        let y2 = p2.y.to_f64();
+        let slope = if is_vertical {
+            0.0
+        } else {
+            let s = dd_div(p1.y.delta_dd(p2.y), p1.x.delta_dd(p2.x)).to_f64();
+            if s.is_finite() { s } else { s.signum() * 1e290 }
+        };
+        Self {
+            id,
+            u,
+            v,
+            x1,
+            y1,
+            x2,
+            y2,
+            sx1: p1.x.shift,
+            sy1: p1.y.shift,
+            sx2: p2.x.shift,
+            sy2: p2.y.shift,
             x_min: x1.min(x2),
             x_max: x1.max(x2),
             y_min: y1.min(y2),

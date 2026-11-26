@@ -7,7 +7,8 @@ use super::band::{
 };
 use super::band_reorder::handle_intersection;
 use super::collector::{CrossingCollector, PairSetCollector, StreamingCollector};
-use super::geometry::{Seg, seg_y_err, segments_cross};
+use super::cross_pred::{CrossPred, EuclideanPred};
+use super::geometry::{Seg, seg_y_err};
 use super::pair_set::PairSet;
 
 #[derive(Debug, Clone, Copy)]
@@ -68,10 +69,14 @@ impl Ord for SweepEvent {
 }
 
 pub(super) fn sweep_segments(segs: &[Seg]) -> PairSet {
+    sweep_segments_pred(segs, &EuclideanPred)
+}
+
+pub(super) fn sweep_segments_pred<P: CrossPred>(segs: &[Seg], pred: &P) -> PairSet {
     let mut collector = PairSetCollector {
         reported: PairSet::default(),
     };
-    sweep_segments_core(segs, &mut collector);
+    sweep_segments_core(segs, &mut collector, pred);
     collector.reported
 }
 
@@ -79,16 +84,29 @@ pub(super) fn sweep_segments_with<F: FnMut(usize, usize)>(segs: &[Seg], on_cross
     let _ = sweep_segments_with_stats(segs, on_crossing);
 }
 
+pub(super) fn sweep_segments_with_pred<P: CrossPred, F: FnMut(usize, usize)>(
+    segs: &[Seg],
+    pred: &P,
+    on_crossing: F,
+) {
+    let mut collector = StreamingCollector::new(on_crossing);
+    sweep_segments_core(segs, &mut collector, pred);
+}
+
 pub(super) fn sweep_segments_with_stats<F: FnMut(usize, usize)>(
     segs: &[Seg],
     on_crossing: F,
 ) -> usize {
     let mut collector = StreamingCollector::new(on_crossing);
-    sweep_segments_core(segs, &mut collector);
+    sweep_segments_core(segs, &mut collector, &EuclideanPred);
     collector.peak_active_band
 }
 
-fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
+fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
+    segs: &[Seg],
+    collector: &mut C,
+    pred: &P,
+) {
     if segs.len() < 2 {
         return;
     }
@@ -147,7 +165,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                     let s_cur = &segs[v_id];
                     active_y.retain(|&prev_id| segs[prev_id].y_max >= s_cur.y_min);
                     for &prev_id in &active_y {
-                        if segments_cross(s_cur, &segs[prev_id]) {
+                        if pred.cross(s_cur, &segs[prev_id]) {
                             collector.on_vertical_pair(v_id, prev_id);
                         }
                     }
@@ -225,6 +243,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                         collector,
                         &mut touched_edges,
                         &mut scratch,
+                        pred,
                     );
                 }
                 EventKind::Start { edge } => started_batch.push(edge),
@@ -236,7 +255,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
         // Insert all segments starting at x_evt before checking clusters so co-located stars,
         // ending tips, and passing segments at (x_evt, y) are evaluated simultaneously.
         for &edge in &started_batch {
-            tree.insert(edge, x_evt, segs);
+            tree.insert(edge, x_evt, segs, pred);
         }
         touched_edges.extend_from_slice(&started_batch);
         touched_edges.extend_from_slice(&end_batch);
@@ -251,6 +270,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                 &mut events,
                 collector,
                 &mut scratch,
+                pred,
             );
         }
 
@@ -272,7 +292,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                     if s_cur.y_at(x_evt) > hi {
                         break;
                     }
-                    if segments_cross(v_seg, s_cur) {
+                    if pred.cross(v_seg, s_cur) {
                         collector.on_vertical_pair(v_idx, cur_edge);
                     }
                     let Some(nx) = tree.next_edge(cur_edge) else {
@@ -305,6 +325,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                     scratch.dt_probe,
                     &scratch.processed_int_at_x,
                     &mut scratch.scheduled_at_x,
+                    pred,
                 );
                 scratch.surviving_touched.push(p);
                 scratch.surviving_touched.push(n);
@@ -319,6 +340,7 @@ fn sweep_segments_core<C: CrossingCollector>(segs: &[Seg], collector: &mut C) {
                 &mut events,
                 collector,
                 &mut scratch,
+                pred,
             );
         }
 

@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use super::geometry::{Seg, cmp_post_x};
+use super::cross_pred::CrossPred;
+use super::geometry::Seg;
 
 const NONE_U32: u32 = u32::MAX;
 
@@ -161,7 +162,13 @@ impl ActiveSegmentTree {
         }
     }
 
-    pub(super) fn insert(&mut self, edge_idx: usize, sweep_x: f64, segs: &[Seg]) {
+    pub(super) fn insert<P: CrossPred>(
+        &mut self,
+        edge_idx: usize,
+        sweep_x: f64,
+        segs: &[Seg],
+        pred: &P,
+    ) {
         if self.node_of_edge[edge_idx] != NONE_U32 {
             return;
         }
@@ -177,7 +184,7 @@ impl ActiveSegmentTree {
         loop {
             let cur_edge = self.nodes[cur as usize].edge_idx;
             let s_cur = &segs[cur_edge];
-            let ord = cmp_post_x(s_new, s_cur, sweep_x);
+            let ord = pred.cmp_post_x(s_new, s_cur, sweep_x);
             if ord == Ordering::Less {
                 let left = self.nodes[cur as usize].left;
                 if left == NONE_U32 {
