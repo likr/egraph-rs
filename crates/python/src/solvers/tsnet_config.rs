@@ -122,15 +122,14 @@ pub(super) fn build_tsnet_config(
         } else {
             SymmetrizationMode::StandardTsne
         },
-        iterations_stage1,
-        iterations_stage2,
-        iterations_stage3,
+        stage_iterations: [iterations_stage1, iterations_stage2, iterations_stage3],
         exaggeration,
         lambda_c_stage1,
         lambda_c_stage2,
         lambda_c_stage3,
         lambda_r_stage3,
         learning_rate,
+        learning_rate_divisor: TsNetConfig::pure_2hop().learning_rate_divisor,
         jacobi_precondition,
         momentum,
         epsilon_r,

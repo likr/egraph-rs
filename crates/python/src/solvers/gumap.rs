@@ -32,7 +32,7 @@ fn build_gumap_config(
     seed: u64,
 ) -> PyResult<GuMapConfig> {
     let cfg = GuMapConfig {
-        n_epochs,
+        iterations: n_epochs,
         negative_sample_rate,
         learning_rate,
         min_dist,

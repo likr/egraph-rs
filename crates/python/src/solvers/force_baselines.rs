@@ -102,7 +102,7 @@ impl PyGemSolver {
             t_init: t_init.0,
             t_max: t_max.0,
             t_min: t_min.0,
-            max_rounds: max_rounds.map(|v| v.0),
+            max_iterations: max_rounds.map(|v| v.0),
             oscillation_angle: oscillation_angle.0,
             rotation_angle: rotation_angle.0,
             oscillation_sensitivity: oscillation_sensitivity.0,
@@ -247,6 +247,7 @@ impl PySelLayoutSolver {
             layout_backend: parsed_backend,
             iterations: iterations.0,
             seed: seed.0,
+            ..SelConfig::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();

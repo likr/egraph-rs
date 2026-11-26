@@ -189,7 +189,7 @@ fn parse_kamada_kawai_config(
         reject_extra_args_with_options(has_extra)?;
         cfg.eps = opt_f64_prop(eps_or_options, "eps", cfg.eps)?;
         cfg.max_inner_iters = opt_usize_prop(eps_or_options, "maxInnerIters", cfg.max_inner_iters)?;
-        cfg.max_outer_iters = opt_maybe_usize_prop(eps_or_options, "maxOuterIters")?;
+        cfg.max_iterations = opt_maybe_usize_prop(eps_or_options, "maxOuterIters")?;
         return Ok(cfg);
     }
 
@@ -200,7 +200,7 @@ fn parse_kamada_kawai_config(
     }
     cfg.max_inner_iters =
         parse_optional_usize(max_inner_iters, cfg.max_inner_iters, "maxInnerIters")?;
-    cfg.max_outer_iters = parse_opt_usize_param(max_outer_iters, "maxOuterIters")?;
+    cfg.max_iterations = parse_opt_usize_param(max_outer_iters, "maxOuterIters")?;
     Ok(cfg)
 }
 

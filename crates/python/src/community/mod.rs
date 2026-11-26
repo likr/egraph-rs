@@ -61,7 +61,7 @@ fn kmeans_plus_plus(
     let (flat, n, dims) = extract_f64_2d(points, "points")?;
     let cfg = KMeansConfig {
         k: k.0,
-        max_iters: max_iters.0,
+        max_iterations: max_iters.0,
         tol: tol.0,
         n_init: n_init.0,
         seed: seed.0,
@@ -103,17 +103,17 @@ fn spectral_clustering<'py>(
 ) -> PyResult<Bound<'py, PyArray1<u32>>> {
     let cfg = SpectralClusteringConfig {
         k: k.0,
-        max_eigen_iters: max_eigen_iters.0,
+        max_eigen_iterations: max_eigen_iters.0,
         eigen_tol: eigen_tol.0,
-        kmeans_max_iters: kmeans_max_iters.0,
+        kmeans_max_iterations: kmeans_max_iters.0,
         kmeans_tol: kmeans_tol.0,
         seed: seed.0,
     };
     let g = graph.inner();
-    let labels = py
+    let res = py
         .detach(|| clu_spectral_clustering(g, &cfg))
         .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, labels))
+    Ok(PyArray1::from_vec(py, res.labels))
 }
 
 /// Detect communities on an undirected `CsrGraph` via multi-level Louvain modularity optimization.
@@ -218,14 +218,14 @@ fn label_propagation<'py>(
     seed: StrictU64,
 ) -> PyResult<Bound<'py, PyArray1<u32>>> {
     let cfg = LabelPropagationConfig {
-        max_iters: max_iters.0,
+        max_iterations: max_iters.0,
         seed: seed.0,
     };
     let g = graph.inner();
-    let labels = py
+    let res = py
         .detach(|| clu_label_propagation(g, &cfg))
         .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, labels))
+    Ok(PyArray1::from_vec(py, res.labels))
 }
 
 type CoarsenReturn<'py> = (

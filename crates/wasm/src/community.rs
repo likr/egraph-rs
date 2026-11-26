@@ -172,7 +172,7 @@ pub fn js_kmeans_plus_plus(
     let seed_u64 = parse_seed_u64(seed)?;
     let cfg = KMeansConfig {
         k: k_val,
-        max_iters: max_iters_val,
+        max_iterations: max_iters_val,
         tol: tol.unwrap_or(DEFAULT_KMEANS_TOL),
         n_init: n_init_val,
         seed: seed_u64,
@@ -198,13 +198,13 @@ pub fn js_spectral_clustering(
 ) -> Result<Vec<u32>, JsError> {
     let cfg = SpectralClusteringConfig {
         k: parse_optional_usize(k, DEFAULT_SPECTRAL_K, "k")?,
-        max_eigen_iters: parse_optional_usize(
+        max_eigen_iterations: parse_optional_usize(
             max_eigen_iters,
             DEFAULT_SPECTRAL_MAX_EIGEN_ITERS,
             "maxEigenIters",
         )?,
         eigen_tol: eigen_tol.unwrap_or(DEFAULT_SPECTRAL_EIGEN_TOL),
-        kmeans_max_iters: parse_optional_usize(
+        kmeans_max_iterations: parse_optional_usize(
             kmeans_max_iters,
             DEFAULT_KMEANS_MAX_ITERS,
             "kmeansMaxIters",
@@ -212,7 +212,9 @@ pub fn js_spectral_clustering(
         kmeans_tol: kmeans_tol.unwrap_or(DEFAULT_KMEANS_TOL),
         seed: parse_seed_u64(seed)?,
     };
-    spectral_clustering(graph.inner(), &cfg).map_err(core_err_to_js)
+    spectral_clustering(graph.inner(), &cfg)
+        .map(|res| res.labels)
+        .map_err(core_err_to_js)
 }
 
 /// Detects communities on an undirected `CsrGraph` via multi-level Louvain modularity optimization.
@@ -242,10 +244,12 @@ pub fn js_label_propagation(
     seed: Option<f64>,
 ) -> Result<Vec<u32>, JsError> {
     let cfg = LabelPropagationConfig {
-        max_iters: parse_optional_usize(max_iters, DEFAULT_LPA_MAX_ITERS, "maxIters")?,
+        max_iterations: parse_optional_usize(max_iters, DEFAULT_LPA_MAX_ITERS, "maxIters")?,
         seed: parse_seed_u64(seed)?,
     };
-    label_propagation(graph.inner(), &cfg).map_err(core_err_to_js)
+    label_propagation(graph.inner(), &cfg)
+        .map(|res| res.labels)
+        .map_err(core_err_to_js)
 }
 
 /// Coarsens an undirected `CsrGraph` by contracting vertices that share a cluster label.

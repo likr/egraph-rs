@@ -185,8 +185,8 @@ fn cli_metrics_eval_baselines_18_targets() {
         );
         let stderr = String::from_utf8_lossy(&missing_out.stderr);
         assert!(
-            stderr.contains("community_labels"),
-            "expected stderr mentioning community_labels for {target}, got: {stderr}"
+            stderr.contains("labels"),
+            "expected stderr mentioning labels for {target}, got: {stderr}"
         );
     }
 

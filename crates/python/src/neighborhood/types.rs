@@ -5,7 +5,7 @@ use numpy::PyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::array_extract::{extract_f64_1d, extract_usize_1d};
+use crate::array_extract::extract_f64_1d;
 use crate::ffi_convert::{StrictUsize, core_error_to_py, extract_u32_1d};
 
 pub(super) fn knn_stats_float_fields(stats: &KnnStats) -> [(&'static str, f64); 3] {
@@ -73,7 +73,7 @@ impl PyKnnGraph {
         indices: &Bound<'_, PyAny>,
         distances: &Bound<'_, PyAny>,
     ) -> PyResult<Self> {
-        let indptr_vec = extract_usize_1d(indptr, "indptr")?;
+        let indptr_vec = extract_u32_1d(indptr, "indptr")?;
         let indices_vec = extract_u32_1d(indices, "indices")?;
         let distances_vec = extract_f64_1d(distances, "distances")?;
 
@@ -97,7 +97,8 @@ impl PyKnnGraph {
 
     /// Return a `uintp` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
     fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<usize>> {
-        PyArray1::from_slice(py, self.inner.indptr())
+        let out: Vec<usize> = self.inner.indptr().iter().map(|&v| v as usize).collect();
+        PyArray1::from_vec(py, out)
     }
 
     /// Return a `uint32` NumPy copy of the CSR neighbor index array.
@@ -158,7 +159,8 @@ impl PySparseProbabilities {
 
     /// Return a `uintp` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
     fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<usize>> {
-        PyArray1::from_slice(py, &self.inner.indptr)
+        let out: Vec<usize> = self.inner.indptr.iter().map(|&v| v as usize).collect();
+        PyArray1::from_vec(py, out)
     }
 
     /// Return a `uint32` NumPy copy of the sorted CSR neighbor column index array.

@@ -109,7 +109,7 @@ impl PySpatialIntruderRefiner {
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = SpatialRefinerConfig {
-            rounds: rounds.0,
+            iterations: rounds.0,
             k_cap: k_cap.0,
             margin_scale: margin_scale.0,
             w_anchor: w_anchor.0,
@@ -120,7 +120,7 @@ impl PySpatialIntruderRefiner {
             round_decay: round_decay.0,
             k_cap_decay: k_cap_decay.0,
             k_cap_min: k_cap_min.0,
-            t_max: t_max.0,
+            sgd_iterations: t_max.0,
             eps: eps.0,
             hinge_fp,
             min_sep_ratio: min_sep_ratio.0,

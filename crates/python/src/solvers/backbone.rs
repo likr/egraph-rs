@@ -131,6 +131,7 @@ impl PyBackboneSolver {
             layout_mode: mode,
             iterations: iterations.0,
             seed: seed.0,
+            ..BackboneConfig::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();

@@ -244,9 +244,9 @@ pub(crate) fn parse_pacmap_graph_config(
         cfg.n_neighbors = opt_usize_prop(options, "nNeighbors", cfg.n_neighbors)?;
         cfg.mn_ratio = opt_f64_prop(options, "mnRatio", cfg.mn_ratio)?;
         cfg.fp_ratio = opt_f64_prop(options, "fpRatio", cfg.fp_ratio)?;
-        cfg.phase1_iters = opt_usize_prop(options, "phase1Iters", cfg.phase1_iters)?;
-        cfg.phase2_iters = opt_usize_prop(options, "phase2Iters", cfg.phase2_iters)?;
-        cfg.phase3_iters = opt_usize_prop(options, "phase3Iters", cfg.phase3_iters)?;
+        cfg.phase_iterations[0] = opt_usize_prop(options, "phase1Iters", cfg.phase_iterations[0])?;
+        cfg.phase_iterations[1] = opt_usize_prop(options, "phase2Iters", cfg.phase_iterations[1])?;
+        cfg.phase_iterations[2] = opt_usize_prop(options, "phase3Iters", cfg.phase_iterations[2])?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.keep_all_1hop = opt_bool_prop(options, "keepAll1hop", cfg.keep_all_1hop)?;
         cfg.max_1hop_per_node = opt_maybe_usize_prop(options, "max1hopPerNode")?;

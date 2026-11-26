@@ -40,7 +40,7 @@ impl JsPrismDistortion {
 ///
 /// Unrequested metrics return `undefined` without requiring `serde` in minimal builds.
 #[wasm_bindgen(js_name = MetricReport)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsMetricReport {
     inner: MetricReport,
 }
@@ -202,25 +202,25 @@ impl JsMetricReport {
     /// Returns Distance Consistency (`DSC`), or `undefined` if not requested.
     #[wasm_bindgen(getter)]
     pub fn dsc(&self) -> Option<f64> {
-        self.inner.dsc
+        self.inner.distance_consistency
     }
 
     /// Returns Distribution Consistency (`DC`), or `undefined` if not requested.
     #[wasm_bindgen(getter)]
     pub fn dc(&self) -> Option<f64> {
-        self.inner.dc
+        self.inner.distribution_consistency
     }
 
     /// Returns Class Density Measure (`CDM`), or `undefined` if not requested.
     #[wasm_bindgen(getter)]
     pub fn cdm(&self) -> Option<f64> {
-        self.inner.cdm
+        self.inner.class_density_measure
     }
 
     /// Returns 2D Histogram Density Measure (`2D-HDM`), or `undefined` if not requested.
     #[wasm_bindgen(getter)]
     pub fn hdm(&self) -> Option<f64> {
-        self.inner.hdm
+        self.inner.histogram_density_measure
     }
 
     /// Returns SepMe $k$-NN graph DIR CPT, or `undefined` if not requested.
@@ -256,19 +256,19 @@ impl JsMetricReport {
     /// Returns Silhouette coefficient, or `undefined` if not requested.
     #[wasm_bindgen(getter)]
     pub fn silhouette(&self) -> Option<f64> {
-        self.inner.silhouette
+        self.inner.silhouette_score
     }
 
     /// Returns Calinski-Harabasz Index, or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = calinskiHarabasz)]
     pub fn calinski_harabasz(&self) -> Option<f64> {
-        self.inner.calinski_harabasz
+        self.inner.calinski_harabasz_score
     }
 
     /// Returns Davies-Bouldin Index, or `undefined` if not requested.
     #[wasm_bindgen(getter, js_name = daviesBouldin)]
     pub fn davies_bouldin(&self) -> Option<f64> {
-        self.inner.davies_bouldin
+        self.inner.davies_bouldin_score
     }
 
     /// Returns $k$-means Cluster Quality (`CQ-kmeans` ARI), or `undefined` if not requested.
@@ -357,18 +357,18 @@ impl JsMetricReport {
                 self.inner.cluster_area_faithfulness,
             ),
             ("landmarkStratifiedRta", self.inner.landmark_stratified_rta),
-            ("dsc", self.inner.dsc),
-            ("dc", self.inner.dc),
-            ("cdm", self.inner.cdm),
-            ("hdm", self.inner.hdm),
+            ("dsc", self.inner.distance_consistency),
+            ("dc", self.inner.distribution_consistency),
+            ("cdm", self.inner.class_density_measure),
+            ("hdm", self.inner.histogram_density_measure),
             ("sepmeKnng", self.inner.sepme_knng),
             ("sepmeRng", self.inner.sepme_rng),
             ("sepmeGab", self.inner.sepme_gab),
             ("sepmeGong", self.inner.sepme_gong),
             ("neighborhoodHit", self.inner.neighborhood_hit),
-            ("silhouette", self.inner.silhouette),
-            ("calinskiHarabasz", self.inner.calinski_harabasz),
-            ("daviesBouldin", self.inner.davies_bouldin),
+            ("silhouette", self.inner.silhouette_score),
+            ("calinskiHarabasz", self.inner.calinski_harabasz_score),
+            ("daviesBouldin", self.inner.davies_bouldin_score),
             ("cqKmeansAri", self.inner.cq_kmeans_ari),
             ("cqKmeansAmi", self.inner.cq_kmeans_ami),
             ("cqHacHom", self.inner.cq_hac_hom),

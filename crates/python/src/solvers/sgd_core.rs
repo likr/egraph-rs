@@ -74,12 +74,10 @@ pub(super) fn build_schedule_config(
     step_scale: f64,
 ) -> PyResult<SgdScheduleConfig> {
     let kind = parse_sgd_schedule_kind(schedule).map_err(PyValueError::new_err)?;
-    Ok(SgdScheduleConfig {
-        t_max,
-        eps,
-        kind,
-        step_scale,
-    })
+    Ok(SgdScheduleConfig::new(t_max)
+        .with_eps(eps)
+        .with_kind(kind)
+        .with_step_scale(step_scale))
 }
 
 pub(super) fn default_inv_sq_weights(dists: &[f64]) -> Vec<f64> {

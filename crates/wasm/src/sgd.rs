@@ -40,7 +40,7 @@ pub(crate) fn parse_sgd_schedule_and_seed(
     if is_plain_js_object(t_max_or_options) {
         let has_extra = eps.is_some() || kind.is_some() || step_scale.is_some() || seed.is_some();
         reject_extra_args_with_options(has_extra)?;
-        cfg.t_max = opt_usize_prop(t_max_or_options, "tMax", cfg.t_max)?;
+        cfg.iterations = opt_usize_prop(t_max_or_options, "tMax", cfg.iterations)?;
         cfg.eps = opt_f64_prop(t_max_or_options, "eps", cfg.eps)?;
         if let Some(k_str) = opt_string_prop(t_max_or_options, "kind")? {
             cfg.kind = parse_sgd_schedule_kind(&k_str)?;
@@ -56,7 +56,7 @@ pub(crate) fn parse_sgd_schedule_and_seed(
                 "tMaxOrOptions must be a non-negative integer, options object, null, or undefined",
             )
         })?;
-        cfg.t_max = parse_non_negative_usize(t_val, "tMax")?;
+        cfg.iterations = parse_non_negative_usize(t_val, "tMax")?;
     }
     cfg.eps = eps.unwrap_or(cfg.eps);
     if let Some(k_str) = kind {

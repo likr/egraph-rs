@@ -58,18 +58,20 @@ pub(super) fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
             Ok(MetricTarget::LandmarkStratifiedRta)
         }
-        "dsc" | "distanceconsistency" => Ok(MetricTarget::Dsc),
-        "dc" | "distributionconsistency" => Ok(MetricTarget::Dc),
-        "cdm" | "classdensitymeasure" => Ok(MetricTarget::Cdm),
-        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::Hdm),
+        "dsc" | "distanceconsistency" => Ok(MetricTarget::DistanceConsistency),
+        "dc" | "distributionconsistency" => Ok(MetricTarget::DistributionConsistency),
+        "cdm" | "classdensitymeasure" => Ok(MetricTarget::ClassDensityMeasure),
+        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::HistogramDensityMeasure),
         "sepmeknng" | "sepmeknng2" => Ok(MetricTarget::SepmeKnng),
         "sepmerng" => Ok(MetricTarget::SepmeRng),
         "sepmegab" => Ok(MetricTarget::SepmeGab),
         "sepmegong" => Ok(MetricTarget::SepmeGong),
         "neighborhoodhit" | "mnh" => Ok(MetricTarget::NeighborhoodHit),
-        "silhouette" | "silhouettescore" => Ok(MetricTarget::Silhouette),
-        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => Ok(MetricTarget::CalinskiHarabasz),
-        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldin),
+        "silhouette" | "silhouettescore" => Ok(MetricTarget::SilhouetteScore),
+        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => {
+            Ok(MetricTarget::CalinskiHarabaszScore)
+        }
+        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldinScore),
         "cqkmeansari" => Ok(MetricTarget::CqKmeansAri),
         "cqkmeansami" => Ok(MetricTarget::CqKmeansAmi),
         "cqhachom" | "cqhachomogeneity" => Ok(MetricTarget::CqHacHom),
@@ -291,16 +293,16 @@ fn evaluate_metrics(
     if let Some(v) = report.landmark_stratified_rta {
         out.insert("landmark_stratified_rta".to_owned(), v);
     }
-    if let Some(v) = report.dsc {
+    if let Some(v) = report.distance_consistency {
         out.insert("dsc".to_owned(), v);
     }
-    if let Some(v) = report.dc {
+    if let Some(v) = report.distribution_consistency {
         out.insert("dc".to_owned(), v);
     }
-    if let Some(v) = report.cdm {
+    if let Some(v) = report.class_density_measure {
         out.insert("cdm".to_owned(), v);
     }
-    if let Some(v) = report.hdm {
+    if let Some(v) = report.histogram_density_measure {
         out.insert("hdm".to_owned(), v);
     }
     if let Some(v) = report.sepme_knng {
@@ -318,13 +320,13 @@ fn evaluate_metrics(
     if let Some(v) = report.neighborhood_hit {
         out.insert("neighborhood_hit".to_owned(), v);
     }
-    if let Some(v) = report.silhouette {
+    if let Some(v) = report.silhouette_score {
         out.insert("silhouette".to_owned(), v);
     }
-    if let Some(v) = report.calinski_harabasz {
+    if let Some(v) = report.calinski_harabasz_score {
         out.insert("calinski_harabasz".to_owned(), v);
     }
-    if let Some(v) = report.davies_bouldin {
+    if let Some(v) = report.davies_bouldin_score {
         out.insert("davies_bouldin".to_owned(), v);
     }
     if let Some(v) = report.cq_kmeans_ari {

@@ -1,7 +1,7 @@
 //! WebAssembly bindings for cluster-faithful layout refinement, squarified treemaps,
 //! and Group-in-a-Box (`TR-GIB` / `FD-GIB`) solvers (`f32`).
 
-use egraph::core::IterativeSolver;
+use egraph::core::{CsrGraph, IterativeSolver};
 use egraph::layout::{
     ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, GibBoxLayoutMode,
     GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver, refine_cluster_layout,
@@ -40,7 +40,7 @@ fn parse_cluster_refine_config(
         if let Some(m_str) = opt_string_prop(options, "method")? {
             cfg.method = parse_cluster_refine_method(&m_str)?;
         }
-        cfg.max_rounds = opt_usize_prop(options, "maxRounds", cfg.max_rounds)?;
+        cfg.max_iterations = opt_usize_prop(options, "maxRounds", cfg.max_iterations)?;
         cfg.kmeans_n_init = opt_usize_prop(options, "kmeansNInit", cfg.kmeans_n_init)?;
         cfg.kmeans_max_iters = opt_usize_prop(options, "kmeansMaxIters", cfg.kmeans_max_iters)?;
         cfg.shift_step = opt_f64_prop(options, "shiftStep", cfg.shift_step)?;
@@ -165,7 +165,8 @@ pub fn js_refine_cluster_layout(
     let labels = parse_u32_sequence(cluster_labels, "clusterLabels")?;
     let cfg = parse_cluster_refine_config(options, "refineClusterLayout")?;
     let mut soa = layout.inner().to_layout2d();
-    let moved = refine_cluster_layout(&mut soa, &labels, &cfg).map_err(core_err_to_js)?;
+    let moved = refine_cluster_layout(&mut soa, &labels, None::<&CsrGraph<f32>>, &cfg)
+        .map_err(core_err_to_js)?;
     layout
         .inner_mut()
         .copy_from_layout2d(&soa)

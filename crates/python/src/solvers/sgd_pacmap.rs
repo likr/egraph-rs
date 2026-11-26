@@ -77,9 +77,7 @@ pub(super) fn build_pacmap_graph_solver(
         n_neighbors: n_neighbors.0,
         mn_ratio: mn_ratio.0,
         fp_ratio: fp_ratio.0,
-        phase1_iters: phase1_iters.0,
-        phase2_iters: phase2_iters.0,
-        phase3_iters: phase3_iters.0,
+        phase_iterations: [phase1_iters.0, phase2_iters.0, phase3_iters.0],
         learning_rate: learning_rate.0,
         seed: seed.0,
         keep_all_1hop,
@@ -152,7 +150,7 @@ pub(super) fn build_sgd2_solver(
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
     let cfg = Sgd2Config {
-        t_max: t_max.0,
+        iterations: t_max.0,
         eps: eps.0,
         step_scale: step_scale.0,
         batch_size: batch_size.0,

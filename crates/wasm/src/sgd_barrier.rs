@@ -244,7 +244,8 @@ fn parse_sparse_barrier_config(
             "degreeWeightBeta",
             cfg.degree_weight_beta,
         )?;
-        cfg.schedule.t_max = opt_usize_prop(max_2hop_or_options, "tMax", cfg.schedule.t_max)?;
+        cfg.schedule.iterations =
+            opt_usize_prop(max_2hop_or_options, "tMax", cfg.schedule.iterations)?;
         cfg.schedule.eps = opt_f64_prop(max_2hop_or_options, "eps", cfg.schedule.eps)?;
         if let Some(k_str) = opt_string_prop(max_2hop_or_options, "kind")? {
             cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;
@@ -275,7 +276,7 @@ fn parse_sparse_barrier_config(
     cfg.neg_per_node = parse_opt_usize_param(neg_per_node, "negPerNode")?;
     cfg.num_pivots = parse_optional_usize(num_pivots, cfg.num_pivots, "numPivots")?;
     cfg.core_pivots = core_pivots.unwrap_or(cfg.core_pivots);
-    cfg.schedule.t_max = parse_optional_usize(t_max, cfg.schedule.t_max, "tMax")?;
+    cfg.schedule.iterations = parse_optional_usize(t_max, cfg.schedule.iterations, "tMax")?;
     cfg.schedule.eps = eps.unwrap_or(cfg.schedule.eps);
     if let Some(k_str) = kind {
         cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;

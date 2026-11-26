@@ -69,18 +69,20 @@ pub(crate) fn parse_metric_target(raw: &str) -> Result<MetricTarget, JsError> {
         "landmarkstratifiedrta" | "lstratifiedrta" | "rta" => {
             Ok(MetricTarget::LandmarkStratifiedRta)
         }
-        "dsc" | "distanceconsistency" => Ok(MetricTarget::Dsc),
-        "dc" | "distributionconsistency" => Ok(MetricTarget::Dc),
-        "cdm" | "classdensitymeasure" => Ok(MetricTarget::Cdm),
-        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::Hdm),
+        "dsc" | "distanceconsistency" => Ok(MetricTarget::DistanceConsistency),
+        "dc" | "distributionconsistency" => Ok(MetricTarget::DistributionConsistency),
+        "cdm" | "classdensitymeasure" => Ok(MetricTarget::ClassDensityMeasure),
+        "hdm" | "2dhdm" | "histogramdensitymeasure" => Ok(MetricTarget::HistogramDensityMeasure),
         "sepmeknng" | "sepmeknng2" => Ok(MetricTarget::SepmeKnng),
         "sepmerng" => Ok(MetricTarget::SepmeRng),
         "sepmegab" => Ok(MetricTarget::SepmeGab),
         "sepmegong" => Ok(MetricTarget::SepmeGong),
         "neighborhoodhit" | "mnh" => Ok(MetricTarget::NeighborhoodHit),
-        "silhouette" | "silhouettescore" => Ok(MetricTarget::Silhouette),
-        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => Ok(MetricTarget::CalinskiHarabasz),
-        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldin),
+        "silhouette" | "silhouettescore" => Ok(MetricTarget::SilhouetteScore),
+        "calinskiharabasz" | "calinskiharabaszscore" | "ch" => {
+            Ok(MetricTarget::CalinskiHarabaszScore)
+        }
+        "daviesbouldin" | "daviesbouldinscore" | "db" => Ok(MetricTarget::DaviesBouldinScore),
         "cqkmeansari" => Ok(MetricTarget::CqKmeansAri),
         "cqkmeansami" => Ok(MetricTarget::CqKmeansAmi),
         "cqhachom" | "cqhachomogeneity" => Ok(MetricTarget::CqHacHom),

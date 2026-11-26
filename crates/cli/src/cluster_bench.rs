@@ -71,18 +71,18 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
                 seed: args.seed,
                 ..SpectralClusteringConfig::default()
             };
-            let labels = spectral_clustering(&graph, &cfg)?;
-            let count = count_distinct_labels(&labels);
-            (labels, count, None, None, None)
+            let res = spectral_clustering(&graph, &cfg)?;
+            let count = count_distinct_labels(&res.labels);
+            (res.labels, count, None, None, None)
         }
         ClusterMethod::LabelProp => {
             let cfg = LabelPropagationConfig {
                 seed: args.seed,
                 ..LabelPropagationConfig::default()
             };
-            let labels = label_propagation(&graph, &cfg)?;
-            let count = count_distinct_labels(&labels);
-            (labels, count, None, None, None)
+            let res = label_propagation(&graph, &cfg)?;
+            let count = count_distinct_labels(&res.labels);
+            (res.labels, count, None, None, None)
         }
         ClusterMethod::Kmeans => {
             let layout = build_initial_layout(&graph, InitMethod::PivotMds, args.seed)?;

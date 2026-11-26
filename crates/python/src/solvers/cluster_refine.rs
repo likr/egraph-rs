@@ -1,6 +1,7 @@
 //! Cluster-faithful layout refiner (`ClusterRefineSolver`, `refine_cluster_layout`) bindings.
 
-use egraph::layout as egraph_layout;
+use egraph::{core as egraph_core, layout as egraph_layout};
+use egraph_core::CsrGraph;
 use egraph_layout::{
     ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver,
     refine_cluster_layout as layout_refine_cluster_layout,
@@ -75,7 +76,7 @@ impl PyClusterRefineSolver {
         let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
         let cfg = ClusterRefineConfig {
             method: parsed_method,
-            max_rounds: max_rounds.0,
+            max_iterations: max_rounds.0,
             kmeans_n_init: kmeans_n_init.0,
             kmeans_max_iters: kmeans_max_iters.0,
             shift_step: shift_step.0,
@@ -132,7 +133,7 @@ impl PyClusterRefineSolver {
         let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
         let cfg = ClusterRefineConfig {
             method: parsed_method,
-            max_rounds: max_rounds.0,
+            max_iterations: max_rounds.0,
             kmeans_n_init: kmeans_n_init.0,
             kmeans_max_iters: kmeans_max_iters.0,
             shift_step: shift_step.0,
@@ -283,7 +284,7 @@ fn refine_cluster_layout(
     let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
     let cfg = ClusterRefineConfig {
         method: parsed_method,
-        max_rounds: max_rounds.0,
+        max_iterations: max_rounds.0,
         kmeans_n_init: kmeans_n_init.0,
         kmeans_max_iters: kmeans_max_iters.0,
         shift_step: shift_step.0,
@@ -298,10 +299,10 @@ fn refine_cluster_layout(
     let mut soa = extract_solver_layout(layout, target_dtype)?;
     let total_moved = match &mut soa {
         SolverLayout::F64(l64) => py
-            .detach(|| layout_refine_cluster_layout(l64, &labels, &cfg))
+            .detach(|| layout_refine_cluster_layout(l64, &labels, None::<&CsrGraph<f64>>, &cfg))
             .map_err(core_error_to_py)?,
         SolverLayout::F32(l32) => py
-            .detach(|| layout_refine_cluster_layout(l32, &labels, &cfg))
+            .detach(|| layout_refine_cluster_layout(l32, &labels, None::<&CsrGraph<f64>>, &cfg))
             .map_err(core_error_to_py)?,
     };
     write_back_solver_layout(layout, &soa)?;

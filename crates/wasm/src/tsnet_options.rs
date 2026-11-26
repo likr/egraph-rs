@@ -97,20 +97,20 @@ pub(crate) fn parse_tsnet_config(
             "jacobiPrecondition",
             cfg.jacobi_precondition,
         )?;
-        cfg.iterations_stage1 = opt_usize_prop(
+        cfg.stage_iterations[0] = opt_usize_prop(
             backend_or_options,
             "iterationsStage1",
-            cfg.iterations_stage1,
+            cfg.stage_iterations[0],
         )?;
-        cfg.iterations_stage2 = opt_usize_prop(
+        cfg.stage_iterations[1] = opt_usize_prop(
             backend_or_options,
             "iterationsStage2",
-            cfg.iterations_stage2,
+            cfg.stage_iterations[1],
         )?;
-        cfg.iterations_stage3 = opt_usize_prop(
+        cfg.stage_iterations[2] = opt_usize_prop(
             backend_or_options,
             "iterationsStage3",
-            cfg.iterations_stage3,
+            cfg.stage_iterations[2],
         )?;
         cfg.exaggeration = opt_f64_prop(backend_or_options, "exaggeration", cfg.exaggeration)?;
         cfg.lambda_c_stage1 =
@@ -163,12 +163,21 @@ pub(crate) fn parse_tsnet_config(
         cfg.backend = parse_tsnet_backend(&b_str)?;
     }
 
-    cfg.iterations_stage1 =
-        parse_optional_usize(iterations_stage1, cfg.iterations_stage1, "iterationsStage1")?;
-    cfg.iterations_stage2 =
-        parse_optional_usize(iterations_stage2, cfg.iterations_stage2, "iterationsStage2")?;
-    cfg.iterations_stage3 =
-        parse_optional_usize(iterations_stage3, cfg.iterations_stage3, "iterationsStage3")?;
+    cfg.stage_iterations[0] = parse_optional_usize(
+        iterations_stage1,
+        cfg.stage_iterations[0],
+        "iterationsStage1",
+    )?;
+    cfg.stage_iterations[1] = parse_optional_usize(
+        iterations_stage2,
+        cfg.stage_iterations[1],
+        "iterationsStage2",
+    )?;
+    cfg.stage_iterations[2] = parse_optional_usize(
+        iterations_stage3,
+        cfg.stage_iterations[2],
+        "iterationsStage3",
+    )?;
     cfg.learning_rate = learning_rate.or(cfg.learning_rate);
     cfg.perplexity_c = perplexity_c.unwrap_or(cfg.perplexity_c);
     cfg.min_perplexity = min_perplexity.unwrap_or(cfg.min_perplexity);

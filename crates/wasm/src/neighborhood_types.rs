@@ -6,19 +6,6 @@ use egraph::core::CsrGraph;
 use egraph::neighborhood::{KnnGraph, KnnStats, Sparse12HopPairs, SparseProbabilities};
 use wasm_bindgen::prelude::*;
 
-fn indptr_usize_to_u32(indptr: &[usize], context: &str) -> Result<Vec<u32>, JsError> {
-    let mut out = Vec::with_capacity(indptr.len());
-    for &offset in indptr {
-        let converted = u32::try_from(offset).map_err(|_| {
-            JsError::new(&format!(
-                "{context}: indptr offset {offset} exceeds u32::MAX"
-            ))
-        })?;
-        out.push(converted);
-    }
-    Ok(out)
-}
-
 /// Variable-length Compressed Sparse Row (CSR) $k$-nearest-neighbor graph in `f64`.
 #[wasm_bindgen(js_name = KnnGraph)]
 #[derive(Debug, Clone, PartialEq)]
@@ -48,9 +35,9 @@ impl JsKnnGraph {
         distances: &[f64],
     ) -> Result<JsKnnGraph, JsError> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
-        let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
-        let inner = KnnGraph::new_validated(n, indptr_usize, indices.to_vec(), distances.to_vec())
-            .map_err(core_err_to_js)?;
+        let inner =
+            KnnGraph::new_validated(n, indptr.to_vec(), indices.to_vec(), distances.to_vec())
+                .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -68,7 +55,7 @@ impl JsKnnGraph {
 
     /// Returns a copy of the CSR `indptr` row-offset array (`length === numNodes + 1`).
     pub fn indptr(&self) -> Result<Vec<u32>, JsError> {
-        indptr_usize_to_u32(self.inner.indptr(), "KnnGraph.indptr")
+        Ok(self.inner.indptr().to_vec())
     }
 
     /// Returns a copy of the flat `Uint32Array` neighbor indices (`length === nnz`).
@@ -116,7 +103,7 @@ impl JsSparseProbabilities {
 
     /// Returns a copy of the CSR `indptr` row-offset array (`length === numNodes + 1`).
     pub fn indptr(&self) -> Result<Vec<u32>, JsError> {
-        indptr_usize_to_u32(&self.inner.indptr, "SparseProbabilities.indptr")
+        Ok(self.inner.indptr.clone())
     }
 
     /// Returns a copy of the flat `Uint32Array` neighbor column indices (`length === nnz`).

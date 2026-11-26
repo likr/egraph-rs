@@ -9,7 +9,6 @@ use egraph_spatial::{IbFftConfig, InterpolationOrder};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
-use crate::array_extract::extract_usize_1d;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
@@ -113,7 +112,7 @@ fn build_t_fdp_config(
     )?;
     let cfg = TFdpConfig {
         backend: parsed_backend,
-        total_iterations,
+        iterations: total_iterations,
         learning_rate,
         momentum,
         theta,
@@ -311,7 +310,7 @@ impl PyTFdpSolver {
                 "TFdpSolver.from_knn expects either a KnnGraph or (indptr, indices, weights=None)",
             ));
         };
-        let indptr_vec = extract_usize_1d(knn_or_indptr, "indptr")?;
+        let indptr_vec = extract_u32_1d(knn_or_indptr, "indptr")?;
         if indptr_vec.is_empty() {
             return Err(PyValueError::new_err(
                 "indptr must have length num_nodes + 1 (>= 1)",

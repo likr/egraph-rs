@@ -4,7 +4,7 @@ use egraph::neighborhood::{self as nb, PerplexityConfig, SymmetrizationMode};
 use pyo3::prelude::*;
 
 use super::types::{PyKnnGraph, PySparseProbabilities};
-use crate::array_extract::{extract_f64_1d, extract_perplexities, extract_usize_1d};
+use crate::array_extract::{extract_f64_1d, extract_perplexities};
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d};
 
@@ -99,7 +99,7 @@ fn symmetrize_row_normalized(
     indices: &Bound<'_, PyAny>,
     weights: &Bound<'_, PyAny>,
 ) -> PyResult<PySparseProbabilities> {
-    let indptr_vec = extract_usize_1d(indptr, "indptr")?;
+    let indptr_vec = extract_u32_1d(indptr, "indptr")?;
     let indices_vec = extract_u32_1d(indices, "indices")?;
     let weights_vec = extract_f64_1d(weights, "weights")?;
     let probs = py

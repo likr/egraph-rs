@@ -134,16 +134,16 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
                 push_unique_target(&mut targets, MetricTarget::LandmarkStratifiedRta);
             }
             "dsc" | "distance-consistency" => {
-                push_unique_target(&mut targets, MetricTarget::Dsc);
+                push_unique_target(&mut targets, MetricTarget::DistanceConsistency);
             }
             "dc" | "distribution-consistency" => {
-                push_unique_target(&mut targets, MetricTarget::Dc);
+                push_unique_target(&mut targets, MetricTarget::DistributionConsistency);
             }
             "cdm" | "class-density-measure" => {
-                push_unique_target(&mut targets, MetricTarget::Cdm);
+                push_unique_target(&mut targets, MetricTarget::ClassDensityMeasure);
             }
             "hdm" | "2d-hdm" | "histogram-density-measure" => {
-                push_unique_target(&mut targets, MetricTarget::Hdm);
+                push_unique_target(&mut targets, MetricTarget::HistogramDensityMeasure);
             }
             "sepme-knng" | "sepme-knng2" => {
                 push_unique_target(&mut targets, MetricTarget::SepmeKnng);
@@ -161,13 +161,13 @@ pub fn parse_metric_targets(spec: &str) -> CliResult<Vec<MetricTarget>> {
                 push_unique_target(&mut targets, MetricTarget::NeighborhoodHit);
             }
             "silhouette" | "silhouette-score" => {
-                push_unique_target(&mut targets, MetricTarget::Silhouette);
+                push_unique_target(&mut targets, MetricTarget::SilhouetteScore);
             }
             "calinski-harabasz" | "calinski-harabasz-score" | "ch" => {
-                push_unique_target(&mut targets, MetricTarget::CalinskiHarabasz);
+                push_unique_target(&mut targets, MetricTarget::CalinskiHarabaszScore);
             }
             "davies-bouldin" | "davies-bouldin-score" | "db" => {
-                push_unique_target(&mut targets, MetricTarget::DaviesBouldin);
+                push_unique_target(&mut targets, MetricTarget::DaviesBouldinScore);
             }
             "cq-kmeans-ari" => {
                 push_unique_target(&mut targets, MetricTarget::CqKmeansAri);

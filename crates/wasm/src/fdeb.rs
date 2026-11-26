@@ -1,5 +1,6 @@
 //! Reference-passing cooperative Force-Directed Edge Bundling (`FDEB`) WebAssembly bindings (`f32`).
 
+use egraph::core::{CoreError, IterativeSolver, Layout2d};
 use egraph::layout::{FdebConfig, FdebSolver};
 use wasm_bindgen::prelude::*;
 
@@ -14,6 +15,7 @@ use crate::layout_buffers::JsLayout2d;
 #[derive(Debug, Clone)]
 pub struct JsFdebSolver {
     inner: FdebSolver<f32>,
+    layout: Layout2d<f32>,
 }
 
 #[wasm_bindgen(js_class = FdebSolver)]
@@ -29,7 +31,7 @@ impl JsFdebSolver {
         if check_options_arg(options, "FdebSolver")? {
             cfg.cycles = opt_usize_prop(options, "cycles", cfg.cycles)?;
             cfg.s0 = opt_f64_prop(options, "s0", cfg.s0)?;
-            cfg.i0 = opt_usize_prop(options, "i0", cfg.i0)?;
+            cfg.steps_per_cycle = opt_usize_prop(options, "i0", cfg.steps_per_cycle)?;
             cfg.s_step = opt_f64_prop(options, "sStep", cfg.s_step)?;
             cfg.i_step = opt_f64_prop(options, "iStep", cfg.i_step)?;
             cfg.spring_k = opt_f64_prop(options, "springK", cfg.spring_k)?;
@@ -40,13 +42,21 @@ impl JsFdebSolver {
             )?;
         }
         let soa = layout.inner().to_layout2d();
-        let inner = FdebSolver::<f32>::new(graph.inner(), &soa, cfg).map_err(core_err_to_js)?;
-        Ok(Self { inner })
+        soa.validate_finite().map_err(core_err_to_js)?;
+        if soa.len() != graph.inner().num_nodes() {
+            return Err(core_err_to_js(CoreError::dimension_mismatch(
+                graph.inner().num_nodes(),
+                soa.len(),
+                "FdebSolver::new",
+            )));
+        }
+        let inner = FdebSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
+        Ok(Self { inner, layout: soa })
     }
 
     /// Executes one FDEB iteration and returns the updated solver status string.
     pub fn step(&mut self) -> Result<String, JsError> {
-        let status = self.inner.step().map_err(core_err_to_js)?;
+        let status = self.inner.step(&mut self.layout).map_err(core_err_to_js)?;
         Ok(solver_status_str(status).to_owned())
     }
 
@@ -54,13 +64,16 @@ impl JsFdebSolver {
     #[wasm_bindgen(js_name = runSteps)]
     pub fn run_steps(&mut self, steps: f64) -> Result<String, JsError> {
         let n_steps = parse_non_negative_usize(steps, "steps")?;
-        let status = self.inner.run_steps(n_steps).map_err(core_err_to_js)?;
+        let status = self
+            .inner
+            .run_steps(&mut self.layout, n_steps)
+            .map_err(core_err_to_js)?;
         Ok(solver_status_str(status).to_owned())
     }
 
     /// Runs FDEB edge bundling to completion and returns the final solver status string.
     pub fn run(&mut self) -> Result<String, JsError> {
-        let status = self.inner.run().map_err(core_err_to_js)?;
+        let status = self.inner.run(&mut self.layout).map_err(core_err_to_js)?;
         Ok(solver_status_str(status).to_owned())
     }
 

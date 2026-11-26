@@ -213,7 +213,7 @@ impl JsSpatialIntruderRefiner {
                 || min_sep_ratio.is_some()
                 || w_sep.is_some();
             reject_extra_args_with_options(has_extra)?;
-            cfg.rounds = opt_usize_prop(rounds_or_options, "rounds", cfg.rounds)?;
+            cfg.iterations = opt_usize_prop(rounds_or_options, "rounds", cfg.iterations)?;
             cfg.k_cap = opt_usize_prop(rounds_or_options, "kCap", cfg.k_cap)?;
             cfg.margin_scale = opt_f64_prop(rounds_or_options, "marginScale", cfg.margin_scale)?;
             cfg.w_anchor = opt_f64_prop(rounds_or_options, "wAnchor", cfg.w_anchor)?;
@@ -224,7 +224,7 @@ impl JsSpatialIntruderRefiner {
             cfg.round_decay = opt_f64_prop(rounds_or_options, "roundDecay", cfg.round_decay)?;
             cfg.k_cap_decay = opt_f64_prop(rounds_or_options, "kCapDecay", cfg.k_cap_decay)?;
             cfg.k_cap_min = opt_usize_prop(rounds_or_options, "kCapMin", cfg.k_cap_min)?;
-            cfg.t_max = opt_usize_prop(rounds_or_options, "tMax", cfg.t_max)?;
+            cfg.sgd_iterations = opt_usize_prop(rounds_or_options, "tMax", cfg.sgd_iterations)?;
             cfg.eps = opt_f64_prop(rounds_or_options, "eps", cfg.eps)?;
             cfg.hinge_fp = opt_bool_prop(rounds_or_options, "hingeFp", cfg.hinge_fp)?;
             cfg.min_sep_ratio = opt_f64_prop(rounds_or_options, "minSepRatio", cfg.min_sep_ratio)?;
@@ -235,7 +235,7 @@ impl JsSpatialIntruderRefiner {
                 let v = rounds_or_options.as_f64().ok_or_else(|| {
                     JsError::new("roundsOrOptions must be a non-negative integer, options object, null, or undefined")
                 })?;
-                cfg.rounds = parse_non_negative_usize(v, "rounds")?;
+                cfg.iterations = parse_non_negative_usize(v, "rounds")?;
             }
             cfg.k_cap = parse_optional_usize(k_cap, cfg.k_cap, "kCap")?;
             cfg.margin_scale = margin_scale.unwrap_or(cfg.margin_scale);
@@ -247,7 +247,7 @@ impl JsSpatialIntruderRefiner {
             cfg.round_decay = round_decay.unwrap_or(cfg.round_decay);
             cfg.k_cap_decay = k_cap_decay.unwrap_or(cfg.k_cap_decay);
             cfg.k_cap_min = parse_optional_usize(k_cap_min, cfg.k_cap_min, "kCapMin")?;
-            cfg.t_max = parse_optional_usize(t_max, cfg.t_max, "tMax")?;
+            cfg.sgd_iterations = parse_optional_usize(t_max, cfg.sgd_iterations, "tMax")?;
             cfg.eps = eps.unwrap_or(cfg.eps);
             cfg.hinge_fp = hinge_fp.unwrap_or(cfg.hinge_fp);
             cfg.min_sep_ratio = min_sep_ratio.unwrap_or(cfg.min_sep_ratio);

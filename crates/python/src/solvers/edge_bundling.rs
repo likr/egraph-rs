@@ -1,7 +1,7 @@
 //! Force-directed edge bundling (`FdebSolver`) bindings.
 
 use egraph::{core as egraph_core, layout as egraph_layout};
-use egraph_core::SolverStatus;
+use egraph_core::{IterativeSolver, Layout2d, SolverStatus};
 use egraph_layout::{FdebConfig, FdebSolver};
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
@@ -16,43 +16,49 @@ use crate::layout_buffers::{Layout2dInner, PyLayout2d};
 use crate::solver_common::{SolverLayout, extract_solver_layout};
 
 enum FdebInner {
-    F64(FdebSolver<f64>),
-    F32(FdebSolver<f32>),
+    F64 {
+        solver: FdebSolver<f64>,
+        layout: Layout2d<f64>,
+    },
+    F32 {
+        solver: FdebSolver<f32>,
+        layout: Layout2d<f32>,
+    },
 }
 
 impl FdebInner {
     fn dtype(&self) -> ScalarDtype {
         match self {
-            Self::F64(_) => ScalarDtype::F64,
-            Self::F32(_) => ScalarDtype::F32,
+            Self::F64 { .. } => ScalarDtype::F64,
+            Self::F32 { .. } => ScalarDtype::F32,
         }
     }
 
     fn status(&self) -> SolverStatus {
         match self {
-            Self::F64(s) => s.status(),
-            Self::F32(s) => s.status(),
+            Self::F64 { solver, .. } => solver.status(),
+            Self::F32 { solver, .. } => solver.status(),
         }
     }
 
     fn iteration(&self) -> usize {
         match self {
-            Self::F64(s) => s.iteration(),
-            Self::F32(s) => s.iteration(),
+            Self::F64 { solver, .. } => solver.iteration(),
+            Self::F32 { solver, .. } => solver.iteration(),
         }
     }
 
     fn total_iterations(&self) -> usize {
         match self {
-            Self::F64(s) => s.total_iterations(),
-            Self::F32(s) => s.total_iterations(),
+            Self::F64 { solver, .. } => solver.total_iterations(),
+            Self::F32 { solver, .. } => solver.total_iterations(),
         }
     }
 
     fn num_edges(&self) -> usize {
         match self {
-            Self::F64(s) => s.num_edges(),
-            Self::F32(s) => s.num_edges(),
+            Self::F64 { solver, .. } => solver.num_edges(),
+            Self::F32 { solver, .. } => solver.num_edges(),
         }
     }
 }
@@ -103,7 +109,7 @@ impl PyFdebSolver {
         let cfg = FdebConfig {
             cycles: cycles.0,
             s0: s0.0,
-            i0: i0.0,
+            steps_per_cycle: i0.0,
             s_step: s_step.0,
             i_step: i_step.0,
             spring_k: spring_k.0,
@@ -122,8 +128,36 @@ impl PyFdebSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match soa {
-                SolverLayout::F64(l64) => FdebSolver::<f64>::new(g, &l64, cfg).map(FdebInner::F64),
-                SolverLayout::F32(l32) => FdebSolver::<f32>::new(g, &l32, cfg).map(FdebInner::F32),
+                SolverLayout::F64(l64) => {
+                    l64.validate_finite()?;
+                    if l64.len() != g.num_nodes() {
+                        return Err(egraph_core::CoreError::dimension_mismatch(
+                            g.num_nodes(),
+                            l64.len(),
+                            "FdebSolver::new",
+                        ));
+                    }
+                    let solver = FdebSolver::<f64>::new(g, cfg)?;
+                    Ok(FdebInner::F64 {
+                        solver,
+                        layout: l64,
+                    })
+                }
+                SolverLayout::F32(l32) => {
+                    l32.validate_finite()?;
+                    if l32.len() != g.num_nodes() {
+                        return Err(egraph_core::CoreError::dimension_mismatch(
+                            g.num_nodes(),
+                            l32.len(),
+                            "FdebSolver::new",
+                        ));
+                    }
+                    let solver = FdebSolver::<f32>::new(g, cfg)?;
+                    Ok(FdebInner::F32 {
+                        solver,
+                        layout: l32,
+                    })
+                }
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })
@@ -134,8 +168,8 @@ impl PyFdebSolver {
     fn step(&mut self, py: Python<'_>) -> PyResult<&'static str> {
         let status = py
             .detach(|| match &mut self.inner {
-                FdebInner::F64(s) => s.step(),
-                FdebInner::F32(s) => s.step(),
+                FdebInner::F64 { solver, layout } => solver.step(layout),
+                FdebInner::F32 { solver, layout } => solver.step(layout),
             })
             .map_err(core_error_to_py)?;
         Ok(solver_status_str(status))
@@ -147,8 +181,8 @@ impl PyFdebSolver {
         let n_steps = steps.0;
         let status = py
             .detach(|| match &mut self.inner {
-                FdebInner::F64(s) => s.run_steps(n_steps),
-                FdebInner::F32(s) => s.run_steps(n_steps),
+                FdebInner::F64 { solver, layout } => solver.run_steps(layout, n_steps),
+                FdebInner::F32 { solver, layout } => solver.run_steps(layout, n_steps),
             })
             .map_err(core_error_to_py)?;
         Ok(solver_status_str(status))
@@ -159,8 +193,8 @@ impl PyFdebSolver {
     fn run(&mut self, py: Python<'_>) -> PyResult<&'static str> {
         let status = py
             .detach(|| match &mut self.inner {
-                FdebInner::F64(s) => s.run(),
-                FdebInner::F32(s) => s.run(),
+                FdebInner::F64 { solver, layout } => solver.run(layout),
+                FdebInner::F32 { solver, layout } => solver.run(layout),
             })
             .map_err(core_error_to_py)?;
         Ok(solver_status_str(status))
@@ -205,22 +239,22 @@ impl PyFdebSolver {
     /// Return a `uint32` NumPy copy of CSR-style polyline offsets of length `num_edges + 1`.
     fn edge_offsets<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
         match &self.inner {
-            FdebInner::F64(s) => PyArray1::from_slice(py, s.edge_offsets()),
-            FdebInner::F32(s) => PyArray1::from_slice(py, s.edge_offsets()),
+            FdebInner::F64 { solver: s, .. } => PyArray1::from_slice(py, s.edge_offsets()),
+            FdebInner::F32 { solver: s, .. } => PyArray1::from_slice(py, s.edge_offsets()),
         }
     }
 
     /// Return a `(K, 2)` NumPy array of all edge polyline points matching `self.dtype`.
     fn points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         match &self.inner {
-            FdebInner::F64(s) => {
+            FdebInner::F64 { solver: s, .. } => {
                 let k = s.points_x().len();
                 let interleaved = s.to_interleaved_points();
                 let arr = Array2::from_shape_vec((k, 2), interleaved)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 Ok(PyArray2::from_owned_array(py, arr).into_any())
             }
-            FdebInner::F32(s) => {
+            FdebInner::F32 { solver: s, .. } => {
                 let k = s.points_x().len();
                 let interleaved = s.to_interleaved_points();
                 let arr = Array2::from_shape_vec((k, 2), interleaved)

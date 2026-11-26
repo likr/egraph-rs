@@ -29,7 +29,7 @@ fn parse_ib_umap_config(options: &JsValue) -> Result<IbUmapConfig, JsError> {
         if let Some(b_str) = opt_string_prop(options, "backend")? {
             cfg.backend = parse_field_repulsion_backend(&b_str)?;
         }
-        cfg.n_epochs = opt_usize_prop(options, "nEpochs", cfg.n_epochs)?;
+        cfg.iterations = opt_usize_prop(options, "nEpochs", cfg.iterations)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.min_dist = opt_f64_prop(options, "minDist", cfg.min_dist)?;
         cfg.spread = opt_f64_prop(options, "spread", cfg.spread)?;

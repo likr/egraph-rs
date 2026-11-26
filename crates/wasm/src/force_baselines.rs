@@ -34,7 +34,7 @@ impl JsGemSolver {
             cfg.t_init = opt_f64_prop(options, "tInit", cfg.t_init)?;
             cfg.t_max = opt_f64_prop(options, "tMax", cfg.t_max)?;
             cfg.t_min = opt_f64_prop(options, "tMin", cfg.t_min)?;
-            cfg.max_rounds = opt_maybe_usize_prop(options, "maxRounds")?;
+            cfg.max_iterations = opt_maybe_usize_prop(options, "maxRounds")?;
             cfg.oscillation_angle =
                 opt_f64_prop(options, "oscillationAngle", cfg.oscillation_angle)?;
             cfg.rotation_angle = opt_f64_prop(options, "rotationAngle", cfg.rotation_angle)?;

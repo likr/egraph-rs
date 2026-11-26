@@ -48,7 +48,7 @@ fn parse_gumap_config(
             || seed.is_some();
         reject_extra_args_with_options(has_extra)?;
 
-        cfg.n_epochs = opt_usize_prop(n_epochs_or_options, "nEpochs", cfg.n_epochs)?;
+        cfg.iterations = opt_usize_prop(n_epochs_or_options, "nEpochs", cfg.iterations)?;
         cfg.negative_sample_rate = opt_usize_prop(
             n_epochs_or_options,
             "negativeSampleRate",
@@ -75,7 +75,7 @@ fn parse_gumap_config(
         let v = n_epochs_or_options.as_f64().ok_or_else(|| {
             JsError::new("nEpochsOrOptions must be a non-negative integer, options object, null, or undefined")
         })?;
-        cfg.n_epochs = parse_non_negative_usize(v, "nEpochs")?;
+        cfg.iterations = parse_non_negative_usize(v, "nEpochs")?;
     }
     cfg.negative_sample_rate = parse_optional_usize(
         negative_sample_rate,

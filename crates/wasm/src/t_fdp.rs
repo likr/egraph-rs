@@ -23,7 +23,7 @@ fn parse_t_fdp_config(options: &JsValue) -> Result<TFdpConfig, JsError> {
         if let Some(b_str) = opt_string_prop(options, "backend")? {
             cfg.backend = parse_field_repulsion_backend(&b_str)?;
         }
-        cfg.total_iterations = opt_usize_prop(options, "totalIterations", cfg.total_iterations)?;
+        cfg.iterations = opt_usize_prop(options, "totalIterations", cfg.iterations)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.momentum = opt_f64_prop(options, "momentum", cfg.momentum)?;
         cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
@@ -85,9 +85,7 @@ fn try_extract_knn_graph(val: &JsValue) -> Result<Option<KnnGraph>, JsError> {
     let indptr = parse_u32_sequence(&raw_indptr, "knn.indptr")?;
     let indices = parse_u32_sequence(&raw_indices, "knn.indices")?;
     let distances = parse_f64_sequence(&raw_distances, "knn.distances")?;
-    let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
-    let knn =
-        KnnGraph::new_validated(n, indptr_usize, indices, distances).map_err(core_err_to_js)?;
+    let knn = KnnGraph::new_validated(n, indptr, indices, distances).map_err(core_err_to_js)?;
     Ok(Some(knn))
 }
 
@@ -143,9 +141,8 @@ impl JsTFdpSolver {
                 let ws = parse_f64_sequence(weights_or_options, "weights")?;
                 (ws, options)
             };
-            let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
-            let knn = KnnGraph::new_validated(n, indptr_usize, indices, weights_vec)
-                .map_err(core_err_to_js)?;
+            let knn =
+                KnnGraph::new_validated(n, indptr, indices, weights_vec).map_err(core_err_to_js)?;
             (knn, opts_val)
         };
 

@@ -302,9 +302,7 @@ pub fn js_symmetrize_row_normalized(
     weights: &[f64],
 ) -> Result<JsSparseProbabilities, JsError> {
     let n = parse_non_negative_usize(num_nodes, "numNodes")?;
-    let indptr_usize: Vec<usize> = indptr.iter().map(|&v| v as usize).collect();
-    let inner =
-        symmetrize_row_normalized(n, &indptr_usize, indices, weights).map_err(core_err_to_js)?;
+    let inner = symmetrize_row_normalized(n, indptr, indices, weights).map_err(core_err_to_js)?;
     Ok(JsSparseProbabilities::from_inner(inner))
 }
 

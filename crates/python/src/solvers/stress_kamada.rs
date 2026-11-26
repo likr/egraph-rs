@@ -240,7 +240,7 @@ impl PyKamadaKawaiSolver {
         let cfg = KamadaKawaiConfig {
             eps: eps.0,
             max_inner_iters: max_inner_iters.0,
-            max_outer_iters: max_outer_iters.map(|v| v.0),
+            max_iterations: max_outer_iters.map(|v| v.0),
         };
         let g = graph.inner();
         let inner = py
@@ -274,7 +274,7 @@ impl PyKamadaKawaiSolver {
         let cfg = KamadaKawaiConfig {
             eps: eps.0,
             max_inner_iters: max_inner_iters.0,
-            max_outer_iters: max_outer_iters.map(|v| v.0),
+            max_iterations: max_outer_iters.map(|v| v.0),
         };
         let inner = py
             .detach(|| match dtype {

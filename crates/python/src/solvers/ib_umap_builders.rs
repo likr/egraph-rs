@@ -42,7 +42,7 @@ fn build_ib_umap_config(
     )?;
     let cfg = IbUmapConfig {
         backend: parsed_backend,
-        n_epochs,
+        iterations: n_epochs,
         learning_rate,
         min_dist,
         spread,
