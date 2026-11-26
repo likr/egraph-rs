@@ -29,10 +29,12 @@ fn lorentz_eta_minus_one(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, 
     }
 
     // Factor t1*t2 - r1*r2 = (1 + r1^2 + r2^2) / (t1*t2 + r1*r2) and
-    // t1*t2 - r1*r2 - 1 = u^2 / (t1*t2 - r1*r2 + 1) where u = (r1 - r2)*(r1 + r2) / (r1*t2 + r2*t1).
+    // t1*t2 - r1*r2 - 1 = u^2 / (t1*t2 - r1*r2 + 1) where
+    // u = (x1^2 + y1^2 - x2^2 - y2^2) / (r1*t2 + r2*t1), avoiding r1 - r2 cancellation.
     let radial_den = r1 * t2 + r2 * t1;
     let radial_term = if radial_den > 0.0 && radial_den.is_finite() {
-        let u = ((r1 - r2) * (r1 + r2)) / radial_den;
+        let r1_sq_minus_r2_sq = (x1 - x2) * (x1 + x2) + (y1 - y2) * (y1 + y2);
+        let u = r1_sq_minus_r2_sq / radial_den;
         let t1t2_minus_r1r2 = (1.0 + r1 * r1 + r2 * r2) / (t1 * t2 + r1 * r2);
         (u * u) / (t1t2_minus_r1r2 + 1.0)
     } else {
@@ -42,20 +44,24 @@ fn lorentz_eta_minus_one(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, 
         (half_cosh - 1.0).max(0.0)
     };
 
-    // Compute r1*r2*(1 - cos(theta)) stably using half-angle / cross-product identity.
+    // Compute r1*r2*(1 - cos(theta)) stably without unit-vector subtraction cancellation.
     let ux1 = x1 / r1;
     let uy1 = y1 / r1;
     let ux2 = x2 / r2;
     let uy2 = y2 / r2;
     let cos_theta = (ux1 * ux2 + uy1 * uy2).clamp(-1.0, 1.0);
-    let one_minus_cos = if cos_theta >= 0.0 {
-        let sin_theta = ux1 * uy2 - uy1 * ux2;
-        (sin_theta * sin_theta) / (1.0 + cos_theta)
+    let angular_term = if cos_theta >= 0.0 {
+        if r1 <= r2 {
+            let cross_r2 = ux1 * (y2 - y1) - uy1 * (x2 - x1);
+            (cross_r2 * (cross_r2 * (r1 / r2))) / (1.0 + cos_theta)
+        } else {
+            let cross_r1 = ux2 * (y1 - y2) - uy2 * (x1 - x2);
+            (cross_r1 * (cross_r1 * (r2 / r1))) / (1.0 + cos_theta)
+        }
     } else {
-        1.0 - cos_theta
+        r1 * r2 * (1.0 - cos_theta)
     };
 
-    let angular_term = r1 * r2 * one_minus_cos;
     ((radial_term + angular_term).max(0.0), t1, r1, t2, r2)
 }
 
@@ -128,7 +134,11 @@ pub fn lorentz_log_map<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> (S, S) {
 
     // Compute <v, e_a>_L = (x2 - x1) - (x1 / (1 + t1)) * ((t2 - t1) + (eta - 1)) stably.
     let t2_minus_t1 = if t1 + t2 > 0.0 {
-        ((r2 - r1) * (r2 + r1)) / (t2 + t1)
+        if x1f.abs().max(y1f.abs()).max(x2f.abs()).max(y2f.abs()) < 1e150 {
+            ((x2f - x1f) * (x2f + x1f) + (y2f - y1f) * (y2f + y1f)) / (t2 + t1)
+        } else {
+            ((r2 - r1) * (r2 + r1)) / (t2 + t1)
+        }
     } else {
         0.0
     };

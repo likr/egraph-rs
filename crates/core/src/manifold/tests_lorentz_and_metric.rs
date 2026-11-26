@@ -37,6 +37,20 @@ fn test_lorentz_distance_isometry_and_large_radius_stability() {
     let d_tiny = lorentz_distance(5.0_f64, -3.0, 5.0 + 1e-9, -3.0 - 2e-9);
     assert!(d_tiny > 1e-9 && d_tiny < 2e-9, "d_tiny={d_tiny}");
 
+    // Large radius + small separation without r1 - r2 radial subtraction cancellation.
+    let d_large_small = lorentz_distance(100.0_f64, -80.0, 100.0 + 1e-7, -80.0 - 1e-7);
+    let expected_large_small = 1.565_589_270_205_540_3e-8_f64;
+    assert!(
+        (d_large_small - expected_large_small).abs() < 1e-18,
+        "large-radius small-step cancellation: got={d_large_small:.17e}, expected={expected_large_small:.17e}"
+    );
+    let (lvx, lvy) = lorentz_log_map(100.0_f64, -80.0, 100.0 + 1e-7, -80.0 - 1e-7);
+    assert!(
+        (lvx.hypot(lvy) - expected_large_small).abs() < 1e-18,
+        "log map norm mismatch: {} vs {expected_large_small}",
+        lvx.hypot(lvy)
+    );
+
     // Large radius stability for hyp_r > 19 (naive t1*t2 - x1*x2 - y1*y2 cancels completely).
     let r1 = 1e10_f64;
     let r2 = 2e10_f64;
