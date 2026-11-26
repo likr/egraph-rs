@@ -27,6 +27,7 @@ use egraph::spatial::FitFieldStats;
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
+use crate::dog_varadhan::JsDogVaradhanLandmarks;
 use crate::js_convert::{
     core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_opt_usize_param,
     parse_optional_usize, parse_seed_u64,
@@ -38,9 +39,8 @@ use crate::js_options::{
     solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
-use crate::v6_m2::{
-    JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities, JsSpectralMomentStats,
-};
+use crate::linalg_matrix::JsSpectralMomentStats;
+use crate::neighborhood_types::{JsKnnGraph, JsSparseProbabilities};
 
 const DEFAULT_KMEANS_K: usize = 2;
 const DEFAULT_KMEANS_MAX_ITERS: usize = 100;
@@ -2267,7 +2267,7 @@ impl JsSgdSolver {
     #[wasm_bindgen(js_name = pacmapGraphWithLandmarks)]
     pub fn pacmap_graph_with_landmarks(
         graph: &JsCsrGraph,
-        landmarks: &crate::v6_m2::JsDogVaradhanLandmarks,
+        landmarks: &JsDogVaradhanLandmarks,
         options: &JsValue,
     ) -> Result<JsSgdSolver, JsError> {
         crate::v6_m4::sgd_pacmap_graph_with_landmarks(graph, landmarks, options)

@@ -20,6 +20,7 @@ use egraph::spatial::{
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
+use crate::dog_varadhan::JsDogVaradhanLandmarks;
 use crate::js_convert::{
     core_err_to_js, csr_f64_to_f32, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64,
 };
@@ -29,7 +30,6 @@ use crate::js_options::{
     solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
-use crate::v6_m2::JsDogVaradhanLandmarks;
 use crate::v6_m3::{
     JsSgdSolver, run_layout_in_place, run_steps_layout_in_place, step_layout_in_place,
 };

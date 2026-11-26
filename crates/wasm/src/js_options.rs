@@ -6,9 +6,12 @@ use crate::js_convert::{
 };
 use egraph::core::SolverStatus;
 use egraph::layout::PacmapGraphConfig;
+use egraph::linalg::{
+    AmgPcgConfig, EffectiveResistanceConfig, LaplacianKind, ResistanceCurvatureConfig,
+};
 use egraph::neighborhood::DogVaradhanConfig;
 use egraph::spatial::InterpolationOrder;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
 
 pub(crate) fn normalize_enum_token(raw: &str) -> String {
     raw.chars()
@@ -251,5 +254,143 @@ pub(crate) fn parse_pacmap_graph_config(
         cfg.num_landmarks = opt_usize_prop(options, "numLandmarks", cfg.num_landmarks)?;
         cfg.seed = opt_seed_prop(options)?;
     }
+    Ok(cfg)
+}
+
+pub(crate) fn parse_amg_pcg_config(
+    options: &JsValue,
+) -> Result<(AmgPcgConfig, Option<Vec<f64>>), JsError> {
+    let mut cfg = AmgPcgConfig::default();
+    let mut near_nullspace: Option<Vec<f64>> = None;
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "AmgPcgSolver: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.rel_tol = opt_f64_prop(options, "relTol", cfg.rel_tol)?;
+        cfg.abs_tol = opt_f64_prop(options, "absTol", cfg.abs_tol)?;
+        cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
+        cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
+        cfg.max_levels = opt_usize_prop(options, "maxLevels", cfg.max_levels)?;
+        cfg.max_coarse_size = opt_usize_prop(options, "maxCoarseSize", cfg.max_coarse_size)?;
+        cfg.pre_sweeps = opt_usize_prop(options, "preSweeps", cfg.pre_sweeps)?;
+        cfg.post_sweeps = opt_usize_prop(options, "postSweeps", cfg.post_sweeps)?;
+        cfg.max_agg_size = opt_usize_prop(options, "maxAggSize", cfg.max_agg_size)?;
+        cfg.diag_eps = opt_f64_prop(options, "diagEps", cfg.diag_eps)?;
+        cfg.eig_eps = opt_f64_prop(options, "eigEps", cfg.eig_eps)?;
+        cfg.sym_tol = opt_f64_prop(options, "symTol", cfg.sym_tol)?;
+        cfg.seed = opt_seed_prop(options)?;
+        cfg.randomize_ties = opt_bool_prop(options, "randomizeTies", cfg.randomize_ties)?;
+
+        let ns_val = get_prop(options, "nearNullspace")?;
+        if !ns_val.is_undefined() && !ns_val.is_null() {
+            if let Some(arr) = ns_val.dyn_ref::<js_sys::Float64Array>() {
+                near_nullspace = Some(arr.to_vec());
+            } else if let Some(arr) = ns_val.dyn_ref::<js_sys::Float32Array>() {
+                near_nullspace = Some(arr.to_vec().into_iter().map(f64::from).collect());
+            } else if !ns_val.is_string() && ns_val.is_object() {
+                let iter = js_sys::try_iter(&ns_val)
+                    .map_err(|err| {
+                        JsError::new(&format!("failed to iterate nearNullspace: {err:?}"))
+                    })?
+                    .ok_or_else(|| {
+                        JsError::new("options.nearNullspace must be a Float64Array or number array")
+                    })?;
+                let mut vec = Vec::new();
+                for item_res in iter {
+                    let item = item_res.map_err(|err| {
+                        JsError::new(&format!("failed to read nearNullspace: {err:?}"))
+                    })?;
+                    let num = item.as_f64().ok_or_else(|| {
+                        JsError::new("options.nearNullspace entries must be numbers")
+                    })?;
+                    vec.push(num);
+                }
+                near_nullspace = Some(vec);
+            } else {
+                return Err(JsError::new(
+                    "options.nearNullspace must be a Float64Array or number array",
+                ));
+            }
+        }
+    }
+    cfg.validate().map_err(core_err_to_js)?;
+    Ok((cfg, near_nullspace))
+}
+
+pub(crate) fn parse_amg_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsError> {
+    match normalize_enum_token(raw).as_str() {
+        "combinatorial" | "unnormalized" | "standard" => Ok(LaplacianKind::Combinatorial),
+        "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
+            Ok(LaplacianKind::SymmetricNormalized)
+        }
+        "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
+        _ => Err(JsError::new(&format!(
+            "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetric_normalized'"
+        ))),
+    }
+}
+
+fn opt_maybe_bool_prop(obj: &JsValue, key: &str) -> Result<Option<bool>, JsError> {
+    let val = get_prop(obj, key)?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(None);
+    }
+    val.as_bool()
+        .map(Some)
+        .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
+}
+
+pub(crate) fn parse_effective_resistance_options(
+    options: &JsValue,
+) -> Result<EffectiveResistanceConfig, JsError> {
+    let mut cfg = EffectiveResistanceConfig::default();
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "computeEffectiveResistances: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.jl_dim = opt_usize_prop(options, "jlDim", cfg.jl_dim)?;
+        cfg.seed = opt_seed_prop(options)?;
+        cfg.weights_are_lengths =
+            opt_bool_prop(options, "weightsAreLengths", cfg.weights_are_lengths)?;
+        cfg.exact = opt_maybe_bool_prop(options, "exact")?;
+        cfg.exact_max_nodes = opt_usize_prop(options, "exactMaxNodes", cfg.exact_max_nodes)?;
+        cfg.eig_eps = opt_f64_prop(options, "eigEps", cfg.eig_eps)?;
+        cfg.amg_config.rel_tol = opt_f64_prop(options, "relTol", cfg.amg_config.rel_tol)?;
+        cfg.amg_config.max_iterations =
+            opt_usize_prop(options, "maxIterations", cfg.amg_config.max_iterations)?;
+        cfg.amg_config.eig_eps = cfg.eig_eps;
+        cfg.amg_config.seed = cfg.seed;
+    }
+    cfg.validate().map_err(core_err_to_js)?;
+    Ok(cfg)
+}
+
+pub(crate) fn parse_resistance_curvature_options(
+    options: &JsValue,
+) -> Result<ResistanceCurvatureConfig, JsError> {
+    let mut cfg = ResistanceCurvatureConfig::default();
+    if !options.is_undefined() && !options.is_null() {
+        if !is_plain_js_object(options) {
+            return Err(JsError::new(
+                "resistanceCurvatureFlow: options must be a plain object, null, or undefined",
+            ));
+        }
+        cfg.steps = opt_usize_prop(options, "steps", cfg.steps)?;
+        cfg.eta = opt_f64_prop(options, "eta", cfg.eta)?;
+        cfg.kappa_max = opt_f64_prop(options, "kappaMax", cfg.kappa_max)?;
+        cfg.min_edge_length = opt_f64_prop(options, "minEdgeLength", cfg.min_edge_length)?;
+        cfg.hyperbolic_threshold =
+            opt_f64_prop(options, "hyperbolicThreshold", cfg.hyperbolic_threshold)?;
+        cfg.spherical_threshold =
+            opt_f64_prop(options, "sphericalThreshold", cfg.spherical_threshold)?;
+        cfg.torus_std_threshold =
+            opt_f64_prop(options, "torusStdThreshold", cfg.torus_std_threshold)?;
+        cfg.resistance = parse_effective_resistance_options(options)?;
+    }
+    cfg.validate().map_err(core_err_to_js)?;
     Ok(cfg)
 }

@@ -18,6 +18,7 @@ use egraph::neighborhood::{DogVaradhanConfig, KnnGraph};
 use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::csr_graph::JsCsrGraph;
+use crate::dog_varadhan::JsDogVaradhanLandmarks;
 use crate::js_convert::{
     core_err_to_js, ffi_err_to_js, parse_f64_sequence, parse_non_negative_u32,
     parse_non_negative_usize, parse_optional_f64_sequence, parse_u32_sequence,
@@ -29,7 +30,7 @@ use crate::js_options::{
     reject_extra_args_with_options, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
-use crate::v6_m2::{JsDogVaradhanLandmarks, JsKnnGraph, JsSparseProbabilities};
+use crate::neighborhood_types::{JsKnnGraph, JsSparseProbabilities};
 use crate::v6_m3::{
     JsSgdSolver, run_layout_in_place, run_steps_layout_in_place, step_layout_in_place,
 };
