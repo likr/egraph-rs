@@ -2,7 +2,7 @@ use egraph_core::{CoreError, CoreResult, IterativeSolver, Layout2d, Scalar, Solv
 
 use super::yifan_hu::YifanHuSolver;
 
-const PROLONGATION_JITTER_FACTOR: f64 = 0.05;
+pub(super) const PROLONGATION_JITTER_FACTOR: f64 = 0.05;
 
 impl<S: Scalar> YifanHuSolver<S> {
     fn initialize_coarsest_coords(&mut self, layout: &Layout2d<S>) {
@@ -131,6 +131,15 @@ impl<S: Scalar> IterativeSolver<S> for YifanHuSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.active_dims == 0 {
+            self.active_dims = 2;
+        } else if self.active_dims != 2 {
+            return Err(CoreError::dimension_mismatch(
+                self.active_dims,
+                2,
+                "YifanHuSolver::step::dims",
+            ));
+        }
 
         if self.status.is_finished() {
             return Ok(self.status);

@@ -6,8 +6,8 @@ use super::MIN_EDGE_LEN;
 use super::compatibility::edge_compatibility;
 use super::solver::{EdgePair, FdebSolver};
 
-const MIN_SEG_DIST: f64 = 1e-12;
-const MAX_SPRING_ALPHA_KP: f64 = 0.45;
+pub(super) const MIN_SEG_DIST: f64 = 1e-12;
+pub(super) const MAX_SPRING_ALPHA_KP: f64 = 0.45;
 
 impl<S: Scalar> FdebSolver<S> {
     fn initialize_polylines(&mut self, layout: &Layout2d<S>) {
@@ -261,6 +261,15 @@ impl<S: Scalar> IterativeSolver<S> for FdebSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.active_dims == 0 {
+            self.active_dims = 2;
+        } else if self.active_dims != 2 {
+            return Err(CoreError::dimension_mismatch(
+                self.active_dims,
+                2,
+                "FdebSolver::step::dims",
+            ));
+        }
 
         if self.status.is_finished() {
             return Ok(self.status);

@@ -73,3 +73,76 @@ fn visibility_compatibility(
     let m_dist = (imx - pmx).hypot(imy - pmy);
     (1.0 - 2.0 * m_dist / i_dist).max(0.0)
 }
+
+pub(super) fn edge_compatibility_nd(
+    p1: &[f64],
+    p2: &[f64],
+    p_norm: f64,
+    q1: &[f64],
+    q2: &[f64],
+    q_norm: f64,
+) -> (f64, f64) {
+    let dims = p1.len();
+    let mut dot = 0.0_f64;
+    let mut mid_dist_sq = 0.0_f64;
+    for d in 0..dims {
+        let pd = p2[d] - p1[d];
+        let qd = q2[d] - q1[d];
+        dot += pd * qd;
+        let pm = 0.5 * (p1[d] + p2[d]);
+        let qm = 0.5 * (q1[d] + q2[d]);
+        let md = qm - pm;
+        mid_dist_sq += md * md;
+    }
+
+    let cos_theta = (dot / (p_norm * q_norm)).clamp(-1.0, 1.0);
+    let c_a = cos_theta.abs();
+
+    let l_avg = 0.5 * (p_norm + q_norm);
+    let l_min = p_norm.min(q_norm);
+    let l_max = p_norm.max(q_norm);
+    let c_s = 2.0 / (l_avg / l_min + l_max / l_avg);
+
+    let mid_dist = mid_dist_sq.sqrt();
+    let c_p = l_avg / (l_avg + mid_dist);
+
+    let vp = visibility_compatibility_nd(p1, p2, p_norm, q1, q2);
+    let vq = visibility_compatibility_nd(q1, q2, q_norm, p1, p2);
+    let c_v = vp.min(vq);
+
+    (c_a * c_s * c_p * c_v, cos_theta)
+}
+
+fn visibility_compatibility_nd(p1: &[f64], p2: &[f64], p_norm: f64, q1: &[f64], q2: &[f64]) -> f64 {
+    let p_norm_sq = p_norm * p_norm;
+    let mut dot_q1 = 0.0_f64;
+    let mut dot_q2 = 0.0_f64;
+    for d in 0..p1.len() {
+        let pd = p2[d] - p1[d];
+        dot_q1 += (q1[d] - p1[d]) * pd;
+        dot_q2 += (q2[d] - p1[d]) * pd;
+    }
+    let r0 = dot_q1 / p_norm_sq;
+    let r1 = dot_q2 / p_norm_sq;
+
+    let mut i_dist_sq = 0.0_f64;
+    let mut m_dist_sq = 0.0_f64;
+    for d in 0..p1.len() {
+        let pd = p2[d] - p1[d];
+        let i0 = p1[d] + r0 * pd;
+        let i1 = p1[d] + r1 * pd;
+        let id = i1 - i0;
+        i_dist_sq += id * id;
+        let im = 0.5 * (i0 + i1);
+        let pm = 0.5 * (p1[d] + p2[d]);
+        let md = im - pm;
+        m_dist_sq += md * md;
+    }
+
+    let i_dist = i_dist_sq.sqrt();
+    if i_dist <= MIN_EDGE_LEN {
+        return 0.0;
+    }
+    let m_dist = m_dist_sq.sqrt();
+    (1.0 - 2.0 * m_dist / i_dist).max(0.0)
+}

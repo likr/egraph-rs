@@ -4,9 +4,9 @@ use egraph_core::{
 
 use super::solver::LinLogSolver;
 
-const COULOMB_EPS_SQ: f64 = 1e-6;
-const MIN_LINLOG_SPEED: f64 = 1e-4;
-const MAX_LINLOG_SPEED: f64 = 10.0;
+pub(super) const COULOMB_EPS_SQ: f64 = 1e-6;
+pub(super) const MIN_LINLOG_SPEED: f64 = 1e-4;
+pub(super) const MAX_LINLOG_SPEED: f64 = 10.0;
 
 impl<S: Scalar> IterativeSolver<S> for LinLogSolver<S> {
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
@@ -18,6 +18,15 @@ impl<S: Scalar> IterativeSolver<S> for LinLogSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.active_dims == 0 {
+            self.active_dims = 2;
+        } else if self.active_dims != 2 {
+            return Err(CoreError::dimension_mismatch(
+                self.active_dims,
+                2,
+                "LinLogSolver::step::dims",
+            ));
+        }
 
         if self.status.is_finished() {
             return Ok(self.status);

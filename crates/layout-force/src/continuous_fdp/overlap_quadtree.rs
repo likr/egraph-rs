@@ -1,5 +1,5 @@
-const OVERLAP_DPRIME_MIN: f64 = 1e-6;
-const OVERLAP_REPULSION_K: f64 = 100.0;
+pub(super) const OVERLAP_DPRIME_MIN: f64 = 1e-6;
+pub(super) const OVERLAP_REPULSION_K: f64 = 100.0;
 const MAX_OVERLAP_QUAD_DEPTH: usize = 32;
 const OVERLAP_QUAD_COINCIDENT_SQ: f64 = 1e-12;
 

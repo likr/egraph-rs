@@ -10,12 +10,15 @@
 //! $O(N \log N)$ Barnes-Hut acceleration via [`ArenaQuadtree2d`].
 
 mod config;
+mod nd;
 mod quadtree;
 mod solver;
 mod step;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 #[cfg(doc)]
 use egraph_spatial_trees::ArenaQuadtree2d;

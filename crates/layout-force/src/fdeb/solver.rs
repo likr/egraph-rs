@@ -44,6 +44,11 @@ pub struct FdebSolver<S: Scalar = f64> {
     pub(super) vy: Vec<f64>,
     pub(super) points_x: Vec<S>,
     pub(super) points_y: Vec<S>,
+    pub(super) active_dims: usize,
+    pub(super) nd_work: Vec<f64>,
+    pub(super) nd_scratch: Vec<f64>,
+    pub(super) nd_vel: Vec<f64>,
+    pub(super) points_nd: Vec<S>,
     pub(super) status: SolverStatus,
 }
 
@@ -122,6 +127,11 @@ impl<S: Scalar> FdebSolver<S> {
             vy: Vec::new(),
             points_x: Vec::new(),
             points_y: Vec::new(),
+            active_dims: 0,
+            nd_work: Vec::new(),
+            nd_scratch: Vec::new(),
+            nd_vel: Vec::new(),
+            points_nd: Vec::new(),
             status,
         })
     }
@@ -130,6 +140,24 @@ impl<S: Scalar> FdebSolver<S> {
     #[inline]
     pub fn config(&self) -> &FdebConfig {
         &self.config
+    }
+
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.total_iterations
     }
 
     /// Returns `true` if the solver has finished (`Converged` or `Completed`).

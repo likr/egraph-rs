@@ -1,10 +1,11 @@
 #[cfg(doc)]
 use egraph_core::IterativeSolver;
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar, SolverStatus};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar, SolverStatus};
 use egraph_spatial_trees::ArenaQuadtree2d;
 
 use super::ISOLATED_NODE_MASS;
 use super::config::{LinLogConfig, LinLogRepulsion};
+use super::nd::LinLogNdScratch;
 use super::quadtree::GenRepulsionQuadtree;
 
 const MAX_LINLOG_DISPLACEMENT: f64 = 50.0;
@@ -33,6 +34,8 @@ pub struct LinLogSolver<S: Scalar = f64> {
     pub(super) gen_quadtree: GenRepulsionQuadtree,
     pub(super) global_speed: f64,
     pub(super) max_displacement: f64,
+    pub(super) active_dims: usize,
+    pub(super) nd_scratch: Option<LinLogNdScratch>,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -113,6 +116,8 @@ impl<S: Scalar> LinLogSolver<S> {
             gen_quadtree: GenRepulsionQuadtree::default(),
             global_speed: 1.0,
             max_displacement,
+            active_dims: 0,
+            nd_scratch: None,
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -125,10 +130,28 @@ impl<S: Scalar> LinLogSolver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.config.iterations
     }
 
     /// Returns the per-node repulsion masses ($1$ for node-repulsion, $\deg_w(u)$ for edge-repulsion).
@@ -212,6 +235,108 @@ impl<S: Scalar> LinLogSolver<S> {
             for i in 0..n {
                 let d = (xs[i].to_f64() - bx).hypot(ys[i].to_f64() - by);
                 let d_safe = d.max(1e-12);
+                let term = if a_plus_1.abs() <= 1e-12 {
+                    d_safe.ln()
+                } else {
+                    d_safe.powf(a_plus_1) / a_plus_1
+                };
+                u_grav += self.config.gravity * self.masses[i] * term;
+            }
+        }
+
+        Ok(u_att + u_rep + u_grav)
+    }
+
+    /// Evaluates the exact Noack (2009) $(a, r)$-LinLog energy $U_{(a,r)}(p)$ of an N-D `layout`.
+    pub fn energy_nd<T: Scalar>(&self, layout: &LayoutNd<T>) -> CoreResult<f64> {
+        if layout.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                layout.len(),
+                "LinLogSolver::energy_nd",
+            ));
+        }
+        let dims = layout.dims();
+        if dims == 0 {
+            return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+        }
+        layout.validate_finite()?;
+        let n = self.num_nodes;
+        if n <= 1 {
+            return Ok(0.0);
+        }
+
+        let coords = layout.coords();
+        let a = self.config.attraction_exponent;
+        let r = self.config.repulsion_exponent;
+        let a_plus_1 = a + 1.0;
+        let r_plus_1 = r + 1.0;
+
+        let mut u_att = 0.0_f64;
+        for idx in 0..self.edges_u.len() {
+            let u = self.edges_u[idx] as usize;
+            let v = self.edges_v[idx] as usize;
+            let w = self.edges_w[idx];
+            if w == 0.0 {
+                continue;
+            }
+            let base_u = u * dims;
+            let base_v = v * dims;
+            let mut d_sq = 0.0_f64;
+            for axis in 0..dims {
+                let delta = coords[base_u + axis].to_f64() - coords[base_v + axis].to_f64();
+                d_sq += delta * delta;
+            }
+            let d_safe = d_sq.sqrt().max(1e-12);
+            let term = if a_plus_1.abs() <= 1e-12 {
+                d_safe.ln()
+            } else {
+                d_safe.powf(a_plus_1) / a_plus_1
+            };
+            u_att += w * term;
+        }
+
+        let mut u_rep = 0.0_f64;
+        for i in 0..n {
+            let base_i = i * dims;
+            let mi = self.masses[i];
+            for (j, &mj) in self.masses.iter().enumerate().take(n).skip(i + 1) {
+                let base_j = j * dims;
+                let mut d_sq = 0.0_f64;
+                for axis in 0..dims {
+                    let delta = coords[base_i + axis].to_f64() - coords[base_j + axis].to_f64();
+                    d_sq += delta * delta;
+                }
+                let d_safe = d_sq.sqrt().max(1e-12);
+                let term = if r_plus_1.abs() <= 1e-12 {
+                    d_safe.ln()
+                } else {
+                    d_safe.powf(r_plus_1) / r_plus_1
+                };
+                u_rep -= mi * mj * term;
+            }
+        }
+
+        let mut u_grav = 0.0_f64;
+        if self.config.gravity > 0.0 && self.total_mass > 0.0 {
+            let mut barycenter = vec![0.0_f64; dims];
+            for (i, &m) in self.masses.iter().enumerate().take(n) {
+                let base = i * dims;
+                for axis in 0..dims {
+                    barycenter[axis] += m * coords[base + axis].to_f64();
+                }
+            }
+            for b in &mut barycenter {
+                *b /= self.total_mass;
+            }
+            for i in 0..n {
+                let base = i * dims;
+                let mut d_sq = 0.0_f64;
+                for axis in 0..dims {
+                    let delta = coords[base + axis].to_f64() - barycenter[axis];
+                    d_sq += delta * delta;
+                }
+                let d_safe = d_sq.sqrt().max(1e-12);
                 let term = if a_plus_1.abs() <= 1e-12 {
                     d_safe.ln()
                 } else {

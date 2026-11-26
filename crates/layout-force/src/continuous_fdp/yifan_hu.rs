@@ -9,6 +9,7 @@ use super::coarsening::{
     build_coarse_csr, ec_coarsen, extract_canonical_undirected_edges, mivs_coarsen,
 };
 use super::config::YifanHuConfig;
+use super::yifan_hu_nd::YifanHuNdScratch;
 
 const MAX_COARSEN_LEVELS: usize = 64;
 
@@ -51,6 +52,8 @@ pub struct YifanHuSolver<S: Scalar = f64> {
     pub(super) rep_y: Vec<f64>,
     pub(super) unit_masses: Vec<f64>,
     pub(super) quadtree: ArenaQuadtree2d<f64>,
+    pub(super) active_dims: usize,
+    pub(super) nd_scratch: Option<YifanHuNdScratch>,
     pub(super) rng: DeterministicRng,
     pub(super) status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -184,6 +187,8 @@ impl<S: Scalar> YifanHuSolver<S> {
             rep_y: vec![0.0; n],
             unit_masses: vec![1.0; n],
             quadtree: ArenaQuadtree2d::new(),
+            active_dims: 0,
+            nd_scratch: None,
             rng: DeterministicRng::from_seed_u64(config.seed),
             status,
             _marker: std::marker::PhantomData,
@@ -196,10 +201,28 @@ impl<S: Scalar> YifanHuSolver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.total_iter_executed
+    }
+
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.max_total_iterations
     }
 
     /// Returns the number of levels in the `EC + MIVS` hierarchy (`>= 1`).

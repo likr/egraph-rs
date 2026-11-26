@@ -5,8 +5,8 @@ use egraph_core::{
 use super::force_atlas2::ForceAtlas2Solver;
 use super::overlap_quadtree::overlap_repulsion_pair;
 
-const COULOMB_EPS_SQ: f64 = 1e-6;
-const MIN_FA2_SPEED: f64 = 1e-4;
+pub(super) const COULOMB_EPS_SQ: f64 = 1e-6;
+pub(super) const MIN_FA2_SPEED: f64 = 1e-4;
 
 impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
@@ -18,6 +18,15 @@ impl<S: Scalar> IterativeSolver<S> for ForceAtlas2Solver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.active_dims == 0 {
+            self.active_dims = 2;
+        } else if self.active_dims != 2 {
+            return Err(CoreError::dimension_mismatch(
+                self.active_dims,
+                2,
+                "ForceAtlas2Solver::step::dims",
+            ));
+        }
 
         if self.status.is_finished() {
             return Ok(self.status);

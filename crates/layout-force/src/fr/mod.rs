@@ -11,10 +11,13 @@
 
 mod config;
 mod helpers;
+mod nd;
 mod solver;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_nd;
 
 #[cfg(doc)]
 use egraph_spatial_trees::ArenaQuadtree2d;

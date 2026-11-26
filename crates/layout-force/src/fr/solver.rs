@@ -6,33 +6,36 @@ use egraph_spatial_trees::ArenaQuadtree2d;
 
 use super::config::{FrBackend, FruchtermanReingoldConfig};
 use super::helpers::{GridCell, GridEntry, clamp_cell_coord, extract_canonical_undirected_edges};
+use super::nd::FrNdScratch;
 
-const COINCIDENT_DIST_SQ: f64 = 1e-24;
-const COINCIDENT_PERTURB_DIST: f64 = 1e-6;
-const BH_EPS_SQ: f64 = 1e-12;
+pub(super) const COINCIDENT_DIST_SQ: f64 = 1e-24;
+pub(super) const COINCIDENT_PERTURB_DIST: f64 = 1e-6;
+pub(super) const BH_EPS_SQ: f64 = 1e-12;
 
 /// Cooperative Fruchterman–Reingold (1991) layout solver implementing [`IterativeSolver`].
 #[derive(Debug, Clone)]
 pub struct FruchtermanReingoldSolver<S: Scalar = f64> {
-    config: FruchtermanReingoldConfig,
-    num_nodes: usize,
-    edges_u: Vec<u32>,
-    edges_v: Vec<u32>,
-    edges_w: Vec<f64>,
-    k: f64,
+    pub(super) config: FruchtermanReingoldConfig,
+    pub(super) num_nodes: usize,
+    pub(super) edges_u: Vec<u32>,
+    pub(super) edges_v: Vec<u32>,
+    pub(super) edges_w: Vec<f64>,
+    pub(super) k: f64,
     initial_temperature: f64,
-    x_buf: Vec<f64>,
-    y_buf: Vec<f64>,
-    disp_x: Vec<f64>,
-    disp_y: Vec<f64>,
-    rep_x: Vec<f64>,
-    rep_y: Vec<f64>,
-    quadtree: ArenaQuadtree2d<f64>,
+    pub(super) x_buf: Vec<f64>,
+    pub(super) y_buf: Vec<f64>,
+    pub(super) disp_x: Vec<f64>,
+    pub(super) disp_y: Vec<f64>,
+    pub(super) rep_x: Vec<f64>,
+    pub(super) rep_y: Vec<f64>,
+    pub(super) quadtree: ArenaQuadtree2d<f64>,
     grid_entries: Vec<GridEntry>,
     grid_cells: Vec<GridCell>,
-    rng: DeterministicRng,
-    iter: usize,
-    status: SolverStatus,
+    pub(super) active_dims: usize,
+    pub(super) nd_scratch: Option<FrNdScratch>,
+    pub(super) rng: DeterministicRng,
+    pub(super) iter: usize,
+    pub(super) status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
 }
 
@@ -84,6 +87,8 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
             quadtree: ArenaQuadtree2d::new(),
             grid_entries: Vec::new(),
             grid_cells: Vec::new(),
+            active_dims: 0,
+            nd_scratch: None,
             rng: DeterministicRng::from_seed_u64(config.seed),
             iter: 0,
             status,
@@ -97,10 +102,28 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.config.iterations
     }
 
     /// Returns the effective optimal pairwise distance $k$.
@@ -147,7 +170,7 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
         self.disp_y[j] -= fy;
     }
 
-    fn compute_grid_repulsion(&mut self, min_x: f64, min_y: f64, k_sq: f64) {
+    pub(super) fn compute_grid_repulsion(&mut self, min_x: f64, min_y: f64, k_sq: f64) {
         let n = self.num_nodes;
         let cell_size = 2.0 * self.k;
         let inv_cell = 1.0 / cell_size;
@@ -227,6 +250,15 @@ impl<S: Scalar> IterativeSolver<S> for FruchtermanReingoldSolver<S> {
             ));
         }
         layout.validate_finite()?;
+        if self.active_dims == 0 {
+            self.active_dims = 2;
+        } else if self.active_dims != 2 {
+            return Err(CoreError::dimension_mismatch(
+                self.active_dims,
+                2,
+                "FruchtermanReingoldSolver::step::dims",
+            ));
+        }
 
         if self.status.is_finished() {
             return Ok(self.status);

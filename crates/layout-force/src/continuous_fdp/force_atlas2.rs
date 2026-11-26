@@ -5,6 +5,7 @@ use egraph_spatial_trees::ArenaQuadtree2d;
 
 use super::coarsening::extract_canonical_undirected_edges;
 use super::config::ForceAtlas2Config;
+use super::force_atlas2_nd::ForceAtlas2NdScratch;
 use super::overlap_quadtree::OverlapQuadtree;
 
 pub(super) const MAX_FA2_DISPLACEMENT: f64 = 50.0;
@@ -37,6 +38,8 @@ pub struct ForceAtlas2Solver<S: Scalar = f64> {
     pub(super) overlap_tree: OverlapQuadtree,
     pub(super) global_speed: f64,
     pub(super) max_displacement: f64,
+    pub(super) active_dims: usize,
+    pub(super) nd_scratch: Option<ForceAtlas2NdScratch>,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
     _marker: std::marker::PhantomData<S>,
@@ -148,6 +151,8 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
             overlap_tree: OverlapQuadtree::default(),
             global_speed: 1.0,
             max_displacement,
+            active_dims: 0,
+            nd_scratch: None,
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -160,10 +165,28 @@ impl<S: Scalar> ForceAtlas2Solver<S> {
         &self.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`].
+    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
+    }
+
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> usize {
+        self.config.iterations
     }
 
     /// Returns the per-node collision radii.
