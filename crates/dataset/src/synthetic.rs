@@ -6,6 +6,11 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng};
 
 #[inline]
+fn canonical_edge(u: u32, v: u32) -> (u32, u32) {
+    if u < v { (u, v) } else { (v, u) }
+}
+
+#[inline]
 fn validate_unit_prob(val: f64, name: &'static str) -> CoreResult<()> {
     if !val.is_finite() {
         return Err(CoreError::non_finite(name));
@@ -55,7 +60,7 @@ pub fn generate_weighted_graph(
     if num_nodes >= 3 && avg_degree >= 2 {
         for u in 0..num_nodes {
             let v = (u + 1) % num_nodes;
-            edges.push((u as u32, v as u32));
+            edges.push(canonical_edge(u as u32, v as u32));
         }
     } else {
         for u in 0..(num_nodes - 1) {
@@ -74,7 +79,7 @@ pub fn generate_weighted_graph(
         let u = rng.gen_range_usize(num_nodes) as u32;
         let v = rng.gen_range_usize(num_nodes) as u32;
         if u != v {
-            edges.push(if u < v { (u, v) } else { (v, u) });
+            edges.push(canonical_edge(u, v));
         }
     }
 
@@ -197,15 +202,17 @@ pub fn generate_torus_grid(
             let u = (r * cols + c) as u32;
             let right = (r * cols + (c + 1) % cols) as u32;
             let down = (((r + 1) % rows) * cols + c) as u32;
-            edges.push((u, right));
-            edges.push((u, down));
+            edges.push(canonical_edge(u, right));
+            edges.push(canonical_edge(u, down));
             if triangulated {
                 let diag = (((r + 1) % rows) * cols + (c + 1) % cols) as u32;
-                edges.push((u, diag));
+                edges.push(canonical_edge(u, diag));
             }
         }
     }
-    CsrGraph::from_edges(num_nodes, &edges, None, false, true)
+    edges.sort_unstable();
+    edges.dedup();
+    CsrGraph::from_edges(num_nodes, &edges, None, false, false)
 }
 
 /// Generates a closed genus-0 triangulated spherical icosphere by subdividing a regular
@@ -280,11 +287,13 @@ pub fn generate_spherical_icosphere(subdivisions: usize) -> CoreResult<CsrGraph<
 
     let mut edges = Vec::with_capacity(tris.len() * 3);
     for &[a, b, c] in &tris {
-        edges.push((a, b));
-        edges.push((b, c));
-        edges.push((c, a));
+        edges.push(canonical_edge(a, b));
+        edges.push(canonical_edge(b, c));
+        edges.push(canonical_edge(c, a));
     }
-    CsrGraph::from_edges(num_nodes as usize, &edges, None, false, true)
+    edges.sort_unstable();
+    edges.dedup();
+    CsrGraph::from_edges(num_nodes as usize, &edges, None, false, false)
 }
 
 /// Generates a closed UV spherical grid mesh with north/south poles and `latitudes` intermediate
@@ -309,22 +318,27 @@ pub fn generate_spherical_grid(latitudes: usize, longitudes: usize) -> CoreResul
     let south = (num_nodes - 1) as u32;
     let mut edges = Vec::new();
     for j in 0..longitudes {
-        edges.push((north, (1 + j) as u32));
-        edges.push((south, (1 + (latitudes - 1) * longitudes + j) as u32));
+        edges.push(canonical_edge(north, (1 + j) as u32));
+        edges.push(canonical_edge(
+            south,
+            (1 + (latitudes - 1) * longitudes + j) as u32,
+        ));
     }
     for i in 0..latitudes {
         let base = 1 + i * longitudes;
         for j in 0..longitudes {
             let u = (base + j) as u32;
             let right = (base + (j + 1) % longitudes) as u32;
-            edges.push((u, right));
+            edges.push(canonical_edge(u, right));
             if i + 1 < latitudes {
                 let down = (1 + (i + 1) * longitudes + j) as u32;
-                edges.push((u, down));
+                edges.push(canonical_edge(u, down));
             }
         }
     }
-    CsrGraph::from_edges(num_nodes, &edges, None, false, true)
+    edges.sort_unstable();
+    edges.dedup();
+    CsrGraph::from_edges(num_nodes, &edges, None, false, false)
 }
 
 /// Generates a deterministic regular hyperbolic branching tree with `branching_factor` children

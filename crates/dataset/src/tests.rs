@@ -178,6 +178,43 @@ fn test_synthetic_generators_deterministic_and_valid() {
     assert_eq!(generate_hyperbolic_tree(3, 0).unwrap().num_nodes(), 1);
 }
 
+#[test]
+fn test_generate_weighted_graph_canonical_wrap_edge_and_seeds() {
+    // Reproduces wrap-edge (num_nodes - 1, 0) colliding with random chord (0, num_nodes - 1).
+    let g_repro = generate_weighted_graph(40, 6, 0.2, 5.0, 99).unwrap();
+    assert_eq!(g_repro.num_nodes(), 40);
+    assert!(g_repro.is_weighted());
+    assert!(g_repro.is_connected());
+    assert!(
+        g_repro
+            .weights()
+            .unwrap()
+            .iter()
+            .all(|&w| (0.2..=5.0).contains(&w))
+    );
+
+    for &n in &[0usize, 1, 2, 3, 4, 10, 40, 80] {
+        for &avg_deg in &[0usize, 1, 2, 6, 12] {
+            for seed in 0..15u64 {
+                let g = generate_weighted_graph(n, avg_deg, 0.1, 2.5, seed).unwrap();
+                assert_eq!(g.num_nodes(), n);
+                if n <= 1 || avg_deg == 0 {
+                    assert_eq!(g.num_edges(), 0);
+                } else {
+                    assert!(g.is_weighted());
+                    assert!(g.is_connected());
+                    assert!(
+                        g.weights()
+                            .unwrap()
+                            .iter()
+                            .all(|&w| (0.1..=2.5).contains(&w))
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[cfg(all(
     feature = "petgraph",
     feature = "1138_bus",
