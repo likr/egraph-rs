@@ -7,11 +7,10 @@ repository.workspace = true
 
 [features]
 default = []
-eval-baselines = ["dep:egraph-clustering"]
+eval-baselines = ["dep:egraph-clustering", "dep:egraph-spatial-trees", "dep:egraph-metrics-geometry"]
 
 [dependencies]
 egraph-core.workspace = true
-egraph-spatial-trees.workspace = true
-egraph-spatial-crossings.workspace = true
-egraph-metrics-geometry.workspace = true
+egraph-spatial-trees = { workspace = true, optional = true }
+egraph-metrics-geometry = { workspace = true, optional = true }
 egraph-clustering = { workspace = true, optional = true }
