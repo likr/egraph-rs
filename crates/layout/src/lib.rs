@@ -83,8 +83,8 @@ pub use sfc::{SfcConfig, SfcCurveKind, SfcLayoutSolver};
 pub use sgd::{
     BarrierSymmetry, DrGraphConfig, GraphCneConfig, GraphCneObjective, LargeVisConfig,
     OrtmannPivotStrategy, OrtmannSparseStressConfig, PacmapGraphConfig, Sgd2Config,
-    SgdScheduleConfig, SgdScheduleKind, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
-    SparseBarrierStats, StreamingNegativeConfig,
+    SgdScheduleConfig, SgdScheduleKind, SgdScheduleWindowLayout, SgdSolver, SnapTFdpConfig,
+    SparseBarrierConfig, SparseBarrierStats, StreamingNegativeConfig,
 };
 pub use stress_majorization::{PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver};
 pub use ts_net::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
