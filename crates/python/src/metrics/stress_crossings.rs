@@ -4,36 +4,47 @@ use egraph::core::CoreResult;
 use egraph::metrics as egraph_metrics;
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBool, PyDict};
 
 use crate::array_extract::extract_f64_2d_raw;
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py};
+use crate::ffi_convert::{
+    StrictF64, StrictU64, StrictUsize, core_error_to_py, is_non_sequence_container,
+};
 use crate::layout_buffers::{PyLayout2d, dispatch_layout2d};
 
-pub(crate) fn csr_crossing_number_impl(
-    py: Python<'_>,
-    graph: &PyCsrGraph,
-    layout: &PyLayout2d,
-) -> PyResult<f64> {
+/// Count exact non-adjacent edge crossings in `graph` under `layout`.
+///
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crossing_number(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     let g = graph.inner();
     dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::crossing_number(g, &soa).map(|c| c as f64)
     })
 }
 
-pub(crate) fn csr_crossing_angle_impl(
-    py: Python<'_>,
-    graph: &PyCsrGraph,
-    layout: &PyLayout2d,
-) -> PyResult<f64> {
+/// Compute the crossing-angle penalty `sum cos^2(theta)` over all crossing edge pairs.
+///
+/// Lower values indicate crossings closer to perpendicular (`0.0` = all perpendicular crossings).
+/// Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crossing_angle(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     let g = graph.inner();
     dispatch_layout2d!(py, layout, |soa| egraph_metrics::crossing_angle(g, &soa))
 }
 
-pub(crate) fn csr_crossing_edges_impl(
+/// Return all non-adjacent crossing edge pairs in `graph` under `layout` as a list of dicts.
+///
+/// Each dictionary contains `"edge_a"`, `"edge_b"`, `"u1"`, `"v1"`, `"u2"`, `"v2"`,
+/// `"angle_rad"`, and `"cos_sq"`. Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+fn crossing_edges(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: &PyLayout2d,
@@ -54,6 +65,61 @@ pub(crate) fn csr_crossing_edges_impl(
         out.push(dict.unbind());
     }
     Ok(out)
+}
+
+fn extract_crossing_cos_sq(pairs: &Bound<'_, PyAny>, fn_name: &str) -> PyResult<Vec<f64>> {
+    if is_non_sequence_container(pairs) {
+        return Err(PyTypeError::new_err(format!(
+            "{fn_name}: pairs must be a sequence or iterable of crossing-edge dicts"
+        )));
+    }
+    let iter = pairs.try_iter().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "{fn_name}: pairs must be a sequence or iterable of crossing-edge dicts"
+        ))
+    })?;
+    let mut cos_sqs = Vec::new();
+    for item_res in iter {
+        let item = item_res?;
+        let cos_sq_obj = item.get_item("cos_sq").map_err(|_| {
+            PyTypeError::new_err(format!(
+                "{fn_name}: each pair must be a mapping containing 'cos_sq'"
+            ))
+        })?;
+        if cos_sq_obj.is_instance_of::<PyBool>() {
+            return Err(PyTypeError::new_err(format!(
+                "{fn_name}: 'cos_sq' must be float, not bool"
+            )));
+        }
+        let val = cos_sq_obj
+            .extract::<f64>()
+            .map_err(|_| PyTypeError::new_err(format!("{fn_name}: 'cos_sq' must be numeric")))?;
+        if !val.is_finite() {
+            return Err(PyValueError::new_err(format!(
+                "{fn_name}: 'cos_sq' must be finite"
+            )));
+        }
+        cos_sqs.push(val);
+    }
+    Ok(cos_sqs)
+}
+
+/// Compute the edge crossing count directly from precomputed `crossing_edges(graph, layout)` pairs.
+#[pyfunction]
+#[pyo3(signature = (pairs), text_signature = "(pairs)")]
+fn crossing_number_from_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let cos_sqs = extract_crossing_cos_sq(pairs, "crossing_number_from_pairs")?;
+    Ok(cos_sqs.len() as f64)
+}
+
+/// Compute the crossing-angle penalty `sum cos^2(theta)` directly from precomputed `crossing_edges(graph, layout)` pairs.
+///
+/// Lower values indicate crossings closer to perpendicular (`0.0` = all perpendicular crossings).
+#[pyfunction]
+#[pyo3(signature = (pairs), text_signature = "(pairs)")]
+fn crossing_angle_from_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let cos_sqs = extract_crossing_cos_sq(pairs, "crossing_angle_from_pairs")?;
+    Ok(cos_sqs.into_iter().sum())
 }
 
 /// Compute closed-form Scale-Normalized Stress (`SNS`) in `[0.0, 1.0]` over `graph` and `layout`.
@@ -193,7 +259,7 @@ fn layout_degeneracy(
 /// Releases the Python GIL during computation.
 #[pyfunction]
 fn sweep_crossing_number(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
-    csr_crossing_number_impl(py, graph, layout)
+    crossing_number(py, graph, layout)
 }
 
 /// Compute the sweep-line crossing-angle penalty `sum cos^2(theta)` over all crossing edge pairs.
@@ -201,7 +267,7 @@ fn sweep_crossing_number(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 /// Releases the Python GIL during computation.
 #[pyfunction]
 fn sweep_crossing_angle(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
-    csr_crossing_angle_impl(py, graph, layout)
+    crossing_angle(py, graph, layout)
 }
 
 /// Estimate total edge crossings in O(num_samples) time via deterministic edge-pair sampling.
@@ -370,6 +436,11 @@ fn scale_normalized_stress_from_distances(
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scale_normalized_stress, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_scale_normalized_stress, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_number, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_angle, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_number_from_pairs, m)?)?;
+    m.add_function(wrap_pyfunction!(crossing_angle_from_pairs, m)?)?;
     m.add_function(wrap_pyfunction!(sweep_crossing_number, m)?)?;
     m.add_function(wrap_pyfunction!(sweep_crossing_angle, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_crossing_number, m)?)?;

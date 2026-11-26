@@ -31,32 +31,26 @@ pub(super) fn parse_metric_target(raw: &str) -> Result<MetricTarget, String> {
         "sampledcrossingnumber" | "sampledcrossing" => Ok(MetricTarget::SampledCrossingNumber),
         "crosslessness" => Ok(MetricTarget::Crosslessness),
         "sampledcrosslessness" => Ok(MetricTarget::SampledCrosslessness),
-        "neighborhoodpreservation1hop" | "neighborhoodpreservation" | "np1" => {
-            Ok(MetricTarget::NeighborhoodPreservation1Hop)
-        }
-        "neighborhoodpreservation2hop" | "neighborhoodpreservation2hopv6" | "np2" => {
-            Ok(MetricTarget::NeighborhoodPreservation2Hop)
-        }
+        "neighborhoodpreservation1hop" | "np1" => Ok(MetricTarget::NeighborhoodPreservation1Hop),
+        "neighborhoodpreservation2hop" | "np2" => Ok(MetricTarget::NeighborhoodPreservation2Hop),
         "samplednp1" | "sampledneighborhoodpreservation1hop" => Ok(MetricTarget::SampledNp1),
         "samplednp2" | "sampledneighborhoodpreservation2hop" => Ok(MetricTarget::SampledNp2),
-        "gabrielgraphproperty" | "gabrielgraphpropertyv6" | "gabrielproperty" => {
-            Ok(MetricTarget::GabrielGraphProperty)
-        }
-        "noderesolution" | "noderesolutionv6" => Ok(MetricTarget::NodeResolution),
+        "gabrielgraphproperty" | "gabrielproperty" => Ok(MetricTarget::GabrielGraphProperty),
+        "noderesolution" => Ok(MetricTarget::NodeResolution),
         "relativeneighborhoodpreservation" | "drng" | "drngpreservation" => {
             Ok(MetricTarget::RelativeNeighborhoodPreservation)
         }
         "gabrielgraphpreservation" | "dgg" | "dggpreservation" => {
             Ok(MetricTarget::GabrielGraphPreservation)
         }
-        "aspectratio" | "aspectratiov6" => Ok(MetricTarget::AspectRatio),
-        "angularresolution" | "angularresolutionv6" => Ok(MetricTarget::AngularResolution),
+        "aspectratio" => Ok(MetricTarget::AspectRatio),
+        "angularresolution" => Ok(MetricTarget::AngularResolution),
         "minimumangle" | "minangle" | "minimumanglea2" | "minanglea2" => {
             Ok(MetricTarget::MinimumAngle)
         }
         "minimumanglea1" | "minanglea1" => Ok(MetricTarget::MinimumAngleA1),
         "layoutdegeneracy" => Ok(MetricTarget::LayoutDegeneracy),
-        "idealedgelengths" | "idealedgelengthsv6" => Ok(MetricTarget::IdealEdgeLengths),
+        "idealedgelengths" => Ok(MetricTarget::IdealEdgeLengths),
         "adjustedpatchnig" | "patchnig" => Ok(MetricTarget::AdjustedPatchNig),
         "clusterareafaithfulness" | "clusterarea" | "gcaf" => {
             Ok(MetricTarget::ClusterAreaFaithfulness)

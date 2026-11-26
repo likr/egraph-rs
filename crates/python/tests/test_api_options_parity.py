@@ -154,6 +154,14 @@ class TestDatasetSpatialMetricsApiParity(unittest.TestCase):
         self.assertEqual(parsed.num_nodes, 4)
         self.assertEqual(parsed.num_edges, 3)
 
+        parsed_w = eg.parse_csr_csv("3,2\n0,1,2.5\n1, 2, 1.25\n")
+        self.assertTrue(parsed_w.is_weighted)
+        w_arr = parsed_w.weights()
+        assert w_arr is not None
+        np.testing.assert_allclose(w_arr, [2.5, 2.5, 1.25, 1.25])
+        with self.assertRaises(ValueError):
+            eg.parse_csr_csv("3,2\n0,1,2.0\n1,2\n")
+
     def test_spatial_delaunay_to_csr_and_rectangle_overlaps(self) -> None:
         layout = eg.Layout2d.from_coords([[0.0, 0.0], [1.0, 0.0], [0.5, 1.0], [0.2, 0.2]])
         d_csr = eg.delaunay_to_csr(layout)
@@ -199,6 +207,13 @@ class TestDatasetSpatialMetricsApiParity(unittest.TestCase):
             g, layout, ["ideal_edge_lengths"], ideal_edge_length=2.0
         )
         self.assertGreater(m["ideal_edge_lengths"], 0.0)
+
+        g_w = eg.CsrGraph.from_edges(2, [(0, 1)], weights=[1.0])
+        l_w = eg.Layout2d.from_coords([[0.0, 0.0], [2.5, 0.0]])
+        mw = eg.evaluate_metrics(
+            g_w, l_w, ["ideal_edge_lengths"], ideal_edge_length=2.5
+        )
+        self.assertAlmostEqual(mw["ideal_edge_lengths"], 0.0, places=12)
 
         adj = eg.Layout2d.from_coords([[0.0, 0.0], [2.0, 2.0], [2.0, 0.0], [0.0, 2.0]])
         d_len, d_dir = eg.prism_distortion_with_edges(layout, adj, [(0, 1), (1, 2)])

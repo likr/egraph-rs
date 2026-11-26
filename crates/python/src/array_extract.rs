@@ -123,14 +123,42 @@ pub(crate) fn extract_f64_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec
 }
 
 pub(crate) fn extract_perplexities(obj: &Bound<'_, PyAny>, num_nodes: usize) -> PyResult<Vec<f64>> {
-    if obj.is_instance_of::<PyBool>() {
+    let is_np_bool = obj
+        .getattr("dtype")
+        .and_then(|dt| dt.str())
+        .and_then(|s| s.to_str().map(|v| v == "bool"))
+        .unwrap_or(false);
+    if obj.is_instance_of::<PyBool>() || is_np_bool {
         return Err(PyTypeError::new_err(
             "perplexities must be a 1D numeric array or scalar float, not bool",
         ));
     }
-    if obj.cast::<PyUntypedArray>().is_err()
-        && let Ok(scalar) = obj.extract::<f64>()
-    {
+    if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
+        if untyped.ndim() == 0 {
+            let item = obj.call_method0("item")?;
+            if item.is_instance_of::<PyBool>() {
+                return Err(PyTypeError::new_err(
+                    "perplexities must be a 1D numeric array or scalar float, not bool",
+                ));
+            }
+            let scalar = item.extract::<f64>().map_err(|_| {
+                PyTypeError::new_err("perplexities must be a 1D numeric array or scalar float")
+            })?;
+            if !scalar.is_finite() {
+                return Err(PyValueError::new_err(
+                    "non-finite floating-point value in perplexities",
+                ));
+            }
+            if scalar <= 0.0 {
+                return Err(PyValueError::new_err(format!(
+                    "perplexities must be > 0, got {scalar}"
+                )));
+            }
+            return Ok(vec![scalar; num_nodes]);
+        }
+        return extract_f64_1d(obj, "perplexities");
+    }
+    if let Ok(scalar) = obj.extract::<f64>() {
         if !scalar.is_finite() {
             return Err(PyValueError::new_err(
                 "non-finite floating-point value in perplexities",

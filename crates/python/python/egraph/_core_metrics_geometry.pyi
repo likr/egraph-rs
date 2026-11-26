@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, overload
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import numpy.typing as npt
 
-from ._core_core import CsrGraph, Drawing, DrawingEuclidean2d, GraphAdapter, Layout2d
-from ._core_distance_matrix import DistanceMatrix
+from ._core_core import CsrGraph, Layout2d
 from ._core_types import (
     _EdgeArrayLike,
     _IndexArrayLike,
@@ -17,16 +16,14 @@ from ._core_types import (
 __all__ = [
     "all_pairs_bfs",
     "angular_resolution",
-    "angular_resolution_v6",
     "aspect_ratio",
-    "aspect_ratio_v6",
     "bfs_single_source",
     "crossing_angle",
-    "crossing_angle_with_crossing_edges",
+    "crossing_angle_from_pairs",
     "crossing_edges",
     "crossing_edges_torus",
     "crossing_number",
-    "crossing_number_with_crossing_edges",
+    "crossing_number_from_pairs",
     "crossing_summary",
     "crosslessness",
     "dgg_preservation",
@@ -35,19 +32,14 @@ __all__ = [
     "evaluate_metrics",
     "gabriel_graph_edges",
     "gabriel_graph_property",
-    "gabriel_graph_property_v6",
     "ideal_edge_lengths",
-    "ideal_edge_lengths_v6",
     "ideal_edge_lengths_with_unit",
     "layout_degeneracy",
     "minimum_angle",
     "minimum_angle_summary",
-    "neighborhood_preservation",
     "neighborhood_preservation_1hop",
     "neighborhood_preservation_2hop",
-    "neighborhood_preservation_2hop_v6",
     "node_resolution",
-    "node_resolution_v6",
     "prism_distortion",
     "prism_distortion_with_edges",
     "relative_neighborhood_edges",
@@ -58,7 +50,6 @@ __all__ = [
     "sampled_scale_normalized_stress",
     "scale_normalized_stress",
     "scale_normalized_stress_from_distances",
-    "stress",
     "sweep_crossing_angle",
     "sweep_crossing_number",
     "torus_crossing_number",
@@ -68,59 +59,25 @@ def all_pairs_bfs(
     graph: CsrGraph, unit_edge_length: float = 1.0
 ) -> npt.NDArray[np.float64]: ...
 
-@overload
-def angular_resolution(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
+def angular_resolution(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def angular_resolution(graph: CsrGraph, drawing: Layout2d) -> float: ...
-
-def angular_resolution_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
-
-@overload
-def aspect_ratio(drawing: DrawingEuclidean2d) -> float: ...
-
-@overload
-def aspect_ratio(drawing: Layout2d) -> float: ...
-
-def aspect_ratio_v6(layout: Layout2d) -> float: ...
+def aspect_ratio(layout: Layout2d) -> float: ...
 
 def bfs_single_source(
     graph: CsrGraph, source: int, unit_edge_length: float = 1.0
 ) -> npt.NDArray[np.float64]: ...
 
-@overload
-def crossing_angle(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
+def crossing_angle(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def crossing_angle(graph: CsrGraph, drawing: Layout2d) -> float: ...
+def crossing_angle_from_pairs(pairs: Iterable[Mapping[str, Any]]) -> float: ...
 
-def crossing_angle_with_crossing_edges(
-    crossing_edges: Any,
-) -> float: ...
-
-@overload
-def crossing_edges(graph: CsrGraph, drawing: Layout2d) -> list[dict[str, Any]]: ...
-
-@overload
-def crossing_edges(graph: GraphAdapter, drawing: Drawing) -> Any: ...
+def crossing_edges(graph: CsrGraph, layout: Layout2d) -> list[dict[str, Any]]: ...
 
 def crossing_edges_torus(graph: CsrGraph, layout: Layout2d) -> list[dict[str, Any]]: ...
 
-@overload
-def crossing_number(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
+def crossing_number(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def crossing_number(graph: CsrGraph, drawing: Layout2d) -> float: ...
-
-def crossing_number_with_crossing_edges(
-    crossing_edges: Any,
-) -> float: ...
+def crossing_number_from_pairs(pairs: Iterable[Mapping[str, Any]]) -> float: ...
 
 def crossing_summary(graph: CsrGraph, layout: Layout2d) -> dict[str, Any]: ...
 
@@ -170,31 +127,9 @@ def evaluate_metrics(
 
 def gabriel_graph_edges(layout: Layout2d) -> npt.NDArray[np.uint32]: ...
 
-@overload
-def gabriel_graph_property(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
+def gabriel_graph_property(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def gabriel_graph_property(graph: CsrGraph, drawing: Layout2d) -> float: ...
-
-def gabriel_graph_property_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
-
-@overload
-def ideal_edge_lengths(
-    graph: GraphAdapter,
-    drawing: Drawing,
-    distance_matrix: DistanceMatrix,
-) -> float: ...
-
-@overload
-def ideal_edge_lengths(
-    graph: CsrGraph,
-    drawing: Layout2d,
-    distance_matrix: None = None,
-) -> float: ...
-
-def ideal_edge_lengths_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
+def ideal_edge_lengths(graph: CsrGraph, layout: Layout2d) -> float: ...
 
 def ideal_edge_lengths_with_unit(
     graph: CsrGraph, layout: Layout2d, unit_edge_length: float = 1.0
@@ -206,33 +141,11 @@ def minimum_angle(graph: CsrGraph, layout: Layout2d) -> float: ...
 
 def minimum_angle_summary(graph: CsrGraph, layout: Layout2d) -> dict[str, float]: ...
 
-@overload
-def neighborhood_preservation(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
-
-@overload
-def neighborhood_preservation(graph: CsrGraph, drawing: Layout2d) -> float: ...
-
 def neighborhood_preservation_1hop(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def neighborhood_preservation_2hop(
-    graph: GraphAdapter, drawing: DrawingEuclidean2d
-) -> float: ...
+def neighborhood_preservation_2hop(graph: CsrGraph, layout: Layout2d) -> float: ...
 
-@overload
-def neighborhood_preservation_2hop(graph: CsrGraph, drawing: Layout2d) -> float: ...
-
-def neighborhood_preservation_2hop_v6(graph: CsrGraph, layout: Layout2d) -> float: ...
-
-@overload
-def node_resolution(drawing: Drawing) -> float: ...
-
-@overload
-def node_resolution(drawing: Layout2d) -> float: ...
-
-def node_resolution_v6(layout: Layout2d) -> float: ...
+def node_resolution(layout: Layout2d) -> float: ...
 
 def prism_distortion(
     original_layout: Layout2d, adjusted_layout: Layout2d
@@ -293,8 +206,6 @@ def scale_normalized_stress_from_distances(
     distances: _MatrixArrayLike,
     weights: _MatrixArrayLike | None = None,
 ) -> float: ...
-
-def stress(drawing: Drawing, distance_matrix: DistanceMatrix) -> float: ...
 
 def sweep_crossing_angle(graph: CsrGraph, layout: Layout2d) -> float: ...
 

@@ -29,7 +29,7 @@ class FdebSolver:
         s0: float = 0.1,
         i0: int = 90,
         s_step: float = 0.5,
-        i_step: float = ...,
+        i_step: float = 0.6666666666666666,
         spring_k: float = 0.1,
         minimum_edge_compatibility: float = 0.6,
         dtype: _DtypeLike | None = None,

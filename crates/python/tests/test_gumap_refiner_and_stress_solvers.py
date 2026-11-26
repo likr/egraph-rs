@@ -240,7 +240,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
             ],
             dtype=np.float64,
         )
-        strip_np2_before = eg.neighborhood_preservation_2hop_v6(g_strip, eg.Layout2d.from_coords(strip_folded))
+        strip_np2_before = eg.neighborhood_preservation_2hop(g_strip, eg.Layout2d.from_coords(strip_folded))
         for dtype_str in ("float64", "float32"):
             rs_run = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
             rs_step = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
@@ -254,7 +254,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
                 rs_step.step(ls_step)
             np.testing.assert_array_equal(ls_run.coords(copy=True), ls_step.coords(copy=True))
             self.assertGreater(rs_run.stats()["n_fp_total"], 0)
-            np2_after = eg.neighborhood_preservation_2hop_v6(g_strip, ls_run)
+            np2_after = eg.neighborhood_preservation_2hop(g_strip, ls_run)
             self.assertGreater(np2_after, strip_np2_before + 0.1)
 
         # Dynamic k_cap & w_anchor2

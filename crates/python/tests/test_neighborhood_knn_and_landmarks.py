@@ -346,6 +346,37 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
         self.assertEqual(lm1.table().shape, (1, 1))
         np.testing.assert_allclose(lm1.alt_distances([0], [0]), [0.0])
 
+        # 0-D NumPy scalar perplexities across compute_knn_probabilities, build_hybrid_adaptive_knn, TsNetSolver.from_knn
+        p_0d_ref = eg.compute_knn_probabilities(knn, 3.0)
+        p_0d_f = eg.compute_knn_probabilities(knn, np.array(3.0, dtype=np.float64))
+        p_0d_i = eg.compute_knn_probabilities(knn, np.array(3, dtype=np.int32))
+        np.testing.assert_array_equal(p_0d_f.values(), p_0d_ref.values())
+        np.testing.assert_array_equal(p_0d_i.values(), p_0d_ref.values())
+
+        g13 = eg.CsrGraph.from_edges(13, [(0, i) for i in range(1, 9)] + [(8, 9), (9, 10), (10, 11)])
+        coords13 = eg.chebyshev_dog_jl_embedding(g13, jl_dim=14, seed=42)
+        h_0d, _ = eg.build_hybrid_adaptive_knn(g13, coords13, np.array(3.0), k=4, max_row_k=6)
+        self.assertEqual(h_0d.num_nodes, 13)
+        ts_0d = eg.TsNetSolver.from_knn(
+            knn, np.array(3.0), backend="bh", iterations_stage1=1, iterations_stage2=1, iterations_stage3=1
+        )
+        self.assertEqual(ts_0d.num_nodes, 16)
+
+        for bad_0d_val in (float("nan"), -1.0, 0.0):
+            def _call_bad_0d(v: float = bad_0d_val) -> object:
+                return eg.compute_knn_probabilities(knn, np.array(v))
+
+            self.assert_no_panic_raises((ValueError,), _call_bad_0d)
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.compute_knn_probabilities(knn, np.array(True))
+        )
+        self.assert_no_panic_raises(
+            (TypeError,), lambda: eg.compute_knn_probabilities(knn, np.bool_(True))  # type: ignore[arg-type]
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.compute_knn_probabilities(knn, np.array([[3.0]]))
+        )
+
         # Error checks
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.compute_knn_probabilities(knn, [1.0, 2.0])

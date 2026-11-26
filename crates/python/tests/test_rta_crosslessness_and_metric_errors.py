@@ -41,26 +41,19 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             eg.sampled_crossing_number,
             eg.torus_crossing_number,
             eg.neighborhood_preservation_1hop,
-            eg.neighborhood_preservation_2hop_v6,
+            eg.neighborhood_preservation_2hop,
             eg.drng_preservation,
             eg.dgg_preservation,
-            eg.gabriel_graph_property_v6,
-            eg.angular_resolution_v6,
-            eg.ideal_edge_lengths_v6,
-            eg.crossing_number,
-            eg.crossing_angle,
-            eg.neighborhood_preservation,
-            eg.neighborhood_preservation_2hop,
             eg.gabriel_graph_property,
             eg.angular_resolution,
             eg.ideal_edge_lengths,
+            eg.crossing_number,
+            eg.crossing_angle,
         ):
             self.assert_no_panic_raises((ValueError,), lambda f=fn: f(g, nan_layout))
             self.assert_no_panic_raises((ValueError,), lambda f=fn: f(g, short_layout))
 
         for ufn in (
-            eg.node_resolution_v6,
-            eg.aspect_ratio_v6,
             eg.node_resolution,
             eg.aspect_ratio,
             eg.delaunay_triangulation,
@@ -115,20 +108,16 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             (ValueError,), lambda: eg.sampled_crossing_number(g, layout, num_samples=-5)
         )
 
-        # Type mismatches between Petgraph-based and CSR objects.
-        lg = eg.Graph()
-        for i in range(4):
-            lg.add_node(i)
-        ld = eg.DrawingEuclidean2d.initial_placement(lg)
-        dm = eg.DistanceMatrix.from_numpy(lg, np.ones((4, 4), dtype=np.float64))
-
-        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_number(g, ld))  # type: ignore[call-overload]
-        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_number(lg, layout))  # type: ignore[call-overload]
-        self.assert_no_panic_raises((TypeError,), lambda: eg.ideal_edge_lengths(lg, ld))  # type: ignore[call-overload]
-        self.assert_no_panic_raises((TypeError,), lambda: eg.ideal_edge_lengths(g, layout, dm))  # type: ignore[call-overload]
-        self.assert_no_panic_raises((TypeError,), lambda: eg.aspect_ratio("bad"))  # type: ignore[call-overload]
-        self.assert_no_panic_raises((TypeError,), lambda: eg.node_resolution("bad"))  # type: ignore[call-overload]
+        # Type mismatches for CSR/Layout2d inputs.
+        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_number(g, "bad"))  # type: ignore[arg-type]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_number("bad", layout))  # type: ignore[arg-type]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.ideal_edge_lengths(g, "bad"))  # type: ignore[arg-type]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.ideal_edge_lengths("bad", layout))  # type: ignore[arg-type]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.aspect_ratio("bad"))  # type: ignore[arg-type]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.node_resolution("bad"))  # type: ignore[arg-type]
         self.assert_no_panic_raises((TypeError,), lambda: eg.edge_angle(True, 0.0, 1.0, 0.0))
+        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_angle_from_pairs([123]))  # type: ignore[list-item]
+        self.assert_no_panic_raises((TypeError,), lambda: eg.crossing_number_from_pairs("bad"))  # type: ignore[arg-type]
 
         # Check inspect.signature defaults and non-empty docstrings.
         sig_sns = inspect.signature(eg.sampled_scale_normalized_stress)
@@ -152,17 +141,22 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             "sampled_crosslessness",
             "torus_crossing_number",
             "neighborhood_preservation_1hop",
-            "neighborhood_preservation_2hop_v6",
+            "neighborhood_preservation_2hop",
             "edge_angle",
             "prism_distortion",
             "drng_preservation",
             "dgg_preservation",
             "evaluate_metrics",
             "delaunay_triangulation",
-            "gabriel_graph_property_v6",
-            "node_resolution_v6",
-            "aspect_ratio_v6",
-            "angular_resolution_v6",
+            "gabriel_graph_property",
+            "node_resolution",
+            "aspect_ratio",
+            "angular_resolution",
+            "crossing_number",
+            "crossing_angle",
+            "crossing_edges",
+            "crossing_number_from_pairs",
+            "crossing_angle_from_pairs",
             "minimum_angle",
             "minimum_angle_summary",
             "layout_degeneracy",
@@ -173,7 +167,7 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             "landmark_stratified_rta",
             "landmark_stratified_rta_detail",
             "landmark_stratified_rta_from_landmarks",
-            "ideal_edge_lengths_v6",
+            "ideal_edge_lengths",
         ):
             fn_obj = getattr(eg, name)
             self.assertTrue((fn_obj.__doc__ or "").strip(), f"missing docstring on {name}")
@@ -253,6 +247,46 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             path_l, lm_ids, tbl, num_triplets=10000, seed=42
         )
         self.assertEqual(rta_tbl, rta_det)
+
+        # Direct float64/float32/nested-sequence tables with np.inf (disconnected components)
+        disc_g = eg.CsrGraph.from_edges(4, [(0, 1), (2, 3)], directed=False, sanitize=True)
+        disc_l = eg.Layout2d.from_coords([[0.0, 0.0], [1.0, 0.0], [5.0, 0.0], [6.0, 0.0]])
+        disc_apsp = eg.all_pairs_bfs(disc_g, 1.0)
+        disc_u32 = np.where(np.isfinite(disc_apsp[[0, 2]]), disc_apsp[[0, 2]], np.iinfo(np.uint32).max).astype(np.uint32)
+        expected_disc = eg.landmark_stratified_rta_from_landmarks(disc_l, [0, 2], disc_u32, num_triplets=500, seed=7)
+        for cand in (
+            disc_apsp[[0, 2]],
+            disc_apsp[[0, 2]].astype(np.float32),
+            [[0.0, 1.0, float("inf"), float("inf")], [float("inf"), float("inf"), 0, 1]],
+        ):
+            self.assertEqual(
+                eg.landmark_stratified_rta_from_landmarks(disc_l, [0, 2], cand, num_triplets=500, seed=7),
+                expected_disc,
+            )
+        for bad_dists in (
+            np.array([[0.0, float("nan")], [1.0, 0.0]]),
+            np.array([[0.0, -1.0], [1.0, 0.0]]),
+            np.array([[0.0, 1.5], [1.0, 0.0]]),
+            np.array([[0.0, float("-inf")], [1.0, 0.0]]),
+        ):
+            self.assert_no_panic_raises(
+                (ValueError,),
+                lambda bd=bad_dists: eg.landmark_stratified_rta_from_landmarks(
+                    eg.Layout2d.zeros(2), [0, 1], bd
+                ),
+            )
+        self.assert_no_panic_raises(
+            (TypeError,),
+            lambda: eg.landmark_stratified_rta_from_landmarks(
+                eg.Layout2d.zeros(2), [0, 1], np.array([[True, False], [False, True]])
+            ),
+        )
+        self.assert_no_panic_raises(
+            (TypeError,),
+            lambda: eg.landmark_stratified_rta_from_landmarks(
+                eg.Layout2d.zeros(2), [0, 1], [[True, 0], [0, 1]]
+            ),
+        )
 
         # Selective evaluate_metrics with new targets + community_labels error guard.
         with self.assertRaises(ValueError):

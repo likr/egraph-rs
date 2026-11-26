@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use egraph::metrics as egraph_metrics;
 use egraph_metrics::ClusterAreaConfig;
-use numpy::{PyArray1, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyReadonlyArrayDyn, PyUntypedArray, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBool, PyDict};
 
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
@@ -322,21 +322,78 @@ fn landmark_stratified_rta_detail(
     Ok(dict.unbind())
 }
 
+fn float_to_landmark_u32(v: f64) -> PyResult<u32> {
+    if v.is_nan() {
+        return Err(PyValueError::new_err("landmark_dists contains NaN"));
+    }
+    if v == f64::INFINITY {
+        return Ok(u32::MAX);
+    }
+    if v < 0.0 {
+        return Err(PyValueError::new_err(format!(
+            "landmark_dists entry {v} must be non-negative"
+        )));
+    }
+    if v.fract() != 0.0 || v > u32::MAX as f64 {
+        return Err(PyValueError::new_err(format!(
+            "landmark_dists float entry {v} must be a non-negative integer or +inf"
+        )));
+    }
+    Ok(v as u32)
+}
+
+fn is_numpy_bool_scalar(obj: &Bound<'_, PyAny>) -> bool {
+    obj.getattr("dtype")
+        .and_then(|dt| dt.str())
+        .and_then(|s| s.to_str().map(|v| v == "bool"))
+        .unwrap_or(false)
+}
+
+fn extract_landmark_item_u32(item: &Bound<'_, PyAny>) -> PyResult<u32> {
+    if item.is_instance_of::<PyBool>() || is_numpy_bool_scalar(item) {
+        return Err(PyTypeError::new_err(
+            "landmark_dists entries must be integers or floats, not bool",
+        ));
+    }
+    if let Ok(iv) = item.extract::<i128>() {
+        return u32::try_from(iv).map_err(|_| {
+            PyValueError::new_err(format!("landmark_dists entry {iv} out of range for u32"))
+        });
+    }
+    if let Ok(fv) = item.extract::<f64>() {
+        return float_to_landmark_u32(fv);
+    }
+    Err(PyTypeError::new_err(
+        "landmark_dists entries must be integers or floats",
+    ))
+}
+
 fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
-        if untyped.ndim() == 1 {
-            return extract_u32_1d(obj, "landmark_dists");
-        }
-        if untyped.ndim() != 2 {
+        let ndim = untyped.ndim();
+        if ndim != 1 && ndim != 2 {
             return Err(PyValueError::new_err(format!(
-                "landmark_dists must be a 1D or 2D integer array, got {}D",
-                untyped.ndim()
+                "landmark_dists must be a 1D or 2D array, got {ndim}D"
             )));
         }
-        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u32>>() {
+        if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, f64>>() {
+            return arr
+                .as_array()
+                .iter()
+                .map(|&v| float_to_landmark_u32(v))
+                .collect();
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, f32>>() {
+            return arr
+                .as_array()
+                .iter()
+                .map(|&v| float_to_landmark_u32(f64::from(v)))
+                .collect();
+        }
+        if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, u32>>() {
             return Ok(arr.as_array().iter().copied().collect());
         }
-        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u16>>() {
+        if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, u16>>() {
             return Ok(arr
                 .as_array()
                 .iter()
@@ -349,54 +406,88 @@ fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
                 })
                 .collect());
         }
-        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i64>>() {
-            return arr
-                .as_array()
-                .iter()
-                .map(|&v| {
-                    u32::try_from(v).map_err(|_| {
-                        PyValueError::new_err(format!(
-                            "landmark_dists entry {v} out of range for u32"
-                        ))
-                    })
-                })
-                .collect();
+        if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, u8>>() {
+            return Ok(arr.as_array().iter().map(|&v| u32::from(v)).collect());
         }
-        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, i32>>() {
-            return arr
-                .as_array()
-                .iter()
-                .map(|&v| {
-                    u32::try_from(v).map_err(|_| {
-                        PyValueError::new_err(format!(
-                            "landmark_dists entry {v} out of range for u32"
-                        ))
-                    })
-                })
-                .collect();
+        macro_rules! try_int_array {
+            ($ty:ty) => {
+                if let Ok(arr) = obj.extract::<PyReadonlyArrayDyn<'_, $ty>>() {
+                    return arr
+                        .as_array()
+                        .iter()
+                        .map(|&v| {
+                            u32::try_from(v).map_err(|_| {
+                                PyValueError::new_err(format!(
+                                    "landmark_dists entry {v} out of range for u32"
+                                ))
+                            })
+                        })
+                        .collect();
+                }
+            };
         }
-        if let Ok(arr) = obj.extract::<PyReadonlyArray2<'_, u64>>() {
-            return arr
-                .as_array()
-                .iter()
-                .map(|&v| {
-                    u32::try_from(v).map_err(|_| {
-                        PyValueError::new_err(format!(
-                            "landmark_dists entry {v} out of range for u32"
-                        ))
-                    })
-                })
-                .collect();
-        }
+        try_int_array!(i64);
+        try_int_array!(i32);
+        try_int_array!(i16);
+        try_int_array!(i8);
+        try_int_array!(u64);
         return Err(PyTypeError::new_err(
-            "landmark_dists NumPy array must have integer dtype",
+            "landmark_dists NumPy array must have integer or float dtype",
         ));
     }
-    extract_u32_1d(obj, "landmark_dists")
+
+    if is_non_sequence_container(obj) {
+        return Err(PyTypeError::new_err(
+            "landmark_dists must be a 1D or 2D array or sequence",
+        ));
+    }
+    let iter = obj
+        .try_iter()
+        .map_err(|_| PyTypeError::new_err("landmark_dists must be a 1D or 2D array or sequence"))?;
+    let mut items = Vec::new();
+    for item_res in iter {
+        items.push(item_res?);
+    }
+    let Some(first) = items.first() else {
+        return Ok(Vec::new());
+    };
+    if !is_non_sequence_container(first) && first.try_iter().is_ok() {
+        let mut flat = Vec::new();
+        let mut expected_cols: Option<usize> = None;
+        for (r_idx, row_obj) in items.iter().enumerate() {
+            if is_non_sequence_container(row_obj) {
+                return Err(PyTypeError::new_err(
+                    "landmark_dists rows must be sequences",
+                ));
+            }
+            let row_iter = row_obj
+                .try_iter()
+                .map_err(|_| PyTypeError::new_err("landmark_dists rows must be sequences"))?;
+            let mut row_len = 0usize;
+            for elem_res in row_iter {
+                flat.push(extract_landmark_item_u32(&elem_res?)?);
+                row_len += 1;
+            }
+            match expected_cols {
+                None => expected_cols = Some(row_len),
+                Some(cols) if cols != row_len => {
+                    return Err(PyValueError::new_err(format!(
+                        "landmark_dists has ragged row {r_idx}: expected {cols} columns, got {row_len}"
+                    )));
+                }
+                Some(_) => {}
+            }
+        }
+        return Ok(flat);
+    }
+
+    items.iter().map(extract_landmark_item_u32).collect()
 }
 
-/// Compute Landmark-Stratified RTA from precomputed `(P_L, N)` integer hop-distance table (`2**32 - 1` or `65535` for `uint16` = unreachable).
+/// Compute Landmark-Stratified RTA from a precomputed `(P_L, N)` hop-distance table.
 ///
+/// Accepts integer arrays (`2**32 - 1`, or `65535` for `uint16`, = unreachable) as well as
+/// `float64`/`float32` tables from `all_pairs_bfs` (`np.inf` = unreachable).
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(

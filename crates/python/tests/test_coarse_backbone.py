@@ -182,7 +182,7 @@ class TestCoarseBackbone(unittest.TestCase):
         self.assertLessEqual(bb["stats"]["num_coarse_nodes"], 16)
         solver.run(layout)
         self.assertTrue(layout.is_all_finite())
-        np2 = eg.neighborhood_preservation_2hop_v6(fem, layout)
+        np2 = eg.neighborhood_preservation_2hop(fem, layout)
         self.assertGreater(np2, 0.70)
 
     def test_adversarial_errors_no_panic(self) -> None:

@@ -85,7 +85,7 @@ impl PyFdebSolver {
             minimum_edge_compatibility = StrictF64(0.6),
             dtype = None
         ),
-        text_signature = "(graph, layout, *, cycles=6, s0=0.1, i0=90, s_step=0.5, i_step=2.0/3.0, spring_k=0.1, minimum_edge_compatibility=0.6, dtype=None)"
+        text_signature = "(graph, layout, *, cycles=6, s0=0.1, i0=90, s_step=0.5, i_step=0.6666666666666666, spring_k=0.1, minimum_edge_compatibility=0.6, dtype=None)"
     )]
     fn new(
         py: Python<'_>,

@@ -87,21 +87,10 @@ def _make_karate() -> tuple[eg.CsrGraph, eg.Layout2d]:
     n = 34
     csr = eg.CsrGraph.from_edges(n, karate_edges, directed=False, sanitize=True)
 
-    # Produce a structured stress-optimized embedding with legacy FullSgd.
-    lg = eg.Graph()
-    nodes = [lg.add_node(i) for i in range(n)]
-    for u, v in karate_edges:
-        lg.add_edge(nodes[u], nodes[v], 1.0)
-    drawing = eg.DrawingEuclidean2d.initial_placement(lg)
-    sgd = eg.FullSgd().build(lg, 1.0)
-    rng = eg.Rng.seed_from(7)
-
-    def _step(eta: float) -> None:
-        sgd.shuffle(rng)
-        sgd.apply(drawing, eta)
-
-    eg.SchedulerExponential(60).run(_step)
-    return csr, eg.Layout2d.from_coords(drawing.to_numpy())
+    # Produce a structured stress-optimized embedding with SgdSolver.full.
+    layout = eg.Layout2d.init(n, seed=7)
+    eg.SgdSolver.full(csr, t_max=60, seed=7).run(layout)
+    return csr, layout
 
 
 def _scale_layout(layout: eg.Layout2d, factor: float) -> eg.Layout2d:
@@ -199,7 +188,7 @@ class TestGeometryAndStressMetrics(unittest.TestCase):
             ]
         )
 
-        # Weighted path for ideal_edge_lengths_v6.
+        # Weighted path for ideal_edge_lengths.
         g_weighted = eg.CsrGraph.from_edges(
             3, [(0, 1), (1, 2)], weights=[2.0, 3.0], sanitize=False
         )
@@ -225,19 +214,19 @@ class TestGeometryAndStressMetrics(unittest.TestCase):
                 eg.neighborhood_preservation_1hop(grid_g, l_grid), 1.0, places=6
             )
             self.assertAlmostEqual(
-                eg.neighborhood_preservation_2hop_v6(grid_g, l_grid), 1.0, places=6
+                eg.neighborhood_preservation_2hop(grid_g, l_grid), 1.0, places=6
             )
             self.assertAlmostEqual(eg.drng_preservation(grid_g, l_grid), 1.0, places=6)
             self.assertAlmostEqual(eg.dgg_preservation(grid_g, l_grid), 1.0, places=6)
-            self.assertAlmostEqual(eg.gabriel_graph_property_v6(grid_g, l_grid), 0.0, places=6)
-            self.assertGreater(eg.node_resolution_v6(l_grid), 0.0)
-            self.assertAlmostEqual(eg.aspect_ratio_v6(l_grid), 1.0, places=6)
+            self.assertAlmostEqual(eg.gabriel_graph_property(grid_g, l_grid), 0.0, places=6)
+            self.assertGreater(eg.node_resolution(l_grid), 0.0)
+            self.assertAlmostEqual(eg.aspect_ratio(l_grid), 1.0, places=6)
             self.assertAlmostEqual(
-                eg.angular_resolution_v6(g_star, l_star),
+                eg.angular_resolution(g_star, l_star),
                 3.0 * math.exp(-2.0 * math.pi / 3.0),
                 places=5,
             )
-            self.assertAlmostEqual(eg.ideal_edge_lengths_v6(g_weighted, l_w), 0.0, places=6)
+            self.assertAlmostEqual(eg.ideal_edge_lengths(g_weighted, l_w), 0.0, places=6)
 
         # Standalone edge_angle helper.
         ang = eg.edge_angle(1.0, 0.0, 0.0, 1.0)
@@ -306,7 +295,7 @@ class TestGeometryAndStressMetrics(unittest.TestCase):
 
         for fn_sampled, fn_exact in (
             (eg.sampled_np1, eg.neighborhood_preservation_1hop),
-            (eg.sampled_np2, eg.neighborhood_preservation_2hop_v6),
+            (eg.sampled_np2, eg.neighborhood_preservation_2hop),
         ):
             self.assertIn(fn_sampled.__name__, eg.__all__)
             self.assertTrue((fn_sampled.__doc__ or "").strip())
@@ -339,8 +328,7 @@ class TestGeometryAndStressMetrics(unittest.TestCase):
                 (ValueError,), lambda: fn_sampled(g, bad_nan, num_samples=4)
             )
 
-    def test_top_level_dual_dispatch_csr_and_legacy(self) -> None:
-        # Build matching graphs/layouts in both Petgraph-based and CSR representations.
+    def test_top_level_csr_metrics_and_crossing_pairs(self) -> None:
         edges = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]
         coords = np.array([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]], dtype=np.float64)
 
@@ -348,49 +336,37 @@ class TestGeometryAndStressMetrics(unittest.TestCase):
         layout64 = eg.Layout2d.from_coords(coords)
         layout32 = eg.Layout2d.from_coords(coords.astype(np.float32))
 
-        lg = eg.Graph()
-        nodes = [lg.add_node(i) for i in range(4)]
-        for u, v in edges:
-            lg.add_edge(nodes[u], nodes[v], 1.0)
-        drawing = eg.DrawingEuclidean2d.from_numpy(lg, coords)
-        dm = eg.DistanceMatrix.from_numpy(lg, np.ones((4, 4), dtype=np.float64))
-
         for layout in (layout64, layout32):
-            self.assertEqual(eg.crossing_number(csr, layout), eg.crossing_number(lg, drawing))
+            pairs = eg.crossing_edges(csr, layout)
+            self.assertEqual(eg.crossing_number(csr, layout), 1.0)
+            self.assertEqual(eg.crossing_number_from_pairs(pairs), eg.crossing_number(csr, layout))
             self.assertAlmostEqual(
-                eg.crossing_angle(csr, layout), eg.crossing_angle(lg, drawing), places=5
+                eg.crossing_angle_from_pairs(pairs), eg.crossing_angle(csr, layout), places=12
+            )
+            self.assertAlmostEqual(eg.crossing_angle(csr, layout), 0.0, places=12)
+            self.assertEqual(
+                eg.crossing_number(csr, layout), eg.sweep_crossing_number(csr, layout)
             )
             self.assertAlmostEqual(
-                eg.neighborhood_preservation(csr, layout),
-                eg.neighborhood_preservation(lg, drawing),
-                places=6,
+                eg.crossing_angle(csr, layout), eg.sweep_crossing_angle(csr, layout), places=12
             )
-            self.assertAlmostEqual(
-                eg.neighborhood_preservation_2hop(csr, layout),
-                eg.neighborhood_preservation_2hop(lg, drawing),
-                places=6,
-            )
-            self.assertAlmostEqual(eg.aspect_ratio(layout), eg.aspect_ratio(drawing), places=5)
-            self.assertAlmostEqual(
-                eg.angular_resolution(csr, layout),
-                eg.angular_resolution(lg, drawing),
-                places=5,
-            )
-            self.assertAlmostEqual(
-                eg.node_resolution(layout), eg.node_resolution_v6(layout), places=12
-            )
+            self.assertAlmostEqual(eg.neighborhood_preservation_1hop(csr, layout), 1.0, places=6)
+            self.assertAlmostEqual(eg.neighborhood_preservation_2hop(csr, layout), 1.0, places=6)
+            self.assertAlmostEqual(eg.aspect_ratio(layout), 1.0, places=6)
+            self.assertTrue(math.isfinite(eg.angular_resolution(csr, layout)))
             self.assertEqual(eg.node_resolution(layout), 0.0)
-            self.assertTrue(math.isfinite(eg.node_resolution(drawing)))
-            self.assertAlmostEqual(
-                eg.gabriel_graph_property(csr, layout),
-                eg.gabriel_graph_property(lg, drawing),
-                places=5,
-            )
-            self.assertAlmostEqual(
-                eg.ideal_edge_lengths(csr, layout),
-                eg.ideal_edge_lengths(lg, drawing, dm),
-                places=5,
-            )
+            self.assertTrue(math.isfinite(eg.gabriel_graph_property(csr, layout)))
+            self.assertGreater(eg.ideal_edge_lengths(csr, layout), 0.0)
+
+        # Non-perpendicular crossing verifies sum cos^2(theta) > 0.0
+        g_shear = eg.CsrGraph.from_edges(4, [(0, 1), (2, 3)])
+        l_shear = eg.Layout2d.from_coords([[0.0, 0.0], [2.0, 2.0], [0.0, 1.0], [2.0, 1.0]])
+        pairs_shear = eg.crossing_edges(g_shear, l_shear)
+        self.assertEqual(eg.crossing_number_from_pairs(pairs_shear), 1.0)
+        self.assertAlmostEqual(
+            eg.crossing_angle_from_pairs(pairs_shear), eg.crossing_angle(g_shear, l_shear), places=12
+        )
+        self.assertAlmostEqual(eg.crossing_angle(g_shear, l_shear), 0.5, places=12)
 
 
 if __name__ == "__main__":

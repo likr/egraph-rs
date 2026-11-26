@@ -25,7 +25,6 @@ pub(super) fn parse_amg_laplacian_kind(raw: &str) -> Result<LaplacianKind, Strin
         "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
             Ok(LaplacianKind::SymmetricNormalized)
         }
-        "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
         _ => Err(format!(
             "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetric_normalized'"
         )),

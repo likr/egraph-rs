@@ -67,6 +67,8 @@ class ForbidOverlapRemoval:
 
 @final
 class GTreeOverlapRemoval:
+    """GTree proximity-MST node overlap removal solver (``compact_t_max > 1.0`` when set)."""
+
     def __new__(
         cls,
         half_widths: _WeightArrayLike,
@@ -74,7 +76,7 @@ class GTreeOverlapRemoval:
         *,
         max_iterations: int = 20,
         padding: float = 0.0,
-        compact_t_max: float | None = None,
+        compact_t_max: float | None = None,  # Must be > 1.0 when provided
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GTreeOverlapRemoval: ...
@@ -84,7 +86,7 @@ class GTreeOverlapRemoval:
         *,
         max_iterations: int = 20,
         padding: float = 0.0,
-        compact_t_max: float | None = None,
+        compact_t_max: float | None = None,  # Must be > 1.0 when provided
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GTreeOverlapRemoval: ...

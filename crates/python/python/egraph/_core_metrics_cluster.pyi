@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from ._core_core import CsrGraph, Layout2d
-from ._core_types import _IndexArrayLike, _WeightArrayLike
+from ._core_types import _IndexArrayLike, _MatrixArrayLike, _WeightArrayLike
 
 __all__ = [
     "adjusted_patch_nig",
@@ -147,7 +147,7 @@ def landmark_stratified_rta_detail(
 def landmark_stratified_rta_from_landmarks(
     layout: Layout2d,
     landmark_ids: _IndexArrayLike,
-    landmark_dists: _IndexArrayLike | Sequence[Sequence[int]],
+    landmark_dists: _IndexArrayLike | _WeightArrayLike | _MatrixArrayLike | Sequence[Sequence[int | float]],
     *,
     num_triplets: int = 1000000,
     seed: int = 42,

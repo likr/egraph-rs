@@ -122,6 +122,24 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
         self.assertEqual(res_cpm["labels"].dtype, np.uint32)
         self.assertGreaterEqual(int(res_cpm["num_communities"]), 2)
 
+        # CPM modularity field must reflect standard gamma=1.0 modularity, never resolution-inflated
+        karate = eg.load_dataset("karate")
+        res_cpm_k = eg.leiden_communities(karate, objective="cpm", resolution=0.1, seed=42)
+        labels_k = res_cpm_k["labels"]
+        adj_ind = karate.indptr()
+        adj_idx = karate.indices()
+        two_m = float(adj_ind[-1])
+        q1_expected = 0.0
+        for c in np.unique(labels_k):
+            nodes_c = np.where(labels_k == c)[0]
+            deg_sum = sum(int(adj_ind[u + 1] - adj_ind[u]) for u in nodes_c)
+            c_set = set(int(u) for u in nodes_c)
+            in_edges = sum(
+                1 for u in nodes_c for v in adj_idx[adj_ind[u] : adj_ind[u + 1]] if int(v) in c_set
+            )
+            q1_expected += in_edges / two_m - (deg_sum / two_m) ** 2
+        self.assertAlmostEqual(float(res_cpm_k["modularity"]), q1_expected, places=12)
+
         # Degenerate empty & edgeless graphs
         empty = eg.CsrGraph.from_edges(0, [], directed=False)
         res_empty = eg.leiden_communities(empty)

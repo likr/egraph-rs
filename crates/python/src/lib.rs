@@ -20,37 +20,20 @@
 //! - `solvers`: Cooperative layout solvers, overlap removal, edge bundling, and density field bindings
 //! - `constraints_layering`: Separation constraint, 1D/2D overlap projection, and layering bindings
 //! - `ffi_convert` / `array_extract` / `solver_common`: Shared FFI conversion and dual-precision solver helpers
-//! - `graph`: Graph data structures (Graph, DiGraph)
-//! - `drawing`: Drawing spaces (Euclidean, Hyperbolic, Spherical, Torus)
-//! - `distance_matrix`: Distance matrix operations
-//! - `layout`: Layout algorithms (SGD, MDS, Kamada-Kawai, etc.)
-//! - `algorithm`: Graph algorithms (shortest path)
-//! - `clustering`: Community detection algorithms (Louvain, Label Propagation, etc.)
-//! - `quality_metrics`: Layout quality evaluation metrics
-//! - `rng`: Random number generation utilities
 
 use pyo3::prelude::*;
 
-mod algorithm;
-mod array;
 mod array_extract;
-mod clustering;
 mod community;
 mod constraints_layering;
 mod csr_graph;
-mod distance_matrix;
-mod drawing;
 mod ffi_convert;
-mod graph;
-mod layout;
 mod layout_buffers;
 mod layout_nd;
 mod linalg;
 mod manifold;
 mod metrics;
 mod neighborhood;
-mod quality_metrics;
-mod rng;
 mod solver_common;
 mod solvers;
 mod spatial_dataset;
@@ -81,8 +64,8 @@ fn pep440_version(semver: &str) -> String {
 
 /// Creates and initializes the `egraph._core` Python extension module.
 ///
-/// Registers core `CsrGraph`, `Layout2d`, `LayoutNd`, metrics, spatial, linear algebra,
-/// neighborhood, clustering, and layout solver bindings alongside legacy graph drawing modules.
+/// Registers core `CsrGraph`, `Layout2d`, `LayoutNd`, `ManifoldLayout2d`, metrics, spatial,
+/// linear algebra, neighborhood, clustering, and layout solver bindings.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", pep440_version(env!("CARGO_PKG_VERSION")))?;
@@ -97,15 +80,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     manifold::register(m)?;
     solvers::register(m)?;
     constraints_layering::register(m)?;
-    graph::register(m)?;
-    drawing::register(m)?;
-    distance_matrix::register(m)?;
-    rng::register(m)?;
-    layout::register(m)?;
-    algorithm::register(m)?;
-    quality_metrics::register(m)?;
-    clustering::register(m)?;
-    array::register(m)?;
     Ok(())
 }
 

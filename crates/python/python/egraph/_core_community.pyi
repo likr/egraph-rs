@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Callable, final
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
-from ._core_core import CsrGraph, GraphAdapter, Layout2d
+from ._core_core import CsrGraph, Layout2d
 from ._core_neighborhood import DogVaradhanLandmarks
 from ._core_types import _IndexArrayLike, _MatrixArrayLike, _WeightArrayLike
 
 __all__ = [
-    "LabelPropagation",
-    "Louvain",
-    "SpectralClustering",
     "align_clustered_centroids",
     "coarsen_graph",
     "compute_pivoted_rhgh_landmarks",
@@ -23,24 +20,8 @@ __all__ = [
     "louvain_communities",
     "project_clustered_layout",
     "project_clustered_layout_with_radii",
-    "py_coarsen",
     "spectral_clustering",
 ]
-
-@final
-class LabelPropagation:
-    def __new__(cls) -> LabelPropagation: ...
-    def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
-
-@final
-class Louvain:
-    def __new__(cls) -> Louvain: ...
-    def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
-
-@final
-class SpectralClustering:
-    def __new__(cls, k: int) -> SpectralClustering: ...
-    def detect_communities(self, graph: GraphAdapter) -> dict[int, int]: ...
 
 def align_clustered_centroids(
     fine_layout: Layout2d,
@@ -130,13 +111,6 @@ def project_clustered_layout_with_radii(
     jitter_scale: float = 0.5,
     seed: int = 42,
 ) -> Layout2d: ...
-
-def py_coarsen(
-    graph: GraphAdapter,
-    node_group_func: Callable[[int], int],
-    node_merge_func: Callable[[list[int]], Any],
-    edge_merge_func: Callable[[list[int]], Any],
-) -> tuple[GraphAdapter, dict[int, int]]: ...
 
 def spectral_clustering(
     graph: CsrGraph,

@@ -145,7 +145,9 @@ fn constraints_to_f32(
 /// If `coords` is a writable `float64` or `float32` NumPy 1D array, updates it in place and
 /// returns the projected NumPy array with matching dtype. Otherwise returns a new `float64`
 /// NumPy array. Releases the Python GIL during projection.
-pub(crate) fn project_1d_csr_impl<'py>(
+#[pyfunction]
+#[pyo3(signature = (coords, constraints), text_signature = "(coords, constraints)")]
+fn project_1d<'py>(
     py: Python<'py>,
     coords: &Bound<'py, PyAny>,
     constraints: &Bound<'py, PyAny>,
@@ -247,7 +249,12 @@ fn project_layout_axis(
 /// Generate hierarchical separation constraints for directed edges spanning `layers[u] < layers[v]`.
 ///
 /// Releases the Python GIL during constraint generation.
-pub(crate) fn layering_constraints_csr_impl(
+#[pyfunction]
+#[pyo3(
+    signature = (graph, layers, min_layer_distance = StrictF64(1.0)),
+    text_signature = "(graph, layers, min_layer_distance=1.0)"
+)]
+fn generate_layered_constraints(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layers: &Bound<'_, PyAny>,
@@ -350,10 +357,9 @@ fn project_clustered_rectangle_no_overlap_2d(
 /// Identify back-edges `(u, v)` whose reversal eliminates all directed cycles in a `CsrGraph`.
 ///
 /// Returns a `uint32` NumPy array of shape `(M, 2)` and releases the Python GIL.
-pub(crate) fn cycle_edges_csr_impl<'py>(
-    py: Python<'py>,
-    graph: &PyCsrGraph,
-) -> PyResult<Bound<'py, PyArray2<u32>>> {
+#[pyfunction]
+#[pyo3(signature = (graph), text_signature = "(graph)")]
+fn cycle_edges<'py>(py: Python<'py>, graph: &PyCsrGraph) -> PyResult<Bound<'py, PyArray2<u32>>> {
     let g = graph.inner();
     let pairs = py
         .detach(|| layout_cycle_edges(g))
@@ -414,12 +420,15 @@ fn assign_layers<'py>(
 /// Register separation constraint, overlap projection, and layering bindings on `egraph._core`.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeparationConstraint>()?;
+    m.add_function(wrap_pyfunction!(project_1d, m)?)?;
     m.add_function(wrap_pyfunction!(project_layout_axis, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_layered_constraints, m)?)?;
     m.add_function(wrap_pyfunction!(project_rectangle_no_overlap_2d, m)?)?;
     m.add_function(wrap_pyfunction!(
         project_clustered_rectangle_no_overlap_2d,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(cycle_edges, m)?)?;
     m.add_function(wrap_pyfunction!(remove_cycles, m)?)?;
     m.add_function(wrap_pyfunction!(assign_layers, m)?)?;
     Ok(())

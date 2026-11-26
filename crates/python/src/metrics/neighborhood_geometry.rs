@@ -89,7 +89,7 @@ fn neighborhood_preservation_1hop(
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn neighborhood_preservation_2hop_v6(
+fn neighborhood_preservation_2hop(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: &PyLayout2d,
@@ -220,7 +220,7 @@ fn dgg_preservation(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> 
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn gabriel_graph_property_v6(
+fn gabriel_graph_property(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: &PyLayout2d,
@@ -232,7 +232,7 @@ fn gabriel_graph_property_v6(
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn node_resolution_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+fn node_resolution(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
     csr_node_resolution_impl(py, layout)
 }
 
@@ -240,7 +240,7 @@ fn node_resolution_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn aspect_ratio_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
+fn aspect_ratio(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
     csr_aspect_ratio_impl(py, layout)
 }
 
@@ -248,7 +248,7 @@ fn aspect_ratio_v6(py: Python<'_>, layout: &PyLayout2d) -> PyResult<f64> {
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn angular_resolution_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+fn angular_resolution(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     csr_angular_resolution_impl(py, graph, layout)
 }
 
@@ -256,7 +256,7 @@ fn angular_resolution_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
-fn ideal_edge_lengths_v6(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
+fn ideal_edge_lengths(py: Python<'_>, graph: &PyCsrGraph, layout: &PyLayout2d) -> PyResult<f64> {
     csr_ideal_edge_lengths_impl(py, graph, layout)
 }
 
@@ -351,7 +351,7 @@ fn prism_distortion_with_edges(
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neighborhood_preservation_1hop, m)?)?;
-    m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(neighborhood_preservation_2hop, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_np1, m)?)?;
     m.add_function(wrap_pyfunction!(sampled_np2, m)?)?;
     m.add_function(wrap_pyfunction!(edge_angle, m)?)?;
@@ -359,11 +359,11 @@ pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prism_distortion_with_edges, m)?)?;
     m.add_function(wrap_pyfunction!(drng_preservation, m)?)?;
     m.add_function(wrap_pyfunction!(dgg_preservation, m)?)?;
-    m.add_function(wrap_pyfunction!(gabriel_graph_property_v6, m)?)?;
-    m.add_function(wrap_pyfunction!(node_resolution_v6, m)?)?;
-    m.add_function(wrap_pyfunction!(aspect_ratio_v6, m)?)?;
-    m.add_function(wrap_pyfunction!(angular_resolution_v6, m)?)?;
-    m.add_function(wrap_pyfunction!(ideal_edge_lengths_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(gabriel_graph_property, m)?)?;
+    m.add_function(wrap_pyfunction!(node_resolution, m)?)?;
+    m.add_function(wrap_pyfunction!(aspect_ratio, m)?)?;
+    m.add_function(wrap_pyfunction!(angular_resolution, m)?)?;
+    m.add_function(wrap_pyfunction!(ideal_edge_lengths, m)?)?;
     m.add_function(wrap_pyfunction!(ideal_edge_lengths_with_unit, m)?)?;
     m.add_function(wrap_pyfunction!(gabriel_graph_edges, m)?)?;
     m.add_function(wrap_pyfunction!(relative_neighborhood_edges, m)?)?;

@@ -43,6 +43,9 @@ pub struct PyGTreeOverlapRemoval {
 #[pymethods]
 impl PyGTreeOverlapRemoval {
     /// Create a `GTreeOverlapRemoval` solver from per-node `half_widths` and `half_heights`.
+    ///
+    /// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
+    /// compact per-step expansion capping). Values `<= 1.0` raise `ValueError`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -96,6 +99,9 @@ impl PyGTreeOverlapRemoval {
     }
 
     /// Create a `GTreeOverlapRemoval` solver for square/circular nodes with equal half-widths and half-heights.
+    ///
+    /// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
+    /// compact per-step expansion capping). Values `<= 1.0` raise `ValueError`.
     #[staticmethod]
     #[pyo3(
         signature = (

@@ -278,9 +278,6 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             [0],
             [1],
             [1.0],
-            None,
-            None,
-            None,
             [0],
             [2],
             [2.0],
@@ -292,6 +289,26 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         lh = eg.Layout2d.from_coords([[0.0, 0.0], [3.0, 0.0], [0.0, 0.2]])
         self.assertEqual(sh.run(lh), "completed")
         self.assertTrue(lh.is_all_finite())
+
+        sh_kw = eg.SgdSolver.from_pairs_with_hinges(
+            3,
+            [0],
+            [1],
+            [1.0],
+            [0],
+            [2],
+            [2.0],
+            spring_dji=[1.0],
+            spring_wij=[1.0],
+            spring_wji=[1.0],
+            hinge_dji=[2.0],
+            hinge_wij=[0.25],
+            hinge_wji=[0.25],
+            t_max=8,
+            seed=42,
+        )
+        self.assertEqual(sh_kw.num_springs, 1)
+        self.assertEqual(sh_kw.num_hinges, 1)
 
         # 2. full, sparse_barrier_dog, sparse_barrier_from_landmarks, random_pair, omega, streaming_negatives
         lm = eg.compute_regularized_dog_varadhan_landmarks(g, degree=20, num_landmarks=8, seed=42)

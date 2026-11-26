@@ -146,7 +146,7 @@ fn load_dataset(py: Python<'_>, name: &str) -> PyResult<PyCsrGraph> {
     Ok(PyCsrGraph::from_csr_graph(csr))
 }
 
-/// Parse an edge-list CSV string (`num_nodes,num_edges` header followed by `u,v` lines) into a `CsrGraph`.
+/// Parse an edge-list CSV string (`num_nodes,num_edges` header followed by `u,v` or weighted `u,v,w` lines) into a `CsrGraph`.
 #[pyfunction]
 #[pyo3(
     signature = (csv, *, directed = false, sanitize = true),

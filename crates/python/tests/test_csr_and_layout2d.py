@@ -292,14 +292,27 @@ class TestLayout2d(unittest.TestCase):
             eg.Layout2d.from_coords("not_coords")  # type: ignore[arg-type]
 
     def test_package_exports_and_docstrings(self) -> None:
-        # Both CSR/SoA and Petgraph-based classes are exposed on top-level `egraph`
+        # CSR/SoA classes and functions are exposed on top-level `egraph`
         self.assertIs(eg.CsrGraph, eg._core.CsrGraph)
         self.assertIs(eg.Layout2d, eg._core.Layout2d)
-        self.assertIs(eg.Graph, eg._core.Graph)
         self.assertTrue((eg.CsrGraph.__doc__ or "").strip())
         self.assertTrue((eg.Layout2d.__doc__ or "").strip())
         sig = inspect.signature(eg.Layout2d.zeros)
         self.assertEqual(list(sig.parameters.keys()), ["n", "dtype"])
+
+        # Every public class, method, and function must expose a valid inspect.signature
+        for name in eg.__all__:
+            obj = getattr(eg, name)
+            if inspect.isclass(obj):
+                inspect.signature(obj)
+                for attr_name in dir(obj):
+                    if attr_name.startswith("__") and attr_name != "__new__":
+                        continue
+                    member = getattr(obj, attr_name)
+                    if callable(member):
+                        inspect.signature(member)
+            elif callable(obj):
+                inspect.signature(obj)
 
     def test_version_export_matches_metadata(self) -> None:
         meta_ver = importlib.metadata.version("egraph")

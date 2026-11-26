@@ -54,7 +54,7 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
         )
         self.assertAlmostEqual(
             subset["neighborhood_preservation_2hop"],
-            eg.neighborhood_preservation_2hop_v6(g, layout),
+            eg.neighborhood_preservation_2hop(g, layout),
             places=12,
         )
         self.assertAlmostEqual(
@@ -118,16 +118,16 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
         )
         self.assertAlmostEqual(
             full["gabriel_graph_property"],
-            eg.gabriel_graph_property_v6(g, layout),
+            eg.gabriel_graph_property(g, layout),
             places=12,
         )
-        self.assertAlmostEqual(full["node_resolution"], eg.node_resolution_v6(layout), places=12)
-        self.assertAlmostEqual(full["aspect_ratio"], eg.aspect_ratio_v6(layout), places=12)
+        self.assertAlmostEqual(full["node_resolution"], eg.node_resolution(layout), places=12)
+        self.assertAlmostEqual(full["aspect_ratio"], eg.aspect_ratio(layout), places=12)
         self.assertAlmostEqual(
-            full["angular_resolution"], eg.angular_resolution_v6(g, layout), places=12
+            full["angular_resolution"], eg.angular_resolution(g, layout), places=12
         )
         self.assertAlmostEqual(
-            full["ideal_edge_lengths"], eg.ideal_edge_lengths_v6(g, layout), places=12
+            full["ideal_edge_lengths"], eg.ideal_edge_lengths(g, layout), places=12
         )
 
         # Invalid sampled parameter only errors when the corresponding target is requested.

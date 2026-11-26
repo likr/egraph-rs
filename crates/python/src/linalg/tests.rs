@@ -45,9 +45,7 @@ fn test_linalg_spectral_and_amg_helpers() {
         parse_amg_laplacian_kind("symmetric_normalized").unwrap(),
         LaplacianKind::SymmetricNormalized
     );
-    assert_eq!(
-        parse_amg_laplacian_kind("random_walk").unwrap(),
-        LaplacianKind::RandomWalk
-    );
+    assert!(parse_amg_laplacian_kind("random_walk").is_err());
+    assert!(parse_amg_laplacian_kind("rw").is_err());
     assert!(parse_amg_laplacian_kind("unknown").is_err());
 }
