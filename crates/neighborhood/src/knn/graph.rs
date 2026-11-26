@@ -7,7 +7,7 @@ use egraph_core::{CoreError, CoreResult};
 #[derive(Debug, Clone, PartialEq)]
 pub struct KnnGraph {
     n_nodes: usize,
-    indptr: Vec<usize>,
+    indptr: Vec<u32>,
     indices: Vec<u32>,
     distances: Vec<f64>,
 }
@@ -17,7 +17,7 @@ impl KnnGraph {
     /// non-negative distances.
     pub fn new_validated(
         n_nodes: usize,
-        indptr: Vec<usize>,
+        indptr: Vec<u32>,
         indices: Vec<u32>,
         distances: Vec<f64>,
     ) -> CoreResult<Self> {
@@ -46,7 +46,7 @@ impl KnnGraph {
                 )));
             }
         }
-        let nnz = indptr[n_nodes];
+        let nnz = indptr[n_nodes] as usize;
         if indices.len() != nnz {
             return Err(CoreError::dimension_mismatch(
                 nnz,
@@ -118,8 +118,8 @@ impl KnnGraph {
     /// Panics if `i >= self.num_nodes()`.
     #[inline]
     pub fn row(&self, i: usize) -> (&[u32], &[f64]) {
-        let start = self.indptr[i];
-        let end = self.indptr[i + 1];
+        let start = self.indptr[i] as usize;
+        let end = self.indptr[i + 1] as usize;
         (&self.indices[start..end], &self.distances[start..end])
     }
 
@@ -138,7 +138,7 @@ impl KnnGraph {
 
     /// Returns the CSR row pointer slice of length `num_nodes() + 1`.
     #[inline]
-    pub fn indptr(&self) -> &[usize] {
+    pub fn indptr(&self) -> &[u32] {
         &self.indptr
     }
 

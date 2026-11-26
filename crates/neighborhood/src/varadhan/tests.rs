@@ -172,6 +172,18 @@ fn test_pivoted_rhgh_landmarks_determinism_and_monotonicity() {
     assert!(st1.p_exp >= 0.6 && st1.p_exp <= 0.9);
     assert!(lm1.d_dog().iter().all(|&v| v.is_finite() && v >= 0.0));
 
+    let (rhgh_res, rhgh_st) = compute_pivoted_rhgh_landmarks_result(&g, &cfg).unwrap();
+    assert_eq!(rhgh_st, st1);
+    assert_eq!(rhgh_res.num_nodes(), 10);
+    assert_eq!(rhgh_res.num_landmarks(), 10);
+    assert_eq!(rhgh_res.d_rhgh(), lm1.d_dog());
+    assert_eq!(
+        rhgh_res.alt_pair_distances(&[0, 0], &[1, 9]).unwrap(),
+        lm1.alt_pair_distances(&[0, 0], &[1, 9]).unwrap()
+    );
+    let converted: DogVaradhanLandmarks = rhgh_res.into();
+    assert_eq!(converted, lm1);
+
     let d01 = lm1.alt_pair_distances(&[0], &[1]).unwrap()[0];
     let d05 = lm1.alt_pair_distances(&[0], &[5]).unwrap()[0];
     let d09 = lm1.alt_pair_distances(&[0], &[9]).unwrap()[0];

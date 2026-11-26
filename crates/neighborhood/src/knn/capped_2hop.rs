@@ -1,10 +1,23 @@
 //! Hub-safe capped 1+2-hop pair extraction (`Sparse12HopPairs`) and capped 1+2-hop [`KnnGraph`]
 //! construction in $O(|E| + N \cdot \mathrm{cap})$ time.
 
-use egraph_core::{CoreResult, CsrGraph, DeterministicRng, VisitStamp};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, VisitStamp};
 
 use super::graph::{KnnGraph, KnnStats, Sparse12HopPairs};
 use super::two_hop::canonical_unweighted_1hop;
+
+/// Strategy used by [`extract_sparse_1hop_2hop_pairs_with_mode`] to sample capped 2-hop pairs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TwoHopSamplingMode {
+    /// Expands bridge neighbors in ascending `(deg(w), w)` order while unconditionally
+    /// suppressing super-hubs (`deg(w) > max(64, floor(sqrt(N)))`).
+    #[default]
+    DegreeOrderedHubSuppressed,
+    /// Uniform 2-step random walk with dead-end leaf filtering (`deg(w) > 1`), exact enumeration
+    /// when `sum(deg(w) - 1) <= max_2hop_per_node`, and up to `4 * max_2hop_per_node` draws
+    /// otherwise.
+    TwoStepRandomWalk,
+}
 
 /// Extracts canonical undirected 1-hop (`u < v`) and hub-safe capped 2-hop (`u < v`) node pairs
 /// without $O(N^2)$ pair explosion on star hubs.
@@ -27,22 +40,42 @@ pub fn extract_sparse_1hop_2hop_pairs<W>(
     Ok(pairs)
 }
 
+/// Extracts canonical undirected 1-hop (`u < v`) and capped 2-hop (`u < v`) node pairs using the
+/// specified [`TwoHopSamplingMode`] and optional `max_bridge_degree` cap on intermediate vertices.
+pub fn extract_sparse_1hop_2hop_pairs_with_mode<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    mode: TwoHopSamplingMode,
+    max_bridge_degree: Option<usize>,
+    seed: u64,
+) -> CoreResult<Sparse12HopPairs> {
+    match mode {
+        TwoHopSamplingMode::DegreeOrderedHubSuppressed => {
+            let (pairs, _) = extract_sparse_1hop_2hop_pairs_degree_ordered(
+                graph,
+                max_2hop_per_node,
+                max_bridge_degree,
+                seed,
+            )?;
+            Ok(pairs)
+        }
+        TwoHopSamplingMode::TwoStepRandomWalk => extract_sparse_1hop_2hop_pairs_random_walk(
+            graph,
+            max_2hop_per_node,
+            max_bridge_degree,
+            seed,
+        ),
+    }
+}
+
 #[inline]
 fn super_hub_degree_threshold(n_nodes: usize) -> usize {
     64usize.max(n_nodes.isqrt())
 }
 
-pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
-    graph: &CsrGraph<W>,
-    max_2hop_per_node: usize,
-    seed: u64,
-) -> CoreResult<(Sparse12HopPairs, usize)> {
-    let adj1 = canonical_unweighted_1hop(graph)?;
+#[inline]
+fn collect_1hop_pairs(adj1: &CsrGraph<f64>) -> (Vec<u32>, Vec<u32>) {
     let n = adj1.num_nodes();
-    if n <= 1 || adj1.nnz() == 0 {
-        return Ok((Sparse12HopPairs::default(), 0));
-    }
-
     let mut u1 = Vec::with_capacity(adj1.num_edges());
     let mut v1 = Vec::with_capacity(adj1.num_edges());
     for u in 0..n {
@@ -54,6 +87,47 @@ pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
             }
         }
     }
+    (u1, v1)
+}
+
+#[inline]
+fn finish_2hop_pairs(
+    u1: Vec<u32>,
+    v1: Vec<u32>,
+    mut raw_2hop: Vec<(u32, u32)>,
+) -> Sparse12HopPairs {
+    raw_2hop.sort_unstable();
+    raw_2hop.dedup();
+    let mut u2 = Vec::with_capacity(raw_2hop.len());
+    let mut v2 = Vec::with_capacity(raw_2hop.len());
+    for (a, b) in raw_2hop {
+        u2.push(a);
+        v2.push(b);
+    }
+    Sparse12HopPairs { u1, v1, u2, v2 }
+}
+
+pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    seed: u64,
+) -> CoreResult<(Sparse12HopPairs, usize)> {
+    extract_sparse_1hop_2hop_pairs_degree_ordered(graph, max_2hop_per_node, None, seed)
+}
+
+fn extract_sparse_1hop_2hop_pairs_degree_ordered<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    max_bridge_degree: Option<usize>,
+    seed: u64,
+) -> CoreResult<(Sparse12HopPairs, usize)> {
+    let adj1 = canonical_unweighted_1hop(graph)?;
+    let n = adj1.num_nodes();
+    if n <= 1 || adj1.nnz() == 0 {
+        return Ok((Sparse12HopPairs::default(), 0));
+    }
+
+    let (u1, v1) = collect_1hop_pairs(&adj1);
 
     if max_2hop_per_node == 0 || n <= 2 {
         let mut n_truncated_2hop = 0usize;
@@ -79,7 +153,10 @@ pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
         ));
     }
 
-    let hub_threshold = super_hub_degree_threshold(n);
+    let hub_threshold = match max_bridge_degree {
+        Some(b) => super_hub_degree_threshold(n).min(b),
+        None => super_hub_degree_threshold(n),
+    };
     let mut w_candidates: Vec<(usize, u32)> = Vec::new();
     let mut rng = DeterministicRng::from_seed_u64(seed);
     let mut stamp = VisitStamp::new(n);
@@ -148,16 +225,87 @@ pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
         }
     }
 
-    raw_2hop.sort_unstable();
-    raw_2hop.dedup();
-    let mut u2 = Vec::with_capacity(raw_2hop.len());
-    let mut v2 = Vec::with_capacity(raw_2hop.len());
-    for (a, b) in raw_2hop {
-        u2.push(a);
-        v2.push(b);
+    Ok((finish_2hop_pairs(u1, v1, raw_2hop), n_truncated_2hop))
+}
+
+fn extract_sparse_1hop_2hop_pairs_random_walk<W>(
+    graph: &CsrGraph<W>,
+    max_2hop_per_node: usize,
+    max_bridge_degree: Option<usize>,
+    seed: u64,
+) -> CoreResult<Sparse12HopPairs> {
+    let adj1 = canonical_unweighted_1hop(graph)?;
+    let n = adj1.num_nodes();
+    if n <= 1 || adj1.nnz() == 0 {
+        return Ok(Sparse12HopPairs::default());
     }
 
-    Ok((Sparse12HopPairs { u1, v1, u2, v2 }, n_truncated_2hop))
+    let (u1, v1) = collect_1hop_pairs(&adj1);
+    if max_2hop_per_node == 0 || n <= 2 {
+        return Ok(Sparse12HopPairs {
+            u1,
+            v1,
+            u2: Vec::new(),
+            v2: Vec::new(),
+        });
+    }
+
+    let mut non_leaf: Vec<u32> = Vec::new();
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let mut stamp = VisitStamp::new(n);
+    let mut raw_2hop: Vec<(u32, u32)> = Vec::new();
+
+    for u in 0..n {
+        let n1_u = adj1.neighbors(u);
+        if n1_u.is_empty() {
+            continue;
+        }
+        stamp.clear();
+        stamp.mark(u);
+        non_leaf.clear();
+        let mut pot = 0usize;
+        for &w in n1_u {
+            stamp.mark(w as usize);
+            let deg_w = adj1.degree(w as usize);
+            // Skip dead-end leaves (deg == 1) so star+branch hubs do not waste random-walk
+            // draws bouncing straight back to u.
+            if deg_w > 1 && max_bridge_degree.is_none_or(|b| deg_w <= b) {
+                non_leaf.push(w);
+                pot = pot.saturating_add(deg_w - 1);
+            }
+        }
+        if non_leaf.is_empty() {
+            continue;
+        }
+
+        let u_u32 = u as u32;
+        if pot <= max_2hop_per_node {
+            for &w in &non_leaf {
+                for &v in adj1.neighbors(w as usize) {
+                    if stamp.visit(v as usize) {
+                        raw_2hop.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
+                    }
+                }
+            }
+        } else {
+            let max_draws = max_2hop_per_node.saturating_mul(4);
+            let mut collected = 0usize;
+            for _ in 0..max_draws {
+                let w = non_leaf[rng.gen_range_usize(non_leaf.len())];
+                let n1_w = adj1.neighbors(w as usize);
+                let v = n1_w[rng.gen_range_usize(n1_w.len())];
+                if stamp.visit(v as usize) {
+                    raw_2hop.push(if u_u32 < v { (u_u32, v) } else { (v, u_u32) });
+                    collected += 1;
+                    if collected >= max_2hop_per_node {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(finish_2hop_pairs(u1, v1, raw_2hop))
 }
 
 /// Builds a hub-safe capped 1+2-hop CSR [`KnnGraph`] with `{1.0, 2.0}` discrete distances,
@@ -197,8 +345,14 @@ pub fn build_capped_12hop_knn<W>(
         deg2[v as usize] += 1;
     }
 
+    if u32::try_from(total_nnz).is_err() {
+        return Err(CoreError::invalid_csr(
+            "capped 1+2-hop nnz exceeds u32::MAX",
+        ));
+    }
+
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut k2_deg = Vec::with_capacity(n);
     let mut min_row_k = usize::MAX;
     let mut max_row_k = 0usize;
@@ -209,10 +363,12 @@ pub fn build_capped_12hop_knn<W>(
         min_row_k = min_row_k.min(row_k);
         max_row_k = max_row_k.max(row_k);
         running += row_k;
-        indptr.push(running);
+        let ptr = u32::try_from(running)
+            .map_err(|_| CoreError::invalid_csr("capped 1+2-hop nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
 
-    let mut cursor = indptr[..n].to_vec();
+    let mut cursor: Vec<usize> = indptr[..n].iter().map(|&p| p as usize).collect();
     let mut indices = vec![0u32; total_nnz];
     let mut distances = vec![0.0_f64; total_nnz];
 

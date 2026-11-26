@@ -16,7 +16,7 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
     let probs_uncapped = graph_12hop_row_normalized_probabilities(&g, w2, None, 42).unwrap();
     let (adj1, adj2) = extract_1hop_2hop_csr(&g).unwrap();
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut indices = Vec::new();
     let mut weights = Vec::new();
     for u in 0..n {
@@ -28,7 +28,7 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
             indices.push(v);
             weights.push(w2);
         }
-        indptr.push(indices.len());
+        indptr.push(indices.len() as u32);
     }
     let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
     assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
@@ -51,7 +51,7 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
         adj_rows[u as usize].push((v, 0.35));
         adj_rows[v as usize].push((u, 0.35));
     }
-    let mut c_indptr = vec![0usize];
+    let mut c_indptr = vec![0u32];
     let mut c_indices = Vec::new();
     let mut c_weights = Vec::new();
     for row in adj_rows {
@@ -59,7 +59,7 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
             c_indices.push(v);
             c_weights.push(w);
         }
-        c_indptr.push(c_indices.len());
+        c_indptr.push(c_indices.len() as u32);
     }
     let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
     assert_eq!(probs_capped.indptr, ref_capped.indptr);
@@ -125,7 +125,7 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
     let probs_uncapped =
         graph_12hop_row_normalized_probabilities_with_degree_decay(&g, w2, None, beta, 42).unwrap();
     let (adj1, adj2) = extract_1hop_2hop_csr(&g).unwrap();
-    let mut indptr = vec![0usize];
+    let mut indptr = vec![0u32];
     let mut indices = Vec::new();
     let mut weights = Vec::new();
     for u in 0..n {
@@ -140,7 +140,7 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
             indices.push(v);
             weights.push(w2 * (du * dv).powf(-beta));
         }
-        indptr.push(indices.len());
+        indptr.push(indices.len() as u32);
     }
     let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
     assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
@@ -171,7 +171,7 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
         adj_rows[u as usize].push((v, w));
         adj_rows[v as usize].push((u, w));
     }
-    let mut c_indptr = vec![0usize];
+    let mut c_indptr = vec![0u32];
     let mut c_indices = Vec::new();
     let mut c_weights = Vec::new();
     for row in adj_rows {
@@ -179,7 +179,7 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
             c_indices.push(v);
             c_weights.push(w);
         }
-        c_indptr.push(c_indices.len());
+        c_indptr.push(c_indices.len() as u32);
     }
     let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
     assert_eq!(probs_capped.indptr, ref_capped.indptr);
@@ -234,8 +234,8 @@ fn test_graph_12hop_row_normalized_probabilities_suppresses_superhub_barrel_mass
     // Barrel leaves 6..=120 must only have 1-hop probability mass with super-hub 0 (zero cross-leaf
     // or leaf-to-cluster 2-hop mass).
     for leaf in 6..=120usize {
-        let start = p.indptr[leaf];
-        let end = p.indptr[leaf + 1];
+        let start = p.indptr[leaf] as usize;
+        let end = p.indptr[leaf + 1] as usize;
         assert_eq!(
             &p.indices[start..end],
             &[0],
@@ -243,4 +243,48 @@ fn test_graph_12hop_row_normalized_probabilities_suppresses_superhub_barrel_mass
             &p.indices[start..end]
         );
     }
+}
+
+#[test]
+fn test_sparse_probabilities_from_csr_validation_and_rw_options() {
+    let sp = SparseProbabilities::from_csr(
+        3,
+        vec![0, 1, 3, 4],
+        vec![1, 0, 2, 1],
+        vec![0.25, 0.25, 0.25, 0.25],
+    )
+    .unwrap();
+    assert_eq!(sp.num_nodes(), 3);
+    assert_eq!(sp.nnz(), 4);
+    assert_eq!(sp.indptr(), &[0, 1, 3, 4]);
+    assert_eq!(sp.row(1), (&[0, 2][..], &[0.25, 0.25][..]));
+
+    // Validation errors
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1], vec![1], vec![1.0]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![1, 1, 1], vec![], vec![]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 2, 1], vec![1], vec![1.0]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![], vec![]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![2], vec![1.0]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![-0.1]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![f64::NAN]).is_err());
+    assert!(SparseProbabilities::from_csr(2, vec![0, 1, 1], vec![1], vec![f64::INFINITY]).is_err());
+
+    // graph_12hop_row_normalized_probabilities_with_options with TwoStepRandomWalk
+    let mut edges: Vec<(u32, u32)> = (1..=20u32).map(|v| (0, v)).collect();
+    edges.extend([(0, 21), (21, 22), (22, 23)]);
+    let g = CsrGraph::<f64>::from_edges(24, &edges, None, false, false).unwrap();
+    let p_rw = graph_12hop_row_normalized_probabilities_with_options(
+        &g,
+        0.5,
+        Some(4),
+        0.2,
+        crate::knn::TwoHopSamplingMode::TwoStepRandomWalk,
+        None,
+        42,
+    )
+    .unwrap();
+    assert!((p_rw.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    // Node 0's leaf-filtered pot=1 <= cap=4 deterministically includes 2-hop neighbor 22.
+    assert!(p_rw.row(0).0.contains(&22));
 }

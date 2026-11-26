@@ -239,9 +239,9 @@ pub fn compute_knn_probabilities(
     }
 
     match config.symmetrization {
-        SymmetrizationMode::StandardTsne => Ok(scatter_symmetric_pairs(n, pairs, true)),
+        SymmetrizationMode::StandardTsne => scatter_symmetric_pairs(n, pairs, true),
         SymmetrizationMode::RowNormalized => {
-            let sym = scatter_symmetric_pairs(n, pairs, false);
+            let sym = scatter_symmetric_pairs(n, pairs, false)?;
             symmetrize_row_normalized(n, &sym.indptr, &sym.indices, &sym.values)
         }
     }
@@ -265,7 +265,7 @@ pub fn partial_bfs_knn<W>(graph: &CsrGraph<W>, k: usize, seed: u64) -> CoreResul
     let mut next_layer: Vec<u32> = Vec::new();
 
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut indices = Vec::with_capacity(n * k_eff);
     let mut distances = Vec::with_capacity(n * k_eff);
 
@@ -313,7 +313,9 @@ pub fn partial_bfs_knn<W>(graph: &CsrGraph<W>, k: usize, seed: u64) -> CoreResul
             }
         }
 
-        indptr.push(indices.len());
+        let ptr = u32::try_from(indices.len())
+            .map_err(|_| CoreError::invalid_csr("partial_bfs_knn nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
 
     KnnGraph::new_validated(n, indptr, indices, distances)

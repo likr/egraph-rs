@@ -180,7 +180,7 @@ pub fn build_gumap_12hop_priority_csr(
     drop(d1_max);
 
     let mut indptr = Vec::with_capacity(n_nodes + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut row_buf: Vec<(u32, f64)> = Vec::new();
     let mut write_pos = 0usize;
 
@@ -204,7 +204,9 @@ pub fn build_gumap_12hop_priority_csr(
                 write_pos += 1;
             }
         }
-        indptr.push(write_pos);
+        let ptr = u32::try_from(write_pos)
+            .map_err(|_| CoreError::invalid_csr("priority knn nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
     drop(row_buf);
     drop(raw_indptr);

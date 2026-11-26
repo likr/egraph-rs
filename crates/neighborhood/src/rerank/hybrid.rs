@@ -365,8 +365,13 @@ pub fn build_hybrid_adaptive_knn<W>(
     }
 
     let total_nnz: usize = row_12_entries.iter().map(Vec::len).sum();
+    if u32::try_from(total_nnz).is_err() {
+        return Err(CoreError::invalid_csr(
+            "hybrid adaptive knn nnz exceeds u32::MAX",
+        ));
+    }
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut indices = Vec::with_capacity(total_nnz);
     let mut distances = Vec::with_capacity(total_nnz);
     let mut min_row_k = usize::MAX;
@@ -380,7 +385,9 @@ pub fn build_hybrid_adaptive_knn<W>(
             indices.push(v);
             distances.push(d);
         }
-        indptr.push(indices.len());
+        let ptr = u32::try_from(indices.len())
+            .map_err(|_| CoreError::invalid_csr("hybrid adaptive knn nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
 
     let knn = KnnGraph::new_validated(n, indptr, indices, distances)?;

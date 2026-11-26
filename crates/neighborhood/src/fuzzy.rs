@@ -169,14 +169,16 @@ pub fn compute_fuzzy_simplicial_set(
     }
 
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut total = 0usize;
     for d in &deg {
         total += *d;
-        indptr.push(total);
+        let ptr = u32::try_from(total)
+            .map_err(|_| CoreError::invalid_csr("fuzzy simplicial set nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
     drop(deg);
-    let mut cursor = indptr[..n].to_vec();
+    let mut cursor: Vec<usize> = indptr[..n].iter().map(|&p| p as usize).collect();
     let mut indices = vec![0u32; total];
     let mut values = vec![0.0_f64; total];
 

@@ -10,8 +10,8 @@ use egraph_linalg_amg::{AmgPcgConfig, AmgPcgSolver};
 
 use crate::perplexity::compute_2hop_neighborhood_sizes;
 
-use super::DogVaradhanLandmarks;
 use super::config::{RhghLandmarkConfig, RhghLandmarkStats};
+use super::{DogVaradhanLandmarks, RhghLandmarks};
 
 fn median_f64_slice(vals: &mut [f64]) -> f64 {
     if vals.is_empty() {
@@ -43,7 +43,7 @@ fn compute_pivoted_rhgh_landmarks_core(
     landmarks: Vec<u32>,
     params: RhghAutoParams,
     config: &RhghLandmarkConfig,
-) -> CoreResult<(DogVaradhanLandmarks, RhghLandmarkStats)> {
+) -> CoreResult<(RhghLandmarks, RhghLandmarkStats)> {
     let RhghAutoParams {
         deg_cv,
         leaf_fraction,
@@ -57,11 +57,10 @@ fn compute_pivoted_rhgh_landmarks_core(
 
     if n == 0 {
         return Ok((
-            DogVaradhanLandmarks {
+            RhghLandmarks {
                 num_nodes: 0,
                 landmarks: Vec::new(),
-                d_dog: Vec::new(),
-                d_coarse: None,
+                d_rhgh: Vec::new(),
             },
             RhghLandmarkStats {
                 gamma,
@@ -83,11 +82,10 @@ fn compute_pivoted_rhgh_landmarks_core(
 
     if n == 1 {
         return Ok((
-            DogVaradhanLandmarks {
+            RhghLandmarks {
                 num_nodes: 1,
                 landmarks: vec![0],
-                d_dog: vec![0.0],
-                d_coarse: None,
+                d_rhgh: vec![0.0],
             },
             RhghLandmarkStats {
                 gamma,
@@ -136,16 +134,15 @@ fn compute_pivoted_rhgh_landmarks_core(
     let h = landmarks.len();
     if m_eff == 0 {
         let fill_val = ((-1e-15_f64.ln()) / denom_gamma).max(0.0).powf(p_exp);
-        let mut d_dog = vec![fill_val; n * h];
+        let mut d_rhgh = vec![fill_val; n * h];
         for (col, &lm) in landmarks.iter().enumerate() {
-            d_dog[(lm as usize) * h + col] = 0.0;
+            d_rhgh[(lm as usize) * h + col] = 0.0;
         }
         return Ok((
-            DogVaradhanLandmarks {
+            RhghLandmarks {
                 num_nodes: n,
                 landmarks,
-                d_dog,
-                d_coarse: None,
+                d_rhgh,
             },
             RhghLandmarkStats {
                 gamma,
@@ -273,11 +270,10 @@ fn compute_pivoted_rhgh_landmarks_core(
     }
 
     Ok((
-        DogVaradhanLandmarks {
+        RhghLandmarks {
             num_nodes: n,
             landmarks,
-            d_dog,
-            d_coarse: None,
+            d_rhgh: d_dog,
         },
         RhghLandmarkStats {
             gamma,
@@ -299,15 +295,12 @@ fn compute_pivoted_rhgh_landmarks_core(
 
 /// Computes pure-Rust $O((h + m)|E|)$ pivoted Resolvent Heat-Geodesic Hybrid (`RHGH`)
 /// landmark distance tables using `AmgPcgSolver` + Spielman-Srivastava JL diagonal probes
-/// and $O(|E|)$ topology-adaptive auto-$(\gamma, p)$ selection.
-///
-/// Returns `(DogVaradhanLandmarks, RhghLandmarkStats)` so the resulting landmark table plugs
-/// directly into [`DogVaradhanLandmarks::alt_pair_distances`], `SgdSolver::sparse_barrier_from_landmarks`,
-/// and `SgdSolver::pacmap_graph_with_landmarks`.
-pub fn compute_pivoted_rhgh_landmarks<W: Scalar>(
+/// and $O(|E|)$ topology-adaptive auto-$(\gamma, p)$ selection, returning the dedicated
+/// [`RhghLandmarks`] result alongside [`RhghLandmarkStats`].
+pub fn compute_pivoted_rhgh_landmarks_result<W: Scalar>(
     graph: &CsrGraph<W>,
     config: &RhghLandmarkConfig,
-) -> CoreResult<(DogVaradhanLandmarks, RhghLandmarkStats)> {
+) -> CoreResult<(RhghLandmarks, RhghLandmarkStats)> {
     config.validate()?;
     if let Some(ws) = graph.weights() {
         for &w in ws {
@@ -380,4 +373,19 @@ pub fn compute_pivoted_rhgh_landmarks<W: Scalar>(
         },
         config,
     )
+}
+
+/// Computes pure-Rust $O((h + m)|E|)$ pivoted Resolvent Heat-Geodesic Hybrid (`RHGH`)
+/// landmark distance tables using `AmgPcgSolver` + Spielman-Srivastava JL diagonal probes
+/// and $O(|E|)$ topology-adaptive auto-$(\gamma, p)$ selection.
+///
+/// Returns `(DogVaradhanLandmarks, RhghLandmarkStats)` via [`From<RhghLandmarks>`] so the
+/// resulting landmark table plugs directly into [`DogVaradhanLandmarks::alt_pair_distances`],
+/// `SgdSolver::sparse_barrier_from_landmarks`, and `SgdSolver::pacmap_graph_with_landmarks`.
+pub fn compute_pivoted_rhgh_landmarks<W: Scalar>(
+    graph: &CsrGraph<W>,
+    config: &RhghLandmarkConfig,
+) -> CoreResult<(DogVaradhanLandmarks, RhghLandmarkStats)> {
+    let (rhgh, stats) = compute_pivoted_rhgh_landmarks_result(graph, config)?;
+    Ok((rhgh.into_dog_landmarks(), stats))
 }

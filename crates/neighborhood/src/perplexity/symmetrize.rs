@@ -10,9 +10,9 @@ pub(super) fn scatter_symmetric_pairs(
     n_nodes: usize,
     mut pairs: Vec<(u32, u32, f64)>,
     scale_by_two_n: bool,
-) -> SparseProbabilities {
+) -> CoreResult<SparseProbabilities> {
     if n_nodes < 2 || pairs.is_empty() {
-        return SparseProbabilities::empty(n_nodes);
+        return Ok(SparseProbabilities::empty(n_nodes));
     }
 
     pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
@@ -42,17 +42,19 @@ pub(super) fn scatter_symmetric_pairs(
     }
 
     if merged.is_empty() {
-        return SparseProbabilities::empty(n_nodes);
+        return Ok(SparseProbabilities::empty(n_nodes));
     }
 
     let mut indptr = Vec::with_capacity(n_nodes + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut total = 0usize;
     for d in &deg {
         total += *d;
-        indptr.push(total);
+        let ptr = u32::try_from(total)
+            .map_err(|_| CoreError::invalid_csr("SparseProbabilities nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
-    let mut cursor = indptr[..n_nodes].to_vec();
+    let mut cursor: Vec<usize> = indptr[..n_nodes].iter().map(|&p| p as usize).collect();
     let mut indices = vec![0u32; total];
     let mut values = vec![0.0_f64; total];
 
@@ -70,12 +72,12 @@ pub(super) fn scatter_symmetric_pairs(
         cursor[v as usize] += 1;
     }
 
-    SparseProbabilities {
+    Ok(SparseProbabilities {
         n_nodes,
         indptr,
         indices,
         values,
-    }
+    })
 }
 
 /// Computes row-normalized symmetrized joint probabilities
@@ -86,10 +88,13 @@ pub(super) fn scatter_symmetric_pairs(
 /// the same row are summed via a reusable `VisitStamp` without per-row `HashMap`s.
 pub fn symmetrize_row_normalized(
     n_nodes: usize,
-    indptr: &[usize],
+    indptr: &[u32],
     indices: &[u32],
     weights: &[f64],
 ) -> CoreResult<SparseProbabilities> {
+    if u32::try_from(n_nodes).is_err() {
+        return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
+    }
     if indptr.len() != n_nodes + 1 {
         return Err(CoreError::dimension_mismatch(
             n_nodes + 1,
@@ -112,7 +117,7 @@ pub fn symmetrize_row_normalized(
             )));
         }
     }
-    let nnz = indptr[n_nodes];
+    let nnz = indptr[n_nodes] as usize;
     if indices.len() != nnz {
         return Err(CoreError::dimension_mismatch(
             nnz,
@@ -157,8 +162,8 @@ pub fn symmetrize_row_normalized(
     for i in 0..n_nodes {
         seen.clear();
         row_entries.clear();
-        let start = indptr[i];
-        let end = indptr[i + 1];
+        let start = indptr[i] as usize;
+        let end = indptr[i + 1] as usize;
         for pos in start..end {
             let j = indices[pos];
             let j_usize = j as usize;
@@ -185,7 +190,7 @@ pub fn symmetrize_row_normalized(
         }
     }
 
-    Ok(scatter_symmetric_pairs(n_nodes, pairs, true))
+    scatter_symmetric_pairs(n_nodes, pairs, true)
 }
 
 /// Computes row-normalized symmetrized graph probabilities
@@ -198,10 +203,9 @@ pub fn graph_row_normalized_probabilities<W: Scalar>(
     if n < 2 {
         return Ok(SparseProbabilities::empty(n));
     }
-    let indptr_usize: Vec<usize> = graph.indptr().iter().map(|&p| p as usize).collect();
     let weights: Vec<f64> = match graph.weights() {
         Some(ws) => ws.iter().map(|w| w.to_f64()).collect(),
         None => vec![1.0; graph.nnz()],
     };
-    symmetrize_row_normalized(n, &indptr_usize, graph.indices(), &weights)
+    symmetrize_row_normalized(n, graph.indptr(), graph.indices(), &weights)
 }

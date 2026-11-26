@@ -132,8 +132,12 @@ pub fn build_pure_2hop_knn<W>(graph: &CsrGraph<W>) -> CoreResult<(KnnGraph, Vec<
         return Ok((knn, k2_deg, stats));
     }
 
+    if u32::try_from(total_nnz).is_err() {
+        return Err(CoreError::invalid_csr("pure 1+2-hop nnz exceeds u32::MAX"));
+    }
+
     let mut indptr = Vec::with_capacity(n + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut indices = Vec::with_capacity(total_nnz);
     let mut distances = Vec::with_capacity(total_nnz);
     let mut k2_deg = Vec::with_capacity(n);
@@ -172,7 +176,9 @@ pub fn build_pure_2hop_knn<W>(graph: &CsrGraph<W>) -> CoreResult<(KnnGraph, Vec<
         k2_deg.push(row_k as u32);
         min_row_k = min_row_k.min(row_k);
         max_row_k = max_row_k.max(row_k);
-        indptr.push(indices.len());
+        let ptr = u32::try_from(indices.len())
+            .map_err(|_| CoreError::invalid_csr("pure 1+2-hop nnz exceeds u32::MAX"))?;
+        indptr.push(ptr);
     }
 
     let knn = KnnGraph::new_validated(n, indptr, indices, distances)?;

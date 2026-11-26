@@ -8,10 +8,15 @@ mod two_hop;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_random_walk;
 
 #[cfg(test)]
 pub(crate) use capped_2hop::extract_sparse_1hop_2hop_pairs_inner;
-pub use capped_2hop::{build_capped_12hop_knn, extract_sparse_1hop_2hop_pairs};
+pub use capped_2hop::{
+    TwoHopSamplingMode, build_capped_12hop_knn, extract_sparse_1hop_2hop_pairs,
+    extract_sparse_1hop_2hop_pairs_with_mode,
+};
 pub use graph::{KnnGraph, KnnStats, Sparse12HopPairs};
 pub use priority_csr::build_gumap_12hop_priority_csr;
 #[allow(unused_imports)]

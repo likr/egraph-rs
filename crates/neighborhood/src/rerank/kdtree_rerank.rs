@@ -182,7 +182,7 @@ pub fn build_rerank_knn(
 
     let k_eff = k.min(n_nodes - 1);
     let mut indptr = Vec::with_capacity(n_nodes + 1);
-    indptr.push(0usize);
+    indptr.push(0u32);
     let mut indices = Vec::with_capacity(n_nodes * k_eff);
     let mut distances = Vec::with_capacity(n_nodes * k_eff);
 
@@ -200,7 +200,9 @@ pub fn build_rerank_knn(
                     break;
                 }
             }
-            indptr.push(indices.len());
+            let ptr = u32::try_from(indices.len())
+                .map_err(|_| CoreError::invalid_csr("rerank knn nnz exceeds u32::MAX"))?;
+            indptr.push(ptr);
         }
         return KnnGraph::new_validated(n_nodes, indptr, indices, distances);
     }
@@ -227,7 +229,9 @@ pub fn build_rerank_knn(
                 indices.push(idx);
                 distances.push(dist);
             }
-            indptr.push(indices.len());
+            let ptr = u32::try_from(indices.len())
+                .map_err(|_| CoreError::invalid_csr("rerank knn nnz exceeds u32::MAX"))?;
+            indptr.push(ptr);
         }
     } else {
         let tree = CoarseKdTree::build(&centered, n_nodes, dim, coarse_dim)?;
@@ -245,7 +249,9 @@ pub fn build_rerank_knn(
                 indices.push(idx);
                 distances.push(dist);
             }
-            indptr.push(indices.len());
+            let ptr = u32::try_from(indices.len())
+                .map_err(|_| CoreError::invalid_csr("rerank knn nnz exceeds u32::MAX"))?;
+            indptr.push(ptr);
         }
     }
 

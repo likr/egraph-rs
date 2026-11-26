@@ -21,8 +21,9 @@ pub mod varadhan;
 
 pub use fuzzy::{compute_fuzzy_simplicial_set, find_ab_params};
 pub use knn::{
-    KnnGraph, KnnStats, Sparse12HopPairs, build_capped_12hop_knn, build_gumap_12hop_priority_csr,
-    build_pure_2hop_knn, extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs,
+    KnnGraph, KnnStats, Sparse12HopPairs, TwoHopSamplingMode, build_capped_12hop_knn,
+    build_gumap_12hop_priority_csr, build_pure_2hop_knn, extract_1hop_2hop_csr,
+    extract_sparse_1hop_2hop_pairs, extract_sparse_1hop_2hop_pairs_with_mode,
 };
 pub use perplexity::{
     DEFAULT_MAX_PERPLEXITY, DEFAULT_MEDIAN_MIN_PERPLEXITY, DEFAULT_MEDIAN_PERPLEXITY_C,
@@ -30,7 +31,8 @@ pub use perplexity::{
     SparseProbabilities, SymmetrizationMode, compute_2hop_neighborhood_sizes,
     compute_knn_probabilities, compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities,
     graph_12hop_row_normalized_probabilities,
-    graph_12hop_row_normalized_probabilities_with_degree_decay, graph_row_normalized_probabilities,
+    graph_12hop_row_normalized_probabilities_with_degree_decay,
+    graph_12hop_row_normalized_probabilities_with_options, graph_row_normalized_probabilities,
     partial_bfs_knn, symmetrize_row_normalized,
 };
 pub use rerank::{
@@ -39,8 +41,9 @@ pub use rerank::{
 };
 pub use varadhan::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkConfig,
-    RhghLandmarkStats, apply_relative_distance_floor, compute_horvitz_thompson_gamma,
-    compute_pivoted_rhgh_landmarks, compute_regularized_dog_varadhan_landmarks,
+    RhghLandmarkStats, RhghLandmarks, apply_relative_distance_floor,
+    compute_horvitz_thompson_gamma, compute_pivoted_rhgh_landmarks,
+    compute_pivoted_rhgh_landmarks_result, compute_regularized_dog_varadhan_landmarks,
     compute_regularized_dog_varadhan_landmarks_from_matrix,
 };
 

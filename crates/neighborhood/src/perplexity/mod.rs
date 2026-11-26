@@ -19,6 +19,7 @@ pub use knn_prob::{compute_knn_probabilities, partial_bfs_knn};
 pub use row_normalized_12hop::{
     graph_12hop_row_normalized_probabilities,
     graph_12hop_row_normalized_probabilities_with_degree_decay,
+    graph_12hop_row_normalized_probabilities_with_options,
 };
 pub use symmetrize::{graph_row_normalized_probabilities, symmetrize_row_normalized};
 pub use two_hop::{
