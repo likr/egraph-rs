@@ -7,7 +7,7 @@ use egraph_core::{
 
 use super::TorusCrossing;
 use super::geometry::{Seg, extract_csr_edges};
-use super::pair_set::unpack_pair;
+use super::pair_set::{PairSet, pack_pair, unpack_pair};
 use super::sweep::{sweep_segments, sweep_segments_with};
 
 /// Read-only view of a 2D torus layout providing normalized coordinates and physical extents `(Lx, Ly)`.
@@ -120,7 +120,8 @@ fn torus_edge_segments_with_extents<S: Scalar>(
         return Ok(vec![[px, py, qx, qy]]);
     }
 
-    let torus_max = 1.0 - f64::EPSILON;
+    // Largest IEEE-754 f64 strictly below 1.0 so clipped endpoints stay in [0, 1) with zero ULP gap.
+    let torus_max = f64::from_bits(1.0_f64.to_bits() - 1);
 
     if best_dx == 0 {
         let (x0, y0, x1_w, y1_w) = if py < qy {
@@ -321,12 +322,17 @@ pub fn torus_crossing_number<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     let (lx, ly) = layout.torus_extents()?;
     let coords = layout.torus_layout()?;
     let edges = extract_csr_edges(graph);
-    let (sub_segs, _) = build_torus_subsegments(&edges, coords, lx, ly, "torus_crossing_number")?;
-    let mut count = 0usize;
-    sweep_segments_with(&sub_segs, |_, _| {
-        count += 1;
+    let (sub_segs, orig_edge_of_sub) =
+        build_torus_subsegments(&edges, coords, lx, ly, "torus_crossing_number")?;
+    let mut seen_edges = PairSet::default();
+    sweep_segments_with(&sub_segs, |sub_a, sub_b| {
+        let ea = orig_edge_of_sub[sub_a];
+        let eb = orig_edge_of_sub[sub_b];
+        if ea != eb {
+            seen_edges.insert(pack_pair(ea, eb));
+        }
     });
-    Ok(count)
+    Ok(seen_edges.len())
 }
 
 /// Finds all crossing edge segment pairs for `graph` laid out on a flat 2D torus
@@ -358,6 +364,9 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
         let sb = &sub_segs[sub_b];
         let ea = orig_edge_of_sub[sub_a];
         let eb = orig_edge_of_sub[sub_b];
+        if ea == eb {
+            continue;
+        }
         let (angle_rad, cos_sq) = torus_crossing_angle_metrics(sa, sb, lx, ly);
         if ea <= eb {
             out.push(TorusCrossing {
@@ -391,6 +400,7 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
         a.edge_a
             .cmp(&b.edge_a)
             .then_with(|| a.edge_b.cmp(&b.edge_b))
+            .then_with(|| a.angle_rad.is_none().cmp(&b.angle_rad.is_none()))
             .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
             .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
             .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
@@ -400,5 +410,7 @@ pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized
             .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
             .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
     });
+    let mut seen_edges = PairSet::default();
+    out.retain(|item| seen_edges.insert(pack_pair(item.edge_a, item.edge_b)));
     Ok(out)
 }

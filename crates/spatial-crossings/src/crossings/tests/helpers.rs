@@ -152,6 +152,7 @@ pub(super) fn torus_brute_force<S: Scalar>(
         a.edge_a
             .cmp(&b.edge_a)
             .then_with(|| a.edge_b.cmp(&b.edge_b))
+            .then_with(|| a.angle_rad.is_none().cmp(&b.angle_rad.is_none()))
             .then_with(|| a.seg_a[0].total_cmp(&b.seg_a[0]))
             .then_with(|| a.seg_a[1].total_cmp(&b.seg_a[1]))
             .then_with(|| a.seg_a[2].total_cmp(&b.seg_a[2]))
@@ -161,5 +162,6 @@ pub(super) fn torus_brute_force<S: Scalar>(
             .then_with(|| a.seg_b[2].total_cmp(&b.seg_b[2]))
             .then_with(|| a.seg_b[3].total_cmp(&b.seg_b[3]))
     });
+    expected.dedup_by(|a, b| a.edge_a == b.edge_a && a.edge_b == b.edge_b);
     expected
 }

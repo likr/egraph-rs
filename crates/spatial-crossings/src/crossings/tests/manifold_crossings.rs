@@ -6,8 +6,8 @@ use egraph_core::{
 
 use super::super::{
     crossing_edges_hyperbolic, crossing_edges_spherical, hyperbolic_crossing_number,
-    spherical_crossing_number, torus_crossing_edges, torus_crossing_number,
-    torus_layout_edge_segments,
+    spherical_crossing_number, torus_crossing_edges, torus_crossing_edges_from_edges,
+    torus_crossing_number, torus_layout_edge_segments,
 };
 
 fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
@@ -406,4 +406,78 @@ fn test_torus_manifold_layout_view_and_rectangular_aspect() {
         torus_crossing_edges(&g, &sph),
         Err(CoreError::UnsupportedOperation(_))
     ));
+}
+
+#[test]
+fn test_torus_periodic_boundary_dedup_and_sub_ulp_coverage() {
+    let edges = [(0, 1), (2, 3)];
+    let g = CsrGraph::<f64>::from_edges(4, &edges, None, false, false).unwrap();
+
+    // 1. Exact x-boundary crossing at (0.0, 0.5) must report 1 crossing, not 2.
+    let tor_x = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.9, 0.1, 0.9, 0.1],
+        vec![0.4, 0.6, 0.6, 0.4],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &tor_x).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &tor_x).unwrap().len(), 1);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges, &tor_x)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // 2. Exact y-boundary crossing at (0.5, 0.0) must report 1 crossing, not 2.
+    let tor_y = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.4, 0.6, 0.6, 0.4],
+        vec![0.9, 0.1, 0.9, 0.1],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &tor_y).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &tor_y).unwrap().len(), 1);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges, &tor_y)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // 3. Exact corner crossing at (0.0, 0.0) must report 1 crossing, not multiple.
+    let tor_corner = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.9, 0.1, 0.9, 0.1],
+        vec![0.9, 0.1, 0.1, 0.9],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &tor_corner).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &tor_corner).unwrap().len(), 1);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges, &tor_corner)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // 4. Largest f64 strictly < 1.0 (1.0 - 0.5 * f64::EPSILON) must have zero sub-ULP dead zone.
+    let near_one = f64::from_bits(1.0_f64.to_bits() - 1);
+    let tor_sub_ulp_x = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.9, 0.1, near_one, near_one],
+        vec![0.4, 0.6, 0.3, 0.7],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &tor_sub_ulp_x).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &tor_sub_ulp_x).unwrap().len(), 1);
+
+    let tor_sub_ulp_y = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::Torus2d,
+        vec![0.3, 0.7, 0.4, 0.6],
+        vec![near_one, near_one, 0.9, 0.1],
+    )
+    .unwrap();
+    assert_eq!(torus_crossing_number(&g, &tor_sub_ulp_y).unwrap(), 1);
+    assert_eq!(torus_crossing_edges(&g, &tor_sub_ulp_y).unwrap().len(), 1);
 }
