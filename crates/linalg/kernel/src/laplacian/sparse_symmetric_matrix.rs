@@ -10,7 +10,7 @@ use std::ops::{Add, AddAssign, Div, Mul, Sub};
 /// A sparse symmetric matrix represented in edge list format.
 ///
 /// This structure stores only the lower triangular part of the matrix
-/// (where i < j) to avoid redundancy. For symmetric matrices, A[i,j] = A[j,i],
+/// (where i < j) to avoid redundancy. For symmetric matrices, `A[i,j] = A[j,i]`,
 /// so we only need to store one of these values.
 ///
 /// The matrix is represented as:
@@ -25,7 +25,7 @@ pub struct SparseSymmetricMatrix<T> {
     pub n: usize,
     /// Off-diagonal entries: (row, col, value) where row < col
     pub edges: Vec<(usize, usize, T)>,
-    /// Diagonal entries: diagonal[i] is the (i,i) element
+    /// Diagonal entries: `diagonal[i]` is the (i,i) element
     pub diagonal: Vec<T>,
     /// Principal stationary eigenvector (null-space vector of Laplacian)
     pub stationary_vector: Option<Vec<T>>,

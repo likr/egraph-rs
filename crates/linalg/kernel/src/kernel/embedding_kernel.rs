@@ -13,7 +13,7 @@ use std::hash::Hash;
 
 /// A kernel matrix computed from Euclidean/spectral embedding coordinates.
 ///
-/// K(i, j) = dot_product(embedding[i], embedding[j])
+/// `K(i, j) = dot_product(embedding[i], embedding[j])`
 #[derive(Debug, Clone)]
 pub struct EmbeddingKernel<N, S> {
     pub embedding: Array2<S>,
