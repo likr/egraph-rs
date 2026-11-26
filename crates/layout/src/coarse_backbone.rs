@@ -14,11 +14,11 @@ use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
     VisitStamp,
 };
-use egraph_linalg::{
-    DijkstraWorkspace, EffectiveResistanceConfig, ResistanceCurvatureConfig,
-    pivot_mds_from_distances, resistance_curvature_flow, robust_normalize_layout_2d,
-    select_maxmin_sp_pivots,
+use egraph_linalg::{DijkstraWorkspace, select_maxmin_sp_pivots};
+use egraph_linalg_amg::{
+    EffectiveResistanceConfig, ResistanceCurvatureConfig, resistance_curvature_flow,
 };
+use egraph_linalg_mds::{pivot_mds_from_distances, robust_normalize_layout_2d};
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, RhghLandmarkConfig, compute_pivoted_rhgh_landmarks,
     compute_regularized_dog_varadhan_landmarks,

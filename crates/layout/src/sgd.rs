@@ -6141,7 +6141,7 @@ impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egraph_linalg::{PivotMdsConfig, koren_spectral_init, pivot_mds};
+    use egraph_linalg_mds::{PivotMdsConfig, koren_spectral_init, pivot_mds};
     use egraph_neighborhood::extract_1hop_2hop_csr;
     use std::collections::HashSet;
     use std::f64::consts::TAU;

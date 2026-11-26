@@ -18,7 +18,36 @@ pub use egraph_core as core;
 pub use egraph_spatial as spatial;
 
 #[cfg(feature = "linalg")]
-pub use egraph_linalg as linalg;
+/// Single-threaded linear algebra, spectral diffusion, MDS, and AMG-PCG solvers.
+pub mod linalg {
+    pub use egraph_linalg::{
+        AnisotropicLaplacianConfig, AnisotropicLaplacianResult, BfsWorkspace, ChebyshevDogConfig,
+        ChebyshevDogKernel, ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
+        DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS,
+        DEFAULT_SPECTRUM_SAFETY_FACTOR, DijkstraWorkspace, EigenResult, LanczosEigen,
+        LaplacianKind, SpectralMomentStats, SubspaceEigen, adaptive_chebyshev_degree,
+        adaptive_chebyshev_degree_scaled, anisotropic_laplacian, build_dog_terms,
+        build_regularized_dog_terms, chebyshev, combinatorial_laplacian,
+        compute_chebyshev_bandpass_coefficients, compute_chebyshev_sqrt_filter_coefficients,
+        crate_version, csr_matrix, eigen, exp_scaled_bessel_i, exp_scaled_bessel_i_all, laplacian,
+        project_psd_spectral_filter, random_walk_laplacian, select_maxmin_sp_pivots,
+        shifted_normalized_laplacian, shortest_path, smallest_sym_laplacian_eigenpairs,
+        spectral_moment_stats, symmetric_eigen_jacobi, symmetric_normalized_laplacian,
+    };
+    pub use egraph_linalg_amg::{
+        AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
+        EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
+        ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry, amg_pcg,
+        classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature,
+        resistance_curvature_flow,
+    };
+    pub use egraph_linalg_mds::{
+        HdeConfig, PivotMdsConfig, RdMds, classical_mds, classical_mds_2d,
+        classical_mds_from_distances, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots,
+        koren_spectral_init, mds, normalize_layout_2d, pivot_mds, pivot_mds_from_distances,
+        pivot_mds_with_pivots, rd_mds, representative_mds, robust_normalize_layout_2d,
+    };
+}
 
 #[cfg(feature = "neighborhood")]
 pub use egraph_neighborhood as neighborhood;
@@ -59,19 +88,27 @@ pub mod prelude {
 
     #[cfg(feature = "linalg")]
     pub use egraph_linalg::{
-        AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
         AnisotropicLaplacianConfig, AnisotropicLaplacianResult, ChebyshevDogConfig,
         ChebyshevDogKernel, ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
         DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS,
-        DEFAULT_SPECTRUM_SAFETY_FACTOR, EffectiveResistanceConfig, EffectiveResistanceResult,
-        HdeConfig, LaplacianKind, PivotMdsConfig, RdMds, ResistanceCurvatureConfig,
+        DEFAULT_SPECTRUM_SAFETY_FACTOR, LaplacianKind, adaptive_chebyshev_degree,
+        adaptive_chebyshev_degree_scaled, anisotropic_laplacian, combinatorial_laplacian,
+        select_maxmin_sp_pivots, symmetric_normalized_laplacian,
+    };
+
+    #[cfg(feature = "linalg")]
+    pub use egraph_linalg_amg::{
+        AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
+        EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
         ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-        adaptive_chebyshev_degree, adaptive_chebyshev_degree_scaled, anisotropic_laplacian,
-        classical_mds_2d, classify_geometry_from_curvature, combinatorial_laplacian,
-        compute_effective_resistances, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots,
-        koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds, representative_mds,
-        resistance_curvature_flow, robust_normalize_layout_2d, select_maxmin_sp_pivots,
-        symmetric_normalized_laplacian,
+        classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature_flow,
+    };
+
+    #[cfg(feature = "linalg")]
+    pub use egraph_linalg_mds::{
+        HdeConfig, PivotMdsConfig, RdMds, classical_mds_2d, hde, hde_nd, hde_nd_with_pivots,
+        hde_with_pivots, koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds,
+        representative_mds, robust_normalize_layout_2d,
     };
 
     #[cfg(feature = "neighborhood")]

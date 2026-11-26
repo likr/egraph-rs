@@ -14,5 +14,7 @@ baselines = []
 egraph-core.workspace = true
 egraph-spatial.workspace = true
 egraph-linalg.workspace = true
+egraph-linalg-mds.workspace = true
+egraph-linalg-amg.workspace = true
 egraph-neighborhood.workspace = true
 egraph-clustering.workspace = true

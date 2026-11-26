@@ -11,30 +11,11 @@
 //!   [`ChebyshevDogKernel`] with deterministic JL embeddings.
 //! - [`eigen`]: Cyclic [`symmetric_eigen_jacobi`] and SpMV-only thick-restart [`LanczosEigen`]
 //!   with two-pass MGS reorthogonalization via [`smallest_sym_laplacian_eigenpairs`].
-//! - [`mds`]: Isotropic [`normalize_layout_2d`], normalized [`pivot_mds`], Harel-Koren
-//!   High-Dimensional Embedding [`hde`], Koren spectral initialization [`koren_spectral_init`],
-//!   zero-guarded [`RdMds`], and [`classical_mds`].
-//! - [`amg_pcg`]: Hardened single-threaded Algebraic Multigrid Preconditioned Conjugate
-//!   Gradient [`AmgPcgSolver`] for symmetric positive (semi-)definite CSR systems.
-//! - [`resistance_curvature`]: Devriendt-Lambiotte effective resistance curvature, Foster's
-//!   theorem verification, geometry regime classification, and resistance curvature flow.
 
-pub mod amg_pcg;
 pub mod chebyshev;
 pub mod csr_matrix;
 pub mod eigen;
-pub mod mds;
-pub mod resistance_curvature;
 pub mod shortest_path;
-
-pub use amg_pcg::{
-    AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace,
-};
-pub use resistance_curvature::{
-    EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
-    ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-    classify_geometry_from_curvature, compute_effective_resistances, resistance_curvature_flow,
-};
 
 pub use chebyshev::{
     ChebyshevDogConfig, ChebyshevDogKernel, ChebyshevWorkspace, adaptive_chebyshev_degree,
@@ -53,12 +34,6 @@ pub use csr_matrix::{
 pub use eigen::{
     EigenResult, LanczosEigen, SubspaceEigen, smallest_sym_laplacian_eigenpairs,
     symmetric_eigen_jacobi,
-};
-pub use mds::{
-    HdeConfig, PivotMdsConfig, RdMds, classical_mds, classical_mds_2d,
-    classical_mds_from_distances, hde, hde_nd, hde_nd_with_pivots, hde_with_pivots,
-    koren_spectral_init, normalize_layout_2d, pivot_mds, pivot_mds_from_distances,
-    pivot_mds_with_pivots, rd_mds, representative_mds, robust_normalize_layout_2d,
 };
 pub use shortest_path::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
 

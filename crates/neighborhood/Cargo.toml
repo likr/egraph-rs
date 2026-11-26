@@ -8,3 +8,4 @@ license.workspace = true
 egraph-core.workspace = true
 egraph-spatial.workspace = true
 egraph-linalg.workspace = true
+egraph-linalg-amg.workspace = true

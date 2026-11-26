@@ -19,7 +19,7 @@ default = [
 ]
 spatial = ["dep:egraph-spatial"]
 delaunay = ["spatial", "egraph-spatial/delaunay", "egraph-layout?/delaunay"]
-linalg = ["dep:egraph-linalg"]
+linalg = ["dep:egraph-linalg", "dep:egraph-linalg-mds", "dep:egraph-linalg-amg"]
 neighborhood = ["spatial", "linalg", "dep:egraph-neighborhood"]
 layout = ["spatial", "linalg", "neighborhood", "clustering", "dep:egraph-layout"]
 clustering = ["linalg", "dep:egraph-clustering"]
@@ -46,6 +46,8 @@ full = [
 egraph-core.workspace = true
 egraph-spatial = { workspace = true, optional = true }
 egraph-linalg = { workspace = true, optional = true }
+egraph-linalg-amg = { workspace = true, optional = true }
+egraph-linalg-mds = { workspace = true, optional = true }
 egraph-neighborhood = { workspace = true, optional = true }
 egraph-layout = { workspace = true, optional = true, default-features = false }
 egraph-clustering = { workspace = true, optional = true }

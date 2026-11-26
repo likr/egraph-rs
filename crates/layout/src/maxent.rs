@@ -20,9 +20,9 @@ use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
     SolverStatus,
 };
-use egraph_linalg::amg_pcg::{AmgPcgConfig, AmgPcgSolver, AmgPcgWorkspace};
 use egraph_linalg::csr_matrix::CsrMatrix;
-use egraph_linalg::mds::{PivotMdsConfig, pivot_mds};
+use egraph_linalg_amg::amg_pcg::{AmgPcgConfig, AmgPcgSolver, AmgPcgWorkspace};
+use egraph_linalg_mds::mds::{PivotMdsConfig, pivot_mds};
 use egraph_spatial::ArenaQuadtree2d;
 
 const MIN_NORM_SQ_SUM: f64 = 1e-12;

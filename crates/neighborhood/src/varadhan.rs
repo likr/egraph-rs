@@ -4,12 +4,12 @@
 use crate::perplexity::compute_2hop_neighborhood_sizes;
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
 use egraph_linalg::{
-    AmgPcgConfig, AmgPcgSolver, ChebyshevWorkspace, CsrMatrix,
-    DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR, DEFAULT_SPECTRUM_LANCZOS_STEPS, SpectralMomentStats,
-    adaptive_chebyshev_degree_scaled, build_dog_terms, compute_chebyshev_bandpass_coefficients,
-    project_psd_spectral_filter, select_maxmin_sp_pivots, spectral_moment_stats,
-    symmetric_normalized_laplacian,
+    ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
+    DEFAULT_SPECTRUM_LANCZOS_STEPS, SpectralMomentStats, adaptive_chebyshev_degree_scaled,
+    build_dog_terms, compute_chebyshev_bandpass_coefficients, project_psd_spectral_filter,
+    select_maxmin_sp_pivots, spectral_moment_stats, symmetric_normalized_laplacian,
 };
+use egraph_linalg_amg::{AmgPcgConfig, AmgPcgSolver};
 
 /// Computes R3 parameter-free Horvitz-Thompson repulsion density scaling:
 /// $\gamma_{\mathrm{eff}} = \gamma_{\mathrm{non2}} \sqrt{N / \max(k_{\mathrm{neg}}, 1)}$.
