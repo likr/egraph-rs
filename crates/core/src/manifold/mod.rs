@@ -3,6 +3,7 @@
 
 mod layout;
 mod lorentz;
+mod lorentz_maps;
 mod lorentz_midpoint;
 mod metric;
 mod poincare;
@@ -16,6 +17,8 @@ mod torus;
 mod tests;
 #[cfg(test)]
 mod tests_lorentz_and_metric;
+#[cfg(test)]
+mod tests_lorentz_extreme;
 #[cfg(test)]
 mod tests_torus;
 
