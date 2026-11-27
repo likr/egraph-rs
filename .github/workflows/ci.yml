@@ -277,6 +277,7 @@ jobs:
           GZIP_BYTES=$(gzip -9 -c crates/wasm/pkg/egraph_wasm_bg.wasm | wc -c | tr -d ' ')
           echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_BYTES} B"
           if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
+            npm ci --prefix crates/wasm
             node crates/wasm/tests/node_esm_smoke.mjs
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only

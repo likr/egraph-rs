@@ -319,6 +319,7 @@ jobs:
           echo "gzip_kib=$GZIP_KIB" >> "$GITHUB_OUTPUT"
           echo "egraph_wasm_bg.wasm: raw=${RAW_BYTES} B, gzip=${GZIP_KIB} KiB"
           if [[ -f crates/wasm/tests/node_esm_smoke.mjs ]]; then
+            npm ci --prefix crates/wasm
             node crates/wasm/tests/node_esm_smoke.mjs
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only

@@ -339,7 +339,10 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
     run_step "wasm_build_release" build_wasm_release_bundle
-    [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]] && run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
+    if [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]]; then
+      [[ -x "$REPO_ROOT/crates/wasm/node_modules/.bin/tsc" ]] || npm ci --prefix "$REPO_ROOT/crates/wasm"
+      run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
+    fi
   fi
 fi
 
