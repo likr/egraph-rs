@@ -57,7 +57,7 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
             nd2 = eg.hde_nd(
                 g_asym, dimensions=16, output_dims=out_dims, seed=42, dtype=dtype_name
             )
-            assert nd1.num_nodes == n_asym and nd1.dim == out_dims and nd1.is_all_finite()
+            assert nd1.num_nodes == n_asym and nd1.dims == out_dims and nd1.is_all_finite()
             cnd1 = nd1.coords(copy=True)
             assert cnd1.shape == (n_asym, out_dims) and cnd1.dtype == np_dtype
             assert np.array_equal(cnd1, nd2.coords(copy=True))
@@ -171,9 +171,10 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         assert np.array_equal(lgr1.coords(copy=True), lgr2.coords(copy=True))
         assert np.array_equal(lgr1.coords(copy=True), lgs.coords(copy=True))
 
-        gm1 = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
-        gm2 = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
-        gms = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype=dtype_name)
+        gm1 = eg.GemSolver(g_bb, max_iterations=12, seed=42, dtype=dtype_name)
+        gm2 = eg.GemSolver(g_bb, max_iterations=12, seed=42, dtype=dtype_name)
+        gms = eg.GemSolver(g_bb, max_iterations=12, seed=42, dtype=dtype_name)
+        assert eg.GemSolver(g_bb, dtype=dtype_name).total_iterations == min(4 * 10, 400)
         lgm1 = eg.Layout2d.from_coords(init10_t)
         lgm2 = eg.Layout2d.from_coords(init10_t)
         lgms = eg.Layout2d.from_coords(init10_t)
@@ -291,7 +292,7 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
             eg.SgdSolver.graph_cne(g_deg, iterations=4, seed=42),
             eg.MaxentStressSolver(g_deg, stages=2, steps_per_stage=3, seed=42),
             eg.GripSolver(g_deg, rounds_min=2, rounds_max=4, seed=42),
-            eg.GemSolver(g_deg, max_rounds=4, seed=42),
+            eg.GemSolver(g_deg, max_iterations=4, seed=42),
             eg.SelLayoutSolver(g_deg, iterations=4, seed=42),
             eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64), seed=42),
             eg.SfcLayoutSolver(g_deg, seed=42),
@@ -342,7 +343,7 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         ("grip/nan_layout", lambda: eg.GripSolver(g_bb, rounds_min=1, rounds_max=2).run(bad_lay), (ValueError,)),
         ("gem/edge_length_0", lambda: eg.GemSolver(g_bb, edge_length=0.0), (ValueError,)),
         ("gem/gravity_neg", lambda: eg.GemSolver(g_bb, gravity=-1.0), (ValueError,)),
-        ("gem/nan_layout", lambda: eg.GemSolver(g_bb, max_rounds=2).run(bad_lay), (ValueError,)),
+        ("gem/nan_layout", lambda: eg.GemSolver(g_bb, max_iterations=2).run(bad_lay), (ValueError,)),
         ("sel/tree_depth_0", lambda: eg.SelLayoutSolver(g_bb, tree_depth=0), (ValueError,)),
         ("sel/bad_mapping", lambda: eg.SelLayoutSolver(g_bb, mapping="bad"), (ValueError,)),
         ("sel/bad_backend", lambda: eg.SelLayoutSolver(g_bb, layout_backend="bad"), (ValueError,)),

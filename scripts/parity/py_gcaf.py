@@ -67,7 +67,7 @@ def run_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     g100 = eg.CsrGraph.from_edges(100, [(i, i + 1) for i in range(99)], directed=False, sanitize=True)
     for alias in ("cluster_area_faithfulness", "gcaf", "clusterAreaFaithfulness"):
-        rep = eg.evaluate_metrics(g100, l64, [alias], community_labels=labels)
+        rep = eg.evaluate_metrics(g100, l64, [alias], labels=labels)
         assert abs(float(rep["cluster_area_faithfulness"]) - caf64) < 1e-12
 
     # Imbalanced 24-node fixture: stevens_gamma, boundary_r95=inf, custom config
@@ -111,7 +111,7 @@ def run_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
         g_imb,
         l_imb,
         ["cluster_area_faithfulness"],
-        community_labels=labels_imb,
+        labels=labels_imb,
         g_max=64,
         sigma_cells=0.9,
         kappa=8.0,
@@ -145,7 +145,7 @@ def run_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
     caf_cw = float(eg.cluster_area_faithfulness(l_imb, labels_imb, cluster_weights=imb_cw, stevens_gamma=2.0))
     assert abs(caf_nw - caf_cw) < 1e-12
     ev_cw = eg.evaluate_metrics(
-        g_imb, l_imb, ["gcaf"], community_labels=labels_imb, cluster_weights=imb_cw, stevens_gamma=2.0
+        g_imb, l_imb, ["gcaf"], labels=labels_imb, cluster_weights=imb_cw, stevens_gamma=2.0
     )
     assert abs(float(ev_cw["cluster_area_faithfulness"]) - caf_cw) < 1e-12
     assert_non_panic_error(
@@ -221,7 +221,7 @@ def run_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
     assert "aspect_ratio" in lazy_ok and "cluster_area_faithfulness" not in lazy_ok
     assert_non_panic_error(
         "evaluate_metrics/gcaf_lazy_gmax4",
-        lambda: eg.evaluate_metrics(g_imb, l_imb, ["gcaf"], community_labels=labels_imb, g_max=4),
+        lambda: eg.evaluate_metrics(g_imb, l_imb, ["gcaf"], labels=labels_imb, g_max=4),
         expected_types=(ValueError,),
     )
 
@@ -242,7 +242,7 @@ def run_gcaf_python_checks(eg: Any) -> list[dict[str, Any]]:
             kwargs["stevens_gamma"] = case["stevens_gamma"]
         caf_s = float(eg.cluster_area_faithfulness(l_case, case["labels"], **kwargs))
         det_s = eg.cluster_area_faithfulness_detail(l_case, case["labels"], return_per_cluster=True, **kwargs)
-        eval_s = eg.evaluate_metrics(g_case, l_case, ["gcaf"], community_labels=case["labels"], **kwargs)
+        eval_s = eg.evaluate_metrics(g_case, l_case, ["gcaf"], labels=case["labels"], **kwargs)
         assert 0.0 <= caf_s <= 1.0 and math.isfinite(caf_s)
         assert abs(caf_s - float(det_s["caf"])) < 1e-12
         assert abs(caf_s - float(eval_s["cluster_area_faithfulness"])) < 1e-12

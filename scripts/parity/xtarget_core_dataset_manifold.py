@@ -59,18 +59,18 @@ def run_cross_target_core_dataset_manifold_parity(
     l2_init_coords_py = l2_init_py.copy_coords()
 
     nd_zero = eg.LayoutNd.zeros(3, 4, dtype="float32")
-    assert nd_zero.num_nodes == 3 and nd_zero.dim == 4 and nd_zero.is_all_finite() and not nd_zero.is_empty()
+    assert nd_zero.num_nodes == 3 and nd_zero.dims == 4 and nd_zero.is_all_finite() and not nd_zero.is_empty()
     nd_arr_f32 = np.arange(1, 13, dtype=np.float32).reshape(3, 4)
     nd_py = eg.LayoutNd.from_coords(nd_arr_f32)
-    assert nd_py.num_nodes == 3 and nd_py.dim == 4 and nd_py.is_all_finite()
+    assert nd_py.num_nodes == 3 and nd_py.dims == 4 and nd_py.is_all_finite()
 
     # 3. ManifoldLayout2d methods & geodesic helpers
     ml_hyp_py = eg.ManifoldLayout2d.hyperbolic_poincare(2, dtype="float32")
     ml_sph_py = eg.ManifoldLayout2d.spherical(2, dtype="float32")
     ml_tor_py = eg.ManifoldLayout2d.torus_2d(2, dtype="float32")
-    assert ml_hyp_py.manifold == "hyperbolic" and ml_hyp_py.num_nodes == 2
-    assert ml_sph_py.manifold == "spherical" and ml_sph_py.num_nodes == 2
-    assert ml_tor_py.manifold == "torus" and ml_tor_py.num_nodes == 2
+    assert ml_hyp_py.kind == "hyperbolic" and ml_hyp_py.num_nodes == 2
+    assert ml_sph_py.kind == "spherical" and ml_sph_py.num_nodes == 2
+    assert ml_tor_py.kind == "torus" and ml_tor_py.num_nodes == 2
 
     ml_py = eg.ManifoldLayout2d.zeros("hyperbolic", 2, dtype="float32")
     ml_py.set_point(0, 0.1, 0.2)
@@ -124,7 +124,7 @@ const l2InitCoords = Array.from(l2Init.copyCoords());
 
 const ndZero = mod.LayoutNd.zeros(3, 4);
 assert.equal(ndZero.numNodes, 3);
-assert.equal(ndZero.dim, 4);
+assert.equal(ndZero.dims, 4);
 assert.equal(ndZero.isAllFinite(), true);
 assert.equal(ndZero.isEmpty(), false);
 const lNd = mod.LayoutNd.fromCoords(3, 4, new Float32Array(spec.nd_coords));
@@ -133,11 +133,11 @@ const ndCoords = Array.from(lNd.copyCoords());
 const mlHyp = mod.ManifoldLayout2d.hyperbolicPoincare(2);
 const mlSph = mod.ManifoldLayout2d.spherical(2);
 const mlTor = mod.ManifoldLayout2d.torus2d(2);
-assert.equal(mlHyp.manifold, 'hyperbolic');
+assert.equal(mlHyp.kind, 'hyperbolic');
 assert.equal(mlHyp.numNodes, 2);
-assert.equal(mlSph.manifold, 'spherical');
+assert.equal(mlSph.kind, 'spherical');
 assert.equal(mlSph.numNodes, 2);
-assert.equal(mlTor.manifold, 'torus');
+assert.equal(mlTor.kind, 'torus');
 assert.equal(mlTor.numNodes, 2);
 const ml = mod.ManifoldLayout2d.hyperbolicPoincare(2);
 ml.setPoint(0, 0.1, 0.2);

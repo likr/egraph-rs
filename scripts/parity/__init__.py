@@ -38,13 +38,20 @@ from parity.xtarget_force_and_multilevel import run_cross_target_force_multileve
 from parity.xtarget_gcaf import run_cross_target_gcaf_parity
 from parity.xtarget_hde_and_sgd_presets import run_cross_target_hde_sgd_presets_parity
 from parity.xtarget_linalg_spectral_amg import run_cross_target_linalg_spectral_parity
+from parity.xtarget_manifold_engines_and_crossings import (
+    run_cross_target_manifold_engines_crossings_parity,
+)
 from parity.xtarget_metrics_spatial import run_cross_target_metrics_spatial_parity
+from parity.xtarget_nd_solvers_and_metrics import run_cross_target_nd_solvers_metrics_parity
 from parity.xtarget_neighborhood_knn import run_cross_target_neighborhood_knn_parity
 from parity.xtarget_overlap_and_cluster_metrics import (
     run_cross_target_overlap_cluster_metrics_parity,
 )
 from parity.xtarget_overlap_constraints_layering import (
     run_cross_target_overlap_layering_parity,
+)
+from parity.xtarget_rn_tsnet_declutter_dijkstra import (
+    run_cross_target_rn_tsnet_declutter_dijkstra_parity,
 )
 from parity.xtarget_solvers_backbone_poisson import (
     run_cross_target_solvers_backbone_poisson_parity,
@@ -110,5 +117,8 @@ def run_all_suites(
             results.extend(run_cross_target_overlap_cluster_metrics_parity(eg_mod, wasm_pkg))
             results.extend(run_cross_target_hde_sgd_presets_parity(eg_mod, wasm_pkg))
             results.extend(run_cross_target_classic_overlap_baselines_parity(eg_mod, wasm_pkg))
+            results.extend(run_cross_target_nd_solvers_metrics_parity(eg_mod, wasm_pkg))
+            results.extend(run_cross_target_manifold_engines_crossings_parity(eg_mod, wasm_pkg))
+            results.extend(run_cross_target_rn_tsnet_declutter_dijkstra_parity(eg_mod, wasm_pkg))
 
     return results

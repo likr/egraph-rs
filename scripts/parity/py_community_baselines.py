@@ -28,13 +28,13 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
     # 1. Leiden (Modularity & CPM)
     l_mod1 = eg.leiden_communities(g_bb, objective="modularity", resolution=1.0, seed=42)
     l_mod2 = eg.leiden_communities(g_bb, objective="mod", resolution=1.0, seed=42)
-    assert np.array_equal(l_mod1["labels"], l_mod2["labels"])
-    assert l_mod1["num_communities"] == 2
-    assert float(l_mod1["modularity"]) > 0.35
+    assert np.array_equal(l_mod1.labels, l_mod2.labels)
+    assert l_mod1.num_communities == 2
+    assert float(l_mod1.modularity) > 0.35
     l_cpm = eg.leiden_communities(g_bb, objective="cpm", resolution=0.3, seed=42)
-    assert l_cpm["num_communities"] >= 2
+    assert l_cpm.num_communities >= 2
     l_empty = eg.leiden_communities(eg.CsrGraph.from_edges(0, [], directed=False))
-    assert l_empty["num_communities"] == 0 and len(l_empty["labels"]) == 0
+    assert l_empty.num_communities == 0 and len(l_empty.labels) == 0
 
     for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
         init10_t = init10.astype(np_dtype)
@@ -142,10 +142,10 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
         comm_labels = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.uint32)
         for cr_method in ("kmeans", "hac"):
             cr1 = eg.ClusterRefineSolver.from_graph(
-                g_bb, comm_labels, method=cr_method, max_rounds=5, seed=42, dtype=dtype_name
+                g_bb, comm_labels, method=cr_method, max_iterations=5, seed=42, dtype=dtype_name
             )
             cr2 = eg.ClusterRefineSolver.from_graph(
-                g_bb, comm_labels, method=cr_method, max_rounds=5, seed=42, dtype=dtype_name
+                g_bb, comm_labels, method=cr_method, max_iterations=5, seed=42, dtype=dtype_name
             )
             lcr1 = eg.Layout2d.from_coords(swapped)
             lcr2 = eg.Layout2d.from_coords(swapped)
@@ -158,7 +158,7 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
 
             lcr_fn = eg.Layout2d.from_coords(swapped)
             moved = eg.refine_cluster_layout(
-                lcr_fn, comm_labels, method=cr_method, max_rounds=5, seed=42
+                lcr_fn, comm_labels, method=cr_method, max_iterations=5, seed=42
             )
             assert moved > 0
 
@@ -269,18 +269,18 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert nor_wo["el_rsd"] == 0.0
 
         cluster_metric_targets = [
-            "dsc",
-            "dc",
-            "cdm",
-            "hdm",
+            "distance_consistency",
+            "distribution_consistency",
+            "class_density_measure",
+            "histogram_density_measure",
             "sepme_knng",
             "sepme_rng",
             "sepme_gab",
             "sepme_gong",
             "neighborhood_hit",
-            "silhouette",
-            "calinski_harabasz",
-            "davies_bouldin",
+            "silhouette_score",
+            "calinski_harabasz_score",
+            "davies_bouldin_score",
             "cq_kmeans_ari",
             "cq_kmeans_ami",
             "cq_hac_hom",
@@ -292,7 +292,7 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
             g_bb,
             l_sep,
             cluster_metric_targets,
-            community_labels=comm_labels,
+            labels=comm_labels,
             sepme_knng_k=2,
             neighborhood_hit_k=3,
             dc_grid_size=16,
@@ -303,7 +303,7 @@ def run_community_baselines_python_checks(eg: Any) -> list[dict[str, Any]]:
         )
         assert set(ev_cluster.keys()) == set(cluster_metric_targets)
         ev_alias = eg.evaluate_metrics(
-            g_bb, l_sep, ["sepme_knng2", "sepme-knng2"], community_labels=comm_labels, sepme_knng_k=2
+            g_bb, l_sep, ["sepme_knng2", "sepme-knng2"], labels=comm_labels, sepme_knng_k=2
         )
         assert abs(ev_alias["sepme_knng"] - ev_cluster["sepme_knng"]) < 1e-12
 

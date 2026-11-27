@@ -41,15 +41,15 @@ def run_cross_target_clustering_manifold_parity(
         ],
         dtype=np.float64,
     )
-    km_py = eg.kmeans_plus_plus(pts_km, k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
+    km_py = eg.kmeans_plus_plus(pts_km, k=2, max_iterations=100, tol=1e-4, n_init=3, seed=42)
 
     bb_edges = make_barbell_edges(6)
     g_bb = eg.CsrGraph.from_edges(12, bb_edges, directed=False, sanitize=True)
     spec_py = eg.spectral_clustering(
-        g_bb, k=2, max_eigen_iters=300, eigen_tol=1e-4, kmeans_max_iters=100, kmeans_tol=1e-4, seed=42
+        g_bb, k=2, max_eigen_iterations=300, eigen_tol=1e-4, kmeans_max_iterations=100, kmeans_tol=1e-4, seed=42
     )
     louv_py = eg.louvain_communities(g_bb, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)
-    lpa_py = eg.label_propagation(g_bb, max_iters=100, seed=42)
+    lpa_py = eg.label_propagation(g_bb, max_iterations=100, seed=42)
     cg_py, n2c_py, sizes_py, nclust_py = eg.coarsen_graph(g_bb, [100] * 6 + [999] * 6)
     coarse_coords_f32 = np.array([[-2.0, 0.0], [2.0, 0.0]], dtype=np.float32)
     proj_py32 = eg.project_clustered_layout(
@@ -72,18 +72,18 @@ def run_cross_target_clustering_manifold_parity(
         m_init = man_sph_init_f32 if kind == "spherical" else man_init_f32
         ml32 = eg.ManifoldLayout2d.from_coords(kind, m_init)
         sgd_m32 = eg.SgdSolver.full(
-            g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32"
+            g16, iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32"
         )
-        sgd_m32.run_manifold(ml32)
+        sgd_m32.run(ml32)
         man_py32[kind] = {
             "coords": ml32.coords(),
             "dist": float(ml32.geodesic_distance(0, 15)),
         }
         ml64 = eg.ManifoldLayout2d.from_coords(kind, m_init.astype(np.float64))
         sgd_m64 = eg.SgdSolver.full(
-            g16, t_max=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64"
+            g16, iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64"
         )
-        sgd_m64.run_manifold(ml64)
+        sgd_m64.run(ml64)
         man_py64[kind] = {
             "coords": ml64.coords(),
             "dist": float(ml64.geodesic_distance(0, 15)),
@@ -106,9 +106,11 @@ if (typeof mod.kmeansPlusPlus !== 'function') {
 
 const km = mod.kmeansPlusPlus(new Float64Array(spec.pts_km), 6, 2, 2, 100, 1e-4, 3, 42);
 const bb = mod.CsrGraph.fromEdgeList(12, new Uint32Array(spec.bb_edges));
-const specLabels = Array.from(mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42));
+const specRes = mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42);
+const specLabels = Array.from(specRes.labels());
 const louv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
-const lpaLabels = Array.from(mod.labelPropagation(bb, 100, 42));
+const lpaRes = mod.labelPropagation(bb, 100, 42);
+const lpaLabels = Array.from(lpaRes.labels());
 const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
 const cg = coarse.graph();
 const cl = mod.Layout2d.fromCoords(new Float32Array(spec.coarse_coords));
@@ -125,15 +127,15 @@ for (const kind of ['hyperbolic', 'spherical', 'torus']) {
   const mInit = kind === 'spherical' ? manSphInit : manInit;
   const mlRun = mod.ManifoldLayout2d.fromCoords(kind, mInit);
   const mlStep = mod.ManifoldLayout2d.fromCoords(kind, mInit);
-  const sRun = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
-  const sStep = mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
-  sRun.runManifold(mlRun);
-  sStep.runStepsManifold(mlStep, 4);
-  while (!sStep.isFinished) sStep.stepManifold(mlStep);
-  const cRun = Array.from(mlRun.coords());
-  const cStep = Array.from(mlStep.coords());
+  const sRun = mod.SgdSolver.full(g16, { iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+  const sStep = mod.SgdSolver.full(g16, { iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+  sRun.run(mlRun);
+  sStep.runSteps(mlStep, 4);
+  while (!sStep.isFinished) sStep.step(mlStep);
+  const cRun = Array.from(mlRun.coordsView());
+  const cStep = Array.from(mlStep.coordsView());
   if (JSON.stringify(cRun) !== JSON.stringify(cStep)) {
-    throw new Error(`WASM SgdSolver.stepManifold != runManifold for ${kind}`);
+    throw new Error(`WASM SgdSolver.step != run on ManifoldLayout2d for ${kind}`);
   }
   manifolds[kind] = { coords: cRun, dist: mlRun.geodesicDistance(0, 15) };
   mlRun.free?.();
@@ -171,7 +173,7 @@ const out = {
   manifolds,
 };
 
-g16.free?.(); proj.free?.(); cl.free?.(); cg.free?.(); coarse.free?.(); louv.free?.(); km.free?.(); bb.free?.();
+g16.free?.(); proj.free?.(); cl.free?.(); cg.free?.(); coarse.free?.(); lpaRes.free?.(); louv.free?.(); specRes.free?.(); km.free?.(); bb.free?.();
 
 console.log(JSON.stringify(out));
 """
@@ -194,17 +196,17 @@ console.log(JSON.stringify(out));
         else:
             max_f64_diff = max(max_f64_diff, diff)
 
-    assert list(km_py["labels"]) == ws["km"]["labels"]
-    assert bool(km_py["converged"]) == bool(ws["km"]["converged"])
-    assert int(km_py["iterations"]) == int(ws["km"]["iterations"])
-    check_close("kmeans/centroids", km_py["centroids"], ws["km"]["centroids"], 1e-12, is_f32=False)
-    check_close("kmeans/inertia", [km_py["inertia"]], [ws["km"]["inertia"]], 1e-12, is_f32=False)
-    assert list(spec_py) == ws["spectral"]
-    assert list(louv_py["labels"]) == ws["louvain"]["labels"]
-    assert int(louv_py["num_communities"]) == int(ws["louvain"]["numCommunities"])
-    assert int(louv_py["passes"]) == int(ws["louvain"]["passes"])
-    check_close("louvain/modularity", [louv_py["modularity"]], [ws["louvain"]["modularity"]], 1e-12, is_f32=False)
-    assert list(lpa_py) == ws["lpa"]
+    assert list(km_py.labels) == ws["km"]["labels"]
+    assert bool(km_py.converged) == bool(ws["km"]["converged"])
+    assert int(km_py.iterations) == int(ws["km"]["iterations"])
+    check_close("kmeans/centroids", km_py.centroids, ws["km"]["centroids"], 1e-12, is_f32=False)
+    check_close("kmeans/inertia", [km_py.inertia], [ws["km"]["inertia"]], 1e-12, is_f32=False)
+    assert list(spec_py.labels) == ws["spectral"]
+    assert list(louv_py.labels) == ws["louvain"]["labels"]
+    assert int(louv_py.num_communities) == int(ws["louvain"]["numCommunities"])
+    assert int(louv_py.passes) == int(ws["louvain"]["passes"])
+    check_close("louvain/modularity", [louv_py.modularity], [ws["louvain"]["modularity"]], 1e-12, is_f32=False)
+    assert list(lpa_py.labels) == ws["lpa"]
     assert cg_py.num_nodes == ws["coarsen"]["numNodes"]
     assert cg_py.num_edges == ws["coarsen"]["numEdges"]
     assert list(n2c_py) == ws["coarsen"]["nodeToCoarse"]

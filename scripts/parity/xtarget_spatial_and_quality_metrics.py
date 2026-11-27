@@ -71,8 +71,8 @@ def run_cross_target_spatial_quality_parity(
     rta_det_py = eg.landmark_stratified_rta_detail(g_grid, l_grid, num_landmarks=4, num_triplets=50, min_degree=1, seed=42)
     rta_lm_ids = eg.select_maxmin_sp_pivots(g_grid, num_pivots=3, seed=42, min_degree=1)
     rta_apsp = eg.all_pairs_bfs(g_grid, 1.0)
-    rta_tbl = np.where(np.isfinite(rta_apsp[rta_lm_ids]), rta_apsp[rta_lm_ids], np.iinfo(np.uint32).max).astype(np.uint32)
-    rta_tbl_py = eg.landmark_stratified_rta_from_landmarks(l_grid, rta_lm_ids, rta_tbl, num_triplets=1000, seed=42)
+    rta_tbl_f64 = np.where(np.isfinite(rta_apsp[rta_lm_ids]), rta_apsp[rta_lm_ids], np.inf).astype(np.float64)
+    rta_tbl_py = eg.landmark_stratified_rta_from_landmarks(l_grid, rta_lm_ids, rta_tbl_f64, num_triplets=1000, seed=42)
     quality_eval_py = eg.evaluate_metrics(
         g_grid,
         l_grid,
@@ -88,7 +88,7 @@ def run_cross_target_spatial_quality_parity(
         ],
         num_samples=100,
         seed=42,
-        community_labels=quality_comm_labels,
+        labels=quality_comm_labels,
         num_landmarks=4,
         num_triplets=50,
         min_degree=1,
@@ -164,10 +164,10 @@ for (let r = 0; r < qLmIds.length; r++) {
   const rowOff = qLmIds[r] * 9;
   for (let c = 0; c < 9; c++) {
     const dv = apsp[rowOff + c];
-    qTblFlat.push(Number.isFinite(dv) ? Math.round(dv) : 0xffffffff);
+    qTblFlat.push(Number.isFinite(dv) ? dv : Number.POSITIVE_INFINITY);
   }
 }
-const qRtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, qLmIds, new Uint32Array(qTblFlat), 1000, 42);
+const qRtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, qLmIds, new Float64Array(qTblFlat), 1000, 42);
 const qEval = mod.evaluateMetrics(
   gGrid, lGrid,
   ['crosslessness', 'sampledCrosslessness', 'minimumAngle', 'minimumAngleA1', 'layoutDegeneracy', 'adjustedPatchNig', 'clusterAreaFaithfulness', 'landmarkStratifiedRta'],

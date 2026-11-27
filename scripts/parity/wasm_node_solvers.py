@@ -40,10 +40,17 @@ if (typeof mod.TsNetSolver === 'function') {
   const bb = CsrGraph.fromEdgeList(12, new Uint32Array(bbEdges));
   const km = mod.kmeansPlusPlus([10, 10, 10.2, 9.8, 9.8, 10.1, -10, -10, -9.9, -10.2, -10.1, -9.8], 6, 2, 2, 100, 1e-4, 3, 42);
   assert.deepEqual(Array.from(km.labels()), [0, 0, 0, 1, 1, 1]);
-  assert.deepEqual(Array.from(mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42)), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  assert.ok(km.labelsView() instanceof Uint32Array);
+  assert.ok(km.centroidsView() instanceof Float64Array);
+  const spRes = mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42);
+  assert.deepEqual(Array.from(spRes.labels()), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  assert.ok(spRes.labelsView() instanceof Uint32Array);
   const lv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
   assert.equal(lv.numCommunities, 2);
-  assert.deepEqual(Array.from(mod.labelPropagation(bb, 100, 42)), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  assert.ok(lv.labelsView() instanceof Uint32Array);
+  const lpaRes = mod.labelPropagation(bb, 100, 42);
+  assert.deepEqual(Array.from(lpaRes.labels()), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
+  assert.ok(lpaRes.labelsView() instanceof Uint32Array);
   const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
   assert.equal(coarse.numClusters, 2);
   const cl = Layout2d.fromCoords(new Float32Array([-2, 0, 2, 0]));
@@ -52,7 +59,9 @@ if (typeof mod.TsNetSolver === 'function') {
   proj.free?.();
   cl.free?.();
   coarse.free?.();
+  lpaRes.free?.();
   lv.free?.();
+  spRes.free?.();
   km.free?.();
 
   const g16Edges = [];
@@ -89,7 +98,7 @@ if (typeof mod.TsNetSolver === 'function') {
   assert.ok(ml.geodesicDistance(0, 1) >= 0);
   ml.free?.();
 
-  const sgdR = mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, tMax: 8, seed: 42 });
+  const sgdR = mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, iterations: 8, seed: 42 });
   const sgdL = Layout2d.fromCoords(initArr);
   assert.equal(sgdR.run(sgdL), 'completed');
   assert.ok(sgdL.isAllFinite());
@@ -169,13 +178,13 @@ if (typeof mod.TFdpSolver === 'function') {
   };
 
   for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
-    checkStepEqRun(() => new mod.TFdpSolver(g16, { backend: bk, totalIterations: 8, seed: 42 }), init16, 3, `TFdp/${bk}`);
-    checkStepEqRun(() => new mod.IbUmapSolver(g16, { backend: bk, nEpochs: 6, seed: 42 }), init16, 2, `IbUmap/${bk}`);
+    checkStepEqRun(() => new mod.TFdpSolver(g16, { backend: bk, iterations: 8, seed: 42 }), init16, 3, `TFdp/${bk}`);
+    checkStepEqRun(() => new mod.IbUmapSolver(g16, { backend: bk, iterations: 6, seed: 42 }), init16, 2, `IbUmap/${bk}`);
   }
   checkStepEqRun(() => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 }), init16, 3, 'Sgd.snapTFdp');
-  checkStepEqRun(() => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 }), init16, 4, 'Sgd.pacmapGraph');
-  checkStepEqRun(() => mod.SgdSolver.sgd2(g16, { tMax: 8, batchSize: 16, seed: 42 }), init16, 3, 'Sgd.sgd2');
-  checkStepEqRun(() => mod.SgdSolver.full(g16, { tMax: 8, kind: 'squared', seed: 42 }), init16, 3, 'Sgd.squared');
+  checkStepEqRun(() => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 }), init16, 4, 'Sgd.pacmapGraph');
+  checkStepEqRun(() => mod.SgdSolver.sgd2(g16, { iterations: 8, batchSize: 16, seed: 42 }), init16, 3, 'Sgd.sgd2');
+  checkStepEqRun(() => mod.SgdSolver.full(g16, { iterations: 8, kind: 'squared', seed: 42 }), init16, 3, 'Sgd.squared');
   checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, useBarnesHut: true, seed: 42 }), init16, 3, 'FA2/bh');
   checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, useBarnesHut: false, seed: 42 }), init16, 3, 'FA2/exact');
   checkStepEqRun(() => new mod.YifanHuSolver(g16, { maxIterationsPerLevel: 8, minCoarsenSize: 6, minCoarsenRatio: 0.9, seed: 42 }), init16, 3, 'YifanHu');
@@ -191,20 +200,21 @@ if (typeof mod.TFdpSolver === 'function') {
       fdebInit[2 * (r * 4 + c) + 1] = r;
     }
   }
-  const lFdeb = Layout2d.fromCoords(fdebInit);
-  const fdebR = new mod.FdebSolver(g16, lFdeb, { cycles: 2, i0: 6 });
-  const fdebS = new mod.FdebSolver(g16, lFdeb, { cycles: 2, i0: 6 });
-  assert.equal(lFdeb.len(), 16, 'FdebSolver must not drop input Layout2d');
-  assert.equal(fdebR.run(), 'completed');
-  fdebS.step();
-  fdebS.runSteps(3);
-  while (!fdebS.isFinished) fdebS.step();
+  const lFdebR = Layout2d.fromCoords(fdebInit);
+  const lFdebS = Layout2d.fromCoords(fdebInit);
+  const fdebR = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
+  const fdebS = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
+  assert.equal(fdebR.run(lFdebR), 'completed');
+  fdebS.step(lFdebS);
+  fdebS.runSteps(lFdebS, 3);
+  while (!fdebS.isFinished) fdebS.step(lFdebS);
   assert.deepEqual(Array.from(fdebR.edgeOffsets()), Array.from(fdebS.edgeOffsets()));
   assert.deepEqual(Array.from(fdebR.points()), Array.from(fdebS.points()));
-  assert.deepEqual(Array.from(lFdeb.coordsView()), Array.from(fdebInit));
+  assert.deepEqual(Array.from(lFdebR.coordsView()), Array.from(fdebInit));
   fdebR.free?.();
   fdebS.free?.();
-  lFdeb.free?.();
+  lFdebR.free?.();
+  lFdebS.free?.();
 
   // runProgressive parity vs run()
   const pRun = new mod.ForceAtlas2Solver(g16, { iterations: 6, useBarnesHut: false, seed: 42 });
@@ -252,7 +262,7 @@ if (typeof mod.TFdpSolver === 'function') {
   assertNonPanicError('force prism len mismatch', () => new mod.PrismOverlapRemoval(new Float32Array([1, 1]), new Float32Array([1])));
   assertNonPanicError('force constraint nan', () => new mod.SeparationConstraint(0, 1, Number.NaN));
   assertNonPanicError('force assignLayers undir', () => mod.assignLayers(g16, 'longestPath'));
-  assertNonPanicError('force fdeb dim mismatch', () => new mod.FdebSolver(g16, badL));
+  assertNonPanicError('force fdeb dim mismatch', () => new mod.FdebSolver(g16).step(badL));
   badL.free?.();
   g16.free?.();
 }

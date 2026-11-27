@@ -35,11 +35,11 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
         ],
         dtype=np.float64,
     )
-    km64 = eg.kmeans_plus_plus(pts_km, k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
-    km32 = eg.kmeans_plus_plus(pts_km.astype(np.float32), k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
-    assert np.array_equal(km64["labels"], np.array([0, 0, 0, 1, 1, 1], dtype=np.uint32))
-    assert np.array_equal(km64["labels"], km32["labels"])
-    assert bool(km64["converged"]) and float(km64["inertia"]) < 1.0
+    km64 = eg.kmeans_plus_plus(pts_km, k=2, max_iterations=100, tol=1e-4, n_init=3, seed=42)
+    km32 = eg.kmeans_plus_plus(pts_km.astype(np.float32), k=2, max_iterations=100, tol=1e-4, n_init=3, seed=42)
+    assert np.array_equal(km64.labels, np.array([0, 0, 0, 1, 1, 1], dtype=np.uint32))
+    assert np.array_equal(km64.labels, km32.labels)
+    assert bool(km64.converged) and float(km64.inertia) < 1.0
 
     # 12-node 2-clique barbell for clustering separation checks
     bb12_edges = make_barbell_edges(6)
@@ -47,14 +47,14 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     sp1 = eg.spectral_clustering(g_bb12, k=2, seed=42)
     sp2 = eg.spectral_clustering(g_bb12, k=2, seed=42)
-    assert np.array_equal(sp1, sp2) and np.array_equal(sp1, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+    assert np.array_equal(sp1.labels, sp2.labels) and np.array_equal(sp1.labels, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
 
     lv = eg.louvain_communities(g_bb12, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)
-    assert lv["num_communities"] == 2 and float(lv["modularity"]) > 0.35
-    assert np.array_equal(lv["labels"], np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+    assert lv.num_communities == 2 and float(lv.modularity) > 0.35
+    assert np.array_equal(lv.labels, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
 
-    lpa = eg.label_propagation(g_bb12, max_iters=100, seed=42)
-    assert np.array_equal(lpa, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+    lpa = eg.label_propagation(g_bb12, max_iterations=100, seed=42)
+    assert np.array_equal(lpa.labels, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
 
     coarse_g, n2c, sizes, num_clusters = eg.coarsen_graph(g_bb12, [100] * 6 + [999] * 6)
     assert num_clusters == 2 and coarse_g.num_nodes == 2 and coarse_g.num_edges == 1
@@ -78,7 +78,7 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
     for kind, base_arr in manifold_coords.items():
         for dtype_name, np_dtype in (("float64", np.float64), ("float32", np.float32)):
             ml = eg.ManifoldLayout2d.from_coords(kind, base_arr.astype(np_dtype))
-            assert ml.kind == kind and ml.dtype == dtype_name and ml.len() == 3
+            assert ml.kind == kind and ml.dtype == dtype_name and len(ml) == 3
             ml.project_all()
             c = ml.coords()
             assert np.all(np.isfinite(c))
@@ -127,16 +127,16 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # SgdSolver variants
         sgd_builders: list[tuple[str, Callable[[], Any]]] = [
-            ("full", bind_call(eg.SgdSolver.full, g16, t_max=10, seed=42, dtype=dtype_name)),
+            ("full", bind_call(eg.SgdSolver.full, g16, iterations=10, seed=42, dtype=dtype_name)),
             (
                 "sparse_barrier_dog",
-                bind_call(eg.SgdSolver.sparse_barrier_dog, g16, degree=15, num_landmarks=8, t_max=10, seed=42, dtype=dtype_name),
+                bind_call(eg.SgdSolver.sparse_barrier_dog, g16, degree=15, num_landmarks=8, iterations=10, seed=42, dtype=dtype_name),
             ),
-            ("random_pair", bind_call(eg.SgdSolver.random_pair, g16, pairs_per_node=4, t_max=10, seed=42, dtype=dtype_name)),
-            ("omega", bind_call(eg.SgdSolver.omega, g16, emb16, k=4, t_max=10, seed=42, dtype=dtype_name)),
+            ("random_pair", bind_call(eg.SgdSolver.random_pair, g16, pairs_per_node=4, iterations=10, seed=42, dtype=dtype_name)),
+            ("omega", bind_call(eg.SgdSolver.omega, g16, emb16, k=4, iterations=10, seed=42, dtype=dtype_name)),
             (
                 "streaming_negatives",
-                bind_call(eg.SgdSolver.streaming_negatives, g16, negatives_per_node=3, t_max=10, seed=42, dtype=dtype_name),
+                bind_call(eg.SgdSolver.streaming_negatives, g16, negatives_per_node=3, iterations=10, seed=42, dtype=dtype_name),
             ),
             (
                 "from_pairs_with_hinges",
@@ -155,7 +155,7 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
                     hinge_dji=[3.0, 3.0],
                     hinge_wij=[1.0, 1.0],
                     hinge_wji=[1.0, 1.0],
-                    t_max=10,
+                    iterations=10,
                     seed=42,
                     dtype=dtype_name,
                 ),
@@ -174,19 +174,19 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # SgdSolver manifold stepping (all 3 manifolds)
         for kind in ("hyperbolic", "spherical", "torus"):
-            mr = eg.SgdSolver.full(g16, t_max=8, seed=42, dtype=dtype_name)
-            ms = eg.SgdSolver.full(g16, t_max=8, seed=42, dtype=dtype_name)
+            mr = eg.SgdSolver.full(g16, iterations=8, seed=42, dtype=dtype_name)
+            ms = eg.SgdSolver.full(g16, iterations=8, seed=42, dtype=dtype_name)
             mlr = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
             mls = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
-            assert mr.run_manifold(mlr) == "completed"
-            assert ms.run_steps_manifold(mls, 3) == "running"
+            assert mr.run(mlr) == "completed"
+            assert ms.run_steps(mls, 3) == "running"
             while not ms.is_finished:
-                ms.step_manifold(mls)
+                ms.step(mls)
             assert np.array_equal(mlr.coords(), mls.coords())
 
         # GuMapSolver.from_graph_dog
-        gmr = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_name)
-        gms = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_name)
+        gmr = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=15, seed=42, dtype=dtype_name)
+        gms = eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=15, seed=42, dtype=dtype_name)
         glr = eg.Layout2d.from_coords(init_typed)
         gls = eg.Layout2d.from_coords(init_typed)
         assert gmr.run(glr) == "completed"
@@ -199,8 +199,8 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
         g9 = eg.CsrGraph.from_edges(9, make_grid_edges(3, 3), directed=False, sanitize=True)
         folded9 = np.array([[float(c), float(r)] for r in range(3) for c in range(3)], dtype=np.float64)
         folded9[8] = np.array([0.08, 0.08], dtype=np.float64)
-        rf_r = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
-        rf_s = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
+        rf_r = eg.SpatialIntruderRefiner(g9, iterations=3, k_cap=32, sgd_iterations=10, seed=42, dtype=dtype_name)
+        rf_s = eg.SpatialIntruderRefiner(g9, iterations=3, k_cap=32, sgd_iterations=10, seed=42, dtype=dtype_name)
         rlr = eg.Layout2d.from_coords(folded9.astype(np_dtype))
         rls = eg.Layout2d.from_coords(folded9.astype(np_dtype))
         assert rf_r.run(rlr) in ("converged", "completed")
@@ -221,8 +221,8 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert np.array_equal(slr.coords(copy=True), sls.coords(copy=True))
 
         # KamadaKawaiSolver.from_graph
-        kk_r = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
-        kk_s = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
+        kk_r = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_iterations=20, dtype=dtype_name)
+        kk_s = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_iterations=20, dtype=dtype_name)
         init9 = np.array(make_asymmetric_coords(9, scale=1.2), dtype=np.float64).astype(np_dtype)
         klr = eg.Layout2d.from_coords(init9)
         kls = eg.Layout2d.from_coords(init9)
@@ -244,7 +244,7 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
     l_nan = eg.Layout2d.zeros(12)
     l_nan.coords(copy=False)[0, 0] = float("nan")
     sm_chk = eg.StressMajorizationSolver.from_graph(g_bb12, max_iterations=5)
-    kk_chk = eg.KamadaKawaiSolver.from_graph(g_bb12, max_outer_iters=5)
+    kk_chk = eg.KamadaKawaiSolver.from_graph(g_bb12, max_iterations=5)
     solver_bad_cases: list[tuple[str, Callable[[], Any]]] = [
         ("kmeans_plus_plus/k_zero", lambda: eg.kmeans_plus_plus(pts_km, k=0)),
         ("kmeans_plus_plus/k_gt_n", lambda: eg.kmeans_plus_plus(pts_km, k=10)),

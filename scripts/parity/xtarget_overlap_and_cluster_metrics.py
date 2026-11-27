@@ -80,24 +80,24 @@ def run_cross_target_overlap_cluster_metrics_parity(
     l_sep = eg.Layout2d.from_coords(sep_f32)
     l_ov = eg.Layout2d.from_coords(ov_f32)
     pa_py = eg.partition_agreement(comm_labels, pred_labels)
-    cq_km_py = eg.cq_kmeans(l_sep, comm_labels, n_init=5, max_iters=50, seed=42)
+    cq_km_py = eg.cq_kmeans(l_sep, comm_labels, n_init=5, max_iterations=50, seed=42)
     cq_hac_py = eg.cq_hac(l_sep, comm_labels)
     cdm_py, hdm_py = eg.class_density_measure(l_sep, comm_labels, grid_size=32)
     nor_g_py = eg.nor_metrics(l_ov, l_gt_box, hw10_f32, hh10_f32, graph=g_bb)
     nor_nog_py = eg.nor_metrics(l_ov, l_gt_box, hw10_f32, hh10_f32)
     cluster_metric_targets = [
-        "dsc",
-        "dc",
-        "cdm",
-        "hdm",
+        "distance_consistency",
+        "distribution_consistency",
+        "class_density_measure",
+        "histogram_density_measure",
         "sepme_knng",
         "sepme_rng",
         "sepme_gab",
         "sepme_gong",
         "neighborhood_hit",
-        "silhouette",
-        "calinski_harabasz",
-        "davies_bouldin",
+        "silhouette_score",
+        "calinski_harabasz_score",
+        "davies_bouldin_score",
         "cq_kmeans_ari",
         "cq_kmeans_ami",
         "cq_hac_hom",
@@ -109,7 +109,7 @@ def run_cross_target_overlap_cluster_metrics_parity(
         g_bb,
         l_sep,
         cluster_metric_targets,
-        community_labels=comm_labels,
+        labels=comm_labels,
         sepme_knng_k=2,
         neighborhood_hit_k=3,
         dc_grid_size=16,
@@ -117,7 +117,7 @@ def run_cross_target_overlap_cluster_metrics_parity(
         num_bins=32,
         gong_gamma=0.35,
         kmeans_n_init=5,
-        kmeans_max_iters=50,
+        kmeans_max_iterations=50,
         sprawlter_node_radius=0.5,
         seed=42,
     )
@@ -194,14 +194,15 @@ const evRep = mod.evaluateMetrics(
   gBb,
   lSep,
   [
-    'dsc', 'dc', 'cdm', 'hdm', 'sepme_knng', 'sepme_rng', 'sepme_gab', 'sepme_gong',
-    'neighborhood_hit', 'silhouette', 'calinski_harabasz', 'davies_bouldin',
+    'distance_consistency', 'distribution_consistency', 'class_density_measure', 'histogram_density_measure',
+    'sepme_knng', 'sepme_rng', 'sepme_gab', 'sepme_gong',
+    'neighborhood_hit', 'silhouette_score', 'calinski_harabasz_score', 'davies_bouldin_score',
     'cq_kmeans_ari', 'cq_kmeans_ami', 'cq_hac_hom', 'cq_hac_ami',
     'pairwise_distance_overlap_error', 'sprawlter_nn',
   ],
   {
-    communityLabels: commLabels, sepmeKnngK: 2, neighborhoodHitK: 3, dcGridSize: 16, cdmGridSize: 32,
-    numBins: 32, gongGamma: 0.35, kmeansNInit: 5, kmeansMaxIters: 50, sprawlterNodeRadius: 0.5, seed: 42,
+    labels: commLabels, sepmeKnngK: 2, neighborhoodHitK: 3, dcGridSize: 16, cdmGridSize: 32,
+    numBins: 32, gongGamma: 0.35, kmeansNInit: 5, kmeansMaxIterations: 50, sprawlterNodeRadius: 0.5, seed: 42,
   },
 );
 
@@ -287,15 +288,26 @@ console.log(JSON.stringify(out));
     ):
         check_close(f"cluster_standalone/{pk}", [standalone_cluster_py[pk]], [cm["standalone"][wk]], 1e-10, is_f32=False)
     for pk, wk in (
-        ("dsc", "dsc"), ("dc", "dc"), ("cdm", "cdm"), ("hdm", "hdm"),
+        ("distance_consistency", "distanceConsistency"),
+        ("distribution_consistency", "distributionConsistency"),
+        ("class_density_measure", "classDensityMeasure"),
+        ("histogram_density_measure", "histogramDensityMeasure"),
         ("sepme_knng", "sepmeKnng"), ("sepme_rng", "sepmeRng"), ("sepme_gab", "sepmeGab"), ("sepme_gong", "sepmeGong"),
-        ("neighborhood_hit", "neighborhoodHit"), ("silhouette", "silhouette"),
-        ("calinski_harabasz", "calinskiHarabasz"), ("davies_bouldin", "daviesBouldin"),
+        ("neighborhood_hit", "neighborhoodHit"),
+        ("silhouette_score", "silhouetteScore"),
+        ("calinski_harabasz_score", "calinskiHarabaszScore"),
+        ("davies_bouldin_score", "daviesBouldinScore"),
         ("cq_kmeans_ari", "cqKmeansAri"), ("cq_kmeans_ami", "cqKmeansAmi"),
         ("cq_hac_hom", "cqHacHom"), ("cq_hac_ami", "cqHacAmi"),
         ("pairwise_distance_overlap_error", "pairwiseDistanceOverlapError"), ("sprawlter_nn", "sprawlterNn"),
     ):
         check_close(f"evaluate_metrics/cluster/{pk}", [ev_cluster_py[pk]], [cm["ev"][wk]], 1e-10, is_f32=False)
+
+    # Verify default ForbidOverlapRemoval matches sparse_forbid
+    fb_def_py = eg.ForbidOverlapRemoval(hw10_f32, hh10_f32, max_scale_iters=25, sgd_iterations=30, seed=42, dtype="float32")
+    l_fb_def = eg.Layout2d.from_coords(ov_f32)
+    fb_def_py.run(l_fb_def)
+    check_close("forbid/default_is_sparse_forbid", l_fb_def.coords(copy=True), fb_py["sparse_forbid"]["coords"], 1e-6)
 
     return [{
         "case": "cross_target_overlap_cluster_metrics_py_vs_wasm",

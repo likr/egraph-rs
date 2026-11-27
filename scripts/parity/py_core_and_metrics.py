@@ -284,6 +284,9 @@ def run_geometry_metrics_spatial_checks(eg: Any) -> list[dict[str, Any]]:
             "aspect_ratio",
         }
         assert set(report.keys()) == expected_keys, f"{name}: unexpected keys {report.keys()}"
+        assert set(report.to_dict().keys()) == expected_keys
+        assert report.scale_normalized_stress is not None
+        assert abs(report.scale_normalized_stress - sns1) < 1e-12
         assert abs(report["scale_normalized_stress"] - sns1) < 1e-12
         assert report["crossing_number"] == cr_sweep
         assert abs(report["neighborhood_preservation_1hop"] - np1) < 1e-12

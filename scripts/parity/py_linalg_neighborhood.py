@@ -99,13 +99,14 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
     assert hop1.num_edges == g.num_edges
 
     pure_knn, k2_deg, pure_stats = eg.build_pure_2hop_knn(g)
+    assert pure_knn.indptr().dtype == np.uint32
     sizes = eg.compute_2hop_neighborhood_sizes(g)
     assert np.array_equal(k2_deg, sizes)
     assert int(k2_deg[69]) == 0 and pure_stats["nnz"] == pure_knn.nnz
     knn_rt = eg.KnnGraph.from_csr(
         pure_knn.num_nodes, pure_knn.indptr(), pure_knn.indices(), pure_knn.distances()
     )
-    assert len(knn_rt) == n and knn_rt.nnz == pure_knn.nnz
+    assert len(knn_rt) == n and knn_rt.nnz == pure_knn.nnz and knn_rt.indptr().dtype == np.uint32
     assert np.array_equal(knn_rt.indices(), pure_knn.indices())
     assert np.allclose(knn_rt.distances(), pure_knn.distances())
 

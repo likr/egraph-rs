@@ -39,8 +39,8 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # 1. TFdpSolver across all 3 backends + from_knn
         for backend in ("ibfft", "barnes_hut", "exact"):
-            sr = eg.TFdpSolver(g16, backend=backend, total_iterations=8, seed=42, dtype=dtype_name)
-            ss = eg.TFdpSolver(g16, backend=backend, total_iterations=8, seed=42, dtype=dtype_name)
+            sr = eg.TFdpSolver(g16, backend=backend, iterations=8, seed=42, dtype=dtype_name)
+            ss = eg.TFdpSolver(g16, backend=backend, iterations=8, seed=42, dtype=dtype_name)
             lr = eg.Layout2d.from_coords(init16_typed)
             ls = eg.Layout2d.from_coords(init16_typed)
             rho0 = sr.current_rho
@@ -55,10 +55,10 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
                 f"TFdpSolver/{backend}/{dtype_name} step != run"
             )
 
-        tk1 = eg.TFdpSolver.from_knn(knn16, backend="exact", total_iterations=6, seed=42, dtype=dtype_name)
+        tk1 = eg.TFdpSolver.from_knn(knn16, backend="exact", iterations=6, seed=42, dtype=dtype_name)
         tk2 = eg.TFdpSolver.from_knn(
             knn16.indptr(), knn16.indices(), knn16.distances(),
-            backend="exact", total_iterations=6, seed=42, dtype=dtype_name,
+            backend="exact", iterations=6, seed=42, dtype=dtype_name,
         )
         lk1 = eg.Layout2d.from_coords(init16_typed)
         lk2 = eg.Layout2d.from_coords(init16_typed)
@@ -68,8 +68,8 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # 2. IbUmapSolver across all 3 backends + from_knn + from_fuzzy_set
         for backend in ("ibfft", "barnes_hut", "exact"):
-            ir = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, n_epochs=6, seed=42, dtype=dtype_name)
-            is_ = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, n_epochs=6, seed=42, dtype=dtype_name)
+            ir = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, iterations=6, seed=42, dtype=dtype_name)
+            is_ = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, iterations=6, seed=42, dtype=dtype_name)
             lr = eg.Layout2d.from_coords(init16_typed)
             ls = eg.Layout2d.from_coords(init16_typed)
             assert ir.run(lr) == "completed"
@@ -82,8 +82,8 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
                 f"IbUmapSolver/{backend}/{dtype_name} step != run"
             )
 
-        ik = eg.IbUmapSolver.from_knn(knn16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name)
-        ifs = eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name)
+        ik = eg.IbUmapSolver.from_knn(knn16, backend="exact", iterations=6, seed=42, dtype=dtype_name)
+        ifs = eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", iterations=6, seed=42, dtype=dtype_name)
         lik = eg.Layout2d.from_coords(init16_typed)
         lif = eg.Layout2d.from_coords(init16_typed)
         assert ik.run(lik) == "completed" and lik.is_all_finite()
@@ -98,15 +98,13 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
                     eg.SgdSolver.pacmap_graph,
                     g16,
                     n_neighbors=5,
-                    phase1_iters=3,
-                    phase2_iters=3,
-                    phase3_iters=4,
+                    phase_iterations=(3, 3, 4),
                     seed=42,
                     dtype=dtype_name,
                 ),
             ),
-            ("sgd2", bind_call(eg.SgdSolver.sgd2, g16, t_max=8, batch_size=16, seed=42, dtype=dtype_name)),
-            ("squared", bind_call(eg.SgdSolver.full, g16, t_max=8, schedule="squared", seed=42, dtype=dtype_name)),
+            ("sgd2", bind_call(eg.SgdSolver.sgd2, g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name)),
+            ("squared", bind_call(eg.SgdSolver.full, g16, iterations=8, schedule="squared", seed=42, dtype=dtype_name)),
         ]
         for s_name, mk_s in force_sgd_builders:
             sr = mk_s()
@@ -177,10 +175,11 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # 7. SeparationConstraint + projection helpers
         arr_1d = np.array([2.0, 0.5, 0.0], dtype=np_dtype)
-        out_1d = eg.project_1d(arr_1d, [eg.SeparationConstraint(0, 1, 1.5), eg.SeparationConstraint(1, 2, 2.0)])
-        assert out_1d.dtype == np_dtype
-        assert float(out_1d[1] - out_1d[0]) >= 1.5 - 1e-5
-        assert float(out_1d[2] - out_1d[1]) >= 2.0 - 1e-5
+        ret_1d = eg.project_1d(arr_1d, [eg.SeparationConstraint(0, 1, 1.5), eg.SeparationConstraint(1, 2, 2.0)])
+        assert ret_1d is None
+        assert arr_1d.dtype == np_dtype
+        assert float(arr_1d[1] - arr_1d[0]) >= 1.5 - 1e-5
+        assert float(arr_1d[2] - arr_1d[1]) >= 2.0 - 1e-5
 
         rect_l = eg.Layout2d.from_coords(np.array([[0.0, 0.0], [0.2, 0.1], [0.1, -0.1], [-0.1, 0.2]], dtype=np_dtype))
         hw4 = np.full(4, 0.5, dtype=np_dtype)
@@ -196,14 +195,15 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # 8. FdebSolver (step == run, input layout preserved)
         fdeb_base = np.array([[float(c), float(r)] for r in range(4) for c in range(4)], dtype=np_dtype)
-        l_fdeb = eg.Layout2d.from_coords(fdeb_base)
-        fr_fdeb = eg.FdebSolver(g16, l_fdeb, cycles=2, i0=6, dtype=dtype_name)
-        fs_fdeb = eg.FdebSolver(g16, l_fdeb, cycles=2, i0=6, dtype=None)
-        assert fs_fdeb.dtype == dtype_name
-        assert fr_fdeb.run() == "completed"
-        fs_fdeb.step()
-        fs_fdeb.run_steps(3)
-        fs_fdeb.run()
+        l_fdeb_r = eg.Layout2d.from_coords(fdeb_base)
+        l_fdeb_s = eg.Layout2d.from_coords(fdeb_base)
+        fr_fdeb = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
+        fs_fdeb = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
+        assert fr_fdeb.dtype == dtype_name
+        assert fr_fdeb.run(l_fdeb_r) == "completed"
+        fs_fdeb.step(l_fdeb_s)
+        fs_fdeb.run_steps(l_fdeb_s, 3)
+        fs_fdeb.run(l_fdeb_s)
         off_r = fr_fdeb.edge_offsets()
         pts_r = fr_fdeb.points()
         assert off_r.dtype == np.uint32 and off_r.shape == (g16.num_edges + 1,)
@@ -211,7 +211,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert pts_r.dtype == np_dtype and pts_r.shape[1] == 2 and np.all(np.isfinite(pts_r))
         assert np.array_equal(off_r, fs_fdeb.edge_offsets())
         assert np.array_equal(pts_r, fs_fdeb.points())
-        assert np.array_equal(l_fdeb.coords(copy=True), fdeb_base)
+        assert np.array_equal(l_fdeb_r.coords(copy=True), fdeb_base)
 
     # 9. Layering (cycle_edges, remove_cycles, assign_layers) & generate_layered_constraints
     cyc = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (2, 0), (1, 3)], directed=True, sanitize=True)
@@ -251,7 +251,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
     force_postproc_bad_cases: list[tuple[str, Callable[[], Any]]] = [
         ("TFdpSolver/bad_backend", lambda: eg.TFdpSolver(g16, backend="bad")),
         ("TFdpSolver/momentum_1", lambda: eg.TFdpSolver(g16, momentum=1.0)),
-        ("TFdpSolver/bool_iters", lambda: eg.TFdpSolver(g16, total_iterations=True)),
+        ("TFdpSolver/bool_iters", lambda: eg.TFdpSolver(g16, iterations=True)),
         ("TFdpSolver/dim_mismatch", lambda: eg.TFdpSolver(g16).step(bad_l)),
         ("TFdpSolver/nan_layout", lambda: eg.TFdpSolver(g16).step(l16_nan)),
         ("TFdpSolver.from_knn/bad_indptr", lambda: eg.TFdpSolver.from_knn([], [])),
@@ -268,7 +268,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("PrismOverlapRemoval/neg_half", lambda: eg.PrismOverlapRemoval([1.0], [-0.5])),
         ("PrismOverlapRemoval/nan_layout", lambda: eg.PrismOverlapRemoval.from_radii([0.5] * 16).step(l16_nan)),
         ("SeparationConstraint/nan_gap", lambda: eg.SeparationConstraint(0, 1, float("nan"))),
-        ("project_1d/cycle", lambda: eg.project_1d([0.0, 1.0], [eg.SeparationConstraint(0, 1, 1.0), eg.SeparationConstraint(1, 0, 1.0)])),
+        ("project_1d/cycle", lambda: eg.project_1d(np.array([0.0, 1.0]), [eg.SeparationConstraint(0, 1, 1.0), eg.SeparationConstraint(1, 0, 1.0)])),
         ("project_layout_axis/bad_axis", lambda: eg.project_layout_axis(bad_l, 2, [])),
         ("generate_layered_constraints/len_mismatch", lambda: eg.generate_layered_constraints(dag, [0])),
         ("generate_layered_constraints/neg_dist", lambda: eg.generate_layered_constraints(dag, [0, 1, 2, 3], -1.0)),
@@ -278,9 +278,9 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("remove_cycles/undirected", lambda: eg.remove_cycles(g16)),
         ("assign_layers/undirected", lambda: eg.assign_layers(g16)),
         ("assign_layers/bad_method", lambda: eg.assign_layers(dag, method="unknown")),
-        ("FdebSolver/dim_mismatch", lambda: eg.FdebSolver(g16, bad_l)),
-        ("FdebSolver/cycles_too_large", lambda: eg.FdebSolver(g16, eg.Layout2d.zeros(16), cycles=30)),
-        ("FdebSolver/nan_layout", lambda: eg.FdebSolver(g16, l16_nan)),
+        ("FdebSolver/dim_mismatch", lambda: eg.FdebSolver(g16).run(bad_l)),
+        ("FdebSolver/cycles_too_large", lambda: eg.FdebSolver(g16, cycles=30)),
+        ("FdebSolver/nan_layout", lambda: eg.FdebSolver(g16).run(l16_nan)),
     ]
     for label, fn in force_postproc_bad_cases:
         assert_non_panic_error(label, fn)

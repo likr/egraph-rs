@@ -68,10 +68,11 @@ def run_cross_target_classic_overlap_baselines_parity(
     grip_s.run(l_grip)
     grip_py = {"coords": l_grip.coords(copy=True), "num_levels": int(grip_s.num_levels)}
 
-    gem_s = eg.GemSolver(g_bb, max_rounds=12, seed=42, dtype="float32")
+    gem_s = eg.GemSolver(g_bb, max_iterations=12, seed=42, dtype="float32")
     l_gem = eg.Layout2d.from_coords(init10_f32)
     gem_s.run(l_gem)
     gem_py = l_gem.coords(copy=True)
+    assert eg.GemSolver(g_bb, dtype="float32").total_iterations == min(4 * 10, 400)
 
     sel_py: dict[str, dict[str, Any]] = {}
     for mapping, backend in (("sigmoid", "fr"), ("tanh", "t_fdp")):
@@ -163,8 +164,9 @@ if (!arrEq(gripCoords, Array.from(lg2.coordsView()))) throw new Error('WASM Grip
 const gripNumLevels = grip1.numLevels;
 lg1.free?.(); lg2.free?.(); grip1.free?.(); grip2.free?.();
 
-const gem1 = new mod.GemSolver(gBb, { maxRounds: 12, seed: 42 });
-const gem2 = new mod.GemSolver(gBb, { maxRounds: 12, seed: 42 });
+const gem1 = new mod.GemSolver(gBb, { maxIterations: 12, seed: 42 });
+const gem2 = new mod.GemSolver(gBb, { maxIterations: 12, seed: 42 });
+assert.equal(new mod.GemSolver(gBb, {}).totalIterations, Math.min(4 * 10, 400));
 const lm1 = mod.Layout2d.fromCoords(init10);
 const lm2 = mod.Layout2d.fromCoords(init10);
 gem1.run(lm1); gem2.step(lm2); gem2.runSteps(lm2, 3); gem2.run(lm2);
@@ -228,7 +230,7 @@ for (const gDeg of [gEmpty, gSingle, gDisc, gDirRec]) {
   for (const s of [
     new mod.MaxentStressSolver(gDeg, { stages: 2, stepsPerStage: 3, seed: 42 }),
     new mod.GripSolver(gDeg, { roundsMin: 2, roundsMax: 4, seed: 42 }),
-    new mod.GemSolver(gDeg, { maxRounds: 4, seed: 42 }),
+    new mod.GemSolver(gDeg, { maxIterations: 4, seed: 42 }),
     new mod.SelLayoutSolver(gDeg, { iterations: 4, seed: 42 }),
     mod.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(m).fill(0.25), { seed: 42 }),
     new mod.SfcLayoutSolver(gDeg, { seed: 42 }),

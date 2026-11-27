@@ -95,7 +95,7 @@ def run_cross_target_community_backbone_parity(
     cr_py: dict[str, dict[str, Any]] = {}
     for method in ("kmeans", "hac"):
         cs = eg.ClusterRefineSolver.from_graph(
-            g_bb, comm_labels, method=method, max_rounds=5, seed=42, dtype="float32"
+            g_bb, comm_labels, method=method, max_iterations=5, seed=42, dtype="float32"
         )
         lay = eg.Layout2d.from_coords(swapped_f32)
         cs.run(lay)
@@ -105,7 +105,7 @@ def run_cross_target_community_backbone_parity(
             "clusters": int(cs.num_clusters),
         }
     l_cr_fn = eg.Layout2d.from_coords(swapped_f32)
-    cr_fn_moved_py = int(eg.refine_cluster_layout(l_cr_fn, comm_labels, method="kmeans", max_rounds=5, seed=42))
+    cr_fn_moved_py = int(eg.refine_cluster_layout(l_cr_fn, comm_labels, method="kmeans", max_iterations=5, seed=42))
     cr_fn_coords_py = l_cr_fn.coords(copy=True)
 
     treemap_py = eg.squarified_treemap([5.0, 3.0, 2.0], width=100.0, height=50.0, x=5.0, y=10.0)
@@ -183,14 +183,14 @@ for (const mode of ['stress', 'sgd']) {
 
 const cr = {};
 for (const method of ['kmeans', 'hac']) {
-  const s = mod.ClusterRefineSolver.fromGraph(gBb, commLabels, { method, maxRounds: 5, seed: 42 });
+  const s = mod.ClusterRefineSolver.fromGraph(gBb, commLabels, { method, maxIterations: 5, seed: 42 });
   const l = mod.Layout2d.fromCoords(swapped);
   s.run(l);
   cr[method] = { coords: Array.from(l.coordsView()), moved: s.lastMovedCount, clusters: s.numClusters };
   l.free?.(); s.free?.();
 }
 const lCrFn = mod.Layout2d.fromCoords(swapped);
-const crFnMoved = mod.refineClusterLayout(lCrFn, commLabels, { method: 'kmeans', maxRounds: 5, seed: 42 });
+const crFnMoved = mod.refineClusterLayout(lCrFn, commLabels, { method: 'kmeans', maxIterations: 5, seed: 42 });
 const crFnCoords = Array.from(lCrFn.coordsView());
 lCrFn.free?.();
 
@@ -245,10 +245,10 @@ console.log(JSON.stringify(out));
             max_f64_diff = max(max_f64_diff, diff)
 
     for tag, py_r, ws_r in (("mod", leiden_mod_py, ws["leidenMod"]), ("cpm", leiden_cpm_py, ws["leidenCpm"])):
-        assert list(py_r["labels"]) == list(ws_r["labels"]), f"leiden/{tag} labels mismatch"
-        assert py_r["num_communities"] == ws_r["numCommunities"]
-        assert py_r["passes"] == ws_r["passes"]
-        check_close(f"leiden/{tag}/quality_mod", [py_r["quality"], py_r["modularity"]], [ws_r["quality"], ws_r["modularity"]], 1e-12, is_f32=False)
+        assert list(py_r.labels) == list(ws_r["labels"]), f"leiden/{tag} labels mismatch"
+        assert py_r.num_communities == ws_r["numCommunities"]
+        assert py_r.passes == ws_r["passes"]
+        check_close(f"leiden/{tag}/quality_mod", [py_r.quality, py_r.modularity], [ws_r["quality"], ws_r["modularity"]], 1e-12, is_f32=False)
 
     for rep in ("edge_repulsion", "node_repulsion"):
         check_close(f"linlog/{rep}/coords", linlog_py[rep]["coords"], ws["linlog"][rep]["coords"], 1e-4)

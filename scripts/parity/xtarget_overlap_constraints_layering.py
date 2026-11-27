@@ -81,14 +81,16 @@ def run_cross_target_overlap_layering_parity(
         out["prism_rad"] = l_pr_rad.coords(copy=True)
         out["prism_rad_ov"] = int(pr_rad.last_overlap_count)
 
-        out["proj_1d"] = eg.project_1d(
-            c1d_init_f32.astype(np_dt),
+        arr_1d = c1d_init_f32.astype(np_dt)
+        assert eg.project_1d(
+            arr_1d,
             [
                 eg.SeparationConstraint(0, 1, 1.5),
                 eg.SeparationConstraint(1, 2, 2.0),
                 eg.SeparationConstraint(2, 3, 1.0),
             ],
-        )
+        ) is None
+        out["proj_1d"] = arr_1d
 
         layered_cs = eg.generate_layered_constraints(g_skip, layers_ns_py, min_layer_distance=2.0)
         l_ax = eg.Layout2d.zeros(5, dtype=dtype_name)
@@ -104,8 +106,8 @@ def run_cross_target_overlap_layering_parity(
         out["proj_cl_rect"] = l_crc.coords(copy=True)
 
         l_fd = eg.Layout2d.from_coords(fdeb_init_f32.astype(np_dt))
-        fd = eg.FdebSolver(g16, l_fd, cycles=2, i0=6, dtype=dtype_name)
-        fd.run()
+        fd = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
+        fd.run(l_fd)
         out["fdeb_offsets"] = fd.edge_offsets()
         out["fdeb_points"] = fd.points()
         return out
@@ -181,7 +183,8 @@ const cs1d = [
   new mod.SeparationConstraint(1, 2, 2.0),
   new mod.SeparationConstraint(2, 3, 1.0),
 ];
-const proj1d = Array.from(mod.project1d(c1d, cs1d));
+mod.project1d(c1d, cs1d);
+const proj1d = Array.from(c1d);
 for (const c of cs1d) c.free?.();
 
 const ce = Array.from(mod.cycleEdges(gCyc));
@@ -203,18 +206,20 @@ const lCrc = mod.Layout2d.fromCoords(new Float32Array(spec.cl_init));
 mod.projectClusteredRectangleNoOverlap2d(lCrc, new Uint32Array(spec.cl_ids), new Float32Array(spec.hw4), new Float32Array(spec.hh4));
 const projClRect = Array.from(lCrc.coordsView());
 
-const lFd = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
-const fdR = new mod.FdebSolver(g16, lFd, { cycles: 2, i0: 6 });
-const fdS = new mod.FdebSolver(g16, lFd, { cycles: 2, i0: 6 });
-fdR.run();
-fdS.step();
-fdS.runSteps(3);
-while (!fdS.isFinished) fdS.step();
+const lFdR = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
+const lFdS = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
+const fdR = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
+const fdS = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
+fdR.run(lFdR);
+fdS.step(lFdS);
+fdS.runSteps(lFdS, 3);
+while (!fdS.isFinished) fdS.step(lFdS);
 const fdebOff = Array.from(fdR.edgeOffsets());
 const fdebPts = Array.from(fdR.points());
 if (JSON.stringify(fdebPts) !== JSON.stringify(Array.from(fdS.points()))) {
   throw new Error('WASM FdebSolver step() != run()');
 }
+lFdR.free?.(); lFdS.free?.();
 
 const out = {
   overlap_available: true,
@@ -232,7 +237,7 @@ const out = {
   fdebPts,
 };
 
-fdR.free?.(); fdS.free?.(); lFd.free?.(); lCrc.free?.(); lRc.free?.(); lAx.free?.();
+fdR.free?.(); fdS.free?.(); lCrc.free?.(); lRc.free?.(); lAx.free?.();
 dag.free?.(); gSkip.free?.(); gCyc.free?.(); g16.free?.();
 
 console.log(JSON.stringify(out));

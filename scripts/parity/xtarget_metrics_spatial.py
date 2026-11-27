@@ -74,7 +74,7 @@ def run_cross_target_metrics_spatial_parity(
             "sampled_np2_full": float(eg.sampled_np2(fg, l32, num_samples=n, seed=42)),
             "prism_sigma_dist": float(sig_dist),
             "prism_sigma_disp": float(sig_disp),
-            "evaluate_metrics": {k: float(v) for k, v in report.items()},
+            "evaluate_metrics": {k: float(v) for k, v in report.to_dict().items()},
             "delaunay_edge_count": int(dt_edges.shape[0]),
             "delaunay_tri_count": int(dt_tris.shape[0]),
         }

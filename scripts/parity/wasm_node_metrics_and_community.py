@@ -192,6 +192,7 @@ if (typeof mod.leidenCommunities === 'function') {
 
   const lRes = mod.leidenCommunities(gBb8, { objective: 'modularity', resolution: 1.0, seed: 42 });
   assert.equal(lRes.numCommunities, 2);
+  assert.ok(lRes.labelsView() instanceof Uint32Array);
   assert.equal(lRes.toRecord().numCommunities, 2);
   lRes.free?.();
 

@@ -80,7 +80,7 @@ const lHdeNd = mod.hdeNd(gAsym, { dimensions: 16, outputDims: 3, normalize: true
 const hdeOut = {
   coords: Array.from(lHde.coordsView()), numNodes: lHde.numNodes,
   pivCoords: Array.from(lHdePiv.coordsView()),
-  ndCoords: Array.from(lHdeNd.coordsView()), ndNumNodes: lHdeNd.numNodes, ndDim: lHdeNd.dim,
+  ndCoords: Array.from(lHdeNd.coordsView()), ndNumNodes: lHdeNd.numNodes, ndDim: lHdeNd.dims,
 };
 lHde.free?.(); lHdePiv.free?.(); lHdeNd.free?.();
 
@@ -154,7 +154,7 @@ console.log(JSON.stringify({ hde_available: true, hdeOut, sgdOut }));
     max_f32_diff = 0.0
     assert hde_py.num_nodes == ws["hdeOut"]["numNodes"] == n_asym
     assert hde_nd_py.num_nodes == ws["hdeOut"]["ndNumNodes"] == n_asym
-    assert hde_nd_py.dim == ws["hdeOut"]["ndDim"] == 3
+    assert hde_nd_py.dims == ws["hdeOut"]["ndDim"] == 3
     max_f32_diff = max(max_f32_diff, check_array_close("hde/asym", hde_py.coords(copy=True), ws["hdeOut"]["coords"], 1e-4))
     max_f32_diff = max(max_f32_diff, check_array_close("hde/pivots", hde_piv_py.coords(copy=True), ws["hdeOut"]["pivCoords"], 1e-4))
     max_f32_diff = max(max_f32_diff, check_array_close("hde_nd/asym", hde_nd_py.coords(copy=True), ws["hdeOut"]["ndCoords"], 1e-4))

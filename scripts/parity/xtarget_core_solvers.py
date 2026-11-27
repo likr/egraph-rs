@@ -92,11 +92,11 @@ def run_cross_target_core_solvers_parity(
             out[f"{tag}_ffts"] = int(sv_rn.total_fft_2d_calls)
 
         sgd_map = {
-            "sgd_full": eg.SgdSolver.full(g16, t_max=10, eps=0.01, schedule="exponential", step_scale=1.0, seed=42, dtype=dtype_name),
-            "sgd_dog": eg.SgdSolver.sparse_barrier_dog(g16, degree=15, num_landmarks=8, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
-            "sgd_rp": eg.SgdSolver.random_pair(g16, pairs_per_node=4, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
-            "sgd_omega": eg.SgdSolver.omega(g16, emb16, k=4, min_dist=1e-3, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
-            "sgd_stream": eg.SgdSolver.streaming_negatives(g16, negatives_per_node=3, target_distance=2.0, weight=0.25, hinge_only=True, t_max=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_full": eg.SgdSolver.full(g16, iterations=10, eps=0.01, schedule="exponential", step_scale=1.0, seed=42, dtype=dtype_name),
+            "sgd_dog": eg.SgdSolver.sparse_barrier_dog(g16, degree=15, num_landmarks=8, iterations=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_rp": eg.SgdSolver.random_pair(g16, pairs_per_node=4, iterations=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_omega": eg.SgdSolver.omega(g16, emb16, k=4, min_dist=1e-3, iterations=10, eps=0.01, seed=42, dtype=dtype_name),
+            "sgd_stream": eg.SgdSolver.streaming_negatives(g16, negatives_per_node=3, target_distance=2.0, weight=0.25, hinge_only=True, iterations=10, eps=0.01, seed=42, dtype=dtype_name),
             "sgd_hinges": eg.SgdSolver.from_pairs_with_hinges(
                 16,
                 hinge_s_src,
@@ -111,7 +111,7 @@ def run_cross_target_core_solvers_parity(
                 hinge_dji=[3.0, 3.0],
                 hinge_wij=[1.0, 1.0],
                 hinge_wji=[1.0, 1.0],
-                t_max=10,
+                iterations=10,
                 eps=0.01,
                 seed=42,
                 dtype=dtype_name,
@@ -126,7 +126,7 @@ def run_cross_target_core_solvers_parity(
 
         l_gm = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
         gm = eg.GuMapSolver.from_graph_dog(
-            g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, learning_rate=0.2, seed=42, dtype=dtype_name
+            g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=15, learning_rate=0.2, seed=42, dtype=dtype_name
         )
         gm.run(l_gm)
         out["gumap"] = l_gm.coords(copy=True)
@@ -134,7 +134,7 @@ def run_cross_target_core_solvers_parity(
 
         l_gm_lm = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
         gm_lm = eg.GuMapSolver.from_landmarks(
-            g16, lm16, max_2hop_per_node=16, n_epochs=15, learning_rate=0.2, seed=42, dtype=dtype_name
+            g16, lm16, max_2hop_per_node=16, iterations=15, learning_rate=0.2, seed=42, dtype=dtype_name
         )
         gm_lm.run(l_gm_lm)
         out["gumap_lm"] = l_gm_lm.coords(copy=True)
@@ -142,20 +142,20 @@ def run_cross_target_core_solvers_parity(
 
         l_gm_asym = eg.Layout2d.from_coords(gumap_init16_f32 if dtype_name == "float32" else gumap_init16_f64)
         gm_asym = eg.GuMapSolver.from_graph_dog(
-            g16, max_2hop_per_node=16, degree=15, num_landmarks=8, n_epochs=15, learning_rate=0.2, symmetric_negative=False, seed=42, dtype=dtype_name
+            g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=15, learning_rate=0.2, symmetric_negative=False, seed=42, dtype=dtype_name
         )
         gm_asym.run(l_gm_asym)
         out["gumap_asym"] = l_gm_asym.coords(copy=True)
 
         l_rf = eg.Layout2d.from_coords(c9_fold)
-        rf = eg.SpatialIntruderRefiner(g9, rounds=3, k_cap=32, t_max=10, seed=42, dtype=dtype_name)
+        rf = eg.SpatialIntruderRefiner(g9, iterations=3, k_cap=32, sgd_iterations=10, seed=42, dtype=dtype_name)
         rf.run(l_rf)
         out["refiner"] = l_rf.coords(copy=True)
         out["refiner_fp"] = int(rf.stats()["n_fp_total"])
 
         l_rf_dyn = eg.Layout2d.from_coords(c9_fold)
         rf_dyn = eg.SpatialIntruderRefiner(
-            g9, rounds=4, k_cap=8, t_max=10, seed=42, w_anchor2=0.5, k_cap_decay=0.5, k_cap_min=2, dtype=dtype_name
+            g9, iterations=4, k_cap=8, sgd_iterations=10, seed=42, w_anchor2=0.5, k_cap_decay=0.5, k_cap_min=2, dtype=dtype_name
         )
         rf_dyn.step(l_rf_dyn)
         assert rf_dyn.current_k_cap == 4
@@ -167,7 +167,7 @@ def run_cross_target_core_solvers_parity(
 
         l_rf_sep = eg.Layout2d.from_coords(c11_twin)
         rf_sep = eg.SpatialIntruderRefiner(
-            g11_twin, rounds=3, k_cap=16, t_max=10, min_sep_ratio=0.15, w_sep=1.0, seed=42, dtype=dtype_name
+            g11_twin, iterations=3, k_cap=16, sgd_iterations=10, min_sep_ratio=0.15, w_sep=1.0, seed=42, dtype=dtype_name
         )
         rf_sep.run(l_rf_sep)
         out["refiner_sep"] = l_rf_sep.coords(copy=True)
@@ -180,7 +180,7 @@ def run_cross_target_core_solvers_parity(
         out["sm_stress"] = float(sm.last_stress or 0.0)
 
         l_kk = eg.Layout2d.from_coords(c9_init)
-        kk = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_outer_iters=20, dtype=dtype_name)
+        kk = eg.KamadaKawaiSolver.from_graph(g9, eps=1e-3, max_inner_iters=40, max_iterations=20, dtype=dtype_name)
         kk.run(l_kk)
         out["kk"] = l_kk.coords(copy=True)
         return out
@@ -262,11 +262,11 @@ for (const [tag, w2Val, capVal, bk] of [
 }
 
 const sgdSpecs = [
-  ['sgd_full', () => mod.SgdSolver.full(g16, { tMax: 10, eps: 0.01, kind: 'exponential', stepScale: 1.0, seed: 42 })],
-  ['sgd_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, tMax: 10, eps: 0.01, seed: 42 })],
-  ['sgd_rp', () => mod.SgdSolver.randomPair(g16, { pairsPerNode: 4, tMax: 10, eps: 0.01, seed: 42 })],
-  ['sgd_omega', () => mod.SgdSolver.omega(g16, emb16, 8, { k: 4, minDist: 1e-3, tMax: 10, eps: 0.01, seed: 42 })],
-  ['sgd_stream', () => mod.SgdSolver.streamingNegatives(g16, { negativesPerNode: 3, targetDistance: 2.0, weight: 0.25, hingeOnly: true, tMax: 10, eps: 0.01, seed: 42 })],
+  ['sgd_full', () => mod.SgdSolver.full(g16, { iterations: 10, eps: 0.01, kind: 'exponential', stepScale: 1.0, seed: 42 })],
+  ['sgd_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, iterations: 10, eps: 0.01, seed: 42 })],
+  ['sgd_rp', () => mod.SgdSolver.randomPair(g16, { pairsPerNode: 4, iterations: 10, eps: 0.01, seed: 42 })],
+  ['sgd_omega', () => mod.SgdSolver.omega(g16, emb16, 8, { k: 4, minDist: 1e-3, iterations: 10, eps: 0.01, seed: 42 })],
+  ['sgd_stream', () => mod.SgdSolver.streamingNegatives(g16, { negativesPerNode: 3, targetDistance: 2.0, weight: 0.25, hingeOnly: true, iterations: 10, eps: 0.01, seed: 42 })],
   [
     'sgd_hinges',
     () => mod.SgdSolver.fromPairsWithHinges(
@@ -277,7 +277,7 @@ const sgdSpecs = [
       new Uint32Array([0, 1]), new Uint32Array([15, 14]),
       new Float32Array([3.0, 3.0]), new Float32Array([3.0, 3.0]),
       new Float32Array([1.0, 1.0]), new Float32Array([1.0, 1.0]),
-      { tMax: 10, eps: 0.01, seed: 42 },
+      { iterations: 10, eps: 0.01, seed: 42 },
     ),
   ],
 ];
@@ -288,10 +288,36 @@ for (const [k, mk] of sgdSpecs) {
   solvers[`${k}_hinges`] = res.solverRun.numHinges;
   res.solverRun.free?.(); res.solverStep.free?.();
 }
+{
+  const inv9 = new Float32Array([1.0 / 9.0, 1.0 / 9.0]);
+  const expH = mod.SgdSolver.fromPairsWithHinges(
+    16,
+    new Uint32Array(spec.hinge_src), new Uint32Array(spec.hinge_tgt),
+    new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
+    new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
+    new Uint32Array([0, 1]), new Uint32Array([15, 14]),
+    new Float32Array([3.0, 3.0]), new Float32Array([3.0, 3.0]), inv9, inv9,
+    { iterations: 10, eps: 0.01, seed: 42 },
+  );
+  const optH = mod.SgdSolver.fromPairsWithHinges(
+    16,
+    new Uint32Array(spec.hinge_src), new Uint32Array(spec.hinge_tgt),
+    new Float32Array(spec.hinge_ones), null, null, null,
+    new Uint32Array([0, 1]), new Uint32Array([15, 14]),
+    new Float32Array([3.0, 3.0]), null, null, null,
+    { iterations: 10, eps: 0.01, seed: 42 },
+  );
+  const lExpH = mod.Layout2d.fromCoords(init16);
+  const lOptH = mod.Layout2d.fromCoords(init16);
+  expH.run(lExpH);
+  optH.run(lOptH);
+  assert.deepEqual(Array.from(lOptH.coordsView()), Array.from(lExpH.coordsView()));
+  lExpH.free?.(); expH.free?.(); lOptH.free?.(); optH.free?.();
+}
 
 {
   const res = runPairAndCheckStep(
-    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, nEpochs: 15, learningRate: 0.2, seed: 42 }),
+    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 15, learningRate: 0.2, seed: 42 }),
     gumapInit16, 5,
   );
   solvers.gumap = res.coords;
@@ -301,7 +327,7 @@ for (const [k, mk] of sgdSpecs) {
 {
   const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, 15, 8, 42);
   const res = runPairAndCheckStep(
-    () => mod.GuMapSolver.fromLandmarks(g16, lm16, 16, { nEpochs: 15, learningRate: 0.2, seed: 42 }),
+    () => mod.GuMapSolver.fromLandmarks(g16, lm16, 16, { iterations: 15, learningRate: 0.2, seed: 42 }),
     gumapInit16, 5,
   );
   solvers.gumap_lm = res.coords;
@@ -310,21 +336,21 @@ for (const [k, mk] of sgdSpecs) {
 }
 {
   const res = runPairAndCheckStep(
-    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, nEpochs: 15, learningRate: 0.2, symmetricNegative: false, seed: 42 }),
+    () => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 15, learningRate: 0.2, symmetricNegative: false, seed: 42 }),
     gumapInit16, 5,
   );
   solvers.gumap_asym = res.coords;
   res.solverRun.free?.(); res.solverStep.free?.();
 }
 {
-  const res = runPairAndCheckStep(() => new mod.SpatialIntruderRefiner(g9, { rounds: 3, kCap: 32, tMax: 10, seed: 42 }), folded9, 1);
+  const res = runPairAndCheckStep(() => new mod.SpatialIntruderRefiner(g9, { iterations: 3, kCap: 32, sgdIterations: 10, seed: 42 }), folded9, 1);
   solvers.refiner = res.coords;
   const st = res.solverRun.stats();
   solvers.refiner_fp = st.nFpTotal;
   st.free?.(); res.solverRun.free?.(); res.solverStep.free?.();
 }
 {
-  const rfDyn = new mod.SpatialIntruderRefiner(g9, { rounds: 4, kCap: 8, wAnchor2: 0.5, kCapDecay: 0.5, kCapMin: 2, tMax: 10, seed: 42 });
+  const rfDyn = new mod.SpatialIntruderRefiner(g9, { iterations: 4, kCap: 8, wAnchor2: 0.5, kCapDecay: 0.5, kCapMin: 2, sgdIterations: 10, seed: 42 });
   const lDyn = mod.Layout2d.fromCoords(folded9);
   rfDyn.step(lDyn);
   assert.equal(rfDyn.currentKCap, 4);
@@ -337,7 +363,7 @@ for (const [k, mk] of sgdSpecs) {
   stDyn.free?.(); lDyn.free?.(); rfDyn.free?.();
 }
 {
-  const res = runPairAndCheckStep(() => new mod.SpatialIntruderRefiner(g11, { rounds: 3, kCap: 16, tMax: 10, minSepRatio: 0.15, wSep: 1.0, seed: 42 }), twin11, 1);
+  const res = runPairAndCheckStep(() => new mod.SpatialIntruderRefiner(g11, { iterations: 3, kCap: 16, sgdIterations: 10, minSepRatio: 0.15, wSep: 1.0, seed: 42 }), twin11, 1);
   solvers.refiner_sep = res.coords;
   const stSep = res.solverRun.stats();
   solvers.refiner_sep_total = stSep.nSepTotal;
@@ -350,7 +376,7 @@ for (const [k, mk] of sgdSpecs) {
   res.solverRun.free?.(); res.solverStep.free?.();
 }
 {
-  const res = runPairAndCheckStep(() => mod.KamadaKawaiSolver.fromGraph(g9, { eps: 1e-3, maxInnerIters: 40, maxOuterIters: 20 }), init9, 4);
+  const res = runPairAndCheckStep(() => mod.KamadaKawaiSolver.fromGraph(g9, { eps: 1e-3, maxInnerIters: 40, maxIterations: 20 }), init9, 4);
   solvers.kk = res.coords;
   res.solverRun.free?.(); res.solverStep.free?.();
 }

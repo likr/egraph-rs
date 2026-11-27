@@ -51,29 +51,29 @@ def run_cross_target_force_multilevel_parity(
         out: dict[str, Any] = {}
         for bk in ("ibfft", "barnes_hut", "exact"):
             l_tf = eg.Layout2d.from_coords(c16)
-            eg.TFdpSolver(g16, backend=bk, total_iterations=8, seed=42, dtype=dtype_name).run(l_tf)
+            eg.TFdpSolver(g16, backend=bk, iterations=8, seed=42, dtype=dtype_name).run(l_tf)
             out[f"tfdp_{bk}"] = l_tf.coords(copy=True)
 
             l_ib = eg.Layout2d.from_coords(c16)
-            eg.IbUmapSolver(g16, backend=bk, n_epochs=6, seed=42, dtype=dtype_name).run(l_ib)
+            eg.IbUmapSolver(g16, backend=bk, iterations=6, seed=42, dtype=dtype_name).run(l_ib)
             out[f"ibumap_{bk}"] = l_ib.coords(copy=True)
 
         l_tfk = eg.Layout2d.from_coords(c16)
-        eg.TFdpSolver.from_knn(knn16, backend="exact", total_iterations=6, seed=42, dtype=dtype_name).run(l_tfk)
+        eg.TFdpSolver.from_knn(knn16, backend="exact", iterations=6, seed=42, dtype=dtype_name).run(l_tfk)
         out["tfdp_knn"] = l_tfk.coords(copy=True)
 
         l_ibk = eg.Layout2d.from_coords(c16)
-        eg.IbUmapSolver.from_knn(knn16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name).run(l_ibk)
+        eg.IbUmapSolver.from_knn(knn16, backend="exact", iterations=6, seed=42, dtype=dtype_name).run(l_ibk)
         out["ibumap_knn"] = l_ibk.coords(copy=True)
 
         l_ibf = eg.Layout2d.from_coords(c16)
-        eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", n_epochs=6, seed=42, dtype=dtype_name).run(l_ibf)
+        eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", iterations=6, seed=42, dtype=dtype_name).run(l_ibf)
         out["ibumap_fset"] = l_ibf.coords(copy=True)
 
         for bk in ("exact", "ibfft"):
             l_ibl = eg.Layout2d.from_coords(c16)
             s_ibl = eg.IbUmapSolver.from_landmarks(
-                g16, lm16, max_2hop_per_node=16, backend=bk, n_epochs=6, seed=42, dtype=dtype_name
+                g16, lm16, max_2hop_per_node=16, backend=bk, iterations=6, seed=42, dtype=dtype_name
             )
             s_ibl.run(l_ibl)
             out[f"ibumap_lm_{bk}"] = l_ibl.coords(copy=True)
@@ -81,7 +81,7 @@ def run_cross_target_force_multilevel_parity(
 
         l_pmk = eg.Layout2d.from_coords(c16)
         s_pmk = eg.SgdSolver.pacmap_graph(
-            g16, n_neighbors=2, phase1_iters=3, phase2_iters=3, phase3_iters=4, keep_all_1hop=True, seed=42, dtype=dtype_name
+            g16, n_neighbors=2, phase_iterations=(3, 3, 4), keep_all_1hop=True, seed=42, dtype=dtype_name
         )
         s_pmk.run(l_pmk)
         out["sgd_pacmap_keep"] = l_pmk.coords(copy=True)
@@ -89,7 +89,7 @@ def run_cross_target_force_multilevel_parity(
 
         l_pm_lm = eg.Layout2d.from_coords(c16)
         s_pm_lm = eg.SgdSolver.pacmap_graph_with_landmarks(
-            g16, lm16, n_neighbors=4, phase1_iters=3, phase2_iters=3, phase3_iters=4,
+            g16, lm16, n_neighbors=4, phase_iterations=(3, 3, 4),
             keep_all_1hop=True, max_1hop_per_node=2, degree_weight_beta=0.5, seed=42, dtype=dtype_name,
         )
         s_pm_lm.run(l_pm_lm)
@@ -99,9 +99,9 @@ def run_cross_target_force_multilevel_parity(
         sgd_specs = {
             "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
             "sgd_snap_beta": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, degree_beta=0.5, bounded_attraction=False, seed=42, dtype=dtype_name),
-            "sgd_pacmap": eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase1_iters=3, phase2_iters=3, phase3_iters=4, seed=42, dtype=dtype_name),
-            "sgd_sgd2": eg.SgdSolver.sgd2(g16, t_max=8, batch_size=16, seed=42, dtype=dtype_name),
-            "sgd_squared": eg.SgdSolver.full(g16, t_max=8, schedule="squared", seed=42, dtype=dtype_name),
+            "sgd_pacmap": eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase_iterations=(3, 3, 4), seed=42, dtype=dtype_name),
+            "sgd_sgd2": eg.SgdSolver.sgd2(g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name),
+            "sgd_squared": eg.SgdSolver.full(g16, iterations=8, schedule="squared", seed=42, dtype=dtype_name),
         }
         for k, sv in sgd_specs.items():
             lay = eg.Layout2d.from_coords(c16)
@@ -174,12 +174,12 @@ const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
 const solvers = {};
 for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   {
-    const r = runPairAndCheckStep(() => new mod.TFdpSolver(g16, { backend: bk, totalIterations: 8, seed: 42 }), init16, 3);
+    const r = runPairAndCheckStep(() => new mod.TFdpSolver(g16, { backend: bk, iterations: 8, seed: 42 }), init16, 3);
     solvers[`tfdp_${bk}`] = r.coords;
     r.sR.free?.(); r.sS.free?.();
   }
   {
-    const r = runPairAndCheckStep(() => new mod.IbUmapSolver(g16, { backend: bk, nEpochs: 6, seed: 42 }), init16, 2);
+    const r = runPairAndCheckStep(() => new mod.IbUmapSolver(g16, { backend: bk, iterations: 6, seed: 42 }), init16, 2);
     solvers[`ibumap_${bk}`] = r.coords;
     r.sR.free?.(); r.sS.free?.();
   }
@@ -189,7 +189,7 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   const r = runPairAndCheckStep(
     () => mod.TFdpSolver.fromKnn(
       new Uint32Array(spec.knn_indptr), new Uint32Array(spec.knn_indices), new Float64Array(spec.knn_dists),
-      { backend: 'exact', totalIterations: 6, seed: 42 },
+      { backend: 'exact', iterations: 6, seed: 42 },
     ),
     init16, 2,
   );
@@ -197,19 +197,19 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   r.sR.free?.(); r.sS.free?.();
 }
 {
-  const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromKnn(knn16, { backend: 'exact', nEpochs: 6, seed: 42 }), init16, 2);
+  const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromKnn(knn16, { backend: 'exact', iterations: 6, seed: 42 }), init16, 2);
   solvers.ibumap_knn = r.coords;
   r.sR.free?.(); r.sS.free?.();
 }
 {
-  const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromFuzzySet(fuzzy16, new Uint32Array(spec.deg16), { backend: 'exact', nEpochs: 6, seed: 42 }), init16, 2);
+  const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromFuzzySet(fuzzy16, new Uint32Array(spec.deg16), { backend: 'exact', iterations: 6, seed: 42 }), init16, 2);
   solvers.ibumap_fset = r.coords;
   r.sR.free?.(); r.sS.free?.();
 }
 {
   const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
   for (const bk of ['exact', 'ibfft']) {
-    const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromLandmarks(g16, lm16, 16, { backend: bk, nEpochs: 6, seed: 42 }), init16, 2);
+    const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromLandmarks(g16, lm16, 16, { backend: bk, iterations: 6, seed: 42 }), init16, 2);
     solvers[`ibumap_lm_${bk}`] = r.coords;
     solvers[`ibumap_lm_${bk}_edges`] = r.sR.numEdges;
     r.sR.free?.(); r.sS.free?.();
@@ -218,7 +218,7 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
 }
 {
   const r = runPairAndCheckStep(
-    () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 2, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, keepAll1hop: true, seed: 42 }),
+    () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 2, phaseIterations: [3, 3, 4], keepAll1hop: true, seed: 42 }),
     init16, 3,
   );
   solvers.sgd_pacmap_keep = r.coords;
@@ -228,7 +228,7 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
 {
   const lm16Pm = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
   const r = runPairAndCheckStep(
-    () => mod.SgdSolver.pacmapGraphWithLandmarks(g16, lm16Pm, { nNeighbors: 4, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, keepAll1hop: true, max1hopPerNode: 2, degreeWeightBeta: 0.5, seed: 42 }),
+    () => mod.SgdSolver.pacmapGraphWithLandmarks(g16, lm16Pm, { nNeighbors: 4, phaseIterations: [3, 3, 4], keepAll1hop: true, max1hopPerNode: 2, degreeWeightBeta: 0.5, seed: 42 }),
     init16, 3,
   );
   solvers.sgd_pacmap_cap_beta_lm = r.coords;
@@ -239,9 +239,9 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
 for (const [k, mk] of [
   ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
   ['sgd_snap_beta', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, degreeBeta: 0.5, boundedAttraction: false, seed: 42 })],
-  ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 4, seed: 42 })],
-  ['sgd_sgd2', () => mod.SgdSolver.sgd2(g16, { tMax: 8, batchSize: 16, seed: 42 })],
-  ['sgd_squared', () => mod.SgdSolver.full(g16, { tMax: 8, kind: 'squared', seed: 42 })],
+  ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 })],
+  ['sgd_sgd2', () => mod.SgdSolver.sgd2(g16, { iterations: 8, batchSize: 16, seed: 42 })],
+  ['sgd_squared', () => mod.SgdSolver.full(g16, { iterations: 8, kind: 'squared', seed: 42 })],
   ['fa2_bh', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, seed: 42 })],
   ['fa2_exact', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: false, seed: 42 })],
   ['fa2_cap', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, maxDisplacement: 0.25, seed: 42 })],

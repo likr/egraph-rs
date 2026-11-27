@@ -76,8 +76,8 @@ def run_cross_target_solvers_backbone_poisson_parity(
 
     l_tfdp_knn_py = eg.Layout2d.from_coords(init16_f32)
     tfdp_knn_py = eg.TFdpSolver.from_knn(
-        rerank_py, backend="exact", total_iterations=4, ibfft_order=1, ibfft_intervals=16,
-        ibfft_min_grid_dim=32, ibfft_max_grid_dim=128, seed=42, dtype="float32",
+        rerank_py, backend="exact", iterations=4, interpolation_order=1, intervals=16,
+        min_grid_dim=32, max_grid_dim=128, seed=42, dtype="float32",
     )
     tfdp_knn_py.run(l_tfdp_knn_py)
 
@@ -92,28 +92,28 @@ def run_cross_target_solvers_backbone_poisson_parity(
         eps_psd=1e-4,
         t_coarse=32.0,
         backend="ibfft",
-        n_epochs=5,
-        ibfft_order=1,
-        ibfft_intervals=16,
-        ibfft_min_grid_dim=32,
-        ibfft_max_grid_dim=128,
+        iterations=5,
+        interpolation_order=1,
+        intervals=16,
+        min_grid_dim=32,
+        max_grid_dim=128,
         seed=42,
         dtype="float32",
     )
     ib_py.run(l_ib_py)
 
     lm_dog_default_py = eg.compute_regularized_dog_varadhan_landmarks(g16)
-    sgd_dog_py = eg.SgdSolver.sparse_barrier_dog(g16, t_max=4, seed=42, min_degree=1, jl_dim=8, dtype="float32")
+    sgd_dog_py = eg.SgdSolver.sparse_barrier_dog(g16, iterations=4, seed=42, min_degree=1, jl_dim=8, dtype="float32")
     dog_stats_py = sgd_dog_py.dog_stats()
     assert dog_stats_py is not None
     l_sgd_dog_py = eg.Layout2d.from_coords(init16_f32)
     sgd_dog_py.run(l_sgd_dog_py)
 
-    gm_dog_py = eg.GuMapSolver.from_graph_dog(g16, min_degree=1, jl_dim=8, n_epochs=4, seed=42, dtype="float32")
+    gm_dog_py = eg.GuMapSolver.from_graph_dog(g16, min_degree=1, jl_dim=8, iterations=4, seed=42, dtype="float32")
 
     l_fdeb_py = eg.Layout2d.from_coords(init16_f32)
-    fdeb_py = eg.FdebSolver(g16, l_fdeb_py, cycles=2, i0=4, dtype="float32")
-    fdeb_py.run()
+    fdeb_py = eg.FdebSolver(g16, cycles=2, steps_per_cycle=4, dtype="float32")
+    fdeb_py.run(l_fdeb_py)
 
     hier_py = eg.louvain_coarsen(g16, max_coarse_nodes=4, seed=42)
     rhgh_lm_py, rhgh_st_py = eg.compute_pivoted_rhgh_landmarks(
@@ -133,6 +133,8 @@ def run_cross_target_solvers_backbone_poisson_parity(
     bb_aligned_py = eg.Layout2d.from_coords(bb_py["fine_layout"].coords(copy=True))
     eg.align_clustered_centroids(bb_aligned_py, bb_py["coarse_layout"], bb_py["node_to_coarse"], gamma_tether=0.5)
 
+    sp_def_py = eg.ScreenedPoissonField2d(dtype="float32")
+    assert sp_def_py.grid_size == 512
     sp_field_py = eg.ScreenedPoissonField2d(
         kernel="screened_poisson",
         grid_size=64,
@@ -144,7 +146,9 @@ def run_cross_target_solvers_backbone_poisson_parity(
         dtype="float32",
     )
     l_sp_init_py = eg.Layout2d.from_coords(init16_f32)
-    sp_eval_py = sp_field_py.evaluate_in_bounds(l_sp_init_py, [-2.0, 2.0, -2.0, 2.0])
+    sp_eval_py = sp_field_py.evaluate_in_bounds(l_sp_init_py, -2.0, -2.0, 2.0, 2.0)
+    sp_dens_py = sp_field_py.density_grid()
+    assert sp_dens_py.shape == (sp_field_py.density_grid_dim, sp_field_py.density_grid_dim)
     l_sp_ref_py = eg.Layout2d.from_coords(init16_f32)
     sp_ref_py = eg.ScreenedPoissonRefiner.from_graph(
         g16,
@@ -200,27 +204,27 @@ assert.deepEqual(Array.from(lTs.coordsView()), Array.from(lTsProg.coordsView()))
 
 const knnObj = mod.KnnGraph.fromCsr(16, new Uint32Array(spec.rerank_indptr), new Uint32Array(spec.rerank_indices), new Float64Array(spec.rerank_dists));
 const lTfdpKnn = mod.Layout2d.fromCoords(init16);
-const tfdpKnn = mod.TFdpSolver.fromKnn(knnObj, { backend: 'exact', totalIterations: 4, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42 });
+const tfdpKnn = mod.TFdpSolver.fromKnn(knnObj, { backend: 'exact', iterations: 4, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42 });
 tfdpKnn.run(lTfdpKnn);
 
 const lIb = mod.Layout2d.fromCoords(init16);
 const ib = new mod.IbUmapSolver(g16, {
   numLandmarks: 8, minDegree: 1, jlDim: 8, degreeNormalize: true, pExp: 0.5, epsPsd: 1e-4, tCoarse: 32.0,
-  backend: 'ibfft', nEpochs: 5, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42,
+  backend: 'ibfft', iterations: 5, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42,
 });
 ib.run(lIb);
 
 const lmDogDef = mod.computeRegularizedDogVaradhanLandmarks(g16);
-const sgdDog = mod.SgdSolver.sparseBarrierDog(g16, { tMax: 4, seed: 42, minDegree: 1, jlDim: 8 });
+const sgdDog = mod.SgdSolver.sparseBarrierDog(g16, { iterations: 4, seed: 42, minDegree: 1, jlDim: 8 });
 const dogStats = sgdDog.dogStats();
 assert.ok(dogStats && dogStats.degree >= 40);
 const lSgdDog = mod.Layout2d.fromCoords(init16);
 sgdDog.run(lSgdDog);
 
-const gmDog = mod.GuMapSolver.fromGraphDog(g16, { minDegree: 1, jlDim: 8, nEpochs: 4, seed: 42 });
+const gmDog = mod.GuMapSolver.fromGraphDog(g16, { minDegree: 1, jlDim: 8, iterations: 4, seed: 42 });
 const lFdeb = mod.Layout2d.fromCoords(init16);
-const fdeb = new mod.FdebSolver(g16, lFdeb, { cycles: 2, i0: 4 });
-fdeb.run();
+const fdeb = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 4 });
+fdeb.run(lFdeb);
 
 const hier = mod.louvainCoarsen(g16, { maxCoarseNodes: 4, seed: 42 });
 const rhghRes = mod.computePivotedRhghLandmarks(g16, { numLandmarks: 8, minDegree: 1, numProbes: 16, seed: 42 });
@@ -233,11 +237,15 @@ const bbAligned = mod.Layout2d.fromCoords(bb.fineLayout().copyCoords());
 const bbCoarse = bb.coarseLayout();
 mod.alignClusteredCentroids(bbAligned, bbCoarse, bb.nodeToCoarse(), 0.5);
 
+const spDef = new mod.ScreenedPoissonField2d();
+assert.equal(spDef.gridSize, 512);
+spDef.free?.();
 const spField = new mod.ScreenedPoissonField2d({
   kernel: "screenedPoisson", gridSize: 64, paddingFactor: 2, sigma: 0.2, kappa: 1.0, rhoMax: 0.1, exactAdjoint: true,
 });
 const lSpInit = mod.Layout2d.fromCoords(init16);
-const spEval = spField.evaluateInBounds(lSpInit, [-2.0, 2.0, -2.0, 2.0]);
+const spEval = spField.evaluateInBounds(lSpInit, -2.0, -2.0, 2.0, 2.0);
+const spDens = spField.densityGrid();
 const lSpRef = mod.Layout2d.fromCoords(init16);
 const spRef = mod.ScreenedPoissonRefiner.fromGraph(g16, {
   gridSize: 64, paddingFactor: 2, sigma: 0.2, kappa: 1.0, rhoMax: 0.1, iterations: 4, anchorWeight: 0.1, seed: 42,
@@ -267,6 +275,7 @@ const out = {
     fftCalls: spEval.fft2dCalls,
     fx: Array.from(spEval.forceX()),
     fy: Array.from(spEval.forceY()),
+    dens: Array.from(spDens),
     refCoords: Array.from(lSpRef.coordsView()),
     refLastEnergy: spRef.lastEnergy,
   },
@@ -326,6 +335,7 @@ console.log(JSON.stringify(out));
     check_close("ScreenedPoissonField2d.energy", [sp_eval_py["energy"]], [sp_ws["energy"]], 1e-10, is_f32=False)
     check_close("ScreenedPoissonField2d.force_x", sp_eval_py["force_x"], sp_ws["fx"], 1e-5)
     check_close("ScreenedPoissonField2d.force_y", sp_eval_py["force_y"], sp_ws["fy"], 1e-5)
+    check_close("ScreenedPoissonField2d.density_grid", sp_dens_py.ravel(), sp_ws["dens"], 1e-5)
     check_close("ScreenedPoissonRefiner.run", l_sp_ref_py.coords(copy=True), sp_ws["refCoords"], 1e-4)
     check_close("ScreenedPoissonRefiner.last_energy", [sp_ref_py.last_energy], [sp_ws["refLastEnergy"]], 1e-10, is_f32=False)
 

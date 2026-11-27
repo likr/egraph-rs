@@ -73,7 +73,7 @@ def run_cross_target_gcaf_parity(
         l_imb24_py, imb24_labels, stevens_gamma=2.0, cluster_weights=imb24_cw, return_per_cluster=True
     )
     gcaf_imb_eval_py = eg.evaluate_metrics(
-        g_imb24_py, l_imb24_py, ["gcaf"], community_labels=imb24_labels,
+        g_imb24_py, l_imb24_py, ["gcaf"], labels=imb24_labels,
         g_max=64, sigma_cells=0.9, kappa=8.0, tau_frac=0.2, boundary_r95=2.5, stevens_gamma=0.7,
     )
     int20_coords_f64 = np.array(
@@ -106,7 +106,7 @@ def run_cross_target_gcaf_parity(
         gcaf_small_n_py[case["name"]] = {
             "caf": float(eg.cluster_area_faithfulness(l_case, case["labels"], **kwargs)),
             "det": eg.cluster_area_faithfulness_detail(l_case, case["labels"], return_per_cluster=True, **kwargs),
-            "eval": eg.evaluate_metrics(g_case, l_case, ["gcaf"], community_labels=case["labels"], **kwargs),
+            "eval": eg.evaluate_metrics(g_case, l_case, ["gcaf"], labels=case["labels"], **kwargs),
         }
 
     spec_payload = {

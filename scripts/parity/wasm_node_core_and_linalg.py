@@ -214,6 +214,7 @@ if (typeof mod.selectMaxminSpPivots === 'function') {
 
   const pureRes = mod.buildPure2hopKnn(g16);
   const pureKnn = pureRes.knn();
+  assert.ok(pureKnn.indptr() instanceof Uint32Array, 'KnnGraph.indptr() must be Uint32Array');
   assert.deepEqual(Array.from(pureRes.k2Deg()), Array.from(mod.compute2hopNeighborhoodSizes(g16)));
   const knnRt = mod.KnnGraph.fromCsr(pureKnn.numNodes, pureKnn.indptr(), pureKnn.indices(), pureKnn.distances());
   assert.equal(knnRt.nnz, pureKnn.nnz);
