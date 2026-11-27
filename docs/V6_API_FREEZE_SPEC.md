@@ -1,6 +1,6 @@
 # `egraph` v6.0.0 GA 向け API 固定化・Trait 再設計仕様書
 
-**策定日**: 2026-11-27 / **ベースライン**: `v6.0.0-alpha.8`（27 クレート構成）  
+**策定日**: 2026-11-27 / **ベースライン**: `v6.0.0-alpha.8`（27 クレート → 最終 28 クレート構成）  
 **目的**: `v6.0.0` 正式版（GA）リリースおよび crates.io 公開に先立ち、既存の trait 設計・SemVer ロックイン・Cargo 公開境界・外部依存リーク・Python/WASM バインディング・多様体幾何バグを一括解消し、将来の `v6.x` 拡張（ポリゴン表面グラフ描画 `SurfaceLayout`・新規エッジバンドリング手法・動的制約・3D 描画等）を **破壊的変更ゼロ** で追加できる安定 API 契約を確定する。  
 **本書の位置づけ**: 本計画段階では仕様書の確定・レビューのみを行い、ソースコードの実装はまだ開始しない。
 
@@ -13,9 +13,9 @@
 
 ---
 
-## §1. エグゼクティブサマリー & 確定決定一覧（D1〜D18）
+## §1. エグゼクティブサマリー & 確定決定一覧（D1〜D24）
 
-`/grill-me` 設計インタビューにより合意・確定した全 18 項目の設計決定を以下に示す。
+`/grill-me` 設計インタビューにより合意・確定した全 24 項目の設計決定を以下に示す。
 
 | No. | 決定領域 | 確定方針 |
 |---|---|---|
@@ -37,6 +37,12 @@
 | **D16** | **WASM `CsrGraph` `weightDtype` 契約** | WASM は `f32` 専用契約として明確化し、`weightDtype` オプションを廃止（または `"float32"` 以外を明示エラーにして `weightDtype: "float64"` サイレント無視バグを根絶・`.wasm` 肥大を防止）する。 |
 | **D17** | **対象範囲と検証ゲート** | `egraph-rs` 内で完結（ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 全面改訂、CI へ `cargo semver-checks` 導入）。`diffusion-kernel-experiments` 側の追従は新 Python ホイール検証時の別タスクとする。 |
 | **D18** | **進め方** | 本仕様書を確定・レビュー可能な状態で保存した上で、Rust-core-first の 5 段階 Wave（`egraph-core` → 基盤 → ソルバ → メトリクス/データセット/ファサード → バインディング/CLI/CI）で段階的に実装する。 |
+| **D19** | **ワークスペース直下の階層配置** | 全クレートを現行通り `crates/` 配下に据え置き、`crates/python/netlify.toml`・`crates/wasm/package.json`（`"directory"`）・`notebooks/`（Colab URL）等の外部連携パスを不変維持する。 |
+| **D20** | **`crates/` 内フラット配置 & 1 対 1 命名** | `crates/<name>` のフラット配置を維持し、全クレートでディレクトリ名 `crates/<name>` とクレート名 `egraph-<name>` を 1 対 1 一致させる（`crates/cluster` → `crates/clustering` へ改名して `egraph-clustering` / `egraph::clustering` と統一）。 |
+| **D21** | **細粒度維持 & 薄い純アンブレラ廃止** | 細粒度の並列コンパイル単位を維持しつつ、1 ファイル専業の純アンブレラ 2 クレート（`crates/spatial` 75 行・`crates/layout` 106 行）を廃止し、`egraph` ファサード（`egraph::spatial`, `egraph::layout`）へ直接統合する（`egraph::linalg` と対称化、`egraph-neighborhood` も `egraph-spatial-trees` へ直接依存へ整理）。 |
+| **D22** | **`layout-*` 依存ボトルネックの完全分解** | `layout-sgd`（16.8k 行）からサンプリング近傍埋め込み 5 手法を `crates/layout-embedding` へ分離・`coarse_backbone` を `crates/layout-multilevel` へ移管する。さらに 11 依存の `layout-multilevel` をリーフ系 `crates/layout-multilevel`・後処理 `crates/layout-refine`・多ソルバ合成 `crates/layout-composite` の 3 クレートへ分解し、全 7 主力レイアウトの 100% 並列ビルドを実現する。 |
+| **D23** | **エッジルーティング独立クレート** | `fdeb` を `layout-force` から分離して `crates/edge-routing`（`egraph-edge-routing` / `egraph::edge_routing`）を新設し、`EdgePolylines<L>` を中心に FDEB・将来の KDEEB/FFTEB/MINGLE/HEB・直交／曲線ルーティングを収容する。 |
+| **D24** | **非クレート周辺ディレクトリ・設定整理** | ルート `package.json` を現行 ESM/Vite 構成へ刷新（旧 v5 スクリプト撤去）、`js/` を `examples/web/` へ移動、旧計画書（`V6_RELEASE_PLAN.md`, `V6_ALPHA9_REMEDIATION_PLAN.md`）を `docs/archive/` へ整理、`PROJECT_SUMMARY.md` を新 28 クレート構成へ同期する（`notebooks/` と `crates/python/docs/` は据え置き）。 |
 
 ---
 
@@ -334,42 +340,43 @@ pub trait LayoutTransform {
 
 ## §3. ソルバ再編・バグ修正・Manifold 幾何修正仕様
 
-### 3.1 現行 27 ソルバ → 新型マッピング全表（D5 / D6）
+### 3.1 現行 27 ソルバ → 新型・配置クレートマッピング全表（D5 / D6 / D22 / D23）
 
-1 アルゴリズム = 1 型原則および 3 trait 体系に基づき、全 27 型を以下の通り再編する。
+1 アルゴリズム = 1 型原則および 3 trait 体系・依存層別分割に基づき、全 27 型を以下の通り再編する。
 
-| 現行型（`crates/layout-*`） | 新型・trait 区分 | `Target` / `Output` 範囲 | 主な変更点 |
-|---|---|---|---|
-| `SgdSolver` | `IterativeSolver` | `L: RiemannianLayout`（Stress / Barrier 系） | `Sgd2`, `PacmapGraph`, `LargeVis`, `DrGraph`, `GraphCne`, `SnapTFdp` の 6 手法を分離、`ActiveLayoutKind` 削除、`run_schedule_window` 内包 |
-| *(上記から分離 6 型)* | `Sgd2Solver`, `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`（`IterativeSolver`） | `L: RiemannianLayout` | 各手法固有の設定・状態のみを保持する軽量構造体へ分離（単一構造体内での 6 状態混在・ダミー値返却を解消） |
-| `FieldLayoutSolver`（alias `FieldLayout`） | `TFdpSolver`, `IbUmapSolver`（`IterativeSolver`） | `L: EuclideanLayout` / `Layout2d<S>` | 2 型へ分割（Python/WASM と完全一致）。`ab()`/`a()`/`b()` の `Option` 返却とダミー `current_rho()` を廃止 |
-| `ContinuousFdp` | **廃止** | — | `ForceAtlas2Solver` / `YifanHuSolver` を直接使用 |
-| `ForceAtlas2Solver` | `IterativeSolver` | `L: EuclideanLayout` | `EuclideanStorageRef/Mut` + `RepulsionBackend` 統合（2D/3D/ND 混在バグ根治） |
-| `YifanHuSolver` | `IterativeSolver` | `L: EuclideanLayout` | 同上 |
-| `LinLogSolver` | `IterativeSolver` | `L: EuclideanLayout` | 同上 |
-| `MaxentStressSolver` | `IterativeSolver` | `L: EuclideanLayout` | 同上（2D 側の `nd_dims` 未検査バグ根治） |
-| `TsNetSolver` | `IterativeSolver` | `L: RiemannianLayout`（Exact）/ `L: EuclideanLayout`（BarnesHut/FFT） | `L` に応じたバックエンド型安全化、固定 3 段配列撤去、Manifold 平行移動適用 |
-| `GuMapSolver` | `IterativeSolver` | `L: RiemannianLayout` | `RiemannianLayout` 汎用実装へ統一 |
-| `KamadaKawaiSolver` | `IterativeSolver` | `L: RiemannianLayout` | `RiemannianLayout` 統一＋Manifold 正定値ヘッセ行列修正 |
-| `StressMajorizationSolver` | `IterativeSolver` | `L: EuclideanLayout`（線形連立版）/ `L: RiemannianLayout`（勾配版） | `EuclideanLayout` と `RiemannianLayout` を型安全に実装 |
-| `FruchtermanReingoldSolver` | `IterativeSolver` | `L: RiemannianLayout`（Exact）/ `L: EuclideanLayout`（Grid/Tree） | 同上 |
-| `FdebSolver` | `IterativeSolver` | **`EdgePolylines<L>`**（`L: EuclideanLayout`） | 偽の `&mut Layout` を廃止し `&mut EdgePolylines<L>` を書き換える設計へ刷新 |
-| `GripSolver` | `IterativeSolver` | `Layout2d<S>`（または `L: EuclideanLayout`） | 初期座標を上書き生成する反復ソルバであることを API 契約・docstring に明記 |
-| `GemSolver` | `IterativeSolver` | `Layout2d<S>` | `IterativeSolver<Target = Layout2d<S>>` |
-| `SelLayoutSolver` | `IterativeSolver` | `Layout2d<S>` | 内部ソルバ設定公開 |
-| `BackboneSolver` | `IterativeSolver` | `Layout2d<S>` | 固有 `status`/`iteration`/`total_iterations` 整理 |
-| `ClusterRefineSolver` | `IterativeSolver` | `Layout2d<S>` | 同上 |
-| `GroupInABoxSolver` | `IterativeSolver` | `Layout2d<S>` | 入力スライス `&[u32]` 対応 |
-| `PrismOverlapRemoval` | `IterativeSolver` | `Layout2d<S>` | `IterativeSolver<Target = Layout2d<S>>` |
-| `GTreeOverlapRemoval` | `IterativeSolver` | `Layout2d<S>` | 同上 |
-| `ForbidOverlapRemoval` | `IterativeSolver` | `Layout2d<S>` | 同上 |
-| `SpatialIntruderRefiner` | `IterativeSolver` | `Layout2d<S>` | 同上 |
-| `ScreenedPoissonRefiner` | `IterativeSolver` | `Layout2d<S>` | 同上 |
-| `SfcLayoutSolver` → `SfcLayout` | **`LayoutGenerator`** | `Output = Layout2d<S>` | 生成時計算＋ダミー `step()` を廃止し `LayoutGenerator` へ移行 |
-| `PfsPrimeOverlapRemoval` | **`LayoutTransform`** | `Target = Layout2d<S>` | `total_iterations == 1` の 1 発実行を `LayoutTransform` へ移行 |
-| `TwinDeclutterer` | **`LayoutTransform`** | `Target = Layout2d<S>` | ステートレス後処理を `LayoutTransform` へ移行 |
+| 現行型（`crates/layout-*`） | 新型・trait 区分 | 配置クレート | `Target` / `Output` 範囲 | 主な変更点 |
+|---|---|---|---|---|
+| `SgdSolver` | `IterativeSolver` | `layout-sgd` | `L: RiemannianLayout`（Stress / Barrier 系） | `Sgd2` 分離およびサンプリング 5 手法の `layout-embedding` 移管、`coarse_backbone` 移管、`ActiveLayoutKind` 削除、`run_schedule_window` 内包 |
+| *(上記から分離 `sgd2`)* | `Sgd2Solver`（`IterativeSolver`） | `layout-sgd` | `L: RiemannianLayout` | SgdSolver から独立、Manifold SO(2) 不変前処理へ修正 |
+| *(上記から分離 5 型)* | `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`（`IterativeSolver`） | `layout-embedding`（新設） | `L: RiemannianLayout` | 各手法固有の設定・状態のみを保持する軽量構造体へ分離（単一構造体内での 6 状態混在・ダミー値返却を解消）、Manifold `PacmapGraph` Riemannian Adam 修正 |
+| `FieldLayoutSolver`（alias `FieldLayout`） | `TFdpSolver`, `IbUmapSolver`（`IterativeSolver`） | `layout-neighbor` | `L: EuclideanLayout` / `Layout2d<S>` | 2 型へ分割（Python/WASM と完全一致）。`ab()`/`a()`/`b()` の `Option` 返却とダミー `current_rho()` を廃止 |
+| `TsNetSolver` | `IterativeSolver` | `layout-neighbor` | `L: RiemannianLayout`（Exact）/ `L: EuclideanLayout`（BarnesHut/FFT） | `L` に応じたバックエンド型安全化、固定 3 段配列撤去、Manifold 平行移動適用 |
+| `GuMapSolver` | `IterativeSolver` | `layout-neighbor` | `L: RiemannianLayout` | `RiemannianLayout` 汎用実装へ統一 |
+| `KamadaKawaiSolver` | `IterativeSolver` | `layout-stress` | `L: RiemannianLayout` | `RiemannianLayout` 統一＋Manifold 正定値ヘッセ行列修正 |
+| `StressMajorizationSolver` | `IterativeSolver` | `layout-stress` | `L: EuclideanLayout`（線形連立版）/ `L: RiemannianLayout`（勾配版） | `EuclideanLayout` と `RiemannianLayout` を型安全に実装 |
+| `MaxentStressSolver` | `IterativeSolver` | `layout-stress` | `L: EuclideanLayout` | `EuclideanStorageRef/Mut` + `RepulsionBackend` 統合（2D 側の `nd_dims` 未検査バグ根治） |
+| `ContinuousFdp` | **廃止** | — | — | `ForceAtlas2Solver` / `YifanHuSolver` を直接使用 |
+| `ForceAtlas2Solver` | `IterativeSolver` | `layout-force` | `L: EuclideanLayout` | `EuclideanStorageRef/Mut` + `RepulsionBackend` 統合（2D/3D/ND 混在バグ根治） |
+| `YifanHuSolver` | `IterativeSolver` | `layout-force` | `L: EuclideanLayout` | 同上 |
+| `LinLogSolver` | `IterativeSolver` | `layout-force` | `L: EuclideanLayout` | 同上 |
+| `FruchtermanReingoldSolver` | `IterativeSolver` | `layout-force` | `L: RiemannianLayout`（Exact）/ `L: EuclideanLayout`（Grid/Tree） | 同上 |
+| `GemSolver` | `IterativeSolver` | `layout-force` | `Layout2d<S>` | `IterativeSolver<Target = Layout2d<S>>` |
+| `FdebSolver` | `IterativeSolver` | `edge-routing`（新設） | **`EdgePolylines<L>`**（`L: EuclideanLayout`） | `layout-force` から独立。偽の `&mut Layout` を廃止し `&mut EdgePolylines<L>` を書き換える設計へ刷新 |
+| `PrismOverlapRemoval` | `IterativeSolver` | `layout-constraints` | `Layout2d<S>` | `IterativeSolver<Target = Layout2d<S>>` |
+| `GTreeOverlapRemoval` | `IterativeSolver` | `layout-constraints` | `Layout2d<S>` | 同上 |
+| `ForbidOverlapRemoval` | `IterativeSolver` | `layout-constraints` | `Layout2d<S>` | 同上 |
+| `PfsPrimeOverlapRemoval` | **`LayoutTransform`** | `layout-constraints` | `Target = Layout2d<S>` | `total_iterations == 1` の 1 発実行を `LayoutTransform` へ移行 |
+| `TwinDeclutterer` | **`LayoutTransform`** | `layout-constraints` | `Target = Layout2d<S>` | ステートレス後処理を `LayoutTransform` へ移行 |
+| `GripSolver` | `IterativeSolver` | `layout-multilevel` | `Layout2d<S>`（または `L: EuclideanLayout`） | 初期座標を上書き生成する反復ソルバであることを API 契約・docstring に明記 |
+| `SfcLayoutSolver` → `SfcLayout` | **`LayoutGenerator`** | `layout-multilevel` | `Output = Layout2d<S>` | 生成時計算＋ダミー `step()` を廃止し `LayoutGenerator` へ移行 |
+| `SpatialIntruderRefiner` | `IterativeSolver` | `layout-refine`（新設） | `Layout2d<S>` | 11 依存だった `layout-multilevel` から後処理リファイナ群として独立 |
+| `ScreenedPoissonRefiner` | `IterativeSolver` | `layout-refine`（新設） | `Layout2d<S>` | 同上 |
+| `ClusterRefineSolver` | `IterativeSolver` | `layout-refine`（新設） | `Layout2d<S>` | 同上 |
+| `BackboneSolver` | `IterativeSolver` | `layout-composite`（新設） | `Layout2d<S>` | 他ソルバ合成系として分離。固有 `status`/`iteration`/`total_iterations` 整理 |
+| `SelLayoutSolver` | `IterativeSolver` | `layout-composite`（新設） | `Layout2d<S>` | 内部ソルバ設定公開 |
+| `GroupInABoxSolver` | `IterativeSolver` | `layout-composite`（新設） | `Layout2d<S>` | 入力スライス `&[u32]` 対応 |
 
-加えて、従来の自由関数初期化群（`pivot_mds`, `classical_mds`, `hde`, `rd_mds`, `koren_spectral_init`, `coarse_backbone_init`）を `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral`, `CoarseBackbone` 構造体（`LayoutGenerator<Output = L>`）へ統合する。
+加えて、`layout-sgd/src/coarse_backbone` を `CoarseBackbone` 構造体（`LayoutGenerator`）として `layout-multilevel` へ移管し、`linalg-mds` の自由関数初期化群（`pivot_mds`, `classical_mds`, `hde`, `rd_mds`, `koren_spectral_init`）を `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral` 構造体（`LayoutGenerator<Output = L>`）へ統合する。
 
 ### 3.2 6 ソルバの 2D/ND 混在状態破損バグの根治
 
@@ -419,14 +426,14 @@ pub trait LayoutTransform {
 - **所有 `Vec<T>` 値渡しの撤去**: `GroupInABoxSolver::new`, `ClusterRefineSolver::new`, `SgdSolver::from_pairs*`, `LayoutNd::from_flat` 等 30 超の公開関数で所有 `Vec<T>` 要求を `&[T]` スライス受け入れへ統一する（必要に応じてゼロコピー用 `into_*` コンストラクタを別途用意）。
 - **整数 ID 型の統一**: 階層レイヤ番号（現行 `usize`：`assign_layers`, `generate_layered_constraints`）とクラスタ／コミュニティ ID（`u32`）を **`u32` へ統一** し、グラフ頂点・辺・レイヤ・クラスタのすべてでメモリ効率と Python/WASM ゼロコピーを一致させる。
 
-### 4.3 クレート公開境界・モジュール可視性・MSRV（D11）
+### 4.3 クレート公開境界・モジュール可視性・MSRV（D11 / D21）
 
-- **公開クレート vs 内部・バインディングクレート境界**:
-  - `egraph-python`, `egraph-wasm`, `egraph-ffi` には `publish = false` を明記する。
-  - `egraph-cli` はバイナリ専用クレートとし、`crates/cli/src/lib.rs` のライブラリ公開（`Cli`, `Commands` 等 20 超の型）を最小限または `publish = false` へ整理する。
-  - crates.io 公開時は `egraph` ファサードを再エクスポートの安定エントリーポイントとし、サブクレートの個別パスに依存させないドキュメント規約を明記する。
+- **公開クレート vs 非公開クレート境界（最終 28 クレート = 公開 24 + 非公開 4）**:
+  - 公開 Rust ライブラリ 24 クレート（`egraph` ファサード＋ドメイン 23 クレート；薄い純アンブレラ `spatial`/`layout` は廃止して `egraph` へ統合）を `publish = true` とし、`egraph-ffi`, `egraph-python`, `egraph-wasm` には `publish = false` を明記する。
+  - `egraph-cli` はバイナリ専用クレート（`publish = false` 推奨）とし、`crates/cli/src/lib.rs` のライブラリ公開（`Cli`, `Commands` 等 20 超の型）を最小限へ整理する。
+  - crates.io 公開時は `egraph` ファサードを再エクスポートの安定エントリーポイントとし、サブクレートの内部構成変更に依存させないドキュメント規約を明記する。
 - **内部モジュール `pub mod` の封鎖**:
-  - 20/24 ライブラリクレートおよびアンブレラクレートが内部モジュール（`pub mod chebyshev`, `pub mod sgd` 等）を丸ごと公開していた構成を改め、原則 `mod ...;` に閉じてクレート直下のフラットな `pub use` のみを安定パスとする。これにより 500 行分割やファイル再編が完全に非破壊になる。
+  - ライブラリクレート群が内部モジュール（`pub mod chebyshev`, `pub mod sgd` 等）を丸ごと公開していた構成を改め、原則 `mod ...;` に閉じてクレート直下のフラットな `pub use` のみを安定パスとする。これにより 500 行分割やファイル再編が完全に非破壊になる。
 - **`egraph::prelude` の厳選**:
   - 250 超シンボルの一括投入を止め、基本データ型・trait・主要エラー・基本プリミティブ（`CsrGraph`, `Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`, `EdgePolylines`, `CoreError`, `CoreResult`, `SolverStatus`, 主要 trait 群）に絞る。`VisitStamp`, `#[doc(hidden)]` 関数、`Scalar`, `TorusLayoutView`, `DeterministicRng`、`egraph::linalg::crate_version` 等の混入を撤去する。
 - **MSRV 明示**: ルート `Cargo.toml` の `[workspace.package]` に `rust-version = "1.88"` を明示する（`edition = "2024"`、`slice::as_chunks`, `usize::is_multiple_of`, `let` chains の実使用と一致）。
@@ -480,37 +487,200 @@ pub trait LayoutTransform {
 
 ---
 
-## §6. クレート別影響マトリクス（27 クレート → 26 クレート）
+## §6. クレート配置・依存 DAG・周辺ディレクトリ再編仕様（27 クレート → 最終 28 クレート）
 
-| 現行クレート | 区分 / 公開方針 | 主な変更内容 | 担当 Wave |
-|---|---|---|---|
-| `egraph-core` | Core (`publish = true`) | 4 層幾何 trait、`RepulsionBackend<L>`、`Layout3d`、`EdgePolylines`、`IterativeSolver`/`LayoutGenerator`/`LayoutTransform`、`CsrGraph` `W: Scalar` 撤去＋`CsrGraphBuilder`、`DeterministicRng` 隔離、`CoreError`/`SolverStatus` `#[non_exhaustive]`、オプショナル `serde` feature、内部 `pub mod` 閉鎖 | Wave 1 |
-| `egraph-spatial-trees` | Spatial (`publish = true`) | `NearestNeighborIndex`/`SpatialIndex` trait、`delaunay` feature 廃止・`spade` 必須化、`EuclideanStorageRef/Mut` 連携、`#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-spatial-fft` | Spatial (`publish = true`) | `Layout2d`/`EuclideanStorageRef` 連携、Config/Stats `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-spatial-crossings` | Spatial (`publish = true`) | `TorusLayoutView` sealed 化＋`Layout2d` 無条件実装廃止、Crossing 系型 `#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-spatial` | Umbrella (`publish = true`) | `delaunay` feature 分岐削除、再エクスポート整理 | Wave 2 |
-| `egraph-linalg` | Linalg (`publish = true`) | 行列フリー `LinearOperator<S>` trait、`CsrGraph<W>` 無重み関数の `W: Scalar` 撤去、Config/Result `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-linalg-amg` | Linalg (`publish = true`) | `LinearOperator<S>` 統合、Config/Result `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-linalg-mds` | Linalg (`publish = true`) | `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral` を構造体（`LayoutGenerator`）化、重複自由関数整理、Config `#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-neighborhood` | Neighborhood (`publish = true`) | `SparseProbabilities`/`Sparse12HopPairs` カプセル化（フィールド非公開）、Enum/Config `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-clustering` | Clustering (`publish = true`) | クラスタリング共通 trait、Config/Result `#[non_exhaustive]` + `Copy` 撤去、`u32` ID 統一、`&[T]` 入力、内部 `pub mod` 閉鎖 | Wave 2 |
-| `egraph-layout-sgd` | Solvers (`publish = true`) | `SgdSolver` 分離（`Sgd2Solver`/`PacmapGraphSolver`/`LargeVisSolver`/`DrGraphSolver`/`GraphCneSolver`/`SnapTFdpSolver`）、`RiemannianLayout` 統一、`CoarseBackbone` 構造体化、`ActiveLayoutKind`・`SgdScheduleWindowLayout`・`PackedSymPair` リーク撤去、Manifold 2 ソルバ幾何修正、`delaunay` feature 削除 | Wave 3 |
-| `egraph-layout-neighbor` | Solvers (`publish = true`) | `FieldLayoutSolver` → `TFdpSolver` + `IbUmapSolver` 分割、`TsNetConfig` 可変段数化（`Copy` 撤去）、`RiemannianLayout`/`EuclideanLayout` + `RepulsionBackend` 統一、`TsNetSolver` 平行移動修正 | Wave 3 |
-| `egraph-layout-stress` | Solvers (`publish = true`) | `KamadaKawai`/`StressMajorization`/`MaxentStress` の幾何 trait 統一、`ActiveLayoutKind` 削除＋`Maxent` 2D/ND 混在バグ根治、`KamadaKawai` ヘッセ行列正定値修正 | Wave 3 |
-| `egraph-layout-force` | Solvers (`publish = true`) | `ContinuousFdp` 廃止、`ForceAtlas2`/`YifanHu`/`LinLog`/`FR` の `EuclideanLayout`＋`RepulsionBackend`（2D Quadtree / 3D Octree / Exact）統一、`FdebSolver` の `EdgePolylines<L>` 移行、混在バグ根治 | Wave 3 |
-| `egraph-layout-constraints` | Solvers (`publish = true`) | `PfsPrimeOverlapRemoval`/`TwinDeclutterer` → `LayoutTransform` 化、`NodeBounds`・一般制約・ピン留め抽象、`delaunay` feature 削除、無重み `W: Scalar` 撤去、レイヤ ID `u32` 統一 | Wave 3 |
-| `egraph-layout-multilevel` | Solvers (`publish = true`) | `SfcLayoutSolver` → `SfcLayout`（`LayoutGenerator`）、`GripSolver` 契約明記、`GroupInABox` 等 `&[u32]`/`NodeBounds` 対応、`Backbone`/`ClusterRefine`/`Refiner` 整理 | Wave 3 |
-| `egraph-layout` | Umbrella (`publish = true`) | 新設・分割クレート再エクスポート、`ContinuousFdp`/`FieldLayout`/`SgdScheduleWindowLayout` 削除、`delaunay` feature 廃止、内部モジュール露出閉鎖 | Wave 3 |
-| `egraph-metrics-geometry` | Metrics (`publish = true`) | `NdSpatialIndex` 廃止（`NearestNeighborIndex` 利用）、90 超の `*_nd`/`*_manifold` 重複を `MetricSpace`/`EuclideanLayout` 汎用関数へ統合、`EdgePolylines` 指標余地確保 | Wave 4 |
-| `egraph-metrics-cluster` | Metrics (`publish = true`) | `MetricSpace` / `EuclideanLayout` 統合、`eval-baselines` 型整形、`#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 4 |
-| `egraph-metrics` | Metrics (`publish = true`) | `MetricLayout`/`evaluate_metrics_nd*` 廃止、`MetricReport`/`MetricConfig` feature 非加法性解消、`np_num_samples`/`np_seed` 分離、`MetricInputs<'a, L>` 汎用化 | Wave 4 |
-| `egraph-dataset` | Dataset (`publish = true`) | `petgraph` 依存・feature 完全削除、無印関数を `CsrGraph` 返却へ統一、`W: Scalar` 不要箇所整理 | Wave 4 |
-| `egraph-petgraph` | **廃止（削除）** | `crates/petgraph` ディレクトリとワークスペースメンバーを削除（移行ドキュメントに変換例を記載） | Wave 4 |
-| `egraph` | Facade (`publish = true`) | `petgraph` / `delaunay` feature 削除、`serde` feature 追加、`egraph::prelude` 厳選（汚染 4 種＋過剰再エクスポート整理）、モジュール露出整理 | Wave 4 |
-| `egraph-ffi` | Internal (`publish = false`) | `ErrorKind` / `FfiError` `#[non_exhaustive]`、`Layout3d` / `EdgePolylines` ビュー検証追加 | Wave 5 |
-| `egraph-python` | PyPI (`publish = false`) | 27 位置引数の `*` キーワード専用化、`.pyi` `Protocol`/`TypedDict`/`Literal`、構造化戻り値、`ValueError` サブクラス例外、`Layout3d`/`EdgePolylines`/新クラス体系 | Wave 5 |
-| `egraph-wasm` | npm (`publish = false`) | 34 位置引数オプションオブジェクト化、全文字列 `camelCase` 統一、`BigInt` シード、`f32` 専用 `CsrGraph` 契約、`.code` 構造化エラー、`Layout3d`/`EdgePolylines`/TS interface | Wave 5 |
-| `egraph-cli` | Binary (`publish = false` 検討) | ライブラリ露出縮小・新 API 追従（`EdgePolylines` JSON 出力・`Layout3d`・分離ソルバ／ジェネレータ対応） | Wave 5 |
+### 6.1 最終リポジトリディレクトリ構造（D19〜D24）
+
+全クレートを `crates/` 配下のフラット配置（`crates/<name>` ↔ `egraph-<name>` 1 対 1 一致）に据え置いたまま、薄いアンブレラ 2 クレート（`spatial`, `layout`）と `petgraph` を廃止し、`edge-routing`, `layout-embedding`, `layout-refine`, `layout-composite` を新設、さらに非クレート周辺（`examples/web/`, `docs/archive/`, `package.json`, `PROJECT_SUMMARY.md`）を整頓する。
+
+```text
+egraph-rs/
+├── crates/                       # 全クレートフラット配置 (crates/<name> == egraph-<name>)
+│   ├── core/                     # egraph-core (Tier 0: CsrGraph, 4層幾何Trait, Layout2d/3d/Nd, Manifold, EdgePolylines, 3種Trait)
+│   ├── dataset/                  # egraph-dataset (Tier 1: 純CSRベンチマーク・合成グラフ群)
+│   ├── spatial-trees/            # egraph-spatial-trees (Tier 1: NearestNeighborIndex, Quadtree2d, Octree3d, KdTree, Delaunay2d)
+│   ├── spatial-fft/              # egraph-spatial-fft (Tier 1: IbFft2d, FitField2d, ScreenedPoissonField2d)
+│   ├── spatial-crossings/        # egraph-spatial-crossings (Tier 1: SweepLine, Torus/Spherical/Hyperbolic Crossings)
+│   ├── linalg/                   # egraph-linalg (Tier 1: LinearOperator, CsrMatrix, Chebyshev, Lanczos, Dijkstra)
+│   ├── edge-routing/             # egraph-edge-routing (Tier 1・新設: Fdeb, 将来 KDEEB/FFTEB/MINGLE/HEB/直交ルーティング)
+│   ├── linalg-amg/               # egraph-linalg-amg (Tier 2: AmgPcgSolver, EffectiveResistance, ResistanceCurvature)
+│   ├── linalg-mds/               # egraph-linalg-mds (Tier 2: PivotMds, ClassicalMds, Hde, RdMds, KorenSpectral 構造体)
+│   ├── clustering/               # egraph-clustering (Tier 2・crates/cluster改名: Louvain, Leiden, Spectral, KMeans, Coarsen)
+│   ├── neighborhood/             # egraph-neighborhood (Tier 2: 1+2-hop CSR, KnnGraph, Perplexity, Fuzzy, DoG/rHGH)
+│   ├── layout-sgd/               # egraph-layout-sgd (Tier 3: Stress/Barrier SgdSolver, Sgd2Solver)
+│   ├── layout-embedding/         # egraph-layout-embedding (Tier 3・新設: PacmapGraph, LargeVis, DrGraph, GraphCne, SnapTFdp)
+│   ├── layout-neighbor/          # egraph-layout-neighbor (Tier 3: TsNetSolver, GuMapSolver, TFdpSolver, IbUmapSolver)
+│   ├── layout-stress/            # egraph-layout-stress (Tier 3: KamadaKawai, StressMajorization, MaxentStress)
+│   ├── layout-force/             # egraph-layout-force (Tier 3: ForceAtlas2, YifanHu, LinLog, FruchtermanReingold, Gem)
+│   ├── layout-constraints/       # egraph-layout-constraints (Tier 3: Layering, Constraints, Prism, GTree, Forbid, PfsPrime, TwinDeclutter)
+│   ├── layout-multilevel/        # egraph-layout-multilevel (Tier 3・純リーフ化: Grip, CoarseBackbone移管, Sfc)
+│   ├── layout-refine/            # egraph-layout-refine (Tier 4・新設: SpatialIntruderRefiner, ScreenedPoissonRefiner, ClusterRefine)
+│   ├── layout-composite/         # egraph-layout-composite (Tier 4・新設: Backbone, Sel, GroupInABox)
+│   ├── metrics-geometry/         # egraph-metrics-geometry (Tier 2: SNS, GeodesicDistortion, Crossings, NP1/NP2, Proximity, RTA)
+│   ├── metrics-cluster/          # egraph-metrics-cluster (Tier 4: G-CAF, AdjustedPatchNIG, eval-baselines)
+│   ├── metrics/                  # egraph-metrics (Tier 5: evaluate_metrics, MetricReport, MetricConfig, MetricInputs)
+│   ├── egraph/                   # egraph (Tier 5: 統合ファサード egraph::{core,spatial,linalg,layout,edge_routing,metrics,...})
+│   ├── ffi/                      # egraph-ffi (Tier 6・publish=false: 共有フラットバッファABI・ErrorKind)
+│   ├── python/                   # egraph-python (Tier 6・publish=false: PyO3 abi3-py310, .pyi, docs/, netlify.toml)
+│   ├── wasm/                     # egraph-wasm (Tier 6・publish=false: wasm-bindgen純ESM, package.json, pkg/)
+│   ├── cli/                      # egraph-cli (Tier 6・バイナリ専用: clap JSON/MTXベンチマーク)
+│   └── (将来 v6.x) surface/      # egraph-surface (非破壊追記予定: ポリゴン表面メッシュ描画 SurfaceLayout)
+├── docs/                         # 現行文書 (V6_API_FREEZE_SPEC.md, MIGRATION_V6.md)
+│   └── archive/                  # 履歴計画書 (V6_RELEASE_PLAN.md, V6_ALPHA9_REMEDIATION_PLAN.md)
+├── examples/web/                 # 旧 js/ 移動先 (examples/ + dataset/)
+├── notebooks/                    # Google Colab チュートリアル 9 本（外部直リンク維持のためルート固定）
+├── scripts/                      # verify.sh, verify_helpers.py, check_invariants.sh, parity_harness.py, worktree.sh
+├── package.json                  # ルート JS workspace (ESM/Vite 向けへ刷新、旧 v5 スクリプト撤去)
+└── PROJECT_SUMMARY.md            # 最終 28 クレート構成へ同期
+```
+
+### 6.2 コンパイル並列化依存 DAG（Tier 0〜Tier 6）
+
+薄いアンブレラの廃止と `layout-sgd` / `layout-multilevel` / `edge-routing` の分解により、全 7 つの主力レイアウトクレート（Tier 3）が相互依存ゼロで完全並列ビルド可能となる。
+
+```mermaid
+flowchart TD
+    CORE["Tier 0: egraph-core"]
+
+    CORE --> SPT["T1: spatial-trees"]
+    CORE --> SPF["T1: spatial-fft"]
+    CORE --> SPC["T1: spatial-crossings"]
+    CORE --> LIN["T1: linalg"]
+    CORE --> DAT["T1: dataset"]
+    CORE --> EDR["T1: edge-routing (FDEB)"]
+
+    CORE --> AMG["T2: linalg-amg"]
+    LIN --> AMG
+    CORE --> MDS["T2: linalg-mds"]
+    LIN --> MDS
+    CORE --> CLU["T2: clustering"]
+    LIN --> CLU
+    CORE --> NEI["T2: neighborhood"]
+    SPT --> NEI
+    LIN --> NEI
+    AMG --> NEI
+    CORE --> METG["T2: metrics-geometry"]
+    LIN --> METG
+    SPT --> METG
+    SPC --> METG
+
+    CLU --> LSGD["T3: layout-sgd"]
+    MDS --> LSGD
+    NEI --> LSGD
+    CORE --> LEMB["T3: layout-embedding"]
+    LIN --> LEMB
+    MDS --> LEMB
+    NEI --> LEMB
+    CLU --> LEMB
+    SPT --> LNEI["T3: layout-neighbor"]
+    SPF --> LNEI
+    NEI --> LNEI
+    LIN --> LSTR["T3: layout-stress"]
+    AMG --> LSTR
+    MDS --> LSTR
+    SPT --> LSTR
+    SPT --> LFRC["T3: layout-force"]
+    SPT --> LCON["T3: layout-constraints"]
+    CLU --> LMUL["T3: layout-multilevel"]
+    LIN --> LMUL
+    AMG --> LMUL
+    MDS --> LMUL
+    NEI --> LMUL
+    SPT --> LMUL
+
+    LSGD --> LREF["T4: layout-refine"]
+    NEI --> LREF
+    SPT --> LREF
+    SPF --> LREF
+    CLU --> LREF
+    LSGD --> LCMP["T4: layout-composite"]
+    LSTR --> LCMP
+    LFRC --> LCMP
+    LNEI --> LCMP
+    LCON --> LCMP
+    SPT --> LCMP
+    METG --> METC["T4: metrics-cluster"]
+    SPT --> METC
+    CLU --> METC
+
+    METG --> MET["T5: metrics"]
+    METC --> MET
+    CORE --> FAC["T5: egraph (Facade)"]
+    DAT --> FAC
+    SPT --> FAC
+    SPF --> FAC
+    SPC --> FAC
+    LIN --> FAC
+    AMG --> FAC
+    MDS --> FAC
+    EDR --> FAC
+    CLU --> FAC
+    NEI --> FAC
+    LSGD --> FAC
+    LEMB --> FAC
+    LNEI --> FAC
+    LSTR --> FAC
+    LFRC --> FAC
+    LCON --> FAC
+    LMUL --> FAC
+    LREF --> FAC
+    LCMP --> FAC
+    MET --> FAC
+
+    CORE --> FFI["T6: ffi"]
+    FAC --> PY["T6: python"]
+    FFI --> PY
+    FAC --> WASM["T6: wasm"]
+    DAT --> WASM
+    FFI --> WASM
+    FAC --> CLI["T6: cli"]
+```
+
+### 6.3 クレート別変更・新設・改名・廃止マトリクス（27 − 3 + 4 = 最終 28 クレート）
+
+| ディレクトリ（`crates/`） | クレート名 | 処置 / `publish` | 主な変更内容・収容モジュール | 担当 Wave |
+|---|---|---|---|---|
+| `core` | `egraph-core` | 更新 (`true`) | 4 層幾何 trait、`RepulsionBackend<L>`、`Layout3d`、`EdgePolylines`、`IterativeSolver`/`LayoutGenerator`/`LayoutTransform`、`CsrGraph` `W: Scalar` 撤去＋`CsrGraphBuilder`、`DeterministicRng` 隔離、`CoreError`/`SolverStatus` `#[non_exhaustive]`、オプショナル `serde` feature、内部 `pub mod` 閉鎖 | Wave 1 |
+| `spatial-trees` | `egraph-spatial-trees` | 更新 (`true`) | `NearestNeighborIndex`/`SpatialIndex` trait、`delaunay` feature 廃止・`spade` 必須化、`EuclideanStorageRef/Mut` 連携、`#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
+| `spatial-fft` | `egraph-spatial-fft` | 更新 (`true`) | `Layout2d`/`EuclideanStorageRef` 連携、Config/Stats `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
+| `spatial-crossings` | `egraph-spatial-crossings` | 更新 (`true`) | `TorusLayoutView` sealed 化＋`Layout2d` 無条件実装廃止、Crossing 系型 `#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
+| `spatial` | `egraph-spatial` | **廃止（削除）** | 純アンブレラ（75 行）を廃止し、`egraph::spatial` へ直接再エクスポート集約 | Wave 2 |
+| `linalg` | `egraph-linalg` | 更新 (`true`) | 行列フリー `LinearOperator<S>` trait、`CsrGraph<W>` 無重み関数の `W: Scalar` 撤去、Config/Result `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
+| `linalg-amg` | `egraph-linalg-amg` | 更新 (`true`) | `LinearOperator<S>` 統合、Config/Result `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
+| `linalg-mds` | `egraph-linalg-mds` | 更新 (`true`) | `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral` を構造体（`LayoutGenerator`）化、重複自由関数整理、Config `#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 2 |
+| `neighborhood` | `egraph-neighborhood` | 更新 (`true`) | `egraph-spatial` 依存を `egraph-spatial-trees` 直接依存へ変更、`SparseProbabilities`/`Sparse12HopPairs` カプセル化、Enum/Config `#[non_exhaustive]` + `Copy` 撤去、内部 `pub mod` 閉鎖 | Wave 2 |
+| `cluster` → `clustering` | `egraph-clustering` | **改名**・更新 (`true`) | `crates/cluster` → `crates/clustering` へ改名統一、クラスタリング共通 trait、Config/Result `#[non_exhaustive]` + `Copy` 撤去、`u32` ID・`&[T]` 入力統一、内部 `pub mod` 閉鎖 | Wave 2 |
+| `edge-routing` | `egraph-edge-routing` | **新設** (`true`) | `layout-force/fdeb` を移管し `EdgePolylines<L>` ベースの `FdebSolver`（将来の KDEEB/FFTEB/MINGLE/HEB・直交ルーティング）を収容 | Wave 3 |
+| `layout-sgd` | `egraph-layout-sgd` | 更新 (`true`) | Stress/Barrier `SgdSolver` と `Sgd2Solver` に集中。サンプリング 5 手法を `layout-embedding`・`coarse_backbone` を `layout-multilevel` へ移管し `linalg-amg`/`spatial-trees` 依存撤去。`ActiveLayoutKind`/`SgdScheduleWindowLayout`/`PackedSymPair` リーク撤去、Manifold 幾何修正 | Wave 3 |
+| `layout-embedding` | `egraph-layout-embedding` | **新設** (`true`) | `SgdSolver` から分離した 5 手法（`PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`）を収容し `RiemannianLayout` 統一＋Manifold `PacmapGraph` 幾何修正 | Wave 3 |
+| `layout-neighbor` | `egraph-layout-neighbor` | 更新 (`true`) | `FieldLayoutSolver` → `TFdpSolver` + `IbUmapSolver` 分割、`TsNetConfig` 可変段数化（`Copy` 撤去）、`RiemannianLayout`/`EuclideanLayout` + `RepulsionBackend` 統一、`TsNetSolver` 平行移動修正 | Wave 3 |
+| `layout-stress` | `egraph-layout-stress` | 更新 (`true`) | `KamadaKawai`/`StressMajorization`/`MaxentStress` の幾何 trait 統一、`ActiveLayoutKind` 削除＋`Maxent` 2D/ND 混在バグ根治、`KamadaKawai` ヘッセ行列正定値修正 | Wave 3 |
+| `layout-force` | `egraph-layout-force` | 更新 (`true`) | `ContinuousFdp` 廃止、`fdeb` を `edge-routing` へ移管、`ForceAtlas2`/`YifanHu`/`LinLog`/`FR`/`Gem` の `EuclideanLayout`＋`RepulsionBackend`（2D Quadtree / 3D Octree / Exact）統一、混在バグ根治 | Wave 3 |
+| `layout-constraints` | `egraph-layout-constraints` | 更新 (`true`) | `PfsPrimeOverlapRemoval`/`TwinDeclutterer` → `LayoutTransform` 化、`NodeBounds`・一般制約・ピン留め抽象、`delaunay` feature 削除、無重み `W: Scalar` 撤去、レイヤ ID `u32` 統一 | Wave 3 |
+| `layout-multilevel` | `egraph-layout-multilevel` | 更新 (`true`) | 純リーフ系（`GripSolver`, `SfcLayout` 構造体化, `layout-sgd` から移管した `CoarseBackbone`）に縮小し他 `layout-*` 依存を全廃 | Wave 3 |
+| `layout-refine` | `egraph-layout-refine` | **新設** (`true`) | `layout-multilevel` から後処理 3 種（`SpatialIntruderRefiner`, `ScreenedPoissonRefiner`, `ClusterRefineSolver`）を分離 | Wave 3 |
+| `layout-composite` | `egraph-layout-composite` | **新設** (`true`) | `layout-multilevel` から他ソルバ合成 3 種（`BackboneSolver`, `SelLayoutSolver`, `GroupInABoxSolver`）を分離 | Wave 3 |
+| `layout` | `egraph-layout` | **廃止（削除）** | 純アンブレラ（106 行）を廃止し、`egraph::layout` へ直接再エクスポート集約 | Wave 3 |
+| `metrics-geometry` | `egraph-metrics-geometry` | 更新 (`true`) | `NdSpatialIndex` 廃止（`NearestNeighborIndex` 利用）、90 超の `*_nd`/`*_manifold` 重複を `MetricSpace`/`EuclideanLayout` 汎用関数へ統合、`EdgePolylines` 指標余地確保 | Wave 4 |
+| `metrics-cluster` | `egraph-metrics-cluster` | 更新 (`true`) | `MetricSpace` / `EuclideanLayout` 統合、`eval-baselines` 型整形、`#[non_exhaustive]`、内部 `pub mod` 閉鎖 | Wave 4 |
+| `metrics` | `egraph-metrics` | 更新 (`true`) | `MetricLayout`/`evaluate_metrics_nd*` 廃止、`MetricReport`/`MetricConfig` 非加法性解消、`np_num_samples`/`np_seed` 分離、`MetricInputs<'a, L>` 汎用化 | Wave 4 |
+| `dataset` | `egraph-dataset` | 更新 (`true`) | `petgraph` 依存・feature 完全削除、無印関数を `CsrGraph` 返却へ統一、`W: Scalar` 不要箇所整理 | Wave 4 |
+| `petgraph` | `egraph-petgraph` | **廃止（削除）** | `crates/petgraph` ディレクトリとワークスペースメンバーを削除（移行ドキュメントに変換例を記載） | Wave 4 |
+| `egraph` | `egraph` | 更新 (`true`) | `petgraph` / `delaunay` feature 削除、`serde` feature 追加、廃止アンブレラ分の直接再エクスポート、`egraph::prelude` 厳選、モジュール露出整理 | Wave 4 |
+| `ffi` | `egraph-ffi` | 更新 (`false`) | `ErrorKind` / `FfiError` `#[non_exhaustive]`、`Layout3d` / `EdgePolylines` ビュー検証追加 | Wave 5 |
+| `python` | `egraph-python` | 更新 (`false`) | 27 位置引数の `*` キーワード専用化、`.pyi` `Protocol`/`TypedDict`/`Literal`、構造化戻り値、`ValueError` サブクラス例外、`Layout3d`/`EdgePolylines`/新クラス体系 | Wave 5 |
+| `wasm` | `egraph-wasm` | 更新 (`false`) | 34 位置引数オプションオブジェクト化、全文字列 `camelCase` 統一、`BigInt` シード、`f32` 専用 `CsrGraph` 契約、`.code` 構造化エラー、`Layout3d`/`EdgePolylines`/TS interface | Wave 5 |
+| `cli` | `egraph-cli` | 更新 (`false` 推奨) | ライブラリ露出縮小・新 API 追従（`EdgePolylines` JSON 出力・`Layout3d`・分離ソルバ／ジェネレータ対応） | Wave 5 |
+
+### 6.4 非クレートディレクトリ・ルート設定整理計画（D24）
+
+| 対象 | 現行状態 | 整理内容 |
+|---|---|---|
+| `js/` | `js/examples/` + `js/dataset/` | **`examples/web/`**（`examples/web/examples/`, `examples/web/dataset/` または `examples/web/` 構成整理）へ移動し、CI・Playwright・`Makefile`・`README.md` 参照を追従 |
+| ルート `package.json` | v5 旧 `dist/{bundler,no-modules,nodejs,web}` スクリプト＋`prettier ^2.3.1` | 現行 pure ESM + Vite デモ構成へ刷新（`workspaces: ["crates/wasm", "examples/web/*"]` 等）、旧 v5 スクリプト撤去 |
+| `docs/` | `V6_RELEASE_PLAN.md` と `V6_ALPHA9_REMEDIATION_PLAN.md` が混在 | 両履歴計画書を **`docs/archive/`** へ移動し、`docs/` 直下を現行仕様（`V6_API_FREEZE_SPEC.md`, `MIGRATION_V6.md`）に整理 |
+| `PROJECT_SUMMARY.md` | 旧 27 クレート構造と不正確なモジュール帰属記述 | 最終 28 クレート構成・実際のディレクトリ／ディレクトリ整理結果を反映して更新 |
+| `notebooks/`, `crates/python/docs/`, `crates/python/netlify.toml`, `crates/wasm/package.json` | 外部 Colab URL・Netlify Base directory・npm パスに結合 | パスは変更せず据え置き（`crates/wasm/package.json` の `"directory"` も維持） |
 
 ---
 
@@ -520,26 +690,26 @@ pub trait LayoutTransform {
 
 ```mermaid
 flowchart LR
-    W1["Wave 1: egraph-core 基盤刷新"] --> W2["Wave 2: spatial / linalg / neighborhood / clustering"]
-    W2 --> W3["Wave 3: layout-* ソルバ統合 & 幾何修正"]
+    W1["Wave 1: egraph-core 基盤刷新"] --> W2["Wave 2: spatial-* / linalg-* / neighborhood / clustering"]
+    W2 --> W3["Wave 3: layout-* & edge-routing 再編 & 幾何修正"]
     W3 --> W4["Wave 4: metrics / dataset / egraph ファサード & petgraph 廃止"]
     W4 --> W5P["Wave 5a: FFI & Python 刷新"]
     W4 --> W5W["Wave 5b: FFI & WASM / TS 刷新"]
-    W4 --> W5C["Wave 5c: CLI 追従"]
+    W4 --> W5C["Wave 5c: CLI & 周辺ディレクトリ/文書整理"]
     W5P --> W5G["Wave 5d: ゴールデン更新・MIGRATION_V6・semver-checks・総合検証"]
     W5W --> W5G
     W5C --> W5G
 ```
 
-| Wave | 対象クレート | 主な完了条件（Exit Gate） |
+| Wave | 対象 | 主な完了条件（Exit Gate） |
 |---|---|---|
-| **Wave 1** | `egraph-core`, ルート `Cargo.toml` | `rust-version = "1.88"` 設定、4 層幾何 trait・`RepulsionBackend<L>`・`Layout3d`・`EdgePolylines<L>`・3 種アルゴリズム trait・`CsrGraph` `W: Scalar` 撤去＋`CsrGraphBuilder`・`DeterministicRng` 隔離・`serde` feature 完了。`./scripts/verify.sh --fast --crate egraph-core --invariants` 緑。 |
-| **Wave 2** | `spatial-*`, `linalg-*`, `neighborhood`, `cluster` | `NearestNeighborIndex`・`LinearOperator`・クラスタリング trait 実装、ジェネレータ構造体化、`spade` 必須化（`delaunay` feature 削除）、`SparseProbabilities`/`Sparse12HopPairs` カプセル化、`TorusLayoutView` 整理、内部 `pub mod` 閉鎖。対象クレートのユニットテスト＋`--invariants` 緑。 |
-| **Wave 3** | `layout-*`（6 クレート＋アンブレラ） | 全 27 型再編（1 手法 1 型・`ActiveLayoutKind` 削除・6 混在バグ解消・`FdebSolver`→`EdgePolylines`・`Sfc`/`PfsPrime`/`TwinDeclutterer`→`LayoutGenerator`/`LayoutTransform`）、`Layout2d`/`Layout3d`/`LayoutNd`/`ManifoldLayout2d` 統合、Manifold 4 ソルバ幾何修正、`NodeBounds`・ピン留め抽象、`#[non_exhaustive]`＋`Copy` 撤去。`./scripts/verify.sh --rust --invariants` 緑。 |
-| **Wave 4** | `metrics-*`, `dataset`, `egraph`（`petgraph` 削除） | メトリクス汎用化（90 超の重複削減）、`MetricReport`/`MetricConfig` 非加法性解消、`egraph-dataset` 純 CSR 化、`crates/petgraph` 完全削除、`egraph::prelude` 厳選と全クレート `publish` 境界整理。Rust 全ワークスペーステスト＋`--mode strict`＋WASM コンパイル緑。 |
-| **Wave 5** | `ffi`, `python`, `wasm`, `cli`, `docs/`, `.github/` | FFI 確定後に Python（5a）・WASM/TS（5b）・CLI（5c）を並行実装し、3 ターゲットパリティ（`parity_harness.py`）、`mypy`/`stubtest`、`tsc`、ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 改訂、CI への `cargo semver-checks` 組込を実施。最終的に `./scripts/verify.sh --all --build-wasm --docs` および `./scripts/check_invariants.sh --mode strict` を完全通過させる。 |
+| **Wave 1** | `egraph-core`, ルート `Cargo.toml` | `rust-version = "1.88"` 設定、4 層幾何 trait・`RepulsionBackend<L>`・`Layout3d`・`EdgePolylines<L>`・3 種アルゴリズム trait・`CsrGraph` `W: Scalar` 撤去＋`CsrGraphBuilder`・`DeterministicRng` 隔離・オプショナル `serde` feature 完了。`./scripts/verify.sh --fast --crate egraph-core --invariants` 緑。 |
+| **Wave 2** | `spatial-*`, `linalg-*`, `neighborhood`, `clustering` | `crates/cluster` → `crates/clustering` 改名、薄いアンブレラ `crates/spatial` 廃止、`egraph-neighborhood` の `egraph-spatial-trees` 直接依存化、`NearestNeighborIndex`・`LinearOperator`・クラスタリング trait 実装、ジェネレータ構造体化、`spade` 必須化（`delaunay` feature 削除）、`SparseProbabilities`/`Sparse12HopPairs` カプセル化、`TorusLayoutView` 整理、内部 `pub mod` 閉鎖。対象クレートのテスト＋`--invariants` 緑。 |
+| **Wave 3** | `layout-*`, `edge-routing` | `edge-routing`, `layout-embedding`, `layout-refine`, `layout-composite` 新設、`coarse_backbone` の `layout-multilevel` 移管、薄いアンブレラ `crates/layout` 廃止、全 27 型→新型再編・6 混在バグ解消、`Layout2d`/`Layout3d`/`LayoutNd`/`ManifoldLayout2d` 統合、Manifold 4 ソルバ幾何修正、`NodeBounds`・ピン留め抽象、`#[non_exhaustive]`＋`Copy` 撤去。`./scripts/verify.sh --rust --invariants` 緑。 |
+| **Wave 4** | `metrics-*`, `dataset`, `egraph`（`petgraph` 削除） | メトリクス汎用化（90 超の重複削減）、`MetricReport`/`MetricConfig` 非加法性解消、`egraph-dataset` 純 CSR 化、`crates/petgraph` 完全削除、`egraph` ファサードへの `spatial`/`layout`/`edge_routing` 直接再エクスポート統合、`egraph::prelude` 厳選と全 28 クレート `publish` 境界整理。Rust 全ワークスペーステスト＋`--mode strict`＋WASM コンパイル緑。 |
+| **Wave 5** | `ffi`, `python`, `wasm`, `cli`, 周辺ディレクトリ/文書, `.github/` | FFI 確定後に Python（5a）・WASM/TS（5b）・CLI/周辺整理（5c：`js/` → `examples/web/` 移動、ルート `package.json` 刷新、旧計画書 `docs/archive/` 移動、`PROJECT_SUMMARY.md` 同期、CI/Playwright/`verify.sh`/`verify_helpers.py` パス追従）を並行実装。続いて 3 ターゲットパリティ（`parity_harness.py`）、`mypy`/`stubtest`、`tsc`、ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 改訂、CI への `cargo semver-checks` 組込を実施し、`./scripts/verify.sh --all --build-wasm --docs` および `./scripts/check_invariants.sh --mode strict` を完全通過させる。 |
 
 ### 7.2 スコープ外の明示的後続タスク
 
 - **`diffusion-kernel-experiments` の追従移行**: 本仕様書の実装・新 Python ホイールビルド確認後、別タスクとして同リポジトリ側の実験スクリプト群（`TsNetSolver`, `SgdSolver` 分離クラス、キーワード引数、`MetricReport` 等）を更新する。
-- **`SurfaceLayout`（ポリゴン表面グラフ描画本体）の実装**: 本仕様書で整地したオープンな `RiemannianLayout` / `MetricSpace` / `RepulsionBackend<L>` 上に、`v6.0.0` GA 後も **破壊的変更ゼロ**（`egraph-surface` クレート等の純追記）で導入する。
+- **`SurfaceLayout`（ポリゴン表面グラフ描画本体）の実装**: 本仕様書で整地したオープンな `RiemannianLayout` / `MetricSpace` / `RepulsionBackend<L>` 上に、`v6.0.0` GA 後も **破壊的変更ゼロ**（`crates/surface` = `egraph-surface` の純追記）で導入する。
