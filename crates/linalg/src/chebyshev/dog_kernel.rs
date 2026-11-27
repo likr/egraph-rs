@@ -1,12 +1,14 @@
 use egraph_core::{CoreError, CoreResult};
 
 use crate::csr_matrix::{CsrMatrix, SpectralMomentStats};
+use crate::operator::LinearOperator;
 
 use super::workspace::ChebyshevWorkspace;
 
 /// Configuration for [`ChebyshevDogKernel`] implementing R1/R2 regularized Difference-of-Gaussians
 /// with parameter-free `beta_auto` positivity floor and deterministic JL diagonal estimation.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChebyshevDogConfig {
     /// Optional short-range diffusion time $t_1$ (`None` uses R1 $1 / (1 + \sigma_\lambda)$).
     pub t1: Option<f64>,
@@ -16,7 +18,7 @@ pub struct ChebyshevDogConfig {
     pub alpha: Option<f64>,
     /// Optional explicit uniform rank-1 floor $\beta \in [0, 1)$ (`None` computes `beta_auto`).
     pub beta_floor: Option<f64>,
-    /// Optional explicit Chebyshev polynomial degree (`None` uses [`super::adaptive_chebyshev_degree`]).
+    /// Optional explicit Chebyshev polynomial degree (`None` uses [`adaptive_chebyshev_degree`](crate::adaptive_chebyshev_degree)).
     pub degree: Option<usize>,
     /// Number of Core-First MaxMin shortest-path landmark columns to evaluate.
     pub n_landmarks: usize,
@@ -47,6 +49,79 @@ impl Default for ChebyshevDogConfig {
             lambda_max: 2.0,
             seed: 42,
         }
+    }
+}
+
+impl ChebyshevDogConfig {
+    /// Creates a new [`ChebyshevDogConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the optional short-range diffusion time `t1`.
+    pub fn with_t1(mut self, t1: Option<f64>) -> Self {
+        self.t1 = t1;
+        self
+    }
+
+    /// Sets the optional long-range diffusion time `t2`.
+    pub fn with_t2(mut self, t2: Option<f64>) -> Self {
+        self.t2 = t2;
+        self
+    }
+
+    /// Sets the optional DoG attenuation `alpha`.
+    pub fn with_alpha(mut self, alpha: Option<f64>) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Sets the optional explicit rank-1 positivity floor `beta_floor`.
+    pub fn with_beta_floor(mut self, beta_floor: Option<f64>) -> Self {
+        self.beta_floor = beta_floor;
+        self
+    }
+
+    /// Sets the optional explicit Chebyshev polynomial `degree`.
+    pub fn with_degree(mut self, degree: Option<usize>) -> Self {
+        self.degree = degree;
+        self
+    }
+
+    /// Sets the number of landmark columns `n_landmarks`.
+    pub fn with_n_landmarks(mut self, n_landmarks: usize) -> Self {
+        self.n_landmarks = n_landmarks;
+        self
+    }
+
+    /// Sets the minimum degree threshold `min_degree` for landmark selection.
+    pub fn with_min_degree(mut self, min_degree: usize) -> Self {
+        self.min_degree = min_degree;
+        self
+    }
+
+    /// Sets the Johnson-Lindenstrauss projection dimension `jl_dim`.
+    pub fn with_jl_dim(mut self, jl_dim: usize) -> Self {
+        self.jl_dim = jl_dim;
+        self
+    }
+
+    /// Sets the minimum PSD spectral floor `eps_psd`.
+    pub fn with_eps_psd(mut self, eps_psd: f64) -> Self {
+        self.eps_psd = eps_psd;
+        self
+    }
+
+    /// Sets the spectral upper bound `lambda_max`.
+    pub fn with_lambda_max(mut self, lambda_max: f64) -> Self {
+        self.lambda_max = lambda_max;
+        self
+    }
+
+    /// Sets the deterministic PRNG `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
     }
 }
 
@@ -188,9 +263,50 @@ impl ChebyshevDogKernel {
         ncols: usize,
         ws: &mut ChebyshevWorkspace,
     ) -> CoreResult<()> {
+        if l_sym.num_nodes() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                l_sym.num_nodes(),
+                "ChebyshevDogKernel::apply_batch::l_sym",
+            ));
+        }
         ws.apply_batch_with_lambda_max(l_sym, self.lambda_max, &self.coeffs_h, v, out, ncols)?;
+        self.apply_rank_one_floor(v, out, ncols);
+        Ok(())
+    }
+
+    /// Applies the full regularized DoG kernel operator using a matrix-free
+    /// [`LinearOperator<f64>`] representing $L_{\mathrm{sym}}$.
+    pub fn apply_batch_operator<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        l_sym: &mut O,
+        v: &[f64],
+        out: &mut [f64],
+        ncols: usize,
+        ws: &mut ChebyshevWorkspace,
+    ) -> CoreResult<()> {
+        if l_sym.dim() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                l_sym.dim(),
+                "ChebyshevDogKernel::apply_batch_operator::l_sym",
+            ));
+        }
+        ws.apply_batch_operator_with_lambda_max(
+            l_sym,
+            self.lambda_max,
+            &self.coeffs_h,
+            v,
+            out,
+            ncols,
+        )?;
+        self.apply_rank_one_floor(v, out, ncols);
+        Ok(())
+    }
+
+    fn apply_rank_one_floor(&self, v: &[f64], out: &mut [f64], ncols: usize) {
         if self.num_nodes == 0 || ncols == 0 {
-            return Ok(());
+            return;
         }
         let one_minus_beta = 1.0 - self.beta_eff;
         for c in 0..ncols {
@@ -204,7 +320,6 @@ impl ChebyshevDogKernel {
                 out[idx] = one_minus_beta * out[idx] + shift;
             }
         }
-        Ok(())
     }
 
     /// Converts the landmark kernel block $K_{\mathrm{eff}}[:, P]$ into a row-major

@@ -223,3 +223,65 @@ fn test_eigen_edge_cases_empty_singleton_edgeless_disconnected() {
     assert!(rd.lambdas[0] < 1e-10);
     assert!(rd.lambdas[1] > 1e-3);
 }
+
+#[test]
+fn test_lanczos_operator_largest_smallest_and_builders() {
+    use crate::operator::{FnOperator, LinearOperator};
+
+    let solver = LanczosEigen::default()
+        .with_tol(1e-8)
+        .with_max_iters(400)
+        .with_subspace_dim(Some(32))
+        .with_seed(99);
+    assert_eq!(solver.tol, 1e-8);
+    assert_eq!(solver.max_iters, 400);
+    assert_eq!(solver.subspace_dim, Some(32));
+    assert_eq!(solver.seed, 99);
+
+    let grid = make_grid_2d(10, 10, false);
+    let (mut l_sym, _) = symmetric_normalized_laplacian(&grid);
+    let n = l_sym.num_nodes();
+
+    let (evals_op, evecs_op) = solver.largest_eigenpairs_operator(&mut l_sym, 3).unwrap();
+    let (evals_fn, evecs_fn) = solver
+        .largest_eigenpairs(n, 3, |x, y| l_sym.spmv(x, y))
+        .unwrap();
+    assert_eq!(evals_op, evals_fn);
+    assert_eq!(evecs_op, evecs_fn);
+
+    // Smallest eigenpairs with explicit shift and auto-estimated shift (None)
+    let (small_explicit, vecs_explicit) = solver
+        .smallest_eigenpairs_operator(&mut l_sym, 4, Some(2.5))
+        .unwrap();
+    let (small_auto, vecs_auto) = solver
+        .smallest_eigenpairs_operator(&mut l_sym, 4, None)
+        .unwrap();
+    assert!(small_explicit[0].abs() < 1e-8);
+    for m in 0..4 {
+        assert!((small_explicit[m] - small_auto[m]).abs() < 1e-7);
+    }
+    let cos_min = min_principal_angle_cosine(&vecs_explicit, &vecs_auto, n, 4);
+    assert!(cos_min > 0.9999);
+
+    // Negative-definite diagonal matrix-free operator via dyn LinearOperator<f64>
+    let diag: Vec<f64> = (0..80).map(|i| -((i + 1) as f64)).collect();
+    let mut neg_op: Box<dyn LinearOperator<f64>> =
+        Box::new(FnOperator::new(80, move |x: &[f64], y: &mut [f64]| {
+            for i in 0..80 {
+                y[i] = diag[i] * x[i];
+            }
+            Ok(())
+        }));
+    let (neg_small, _) = solver
+        .smallest_eigenpairs_operator(&mut neg_op, 3, None)
+        .unwrap();
+    assert!((neg_small[0] - (-80.0)).abs() < 1e-6);
+    assert!((neg_small[1] - (-79.0)).abs() < 1e-6);
+    assert!((neg_small[2] - (-78.0)).abs() < 1e-6);
+
+    assert!(
+        solver
+            .smallest_eigenpairs_operator(&mut neg_op, 3, Some(f64::NAN))
+            .is_err()
+    );
+}

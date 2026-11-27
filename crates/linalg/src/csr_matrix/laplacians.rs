@@ -3,6 +3,7 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 use super::matrix::CsrMatrix;
 
 /// Supported graph Laplacian variants for sparse CSR construction.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaplacianKind {
     /// Combinatorial (unnormalized) Laplacian $L = D - A$.

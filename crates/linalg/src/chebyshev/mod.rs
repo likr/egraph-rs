@@ -6,6 +6,7 @@ mod dog_builder;
 mod dog_kernel;
 mod dynamic;
 mod jl;
+mod operator;
 mod workspace;
 mod workspace_kernels;
 

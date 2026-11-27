@@ -5,6 +5,7 @@ mod laplacians;
 mod matrix;
 mod moments;
 mod spectrum;
+mod spectrum_operator;
 
 pub use anisotropic::{
     AnisotropicLaplacianConfig, AnisotropicLaplacianResult, anisotropic_laplacian,
@@ -19,6 +20,7 @@ pub use spectrum::{
     DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR, DEFAULT_SPECTRUM_LANCZOS_STEPS,
     DEFAULT_SPECTRUM_POWER_ITERS, DEFAULT_SPECTRUM_SAFETY_FACTOR,
 };
+pub use spectrum_operator::estimate_lambda_max_operator;
 
 #[cfg(test)]
 mod tests;

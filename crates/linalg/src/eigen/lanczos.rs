@@ -1,11 +1,13 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
 
-use crate::csr_matrix::symmetric_normalized_laplacian;
+use crate::csr_matrix::{estimate_lambda_max_operator, symmetric_normalized_laplacian};
+use crate::operator::{FnOperator, LinearOperator, ShiftedOperator};
 
 use super::jacobi::symmetric_eigen_jacobi;
 use super::subspace::{SubspaceEigen, fill_random_unit_orthogonal_buf, norm_slice};
 
 /// Result of computing the smallest nontrivial eigenpairs of $L_{\mathrm{sym}}$.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct EigenResult {
     /// Smallest nontrivial eigenvalues sorted in ascending order.
@@ -30,7 +32,8 @@ pub struct EigenResult {
 /// Uses block width $b = 4$ (when `k >= 2` and `n > 64`) so degenerate eigenvalues of
 /// multiplicity up to 4 (e.g., 2D grids and periodic tori) are resolved deterministically
 /// without relying on floating-point rounding drift.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LanczosEigen {
     /// Relative convergence tolerance (weighted by spectral gap for tight meshes).
     pub tol: f64,
@@ -64,30 +67,31 @@ impl LanczosEigen {
         }
     }
 
-    /// Computes the `k` largest eigenpairs of an $n \times n$ symmetric linear operator `matvec`
-    /// returning `(eigenvalues_desc, row_major_vectors)` with `vectors` shape `(n, k)`.
-    pub fn largest_eigenpairs<F>(
-        &self,
-        n: usize,
-        k: usize,
-        matvec: F,
-    ) -> CoreResult<(Vec<f64>, Vec<f64>)>
-    where
-        F: FnMut(&[f64], &mut [f64]) -> CoreResult<()>,
-    {
-        let (lambdas, vectors, _) = self.largest_eigenpairs_with_iters(n, k, matvec)?;
-        Ok((lambdas, vectors))
+    /// Sets the relative convergence tolerance `tol`.
+    pub fn with_tol(mut self, tol: f64) -> Self {
+        self.tol = tol;
+        self
     }
 
-    pub(crate) fn largest_eigenpairs_with_iters<F>(
-        &self,
-        n: usize,
-        k: usize,
-        mut matvec: F,
-    ) -> CoreResult<(Vec<f64>, Vec<f64>, usize)>
-    where
-        F: FnMut(&[f64], &mut [f64]) -> CoreResult<()>,
-    {
+    /// Sets the maximum number of thick-restart cycles `max_iters`.
+    pub fn with_max_iters(mut self, max_iters: usize) -> Self {
+        self.max_iters = max_iters;
+        self
+    }
+
+    /// Sets the optional explicit Krylov subspace size override `subspace_dim`.
+    pub fn with_subspace_dim(mut self, subspace_dim: Option<usize>) -> Self {
+        self.subspace_dim = subspace_dim;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    fn validate_params(&self, n: usize, k: usize) -> CoreResult<()> {
         if k == 0 {
             return Err(CoreError::invalid_input("k must be >= 1"));
         }
@@ -105,6 +109,87 @@ impl LanczosEigen {
         if self.max_iters == 0 {
             return Err(CoreError::invalid_input("max_iters must be >= 1"));
         }
+        Ok(())
+    }
+
+    /// Computes the `k` largest eigenpairs of a symmetric [`LinearOperator<f64>`],
+    /// returning `(eigenvalues_desc, row_major_vectors)` with `vectors` shape `(op.dim(), k)`.
+    pub fn largest_eigenpairs_operator<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        k: usize,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>)> {
+        let (lambdas, vectors, _) = self.largest_eigenpairs_operator_with_iters(op, k)?;
+        Ok((lambdas, vectors))
+    }
+
+    /// Computes the `k` smallest eigenpairs of a symmetric [`LinearOperator<f64>`] via the
+    /// shifted operator $M v = \sigma v - A v$, returning `(eigenvalues_asc, row_major_vectors)`.
+    ///
+    /// When `shift` is `Some(s)`, uses $\sigma = s$ directly (requiring $\sigma > \lambda_{\max}(A)$
+    /// for optimal convergence). When `shift` is `None`, estimates an upper spectral bound via
+    /// [`estimate_lambda_max_operator`].
+    pub fn smallest_eigenpairs_operator<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        k: usize,
+        shift: Option<f64>,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>)> {
+        let (lambdas, vectors, _) = self.smallest_eigenpairs_operator_with_iters(op, k, shift)?;
+        Ok((lambdas, vectors))
+    }
+
+    pub(crate) fn smallest_eigenpairs_operator_with_iters<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        k: usize,
+        shift: Option<f64>,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>, usize)> {
+        let n = op.dim();
+        self.validate_params(n, k)?;
+        let eff_shift = match shift {
+            Some(s) => {
+                if !s.is_finite() {
+                    return Err(CoreError::non_finite(
+                        "LanczosEigen::smallest_eigenpairs_operator::shift",
+                    ));
+                }
+                s
+            }
+            None => {
+                let bound = estimate_lambda_max_operator(op, 16.min(n).max(1), 1.25, self.seed)?;
+                if bound == 0.0 { 1.0 } else { bound + 0.5 }
+            }
+        };
+        let mut shifted = ShiftedOperator::new(op, eff_shift);
+        let (mu_desc, vectors, iters) =
+            self.largest_eigenpairs_operator_with_iters(&mut shifted, k)?;
+        let lambdas_asc: Vec<f64> = mu_desc.into_iter().map(|mu| eff_shift - mu).collect();
+        Ok((lambdas_asc, vectors, iters))
+    }
+
+    /// Computes the `k` largest eigenpairs of an $n \times n$ symmetric linear operator `matvec`
+    /// returning `(eigenvalues_desc, row_major_vectors)` with `vectors` shape `(n, k)`.
+    pub fn largest_eigenpairs<F>(
+        &self,
+        n: usize,
+        k: usize,
+        matvec: F,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>)>
+    where
+        F: FnMut(&[f64], &mut [f64]) -> CoreResult<()>,
+    {
+        let mut op = FnOperator::new(n, matvec);
+        self.largest_eigenpairs_operator(&mut op, k)
+    }
+
+    pub(crate) fn largest_eigenpairs_operator_with_iters<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        k: usize,
+    ) -> CoreResult<(Vec<f64>, Vec<f64>, usize)> {
+        let n = op.dim();
+        self.validate_params(n, k)?;
 
         let b = if k == 1 || n <= 64 {
             1
@@ -157,7 +242,7 @@ impl LanczosEigen {
                 for c in 0..eff_b {
                     let q_jc = &ws.q_vecs[(j + c) * n..(j + c + 1) * n];
                     let w_dst = &mut ws.w_block[c * n..(c + 1) * n];
-                    matvec(q_jc, w_dst)?;
+                    op.apply(q_jc, w_dst)?;
                     w_orig_norms[c] = norm_slice(w_dst);
                 }
 
@@ -339,19 +424,13 @@ pub fn smallest_sym_laplacian_eigenpairs<W: Scalar>(
     const SHIFT: f64 = 2.5;
     let k_total = actual_modes + 1;
     let lanczos = LanczosEigen::new(tol, max_iters, seed);
-    let mut tmp = vec![0.0_f64; n];
-    let (mu_desc, mu_vecs, iterations) =
-        lanczos.largest_eigenpairs_with_iters(n, k_total, |x, y| {
-            l_sym.spmv(x, &mut tmp)?;
-            for i in 0..n {
-                y[i] = SHIFT * x[i] - tmp[i];
-            }
-            Ok(())
-        })?;
+    let mut l_sym_ref = &l_sym;
+    let (raw_lambdas, mu_vecs, iterations) =
+        lanczos.smallest_eigenpairs_operator_with_iters(&mut l_sym_ref, k_total, Some(SHIFT))?;
 
-    let lambdas: Vec<f64> = mu_desc[1..=actual_modes]
+    let lambdas: Vec<f64> = raw_lambdas[1..=actual_modes]
         .iter()
-        .map(|&mu| (SHIFT - mu).max(0.0))
+        .map(|&lam| lam.max(0.0))
         .collect();
     let mut vectors = vec![0.0_f64; n * actual_modes];
     for row in 0..n {

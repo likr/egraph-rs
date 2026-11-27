@@ -300,12 +300,12 @@ impl CsrMatrix {
 }
 
 #[inline]
-fn dot_slice(a: &[f64], b: &[f64]) -> f64 {
+pub(super) fn dot_slice(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
 #[inline]
-fn scaled_norm2(a: &[f64]) -> f64 {
+pub(super) fn scaled_norm2(a: &[f64]) -> f64 {
     let mut max_abs = 0.0_f64;
     for &x in a {
         let ax = x.abs();

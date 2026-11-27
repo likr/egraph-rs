@@ -108,6 +108,49 @@ fn test_spectral_moment_stats_exact_frobenius_identity() {
 }
 
 #[test]
+fn test_spectral_moment_stats_unit_weight_and_directed_topology() {
+    let edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)];
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(6, &edges, false, false).unwrap();
+    let g_f64 = path_graph(6);
+    assert_eq!(
+        spectral_moment_stats(&g_unit),
+        spectral_moment_stats(&g_f64)
+    );
+
+    // Directed graph with reverse edges matches simple undirected stats.
+    let dir_edges = [(0, 1), (1, 0), (1, 2), (2, 3), (3, 4), (4, 5)];
+    let g_dir = CsrGraph::<()>::from_unweighted_edges(6, &dir_edges, true, false).unwrap();
+    assert_eq!(
+        spectral_moment_stats(&g_dir),
+        spectral_moment_stats(&g_unit)
+    );
+
+    // Directed graph constructed with sanitize=true (self-loops/duplicates stripped) matches too.
+    let dir_dirty = [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 2),
+        (2, 3),
+        (3, 4),
+        (4, 5),
+        (5, 5),
+    ];
+    let g_dir_sanitized = CsrGraph::<()>::from_unweighted_edges(6, &dir_dirty, true, true).unwrap();
+    assert_eq!(
+        spectral_moment_stats(&g_dir_sanitized),
+        spectral_moment_stats(&g_unit)
+    );
+
+    // Empty and singleton unit-weight graphs
+    let empty_unit = CsrGraph::<()>::from_unweighted_edges(0, &[], false, false).unwrap();
+    assert_eq!(spectral_moment_stats(&empty_unit).sigma_lambda_sq, 0.0);
+    let single_unit = CsrGraph::<()>::from_unweighted_edges(1, &[], false, false).unwrap();
+    assert_eq!(spectral_moment_stats(&single_unit).mean_degree, 0.0);
+    assert_eq!(spectral_moment_stats(&single_unit).sigma_lambda_sq, 0.0);
+}
+
+#[test]
 fn test_empty_and_singleton_csr_matrix() {
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
     let (l_empty, inv_empty) = symmetric_normalized_laplacian(&empty);
@@ -374,4 +417,33 @@ fn test_spectrum_estimation_gershgorin_power_lanczos_and_trace() {
     assert!(l_star.estimate_lambda_max_lanczos(16, 0.99, 42).is_err());
     assert!((l_star.estimate_lambda_max(0, 1.0, 42).unwrap() - gersh).abs() < 1e-12);
     assert!((l_star.estimate_lambda_max_lanczos(0, 1.0, 42).unwrap() - gersh).abs() < 1e-12);
+
+    // Operator spectral bound matches CsrMatrix estimate and handles zero/singleton operators
+    let mut l_star_op = &l_star;
+    let op_lanc = estimate_lambda_max_operator(&mut l_star_op, 16, 1.05, 42).unwrap();
+    assert!((op_lanc - lanc).abs() < 1e-12);
+    let mut zero_op = &zero_lap;
+    assert_eq!(
+        estimate_lambda_max_operator(&mut zero_op, 16, 1.05, 42).unwrap(),
+        0.0
+    );
+    let mut one_op = CsrMatrix::identity(1).unwrap();
+    assert!((estimate_lambda_max_operator(&mut one_op, 4, 1.05, 42).unwrap() - 1.05).abs() < 1e-12);
+    assert!(estimate_lambda_max_operator(&mut one_op, 0, 1.05, 42).is_err());
+    assert!(estimate_lambda_max_operator(&mut one_op, 4, 0.99, 42).is_err());
+}
+
+#[test]
+fn test_anisotropic_laplacian_config_builders() {
+    let cfg = AnisotropicLaplacianConfig::new()
+        .with_alpha(1.0)
+        .with_beta(-0.5)
+        .with_degree_reg(0.25)
+        .with_degree_cap(Some(4.0))
+        .with_reweighted_degree_norm(false);
+    assert_eq!(cfg.alpha, 1.0);
+    assert_eq!(cfg.beta, -0.5);
+    assert_eq!(cfg.degree_reg, 0.25);
+    assert_eq!(cfg.degree_cap, Some(4.0));
+    assert!(!cfg.reweighted_degree_norm);
 }

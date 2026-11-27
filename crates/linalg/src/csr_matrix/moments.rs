@@ -1,10 +1,9 @@
-use egraph_core::{CsrGraph, Scalar};
-
-use super::laplacians::{canonical_undirected_adjacency, is_fast_undirected_clean};
+use egraph_core::CsrGraph;
 
 /// Exact $O(|E|)$ spectral variance and degree summary statistics of the unweighted
 /// simple-graph symmetric normalized Laplacian $L_{\mathrm{sym}}$.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpectralMomentStats {
     /// Exact spectral variance $\sigma_\lambda^2 = \frac{1}{N}\|L_{\mathrm{sym}}\|_F^2 - 1 = \frac{2}{N}\sum_{(u,v)\in E}\frac{1}{d_u d_v}$.
     pub sigma_lambda_sq: f64,
@@ -18,9 +17,59 @@ pub struct SpectralMomentStats {
     pub leaf_fraction: f64,
 }
 
+fn is_fast_undirected_unweighted_clean<W>(graph: &CsrGraph<W>) -> bool {
+    if graph.is_directed() {
+        return false;
+    }
+    let n = graph.num_nodes();
+    for u in 0..n {
+        let u32_u = u as u32;
+        let row = graph.neighbors(u);
+        if row.iter().any(|&v| v == u32_u || (v as usize) >= n) {
+            return false;
+        }
+        if !row.windows(2).all(|win| win[0] < win[1]) {
+            return false;
+        }
+    }
+    true
+}
+
+fn degree_summary(deg: &[usize]) -> (f64, f64, f64) {
+    let n = deg.len();
+    let n_f64 = n as f64;
+    let mut deg_sum = 0usize;
+    let mut leaf_count = 0usize;
+    for &d in deg {
+        deg_sum += d;
+        if d == 1 {
+            leaf_count += 1;
+        }
+    }
+    let mean_degree = (deg_sum as f64) / n_f64;
+    let deg_cv = if mean_degree > 0.0 {
+        let var_deg = deg
+            .iter()
+            .map(|&d| {
+                let diff = (d as f64) - mean_degree;
+                diff * diff
+            })
+            .sum::<f64>()
+            / n_f64;
+        var_deg.sqrt() / mean_degree
+    } else {
+        0.0
+    };
+    let leaf_fraction = (leaf_count as f64) / n_f64;
+    (mean_degree, deg_cv, leaf_fraction)
+}
+
 /// Computes exact $O(|E|)$ spectral variance and degree summary statistics of the unweighted
 /// simple-graph symmetric normalized Laplacian $L_{\mathrm{sym}}$ without eigensolvers.
-pub fn spectral_moment_stats<W: Scalar>(graph: &CsrGraph<W>) -> SpectralMomentStats {
+///
+/// Works on unweighted [`CsrGraph<()>`](CsrGraph) as well as any arbitrary weight type `<W>`
+/// using purely topological adjacency.
+pub fn spectral_moment_stats<W>(graph: &CsrGraph<W>) -> SpectralMomentStats {
     let n = graph.num_nodes();
     if n == 0 {
         return SpectralMomentStats {
@@ -32,34 +81,10 @@ pub fn spectral_moment_stats<W: Scalar>(graph: &CsrGraph<W>) -> SpectralMomentSt
         };
     }
 
-    if is_fast_undirected_clean(graph) {
-        let mut deg = vec![0usize; n];
-        let mut deg_sum = 0usize;
-        let mut leaf_count = 0usize;
-        for (u, d_u) in deg.iter_mut().enumerate() {
-            let d = graph.degree(u);
-            *d_u = d;
-            deg_sum += d;
-            if d == 1 {
-                leaf_count += 1;
-            }
-        }
-        let n_f64 = n as f64;
-        let mean_degree = (deg_sum as f64) / n_f64;
-        let deg_cv = if mean_degree > 0.0 {
-            let var_deg = deg
-                .iter()
-                .map(|&d| {
-                    let diff = (d as f64) - mean_degree;
-                    diff * diff
-                })
-                .sum::<f64>()
-                / n_f64;
-            var_deg.sqrt() / mean_degree
-        } else {
-            0.0
-        };
-        let leaf_fraction = (leaf_count as f64) / n_f64;
+    let n_f64 = n as f64;
+    if is_fast_undirected_unweighted_clean(graph) {
+        let deg: Vec<usize> = (0..n).map(|u| graph.degree(u)).collect();
+        let (mean_degree, deg_cv, leaf_fraction) = degree_summary(&deg);
 
         let sigma_lambda_sq = if n <= 1 || graph.nnz() == 0 {
             0.0
@@ -89,43 +114,24 @@ pub fn spectral_moment_stats<W: Scalar>(graph: &CsrGraph<W>) -> SpectralMomentSt
         };
     }
 
-    let (rows, deg_f64) = canonical_undirected_adjacency(graph, true);
-    let n_f64 = n as f64;
-    let deg_sum: f64 = deg_f64.iter().sum();
-    let mean_degree = deg_sum / n_f64;
-    let deg_cv = if mean_degree > 0.0 {
-        let var_deg = deg_f64
-            .iter()
-            .map(|&d| {
-                let diff = d - mean_degree;
-                diff * diff
-            })
-            .sum::<f64>()
-            / n_f64;
-        var_deg.sqrt() / mean_degree
-    } else {
-        0.0
-    };
-    let leaf_count = deg_f64.iter().filter(|&&d| (d - 1.0).abs() < 1e-12).count();
-    let leaf_fraction = (leaf_count as f64) / n_f64;
+    let edges = graph.canonical_undirected_edges();
+    let mut deg = vec![0usize; n];
+    for &(u, v) in &edges {
+        deg[u as usize] += 1;
+        deg[v as usize] += 1;
+    }
+    let (mean_degree, deg_cv, leaf_fraction) = degree_summary(&deg);
 
-    let nnz: usize = rows.iter().map(Vec::len).sum();
-    let sigma_lambda_sq = if n <= 1 || nnz == 0 {
+    let sigma_lambda_sq = if n <= 1 || edges.is_empty() {
         0.0
     } else {
-        let inv_deg: Vec<f64> = deg_f64
+        let inv_deg: Vec<f64> = deg
             .iter()
-            .map(|&d| if d > 0.0 { 1.0 / d } else { 0.0 })
+            .map(|&d| if d > 0 { 1.0 / (d as f64) } else { 0.0 })
             .collect();
         let mut sum_inv = 0.0_f64;
-        for (u, row) in rows.iter().enumerate() {
-            let inv_u = inv_deg[u];
-            if inv_u == 0.0 {
-                continue;
-            }
-            for &(v, _) in row {
-                sum_inv += inv_u * inv_deg[v as usize];
-            }
+        for &(u, v) in &edges {
+            sum_inv += 2.0 * inv_deg[u as usize] * inv_deg[v as usize];
         }
         sum_inv / n_f64
     };

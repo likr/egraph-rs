@@ -296,3 +296,85 @@ fn test_chebyshev_dog_kernel_regularized_and_edge_cases() {
         &[0]
     );
 }
+
+#[test]
+fn test_chebyshev_operator_paths_and_config_builders() {
+    use crate::operator::FnOperator;
+
+    let cfg = ChebyshevDogConfig::new()
+        .with_t1(Some(0.5))
+        .with_t2(Some(2.0))
+        .with_alpha(Some(0.75))
+        .with_beta_floor(Some(0.05))
+        .with_degree(Some(24))
+        .with_n_landmarks(8)
+        .with_min_degree(1)
+        .with_jl_dim(8)
+        .with_eps_psd(1e-5)
+        .with_lambda_max(2.0)
+        .with_seed(7);
+    assert_eq!(cfg.t1, Some(0.5));
+    assert_eq!(cfg.t2, Some(2.0));
+    assert_eq!(cfg.alpha, Some(0.75));
+    assert_eq!(cfg.beta_floor, Some(0.05));
+    assert_eq!(cfg.degree, Some(24));
+    assert_eq!(cfg.n_landmarks, 8);
+    assert_eq!(cfg.min_degree, 1);
+    assert_eq!(cfg.jl_dim, 8);
+    assert_eq!(cfg.eps_psd, 1e-5);
+    assert_eq!(cfg.lambda_max, 2.0);
+    assert_eq!(cfg.seed, 7);
+
+    let edges: Vec<(u32, u32)> = (0..11)
+        .map(|i| (i, i + 1))
+        .chain([(0, 11), (0, 6), (3, 9)])
+        .collect();
+    let g = CsrGraph::<f64>::from_edges(12, &edges, None, false, false).unwrap();
+    let (l_sym, _) = symmetric_normalized_laplacian(&g);
+    let l_tilde = crate::csr_matrix::shifted_normalized_laplacian(&l_sym, 2.0).unwrap();
+    let mut ws = ChebyshevWorkspace::new();
+
+    let coeffs = compute_chebyshev_bandpass_coefficients(&[(1.0, 1.5)], 2.0, 20).unwrap();
+    let mut v_batch = vec![0.0_f64; 12 * 3];
+    for r in 0..12 {
+        for c in 0..3 {
+            v_batch[r * 3 + c] = ((r * 3 + c + 1) as f64 * 0.2).sin();
+        }
+    }
+    let mut out_csr = vec![0.0_f64; 12 * 3];
+    let mut out_op = vec![0.0_f64; 12 * 3];
+    ws.apply_batch_with_lambda_max(&l_sym, 2.0, &coeffs, &v_batch, &mut out_csr, 3)
+        .unwrap();
+    let mut op_fn = FnOperator::new(12, |x: &[f64], y: &mut [f64]| l_sym.spmv(x, y));
+    ws.apply_batch_operator_with_lambda_max(&mut op_fn, 2.0, &coeffs, &v_batch, &mut out_op, 3)
+        .unwrap();
+    for (&a, &b) in out_csr.iter().zip(out_op.iter()) {
+        assert!((a - b).abs() < 1e-12);
+    }
+
+    let mut out_tilde_csr = vec![0.0_f64; 12];
+    let mut out_tilde_op = vec![0.0_f64; 12];
+    let v_single = &v_batch[..12];
+    ws.apply_vec(&l_tilde, &coeffs, v_single, &mut out_tilde_csr)
+        .unwrap();
+    let mut op_tilde = &l_tilde;
+    ws.apply_vec_operator(&mut op_tilde, &coeffs, v_single, &mut out_tilde_op)
+        .unwrap();
+    for (&a, &b) in out_tilde_csr.iter().zip(out_tilde_op.iter()) {
+        assert!((a - b).abs() < 1e-12);
+    }
+
+    // Kernel apply_batch_operator matches apply_batch bit-for-bit up to 1e-12
+    let kernel = ChebyshevDogKernel::build(&g, &cfg).unwrap();
+    let mut k_csr = vec![0.0_f64; 12 * 3];
+    let mut k_op = vec![0.0_f64; 12 * 3];
+    kernel
+        .apply_batch(&l_sym, &v_batch, &mut k_csr, 3, &mut ws)
+        .unwrap();
+    kernel
+        .apply_batch_operator(&mut op_fn, &v_batch, &mut k_op, 3, &mut ws)
+        .unwrap();
+    for (&a, &b) in k_csr.iter().zip(k_op.iter()) {
+        assert!((a - b).abs() < 1e-12);
+    }
+}

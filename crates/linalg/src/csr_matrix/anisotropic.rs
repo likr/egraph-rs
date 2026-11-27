@@ -4,7 +4,8 @@ use super::laplacians::{canonical_undirected_adjacency, is_fast_undirected_clean
 use super::matrix::CsrMatrix;
 
 /// Configuration for Coifman-Lafon anisotropic graph Laplacian construction ($L_\alpha$).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnisotropicLaplacianConfig {
     /// Density reweighting exponent `alpha` in $A^{(\alpha)}_{ij} = \tilde{d}_i^{-\alpha} A_{ij} \tilde{d}_j^{-\alpha}$.
     /// `0.0` recovers standard adjacency; `0.5` gives Fokker-Planck; `1.0` gives Laplace-Beltrami.
@@ -34,7 +35,45 @@ impl Default for AnisotropicLaplacianConfig {
     }
 }
 
+impl AnisotropicLaplacianConfig {
+    /// Creates a new [`AnisotropicLaplacianConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the density reweighting exponent `alpha`.
+    pub fn with_alpha(mut self, alpha: f64) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Sets the outer symmetric degree normalization exponent `beta`.
+    pub fn with_beta(mut self, beta: f64) -> Self {
+        self.beta = beta;
+        self
+    }
+
+    /// Sets the additive degree regularization `degree_reg`.
+    pub fn with_degree_reg(mut self, degree_reg: f64) -> Self {
+        self.degree_reg = degree_reg;
+        self
+    }
+
+    /// Sets the optional degree saturation cap `degree_cap`.
+    pub fn with_degree_cap(mut self, degree_cap: Option<f64>) -> Self {
+        self.degree_cap = degree_cap;
+        self
+    }
+
+    /// Sets whether outer scaling uses reweighted degrees (`reweighted_degree_norm`).
+    pub fn with_reweighted_degree_norm(mut self, reweighted_degree_norm: bool) -> Self {
+        self.reweighted_degree_norm = reweighted_degree_norm;
+        self
+    }
+}
+
 /// Output of [`anisotropic_laplacian`].
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnisotropicLaplacianResult {
     /// Symmetric PSD sparse matrix $S (D^{(\alpha)} - A^{(\alpha)}) S$.
