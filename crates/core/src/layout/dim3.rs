@@ -292,9 +292,6 @@ impl<S: Scalar> Layout3d<S> {
             let dx = self.x[i].to_f64() - mean_x;
             let dy = self.y[i].to_f64() - mean_y;
             let dz = self.z[i].to_f64() - mean_z;
-            self.x[i] = S::from_f64(dx);
-            self.y[i] = S::from_f64(dy);
-            self.z[i] = S::from_f64(dz);
             sum_sq += dx * dx + dy * dy + dz * dz;
         }
 
@@ -307,10 +304,25 @@ impl<S: Scalar> Layout3d<S> {
         }
 
         let scale = target_std / std_dev;
+        if !std_dev.is_finite() || !scale.is_finite() {
+            return Err(CoreError::non_finite(
+                "Layout3d::center_and_normalize_to_std",
+            ));
+        }
         for i in 0..n {
-            self.x[i] = S::from_f64(self.x[i].to_f64() * scale);
-            self.y[i] = S::from_f64(self.y[i].to_f64() * scale);
-            self.z[i] = S::from_f64(self.z[i].to_f64() * scale);
+            let sx = S::from_f64((self.x[i].to_f64() - mean_x) * scale);
+            let sy = S::from_f64((self.y[i].to_f64() - mean_y) * scale);
+            let sz = S::from_f64((self.z[i].to_f64() - mean_z) * scale);
+            if !sx.is_finite() || !sy.is_finite() || !sz.is_finite() {
+                return Err(CoreError::non_finite(
+                    "Layout3d::center_and_normalize_to_std",
+                ));
+            }
+        }
+        for i in 0..n {
+            self.x[i] = S::from_f64((self.x[i].to_f64() - mean_x) * scale);
+            self.y[i] = S::from_f64((self.y[i].to_f64() - mean_y) * scale);
+            self.z[i] = S::from_f64((self.z[i].to_f64() - mean_z) * scale);
         }
         Ok(())
     }

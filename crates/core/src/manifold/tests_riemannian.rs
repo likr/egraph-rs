@@ -280,3 +280,100 @@ fn test_manifold_move_pair_toward_and_validation_errors() {
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
+
+#[test]
+fn test_lorentz_parallel_transport_intermediate_theta_and_continuity() {
+    // Regression for theta in [20.0, 38.0) where tanh(0.5 * theta) < 1.0 in f64.
+    for (p, q) in [
+        ((-1.2_f64, 2.3_f64), (-1e10_f64, 1e10_f64)),
+        ((1.2_f64, -2.3_f64), (-1e10_f64, 1e10_f64)),
+        ((0.7_f64, -1.1_f64), (1e14_f64, 2e14_f64)),
+    ] {
+        let layout = ManifoldLayout2d::<f64>::from_xy(
+            ManifoldKind::HyperbolicLorentz,
+            vec![p.0, q.0],
+            vec![p.1, q.1],
+        )
+        .unwrap();
+        let mut log_pq = [0.0_f64; 2];
+        let mut log_qp = [0.0_f64; 2];
+        layout.log_map_into(0, 1, &mut log_pq).unwrap();
+        layout.log_map_into(1, 0, &mut log_qp).unwrap();
+
+        let mut pt = log_pq;
+        layout.parallel_transport_into(0, &log_pq, &mut pt).unwrap();
+        let err = (pt[0] + log_qp[0]).hypot(pt[1] + log_qp[1]);
+        assert!(
+            err < 1e-13,
+            "p={p:?} q={q:?}: ||P(log_pq) + log_qp|| = {err:.6e} (expected < 1e-13)"
+        );
+
+        let mut fused = layout.clone();
+        let mut pt_fused = log_pq;
+        fused
+            .exp_map_and_transport(0, &log_pq, &mut pt_fused)
+            .unwrap();
+        assert!(
+            (pt[0] - pt_fused[0]).hypot(pt[1] - pt_fused[1]) < 1e-13,
+            "p={p:?} q={q:?}: fused vs sequential transport mismatch"
+        );
+        let q_rad = q.0.hypot(q.1);
+        let rel_coord_err = (fused.x()[0] - q.0).hypot(fused.y()[0] - q.1) / q_rad;
+        assert!(
+            rel_coord_err < 1e-13,
+            "p={p:?} q={q:?}: relative coordinate error {rel_coord_err:.6e} after exp_map"
+        );
+        let d_pq = layout.distance(0, 1);
+        assert!(
+            fused.distance(0, 1) <= 1e-14 * d_pq.sinh().max(1.0),
+            "p={p:?} q={q:?}: remaining distance {} after exp_map",
+            fused.distance(0, 1)
+        );
+    }
+
+    // Continuity across theta = 20.0 (both cos_phi > 0 and cos_phi < 0).
+    let base = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::HyperbolicLorentz,
+        vec![-1.2_f64, 0.0],
+        vec![2.3_f64, 0.0],
+    )
+    .unwrap();
+    for &(ux, uy) in &[(0.6_f64, -0.8_f64), (-0.6_f64, 0.8_f64)] {
+        let theta_below = 20.0 - 1e-10;
+        let theta_above = 20.0 + 1e-10;
+        let d_below = [theta_below * ux, theta_below * uy];
+        let d_above = [theta_above * ux, theta_above * uy];
+
+        let mut w_below = [1.3_f64, -0.7_f64];
+        let mut w_above = w_below;
+        base.parallel_transport_into(0, &d_below, &mut w_below)
+            .unwrap();
+        base.parallel_transport_into(0, &d_above, &mut w_above)
+            .unwrap();
+        let jump = (w_above[0] - w_below[0]).hypot(w_above[1] - w_below[1]);
+        assert!(
+            jump < 1e-12,
+            "discontinuity across theta=20.0 for dir=({ux}, {uy}): jump={jump:.6e}"
+        );
+
+        for &delta in &[d_below, d_above] {
+            let mut l = base.clone();
+            let mut pt = delta;
+            l.exp_map_and_transport(0, &delta, &mut pt).unwrap();
+            let pair = ManifoldLayout2d::<f64>::from_xy(
+                ManifoldKind::HyperbolicLorentz,
+                vec![-1.2, l.x()[0]],
+                vec![2.3, l.y()[0]],
+            )
+            .unwrap();
+            let mut log_qp = [0.0; 2];
+            pair.log_map_into(1, 0, &mut log_qp).unwrap();
+            let rev_err = (pt[0] + log_qp[0]).hypot(pt[1] + log_qp[1]);
+            assert!(
+                rev_err < 1e-13,
+                "theta={} geodesic reversal error {rev_err:.6e}",
+                delta[0].hypot(delta[1])
+            );
+        }
+    }
+}

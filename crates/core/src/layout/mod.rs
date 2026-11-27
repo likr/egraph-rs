@@ -268,8 +268,6 @@ impl<S: Scalar> Layout2d<S> {
         for i in 0..n {
             let dx = self.x[i].to_f64() - mean_x;
             let dy = self.y[i].to_f64() - mean_y;
-            self.x[i] = S::from_f64(dx);
-            self.y[i] = S::from_f64(dy);
             sum_sq += dx * dx + dy * dy;
         }
 
@@ -281,9 +279,23 @@ impl<S: Scalar> Layout2d<S> {
         }
 
         let scale = target_std / std_dev;
+        if !std_dev.is_finite() || !scale.is_finite() {
+            return Err(CoreError::non_finite(
+                "Layout2d::center_and_normalize_to_std",
+            ));
+        }
         for i in 0..n {
-            self.x[i] = S::from_f64(self.x[i].to_f64() * scale);
-            self.y[i] = S::from_f64(self.y[i].to_f64() * scale);
+            let sx = S::from_f64((self.x[i].to_f64() - mean_x) * scale);
+            let sy = S::from_f64((self.y[i].to_f64() - mean_y) * scale);
+            if !sx.is_finite() || !sy.is_finite() {
+                return Err(CoreError::non_finite(
+                    "Layout2d::center_and_normalize_to_std",
+                ));
+            }
+        }
+        for i in 0..n {
+            self.x[i] = S::from_f64((self.x[i].to_f64() - mean_x) * scale);
+            self.y[i] = S::from_f64((self.y[i].to_f64() - mean_y) * scale);
         }
         Ok(())
     }

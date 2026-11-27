@@ -251,7 +251,6 @@ impl<S: Scalar> LayoutNd<S> {
             let mut node_sq = 0.0_f64;
             for axis in 0..d {
                 let centered = self.coords[base + axis].to_f64() - means[axis];
-                self.coords[base + axis] = S::from_f64(centered);
                 node_sq += centered * centered;
             }
             sum_sq += node_sq;
@@ -264,8 +263,28 @@ impl<S: Scalar> LayoutNd<S> {
         }
 
         let scale = target_std / std_dev;
-        for v in &mut self.coords {
-            *v = S::from_f64(v.to_f64() * scale);
+        if !std_dev.is_finite() || !scale.is_finite() {
+            return Err(CoreError::non_finite(
+                "LayoutNd::center_and_normalize_to_std",
+            ));
+        }
+        for i in 0..n {
+            let base = i * d;
+            for axis in 0..d {
+                let scaled = S::from_f64((self.coords[base + axis].to_f64() - means[axis]) * scale);
+                if !scaled.is_finite() {
+                    return Err(CoreError::non_finite(
+                        "LayoutNd::center_and_normalize_to_std",
+                    ));
+                }
+            }
+        }
+        for i in 0..n {
+            let base = i * d;
+            for axis in 0..d {
+                self.coords[base + axis] =
+                    S::from_f64((self.coords[base + axis].to_f64() - means[axis]) * scale);
+            }
         }
         Ok(())
     }

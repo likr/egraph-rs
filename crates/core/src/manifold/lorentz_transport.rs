@@ -63,10 +63,8 @@ pub(super) fn lorentz_step_and_transport<S: Scalar>(
         };
         let tau_d = if etheta < -50 {
             scale_pow2(0.5 * mtheta, etheta)
-        } else if eff_theta < 20.0 {
-            (0.5 * eff_theta).tanh()
         } else {
-            1.0
+            (0.5 * eff_theta).tanh()
         };
         let rho = tau_p * tau_d;
         let a_i = -rho * sin_phi;

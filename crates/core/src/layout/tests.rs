@@ -308,3 +308,35 @@ fn test_layout_nd_2d_bit_exact_parity_f64_and_f32() {
         }
     }
 }
+
+#[test]
+fn test_layout_center_and_normalize_to_std_f32_overflow_no_mutation() {
+    let mut l2 = Layout2d::<f32>::from_xy(vec![1.0, -3.0], vec![0.0, 0.0]).unwrap();
+    let orig_l2 = l2.clone();
+    assert!(matches!(
+        l2.center_and_normalize_to_std(3.0e38),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(l2, orig_l2);
+    assert!(l2.is_all_finite());
+
+    let mut l3 =
+        Layout3d::<f32>::from_xyz(vec![1.0, -3.0], vec![0.0, 0.0], vec![0.0, 0.0]).unwrap();
+    let orig_l3 = l3.clone();
+    assert!(matches!(
+        l3.center_and_normalize_to_std(3.0e38),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(l3, orig_l3);
+    assert!(l3.is_all_finite());
+
+    let mut nd =
+        LayoutNd::<f32>::from_flat(2, 4, &[1.0, 0.0, 0.0, 0.0, -3.0, 0.0, 0.0, 0.0]).unwrap();
+    let orig_nd = nd.clone();
+    assert!(matches!(
+        nd.center_and_normalize_to_std(3.0e38),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(nd, orig_nd);
+    assert!(nd.is_all_finite());
+}
