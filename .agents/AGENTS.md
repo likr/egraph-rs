@@ -16,7 +16,7 @@
    - Always configure `ndarray = { ..., default-features = false }` (never pull `rayon` transitively).
    - Enforced statically via [`clippy.toml`](../clippy.toml) and [`scripts/check_invariants.sh`](../scripts/check_invariants.sh).
 2. **Deterministic Explicit RNG**:
-   - Never call `rand::thread_rng()` or `StdRng::from_entropy()` in core libraries; accept explicit `u64` seeds or `&mut impl RngCore`.
+   - Never call `rand::thread_rng()` or `StdRng::from_entropy()` in core libraries; accept explicit `u64` seeds only and encapsulate PRNG internals strictly behind `DeterministicRng` (never expose `rand_core::RngCore` or `rand_chacha::ChaCha8Rng` in public signatures).
 3. **Flat Zero-Copy CSR / SoA & Cooperative Stepping**:
    - Prefer `u32`-indexed `CsrGraph` and contiguous SoA `Layout2d` buffers over `petgraph` + `HashMap` inside inner loops.
    - Keep host objects (`Py<PyAny>`, `JsValue`) outside the Rust core.
@@ -33,6 +33,16 @@
 7. **Language Rules**:
    - All files under `.agents/` and all code comments (Rust, Python, JS/TS) **MUST be written in English**.
    - All user-facing replies and reports **MUST be written in Japanese**.
+
+### First-Principles Design Axioms & Derived Architectural Guardrails
+
+Derive every API, trait, crate-layout, and binding decision from these five minimal axioms rather than ad-hoc convenience:
+
+1. **Simple Over Easy**: Reject convenient multiplexing (mega-structs with optional states, runtime mode locks, implicit wrappers, pass-through umbrella crates) in favor of clean, orthogonal concepts where **1 algorithm = 1 type** and data buffers (`Layout*`, `EdgePolylines<L>`) stay separate from solver state (`LayoutGenerator`, `IterativeSolver`, `LayoutTransform`).
+2. **Performance-First Zero-Cost Abstraction**: Never sacrifice contiguous zero-copy CSR/SoA memory, cache locality, SIMD vectorization, or zero-allocation inner loops for unnecessary indirection. Keep hot loops on `&CsrGraph<W>` (`indptr: &[u32]`), and keep extension traits (`LayoutStorage`, `MetricSpace`, `RiemannianLayout`, `RepulsionBackend<L>`) open while keeping performance-coupled storage (`EuclideanLayout`) **sealed** so fast internal views remain tunable without breaking callers.
+3. **Fail Fast**: Catch mismatches at compile time (`IterativeSolver { type Target: ?Sized }` instead of runtime `ActiveLayoutKind` switches). When runtime checks are necessary (dimension mismatch, `NaN`, unsupported options/dtypes such as WASM `weightDtype: "float64"`, or `run_steps(target, 0)`), fail immediately with structured errors (`SolverStatus::Failed` on fatal breakdown) without mutating targets or silently coercing inputs.
+4. **No Ad-Hoc Branching or Silent Fallbacks**: Treat any urge to write ad-hoc geometry branches (`if active_dims == 2`), silent Cargo feature fallbacks (e.g., falling back from Delaunay to k-NN), or feature-gated `pub` struct fields as a defect in the underlying abstraction or dependency boundary—fix the design instead. Keep Cargo features strictly additive.
+5. **Minimal Evolvable Surface**: Never leak external crate types (`petgraph`, `rand_core`, `ChaCha8Rng`, host handles), keep internal modules `pub(crate)` with curated `prelude` and `publish = false` on bindings/ABI, declare workspace `rust-version`, annotate evolvable public types with `#[non_exhaustive]` + `with_*` builders (no `Copy` on evolvable Config/Report/Stats), strip unused `W: Scalar` bounds from topological CSR functions, organize crates as a flat 1:1 DAG (`crates/<x>` <-> `egraph-<x>`), and avoid positional parameter lock-in in Python/WASM bindings.
 
 ---
 
@@ -67,6 +77,7 @@
 
 ## 5. Skills Index
 
+- [egraph-rs-architecture-principles](skills/egraph-rs-architecture-principles/SKILL.md): Minimal design axioms, trade-off decision matrix, SemVer hardening, zero-fallback discipline, crate DAG partitioning, and cross-target binding principles for `egraph-rs`.
 - [egraph-rs-parallel-dev](skills/egraph-rs-parallel-dev/SKILL.md): Multi-agent + git worktree parallel execution playbook, 12-core/24-GiB resource budgeting, and Rust-core-first two-stage disjoint crate/binding ownership rules.
 - [egraph-rs-verification](skills/egraph-rs-verification/SKILL.md): Tiered Rust, Python, WASM, invariant, and parity verification commands.
 - [egraph-rs-system-patterns](skills/egraph-rs-system-patterns/SKILL.md): Core algorithmic and architectural patterns across layouts, kernels, clustering, and bindings.
