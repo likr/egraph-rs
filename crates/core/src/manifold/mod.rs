@@ -3,6 +3,7 @@
 
 mod layout;
 mod lorentz;
+mod lorentz_midpoint;
 mod metric;
 mod poincare;
 mod spectral;
@@ -33,10 +34,8 @@ pub enum ManifoldKind {
 }
 
 pub use layout::ManifoldLayout2d;
-pub use lorentz::{
-    lorentz_distance, lorentz_einstein_midpoint, lorentz_exp_map, lorentz_log_map,
-    lorentz_to_poincare_point,
-};
+pub use lorentz::{lorentz_distance, lorentz_exp_map, lorentz_log_map, lorentz_to_poincare_point};
+pub use lorentz_midpoint::lorentz_einstein_midpoint;
 pub use metric::ManifoldMetric;
 pub use poincare::{
     POINCARE_EPS_F32, POINCARE_EPS_F64, clamp_poincare_point, poincare_distance,

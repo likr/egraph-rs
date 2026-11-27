@@ -1,19 +1,20 @@
 use std::f64::consts::LN_2;
 
-use crate::error::{CoreError, CoreResult};
 use crate::scalar::Scalar;
 
 use super::poincare::clamp_poincare_point;
 
+pub use super::lorentz_midpoint::lorentz_einstein_midpoint;
+
 /// Threshold above which `r^2` approaches `f64::MAX`, switching to scaled/asymptotic paths.
-const LARGE_RADIUS_THRESHOLD: f64 = 1e140;
+pub(super) const LARGE_RADIUS_THRESHOLD: f64 = 1e140;
 
 /// Threshold on `log(r_max / r_min)` above which `r_min / r_max < 1e-20`.
 const RATIO_LOG_THRESHOLD: f64 = 46.0;
 
 /// Computes the implicit time coordinate $t = \sqrt{1 + x^2 + y^2}$ on the upper sheet of $\mathbb{H}^2$.
 #[inline]
-fn lorentz_time_and_radius(x: f64, y: f64) -> (f64, f64) {
+pub(super) fn lorentz_time_and_radius(x: f64, y: f64) -> (f64, f64) {
     let r = x.hypot(y);
     let t = 1.0_f64.hypot(r);
     (t, r)
@@ -401,54 +402,6 @@ pub fn lorentz_exp_map<S: Scalar>(x: S, y: S, vx: S, vy: S) -> (S, S) {
     } else {
         (x, y)
     }
-}
-
-/// Computes the hyperbolic Einstein midpoint of spatial hyperboloid points `(xs, ys)`.
-pub fn lorentz_einstein_midpoint<S: Scalar>(xs: &[S], ys: &[S]) -> CoreResult<(S, S)> {
-    if xs.len() != ys.len() {
-        return Err(CoreError::dimension_mismatch(
-            xs.len(),
-            ys.len(),
-            "lorentz_einstein_midpoint::ys",
-        ));
-    }
-    if xs.is_empty() {
-        return Ok((S::ZERO, S::ZERO));
-    }
-
-    let inv_n = 1.0 / (xs.len() as f64);
-    let mut t_avg = 0.0_f64;
-    let mut x_avg = 0.0_f64;
-    let mut y_avg = 0.0_f64;
-    let mut r_avg_sum = 0.0_f64;
-    for (&x, &y) in xs.iter().zip(ys.iter()) {
-        if !x.is_finite() || !y.is_finite() {
-            return Err(CoreError::non_finite("lorentz_einstein_midpoint"));
-        }
-        let xf = x.to_f64();
-        let yf = y.to_f64();
-        let (t, r) = lorentz_time_and_radius(xf, yf);
-        t_avg += t * inv_n;
-        x_avg += xf * inv_n;
-        y_avg += yf * inv_n;
-        r_avg_sum += r * inv_n;
-    }
-
-    let r_vec = x_avg.hypot(y_avg);
-
-    // Since t_i - r_i = 1/(t_i + r_i), accumulate t_avg - r_vec without large-t cancellation.
-    let mut sum_t_minus_r = 0.0_f64;
-    for (&x, &y) in xs.iter().zip(ys.iter()) {
-        let (t, r) = lorentz_time_and_radius(x.to_f64(), y.to_f64());
-        sum_t_minus_r += (1.0 / (t + r)) * inv_n;
-    }
-    let t_minus_r = sum_t_minus_r + (r_avg_sum - r_vec).max(0.0);
-    let minkowski_norm_sq = (t_minus_r * (t_avg + r_vec)).max(1.0);
-    let norm = minkowski_norm_sq.sqrt();
-    if !norm.is_finite() || norm <= 0.0 {
-        return Ok((S::ZERO, S::ZERO));
-    }
-    Ok((S::from_f64(x_avg / norm), S::from_f64(y_avg / norm)))
 }
 
 /// Maps a spatial hyperboloid point `(x, y)` to Poincaré disk coordinates `(x/(1+t), y/(1+t))`,

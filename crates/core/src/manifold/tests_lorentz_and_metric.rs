@@ -320,3 +320,92 @@ fn test_lorentz_extreme_radius_distance_log_exp_and_poincare_projection() {
     let (px32, py32) = lorentz_to_poincare_point(3.0e38_f32, 3.0e38_f32);
     assert!(px32 > 0.7 && py32 > 0.7 && (px32.hypot(py32) - (1.0 - POINCARE_EPS_F32)).abs() < 1e-6);
 }
+
+#[test]
+fn test_lorentz_einstein_midpoint_and_rescale_extreme_radii() {
+    let inv_sqrt2 = std::f64::consts::FRAC_1_SQRT_2;
+
+    // Orthogonal extreme pair: midpoint is (1/sqrt(2), 1/sqrt(2)).
+    let (mx1, my1) = lorentz_einstein_midpoint(&[1e160_f64, 0.0], &[0.0, 1e160]).unwrap();
+    assert!((mx1 - inv_sqrt2).abs() < 1e-12 && (my1 - inv_sqrt2).abs() < 1e-12);
+
+    // Opposite-asymmetric extreme pair: midpoint is (sqrt(2)/4, 0).
+    let (mx2, my2) = lorentz_einstein_midpoint(&[1e308_f64, -0.5e308], &[0.0, 0.0]).unwrap();
+    assert!((mx2 - 0.5 * inv_sqrt2).abs() < 1e-12 && my2.abs() < 1e-12);
+
+    // Extreme pair with origin where hypot(x, y) overflows f64::MAX: exact radius ~ 1.0298835e154.
+    let (mx3, my3) = lorentz_einstein_midpoint(&[1.5e308_f64, 0.0], &[1.5e308, 0.0]).unwrap();
+    let expected3 = 7.282_376_575_609_851e153_f64;
+    assert!(
+        mx3.is_finite()
+            && my3.is_finite()
+            && ((mx3 - expected3) / expected3).abs() < 1e-12
+            && ((my3 - expected3) / expected3).abs() < 1e-12,
+        "mx3={mx3}, my3={my3}"
+    );
+
+    // Coincident extreme points (including odd count where inv_n is inexact) preserve exact input.
+    let (mx4, my4) =
+        lorentz_einstein_midpoint(&[1.5e308_f64, 1.5e308], &[1.5e308, 1.5e308]).unwrap();
+    assert_eq!((mx4, my4), (1.5e308, 1.5e308));
+    let (mx5, my5) = lorentz_einstein_midpoint(&[1.5e308_f64; 5], &[1.5e308_f64; 5]).unwrap();
+    assert_eq!((mx5, my5), (1.5e308, 1.5e308));
+
+    // Tiny angular separation at extreme radii remains free of subnormal/square underflow.
+    let (mx6, my6) = lorentz_einstein_midpoint(&[1e200_f64, 1e200], &[0.0, 1.0]).unwrap();
+    assert!(((mx6 - 8.944_271_909_999_159e199) / 1e199).abs() < 1e-12);
+    assert!((my6 - 0.447_213_595_499_957_9).abs() < 1e-12);
+
+    // f64::MAX boundary pairs stay finite and accurate.
+    let (mx7, my7) = lorentz_einstein_midpoint(&[f64::MAX, f64::MAX], &[0.0, 1e-10]).unwrap();
+    assert!(mx7.is_finite() && my7.is_finite() && (my7 - 5e-11).abs() < 1e-22);
+    let (mx8, my8) = lorentz_einstein_midpoint(&[f64::MAX, 0.0], &[0.0, 0.0]).unwrap();
+    assert!(
+        mx8.is_finite() && my8 == 0.0 && ((mx8 - 9.480_751_908_109_176e153) / 1e153).abs() < 1e-12
+    );
+
+    // f32 extreme pairs remain finite and accurate.
+    let (mx32_a, my32_a) = lorentz_einstein_midpoint(&[3e38_f32, 0.0], &[0.0, 3e38_f32]).unwrap();
+    assert!(
+        mx32_a.is_finite()
+            && my32_a.is_finite()
+            && (mx32_a - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5
+            && (my32_a - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5
+    );
+    let (mx32_b, my32_b) = lorentz_einstein_midpoint(&[3e38_f32, 0.0], &[0.0, 0.0]).unwrap();
+    assert!(
+        mx32_b.is_finite()
+            && my32_b == 0.0
+            && ((mx32_b - 1.224_744_9e19_f32) / 1e19_f32).abs() < 1e-5
+    );
+
+    // ManifoldLayout2d::rescale_geodesic preserves geodesic distances on extreme off-origin pairs.
+    let mut lor_orth = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::HyperbolicLorentz,
+        vec![1e160, 0.0],
+        vec![0.0, 1e160],
+    )
+    .unwrap();
+    let d_orth_before = lor_orth.geodesic_distance(0, 1).unwrap();
+    lor_orth.rescale_geodesic(2.0).unwrap();
+    let d_orth_after = lor_orth.geodesic_distance(0, 1).unwrap();
+    assert!(
+        (d_orth_after - d_orth_before).abs() < 1e-8,
+        "orthogonal extreme rescale drift: {d_orth_before} vs {d_orth_after}"
+    );
+
+    let mut lor_off = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::HyperbolicLorentz,
+        vec![1e160, 1e160],
+        vec![0.0, 1e155],
+    )
+    .unwrap();
+    let d_off_before = lor_off.geodesic_distance(0, 1).unwrap();
+    assert!((d_off_before - 713.801_378_828_129_1).abs() < 1e-8);
+    lor_off.rescale_geodesic(100.0).unwrap();
+    let d_off_after = lor_off.geodesic_distance(0, 1).unwrap();
+    assert!(
+        (d_off_after - d_off_before).abs() < 1e-6,
+        "off-origin extreme rescale drift: {d_off_before} vs {d_off_after}"
+    );
+}
