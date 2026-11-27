@@ -252,69 +252,111 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
             }
         }
 
-        // Bubble any ending segments (`x2 == x_evt`) into exact post-`x_evt` order BEFORE
-        // inserting `started_batch` or querying verticals, so segments whose crossings
-        // collapsed onto their final ULP never leave an internal AVL node inverted.
+        // Bubble any ending segments (`x2 == x_evt`) to a post-`x_evt` fixed point BEFORE
+        // inserting `started_batch` or querying verticals, so co-located or adjacent ending
+        // segments never block each other or leave an internal AVL node inverted.
         if !end_batch.is_empty() {
-            let mut needs_int_drain = false;
+            scratch.surviving_touched.clear();
             for &edge in &end_batch {
                 if !tree.is_active(edge) {
                     continue;
                 }
-                let orig_prev = tree.prev_edge(edge);
-                let orig_next = tree.next_edge(edge);
-                let mut moved = false;
-                while let Some(next) = tree.next_edge(edge) {
-                    if pred.cmp_post_x(&segs[edge], &segs[next], x_evt) != Ordering::Greater {
-                        break;
-                    }
-                    tree.swap_adjacent_edges(edge, next);
-                    collector.on_swap_pair(
-                        &segs[edge],
-                        &segs[next],
-                        x_evt,
-                        eps_y,
-                        scratch.dt_probe,
-                        pred,
-                    );
-                    moved = true;
-                }
-                while let Some(prev) = tree.prev_edge(edge) {
-                    if pred.cmp_post_x(&segs[prev], &segs[edge], x_evt) != Ordering::Greater {
-                        break;
-                    }
-                    tree.swap_adjacent_edges(prev, edge);
-                    collector.on_swap_pair(
-                        &segs[prev],
-                        &segs[edge],
-                        x_evt,
-                        eps_y,
-                        scratch.dt_probe,
-                        pred,
-                    );
-                    moved = true;
-                }
-                if moved
-                    && let (Some(op), Some(on)) = (orig_prev, orig_next)
-                    && tree.next_edge(op) == Some(on)
+                if let Some(p) = tree.prev_edge(edge)
+                    && segs[p].x2 > x_evt
                 {
-                    check_adjacent_and_schedule(
-                        op,
-                        on,
-                        x_evt,
-                        eps_y,
-                        segs,
-                        &mut events,
-                        collector,
-                        scratch.dt_probe,
-                        &scratch.processed_int_at_x,
-                        &mut scratch.scheduled_at_x,
-                        pred,
-                    );
-                    needs_int_drain = true;
+                    scratch.surviving_touched.push(p);
+                }
+                if let Some(n) = tree.next_edge(edge)
+                    && segs[n].x2 > x_evt
+                {
+                    scratch.surviving_touched.push(n);
                 }
             }
-            if needs_int_drain {
+
+            let max_passes = end_batch.len().max(1);
+            for _drain_iter in 0..=max_passes {
+                for _pass in 0..max_passes {
+                    let mut pass_moved = false;
+                    for &edge in &end_batch {
+                        if !tree.is_active(edge) {
+                            continue;
+                        }
+                        while let Some(next) = tree.next_edge(edge) {
+                            if pred.cmp_post_x(&segs[edge], &segs[next], x_evt) != Ordering::Greater
+                            {
+                                break;
+                            }
+                            tree.swap_adjacent_edges(edge, next);
+                            collector.on_swap_pair(
+                                &segs[edge],
+                                &segs[next],
+                                x_evt,
+                                eps_y,
+                                scratch.dt_probe,
+                                pred,
+                            );
+                            pass_moved = true;
+                        }
+                        while let Some(prev) = tree.prev_edge(edge) {
+                            if pred.cmp_post_x(&segs[prev], &segs[edge], x_evt) != Ordering::Greater
+                            {
+                                break;
+                            }
+                            tree.swap_adjacent_edges(prev, edge);
+                            collector.on_swap_pair(
+                                &segs[prev],
+                                &segs[edge],
+                                x_evt,
+                                eps_y,
+                                scratch.dt_probe,
+                                pred,
+                            );
+                            pass_moved = true;
+                        }
+                    }
+                    if !pass_moved {
+                        break;
+                    }
+                }
+
+                for i in 0..scratch.surviving_touched.len() {
+                    let s = scratch.surviving_touched[i];
+                    if !tree.is_active(s) {
+                        continue;
+                    }
+                    if let Some(p) = tree.prev_edge(s) {
+                        check_adjacent_and_schedule(
+                            p,
+                            s,
+                            x_evt,
+                            eps_y,
+                            segs,
+                            &mut events,
+                            collector,
+                            scratch.dt_probe,
+                            &scratch.processed_int_at_x,
+                            &mut scratch.scheduled_at_x,
+                            pred,
+                        );
+                    }
+                    if let Some(n) = tree.next_edge(s) {
+                        check_adjacent_and_schedule(
+                            s,
+                            n,
+                            x_evt,
+                            eps_y,
+                            segs,
+                            &mut events,
+                            collector,
+                            scratch.dt_probe,
+                            &scratch.processed_int_at_x,
+                            &mut scratch.scheduled_at_x,
+                            pred,
+                        );
+                    }
+                }
+
+                let mut drained_int = false;
                 while let Some(Reverse(ev)) = events.peek().copied() {
                     if ev.x != x_evt || !matches!(ev.kind, EventKind::Intersection { .. }) {
                         break;
@@ -334,7 +376,11 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
                             &mut scratch,
                             pred,
                         );
+                        drained_int = true;
                     }
+                }
+                if !drained_int {
+                    break;
                 }
             }
         }

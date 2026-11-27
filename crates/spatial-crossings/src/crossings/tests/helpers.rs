@@ -4,7 +4,7 @@ use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
 use super::super::TorusLayoutView;
 use super::super::double_double::dd_mul_f64;
-use super::super::euclidean_geom::{segments_cross, segments_geometrically_intersect};
+use super::super::euclidean_geom::segments_geometrically_intersect;
 use super::super::geometry::{Seg, build_segments};
 use super::super::torus::torus_crossing_edges_from_edges;
 use super::super::torus_clip::{dd_unwrapped_delta, torus_crossing_angle_metrics};
@@ -20,7 +20,12 @@ pub(super) fn brute_force_pairs<S: Scalar>(
     let mut out = Vec::new();
     for i in 0..segs.len() {
         for j in (i + 1)..segs.len() {
-            if segments_cross(&segs[i], &segs[j]) {
+            if !segs[i].shares_endpoint(&segs[j])
+                && segs_intersect_exact_f64(
+                    [segs[i].x1, segs[i].y1, segs[i].x2, segs[i].y2],
+                    [segs[j].x1, segs[j].y1, segs[j].x2, segs[j].y2],
+                )
+            {
                 out.push((i, j));
             }
         }

@@ -120,13 +120,10 @@ pub(super) fn intersection_x_dd_f64(a: [f64; 4], b: [f64; 4], lo: f64, hi: f64) 
     let pb1 = ShiftedPt::from_f64(b[0], b[1]);
     let pb2 = ShiftedPt::from_f64(b[2], b[3]);
     let (xi, _) = dd_intersection_xy(pa1, pa2, pb1, pb2)?;
-    let mut x = xi.to_f64().clamp(lo, hi);
-    if exact_xi_cmp(pa1, pa2, pb1, pb2, x) == Some(Ordering::Greater)
-        && exact_xi_cmp(pa1, pa2, pb1, pb2, hi) != Some(Ordering::Greater)
-    {
-        x = super::cross_pred::binary_search_xi_ceil(pa1, pa2, pb1, pb2, x, hi);
-    }
-    Some(x)
+    let x = xi.to_f64().clamp(lo, hi);
+    Some(super::cross_pred::refine_xi_ceil(
+        pa1, pa2, pb1, pb2, x, lo, hi,
+    ))
 }
 
 #[cold]

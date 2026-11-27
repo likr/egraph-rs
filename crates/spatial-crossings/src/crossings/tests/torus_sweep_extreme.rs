@@ -1,9 +1,14 @@
+use std::cmp::Ordering;
+
 use egraph_core::{CsrGraph, DeterministicRng, Layout2d, ManifoldKind, ManifoldLayout2d};
 
 use super::super::SweepLineCrossings;
+use super::super::euclidean_geom::cmp_slope_euclidean;
+use super::super::geometry::Seg;
 use super::super::torus_clip::TORUS_MAX;
 use super::super::torus_exact::{
     ShiftedF64, ShiftedPt, exact_intersection_in_torus_max_box, exact_intersection_in_unit_box,
+    exact_xi_cmp, intersection_x_dd_f64,
 };
 use super::super::{torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number};
 use super::helpers::{
@@ -293,5 +298,185 @@ fn test_randomized_steep_vertical_and_deep_exponent_matrices() {
             }
         }
         assert_torus_all_apis_match_oracle(&format!("deep_exp_matrix_{seed}"), &edges, &xs, &ys);
+        let euc = Layout2d::from_xy(xs, ys).unwrap();
+        assert_matches_brute_force(&format!("deep_exp_euc_{seed}"), &edges, &euc);
+        assert_streaming_matches_find(&format!("deep_exp_euc_stream_{seed}"), &edges, &euc);
+    }
+}
+
+#[test]
+fn test_colocated_multi_ending_sweep_fixed_point_torus_and_euclidean() {
+    // 1. Torus layout with co-located ending segments and vertical wrapping:
+    // fixed-point end-batch reordering must resolve blocked pairs before band checks.
+    let edges_tor = vec![(10, 6), (15, 1), (3, 12), (2, 5), (1, 10)];
+    let mut xs_tor = vec![0.0; 16];
+    let mut ys_tor = vec![0.0; 16];
+    xs_tor[1] = 1.5e-323;
+    ys_tor[1] = 0.8;
+    xs_tor[2] = 5e-324;
+    ys_tor[2] = 0.7;
+    xs_tor[3] = 9.113902524445496e-305;
+    ys_tor[3] = 0.1;
+    xs_tor[5] = 9.1139025244455e-305;
+    ys_tor[5] = 0.6;
+    xs_tor[6] = 1.5e-323;
+    ys_tor[6] = 0.8;
+    xs_tor[10] = 1e-323;
+    ys_tor[10] = 0.6;
+    xs_tor[12] = 1e-323;
+    ys_tor[12] = 0.7;
+    xs_tor[15] = 1e-323;
+    ys_tor[15] = 0.1;
+    assert_torus_all_apis_match_oracle(
+        "colocated_multi_ending_torus",
+        &edges_tor,
+        &xs_tor,
+        &ys_tor,
+    );
+    let g_tor = CsrGraph::<f64>::from_edges(16, &edges_tor, None, false, false).unwrap();
+    let tor = ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Torus2d, xs_tor, ys_tor).unwrap();
+    assert_eq!(torus_crossing_number(&g_tor, &tor).unwrap(), 5);
+    assert_eq!(torus_crossing_edges(&g_tor, &tor).unwrap().len(), 5);
+    assert_eq!(
+        torus_crossing_edges_from_edges(&edges_tor, &tor)
+            .unwrap()
+            .len(),
+        5
+    );
+
+    // 2. Euclidean layout where two parallel segments end together ahead of a steeper segment
+    // and a vertical query sits at the shared end coordinate.
+    let x_evt = f64::from_bits(1);
+    let x2_c = f64::from_bits(2);
+    let edges_euc1 = vec![(0, 1), (2, 3), (4, 5), (6, 7), (8, 9)];
+    let xs_euc1 = vec![0.0, x_evt, 0.0, x_evt, 0.0, x_evt, 0.0, x2_c, x_evt, x_evt];
+    let ys_euc1 = vec![0.45, 0.45, 0.50, 0.50, 0.55, 0.55, 0.70, 0.10, 0.35, 0.42];
+    let euc1 = Layout2d::from_xy(xs_euc1, ys_euc1).unwrap();
+    for (label, e) in [
+        ("multi_ending_vert_fwd", edges_euc1.clone()),
+        (
+            "multi_ending_vert_rev",
+            edges_euc1.iter().copied().rev().collect(),
+        ),
+    ] {
+        assert_matches_brute_force(label, &e, &euc1);
+        assert_streaming_matches_find(label, &e, &euc1);
+        assert_eq!(SweepLineCrossings::count_edges(&e, &euc1).unwrap(), 4);
+    }
+
+    // 3. Steep multi-ending Euclidean layout with concurrent starts at the end coordinate.
+    let edges_euc2 = vec![(1, 6), (6, 13), (11, 9), (7, 6), (7, 10), (0, 11)];
+    let mut xs_euc2 = vec![0.0; 14];
+    let mut ys_euc2 = vec![0.0; 14];
+    xs_euc2[0] = 9.113_902_524_445_497e-305;
+    ys_euc2[0] = 0.4;
+    xs_euc2[1] = 9.113_902_524_445_496e-305;
+    ys_euc2[1] = 0.3;
+    xs_euc2[6] = 5e-324;
+    ys_euc2[6] = 0.2;
+    xs_euc2[7] = 0.0;
+    ys_euc2[7] = 0.999_999_999_999_999_9;
+    xs_euc2[9] = 1e-323;
+    ys_euc2[9] = 0.0;
+    xs_euc2[10] = 5e-324;
+    ys_euc2[10] = 3.733_054_474_012_875_5e-301;
+    xs_euc2[11] = 0.0;
+    ys_euc2[11] = 0.8;
+    xs_euc2[13] = 3.733_054_474_012_875_5e-301;
+    ys_euc2[13] = 0.3;
+    let euc2 = Layout2d::from_xy(xs_euc2, ys_euc2).unwrap();
+    for (label, e) in [
+        ("steep_multi_ending_fwd", edges_euc2.clone()),
+        (
+            "steep_multi_ending_rev",
+            edges_euc2.iter().copied().rev().collect(),
+        ),
+    ] {
+        assert_matches_brute_force(label, &e, &euc2);
+        assert_streaming_matches_find(label, &e, &euc2);
+        assert_eq!(SweepLineCrossings::count_edges(&e, &euc2).unwrap(), 6);
+    }
+}
+
+#[test]
+fn test_euclidean_error_bound_filter_and_exact_intersection_ceil() {
+    // 1. Disjoint vertical vs steep-diagonal pair with 500-bit cancellation in fast det.
+    let e_deep = vec![(0, 1), (2, 3)];
+    let lay_deep = Layout2d::from_xy(
+        vec![
+            0.9999999999999999,
+            0.9999999999999999,
+            9.113902524445497e-305,
+            0.9999999999999999,
+        ],
+        vec![0.75, 3.054936363499605e-151, 0.9999999999999999, 8e-323],
+    )
+    .unwrap();
+    assert_eq!(
+        SweepLineCrossings::count_edges(&e_deep, &lay_deep).unwrap(),
+        0
+    );
+    assert_matches_brute_force("disjoint_deep_cancellation", &e_deep, &lay_deep);
+
+    // 2. Disjoint near-collinear [0, 1) pair 2 ULPs apart near (0.5, 0.5).
+    let e_near = vec![(0, 1), (2, 3)];
+    let lay_near = Layout2d::from_xy(
+        vec![
+            0.499_999_999_999_999_56,
+            0.640_624_278_193_717_1,
+            0.076_888_310_455_705_64,
+            0.499_999_999_999_999_8,
+        ],
+        vec![
+            0.5,
+            0.074_631_134_113_468_65,
+            0.088_590_192_549_458_87,
+            0.500_000_000_000_000_2,
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        SweepLineCrossings::count_edges(&e_near, &lay_near).unwrap(),
+        0
+    );
+    assert_matches_brute_force("disjoint_near_collinear_ulp", &e_near, &lay_near);
+
+    // 3. Near-parallel slope comparison within 2 ULPs must match exact cross-product sign.
+    let seg_a = Seg::from_endpoints(0, 0, 1, 0.0, 0.0, 4.0, 4.0 + 5.0 * 2.0_f64.powi(-50));
+    let seg_b = Seg::from_endpoints(
+        1,
+        2,
+        3,
+        2.0_f64.powi(-53),
+        -2.0_f64.powi(-53),
+        1.0 + 2.0_f64.powi(-52),
+        1.0 + 2.0_f64.powi(-52),
+    );
+    // Exact slopes: a = 1 + 5*2^-52; b = (1 + 3*2^-53)/(1 + 2^-53) < 1 + 2^-51 < a.
+    assert_eq!(cmp_slope_euclidean(&seg_a, &seg_b), Ordering::Greater);
+    assert_eq!(cmp_slope_euclidean(&seg_b, &seg_a), Ordering::Less);
+
+    // 4. Symmetric intersection_x_dd_f64 ceiling invariant for deep-exponent Euclidean pairs.
+    let p_m500 = 2.0_f64.powi(-500);
+    let p_m200 = 2.0_f64.powi(-200);
+    let a = [p_m200, TORUS_MAX, 0.0, p_m200];
+    let b = [p_m500, p_m200, TORUS_MAX, p_m500];
+    let lo = a[0].min(a[2]).max(b[0].min(b[2]));
+    let hi = a[0].max(a[2]).min(b[0].max(b[2]));
+    let xi = intersection_x_dd_f64(a, b, lo, hi).unwrap();
+    let pa1 = ShiftedPt::from_f64(a[0], a[1]);
+    let pa2 = ShiftedPt::from_f64(a[2], a[3]);
+    let pb1 = ShiftedPt::from_f64(b[0], b[1]);
+    let pb2 = ShiftedPt::from_f64(b[2], b[3]);
+    assert_ne!(
+        exact_xi_cmp(pa1, pa2, pb1, pb2, xi),
+        Some(Ordering::Greater)
+    );
+    if xi > lo {
+        let prev = f64::from_bits(xi.to_bits() - 1);
+        assert_eq!(
+            exact_xi_cmp(pa1, pa2, pb1, pb2, prev),
+            Some(Ordering::Greater)
+        );
     }
 }

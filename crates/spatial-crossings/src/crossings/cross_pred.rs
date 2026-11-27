@@ -157,6 +157,73 @@ pub(super) fn binary_search_xi_ceil(
     sortable_u64_to_f64(k_hi).clamp(lo_x, hi_x)
 }
 
+/// Refines a double-double intersection x-coordinate to exact `ceil_f64(xi_exact)` clamped
+/// within `[lo, hi]`, correcting both underestimates and overestimates.
+#[inline]
+pub(super) fn refine_xi_ceil(
+    a1: ShiftedPt,
+    a2: ShiftedPt,
+    b1: ShiftedPt,
+    b2: ShiftedPt,
+    mut x: f64,
+    lo: f64,
+    hi: f64,
+) -> f64 {
+    match exact_xi_cmp(a1, a2, b1, b2, x) {
+        Some(Ordering::Greater) => {
+            for _ in 0..4 {
+                if x >= hi || exact_xi_cmp(a1, a2, b1, b2, x) != Some(Ordering::Greater) {
+                    break;
+                }
+                x = next_up_f64(x).min(hi);
+            }
+            if x < hi && exact_xi_cmp(a1, a2, b1, b2, x) == Some(Ordering::Greater) {
+                if exact_xi_cmp(a1, a2, b1, b2, hi) != Some(Ordering::Greater) {
+                    x = binary_search_xi_ceil(a1, a2, b1, b2, x, hi);
+                } else {
+                    x = hi;
+                }
+            }
+        }
+        Some(Ordering::Less) if x > lo => {
+            let prev = prev_down_f64(x).max(lo);
+            match exact_xi_cmp(a1, a2, b1, b2, prev) {
+                Some(Ordering::Equal) => x = prev,
+                Some(Ordering::Less) => {
+                    x = prev;
+                    for _ in 0..3 {
+                        if x <= lo {
+                            break;
+                        }
+                        let p = prev_down_f64(x).max(lo);
+                        match exact_xi_cmp(a1, a2, b1, b2, p) {
+                            Some(Ordering::Less) => x = p,
+                            Some(Ordering::Equal) => {
+                                x = p;
+                                break;
+                            }
+                            _ => break,
+                        }
+                    }
+                    if x > lo
+                        && exact_xi_cmp(a1, a2, b1, b2, prev_down_f64(x).max(lo))
+                            != Some(Ordering::Greater)
+                    {
+                        if exact_xi_cmp(a1, a2, b1, b2, lo) != Some(Ordering::Greater) {
+                            x = lo;
+                        } else {
+                            x = binary_search_xi_ceil(a1, a2, b1, b2, lo, x);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    x
+}
+
 #[inline]
 fn cmp_shifted_with_f64(a: ShiftedF64, b: f64) -> Ordering {
     if a.shift == 0 {
@@ -277,67 +344,10 @@ impl CrossPred for TorusExactPred<'_> {
         let (xi, _) = dd_intersection_xy(ma.p1, ma.p2, mb.p1, mb.p2)?;
         let lo = a.x_min.max(b.x_min);
         let hi = a.x_max.min(b.x_max);
-        let mut x = xi.to_f64().clamp(lo, hi);
+        let x = xi.to_f64().clamp(lo, hi);
         // Ensure `x` equals the exact ceiling `f64` of `xi_exact` within `[lo, hi]` so
         // `cmp_post_x` never reverts a scheduled swap and intermediate events stay ordered.
-        match exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, x) {
-            Some(Ordering::Greater) => {
-                for _ in 0..4 {
-                    if x >= hi
-                        || exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, x) != Some(Ordering::Greater)
-                    {
-                        break;
-                    }
-                    x = next_up_f64(x).min(hi);
-                }
-                if x < hi && exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, x) == Some(Ordering::Greater)
-                {
-                    if exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, hi) != Some(Ordering::Greater) {
-                        x = binary_search_xi_ceil(ma.p1, ma.p2, mb.p1, mb.p2, x, hi);
-                    } else {
-                        x = hi;
-                    }
-                }
-            }
-            Some(Ordering::Less) if x > lo => {
-                let prev = prev_down_f64(x).max(lo);
-                match exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, prev) {
-                    Some(Ordering::Equal) => x = prev,
-                    Some(Ordering::Less) => {
-                        x = prev;
-                        for _ in 0..3 {
-                            if x <= lo {
-                                break;
-                            }
-                            let p = prev_down_f64(x).max(lo);
-                            match exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, p) {
-                                Some(Ordering::Less) => x = p,
-                                Some(Ordering::Equal) => {
-                                    x = p;
-                                    break;
-                                }
-                                _ => break,
-                            }
-                        }
-                        if x > lo
-                            && exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, prev_down_f64(x).max(lo))
-                                == Some(Ordering::Less)
-                        {
-                            if exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, lo)
-                                != Some(Ordering::Greater)
-                            {
-                                x = lo;
-                            } else {
-                                x = binary_search_xi_ceil(ma.p1, ma.p2, mb.p1, mb.p2, lo, x);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-        Some(x)
+        Some(refine_xi_ceil(ma.p1, ma.p2, mb.p1, mb.p2, x, lo, hi))
     }
 
     #[inline]
