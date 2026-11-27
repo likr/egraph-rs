@@ -11,8 +11,8 @@ Thank you for contributing to `egraph-rs`. This project targets **Native Rust**,
    - Use explicit `u64` seeds (`DeterministicRng::from_seed_u64`), never ambient entropy (`thread_rng()`, `from_entropy()`).
    - Keep solvers free of non-test `.unwrap()`, `.expect()`, `panic!`, `unreachable!`, and `unsafe`.
    - Expose cooperative `step()` / `run_steps(k)` / `run()` for iterative algorithms so browser `requestAnimationFrame` remains non-blocking.
-3. **3-Target Parity & Size Budget**:
-   - Align public features across Rust, Python (`_core.pyi` + `mypy --strict` + `stubtest`), and WASM (`egraph_wasm_bg.wasm` gzip `<= 600 KiB`, no `serde`/`getrandom` in default/minimal WASM).
+3. **3-Target Parity & Minimal WASM Hygiene**:
+   - Align public features across Rust, Python (`_core.pyi` + `mypy --strict` + `stubtest`), and WASM (pure ESM, no `serde`/`getrandom` in default/minimal WASM).
 4. **English Repository Hygiene**:
    - All source code, code comments, commit messages, documentation, GitHub Issues, and Pull Requests must be written in English (`jp_cjk=0`).
 
@@ -38,7 +38,7 @@ Run `./scripts/setup_venv.sh` once to provision the isolated Python `.venv`, the
 # Python wheel build, unittest, mypy --strict, and stubtest
 ./scripts/verify.sh --python
 
-# WASM check, Node tests (default / --no-default-features / --features legacy), and release bundle size gate
+# WASM check, Node tests (default / --no-default-features), and release bundle build
 ./scripts/verify.sh --wasm --build-wasm
 
 # Invariants, cross-target parity, and documentation (Sphinx + doctest + TypeDoc + js/examples)

@@ -356,13 +356,13 @@ await init();
 // 2. Construct CSR graph in bulk (no per-node/per-edge FFI calls)
 const graph = CsrGraph.fromCsr(indptr, indices, weights, { directed: false, sanitize: true });
 const layout = pivotMdsInit(graph, 50, 42);
-const solver = new TFdpSolver(graph, { backend: "ibfft", totalIterations: 200, seed: 42 });
+const solver = new TFdpSolver(graph, { backend: "ibfft", iterations: 200, seed: 42 });
 
 // 3. Cooperative rAF loop with zero-copy linear-memory Float32Array view
 await runProgressive(
   solver,
   layout,
-  ({ iteration, totalIterations, frameTimeMs }) => {
+  ({ iteration, totalIterations, status }) => {
     // Automatically checks wasmMemory().buffer identity in O(1) to prevent memory.grow detach bugs
     const xy = layout.coordsView();
     renderer.updatePositions(xy);
@@ -376,9 +376,82 @@ await runProgressive(
 ## Additional v6 Solver & Space Upgrades
 
 - **Track B Sparse Barrier SGD & GuMap**: Replace `SparseSgd.barrier(...).build_barrier_from_landmark_tables(...)` + manual scheduler loops with `SgdSolver.sparse_barrier_dog(graph, seed=42)` (or `SgdSolver.sparseBarrierDog(graph, { seed: 42 })` in WASM) and `SpatialIntruderRefiner(graph)` for 2D `StaticKdTree` post-refinement.
-- **Unified Force, Multilevel & Edge-Bundling Solvers**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp` / `snapTFdp`, `SgdSolver.pacmap_graph` / `pacmapGraph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, and reference-passing `FdebSolver` (`edge_offsets()`, `points()`).
-- **Non-Euclidean Spaces**: Replace `DrawingHyperbolic2d`, `DrawingSpherical2d`, and `DrawingTorus2d` with `ManifoldLayout2d` (`"hyperbolic"`, `"spherical"`, `"torus"`) + `SgdSolver.step_manifold` / `run_manifold` (`stepManifold` / `runManifold`).
-- **Further Reading**:
-  - [Python README](../crates/python/README.md)
-  - [WASM README](../crates/wasm/README.md)
-  - [v6 Release Plan](V6_RELEASE_PLAN.md)
+- **Unified Force, Multilevel & Edge-Bundling Solvers**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp` / `snapTFdp`, `SgdSolver.pacmap_graph` / `pacmapGraph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, and decoupled `FdebSolver(graph)` (`step(layout)` / `run(layout)`, `edge_offsets()`, `points()`).
+- **Non-Euclidean Spaces**: Replace `DrawingHyperbolic2d`, `DrawingSpherical2d`, and `DrawingTorus2d` with `ManifoldLayout2d` (`"hyperbolic"`, `"hyperbolic_lorentz"`, `"spherical"`, `"torus"`) + polymorphic `solver.step(manifold)` / `solver.run(manifold)` across the 6 manifold-capable solvers (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`).
+
+---
+
+## Upgrading from `v6.0.0-alpha.8` to `v6.0.0-alpha.9` (Clean-Break Remediation)
+
+Between `alpha.8` and the `alpha.9` remediation baseline, all cross-target API inconsistencies across Rust, Python, WebAssembly, and `egraph-cli` were resolved with clean breaks (keeping package manifests at `6.0.0-alpha.8` / `6.0.0a8` until the release gate).
+
+### 1. Legacy v5 Crate & Feature Removal
+
+- **Workspace Reduced (`45 -> 27` crates)**: All 18 legacy `petgraph-*` crates and the `legacy` Cargo feature flag have been removed.
+- **`*_v6` Suffixes Removed**: Unprefixed canonical names are used everywhere; legacy `stress(drawing, dm)` is replaced by `scale_normalized_stress` / `evaluate_metrics`.
+
+### 2. Iteration Argument & Constructor Unification
+
+- **Fixed-iteration solvers -> `iterations`** (`iterations` in Python/WASM):
+  - `SgdSolver` (all 17 modes and `reset_schedule` / `resetSchedule`; replaces `t_max`), `TFdpSolver` (replaces `total_iterations` / `totalIterations`), `IbUmapSolver` & `GuMapSolver` (replaces `n_epochs` / `nEpochs`), `SpatialIntruderRefiner` (replaces `rounds`), `ForceAtlas2Solver`, `FruchtermanReingoldSolver`, `LinLogSolver`, `SelLayoutSolver`, `BackboneSolver`, `ScreenedPoissonRefiner`, `TwinDeclutterer`.
+  - Read-only progress getter `total_iterations` / `totalIterations` and temperature parameter `GemSolver.t_max` / `GemOptions.tMax` & `coarse_t_max` / `coarseTMax` remain unchanged.
+- **Convergent solvers -> `max_iterations` / `maxIterations`**:
+  - `StressMajorizationSolver`, `KamadaKawaiSolver`, `GemSolver` (replaces `max_rounds` / `maxRounds`), `ClusterRefineSolver` (replaces `max_rounds` / `maxRounds`), `PrismOverlapRemoval`, `GTreeOverlapRemoval`, `AmgPcgSolver`, `kmeans_plus_plus`, `label_propagation`, and `spectral_clustering` (`max_eigen_iterations`, `kmeans_max_iterations`).
+- **Multi-stage / hierarchical solvers (structured names)**:
+  - `TsNetSolver`: `stage_iterations` / `stageIterations` (alongside `iterations_stage1..3`).
+  - `SgdSolver.pacmap_graph*`: `phase_iterations` / `phaseIterations` (replaces `phase1_iters`..`phase3_iters`).
+  - `YifanHuSolver`: `max_iterations_per_level` / `maxIterationsPerLevel`.
+  - `MaxentStressSolver`: `stages`, `steps_per_stage` / `stepsPerStage`.
+  - `GripSolver`: `rounds_min`, `rounds_max`.
+  - `ForbidOverlapRemoval`: `max_scale_iters`, `sgd_iterations`.
+  - `FdebSolver`: `cycles`, `steps_per_cycle` / `stepsPerCycle` (replaces `i0`).
+  - `GroupInABoxSolver`: `intra_iterations`, `fd_iterations`.
+  - `SpatialRefinerConfig`: `iterations`, `sgd_iterations`.
+- **Standard `__new__(graph, ...)` & `seed = 42`**: Every graph solver provides `__new__(graph, ...)` alongside `@staticmethod from_*`, and all stochastic functions/solvers default to `seed = 42`.
+- **Decoupled `FdebSolver(graph)`**: `FdebSolver` no longer takes `layout` in its constructor; pass `Layout2d` or `LayoutNd` into `fdeb.step(layout)` / `fdeb.run_steps(layout, k)` / `fdeb.run(layout)`.
+- **Polymorphic `IterativeSolver` & `runProgressive`**: `step(layout)`, `run_steps(layout, steps)`, `run(layout)`, and WASM `runProgressive(solver, layout, ...)` accept `Layout2d`, `LayoutNd` (11 N-D solvers), and `ManifoldLayout2d` (6 manifold solvers) directly, removing `SgdSolver.step_manifold` / `run_steps_manifold` / `run_manifold`.
+
+### 3. `labels` Unification & 5 Zero-Copy Cluster Result Classes
+
+- **Parameter Name**: `labels` replaces `community_labels`, `cluster_labels`, and `cluster_ids` across Python, WASM, and CLI (`--labels`).
+- **Typed Result Classes**: `louvain_communities`, `leiden_communities`, `kmeans_plus_plus`, `label_propagation`, and `spectral_clustering` now return `LouvainResult`, `LeidenResult`, `KMeansResult`, `LabelPropagationResult`, and `SpectralClusteringResult` instead of raw dicts/tuples:
+  - **Python**: zero-copy `.labels` NumPy `uint32` array (plus `.centroids` on `KMeansResult`) and typed attributes (`num_communities`, `modularity`, `quality`, `passes`, `inertia`, `iterations`, `converged`, `k`, `dims`, `num_clusters`, `eigen_iterations`).
+  - **WASM**: `labels()` copy, zero-copy `labelsView(): Uint32Array` (`centroidsView(): Float64Array` on `KMeansResult`), and `toRecord()`.
+
+### 4. Unified `MetricReport` & Canonical Keys
+
+- `evaluate_metrics` / `evaluateMetrics` now accepts `Layout2d | LayoutNd | ManifoldLayout2d`, `labels`, `original_layout` / `originalLayout`, `sprawlter_half_widths` / `sprawlterHalfWidths`, and `sprawlter_half_heights` / `sprawlterHalfHeights`, returning a typed **`MetricReport`** across Rust, Python, and WASM (`to_dict(include_none=False)` + mapping access in Python; `toRecord()` omitting unrequested keys in WASM).
+- **Canonical Keys**: `distance_consistency`/`distanceConsistency`, `distribution_consistency`/`distributionConsistency`, `class_density_measure`/`classDensityMeasure`, `histogram_density_measure`/`histogramDensityMeasure`, `silhouette_score`/`silhouetteScore`, `calinski_harabasz_score`/`calinskiHarabaszScore`, `davies_bouldin_score`/`daviesBouldinScore`, `geodesic_distortion`/`geodesicDistortion`, `crossing_edges`/`crossingEdges`, `torus_crossing_number`/`torusCrossingNumber`, `crossing_edges_torus`/`crossingEdgesTorus`, `prism_sigma_dist`/`prismSigmaDist`, `prism_sigma_disp`/`prismSigmaDisp`, and `nor_oo_nni`/`nor_sp_ch_a`/`nor_gs_bb_iar`/`nor_nm_dm_imse`/`nor_el_rsd` (camelCase in WASM).
+- **`LayoutDegeneracy`**: Includes `excess_duplicate_ratio` / `excessDuplicateRatio` and `near_collision_ratio` / `nearCollisionRatio`.
+- **`landmark_stratified_rta_from_landmarks`**: Accepts `float64`/`float32`/`uint32` landmark distance arrays and maps `+inf` / `Infinity` safely across 2D, N-D, and manifold layouts.
+- **Additional Standalone Metrics**: `adjusted_patch_nig_detail`, `histogram_density_measure`, `sprawlter_nn_radii`, `geodesic_distortion`, `scale_normalized_stress*_detail`, `scale_normalized_stress_from_pairs`, `ideal_edge_lengths_from_distances`, `ideal_edge_lengths_scaled`, `crosslessness_from_count`, and `max_crossing_pairs`.
+
+### 5. Safety & Quality Defaults
+
+- **`ForbidOverlapRemoval`**: Default `variant` is now `"sparse_forbid"` (`O(N log N)` sparse active set).
+- **`GemSolver`**: Default `max_iterations` is `min(4 * N, 400)` (preventing quadratic runaway on large graphs).
+- **`TsNetSolver`**:
+  - Default `"fft"` backend uses `interpolation_order = 3` (cubic) and `learning_rate_divisor = 3.0`.
+  - New `backend="auto"` (`TsNetBackend::Auto`) automatically selects `"exact"` for `N <= 256` and `"linear_fft"` for `N > 256` (inspect via `.resolved_backend` / `.resolvedBackend`).
+  - New `TsNetSolver.from_graph_row_normalized` (`fromGraphRowNormalized`) defaults to `mode="two_step_random_walk"` (`TwoStepRandomWalk`), and `TsNetStage` + `from_probabilities_with_stages` enable custom multi-stage schedules.
+- **`ScreenedPoissonField2d` & `ScreenedPoissonRefiner`**: Default `grid_size = 512` (`gridSize = 512`), `density_grid()` / `densityGrid()` accessor, and 4-scalar `evaluate_in_bounds(layout, min_x, min_y, max_x, max_y)` (`evaluateInBounds(layout, minX, minY, maxX, maxY)`).
+- **`compute_effective_resistances` & `resistance_curvature_flow`**: Safer default exact cutoff `exact_max_nodes = 256` and `jl_dim = 128`.
+- **`SgdSolver` Pair Constructors & `max_mu`**:
+  - `SgdSolver.from_pairs` and `SgdSolver.from_pairs_with_hinges` now enforce keyword-only optional arrays (`dji`, `wij`, `wji`, etc.) in Python and optional `springDji`/`springWij`/`springWji`/`hingeDji`/`hingeWij`/`hingeWji` in WASM; `SgdSolver.from_packed_symmetric` / `fromPackedSymmetric` adds packed symmetric pair input.
+  - Default `max_mu = None` (no hidden `mu <= 0.1` clamp).
+
+### 6. Core Data Buffers, 3D/N-D, Manifolds, Constraints & Ecosystem Helpers
+
+- **`CsrGraph` & Neighborhood CSR**: `KnnGraph.indptr` and `SparseProbabilities.indptr` now return `uint32` / `Uint32Array`, and `SparseProbabilities.from_csr` / `fromCsr` constructs sparse probability matrices directly. `CsrGraph` adds `__len__`, `edges()`, `has_edge()`, `edge_weight()`, `is_connected()`, and `weight_dtype` (`numNodes()`/`length`/`edges()`/`hasEdge()`/`edgeWeight()`/`isConnected()`/`weightDtype` in WASM).
+- **3D / N-D Engine**: `LayoutNd` renames `.dim` to `.dims` (adding `copy()`, `get()`, `set()`, `normalize_std()`), paired with `ArenaOctree3d`, `DynamicKdTree`, and 11 N-D-capable solvers.
+- **Non-Euclidean Manifolds**: `ManifoldLayout2d` removes `.manifold` and Python `.len()` (retaining `.kind` and `__len__` / `numNodes` / `len()`), adds `"hyperbolic_lorentz"` + `to_poincare_layout()`, `ManifoldMetric` (`scale`, `aspect`, `metric()`, `set_scale()`, `set_aspect()`, `set_torus_extents()`, `rescale_geodesic()`), `torus_spectral_phase_init`, `torus_auto_pan`, `torus_edge_segments`, `torus_layout_edge_segments`, geodesic crossings (`spherical_crossing_number`, `crossing_edges_spherical`, `hyperbolic_crossing_number`, `crossing_edges_hyperbolic`, `torus_crossing_number`, `crossing_edges_torus`), and `SgdSolver.reset_schedule` / `run_schedule_window`.
+- **Constraints & Decluttering**: `TwinDeclutterer` / `declutter_twins_2d`, `transitive_reduction` (removing legacy `remove_cycle`), and in-place `project_1d` returning `None` / `void`.
+- **Interop, Datasets & Linalg**: `egraph.interop` adds `to_igraph` and extends `to_networkx(graph, layout=...)` to `Layout2d | LayoutNd | ManifoldLayout2d`; `egraph` adds `list_datasets`, `dataset_catalog`, `dataset_info`, 7 synthetic graph generators, `DijkstraWorkspace` (`dijkstra_single_source`, `all_pairs_dijkstra`), `classical_mds` / `pivot_mds` (`rd_mds(..., degree_normalize=True)`), Laplacian builders, and `ChebyshevDogKernel`.
+
+---
+
+## Further Reading
+
+- [Python README](../crates/python/README.md)
+- [WASM README](../crates/wasm/README.md)
+- [v6 Release Plan](V6_RELEASE_PLAN.md)
