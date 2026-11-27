@@ -107,13 +107,31 @@ fn test_backbone_degenerate_directed_and_validation_errors() {
     assert!(s_disc.run(&mut l_disc).unwrap().is_finished());
     assert!(l_disc.is_all_finite());
 
-    // Directed graph with reciprocal edges and self-loops matches undirected counterpart.
+    // Directed graphs are rejected, while undirected self-loops and parallel edges are deduplicated.
     let undir = CsrGraph::<f64>::from_edges(
         4,
         &[(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)],
         None,
         false,
         false,
+    )
+    .unwrap();
+    let undir_dup = CsrGraph::<f64>::from_edges(
+        4,
+        &[
+            (0, 0),
+            (0, 1),
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (1, 2),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+        ],
+        None,
+        false,
+        true,
     )
     .unwrap();
     let dir = CsrGraph::<f64>::from_edges(
@@ -135,11 +153,19 @@ fn test_backbone_degenerate_directed_and_validation_errors() {
         true,
     )
     .unwrap();
+    assert!(matches!(
+        extract_quadrilateral_backbone(&dir, &cfg),
+        Err(CoreError::InvalidInput { .. })
+    ));
+    assert!(matches!(
+        BackboneSolver::<f64>::new(&dir, cfg),
+        Err(CoreError::InvalidInput { .. })
+    ));
     let r_u = extract_quadrilateral_backbone(&undir, &cfg).unwrap();
-    let r_d = extract_quadrilateral_backbone(&dir, &cfg).unwrap();
-    assert_eq!(r_u.simmelian_weights, r_d.simmelian_weights);
-    assert_eq!(r_u.umst_edges, r_d.umst_edges);
-    assert_eq!(r_u.backbone_edges, r_d.backbone_edges);
+    let r_dup = extract_quadrilateral_backbone(&undir_dup, &cfg).unwrap();
+    assert_eq!(r_u.simmelian_weights, r_dup.simmelian_weights);
+    assert_eq!(r_u.umst_edges, r_dup.umst_edges);
+    assert_eq!(r_u.backbone_edges, r_dup.backbone_edges);
 
     // iterations == 0 completes immediately without touching layout.
     let mut s_zero = BackboneSolver::<f64>::new(

@@ -14,6 +14,11 @@ pub(super) struct SimpleUndirectedGraph {
 pub(super) fn build_simple_undirected_graph<W: Scalar>(
     graph: &CsrGraph<W>,
 ) -> CoreResult<SimpleUndirectedGraph> {
+    if graph.is_directed() {
+        return Err(CoreError::invalid_input(
+            "extract_quadrilateral_backbone requires an undirected graph",
+        ));
+    }
     let n = graph.num_nodes();
     if u32::try_from(n).is_err() {
         return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
@@ -35,29 +40,12 @@ pub(super) fn build_simple_undirected_graph<W: Scalar>(
     let (edges, input_weights) = if let Some(ws) = graph.weights() {
         let indptr = graph.indptr();
         let mut weighted_edges: Vec<(u32, u32, f64)> = Vec::with_capacity(graph.num_edges());
-        if !graph.is_directed() {
-            for (u, &start_u32) in indptr.iter().enumerate().take(n) {
-                let u32_u = u as u32;
-                let row_start = start_u32 as usize;
-                for (offset, &v_u32) in graph.neighbors(u).iter().enumerate() {
-                    if u32_u < v_u32 {
-                        weighted_edges.push((u32_u, v_u32, ws[row_start + offset].to_f64()));
-                    }
-                }
-            }
-        } else {
-            for (u, &start_u32) in indptr.iter().enumerate().take(n) {
-                let u32_u = u as u32;
-                let row_start = start_u32 as usize;
-                for (offset, &v_u32) in graph.neighbors(u).iter().enumerate() {
-                    if u32_u != v_u32 {
-                        let (a, b) = if u32_u < v_u32 {
-                            (u32_u, v_u32)
-                        } else {
-                            (v_u32, u32_u)
-                        };
-                        weighted_edges.push((a, b, ws[row_start + offset].to_f64()));
-                    }
+        for (u, &start_u32) in indptr.iter().enumerate().take(n) {
+            let u32_u = u as u32;
+            let row_start = start_u32 as usize;
+            for (offset, &v_u32) in graph.neighbors(u).iter().enumerate() {
+                if u32_u < v_u32 {
+                    weighted_edges.push((u32_u, v_u32, ws[row_start + offset].to_f64()));
                 }
             }
         }
@@ -83,34 +71,16 @@ pub(super) fn build_simple_undirected_graph<W: Scalar>(
         (dedup_edges, Some(dedup_weights))
     } else {
         let mut edges: Vec<(u32, u32)> = Vec::with_capacity(graph.num_edges());
-        if !graph.is_directed() {
-            for u in 0..n {
-                let u32_u = u as u32;
-                for &v_u32 in graph.neighbors(u) {
-                    if u32_u < v_u32 {
-                        edges.push((u32_u, v_u32));
-                    }
+        for u in 0..n {
+            let u32_u = u as u32;
+            for &v_u32 in graph.neighbors(u) {
+                if u32_u < v_u32 {
+                    edges.push((u32_u, v_u32));
                 }
             }
-            edges.sort_unstable();
-            edges.dedup();
-        } else {
-            for u in 0..n {
-                let u32_u = u as u32;
-                for &v_u32 in graph.neighbors(u) {
-                    if u32_u != v_u32 {
-                        let pair = if u32_u < v_u32 {
-                            (u32_u, v_u32)
-                        } else {
-                            (v_u32, u32_u)
-                        };
-                        edges.push(pair);
-                    }
-                }
-            }
-            edges.sort_unstable();
-            edges.dedup();
         }
+        edges.sort_unstable();
+        edges.dedup();
         (edges, None)
     };
 
