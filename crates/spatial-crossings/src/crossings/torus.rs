@@ -22,23 +22,79 @@ use super::torus_exact::{
 };
 use super::torus_repair::{both_intersect, ensure_intersecting_pair};
 
+mod sealed {
+    use egraph_core::{ManifoldLayout2d, Scalar};
+
+    pub trait Sealed {}
+    impl<S: Scalar> Sealed for ManifoldLayout2d<S> {}
+    impl<S: Scalar> Sealed for super::TorusView<'_, S> {}
+}
+
 /// Read-only view of a 2D torus layout providing normalized coordinates and physical extents `(Lx, Ly)`.
-pub trait TorusLayoutView<S: Scalar> {
+pub trait TorusLayoutView<S: Scalar>: sealed::Sealed {
     /// Returns the physical periodic box extents `(lx, ly)` (`> 0`).
     fn torus_extents(&self) -> CoreResult<(f64, f64)>;
     /// Returns the underlying normalized `[0, 1)^2` coordinate buffer.
     fn torus_layout(&self) -> CoreResult<&Layout2d<S>>;
 }
 
-impl<S: Scalar> TorusLayoutView<S> for Layout2d<S> {
+/// Validated read-only torus view over a [`Layout2d<S>`] with explicit physical box extents `(lx, ly)`.
+#[derive(Debug, Clone)]
+pub struct TorusView<'a, S: Scalar> {
+    layout: &'a Layout2d<S>,
+    lx: f64,
+    ly: f64,
+}
+
+impl<'a, S: Scalar> TorusView<'a, S> {
+    /// Creates a validated torus view wrapping `layout` with strictly positive finite extents `(lx, ly)`.
+    pub fn new(layout: &'a Layout2d<S>, lx: f64, ly: f64) -> CoreResult<Self> {
+        if !lx.is_finite() || !ly.is_finite() {
+            return Err(CoreError::non_finite("TorusView::new"));
+        }
+        if lx <= 0.0 || ly <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "torus extents lx and ly must be strictly positive",
+            ));
+        }
+        layout.validate_finite()?;
+        Ok(Self { layout, lx, ly })
+    }
+
+    /// Returns a reference to the underlying [`Layout2d<S>`].
+    #[inline]
+    pub fn layout(&self) -> &'a Layout2d<S> {
+        self.layout
+    }
+
+    /// Returns the physical periodic box extents `(lx, ly)`.
+    #[inline]
+    pub fn extents(&self) -> (f64, f64) {
+        (self.lx, self.ly)
+    }
+
+    /// Returns the horizontal box extent `lx`.
+    #[inline]
+    pub fn lx(&self) -> f64 {
+        self.lx
+    }
+
+    /// Returns the vertical box extent `ly`.
+    #[inline]
+    pub fn ly(&self) -> f64 {
+        self.ly
+    }
+}
+
+impl<S: Scalar> TorusLayoutView<S> for TorusView<'_, S> {
     #[inline]
     fn torus_extents(&self) -> CoreResult<(f64, f64)> {
-        Ok((1.0, 1.0))
+        Ok((self.lx, self.ly))
     }
 
     #[inline]
     fn torus_layout(&self) -> CoreResult<&Layout2d<S>> {
-        Ok(self)
+        Ok(self.layout)
     }
 }
 
@@ -186,7 +242,7 @@ pub fn torus_layout_edge_segments<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
 }
 
 /// Counts all crossing edge segment pairs for `graph` on a flat 2D torus layout
-/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+/// (accepting `&TorusView<'_, S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
 pub fn torus_crossing_number<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     graph: &CsrGraph<W>,
     layout: &L,
@@ -208,7 +264,7 @@ pub fn torus_crossing_number<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
 }
 
 /// Finds all crossing edge segment pairs for `graph` laid out on a flat 2D torus
-/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+/// (accepting `&TorusView<'_, S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
 pub fn torus_crossing_edges<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     graph: &CsrGraph<W>,
     layout: &L,
@@ -218,7 +274,7 @@ pub fn torus_crossing_edges<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
 }
 
 /// Finds all crossing edge segment pairs among `edges` on a flat 2D torus
-/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+/// (accepting `&TorusView<'_, S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
 pub fn torus_crossing_edges_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     edges: &[(u32, u32)],
     layout: &L,

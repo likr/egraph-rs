@@ -2,7 +2,9 @@ use std::f64::consts::FRAC_PI_2;
 
 use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d};
 
-use super::super::{SweepLineCrossings, sampled_crossing_number_edges, torus_crossing_edges};
+use super::super::{
+    SweepLineCrossings, TorusView, sampled_crossing_number_edges, torus_crossing_edges,
+};
 use super::helpers::assert_matches_brute_force;
 
 #[test]
@@ -203,8 +205,9 @@ fn test_sweep_line_angles_csr_torus_and_sampling() {
     // Torus crossing test: two wrapping edges that cross after periodic boundary split.
     let torus_layout =
         Layout2d::from_xy(vec![0.9, 0.1, 0.9, 0.1], vec![0.1, 0.9, 0.9, 0.1]).unwrap();
+    let torus_view = TorusView::new(&torus_layout, 1.0, 1.0).unwrap();
     let torus_csr = CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
-    let torus_crossings = torus_crossing_edges(&torus_csr, &torus_layout).unwrap();
+    let torus_crossings = torus_crossing_edges(&torus_csr, &torus_view).unwrap();
     assert!(!torus_crossings.is_empty());
 
     // Sampled crossing number determinism and unbiased convergence on a dense bipartite layout.

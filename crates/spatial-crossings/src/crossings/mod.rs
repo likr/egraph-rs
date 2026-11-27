@@ -32,12 +32,13 @@ pub use sampling::{sampled_crossing_number, sampled_crossing_number_edges};
 pub use spherical::{crossing_edges_spherical, spherical_crossing_number};
 use sweep::{sweep_segments, sweep_segments_with};
 pub use torus::{
-    TorusLayoutView, torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
-    torus_edge_segments, torus_layout_edge_segments,
+    TorusLayoutView, TorusView, torus_crossing_edges, torus_crossing_edges_from_edges,
+    torus_crossing_number, torus_edge_segments, torus_layout_edge_segments,
 };
 
 /// Details of a single crossing pair between two non-adjacent edges.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CrossingPair {
     pub edge_a: usize,
     pub edge_b: usize,
@@ -52,7 +53,8 @@ pub struct CrossingPair {
 }
 
 /// Summary statistics of all edge crossings in a 2D Euclidean layout.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CrossingSummary {
     pub count: usize,
     /// Sum of $\cos^2(\theta)$ over crossing pairs (matches legacy `crossing_angle`).
@@ -62,7 +64,8 @@ pub struct CrossingSummary {
 }
 
 /// Crossing pair of periodic `[0, 1)^2` torus edge sub-segments with physical aspect-aware angles.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TorusCrossing {
     pub edge_a: usize,
     pub edge_b: usize,

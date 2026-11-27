@@ -1,6 +1,6 @@
 use egraph_core::{DeterministicRng, Layout2d};
 
-use super::super::torus::{torus_crossing_edges_from_edges, torus_edge_segments};
+use super::super::torus::{TorusView, torus_crossing_edges_from_edges, torus_edge_segments};
 use super::helpers::{assert_matches_brute_force, assert_torus_matches_oracle};
 
 #[test]
@@ -44,7 +44,8 @@ fn test_torus_edge_segments_bounds_and_crossing_parity() {
             }
         }
     }
-    let got_adj = torus_crossing_edges_from_edges(&adj_wrap_edges, &adj_wrap_layout).unwrap();
+    let adj_wrap_view = TorusView::new(&adj_wrap_layout, 1.0, 1.0).unwrap();
+    let got_adj = torus_crossing_edges_from_edges(&adj_wrap_edges, &adj_wrap_view).unwrap();
     assert!(!got_adj.is_empty());
 
     // Compare torus_crossing_edges_from_edges against O(|S|^2) brute force across 30 random seeds.
@@ -58,6 +59,7 @@ fn test_torus_edge_segments_bounds_and_crossing_parity() {
             .map(|_| (rng.gen_range_usize(33) as f64) / 33.0)
             .collect();
         let layout = Layout2d::from_xy(xs, ys).unwrap();
+        let view = TorusView::new(&layout, 1.0, 1.0).unwrap();
         let mut edges = Vec::new();
         for _ in 0..32 {
             let u = rng.gen_range_usize(n) as u32;
@@ -67,7 +69,7 @@ fn test_torus_edge_segments_bounds_and_crossing_parity() {
             }
         }
 
-        assert_torus_matches_oracle(&format!("seed {seed}"), &edges, &layout);
+        assert_torus_matches_oracle(&format!("seed {seed}"), &edges, &view);
     }
 }
 
@@ -91,6 +93,7 @@ fn test_torus_steep_and_clustered_parity() {
             .map(|_| (rng.gen_range_usize(20) as f64) / 20.0)
             .collect();
         let layout = Layout2d::from_xy(xs, ys).unwrap();
+        let view = TorusView::new(&layout, 1.0, 1.0).unwrap();
         let mut edges = Vec::new();
         for _ in 0..35 {
             let u = rng.gen_range_usize(n) as u32;
@@ -99,7 +102,7 @@ fn test_torus_steep_and_clustered_parity() {
                 edges.push((u, v));
             }
         }
-        assert_torus_matches_oracle(&format!("torus steep seed {seed}"), &edges, &layout);
+        assert_torus_matches_oracle(&format!("torus steep seed {seed}"), &edges, &view);
     }
 
     // Clustered torus layout (4 tight clusters of radius 1e-4 on [0, 1)^2).
@@ -115,6 +118,7 @@ fn test_torus_steep_and_clustered_parity() {
             ys.push((cy + (rng.next_f64() - 0.5) * 1e-4).rem_euclid(1.0));
         }
         let layout = Layout2d::from_xy(xs, ys).unwrap();
+        let view = TorusView::new(&layout, 1.0, 1.0).unwrap();
         let mut edges = Vec::new();
         for _ in 0..45 {
             let u = rng.gen_range_usize(n) as u32;
@@ -123,7 +127,7 @@ fn test_torus_steep_and_clustered_parity() {
                 edges.push((u, v));
             }
         }
-        assert_torus_matches_oracle(&format!("torus clustered seed {seed}"), &edges, &layout);
+        assert_torus_matches_oracle(&format!("torus clustered seed {seed}"), &edges, &view);
     }
 }
 
@@ -137,8 +141,9 @@ fn test_torus_corner_wrap_sort_tie_break() {
         vec![0.0, eps_max, 0.95, 0.05, 0.01, 0.99, 0.5, 0.5],
     )
     .unwrap();
+    let view = TorusView::new(&layout, 1.0, 1.0).unwrap();
     let edges = vec![(0, 1), (2, 3), (4, 5), (6, 7), (0, 3), (1, 2)];
-    assert_torus_matches_oracle("torus corner wrap", &edges, &layout);
+    assert_torus_matches_oracle("torus corner wrap", &edges, &view);
 }
 
 #[test]
@@ -170,6 +175,7 @@ fn test_f32_sweep_and_out_of_unit_torus_oracles() {
         let xs: Vec<f64> = (0..n).map(|_| rng.next_f64() * 5.0 - 2.0).collect();
         let ys: Vec<f64> = (0..n).map(|_| rng.next_f64() * 5.0 - 2.0).collect();
         let layout64 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+        let view64 = TorusView::new(&layout64, 1.0, 1.0).unwrap();
         let mut edges = Vec::new();
         for _ in 0..16 {
             let u = rng.gen_range_usize(n) as u32;
@@ -178,13 +184,14 @@ fn test_f32_sweep_and_out_of_unit_torus_oracles() {
                 edges.push((u, v));
             }
         }
-        assert_torus_matches_oracle(&format!("out_of_unit_torus_f64_{seed}"), &edges, &layout64);
+        assert_torus_matches_oracle(&format!("out_of_unit_torus_f64_{seed}"), &edges, &view64);
 
         let layout32 = Layout2d::from_xy(
             xs.iter().map(|&v| v as f32).collect(),
             ys.iter().map(|&v| v as f32).collect(),
         )
         .unwrap();
-        assert_torus_matches_oracle(&format!("out_of_unit_torus_f32_{seed}"), &edges, &layout32);
+        let view32 = TorusView::new(&layout32, 1.0, 1.0).unwrap();
+        assert_torus_matches_oracle(&format!("out_of_unit_torus_f32_{seed}"), &edges, &view32);
     }
 }

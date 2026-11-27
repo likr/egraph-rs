@@ -9,3 +9,4 @@ mod torus;
 mod torus_boundary;
 mod torus_precision;
 mod torus_sweep_extreme;
+mod torus_view;

@@ -1,7 +1,9 @@
 [package]
 name = "egraph-spatial-crossings"
+description = "Sweep-line edge-crossing detection and non-Euclidean geodesic crossing geometry for egraph-rs"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
