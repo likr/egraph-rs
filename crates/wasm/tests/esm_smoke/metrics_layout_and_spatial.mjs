@@ -11,6 +11,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     MinimumAngleSummary,
     PrismDistortion,
     RtaEvaluation,
+    StressEvaluation,
     adjustedPatchNig,
     adjustedPatchNigMultiscale,
     angularResolution,
@@ -38,12 +39,15 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     sampledNp2,
     sampledScaleNormalizedStress,
     scaleNormalizedStress,
+    scaleNormalizedStressDetail,
     sweepCrossingAngle,
     sweepCrossingNumber,
     torusCrossingNumber,
   } = eg;
 
   assert.equal(typeof webPkg.scaleNormalizedStress, "function");
+  assert.equal(typeof webPkg.scaleNormalizedStressDetail, "function");
+  assert.equal(typeof webPkg.StressEvaluation, "function");
   assert.equal(typeof webPkg.evaluateMetrics, "function");
   assert.equal(typeof webPkg.MetricReport, "function");
   assert.equal(typeof webPkg.PrismDistortion, "function");
@@ -72,6 +76,16 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   const sns10 = scaleNormalizedStress(grid, gridScaled);
   assert(Number.isFinite(sns1) && sns1 >= 0 && sns1 < 0.05);
   assert(Math.abs(sns1 - sns10) < 1e-5, "SNS must be scale-invariant");
+  const snsDet = scaleNormalizedStressDetail(grid, gridLayout);
+  assert(snsDet instanceof StressEvaluation);
+  assert(Math.abs(snsDet.normalizedStress - sns1) < 1e-12);
+  assert(Math.abs(snsDet.stress - sns1) < 1e-12);
+  assert(Math.abs(snsDet.scale - snsDet.alphaStar) < 1e-12);
+  assert(snsDet.pairCount > 0 && Number.isFinite(snsDet.rawStress));
+  const snsRec = snsDet.toRecord();
+  assert(Math.abs(snsRec.normalizedStress - sns1) < 1e-12);
+  assert(Math.abs(snsRec.scale - snsDet.alphaStar) < 1e-12);
+  snsDet.free();
 
   const sampledSnsDefault = sampledScaleNormalizedStress(grid, gridLayout);
   const sampledSns4 = sampledScaleNormalizedStress(grid, gridLayout, 16, 42);

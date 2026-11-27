@@ -5,12 +5,13 @@ use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, parse_non_negative_usize, parse_seed_u64};
 use crate::layout_buffers::JsLayout2d;
 use crate::manifold::JsManifoldLayout2d;
+use crate::metrics_summaries::JsStressEvaluation;
 use egraph::metrics::{
     BfsScratch, all_pairs_bfs, bfs_single_source, gabriel_graph_preservation,
     gabriel_graph_property, geodesic_distortion, neighborhood_preservation_1hop,
     neighborhood_preservation_2hop, relative_neighborhood_preservation,
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
-    sampled_scale_normalized_stress, scale_normalized_stress,
+    sampled_scale_normalized_stress, scale_normalized_stress, scale_normalized_stress_detail,
     scale_normalized_stress_from_distances,
 };
 use wasm_bindgen::prelude::*;
@@ -24,6 +25,17 @@ const DEFAULT_UNIT_EDGE_LENGTH: f64 = 1.0;
 pub fn js_scale_normalized_stress(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     scale_normalized_stress(graph.inner(), &soa).map_err(core_err_to_js)
+}
+
+/// Computes detailed closed-form Scale-Normalized Stress (`SNS`) diagnostics for `graph` and `layout`.
+#[wasm_bindgen(js_name = _scaleNormalizedStressDetail2d)]
+pub fn js_scale_normalized_stress_detail(
+    graph: &JsCsrGraph,
+    layout: &JsLayout2d,
+) -> Result<JsStressEvaluation, JsError> {
+    let soa = layout.inner().to_layout2d();
+    let eval = scale_normalized_stress_detail(graph.inner(), &soa).map_err(core_err_to_js)?;
+    Ok(JsStressEvaluation::from_inner(eval))
 }
 
 /// Computes $O(kN)$ pivot-sampled Scale-Normalized Stress (`SNS`) from `numPivots` (default `64`)

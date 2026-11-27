@@ -180,9 +180,7 @@ const lTs = mod.Layout2d.fromCoords(init16);
 const lTsProg = mod.Layout2d.fromCoords(init16);
 const tsOpts = {
   backend: 'fft',
-  iterationsStage1: 2,
-  iterationsStage2: 2,
-  iterationsStage3: 2,
+  stageIterations: [2, 2, 2],
   intervals: 1,
   interpolationOrder: 1,
   minGridDim: 16,
@@ -204,13 +202,13 @@ assert.deepEqual(Array.from(lTs.coordsView()), Array.from(lTsProg.coordsView()))
 
 const knnObj = mod.KnnGraph.fromCsr(16, new Uint32Array(spec.rerank_indptr), new Uint32Array(spec.rerank_indices), new Float64Array(spec.rerank_dists));
 const lTfdpKnn = mod.Layout2d.fromCoords(init16);
-const tfdpKnn = mod.TFdpSolver.fromKnn(knnObj, { backend: 'exact', iterations: 4, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42 });
+const tfdpKnn = mod.TFdpSolver.fromKnn(knnObj, { backend: 'exact', iterations: 4, interpolationOrder: 1, intervals: 16, minGridDim: 32, maxGridDim: 128, seed: 42 });
 tfdpKnn.run(lTfdpKnn);
 
 const lIb = mod.Layout2d.fromCoords(init16);
 const ib = new mod.IbUmapSolver(g16, {
   numLandmarks: 8, minDegree: 1, jlDim: 8, degreeNormalize: true, pExp: 0.5, epsPsd: 1e-4, tCoarse: 32.0,
-  backend: 'ibfft', iterations: 5, ibfftOrder: 1, ibfftIntervals: 16, ibfftMinGridDim: 32, ibfftMaxGridDim: 128, seed: 42,
+  backend: 'ibfft', iterations: 5, interpolationOrder: 1, intervals: 16, minGridDim: 32, maxGridDim: 128, seed: 42,
 });
 ib.run(lIb);
 

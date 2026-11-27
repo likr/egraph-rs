@@ -1,6 +1,7 @@
-//! Auxiliary metric summary wrapper types (`PrismDistortion`, `MinimumAngleSummary`, `AdjustedPatchNigDetail`).
+//! Auxiliary metric summary wrapper types (`PrismDistortion`, `MinimumAngleSummary`,
+//! `AdjustedPatchNigDetail`, `StressEvaluation`).
 
-use egraph::metrics::{AdjustedPatchNigDetail, MinimumAngleSummary};
+use egraph::metrics::{AdjustedPatchNigDetail, MinimumAngleSummary, StressEvaluation};
 use wasm_bindgen::prelude::*;
 
 use crate::js_convert::{set_f64_prop, set_js_prop};
@@ -157,6 +158,83 @@ impl JsAdjustedPatchNigDetail {
             "isDegenerate",
             &JsValue::from_bool(self.inner.is_degenerate),
         )?;
+        Ok(obj)
+    }
+}
+
+/// Detailed closed-form Scale-Normalized Stress (`SNS`) diagnostics returned by
+/// `scaleNormalizedStressDetail`.
+#[wasm_bindgen(js_name = StressEvaluation)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JsStressEvaluation {
+    inner: StressEvaluation,
+}
+
+impl JsStressEvaluation {
+    pub(crate) fn from_inner(inner: StressEvaluation) -> Self {
+        Self { inner }
+    }
+}
+
+#[wasm_bindgen(js_class = StressEvaluation)]
+impl JsStressEvaluation {
+    /// Returns the scale-normalized stress in `[0.0, 1.0]`.
+    #[wasm_bindgen(getter, js_name = normalizedStress)]
+    pub fn normalized_stress(&self) -> f64 {
+        self.inner.normalized_stress
+    }
+
+    /// Returns the unnormalized optimal-scale raw stress sum.
+    #[wasm_bindgen(getter, js_name = rawStress)]
+    pub fn raw_stress(&self) -> f64 {
+        self.inner.raw_stress
+    }
+
+    /// Returns the closed-form optimal uniform coordinate scale factor `alpha*`.
+    #[wasm_bindgen(getter, js_name = alphaStar)]
+    pub fn alpha_star(&self) -> f64 {
+        self.inner.alpha_star
+    }
+
+    /// Returns the number of finite positive-distance pairs included in the evaluation.
+    #[wasm_bindgen(getter, js_name = pairCount)]
+    pub fn pair_count(&self) -> usize {
+        self.inner.pair_count
+    }
+
+    /// Returns the sum of `w_ij * d_ij^2` over evaluated pairs.
+    #[wasm_bindgen(getter, js_name = weightDistanceSqSum)]
+    pub fn weight_distance_sq_sum(&self) -> f64 {
+        self.inner.weight_distance_sq_sum
+    }
+
+    /// Alias for `normalizedStress`.
+    #[wasm_bindgen(getter)]
+    pub fn stress(&self) -> f64 {
+        self.inner.normalized_stress
+    }
+
+    /// Alias for `alphaStar`.
+    #[wasm_bindgen(getter)]
+    pub fn scale(&self) -> f64 {
+        self.inner.alpha_star
+    }
+
+    /// Converts fields into a plain JavaScript object without requiring `serde`.
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        set_f64_prop(&obj, "normalizedStress", self.inner.normalized_stress)?;
+        set_f64_prop(&obj, "rawStress", self.inner.raw_stress)?;
+        set_f64_prop(&obj, "alphaStar", self.inner.alpha_star)?;
+        set_f64_prop(&obj, "pairCount", self.inner.pair_count as f64)?;
+        set_f64_prop(
+            &obj,
+            "weightDistanceSqSum",
+            self.inner.weight_distance_sq_sum,
+        )?;
+        set_f64_prop(&obj, "stress", self.inner.normalized_stress)?;
+        set_f64_prop(&obj, "scale", self.inner.alpha_star)?;
         Ok(obj)
     }
 }

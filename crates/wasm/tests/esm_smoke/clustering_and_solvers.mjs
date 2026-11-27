@@ -160,9 +160,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   // TsNetSolver.pure2Hop (also verifying totalFft2dCalls on linear_fft)
   const tsOpts = {
     backend: "linear_fft",
-    iterationsStage1: 4,
-    iterationsStage2: 4,
-    iterationsStage3: 4,
+    stageIterations: [4, 4, 4],
     theta: 0.5,
     seed: 11,
   };
@@ -186,11 +184,10 @@ export async function runClusteringAndSolversSmoke({ eg }) {
     w2: 0.5,
     max2hopPerNode: 8,
     backend: "fft",
-    iterationsStage1: 2,
-    iterationsStage2: 2,
-    iterationsStage3: 2,
+    stageIterations: [2, 2, 2],
     seed: 11,
   });
+  assert.equal(tsRnSolver.samplingMode, "two_step_random_walk");
   const tsRnLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
   assert.equal(tsRnSolver.run(tsRnLayout), "completed");
   assert(tsRnLayout.isAllFinite());
@@ -207,8 +204,8 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   starInit[0] = 1.0;
   starInit[1] = 0.0;
   for (const [label, mk] of [
-    ["pure2Hop", (jp) => TsNetSolver.pure2Hop(starGraph, { backend: "exact", iterationsStage1: 4, iterationsStage2: 2, iterationsStage3: 2, jacobiPrecondition: jp, seed: 42 })],
-    ["fromGraphRowNormalized", (jp) => TsNetSolver.fromGraphRowNormalized(starGraph, { w2: 0.0, backend: "exact", iterationsStage1: 4, iterationsStage2: 2, iterationsStage3: 2, jacobiPrecondition: jp, seed: 42 })],
+    ["pure2Hop", (jp) => TsNetSolver.pure2Hop(starGraph, { backend: "exact", stageIterations: [4, 2, 2], jacobiPrecondition: jp, seed: 42 })],
+    ["fromGraphRowNormalized", (jp) => TsNetSolver.fromGraphRowNormalized(starGraph, { w2: 0.0, backend: "exact", stageIterations: [4, 2, 2], jacobiPrecondition: jp, seed: 42 })],
   ]) {
     const sOn = mk(true);
     const sOff = mk(false);

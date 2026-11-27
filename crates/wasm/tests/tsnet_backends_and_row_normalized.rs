@@ -13,13 +13,21 @@ use wasm_bindgen_test::*;
 fn tsnet_pure_2hop_and_row_normalized_backends() {
     let grid = make_grid(4, 4);
     let init = make_circle_layout(16, 0.5);
+    let stages_4 = js_sys::Array::of3(
+        &JsValue::from_f64(4.0),
+        &JsValue::from_f64(4.0),
+        &JsValue::from_f64(4.0),
+    );
+    let stages_2 = js_sys::Array::of3(
+        &JsValue::from_f64(2.0),
+        &JsValue::from_f64(2.0),
+        &JsValue::from_f64(2.0),
+    );
 
     for backend in ["exact", "BARNES-HUT", "fft_interpolation", "L"] {
         let opts = make_opts(&[
             ("backend", JsValue::from_str(backend)),
-            ("iterationsStage1", JsValue::from_f64(4.0)),
-            ("iterationsStage2", JsValue::from_f64(4.0)),
-            ("iterationsStage3", JsValue::from_f64(4.0)),
+            ("stageIterations", stages_4.clone().into()),
             ("lambdaRStage3", JsValue::from_f64(0.5)),
             ("learningRate", JsValue::from_f64(25.0)),
             ("seed", JsValue::from_f64(42.0)),
@@ -28,9 +36,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         let mut s_run = JsTsNetSolver::pure_2hop(
             &grid,
             &opts,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -57,9 +63,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         let mut s_step = JsTsNetSolver::pure_2hop(
             &grid,
             &opts,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -89,6 +93,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         let ptr_before = l_step.coords_ptr();
 
         assert_eq!(s_run.status(), "initialized");
+        assert!(s_run.sampling_mode().is_none());
         assert_eq!(s_run.total_iterations(), 12);
         assert_eq!(s_run.run_2d(&mut l_run).unwrap(), "completed");
         assert!(s_run.is_finished());
@@ -121,9 +126,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         Some(perps),
         None,
         &JsValue::from_str("fit"),
-        Some(2.0),
-        Some(2.0),
-        Some(2.0),
+        stages_2.as_ref(),
         Some(20.0),
         None,
         None,
@@ -147,9 +150,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     let s_probs = JsTsNetSolver::from_probabilities(
         &probs,
         &JsValue::from_str("fft"),
-        Some(2.0),
-        Some(2.0),
-        Some(2.0),
+        stages_2.as_ref(),
         Some(20.0),
         None,
         None,
@@ -175,9 +176,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         ("max2hopPerNode", JsValue::from_f64(8.0)),
         ("degreeBeta", JsValue::from_f64(0.35)),
         ("backend", JsValue::from_str("fft")),
-        ("iterationsStage1", JsValue::from_f64(2.0)),
-        ("iterationsStage2", JsValue::from_f64(2.0)),
-        ("iterationsStage3", JsValue::from_f64(2.0)),
+        ("stageIterations", stages_2.clone().into()),
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut rn_run = JsTsNetSolver::from_graph_row_normalized(
@@ -185,9 +184,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         &rn_opts,
         None,
         &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
+        &JsValue::UNDEFINED,
         None,
         None,
         None,
@@ -205,14 +202,16 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         None,
     )
     .expect("fromGraphRowNormalized opts");
+    assert_eq!(
+        rn_run.sampling_mode().as_deref(),
+        Some("two_step_random_walk")
+    );
     let mut rn_step = JsTsNetSolver::from_graph_row_normalized(
         &grid,
         &JsValue::from_f64(0.5),
         Some(8.0),
         &JsValue::from_str("fft"),
-        Some(2.0),
-        Some(2.0),
-        Some(2.0),
+        stages_2.as_ref(),
         None,
         None,
         None,
@@ -230,6 +229,10 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         Some(0.35),
     )
     .expect("fromGraphRowNormalized pos");
+    assert_eq!(
+        rn_step.sampling_mode().as_deref(),
+        Some("two_step_random_walk")
+    );
     let mut lrn_run = init.clone();
     let mut lrn_step = init.clone();
     assert_eq!(rn_run.run_2d(&mut lrn_run).unwrap(), "completed");
@@ -239,6 +242,45 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     assert_layouts_bit_exact(&lrn_run, &lrn_step);
     assert!(rn_run.current_stage_lr() <= 32.0);
 
+    // Explicit samplingMode + twoStepRandomWalk override in fromGraphRowNormalized
+    let rn_deg_opts = make_opts(&[
+        ("w2", JsValue::from_f64(0.5)),
+        (
+            "samplingMode",
+            JsValue::from_str("degree_ordered_hub_suppressed"),
+        ),
+        ("maxBridgeDegree", JsValue::from_f64(4.0)),
+        ("backend", JsValue::from_str("exact")),
+        ("stageIterations", stages_2.clone().into()),
+    ]);
+    let rn_deg = JsTsNetSolver::from_graph_row_normalized(
+        &grid,
+        &rn_deg_opts,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        rn_deg.sampling_mode().as_deref(),
+        Some("degree_ordered_hub_suppressed")
+    );
+
     // w2 = 0.0 parity with graphRowNormalizedProbabilities + fromProbabilities
     let probs_1hop = js_graph_row_normalized_probabilities(&grid).unwrap();
     let mut s_rn0 = JsTsNetSolver::from_graph_row_normalized(
@@ -246,9 +288,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         &JsValue::from_f64(0.0),
         None,
         &JsValue::from_str("fft"),
-        Some(2.0),
-        Some(2.0),
-        Some(2.0),
+        stages_2.as_ref(),
         None,
         None,
         None,
@@ -269,9 +309,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     let mut s_p0 = JsTsNetSolver::from_probabilities(
         &probs_1hop,
         &JsValue::from_str("fft"),
-        Some(2.0),
-        Some(2.0),
-        Some(2.0),
+        stages_2.as_ref(),
         None,
         None,
         None,
@@ -299,9 +337,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
             &JsValue::from_f64(-0.1),
             None,
             &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,

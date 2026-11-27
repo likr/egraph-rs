@@ -226,9 +226,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   // Solver progressive stepping + AbortSignal
   const tsPartial = TsNetSolver.fromGraphPartialBfs(karate, 8, 6.0, {
     backend: "fft",
-    iterationsStage1: 2,
-    iterationsStage2: 2,
-    iterationsStage3: 2,
+    stageIterations: [2, 2, 2],
     intervals: 1,
     interpolationOrder: 1,
     minGridDim: 16,
@@ -255,9 +253,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   const ac = new AbortController();
   const tsAbort = TsNetSolver.pure2Hop(karate, {
     backend: "exact",
-    iterationsStage1: 10,
-    iterationsStage2: 10,
-    iterationsStage3: 10,
+    stageIterations: [10, 10, 10],
     seed: 42,
   });
   const lAbort = Layout2d.fromCoords(cmds.copyCoords());

@@ -9,9 +9,9 @@ use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 use crate::linalg_matrix::JsEigenResult;
 use egraph::core::{Layout2d, LayoutNd};
 use egraph::linalg::{
-    PivotMdsConfig, RdMds, classical_mds_2d, koren_spectral_init, normalize_layout_2d, pivot_mds,
-    representative_mds, robust_normalize_layout_2d, select_maxmin_sp_pivots,
-    smallest_sym_laplacian_eigenpairs,
+    EigenResult, PivotMdsConfig, RdMds, classical_mds_2d, koren_spectral_init, normalize_layout_2d,
+    pivot_mds, representative_mds, robust_normalize_layout_2d, select_maxmin_sp_pivots,
+    smallest_sym_laplacian_eigenpairs, symmetric_eigen_jacobi,
 };
 use egraph::neighborhood::{compute_diffusion_embedding, compute_resistance_embedding};
 use wasm_bindgen::prelude::*;
@@ -86,7 +86,7 @@ pub fn js_koren_spectral_init(
     graph: &JsCsrGraph,
     target_std: &JsValue,
     tol: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
 ) -> Result<JsLayout2d, JsError> {
     let t_std = parse_optional_target_std(target_std)?;
@@ -94,9 +94,9 @@ pub fn js_koren_spectral_init(
     if !tol_val.is_finite() || tol_val <= 0.0 {
         return Err(JsError::new("tol must be finite and strictly positive"));
     }
-    let max_iters_val = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let max_iters_val = parse_optional_usize(max_iterations, DEFAULT_MAX_ITERS, "maxIterations")?;
     if max_iters_val == 0 {
-        return Err(JsError::new("maxIters must be >= 1"));
+        return Err(JsError::new("maxIterations must be >= 1"));
     }
     let seed_u64 = parse_seed_u64(seed)?;
     let layout: Layout2d<f32> =
@@ -111,17 +111,65 @@ pub fn js_smallest_laplacian_eigenpairs(
     graph: &JsCsrGraph,
     n_modes: Option<f64>,
     tol: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
 ) -> Result<JsEigenResult, JsError> {
     let modes = parse_optional_usize(n_modes, DEFAULT_N_MODES, "nModes")?;
     let tol_val = tol.unwrap_or(DEFAULT_TOL);
-    let max_iters_val = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let max_iters_val = parse_optional_usize(max_iterations, DEFAULT_MAX_ITERS, "maxIterations")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let inner =
         smallest_sym_laplacian_eigenpairs(graph.inner(), modes, tol_val, max_iters_val, seed_u64)
             .map_err(core_err_to_js)?;
     Ok(JsEigenResult::from_inner(inner))
+}
+
+/// Computes ascending symmetric eigenpairs `(lambdas, vectors)` of an `n x n` row-major matrix
+/// via dense cyclic Jacobi rotations in `f64`, optionally truncated to the smallest `nModes`.
+#[wasm_bindgen(js_name = symmetricEigenJacobi)]
+pub fn js_symmetric_eigen_jacobi(
+    a_row_major: &[f64],
+    n: f64,
+    n_modes: Option<f64>,
+    max_sweeps: Option<f64>,
+    tol: Option<f64>,
+) -> Result<JsEigenResult, JsError> {
+    let n_val = parse_non_negative_usize(n, "n")?;
+    let requested_modes = match n_modes {
+        None => None,
+        Some(v) => {
+            let m = parse_non_negative_usize(v, "nModes")?;
+            if m == 0 {
+                return Err(JsError::new("nModes must be >= 1"));
+            }
+            Some(m)
+        }
+    };
+    let sweeps = parse_optional_usize(max_sweeps, 120, "maxSweeps")?;
+    let tol_val = tol.unwrap_or(1e-12);
+    let (mut lambdas, all_vectors) =
+        symmetric_eigen_jacobi(a_row_major, n_val, sweeps, tol_val).map_err(core_err_to_js)?;
+    let k = requested_modes.map_or(n_val, |m| m.min(n_val));
+    lambdas.truncate(k);
+    let vectors = if k == n_val {
+        all_vectors
+    } else {
+        let mut sliced = Vec::with_capacity(n_val * k);
+        for row in 0..n_val {
+            let start = row * n_val;
+            sliced.extend_from_slice(&all_vectors[start..start + k]);
+        }
+        sliced
+    };
+    Ok(JsEigenResult::from_inner(EigenResult {
+        lambdas,
+        vectors,
+        inv_sqrt_deg: Vec::new(),
+        num_nodes: n_val,
+        num_modes: k,
+        used_dense_fallback: true,
+        iterations: 0,
+    }))
 }
 
 /// Spectral embedding output returned by `computeResistanceEmbedding` and `computeDiffusionEmbedding`.
@@ -180,14 +228,14 @@ pub fn js_rd_mds(
     dims: Option<f64>,
     eig_eps: Option<f64>,
     tol: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
     degree_normalize: Option<bool>,
 ) -> Result<JsLayoutNd, JsError> {
     let d = parse_optional_usize(dims, 2, "dims")?;
     let eps = eig_eps.unwrap_or(1e-10);
     let tol_val = tol.unwrap_or(1e-6);
-    let m_iters = parse_optional_usize(max_iters, 1000, "maxIters")?;
+    let m_iters = parse_optional_usize(max_iterations, 1000, "maxIterations")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let deg_norm = degree_normalize.unwrap_or(true);
     let layout: LayoutNd<f32> = RdMds::with_dims(d)
@@ -262,13 +310,13 @@ pub fn js_compute_resistance_embedding(
     graph: &JsCsrGraph,
     dim: Option<f64>,
     tol: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
     eig_eps: Option<f64>,
 ) -> Result<JsSpectralEmbeddingResult, JsError> {
     let d = parse_optional_usize(dim, DEFAULT_N_MODES, "dim")?;
     let tol_val = tol.unwrap_or(DEFAULT_TOL);
-    let m_iters = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let m_iters = parse_optional_usize(max_iterations, DEFAULT_MAX_ITERS, "maxIterations")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let eps = eig_eps.unwrap_or(1e-10);
     let (coords, lambdas) =
@@ -292,13 +340,13 @@ pub fn js_compute_diffusion_embedding(
     p: Option<f64>,
     t: Option<f64>,
     tol: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
 ) -> Result<JsSpectralEmbeddingResult, JsError> {
     let d = parse_optional_usize(dim, DEFAULT_N_MODES, "dim")?;
     let p_val = p.unwrap_or(0.05);
     let tol_val = tol.unwrap_or(DEFAULT_TOL);
-    let m_iters = parse_optional_usize(max_iters, DEFAULT_MAX_ITERS, "maxIters")?;
+    let m_iters = parse_optional_usize(max_iterations, DEFAULT_MAX_ITERS, "maxIterations")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let (coords, lambdas, t_used) =
         compute_diffusion_embedding(graph.inner(), d, p_val, t, tol_val, m_iters, seed_u64)

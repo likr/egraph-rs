@@ -12,6 +12,7 @@ use crate::js_options::{
     opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
     parse_ibfft_order, reject_extra_args_with_options,
 };
+use wasm_bindgen::JsCast;
 
 pub(crate) fn parse_tsnet_backend(raw: &str) -> Result<TsNetBackend, JsError> {
     match normalize_enum_token(raw).as_str() {
@@ -48,12 +49,79 @@ pub(crate) fn parse_tsnet_sampling_mode(raw: &str) -> Result<TwoHopSamplingMode,
     }
 }
 
+pub(crate) fn tsnet_sampling_mode_str(mode: TwoHopSamplingMode) -> &'static str {
+    match mode {
+        TwoHopSamplingMode::DegreeOrderedHubSuppressed => "degree_ordered_hub_suppressed",
+        TwoHopSamplingMode::TwoStepRandomWalk => "two_step_random_walk",
+    }
+}
+
+pub(crate) fn parse_stage_iterations_val(
+    si_val: &JsValue,
+    default: [usize; 3],
+) -> Result<[usize; 3], JsError> {
+    if si_val.is_undefined() || si_val.is_null() {
+        return Ok(default);
+    }
+    let mut vals = Vec::with_capacity(3);
+    if let Some(arr) = si_val.dyn_ref::<js_sys::Uint32Array>() {
+        for v in arr.to_vec() {
+            vals.push(v as usize);
+        }
+    } else if !si_val.is_string() && si_val.is_object() {
+        let iter = js_sys::try_iter(si_val)
+            .map_err(|err| JsError::new(&format!("failed to iterate stageIterations: {err:?}")))?
+            .ok_or_else(|| JsError::new("stageIterations must be a 3-element integer array"))?;
+        for item_res in iter {
+            let item = item_res
+                .map_err(|err| JsError::new(&format!("failed to read stageIterations: {err:?}")))?;
+            let num = item
+                .as_f64()
+                .ok_or_else(|| JsError::new("stageIterations entries must be integers"))?;
+            vals.push(parse_non_negative_usize(num, "stageIterations")?);
+        }
+    } else {
+        return Err(JsError::new(
+            "stageIterations must be a 3-element integer array",
+        ));
+    }
+    if vals.len() != 3 {
+        return Err(JsError::new(&format!(
+            "stageIterations must have length 3, got {}",
+            vals.len()
+        )));
+    }
+    Ok([vals[0], vals[1], vals[2]])
+}
+
+pub(crate) fn parse_sampling_mode_from_options(
+    options: &JsValue,
+    default: TwoHopSamplingMode,
+) -> Result<TwoHopSamplingMode, JsError> {
+    if let Some(raw_mode) = opt_string_prop(options, "mode")? {
+        return parse_tsnet_sampling_mode(&raw_mode);
+    }
+    if let Some(raw_mode) = opt_string_prop(options, "samplingMode")? {
+        return parse_tsnet_sampling_mode(&raw_mode);
+    }
+    let rw_val = get_prop(options, "twoStepRandomWalk")?;
+    if !rw_val.is_undefined() && !rw_val.is_null() {
+        let rw = rw_val
+            .as_bool()
+            .ok_or_else(|| JsError::new("options.twoStepRandomWalk must be a boolean"))?;
+        return Ok(if rw {
+            TwoHopSamplingMode::TwoStepRandomWalk
+        } else {
+            TwoHopSamplingMode::DegreeOrderedHubSuppressed
+        });
+    }
+    Ok(default)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn parse_tsnet_config(
     backend_or_options: &JsValue,
-    iterations_stage1: Option<f64>,
-    iterations_stage2: Option<f64>,
-    iterations_stage3: Option<f64>,
+    stage_iterations: &JsValue,
     learning_rate: Option<f64>,
     perplexity_c: Option<f64>,
     min_perplexity: Option<f64>,
@@ -78,9 +146,7 @@ pub(crate) fn parse_tsnet_config(
 ) -> Result<TsNetConfig, JsError> {
     let mut cfg = TsNetConfig::pure_2hop();
     if is_plain_js_object(backend_or_options) {
-        let has_extra = iterations_stage1.is_some()
-            || iterations_stage2.is_some()
-            || iterations_stage3.is_some()
+        let has_extra = (!stage_iterations.is_undefined() && !stage_iterations.is_null())
             || learning_rate.is_some()
             || perplexity_c.is_some()
             || min_perplexity.is_some()
@@ -122,60 +188,8 @@ pub(crate) fn parse_tsnet_config(
             "jacobiPrecondition",
             cfg.jacobi_precondition,
         )?;
-        cfg.stage_iterations[0] = opt_usize_prop(
-            backend_or_options,
-            "iterationsStage1",
-            cfg.stage_iterations[0],
-        )?;
-        cfg.stage_iterations[1] = opt_usize_prop(
-            backend_or_options,
-            "iterationsStage2",
-            cfg.stage_iterations[1],
-        )?;
-        cfg.stage_iterations[2] = opt_usize_prop(
-            backend_or_options,
-            "iterationsStage3",
-            cfg.stage_iterations[2],
-        )?;
         let si_val = get_prop(backend_or_options, "stageIterations")?;
-        if !si_val.is_undefined() && !si_val.is_null() {
-            let mut vals = Vec::with_capacity(3);
-            if let Some(arr) = si_val.dyn_ref::<js_sys::Uint32Array>() {
-                for v in arr.to_vec() {
-                    vals.push(v as usize);
-                }
-            } else if !si_val.is_string() && si_val.is_object() {
-                let iter = js_sys::try_iter(&si_val)
-                    .map_err(|err| {
-                        JsError::new(&format!(
-                            "failed to iterate options.stageIterations: {err:?}"
-                        ))
-                    })?
-                    .ok_or_else(|| {
-                        JsError::new("options.stageIterations must be a 3-element integer array")
-                    })?;
-                for item_res in iter {
-                    let item = item_res.map_err(|err| {
-                        JsError::new(&format!("failed to read options.stageIterations: {err:?}"))
-                    })?;
-                    let num = item.as_f64().ok_or_else(|| {
-                        JsError::new("options.stageIterations entries must be integers")
-                    })?;
-                    vals.push(parse_non_negative_usize(num, "stageIterations")?);
-                }
-            } else {
-                return Err(JsError::new(
-                    "options.stageIterations must be a 3-element integer array",
-                ));
-            }
-            if vals.len() != 3 {
-                return Err(JsError::new(&format!(
-                    "options.stageIterations must have length 3, got {}",
-                    vals.len()
-                )));
-            }
-            cfg.stage_iterations = [vals[0], vals[1], vals[2]];
-        }
+        cfg.stage_iterations = parse_stage_iterations_val(&si_val, cfg.stage_iterations)?;
         cfg.exaggeration = opt_f64_prop(backend_or_options, "exaggeration", cfg.exaggeration)?;
         cfg.lambda_c_stage1 =
             opt_f64_prop(backend_or_options, "lambdaCStage1", cfg.lambda_c_stage1)?;
@@ -197,27 +211,14 @@ pub(crate) fn parse_tsnet_config(
         cfg.theta = opt_f64_prop(backend_or_options, "theta", cfg.theta)?;
 
         let ord_primary = get_prop(backend_or_options, "interpolationOrder")?;
-        let ord_alt = get_prop(backend_or_options, "ibfftOrder")?;
         if !ord_primary.is_undefined() && !ord_primary.is_null() {
             cfg.ibfft.order = parse_ibfft_order(&ord_primary)?;
-        } else if !ord_alt.is_undefined() && !ord_alt.is_null() {
-            cfg.ibfft.order = parse_ibfft_order(&ord_alt)?;
         }
-        let int_primary = opt_maybe_usize_prop(backend_or_options, "intervals")?;
-        let int_alt = opt_maybe_usize_prop(backend_or_options, "ibfftIntervals")?;
-        cfg.ibfft.intervals = int_primary.or(int_alt).unwrap_or(cfg.ibfft.intervals);
-
-        let min_g_primary = opt_maybe_usize_prop(backend_or_options, "minGridDim")?;
-        let min_g_alt = opt_maybe_usize_prop(backend_or_options, "ibfftMinGridDim")?;
-        cfg.ibfft.min_grid_dim = min_g_primary
-            .or(min_g_alt)
-            .unwrap_or(cfg.ibfft.min_grid_dim);
-
-        let max_g_primary = opt_maybe_usize_prop(backend_or_options, "maxGridDim")?;
-        let max_g_alt = opt_maybe_usize_prop(backend_or_options, "ibfftMaxGridDim")?;
-        cfg.ibfft.max_grid_dim = max_g_primary
-            .or(max_g_alt)
-            .unwrap_or(cfg.ibfft.max_grid_dim);
+        cfg.ibfft.intervals = opt_usize_prop(backend_or_options, "intervals", cfg.ibfft.intervals)?;
+        cfg.ibfft.min_grid_dim =
+            opt_usize_prop(backend_or_options, "minGridDim", cfg.ibfft.min_grid_dim)?;
+        cfg.ibfft.max_grid_dim =
+            opt_usize_prop(backend_or_options, "maxGridDim", cfg.ibfft.max_grid_dim)?;
 
         cfg.seed = opt_seed_prop(backend_or_options)?;
         return Ok(cfg);
@@ -232,21 +233,7 @@ pub(crate) fn parse_tsnet_config(
         cfg.backend = parse_tsnet_backend(&b_str)?;
     }
 
-    cfg.stage_iterations[0] = parse_optional_usize(
-        iterations_stage1,
-        cfg.stage_iterations[0],
-        "iterationsStage1",
-    )?;
-    cfg.stage_iterations[1] = parse_optional_usize(
-        iterations_stage2,
-        cfg.stage_iterations[1],
-        "iterationsStage2",
-    )?;
-    cfg.stage_iterations[2] = parse_optional_usize(
-        iterations_stage3,
-        cfg.stage_iterations[2],
-        "iterationsStage3",
-    )?;
+    cfg.stage_iterations = parse_stage_iterations_val(stage_iterations, cfg.stage_iterations)?;
     cfg.learning_rate = learning_rate.or(cfg.learning_rate);
     cfg.perplexity_c = perplexity_c.unwrap_or(cfg.perplexity_c);
     cfg.min_perplexity = min_perplexity.unwrap_or(cfg.min_perplexity);
@@ -277,14 +264,12 @@ pub(crate) fn parse_tsnet_config(
     Ok(cfg)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn parse_row_normalized_tsnet_args(
     w2_or_options: &JsValue,
     max_2hop_per_node: Option<f64>,
     backend_or_options: &JsValue,
-    iterations_stage1: Option<f64>,
-    iterations_stage2: Option<f64>,
-    iterations_stage3: Option<f64>,
+    stage_iterations: &JsValue,
     learning_rate: Option<f64>,
     exaggeration: Option<f64>,
     lambda_c_stage1: Option<f64>,
@@ -300,13 +285,21 @@ pub(crate) fn parse_row_normalized_tsnet_args(
     min_grid_dim: Option<f64>,
     max_grid_dim: Option<f64>,
     degree_beta: Option<f64>,
-) -> Result<(f64, Option<usize>, f64, TsNetConfig), JsError> {
+) -> Result<
+    (
+        f64,
+        Option<usize>,
+        f64,
+        TwoHopSamplingMode,
+        Option<usize>,
+        TsNetConfig,
+    ),
+    JsError,
+> {
     if is_plain_js_object(w2_or_options) {
         let has_extra = max_2hop_per_node.is_some()
             || (!backend_or_options.is_undefined() && !backend_or_options.is_null())
-            || iterations_stage1.is_some()
-            || iterations_stage2.is_some()
-            || iterations_stage3.is_some()
+            || (!stage_iterations.is_undefined() && !stage_iterations.is_null())
             || learning_rate.is_some()
             || exaggeration.is_some()
             || lambda_c_stage1.is_some()
@@ -326,11 +319,12 @@ pub(crate) fn parse_row_normalized_tsnet_args(
         let w2_val = opt_f64_prop(w2_or_options, "w2", 0.5)?;
         let max_2hop = opt_maybe_usize_prop(w2_or_options, "max2hopPerNode")?;
         let beta = opt_f64_prop(w2_or_options, "degreeBeta", 0.0)?;
+        let sampling_mode =
+            parse_sampling_mode_from_options(w2_or_options, TwoHopSamplingMode::TwoStepRandomWalk)?;
+        let max_bridge_degree = opt_maybe_usize_prop(w2_or_options, "maxBridgeDegree")?;
         let cfg = parse_tsnet_config(
             w2_or_options,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -353,7 +347,14 @@ pub(crate) fn parse_row_normalized_tsnet_args(
             None,
             None,
         )?;
-        Ok((w2_val, max_2hop, beta, cfg))
+        Ok((
+            w2_val,
+            max_2hop,
+            beta,
+            sampling_mode,
+            max_bridge_degree,
+            cfg,
+        ))
     } else {
         let w2_val = if w2_or_options.is_undefined() || w2_or_options.is_null() {
             0.5
@@ -368,9 +369,7 @@ pub(crate) fn parse_row_normalized_tsnet_args(
         let beta = degree_beta.unwrap_or(0.0);
         let cfg = parse_tsnet_config(
             backend_or_options,
-            iterations_stage1,
-            iterations_stage2,
-            iterations_stage3,
+            stage_iterations,
             learning_rate,
             None,
             None,
@@ -393,6 +392,13 @@ pub(crate) fn parse_row_normalized_tsnet_args(
             min_grid_dim,
             max_grid_dim,
         )?;
-        Ok((w2_val, max_2hop, beta, cfg))
+        Ok((
+            w2_val,
+            max_2hop,
+            beta,
+            TwoHopSamplingMode::TwoStepRandomWalk,
+            None,
+            cfg,
+        ))
     }
 }

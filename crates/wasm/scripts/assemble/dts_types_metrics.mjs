@@ -242,6 +242,19 @@ export interface MetricConfigOptions extends ClusterBaselineOptions {
 }
 
 /**
+ * Plain JavaScript record returned by \`StressEvaluation.toRecord()\`.
+ */
+export interface StressEvaluationRecord {
+    normalizedStress: number;
+    rawStress: number;
+    alphaStar: number;
+    pairCount: number;
+    weightDistanceSqSum: number;
+    stress: number;
+    scale: number;
+}
+
+/**
  * Plain JavaScript record returned by \`ClusterAreaReport.toRecord()\`.
  */
 export interface ClusterAreaReportRecord {
@@ -257,7 +270,7 @@ export interface ClusterAreaReportRecord {
     gEff: number;
     numClusters: number;
     numNodes: number;
-    clusterIds: Uint32Array;
+    uniqueLabels: Uint32Array;
     counts: Uint32Array;
     p: Float64Array;
     q: Float64Array;

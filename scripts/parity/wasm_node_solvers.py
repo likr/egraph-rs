@@ -79,8 +79,8 @@ if (typeof mod.TsNetSolver === 'function') {
     initArr[2 * i + 1] = 0.6 * Math.sin(1.13 * i - 0.21) - 0.09 * i / 16.0;
   }
 
-  const tsR = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 });
-  const tsS = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 });
+  const tsR = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', stageIterations: [4, 4, 4], seed: 42 });
+  const tsS = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', stageIterations: [4, 4, 4], seed: 42 });
   const lR = Layout2d.fromCoords(initArr);
   const lS = Layout2d.fromCoords(initArr);
   assert.equal(tsR.run(lR), 'completed');

@@ -31,7 +31,7 @@ pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
 
 pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
     if let Some(num) = val.as_f64() {
-        let ord = parse_non_negative_usize(num, "ibfftOrder")?;
+        let ord = parse_non_negative_usize(num, "interpolationOrder")?;
         return InterpolationOrder::from_order(ord).map_err(core_err_to_js);
     }
     if let Some(raw) = val.as_string() {
@@ -39,12 +39,12 @@ pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsE
             "bilinear" | "1" => Ok(InterpolationOrder::Bilinear),
             "cubic" | "3" => Ok(InterpolationOrder::Cubic),
             _ => Err(JsError::new(&format!(
-                "unknown ibfftOrder {raw:?}; expected 'bilinear' (1) or 'cubic' (3)"
+                "unknown interpolationOrder {raw:?}; expected 'bilinear' (1) or 'cubic' (3)"
             ))),
         };
     }
     Err(JsError::new(
-        "ibfftOrder must be 'bilinear', 'cubic', 1, or 3",
+        "interpolationOrder must be 'bilinear', 'cubic', 1, or 3",
     ))
 }
 

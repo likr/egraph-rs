@@ -26,9 +26,7 @@ export function ExampleTsNetTrackA() {
         layout = pivotMdsInit(graph, 32, 42, null, 1.0);
         solver = TsNetSolver.pure2Hop(graph, {
           backend: "fft",
-          iterationsStage1: 120,
-          iterationsStage2: 80,
-          iterationsStage3: 150,
+          stageIterations: [120, 80, 150],
           seed: 42,
         });
         sceneRef.current = {

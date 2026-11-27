@@ -35,15 +35,13 @@ pub(crate) fn parse_t_fdp_config_with_ctx(
         cfg.rho.start_weight = opt_f64_prop(options, "rhoStart", cfg.rho.start_weight)?;
         cfg.rho.end_weight = opt_f64_prop(options, "rhoEnd", cfg.rho.end_weight)?;
         cfg.rho.power = opt_f64_prop(options, "rhoPower", cfg.rho.power)?;
-        let ord_val = get_prop(options, "ibfftOrder")?;
+        let ord_val = get_prop(options, "interpolationOrder")?;
         if !ord_val.is_undefined() && !ord_val.is_null() {
             cfg.ibfft.order = parse_ibfft_order(&ord_val)?;
         }
-        cfg.ibfft.intervals = opt_usize_prop(options, "ibfftIntervals", cfg.ibfft.intervals)?;
-        cfg.ibfft.min_grid_dim =
-            opt_usize_prop(options, "ibfftMinGridDim", cfg.ibfft.min_grid_dim)?;
-        cfg.ibfft.max_grid_dim =
-            opt_usize_prop(options, "ibfftMaxGridDim", cfg.ibfft.max_grid_dim)?;
+        cfg.ibfft.intervals = opt_usize_prop(options, "intervals", cfg.ibfft.intervals)?;
+        cfg.ibfft.min_grid_dim = opt_usize_prop(options, "minGridDim", cfg.ibfft.min_grid_dim)?;
+        cfg.ibfft.max_grid_dim = opt_usize_prop(options, "maxGridDim", cfg.ibfft.max_grid_dim)?;
         cfg.seed = opt_seed_prop(options)?;
     }
     Ok(cfg)

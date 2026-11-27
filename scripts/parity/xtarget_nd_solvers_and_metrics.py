@@ -207,7 +207,7 @@ const runPair = (mk, base, dims, chunk) => {
 
 const solvers = {
   sgd: runPair(() => mod.SgdSolver.full(g16, { iterations: 6, seed: 42 }), init3, 3, 2),
-  tsnet: runPair(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', iterationsStage1: 3, iterationsStage2: 3, iterationsStage3: 3, seed: 42 }), init3, 3, 3),
+  tsnet: runPair(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', stageIterations: [3, 3, 3], seed: 42 }), init3, 3, 3),
   gumap: runPair(() => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 8, learningRate: 0.2, seed: 42 }), init3, 3, 3),
   sm: runPair(() => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 10 }), init3, 3, 3),
   kk: runPair(() => mod.KamadaKawaiSolver.fromGraph(g16, { maxIterations: 10, eps: 1e-3, maxInnerIters: 30 }), init3, 3, 3),

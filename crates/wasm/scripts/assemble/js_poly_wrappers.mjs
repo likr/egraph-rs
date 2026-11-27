@@ -174,6 +174,7 @@ export function evaluateMetrics(graph, layout, targets, ...args) {
 }
 
 export const scaleNormalizedStress = dispatchGraphLayout3("scaleNormalizedStress", _scaleNormalizedStress2d, _scaleNormalizedStressNd, _scaleNormalizedStressManifold);
+export const scaleNormalizedStressDetail = dispatchGraphLayout3("scaleNormalizedStressDetail", _scaleNormalizedStressDetail2d, _scaleNormalizedStressDetailNd, _scaleNormalizedStressDetailManifold);
 export const sampledScaleNormalizedStress = dispatchGraphLayout3("sampledScaleNormalizedStress", _sampledScaleNormalizedStress2d, _sampledScaleNormalizedStressNd, _sampledScaleNormalizedStressManifold);
 export const scaleNormalizedStressFromDistances = dispatchLayout3("scaleNormalizedStressFromDistances", _scaleNormalizedStressFromDistances2d, _scaleNormalizedStressFromDistancesNd, _scaleNormalizedStressFromDistancesManifold);
 export const neighborhoodPreservation1Hop = dispatchGraphLayout3("neighborhoodPreservation1Hop", _neighborhoodPreservation1Hop2d, _neighborhoodPreservation1HopNd, _neighborhoodPreservation1HopManifold);

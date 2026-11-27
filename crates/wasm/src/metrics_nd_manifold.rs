@@ -6,6 +6,7 @@ use crate::js_convert::{core_err_to_js, parse_non_negative_usize, parse_seed_u64
 use crate::layout_buffers::JsLayoutNd;
 use crate::manifold::JsManifoldLayout2d;
 use crate::metrics_crossings::JsLayoutDegeneracy;
+use crate::metrics_summaries::JsStressEvaluation;
 use egraph::metrics::{
     gabriel_graph_edges_nd, gabriel_graph_preservation_manifold, gabriel_graph_preservation_nd,
     gabriel_graph_property_manifold, gabriel_graph_property_nd, ideal_edge_lengths_manifold,
@@ -17,7 +18,8 @@ use egraph::metrics::{
     relative_neighborhood_preservation_nd, sampled_neighborhood_preservation_1hop_manifold,
     sampled_neighborhood_preservation_1hop_nd, sampled_neighborhood_preservation_2hop_manifold,
     sampled_neighborhood_preservation_2hop_nd, sampled_scale_normalized_stress_manifold,
-    sampled_scale_normalized_stress_nd, scale_normalized_stress_from_distances_manifold,
+    sampled_scale_normalized_stress_nd, scale_normalized_stress_detail_manifold,
+    scale_normalized_stress_detail_nd, scale_normalized_stress_from_distances_manifold,
     scale_normalized_stress_from_distances_nd, scale_normalized_stress_manifold,
     scale_normalized_stress_nd,
 };
@@ -34,6 +36,26 @@ pub fn js_sns_nd(graph: &JsCsrGraph, layout: &JsLayoutNd) -> Result<f64, JsError
 #[wasm_bindgen(js_name = _scaleNormalizedStressManifold)]
 pub fn js_sns_manifold(graph: &JsCsrGraph, layout: &JsManifoldLayout2d) -> Result<f64, JsError> {
     scale_normalized_stress_manifold(graph.inner(), layout.inner()).map_err(core_err_to_js)
+}
+
+#[wasm_bindgen(js_name = _scaleNormalizedStressDetailNd)]
+pub fn js_sns_detail_nd(
+    graph: &JsCsrGraph,
+    layout: &JsLayoutNd,
+) -> Result<JsStressEvaluation, JsError> {
+    let eval =
+        scale_normalized_stress_detail_nd(graph.inner(), layout.inner()).map_err(core_err_to_js)?;
+    Ok(JsStressEvaluation::from_inner(eval))
+}
+
+#[wasm_bindgen(js_name = _scaleNormalizedStressDetailManifold)]
+pub fn js_sns_detail_manifold(
+    graph: &JsCsrGraph,
+    layout: &JsManifoldLayout2d,
+) -> Result<JsStressEvaluation, JsError> {
+    let eval = scale_normalized_stress_detail_manifold(graph.inner(), layout.inner())
+        .map_err(core_err_to_js)?;
+    Ok(JsStressEvaluation::from_inner(eval))
 }
 
 #[wasm_bindgen(js_name = _sampledScaleNormalizedStressNd)]

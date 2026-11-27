@@ -77,7 +77,7 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   assert.equal(cafRec.effectiveBoundaryR95, 2.0);
   assert.equal(cafRec.gEff, 12);
   assert(Math.abs(cafRec.caf - cafValU32) < 1e-12);
-  assert.deepEqual(Array.from(cafRec.clusterIds), [0, 1]);
+  assert.deepEqual(Array.from(cafRec.uniqueLabels), [0, 1]);
   assert.deepEqual(Array.from(cafRec.counts), [25, 25]);
   cafDet.free();
 
@@ -215,7 +215,7 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
     "gEff",
     "numClusters",
     "numNodes",
-    "clusterIds",
+    "uniqueLabels",
     "counts",
     "p",
     "q",
@@ -230,7 +230,7 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   assert.equal(d0Rec.numClusters, 0);
   assert.equal(d0Rec.numNodes, 0);
   for (const arrKey of [
-    "clusterIds",
+    "uniqueLabels",
     "counts",
     "p",
     "q",

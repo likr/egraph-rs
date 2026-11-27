@@ -50,9 +50,6 @@ export interface ResistanceCurvatureFlowOptions extends EffectiveResistanceOptio
 
 export interface TsNetOptions {
   backend?: TsNetBackend | string | null;
-  iterationsStage1?: number | null;
-  iterationsStage2?: number | null;
-  iterationsStage3?: number | null;
   stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null;
   learningRate?: number | null;
   learningRateDivisor?: number | null;
@@ -72,10 +69,6 @@ export interface TsNetOptions {
   sigmaTolerance?: number | null;
   rowNormalize?: boolean | null;
   jacobiPrecondition?: boolean | null;
-  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
-  ibfftIntervals?: number | null;
-  ibfftMinGridDim?: number | null;
-  ibfftMaxGridDim?: number | null;
   intervals?: number | null;
   interpolationOrder?: "bilinear" | "cubic" | 1 | 3 | null;
   minGridDim?: number | null;
@@ -229,10 +222,10 @@ export interface TFdpOptions {
   rhoStart?: number | null;
   rhoEnd?: number | null;
   rhoPower?: number | null;
-  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
-  ibfftIntervals?: number | null;
-  ibfftMinGridDim?: number | null;
-  ibfftMaxGridDim?: number | null;
+  interpolationOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  intervals?: number | null;
+  minGridDim?: number | null;
+  maxGridDim?: number | null;
   seed?: number | null;
 }
 
@@ -252,10 +245,10 @@ export interface IbUmapOptions {
   sigmaIters?: number | null;
   sigmaTolerance?: number | null;
   degrees?: Uint32Array | number[] | null;
-  ibfftOrder?: "bilinear" | "cubic" | 1 | 3 | null;
-  ibfftIntervals?: number | null;
-  ibfftMinGridDim?: number | null;
-  ibfftMaxGridDim?: number | null;
+  interpolationOrder?: "bilinear" | "cubic" | 1 | 3 | null;
+  intervals?: number | null;
+  minGridDim?: number | null;
+  maxGridDim?: number | null;
   degree?: number | null;
   numLandmarks?: number | null;
   minDegree?: number | null;

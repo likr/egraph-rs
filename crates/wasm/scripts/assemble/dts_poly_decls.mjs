@@ -3,6 +3,7 @@ export function evaluateMetrics(graph: CsrGraph, layout: AnyLayout, targets: rea
 export function evaluateMetrics(graph: CsrGraph, layout: AnyLayout, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, labels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null, clusterBaselineOptions?: ClusterBaselineOptions | null): MetricReport;
 
 export function scaleNormalizedStress(graph: CsrGraph, layout: AnyLayout): number;
+export function scaleNormalizedStressDetail(graph: CsrGraph, layout: AnyLayout): StressEvaluation;
 export function sampledScaleNormalizedStress(graph: CsrGraph, layout: AnyLayout, numPivots?: number | null, seed?: number | null): number;
 export function scaleNormalizedStressFromDistances(layout: AnyLayout, distances: Float64Array | number[], weights?: Float64Array | number[] | null): number;
 export function neighborhoodPreservation1Hop(graph: CsrGraph, layout: AnyLayout): number;

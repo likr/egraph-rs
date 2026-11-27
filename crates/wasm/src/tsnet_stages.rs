@@ -8,8 +8,7 @@ use wasm_bindgen::prelude::*;
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, parse_non_negative_usize};
 use crate::js_options::{
-    get_prop, is_plain_js_object, opt_f64_prop, opt_maybe_usize_prop, opt_string_prop,
-    opt_usize_prop,
+    get_prop, is_plain_js_object, opt_f64_prop, opt_maybe_usize_prop, opt_usize_prop,
 };
 use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 use crate::manifold::JsManifoldLayout2d;
@@ -20,7 +19,7 @@ use crate::solver_runner::{
     step_manifold_in_place, step_nd_in_place,
 };
 use crate::tsnet::JsTsNetSolver;
-use crate::tsnet_options::{parse_tsnet_config, parse_tsnet_sampling_mode};
+use crate::tsnet_options::{parse_sampling_mode_from_options, parse_tsnet_config};
 
 /// Hyperparameters governing a single optimization stage of `TsNetSolver`.
 #[wasm_bindgen(js_name = TsNetStage)]
@@ -126,9 +125,7 @@ impl JsTsNetSolver {
         let parsed_stages = parse_stages_array(stages)?;
         let cfg = parse_tsnet_config(
             options,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -176,18 +173,12 @@ impl JsTsNetSolver {
             w2 = opt_f64_prop(options, "w2", w2)?;
             max_2hop = opt_maybe_usize_prop(options, "max2hopPerNode")?;
             degree_beta = opt_f64_prop(options, "degreeBeta", degree_beta)?;
-            if let Some(raw_mode) = opt_string_prop(options, "mode")? {
-                mode = parse_tsnet_sampling_mode(&raw_mode)?;
-            } else if let Some(raw_mode) = opt_string_prop(options, "samplingMode")? {
-                mode = parse_tsnet_sampling_mode(&raw_mode)?;
-            }
+            mode = parse_sampling_mode_from_options(options, mode)?;
             max_bridge_degree = opt_maybe_usize_prop(options, "maxBridgeDegree")?;
         }
         let cfg = parse_tsnet_config(
             options,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -221,7 +212,7 @@ impl JsTsNetSolver {
             cfg,
         )
         .map_err(core_err_to_js)?;
-        Ok(Self::from_inner(inner))
+        Ok(Self::from_inner_with_sampling_mode(inner, Some(mode)))
     }
 
     /// Executes one optimization iteration on `Layout2d` in place.

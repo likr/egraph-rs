@@ -16,9 +16,7 @@ fn tsnet_jacobi_precondition_and_option_validation() {
         JsTsNetSolver::pure_2hop(
             &grid,
             &JsValue::from_str("bogus"),
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -48,9 +46,12 @@ fn tsnet_jacobi_precondition_and_option_validation() {
         JsTsNetSolver::pure_2hop(
             &grid,
             &opts,
-            Some(10.0),
-            None,
-            None,
+            &js_sys::Array::of3(
+                &JsValue::from_f64(10.0),
+                &JsValue::from_f64(10.0),
+                &JsValue::from_f64(10.0),
+            )
+            .into(),
             None,
             None,
             None,
@@ -100,29 +101,29 @@ fn tsnet_jacobi_precondition_and_option_validation() {
     for (ctor_is_rn, label) in [(false, "pure2Hop"), (true, "fromGraphRowNormalized")] {
         let mut l_on = star_init.clone();
         let mut l_off = star_init.clone();
+        let stage_iters: JsValue = js_sys::Array::of3(
+            &JsValue::from_f64(4.0),
+            &JsValue::from_f64(2.0),
+            &JsValue::from_f64(2.0),
+        )
+        .into();
         if !ctor_is_rn {
             let opts_on = make_opts(&[
                 ("backend", JsValue::from_str("exact")),
-                ("iterationsStage1", JsValue::from_f64(4.0)),
-                ("iterationsStage2", JsValue::from_f64(2.0)),
-                ("iterationsStage3", JsValue::from_f64(2.0)),
+                ("stageIterations", stage_iters.clone()),
                 ("jacobiPrecondition", JsValue::from_bool(true)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
             let opts_off = make_opts(&[
                 ("backend", JsValue::from_str("exact")),
-                ("iterationsStage1", JsValue::from_f64(4.0)),
-                ("iterationsStage2", JsValue::from_f64(2.0)),
-                ("iterationsStage3", JsValue::from_f64(2.0)),
+                ("stageIterations", stage_iters),
                 ("jacobiPrecondition", JsValue::from_bool(false)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
             let mut s_on = JsTsNetSolver::pure_2hop(
                 &star,
                 &opts_on,
-                None,
-                None,
-                None,
+                &JsValue::UNDEFINED,
                 None,
                 None,
                 None,
@@ -149,9 +150,7 @@ fn tsnet_jacobi_precondition_and_option_validation() {
             let mut s_off = JsTsNetSolver::pure_2hop(
                 &star,
                 &opts_off,
-                None,
-                None,
-                None,
+                &JsValue::UNDEFINED,
                 None,
                 None,
                 None,
@@ -181,18 +180,14 @@ fn tsnet_jacobi_precondition_and_option_validation() {
             let opts_on = make_opts(&[
                 ("w2", JsValue::from_f64(0.0)),
                 ("backend", JsValue::from_str("exact")),
-                ("iterationsStage1", JsValue::from_f64(4.0)),
-                ("iterationsStage2", JsValue::from_f64(2.0)),
-                ("iterationsStage3", JsValue::from_f64(2.0)),
+                ("stageIterations", stage_iters.clone()),
                 ("jacobiPrecondition", JsValue::from_bool(true)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
             let opts_off = make_opts(&[
                 ("w2", JsValue::from_f64(0.0)),
                 ("backend", JsValue::from_str("exact")),
-                ("iterationsStage1", JsValue::from_f64(4.0)),
-                ("iterationsStage2", JsValue::from_f64(2.0)),
-                ("iterationsStage3", JsValue::from_f64(2.0)),
+                ("stageIterations", stage_iters),
                 ("jacobiPrecondition", JsValue::from_bool(false)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
@@ -201,9 +196,7 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 &opts_on,
                 None,
                 &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
+                &JsValue::UNDEFINED,
                 None,
                 None,
                 None,
@@ -226,9 +219,7 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 &opts_off,
                 None,
                 &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
+                &JsValue::UNDEFINED,
                 None,
                 None,
                 None,
@@ -272,9 +263,7 @@ fn tsnet_jacobi_precondition_and_option_validation() {
         JsTsNetSolver::pure_2hop(
             &star,
             &bad_jacobi,
-            None,
-            None,
-            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,

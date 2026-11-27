@@ -240,7 +240,7 @@ const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
 const solvers = {};
 for (const bk of ['fft', 'linear_fft', 'barnes_hut', 'exact']) {
   const res = runPairAndCheckStep(
-    () => mod.TsNetSolver.pure2Hop(g16, { backend: bk, iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }),
+    () => mod.TsNetSolver.pure2Hop(g16, { backend: bk, stageIterations: [4, 4, 4], seed: 42 }),
     init16, 5,
   );
   solvers[`tsnet_${bk}`] = res.coords;
@@ -253,7 +253,7 @@ for (const [tag, w2Val, capVal, bk] of [
   ['tsnet_rn_capped', 0.35, 8, 'exact'],
 ]) {
   const res = runPairAndCheckStep(
-    () => mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: w2Val, max2hopPerNode: capVal, backend: bk, iterationsStage1: 4, iterationsStage2: 4, iterationsStage3: 4, seed: 42 }),
+    () => mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: w2Val, max2hopPerNode: capVal, backend: bk, stageIterations: [4, 4, 4], seed: 42 }),
     init16, 5,
   );
   solvers[tag] = res.coords;

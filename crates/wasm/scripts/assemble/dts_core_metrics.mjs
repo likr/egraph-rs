@@ -29,6 +29,10 @@ const coreClassDtsReplacements = [
     "$1toRecord(): MetricReportRecord;",
   ],
   [
+    /(export class StressEvaluation \{[\s\S]*?)toRecord\(\): object;/,
+    "$1toRecord(): StressEvaluationRecord;",
+  ],
+  [
     /(export class ArenaOctree3d \{[\s\S]*?)_buildFlat\([^;]+\): void;/,
     "$1build(coordsOrLayout: Float32Array | number[] | LayoutNd): void;\n    buildWeighted(coordsOrLayout: Float32Array | number[] | LayoutNd, masses: Float64Array | number[]): void;\n    _buildFlat(coords: Float32Array | number[]): void;",
   ],

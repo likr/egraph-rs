@@ -148,7 +148,7 @@ impl JsClusterAreaReport {
         }
         let counts_u32 = self.counts();
         for (k, arr) in [
-            ("clusterIds", self.inner.cluster_ids.as_slice()),
+            ("uniqueLabels", self.inner.cluster_ids.as_slice()),
             ("counts", counts_u32.as_slice()),
         ] {
             set_js_prop(&obj, k, &js_sys::Uint32Array::from(arr).into())?;

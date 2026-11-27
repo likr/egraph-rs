@@ -121,7 +121,7 @@ fn cluster_area_faithfulness_detail_and_isometry() {
         "inFrac",
         "effectiveBoundaryR95",
         "gEff",
-        "clusterIds",
+        "uniqueLabels",
         "counts",
         "p",
         "q",

@@ -33,11 +33,27 @@ export const linalgNeighborhoodDtsReplacements = [
   ],
   [
     /export function korenSpectralInit\([^;]+\): Layout2d;/,
-    "export function korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIters?: number | null, seed?: number | null): Layout2d;",
+    "export function korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): Layout2d;",
   ],
   [
     /export function smallestLaplacianEigenpairs\([^;]+\): EigenResult;/,
-    "export function smallestLaplacianEigenpairs(graph: CsrGraph, nModes?: number | null, tol?: number | null, maxIters?: number | null, seed?: number | null): EigenResult;",
+    "export function smallestLaplacianEigenpairs(graph: CsrGraph, nModes?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): EigenResult;",
+  ],
+  [
+    /export function symmetricEigenJacobi\([^;]+\): EigenResult;/,
+    "export function symmetricEigenJacobi(aRowMajor: Float64Array | number[], n: number, nModes?: number | null, maxSweeps?: number | null, tol?: number | null): EigenResult;",
+  ],
+  [
+    /export function rdMds\([^;]+\): LayoutNd;/,
+    "export function rdMds(graph: CsrGraph, dims?: number | null, eigEps?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null, degreeNormalize?: boolean | null): LayoutNd;",
+  ],
+  [
+    /export function computeResistanceEmbedding\([^;]+\): SpectralEmbeddingResult;/,
+    "export function computeResistanceEmbedding(graph: CsrGraph, dim?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null, eigEps?: number | null): SpectralEmbeddingResult;",
+  ],
+  [
+    /export function computeDiffusionEmbedding\([^;]+\): SpectralEmbeddingResult;/,
+    "export function computeDiffusionEmbedding(graph: CsrGraph, dim?: number | null, p?: number | null, t?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): SpectralEmbeddingResult;",
   ],
   [
     /export function chebyshevHeatSpmv\([^;]+\): Float64Array;/,
@@ -268,7 +284,7 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
-    "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static fromLayoutScaled\([^;]+\): ManifoldLayout2d;/,
@@ -280,19 +296,19 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
-    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null, degreeBeta?: number | null): TsNetSolver;",
+    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null, degreeBeta?: number | null): TsNetSolver;",
   ],
   [
     /static fromKnn\([^;]+\): TsNetSolver;/,
-    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static fromProbabilities\([^;]+\): TsNetSolver;/,
-    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /static pure2Hop\([^;]+\): TsNetSolver;/,
-    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, iterationsStage1?: number | null, iterationsStage2?: number | null, iterationsStage3?: number | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
   ],
   [
     /export function kmeansPlusPlus\([^;]+\): KMeansResult;/,

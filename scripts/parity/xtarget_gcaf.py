@@ -177,7 +177,7 @@ const readGcafDet = (d) => {
       resDeconv: rec.resDeconv, resCombined: rec.resCombined, spatialCoherence: rec.spatialCoherence,
       inFrac: rec.inFrac, effectiveBoundaryR95: rec.effectiveBoundaryR95, gEff: rec.gEff,
       numClusters: rec.numClusters, numNodes: rec.numNodes,
-      clusterIds: Array.from(rec.clusterIds), counts: Array.from(rec.counts),
+      clusterIds: Array.from(rec.uniqueLabels), counts: Array.from(rec.counts),
       p: Array.from(rec.p), q: Array.from(rec.q), purity: Array.from(rec.purity),
       resolution: Array.from(rec.resolution), resDensityPerCluster: Array.from(rec.resDensityPerCluster),
       resDeconvPerCluster: Array.from(rec.resDeconvPerCluster), cafPerCluster: Array.from(rec.cafPerCluster),

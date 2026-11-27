@@ -58,14 +58,18 @@ fn nd_solvers_and_metrics_evaluation() {
         &grid,
         &make_opts(&[
             ("backend", JsValue::from_str("exact")),
-            ("iterationsStage1", JsValue::from_f64(2.0)),
-            ("iterationsStage2", JsValue::from_f64(2.0)),
-            ("iterationsStage3", JsValue::from_f64(2.0)),
+            (
+                "stageIterations",
+                js_sys::Array::of3(
+                    &JsValue::from_f64(2.0),
+                    &JsValue::from_f64(2.0),
+                    &JsValue::from_f64(2.0),
+                )
+                .into(),
+            ),
             ("seed", JsValue::from_f64(42.0)),
         ]),
-        None,
-        None,
-        None,
+        &JsValue::UNDEFINED,
         None,
         None,
         None,
@@ -325,14 +329,18 @@ fn manifold_solvers_lorentz_crossings_and_shadow_sync() {
         &grid,
         &make_opts(&[
             ("backend", JsValue::from_str("exact")),
-            ("iterationsStage1", JsValue::from_f64(2.0)),
-            ("iterationsStage2", JsValue::from_f64(2.0)),
-            ("iterationsStage3", JsValue::from_f64(2.0)),
+            (
+                "stageIterations",
+                js_sys::Array::of3(
+                    &JsValue::from_f64(2.0),
+                    &JsValue::from_f64(2.0),
+                    &JsValue::from_f64(2.0),
+                )
+                .into(),
+            ),
             ("seed", JsValue::from_f64(42.0)),
         ]),
-        None,
-        None,
-        None,
+        &JsValue::UNDEFINED,
         None,
         None,
         None,

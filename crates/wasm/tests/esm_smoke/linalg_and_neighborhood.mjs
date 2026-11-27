@@ -34,6 +34,7 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
     selectMaxminSpPivots,
     smallestLaplacianEigenpairs,
     spectralMomentStats,
+    symmetricEigenJacobi,
   } = eg;
 
   const linalgNeighborhoodSymbols = [
@@ -53,6 +54,7 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
     "pivotMdsInit",
     "korenSpectralInit",
     "smallestLaplacianEigenpairs",
+    "symmetricEigenJacobi",
     "spectralMomentStats",
     "chebyshevHeatSpmv",
     "chebyshevHeatSpmvMatrix",
@@ -139,6 +141,15 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   assert.equal(eig.lambdas().length, 4);
   assert.equal(eig.vectors().length, 16 * 4);
   assert.equal(eig.invSqrtDeg().length, 16);
+
+  const jacobiMat = new Float64Array([2, -1, 0, -1, 2, -1, 0, -1, 2]);
+  const jacRes = symmetricEigenJacobi(jacobiMat, 3, 2);
+  assert(jacRes instanceof EigenResult);
+  assert.equal(jacRes.numNodes, 3);
+  assert.equal(jacRes.numModes, 2);
+  assert.equal(jacRes.lambdas().length, 2);
+  assert.equal(jacRes.vectors().length, 6);
+  jacRes.free();
 
   const stats = spectralMomentStats(grid);
   assert(stats instanceof SpectralMomentStats);
@@ -264,6 +275,6 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   // Verify index.d.ts carries clean optional camelCase linalg/neighborhood signatures
   const dtsText = await readPkgText("index.d.ts");
   assert(dtsText.includes("pivotMdsInit(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;"));
-  assert(dtsText.includes("korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIters?: number | null, seed?: number | null): Layout2d;"));
+  assert(dtsText.includes("korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): Layout2d;"));
   assert(!dtsText.includes("target_std: any"));
 }

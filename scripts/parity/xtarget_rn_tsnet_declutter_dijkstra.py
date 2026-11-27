@@ -200,13 +200,13 @@ const g260 = mod.CsrGraph.fromEdgeList(260, new Uint32Array(spec.g260_edges));
 const init16 = new Float32Array(spec.init16);
 const init260 = new Float32Array(spec.init260);
 
-const tsSm = mod.TsNetSolver.pure2Hop(g16, { backend: 'auto', iterationsStage1: 2, iterationsStage2: 2, iterationsStage3: 2, seed: 42 });
+const tsSm = mod.TsNetSolver.pure2Hop(g16, { backend: 'auto', stageIterations: [2, 2, 2], seed: 42 });
 assert.equal(tsSm.resolvedBackend, 'exact');
 const lSm = mod.Layout2d.fromCoords(init16);
 tsSm.run(lSm);
 assert.equal(tsSm.totalFft2dCalls, 0);
 
-const tsBg = mod.TsNetSolver.pure2Hop(g260, { backend: 'auto', iterationsStage1: 1, iterationsStage2: 1, iterationsStage3: 1, learningRateDivisor: 3.0, seed: 42 });
+const tsBg = mod.TsNetSolver.pure2Hop(g260, { backend: 'auto', stageIterations: [1, 1, 1], learningRateDivisor: 3.0, seed: 42 });
 assert.equal(tsBg.resolvedBackend, 'linear_fft');
 const lBg = mod.Layout2d.fromCoords(init260);
 tsBg.run(lBg);
@@ -222,7 +222,7 @@ tsSt.run(lSt);
 const pairsRw = mod.extractSparse1hop2hopPairsWithMode(g16, 8, 'two_step_random_walk', 3, 42);
 const tsRnRw = mod.TsNetSolver.fromGraphRowNormalizedWithOptions(g16, {
   w2: 0.4, max2hopPerNode: 8, degreeBeta: 0.25, mode: 'two_step_random_walk', maxBridgeDegree: 3,
-  backend: 'exact', iterationsStage1: 2, iterationsStage2: 2, iterationsStage3: 2, seed: 42,
+  backend: 'exact', stageIterations: [2, 2, 2], seed: 42,
 });
 const lRnRw = mod.Layout2d.fromCoords(init16);
 tsRnRw.run(lRnRw);

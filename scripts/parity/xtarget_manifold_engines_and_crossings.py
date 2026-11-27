@@ -258,7 +258,7 @@ const runMani = (mk, kind, base, chunk) => {
   return cr;
 };
 const mani = {
-  tsnet_sph: runMani(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', iterationsStage1: 2, iterationsStage2: 2, iterationsStage3: 2, seed: 42 }), 'spherical', sphC, 2),
+  tsnet_sph: runMani(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', stageIterations: [2, 2, 2], seed: 42 }), 'spherical', sphC, 2),
   gumap_tor: runMani(() => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 5, learningRate: 0.2, seed: 42 }), 'torus_2d', torC, 2),
   sm_lor: runMani(() => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 5 }), 'hyperbolic_lorentz', lorC, 2),
   kk_poin: runMani(() => mod.KamadaKawaiSolver.fromGraph(g16, { maxIterations: 5, eps: 1e-3, maxInnerIters: 20 }), 'hyperbolic_poincare', poinC, 2),

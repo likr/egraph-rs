@@ -21,9 +21,15 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     // TsNetSolver.fromGraphPartialBfs + lastFftStats + short FFT options
     let ts_opts = make_opts(&[
         ("backend", JsValue::from_str("fit")),
-        ("iterationsStage1", JsValue::from_f64(2.0)),
-        ("iterationsStage2", JsValue::from_f64(2.0)),
-        ("iterationsStage3", JsValue::from_f64(2.0)),
+        (
+            "stageIterations",
+            js_sys::Array::of3(
+                &JsValue::from_f64(2.0),
+                &JsValue::from_f64(2.0),
+                &JsValue::from_f64(2.0),
+            )
+            .into(),
+        ),
         ("intervals", JsValue::from_f64(1.0)),
         ("interpolationOrder", JsValue::from_f64(1.0)),
         ("minGridDim", JsValue::from_f64(16.0)),
@@ -35,9 +41,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
         Some(8.0),
         Some(6.0),
         &ts_opts,
-        None,
-        None,
-        None,
+        &JsValue::UNDEFINED,
         None,
         None,
         None,
