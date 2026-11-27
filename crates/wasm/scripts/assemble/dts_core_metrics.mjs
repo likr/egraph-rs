@@ -37,6 +37,22 @@ const coreClassDtsReplacements = [
     "$1build(coordsOrLayout: Float32Array | number[] | LayoutNd): void;\n    buildWeighted(coordsOrLayout: Float32Array | number[] | LayoutNd, masses: Float64Array | number[]): void;\n    _buildFlat(coords: Float32Array | number[]): void;",
   ],
   [
+    /(export class ArenaOctree3d \{[\s\S]*?)_buildWeightedFlat\([^;]+\): void;/,
+    "$1_buildWeightedFlat(coords: Float32Array | number[], masses: Float64Array | number[]): void;",
+  ],
+  [
+    /(export class DatasetInfo \{[\s\S]*?)toRecord\(\): any;/,
+    "$1toRecord(): DatasetInfoRecord;",
+  ],
+  [
+    /export function datasetCatalog\(\): Array<any>;/,
+    "export function datasetCatalog(): DatasetInfo[];",
+  ],
+  [
+    /export function generateSbmGraph\([^;]+\): any;/,
+    "export function generateSbmGraph(blockSizes: Uint32Array | number[], pIntra?: number | null, pInter?: number | null, seed?: number | null): SbmGraphResult;",
+  ],
+  [
     /(export class DynamicKdTree \{[\s\S]*?)constructor\([^;]+\);/,
     "$1constructor(layout: LayoutNd);\n    constructor(coords: Float32Array | number[], n: number, dims: number);",
   ],
@@ -72,6 +88,46 @@ const gcafFunctionDtsReplacements = [
     "export function clusterAreaFaithfulnessDetail(layout: Layout2d, labels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): ClusterAreaReport;",
   ],
 ];
+
+const layoutTargets = [
+  ["2d", "Layout2d"],
+  ["Manifold", "ManifoldLayout2d"],
+  ["Nd", "LayoutNd"],
+];
+
+const clusterLabelMetricSpecs = [
+  ["calinskiHarabaszScore", "", "number"],
+  ["cqHac", "", "PartitionAgreementResult"],
+  ["cqKmeans", ", nInit?: number | null, maxIterations?: number | null, seed?: number | null", "PartitionAgreementResult"],
+  ["daviesBouldinScore", "", "number"],
+  ["distanceConsistency", "", "number"],
+  ["distributionConsistency", ", gridSize?: number | null", "number"],
+  ["neighborhoodHit", ", k?: number | null", "number"],
+  ["pairwiseDistanceOverlapError", ", numBins?: number | null", "number"],
+  ["sepmeGab", "", "number"],
+  ["sepmeGong", ", gamma?: number | null", "number"],
+  ["sepmeKnng", ", k?: number | null", "number"],
+  ["sepmeRng", "", "number"],
+  ["silhouetteScore", "", "number"],
+];
+
+const internalHelperDtsReplacements = [];
+for (const [fnBase, extraParams, retType] of clusterLabelMetricSpecs) {
+  for (const [suffix, layoutType] of layoutTargets) {
+    const fnName = `_${fnBase}${suffix}`;
+    internalHelperDtsReplacements.push([
+      new RegExp(`export function ${fnName}\\([^;]+\\): ${retType};`),
+      `export function ${fnName}(layout: ${layoutType}, labels: Uint32Array | number[]${extraParams}): ${retType};`,
+    ]);
+  }
+}
+for (const [suffix, layoutType] of layoutTargets) {
+  const fnName = `_landmarkStratifiedRtaFromLandmarks${suffix}`;
+  internalHelperDtsReplacements.push([
+    new RegExp(`export function ${fnName}\\([^;]+\\): RtaEvaluation;`),
+    `export function ${fnName}(layout: ${layoutType}, landmarkIds: Uint32Array | number[], landmarkDists: Float64Array | Float32Array | Uint32Array | number[], numTriplets?: number | null, seed?: number | null): RtaEvaluation;`,
+  ]);
+}
 
 export function applyCheckedReplacements(dts, replacements, domainLabel, wasmDtsPath) {
   let updatedDts = dts;
@@ -174,6 +230,7 @@ export function applyCoreAndMetricsDts(wasmDts, wasmDtsPath) {
   );
 
   indexDts = applyCheckedReplacements(indexDts, gcafFunctionDtsReplacements, "G-CAF", wasmDtsPath);
+  indexDts = applyCheckedReplacements(indexDts, internalHelperDtsReplacements, "internal-metrics", wasmDtsPath);
 
   indexDts = indexDts.replace(
     /export function prismDistortion\([^;]+\): PrismDistortion;/,

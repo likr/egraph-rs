@@ -205,4 +205,6 @@ fn layout_2d_and_nd_lifecycle() {
     let nd2 = JsLayoutNd::from_coords(2.0, 3.0, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
     assert_eq!(nd2.copy_coords(), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     assert!(JsLayoutNd::from_coords(2.0, 3.0, &[1.0]).is_err());
+    assert!(JsLayoutNd::from_coords(1.0, 3.0, &[f32::NAN, 0.0, 0.0]).is_err());
+    assert!(JsLayoutNd::from_coords(1.0, 3.0, &[0.0, f32::INFINITY, 0.0]).is_err());
 }

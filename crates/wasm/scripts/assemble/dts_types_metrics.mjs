@@ -254,6 +254,43 @@ export interface StressEvaluationRecord {
     scale: number;
 }
 
+export interface DatasetInfoRecord {
+    name: string;
+    numNodes: number;
+    numEdges: number;
+    source: string;
+    description: string;
+}
+
+export interface SbmGraphResult {
+    graph: CsrGraph;
+    labels: Uint32Array;
+}
+
+export interface ManifoldMetricRecord {
+    scale: number;
+    aspect: number;
+}
+
+export type SpectralFilterTerm = [number, number];
+
+export type SpectralFilterTermsInput =
+    | readonly (readonly [number, number])[]
+    | Float64Array
+    | Float32Array
+    | readonly number[];
+
+export interface PsdSpectralFilterProjection {
+    termsPsd: SpectralFilterTerm[];
+    deltaPsd: number;
+    hMin: number;
+}
+
+export interface SymmetricNormalizedLaplacianResult {
+    matrix: CsrMatrix;
+    invSqrtDeg: Float64Array;
+}
+
 /**
  * Plain JavaScript record returned by \`ClusterAreaReport.toRecord()\`.
  */

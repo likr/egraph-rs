@@ -211,6 +211,11 @@ fn backbone_extraction_and_solver_step_eq_run() {
     }
     s_run.run(&mut l_run).unwrap();
     assert_layouts_bit_exact(&l_step, &l_run);
+
+    let directed =
+        JsCsrGraph::from_edge_list(4.0, &[0, 1, 1, 2, 2, 3], None, &JsValue::TRUE, None).unwrap();
+    assert!(js_extract_quadrilateral_backbone(&directed, &JsValue::UNDEFINED).is_err());
+    assert!(JsBackboneSolver::new(&directed, &JsValue::UNDEFINED).is_err());
 }
 
 #[wasm_bindgen_test]

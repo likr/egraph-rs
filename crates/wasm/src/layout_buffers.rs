@@ -218,6 +218,11 @@ impl JsLayoutNd {
     pub fn from_coords(n: f64, dims: f64, coords: &[f32]) -> Result<JsLayoutNd, JsError> {
         let num_nodes = parse_non_negative_usize(n, "n")?;
         let d = parse_non_negative_usize(dims, "dims")?;
+        if coords.iter().any(|v| !v.is_finite()) {
+            return Err(core_err_to_js(CoreError::non_finite(
+                "LayoutNd::fromCoords",
+            )));
+        }
         let inner =
             LayoutNd::<f32>::from_flat(num_nodes, d, coords.to_vec()).map_err(core_err_to_js)?;
         Ok(Self { inner })

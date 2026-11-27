@@ -8,6 +8,30 @@ export const linalgNeighborhoodDtsReplacements = [
     "$1constructor(graph: CsrGraph, options?: ChebyshevDogKernelOptions | null);",
   ],
   [
+    /(export class ChebyshevDogKernel \{[\s\S]*?)termsPsd\(\): Array<any>;/,
+    "$1termsPsd(): SpectralFilterTerm[];",
+  ],
+  [
+    /export function buildDogTerms\([^;]+\): Array<any>;/,
+    "export function buildDogTerms(t1: number, t2: number, alpha: number, betaFloor?: number | null): SpectralFilterTerm[];",
+  ],
+  [
+    /export function buildRegularizedDogTerms\([^;]+\): Array<any>;/,
+    "export function buildRegularizedDogTerms(sigmaLambda: number, betaFloor?: number | null): SpectralFilterTerm[];",
+  ],
+  [
+    /export function computeChebyshevBandpassCoefficients\([^;]+\): Float64Array;/,
+    "export function computeChebyshevBandpassCoefficients(terms: SpectralFilterTermsInput, lambdaMax?: number | null, degree?: number | null): Float64Array;",
+  ],
+  [
+    /export function projectPsdSpectralFilter\([^;]+\): any;/,
+    "export function projectPsdSpectralFilter(terms: SpectralFilterTermsInput, lambdaMax?: number | null, degree?: number | null, epsPsd?: number | null): PsdSpectralFilterProjection;",
+  ],
+  [
+    /export function symmetricNormalizedLaplacian\(graph: CsrGraph\): any;/,
+    "export function symmetricNormalizedLaplacian(graph: CsrGraph): SymmetricNormalizedLaplacianResult;",
+  ],
+  [
     /static fromCsr\(num_nodes: number, indptr: Uint32Array \| number\[\], indices: Uint32Array \| number\[\], distances: Float64Array \| number\[\]\): KnnGraph;/,
     "static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], distances: Float64Array | number[]): KnnGraph;",
   ],
@@ -293,6 +317,10 @@ export const clusteringSolversDtsReplacements = [
   [
     /static randomInit\([^;]+\): ManifoldLayout2d;/,
     "static randomInit(kind: ManifoldKind | string, n: number, scale?: number | null, seed?: number | null): ManifoldLayout2d;",
+  ],
+  [
+    /(export class ManifoldLayout2d \{[\s\S]*?)metric\(\): any;/,
+    "$1metric(): ManifoldMetricRecord;",
   ],
   [
     /static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
