@@ -24,7 +24,7 @@ export function ExampleEdgeBundling() {
         }
         graph = loaded.graph;
         layout = Layout2d.init(loaded.numNodes, 4);
-        sgd = SgdSolver.full(graph, { tMax: 80, eps: 0.1, seed: 4 });
+        sgd = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
         sgd.run(layout);
 
         sceneRef.current = {
@@ -36,30 +36,10 @@ export function ExampleEdgeBundling() {
         };
         setTick((t) => t + 1);
 
-        fdeb = new FdebSolver(graph, layout, { cycles: 4, i0: 15, s0: 0.08 });
-        const fdebRunner = {
-          get isFinished() {
-            return fdeb.isFinished;
-          },
-          get iteration() {
-            return fdeb.iteration;
-          },
-          get totalIterations() {
-            return fdeb.totalIterations;
-          },
-          get status() {
-            return fdeb.status;
-          },
-          step() {
-            return fdeb.step();
-          },
-          runSteps(_, k) {
-            return fdeb.runSteps(k);
-          },
-        };
+        fdeb = new FdebSolver(graph, { cycles: 4, stepsPerCycle: 15, s0: 0.08 });
 
         await runProgressive(
-          fdebRunner,
+          fdeb,
           layout,
           (ctx) => {
             sceneRef.current.coords = layout.coordsView();

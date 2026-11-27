@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import { ManifoldLayout2d, SgdSolver, runProgressive } from "egraph";
-import { createManifoldRunner, loadMiserablesGraph } from "../graphUtils";
+import { loadMiserablesGraph } from "../graphUtils";
 
 export function ExampleSphericalGeometry() {
   const svgRef = useRef();
@@ -38,11 +38,10 @@ export function ExampleSphericalGeometry() {
           const colat = Math.PI * (0.25 + 0.5 * ((i % 7) / 7));
           manifold.setPoint(i, lon, colat);
         }
-        solver = SgdSolver.full(graph, { tMax: 80, eps: 0.1, seed: 4 });
-        const runner = createManifoldRunner(solver);
+        solver = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
 
         const syncFrame = (ctx) => {
-          const raw = manifold.coords();
+          const raw = manifold.coordsView();
           const nodes = loaded.nodes.map((node, i) => ({
             ...node,
             lon: (180 * (raw[2 * i] - Math.PI)) / Math.PI,
@@ -52,7 +51,7 @@ export function ExampleSphericalGeometry() {
           setStatus(`Spherical SGD: ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
         };
 
-        await runProgressive(runner, manifold, syncFrame, {
+        await runProgressive(solver, manifold, syncFrame, {
           frameBudgetMs: 10,
           signal: ac.signal,
         });

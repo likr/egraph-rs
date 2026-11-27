@@ -24,7 +24,7 @@ export function ExamplePrismOverlapRemoval() {
         }
         graph = loaded.graph;
         layout = Layout2d.init(loaded.numNodes, 4);
-        sgd = SgdSolver.full(graph, { tMax: 60, eps: 0.1, seed: 4 });
+        sgd = SgdSolver.full(graph, { iterations: 60, eps: 0.1, seed: 4 });
 
         sceneRef.current = {
           coords: layout.coordsView(),

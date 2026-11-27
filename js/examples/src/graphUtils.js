@@ -108,26 +108,3 @@ export async function loadEmbeddedGraph(name) {
     numNodes,
   };
 }
-
-export function createManifoldRunner(solver, isFinishedFn = () => solver.isFinished) {
-  return {
-    get isFinished() {
-      return isFinishedFn();
-    },
-    get iteration() {
-      return solver.iteration;
-    },
-    get totalIterations() {
-      return solver.totalIterations;
-    },
-    get status() {
-      return solver.status;
-    },
-    step(layout) {
-      return solver.stepManifold(layout);
-    },
-    runSteps(layout, k) {
-      return solver.runStepsManifold(layout, k);
-    },
-  };
-}

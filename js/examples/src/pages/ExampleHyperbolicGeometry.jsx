@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import { ManifoldLayout2d, SgdSolver, runProgressive } from "egraph";
-import { createManifoldRunner, loadMiserablesGraph } from "../graphUtils";
+import { loadMiserablesGraph } from "../graphUtils";
 
 function recenter(cx, cy, x, y) {
   const dx = x - cx;
@@ -78,11 +78,10 @@ export function ExampleHyperbolicGeometry() {
           const r = 0.08 * (1 + (i % 4)) * 0.25;
           manifold.setPoint(i, r * Math.cos(ang), r * Math.sin(ang));
         }
-        solver = SgdSolver.full(graph, { tMax: 80, eps: 0.1, seed: 4 });
-        const runner = createManifoldRunner(solver);
+        solver = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
 
         const syncFrame = (ctx) => {
-          const raw = manifold.coords();
+          const raw = manifold.coordsView();
           const nodes = loaded.nodes.map((node, i) => ({
             ...node,
             x: raw[2 * i] * displayR,
@@ -94,7 +93,7 @@ export function ExampleHyperbolicGeometry() {
           setStatus(`Hyperbolic Poincaré SGD: ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
         };
 
-        await runProgressive(runner, manifold, syncFrame, {
+        await runProgressive(solver, manifold, syncFrame, {
           frameBudgetMs: 10,
           signal: ac.signal,
         });

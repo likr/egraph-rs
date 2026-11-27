@@ -26,7 +26,7 @@ export function ExampleTFdp() {
         layout = pivotMdsInit(graph, 32, 42, null, 1.0);
         solver = new TFdpSolver(graph, {
           backend: "ibfft",
-          totalIterations: 200,
+          iterations: 200,
           seed: 42,
         });
         sceneRef.current = {

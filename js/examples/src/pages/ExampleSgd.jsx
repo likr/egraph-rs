@@ -23,7 +23,7 @@ export function ExampleSgd() {
         }
         graph = loaded.graph;
         layout = Layout2d.init(loaded.numNodes, 1);
-        solver = SgdSolver.full(graph, { tMax: 100, eps: 0.1, seed: 1 });
+        solver = SgdSolver.full(graph, { iterations: 100, eps: 0.1, seed: 1 });
         sceneRef.current = {
           coords: layout.coordsView(),
           numNodes: loaded.numNodes,

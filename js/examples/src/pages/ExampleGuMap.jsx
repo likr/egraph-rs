@@ -25,7 +25,7 @@ export function ExampleGuMap() {
         graph = loaded.graph;
         layout = pivotMdsInit(graph, 32, 42, null, 1.0);
         solver = GuMapSolver.fromGraphDog(graph, {
-          nEpochs: 150,
+          iterations: 150,
           negativeSampleRate: 5,
           seed: 42,
         });

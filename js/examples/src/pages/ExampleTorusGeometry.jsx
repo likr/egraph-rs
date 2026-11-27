@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import * as d3 from "d3";
-import { ManifoldLayout2d, SgdSolver, runProgressive, wrapTorusPoint } from "egraph";
-import { createManifoldRunner, loadMiserablesGraph } from "../graphUtils";
+import {
+  ManifoldLayout2d,
+  SgdSolver,
+  runProgressive,
+  torusLayoutEdgeSegments,
+  wrapTorusPoint,
+} from "egraph";
+import { loadMiserablesGraph } from "../graphUtils";
 
 function torusShortestDelta(a, b) {
   let d = b - a;
@@ -61,23 +67,29 @@ export function ExampleTorusGeometry() {
           const [wx, wy] = wrapTorusPoint((i * 0.6180339) % 1.0, (i * 0.381966) % 1.0);
           manifold.setPoint(i, wx, wy);
         }
-        solver = SgdSolver.full(graph, { tMax: 40, eps: 0.1, seed: 1 });
-        const runner = createManifoldRunner(solver);
+        solver = SgdSolver.full(graph, { iterations: 40, eps: 0.1, seed: 1 });
 
-        const syncFrame = (ctx) => {
-          const raw = manifold.coords();
+        const syncFrame = (ctx, targetLayout = manifold, segCount = null) => {
+          const raw = targetLayout.coordsView();
           const nodes = loaded.nodes.map((node, i) => {
             const [wx, wy] = wrapTorusPoint(raw[2 * i], raw[2 * i + 1]);
             return { ...node, tx: wx, ty: wy };
           });
           setScene({ nodes, links: loaded.links });
-          setStatus(`Torus 2D SGD: ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
+          const segSuffix = segCount !== null ? ` | ${segCount} wrapped segments` : "";
+          setStatus(`Torus 2D SGD: ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})${segSuffix}`);
         };
 
-        await runProgressive(runner, manifold, syncFrame, {
+        const finalCtx = await runProgressive(solver, manifold, (ctx) => syncFrame(ctx), {
           frameBudgetMs: 10,
           signal: ac.signal,
         });
+        if (!ac.signal.aborted) {
+          const panned = manifold.torusAutoPan(graph);
+          const segs = torusLayoutEdgeSegments(graph, panned);
+          syncFrame(finalCtx, panned, segs.length / 4);
+          panned.free();
+        }
       } catch (err) {
         if (err?.name !== "AbortError") {
           setStatus(`Error: ${err.message}`);
