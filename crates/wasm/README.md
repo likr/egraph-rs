@@ -89,8 +89,9 @@ const solver = TsNetSolver.pure2Hop(graph, {
 });
 solver.run(layout);
 
-const rnSolver = TsNetSolver.fromGraphRowNormalized(graph, 0.5, null, {
-  twoStepRandomWalk: true,
+const rnSolver = TsNetSolver.fromGraphRowNormalizedWithOptions(graph, {
+  w2: 0.5,
+  mode: "two_step_random_walk",
   backend: "auto",
   seed: 42,
 });
