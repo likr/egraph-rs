@@ -5,8 +5,8 @@ use egraph_wasm::fdeb::JsFdebSolver;
 use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::manifold::JsManifoldLayout2d;
 use egraph_wasm::manifold_geodesic::{
-    js_poincare_distance, js_poincare_mobius_add, js_spherical_distance, js_torus_distance,
-    js_wrap_torus_point,
+    js_lorentz_distance, js_lorentz_exp_map, js_lorentz_log_map, js_poincare_distance,
+    js_poincare_mobius_add, js_spherical_distance, js_torus_distance, js_wrap_torus_point,
 };
 use egraph_wasm::sgd::JsSgdSolver;
 use util::fixtures::make_opts;
@@ -220,4 +220,45 @@ fn fdeb_solver_reference_passing_and_step_eq_run() {
     assert!(JsFdebSolver::new(&graph, &make_opts(&[("cycles", JsValue::from_f64(30.0))])).is_err());
     let short_l = JsLayout2d::zeros(2.0).unwrap();
     assert!(f_run.step_2d(&mut short_l.clone()).is_err());
+}
+
+#[wasm_bindgen_test]
+fn lorentz_extreme_precision_and_exp_map_wasm_parity() {
+    let ln2 = std::f64::consts::LN_2;
+
+    // Rotated collinear `p2 = 2 * p1` across `1e130..8e307` verifies software `f64::mul_add` on wasm32.
+    for r in [1e130_f64, 1e139, 1e140, 1e200, 8e307] {
+        let x1 = r * 0.7_f64.cos();
+        let y1 = r * 0.7_f64.sin();
+        let d = js_lorentz_distance(x1, y1, 2.0 * x1, 2.0 * y1);
+        assert!((d - ln2).abs() < 1e-12, "wasm 2*p1 r={r:e}: d={d}");
+        let v = js_lorentz_log_map(x1, y1, 2.0 * x1, 2.0 * y1);
+        assert!((v[0].hypot(v[1]) - ln2).abs() < 1e-12 && v[0] > 0.0 && v[1] > 0.0);
+    }
+
+    // High-ratio `m_max < 1e140` pairs (700-digit oracle references) and subnormal continuity.
+    let d_hr = js_lorentz_distance(
+        1e50_f64 * 0.7_f64.cos(),
+        1e50_f64 * 0.7_f64.sin(),
+        1e139_f64 * 0.7_f64.cos(),
+        1e139_f64 * 0.7_f64.sin(),
+    );
+    assert!((d_hr - 359.938_571_185_530_1).abs() < 1e-10);
+    assert!((js_lorentz_distance(f64::from_bits(1), 0.0, 1e-200, 0.0) - 1e-200).abs() <= 1e-215);
+
+    // Near-`f64::MAX` `cos_phi < 0` multiplication order (`[1, 2) * f64::MAX` stays finite).
+    let sin_phi = (1.0 - 0.25_f64).sqrt();
+    let p_fin = js_lorentz_exp_map(1.5e308, 0.0, 1.3 * -0.5, 1.3 * sin_phi);
+    assert!(p_fin[0].is_finite() && p_fin[1].is_finite() && p_fin[0] != 1.5e308);
+    assert!((js_lorentz_distance(1.5e308, 0.0, p_fin[0], p_fin[1]) - 1.3).abs() < 1e-11);
+
+    // Rotated exact inward step and overflowing tangent `hypot(vx, vy)` preserve direction.
+    let (xr, yr) = (1e130_f64 * 0.7_f64.cos(), 1e130_f64 * 0.7_f64.sin());
+    let (vx, vy) = (-xr * 2.0_f64.powi(-424), -yr * 2.0_f64.powi(-424));
+    let p_in = js_lorentz_exp_map(xr, yr, vx, vy);
+    let exp_r = 1e130_f64 * (-vx.hypot(vy)).exp();
+    assert!(((p_in[0].hypot(p_in[1]) - exp_r) / exp_r).abs() < 1e-12);
+
+    let p_huge = js_lorentz_exp_map(1e200, 1e200, -1.5e308, -1.5e308);
+    assert!(p_huge[0] < -1e100 && p_huge[1] < -1e100);
 }
