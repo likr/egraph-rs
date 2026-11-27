@@ -244,3 +244,79 @@ fn test_lorentz_near_origin_log_map_precision() {
         );
     }
 }
+
+#[test]
+fn test_lorentz_extreme_radius_distance_log_exp_and_poincare_projection() {
+    // Large-radius distance where `r^2` overflows `f64::MAX` while `radial_den` stays finite.
+    let d160 = lorentz_distance(1e160_f64, 0.0, 1.0, 0.0);
+    let expected160 = 1e160_f64.asinh() - 1.0_f64.asinh();
+    assert!(
+        d160.is_finite() && (d160 - expected160).abs() < 1e-10,
+        "d160={d160}, expected={expected160}"
+    );
+    let d200 = lorentz_distance(1e200_f64, 0.0, 1.0, 0.0);
+    let expected200 = (2.0_f64.ln() + 200.0 * 10.0_f64.ln()) - 1.0_f64.asinh();
+    assert!(
+        d200.is_finite() && (d200 - expected200).abs() < 1e-10,
+        "d200={d200}, expected={expected200}"
+    );
+
+    // Opposite-ray and orthogonal extreme radii where `eta - 1` itself overflows `f64::MAX`.
+    let d_opp = lorentz_distance(1e200_f64, 0.0, -1e200, 0.0);
+    let expected_opp = 2.0 * (2.0_f64.ln() + 200.0 * 10.0_f64.ln());
+    assert!(
+        d_opp.is_finite() && (d_opp - expected_opp).abs() < 1e-9,
+        "d_opp={d_opp}, expected={expected_opp}"
+    );
+    let d_orth = lorentz_distance(1e200_f64, 0.0, 0.0, 1e200);
+    assert!(d_orth.is_finite() && d_orth > 900.0);
+
+    // Extreme-radius small tangential separation without underflow.
+    let d_tang = lorentz_distance(1e200_f64, 0.0, 1e200, 1.0);
+    let expected_tang = 2.0 * 0.5_f64.asinh();
+    assert!(
+        d_tang.is_finite() && (d_tang - expected_tang).abs() < 1e-12,
+        "d_tang={d_tang}, expected={expected_tang}"
+    );
+
+    // Coordinates where `x.hypot(y)` overflows `f64::MAX` (`1.5e308, 1.5e308`).
+    let d_max = lorentz_distance(1.5e308_f64, 1.5e308, 1.0, 0.0);
+    assert!(d_max.is_finite() && d_max > 700.0, "d_max={d_max}");
+    let d_max_origin = lorentz_distance(1.5e308_f64, 1.5e308, 0.0, 0.0);
+    assert!(
+        d_max_origin.is_finite() && d_max_origin > 700.0,
+        "d_max_origin={d_max_origin}"
+    );
+
+    // Log map and inward exponential map at extreme radii remain finite and consistent.
+    let (vx, vy) = lorentz_log_map(1e160_f64, 0.0, 1.0, 0.0);
+    assert!(vx.is_finite() && vy.is_finite());
+    assert!((vx.hypot(vy) - expected160).abs() < 1e-9);
+    let (rx, ry) = lorentz_exp_map(1e160_f64, 0.0, -500.0, 0.0);
+    assert!(rx.is_finite() && ry.is_finite() && lorentz_distance(rx, ry, 1.0, 0.0) > 100.0);
+
+    // Extreme finite coordinates project to the Poincaré boundary disk, never `(0.0, 0.0)`.
+    let (px, py) = lorentz_to_poincare_point(1.5e308_f64, 1.5e308);
+    let p_norm = px.hypot(py);
+    assert!(
+        px > 0.7 && py > 0.7 && (p_norm - (1.0 - POINCARE_EPS_F64)).abs() < 1e-12,
+        "px={px}, py={py}, norm={p_norm}"
+    );
+    let lor_extreme = ManifoldLayout2d::<f64>::from_xy(
+        ManifoldKind::HyperbolicLorentz,
+        vec![1.5e308, -1.5e308],
+        vec![1.5e308, 0.0],
+    )
+    .unwrap();
+    let poinc_extreme = lor_extreme.to_poincare_layout().unwrap();
+    assert!(
+        (poinc_extreme.x()[0].hypot(poinc_extreme.y()[0]) - (1.0 - POINCARE_EPS_F64)).abs() < 1e-12
+    );
+    assert!((poinc_extreme.x()[1] + (1.0 - POINCARE_EPS_F64)).abs() < 1e-12);
+
+    // f32 extreme finite coordinates stay finite and clamp strictly inside POINCARE_EPS_F32.
+    let d32 = lorentz_distance(1e38_f32, 0.0_f32, 1.0_f32, 0.0_f32);
+    assert!(d32.is_finite() && d32 > 80.0);
+    let (px32, py32) = lorentz_to_poincare_point(3.0e38_f32, 3.0e38_f32);
+    assert!(px32 > 0.7 && py32 > 0.7 && (px32.hypot(py32) - (1.0 - POINCARE_EPS_F32)).abs() < 1e-6);
+}
