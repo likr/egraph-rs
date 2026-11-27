@@ -92,7 +92,7 @@ impl JsGemSolver {
         self.inner.iteration()
     }
 
-    /// Returns the maximum scheduled rounds (`maxRounds`).
+    /// Returns the maximum scheduled iterations (`maxIterations`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
     pub fn total_iterations(&self) -> usize {
         self.inner.total_iterations()
