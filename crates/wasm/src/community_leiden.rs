@@ -34,6 +34,18 @@ impl JsLeidenResult {
         self.inner.labels.clone()
     }
 
+    /// Returns the linear-memory byte offset of `labels` for zero-copy `labelsView()`.
+    #[wasm_bindgen(js_name = labelsPtr)]
+    pub fn labels_ptr(&self) -> usize {
+        self.inner.labels.as_ptr() as usize
+    }
+
+    /// Returns the element count of `labels`.
+    #[wasm_bindgen(js_name = labelsLen)]
+    pub fn labels_len(&self) -> usize {
+        self.inner.labels.len()
+    }
+
     /// Returns the number of distinct communities detected.
     #[wasm_bindgen(getter, js_name = numCommunities)]
     pub fn num_communities(&self) -> usize {

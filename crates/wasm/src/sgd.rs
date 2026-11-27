@@ -1,6 +1,5 @@
 //! Cooperative SoA `u32` `SgdSolver` (`f32`) core bindings and manifold execution methods.
 
-use egraph::core::CoreError;
 use egraph::layout::{SgdScheduleConfig, SgdScheduleKind, SgdSolver, SparseBarrierStats};
 use egraph::neighborhood::DogVaradhanStats;
 use wasm_bindgen::prelude::*;
@@ -8,12 +7,16 @@ use wasm_bindgen::prelude::*;
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, parse_non_negative_usize, parse_seed_u64};
 use crate::js_options::{
-    is_plain_js_object, normalize_enum_token, opt_f64_prop, opt_seed_prop, opt_string_prop,
-    opt_usize_prop, reject_extra_args_with_options, solver_status_str,
+    is_plain_js_object, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
+    opt_string_prop, opt_usize_prop, reject_extra_args_with_options, solver_status_str,
 };
-use crate::layout_buffers::JsLayout2d;
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 use crate::manifold::JsManifoldLayout2d;
-use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+use crate::solver_runner::{
+    run_layout_in_place, run_manifold_in_place, run_nd_in_place, run_steps_layout_in_place,
+    run_steps_manifold_in_place, run_steps_nd_in_place, step_layout_in_place,
+    step_manifold_in_place, step_nd_in_place,
+};
 
 pub(crate) fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, JsError> {
     match normalize_enum_token(raw).as_str() {
@@ -30,33 +33,34 @@ pub(crate) fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, JsEr
 }
 
 pub(crate) fn parse_sgd_schedule_and_seed(
-    t_max_or_options: &JsValue,
+    iterations_or_options: &JsValue,
     eps: Option<f64>,
     kind: Option<String>,
     step_scale: Option<f64>,
     seed: Option<f64>,
 ) -> Result<(SgdScheduleConfig, u64), JsError> {
     let mut cfg = SgdScheduleConfig::default();
-    if is_plain_js_object(t_max_or_options) {
+    if is_plain_js_object(iterations_or_options) {
         let has_extra = eps.is_some() || kind.is_some() || step_scale.is_some() || seed.is_some();
         reject_extra_args_with_options(has_extra)?;
-        cfg.iterations = opt_usize_prop(t_max_or_options, "tMax", cfg.iterations)?;
-        cfg.eps = opt_f64_prop(t_max_or_options, "eps", cfg.eps)?;
-        if let Some(k_str) = opt_string_prop(t_max_or_options, "kind")? {
+        cfg.iterations = opt_usize_prop(iterations_or_options, "iterations", cfg.iterations)?;
+        cfg.eps = opt_f64_prop(iterations_or_options, "eps", cfg.eps)?;
+        if let Some(k_str) = opt_string_prop(iterations_or_options, "kind")? {
             cfg.kind = parse_sgd_schedule_kind(&k_str)?;
         }
-        cfg.step_scale = opt_f64_prop(t_max_or_options, "stepScale", cfg.step_scale)?;
-        let seed_u64 = opt_seed_prop(t_max_or_options)?;
+        cfg.step_scale = opt_f64_prop(iterations_or_options, "stepScale", cfg.step_scale)?;
+        cfg.max_mu = opt_maybe_f64_prop(iterations_or_options, "maxMu")?;
+        let seed_u64 = opt_seed_prop(iterations_or_options)?;
         return Ok((cfg, seed_u64));
     }
 
-    if !t_max_or_options.is_undefined() && !t_max_or_options.is_null() {
-        let t_val = t_max_or_options.as_f64().ok_or_else(|| {
+    if !iterations_or_options.is_undefined() && !iterations_or_options.is_null() {
+        let t_val = iterations_or_options.as_f64().ok_or_else(|| {
             JsError::new(
-                "tMaxOrOptions must be a non-negative integer, options object, null, or undefined",
+                "iterationsOrOptions must be a non-negative integer, options object, null, or undefined",
             )
         })?;
-        cfg.iterations = parse_non_negative_usize(t_val, "tMax")?;
+        cfg.iterations = parse_non_negative_usize(t_val, "iterations")?;
     }
     cfg.eps = eps.unwrap_or(cfg.eps);
     if let Some(k_str) = kind {
@@ -91,6 +95,7 @@ pub struct JsSgdSolver {
     inner: SgdSolver<f32>,
     barrier_stats: Option<SparseBarrierStats>,
     dog_stats: Option<DogVaradhanStats>,
+    max_mu: Option<f64>,
 }
 
 impl JsSgdSolver {
@@ -99,7 +104,25 @@ impl JsSgdSolver {
             inner,
             barrier_stats: None,
             dog_stats: None,
+            max_mu: None,
         }
+    }
+
+    pub(crate) fn from_schedule_and_inner(max_mu: Option<f64>, inner: SgdSolver<f32>) -> Self {
+        Self {
+            inner,
+            barrier_stats: None,
+            dog_stats: None,
+            max_mu,
+        }
+    }
+
+    pub(crate) fn set_max_mu(&mut self, max_mu: Option<f64>) {
+        self.max_mu = max_mu;
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut SgdSolver<f32> {
+        &mut self.inner
     }
 
     pub(crate) fn from_barrier_parts(
@@ -111,6 +134,7 @@ impl JsSgdSolver {
             inner,
             barrier_stats,
             dog_stats,
+            max_mu: None,
         }
     }
 
@@ -125,6 +149,12 @@ impl JsSgdSolver {
 
 #[wasm_bindgen(js_class = SgdSolver)]
 impl JsSgdSolver {
+    /// Constructs a full all-pairs shortest-path SGD solver from `graph`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
+        Self::full(graph, options, None, None, None, None)
+    }
+
     /// Constructs an `SgdSolver` from explicit flat SoA two-sided spring arrays.
     ///
     /// When `dji` is omitted, defaults to `dij`. When `wij`/`wji` are omitted, defaults to $1 / d^2$.
@@ -169,7 +199,7 @@ impl JsSgdSolver {
             seed_u64,
         )
         .map_err(core_err_to_js)?;
-        Ok(Self::from_inner(inner))
+        Ok(Self::from_schedule_and_inner(sched.max_mu, inner))
     }
 
     /// Constructs an `SgdSolver` combining two-sided spring pairs and one-sided hinge pairs.
@@ -180,16 +210,16 @@ impl JsSgdSolver {
         spring_src: &[u32],
         spring_tgt: &[u32],
         spring_dij: &[f32],
-        spring_dji: &[f32],
-        spring_wij: &[f32],
-        spring_wji: &[f32],
+        spring_dji: Option<Vec<f32>>,
+        spring_wij: Option<Vec<f32>>,
+        spring_wji: Option<Vec<f32>>,
         hinge_src: &[u32],
         hinge_tgt: &[u32],
         hinge_dij: &[f32],
-        hinge_dji: &[f32],
-        hinge_wij: &[f32],
-        hinge_wji: &[f32],
-        t_max_or_options: &JsValue,
+        hinge_dji: Option<Vec<f32>>,
+        hinge_wij: Option<Vec<f32>>,
+        hinge_wji: Option<Vec<f32>>,
+        iterations_or_options: &JsValue,
         eps: Option<f64>,
         kind: Option<String>,
         step_scale: Option<f64>,
@@ -197,52 +227,73 @@ impl JsSgdSolver {
     ) -> Result<JsSgdSolver, JsError> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let (sched, seed_u64) =
-            parse_sgd_schedule_and_seed(t_max_or_options, eps, kind, step_scale, seed)?;
+            parse_sgd_schedule_and_seed(iterations_or_options, eps, kind, step_scale, seed)?;
+        let s_dji = spring_dji.unwrap_or_else(|| spring_dij.to_vec());
+        let s_wij_none = spring_wij.is_none();
+        let s_wij = spring_wij.unwrap_or_else(|| default_inv_sq_weights_f32(spring_dij));
+        let s_wji = spring_wji.unwrap_or_else(|| {
+            if s_wij_none {
+                default_inv_sq_weights_f32(&s_dji)
+            } else {
+                s_wij.clone()
+            }
+        });
+        let h_dji = hinge_dji.unwrap_or_else(|| hinge_dij.to_vec());
+        let h_wij_none = hinge_wij.is_none();
+        let h_wij = hinge_wij.unwrap_or_else(|| default_inv_sq_weights_f32(hinge_dij));
+        let h_wji = hinge_wji.unwrap_or_else(|| {
+            if h_wij_none {
+                default_inv_sq_weights_f32(&h_dji)
+            } else {
+                h_wij.clone()
+            }
+        });
         let inner = SgdSolver::<f32>::from_pairs_with_hinges(
             n,
             spring_src.to_vec(),
             spring_tgt.to_vec(),
             spring_dij.to_vec(),
-            spring_dji.to_vec(),
-            spring_wij.to_vec(),
-            spring_wji.to_vec(),
+            s_dji,
+            s_wij,
+            s_wji,
             hinge_src.to_vec(),
             hinge_tgt.to_vec(),
             hinge_dij.to_vec(),
-            hinge_dji.to_vec(),
-            hinge_wij.to_vec(),
-            hinge_wji.to_vec(),
+            h_dji,
+            h_wij,
+            h_wji,
             sched,
             seed_u64,
         )
         .map_err(core_err_to_js)?;
-        Ok(Self::from_inner(inner))
+        Ok(Self::from_schedule_and_inner(sched.max_mu, inner))
     }
 
     /// Constructs a full all-pairs shortest-path SGD solver from `graph`.
     pub fn full(
         graph: &JsCsrGraph,
-        t_max_or_options: &JsValue,
+        iterations_or_options: &JsValue,
         eps: Option<f64>,
         kind: Option<String>,
         step_scale: Option<f64>,
         seed: Option<f64>,
     ) -> Result<JsSgdSolver, JsError> {
         let (sched, seed_u64) =
-            parse_sgd_schedule_and_seed(t_max_or_options, eps, kind, step_scale, seed)?;
+            parse_sgd_schedule_and_seed(iterations_or_options, eps, kind, step_scale, seed)?;
         let inner =
             SgdSolver::<f32>::full(graph.inner(), sched, seed_u64).map_err(core_err_to_js)?;
-        Ok(Self::from_inner(inner))
+        Ok(Self::from_schedule_and_inner(sched.max_mu, inner))
     }
 
-    /// Executes one Euclidean SGD iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Executes one Euclidean SGD iteration on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _step2d)]
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
-    /// Executes up to `steps` Euclidean SGD iterations on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    /// Executes up to `steps` Euclidean SGD iterations on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _runSteps2d)]
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -252,8 +303,9 @@ impl JsSgdSolver {
         )
     }
 
-    /// Runs Euclidean SGD optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Runs Euclidean SGD optimization to completion on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _run2d)]
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -262,63 +314,78 @@ impl JsSgdSolver {
         )
     }
 
-    /// Executes one non-Euclidean SGD iteration on a `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = stepManifold)]
-    pub fn step_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsError> {
-        let status = self
-            .inner
-            .step_manifold(layout.inner_mut())
-            .map_err(core_err_to_js)?;
-        Ok(solver_status_str(status).to_owned())
+    /// Executes one N-D SGD iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _stepNd)]
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        step_nd_in_place(&mut self.inner, layout)
     }
 
-    /// Executes up to `steps` non-Euclidean SGD iterations on a `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = runStepsManifold)]
+    /// Executes up to `steps` N-D SGD iterations on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runStepsNd)]
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
+        run_steps_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            steps,
+            "SgdSolver::run_steps_nd",
+        )
+    }
+
+    /// Runs N-D SGD optimization to completion on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runNd)]
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        run_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            "SgdSolver::run_nd",
+        )
+    }
+
+    /// Executes one non-Euclidean SGD iteration on `ManifoldLayout2d` in place.
+    #[wasm_bindgen(js_name = _stepManifold)]
+    pub fn step_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsError> {
+        step_manifold_in_place(&mut self.inner, layout)
+    }
+
+    /// Executes up to `steps` non-Euclidean SGD iterations on `ManifoldLayout2d` in place.
+    #[wasm_bindgen(js_name = _runStepsManifold)]
     pub fn run_steps_manifold(
         &mut self,
         layout: &mut JsManifoldLayout2d,
         steps: f64,
     ) -> Result<String, JsError> {
-        let n_steps = parse_non_negative_usize(steps, "steps")?;
-        if layout.len() != self.inner.num_nodes() {
-            return Err(core_err_to_js(CoreError::dimension_mismatch(
-                self.inner.num_nodes(),
-                layout.len(),
-                "SgdSolver::run_steps_manifold",
-            )));
-        }
-        layout
-            .inner()
-            .as_layout()
-            .validate_finite()
-            .map_err(core_err_to_js)?;
-        let status = self
-            .inner
-            .run_steps_manifold(layout.inner_mut(), n_steps)
-            .map_err(core_err_to_js)?;
-        Ok(solver_status_str(status).to_owned())
+        run_steps_manifold_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            steps,
+            "SgdSolver::run_steps_manifold",
+        )
     }
 
-    /// Runs non-Euclidean SGD optimization to completion on a `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = runManifold)]
+    /// Runs non-Euclidean SGD optimization to completion on `ManifoldLayout2d` in place.
+    #[wasm_bindgen(js_name = _runManifold)]
     pub fn run_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsError> {
-        if layout.len() != self.inner.num_nodes() {
-            return Err(core_err_to_js(CoreError::dimension_mismatch(
-                self.inner.num_nodes(),
-                layout.len(),
-                "SgdSolver::run_manifold",
-            )));
-        }
-        layout
-            .inner()
-            .as_layout()
-            .validate_finite()
-            .map_err(core_err_to_js)?;
-        let status = self
-            .inner
-            .run_manifold(layout.inner_mut())
-            .map_err(core_err_to_js)?;
-        Ok(solver_status_str(status).to_owned())
+        run_manifold_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            "SgdSolver::run_manifold",
+        )
+    }
+
+    /// Returns `true` when this solver mode supports `ManifoldLayout2d`.
+    #[wasm_bindgen(getter, js_name = supportsManifold)]
+    pub fn supports_manifold(&self) -> bool {
+        self.inner.supports_manifold()
+    }
+
+    /// Returns the maximum step clamp multiplier `maxMu` (`undefined` when unbounded `<= 1.0`).
+    #[wasm_bindgen(getter, js_name = maxMu)]
+    pub fn max_mu(&self) -> Option<f64> {
+        self.max_mu
     }
 
     /// Returns the number of two-sided spring pairs stored.

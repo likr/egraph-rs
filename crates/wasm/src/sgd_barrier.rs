@@ -1,7 +1,6 @@
-//! 3-tier Sparse Barrier SGD constructors and diagnostics (`SparseBarrierStats`, `DogStats`).
+//! 3-tier Sparse Barrier SGD constructors.
 
-use egraph::layout::{BarrierSymmetry, SgdSolver, SparseBarrierConfig, SparseBarrierStats};
-use egraph::neighborhood::DogVaradhanStats;
+use egraph::layout::{BarrierSymmetry, SgdSolver, SparseBarrierConfig};
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
@@ -11,12 +10,12 @@ use crate::js_convert::{
     parse_seed_u64,
 };
 use crate::js_options::{
-    is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_usize_prop,
-    opt_seed_prop, opt_string_prop, opt_usize_prop, parse_dog_config_from_options_or_args,
-    reject_extra_args_with_options,
+    is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
+    opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
+    parse_dog_config_from_options_or_args, reject_extra_args_with_options,
 };
-use crate::linalg_matrix::JsSpectralMomentStats;
 use crate::sgd::{JsSgdSolver, parse_sgd_schedule_kind};
+use crate::sgd_stats::{JsDogStats, JsSparseBarrierStats};
 
 fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsError> {
     match normalize_enum_token(raw).as_str() {
@@ -25,156 +24,6 @@ fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsError> {
         _ => Err(JsError::new(&format!(
             "unknown BarrierSymmetry {raw:?}; expected 'sym_max' or 'sym_avg'"
         ))),
-    }
-}
-
-/// Diagnostics emitted by `SgdSolver.sparseBarrierFromLandmarks` and `SgdSolver.sparseBarrierDog`.
-#[wasm_bindgen(js_name = SparseBarrierStats)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct JsSparseBarrierStats {
-    inner: SparseBarrierStats,
-}
-
-#[wasm_bindgen(js_class = SparseBarrierStats)]
-impl JsSparseBarrierStats {
-    /// Returns the count of Tier 1 1-hop pairs.
-    #[wasm_bindgen(getter, js_name = nPairs1hop)]
-    pub fn n_pairs_1hop(&self) -> usize {
-        self.inner.n_pairs_1hop
-    }
-
-    /// Returns the count of Tier 2 2-hop pairs.
-    #[wasm_bindgen(getter, js_name = nPairs2hop)]
-    pub fn n_pairs_2hop(&self) -> usize {
-        self.inner.n_pairs_2hop
-    }
-
-    /// Returns the count of Tier 3 non-2-hop barrier pairs.
-    #[wasm_bindgen(getter, js_name = nPairsNon2)]
-    pub fn n_pairs_non2(&self) -> usize {
-        self.inner.n_pairs_non2
-    }
-
-    /// Returns the count of one-sided hinge pairs.
-    #[wasm_bindgen(getter, js_name = nPairsHinge)]
-    pub fn n_pairs_hinge(&self) -> usize {
-        self.inner.n_pairs_hinge
-    }
-
-    /// Returns the count of two-sided spring pairs.
-    #[wasm_bindgen(getter, js_name = nPairsTwoSided)]
-    pub fn n_pairs_two_sided(&self) -> usize {
-        self.inner.n_pairs_two_sided
-    }
-
-    /// Returns the adaptive or explicit perplexity value.
-    #[wasm_bindgen(getter, js_name = perplexityVal)]
-    pub fn perplexity_val(&self) -> f64 {
-        self.inner.perplexity_val
-    }
-
-    /// Returns the per-node negative sample budget used.
-    #[wasm_bindgen(getter, js_name = perNodeNegUsed)]
-    pub fn per_node_neg_used(&self) -> usize {
-        self.inner.per_node_neg_used
-    }
-
-    /// Returns `"adaptive_2hop"` or `"explicit"`.
-    #[wasm_bindgen(getter, js_name = perplexitySource)]
-    pub fn perplexity_source(&self) -> String {
-        self.inner.perplexity_source.to_owned()
-    }
-
-    /// Returns the applied relative distance floor.
-    #[wasm_bindgen(getter, js_name = dFloor)]
-    pub fn d_floor(&self) -> f64 {
-        self.inner.d_floor
-    }
-
-    /// Returns the effective non-2-hop repulsion multiplier $\gamma_{\mathrm{eff}}$.
-    #[wasm_bindgen(getter, js_name = gammaEff)]
-    pub fn gamma_eff(&self) -> f64 {
-        self.inner.gamma_eff
-    }
-}
-
-/// Regularized DoG Varadhan landmark diagnostics returned by `SgdSolver.dogStats()`.
-#[wasm_bindgen(js_name = DogStats)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct JsDogStats {
-    inner: DogVaradhanStats,
-}
-
-#[wasm_bindgen(js_class = DogStats)]
-impl JsDogStats {
-    #[wasm_bindgen(getter, js_name = momentStats)]
-    pub fn moment_stats(&self) -> JsSpectralMomentStats {
-        JsSpectralMomentStats::from_inner(self.inner.moment_stats)
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn t1(&self) -> f64 {
-        self.inner.t1
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn t2(&self) -> f64 {
-        self.inner.t2
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn alpha(&self) -> f64 {
-        self.inner.alpha
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn degree(&self) -> usize {
-        self.inner.degree
-    }
-
-    #[wasm_bindgen(getter, js_name = deltaPsd)]
-    pub fn delta_psd(&self) -> f64 {
-        self.inner.delta_psd
-    }
-
-    #[wasm_bindgen(getter, js_name = hMin)]
-    pub fn h_min(&self) -> f64 {
-        self.inner.h_min
-    }
-
-    #[wasm_bindgen(getter, js_name = kMin)]
-    pub fn k_min(&self) -> f64 {
-        self.inner.k_min
-    }
-
-    #[wasm_bindgen(getter, js_name = kMed)]
-    pub fn k_med(&self) -> f64 {
-        self.inner.k_med
-    }
-
-    #[wasm_bindgen(getter, js_name = betaAuto)]
-    pub fn beta_auto(&self) -> f64 {
-        self.inner.beta_auto
-    }
-
-    #[wasm_bindgen(getter, js_name = betaEff)]
-    pub fn beta_eff(&self) -> f64 {
-        self.inner.beta_eff
-    }
-
-    #[wasm_bindgen(getter, js_name = numLandmarks)]
-    pub fn num_landmarks(&self) -> usize {
-        self.inner.n_landmarks
-    }
-
-    #[wasm_bindgen(getter, js_name = tCoarse)]
-    pub fn t_coarse(&self) -> f64 {
-        self.inner.t_coarse
-    }
-
-    #[wasm_bindgen(getter, js_name = usedCoarseScaffold)]
-    pub fn used_coarse_scaffold(&self) -> bool {
-        self.inner.used_coarse_scaffold
     }
 }
 
@@ -245,13 +94,14 @@ fn parse_sparse_barrier_config(
             cfg.degree_weight_beta,
         )?;
         cfg.schedule.iterations =
-            opt_usize_prop(max_2hop_or_options, "tMax", cfg.schedule.iterations)?;
+            opt_usize_prop(max_2hop_or_options, "iterations", cfg.schedule.iterations)?;
         cfg.schedule.eps = opt_f64_prop(max_2hop_or_options, "eps", cfg.schedule.eps)?;
         if let Some(k_str) = opt_string_prop(max_2hop_or_options, "kind")? {
             cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;
         }
         cfg.schedule.step_scale =
             opt_f64_prop(max_2hop_or_options, "stepScale", cfg.schedule.step_scale)?;
+        cfg.schedule.max_mu = opt_maybe_f64_prop(max_2hop_or_options, "maxMu")?;
         cfg.seed = opt_seed_prop(max_2hop_or_options)?;
         return Ok(cfg);
     }
@@ -276,7 +126,7 @@ fn parse_sparse_barrier_config(
     cfg.neg_per_node = parse_opt_usize_param(neg_per_node, "negPerNode")?;
     cfg.num_pivots = parse_optional_usize(num_pivots, cfg.num_pivots, "numPivots")?;
     cfg.core_pivots = core_pivots.unwrap_or(cfg.core_pivots);
-    cfg.schedule.iterations = parse_optional_usize(t_max, cfg.schedule.iterations, "tMax")?;
+    cfg.schedule.iterations = parse_optional_usize(t_max, cfg.schedule.iterations, "iterations")?;
     cfg.schedule.eps = eps.unwrap_or(cfg.schedule.eps);
     if let Some(k_str) = kind {
         cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;
@@ -444,13 +294,13 @@ impl JsSgdSolver {
     /// `sparseBarrierDog`, or `undefined` otherwise.
     pub fn stats(&self) -> Option<JsSparseBarrierStats> {
         self.barrier_stats_inner()
-            .map(|inner| JsSparseBarrierStats { inner })
+            .map(JsSparseBarrierStats::from_inner)
     }
 
     /// Returns regularized DoG Varadhan landmark diagnostics `DogStats` when constructed via
     /// `sparseBarrierDog`, or `undefined` otherwise.
     #[wasm_bindgen(js_name = dogStats)]
     pub fn dog_stats(&self) -> Option<JsDogStats> {
-        self.dog_stats_inner().map(|inner| JsDogStats { inner })
+        self.dog_stats_inner().map(JsDogStats::from_inner)
     }
 }

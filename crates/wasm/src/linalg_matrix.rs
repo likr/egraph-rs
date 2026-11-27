@@ -21,6 +21,11 @@ pub struct JsCsrMatrix {
 }
 
 impl JsCsrMatrix {
+    /// Wraps an existing `egraph_linalg::CsrMatrix` in a `JsCsrMatrix`.
+    pub(crate) fn from_inner(inner: CsrMatrix) -> Self {
+        Self { inner }
+    }
+
     /// Returns a shared reference to the underlying `egraph_linalg::CsrMatrix`.
     pub fn inner(&self) -> &CsrMatrix {
         &self.inner

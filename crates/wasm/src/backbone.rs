@@ -10,8 +10,8 @@ use wasm_bindgen::prelude::*;
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, csr_f64_to_f32, set_js_prop};
 use crate::js_options::{
-    check_options_arg, normalize_enum_token, opt_f64_prop, opt_seed_prop, opt_string_prop,
-    opt_usize_prop, solver_status_str,
+    check_options_arg, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
+    opt_string_prop, opt_usize_prop, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
@@ -45,6 +45,7 @@ fn parse_backbone_config(options: &JsValue, ctx: &str) -> Result<BackboneConfig,
             "nonBackboneWeightScale",
             cfg.non_backbone_weight_scale,
         )?;
+        cfg.use_weights = opt_bool_prop(options, "useWeights", cfg.use_weights)?;
         if let Some(m_str) = opt_string_prop(options, "layoutMode")? {
             cfg.layout_mode = parse_backbone_layout_mode(&m_str)?;
         }

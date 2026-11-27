@@ -11,6 +11,7 @@ import {
   clusteringSolversDtsReplacements,
   linalgNeighborhoodDtsReplacements,
 } from "./dts_linalg_solvers.mjs";
+import { polyMetricsAndSolverDeclarations } from "./dts_poly_decls.mjs";
 import { clusterFieldTypeDecls } from "./dts_types_cluster_field.mjs";
 import { layoutBaselineAndProgressiveTypeDecls } from "./dts_types_layout_baselines.mjs";
 import { solverEnumAndPrimaryTypeDecls } from "./dts_types_solvers.mjs";
@@ -65,5 +66,5 @@ export function buildIndexDts(wasmDts, wasmDtsPath) {
     wasmDtsPath,
   );
 
-  return indexDts;
+  return `${indexDts}\n${polyMetricsAndSolverDeclarations}`;
 }

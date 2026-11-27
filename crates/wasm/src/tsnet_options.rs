@@ -1,24 +1,49 @@
 //! Option and positional-argument parsers for `TsNetSolver`.
 
 use egraph::layout::{TsNetBackend, TsNetConfig};
-use egraph::neighborhood::SymmetrizationMode;
+use egraph::neighborhood::{SymmetrizationMode, TwoHopSamplingMode};
 use wasm_bindgen::prelude::*;
 
-use crate::js_convert::{parse_opt_usize_param, parse_optional_usize, parse_seed_u64};
+use crate::js_convert::{
+    parse_non_negative_usize, parse_opt_usize_param, parse_optional_usize, parse_seed_u64,
+};
 use crate::js_options::{
     get_prop, is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop,
     opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
     parse_ibfft_order, reject_extra_args_with_options,
 };
 
-fn parse_tsnet_backend(raw: &str) -> Result<TsNetBackend, JsError> {
+pub(crate) fn parse_tsnet_backend(raw: &str) -> Result<TsNetBackend, JsError> {
     match normalize_enum_token(raw).as_str() {
         "exact" => Ok(TsNetBackend::Exact),
         "barneshut" | "bh" => Ok(TsNetBackend::BarnesHut),
         "fft" | "fftinterpolation" | "fit" => Ok(TsNetBackend::FftInterpolation),
         "linearfft" | "l" => Ok(TsNetBackend::LinearFft),
+        "auto" => Ok(TsNetBackend::Auto),
         _ => Err(JsError::new(&format!(
-            "unknown TsNetBackend {raw:?}; expected 'exact', 'barnes_hut', 'fft', or 'linear_fft'"
+            "unknown TsNetBackend {raw:?}; expected 'exact', 'barnes_hut', 'fft', 'linear_fft', or 'auto'"
+        ))),
+    }
+}
+
+pub(crate) fn tsnet_backend_str(backend: TsNetBackend) -> &'static str {
+    match backend {
+        TsNetBackend::Exact => "exact",
+        TsNetBackend::BarnesHut => "barnes_hut",
+        TsNetBackend::FftInterpolation => "fft",
+        TsNetBackend::LinearFft => "linear_fft",
+        TsNetBackend::Auto => "auto",
+    }
+}
+
+pub(crate) fn parse_tsnet_sampling_mode(raw: &str) -> Result<TwoHopSamplingMode, JsError> {
+    match normalize_enum_token(raw).as_str() {
+        "degreeorderedhubsuppressed" | "degreeordered" | "hubsuppressed" => {
+            Ok(TwoHopSamplingMode::DegreeOrderedHubSuppressed)
+        }
+        "twosteprandomwalk" | "randomwalk" => Ok(TwoHopSamplingMode::TwoStepRandomWalk),
+        _ => Err(JsError::new(&format!(
+            "unknown TwoHopSamplingMode {raw:?}; expected 'degree_ordered_hub_suppressed' or 'two_step_random_walk'"
         ))),
     }
 }
@@ -112,6 +137,45 @@ pub(crate) fn parse_tsnet_config(
             "iterationsStage3",
             cfg.stage_iterations[2],
         )?;
+        let si_val = get_prop(backend_or_options, "stageIterations")?;
+        if !si_val.is_undefined() && !si_val.is_null() {
+            let mut vals = Vec::with_capacity(3);
+            if let Some(arr) = si_val.dyn_ref::<js_sys::Uint32Array>() {
+                for v in arr.to_vec() {
+                    vals.push(v as usize);
+                }
+            } else if !si_val.is_string() && si_val.is_object() {
+                let iter = js_sys::try_iter(&si_val)
+                    .map_err(|err| {
+                        JsError::new(&format!(
+                            "failed to iterate options.stageIterations: {err:?}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        JsError::new("options.stageIterations must be a 3-element integer array")
+                    })?;
+                for item_res in iter {
+                    let item = item_res.map_err(|err| {
+                        JsError::new(&format!("failed to read options.stageIterations: {err:?}"))
+                    })?;
+                    let num = item.as_f64().ok_or_else(|| {
+                        JsError::new("options.stageIterations entries must be integers")
+                    })?;
+                    vals.push(parse_non_negative_usize(num, "stageIterations")?);
+                }
+            } else {
+                return Err(JsError::new(
+                    "options.stageIterations must be a 3-element integer array",
+                ));
+            }
+            if vals.len() != 3 {
+                return Err(JsError::new(&format!(
+                    "options.stageIterations must have length 3, got {}",
+                    vals.len()
+                )));
+            }
+            cfg.stage_iterations = [vals[0], vals[1], vals[2]];
+        }
         cfg.exaggeration = opt_f64_prop(backend_or_options, "exaggeration", cfg.exaggeration)?;
         cfg.lambda_c_stage1 =
             opt_f64_prop(backend_or_options, "lambdaCStage1", cfg.lambda_c_stage1)?;
@@ -123,6 +187,11 @@ pub(crate) fn parse_tsnet_config(
             opt_f64_prop(backend_or_options, "lambdaRStage3", cfg.lambda_r_stage3)?;
         cfg.learning_rate =
             opt_maybe_f64_prop(backend_or_options, "learningRate")?.or(cfg.learning_rate);
+        cfg.learning_rate_divisor = opt_f64_prop(
+            backend_or_options,
+            "learningRateDivisor",
+            cfg.learning_rate_divisor,
+        )?;
         cfg.momentum = opt_f64_prop(backend_or_options, "momentum", cfg.momentum)?;
         cfg.epsilon_r = opt_f64_prop(backend_or_options, "epsilonR", cfg.epsilon_r)?;
         cfg.theta = opt_f64_prop(backend_or_options, "theta", cfg.theta)?;

@@ -10,8 +10,11 @@ use crate::js_options::{
     check_options_arg, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
     opt_usize_prop, solver_status_str,
 };
-use crate::layout_buffers::JsLayout2d;
-use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
+use crate::solver_runner::{
+    run_layout_in_place, run_nd_in_place, run_steps_layout_in_place, run_steps_nd_in_place,
+    step_layout_in_place, step_nd_in_place,
+};
 
 /// Cooperative Gansner et al. (2013) Maxent-Stress layout solver (`f32`).
 #[wasm_bindgen(js_name = MaxentStressSolver)]
@@ -45,14 +48,15 @@ impl JsMaxentStressSolver {
         Ok(Self { inner })
     }
 
-    /// Executes one Maxent-Stress iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Executes one Maxent-Stress iteration on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _step2d)]
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
-    /// Executes up to `steps` Maxent-Stress iterations on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    /// Executes up to `steps` Maxent-Stress iterations on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _runSteps2d)]
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -62,13 +66,43 @@ impl JsMaxentStressSolver {
         )
     }
 
-    /// Runs Maxent-Stress optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Runs Maxent-Stress optimization to completion on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _run2d)]
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
             layout,
             "MaxentStressSolver::run",
+        )
+    }
+
+    /// Executes one Maxent-Stress iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _stepNd)]
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        step_nd_in_place(&mut self.inner, layout)
+    }
+
+    /// Executes up to `steps` Maxent-Stress iterations on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runStepsNd)]
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
+        run_steps_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            steps,
+            "MaxentStressSolver::run_steps_nd",
+        )
+    }
+
+    /// Runs Maxent-Stress optimization to completion on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runNd)]
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        run_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            "MaxentStressSolver::run_nd",
         )
     }
 

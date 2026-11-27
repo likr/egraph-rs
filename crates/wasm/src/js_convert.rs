@@ -193,3 +193,77 @@ pub(crate) fn set_js_prop(obj: &js_sys::Object, key: &str, val: &JsValue) -> Res
 pub(crate) fn set_f64_prop(obj: &js_sys::Object, key: &str, val: f64) -> Result<(), JsError> {
     set_js_prop(obj, key, &JsValue::from_f64(val))
 }
+
+pub(crate) fn parse_f32_sequence(val: &JsValue, name: &str) -> Result<Vec<f32>, JsError> {
+    if let Some(arr) = val.dyn_ref::<js_sys::Float32Array>() {
+        return Ok(arr.to_vec());
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Float64Array>() {
+        return arr
+            .to_vec()
+            .into_iter()
+            .map(|v| {
+                let f = v as f32;
+                if v.is_finite() && !f.is_finite() {
+                    return Err(JsError::new(&format!("{name} entry {v} overflows f32")));
+                }
+                Ok(f)
+            })
+            .collect();
+    }
+    if val.is_null() || val.is_undefined() || val.is_string() || !val.is_object() {
+        return Err(JsError::new(&format!(
+            "{name} must be a Float32Array, Float64Array, or numeric iterable"
+        )));
+    }
+    let iter = js_sys::try_iter(val)
+        .map_err(|err| JsError::new(&format!("failed to iterate {name}: {err:?}")))?
+        .ok_or_else(|| {
+            JsError::new(&format!(
+                "{name} must be a Float32Array, Float64Array, or numeric iterable"
+            ))
+        })?;
+    let mut out = Vec::new();
+    for item_res in iter {
+        let item =
+            item_res.map_err(|err| JsError::new(&format!("failed to read {name}: {err:?}")))?;
+        let v = item
+            .as_f64()
+            .ok_or_else(|| JsError::new(&format!("{name} entries must be numbers")))?;
+        let f = v as f32;
+        if v.is_finite() && !f.is_finite() {
+            return Err(JsError::new(&format!("{name} entry {v} overflows f32")));
+        }
+        out.push(f);
+    }
+    Ok(out)
+}
+
+pub(crate) fn parse_optional_f32_sequence(
+    val: &JsValue,
+    name: &str,
+) -> Result<Option<Vec<f32>>, JsError> {
+    if val.is_undefined() || val.is_null() {
+        return Ok(None);
+    }
+    parse_f32_sequence(val, name).map(Some)
+}
+
+pub(crate) fn parse_rta_landmark_f64_sequence(
+    val: &JsValue,
+    name: &str,
+) -> Result<Vec<f64>, JsError> {
+    if let Some(arr) = val.dyn_ref::<js_sys::Float64Array>() {
+        return Ok(arr.to_vec());
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Float32Array>() {
+        return Ok(arr.to_vec().into_iter().map(f64::from).collect());
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Uint32Array>() {
+        return Ok(arr.to_vec().into_iter().map(f64::from).collect());
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Int32Array>() {
+        return Ok(arr.to_vec().into_iter().map(f64::from).collect());
+    }
+    parse_f64_sequence(val, name)
+}

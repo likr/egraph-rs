@@ -1,40 +1,56 @@
+import { polyExportDefinitions, polyWrapperRuntimeHelpers } from "./js_poly_wrappers.mjs";
+
+const WRAPPED_CLASSES = new Set([
+  "Layout2d",
+  "LayoutNd",
+  "ManifoldLayout2d",
+  "LouvainResult",
+  "LeidenResult",
+  "LabelPropagationResult",
+  "SpectralClusteringResult",
+  "KMeansResult",
+  "SgdSolver",
+  "TsNetSolver",
+  "GuMapSolver",
+  "StressMajorizationSolver",
+  "KamadaKawaiSolver",
+  "LinLogSolver",
+  "FruchtermanReingoldSolver",
+  "ForceAtlas2Solver",
+  "YifanHuSolver",
+  "MaxentStressSolver",
+  "FdebSolver",
+  "ArenaOctree3d",
+  "DynamicKdTree",
+]);
+
 export function buildIndexJs(exportedNames) {
-  const passthroughExports = Array.from(exportedNames)
-    .filter((name) => name !== "Layout2d" && name !== "LayoutNd")
-    .sort();
+  const aliasedImports = [];
+  const passthroughExports = [];
+
+  for (const name of Array.from(exportedNames).sort()) {
+    if (WRAPPED_CLASSES.has(name)) {
+      aliasedImports.push(`  ${name} as _${name},`);
+    } else {
+      aliasedImports.push(`  ${name},`);
+      if (!name.startsWith("_")) {
+        passthroughExports.push(name);
+      }
+    }
+  }
 
   const indexJs = `/* @ts-self-types="./index.d.ts" */
 import init, {
-  Layout2d as _Layout2d,
-  LayoutNd as _LayoutNd,
-${passthroughExports.map((name) => `  ${name},`).join("\n")}
+${aliasedImports.join("\n")}
 } from "./egraph_wasm.js";
 
-function attachCoordsView(LayoutClass) {
-  if (typeof LayoutClass.prototype.coordsView !== "function") {
-    LayoutClass.prototype.coordsView = function coordsView() {
-      const buf = wasmMemory().buffer;
-      const ptr = this.coordsPtr();
-      const len = this.coordsLen();
-      if (
-        !this._coordsView ||
-        this._coordsViewBuf !== buf ||
-        this._coordsView.byteOffset !== ptr ||
-        this._coordsView.length !== len
-      ) {
-        this._coordsView = new Float32Array(buf, ptr, len);
-        this._coordsViewBuf = buf;
-      }
-      return this._coordsView;
-    };
-  }
-  return LayoutClass;
-}
-
+${polyWrapperRuntimeHelpers}
 /**
  * Runs a cooperative iterative solver progressively within a per-frame time budget,
  * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
  * in Node.js) between batches.
+ *
+ * Accepts \`Layout2d\`, \`LayoutNd\`, or \`ManifoldLayout2d\` polymorphically.
  */
 export function runProgressive(solver, layout, onFrame, options = {}) {
   const {
@@ -158,15 +174,14 @@ export function runProgressive(solver, layout, onFrame, options = {}) {
   });
 }
 
-export const Layout2d = attachCoordsView(_Layout2d);
-export const LayoutNd = attachCoordsView(_LayoutNd);
+${polyExportDefinitions}
 export {
 ${passthroughExports.map((name) => `  ${name},`).join("\n")}
 };
 export default init;
 `;
 
-  return { indexJs, exportCount: passthroughExports.length + 1 };
+  return { indexJs, exportCount: passthroughExports.length + WRAPPED_CLASSES.size + 36 };
 }
 
 export function buildNodeWrapperJs() {

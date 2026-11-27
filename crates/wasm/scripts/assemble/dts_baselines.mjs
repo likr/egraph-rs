@@ -8,8 +8,16 @@ export const clusterBaselinesDtsReplacements = [
     "export function leidenCommunities(graph: CsrGraph, options?: LeidenOptions | null): LeidenResult;",
   ],
   [
+    /(export class LinLogSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    energy(layout: Layout2d | LayoutNd): number;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
     /(export class LinLogSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: LinLogOptions | null);",
+  ],
+  [
+    /(export class FruchtermanReingoldSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class FruchtermanReingoldSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -29,15 +37,15 @@ export const clusterBaselinesDtsReplacements = [
   ],
   [
     /(export class ClusterRefineSolver \{[\s\S]*?)static fromGraph\([^;]+\): ClusterRefineSolver;/,
-    "$1static fromGraph(graph: CsrGraph, clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null): ClusterRefineSolver;",
+    "$1static fromGraph(graph: CsrGraph, labels: Uint32Array | number[], options?: ClusterRefineOptions | null): ClusterRefineSolver;",
   ],
   [
     /(export class ClusterRefineSolver \{[\s\S]*?)constructor\([^;]+\);/,
-    "$1constructor(clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null);",
+    "$1constructor(labels: Uint32Array | number[], options?: ClusterRefineOptions | null);",
   ],
   [
     /export function refineClusterLayout\([^;]+\): number;/,
-    "export function refineClusterLayout(layout: Layout2d, clusterLabels: Uint32Array | number[], options?: ClusterRefineOptions | null): number;",
+    "export function refineClusterLayout(layout: Layout2d, labels: Uint32Array | number[], options?: ClusterRefineOptions | null): number;",
   ],
   [
     /export function squarifiedTreemap\([^;]+\): Float64Array;/,
@@ -49,7 +57,7 @@ export const clusterBaselinesDtsReplacements = [
   ],
   [
     /(export class GroupInABoxSolver \{[\s\S]*?)constructor\([^;]+\);/,
-    "$1constructor(graph: CsrGraph, clusterLabels: Uint32Array | number[], options?: GroupInABoxOptions | null);",
+    "$1constructor(graph: CsrGraph, labels: Uint32Array | number[], options?: GroupInABoxOptions | null);",
   ],
   [
     /(export class GTreeOverlapRemoval \{[\s\S]*?)static fromRadii\([^;]+\): GTreeOverlapRemoval;/,
@@ -84,60 +92,8 @@ export const clusterBaselinesDtsReplacements = [
     "export function partitionAgreement(labelsTrue: Uint32Array | number[], labelsPred: Uint32Array | number[]): PartitionAgreementResult;",
   ],
   [
-    /export function cqKmeans\([^;]+\): PartitionAgreementResult;/,
-    "export function cqKmeans(layout: Layout2d, communityLabels: Uint32Array | number[], nInit?: number | null, maxIters?: number | null, seed?: number | null): PartitionAgreementResult;",
-  ],
-  [
-    /export function cqHac\([^;]+\): PartitionAgreementResult;/,
-    "export function cqHac(layout: Layout2d, communityLabels: Uint32Array | number[]): PartitionAgreementResult;",
-  ],
-  [
-    /export function distanceConsistency\([^;]+\): number;/,
-    "export function distanceConsistency(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function distributionConsistency\([^;]+\): number;/,
-    "export function distributionConsistency(layout: Layout2d, labels: Uint32Array | number[], gridSize?: number | null): number;",
-  ],
-  [
     /export function classDensityMeasure\([^;]+\): ClassDensityResult;/,
     "export function classDensityMeasure(layout: Layout2d, labels: Uint32Array | number[], gridSize?: number | null, bandwidth?: number | null): ClassDensityResult;",
-  ],
-  [
-    /export function sepmeKnng\([^;]+\): number;/,
-    "export function sepmeKnng(layout: Layout2d, labels: Uint32Array | number[], k?: number | null): number;",
-  ],
-  [
-    /export function sepmeRng\([^;]+\): number;/,
-    "export function sepmeRng(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function sepmeGab\([^;]+\): number;/,
-    "export function sepmeGab(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function sepmeGong\([^;]+\): number;/,
-    "export function sepmeGong(layout: Layout2d, labels: Uint32Array | number[], gamma?: number | null): number;",
-  ],
-  [
-    /export function neighborhoodHit\([^;]+\): number;/,
-    "export function neighborhoodHit(layout: Layout2d, labels: Uint32Array | number[], k?: number | null): number;",
-  ],
-  [
-    /export function silhouetteScore\([^;]+\): number;/,
-    "export function silhouetteScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function calinskiHarabaszScore\([^;]+\): number;/,
-    "export function calinskiHarabaszScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function daviesBouldinScore\([^;]+\): number;/,
-    "export function daviesBouldinScore(layout: Layout2d, labels: Uint32Array | number[]): number;",
-  ],
-  [
-    /export function pairwiseDistanceOverlapError\([^;]+\): number;/,
-    "export function pairwiseDistanceOverlapError(layout: Layout2d, labels: Uint32Array | number[], numBins?: number | null): number;",
   ],
   [
     /export function sprawlterNn\([^;]+\): number;/,
@@ -177,6 +133,10 @@ export const multilevelStressBaselinesDtsReplacements = [
   [
     /static graphCne\(graph: CsrGraph, options: any\): SgdSolver;/,
     "static graphCne(graph: CsrGraph, options?: GraphCneOptions | null): SgdSolver;",
+  ],
+  [
+    /(export class MaxentStressSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class MaxentStressSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,

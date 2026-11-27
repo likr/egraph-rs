@@ -6,6 +6,7 @@ use crate::js_convert::{
     core_err_to_js, parse_non_negative_usize, parse_opt_usize_param, parse_optional_usize,
     parse_seed_u64,
 };
+use crate::js_options::normalize_enum_token;
 use crate::neighborhood_types::{
     JsHybridKnnResult, JsKnnGraph, JsSparse12HopPairs, JsSparseProbabilities, JsTwoHopCsr,
     JsTwoHopKnnResult,
@@ -14,13 +15,15 @@ use egraph::core::CsrGraph;
 use egraph::neighborhood::{
     DEFAULT_MAX_PERPLEXITY, DEFAULT_MEDIAN_MIN_PERPLEXITY, DEFAULT_MEDIAN_PERPLEXITY_C,
     DEFAULT_NODEWISE_MIN_PERPLEXITY, DEFAULT_NODEWISE_PERPLEXITY_C, HybridKnnConfig,
-    PerplexityConfig, SymmetrizationMode, apply_relative_distance_floor, build_capped_12hop_knn,
-    build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn, build_pure_2hop_knn,
-    build_rerank_knn, compute_2hop_neighborhood_sizes, compute_fuzzy_simplicial_set,
-    compute_horvitz_thompson_gamma, compute_knn_probabilities, compute_median_2hop_perplexity,
-    compute_nodewise_2hop_perplexities, extract_1hop_2hop_csr, extract_sparse_1hop_2hop_pairs,
-    find_ab_params, graph_12hop_row_normalized_probabilities_with_degree_decay,
-    graph_row_normalized_probabilities, partial_bfs_knn, symmetrize_row_normalized,
+    PerplexityConfig, SymmetrizationMode, TwoHopSamplingMode, apply_relative_distance_floor,
+    build_capped_12hop_knn, build_gumap_12hop_priority_csr, build_hybrid_adaptive_knn,
+    build_pure_2hop_knn, build_rerank_knn, compute_2hop_neighborhood_sizes,
+    compute_fuzzy_simplicial_set, compute_horvitz_thompson_gamma, compute_knn_probabilities,
+    compute_median_2hop_perplexity, compute_nodewise_2hop_perplexities, extract_1hop_2hop_csr,
+    extract_sparse_1hop_2hop_pairs, extract_sparse_1hop_2hop_pairs_with_mode, find_ab_params,
+    graph_12hop_row_normalized_probabilities_with_degree_decay,
+    graph_12hop_row_normalized_probabilities_with_options, graph_row_normalized_probabilities,
+    partial_bfs_knn, symmetrize_row_normalized,
 };
 use wasm_bindgen::prelude::*;
 
@@ -57,6 +60,21 @@ pub fn js_extract_1hop_2hop_csr(graph: &JsCsrGraph) -> Result<JsTwoHopCsr, JsErr
     Ok(JsTwoHopCsr::from_parts(hop1, hop2))
 }
 
+fn parse_two_hop_sampling_mode(raw: Option<String>) -> Result<TwoHopSamplingMode, JsError> {
+    match raw {
+        None => Ok(TwoHopSamplingMode::DegreeOrderedHubSuppressed),
+        Some(s) => match normalize_enum_token(&s).as_str() {
+            "degreeorderedhubsuppressed" | "degreeordered" | "hubsuppressed" => {
+                Ok(TwoHopSamplingMode::DegreeOrderedHubSuppressed)
+            }
+            "twosteprandomwalk" | "randomwalk" => Ok(TwoHopSamplingMode::TwoStepRandomWalk),
+            _ => Err(JsError::new(&format!(
+                "unknown TwoHopSamplingMode {s:?}; expected 'degree_ordered_hub_suppressed' or 'two_step_random_walk'"
+            ))),
+        },
+    }
+}
+
 /// Extracts canonical undirected 1-hop and hub-safe capped 2-hop vertex pair arrays `Sparse12HopPairs`.
 #[wasm_bindgen(js_name = extractSparse1hop2hopPairs)]
 pub fn js_extract_sparse_1hop_2hop_pairs(
@@ -68,6 +86,24 @@ pub fn js_extract_sparse_1hop_2hop_pairs(
     let seed_u64 = parse_seed_u64(seed)?;
     let inner =
         extract_sparse_1hop_2hop_pairs(graph.inner(), cap, seed_u64).map_err(core_err_to_js)?;
+    Ok(JsSparse12HopPairs::from_inner(inner))
+}
+
+/// Extracts canonical 1-hop and 2-hop pairs using an explicit `TwoHopSamplingMode` and optional `maxBridgeDegree`.
+#[wasm_bindgen(js_name = extractSparse1hop2hopPairsWithMode)]
+pub fn js_extract_sparse_1hop_2hop_pairs_with_mode(
+    graph: &JsCsrGraph,
+    max_2hop_per_node: Option<f64>,
+    mode: Option<String>,
+    max_bridge_degree: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsSparse12HopPairs, JsError> {
+    let cap = parse_optional_usize(max_2hop_per_node, DEFAULT_SPARSE_MAX_2HOP, "max2hopPerNode")?;
+    let m = parse_two_hop_sampling_mode(mode)?;
+    let bridge = parse_opt_usize_param(max_bridge_degree, "maxBridgeDegree")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let inner = extract_sparse_1hop_2hop_pairs_with_mode(graph.inner(), cap, m, bridge, seed_u64)
+        .map_err(core_err_to_js)?;
     Ok(JsSparse12HopPairs::from_inner(inner))
 }
 
@@ -287,6 +323,37 @@ pub fn js_graph_12hop_row_normalized_probabilities(
         w2_val,
         cap_opt,
         beta_val,
+        seed_u64,
+    )
+    .map_err(core_err_to_js)?;
+    Ok(JsSparseProbabilities::from_inner(inner))
+}
+
+/// Computes row-normalized symmetrized 1+2-hop probabilities with explicit `TwoHopSamplingMode` and `maxBridgeDegree`.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen(js_name = graph12hopRowNormalizedProbabilitiesWithOptions)]
+pub fn js_graph_12hop_row_normalized_probabilities_with_options(
+    graph: &JsCsrGraph,
+    w2: Option<f64>,
+    max_2hop_per_node: Option<f64>,
+    degree_beta: Option<f64>,
+    mode: Option<String>,
+    max_bridge_degree: Option<f64>,
+    seed: Option<f64>,
+) -> Result<JsSparseProbabilities, JsError> {
+    let w2_val = w2.unwrap_or(0.5);
+    let cap_opt = parse_opt_usize_param(max_2hop_per_node, "max2hopPerNode")?;
+    let beta_val = degree_beta.unwrap_or(0.0);
+    let m = parse_two_hop_sampling_mode(mode)?;
+    let bridge = parse_opt_usize_param(max_bridge_degree, "maxBridgeDegree")?;
+    let seed_u64 = parse_seed_u64(seed)?;
+    let inner = graph_12hop_row_normalized_probabilities_with_options(
+        graph.inner(),
+        w2_val,
+        cap_opt,
+        beta_val,
+        m,
+        bridge,
         seed_u64,
     )
     .map_err(core_err_to_js)?;

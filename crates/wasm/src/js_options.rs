@@ -244,9 +244,45 @@ pub(crate) fn parse_pacmap_graph_config(
         cfg.n_neighbors = opt_usize_prop(options, "nNeighbors", cfg.n_neighbors)?;
         cfg.mn_ratio = opt_f64_prop(options, "mnRatio", cfg.mn_ratio)?;
         cfg.fp_ratio = opt_f64_prop(options, "fpRatio", cfg.fp_ratio)?;
-        cfg.phase_iterations[0] = opt_usize_prop(options, "phase1Iters", cfg.phase_iterations[0])?;
-        cfg.phase_iterations[1] = opt_usize_prop(options, "phase2Iters", cfg.phase_iterations[1])?;
-        cfg.phase_iterations[2] = opt_usize_prop(options, "phase3Iters", cfg.phase_iterations[2])?;
+        let pi_val = get_prop(options, "phaseIterations")?;
+        if !pi_val.is_undefined() && !pi_val.is_null() {
+            let mut vals = Vec::with_capacity(3);
+            if let Some(arr) = pi_val.dyn_ref::<js_sys::Uint32Array>() {
+                for v in arr.to_vec() {
+                    vals.push(v as usize);
+                }
+            } else if !pi_val.is_string() && pi_val.is_object() {
+                let iter = js_sys::try_iter(&pi_val)
+                    .map_err(|err| {
+                        JsError::new(&format!(
+                            "failed to iterate options.phaseIterations: {err:?}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        JsError::new("options.phaseIterations must be a 3-element integer array")
+                    })?;
+                for item_res in iter {
+                    let item = item_res.map_err(|err| {
+                        JsError::new(&format!("failed to read options.phaseIterations: {err:?}"))
+                    })?;
+                    let num = item.as_f64().ok_or_else(|| {
+                        JsError::new("options.phaseIterations entries must be integers")
+                    })?;
+                    vals.push(parse_non_negative_usize(num, "phaseIterations")?);
+                }
+            } else {
+                return Err(JsError::new(
+                    "options.phaseIterations must be a 3-element integer array",
+                ));
+            }
+            if vals.len() != 3 {
+                return Err(JsError::new(&format!(
+                    "options.phaseIterations must have length 3, got {}",
+                    vals.len()
+                )));
+            }
+            cfg.phase_iterations = [vals[0], vals[1], vals[2]];
+        }
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.keep_all_1hop = opt_bool_prop(options, "keepAll1hop", cfg.keep_all_1hop)?;
         cfg.max_1hop_per_node = opt_maybe_usize_prop(options, "max1hopPerNode")?;

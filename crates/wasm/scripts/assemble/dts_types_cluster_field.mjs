@@ -78,9 +78,10 @@ export interface ScreenedPoissonRefinerOptions extends ScreenedPoissonOptions {
 }
 
 export interface Sgd2Options {
-  tMax?: number | null;
+  iterations?: number | null;
   eps?: number | null;
   stepScale?: number | null;
+  maxMu?: number | null;
   batchSize?: number | null;
   damping?: number | null;
   seed?: number | null;
@@ -90,11 +91,6 @@ export interface ForceAtlas2Options {
   iterations?: number | null;
   theta?: number | null;
   useBarnesHut?: boolean | null;
-  /**
-   * Enables Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
-   * \`w * (ln(1 + d) / d) * (p_v - p_u)\` (which decays linearly to \`0\` as \`d -> 0\`).
-   * Distinct from Noack (2007) true LinLog (\`LinLogSolver\`).
-   */
   linlogMode?: boolean | null;
   strongGravity?: boolean | null;
   gravity?: number | null;
@@ -162,6 +158,7 @@ export interface BackboneOptions {
   retainRatio?: number | null;
   umstWeightScale?: number | null;
   nonBackboneWeightScale?: number | null;
+  useWeights?: boolean | null;
   layoutMode?: BackboneLayoutMode | string | null;
   iterations?: number | null;
   seed?: number | null;
@@ -178,9 +175,9 @@ export type ClusterRefineMethod = "kmeans" | "hac";
 
 export interface ClusterRefineOptions {
   method?: ClusterRefineMethod | string | null;
-  maxRounds?: number | null;
+  maxIterations?: number | null;
   kmeansNInit?: number | null;
-  kmeansMaxIters?: number | null;
+  kmeansMaxIterations?: number | null;
   shiftStep?: number | null;
   margin?: number | null;
   seed?: number | null;
@@ -197,6 +194,7 @@ export interface GroupInABoxOptions {
   boxPadding?: number | null;
   intraIterations?: number | null;
   fdIterations?: number | null;
+  fitBounds?: boolean | null;
   clusterWeights?: Float64Array | Float32Array | number[] | null;
   seed?: number | null;
 }
@@ -214,7 +212,6 @@ export interface GibBoxRecord {
 export interface GTreeOptions {
   maxIterations?: number | null;
   padding?: number | null;
-  /** Optional compact per-step expansion cap (must be > 1.0 when provided). */
   compactTMax?: number | null;
   seed?: number | null;
 }

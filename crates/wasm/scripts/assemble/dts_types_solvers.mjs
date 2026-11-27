@@ -1,7 +1,7 @@
 export const solverEnumAndPrimaryTypeDecls = `export type SolverStatus = "initialized" | "running" | "converged" | "completed";
-export type ManifoldKind = "hyperbolic" | "spherical" | "torus";
+export type ManifoldKind = "hyperbolic" | "hyperbolic_poincare" | "hyperbolic_lorentz" | "spherical" | "torus" | "torus_2d";
 export type SuggestedGeometry = "hyperbolic" | "spherical" | "torus" | "euclidean";
-export type TsNetBackend = "exact" | "barnes_hut" | "fft" | "linear_fft";
+export type TsNetBackend = "auto" | "exact" | "barnes_hut" | "fft" | "linear_fft";
 export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant" | "squared";
 export type BarrierSymmetry = "sym_max" | "sym_avg";
 export type FieldRepulsionBackend = "ibfft" | "barnes_hut" | "exact";
@@ -48,11 +48,13 @@ export interface ResistanceCurvatureFlowOptions extends EffectiveResistanceOptio
 }
 
 export interface TsNetOptions {
-  backend?: TsNetBackend | null;
+  backend?: TsNetBackend | string | null;
   iterationsStage1?: number | null;
   iterationsStage2?: number | null;
   iterationsStage3?: number | null;
+  stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null;
   learningRate?: number | null;
+  learningRateDivisor?: number | null;
   perplexityC?: number | null;
   minPerplexity?: number | null;
   maxPerplexity?: number | null;
@@ -84,13 +86,16 @@ export interface TsNetRowNormalizedOptions extends TsNetOptions {
   w2?: number | null;
   max2hopPerNode?: number | null;
   degreeBeta?: number | null;
+  twoStepRandomWalk?: boolean | null;
+  maxBridgeDegree?: number | null;
 }
 
 export interface SgdScheduleOptions {
-  tMax?: number | null;
+  iterations?: number | null;
   eps?: number | null;
-  kind?: SgdScheduleKind | null;
+  kind?: SgdScheduleKind | string | null;
   stepScale?: number | null;
+  maxMu?: number | null;
   seed?: number | null;
 }
 
@@ -114,7 +119,7 @@ export interface SparseBarrierOptions extends SgdScheduleOptions {
   max2hopPerNode?: number | null;
   hingeRepulsion?: boolean | null;
   deltaRel?: number | null;
-  barrierSym?: BarrierSymmetry | null;
+  barrierSym?: BarrierSymmetry | string | null;
   omega1?: number | null;
   omega2?: number | null;
   gammaNon2?: number | null;
@@ -143,7 +148,7 @@ export interface SparseBarrierDogOptions extends SparseBarrierOptions {
 }
 
 export interface GuMapOptions {
-  nEpochs?: number | null;
+  iterations?: number | null;
   negativeSampleRate?: number | null;
   learningRate?: number | null;
   minDist?: number | null;
@@ -177,7 +182,7 @@ export interface GuMapLandmarksOptions extends GuMapOptions {
 }
 
 export interface SpatialRefinerOptions {
-  rounds?: number | null;
+  iterations?: number | null;
   kCap?: number | null;
   marginScale?: number | null;
   wAnchor?: number | null;
@@ -188,7 +193,7 @@ export interface SpatialRefinerOptions {
   roundDecay?: number | null;
   kCapDecay?: number | null;
   kCapMin?: number | null;
-  tMax?: number | null;
+  sgdIterations?: number | null;
   eps?: number | null;
   hingeFp?: boolean | null;
   minSepRatio?: number | null;
@@ -207,12 +212,12 @@ export interface StressMajorizationOptions {
 export interface KamadaKawaiOptions {
   eps?: number | null;
   maxInnerIters?: number | null;
-  maxOuterIters?: number | null;
+  maxIterations?: number | null;
 }
 
 export interface TFdpOptions {
   backend?: FieldRepulsionBackend | string | null;
-  totalIterations?: number | null;
+  iterations?: number | null;
   learningRate?: number | null;
   momentum?: number | null;
   theta?: number | null;
@@ -231,7 +236,7 @@ export interface TFdpOptions {
 export interface IbUmapOptions {
   max2hopPerNode?: number | null;
   backend?: FieldRepulsionBackend | string | null;
-  nEpochs?: number | null;
+  iterations?: number | null;
   learningRate?: number | null;
   minDist?: number | null;
   spread?: number | null;
@@ -277,13 +282,25 @@ export interface SnapTFdpOptions {
   seed?: number | null;
 }
 
+export interface ChebyshevDogKernelOptions {
+  t1?: number | null;
+  t2?: number | null;
+  alpha?: number | null;
+  betaFloor?: number | null;
+  degree?: number | null;
+  numLandmarks?: number | null;
+  minDegree?: number | null;
+  jlDim?: number | null;
+  epsPsd?: number | null;
+  lambdaMax?: number | null;
+  seed?: number | null;
+}
+
 export interface PacmapGraphOptions {
   nNeighbors?: number | null;
   mnRatio?: number | null;
   fpRatio?: number | null;
-  phase1Iters?: number | null;
-  phase2Iters?: number | null;
-  phase3Iters?: number | null;
+  phaseIterations?: readonly [number, number, number] | Uint32Array | number[] | null;
   learningRate?: number | null;
   keepAll1hop?: boolean | null;
   max1hopPerNode?: number | null;

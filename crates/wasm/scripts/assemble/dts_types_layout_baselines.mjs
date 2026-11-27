@@ -92,7 +92,7 @@ export interface GemOptions {
   tInit?: number | null;
   tMax?: number | null;
   tMin?: number | null;
-  maxRounds?: number | null;
+  maxIterations?: number | null;
   oscillationAngle?: number | null;
   rotationAngle?: number | null;
   oscillationSensitivity?: number | null;
@@ -111,6 +111,8 @@ export interface SelOptions {
   layoutBackend?: SelLayoutBackend | string | null;
   iterations?: number | null;
   seed?: number | null;
+  frConfig?: FruchtermanReingoldOptions | null;
+  tFdpConfig?: TFdpOptions | null;
 }
 
 export interface PfsPrimeOptions {
@@ -149,6 +151,16 @@ export interface PrismOptions {
   seed?: number | null;
 }
 
+export interface TwinDeclutterOptions {
+  iterations?: number | null;
+  kNeighbors?: number | null;
+  minRelativeSeparation?: number | null;
+  stiffness?: number | null;
+  anchorWeight?: number | null;
+  stepScale?: number | null;
+  seed?: number | null;
+}
+
 export interface SeparationConstraintLike {
   left: number;
   right: number;
@@ -158,14 +170,14 @@ export interface SeparationConstraintLike {
 export interface FdebOptions {
   cycles?: number | null;
   s0?: number | null;
-  i0?: number | null;
+  stepsPerCycle?: number | null;
   sStep?: number | null;
   iStep?: number | null;
   springK?: number | null;
   minimumEdgeCompatibility?: number | null;
 }
 
-export interface ProgressiveSolverLike<TLayout = Layout2d> {
+export interface ProgressiveSolverLike<TLayout = AnyLayout> {
   readonly isFinished: boolean;
   readonly iteration: number;
   readonly totalIterations: number;
@@ -174,7 +186,7 @@ export interface ProgressiveSolverLike<TLayout = Layout2d> {
   runSteps?(layout: TLayout, steps: number): SolverStatus | string;
 }
 
-export interface ProgressiveFrameContext<TLayout = Layout2d> {
+export interface ProgressiveFrameContext<TLayout = AnyLayout> {
   iteration: number;
   totalIterations: number;
   status: SolverStatus | string;
@@ -193,7 +205,7 @@ export interface RunProgressiveOptions {
  * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
  * in Node.js) between batches.
  */
-export function runProgressive<TLayout = Layout2d>(
+export function runProgressive<TLayout = AnyLayout>(
   solver: ProgressiveSolverLike<TLayout>,
   layout: TLayout,
   onFrame?: ((ctx: ProgressiveFrameContext<TLayout>) => void) | null,

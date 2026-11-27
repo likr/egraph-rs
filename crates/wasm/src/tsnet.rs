@@ -7,10 +7,10 @@ use wasm_bindgen::prelude::*;
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, parse_optional_usize};
 use crate::js_options::solver_status_str;
-use crate::layout_buffers::JsLayout2d;
 use crate::neighborhood_types::{JsKnnGraph, JsSparseProbabilities};
-use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
-use crate::tsnet_options::{parse_row_normalized_tsnet_args, parse_tsnet_config};
+use crate::tsnet_options::{
+    parse_row_normalized_tsnet_args, parse_tsnet_config, tsnet_backend_str,
+};
 
 const DEFAULT_UNIFORM_PERPLEXITY: f64 = 30.0;
 
@@ -55,8 +55,55 @@ pub struct JsTsNetSolver {
     inner: TsNetSolver<f32>,
 }
 
+impl JsTsNetSolver {
+    pub(crate) fn from_inner(inner: TsNetSolver<f32>) -> Self {
+        Self { inner }
+    }
+
+    pub(crate) fn inner(&self) -> &TsNetSolver<f32> {
+        &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut TsNetSolver<f32> {
+        &mut self.inner
+    }
+}
+
 #[wasm_bindgen(js_class = TsNetSolver)]
 impl JsTsNetSolver {
+    /// Constructs a `TsNetSolver` using the Pure 1+2-Hop node-wise adaptive perplexity preset.
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsTsNetSolver, JsError> {
+        Self::pure_2hop(
+            graph,
+            options,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+        )
+    }
+
     /// Constructs a `TsNetSolver` using the Pure 1+2-Hop node-wise adaptive perplexity preset.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = pure2Hop)]
@@ -372,31 +419,10 @@ impl JsTsNetSolver {
             .map(|inner| JsFitFieldStats { inner })
     }
 
-    /// Executes one optimization iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` iterations on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "TsNetSolver::run_steps",
-        )
-    }
-
-    /// Runs optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "TsNetSolver::run",
-        )
+    /// Returns the resolved concrete backend string (`"exact"`, `"barnes_hut"`, `"fft"`, or `"linear_fft"`).
+    #[wasm_bindgen(getter, js_name = resolvedBackend)]
+    pub fn resolved_backend(&self) -> String {
+        tsnet_backend_str(self.inner.resolved_backend()).to_owned()
     }
 
     /// Returns the solver lifecycle status string.

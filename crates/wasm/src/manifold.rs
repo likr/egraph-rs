@@ -1,22 +1,22 @@
-//! WebAssembly bindings for non-Euclidean `ManifoldLayout2d` (`f32`) and geodesic utilities.
+//! WebAssembly bindings for non-Euclidean `ManifoldLayout2d` (`f32`) with shadow-synced zero-copy views.
 
-use egraph::core::{
-    CoreError, Layout2d, ManifoldKind, ManifoldLayout2d, poincare_distance, poincare_mobius_add,
-    spherical_distance, torus_distance, wrap_torus_point,
-};
+use egraph::core::{CoreError, Layout2d, ManifoldKind, ManifoldLayout2d};
+use egraph_ffi::InterleavedLayout2d;
 use wasm_bindgen::prelude::*;
 
-use crate::js_convert::{core_err_to_js, parse_non_negative_usize, parse_seed_u64};
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64};
 use crate::js_options::normalize_enum_token;
 use crate::layout_buffers::JsLayout2d;
 
 fn parse_manifold_kind(raw: &str) -> Result<ManifoldKind, JsError> {
     match normalize_enum_token(raw).as_str() {
         "hyperbolic" | "hyperbolicpoincare" | "poincare" => Ok(ManifoldKind::HyperbolicPoincare),
+        "hyperboliclorentz" | "lorentz" | "hyperboloid" => Ok(ManifoldKind::HyperbolicLorentz),
         "spherical" | "sphere" => Ok(ManifoldKind::Spherical),
         "torus" | "torus2d" => Ok(ManifoldKind::Torus2d),
         _ => Err(JsError::new(&format!(
-            "unknown manifold kind {raw:?}; expected 'hyperbolic', 'spherical', or 'torus'"
+            "unknown manifold kind {raw:?}; expected 'hyperbolic', 'hyperbolic_lorentz', 'spherical', or 'torus'"
         ))),
     }
 }
@@ -24,26 +24,40 @@ fn parse_manifold_kind(raw: &str) -> Result<ManifoldKind, JsError> {
 fn manifold_kind_str(kind: ManifoldKind) -> &'static str {
     match kind {
         ManifoldKind::HyperbolicPoincare => "hyperbolic",
+        ManifoldKind::HyperbolicLorentz => "hyperbolic_lorentz",
         ManifoldKind::Spherical => "spherical",
         ManifoldKind::Torus2d => "torus",
         _ => "unknown",
     }
 }
 
-/// Non-Euclidean 2D node layout (`f32`) constrained to `"hyperbolic"`, `"spherical"`, or `"torus"`.
+/// Non-Euclidean 2D node layout (`f32`) constrained to `"hyperbolic"`, `"hyperbolic_lorentz"`,
+/// `"spherical"`, or `"torus"`, exposing zero-copy `coordsView()` via a synced interleaved mirror.
 #[wasm_bindgen(js_name = ManifoldLayout2d)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct JsManifoldLayout2d {
     inner: ManifoldLayout2d<f32>,
+    shadow: InterleavedLayout2d<f32>,
 }
 
 impl JsManifoldLayout2d {
+    pub(crate) fn from_inner(inner: ManifoldLayout2d<f32>) -> Self {
+        let shadow = InterleavedLayout2d::from_layout2d(inner.as_layout());
+        Self { inner, shadow }
+    }
+
     pub(crate) fn inner(&self) -> &ManifoldLayout2d<f32> {
         &self.inner
     }
 
     pub(crate) fn inner_mut(&mut self) -> &mut ManifoldLayout2d<f32> {
         &mut self.inner
+    }
+
+    pub(crate) fn sync_shadow(&mut self) -> Result<(), JsError> {
+        self.shadow
+            .copy_from_layout2d(self.inner.as_layout())
+            .map_err(ffi_err_to_js)
     }
 }
 
@@ -53,35 +67,76 @@ impl JsManifoldLayout2d {
     pub fn zeros(kind: &str, n: f64) -> Result<JsManifoldLayout2d, JsError> {
         let m_kind = parse_manifold_kind(kind)?;
         let count = parse_non_negative_usize(n, "n")?;
-        Ok(Self {
-            inner: ManifoldLayout2d::<f32>::zeros(m_kind, count),
-        })
+        Ok(Self::from_inner(ManifoldLayout2d::<f32>::zeros(
+            m_kind, count,
+        )))
+    }
+
+    /// Creates a deterministically seeded `ManifoldLayout2d` for `n` vertices on geometry `kind`.
+    pub fn init(
+        kind: &str,
+        n: f64,
+        seed: Option<f64>,
+        scale: Option<f64>,
+    ) -> Result<JsManifoldLayout2d, JsError> {
+        let m_kind = parse_manifold_kind(kind)?;
+        let count = parse_non_negative_usize(n, "n")?;
+        let seed_u64 = parse_seed_u64(seed)?;
+        let scale_val = scale.unwrap_or(0.25);
+        let inner = ManifoldLayout2d::<f32>::init(m_kind, count, seed_u64, scale_val)
+            .map_err(core_err_to_js)?;
+        Ok(Self::from_inner(inner))
     }
 
     /// Creates a zero-initialized Poincaré disk `ManifoldLayout2d` for `n` vertices.
     #[wasm_bindgen(js_name = hyperbolicPoincare)]
     pub fn hyperbolic_poincare(n: f64) -> Result<JsManifoldLayout2d, JsError> {
         let count = parse_non_negative_usize(n, "n")?;
-        Ok(Self {
-            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::HyperbolicPoincare, count),
-        })
+        Ok(Self::from_inner(ManifoldLayout2d::<f32>::zeros(
+            ManifoldKind::HyperbolicPoincare,
+            count,
+        )))
+    }
+
+    /// Creates a zero-initialized Lorentz hyperboloid `ManifoldLayout2d` for `n` vertices.
+    #[wasm_bindgen(js_name = hyperbolicLorentz)]
+    pub fn hyperbolic_lorentz(n: f64) -> Result<JsManifoldLayout2d, JsError> {
+        let count = parse_non_negative_usize(n, "n")?;
+        Ok(Self::from_inner(ManifoldLayout2d::<f32>::zeros(
+            ManifoldKind::HyperbolicLorentz,
+            count,
+        )))
     }
 
     /// Creates a zero-initialized spherical `ManifoldLayout2d` for `n` vertices.
     pub fn spherical(n: f64) -> Result<JsManifoldLayout2d, JsError> {
         let count = parse_non_negative_usize(n, "n")?;
-        Ok(Self {
-            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::Spherical, count),
-        })
+        Ok(Self::from_inner(ManifoldLayout2d::<f32>::zeros(
+            ManifoldKind::Spherical,
+            count,
+        )))
     }
 
     /// Creates a zero-initialized flat unit torus `ManifoldLayout2d` for `n` vertices.
     #[wasm_bindgen(js_name = torus2d)]
     pub fn torus_2d(n: f64) -> Result<JsManifoldLayout2d, JsError> {
         let count = parse_non_negative_usize(n, "n")?;
-        Ok(Self {
-            inner: ManifoldLayout2d::<f32>::zeros(ManifoldKind::Torus2d, count),
-        })
+        Ok(Self::from_inner(ManifoldLayout2d::<f32>::zeros(
+            ManifoldKind::Torus2d,
+            count,
+        )))
+    }
+
+    /// Initializes a flat 2D torus layout via 4-mode spectral phase coordinates of $L_{\mathrm{sym}}$.
+    #[wasm_bindgen(js_name = torusSpectralPhaseInit)]
+    pub fn torus_spectral_phase_init(
+        graph: &JsCsrGraph,
+        seed: Option<f64>,
+    ) -> Result<JsManifoldLayout2d, JsError> {
+        let seed_u64 = parse_seed_u64(seed)?;
+        let inner = ManifoldLayout2d::<f32>::torus_spectral_phase_init(graph.inner(), seed_u64)
+            .map_err(core_err_to_js)?;
+        Ok(Self::from_inner(inner))
     }
 
     /// Creates a `ManifoldLayout2d` from a Euclidean `Layout2d`, projecting points onto `kind`.
@@ -90,7 +145,7 @@ impl JsManifoldLayout2d {
         let m_kind = parse_manifold_kind(kind)?;
         let soa = layout.inner().to_layout2d();
         let inner = ManifoldLayout2d::<f32>::from_layout(m_kind, soa).map_err(core_err_to_js)?;
-        Ok(Self { inner })
+        Ok(Self::from_inner(inner))
     }
 
     /// Creates a `ManifoldLayout2d` from flat interleaved `[x0, y0, ...]` coordinates, projecting onto `kind`.
@@ -99,7 +154,7 @@ impl JsManifoldLayout2d {
         let m_kind = parse_manifold_kind(kind)?;
         let soa = Layout2d::<f32>::from_interleaved(coords).map_err(core_err_to_js)?;
         let inner = ManifoldLayout2d::<f32>::from_layout(m_kind, soa).map_err(core_err_to_js)?;
-        Ok(Self { inner })
+        Ok(Self::from_inner(inner))
     }
 
     /// Creates a deterministically seeded safe random initialization on `kind`.
@@ -116,7 +171,7 @@ impl JsManifoldLayout2d {
         let seed_u64 = parse_seed_u64(seed)?;
         let inner = ManifoldLayout2d::<f32>::random_init(m_kind, count, scale_val, seed_u64)
             .map_err(core_err_to_js)?;
-        Ok(Self { inner })
+        Ok(Self::from_inner(inner))
     }
 
     /// Creates a `ManifoldLayout2d` from a Euclidean `Layout2d` scaled safely inside `maxRadius` (default `0.7`).
@@ -131,19 +186,93 @@ impl JsManifoldLayout2d {
         let soa = layout.inner().to_layout2d();
         let inner = ManifoldLayout2d::<f32>::from_layout_scaled(m_kind, &soa, mr)
             .map_err(core_err_to_js)?;
-        Ok(Self { inner })
+        Ok(Self::from_inner(inner))
     }
 
-    /// Returns the canonical manifold kind string: `"hyperbolic"`, `"spherical"`, or `"torus"`.
+    /// Returns a deep copy of this `ManifoldLayout2d`.
+    pub fn copy(&self) -> JsManifoldLayout2d {
+        self.clone()
+    }
+
+    /// Returns the canonical manifold kind string: `"hyperbolic"`, `"hyperbolic_lorentz"`, `"spherical"`, or `"torus"`.
     #[wasm_bindgen(getter)]
     pub fn kind(&self) -> String {
         manifold_kind_str(self.inner.kind()).to_owned()
     }
 
-    /// Alias for `kind` matching `ManifoldLayout2d.manifold`.
+    /// Returns the physical geodesic scale factor (`> 0`).
     #[wasm_bindgen(getter)]
-    pub fn manifold(&self) -> String {
-        manifold_kind_str(self.inner.kind()).to_owned()
+    pub fn scale(&self) -> f64 {
+        self.inner.scale()
+    }
+
+    /// Returns the physical aspect ratio (`Lx / Ly` on `Torus2d`, `> 0`).
+    #[wasm_bindgen(getter)]
+    pub fn aspect(&self) -> f64 {
+        self.inner.aspect()
+    }
+
+    /// Returns `{ scale, aspect }` metric parameters.
+    pub fn metric(&self) -> Result<JsValue, JsError> {
+        let m = self.inner.metric();
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("scale"),
+            &JsValue::from_f64(m.scale),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set metric.scale: {e:?}")))?;
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("aspect"),
+            &JsValue::from_f64(m.aspect),
+        )
+        .map_err(|e| JsError::new(&format!("failed to set metric.aspect: {e:?}")))?;
+        Ok(obj.into())
+    }
+
+    /// Sets the physical metric scale factor (`> 0`) without mutating stored coordinates.
+    #[wasm_bindgen(js_name = setScale)]
+    pub fn set_scale(&mut self, scale: f64) -> Result<(), JsError> {
+        self.inner.set_scale(scale).map_err(core_err_to_js)
+    }
+
+    /// Sets the physical aspect ratio (`> 0`) without mutating stored coordinates.
+    #[wasm_bindgen(js_name = setAspect)]
+    pub fn set_aspect(&mut self, aspect: f64) -> Result<(), JsError> {
+        self.inner.set_aspect(aspect).map_err(core_err_to_js)
+    }
+
+    /// Sets physical rectangular torus extents `(lx, ly)` without mutating `[0, 1)^2` coordinates.
+    #[wasm_bindgen(js_name = setTorusExtents)]
+    pub fn set_torus_extents(&mut self, lx: f64, ly: f64) -> Result<(), JsError> {
+        self.inner.set_torus_extents(lx, ly).map_err(core_err_to_js)
+    }
+
+    /// Updates the geodesic scale to `newScale`, rescaling hyperbolic points radially around the Einstein midpoint.
+    #[wasm_bindgen(js_name = rescaleGeodesic)]
+    pub fn rescale_geodesic(&mut self, new_scale: f64) -> Result<(), JsError> {
+        self.inner
+            .rescale_geodesic(new_scale)
+            .map_err(core_err_to_js)?;
+        self.sync_shadow()
+    }
+
+    /// Converts a hyperbolic Lorentz or Poincaré layout into a Poincaré disk `ManifoldLayout2d`.
+    #[wasm_bindgen(js_name = toPoincareLayout)]
+    pub fn to_poincare_layout(&self) -> Result<JsManifoldLayout2d, JsError> {
+        let inner = self.inner.to_poincare_layout().map_err(core_err_to_js)?;
+        Ok(Self::from_inner(inner))
+    }
+
+    /// Returns a rigidly panned `Torus2d` `ManifoldLayout2d` minimizing boundary-wrapped edges.
+    #[wasm_bindgen(js_name = torusAutoPan)]
+    pub fn torus_auto_pan(&self, graph: &JsCsrGraph) -> Result<JsManifoldLayout2d, JsError> {
+        let inner = self
+            .inner
+            .torus_auto_pan(graph.inner())
+            .map_err(core_err_to_js)?;
+        Ok(Self::from_inner(inner))
     }
 
     /// Returns the number of vertices in the manifold layout.
@@ -163,15 +292,55 @@ impl JsManifoldLayout2d {
         self.inner.is_empty()
     }
 
+    /// Returns the byte offset of the synced interleaved `f32` shadow buffer in linear memory.
+    #[wasm_bindgen(js_name = coordsPtr)]
+    pub fn coords_ptr(&self) -> usize {
+        self.shadow.coords_ptr() as usize
+    }
+
+    /// Returns the total scalar length of the synced interleaved shadow buffer (`2 * len()`).
+    #[wasm_bindgen(js_name = coordsLen)]
+    pub fn coords_len(&self) -> usize {
+        self.shadow.coords_len()
+    }
+
     /// Returns a flat interleaved `[x0, y0, ...]` `Float32Array` copy of all coordinates.
     pub fn coords(&self) -> Vec<f32> {
-        self.inner.as_layout().to_interleaved()
+        self.shadow.as_slice().to_vec()
     }
 
     /// Converts this manifold layout to a `Layout2d` copy.
     #[wasm_bindgen(js_name = toLayout)]
     pub fn to_layout(&self) -> JsLayout2d {
         JsLayout2d::from_layout2d(self.inner.as_layout())
+    }
+
+    /// Centers and scales coordinates to `targetStd` (default `1.0`) then projects onto the manifold domain.
+    #[wasm_bindgen(js_name = normalizeStd)]
+    pub fn normalize_std(&mut self, target_std: Option<f64>) -> Result<(), JsError> {
+        let t_std = target_std.unwrap_or(1.0);
+        if !t_std.is_finite() || t_std <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd must be finite and strictly positive",
+            )));
+        }
+        let t_f32 = t_std as f32;
+        if !t_f32.is_finite() || t_f32 <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd overflows f32",
+            )));
+        }
+        let mut soa = self.inner.as_layout().clone();
+        soa.center_and_normalize_to_std(t_f32)
+            .map_err(core_err_to_js)?;
+        let metric = self.inner.metric();
+        let kind = self.inner.kind();
+        let mut updated =
+            ManifoldLayout2d::<f32>::from_layout(kind, soa).map_err(core_err_to_js)?;
+        updated.set_scale(metric.scale).map_err(core_err_to_js)?;
+        updated.set_aspect(metric.aspect).map_err(core_err_to_js)?;
+        self.inner = updated;
+        self.sync_shadow()
     }
 
     /// Computes the exact geodesic distance between vertices `i` and `j`.
@@ -197,13 +366,15 @@ impl JsManifoldLayout2d {
         let idx = parse_non_negative_usize(i, "i")?;
         self.inner
             .apply_tangent_step(idx, vx, vy)
-            .map_err(core_err_to_js)
+            .map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
 
     /// Re-projects all coordinates onto the manifold's canonical domain after checking finiteness.
     #[wasm_bindgen(js_name = projectAll)]
     pub fn project_all(&mut self) -> Result<(), JsError> {
-        self.inner.project_all().map_err(core_err_to_js)
+        self.inner.project_all().map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
 
     /// Returns the first coordinate (`x` or `lon`) of vertex `index`.
@@ -236,7 +407,8 @@ impl JsManifoldLayout2d {
     #[wasm_bindgen(js_name = setPoint)]
     pub fn set_point(&mut self, index: f64, x: f32, y: f32) -> Result<(), JsError> {
         let idx = parse_non_negative_usize(index, "index")?;
-        self.inner.set_point(idx, x, y).map_err(core_err_to_js)
+        self.inner.set_point(idx, x, y).map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
 
     /// Returns `true` if every coordinate in the manifold layout is finite.
@@ -269,14 +441,18 @@ impl JsManifoldLayout2d {
         }
         self.inner
             .recenter_poincare(cx32, cy32)
-            .map_err(core_err_to_js)
+            .map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
 
     /// Isometrically recenters the Poincaré disk layout so vertex `index` moves to `(0, 0)`.
     #[wasm_bindgen(js_name = recenterPoincareAt)]
     pub fn recenter_poincare_at(&mut self, index: f64) -> Result<(), JsError> {
         let idx = parse_non_negative_usize(index, "index")?;
-        self.inner.recenter_poincare_at(idx).map_err(core_err_to_js)
+        self.inner
+            .recenter_poincare_at(idx)
+            .map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
 
     /// Isometrically recenters the Poincaré disk layout so its Einstein midpoint lies at `(0, 0)`.
@@ -284,38 +460,7 @@ impl JsManifoldLayout2d {
     pub fn center_poincare_centroid(&mut self) -> Result<(), JsError> {
         self.inner
             .center_poincare_centroid()
-            .map_err(core_err_to_js)
+            .map_err(core_err_to_js)?;
+        self.sync_shadow()
     }
-}
-
-/// Computes the Poincaré disk hyperbolic geodesic distance between `(x1, y1)` and `(x2, y2)`.
-#[wasm_bindgen(js_name = poincareDistance)]
-pub fn js_poincare_distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
-    poincare_distance(x1, y1, x2, y2)
-}
-
-/// Computes Poincaré disk Möbius addition `(x1, y1) (+) (x2, y2)` inside the open unit disk, returning `[x, y]`.
-#[wasm_bindgen(js_name = poincareMobiusAdd)]
-pub fn js_poincare_mobius_add(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<f64> {
-    let (rx, ry) = poincare_mobius_add(x1, y1, x2, y2);
-    vec![rx, ry]
-}
-
-/// Computes the great-circle geodesic distance on the unit sphere in `[0, pi]`.
-#[wasm_bindgen(js_name = sphericalDistance)]
-pub fn js_spherical_distance(lon1: f64, colat1: f64, lon2: f64, colat2: f64) -> f64 {
-    spherical_distance(lon1, colat1, lon2, colat2)
-}
-
-/// Computes the geodesic distance on the flat unit torus `[0, 1)^2`.
-#[wasm_bindgen(js_name = torusDistance)]
-pub fn js_torus_distance(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
-    torus_distance(x1, y1, x2, y2)
-}
-
-/// Wraps a 2D coordinate pair onto the flat unit torus `[0, 1)^2`, returning `[x, y]`.
-#[wasm_bindgen(js_name = wrapTorusPoint)]
-pub fn js_wrap_torus_point(x: f64, y: f64) -> Vec<f64> {
-    let (wx, wy) = wrap_torus_point(x, y);
-    vec![wx, wy]
 }

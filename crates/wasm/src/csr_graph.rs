@@ -49,6 +49,21 @@ fn parse_csr_options(
                 .ok_or_else(|| JsError::new("options.sanitize must be a boolean"))?
         };
 
+        let dtype_val =
+            js_sys::Reflect::get(directed_or_options, &JsValue::from_str("weightDtype")).map_err(
+                |err| JsError::new(&format!("failed to read options.weightDtype: {err:?}")),
+            )?;
+        if !dtype_val.is_undefined() && !dtype_val.is_null() {
+            let dtype_str = dtype_val
+                .as_string()
+                .ok_or_else(|| JsError::new("options.weightDtype must be a string"))?;
+            if dtype_str != "float32" && dtype_str != "float64" {
+                return Err(JsError::new(&format!(
+                    "unknown weightDtype {dtype_str:?}; expected 'float32' or 'float64'"
+                )));
+            }
+        }
+
         return Ok((directed, sanitize_flag));
     }
     Err(JsError::new(
@@ -147,6 +162,17 @@ impl JsCsrGraph {
         self.inner.num_nodes()
     }
 
+    /// Returns the number of vertices in the graph.
+    pub fn len(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
+    /// Returns the number of vertices in the graph.
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        self.inner.num_nodes()
+    }
+
     /// Returns the number of logical edges in the graph.
     #[wasm_bindgen(js_name = numEdges)]
     pub fn num_edges(&self) -> usize {
@@ -168,6 +194,45 @@ impl JsCsrGraph {
     #[wasm_bindgen(js_name = isWeighted)]
     pub fn is_weighted(&self) -> bool {
         self.inner.is_weighted()
+    }
+
+    /// Returns the scalar weight dtype stored in WebAssembly (`"float32"`).
+    #[wasm_bindgen(getter, js_name = weightDtype)]
+    pub fn weight_dtype(&self) -> String {
+        "float32".to_owned()
+    }
+
+    /// Returns `true` if the graph has <= 1 vertex or forms a single weakly connected component.
+    #[wasm_bindgen(js_name = isConnected)]
+    pub fn is_connected(&self) -> bool {
+        self.inner.is_connected()
+    }
+
+    /// Returns a flat `[u0, v0, u1, v1, ...]` `Uint32Array` of canonical edges.
+    pub fn edges(&self) -> Vec<u32> {
+        let pairs = self.inner.edges();
+        let mut flat = Vec::with_capacity(pairs.len().saturating_mul(2));
+        for (u, v) in pairs {
+            flat.push(u);
+            flat.push(v);
+        }
+        flat
+    }
+
+    /// Returns `true` if an edge `(u, v)` exists in the graph.
+    #[wasm_bindgen(js_name = hasEdge)]
+    pub fn has_edge(&self, u: f64, v: f64) -> Result<bool, JsError> {
+        let ui = parse_non_negative_usize(u, "u")?;
+        let vi = parse_non_negative_usize(v, "v")?;
+        self.inner.try_has_edge(ui, vi).map_err(core_err_to_js)
+    }
+
+    /// Returns the stored weight of edge `(u, v)`, `1.0` if unweighted, or `undefined` if absent.
+    #[wasm_bindgen(js_name = edgeWeight)]
+    pub fn edge_weight(&self, u: f64, v: f64) -> Result<Option<f32>, JsError> {
+        let ui = parse_non_negative_usize(u, "u")?;
+        let vi = parse_non_negative_usize(v, "v")?;
+        self.inner.try_edge_weight(ui, vi).map_err(core_err_to_js)
     }
 
     /// Returns the degree (outgoing degree for directed graphs) of vertex `u`.

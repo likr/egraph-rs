@@ -4,7 +4,7 @@ use egraph::core::CoreError;
 use egraph::layout::{
     ConstraintProjector, LayeringMethod, SeparationConstraint, assign_layers, cycle_edges,
     generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
-    project_rectangle_no_overlap_2d, remove_cycles,
+    project_rectangle_no_overlap_2d, remove_cycles, transitive_reduction,
 };
 use wasm_bindgen::prelude::*;
 
@@ -125,16 +125,14 @@ fn parse_axis(axis: &JsValue) -> Result<usize, JsError> {
     Err(JsError::new("layout axis must be 0 ('x') or 1 ('y')"))
 }
 
-/// Projects `coords` (`Float32Array`) in place onto the feasible region defined by
-/// `constraints` and also returns the projected `Float32Array`.
+/// Projects `coords` (`Float32Array`) in place onto the feasible region defined by `constraints`.
 #[wasm_bindgen(js_name = project1d)]
-pub fn js_project_1d(coords: &mut [f32], constraints: &JsValue) -> Result<Vec<f32>, JsError> {
+pub fn js_project_1d(coords: &mut [f32], constraints: &JsValue) -> Result<(), JsError> {
     let parsed = parse_constraints(constraints)?;
     let mut projector = ConstraintProjector::<f32>::new(coords.len());
     projector
         .project_1d(coords, &parsed)
-        .map_err(core_err_to_js)?;
-    Ok(coords.to_vec())
+        .map_err(core_err_to_js)
 }
 
 /// Projects axis `axis` (`0` / `"x"` or `1` / `"y"`) of `layout` in place onto `constraints`.
@@ -202,18 +200,25 @@ pub fn js_project_rectangle_no_overlap_2d(
 #[wasm_bindgen(js_name = projectClusteredRectangleNoOverlap2d)]
 pub fn js_project_clustered_rectangle_no_overlap_2d(
     layout: &mut JsLayout2d,
-    cluster_ids: &[u32],
+    labels: &[u32],
     half_widths: &[f32],
     half_heights: &[f32],
 ) -> Result<(), JsError> {
     let mut soa = layout.inner().to_layout2d();
-    project_clustered_rectangle_no_overlap_2d(&mut soa, cluster_ids, half_widths, half_heights)
+    project_clustered_rectangle_no_overlap_2d(&mut soa, labels, half_widths, half_heights)
         .map_err(core_err_to_js)?;
     layout
         .inner_mut()
         .copy_from_layout2d(&soa)
         .map_err(ffi_err_to_js)?;
     Ok(())
+}
+
+/// Computes the exact transitive reduction of a directed acyclic `CsrGraph`.
+#[wasm_bindgen(js_name = transitiveReduction)]
+pub fn js_transitive_reduction(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsError> {
+    let reduced = transitive_reduction(graph.inner()).map_err(core_err_to_js)?;
+    Ok(JsCsrGraph::from_inner(reduced))
 }
 
 fn parse_layering_method(method: Option<String>) -> Result<LayeringMethod, JsError> {

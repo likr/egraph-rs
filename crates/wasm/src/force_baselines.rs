@@ -7,13 +7,15 @@ use egraph::layout::{
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
+use crate::force_classic::parse_fr_config;
 use crate::js_convert::core_err_to_js;
 use crate::js_options::{
-    check_options_arg, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop,
+    check_options_arg, get_prop, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop,
     opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+use crate::t_fdp::parse_t_fdp_config_with_ctx;
 
 /// Cooperative Frick et al. (1995) GEM adaptive local-temperature layout solver (`f32`).
 #[wasm_bindgen(js_name = GemSolver)]
@@ -34,7 +36,7 @@ impl JsGemSolver {
             cfg.t_init = opt_f64_prop(options, "tInit", cfg.t_init)?;
             cfg.t_max = opt_f64_prop(options, "tMax", cfg.t_max)?;
             cfg.t_min = opt_f64_prop(options, "tMin", cfg.t_min)?;
-            cfg.max_iterations = opt_maybe_usize_prop(options, "maxRounds")?;
+            cfg.max_iterations = opt_maybe_usize_prop(options, "maxIterations")?;
             cfg.oscillation_angle =
                 opt_f64_prop(options, "oscillationAngle", cfg.oscillation_angle)?;
             cfg.rotation_angle = opt_f64_prop(options, "rotationAngle", cfg.rotation_angle)?;
@@ -156,6 +158,17 @@ impl JsSelLayoutSolver {
             }
             cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
             cfg.seed = opt_seed_prop(options)?;
+            let fr_val = get_prop(options, "frConfig")?;
+            if !fr_val.is_undefined() && !fr_val.is_null() {
+                cfg.fr_config = Some(parse_fr_config(&fr_val, "SelLayoutSolver.frConfig")?);
+            }
+            let tfdp_val = get_prop(options, "tFdpConfig")?;
+            if !tfdp_val.is_undefined() && !tfdp_val.is_null() {
+                cfg.t_fdp_config = Some(parse_t_fdp_config_with_ctx(
+                    &tfdp_val,
+                    "SelLayoutSolver.tFdpConfig",
+                )?);
+            }
         }
         let inner = SelLayoutSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })

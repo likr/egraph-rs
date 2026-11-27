@@ -85,6 +85,9 @@ name = "metrics_evaluate_and_spatial"
 name = "metrics_layout_and_crossings"
 
 [[test]]
+name = "nd_and_manifold_solvers"
+
+[[test]]
 name = "neighborhood_knn_and_varadhan"
 
 [[test]]
@@ -104,6 +107,9 @@ name = "solver_stats_and_dog_getters"
 
 [[test]]
 name = "spatial_intruder_refiner"
+
+[[test]]
+name = "spatial_trees_datasets_and_linalg"
 
 [[test]]
 name = "stress_and_maxent_solvers"

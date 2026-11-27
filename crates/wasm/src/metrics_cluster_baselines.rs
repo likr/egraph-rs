@@ -1,5 +1,4 @@
-//! WebAssembly bindings for cluster separation, clustering validity indices (CVI),
-//! Sprawlter-NN, and Node Overlap Removal (NOR) baseline metrics (`f64` accumulation).
+//! WebAssembly bindings for 2D cluster separation, CVI, Sprawlter-NN, and NOR baseline metrics.
 
 use egraph::metrics::{
     ClusterBaselineConfig, NorMetrics, PartitionAgreement, calinski_harabasz_score,
@@ -21,6 +20,12 @@ use crate::layout_buffers::JsLayout2d;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JsPartitionAgreementResult {
     inner: PartitionAgreement,
+}
+
+impl JsPartitionAgreementResult {
+    pub(crate) fn from_inner(inner: PartitionAgreement) -> Self {
+        Self { inner }
+    }
 }
 
 #[wasm_bindgen(js_class = PartitionAgreementResult)]
@@ -155,48 +160,45 @@ pub fn js_partition_agreement(
     Ok(JsPartitionAgreementResult { inner })
 }
 
-/// Evaluates `k`-means Cluster Quality (`CQ-kmeans`) of `layout` against `communityLabels`.
-#[wasm_bindgen(js_name = cqKmeans)]
+#[wasm_bindgen(js_name = _cqKmeans2d)]
 pub fn js_cq_kmeans(
     layout: &JsLayout2d,
-    community_labels: &JsValue,
+    labels: &JsValue,
     n_init: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     seed: Option<f64>,
 ) -> Result<JsPartitionAgreementResult, JsError> {
     let defaults = ClusterBaselineConfig::default();
-    let labels = parse_u32_sequence(community_labels, "communityLabels")?;
+    let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let n_init_val = parse_optional_usize(n_init, defaults.kmeans_n_init, "nInit")?;
-    let max_iters_val = parse_optional_usize(max_iters, defaults.kmeans_max_iters, "maxIters")?;
+    let max_iters_val =
+        parse_optional_usize(max_iterations, defaults.kmeans_max_iters, "maxIterations")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let soa = layout.inner().to_layout2d();
-    let inner =
-        cq_kmeans(&soa, &labels, n_init_val, max_iters_val, seed_u64).map_err(core_err_to_js)?;
+    let inner = cq_kmeans(&soa, &parsed_labels, n_init_val, max_iters_val, seed_u64)
+        .map_err(core_err_to_js)?;
     Ok(JsPartitionAgreementResult { inner })
 }
 
-/// Evaluates average-linkage HAC Cluster Quality (`CQ-HAC`) of `layout` against `communityLabels`.
-#[wasm_bindgen(js_name = cqHac)]
+#[wasm_bindgen(js_name = _cqHac2d)]
 pub fn js_cq_hac(
     layout: &JsLayout2d,
-    community_labels: &JsValue,
+    labels: &JsValue,
 ) -> Result<JsPartitionAgreementResult, JsError> {
-    let labels = parse_u32_sequence(community_labels, "communityLabels")?;
+    let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
-    let inner = cq_hac(&soa, &labels).map_err(core_err_to_js)?;
+    let inner = cq_hac(&soa, &parsed_labels).map_err(core_err_to_js)?;
     Ok(JsPartitionAgreementResult { inner })
 }
 
-/// Computes Distance Consistency (`DSC`) in `[0.0, 1.0]`.
-#[wasm_bindgen(js_name = distanceConsistency)]
+#[wasm_bindgen(js_name = _distanceConsistency2d)]
 pub fn js_distance_consistency(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     distance_consistency(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes Distribution Consistency (`DC`) in `[0.0, 1.0]`.
-#[wasm_bindgen(js_name = distributionConsistency)]
+#[wasm_bindgen(js_name = _distributionConsistency2d)]
 pub fn js_distribution_consistency(
     layout: &JsLayout2d,
     labels: &JsValue,
@@ -226,8 +228,7 @@ pub fn js_class_density_measure(
     Ok(JsClassDensityResult { cdm, hdm })
 }
 
-/// Computes SepMe $k$-NN graph DIR CPT (`k = 2` default).
-#[wasm_bindgen(js_name = sepmeKnng)]
+#[wasm_bindgen(js_name = _sepmeKnng2d)]
 pub fn js_sepme_knng(
     layout: &JsLayout2d,
     labels: &JsValue,
@@ -240,24 +241,21 @@ pub fn js_sepme_knng(
     sepme_knng(&soa, &parsed_labels, k_val).map_err(core_err_to_js)
 }
 
-/// Computes SepMe Relative Neighborhood Graph (`RNG`) DIR CPT.
-#[wasm_bindgen(js_name = sepmeRng)]
+#[wasm_bindgen(js_name = _sepmeRng2d)]
 pub fn js_sepme_rng(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     sepme_rng(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes SepMe Gabriel Graph (`GAB`) DIR CPT.
-#[wasm_bindgen(js_name = sepmeGab)]
+#[wasm_bindgen(js_name = _sepmeGab2d)]
 pub fn js_sepme_gab(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     sepme_gab(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes SepMe $\gamma$-Observable Neighbor Graph (`GONG`) DIR CPT (`gamma = 0.35` default).
-#[wasm_bindgen(js_name = sepmeGong)]
+#[wasm_bindgen(js_name = _sepmeGong2d)]
 pub fn js_sepme_gong(
     layout: &JsLayout2d,
     labels: &JsValue,
@@ -270,8 +268,7 @@ pub fn js_sepme_gong(
     sepme_gong(&soa, &parsed_labels, g).map_err(core_err_to_js)
 }
 
-/// Computes Neighborhood Hit ($M_{\mathrm{NH}}$, `k = 7` default).
-#[wasm_bindgen(js_name = neighborhoodHit)]
+#[wasm_bindgen(js_name = _neighborhoodHit2d)]
 pub fn js_neighborhood_hit(
     layout: &JsLayout2d,
     labels: &JsValue,
@@ -284,32 +281,28 @@ pub fn js_neighborhood_hit(
     neighborhood_hit(&soa, &parsed_labels, k_val).map_err(core_err_to_js)
 }
 
-/// Computes the Euclidean Silhouette coefficient in `[-1.0, 1.0]`.
-#[wasm_bindgen(js_name = silhouetteScore)]
+#[wasm_bindgen(js_name = _silhouetteScore2d)]
 pub fn js_silhouette_score(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     silhouette_score(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes the Calinski-Harabasz Index.
-#[wasm_bindgen(js_name = calinskiHarabaszScore)]
+#[wasm_bindgen(js_name = _calinskiHarabaszScore2d)]
 pub fn js_calinski_harabasz_score(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     calinski_harabasz_score(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes the Davies-Bouldin Index.
-#[wasm_bindgen(js_name = daviesBouldinScore)]
+#[wasm_bindgen(js_name = _daviesBouldinScore2d)]
 pub fn js_davies_bouldin_score(layout: &JsLayout2d, labels: &JsValue) -> Result<f64, JsError> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let soa = layout.inner().to_layout2d();
     davies_bouldin_score(&soa, &parsed_labels).map_err(core_err_to_js)
 }
 
-/// Computes Pairwise Distance-Overlap Error (`PDOE`, `numBins = 100` default).
-#[wasm_bindgen(js_name = pairwiseDistanceOverlapError)]
+#[wasm_bindgen(js_name = _pairwiseDistanceOverlapError2d)]
 pub fn js_pairwise_distance_overlap_error(
     layout: &JsLayout2d,
     labels: &JsValue,

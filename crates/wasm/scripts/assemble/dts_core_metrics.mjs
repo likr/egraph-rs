@@ -1,14 +1,25 @@
 import { csrGraphOptionsDecl, metricsTypeDecls } from "./dts_types_metrics.mjs";
 
 const coordsViewDecl = `    /**
-     * Returns a zero-copy \`Float32Array\` view over the interleaved \`[x0, y0, ...]\`
-     * coordinates in WebAssembly linear memory, automatically refreshing the view
-     * whenever \`memory.grow\` detaches the underlying \`ArrayBuffer\`.
+     * Returns a zero-copy \`Float32Array\` view over the interleaved coordinates
+     * in WebAssembly linear memory, refreshing automatically on \`memory.grow\`.
      */
     coordsView(): Float32Array;
 `;
 
-const metricsReportDtsReplacements = [
+const labelsViewDecl = `    /**
+     * Returns a zero-copy \`Uint32Array\` view over \`labels\` in WebAssembly linear memory.
+     */
+    labelsView(): Uint32Array;
+`;
+
+const centroidsViewDecl = `    /**
+     * Returns a zero-copy \`Float64Array\` view over \`centroids\` in WebAssembly linear memory.
+     */
+    centroidsView(): Float64Array;
+`;
+
+const coreClassDtsReplacements = [
   [
     /(export class ClusterAreaReport \{[\s\S]*?)toRecord\(\): object;/,
     "$1toRecord(): ClusterAreaReportRecord;",
@@ -18,19 +29,43 @@ const metricsReportDtsReplacements = [
     "$1toRecord(): MetricReportRecord;",
   ],
   [
-    /export function evaluateMetrics\([^;]+\): MetricReport;/,
-    "export function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], options?: MetricConfigOptions | null): MetricReport;\nexport function evaluateMetrics(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], numPivots?: number | null, numSamples?: number | null, seed?: number | null, idealEdgeLength?: number | null, communityLabels?: Uint32Array | number[] | null, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null, clusterBaselineOptions?: ClusterBaselineOptions | null): MetricReport;",
+    /(export class ArenaOctree3d \{[\s\S]*?)_buildFlat\([^;]+\): void;/,
+    "$1build(coordsOrLayout: Float32Array | number[] | LayoutNd): void;\n    buildWeighted(coordsOrLayout: Float32Array | number[] | LayoutNd, masses: Float64Array | number[]): void;\n    _buildFlat(coords: Float32Array | number[]): void;",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(layout: LayoutNd);\n    constructor(coords: Float32Array | number[], n: number, dims: number);",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)kNearest\([^;]+\): Array<any>;/,
+    "$1kNearest(query: Float32Array | number[], k: number): KdNeighbor[];",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)kNearestExcludingSelf\([^;]+\): Array<any>;/,
+    "$1kNearestExcludingSelf(pointIdx: number, k: number): KdNeighbor[];",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)nearestExcludingSelf\([^;]+\): any;/,
+    "$1nearestExcludingSelf(pointIdx: number): KdNeighbor | undefined;",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)withinRadius\([^;]+\): Array<any>;/,
+    "$1withinRadius(query: Float32Array | number[], radius: number): KdNeighbor[];",
+  ],
+  [
+    /(export class DynamicKdTree \{[\s\S]*?)withinRadiusSq\([^;]+\): Array<any>;/,
+    "$1withinRadiusSq(query: Float32Array | number[], radiusSq: number): KdNeighbor[];",
   ],
 ];
 
 const gcafFunctionDtsReplacements = [
   [
     /export function clusterAreaFaithfulness\([^;]+\): number;/,
-    "export function clusterAreaFaithfulness(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): number;",
+    "export function clusterAreaFaithfulness(layout: Layout2d, labels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): number;",
   ],
   [
     /export function clusterAreaFaithfulnessDetail\([^;]+\): ClusterAreaReport;/,
-    "export function clusterAreaFaithfulnessDetail(layout: Layout2d, communityLabels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): ClusterAreaReport;",
+    "export function clusterAreaFaithfulnessDetail(layout: Layout2d, labels: Uint32Array | number[], gMax?: number | null, sigmaCells?: number | null, kappa?: number | null, tauFrac?: number | null, boundaryR95?: number | null, stevensGamma?: number | null, nodeWeights?: Float64Array | Float32Array | number[] | null, clusterWeights?: Float64Array | Float32Array | number[] | null): ClusterAreaReport;",
   ],
 ];
 
@@ -49,8 +84,6 @@ export function applyCheckedReplacements(dts, replacements, domainLabel, wasmDts
   return updatedDts;
 }
 
-// Build pkg/index.d.ts from egraph_wasm.d.ts, preserving all core declarations
-// while adding CsrGraphOptions and Layout2d.prototype.coordsView().
 export function applyCoreAndMetricsDts(wasmDts, wasmDtsPath) {
   let indexDts = wasmDts;
   if (!indexDts.includes('/// <reference lib="esnext.disposable" />')) {
@@ -74,32 +107,38 @@ export function applyCoreAndMetricsDts(wasmDts, wasmDtsPath) {
     `static fromEdgeList(numNodes: number, edges: Uint32Array | number[], weights?: Float32Array | number[] | null, options?: boolean | CsrGraphOptions | null, sanitize?: boolean | null): CsrGraph;`,
   );
 
-  if (!indexDts.includes("coordsView(): Float32Array;")) {
-    const updated = indexDts.replace(
-      /(export class Layout2d \{[\s\S]*?coordsPtr\(\): number;\n)/,
-      `$1${coordsViewDecl}`,
-    );
-    if (updated === indexDts) {
-      throw new Error(`Failed to inject coordsView() into Layout2d declaration in ${wasmDtsPath}`);
+  for (const clsName of ["Layout2d", "LayoutNd", "ManifoldLayout2d"]) {
+    if (indexDts.includes(`export class ${clsName} {`)) {
+      const pattern = new RegExp(`(export class ${clsName} \\{[\\s\\S]*?coordsPtr\\(\\): number;\\n)`);
+      const updated = indexDts.replace(pattern, `$1${coordsViewDecl}`);
+      if (updated === indexDts) {
+        throw new Error(`Failed to inject coordsView() into ${clsName} declaration in ${wasmDtsPath}`);
+      }
+      indexDts = updated;
     }
-    indexDts = updated;
   }
 
-  if (indexDts.includes("export class LayoutNd {")) {
-    const updatedNd = indexDts.replace(
-      /(export class LayoutNd \{[\s\S]*?coordsPtr\(\): number;\n)/,
-      `$1${coordsViewDecl.replace("[x0, y0, ...]", "[c0, c1, ...]")}`,
-    );
-    if (updatedNd === indexDts) {
-      throw new Error(`Failed to inject coordsView() into LayoutNd declaration in ${wasmDtsPath}`);
+  for (const clsName of [
+    "LouvainResult",
+    "LeidenResult",
+    "KMeansResult",
+    "LabelPropagationResult",
+    "SpectralClusteringResult",
+  ]) {
+    if (indexDts.includes(`export class ${clsName} {`)) {
+      const pattern = new RegExp(`(export class ${clsName} \\{[\\s\\S]*?labelsPtr\\(\\): number;\\n)`);
+      indexDts = indexDts.replace(pattern, `$1${labelsViewDecl}`);
     }
-    indexDts = updatedNd;
   }
 
-  if (
-    indexDts.includes("export class MetricReport {") &&
-    !indexDts.includes("export interface MetricReportRecord")
-  ) {
+  if (indexDts.includes("export class KMeansResult {")) {
+    indexDts = indexDts.replace(
+      /(export class KMeansResult \{[\s\S]*?centroidsPtr\(\): number;\n)/,
+      `$1${centroidsViewDecl}`,
+    );
+  }
+
+  if (indexDts.includes("export class MetricReport {") && !indexDts.includes("export interface MetricReportRecord")) {
     const metricDocMarker = "/**\n * Selective quality metric report";
     if (indexDts.includes(metricDocMarker)) {
       indexDts = indexDts.replace(metricDocMarker, `${metricsTypeDecls}${metricDocMarker}`);
@@ -111,68 +150,50 @@ export function applyCoreAndMetricsDts(wasmDts, wasmDtsPath) {
     }
   }
 
-  indexDts = applyCheckedReplacements(indexDts, metricsReportDtsReplacements, "", wasmDtsPath);
+  indexDts = applyCheckedReplacements(indexDts, coreClassDtsReplacements, "core/spatial", wasmDtsPath);
 
   indexDts = indexDts.replace(
     /export function sampledCrosslessness\([^;]+\): number;/,
     "export function sampledCrosslessness(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
   );
-
   indexDts = indexDts.replace(
     /export function adjustedPatchNig\([^;]+\): number;/,
-    "export function adjustedPatchNig(layout: Layout2d, communityLabels: Uint32Array | number[], patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): number;",
+    "export function adjustedPatchNig(layout: Layout2d, labels: Uint32Array | number[], patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): number;",
   );
-
+  indexDts = indexDts.replace(
+    /export function adjustedPatchNigDetail\([^;]+\): AdjustedPatchNigDetail;/,
+    "export function adjustedPatchNigDetail(layout: Layout2d, labels: Uint32Array | number[], patchRadius?: number | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): AdjustedPatchNigDetail;",
+  );
   indexDts = indexDts.replace(
     /export function adjustedPatchNigMultiscale\([^;]+\): Float64Array;/,
-    "export function adjustedPatchNigMultiscale(layout: Layout2d, communityLabels: Uint32Array | number[], radii?: Uint32Array | number[] | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): Float64Array;",
+    "export function adjustedPatchNigMultiscale(layout: Layout2d, labels: Uint32Array | number[], radii?: Uint32Array | number[] | null, canvasSize?: number | null, padFrac?: number | null, seed?: number | null): Float64Array;",
   );
 
-  indexDts = applyCheckedReplacements(
-    indexDts,
-    gcafFunctionDtsReplacements,
-    "G-CAF",
-    wasmDtsPath,
-  );
-
-  indexDts = indexDts.replace(
-    /export function landmarkStratifiedRta\([^;]+\): number;/,
-    "export function landmarkStratifiedRta(graph: CsrGraph, layout: Layout2d, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, seed?: number | null): number;",
-  );
-
-  indexDts = indexDts.replace(
-    /export function landmarkStratifiedRtaDetail\([^;]+\): RtaEvaluation;/,
-    "export function landmarkStratifiedRtaDetail(graph: CsrGraph, layout: Layout2d, numLandmarks?: number | null, numTriplets?: number | null, minDegree?: number | null, seed?: number | null): RtaEvaluation;",
-  );
-
-  indexDts = indexDts.replace(
-    /export function landmarkStratifiedRtaFromLandmarks\([^;]+\): RtaEvaluation;/,
-    "export function landmarkStratifiedRtaFromLandmarks(layout: Layout2d, landmarkIds: Uint32Array | number[], landmarkDists: Uint32Array | number[], numTriplets?: number | null, seed?: number | null): RtaEvaluation;",
-  );
+  indexDts = applyCheckedReplacements(indexDts, gcafFunctionDtsReplacements, "G-CAF", wasmDtsPath);
 
   indexDts = indexDts.replace(
     /export function prismDistortion\([^;]+\): PrismDistortion;/,
     "export function prismDistortion(originalLayout: Layout2d, adjustedLayout: Layout2d): PrismDistortion;",
   );
-
   indexDts = indexDts.replace(
     /export function sampledCrossingNumber\([^;]+\): number;/,
     "export function sampledCrossingNumber(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
   );
-
   indexDts = indexDts.replace(
-    /export function sampledScaleNormalizedStress\([^;]+\): number;/,
-    "export function sampledScaleNormalizedStress(graph: CsrGraph, layout: Layout2d, numPivots?: number | null, seed?: number | null): number;",
+    /export function _evaluateMetrics2d\([^;]+\): MetricReport;/,
+    "export function _evaluateMetrics2d(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], options?: number | MetricConfigOptions | null, ...args: unknown[]): MetricReport;",
   );
-
   indexDts = indexDts.replace(
-    /export function sampledNp1\([^;]+\): number;/,
-    "export function sampledNp1(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+    /export function _evaluateMetrics2dWithOriginal\([^;]+\): MetricReport;/,
+    "export function _evaluateMetrics2dWithOriginal(graph: CsrGraph, layout: Layout2d, targets: readonly (MetricTarget | string)[], options: number | MetricConfigOptions | null | undefined, originalLayout: Layout2d): MetricReport;",
   );
-
   indexDts = indexDts.replace(
-    /export function sampledNp2\([^;]+\): number;/,
-    "export function sampledNp2(graph: CsrGraph, layout: Layout2d, numSamples?: number | null, seed?: number | null): number;",
+    /export function _evaluateMetricsManifold\([^;]+\): MetricReport;/,
+    "export function _evaluateMetricsManifold(graph: CsrGraph, layout: ManifoldLayout2d, targets: readonly (MetricTarget | string)[], options?: number | MetricConfigOptions | null, ...args: unknown[]): MetricReport;",
+  );
+  indexDts = indexDts.replace(
+    /export function _evaluateMetricsNd\([^;]+\): MetricReport;/,
+    "export function _evaluateMetricsNd(graph: CsrGraph, layout: LayoutNd, targets: readonly (MetricTarget | string)[], options?: number | MetricConfigOptions | null, ...args: unknown[]): MetricReport;",
   );
 
   return indexDts;

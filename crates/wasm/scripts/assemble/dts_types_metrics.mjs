@@ -4,21 +4,49 @@ export const csrGraphOptionsDecl = `/**
 export interface CsrGraphOptions {
     directed?: boolean;
     sanitize?: boolean;
+    weightDtype?: "f32" | "f64" | string;
 }
 
 `;
 
-export const metricsTypeDecls = `/**
+export const metricsTypeDecls = `export type AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d;
+
+export interface KdNeighbor {
+    index: number;
+    dist: number;
+}
+
+export interface CrossingPairRecord {
+    edgeA: number;
+    edgeB: number;
+    u1: number;
+    v1: number;
+    u2: number;
+    v2: number;
+    angleRad?: number;
+    cosSq: number;
+}
+
+export interface TorusCrossingRecord extends CrossingPairRecord {
+    segA: Float64Array;
+    segB: Float64Array;
+}
+
+/**
  * Canonical target identifiers and normalized aliases accepted by \`evaluateMetrics\`.
  */
 export type MetricTarget =
     | "scaleNormalizedStress"
     | "sampledScaleNormalizedStress"
+    | "geodesicDistortion"
     | "crossingNumber"
+    | "crossingEdges"
     | "crossingAngle"
     | "sampledCrossingNumber"
     | "crosslessness"
     | "sampledCrosslessness"
+    | "torusCrossingNumber"
+    | "crossingEdgesTorus"
     | "neighborhoodPreservation1Hop"
     | "neighborhoodPreservation2Hop"
     | "sampledNp1"
@@ -40,6 +68,7 @@ export type MetricTarget =
     | "layoutDegeneracy"
     | "layout_degeneracy"
     | "idealEdgeLengths"
+    | "prismDistortion"
     | "adjustedPatchNig"
     | "adjusted_patch_nig"
     | "clusterAreaFaithfulness"
@@ -57,9 +86,13 @@ export type MetricTarget =
     | "np2"
     | "drng"
     | "dgg"
+    | "distanceConsistency"
     | "dsc"
+    | "distributionConsistency"
     | "dc"
+    | "classDensityMeasure"
     | "cdm"
+    | "histogramDensityMeasure"
     | "hdm"
     | "2d-hdm"
     | "sepmeKnng"
@@ -77,10 +110,13 @@ export type MetricTarget =
     | "neighborhoodHit"
     | "neighborhood_hit"
     | "m_nh"
+    | "silhouetteScore"
     | "silhouette"
+    | "calinskiHarabaszScore"
     | "calinskiHarabasz"
     | "calinski_harabasz"
     | "ch"
+    | "daviesBouldinScore"
     | "daviesBouldin"
     | "davies_bouldin"
     | "db"
@@ -96,7 +132,9 @@ export type MetricTarget =
     | "pairwise_distance_overlap_error"
     | "pdoe"
     | "sprawlterNn"
-    | "sprawlter_nn";
+    | "sprawlter_nn"
+    | "norMetrics"
+    | "nor";
 
 /**
  * Plain JavaScript record returned by \`MetricReport.toRecord()\`.
@@ -104,11 +142,15 @@ export type MetricTarget =
 export interface MetricReportRecord {
     scaleNormalizedStress?: number;
     sampledScaleNormalizedStress?: number;
+    geodesicDistortion?: number;
     crossingNumber?: number;
+    crossingEdges?: CrossingPairRecord[];
     crossingAngle?: number;
     sampledCrossingNumber?: number;
     crosslessness?: number;
     sampledCrosslessness?: number;
+    torusCrossingNumber?: number;
+    crossingEdgesTorus?: TorusCrossingRecord[];
     neighborhoodPreservation1Hop?: number;
     neighborhoodPreservation2Hop?: number;
     sampledNp1?: number;
@@ -123,27 +165,34 @@ export interface MetricReportRecord {
     minimumAngleA1?: number;
     layoutDegeneracy?: number;
     idealEdgeLengths?: number;
+    prismSigmaDist?: number;
+    prismSigmaDisp?: number;
     adjustedPatchNig?: number;
     clusterAreaFaithfulness?: number;
     landmarkStratifiedRta?: number;
-    dsc?: number;
-    dc?: number;
-    cdm?: number;
-    hdm?: number;
+    distanceConsistency?: number;
+    distributionConsistency?: number;
+    classDensityMeasure?: number;
+    histogramDensityMeasure?: number;
     sepmeKnng?: number;
     sepmeRng?: number;
     sepmeGab?: number;
     sepmeGong?: number;
     neighborhoodHit?: number;
-    silhouette?: number;
-    calinskiHarabasz?: number;
-    daviesBouldin?: number;
+    silhouetteScore?: number;
+    calinskiHarabaszScore?: number;
+    daviesBouldinScore?: number;
     cqKmeansAri?: number;
     cqKmeansAmi?: number;
     cqHacHom?: number;
     cqHacAmi?: number;
     pairwiseDistanceOverlapError?: number;
     sprawlterNn?: number;
+    norOoNni?: number;
+    norSpChA?: number;
+    norGsBbIar?: number;
+    norNmDmImse?: number;
+    norElRsd?: number;
 }
 
 /**
@@ -158,7 +207,7 @@ export interface ClusterBaselineOptions {
     numBins?: number | null;
     gongGamma?: number | null;
     kmeansNInit?: number | null;
-    kmeansMaxIters?: number | null;
+    kmeansMaxIterations?: number | null;
     seed?: number | null;
     sprawlterNodeRadius?: number | null;
 }
@@ -171,7 +220,10 @@ export interface MetricConfigOptions extends ClusterBaselineOptions {
     numSamples?: number | null;
     seed?: number | null;
     idealEdgeLength?: number | null;
-    communityLabels?: Uint32Array | number[] | null;
+    labels?: Uint32Array | number[] | null;
+    originalLayout?: Layout2d | null;
+    sprawlterHalfWidths?: Float32Array | number[] | null;
+    sprawlterHalfHeights?: Float32Array | number[] | null;
     numLandmarks?: number | null;
     numTriplets?: number | null;
     minDegree?: number | null;

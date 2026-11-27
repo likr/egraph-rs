@@ -9,8 +9,11 @@ use crate::js_options::{
     check_options_arg, get_prop, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
     opt_usize_prop, solver_status_str,
 };
-use crate::layout_buffers::JsLayout2d;
-use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
+use crate::solver_runner::{
+    run_layout_in_place, run_nd_in_place, run_steps_layout_in_place, run_steps_nd_in_place,
+    step_layout_in_place, step_nd_in_place,
+};
 
 /// Cooperative ForceAtlas2 (Jacomy et al., 2014) force-directed layout solver (`f32`).
 ///
@@ -62,14 +65,15 @@ impl JsForceAtlas2Solver {
         Ok(Self { inner })
     }
 
-    /// Executes one ForceAtlas2 iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Executes one ForceAtlas2 iteration on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _step2d)]
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
-    /// Executes up to `steps` ForceAtlas2 iterations on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    /// Executes up to `steps` ForceAtlas2 iterations on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _runSteps2d)]
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -79,13 +83,43 @@ impl JsForceAtlas2Solver {
         )
     }
 
-    /// Runs ForceAtlas2 to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Runs ForceAtlas2 to completion on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _run2d)]
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
             layout,
             "ForceAtlas2Solver::run",
+        )
+    }
+
+    /// Executes one ForceAtlas2 iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _stepNd)]
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        step_nd_in_place(&mut self.inner, layout)
+    }
+
+    /// Executes up to `steps` ForceAtlas2 iterations on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runStepsNd)]
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
+        run_steps_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            steps,
+            "ForceAtlas2Solver::run_steps_nd",
+        )
+    }
+
+    /// Runs ForceAtlas2 to completion on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runNd)]
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        run_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            "ForceAtlas2Solver::run_nd",
         )
     }
 
@@ -168,14 +202,15 @@ impl JsYifanHuSolver {
         Ok(Self { inner })
     }
 
-    /// Executes one Yifan Hu iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Executes one Yifan Hu iteration on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _step2d)]
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
-    /// Executes up to `steps` Yifan Hu iterations on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    /// Executes up to `steps` Yifan Hu iterations on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _runSteps2d)]
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -185,13 +220,43 @@ impl JsYifanHuSolver {
         )
     }
 
-    /// Runs Yifan Hu multilevel optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    /// Runs Yifan Hu multilevel optimization to completion on `Layout2d` in place.
+    #[wasm_bindgen(js_name = _run2d)]
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
             layout,
             "YifanHuSolver::run",
+        )
+    }
+
+    /// Executes one Yifan Hu iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _stepNd)]
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        step_nd_in_place(&mut self.inner, layout)
+    }
+
+    /// Executes up to `steps` Yifan Hu iterations on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runStepsNd)]
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
+        run_steps_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            steps,
+            "YifanHuSolver::run_steps_nd",
+        )
+    }
+
+    /// Runs Yifan Hu multilevel optimization to completion on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _runNd)]
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
+        run_nd_in_place(
+            self.inner.num_nodes(),
+            &mut self.inner,
+            layout,
+            "YifanHuSolver::run_nd",
         )
     }
 

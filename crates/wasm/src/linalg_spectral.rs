@@ -9,7 +9,7 @@ use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
 use crate::linalg_matrix::JsEigenResult;
 use egraph::core::{Layout2d, LayoutNd};
 use egraph::linalg::{
-    PivotMdsConfig, classical_mds_2d, koren_spectral_init, normalize_layout_2d, pivot_mds, rd_mds,
+    PivotMdsConfig, RdMds, classical_mds_2d, koren_spectral_init, normalize_layout_2d, pivot_mds,
     representative_mds, robust_normalize_layout_2d, select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs,
 };
@@ -182,14 +182,22 @@ pub fn js_rd_mds(
     tol: Option<f64>,
     max_iters: Option<f64>,
     seed: Option<f64>,
+    degree_normalize: Option<bool>,
 ) -> Result<JsLayoutNd, JsError> {
     let d = parse_optional_usize(dims, 2, "dims")?;
     let eps = eig_eps.unwrap_or(1e-10);
     let tol_val = tol.unwrap_or(1e-6);
     let m_iters = parse_optional_usize(max_iters, 1000, "maxIters")?;
     let seed_u64 = parse_seed_u64(seed)?;
-    let layout: LayoutNd<f32> =
-        rd_mds(graph.inner(), d, eps, tol_val, m_iters, seed_u64).map_err(core_err_to_js)?;
+    let deg_norm = degree_normalize.unwrap_or(true);
+    let layout: LayoutNd<f32> = RdMds::with_dims(d)
+        .eig_eps(eps)
+        .tol(tol_val)
+        .max_iters(m_iters)
+        .seed(seed_u64)
+        .degree_normalize(deg_norm)
+        .embedding(graph.inner())
+        .map_err(core_err_to_js)?;
     Ok(JsLayoutNd::from_inner(layout))
 }
 

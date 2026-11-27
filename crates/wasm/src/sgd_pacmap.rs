@@ -134,7 +134,7 @@ impl JsSgdSolver {
     pub fn sgd2(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSgdSolver, JsError> {
         let mut cfg = Sgd2Config::default();
         if check_options_arg(options, "SgdSolver.sgd2")? {
-            cfg.iterations = opt_usize_prop(options, "tMax", cfg.iterations)?;
+            cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
             cfg.eps = opt_f64_prop(options, "eps", cfg.eps)?;
             cfg.step_scale = opt_f64_prop(options, "stepScale", cfg.step_scale)?;
             cfg.batch_size = opt_usize_prop(options, "batchSize", cfg.batch_size)?;

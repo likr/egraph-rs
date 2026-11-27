@@ -1,9 +1,8 @@
 //! WebAssembly bindings for `egraph-clustering` community detection, coarsening, and layout projection.
 
 use egraph::clustering::{
-    KMeansConfig, KMeansResult, LabelPropagationConfig, LouvainConfig, LouvainResult,
-    SpectralClusteringConfig, coarsen_graph, kmeans_plus_plus, label_propagation, louvain,
-    project_clustered_layout, spectral_clustering,
+    KMeansConfig, KMeansResult, LouvainConfig, LouvainResult, coarsen_graph, kmeans_plus_plus,
+    louvain, project_clustered_layout,
 };
 use egraph::core::{CoreError, CsrGraph};
 use wasm_bindgen::prelude::*;
@@ -11,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
     core_err_to_js, csr_f64_to_f32, parse_non_negative_usize, parse_optional_usize, parse_seed_u64,
+    set_f64_prop, set_js_prop,
 };
 use crate::layout_buffers::JsLayout2d;
 
@@ -19,15 +19,10 @@ const DEFAULT_KMEANS_MAX_ITERS: usize = 100;
 const DEFAULT_KMEANS_TOL: f64 = 1e-4;
 const DEFAULT_KMEANS_N_INIT: usize = 1;
 
-const DEFAULT_SPECTRAL_K: usize = 2;
-const DEFAULT_SPECTRAL_MAX_EIGEN_ITERS: usize = 300;
-const DEFAULT_SPECTRAL_EIGEN_TOL: f64 = 1e-4;
-
 const DEFAULT_LOUVAIN_MAX_PASSES: usize = 100;
 const DEFAULT_LOUVAIN_RESOLUTION: f64 = 1.0;
 const DEFAULT_LOUVAIN_MIN_GAIN: f64 = 1e-7;
 
-const DEFAULT_LPA_MAX_ITERS: usize = 100;
 const DEFAULT_SPREAD_RADIUS: f64 = 0.1;
 
 /// Output of `kmeansPlusPlus`.
@@ -46,9 +41,33 @@ impl JsKMeansResult {
         self.inner.labels.clone()
     }
 
+    /// Returns the linear-memory byte offset of `labels` for zero-copy `labelsView()`.
+    #[wasm_bindgen(js_name = labelsPtr)]
+    pub fn labels_ptr(&self) -> usize {
+        self.inner.labels.as_ptr() as usize
+    }
+
+    /// Returns the element count of `labels`.
+    #[wasm_bindgen(js_name = labelsLen)]
+    pub fn labels_len(&self) -> usize {
+        self.inner.labels.len()
+    }
+
     /// Returns flat row-major `(k, dims)` cluster centroids (`Float64Array`).
     pub fn centroids(&self) -> Vec<f64> {
         self.inner.centroids.clone()
+    }
+
+    /// Returns the linear-memory byte offset of `centroids` for zero-copy `centroidsView()`.
+    #[wasm_bindgen(js_name = centroidsPtr)]
+    pub fn centroids_ptr(&self) -> usize {
+        self.inner.centroids.as_ptr() as usize
+    }
+
+    /// Returns the scalar element count of `centroids`.
+    #[wasm_bindgen(js_name = centroidsLen)]
+    pub fn centroids_len(&self) -> usize {
+        self.inner.centroids.len()
     }
 
     /// Returns the total within-cluster sum of squared Euclidean distances.
@@ -80,6 +99,28 @@ impl JsKMeansResult {
     pub fn dims(&self) -> usize {
         self.dims
     }
+
+    /// Converts this result into a plain JavaScript object without requiring `serde`.
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        set_js_prop(
+            &obj,
+            "labels",
+            &js_sys::Uint32Array::from(self.inner.labels.as_slice()).into(),
+        )?;
+        set_js_prop(
+            &obj,
+            "centroids",
+            &js_sys::Float64Array::from(self.inner.centroids.as_slice()).into(),
+        )?;
+        set_f64_prop(&obj, "inertia", self.inner.inertia)?;
+        set_f64_prop(&obj, "iterations", self.inner.iterations as f64)?;
+        set_js_prop(&obj, "converged", &JsValue::from_bool(self.inner.converged))?;
+        set_f64_prop(&obj, "k", self.k as f64)?;
+        set_f64_prop(&obj, "dims", self.dims as f64)?;
+        Ok(obj)
+    }
 }
 
 /// Output of `louvainCommunities`.
@@ -94,6 +135,18 @@ impl JsLouvainResult {
     /// Returns canonical community labels in `0..numCommunities` (`Uint32Array`).
     pub fn labels(&self) -> Vec<u32> {
         self.inner.labels.clone()
+    }
+
+    /// Returns the linear-memory byte offset of `labels` for zero-copy `labelsView()`.
+    #[wasm_bindgen(js_name = labelsPtr)]
+    pub fn labels_ptr(&self) -> usize {
+        self.inner.labels.as_ptr() as usize
+    }
+
+    /// Returns the element count of `labels`.
+    #[wasm_bindgen(js_name = labelsLen)]
+    pub fn labels_len(&self) -> usize {
+        self.inner.labels.len()
     }
 
     /// Returns the number of distinct non-empty communities detected.
@@ -112,6 +165,21 @@ impl JsLouvainResult {
     #[wasm_bindgen(getter)]
     pub fn passes(&self) -> usize {
         self.inner.passes
+    }
+
+    /// Converts this result into a plain JavaScript object without requiring `serde`.
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        set_js_prop(
+            &obj,
+            "labels",
+            &js_sys::Uint32Array::from(self.inner.labels.as_slice()).into(),
+        )?;
+        set_f64_prop(&obj, "numCommunities", self.inner.num_communities as f64)?;
+        set_f64_prop(&obj, "modularity", self.inner.modularity)?;
+        set_f64_prop(&obj, "passes", self.inner.passes as f64)?;
+        Ok(obj)
     }
 }
 
@@ -159,7 +227,7 @@ pub fn js_kmeans_plus_plus(
     num_nodes: f64,
     dims: f64,
     k: Option<f64>,
-    max_iters: Option<f64>,
+    max_iterations: Option<f64>,
     tol: Option<f64>,
     n_init: Option<f64>,
     seed: Option<f64>,
@@ -167,7 +235,8 @@ pub fn js_kmeans_plus_plus(
     let n = parse_non_negative_usize(num_nodes, "numNodes")?;
     let d = parse_non_negative_usize(dims, "dims")?;
     let k_val = parse_optional_usize(k, DEFAULT_KMEANS_K, "k")?;
-    let max_iters_val = parse_optional_usize(max_iters, DEFAULT_KMEANS_MAX_ITERS, "maxIters")?;
+    let max_iters_val =
+        parse_optional_usize(max_iterations, DEFAULT_KMEANS_MAX_ITERS, "maxIterations")?;
     let n_init_val = parse_optional_usize(n_init, DEFAULT_KMEANS_N_INIT, "nInit")?;
     let seed_u64 = parse_seed_u64(seed)?;
     let cfg = KMeansConfig {
@@ -183,38 +252,6 @@ pub fn js_kmeans_plus_plus(
         k: k_val,
         dims: d,
     })
-}
-
-/// Performs Ng-Jordan-Weiss spectral clustering on an undirected `CsrGraph`.
-#[wasm_bindgen(js_name = spectralClustering)]
-pub fn js_spectral_clustering(
-    graph: &JsCsrGraph,
-    k: Option<f64>,
-    max_eigen_iters: Option<f64>,
-    eigen_tol: Option<f64>,
-    kmeans_max_iters: Option<f64>,
-    kmeans_tol: Option<f64>,
-    seed: Option<f64>,
-) -> Result<Vec<u32>, JsError> {
-    let cfg = SpectralClusteringConfig {
-        k: parse_optional_usize(k, DEFAULT_SPECTRAL_K, "k")?,
-        max_eigen_iterations: parse_optional_usize(
-            max_eigen_iters,
-            DEFAULT_SPECTRAL_MAX_EIGEN_ITERS,
-            "maxEigenIters",
-        )?,
-        eigen_tol: eigen_tol.unwrap_or(DEFAULT_SPECTRAL_EIGEN_TOL),
-        kmeans_max_iterations: parse_optional_usize(
-            kmeans_max_iters,
-            DEFAULT_KMEANS_MAX_ITERS,
-            "kmeansMaxIters",
-        )?,
-        kmeans_tol: kmeans_tol.unwrap_or(DEFAULT_KMEANS_TOL),
-        seed: parse_seed_u64(seed)?,
-    };
-    spectral_clustering(graph.inner(), &cfg)
-        .map(|res| res.labels)
-        .map_err(core_err_to_js)
 }
 
 /// Detects communities on an undirected `CsrGraph` via multi-level Louvain modularity optimization.
@@ -234,22 +271,6 @@ pub fn js_louvain_communities(
     };
     let inner = louvain(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsLouvainResult { inner })
-}
-
-/// Detects communities on an undirected `CsrGraph` via asynchronous Label Propagation.
-#[wasm_bindgen(js_name = labelPropagation)]
-pub fn js_label_propagation(
-    graph: &JsCsrGraph,
-    max_iters: Option<f64>,
-    seed: Option<f64>,
-) -> Result<Vec<u32>, JsError> {
-    let cfg = LabelPropagationConfig {
-        max_iterations: parse_optional_usize(max_iters, DEFAULT_LPA_MAX_ITERS, "maxIters")?,
-        seed: parse_seed_u64(seed)?,
-    };
-    label_propagation(graph.inner(), &cfg)
-        .map(|res| res.labels)
-        .map_err(core_err_to_js)
 }
 
 /// Coarsens an undirected `CsrGraph` by contracting vertices that share a cluster label.

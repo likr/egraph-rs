@@ -1,14 +1,17 @@
-//! WebAssembly bindings for edge crossings, angular resolution, aspect ratio, node resolution, and layout degeneracy metrics.
+//! WebAssembly bindings for Euclidean edge crossings, angular resolution, aspect ratio,
+//! node resolution, and layout degeneracy metrics.
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, parse_non_negative_usize, parse_seed_u64};
+use crate::js_convert::{
+    core_err_to_js, parse_non_negative_usize, parse_seed_u64, set_f64_prop, set_js_prop,
+};
 use crate::layout_buffers::JsLayout2d;
-use crate::metrics_report::JsMinimumAngleSummary;
+use crate::metrics_summaries::JsMinimumAngleSummary;
 use egraph::metrics::{
-    CrossingPair, CrossingSummary, LayoutDegeneracy, TorusCrossing, angular_resolution,
-    aspect_ratio, crossing_angle, crossing_edges, crossing_edges_torus, crossing_number,
-    crossing_summary, crosslessness, edge_angle, layout_degeneracy, minimum_angle,
-    minimum_angle_summary, node_resolution, sampled_crossing_number, sampled_crosslessness,
+    CrossingPair, CrossingSummary, LayoutDegeneracy, angular_resolution, aspect_ratio,
+    crossing_angle, crossing_edges, crossing_number, crossing_summary, crosslessness, edge_angle,
+    layout_degeneracy, minimum_angle, minimum_angle_summary, node_resolution,
+    sampled_crossing_number, sampled_crosslessness,
 };
 use wasm_bindgen::prelude::*;
 
@@ -19,6 +22,12 @@ const DEFAULT_NUM_SAMPLES: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JsLayoutDegeneracy {
     inner: LayoutDegeneracy,
+}
+
+impl JsLayoutDegeneracy {
+    pub(crate) fn from_inner(inner: LayoutDegeneracy) -> Self {
+        Self { inner }
+    }
 }
 
 #[wasm_bindgen(js_class = LayoutDegeneracy)]
@@ -53,6 +62,16 @@ impl JsLayoutDegeneracy {
         self.inner.duplicate_ratio_f64
     }
 
+    #[wasm_bindgen(getter, js_name = excessDuplicateRatio)]
+    pub fn excess_duplicate_ratio(&self) -> f64 {
+        self.inner.excess_duplicate_ratio
+    }
+
+    #[wasm_bindgen(getter, js_name = nearCollisionRatio)]
+    pub fn near_collision_ratio(&self) -> f64 {
+        self.inner.near_collision_ratio
+    }
+
     #[wasm_bindgen(getter, js_name = zeroLengthEdges)]
     pub fn zero_length_edges(&self) -> usize {
         self.inner.zero_length_edges
@@ -81,28 +100,27 @@ impl JsLayoutDegeneracy {
     #[wasm_bindgen(js_name = toRecord)]
     pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
         let obj = js_sys::Object::new();
-        let num_entries: [(&str, f64); 10] = [
+        for (k, v) in [
             ("numNodes", self.inner.num_nodes as f64),
             ("numEdges", self.inner.num_edges as f64),
             ("duplicateNodesF32", self.inner.duplicate_nodes_f32 as f64),
             ("duplicateRatioF32", self.inner.duplicate_ratio_f32),
             ("duplicateNodesF64", self.inner.duplicate_nodes_f64 as f64),
             ("duplicateRatioF64", self.inner.duplicate_ratio_f64),
+            ("excessDuplicateRatio", self.inner.excess_duplicate_ratio),
+            ("nearCollisionRatio", self.inner.near_collision_ratio),
             ("zeroLengthEdges", self.inner.zero_length_edges as f64),
             ("zeroLengthEdgeRatio", self.inner.zero_length_edge_ratio),
             ("bboxWidth", self.inner.bbox_width),
             ("bboxHeight", self.inner.bbox_height),
-        ];
-        for (k, v) in num_entries {
-            js_sys::Reflect::set(&obj, &JsValue::from_str(k), &JsValue::from_f64(v))
-                .map_err(|e| JsError::new(&format!("failed to set {k}: {e:?}")))?;
+        ] {
+            set_f64_prop(&obj, k, v)?;
         }
-        js_sys::Reflect::set(
+        set_js_prop(
             &obj,
-            &JsValue::from_str("isBboxDegenerate"),
+            "isBboxDegenerate",
             &JsValue::from_bool(self.inner.is_bbox_degenerate),
-        )
-        .map_err(|e| JsError::new(&format!("failed to set isBboxDegenerate: {e:?}")))?;
+        )?;
         Ok(obj)
     }
 }
@@ -138,17 +156,8 @@ pub fn js_sampled_crossing_number(
     sampled_crossing_number(graph.inner(), &soa, samples, seed_u64).map_err(core_err_to_js)
 }
 
-/// Counts non-adjacent edge sub-segment crossings on the flat unit torus `[0, 1)^2`.
-#[wasm_bindgen(js_name = torusCrossingNumber)]
-pub fn js_torus_crossing_number(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<usize, JsError> {
-    let soa = layout.inner().to_layout2d();
-    crossing_edges_torus(graph.inner(), &soa)
-        .map(|crossings| crossings.len())
-        .map_err(core_err_to_js)
-}
-
 /// Computes the one-sided hinge node-resolution violation sum of `layout`.
-#[wasm_bindgen(js_name = nodeResolution)]
+#[wasm_bindgen(js_name = _nodeResolution2d)]
 pub fn js_node_resolution(layout: &JsLayout2d) -> Result<f64, JsError> {
     let soa = layout.inner().to_layout2d();
     node_resolution(&soa).map_err(core_err_to_js)
@@ -219,7 +228,7 @@ pub fn js_minimum_angle_summary(
 }
 
 /// Evaluates duplicate-node (`f32`/`f64`), zero-length edge, and bounding-box degeneracies.
-#[wasm_bindgen(js_name = layoutDegeneracy)]
+#[wasm_bindgen(js_name = _layoutDegeneracy2d)]
 pub fn js_layout_degeneracy(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
@@ -229,11 +238,18 @@ pub fn js_layout_degeneracy(
     Ok(JsLayoutDegeneracy { inner })
 }
 
-/// Non-adjacent crossing edge pair details returned by `crossingEdges`.
+/// Non-adjacent crossing edge pair details returned by `crossingEdges`, `crossingEdgesSpherical`,
+/// and `crossingEdgesHyperbolic`.
 #[wasm_bindgen(js_name = CrossingPair)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JsCrossingPair {
     inner: CrossingPair,
+}
+
+impl JsCrossingPair {
+    pub(crate) fn from_inner(inner: CrossingPair) -> Self {
+        Self { inner }
+    }
 }
 
 #[wasm_bindgen(js_class = CrossingPair)]
@@ -277,6 +293,22 @@ impl JsCrossingPair {
     pub fn cos_sq(&self) -> f64 {
         self.inner.cos_sq
     }
+
+    #[wasm_bindgen(js_name = toRecord)]
+    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+        let obj = js_sys::Object::new();
+        set_f64_prop(&obj, "edgeA", self.inner.edge_a as f64)?;
+        set_f64_prop(&obj, "edgeB", self.inner.edge_b as f64)?;
+        set_f64_prop(&obj, "u1", self.inner.u1 as f64)?;
+        set_f64_prop(&obj, "v1", self.inner.v1 as f64)?;
+        set_f64_prop(&obj, "u2", self.inner.u2 as f64)?;
+        set_f64_prop(&obj, "v2", self.inner.v2 as f64)?;
+        if let Some(ang) = self.inner.angle_rad {
+            set_f64_prop(&obj, "angleRad", ang)?;
+        }
+        set_f64_prop(&obj, "cosSq", self.inner.cos_sq)?;
+        Ok(obj)
+    }
 }
 
 /// Returns all non-adjacent crossing edge pairs in `graph` under `layout`.
@@ -287,56 +319,7 @@ pub fn js_crossing_edges(
 ) -> Result<Vec<JsCrossingPair>, JsError> {
     let soa = layout.inner().to_layout2d();
     let pairs = crossing_edges(graph.inner(), &soa).map_err(core_err_to_js)?;
-    Ok(pairs
-        .into_iter()
-        .map(|inner| JsCrossingPair { inner })
-        .collect())
-}
-
-/// Periodic `[0, 1)^2` torus crossing edge sub-segment pair returned by `crossingEdgesTorus`.
-#[wasm_bindgen(js_name = TorusCrossing)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct JsTorusCrossing {
-    inner: TorusCrossing,
-}
-
-#[wasm_bindgen(js_class = TorusCrossing)]
-impl JsTorusCrossing {
-    #[wasm_bindgen(getter, js_name = edgeA)]
-    pub fn edge_a(&self) -> usize {
-        self.inner.edge_a
-    }
-
-    #[wasm_bindgen(getter, js_name = edgeB)]
-    pub fn edge_b(&self) -> usize {
-        self.inner.edge_b
-    }
-
-    /// Returns `[x1, y1, x2, y2]` coordinates of the first crossing sub-segment.
-    #[wasm_bindgen(js_name = segA)]
-    pub fn seg_a(&self) -> Vec<f64> {
-        self.inner.seg_a.to_vec()
-    }
-
-    /// Returns `[x1, y1, x2, y2]` coordinates of the second crossing sub-segment.
-    #[wasm_bindgen(js_name = segB)]
-    pub fn seg_b(&self) -> Vec<f64> {
-        self.inner.seg_b.to_vec()
-    }
-}
-
-/// Finds all crossing edge sub-segment pairs on the unit torus `[0, 1)^2`.
-#[wasm_bindgen(js_name = crossingEdgesTorus)]
-pub fn js_crossing_edges_torus(
-    graph: &JsCsrGraph,
-    layout: &JsLayout2d,
-) -> Result<Vec<JsTorusCrossing>, JsError> {
-    let soa = layout.inner().to_layout2d();
-    let crossings = crossing_edges_torus(graph.inner(), &soa).map_err(core_err_to_js)?;
-    Ok(crossings
-        .into_iter()
-        .map(|inner| JsTorusCrossing { inner })
-        .collect())
+    Ok(pairs.into_iter().map(JsCrossingPair::from_inner).collect())
 }
 
 /// Exact edge-crossing count and angle statistics returned by `crossingSummary`.

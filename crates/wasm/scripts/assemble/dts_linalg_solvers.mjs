@@ -1,5 +1,12 @@
-// Refine linear-algebra and neighborhood TypeScript signatures (camelCase parameter names, optional targetStd?: number | null).
 export const linalgNeighborhoodDtsReplacements = [
+  [
+    /(export class ChebyshevDogKernel \{[\s\S]*?)static withLandmarks\([^;]+\): ChebyshevDogKernel;/,
+    "$1static withLandmarks(graph: CsrGraph, landmarks: Uint32Array | number[], options?: ChebyshevDogKernelOptions | null): ChebyshevDogKernel;",
+  ],
+  [
+    /(export class ChebyshevDogKernel \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: ChebyshevDogKernelOptions | null);",
+  ],
   [
     /static fromCsr\(num_nodes: number, indptr: Uint32Array \| number\[\], indices: Uint32Array \| number\[\], distances: Float64Array \| number\[\]\): KnnGraph;/,
     "static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], distances: Float64Array | number[]): KnnGraph;",
@@ -11,6 +18,18 @@ export const linalgNeighborhoodDtsReplacements = [
   [
     /export function pivotMdsInit\([^;]+\): Layout2d;/,
     "export function pivotMdsInit(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;",
+  ],
+  [
+    /export function pivotMds\([^;]+\): Layout2d;/,
+    "export function pivotMds(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;",
+  ],
+  [
+    /export function pivotMdsFromDistances\([^;]+\): Layout2d;/,
+    "export function pivotMdsFromDistances(distancesNk: Float64Array | number[], numNodes: number, numPivots: number, targetStd?: number | null, seed?: number | null): Layout2d;",
+  ],
+  [
+    /export function pivotMdsWithPivots\([^;]+\): Layout2d;/,
+    "export function pivotMdsWithPivots(graph: CsrGraph, pivots: Uint32Array | number[], targetStd?: number | null, seed?: number | null): Layout2d;",
   ],
   [
     /export function korenSpectralInit\([^;]+\): Layout2d;/,
@@ -128,12 +147,16 @@ export const linalgNeighborhoodDtsReplacements = [
 
 export const clusteringSolversDtsReplacements = [
   [
+    /(export class GuMapSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
     /static fromFuzzySet\([^;]+\): GuMapSolver;/,
-    "static fromFuzzySet(probs: SparseProbabilities, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null): GuMapSolver;",
+    "static fromFuzzySet(probs: SparseProbabilities, iterationsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null): GuMapSolver;",
   ],
   [
     /static fromGraphDog\([^;]+\): GuMapSolver;/,
-    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, nEpochsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): GuMapSolver;",
+    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, iterationsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): GuMapSolver;",
   ],
   [
     /static fromLandmarks\([^;]+\): GuMapSolver;/,
@@ -141,55 +164,79 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /static fromKnn\([^;]+\): GuMapSolver;/,
-    "static fromKnn(knn: KnnGraph, nEpochsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null): GuMapSolver;",
+    "static fromKnn(knn: KnnGraph, iterationsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null): GuMapSolver;",
+  ],
+  [
+    /(export class GuMapSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: GuMapDogOptions | null);",
+  ],
+  [
+    /(export class KamadaKawaiSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    computeStress(layout: AnyLayout): number;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
+    /(export class KamadaKawaiSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: KamadaKawaiOptions | null);",
   ],
   [
     /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
-    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxOuterIters?: number | null): KamadaKawaiSolver;",
+    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxIterations?: number | null): KamadaKawaiSolver;",
   ],
   [
     /static fromGraph\(graph: CsrGraph, eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
-    "static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxOuterIters?: number | null): KamadaKawaiSolver;",
+    "static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxIterations?: number | null): KamadaKawaiSolver;",
+  ],
+  [
+    /(export class SgdSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    runScheduleWindow(layout: Layout2d | ManifoldLayout2d, startIter: number, count: number): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /static fromPairsWithHinges\([^;]+\): SgdSolver;/,
-    "static fromPairsWithHinges(numNodes: number, springSrc: Uint32Array | number[], springTgt: Uint32Array | number[], springDij: Float32Array | number[], springDji: Float32Array | number[], springWij: Float32Array | number[], springWji: Float32Array | number[], hingeSrc: Uint32Array | number[], hingeTgt: Uint32Array | number[], hingeDij: Float32Array | number[], hingeDji: Float32Array | number[], hingeWij: Float32Array | number[], hingeWji: Float32Array | number[], tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static fromPairsWithHinges(numNodes: number, springSrc: Uint32Array | number[], springTgt: Uint32Array | number[], springDij: Float32Array | number[], springDji: Float32Array | number[] | null | undefined, springWij: Float32Array | number[] | null | undefined, springWji: Float32Array | number[] | null | undefined, hingeSrc: Uint32Array | number[], hingeTgt: Uint32Array | number[], hingeDij: Float32Array | number[], hingeDji?: Float32Array | number[] | null, hingeWij?: Float32Array | number[] | null, hingeWji?: Float32Array | number[] | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /(export class SgdSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: SgdScheduleOptions | null);",
   ],
   [
     /static fromPairs\([^;]+\): SgdSolver;/,
-    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji?: Float32Array | number[] | null, wij?: Float32Array | number[] | null, wji?: Float32Array | number[] | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji?: Float32Array | number[] | null, wij?: Float32Array | number[] | null, wji?: Float32Array | number[] | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static full\([^;]+\): SgdSolver;/,
-    "static full(graph: CsrGraph, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static full(graph: CsrGraph, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static omega\([^;]+\): SgdSolver;/,
-    "static omega(graph: CsrGraph, embedding: Float64Array | number[], dims: number, kOrOptions?: number | OmegaSgdOptions | null, minDist?: number | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static omega(graph: CsrGraph, embedding: Float64Array | number[], dims: number, kOrOptions?: number | OmegaSgdOptions | null, minDist?: number | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static randomPair\([^;]+\): SgdSolver;/,
-    "static randomPair(graph: CsrGraph, pairsPerNodeOrOptions?: number | RandomPairSgdOptions | null, tMaxOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static randomPair(graph: CsrGraph, pairsPerNodeOrOptions?: number | RandomPairSgdOptions | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static sparseBarrierDog\([^;]+\): SgdSolver;/,
-    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): SgdSolver;",
+    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, iterations?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): SgdSolver;",
   ],
   [
     /static sparseBarrierFromLandmarks\([^;]+\): SgdSolver;/,
-    "static sparseBarrierFromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, pivots?: Uint32Array | number[] | null, max2hopOrOptions?: number | SparseBarrierOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static sparseBarrierFromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, pivots?: Uint32Array | number[] | null, max2hopOrOptions?: number | SparseBarrierOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, iterations?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /static streamingNegatives\([^;]+\): SgdSolver;/,
-    "static streamingNegatives(graph: CsrGraph, negativesOrOptions?: number | StreamingNegativeOptions | null, targetDistance?: number | null, weight?: number | null, hingeOnly?: boolean | null, tMax?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    "static streamingNegatives(graph: CsrGraph, negativesOrOptions?: number | StreamingNegativeOptions | null, targetDistance?: number | null, weight?: number | null, hingeOnly?: boolean | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
   ],
   [
     /constructor\(graph: CsrGraph, rounds_or_options: any[^;]*\);/,
-    "constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, tMax?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null, minSepRatio?: number | null, wSep?: number | null);",
+    "constructor(graph: CsrGraph, iterationsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, sgdIterations?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null, minSepRatio?: number | null, wSep?: number | null);",
   ],
   [
     /setKCap\(k_cap: number\): void;/,
     "setKCap(kCap: number): void;",
+  ],
+  [
+    /(export class StressMajorizationSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    computeStress(layout: AnyLayout): number;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
@@ -198,6 +245,26 @@ export const clusteringSolversDtsReplacements = [
   [
     /static fromGraph\(graph: CsrGraph, epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
     "static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
+  ],
+  [
+    /(export class StressMajorizationSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: StressMajorizationOptions | null);",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)static fromGraphRowNormalizedWithOptions\([^;]+\): TsNetSolver;/,
+    "$1static fromGraphRowNormalizedWithOptions(graph: CsrGraph, options?: TsNetRowNormalizedOptions | null): TsNetSolver;",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)static fromProbabilitiesWithStages\([^;]+\): TsNetSolver;/,
+    "$1static fromProbabilitiesWithStages(probs: SparseProbabilities, stages: readonly TsNetStage[] | TsNetStage[], options?: TsNetOptions | null): TsNetSolver;",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: TsNetOptions | null);",
   ],
   [
     /static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
@@ -229,11 +296,11 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /export function kmeansPlusPlus\([^;]+\): KMeansResult;/,
-    "export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, k?: number | null, maxIters?: number | null, tol?: number | null, nInit?: number | null, seed?: number | null): KMeansResult;",
+    "export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, k?: number | null, maxIterations?: number | null, tol?: number | null, nInit?: number | null, seed?: number | null): KMeansResult;",
   ],
   [
-    /export function labelPropagation\([^;]+\): Uint32Array;/,
-    "export function labelPropagation(graph: CsrGraph, maxIters?: number | null, seed?: number | null): Uint32Array;",
+    /export function labelPropagation\([^;]+\): LabelPropagationResult;/,
+    "export function labelPropagation(graph: CsrGraph, maxIterations?: number | null, seed?: number | null): LabelPropagationResult;",
   ],
   [
     /export function louvainCommunities\([^;]+\): LouvainResult;/,
@@ -244,7 +311,7 @@ export const clusteringSolversDtsReplacements = [
     "export function projectClusteredLayout(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], spreadRadius?: number | null, seed?: number | null): Layout2d;",
   ],
   [
-    /export function spectralClustering\([^;]+\): Uint32Array;/,
-    "export function spectralClustering(graph: CsrGraph, k?: number | null, maxEigenIters?: number | null, eigenTol?: number | null, kmeansMaxIters?: number | null, kmeansTol?: number | null, seed?: number | null): Uint32Array;",
+    /export function spectralClustering\([^;]+\): SpectralClusteringResult;/,
+    "export function spectralClustering(graph: CsrGraph, k?: number | null, maxEigenIterations?: number | null, eigenTol?: number | null, kmeansMaxIterations?: number | null, kmeansTol?: number | null, seed?: number | null): SpectralClusteringResult;",
   ],
 ];

@@ -11,11 +11,8 @@ use crate::js_convert::{
 use crate::js_options::{
     is_plain_js_object, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
     opt_usize_prop, parse_dog_config_from_options_or_args, reject_extra_args_with_options,
-    solver_status_str,
 };
-use crate::layout_buffers::JsLayout2d;
 use crate::neighborhood_types::{JsKnnGraph, JsSparseProbabilities};
-use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
 const DEFAULT_GUMAP_MAX_2HOP: usize = 32;
 
@@ -47,7 +44,7 @@ fn parse_gumap_config(
             || seed.is_some();
         reject_extra_args_with_options(has_extra)?;
 
-        cfg.iterations = opt_usize_prop(n_epochs_or_options, "nEpochs", cfg.iterations)?;
+        cfg.iterations = opt_usize_prop(n_epochs_or_options, "iterations", cfg.iterations)?;
         cfg.negative_sample_rate = opt_usize_prop(
             n_epochs_or_options,
             "negativeSampleRate",
@@ -72,9 +69,9 @@ fn parse_gumap_config(
 
     if !n_epochs_or_options.is_undefined() && !n_epochs_or_options.is_null() {
         let v = n_epochs_or_options.as_f64().ok_or_else(|| {
-            JsError::new("nEpochsOrOptions must be a non-negative integer, options object, null, or undefined")
+            JsError::new("iterationsOrOptions must be a non-negative integer, options object, null, or undefined")
         })?;
-        cfg.iterations = parse_non_negative_usize(v, "nEpochs")?;
+        cfg.iterations = parse_non_negative_usize(v, "iterations")?;
     }
     cfg.negative_sample_rate = parse_optional_usize(
         negative_sample_rate,
@@ -99,8 +96,49 @@ pub struct JsGuMapSolver {
     inner: GuMapSolver<f32>,
 }
 
+impl JsGuMapSolver {
+    pub(crate) fn inner(&self) -> &GuMapSolver<f32> {
+        &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut GuMapSolver<f32> {
+        &mut self.inner
+    }
+}
+
 #[wasm_bindgen(js_class = GuMapSolver)]
 impl JsGuMapSolver {
+    /// Constructs a `GuMapSolver` from `graph` using 1+2-hop pairs and DoG Varadhan landmarks.
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsGuMapSolver, JsError> {
+        Self::from_graph_dog(
+            graph,
+            options,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
     /// Constructs a `GuMapSolver` directly from a fuzzy simplicial set `SparseProbabilities`.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = fromFuzzySet)]
@@ -355,87 +393,5 @@ impl JsGuMapSolver {
         )
         .map_err(core_err_to_js)?;
         Ok(Self { inner })
-    }
-
-    /// Executes one epoch on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` epochs on `layout` in place.
-    #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "GuMapSolver::run_steps",
-        )
-    }
-
-    /// Runs GuMap optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "GuMapSolver::run",
-        )
-    }
-
-    /// Returns the number of directed positive attractive edges stored.
-    #[wasm_bindgen(getter, js_name = numEdges)]
-    pub fn num_edges(&self) -> usize {
-        self.inner.num_edges()
-    }
-
-    /// Returns the resolved UMAP curve parameter `a`.
-    #[wasm_bindgen(getter)]
-    pub fn a(&self) -> f64 {
-        self.inner.ab().0
-    }
-
-    /// Returns the resolved UMAP curve parameter `b`.
-    #[wasm_bindgen(getter)]
-    pub fn b(&self) -> f64 {
-        self.inner.ab().1
-    }
-
-    /// Returns the resolved UMAP curve parameters `[a, b]`.
-    #[wasm_bindgen(getter)]
-    pub fn ab(&self) -> Vec<f64> {
-        let (a, b) = self.inner.ab();
-        vec![a, b]
-    }
-
-    /// Returns the solver lifecycle status string.
-    #[wasm_bindgen(getter)]
-    pub fn status(&self) -> String {
-        solver_status_str(self.inner.status()).to_owned()
-    }
-
-    /// Returns the number of epochs executed so far.
-    #[wasm_bindgen(getter)]
-    pub fn iteration(&self) -> usize {
-        self.inner.iteration()
-    }
-
-    /// Returns the total scheduled epoch count (`nEpochs`).
-    #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
-        self.inner.total_iterations()
-    }
-
-    /// Returns `true` when the solver has converged or completed.
-    #[wasm_bindgen(getter, js_name = isFinished)]
-    pub fn is_finished(&self) -> bool {
-        self.inner.status().is_finished()
-    }
-
-    /// Returns the expected vertex count.
-    #[wasm_bindgen(getter, js_name = numNodes)]
-    pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
     }
 }

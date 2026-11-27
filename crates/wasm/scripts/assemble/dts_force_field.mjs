@@ -44,8 +44,24 @@ export const forceOverlapDtsReplacements = [
     "static sgd2(graph: CsrGraph, options?: Sgd2Options | null): SgdSolver;",
   ],
   [
+    /static fromPackedSymmetric\([^;]+\): SgdSolver;/,
+    "static fromPackedSymmetric(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dists: Float32Array | number[], weights?: Float32Array | number[] | null, isHinge?: Uint8Array | number[] | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+  ],
+  [
+    /resetSchedule\([^;]+\): void;/,
+    "resetSchedule(iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): void;",
+  ],
+  [
+    /(export class ForceAtlas2Solver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
     /(export class ForceAtlas2Solver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: ForceAtlas2Options | null);",
+  ],
+  [
+    /(export class YifanHuSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class YifanHuSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -60,8 +76,16 @@ export const forceOverlapDtsReplacements = [
     "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: PrismOptions | null);",
   ],
   [
-    /export function project1d\(coords: Float32Array, constraints: any\): Float32Array;/,
-    "export function project1d(coords: Float32Array, constraints: readonly (SeparationConstraint | SeparationConstraintLike)[]): Float32Array;",
+    /(export class TwinDeclutterer \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: TwinDeclutterOptions | null);",
+  ],
+  [
+    /export function declutterTwins2d\(layout: Layout2d, options: any\): number;/,
+    "export function declutterTwins2d(layout: Layout2d, options?: TwinDeclutterOptions | null): number;",
+  ],
+  [
+    /export function project1d\(coords: Float32Array, constraints: any\): void;/,
+    "export function project1d(coords: Float32Array, constraints: readonly (SeparationConstraint | SeparationConstraintLike)[]): void;",
   ],
   [
     /export function projectLayoutAxis\(layout: Layout2d, axis: any, constraints: any\): void;/,
@@ -76,16 +100,20 @@ export const forceOverlapDtsReplacements = [
     "export function projectRectangleNoOverlap2d(layout: Layout2d, halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): void;",
   ],
   [
-    /export function projectClusteredRectangleNoOverlap2d\(layout: Layout2d, cluster_ids: Uint32Array \| number\[\], half_widths: Float32Array \| number\[\], half_heights: Float32Array \| number\[\]\): void;/,
-    "export function projectClusteredRectangleNoOverlap2d(layout: Layout2d, clusterIds: Uint32Array | number[], halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): void;",
+    /export function projectClusteredRectangleNoOverlap2d\(layout: Layout2d, labels: Uint32Array \| number\[\], half_widths: Float32Array \| number\[\], half_heights: Float32Array \| number\[\]\): void;/,
+    "export function projectClusteredRectangleNoOverlap2d(layout: Layout2d, labels: Uint32Array | number[], halfWidths: Float32Array | number[], halfHeights: Float32Array | number[]): void;",
   ],
   [
     /export function assignLayers\(graph: CsrGraph, method\?: string \| null\): Uint32Array;/,
     "export function assignLayers(graph: CsrGraph, method?: LayeringMethod | string | null): Uint32Array;",
   ],
   [
-    /(export class FdebSolver \{[\s\S]*?)constructor\(graph: CsrGraph, layout: Layout2d, options: any\);/,
-    "$1constructor(graph: CsrGraph, layout: Layout2d, options?: FdebOptions | null);",
+    /(export class FdebSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
+    /(export class FdebSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: FdebOptions | null);",
   ],
 ];
 
@@ -109,6 +137,10 @@ export const coarseningFieldDtsReplacements = [
   [
     /export function computePivotedRhghLandmarks\(graph: CsrGraph, options: any\): RhghLandmarksResult;/,
     "export function computePivotedRhghLandmarks(graph: CsrGraph, options?: RhghLandmarkOptions | null): RhghLandmarksResult;",
+  ],
+  [
+    /export function computePivotedRhghLandmarksResult\(graph: CsrGraph, options: any\): RhghLandmarks;/,
+    "export function computePivotedRhghLandmarksResult(graph: CsrGraph, options?: RhghLandmarkOptions | null): RhghLandmarks;",
   ],
   [
     /export function coarseBackboneInit\(graph: CsrGraph, options: any\): CoarseBackboneResult;/,

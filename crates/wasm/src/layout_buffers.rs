@@ -1,7 +1,7 @@
 //! WebAssembly linear-memory `Layout2d` and `LayoutNd` coordinate buffer bindings.
 
 use crate::js_convert::{core_err_to_js, ffi_err_to_js, parse_non_negative_usize, parse_seed_u64};
-use egraph::core::{CoreError, DeterministicRng, Layout2d, LayoutNd};
+use egraph::core::{CoreError, Layout2d, LayoutNd};
 use egraph_ffi::InterleavedLayout2d;
 use wasm_bindgen::{JsCast, prelude::*};
 
@@ -50,18 +50,19 @@ impl JsLayout2d {
         Ok(JsLayout2d { inner })
     }
 
-    /// Creates a deterministically initialized `Layout2d` for `n` vertices using `seed` (default `42`).
-    pub fn init(n: f64, seed: Option<f64>) -> Result<JsLayout2d, JsError> {
+    /// Creates a deterministically initialized `Layout2d` for `n` vertices using `seed` (default `42`)
+    /// and isotropic uniform range `[-0.5 * scale, 0.5 * scale)^2` (`scale` default `1.0`).
+    pub fn init(n: f64, seed: Option<f64>, scale: Option<f64>) -> Result<JsLayout2d, JsError> {
         let count = parse_non_negative_usize(n, "n")?;
         let seed_u64 = parse_seed_u64(seed)?;
-        let mut rng = DeterministicRng::from_seed_u64(seed_u64);
-        let mut coords = Vec::with_capacity(count.saturating_mul(2));
-        for _ in 0..count {
-            coords.push((rng.next_f64() - 0.5) as f32);
-            coords.push((rng.next_f64() - 0.5) as f32);
-        }
-        let inner = InterleavedLayout2d::<f32>::from_interleaved(&coords).map_err(ffi_err_to_js)?;
-        Ok(JsLayout2d { inner })
+        let scale_val = scale.unwrap_or(1.0);
+        let soa = Layout2d::<f32>::init(count, seed_u64, scale_val).map_err(core_err_to_js)?;
+        Ok(Self::from_layout2d(&soa))
+    }
+
+    /// Returns a deep copy of this `Layout2d`.
+    pub fn copy(&self) -> JsLayout2d {
+        self.clone()
     }
 
     /// Creates a `Layout2d` from an even-length interleaved `[x0, y0, ...]` array.
@@ -174,26 +175,57 @@ impl JsLayoutNd {
     pub(crate) fn from_inner(inner: LayoutNd<f32>) -> Self {
         Self { inner }
     }
+
+    /// Returns a shared reference to the underlying `LayoutNd<f32>`.
+    pub fn inner(&self) -> &LayoutNd<f32> {
+        &self.inner
+    }
+
+    /// Returns a mutable reference to the underlying `LayoutNd<f32>`.
+    pub fn inner_mut(&mut self) -> &mut LayoutNd<f32> {
+        &mut self.inner
+    }
 }
 
 #[wasm_bindgen(js_class = LayoutNd)]
 impl JsLayoutNd {
-    /// Creates a zero-initialized `dim`-dimensional layout for `n` vertices.
-    pub fn zeros(n: f64, dim: f64) -> Result<JsLayoutNd, JsError> {
+    /// Creates a zero-initialized `dims`-dimensional layout for `n` vertices.
+    pub fn zeros(n: f64, dims: f64) -> Result<JsLayoutNd, JsError> {
         let num_nodes = parse_non_negative_usize(n, "n")?;
-        let dims = parse_non_negative_usize(dim, "dim")?;
-        let inner = LayoutNd::<f32>::zeros(num_nodes, dims).map_err(core_err_to_js)?;
+        let d = parse_non_negative_usize(dims, "dims")?;
+        let inner = LayoutNd::<f32>::zeros(num_nodes, d).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
-    /// Creates a `LayoutNd` from flat row-major coordinates of length `n * dim`.
-    #[wasm_bindgen(js_name = fromCoords)]
-    pub fn from_coords(n: f64, dim: f64, coords: &[f32]) -> Result<JsLayoutNd, JsError> {
+    /// Creates a deterministically seeded uniform random `dims`-dimensional layout.
+    pub fn init(
+        n: f64,
+        dims: f64,
+        seed: Option<f64>,
+        scale: Option<f64>,
+    ) -> Result<JsLayoutNd, JsError> {
         let num_nodes = parse_non_negative_usize(n, "n")?;
-        let dims = parse_non_negative_usize(dim, "dim")?;
+        let d = parse_non_negative_usize(dims, "dims")?;
+        let seed_u64 = parse_seed_u64(seed)?;
+        let scale_val = scale.unwrap_or(1.0);
         let inner =
-            LayoutNd::<f32>::from_flat(num_nodes, dims, coords.to_vec()).map_err(core_err_to_js)?;
+            LayoutNd::<f32>::init(num_nodes, d, seed_u64, scale_val).map_err(core_err_to_js)?;
         Ok(Self { inner })
+    }
+
+    /// Creates a `LayoutNd` from flat row-major coordinates of length `n * dims`.
+    #[wasm_bindgen(js_name = fromCoords)]
+    pub fn from_coords(n: f64, dims: f64, coords: &[f32]) -> Result<JsLayoutNd, JsError> {
+        let num_nodes = parse_non_negative_usize(n, "n")?;
+        let d = parse_non_negative_usize(dims, "dims")?;
+        let inner =
+            LayoutNd::<f32>::from_flat(num_nodes, d, coords.to_vec()).map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
+    /// Returns a deep copy of this `LayoutNd`.
+    pub fn copy(&self) -> JsLayoutNd {
+        self.clone()
     }
 
     /// Returns the number of vertices in the layout.
@@ -204,7 +236,7 @@ impl JsLayoutNd {
 
     /// Returns the dimensionality of the embedding space.
     #[wasm_bindgen(getter)]
-    pub fn dim(&self) -> usize {
+    pub fn dims(&self) -> usize {
         self.inner.dims()
     }
 
@@ -219,13 +251,47 @@ impl JsLayoutNd {
         self.inner.is_empty()
     }
 
+    /// Returns the scalar coordinate at `(node, dim)`.
+    pub fn get(&self, node: f64, dim: f64) -> Result<f32, JsError> {
+        let i = parse_non_negative_usize(node, "node")?;
+        let d = parse_non_negative_usize(dim, "dim")?;
+        self.inner.get(i, d).map_err(core_err_to_js)
+    }
+
+    /// Sets the scalar coordinate at `(node, dim)`.
+    pub fn set(&mut self, node: f64, dim: f64, value: f32) -> Result<(), JsError> {
+        let i = parse_non_negative_usize(node, "node")?;
+        let d = parse_non_negative_usize(dim, "dim")?;
+        self.inner.set(i, d, value).map_err(core_err_to_js)
+    }
+
+    /// Centers coordinates at zero mean per axis and scales isotropically to `targetStd` (default `1.0`).
+    #[wasm_bindgen(js_name = normalizeStd)]
+    pub fn normalize_std(&mut self, target_std: Option<f64>) -> Result<(), JsError> {
+        let t_std = target_std.unwrap_or(1.0);
+        if !t_std.is_finite() || t_std <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd must be finite and strictly positive",
+            )));
+        }
+        let t_f32 = t_std as f32;
+        if !t_f32.is_finite() || t_f32 <= 0.0 {
+            return Err(core_err_to_js(CoreError::invalid_input(
+                "targetStd overflows f32",
+            )));
+        }
+        self.inner
+            .center_and_normalize_to_std(t_f32)
+            .map_err(core_err_to_js)
+    }
+
     /// Returns the byte offset of the row-major `f32` buffer in WebAssembly linear memory.
     #[wasm_bindgen(js_name = coordsPtr)]
     pub fn coords_ptr(&self) -> usize {
         self.inner.coords().as_ptr() as usize
     }
 
-    /// Returns the total scalar length of the row-major buffer (`numNodes * dim`).
+    /// Returns the total scalar length of the row-major buffer (`numNodes * dims`).
     #[wasm_bindgen(js_name = coordsLen)]
     pub fn coords_len(&self) -> usize {
         self.inner.coords().len()

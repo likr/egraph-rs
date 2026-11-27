@@ -15,7 +15,7 @@ use crate::js_convert::{
     parse_u32_sequence, set_f64_prop,
 };
 use crate::js_options::{
-    check_options_arg, get_prop, normalize_enum_token, opt_f64_prop, opt_seed_prop,
+    check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
     opt_string_prop, opt_usize_prop, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
@@ -40,9 +40,10 @@ fn parse_cluster_refine_config(
         if let Some(m_str) = opt_string_prop(options, "method")? {
             cfg.method = parse_cluster_refine_method(&m_str)?;
         }
-        cfg.max_iterations = opt_usize_prop(options, "maxRounds", cfg.max_iterations)?;
+        cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
         cfg.kmeans_n_init = opt_usize_prop(options, "kmeansNInit", cfg.kmeans_n_init)?;
-        cfg.kmeans_max_iters = opt_usize_prop(options, "kmeansMaxIters", cfg.kmeans_max_iters)?;
+        cfg.kmeans_max_iters =
+            opt_usize_prop(options, "kmeansMaxIterations", cfg.kmeans_max_iters)?;
         cfg.shift_step = opt_f64_prop(options, "shiftStep", cfg.shift_step)?;
         cfg.margin = opt_f64_prop(options, "margin", cfg.margin)?;
         cfg.seed = opt_seed_prop(options)?;
@@ -59,15 +60,12 @@ pub struct JsClusterRefineSolver {
 
 #[wasm_bindgen(js_class = ClusterRefineSolver)]
 impl JsClusterRefineSolver {
-    /// Constructs a `ClusterRefineSolver` from `clusterLabels` without graph edge lengths.
+    /// Constructs a `ClusterRefineSolver` from `labels` without graph edge lengths.
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        cluster_labels: &JsValue,
-        options: &JsValue,
-    ) -> Result<JsClusterRefineSolver, JsError> {
-        let labels = parse_u32_sequence(cluster_labels, "clusterLabels")?;
+    pub fn new(labels: &JsValue, options: &JsValue) -> Result<JsClusterRefineSolver, JsError> {
+        let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let cfg = parse_cluster_refine_config(options, "ClusterRefineSolver")?;
-        let inner = ClusterRefineSolver::<f32>::new(labels, cfg).map_err(core_err_to_js)?;
+        let inner = ClusterRefineSolver::<f32>::new(parsed_labels, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -75,12 +73,12 @@ impl JsClusterRefineSolver {
     #[wasm_bindgen(js_name = fromGraph)]
     pub fn from_graph(
         graph: &JsCsrGraph,
-        cluster_labels: &JsValue,
+        labels: &JsValue,
         options: &JsValue,
     ) -> Result<JsClusterRefineSolver, JsError> {
-        let labels = parse_u32_sequence(cluster_labels, "clusterLabels")?;
+        let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let cfg = parse_cluster_refine_config(options, "ClusterRefineSolver.fromGraph")?;
-        let inner = ClusterRefineSolver::<f32>::from_graph(graph.inner(), labels, cfg)
+        let inner = ClusterRefineSolver::<f32>::from_graph(graph.inner(), parsed_labels, cfg)
             .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
@@ -159,13 +157,13 @@ impl JsClusterRefineSolver {
 #[wasm_bindgen(js_name = refineClusterLayout)]
 pub fn js_refine_cluster_layout(
     layout: &mut JsLayout2d,
-    cluster_labels: &JsValue,
+    labels: &JsValue,
     options: &JsValue,
 ) -> Result<usize, JsError> {
-    let labels = parse_u32_sequence(cluster_labels, "clusterLabels")?;
+    let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let cfg = parse_cluster_refine_config(options, "refineClusterLayout")?;
     let mut soa = layout.inner().to_layout2d();
-    let moved = refine_cluster_layout(&mut soa, &labels, None::<&CsrGraph<f32>>, &cfg)
+    let moved = refine_cluster_layout(&mut soa, &parsed_labels, None::<&CsrGraph<f32>>, &cfg)
         .map_err(core_err_to_js)?;
     layout
         .inner_mut()
@@ -231,14 +229,14 @@ pub struct JsGroupInABoxSolver {
 
 #[wasm_bindgen(js_class = GroupInABoxSolver)]
 impl JsGroupInABoxSolver {
-    /// Constructs a `GroupInABoxSolver` from `graph`, `clusterLabels`, and optional `GroupInABoxOptions`.
+    /// Constructs a `GroupInABoxSolver` from `graph`, `labels`, and optional `GroupInABoxOptions`.
     #[wasm_bindgen(constructor)]
     pub fn new(
         graph: &JsCsrGraph,
-        cluster_labels: &JsValue,
+        labels: &JsValue,
         options: &JsValue,
     ) -> Result<JsGroupInABoxSolver, JsError> {
-        let labels = parse_u32_sequence(cluster_labels, "clusterLabels")?;
+        let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let mut cfg = GroupInABoxConfig::default();
         let mut cluster_weights: Option<Vec<f64>> = None;
         if check_options_arg(options, "GroupInABoxSolver")? {
@@ -254,6 +252,7 @@ impl JsGroupInABoxSolver {
             cfg.intra_iterations =
                 opt_usize_prop(options, "intraIterations", cfg.intra_iterations)?;
             cfg.fd_iterations = opt_usize_prop(options, "fdIterations", cfg.fd_iterations)?;
+            cfg.fit_bounds = opt_bool_prop(options, "fitBounds", cfg.fit_bounds)?;
             cluster_weights = parse_optional_f64_sequence(
                 &get_prop(options, "clusterWeights")?,
                 "clusterWeights",
@@ -261,10 +260,13 @@ impl JsGroupInABoxSolver {
             cfg.seed = opt_seed_prop(options)?;
         }
         let inner = match cluster_weights {
-            Some(cw) => {
-                GroupInABoxSolver::<f32>::with_cluster_weights(graph.inner(), labels, cw, cfg)
-            }
-            None => GroupInABoxSolver::<f32>::new(graph.inner(), labels, cfg),
+            Some(cw) => GroupInABoxSolver::<f32>::with_cluster_weights(
+                graph.inner(),
+                parsed_labels,
+                cw,
+                cfg,
+            ),
+            None => GroupInABoxSolver::<f32>::new(graph.inner(), parsed_labels, cfg),
         }
         .map_err(core_err_to_js)?;
         Ok(Self { inner })

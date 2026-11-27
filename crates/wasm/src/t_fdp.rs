@@ -17,13 +17,16 @@ use crate::js_options::{
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
-fn parse_t_fdp_config(options: &JsValue) -> Result<TFdpConfig, JsError> {
+pub(crate) fn parse_t_fdp_config_with_ctx(
+    options: &JsValue,
+    ctx: &str,
+) -> Result<TFdpConfig, JsError> {
     let mut cfg = TFdpConfig::default();
-    if check_options_arg(options, "TFdpSolver")? {
+    if check_options_arg(options, ctx)? {
         if let Some(b_str) = opt_string_prop(options, "backend")? {
             cfg.backend = parse_field_repulsion_backend(&b_str)?;
         }
-        cfg.iterations = opt_usize_prop(options, "totalIterations", cfg.iterations)?;
+        cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.momentum = opt_f64_prop(options, "momentum", cfg.momentum)?;
         cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
@@ -44,6 +47,10 @@ fn parse_t_fdp_config(options: &JsValue) -> Result<TFdpConfig, JsError> {
         cfg.seed = opt_seed_prop(options)?;
     }
     Ok(cfg)
+}
+
+fn parse_t_fdp_config(options: &JsValue) -> Result<TFdpConfig, JsError> {
+    parse_t_fdp_config_with_ctx(options, "TFdpSolver")
 }
 
 fn try_extract_knn_graph(val: &JsValue) -> Result<Option<KnnGraph>, JsError> {

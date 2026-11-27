@@ -174,7 +174,7 @@ impl JsSgdSolver {
             neg_cfg.target_distance = target_distance.unwrap_or(neg_cfg.target_distance);
             neg_cfg.weight = weight.unwrap_or(neg_cfg.weight);
             neg_cfg.hinge_only = hinge_only.unwrap_or(neg_cfg.hinge_only);
-            sched.iterations = parse_optional_usize(t_max, sched.iterations, "tMax")?;
+            sched.iterations = parse_optional_usize(t_max, sched.iterations, "iterations")?;
             sched.eps = eps.unwrap_or(sched.eps);
             if let Some(k_str) = kind {
                 sched.kind = parse_sgd_schedule_kind(&k_str)?;

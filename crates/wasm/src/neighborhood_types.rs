@@ -89,6 +89,21 @@ impl JsSparseProbabilities {
 
 #[wasm_bindgen(js_class = SparseProbabilities)]
 impl JsSparseProbabilities {
+    /// Constructs a validated `SparseProbabilities` from CSR `numNodes`, `indptr`, `indices`, and `values`.
+    #[wasm_bindgen(js_name = fromCsr)]
+    pub fn from_csr(
+        num_nodes: f64,
+        indptr: &[u32],
+        indices: &[u32],
+        values: &[f64],
+    ) -> Result<JsSparseProbabilities, JsError> {
+        let n = parse_non_negative_usize(num_nodes, "numNodes")?;
+        let inner =
+            SparseProbabilities::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
+                .map_err(core_err_to_js)?;
+        Ok(Self { inner })
+    }
+
     /// Returns the number of vertices in the probability matrix.
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
