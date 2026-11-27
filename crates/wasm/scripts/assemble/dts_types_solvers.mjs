@@ -2,6 +2,7 @@ export const solverEnumAndPrimaryTypeDecls = `export type SolverStatus = "initia
 export type ManifoldKind = "hyperbolic" | "hyperbolic_poincare" | "hyperbolic_lorentz" | "spherical" | "torus" | "torus_2d";
 export type SuggestedGeometry = "hyperbolic" | "spherical" | "torus" | "euclidean";
 export type TsNetBackend = "auto" | "exact" | "barnes_hut" | "fft" | "linear_fft";
+export type TwoHopSamplingMode = "degree_ordered_hub_suppressed" | "two_step_random_walk";
 export type SgdScheduleKind = "exponential" | "linear" | "quadratic" | "reciprocal" | "constant" | "squared";
 export type BarrierSymmetry = "sym_max" | "sym_avg";
 export type FieldRepulsionBackend = "ibfft" | "barnes_hut" | "exact";
@@ -86,6 +87,8 @@ export interface TsNetRowNormalizedOptions extends TsNetOptions {
   w2?: number | null;
   max2hopPerNode?: number | null;
   degreeBeta?: number | null;
+  mode?: TwoHopSamplingMode | string | null;
+  samplingMode?: TwoHopSamplingMode | string | null;
   twoStepRandomWalk?: boolean | null;
   maxBridgeDegree?: number | null;
 }
