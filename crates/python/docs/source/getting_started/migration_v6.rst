@@ -3,27 +3,31 @@ Migrating to egraph v6
 
 ``egraph`` v6 (``6.0.0a8``) introduces a clean-break, strictly single-threaded, zero-copy architecture across Native Rust, Python, and WebAssembly.
 
-For the full side-by-side Python and WebAssembly/TypeScript before/after guide, see ``docs/MIGRATION_V6.md`` in the repository (`MIGRATION_V6.md on GitHub <https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md>`_).
+For the full side-by-side Python and WebAssembly/TypeScript before/after guide—including the ``alpha.8 -> alpha.9`` clean-break remediation summary—see ``docs/MIGRATION_V6.md`` in the repository (`MIGRATION_V6.md on GitHub <https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md>`_).
 
 Summary of Key Changes
 ----------------------
 
 1. **Host Object Weights Removed -> ``CsrGraph`` + ``egraph.interop`` + Host-Side Arrays**
 
-   Replace ``Graph()`` / ``DiGraph()`` node/edge Python object payloads with ``CsrGraph.from_csr(...)``, ``CsrGraph.from_edges(...)``, or ``egraph.interop`` helpers (``from_scipy_csr``, ``from_networkx``, ``from_igraph``) while keeping labels and metadata in host-side Python lists or NumPy arrays.
+   Replace ``Graph()`` / ``DiGraph()`` node/edge Python object payloads with ``CsrGraph.from_csr(...)``, ``CsrGraph.from_edges(...)``, or ``egraph.interop`` helpers (``from_scipy_csr``, ``to_scipy_csr``, ``from_networkx``, ``to_networkx``, ``from_igraph``, ``to_igraph``) while keeping labels and metadata in host-side Python lists or NumPy arrays.
 
-2. **``OverwrapRemoval`` -> ``PrismOverlapRemoval``**
+2. **``OverwrapRemoval`` -> ``PrismOverlapRemoval``, ``ForbidOverlapRemoval`` & ``TwinDeclutterer``**
 
-   Replace legacy ``OverwrapRemoval`` with :class:`egraph.PrismOverlapRemoval` (``from_radii`` or rectangular ``half_widths`` / ``half_heights``) and evaluate fidelity with :func:`egraph.prism_distortion`.
+   Replace legacy ``OverwrapRemoval`` with :class:`egraph.PrismOverlapRemoval` (``from_radii`` or rectangular ``half_widths`` / ``half_heights``), :class:`egraph.ForbidOverlapRemoval` (default ``variant="sparse_forbid"``), and :class:`egraph.TwinDeclutterer`, and evaluate fidelity with :func:`egraph.prism_distortion`.
 
 3. **``TsNet`` / ``BhTsNet`` / ``FitTsNet`` / ``LTsNet`` -> ``TsNetSolver``**
 
-   Replace the four legacy tsNET classes with the unified :class:`egraph.TsNetSolver` (``TsNetSolver.pure_2hop``, ``from_graph_row_normalized``, ``from_knn``, ``from_probabilities``, ``from_graph_partial_bfs``), supporting ``backend="fft" | "linear_fft" | "barnes_hut" | "exact"`` and cooperative ``step()`` / ``run_steps()`` / ``run()``.
+   Replace the four legacy tsNET classes with the unified :class:`egraph.TsNetSolver` (``TsNetSolver.pure_2hop``, ``from_graph_row_normalized``, ``from_knn``, ``from_probabilities``, ``from_probabilities_with_stages``, ``from_graph_partial_bfs``), supporting ``backend="auto" | "fft" | "linear_fft" | "barnes_hut" | "exact"`` and cooperative polymorphic ``step(layout)`` / ``run_steps(layout, k)`` / ``run(layout)``.
 
-4. **``stress`` (``NS``) -> Scale-Normalized Stress (``SNS``) / ``evaluate_metrics``**
+4. **``stress`` (``NS``) -> Scale-Normalized Stress (``SNS``) / ``MetricReport``**
 
-   Replace scale-sensitive ``stress(drawing, dm)`` with :func:`egraph.scale_normalized_stress`, :func:`egraph.sampled_scale_normalized_stress`, or selective :func:`egraph.evaluate_metrics`.
+   Replace scale-sensitive ``stress(drawing, dm)`` with :func:`egraph.scale_normalized_stress`, :func:`egraph.sampled_scale_normalized_stress`, or selective :func:`egraph.evaluate_metrics` returning :class:`egraph.MetricReport`.
 
-5. **Non-Euclidean & Unified Force Models**
+5. **Iteration Arguments, ``labels`` & Typed Cluster Results**
 
-   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d`, and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` + :meth:`egraph.SgdSolver.run_manifold`. ``InfoMap`` is excluded from the v6 API (``egraph-clustering``).
+   Fixed-iteration solvers standardize on ``iterations`` (replacing ``t_max``, ``total_iterations``, ``n_epochs``, ``rounds``), convergent solvers standardize on ``max_iterations`` (replacing ``max_rounds``), and multi-stage solvers use structured names (``stage_iterations``, ``phase_iterations``, ``steps_per_cycle``). Community detection functions accept/return unified ``labels`` via 5 typed zero-copy Result classes (:class:`egraph.LouvainResult`, :class:`egraph.LeidenResult`, :class:`egraph.KMeansResult`, :class:`egraph.LabelPropagationResult`, :class:`egraph.SpectralClusteringResult`). ``InfoMap`` is excluded from v6.
+
+6. **3D / N-D & Non-Euclidean Manifolds**
+
+   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d` (or :class:`egraph.LayoutNd` with ``.dims`` and :class:`egraph.ArenaOctree3d` for 3D/$N$-D layouts), and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"``) + polymorphic :meth:`egraph.SgdSolver.run` (supported across 6 manifold solvers).

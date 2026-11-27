@@ -24,10 +24,8 @@ Here is a minimal example creating a cycle graph directly from CSR arrays, initi
     # Optimize with Track A Pure 1+2-Hop Adaptive tsNET
     solver = eg.TsNetSolver.pure_2hop(
         graph,
-        backend="fft",
-        iterations_stage1=30,
-        iterations_stage2=30,
-        iterations_stage3=40,
+        backend="auto",
+        stage_iterations=(30, 30, 40),
         seed=42,
     )
     solver.run(layout)
@@ -66,7 +64,7 @@ You can switch solvers on the same ``CsrGraph`` and ``Layout2d`` buffer, includi
 
     # Bounded Student-t FDP with ibFFT repulsion (float32)
     layout_f32 = eg.pivot_mds_init(graph, num_pivots=6, seed=42, dtype="float32")
-    tfdp = eg.TFdpSolver(graph, backend="ibfft", total_iterations=50, seed=42, dtype="float32")
+    tfdp = eg.TFdpSolver(graph, backend="ibfft", iterations=50, seed=42, dtype="float32")
     tfdp.run(layout_f32)
     assert layout_f32.dtype == "float32" and layout_f32.is_all_finite()
     print("Track B & t-FDP complete")
@@ -100,9 +98,7 @@ In v6, use ``egraph.interop`` to convert NetworkX graphs, SciPy CSR matrices, or
     layout = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
     eg.TsNetSolver.pure_2hop(
         graph,
-        iterations_stage1=30,
-        iterations_stage2=30,
-        iterations_stage3=40,
+        stage_iterations=(30, 30, 40),
         seed=42,
     ).run(layout)
 

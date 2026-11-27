@@ -15,12 +15,12 @@ This example demonstrates the unified force-directed and multilevel solvers intr
 
     # Bounded Student-t FDP (ibFFT backend)
     l_tfdp = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
-    eg.TFdpSolver(graph, backend="ibfft", total_iterations=30, seed=42).run(l_tfdp)
+    eg.TFdpSolver(graph, backend="ibfft", iterations=30, seed=42).run(l_tfdp)
     assert l_tfdp.is_all_finite()
 
     # Interpolation-Based UMAP (ibUMAP)
     l_ibumap = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
-    eg.IbUmapSolver(graph, backend="ibfft", n_epochs=30, seed=42).run(l_ibumap)
+    eg.IbUmapSolver(graph, backend="ibfft", iterations=30, seed=42).run(l_ibumap)
     assert l_ibumap.is_all_finite()
 
     # SNAP-tFDP (edge-incident negative sampling, low peak memory)
@@ -47,7 +47,7 @@ This example demonstrates the unified force-directed and multilevel solvers intr
     # PaCMAP-Graph (3-phase near/mid/far pair schedule)
     l_pacmap = eg.pivot_mds_init(graph, num_pivots=6, seed=42)
     eg.SgdSolver.pacmap_graph(
-        graph, phase1_iters=10, phase2_iters=10, phase3_iters=15, seed=42
+        graph, phase_iterations=(10, 10, 15), seed=42
     ).run(l_pacmap)
     assert l_pacmap.is_all_finite()
 

@@ -72,7 +72,7 @@ Computes all-pairs shortest paths for accurate layouts on small to medium graphs
     graph = eg.CsrGraph.from_edges(10, [(i, i + 1) for i in range(9)])
     layout = eg.Layout2d.init(graph.num_nodes, seed=42)
 
-    sgd = eg.SgdSolver.full(graph, t_max=60, seed=42)
+    sgd = eg.SgdSolver.full(graph, iterations=60, seed=42)
     sgd.run(layout)
     print("Full SGD layout complete")
 
@@ -92,7 +92,7 @@ Uses :math:`O(|E|)` Chebyshev DoG landmarks and 3-tier sparse barrier SGD for la
     graph = eg.load_dataset("lesmis")
     layout = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
 
-    sgd = eg.SgdSolver.sparse_barrier_dog(graph, t_max=60, seed=42)
+    sgd = eg.SgdSolver.sparse_barrier_dog(graph, iterations=60, seed=42)
     sgd.run(layout)
     print(f"Sparse barrier SGD layout for {graph.num_nodes} nodes complete")
 
@@ -113,7 +113,7 @@ Combines spectral coordinates from ``rd_mds`` with random-pair SGD.
     layout = eg.Layout2d.init(graph.num_nodes, seed=42)
 
     embedding = eg.rd_mds(graph, dims=2, seed=42)
-    sgd = eg.SgdSolver.omega(graph, embedding.coords(), k=20, t_max=60, seed=42)
+    sgd = eg.SgdSolver.omega(graph, embedding.coords(), k=20, iterations=60, seed=42)
     sgd.run(layout)
     print("Omega layout complete")
 
@@ -183,6 +183,35 @@ Weighted edges in ``CsrGraph`` are respected directly by shortest-path and stres
 .. testoutput:: python
 
     Custom edge lengths applied
+
+3D / N-Dimensional Layouts & Post-Layout Decluttering
+-----------------------------------------------------
+
+Eleven v6 solvers run polymorphically on :class:`egraph.LayoutNd` (3D and arbitrary $N$-D), and :class:`egraph.TwinDeclutterer` separates co-located or near-twin nodes after layout:
+
+.. testcode:: python
+
+    import egraph as eg
+
+    graph = eg.load_dataset("karate")
+    layout_3d = eg.LayoutNd.init(graph.num_nodes, dims=3, seed=42)
+    eg.ForceAtlas2Solver(graph, iterations=30, seed=42).run(layout_3d)
+    assert layout_3d.dims == 3 and layout_3d.is_all_finite()
+
+    layout_2d = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
+    eg.TsNetSolver.from_graph_row_normalized(
+        graph,
+        backend="auto",
+        stage_iterations=(15, 15, 20),
+        seed=42,
+    ).run(layout_2d)
+    eg.TwinDeclutterer(iterations=4).run(layout_2d)
+    assert layout_2d.is_all_finite()
+    print("3D and decluttered 2D layouts complete")
+
+.. testoutput:: python
+
+    3D and decluttered 2D layouts complete
 
 Next Steps
 ----------
