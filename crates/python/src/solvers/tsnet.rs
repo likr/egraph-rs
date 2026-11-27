@@ -283,7 +283,7 @@ impl PyTsNetSolver {
         build_from_probabilities(py, probs, backend, opts, dtype)
     }
 
-    /// Construct a `TsNetSolver` from `SparseProbabilities` with an explicit list of `TsNetStage`s.
+    /// Construct a `TsNetSolver` from `SparseProbabilities` with an explicit list of `TsNetStage` instances.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
