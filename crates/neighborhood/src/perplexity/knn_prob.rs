@@ -242,7 +242,7 @@ pub fn compute_knn_probabilities(
         SymmetrizationMode::StandardTsne => scatter_symmetric_pairs(n, pairs, true),
         SymmetrizationMode::RowNormalized => {
             let sym = scatter_symmetric_pairs(n, pairs, false)?;
-            symmetrize_row_normalized(n, &sym.indptr, &sym.indices, &sym.values)
+            symmetrize_row_normalized(n, sym.indptr(), sym.indices(), sym.values())
         }
     }
 }

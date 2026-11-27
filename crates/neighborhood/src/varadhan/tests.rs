@@ -37,8 +37,8 @@ fn test_regularized_dog_varadhan_landmarks_alt_and_floor() {
     );
 
     let pairs = extract_sparse_1hop_2hop_pairs(&g, 8, 42).unwrap();
-    let mut d1 = lm1.alt_pair_distances(&pairs.u1, &pairs.v1).unwrap();
-    let mut d2 = lm1.alt_pair_distances(&pairs.u2, &pairs.v2).unwrap();
+    let mut d1 = lm1.alt_pair_distances(pairs.u1(), pairs.v1()).unwrap();
+    let mut d2 = lm1.alt_pair_distances(pairs.u2(), pairs.v2()).unwrap();
     let mut d3 = lm1.alt_pair_distances(&[0, 1], &[8, 9]).unwrap();
     let floor = apply_relative_distance_floor(&mut d1, &mut d2, &mut d3, 1e-6, 0.5).unwrap();
     assert!(floor >= 1e-6);
@@ -71,25 +71,17 @@ fn test_regularized_dog_varadhan_landmarks_alt_and_floor() {
     let d_disc = ld.alt_pair_distances(&[0, 3], &[2, 5]).unwrap();
     assert!(d_disc.iter().all(|v| v.is_finite() && *v >= 0.0));
 
-    let mut bad_cfg = cfg;
+    let mut bad_cfg = cfg.clone();
     bad_cfg.t1 = Some(f64::NAN);
     assert!(compute_regularized_dog_varadhan_landmarks(&g, &bad_cfg).is_err());
 
-    let mut bad_cfg2 = cfg;
+    let mut bad_cfg2 = cfg.clone();
     bad_cfg2.t_coarse = f64::NAN;
     assert!(compute_regularized_dog_varadhan_landmarks(&g, &bad_cfg2).is_err());
 
     // Fine DoG table and beta_auto must match identically whether coarse scaffold is enabled or disabled.
-    let cfg_fine_only = DogVaradhanConfig {
-        degree: Some(25),
-        t_coarse: 0.0,
-        ..cfg
-    };
-    let cfg_dual = DogVaradhanConfig {
-        degree: Some(25),
-        t_coarse: 48.0,
-        ..cfg
-    };
+    let cfg_fine_only = cfg.clone().with_degree(Some(25)).with_t_coarse(0.0);
+    let cfg_dual = cfg.clone().with_degree(Some(25)).with_t_coarse(48.0);
     let (lm_f, st_f) = compute_regularized_dog_varadhan_landmarks(&g, &cfg_fine_only).unwrap();
     let (lm_d, st_d) = compute_regularized_dog_varadhan_landmarks(&g, &cfg_dual).unwrap();
     assert_eq!(lm_f.landmarks(), lm_d.landmarks());
@@ -103,13 +95,12 @@ fn test_regularized_dog_varadhan_landmarks_alt_and_floor() {
     // Custom matrix via anisotropic_laplacian + dynamic lambda_max + t_coarse=0.0
     let aniso = egraph_linalg::anisotropic_laplacian(
         &g,
-        egraph_linalg::AnisotropicLaplacianConfig {
-            alpha: 0.0,
-            beta: -0.5,
-            degree_reg: 0.0,
-            degree_cap: None,
-            reweighted_degree_norm: false,
-        },
+        egraph_linalg::AnisotropicLaplacianConfig::new()
+            .with_alpha(0.0)
+            .with_beta(-0.5)
+            .with_degree_reg(0.0)
+            .with_degree_cap(None)
+            .with_reweighted_degree_norm(false),
     )
     .unwrap();
     let (lm_from_mat, st_from_mat) = compute_regularized_dog_varadhan_landmarks_from_matrix(
@@ -130,11 +121,7 @@ fn test_regularized_dog_varadhan_landmarks_alt_and_floor() {
 
     // Combinatorial Laplacian with large lambda_max > 2.0 and dynamic estimation
     let l_comb = egraph_linalg::combinatorial_laplacian(&g);
-    let cfg_auto = DogVaradhanConfig {
-        degree: None,
-        t_coarse: 0.0,
-        ..cfg
-    };
+    let cfg_auto = cfg.with_degree(None).with_t_coarse(0.0);
     let (lm_comb, st_comb) =
         compute_regularized_dog_varadhan_landmarks_from_matrix(&g, &l_comb, None, &cfg_auto)
             .unwrap();
@@ -156,13 +143,11 @@ fn test_pivoted_rhgh_landmarks_determinism_and_monotonicity() {
     let edges: Vec<(u32, u32)> = (0..9).map(|i| (i, i + 1)).collect();
     let g = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
 
-    let cfg = RhghLandmarkConfig {
-        n_landmarks: 10,
-        num_probes: 32,
-        min_degree: 1,
-        seed: 42,
-        ..RhghLandmarkConfig::default()
-    };
+    let cfg = RhghLandmarkConfig::new()
+        .with_n_landmarks(10)
+        .with_num_probes(32)
+        .with_min_degree(1)
+        .with_seed(42);
     let (lm1, st1) = compute_pivoted_rhgh_landmarks(&g, &cfg).unwrap();
     let (lm2, st2) = compute_pivoted_rhgh_landmarks(&g, &cfg).unwrap();
     assert_eq!(lm1, lm2);
@@ -211,14 +196,50 @@ fn test_pivoted_rhgh_landmarks_determinism_and_monotonicity() {
     assert!(se.all_converged);
     assert!(le.d_dog().iter().all(|&v| v.is_finite() && v >= 0.0));
 
-    let bad_gamma = RhghLandmarkConfig {
-        gamma: Some(-1.0),
-        ..cfg
-    };
+    let bad_gamma = cfg.clone().with_gamma(Some(-1.0));
     assert!(compute_pivoted_rhgh_landmarks(&g, &bad_gamma).is_err());
-    let bad_p = RhghLandmarkConfig {
-        p_exp: Some(f64::NAN),
-        ..cfg
-    };
+    let bad_p = cfg.with_p_exp(Some(f64::NAN));
     assert!(compute_pivoted_rhgh_landmarks(&g, &bad_p).is_err());
+}
+
+#[test]
+fn test_landmarks_encapsulation_and_validation() {
+    let empty_dog = DogVaradhanLandmarks::empty(0).unwrap();
+    assert!(empty_dog.is_empty());
+    let non_empty_dog = DogVaradhanLandmarks::empty(3).unwrap();
+    assert!(!non_empty_dog.is_empty());
+    assert_eq!(non_empty_dog.num_landmarks(), 0);
+
+    let dog = DogVaradhanLandmarks::new_validated(2, vec![0], vec![0.0, 1.5], Some(vec![0.0, 3.0]))
+        .unwrap();
+    assert_eq!(dog.num_nodes(), 2);
+    assert_eq!(dog.num_landmarks(), 1);
+    let (n, lms, d_dog, d_coarse) = dog.into_parts();
+    assert_eq!(n, 2);
+    assert_eq!(lms, vec![0]);
+    assert_eq!(d_dog, vec![0.0, 1.5]);
+    assert_eq!(d_coarse, Some(vec![0.0, 3.0]));
+
+    assert!(DogVaradhanLandmarks::new_validated(2, vec![2], vec![0.0, 1.0], None).is_err());
+    assert!(DogVaradhanLandmarks::new_validated(2, vec![0], vec![0.0], None).is_err());
+    assert!(DogVaradhanLandmarks::new_validated(2, vec![0], vec![0.0, -1.0], None).is_err());
+    assert!(
+        DogVaradhanLandmarks::new_validated(2, vec![0], vec![0.0, 1.0], Some(vec![0.0])).is_err()
+    );
+    assert!(
+        DogVaradhanLandmarks::new_validated(2, vec![0], vec![0.0, 1.0], Some(vec![0.0, f64::NAN]))
+            .is_err()
+    );
+
+    let empty_rhgh = RhghLandmarks::empty(0).unwrap();
+    assert!(empty_rhgh.is_empty());
+    let rhgh = RhghLandmarks::new_validated(2, vec![1], vec![2.0, 0.0]).unwrap();
+    assert!(!rhgh.is_empty());
+    let (rn, rlms, rd) = rhgh.into_parts();
+    assert_eq!(rn, 2);
+    assert_eq!(rlms, vec![1]);
+    assert_eq!(rd, vec![2.0, 0.0]);
+
+    assert!(RhghLandmarks::new_validated(2, vec![5], vec![0.0, 1.0]).is_err());
+    assert!(RhghLandmarks::new_validated(2, vec![0], vec![0.0, f64::INFINITY]).is_err());
 }

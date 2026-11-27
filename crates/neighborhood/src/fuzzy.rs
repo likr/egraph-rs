@@ -194,12 +194,9 @@ pub fn compute_fuzzy_simplicial_set(
         cursor[v as usize] += 1;
     }
 
-    Ok(SparseProbabilities {
-        n_nodes: n,
-        indptr,
-        indices,
-        values,
-    })
+    Ok(SparseProbabilities::from_validated_parts(
+        n, indptr, indices, values,
+    ))
 }
 
 /// Fits low-dimensional UMAP parameters `(a, b)` from `min_dist` and `spread` strictly in `f64`

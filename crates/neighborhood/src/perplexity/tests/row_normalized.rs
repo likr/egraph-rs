@@ -31,23 +31,27 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
         indptr.push(indices.len() as u32);
     }
     let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
-    assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
-    assert_eq!(probs_uncapped.indices, ref_uncapped.indices);
-    for (a, b) in probs_uncapped.values.iter().zip(ref_uncapped.values.iter()) {
+    assert_eq!(probs_uncapped.indptr(), ref_uncapped.indptr());
+    assert_eq!(probs_uncapped.indices(), ref_uncapped.indices());
+    for (a, b) in probs_uncapped
+        .values()
+        .iter()
+        .zip(ref_uncapped.values().iter())
+    {
         assert!((a - b).abs() < 1e-14);
     }
-    assert!((probs_uncapped.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((probs_uncapped.values().iter().sum::<f64>() - 1.0).abs() < 1e-12);
 
     // 2. Capped (Some(3)): algebraically equal to symmetrize_row_normalized on capped pairs.
     let cap = 3usize;
     let probs_capped = graph_12hop_row_normalized_probabilities(&g, 0.35, Some(cap), 77).unwrap();
     let pairs = extract_sparse_1hop_2hop_pairs(&g, cap, 77).unwrap();
     let mut adj_rows: Vec<Vec<(u32, f64)>> = vec![Vec::new(); n];
-    for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+    for (&u, &v) in pairs.u1().iter().zip(pairs.v1().iter()) {
         adj_rows[u as usize].push((v, 1.0));
         adj_rows[v as usize].push((u, 1.0));
     }
-    for (&u, &v) in pairs.u2.iter().zip(pairs.v2.iter()) {
+    for (&u, &v) in pairs.u2().iter().zip(pairs.v2().iter()) {
         adj_rows[u as usize].push((v, 0.35));
         adj_rows[v as usize].push((u, 0.35));
     }
@@ -62,9 +66,9 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
         c_indptr.push(c_indices.len() as u32);
     }
     let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
-    assert_eq!(probs_capped.indptr, ref_capped.indptr);
-    assert_eq!(probs_capped.indices, ref_capped.indices);
-    for (a, b) in probs_capped.values.iter().zip(ref_capped.values.iter()) {
+    assert_eq!(probs_capped.indptr(), ref_capped.indptr());
+    assert_eq!(probs_capped.indices(), ref_capped.indices());
+    for (a, b) in probs_capped.values().iter().zip(ref_capped.values().iter()) {
         assert!((a - b).abs() < 1e-14);
     }
 
@@ -72,15 +76,15 @@ fn test_graph_12hop_row_normalized_probabilities_exact_and_capped() {
     let p_w0 = graph_12hop_row_normalized_probabilities(&g, 0.0, None, 42).unwrap();
     let p_c0 = graph_12hop_row_normalized_probabilities(&g, 0.5, Some(0), 42).unwrap();
     let p_1hop = graph_row_normalized_probabilities(&g).unwrap();
-    assert_eq!(p_w0.indptr, p_1hop.indptr);
-    assert_eq!(p_w0.indices, p_1hop.indices);
-    assert_eq!(p_c0.indptr, p_1hop.indptr);
-    assert_eq!(p_c0.indices, p_1hop.indices);
+    assert_eq!(p_w0.indptr(), p_1hop.indptr());
+    assert_eq!(p_w0.indices(), p_1hop.indices());
+    assert_eq!(p_c0.indptr(), p_1hop.indptr());
+    assert_eq!(p_c0.indices(), p_1hop.indices());
     for ((&a, &b), &c) in p_w0
-        .values
+        .values()
         .iter()
-        .zip(p_c0.values.iter())
-        .zip(p_1hop.values.iter())
+        .zip(p_c0.values().iter())
+        .zip(p_1hop.values().iter())
     {
         assert!((a - c).abs() < 1e-14);
         assert!((b - c).abs() < 1e-14);
@@ -143,12 +147,16 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
         indptr.push(indices.len() as u32);
     }
     let ref_uncapped = symmetrize_row_normalized(n, &indptr, &indices, &weights).unwrap();
-    assert_eq!(probs_uncapped.indptr, ref_uncapped.indptr);
-    assert_eq!(probs_uncapped.indices, ref_uncapped.indices);
-    for (&a, &b) in probs_uncapped.values.iter().zip(ref_uncapped.values.iter()) {
+    assert_eq!(probs_uncapped.indptr(), ref_uncapped.indptr());
+    assert_eq!(probs_uncapped.indices(), ref_uncapped.indices());
+    for (&a, &b) in probs_uncapped
+        .values()
+        .iter()
+        .zip(ref_uncapped.values().iter())
+    {
         assert!((a - b).abs() < 1e-14);
     }
-    assert!((probs_uncapped.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((probs_uncapped.values().iter().sum::<f64>() - 1.0).abs() < 1e-12);
 
     // Capped Some(3) exact match
     let probs_capped =
@@ -156,17 +164,17 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
             .unwrap();
     let pairs = extract_sparse_1hop_2hop_pairs(&g, 3, 77).unwrap();
     let mut deg1 = vec![0usize; n];
-    for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+    for (&u, &v) in pairs.u1().iter().zip(pairs.v1().iter()) {
         deg1[u as usize] += 1;
         deg1[v as usize] += 1;
     }
     let mut adj_rows: Vec<Vec<(u32, f64)>> = vec![Vec::new(); n];
-    for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+    for (&u, &v) in pairs.u1().iter().zip(pairs.v1().iter()) {
         let w = ((deg1[u as usize].max(1) * deg1[v as usize].max(1)) as f64).powf(-beta);
         adj_rows[u as usize].push((v, w));
         adj_rows[v as usize].push((u, w));
     }
-    for (&u, &v) in pairs.u2.iter().zip(pairs.v2.iter()) {
+    for (&u, &v) in pairs.u2().iter().zip(pairs.v2().iter()) {
         let w = 0.35 * ((deg1[u as usize].max(1) * deg1[v as usize].max(1)) as f64).powf(-beta);
         adj_rows[u as usize].push((v, w));
         adj_rows[v as usize].push((u, w));
@@ -182,9 +190,9 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
         c_indptr.push(c_indices.len() as u32);
     }
     let ref_capped = symmetrize_row_normalized(n, &c_indptr, &c_indices, &c_weights).unwrap();
-    assert_eq!(probs_capped.indptr, ref_capped.indptr);
-    assert_eq!(probs_capped.indices, ref_capped.indices);
-    for (&a, &b) in probs_capped.values.iter().zip(ref_capped.values.iter()) {
+    assert_eq!(probs_capped.indptr(), ref_capped.indptr());
+    assert_eq!(probs_capped.indices(), ref_capped.indices());
+    for (&a, &b) in probs_capped.values().iter().zip(ref_capped.values().iter()) {
         assert!((a - b).abs() < 1e-14);
     }
 
@@ -195,14 +203,14 @@ fn test_graph_12hop_row_normalized_degree_decay_and_underflow_guard() {
         graph_12hop_row_normalized_probabilities_with_degree_decay(&g, 0.5, Some(0), beta, 42)
             .unwrap();
     assert_eq!(p_w0, p_c0);
-    assert!((p_w0.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((p_w0.values().iter().sum::<f64>() - 1.0).abs() < 1e-12);
 
     // Extreme beta = 200.0 underflow test: must NEVER produce NaN/Inf in any branch
     for (w2_t, cap_t) in [(0.0, None), (0.5, None), (0.5, Some(2))] {
         let p_extreme =
             graph_12hop_row_normalized_probabilities_with_degree_decay(&g, w2_t, cap_t, 200.0, 42)
                 .unwrap();
-        assert!(p_extreme.values.iter().all(|v| v.is_finite() && *v > 0.0));
+        assert!(p_extreme.values().iter().all(|v| v.is_finite() && *v > 0.0));
     }
 
     // Invalid degree_beta
@@ -229,18 +237,17 @@ fn test_graph_12hop_row_normalized_probabilities_suppresses_superhub_barrel_mass
     let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
 
     let p = graph_12hop_row_normalized_probabilities(&g, 0.5, Some(32), 42).unwrap();
-    assert!((p.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((p.values().iter().sum::<f64>() - 1.0).abs() < 1e-12);
 
     // Barrel leaves 6..=120 must only have 1-hop probability mass with super-hub 0 (zero cross-leaf
     // or leaf-to-cluster 2-hop mass).
     for leaf in 6..=120usize {
-        let start = p.indptr[leaf] as usize;
-        let end = p.indptr[leaf + 1] as usize;
+        let (row_cols, _) = p.row(leaf);
         assert_eq!(
-            &p.indices[start..end],
+            row_cols,
             &[0],
             "barrel leaf {leaf} leaked 2-hop neighbors: {:?}",
-            &p.indices[start..end]
+            row_cols
         );
     }
 }
@@ -313,7 +320,58 @@ fn test_sparse_probabilities_from_csr_validation_and_rw_options() {
         42,
     )
     .unwrap();
-    assert!((p_rw.values.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((p_rw.values().iter().sum::<f64>() - 1.0).abs() < 1e-12);
     // Node 0's leaf-filtered pot=1 <= cap=4 deterministically includes 2-hop neighbor 22.
     assert!(p_rw.row(0).0.contains(&22));
+    assert!(!sp.is_empty());
+    assert_eq!(sp.try_row(1).unwrap(), (&[0, 2][..], &[0.25, 0.25][..]));
+    assert!(sp.try_row(3).is_err());
+    assert!(SparseProbabilities::empty(3).is_empty());
+    let (n, indptr, indices, values) = sp.into_parts();
+    assert_eq!(n, 3);
+    assert_eq!(indptr, vec![0, 1, 3, 4]);
+    assert_eq!(indices, vec![1, 0, 2, 1]);
+    assert_eq!(values, vec![0.25, 0.25, 0.25, 0.25]);
+}
+
+#[test]
+fn test_graph_12hop_row_normalized_supports_unit_weight_csr_graph() {
+    let mut edges: Vec<(u32, u32)> = (1..=6).map(|v| (0, v)).collect();
+    edges.extend([(6, 7), (7, 8), (8, 9), (1, 2)]);
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(10, &edges, false, false).unwrap();
+    let g_f64 = CsrGraph::<f64>::from_edges(10, &edges, None, false, false).unwrap();
+
+    let p_unit = graph_12hop_row_normalized_probabilities(&g_unit, 0.5, None, 42).unwrap();
+    let p_f64 = graph_12hop_row_normalized_probabilities(&g_f64, 0.5, None, 42).unwrap();
+    assert_eq!(p_unit, p_f64);
+
+    let p_unit_dd =
+        graph_12hop_row_normalized_probabilities_with_degree_decay(&g_unit, 0.5, Some(3), 0.3, 42)
+            .unwrap();
+    let p_f64_dd =
+        graph_12hop_row_normalized_probabilities_with_degree_decay(&g_f64, 0.5, Some(3), 0.3, 42)
+            .unwrap();
+    assert_eq!(p_unit_dd, p_f64_dd);
+
+    let p_unit_opt = graph_12hop_row_normalized_probabilities_with_options(
+        &g_unit,
+        0.5,
+        Some(4),
+        0.2,
+        crate::knn::TwoHopSamplingMode::TwoStepRandomWalk,
+        Some(5),
+        42,
+    )
+    .unwrap();
+    let p_f64_opt = graph_12hop_row_normalized_probabilities_with_options(
+        &g_f64,
+        0.5,
+        Some(4),
+        0.2,
+        crate::knn::TwoHopSamplingMode::TwoStepRandomWalk,
+        Some(5),
+        42,
+    )
+    .unwrap();
+    assert_eq!(p_unit_opt, p_f64_opt);
 }

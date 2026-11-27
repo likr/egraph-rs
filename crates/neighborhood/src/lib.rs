@@ -3,21 +3,21 @@
 //!
 //! `egraph-neighborhood` builds on `egraph-core`, `egraph-spatial-trees`, and `egraph-linalg` to provide
 //! deterministic neighborhood construction across Native Rust, Python (PyO3), and WebAssembly targets:
-//! - [`knn`]: Validated CSR [`KnnGraph`], single-pass `VisitStamp` 1+2-hop extraction,
-//!   hub-safe 2-hop pair sampling, and GuMap 1+2-hop priority CSR construction.
-//! - [`perplexity`]: 2-hop adaptive perplexity sizing, `f64` $\lambda$-rescaling binary search,
-//!   row-normalized symmetrization, and `VisitStamp`-backed Partial BFS.
-//! - [`rerank`]: Spectral resistance/diffusion embeddings, 2-stage coarse `StaticKdTree` +
+//! - `knn`: Validated CSR [`KnnGraph`], single-pass `VisitStamp` 1+2-hop extraction,
+//!   hub-safe 2-hop pair sampling ([`Sparse12HopPairs`]), and GuMap 1+2-hop priority CSR construction.
+//! - `perplexity`: 2-hop adaptive perplexity sizing, `f64` $\lambda$-rescaling binary search,
+//!   row-normalized symmetrization ([`SparseProbabilities`]), and `VisitStamp`-backed Partial BFS.
+//! - `rerank`: Spectral resistance/diffusion embeddings, 2-stage coarse `StaticKdTree` +
 //!   full-$D$ Euclidean reranking, and hybrid adaptive $k$-NN with strict margin separation.
-//! - [`fuzzy`]: UMAP / GuMap fuzzy simplicial sets and `f64` Levenberg-Marquardt `(a, b)` fitting.
-//! - [`varadhan`]: R1/R2 regularized DoG Varadhan landmarks, coarse heat scaffolds, R3
-//!   Horvitz-Thompson repulsion scaling, ALT lower-bound queries, and relative distance floors.
+//! - `fuzzy`: UMAP / GuMap fuzzy simplicial sets and `f64` Levenberg-Marquardt `(a, b)` fitting.
+//! - `varadhan`: R1/R2 regularized DoG Varadhan landmarks ([`DogVaradhanLandmarks`]), coarse heat
+//!   scaffolds, R3 Horvitz-Thompson repulsion scaling, ALT lower-bound queries, and relative distance floors.
 
-pub mod fuzzy;
-pub mod knn;
-pub mod perplexity;
-pub mod rerank;
-pub mod varadhan;
+mod fuzzy;
+mod knn;
+mod perplexity;
+mod rerank;
+mod varadhan;
 
 pub use fuzzy::{compute_fuzzy_simplicial_set, find_ab_params};
 pub use knn::{
@@ -46,8 +46,3 @@ pub use varadhan::{
     compute_pivoted_rhgh_landmarks_result, compute_regularized_dog_varadhan_landmarks,
     compute_regularized_dog_varadhan_landmarks_from_matrix,
 };
-
-/// Returns the crate version string.
-pub fn crate_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}

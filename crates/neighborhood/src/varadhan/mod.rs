@@ -89,17 +89,129 @@ fn eval_alt_pair_distances(
     Ok(out)
 }
 
+fn validate_landmark_table(
+    num_nodes: usize,
+    landmarks: &[u32],
+    table: &[f64],
+    table_ctx: &'static str,
+    lm_ctx: &'static str,
+) -> CoreResult<usize> {
+    if u32::try_from(num_nodes).is_err() {
+        return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
+    }
+    for &lm in landmarks {
+        if (lm as usize) >= num_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                lm as usize,
+                num_nodes,
+                lm_ctx,
+            ));
+        }
+    }
+    let expected = num_nodes
+        .checked_mul(landmarks.len())
+        .ok_or_else(|| CoreError::invalid_input("landmark table size overflow"))?;
+    if table.len() != expected {
+        return Err(CoreError::dimension_mismatch(
+            expected,
+            table.len(),
+            table_ctx,
+        ));
+    }
+    for &val in table {
+        if !val.is_finite() {
+            return Err(CoreError::non_finite(table_ctx));
+        }
+        if val < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "{table_ctx} distances must be non-negative, got {val}"
+            )));
+        }
+    }
+    Ok(expected)
+}
+
 /// Precomputed row-major `(num_nodes, num_landmarks)` R1/R2 DoG Varadhan landmark tables
 /// (plus optional coarse diffusive scaffold table) supporting fast ALT lower-bound distance queries.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DogVaradhanLandmarks {
-    pub num_nodes: usize,
-    pub landmarks: Vec<u32>,
-    pub d_dog: Vec<f64>,
-    pub d_coarse: Option<Vec<f64>>,
+    num_nodes: usize,
+    landmarks: Vec<u32>,
+    d_dog: Vec<f64>,
+    d_coarse: Option<Vec<f64>>,
 }
 
 impl DogVaradhanLandmarks {
+    /// Constructs a [`DogVaradhanLandmarks`] after validating vertex bounds, row-major table
+    /// lengths, and finite non-negative landmark distances.
+    pub fn new_validated(
+        num_nodes: usize,
+        landmarks: Vec<u32>,
+        d_dog: Vec<f64>,
+        d_coarse: Option<Vec<f64>>,
+    ) -> CoreResult<Self> {
+        let expected = validate_landmark_table(
+            num_nodes,
+            &landmarks,
+            &d_dog,
+            "DogVaradhanLandmarks::d_dog",
+            "DogVaradhanLandmarks::landmarks",
+        )?;
+        if let Some(dc) = &d_coarse {
+            if dc.len() != expected {
+                return Err(CoreError::dimension_mismatch(
+                    expected,
+                    dc.len(),
+                    "DogVaradhanLandmarks::d_coarse",
+                ));
+            }
+            for &val in dc {
+                if !val.is_finite() {
+                    return Err(CoreError::non_finite("DogVaradhanLandmarks::d_coarse"));
+                }
+                if val < 0.0 {
+                    return Err(CoreError::invalid_input(format!(
+                        "DogVaradhanLandmarks::d_coarse distances must be non-negative, got {val}"
+                    )));
+                }
+            }
+        }
+        Ok(Self {
+            num_nodes,
+            landmarks,
+            d_dog,
+            d_coarse,
+        })
+    }
+
+    /// Creates an empty [`DogVaradhanLandmarks`] table with zero landmarks for `num_nodes` vertices.
+    pub fn empty(num_nodes: usize) -> CoreResult<Self> {
+        if u32::try_from(num_nodes).is_err() {
+            return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
+        }
+        Ok(Self {
+            num_nodes,
+            landmarks: Vec::new(),
+            d_dog: Vec::new(),
+            d_coarse: None,
+        })
+    }
+
+    #[inline]
+    pub(crate) fn from_validated_parts(
+        num_nodes: usize,
+        landmarks: Vec<u32>,
+        d_dog: Vec<f64>,
+        d_coarse: Option<Vec<f64>>,
+    ) -> Self {
+        Self {
+            num_nodes,
+            landmarks,
+            d_dog,
+            d_coarse,
+        }
+    }
+
     /// Returns the number of vertices.
     #[inline]
     pub fn num_nodes(&self) -> usize {
@@ -110,6 +222,12 @@ impl DogVaradhanLandmarks {
     #[inline]
     pub fn num_landmarks(&self) -> usize {
         self.landmarks.len()
+    }
+
+    /// Returns `true` if the table stores zero vertices (`num_nodes() == 0`).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.num_nodes == 0
     }
 
     /// Returns the selected landmark vertex IDs.
@@ -128,6 +246,13 @@ impl DogVaradhanLandmarks {
     #[inline]
     pub fn d_coarse(&self) -> Option<&[f64]> {
         self.d_coarse.as_deref()
+    }
+
+    /// Consumes the [`DogVaradhanLandmarks`] and returns `(num_nodes, landmarks, d_dog, d_coarse)`
+    /// without copying.
+    #[inline]
+    pub fn into_parts(self) -> (usize, Vec<u32>, Vec<f64>, Option<Vec<f64>>) {
+        (self.num_nodes, self.landmarks, self.d_dog, self.d_coarse)
     }
 
     /// Evaluates landmark ALT lower-bound distances
@@ -155,12 +280,58 @@ impl DogVaradhanLandmarks {
 /// supporting fast ALT lower-bound distance queries and conversion to [`DogVaradhanLandmarks`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct RhghLandmarks {
-    pub num_nodes: usize,
-    pub landmarks: Vec<u32>,
-    pub d_rhgh: Vec<f64>,
+    num_nodes: usize,
+    landmarks: Vec<u32>,
+    d_rhgh: Vec<f64>,
 }
 
 impl RhghLandmarks {
+    /// Constructs a [`RhghLandmarks`] after validating vertex bounds, row-major table length,
+    /// and finite non-negative landmark distances.
+    pub fn new_validated(
+        num_nodes: usize,
+        landmarks: Vec<u32>,
+        d_rhgh: Vec<f64>,
+    ) -> CoreResult<Self> {
+        validate_landmark_table(
+            num_nodes,
+            &landmarks,
+            &d_rhgh,
+            "RhghLandmarks::d_rhgh",
+            "RhghLandmarks::landmarks",
+        )?;
+        Ok(Self {
+            num_nodes,
+            landmarks,
+            d_rhgh,
+        })
+    }
+
+    /// Creates an empty [`RhghLandmarks`] table with zero landmarks for `num_nodes` vertices.
+    pub fn empty(num_nodes: usize) -> CoreResult<Self> {
+        if u32::try_from(num_nodes).is_err() {
+            return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
+        }
+        Ok(Self {
+            num_nodes,
+            landmarks: Vec::new(),
+            d_rhgh: Vec::new(),
+        })
+    }
+
+    #[inline]
+    pub(crate) fn from_validated_parts(
+        num_nodes: usize,
+        landmarks: Vec<u32>,
+        d_rhgh: Vec<f64>,
+    ) -> Self {
+        Self {
+            num_nodes,
+            landmarks,
+            d_rhgh,
+        }
+    }
+
     /// Returns the number of vertices.
     #[inline]
     pub fn num_nodes(&self) -> usize {
@@ -173,6 +344,12 @@ impl RhghLandmarks {
         self.landmarks.len()
     }
 
+    /// Returns `true` if the table stores zero vertices (`num_nodes() == 0`).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.num_nodes == 0
+    }
+
     /// Returns the selected landmark vertex IDs.
     #[inline]
     pub fn landmarks(&self) -> &[u32] {
@@ -183,6 +360,12 @@ impl RhghLandmarks {
     #[inline]
     pub fn d_rhgh(&self) -> &[f64] {
         &self.d_rhgh
+    }
+
+    /// Consumes the [`RhghLandmarks`] and returns `(num_nodes, landmarks, d_rhgh)` without copying.
+    #[inline]
+    pub fn into_parts(self) -> (usize, Vec<u32>, Vec<f64>) {
+        (self.num_nodes, self.landmarks, self.d_rhgh)
     }
 
     /// Evaluates landmark ALT lower-bound distances

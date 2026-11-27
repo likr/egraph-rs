@@ -15,6 +15,7 @@ pub const DEFAULT_MEDIAN_MIN_PERPLEXITY: f64 = 15.0;
 pub const DEFAULT_MAX_PERPLEXITY: f64 = 1200.0;
 
 /// Symmetrization strategy applied to directed conditional probabilities or graph affinities.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SymmetrizationMode {
     /// Standard t-SNE joint normalization: $P_{ij} = (p_{j|i} + p_{i|j}) / (2 N)$.
@@ -25,7 +26,8 @@ pub enum SymmetrizationMode {
 }
 
 /// Configuration for perplexity-based sparse probability computation.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PerplexityConfig {
     /// Power exponent applied to normalized distances `(d / max_d)^power` (`default: 2.0`).
     pub power: f64,
@@ -48,13 +50,44 @@ impl Default for PerplexityConfig {
     }
 }
 
+impl PerplexityConfig {
+    /// Creates a new [`PerplexityConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the distance power exponent `power`.
+    pub fn with_power(mut self, power: f64) -> Self {
+        self.power = power;
+        self
+    }
+
+    /// Sets the maximum conditional entropy binary-search iterations `sigma_iters`.
+    pub fn with_sigma_iters(mut self, sigma_iters: usize) -> Self {
+        self.sigma_iters = sigma_iters;
+        self
+    }
+
+    /// Sets the conditional entropy convergence tolerance `sigma_tolerance`.
+    pub fn with_sigma_tolerance(mut self, sigma_tolerance: f64) -> Self {
+        self.sigma_tolerance = sigma_tolerance;
+        self
+    }
+
+    /// Sets the symmetrization strategy `symmetrization`.
+    pub fn with_symmetrization(mut self, symmetrization: SymmetrizationMode) -> Self {
+        self.symmetrization = symmetrization;
+        self
+    }
+}
+
 /// Canonical sorted symmetric Compressed Sparse Row joint probability matrix $P$.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SparseProbabilities {
-    pub n_nodes: usize,
-    pub indptr: Vec<u32>,
-    pub indices: Vec<u32>,
-    pub values: Vec<f64>,
+    n_nodes: usize,
+    indptr: Vec<u32>,
+    indices: Vec<u32>,
+    values: Vec<f64>,
 }
 
 impl SparseProbabilities {
@@ -176,6 +209,21 @@ impl SparseProbabilities {
         }
     }
 
+    #[inline]
+    pub(crate) fn from_validated_parts(
+        n_nodes: usize,
+        indptr: Vec<u32>,
+        indices: Vec<u32>,
+        values: Vec<f64>,
+    ) -> Self {
+        Self {
+            n_nodes,
+            indptr,
+            indices,
+            values,
+        }
+    }
+
     /// Returns the number of vertices.
     #[inline]
     pub fn num_nodes(&self) -> usize {
@@ -186,6 +234,12 @@ impl SparseProbabilities {
     #[inline]
     pub fn nnz(&self) -> usize {
         self.indices.len()
+    }
+
+    /// Returns `true` if the sparse probability matrix stores zero nonzero entries (`nnz() == 0`).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
     }
 
     /// Returns the CSR row pointer slice of length `num_nodes() + 1`.
@@ -210,11 +264,31 @@ impl SparseProbabilities {
     ///
     /// # Panics
     ///
-    /// Panics if `i >= self.n_nodes`.
+    /// Panics if `i >= self.num_nodes()`.
     #[inline]
     pub fn row(&self, i: usize) -> (&[u32], &[f64]) {
         let start = self.indptr[i] as usize;
         let end = self.indptr[i + 1] as usize;
         (&self.indices[start..end], &self.values[start..end])
+    }
+
+    /// Fallible variant of [`SparseProbabilities::row`] returning [`CoreError::IndexOutOfBounds`].
+    #[inline]
+    pub fn try_row(&self, i: usize) -> CoreResult<(&[u32], &[f64])> {
+        if i >= self.n_nodes {
+            return Err(CoreError::index_out_of_bounds(
+                i,
+                self.n_nodes,
+                "SparseProbabilities::try_row",
+            ));
+        }
+        Ok(self.row(i))
+    }
+
+    /// Consumes the [`SparseProbabilities`] and returns `(num_nodes, indptr, indices, values)`
+    /// without copying.
+    #[inline]
+    pub fn into_parts(self) -> (usize, Vec<u32>, Vec<u32>, Vec<f64>) {
+        (self.n_nodes, self.indptr, self.indices, self.values)
     }
 }

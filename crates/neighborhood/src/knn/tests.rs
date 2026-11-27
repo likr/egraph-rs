@@ -51,9 +51,9 @@ fn test_extract_sparse_12hop_pairs_hub_safe_and_deterministic() {
     let p1 = extract_sparse_1hop_2hop_pairs(&g, 8, 42).unwrap();
     let p2 = extract_sparse_1hop_2hop_pairs(&g, 8, 42).unwrap();
     assert_eq!(p1, p2);
-    assert_eq!(p1.u1.len(), n - 1);
-    assert!(p1.u2.len() <= n * 8);
-    for (&a, &b) in p1.u2.iter().zip(p1.v2.iter()) {
+    assert_eq!(p1.num_1hop(), n - 1);
+    assert!(p1.num_2hop() <= n * 8);
+    for (&a, &b) in p1.u2().iter().zip(p1.v2().iter()) {
         assert!(a < b);
         assert_ne!(a, 0);
     }
@@ -176,10 +176,10 @@ fn test_extract_sparse_12hop_pairs_degree_order_superhub_suppression_and_perm_in
     assert!(n_trunc >= 115);
 
     let pairs_2: Vec<(u32, u32)> = p_base
-        .u2
+        .u2()
         .iter()
         .copied()
-        .zip(p_base.v2.iter().copied())
+        .zip(p_base.v2().iter().copied())
         .collect();
     // Local cluster 2-hop pairs must be extracted cleanly.
     for expected in [(1, 3), (2, 4), (3, 5), (4, 121), (5, 122), (121, 123)] {
@@ -222,21 +222,21 @@ fn test_extract_sparse_12hop_pairs_degree_order_superhub_suppression_and_perm_in
             mapped
         };
 
-        let expected_1 = map_pairs(&p_base.u1, &p_base.v1);
+        let expected_1 = map_pairs(p_base.u1(), p_base.v1());
         let actual_1: Vec<(u32, u32)> = p_perm
-            .u1
+            .u1()
             .iter()
             .copied()
-            .zip(p_perm.v1.iter().copied())
+            .zip(p_perm.v1().iter().copied())
             .collect();
         assert_eq!(actual_1, expected_1, "1-hop permutation invariance failed");
 
-        let expected_2 = map_pairs(&p_base.u2, &p_base.v2);
+        let expected_2 = map_pairs(p_base.u2(), p_base.v2());
         let actual_2: Vec<(u32, u32)> = p_perm
-            .u2
+            .u2()
             .iter()
             .copied()
-            .zip(p_perm.v2.iter().copied())
+            .zip(p_perm.v2().iter().copied())
             .collect();
         assert_eq!(actual_2, expected_2, "2-hop permutation invariance failed");
     }
@@ -263,7 +263,12 @@ fn test_extract_sparse_12hop_pairs_degree_tie_and_medium_hub_boundary() {
     assert_eq!(trunc1, trunc2);
     assert!(trunc1 > 0);
 
-    let pairs_2: Vec<(u32, u32)> = p1.u2.iter().copied().zip(p1.v2.iter().copied()).collect();
+    let pairs_2: Vec<(u32, u32)> = p1
+        .u2()
+        .iter()
+        .copied()
+        .zip(p1.v2().iter().copied())
+        .collect();
     // Low-degree bridge 90 (deg=5) MUST be expanded before medium-hub 1 (deg=40).
     for v in 91..=94u32 {
         assert!(
@@ -275,16 +280,16 @@ fn test_extract_sparse_12hop_pairs_degree_tie_and_medium_hub_boundary() {
     // undirected symmetrization may include additional pairs sampled by leaves 2..=40).
     let zero_deg2 = pairs_2.iter().filter(|&&(a, b)| a == 0 || b == 0).count();
     assert!((8..=(8 + 39)).contains(&zero_deg2));
-    assert!(p1.u2.len() <= n * 8);
+    assert!(p1.num_2hop() <= n * 8);
 
     // Even at cap = 5 (matching deg(90) = 5), low-degree bridge 90 MUST fill all 4 exact
     // neighbors before hub 1 (deg = 40) is sampled.
     let p_cap5 = extract_sparse_1hop_2hop_pairs(&g, 5, 42).unwrap();
     let pairs_cap5: Vec<(u32, u32)> = p_cap5
-        .u2
+        .u2()
         .iter()
         .copied()
-        .zip(p_cap5.v2.iter().copied())
+        .zip(p_cap5.v2().iter().copied())
         .collect();
     for v in 91..=94u32 {
         assert!(
@@ -302,9 +307,9 @@ fn test_extract_sparse_12hop_pairs_degree_tie_and_medium_hub_boundary() {
     let g_64 = CsrGraph::<f64>::from_edges(n, &edges_64, None, false, false).unwrap();
     let p_64 = extract_sparse_1hop_2hop_pairs(&g_64, 8, 42).unwrap();
     assert!(
-        p_64.u2
+        p_64.u2()
             .iter()
-            .zip(p_64.v2.iter())
+            .zip(p_64.v2().iter())
             .any(|(&a, &b)| a == 0 || b == 0),
         "deg=64 should remain below/at threshold and emit 2-hop pairs"
     );
@@ -314,6 +319,44 @@ fn test_extract_sparse_12hop_pairs_degree_tie_and_medium_hub_boundary() {
         .collect();
     let g_65 = CsrGraph::<f64>::from_edges(n, &edges_65, None, false, false).unwrap();
     let (p_65, trunc_65) = extract_sparse_1hop_2hop_pairs_inner(&g_65, 8, 42).unwrap();
-    assert!(p_65.u2.is_empty(), "deg=65 must be suppressed as super-hub");
+    assert!(
+        p_65.u2().is_empty(),
+        "deg=65 must be suppressed as super-hub"
+    );
     assert!(trunc_65 > 0);
+}
+
+#[test]
+fn test_sparse_12hop_pairs_and_knn_graph_encapsulation() {
+    let empty_pairs = Sparse12HopPairs::empty();
+    assert!(empty_pairs.is_empty());
+    assert_eq!(empty_pairs.num_1hop(), 0);
+    assert_eq!(empty_pairs.num_2hop(), 0);
+
+    let pairs = Sparse12HopPairs::from_pairs(vec![0, 1], vec![1, 2], vec![0], vec![2]).unwrap();
+    assert!(!pairs.is_empty());
+    assert_eq!(pairs.num_1hop(), 2);
+    assert_eq!(pairs.num_2hop(), 1);
+    assert_eq!(pairs.u1(), &[0, 1]);
+    assert_eq!(pairs.v1(), &[1, 2]);
+    assert_eq!(pairs.u2(), &[0]);
+    assert_eq!(pairs.v2(), &[2]);
+    let (u1, v1, u2, v2) = pairs.into_parts();
+    assert_eq!(u1, vec![0, 1]);
+    assert_eq!(v1, vec![1, 2]);
+    assert_eq!(u2, vec![0]);
+    assert_eq!(v2, vec![2]);
+
+    assert!(Sparse12HopPairs::from_pairs(vec![0, 1], vec![1], vec![], vec![]).is_err());
+    assert!(Sparse12HopPairs::from_pairs(vec![0], vec![1], vec![0], vec![1, 2]).is_err());
+
+    let knn_empty = KnnGraph::empty(3).unwrap();
+    assert!(knn_empty.is_empty());
+    let knn = KnnGraph::new_validated(2, vec![0, 1, 2], vec![1, 0], vec![1.0, 1.0]).unwrap();
+    assert!(!knn.is_empty());
+    let (n, indptr, indices, distances) = knn.into_parts();
+    assert_eq!(n, 2);
+    assert_eq!(indptr, vec![0, 1, 2]);
+    assert_eq!(indices, vec![1, 0]);
+    assert_eq!(distances, vec![1.0, 1.0]);
 }

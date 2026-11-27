@@ -84,14 +84,13 @@ fn test_hybrid_adaptive_knn_preserves_12hop_and_margin_gap() {
     // Force small target k=6 on hub 0 (which has 13 1+2-hop neighbors) -> must NOT truncate!
     perps[0] = 2.0;
 
-    let cfg = HybridKnnConfig {
-        k_factor: 3.0,
-        k_override: None,
-        margin_gap: 0.15,
-        coarse_dim: 8,
-        rerank_factor: 4,
-        max_row_k: None,
-    };
+    let cfg = HybridKnnConfig::new()
+        .with_k_factor(3.0)
+        .with_k_override(None)
+        .with_margin_gap(0.15)
+        .with_coarse_dim(8)
+        .with_rerank_factor(4)
+        .with_max_row_k(None);
     let (knn, stats) = build_hybrid_adaptive_knn(&g, &coords, dim, &perps, &cfg).unwrap();
     assert_eq!(stats.n_truncated_1hop, 0);
     assert_eq!(stats.n_truncated_2hop, 0);

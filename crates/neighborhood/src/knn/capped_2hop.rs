@@ -7,6 +7,7 @@ use super::graph::{KnnGraph, KnnStats, Sparse12HopPairs};
 use super::two_hop::canonical_unweighted_1hop;
 
 /// Strategy used by [`extract_sparse_1hop_2hop_pairs_with_mode`] to sample capped 2-hop pairs.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TwoHopSamplingMode {
     /// Expands bridge neighbors in ascending `(deg(w), w)` order while unconditionally
@@ -104,7 +105,7 @@ fn finish_2hop_pairs(
         u2.push(a);
         v2.push(b);
     }
-    Sparse12HopPairs { u1, v1, u2, v2 }
+    Sparse12HopPairs::from_validated_parts(u1, v1, u2, v2)
 }
 
 pub(crate) fn extract_sparse_1hop_2hop_pairs_inner<W>(
@@ -143,12 +144,7 @@ fn extract_sparse_1hop_2hop_pairs_degree_ordered<W>(
             }
         }
         return Ok((
-            Sparse12HopPairs {
-                u1,
-                v1,
-                u2: Vec::new(),
-                v2: Vec::new(),
-            },
+            Sparse12HopPairs::from_validated_parts(u1, v1, Vec::new(), Vec::new()),
             n_truncated_2hop,
         ));
     }
@@ -242,12 +238,12 @@ fn extract_sparse_1hop_2hop_pairs_random_walk<W>(
 
     let (u1, v1) = collect_1hop_pairs(&adj1);
     if max_2hop_per_node == 0 || n <= 2 {
-        return Ok(Sparse12HopPairs {
+        return Ok(Sparse12HopPairs::from_validated_parts(
             u1,
             v1,
-            u2: Vec::new(),
-            v2: Vec::new(),
-        });
+            Vec::new(),
+            Vec::new(),
+        ));
     }
 
     let mut non_leaf: Vec<u32> = Vec::new();
@@ -319,8 +315,12 @@ pub fn build_capped_12hop_knn<W>(
     let (sp, n_truncated_2hop) =
         extract_sparse_1hop_2hop_pairs_inner(graph, max_2hop_per_node, seed)?;
     let n = graph.num_nodes();
-    let n_1hop = sp.u1.len().saturating_mul(2);
-    let n_2hop = sp.u2.len().saturating_mul(2);
+    let u1 = sp.u1();
+    let v1 = sp.v1();
+    let u2 = sp.u2();
+    let v2 = sp.v2();
+    let n_1hop = sp.num_1hop().saturating_mul(2);
+    let n_2hop = sp.num_2hop().saturating_mul(2);
     let total_nnz = n_1hop.saturating_add(n_2hop);
 
     if n == 0 || total_nnz == 0 {
@@ -336,11 +336,11 @@ pub fn build_capped_12hop_knn<W>(
 
     let mut deg1 = vec![0usize; n];
     let mut deg2 = vec![0usize; n];
-    for (&u, &v) in sp.u1.iter().zip(sp.v1.iter()) {
+    for (&u, &v) in u1.iter().zip(v1.iter()) {
         deg1[u as usize] += 1;
         deg1[v as usize] += 1;
     }
-    for (&u, &v) in sp.u2.iter().zip(sp.v2.iter()) {
+    for (&u, &v) in u2.iter().zip(v2.iter()) {
         deg2[u as usize] += 1;
         deg2[v as usize] += 1;
     }
@@ -374,21 +374,21 @@ pub fn build_capped_12hop_knn<W>(
 
     let mut i1 = 0usize;
     let mut i2 = 0usize;
-    let len1 = sp.u1.len();
-    let len2 = sp.u2.len();
+    let len1 = u1.len();
+    let len2 = u2.len();
     while i1 < len1 || i2 < len2 {
         let take_1hop = match (i1 < len1, i2 < len2) {
-            (true, true) => (sp.u1[i1], sp.v1[i1]) <= (sp.u2[i2], sp.v2[i2]),
+            (true, true) => (u1[i1], v1[i1]) <= (u2[i2], v2[i2]),
             (true, false) => true,
             (false, true) => false,
             (false, false) => unreachable!(),
         };
         let (u, v, dist) = if take_1hop {
-            let p = (sp.u1[i1], sp.v1[i1], 1.0_f64);
+            let p = (u1[i1], v1[i1], 1.0_f64);
             i1 += 1;
             p
         } else {
-            let p = (sp.u2[i2], sp.v2[i2], 2.0_f64);
+            let p = (u2[i2], v2[i2], 2.0_f64);
             i2 += 1;
             p
         };

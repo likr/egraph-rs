@@ -111,6 +111,12 @@ impl KnnGraph {
         self.indices.len()
     }
 
+    /// Returns `true` if the $k$-NN graph stores zero neighbor entries (`nnz() == 0`).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
     /// Returns the `(neighbor_indices, distances)` slices for node `i`.
     ///
     /// # Panics
@@ -153,10 +159,18 @@ impl KnnGraph {
     pub fn distances(&self) -> &[f64] {
         &self.distances
     }
+
+    /// Consumes the [`KnnGraph`] and returns `(num_nodes, indptr, indices, distances)`
+    /// without copying.
+    #[inline]
+    pub fn into_parts(self) -> (usize, Vec<u32>, Vec<u32>, Vec<f64>) {
+        (self.n_nodes, self.indptr, self.indices, self.distances)
+    }
 }
 
 /// Summary statistics emitted by 1+2-hop and hybrid $k$-NN builders.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct KnnStats {
     pub avg_deg1: f64,
     pub avg_deg2: f64,
@@ -175,8 +189,94 @@ pub struct KnnStats {
 /// Canonical undirected unweighted 1-hop and hub-safe 2-hop node-pair lists (`u < v`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Sparse12HopPairs {
-    pub u1: Vec<u32>,
-    pub v1: Vec<u32>,
-    pub u2: Vec<u32>,
-    pub v2: Vec<u32>,
+    u1: Vec<u32>,
+    v1: Vec<u32>,
+    u2: Vec<u32>,
+    v2: Vec<u32>,
+}
+
+impl Sparse12HopPairs {
+    /// Constructs a [`Sparse12HopPairs`] from 1-hop `(u1, v1)` and 2-hop `(u2, v2)` endpoint
+    /// buffers after validating matching pair slice lengths.
+    pub fn from_pairs(u1: Vec<u32>, v1: Vec<u32>, u2: Vec<u32>, v2: Vec<u32>) -> CoreResult<Self> {
+        if u1.len() != v1.len() {
+            return Err(CoreError::dimension_mismatch(
+                u1.len(),
+                v1.len(),
+                "Sparse12HopPairs::from_pairs::tier1",
+            ));
+        }
+        if u2.len() != v2.len() {
+            return Err(CoreError::dimension_mismatch(
+                u2.len(),
+                v2.len(),
+                "Sparse12HopPairs::from_pairs::tier2",
+            ));
+        }
+        Ok(Self { u1, v1, u2, v2 })
+    }
+
+    /// Creates an empty [`Sparse12HopPairs`] with zero 1-hop and 2-hop pairs.
+    #[inline]
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    #[inline]
+    pub(crate) fn from_validated_parts(
+        u1: Vec<u32>,
+        v1: Vec<u32>,
+        u2: Vec<u32>,
+        v2: Vec<u32>,
+    ) -> Self {
+        Self { u1, v1, u2, v2 }
+    }
+
+    /// Returns the 1-hop source vertex slice.
+    #[inline]
+    pub fn u1(&self) -> &[u32] {
+        &self.u1
+    }
+
+    /// Returns the 1-hop target vertex slice aligned with `u1()`.
+    #[inline]
+    pub fn v1(&self) -> &[u32] {
+        &self.v1
+    }
+
+    /// Returns the 2-hop source vertex slice.
+    #[inline]
+    pub fn u2(&self) -> &[u32] {
+        &self.u2
+    }
+
+    /// Returns the 2-hop target vertex slice aligned with `u2()`.
+    #[inline]
+    pub fn v2(&self) -> &[u32] {
+        &self.v2
+    }
+
+    /// Returns the number of stored 1-hop pairs.
+    #[inline]
+    pub fn num_1hop(&self) -> usize {
+        self.u1.len()
+    }
+
+    /// Returns the number of stored 2-hop pairs.
+    #[inline]
+    pub fn num_2hop(&self) -> usize {
+        self.u2.len()
+    }
+
+    /// Returns `true` if both 1-hop and 2-hop pair buffers are empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.u1.is_empty() && self.u2.is_empty()
+    }
+
+    /// Consumes the [`Sparse12HopPairs`] and returns `(u1, v1, u2, v2)` without copying.
+    #[inline]
+    pub fn into_parts(self) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
+        (self.u1, self.v1, self.u2, self.v2)
+    }
 }

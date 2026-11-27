@@ -204,12 +204,7 @@ fn compute_dog_varadhan_landmarks_impl<W: Scalar>(
             used_coarse_scaffold: false,
         };
         return Ok((
-            DogVaradhanLandmarks {
-                num_nodes: 0,
-                landmarks: Vec::new(),
-                d_dog: Vec::new(),
-                d_coarse: None,
-            },
+            DogVaradhanLandmarks::from_validated_parts(0, Vec::new(), Vec::new(), None),
             stats,
         ));
     }
@@ -242,12 +237,7 @@ fn compute_dog_varadhan_landmarks_impl<W: Scalar>(
             used_coarse_scaffold: false,
         };
         return Ok((
-            DogVaradhanLandmarks {
-                num_nodes: 1,
-                landmarks: vec![0],
-                d_dog: vec![0.0],
-                d_coarse: None,
-            },
+            DogVaradhanLandmarks::from_validated_parts(1, vec![0], vec![0.0], None),
             stats,
         ));
     }
@@ -408,12 +398,7 @@ fn compute_dog_varadhan_landmarks_impl<W: Scalar>(
     };
 
     Ok((
-        DogVaradhanLandmarks {
-            num_nodes: n,
-            landmarks,
-            d_dog,
-            d_coarse,
-        },
+        DogVaradhanLandmarks::from_validated_parts(n, landmarks, d_dog, d_coarse),
         stats,
     ))
 }

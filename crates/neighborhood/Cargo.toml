@@ -2,7 +2,10 @@
 name = "egraph-neighborhood"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Single-threaded neighborhood graph, adaptive perplexity, fuzzy simplicial set, and Varadhan landmark primitives for egraph-rs"
 
 [dependencies]
 egraph-core.workspace = true

@@ -1,6 +1,7 @@
 //! Hybrid 1+2-hop + 2-stage spectral rerank $k$-NN builder with strict margin separation.
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, VisitStamp};
+use egraph_spatial_trees::KdQueryScratch;
 
 use crate::knn::{KnnGraph, KnnStats, extract_1hop_2hop_csr};
 
@@ -9,7 +10,8 @@ use super::kdtree_rerank::{
 };
 
 /// Configuration for [`build_hybrid_adaptive_knn`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HybridKnnConfig {
     /// Target budget multiplier `round(k_factor * perplexity[i])` when `k_override` is `None` (`default: 3.0`).
     pub k_factor: f64,
@@ -35,6 +37,49 @@ impl Default for HybridKnnConfig {
             rerank_factor: 16,
             max_row_k: None,
         }
+    }
+}
+
+impl HybridKnnConfig {
+    /// Creates a new [`HybridKnnConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the target budget multiplier `k_factor`.
+    pub fn with_k_factor(mut self, k_factor: f64) -> Self {
+        self.k_factor = k_factor;
+        self
+    }
+
+    /// Sets the optional uniform target neighbor budget `k_override`.
+    pub fn with_k_override(mut self, k_override: Option<usize>) -> Self {
+        self.k_override = k_override;
+        self
+    }
+
+    /// Sets the relative margin gap `margin_gap`.
+    pub fn with_margin_gap(mut self, margin_gap: f64) -> Self {
+        self.margin_gap = margin_gap;
+        self
+    }
+
+    /// Sets the coarse KD-tree dimension `coarse_dim`.
+    pub fn with_coarse_dim(mut self, coarse_dim: usize) -> Self {
+        self.coarse_dim = coarse_dim;
+        self
+    }
+
+    /// Sets the Stage 2 full-dimensional rerank oversampling multiplier `rerank_factor`.
+    pub fn with_rerank_factor(mut self, rerank_factor: usize) -> Self {
+        self.rerank_factor = rerank_factor;
+        self
+    }
+
+    /// Sets the optional hard cap per row `max_row_k`.
+    pub fn with_max_row_k(mut self, max_row_k: Option<usize>) -> Self {
+        self.max_row_k = max_row_k;
+        self
     }
 }
 
@@ -280,6 +325,7 @@ pub fn build_hybrid_adaptive_knn<W>(
             None
         };
         let mut stamp = VisitStamp::new(n);
+        let mut kd_scratch = KdQueryScratch::with_capacity(0);
         let mut cand_buf: Vec<(usize, f64)> = Vec::new();
         let mut scored: Vec<(f64, u32)> = Vec::new();
         let mut res_dists: Vec<f64> = Vec::new();
@@ -328,7 +374,12 @@ pub fn build_hybrid_adaptive_knn<W>(
             if let Some(tree) = &tree_opt
                 && cand_k < n - 1
             {
-                tree.k_nearest_excluding_self_into(i, cand_k, &mut cand_buf)?;
+                tree.k_nearest_excluding_self_with_scratch(
+                    i,
+                    cand_k,
+                    &mut kd_scratch,
+                    &mut cand_buf,
+                )?;
                 for &(j, _) in &cand_buf {
                     if stamp.visit(j) {
                         let row_j = &centered[j * dim..(j + 1) * dim];

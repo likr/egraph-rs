@@ -103,20 +103,17 @@ fn test_compute_knn_probabilities_entropy_symmetry_and_row_normalized() {
     for &val in v0 {
         assert!((val - 0.125).abs() < 1e-12);
     }
-    let p_total: f64 = p_graph.values.iter().sum();
+    let p_total: f64 = p_graph.values().iter().sum();
     assert!((p_total - 1.0).abs() < 1e-12);
 
     // Verify RowNormalized mode inside compute_knn_probabilities genuinely row-normalizes
     // S = P_dir + P_dir^T before final (D_S^{-1} S + S^T D_S^{-1}) / (2N) symmetrization.
-    let cfg_rn = PerplexityConfig {
-        symmetrization: SymmetrizationMode::RowNormalized,
-        ..Default::default()
-    };
+    let cfg_rn = PerplexityConfig::new().with_symmetrization(SymmetrizationMode::RowNormalized);
     let sp_rn = compute_knn_probabilities(&knn, &perps, &cfg_rn).unwrap();
-    let sp_rn_total: f64 = sp_rn.values.iter().sum();
+    let sp_rn_total: f64 = sp_rn.values().iter().sum();
     assert!((sp_rn_total - 1.0).abs() < 1e-12);
-    assert_eq!(sp_rn.indptr, sp.indptr);
-    assert_eq!(sp_rn.indices, sp.indices);
+    assert_eq!(sp_rn.indptr(), sp.indptr());
+    assert_eq!(sp_rn.indices(), sp.indices());
     for i in 0..4 {
         let (cols, vals) = sp_rn.row(i);
         for (&j, &p_ij) in cols.iter().zip(vals.iter()) {
@@ -126,9 +123,9 @@ fn test_compute_knn_probabilities_entropy_symmetry_and_row_normalized() {
         }
     }
     let max_diff = sp_rn
-        .values
+        .values()
         .iter()
-        .zip(sp.values.iter())
+        .zip(sp.values().iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0_f64, f64::max);
     assert!(
@@ -149,9 +146,9 @@ fn test_compute_knn_probabilities_entropy_symmetry_and_row_normalized() {
     let reg_std = compute_knn_probabilities(&regular_knn, &reg_perps, &cfg).unwrap();
     let reg_rn = compute_knn_probabilities(&regular_knn, &reg_perps, &cfg_rn).unwrap();
     let reg_diff = reg_std
-        .values
+        .values()
         .iter()
-        .zip(reg_rn.values.iter())
+        .zip(reg_rn.values().iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0_f64, f64::max);
     assert!(
@@ -177,11 +174,9 @@ fn test_compute_knn_probabilities_entropy_accuracy_on_distinct_row() {
     let sp = compute_knn_probabilities(
         &knn,
         &perps,
-        &PerplexityConfig {
-            sigma_tolerance: 1e-9,
-            sigma_iters: 80,
-            ..Default::default()
-        },
+        &PerplexityConfig::new()
+            .with_sigma_tolerance(1e-9)
+            .with_sigma_iters(80),
     )
     .unwrap();
     let (_cols, vals) = sp.row(0);
@@ -238,8 +233,8 @@ fn test_perplexity_disconnected_singleton_and_nan_rejection() {
     assert_eq!(knn.row(0).0.len(), 2);
 
     let probs = compute_knn_probabilities(&knn, &[1.5; 6], &PerplexityConfig::default()).unwrap();
-    assert_eq!(probs.n_nodes, 6);
-    assert!(probs.values.iter().all(|v| v.is_finite() && *v > 0.0));
+    assert_eq!(probs.num_nodes(), 6);
+    assert!(probs.values().iter().all(|v| v.is_finite() && *v > 0.0));
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     assert_eq!(partial_bfs_knn(&single, 5, 1).unwrap().nnz(), 0);

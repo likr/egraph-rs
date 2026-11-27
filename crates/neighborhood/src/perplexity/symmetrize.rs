@@ -72,12 +72,9 @@ pub(super) fn scatter_symmetric_pairs(
         cursor[v as usize] += 1;
     }
 
-    Ok(SparseProbabilities {
-        n_nodes,
-        indptr,
-        indices,
-        values,
-    })
+    Ok(SparseProbabilities::from_validated_parts(
+        n_nodes, indptr, indices, values,
+    ))
 }
 
 /// Computes row-normalized symmetrized joint probabilities

@@ -21,10 +21,10 @@ fn test_two_step_random_walk_exact_when_pot_leq_cap_and_leaf_filter() {
     )
     .unwrap();
     let pairs_2: Vec<(u32, u32)> = p_rw
-        .u2
+        .u2()
         .iter()
         .copied()
-        .zip(p_rw.v2.iter().copied())
+        .zip(p_rw.v2().iter().copied())
         .collect();
     assert!(
         pairs_2.contains(&(0, 22)),
@@ -60,7 +60,7 @@ fn test_two_step_random_walk_exact_when_pot_leq_cap_and_leaf_filter() {
     .unwrap();
     assert_eq!(p_exact_1, p_exact_2);
     let (_, adj2) = extract_1hop_2hop_csr(&g).unwrap();
-    assert_eq!(p_exact_1.u2.len(), adj2.num_edges());
+    assert_eq!(p_exact_1.num_2hop(), adj2.num_edges());
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn test_two_step_random_walk_pot_gt_cap_and_max_bridge_degree() {
     )
     .unwrap();
     assert_eq!(p_rw1, p_rw2);
-    assert!(!p_rw1.u2.is_empty());
+    assert!(!p_rw1.u2().is_empty());
 
     // With max_bridge_degree = Some(4): hub 0 (deg=30) and bridge 30 (deg=5) are excluded as
     // intermediates! So leaves 1..=29 get zero 2-hop pairs through hub 0, and 31..=34 cannot
@@ -104,7 +104,7 @@ fn test_two_step_random_walk_pot_gt_cap_and_max_bridge_degree() {
         42,
     )
     .unwrap();
-    for (&a, &b) in p_capped.u2.iter().zip(p_capped.v2.iter()) {
+    for (&a, &b) in p_capped.u2().iter().zip(p_capped.v2().iter()) {
         assert!(
             !(1..=29).contains(&a) && !(1..=29).contains(&b),
             "leaf leaked through bridge with deg=30 > max_bridge_degree=4: ({a}, {b})"
@@ -124,7 +124,7 @@ fn test_two_step_random_walk_pot_gt_cap_and_max_bridge_degree() {
         42,
     )
     .unwrap();
-    for (&a, &b) in p_deg_capped.u2.iter().zip(p_deg_capped.v2.iter()) {
+    for (&a, &b) in p_deg_capped.u2().iter().zip(p_deg_capped.v2().iter()) {
         assert!(a != 0 && b != 0);
         assert!(!(1..=29).contains(&a) && !(1..=29).contains(&b));
     }
@@ -153,7 +153,7 @@ fn test_two_step_random_walk_boundary_graphs() {
         42,
     )
     .unwrap();
-    assert!(pe.u1.is_empty() && pe.u2.is_empty());
+    assert!(pe.is_empty());
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     let ps = extract_sparse_1hop_2hop_pairs_with_mode(
@@ -164,7 +164,7 @@ fn test_two_step_random_walk_boundary_graphs() {
         42,
     )
     .unwrap();
-    assert!(ps.u1.is_empty() && ps.u2.is_empty());
+    assert!(ps.is_empty());
 
     let path =
         CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3)], None, false, false).unwrap();
@@ -176,6 +176,6 @@ fn test_two_step_random_walk_boundary_graphs() {
         42,
     )
     .unwrap();
-    assert_eq!(p0.u1.len(), 3);
-    assert!(p0.u2.is_empty());
+    assert_eq!(p0.num_1hop(), 3);
+    assert!(p0.u2().is_empty());
 }

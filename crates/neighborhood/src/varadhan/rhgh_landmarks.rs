@@ -57,11 +57,7 @@ fn compute_pivoted_rhgh_landmarks_core(
 
     if n == 0 {
         return Ok((
-            RhghLandmarks {
-                num_nodes: 0,
-                landmarks: Vec::new(),
-                d_rhgh: Vec::new(),
-            },
+            RhghLandmarks::from_validated_parts(0, Vec::new(), Vec::new()),
             RhghLandmarkStats {
                 gamma,
                 p_exp,
@@ -82,11 +78,7 @@ fn compute_pivoted_rhgh_landmarks_core(
 
     if n == 1 {
         return Ok((
-            RhghLandmarks {
-                num_nodes: 1,
-                landmarks: vec![0],
-                d_rhgh: vec![0.0],
-            },
+            RhghLandmarks::from_validated_parts(1, vec![0], vec![0.0]),
             RhghLandmarkStats {
                 gamma,
                 p_exp,
@@ -139,11 +131,7 @@ fn compute_pivoted_rhgh_landmarks_core(
             d_rhgh[(lm as usize) * h + col] = 0.0;
         }
         return Ok((
-            RhghLandmarks {
-                num_nodes: n,
-                landmarks,
-                d_rhgh,
-            },
+            RhghLandmarks::from_validated_parts(n, landmarks, d_rhgh),
             RhghLandmarkStats {
                 gamma,
                 p_exp,
@@ -199,12 +187,10 @@ fn compute_pivoted_rhgh_landmarks_core(
         .iter()
         .map(|&inv| if inv > 0.0 { 1.0 / inv } else { 1.0 })
         .collect();
-    let amg_cfg = AmgPcgConfig {
-        rel_tol: config.rel_tol,
-        max_iterations: config.max_iterations,
-        seed: config.seed,
-        ..AmgPcgConfig::default()
-    };
+    let amg_cfg = AmgPcgConfig::new()
+        .with_rel_tol(config.rel_tol)
+        .with_max_iterations(config.max_iterations)
+        .with_seed(config.seed);
     let solver = AmgPcgSolver::with_near_nullspace(&a_reg, Some(&near_nullspace), amg_cfg)?;
     let mut ws = solver.new_workspace();
     let mut sol = vec![0.0_f64; total_rhs];
@@ -270,11 +256,7 @@ fn compute_pivoted_rhgh_landmarks_core(
     }
 
     Ok((
-        RhghLandmarks {
-            num_nodes: n,
-            landmarks,
-            d_rhgh: d_dog,
-        },
+        RhghLandmarks::from_validated_parts(n, landmarks, d_dog),
         RhghLandmarkStats {
             gamma,
             p_exp,

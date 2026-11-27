@@ -5,7 +5,8 @@ use egraph_core::{CoreError, CoreResult};
 use egraph_linalg::SpectralMomentStats;
 
 /// Configuration for [`compute_regularized_dog_varadhan_landmarks`](super::compute_regularized_dog_varadhan_landmarks).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DogVaradhanConfig {
     /// Optional short-range diffusion time $t_1$ (`None` uses R1 $1 / (1 + \sigma_\lambda)$).
     pub t1: Option<f64>,
@@ -61,8 +62,106 @@ impl Default for DogVaradhanConfig {
     }
 }
 
+impl DogVaradhanConfig {
+    /// Creates a new [`DogVaradhanConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the optional short-range diffusion time `t1`.
+    pub fn with_t1(mut self, t1: Option<f64>) -> Self {
+        self.t1 = t1;
+        self
+    }
+
+    /// Sets the optional long-range diffusion time `t2`.
+    pub fn with_t2(mut self, t2: Option<f64>) -> Self {
+        self.t2 = t2;
+        self
+    }
+
+    /// Sets the optional DoG attenuation `alpha`.
+    pub fn with_alpha(mut self, alpha: Option<f64>) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Sets the optional explicit rank-1 positivity floor `beta_floor`.
+    pub fn with_beta_floor(mut self, beta_floor: Option<f64>) -> Self {
+        self.beta_floor = beta_floor;
+        self
+    }
+
+    /// Sets the optional Chebyshev polynomial degree `degree`.
+    pub fn with_degree(mut self, degree: Option<usize>) -> Self {
+        self.degree = degree;
+        self
+    }
+
+    /// Sets the number of Core-First MaxMin shortest-path landmarks `n_landmarks`.
+    pub fn with_n_landmarks(mut self, n_landmarks: usize) -> Self {
+        self.n_landmarks = n_landmarks;
+        self
+    }
+
+    /// Sets the minimum degree threshold for landmark selection `min_degree`.
+    pub fn with_min_degree(mut self, min_degree: usize) -> Self {
+        self.min_degree = min_degree;
+        self
+    }
+
+    /// Sets the Johnson-Lindenstrauss embedding dimension `jl_dim`.
+    pub fn with_jl_dim(mut self, jl_dim: usize) -> Self {
+        self.jl_dim = jl_dim;
+        self
+    }
+
+    /// Sets the minimum spectral floor `eps_psd` enforced during R2 PSD projection.
+    pub fn with_eps_psd(mut self, eps_psd: f64) -> Self {
+        self.eps_psd = eps_psd;
+        self
+    }
+
+    /// Sets the spectral upper bound `lambda_max` for $L_{\mathrm{sym}}$.
+    pub fn with_lambda_max(mut self, lambda_max: f64) -> Self {
+        self.lambda_max = lambda_max;
+        self
+    }
+
+    /// Sets whether Varadhan similarities normalize by $\sqrt{K_{uu} K_{pp}}$ (`degree_normalize`).
+    pub fn with_degree_normalize(mut self, degree_normalize: bool) -> Self {
+        self.degree_normalize = degree_normalize;
+        self
+    }
+
+    /// Sets the power exponent `p_exp` applied to $[-4 t \ln(\mathrm{sim})]^p$.
+    pub fn with_p_exp(mut self, p_exp: f64) -> Self {
+        self.p_exp = p_exp;
+        self
+    }
+
+    /// Sets the minimum similarity clamp `eps_sim`.
+    pub fn with_eps_sim(mut self, eps_sim: f64) -> Self {
+        self.eps_sim = eps_sim;
+        self
+    }
+
+    /// Sets the coarse diffusive scaffold time `t_coarse`.
+    pub fn with_t_coarse(mut self, t_coarse: f64) -> Self {
+        self.t_coarse = t_coarse;
+        self
+    }
+
+    /// Sets the deterministic explicit PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+}
+
 /// Summary diagnostics emitted by [`compute_regularized_dog_varadhan_landmarks`](super::compute_regularized_dog_varadhan_landmarks).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DogVaradhanStats {
     pub moment_stats: SpectralMomentStats,
     pub t1: f64,
@@ -133,7 +232,8 @@ pub(super) fn validate_dog_varadhan_config(config: &DogVaradhanConfig) -> CoreRe
 }
 
 /// Configuration for [`compute_pivoted_rhgh_landmarks`](super::compute_pivoted_rhgh_landmarks).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RhghLandmarkConfig {
     /// Optional resolvent regularization $\gamma > 0$ (`None` uses $O(|E|)$ topology-adaptive auto-$\gamma$).
     pub gamma: Option<f64>,
@@ -172,6 +272,65 @@ impl Default for RhghLandmarkConfig {
 }
 
 impl RhghLandmarkConfig {
+    /// Creates a new [`RhghLandmarkConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the optional resolvent regularization `gamma`.
+    pub fn with_gamma(mut self, gamma: Option<f64>) -> Self {
+        self.gamma = gamma;
+        self
+    }
+
+    /// Sets the optional power exponent `p_exp`.
+    pub fn with_p_exp(mut self, p_exp: Option<f64>) -> Self {
+        self.p_exp = p_exp;
+        self
+    }
+
+    /// Sets the number of Core-First MaxMin shortest-path landmarks `n_landmarks`.
+    pub fn with_n_landmarks(mut self, n_landmarks: usize) -> Self {
+        self.n_landmarks = n_landmarks;
+        self
+    }
+
+    /// Sets the minimum degree threshold for landmark selection `min_degree`.
+    pub fn with_min_degree(mut self, min_degree: usize) -> Self {
+        self.min_degree = min_degree;
+        self
+    }
+
+    /// Sets the number of Spielman-Srivastava JL probes `num_probes`.
+    pub fn with_num_probes(mut self, num_probes: usize) -> Self {
+        self.num_probes = num_probes;
+        self
+    }
+
+    /// Sets the relative residual tolerance for `AmgPcgSolver` (`rel_tol`).
+    pub fn with_rel_tol(mut self, rel_tol: f64) -> Self {
+        self.rel_tol = rel_tol;
+        self
+    }
+
+    /// Sets the maximum AMG-PCG iterations per RHS column (`max_iterations`).
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets whether to normalize distances by median 1-hop ALT distance (`normalize_1hop`).
+    pub fn with_normalize_1hop(mut self, normalize_1hop: bool) -> Self {
+        self.normalize_1hop = normalize_1hop;
+        self
+    }
+
+    /// Sets the deterministic explicit PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all pivoted `RHGH` landmark configuration fields.
     pub fn validate(&self) -> CoreResult<()> {
         if let Some(g) = self.gamma {
@@ -223,7 +382,8 @@ impl RhghLandmarkConfig {
 }
 
 /// Summary diagnostics emitted by [`compute_pivoted_rhgh_landmarks`](super::compute_pivoted_rhgh_landmarks).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RhghLandmarkStats {
     /// Effective resolvent regularization $\gamma$ used.
     pub gamma: f64,

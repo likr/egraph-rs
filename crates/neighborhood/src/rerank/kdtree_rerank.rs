@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 
 use egraph_core::{CoreError, CoreResult};
-use egraph_spatial_trees::StaticKdTree;
+use egraph_spatial_trees::{KdQueryScratch, NearestNeighborIndex, StaticKdTree};
 
 use crate::knn::KnnGraph;
 
@@ -118,26 +118,33 @@ impl CoarseKdTree {
         }
     }
 
-    pub(super) fn k_nearest_excluding_self_into(
+    #[inline]
+    pub(super) fn as_index(&self) -> &dyn NearestNeighborIndex {
+        match self {
+            Self::D1(t) => t,
+            Self::D2(t) => t,
+            Self::D3(t) => t,
+            Self::D4(t) => t,
+            Self::D5(t) => t,
+            Self::D6(t) => t,
+            Self::D7(t) => t,
+            Self::D8(t) => t,
+            Self::D9(t) => t,
+            Self::D10(t) => t,
+            Self::D11(t) => t,
+            Self::D12(t) => t,
+        }
+    }
+
+    pub(super) fn k_nearest_excluding_self_with_scratch(
         &self,
         point_idx: usize,
         k: usize,
+        scratch: &mut KdQueryScratch,
         out: &mut Vec<(usize, f64)>,
     ) -> CoreResult<()> {
-        match self {
-            Self::D1(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D2(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D3(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D4(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D5(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D6(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D7(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D8(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D9(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D10(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D11(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-            Self::D12(t) => t.k_nearest_excluding_self_into(point_idx, k, out),
-        }
+        self.as_index()
+            .query_knn_excluding_self_with_scratch(point_idx, k, scratch, out)
     }
 }
 
@@ -235,9 +242,10 @@ pub fn build_rerank_knn(
         }
     } else {
         let tree = CoarseKdTree::build(&centered, n_nodes, dim, coarse_dim)?;
+        let mut kd_scratch = KdQueryScratch::with_capacity(cand_k);
         let mut cand_buf: Vec<(usize, f64)> = Vec::with_capacity(cand_k);
         for i in 0..n_nodes {
-            tree.k_nearest_excluding_self_into(i, cand_k, &mut cand_buf)?;
+            tree.k_nearest_excluding_self_with_scratch(i, cand_k, &mut kd_scratch, &mut cand_buf)?;
             scored.clear();
             let row_i = &centered[i * dim..(i + 1) * dim];
             for &(j, _) in &cand_buf {
