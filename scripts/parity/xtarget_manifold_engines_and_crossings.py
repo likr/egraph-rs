@@ -152,6 +152,18 @@ def run_cross_target_manifold_engines_crossings_parity(
     tor_pan_py = tor_init.torus_auto_pan(g16).coords(copy=True).ravel()
     gd_poin_py = float(eg.geodesic_distortion(g16, poin_init))
     ev_gd_py = float(eg.evaluate_metrics(g16, poin_init, ["geodesic_distortion"]).geodesic_distortion or 0.0)
+    gg_mani_py = {
+        "poincare": eg.gabriel_graph_edges(poin_init).ravel().tolist(),
+        "lorentz": eg.gabriel_graph_edges(lor_init).ravel().tolist(),
+        "spherical": eg.gabriel_graph_edges(sph_init).ravel().tolist(),
+        "torus": eg.gabriel_graph_edges(tor_init).ravel().tolist(),
+    }
+    rng_mani_py = {
+        "poincare": eg.relative_neighborhood_edges(poin_init).ravel().tolist(),
+        "lorentz": eg.relative_neighborhood_edges(lor_init).ravel().tolist(),
+        "spherical": eg.relative_neighborhood_edges(sph_init).ravel().tolist(),
+        "torus": eg.relative_neighborhood_edges(tor_init).ravel().tolist(),
+    }
 
     # Adversarial antipodal & Poincare boundary-clamp non-panic checks
     ml_anti = eg.ManifoldLayout2d.from_coords("spherical", np.array([[0.0, math.pi * 0.5], [math.pi, math.pi * 0.5]], dtype=np.float32))
@@ -304,6 +316,20 @@ const torPan = Array.from(mTorSpec.torusAutoPan(g16).coordsView());
 const mPoin = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', poinC);
 const gdPoin = mod.geodesicDistortion(g16, mPoin);
 const evGd = mod.evaluateMetrics(g16, mPoin, ['geodesic_distortion']).geodesicDistortion;
+const mSph = mod.ManifoldLayout2d.fromCoords('spherical', sphC);
+const mTor = mod.ManifoldLayout2d.fromCoords('torus_2d', torC);
+const ggMani = {
+  poincare: Array.from(mod.gabrielGraphEdges(mPoin)),
+  lorentz: Array.from(mod.gabrielGraphEdges(mLor)),
+  spherical: Array.from(mod.gabrielGraphEdges(mSph)),
+  torus: Array.from(mod.gabrielGraphEdges(mTor)),
+};
+const rngMani = {
+  poincare: Array.from(mod.relativeNeighborhoodEdges(mPoin)),
+  lorentz: Array.from(mod.relativeNeighborhoodEdges(mLor)),
+  spherical: Array.from(mod.relativeNeighborhoodEdges(mSph)),
+  torus: Array.from(mod.relativeNeighborhoodEdges(mTor)),
+};
 
 const mlAnti = mod.ManifoldLayout2d.fromCoords('spherical', new Float32Array([0, Math.PI * 0.5, Math.PI, Math.PI * 0.5]));
 assert.ok(Number.isFinite(mlAnti.geodesicDistance(0, 1)));
@@ -312,6 +338,7 @@ mlClamp.projectAll();
 assert.ok(mlClamp.isAllFinite());
 assertNonPanicError('wasm/manifold/bad_scale', () => mRes.setScale(0.0));
 
+mTor.free?.(); mSph.free?.();
 mlClamp.free?.(); mlAnti.free?.(); mPoin.free?.(); mTorSpec.free?.();
 mlTorX.free?.(); mlSphX.free?.(); mlPoinX.free?.(); lm16.free?.(); mLor.free?.(); mRes.free?.(); g4.free?.(); g16.free?.();
 console.log(JSON.stringify({
@@ -319,7 +346,7 @@ console.log(JSON.stringify({
   sgd17, mani, win2d, winMani,
   sphCn, sphCe, hypCn, hypCe, torCn, torCe0, torSegsEdge, torSegsLay,
   torInit: Array.from(mTorSpec.coords ? [] : torC),
-  torPan, gdPoin, evGd,
+  torPan, gdPoin, evGd, ggMani, rngMani,
 }));
 """
     ws = run_node_json(wasm_pkg, node_body, spec_payload)
@@ -361,6 +388,9 @@ console.log(JSON.stringify({
     max_f32_diff = max(max_f32_diff, check_array_close("mani/tor_pan", tor_pan_py, ws["torPan"], 1e-5))
     max_f64_diff = max(max_f64_diff, check_array_close("mani/gd_poin", [gd_poin_py], [ws["gdPoin"]], 1e-10))
     max_f64_diff = max(max_f64_diff, check_array_close("mani/eval_gd", [ev_gd_py], [ws["evGd"]], 1e-10))
+    for k in ("poincare", "lorentz", "spherical", "torus"):
+        assert gg_mani_py[k] == ws["ggMani"][k], f"ggMani mismatch for {k}"
+        assert rng_mani_py[k] == ws["rngMani"][k], f"rngMani mismatch for {k}"
 
     return [{
         "case": "cross_target_manifold_engines_crossings_py_vs_wasm",
