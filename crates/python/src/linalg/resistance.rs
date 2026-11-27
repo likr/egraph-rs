@@ -157,8 +157,8 @@ impl PyEffectiveResistanceResult {
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, *, jl_dim = StrictUsize(64), seed = StrictU64(42), weights_are_lengths = true, exact = None, exact_max_nodes = StrictUsize(64), eig_eps = StrictF64(1e-12), rel_tol = StrictF64(1e-8), max_iterations = StrictUsize(500)),
-    text_signature = "(graph, *, jl_dim=64, seed=42, weights_are_lengths=True, exact=None, exact_max_nodes=64, eig_eps=1e-12, rel_tol=1e-8, max_iterations=500)"
+    signature = (graph, *, jl_dim = StrictUsize(128), seed = StrictU64(42), weights_are_lengths = true, exact = None, exact_max_nodes = StrictUsize(256), eig_eps = StrictF64(1e-12), rel_tol = StrictF64(1e-8), max_iterations = StrictUsize(500)),
+    text_signature = "(graph, *, jl_dim=128, seed=42, weights_are_lengths=True, exact=None, exact_max_nodes=256, eig_eps=1e-12, rel_tol=1e-8, max_iterations=500)"
 )]
 fn compute_effective_resistances(
     py: Python<'_>,

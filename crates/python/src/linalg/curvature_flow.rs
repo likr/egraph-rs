@@ -272,8 +272,8 @@ impl PyResistanceCurvatureFlowResult {
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, *, steps = StrictUsize(2), eta = StrictF64(0.2), kappa_max = StrictF64(2.0), min_edge_length = StrictF64(1e-6), jl_dim = StrictUsize(64), seed = StrictU64(42), weights_are_lengths = true, exact = None, exact_max_nodes = StrictUsize(64), eig_eps = StrictF64(1e-12), rel_tol = StrictF64(1e-8), max_iterations = StrictUsize(500), hyperbolic_threshold = StrictF64(-0.05), spherical_threshold = StrictF64(0.2), torus_std_threshold = StrictF64(0.05)),
-    text_signature = "(graph, *, steps=2, eta=0.2, kappa_max=2.0, min_edge_length=1e-6, jl_dim=64, seed=42, weights_are_lengths=True, exact=None, exact_max_nodes=64, eig_eps=1e-12, rel_tol=1e-8, max_iterations=500, hyperbolic_threshold=-0.05, spherical_threshold=0.2, torus_std_threshold=0.05)"
+    signature = (graph, *, steps = StrictUsize(2), eta = StrictF64(0.2), kappa_max = StrictF64(2.0), min_edge_length = StrictF64(1e-6), jl_dim = StrictUsize(128), seed = StrictU64(42), weights_are_lengths = true, exact = None, exact_max_nodes = StrictUsize(256), eig_eps = StrictF64(1e-12), rel_tol = StrictF64(1e-8), max_iterations = StrictUsize(500), hyperbolic_threshold = StrictF64(-0.05), spherical_threshold = StrictF64(0.2), torus_std_threshold = StrictF64(0.05)),
+    text_signature = "(graph, *, steps=2, eta=0.2, kappa_max=2.0, min_edge_length=1e-6, jl_dim=128, seed=42, weights_are_lengths=True, exact=None, exact_max_nodes=256, eig_eps=1e-12, rel_tol=1e-8, max_iterations=500, hyperbolic_threshold=-0.05, spherical_threshold=0.2, torus_std_threshold=0.05)"
 )]
 fn resistance_curvature_flow(
     py: Python<'_>,
