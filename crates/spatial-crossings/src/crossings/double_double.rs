@@ -6,6 +6,17 @@ const POW2_M968: f64 = f64::from_bits(((1023 - 968) as u64) << 52);
 const POW2_512: f64 = f64::from_bits(((1023 + 512) as u64) << 52);
 const POW2_M512: f64 = f64::from_bits(((1023 - 512) as u64) << 52);
 
+#[inline]
+pub(super) fn scale_pow2_512(v: f64, steps: i32) -> f64 {
+    match steps {
+        2 => (v * POW2_512) * POW2_512,
+        1 => v * POW2_512,
+        -1 => v * POW2_M512,
+        -2 => (v * POW2_M512) * POW2_M512,
+        _ => v,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Dd {
     pub(super) hi: f64,

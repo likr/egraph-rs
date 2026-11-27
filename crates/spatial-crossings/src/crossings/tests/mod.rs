@@ -4,6 +4,7 @@ mod sweep_basic;
 mod sweep_scales;
 mod sweep_steep_ulp;
 mod sweep_streaming;
+mod sweep_wide_range;
 mod torus;
 mod torus_boundary;
 mod torus_precision;

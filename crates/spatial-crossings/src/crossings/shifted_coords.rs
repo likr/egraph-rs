@@ -42,6 +42,24 @@ impl ShiftedF64 {
     }
 
     #[inline]
+    pub(super) fn min_exact(self, other: Self) -> Self {
+        if self.cmp_exact(other) != Ordering::Greater {
+            self
+        } else {
+            other
+        }
+    }
+
+    #[inline]
+    pub(super) fn max_exact(self, other: Self) -> Self {
+        if self.cmp_exact(other) != Ordering::Less {
+            self
+        } else {
+            other
+        }
+    }
+
+    #[inline]
     pub(super) fn to_f64(self) -> f64 {
         let v = if self.shift == 0 {
             self.base

@@ -3,10 +3,12 @@ use std::cmp::Ordering;
 use super::double_double::two_diff;
 use super::shifted_coords::{ShiftedF64, ShiftedPt};
 
-const LIMBS: usize = 68;
+// 104 limbs = 6656 bits, covering degree-3 exact products across [5e-324, f64::MAX] without heap allocation.
+const LIMBS: usize = 104;
 
 #[inline]
 fn f64_to_mant_exp(v: f64) -> Option<(i64, i32)> {
+    debug_assert!(v.is_finite());
     if v == 0.0 {
         return None;
     }
@@ -33,14 +35,22 @@ impl ExactFactor {
     pub(super) fn from_delta(a: ShiftedF64, b: ShiftedF64) -> Self {
         let ds = (b.shift as i32 - a.shift as i32) as f64;
         let (d_hi, d_lo) = two_diff(b.base, a.base);
-        Self::from_triple([ds, d_hi, d_lo])
+        if d_hi.is_finite() && d_lo.is_finite() {
+            Self::from_triple([ds, d_hi, d_lo])
+        } else {
+            Self::from_triple([ds, b.base, -a.base])
+        }
     }
 
     #[inline]
     pub(super) fn from_shifted_minus_f64(a: ShiftedF64, bound: f64) -> Self {
         let ds = a.shift as f64;
         let (d_hi, d_lo) = two_diff(a.base, bound);
-        Self::from_triple([ds, d_hi, d_lo])
+        if d_hi.is_finite() && d_lo.is_finite() {
+            Self::from_triple([ds, d_hi, d_lo])
+        } else {
+            Self::from_triple([ds, a.base, -bound])
+        }
     }
 
     #[inline]

@@ -81,13 +81,23 @@ pub(super) fn segments_cross(a: &Seg, b: &Seg) -> bool {
 
 #[inline]
 pub(super) fn cmp_slope_euclidean(a: &Seg, b: &Seg) -> Ordering {
+    let min_s = a.slope.abs().min(b.slope.abs());
     let max_s = a.slope.abs().max(b.slope.abs());
+    let dy_a = a.y2 - a.y1;
+    let dx_a = a.x2 - a.x1;
+    let dy_b = b.y2 - b.y1;
+    let dx_b = b.x2 - b.x1;
     if max_s < STEEP_SLOPE_THRESHOLD
+        && min_s > 1e-280
         && (a.slope - b.slope).abs() > 8.0 * f64::EPSILON * max_s
-        && !is_tiny_nonzero(a.y2 - a.y1)
-        && !is_tiny_nonzero(a.x2 - a.x1)
-        && !is_tiny_nonzero(b.y2 - b.y1)
-        && !is_tiny_nonzero(b.x2 - b.x1)
+        && dy_a.is_finite()
+        && dx_a.is_finite()
+        && dy_b.is_finite()
+        && dx_b.is_finite()
+        && !is_tiny_nonzero(dy_a)
+        && !is_tiny_nonzero(dx_a)
+        && !is_tiny_nonzero(dy_b)
+        && !is_tiny_nonzero(dx_b)
     {
         return a.slope.total_cmp(&b.slope);
     }
@@ -103,19 +113,6 @@ pub(super) fn cmp_slope_euclidean(a: &Seg, b: &Seg) -> Ordering {
             -1,
         ),
     ])
-}
-
-#[inline]
-fn max_pair_coord(a: &Seg, b: &Seg, extra: f64) -> f64 {
-    a.x1.abs()
-        .max(a.x2.abs())
-        .max(a.y1.abs())
-        .max(a.y2.abs())
-        .max(b.x1.abs())
-        .max(b.x2.abs())
-        .max(b.y1.abs())
-        .max(b.y2.abs())
-        .max(extra.abs())
 }
 
 #[inline]
@@ -143,7 +140,7 @@ pub(super) fn intersection_x(a: &Seg, b: &Seg) -> Option<f64> {
         || is_tiny_nonzero(dy1)
         || is_tiny_nonzero(dx2)
         || is_tiny_nonzero(dy2);
-    if det_uncertain && max_pair_coord(p, q, 0.0) <= 1e100 {
+    if det_uncertain {
         return intersection_x_dd_f64([p.x1, p.y1, p.x2, p.y2], [q.x1, q.y1, q.x2, q.y2], lo, hi);
     }
     if det == 0.0 {
@@ -160,7 +157,7 @@ pub(super) fn intersection_x(a: &Seg, b: &Seg) -> Option<f64> {
             || det_sign_filtered(dx1, dy1, q.x2 - p.x1, q.y2 - p.y1).is_none()
             || det_sign_filtered(dx2, dy2, p.x1 - q.x1, p.y1 - q.y1).is_none()
             || det_sign_filtered(dx2, dy2, p.x2 - q.x1, p.y2 - q.y1).is_none());
-    if (num_uncertain || ep_uncertain) && max_pair_coord(p, q, 0.0) <= 1e100 {
+    if num_uncertain || ep_uncertain {
         return intersection_x_dd_f64([p.x1, p.y1, p.x2, p.y2], [q.x1, q.y1, q.x2, q.y2], lo, hi);
     }
     let t = num / det;
@@ -221,9 +218,7 @@ pub(super) fn cmp_post_x(a: &Seg, b: &Seg, x_evt: f64) -> Ordering {
     }
 
     let det_ord = det_sign_filtered(dx1, dy1, dx2, dy2);
-    if (s1.is_none() || t1.is_none() || s2.is_none() || t2.is_none() || det_ord.is_none())
-        && max_pair_coord(a, b, x_evt) <= 1e100
-    {
+    if s1.is_none() || t1.is_none() || s2.is_none() || t2.is_none() || det_ord.is_none() {
         return cmp_post_x_exact_f64(
             a.id,
             [a.x1, a.y1, a.x2, a.y2],

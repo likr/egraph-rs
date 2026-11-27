@@ -49,8 +49,13 @@ impl Seg {
         let slope = if is_vertical {
             0.0
         } else {
-            let dy = y2 - y1;
-            let dx = x2 - x1;
+            let dy0 = y2 - y1;
+            let dx0 = x2 - x1;
+            let (dy, dx) = if dy0.is_finite() && dx0.is_finite() {
+                (dy0, dx0)
+            } else {
+                (0.5 * y2 - 0.5 * y1, 0.5 * x2 - 0.5 * x1)
+            };
             let s = dy / dx;
             if s.is_finite() && s.abs() <= 1e290 {
                 s
@@ -194,17 +199,26 @@ impl Seg {
 pub(super) fn seg_y_err(s: &Seg, x: f64) -> f64 {
     let x_scale = x.abs().max(s.x1.abs()).max(s.x2.abs());
     let y_scale = s.y1.abs().max(s.y2.abs());
-    let base = 32.0 * f64::EPSILON * (y_scale + 1.0);
+    let eps_scale = 32.0 * f64::EPSILON;
+    let base = eps_scale * y_scale + eps_scale;
     let chord = s.y_max - s.y_min;
-    let slope_x = if s.slope.abs() < STEEP_SLOPE_THRESHOLD {
-        let sx = s.slope.abs() * x_scale;
-        if sx.is_finite() {
-            sx
+    let err = if s.slope.abs() < STEEP_SLOPE_THRESHOLD {
+        // Multiply by `32 * eps` first so near-`f64::MAX` coordinates do not overflow `slope * x_scale`.
+        let slope_err = (eps_scale * s.slope.abs()) * x_scale;
+        if slope_err.is_finite() {
+            slope_err + base
+        } else if chord.is_finite() {
+            eps_scale * chord + base
         } else {
-            (s.y2 - s.y1).abs()
+            (2.0 * eps_scale) * (0.5 * s.y_max - 0.5 * s.y_min) + base
         }
     } else {
-        let dx = s.x2 - s.x1;
+        let mut dx = s.x2 - s.x1;
+        let mut half_dy = 0.5 * (s.y2 - s.y1).abs();
+        if !dx.is_finite() || !half_dy.is_finite() {
+            dx = 0.5 * s.x2 - 0.5 * s.x1;
+            half_dy = (0.5 * s.y2 - 0.5 * s.y1).abs();
+        }
         if dx <= 0.0 || !dx.is_finite() {
             return if chord.is_finite() {
                 chord + base
@@ -212,18 +226,17 @@ pub(super) fn seg_y_err(s: &Seg, x: f64) -> f64 {
                 f64::INFINITY
             };
         }
-        let dy = (s.y2 - s.y1).abs();
-        if dy.is_finite() {
-            let sx = (x_scale / dx) * dy;
-            if sx.is_finite() { sx } else { dy }
+        let ratio = x_scale / dx;
+        let scaled = if ratio.is_finite() {
+            (2.0 * eps_scale * ratio) * half_dy
         } else {
-            dy
+            f64::INFINITY
+        };
+        if scaled.is_finite() {
+            scaled + base
+        } else {
+            f64::INFINITY
         }
-    };
-    let err = if slope_x.is_finite() {
-        32.0 * f64::EPSILON * slope_x + base
-    } else {
-        f64::INFINITY
     };
     if chord.is_finite() {
         err.min(chord + base)
@@ -246,13 +259,31 @@ pub(super) fn within_band<P: CrossPred>(
 
 #[inline]
 pub(super) fn crossing_angle_metrics(a: &Seg, b: &Seg) -> (Option<f64>, f64) {
-    let dx1 = a.x2 - a.x1;
-    let dy1 = a.y2 - a.y1;
-    let dx2 = b.x2 - b.x1;
-    let dy2 = b.y2 - b.y1;
-    let len1 = dx1.hypot(dy1);
-    let len2 = dx2.hypot(dy2);
-    if len1 == 0.0 || len2 == 0.0 {
+    let (mut dx1, mut dy1) = (a.x2 - a.x1, a.y2 - a.y1);
+    if !dx1.is_finite() || !dy1.is_finite() {
+        dx1 = 0.5 * a.x2 - 0.5 * a.x1;
+        dy1 = 0.5 * a.y2 - 0.5 * a.y1;
+    }
+    let mut len1 = dx1.hypot(dy1);
+    if !len1.is_finite() {
+        dx1 *= 0.5;
+        dy1 *= 0.5;
+        len1 = dx1.hypot(dy1);
+    }
+
+    let (mut dx2, mut dy2) = (b.x2 - b.x1, b.y2 - b.y1);
+    if !dx2.is_finite() || !dy2.is_finite() {
+        dx2 = 0.5 * b.x2 - 0.5 * b.x1;
+        dy2 = 0.5 * b.y2 - 0.5 * b.y1;
+    }
+    let mut len2 = dx2.hypot(dy2);
+    if !len2.is_finite() {
+        dx2 *= 0.5;
+        dy2 *= 0.5;
+        len2 = dx2.hypot(dy2);
+    }
+
+    if len1 == 0.0 || len2 == 0.0 || !len1.is_finite() || !len2.is_finite() {
         return (None, 0.0);
     }
     let ux1 = dx1 / len1;

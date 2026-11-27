@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::double_double::{Dd, dd_add, dd_div, dd_mul, dd_neg, dd_sub};
+use super::double_double::{Dd, dd_add, dd_div, dd_mul, dd_neg, dd_sub, scale_pow2_512};
 use super::exact_limbs::{ExactFactor, exact_collinear_in_box, exact_deg2_sign, exact_deg3_sign};
 pub(super) use super::shifted_coords::{ShiftedF64, ShiftedPt, ShiftedSeg};
 
@@ -96,18 +96,13 @@ pub(super) fn torus_segments_intersect(a: &ShiftedSeg, b: &ShiftedSeg) -> bool {
 
 #[inline]
 pub(super) fn segs_intersect_exact_f64(a: [f64; 4], b: [f64; 4]) -> bool {
-    let max_abs = a
-        .iter()
-        .chain(b.iter())
-        .fold(0.0_f64, |acc, &v| acc.max(v.abs()));
-    let scale = if max_abs > 1e300 { 0.125 } else { 1.0 };
     let sa = ShiftedSeg::from_shifted(
-        ShiftedPt::from_f64(a[0] * scale, a[1] * scale),
-        ShiftedPt::from_f64(a[2] * scale, a[3] * scale),
+        ShiftedPt::from_f64(a[0], a[1]),
+        ShiftedPt::from_f64(a[2], a[3]),
     );
     let sb = ShiftedSeg::from_shifted(
-        ShiftedPt::from_f64(b[0] * scale, b[1] * scale),
-        ShiftedPt::from_f64(b[2] * scale, b[3] * scale),
+        ShiftedPt::from_f64(b[0], b[1]),
+        ShiftedPt::from_f64(b[2], b[3]),
     );
     torus_segments_intersect(&sa, &sb)
 }
@@ -119,8 +114,42 @@ pub(super) fn intersection_x_dd_f64(a: [f64; 4], b: [f64; 4], lo: f64, hi: f64) 
     let pa2 = ShiftedPt::from_f64(a[2], a[3]);
     let pb1 = ShiftedPt::from_f64(b[0], b[1]);
     let pb2 = ShiftedPt::from_f64(b[2], b[3]);
-    let (xi, _) = dd_intersection_xy(pa1, pa2, pb1, pb2)?;
-    let x = xi.to_f64().clamp(lo, hi);
+    if det_sign_shifted(pa1, pa2, pb1, pb2) == Ordering::Equal {
+        return None;
+    }
+    let max_abs = a
+        .iter()
+        .chain(b.iter())
+        .fold(0.0_f64, |m, &v| m.max(v.abs()));
+    // Rescale extreme exponents into [1e-108, 1e100] for DD guess, then refine unscaled exactly.
+    let steps = match max_abs {
+        x if x > 1e200 => -2,
+        x if x > 1e100 => -1,
+        x if x > 0.0 && x < 1e-200 => 2,
+        x if x > 0.0 && x < 1e-100 => 1,
+        _ => 0,
+    };
+    let guess = if steps == 0 {
+        dd_intersection_xy(pa1, pa2, pb1, pb2).map(|(xi, _)| xi.to_f64())
+    } else {
+        let s = |v: f64| scale_pow2_512(v, steps);
+        let sa1 = ShiftedPt::from_f64(s(a[0]), s(a[1]));
+        let sa2 = ShiftedPt::from_f64(s(a[2]), s(a[3]));
+        let sb1 = ShiftedPt::from_f64(s(b[0]), s(b[1]));
+        let sb2 = ShiftedPt::from_f64(s(b[2]), s(b[3]));
+        dd_intersection_xy(sa1, sa2, sb1, sb2).map(|(xi, _)| {
+            let raw = xi.to_f64();
+            if raw.is_finite() {
+                scale_pow2_512(raw, -steps)
+            } else {
+                raw
+            }
+        })
+    };
+    let x = guess
+        .filter(|v| !v.is_nan())
+        .unwrap_or(0.5 * lo + 0.5 * hi)
+        .clamp(lo, hi);
     Some(super::cross_pred::refine_xi_ceil(
         pa1, pa2, pb1, pb2, x, lo, hi,
     ))
@@ -208,7 +237,7 @@ fn exact_coord_cmp_axis(
     let det_dd = dd_sub(p_l, p_r);
     let det_sum = p_l.hi.abs() + p_r.hi.abs();
 
-    if det_sum > 1e-260 && det_dd.hi.abs() > 1e-25 * det_sum {
+    if det_sum.is_finite() && det_sum > 1e-260 && det_dd.hi.abs() > 1e-25 * det_sum {
         let u = bx1.sub_f64_dd(bound);
         let v = ax1.sub_f64_dd(bound);
         let w = ay1.delta_dd(by1);
@@ -217,7 +246,7 @@ fn exact_coord_cmp_axis(
         let t3 = dd_mul(w, dd_mul(dxa, dxb));
         let num = dd_sub(dd_sub(t1, t2), t3);
         let num_sum = t1.hi.abs() + t2.hi.abs() + t3.hi.abs();
-        if num_sum > 1e-260 && num.hi.abs() > 1e-25 * num_sum {
+        if num_sum.is_finite() && num_sum > 1e-260 && num.hi.abs() > 1e-25 * num_sum {
             let same_sign = (num.hi > 0.0) == (det_dd.hi > 0.0);
             return Some(if same_sign {
                 Ordering::Greater
@@ -377,26 +406,10 @@ pub(super) fn dd_intersection_xy(
     if det.is_zero() {
         let sa = ShiftedSeg::from_shifted(a1, a2);
         let sb = ShiftedSeg::from_shifted(b1, b2);
-        let x_lo = if sa.x_min.cmp_exact(sb.x_min) == Ordering::Greater {
-            sa.x_min
-        } else {
-            sb.x_min
-        };
-        let x_hi = if sa.x_max.cmp_exact(sb.x_max) == Ordering::Less {
-            sa.x_max
-        } else {
-            sb.x_max
-        };
-        let y_lo = if sa.y_min.cmp_exact(sb.y_min) == Ordering::Greater {
-            sa.y_min
-        } else {
-            sb.y_min
-        };
-        let y_hi = if sa.y_max.cmp_exact(sb.y_max) == Ordering::Less {
-            sa.y_max
-        } else {
-            sb.y_max
-        };
+        let x_lo = sa.x_min.max_exact(sb.x_min);
+        let x_hi = sa.x_max.min_exact(sb.x_max);
+        let y_lo = sa.y_min.max_exact(sb.y_min);
+        let y_hi = sa.y_max.min_exact(sb.y_max);
         let half = Dd::from_f64(0.5);
         return Some((
             dd_mul(dd_add(x_lo.to_dd(), x_hi.to_dd()), half),
@@ -441,7 +454,7 @@ pub(super) fn dd_intersection_xy(
             } else {
                 base.hi.signum()
             };
-            Dd::from_f64(sign * 1e300)
+            Dd::from_f64(sign * f64::MAX)
         }
     };
 
