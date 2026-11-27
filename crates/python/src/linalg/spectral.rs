@@ -27,7 +27,7 @@ use crate::layout_nd::PyLayoutNd;
 
 pub(super) fn validate_koren_params(
     tol: f64,
-    max_iters: usize,
+    max_iterations: usize,
     target_std: Option<f64>,
 ) -> CoreResult<()> {
     if !tol.is_finite() {
@@ -36,8 +36,8 @@ pub(super) fn validate_koren_params(
     if tol <= 0.0 {
         return Err(CoreError::invalid_input("tol must be strictly positive"));
     }
-    if max_iters == 0 {
-        return Err(CoreError::invalid_input("max_iters must be >= 1"));
+    if max_iterations == 0 {
+        return Err(CoreError::invalid_input("max_iterations must be >= 1"));
     }
     if let Some(t_std) = target_std {
         if !t_std.is_finite() {
@@ -75,25 +75,25 @@ fn select_maxmin_sp_pivots<'py>(
 /// Compute Koren's degree-normalized 2D spectral initialization from `L_sym`.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, *, target_std = Some(StrictF64(1.0)), tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42), dtype = ScalarDtype::F64),
-    text_signature = "(graph, *, target_std=1.0, tol=1e-4, max_iters=300, seed=42, dtype='float64')"
+    signature = (graph, *, target_std = Some(StrictF64(1.0)), tol = StrictF64(1e-4), max_iterations = StrictUsize(300), seed = StrictU64(42), dtype = ScalarDtype::F64),
+    text_signature = "(graph, *, target_std=1.0, tol=1e-4, max_iterations=300, seed=42, dtype='float64')"
 )]
 fn koren_spectral_init(
     py: Python<'_>,
     graph: &PyCsrGraph,
     target_std: Option<StrictF64>,
     tol: StrictF64,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PyLayout2d> {
     let t_std = target_std.map(|v| v.0);
-    validate_koren_params(tol.0, max_iters.0, t_std).map_err(core_error_to_py)?;
+    validate_koren_params(tol.0, max_iterations.0, t_std).map_err(core_error_to_py)?;
     let g = graph.inner();
     py.detach(|| match dtype {
-        ScalarDtype::F64 => linalg_koren::<f64, f64>(&*g, t_std, tol.0, max_iters.0, seed.0)
+        ScalarDtype::F64 => linalg_koren::<f64, f64>(&*g, t_std, tol.0, max_iterations.0, seed.0)
             .map(|l| PyLayout2d::from_f64_layout(&l)),
-        ScalarDtype::F32 => linalg_koren::<f64, f32>(&*g, t_std, tol.0, max_iters.0, seed.0)
+        ScalarDtype::F32 => linalg_koren::<f64, f32>(&*g, t_std, tol.0, max_iterations.0, seed.0)
             .map(|l| PyLayout2d::from_f32_layout(&l)),
     })
     .map_err(core_error_to_py)
@@ -109,20 +109,20 @@ type EigenpairsReturn<'py> = (
 /// Compute the smallest `n_modes` nontrivial eigenpairs of `L_sym`.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, n_modes = StrictUsize(16), *, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42)),
-    text_signature = "(graph, n_modes=16, *, tol=1e-4, max_iters=300, seed=42)"
+    signature = (graph, n_modes = StrictUsize(16), *, tol = StrictF64(1e-4), max_iterations = StrictUsize(300), seed = StrictU64(42)),
+    text_signature = "(graph, n_modes=16, *, tol=1e-4, max_iterations=300, seed=42)"
 )]
 fn smallest_laplacian_eigenpairs<'py>(
     py: Python<'py>,
     graph: &PyCsrGraph,
     n_modes: StrictUsize,
     tol: StrictF64,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
 ) -> PyResult<EigenpairsReturn<'py>> {
     let g = graph.inner();
     let res = py
-        .detach(|| linalg_smallest_eigenpairs(&*g, n_modes.0, tol.0, max_iters.0, seed.0))
+        .detach(|| linalg_smallest_eigenpairs(&*g, n_modes.0, tol.0, max_iterations.0, seed.0))
         .map_err(core_error_to_py)?;
     let vectors_arr = Array2::from_shape_vec((res.num_nodes, res.num_modes), res.vectors)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -138,8 +138,8 @@ fn smallest_laplacian_eigenpairs<'py>(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, dims = StrictUsize(2), *, eig_eps = StrictF64(1e-10), tol = StrictF64(1e-6), max_iters = StrictUsize(1000), seed = StrictU64(42), degree_normalize = true, dtype = ScalarDtype::F64),
-    text_signature = "(graph, dims=2, *, eig_eps=1e-10, tol=1e-6, max_iters=1000, seed=42, degree_normalize=True, dtype='float64')"
+    signature = (graph, dims = StrictUsize(2), *, eig_eps = StrictF64(1e-10), tol = StrictF64(1e-6), max_iterations = StrictUsize(1000), seed = StrictU64(42), degree_normalize = true, dtype = ScalarDtype::F64),
+    text_signature = "(graph, dims=2, *, eig_eps=1e-10, tol=1e-6, max_iterations=1000, seed=42, degree_normalize=True, dtype='float64')"
 )]
 fn rd_mds(
     py: Python<'_>,
@@ -147,7 +147,7 @@ fn rd_mds(
     dims: StrictUsize,
     eig_eps: StrictF64,
     tol: StrictF64,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
     degree_normalize: bool,
     dtype: ScalarDtype,
@@ -156,7 +156,7 @@ fn rd_mds(
     let cfg = RdMds::with_dims(dims.0)
         .eig_eps(eig_eps.0)
         .tol(tol.0)
-        .max_iters(max_iters.0)
+        .max_iters(max_iterations.0)
         .seed(seed.0)
         .degree_normalize(degree_normalize);
     py.detach(|| match dtype {
@@ -236,15 +236,15 @@ type DiffusionEmbeddingPy<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1
 /// Compute effective-resistance spectral embedding `(coords, lambdas_kept)`.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, dim = StrictUsize(16), *, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42), eig_eps = StrictF64(1e-10)),
-    text_signature = "(graph, dim=16, *, tol=1e-4, max_iters=300, seed=42, eig_eps=1e-10)"
+    signature = (graph, dim = StrictUsize(16), *, tol = StrictF64(1e-4), max_iterations = StrictUsize(300), seed = StrictU64(42), eig_eps = StrictF64(1e-10)),
+    text_signature = "(graph, dim=16, *, tol=1e-4, max_iterations=300, seed=42, eig_eps=1e-10)"
 )]
 fn compute_resistance_embedding<'py>(
     py: Python<'py>,
     graph: &PyCsrGraph,
     dim: StrictUsize,
     tol: StrictF64,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
     eig_eps: StrictF64,
 ) -> PyResult<ResistanceEmbeddingPy<'py>> {
@@ -252,7 +252,7 @@ fn compute_resistance_embedding<'py>(
     let n = g.num_nodes();
     let (coords, lambdas) = py
         .detach(|| {
-            nb_compute_resistance_embedding(&*g, dim.0, tol.0, max_iters.0, seed.0, eig_eps.0)
+            nb_compute_resistance_embedding(&*g, dim.0, tol.0, max_iterations.0, seed.0, eig_eps.0)
         })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();
@@ -268,8 +268,8 @@ fn compute_resistance_embedding<'py>(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, dim = StrictUsize(16), *, p = StrictF64(0.5), t = None, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42)),
-    text_signature = "(graph, dim=16, *, p=0.5, t=None, tol=1e-4, max_iters=300, seed=42)"
+    signature = (graph, dim = StrictUsize(16), *, p = StrictF64(0.5), t = None, tol = StrictF64(1e-4), max_iterations = StrictUsize(300), seed = StrictU64(42)),
+    text_signature = "(graph, dim=16, *, p=0.5, t=None, tol=1e-4, max_iterations=300, seed=42)"
 )]
 fn compute_diffusion_embedding<'py>(
     py: Python<'py>,
@@ -278,7 +278,7 @@ fn compute_diffusion_embedding<'py>(
     p: StrictF64,
     t: Option<StrictF64>,
     tol: StrictF64,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
 ) -> PyResult<DiffusionEmbeddingPy<'py>> {
     let g = graph.inner();
@@ -286,7 +286,7 @@ fn compute_diffusion_embedding<'py>(
     let t_opt = t.map(|v| v.0);
     let (coords, lambdas, t_used) = py
         .detach(|| {
-            nb_compute_diffusion_embedding(&*g, dim.0, p.0, t_opt, tol.0, max_iters.0, seed.0)
+            nb_compute_diffusion_embedding(&*g, dim.0, p.0, t_opt, tol.0, max_iterations.0, seed.0)
         })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();

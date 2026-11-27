@@ -113,7 +113,7 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
             self.assertAlmostEqual(float(np.std(coords)), 1.0, places=5)
 
             l_koren = eg.koren_spectral_init(
-                g_grid, target_std=2.5, tol=1e-5, max_iters=300, seed=42, dtype=dtype_str
+                g_grid, target_std=2.5, tol=1e-5, max_iterations=300, seed=42, dtype=dtype_str
             )
             self.assertEqual(len(l_koren), 25)
             self.assertEqual(l_koren.dtype, dtype_str)
@@ -156,7 +156,7 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
         )
         self.assert_no_panic_raises((ValueError,), lambda: eg.koren_spectral_init(g_grid, tol=0.0))
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.koren_spectral_init(g_grid, max_iters=0)
+            (ValueError,), lambda: eg.koren_spectral_init(g_grid, max_iterations=0)
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.koren_spectral_init(g0, tol=float("nan"))
@@ -191,7 +191,7 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
         evals_ref, _ = np.linalg.eigh(l_sym_s)
 
         lambdas, vecs, inv_sqrt_deg, used_dense = eg.smallest_laplacian_eigenpairs(
-            g_small, n_modes=4, tol=1e-8, max_iters=300, seed=42
+            g_small, n_modes=4, tol=1e-8, max_iterations=300, seed=42
         )
         self.assertTrue(used_dense)
         self.assertEqual(lambdas.shape, (4,))
@@ -211,7 +211,7 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
             evals_t_ref = np.linalg.eigvalsh(l_sym_t)
 
         lam_t, vec_t, inv_t, used_dense_t = eg.smallest_laplacian_eigenpairs(
-            g_torus, n_modes=6, tol=1e-6, max_iters=400, seed=42
+            g_torus, n_modes=6, tol=1e-6, max_iterations=400, seed=42
         )
         self.assertFalse(used_dense_t)
         self.assertEqual(lam_t.shape, (6,))
@@ -386,7 +386,7 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
                 g, degree=25, num_landmarks=16, seed=42
             ).table()
             e = eg.chebyshev_dog_jl_embedding(g, degree=25, jl_dim=16, seed=42)
-            _ = eg.smallest_laplacian_eigenpairs(g, n_modes=4, tol=1e-4, max_iters=100, seed=42 + idx)
+            _ = eg.smallest_laplacian_eigenpairs(g, n_modes=4, tol=1e-4, max_iterations=100, seed=42 + idx)
             return l, t, e
 
         with ThreadPoolExecutor(max_workers=4) as pool:

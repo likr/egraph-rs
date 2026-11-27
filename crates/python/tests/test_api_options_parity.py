@@ -298,9 +298,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
                 k=4,
                 uniform_perplexity=3.0,
                 backend="fft",
-                iterations_stage1=2,
-                iterations_stage2=2,
-                iterations_stage3=2,
+                stage_iterations=(2, 2, 2),
                 seed=42,
                 dtype=dtype,
             )

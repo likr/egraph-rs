@@ -188,9 +188,7 @@ class TestInteropEndToEndWorkflows(unittest.TestCase):
         tsnet = eg.TsNetSolver.pure_2hop(
             csr,
             backend="exact",
-            iterations_stage1=10,
-            iterations_stage2=10,
-            iterations_stage3=10,
+            stage_iterations=(10, 10, 10),
             seed=42,
         )
         layout_tsnet = eg.Layout2d.from_coords(init.coords(copy=True))

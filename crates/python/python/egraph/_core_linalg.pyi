@@ -141,7 +141,7 @@ def compute_diffusion_embedding(
     p: float = 0.5,
     t: float | None = None,
     tol: float = 1e-4,
-    max_iters: int = 300,
+    max_iterations: int = 300,
     seed: int = 42,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]: ...
 
@@ -150,7 +150,7 @@ def compute_resistance_embedding(
     dim: int = 16,
     *,
     tol: float = 1e-4,
-    max_iters: int = 300,
+    max_iterations: int = 300,
     seed: int = 42,
     eig_eps: float = 1e-10,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
@@ -185,7 +185,7 @@ def koren_spectral_init(
     *,
     target_std: float | None = 1.0,
     tol: float = 1e-4,
-    max_iters: int = 300,
+    max_iterations: int = 300,
     seed: int = 42,
     dtype: _DtypeLike = "float64",
 ) -> Layout2d: ...
@@ -229,7 +229,7 @@ def rd_mds(
     *,
     eig_eps: float = 1e-10,
     tol: float = 1e-6,
-    max_iters: int = 1000,
+    max_iterations: int = 1000,
     seed: int = 42,
     degree_normalize: bool = True,
     dtype: _DtypeLike = "float64",
@@ -263,7 +263,7 @@ def smallest_laplacian_eigenpairs(
     n_modes: int = 16,
     *,
     tol: float = 1e-4,
-    max_iters: int = 300,
+    max_iterations: int = 300,
     seed: int = 42,
 ) -> tuple[
     npt.NDArray[np.float64],

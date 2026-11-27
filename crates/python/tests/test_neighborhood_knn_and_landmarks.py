@@ -358,7 +358,7 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
         h_0d, _ = eg.build_hybrid_adaptive_knn(g13, coords13, np.array(3.0), k=4, max_row_k=6)
         self.assertEqual(h_0d.num_nodes, 13)
         ts_0d = eg.TsNetSolver.from_knn(
-            knn, np.array(3.0), backend="bh", iterations_stage1=1, iterations_stage2=1, iterations_stage3=1
+            knn, np.array(3.0), backend="bh", stage_iterations=(1, 1, 1)
         )
         self.assertEqual(ts_0d.num_nodes, 16)
 

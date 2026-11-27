@@ -161,9 +161,6 @@ pub(super) fn build_from_probabilities_with_stages(
         stage_vec.push(st.inner);
     }
     let opts = TsNetStageOpts {
-        iterations_stage1: 1,
-        iterations_stage2: 1,
-        iterations_stage3: 1,
         stage_iterations: None,
         exaggeration: 1.0,
         lambda_c_stage1: 0.0,

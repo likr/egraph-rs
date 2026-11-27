@@ -60,9 +60,7 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
                     lambda: eg.TsNetSolver.pure_2hop(
                         g,
                         backend="auto",
-                        iterations_stage1=2,
-                        iterations_stage2=2,
-                        iterations_stage3=2,
+                        stage_iterations=(2, 2, 2),
                         seed=42,
                         dtype=dtype_str,
                     ),
@@ -109,9 +107,7 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
                     lambda: eg.TsNetSolver.from_graph_row_normalized(
                         g,
                         backend="auto",
-                        iterations_stage1=2,
-                        iterations_stage2=2,
-                        iterations_stage3=2,
+                        stage_iterations=(2, 2, 2),
                         seed=42,
                         dtype=dtype_str,
                     ),
@@ -181,9 +177,7 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
             max_bridge_degree=12,
             backend="auto",
             learning_rate_divisor=3.0,
-            iterations_stage1=2,
-            iterations_stage2=2,
-            iterations_stage3=2,
+            stage_iterations=(2, 2, 2),
         )
         self.assertEqual(ts_rw.run(eg.Layout2d.init(16, seed=7)), "completed")
 

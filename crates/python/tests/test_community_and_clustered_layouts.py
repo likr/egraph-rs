@@ -209,6 +209,13 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.BackboneSolver(g, layout_mode="invalid")
         )
+        dg = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (2, 3), (0, 3)], directed=True)
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.extract_quadrilateral_backbone(dg)
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.BackboneSolver(dg)
+        )
 
     def test_cluster_refine_and_group_in_a_box(self) -> None:
         # Two clusters with two swapped points so ClusterRefine moves them back

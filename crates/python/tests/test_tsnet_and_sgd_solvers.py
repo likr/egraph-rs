@@ -51,9 +51,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
                 kwargs: dict[str, Any] = dict(
                     backend=backend,
-                    iterations_stage1=4,
-                    iterations_stage2=4,
-                    iterations_stage3=4,
+                    stage_iterations=(4, 4, 4),
                     seed=42,
                     dtype=dtype_str,
                 )
@@ -123,27 +121,27 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             stage_pairs: list[tuple[eg.TsNetSolver, eg.TsNetSolver]] = [
                 (
                     eg.TsNetSolver(g, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
-                    eg.TsNetSolver.pure_2hop(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                    eg.TsNetSolver.pure_2hop(g, backend="exact", stage_iterations=si_list, dtype=dtype_str),
                 ),
                 (
+                    eg.TsNetSolver.pure_2hop(g, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
                     eg.TsNetSolver.pure_2hop(g, backend="exact", stage_iterations=si_list, dtype=dtype_str),
-                    eg.TsNetSolver.pure_2hop(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
                 ),
                 (
                     eg.TsNetSolver.from_knn(knn, perps, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
-                    eg.TsNetSolver.from_knn(knn, perps, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                    eg.TsNetSolver.from_knn(knn, perps, backend="exact", stage_iterations=si_list, dtype=dtype_str),
                 ),
                 (
+                    eg.TsNetSolver.from_probabilities(probs, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
                     eg.TsNetSolver.from_probabilities(probs, backend="exact", stage_iterations=si_list, dtype=dtype_str),
-                    eg.TsNetSolver.from_probabilities(probs, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
                 ),
                 (
                     eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
-                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", stage_iterations=si_list, dtype=dtype_str),
                 ),
                 (
+                    eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
                     eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", stage_iterations=si_list, dtype=dtype_str),
-                    eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
                 ),
             ]
             for s_si, s_exp in stage_pairs:
@@ -164,10 +162,10 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             )
 
         # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
-        s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
-        s_knn_scalar = eg.TsNetSolver.from_knn(knn, 8.0, backend="bh", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
+        s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", stage_iterations=(2, 2, 2))
+        s_knn_scalar = eg.TsNetSolver.from_knn(knn, 8.0, backend="bh", stage_iterations=(2, 2, 2))
         probs = eg.compute_knn_probabilities(knn, perps)
-        s_probs = eg.TsNetSolver.from_probabilities(probs, backend="l", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
+        s_probs = eg.TsNetSolver.from_probabilities(probs, backend="l", stage_iterations=(2, 2, 2))
 
         for solver in (s_knn_vec, s_knn_scalar, s_probs):
             lay = eg.Layout2d.from_coords(init_coords)
@@ -181,9 +179,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                     w2=0.5,
                     max_2hop_per_node=max_2hop,
                     backend="fft",
-                    iterations_stage1=2,
-                    iterations_stage2=2,
-                    iterations_stage3=2,
+                    stage_iterations=(2, 2, 2),
                     seed=42,
                     dtype=dtype_str,
                 )
@@ -192,9 +188,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                     w2=0.5,
                     max_2hop_per_node=max_2hop,
                     backend="fft",
-                    iterations_stage1=2,
-                    iterations_stage2=2,
-                    iterations_stage3=2,
+                    stage_iterations=(2, 2, 2),
                     seed=42,
                     dtype=dtype_str,
                 )
@@ -215,12 +209,16 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, w2=-0.1))
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, degree_beta=-0.1))
         rn_beta = eg.TsNetSolver.from_graph_row_normalized(
-            g, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, backend="fft", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2, seed=42
+            g, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, backend="fft", stage_iterations=(2, 2, 2), seed=42
         )
         l_rn_beta = eg.Layout2d.from_coords(init_coords)
         self.assertEqual(rn_beta.run(l_rn_beta), "completed")
         self.assertTrue(l_rn_beta.is_all_finite())
         self.assert_no_panic_raises((ValueError,), lambda: s_probs.step(eg.Layout2d.zeros(3)))
+        self.assert_no_panic_raises(
+            (TypeError,),
+            lambda: eg.TsNetSolver(g, iterations_stage1=2),  # type: ignore[call-arg]
+        )
 
     def test_tsnet_solver_jacobi_precondition_star_hub(self) -> None:
         n = 20
@@ -236,9 +234,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         for dtype_str in ("float64", "float32"):
             common: dict[str, Any] = {
                 "backend": "exact",
-                "iterations_stage1": 4,
-                "iterations_stage2": 2,
-                "iterations_stage3": 2,
+                "stage_iterations": (4, 2, 2),
                 "seed": 42,
                 "dtype": dtype_str,
             }

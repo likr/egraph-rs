@@ -193,9 +193,6 @@ pub(super) fn parse_tsnet_sampling_mode(raw: &str) -> Result<TwoHopSamplingMode,
 }
 
 pub(super) struct TsNetStageOpts<'a, 'py> {
-    pub(super) iterations_stage1: usize,
-    pub(super) iterations_stage2: usize,
-    pub(super) iterations_stage3: usize,
     pub(super) stage_iterations: Option<&'a Bound<'py, PyAny>>,
     pub(super) exaggeration: f64,
     pub(super) lambda_c_stage1: f64,
@@ -269,11 +266,7 @@ pub(super) fn build_tsnet_config(
         InterpolationOrder::from_order(opts.interpolation_order).map_err(core_error_to_py)?;
     let stage_iterations = match opts.stage_iterations {
         Some(obj) if !obj.is_none() => parse_stage_iterations(obj)?,
-        _ => [
-            opts.iterations_stage1,
-            opts.iterations_stage2,
-            opts.iterations_stage3,
-        ],
+        _ => [250, 250, 500],
     };
     let cfg = TsNetConfig {
         backend: parsed_backend,
