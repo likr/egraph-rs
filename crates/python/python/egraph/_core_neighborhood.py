@@ -3,6 +3,7 @@ from __future__ import annotations
 from egraph._core import (
     DogVaradhanLandmarks as DogVaradhanLandmarks,
     KnnGraph as KnnGraph,
+    RhghLandmarks as RhghLandmarks,
     Sparse12HopPairs as Sparse12HopPairs,
     SparseProbabilities as SparseProbabilities,
     apply_relative_distance_floor as apply_relative_distance_floor,
@@ -31,6 +32,7 @@ from egraph._core import (
 __all__ = [
     "DogVaradhanLandmarks",
     "KnnGraph",
+    "RhghLandmarks",
     "Sparse12HopPairs",
     "SparseProbabilities",
     "apply_relative_distance_floor",

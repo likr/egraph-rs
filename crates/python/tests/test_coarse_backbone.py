@@ -159,7 +159,7 @@ class TestCoarseBackbone(unittest.TestCase):
             min_degree=1,
             jl_dim=8,
             degree_weight_beta=0.5,
-            t_max=10,
+            iterations=10,
             seed=42,
         )
         l_star = eg.Layout2d.init(17, seed=42)
@@ -170,9 +170,7 @@ class TestCoarseBackbone(unittest.TestCase):
         solver, layout, bb = eg.SgdSolver.pacmap_graph_with_backbone(
             fem,
             n_neighbors=12,
-            phase1_iters=80,
-            phase2_iters=80,
-            phase3_iters=150,
+            phase_iterations=(80, 80, 150),
             num_landmarks=24,
             max_coarse_nodes=16,
             coarse_t_max=60,

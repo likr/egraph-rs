@@ -57,29 +57,29 @@ class TestClustering(unittest.TestCase):
             ],
             dtype=np.float64,
         )
-        r1 = eg.kmeans_plus_plus(pts, k=2, max_iters=100, tol=1e-4, n_init=3, seed=42)
+        r1 = eg.kmeans_plus_plus(pts, k=2, max_iterations=100, tol=1e-4, n_init=3, seed=42)
         r2 = eg.kmeans_plus_plus(pts.astype(np.float32), k=2, n_init=3, seed=42)
-        labels1 = r1["labels"]
-        centroids1 = r1["centroids"]
+        labels1 = r1.labels
+        centroids1 = r1.centroids
         self.assertEqual(labels1.dtype, np.uint32)
         self.assertEqual(centroids1.dtype, np.float64)
         self.assertEqual(centroids1.shape, (2, 2))
         np.testing.assert_array_equal(labels1, np.array([0, 0, 0, 1, 1, 1], dtype=np.uint32))
-        np.testing.assert_array_equal(labels1, r2["labels"])
-        self.assertTrue(bool(r1["converged"]))
-        self.assertLess(float(r1["inertia"]), 1.0)
-        self.assertGreaterEqual(int(r1["iterations"]), 1)
+        np.testing.assert_array_equal(labels1, r2.labels)
+        self.assertTrue(r1.converged)
+        self.assertLess(float(r1.inertia), 1.0)
+        self.assertGreaterEqual(int(r1.iterations), 1)
 
         # Python list input and k=1 / k=n boundary
         r_list = eg.kmeans_plus_plus([[0.0, 0.0], [1.0, 0.0]], k=1, seed=42)
-        np.testing.assert_array_equal(r_list["labels"], np.array([0, 0], dtype=np.uint32))
+        np.testing.assert_array_equal(r_list.labels, np.array([0, 0], dtype=np.uint32))
         r_kn = eg.kmeans_plus_plus([[0.0, 0.0], [1.0, 0.0]], k=2, seed=42)
-        np.testing.assert_array_equal(r_kn["labels"], np.array([0, 1], dtype=np.uint32))
+        np.testing.assert_array_equal(r_kn.labels, np.array([0, 1], dtype=np.uint32))
 
         # Validation errors
         self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, k=0))
         self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, k=10))
-        self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, max_iters=0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, max_iterations=0))
         self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, n_init=0))
         self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(pts, tol=-0.1))
         self.assert_no_panic_raises((ValueError,), lambda: eg.kmeans_plus_plus(np.empty((0, 2)), k=1))
@@ -91,8 +91,11 @@ class TestClustering(unittest.TestCase):
 
     def test_spectral_clustering_barbell_and_directed_rejection(self) -> None:
         barbell = _make_barbell(6, bridge_len=1)
-        l1 = eg.spectral_clustering(barbell, k=2, seed=42)
-        l2 = eg.spectral_clustering(barbell, k=2, seed=42)
+        res1 = eg.spectral_clustering(barbell, k=2, seed=42)
+        res2 = eg.spectral_clustering(barbell, k=2, seed=42)
+        l1 = res1.labels
+        l2 = res2.labels
+        self.assertEqual(res1.num_clusters, 2)
         self.assertEqual(l1.dtype, np.uint32)
         self.assertEqual(l1.shape, (12,))
         np.testing.assert_array_equal(l1, l2)
@@ -101,7 +104,7 @@ class TestClustering(unittest.TestCase):
 
         # Larger barbell (> 48 nodes) exercises Lanczos path
         large_barbell = _make_barbell(30, bridge_len=1)
-        l_large = eg.spectral_clustering(large_barbell, k=2, seed=42)
+        l_large = eg.spectral_clustering(large_barbell, k=2, seed=42).labels
         self.assertEqual(l_large.shape, (60,))
         np.testing.assert_array_equal(l_large[:30], np.zeros(30, dtype=np.uint32))
         np.testing.assert_array_equal(l_large[30:], np.ones(30, dtype=np.uint32))
@@ -117,15 +120,17 @@ class TestClustering(unittest.TestCase):
         barbell = _make_barbell(6, bridge_len=1)
         louv1 = eg.louvain_communities(barbell, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)
         louv2 = eg.louvain_communities(barbell, seed=42)
-        self.assertEqual(louv1["num_communities"], 2)
-        self.assertGreater(float(louv1["modularity"]), 0.4)
-        self.assertGreaterEqual(int(louv1["passes"]), 1)
-        self.assertEqual(louv1["labels"].dtype, np.uint32)
-        np.testing.assert_array_equal(louv1["labels"], np.array([0] * 6 + [1] * 6, dtype=np.uint32))
-        np.testing.assert_array_equal(louv1["labels"], louv2["labels"])
+        self.assertEqual(louv1.num_communities, 2)
+        self.assertGreater(float(louv1.modularity), 0.4)
+        self.assertGreaterEqual(int(louv1.passes), 1)
+        self.assertEqual(louv1.labels.dtype, np.uint32)
+        np.testing.assert_array_equal(louv1.labels, np.array([0] * 6 + [1] * 6, dtype=np.uint32))
+        np.testing.assert_array_equal(louv1.labels, louv2.labels)
 
-        lp1 = eg.label_propagation(barbell, max_iters=100, seed=42)
-        lp2 = eg.label_propagation(barbell, max_iters=100, seed=42)
+        lp_res1 = eg.label_propagation(barbell, max_iterations=100, seed=42)
+        lp_res2 = eg.label_propagation(barbell, max_iterations=100, seed=42)
+        lp1 = lp_res1.labels
+        lp2 = lp_res2.labels
         self.assertEqual(lp1.dtype, np.uint32)
         np.testing.assert_array_equal(lp1, lp2)
         np.testing.assert_array_equal(lp1[:6], np.zeros(6, dtype=np.uint32))
@@ -136,7 +141,7 @@ class TestClustering(unittest.TestCase):
         self.assert_no_panic_raises((ValueError,), lambda: eg.label_propagation(g_dir))
         self.assert_no_panic_raises((ValueError,), lambda: eg.louvain_communities(barbell, max_passes=0))
         self.assert_no_panic_raises((ValueError,), lambda: eg.louvain_communities(barbell, resolution=-1.0))
-        self.assert_no_panic_raises((ValueError,), lambda: eg.label_propagation(barbell, max_iters=0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.label_propagation(barbell, max_iterations=0))
 
     def test_coarsen_and_project_clustered_layout_f64_and_f32(self) -> None:
         edges = [(0, 1), (1, 2), (0, 2), (3, 4), (4, 5), (3, 5), (0, 3), (2, 4)]
@@ -212,7 +217,6 @@ class TestManifoldLayout2d(unittest.TestCase):
             mz = eg.ManifoldLayout2d.zeros(raw_kind, 4, dtype="float32")
             self.assertEqual(mz.kind, canonical)
             self.assertEqual(mz.dtype, "float32")
-            self.assertEqual(mz.len(), 4)
             self.assertEqual(len(mz), 4)
             self.assertFalse(mz.is_empty())
             self.assertIn("ManifoldLayout2d(", repr(mz))
@@ -314,7 +318,7 @@ class TestManifoldLayout2d(unittest.TestCase):
         self.assertEqual(sig_km.parameters["k"].default, 2)
         self.assertEqual(sig_km.parameters["seed"].default, 42)
         sig_ref = inspect.signature(eg.SpatialIntruderRefiner)
-        self.assertEqual(sig_ref.parameters["rounds"].default, 4)
+        self.assertEqual(sig_ref.parameters["iterations"].default, 4)
         self.assertEqual(sig_ref.parameters["hinge_fp"].default, True)
 
 

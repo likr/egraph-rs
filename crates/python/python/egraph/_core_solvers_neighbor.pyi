@@ -1,27 +1,50 @@
 from __future__ import annotations
 
-from typing import final
+from typing import Any, Sequence, final
 
-from ._core_core import CsrGraph, Layout2d
-from ._core_neighborhood import (
-    DogVaradhanLandmarks,
-    KnnGraph,
-    SparseProbabilities,
-)
+from ._core_core import CsrGraph, Layout2d, LayoutNd
+from ._core_manifold import ManifoldLayout2d
+from ._core_neighborhood import DogVaradhanLandmarks, KnnGraph, SparseProbabilities
 from ._core_types import _DtypeLike, _WeightArrayLike
+
+_AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d
 
 __all__ = [
     "GuMapSolver",
     "TsNetSolver",
+    "TsNetStage",
 ]
+
+@final
+class TsNetStage:
+    def __new__(
+        cls,
+        iterations: int,
+        *,
+        exaggeration: float = 1.0,
+        lambda_kl: float = 1.0,
+        lambda_c: float = 0.0,
+        lambda_r: float = 0.0,
+    ) -> TsNetStage: ...
+    @property
+    def iterations(self) -> int: ...
+    @property
+    def exaggeration(self) -> float: ...
+    @property
+    def lambda_kl(self) -> float: ...
+    @property
+    def lambda_c(self) -> float: ...
+    @property
+    def lambda_r(self) -> float: ...
+    def __repr__(self) -> str: ...
 
 @final
 class GuMapSolver:
     @staticmethod
-    def from_fuzzy_set(
-        probs: SparseProbabilities,
+    def from_knn(
+        knn: KnnGraph,
         *,
-        n_epochs: int = 200,
+        iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -35,10 +58,29 @@ class GuMapSolver:
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
     @staticmethod
-    def from_knn(
-        knn: KnnGraph,
+    def from_fuzzy_set(
+        probs: SparseProbabilities,
         *,
-        n_epochs: int = 200,
+        iterations: int = 200,
+        negative_sample_rate: int = 5,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        symmetric_negative: bool = True,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> GuMapSolver: ...
+    @staticmethod
+    def from_landmarks(
+        graph: CsrGraph,
+        landmarks: DogVaradhanLandmarks,
+        max_2hop_per_node: int = 32,
+        *,
+        iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -68,7 +110,7 @@ class GuMapSolver:
         beta_floor: float | None = None,
         min_degree: int = 2,
         jl_dim: int = 64,
-        n_epochs: int = 200,
+        iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -81,28 +123,9 @@ class GuMapSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
-    @staticmethod
-    def from_landmarks(
-        graph: CsrGraph,
-        landmarks: DogVaradhanLandmarks,
-        max_2hop_per_node: int = 32,
-        *,
-        n_epochs: int = 200,
-        negative_sample_rate: int = 5,
-        learning_rate: float = 1.0,
-        min_dist: float = 0.1,
-        spread: float = 1.0,
-        a: float | None = None,
-        b: float | None = None,
-        sigma_iters: int = 64,
-        sigma_tolerance: float = 1e-5,
-        symmetric_negative: bool = True,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> GuMapSolver: ...
-    def step(self, layout: Layout2d) -> str: ...
-    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
-    def run(self, layout: Layout2d) -> str: ...
+    def step(self, layout: _AnyLayout) -> str: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
+    def run(self, layout: _AnyLayout) -> str: ...
     @property
     def status(self) -> str: ...
     @property
@@ -112,9 +135,13 @@ class GuMapSolver:
     @property
     def is_finished(self) -> bool: ...
     @property
+    def num_nodes(self) -> int: ...
+    @property
     def num_edges(self) -> int: ...
     @property
-    def num_nodes(self) -> int: ...
+    def a(self) -> float: ...
+    @property
+    def b(self) -> float: ...
     @property
     def ab(self) -> tuple[float, float]: ...
     @property
@@ -124,17 +151,10 @@ class GuMapSolver:
 @final
 class TsNetSolver:
     @staticmethod
-    def pure_2hop(
-        graph: CsrGraph,
+    def from_probabilities(
+        probs: SparseProbabilities,
         backend: str = "fft",
         *,
-        perplexity_c: float = 0.9,
-        min_perplexity: float = 5.0,
-        max_perplexity: float = 1200.0,
-        power: float = 2.0,
-        sigma_iters: int = 50,
-        sigma_tolerance: float = 1e-5,
-        row_normalize: bool = False,
         iterations_stage1: int = 250,
         iterations_stage2: int = 250,
         iterations_stage3: int = 500,
@@ -144,6 +164,26 @@ class TsNetSolver:
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
         learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
+        momentum: float = 0.8,
+        epsilon_r: float = 0.05,
+        theta: float = 0.5,
+        intervals: int = 25,
+        interpolation_order: int = 1,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        jacobi_precondition: bool = True,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> TsNetSolver: ...
+    @staticmethod
+    def from_probabilities_with_stages(
+        probs: SparseProbabilities,
+        stages: Sequence[TsNetStage],
+        backend: str = "fft",
+        *,
+        learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -175,6 +215,7 @@ class TsNetSolver:
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
         learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -187,10 +228,17 @@ class TsNetSolver:
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
     @staticmethod
-    def from_probabilities(
-        probs: SparseProbabilities,
+    def pure_2hop(
+        graph: CsrGraph,
         backend: str = "fft",
         *,
+        perplexity_c: float = 0.9,
+        min_perplexity: float = 5.0,
+        max_perplexity: float = 1200.0,
+        power: float = 2.0,
+        sigma_iters: int = 50,
+        sigma_tolerance: float = 1e-5,
+        row_normalize: bool = False,
         iterations_stage1: int = 250,
         iterations_stage2: int = 250,
         iterations_stage3: int = 500,
@@ -200,6 +248,7 @@ class TsNetSolver:
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
         learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -231,6 +280,7 @@ class TsNetSolver:
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
         learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -249,6 +299,8 @@ class TsNetSolver:
         max_2hop_per_node: int | None = None,
         *,
         degree_beta: float = 0.0,
+        mode: str = "two_step_random_walk",
+        max_bridge_degree: int | None = None,
         backend: str = "fft",
         iterations_stage1: int = 250,
         iterations_stage2: int = 250,
@@ -259,6 +311,7 @@ class TsNetSolver:
         lambda_c_stage3: float = 0.0,
         lambda_r_stage3: float = 0.0,
         learning_rate: float | None = None,
+        learning_rate_divisor: float = 3.0,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -270,9 +323,9 @@ class TsNetSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
-    def step(self, layout: Layout2d) -> str: ...
-    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
-    def run(self, layout: Layout2d) -> str: ...
+    def step(self, layout: _AnyLayout) -> str: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
+    def run(self, layout: _AnyLayout) -> str: ...
     @property
     def status(self) -> str: ...
     @property
@@ -282,8 +335,10 @@ class TsNetSolver:
     @property
     def is_finished(self) -> bool: ...
     @property
+    def resolved_backend(self) -> str: ...
+    @property
     def total_fft_2d_calls(self) -> int: ...
-    def last_fft_stats(self) -> dict[str, int] | None: ...
+    def last_fft_stats(self) -> dict[str, Any] | None: ...
     @property
     def num_nodes(self) -> int: ...
     @property

@@ -1,4 +1,4 @@
-"""Interoperability helpers between ``egraph.CsrGraph`` / ``Layout2d`` and Python graph ecosystems."""
+"""Interoperability helpers between ``egraph.CsrGraph`` / layouts and Python graph ecosystems."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from egraph._core import CsrGraph, Layout2d
+from egraph._core import CsrGraph, Layout2d, LayoutNd, ManifoldLayout2d
 
 
 def _import_scipy_sparse() -> Any:
@@ -139,7 +139,7 @@ def to_networkx(
     graph: CsrGraph,
     nodes: Sequence[Any] | None = None,
     *,
-    layout: Layout2d | None = None,
+    layout: Layout2d | LayoutNd | ManifoldLayout2d | None = None,
 ) -> Any:
     """Convert an ``egraph.CsrGraph`` to a NetworkX ``Graph`` or ``DiGraph``."""
     if not isinstance(graph, CsrGraph):
@@ -157,8 +157,10 @@ def to_networkx(
         node_list = list(range(n))
 
     if layout is not None:
-        if not isinstance(layout, Layout2d):
-            raise TypeError(f"expected Layout2d, got {type(layout).__name__}")
+        if not isinstance(layout, (Layout2d, LayoutNd, ManifoldLayout2d)):
+            raise TypeError(
+                f"expected Layout2d, LayoutNd, or ManifoldLayout2d, got {type(layout).__name__}"
+            )
         if len(layout) != n:
             raise ValueError(
                 f"layout length ({len(layout)}) must match graph.num_nodes ({n})"
@@ -168,7 +170,7 @@ def to_networkx(
     if layout is not None:
         coords = layout.coords(copy=True)
         for idx, node in enumerate(node_list):
-            out.add_node(node, pos=(float(coords[idx, 0]), float(coords[idx, 1])))
+            out.add_node(node, pos=tuple(float(v) for v in coords[idx]))
     else:
         out.add_nodes_from(node_list)
 
@@ -232,10 +234,70 @@ def from_igraph(
     )
 
 
+def to_igraph(
+    graph: CsrGraph,
+    nodes: Sequence[Any] | None = None,
+    *,
+    layout: Layout2d | LayoutNd | ManifoldLayout2d | None = None,
+) -> Any:
+    """Convert an ``egraph.CsrGraph`` to an ``igraph.Graph``."""
+    if not isinstance(graph, CsrGraph):
+        raise TypeError(f"expected CsrGraph, got {type(graph).__name__}")
+    ig = _import_igraph()
+
+    n = graph.num_nodes
+    node_list: list[Any] | None = None
+    if nodes is not None:
+        node_list = list(nodes)
+        if len(node_list) != n:
+            raise ValueError(
+                f"nodes length ({len(node_list)}) must match graph.num_nodes ({n})"
+            )
+
+    if layout is not None:
+        if not isinstance(layout, (Layout2d, LayoutNd, ManifoldLayout2d)):
+            raise TypeError(
+                f"expected Layout2d, LayoutNd, or ManifoldLayout2d, got {type(layout).__name__}"
+            )
+        if len(layout) != n:
+            raise ValueError(
+                f"layout length ({len(layout)}) must match graph.num_nodes ({n})"
+            )
+
+    indptr = graph.indptr()
+    indices = graph.indices()
+    weights = graph.weights()
+    directed = graph.is_directed
+
+    edge_list: list[tuple[int, int]] = []
+    edge_weights: list[float] = []
+    for u in range(n):
+        start = int(indptr[u])
+        end = int(indptr[u + 1])
+        for idx in range(start, end):
+            v = int(indices[idx])
+            if not directed and u > v:
+                continue
+            edge_list.append((u, v))
+            if weights is not None:
+                edge_weights.append(float(weights[idx]))
+
+    out = ig.Graph(n=n, edges=edge_list, directed=directed)
+    if weights is not None:
+        out.es["weight"] = edge_weights
+    if node_list is not None:
+        out.vs["name"] = node_list
+    if layout is not None:
+        coords = layout.coords(copy=True)
+        out.vs["pos"] = [tuple(float(v) for v in coords[idx]) for idx in range(n)]
+    return out
+
+
 __all__ = [
     "from_igraph",
     "from_networkx",
     "from_scipy_csr",
+    "to_igraph",
     "to_networkx",
     "to_scipy_csr",
 ]

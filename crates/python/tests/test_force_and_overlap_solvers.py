@@ -101,6 +101,7 @@ class TestForceAndOverlapSolvers(unittest.TestCase):
                 )
                 self.assertEqual(ll1.num_nodes, n)
                 self.assertEqual(ll1.dtype, dtype_str)
+                assert ll1.max_displacement is not None
                 self.assertGreater(ll1.max_displacement, 0.0)
                 self.assertIn("LinLogSolver", repr(ll1))
                 e_before = ll1.energy(l_run)

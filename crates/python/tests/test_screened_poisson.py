@@ -31,7 +31,6 @@ class TestScreenedPoisson(unittest.TestCase):
         xs.extend([3.23, -3.13])
         ys.extend([-2.91, 2.83])
         coords_base = np.column_stack([xs, ys])
-        bounds = [-5.0, 5.0, -5.0, 5.0]
 
         for dtype, np_dtype in (("float64", np.float64), ("float32", np.float32)):
             for exact_adjoint, rho_max in ((True, 0.05), (False, 0.0)):
@@ -46,7 +45,7 @@ class TestScreenedPoisson(unittest.TestCase):
                     dtype=dtype,
                 )
                 l_base = eg.Layout2d.from_coords(coords_base.astype(np_dtype))
-                out = field.evaluate_in_bounds(l_base, bounds)
+                out = field.evaluate_in_bounds(l_base, -5.0, -5.0, 5.0, 5.0)
                 self.assertFalse(out["early_exit_no_excess"])
                 self.assertEqual(out["fft_2d_calls"], 6 if exact_adjoint else 4)
 
@@ -60,10 +59,10 @@ class TestScreenedPoisson(unittest.TestCase):
                         cp[i, col] += eps
                         cm[i, col] -= eps
                         lp = field.evaluate_in_bounds(
-                            eg.Layout2d.from_coords(cp.astype(np_dtype)), bounds
+                            eg.Layout2d.from_coords(cp.astype(np_dtype)), -5.0, -5.0, 5.0, 5.0
                         )["energy"]
                         lm = field.evaluate_in_bounds(
-                            eg.Layout2d.from_coords(cm.astype(np_dtype)), bounds
+                            eg.Layout2d.from_coords(cm.astype(np_dtype)), -5.0, -5.0, 5.0, 5.0
                         )["energy"]
                         fd = (lp - lm) / (2.0 * eps)
                         max_grad = max(max_grad, abs(-anal_f))
@@ -101,7 +100,6 @@ class TestScreenedPoisson(unittest.TestCase):
         px, py = np.meshgrid(lin, lin)
         mask = (px * px + py * py) <= 1.0
         plateau = np.column_stack([px[mask], py[mask]])
-        bounds = [-3.0, 3.0, -3.0, 3.0]
         layout = eg.Layout2d.from_coords(plateau)
 
         sp_field = eg.ScreenedPoissonField2d(
@@ -110,8 +108,8 @@ class TestScreenedPoisson(unittest.TestCase):
         sg_field = eg.ScreenedPoissonField2d(
             kernel="single_gaussian", grid_size=256, sigma=0.08, kappa=0.8, rho_max=0.08
         )
-        sp_out = sp_field.evaluate_in_bounds(layout, bounds)
-        sg_out = sg_field.evaluate_in_bounds(layout, bounds)
+        sp_out = sp_field.evaluate_in_bounds(layout, -3.0, -3.0, 3.0, 3.0)
+        sg_out = sg_field.evaluate_in_bounds(layout, -3.0, -3.0, 3.0, 3.0)
 
         r = np.hypot(plateau[:, 0], plateau[:, 1])
         interior = (r > 0.1) & (r < 0.55)
@@ -184,9 +182,24 @@ class TestScreenedPoisson(unittest.TestCase):
         np.testing.assert_allclose(c4[:2].mean(axis=0), [5.0, 2.0], atol=1e-9)
         np.testing.assert_allclose(c4[2:].mean(axis=0), [-5.0, -2.0], atol=1e-9)
 
-        # Default 2048 workspace memory check (< 75 MB).
+        # Default 512 grid workspace memory check and asymmetric bounds density grid test.
         default_field = eg.ScreenedPoissonField2d()
-        self.assertLessEqual(default_field.workspace_memory_bytes(), 75_000_000)
+        self.assertEqual(default_field.grid_size, 512)
+        self.assertEqual(default_field.density_grid_dim, 0)
+        self.assertLessEqual(default_field.workspace_memory_bytes(), 10_000_000)
+
+        asym_field = eg.ScreenedPoissonField2d(
+            grid_size=64, padding_factor=2, sigma=0.2, kappa=0.5, rho_max=0.0
+        )
+        asym_coords = np.array([[2.0, -1.0], [2.2, -1.1], [2.1, -0.9], [1.9, -1.2]], dtype=np.float64)
+        asym_lay = eg.Layout2d.from_coords(asym_coords)
+        asym_out = asym_field.evaluate_in_bounds(asym_lay, -2.0, -5.0, 6.0, 3.0)
+        self.assertGreater(asym_out["energy"], 0.0)
+        self.assertEqual(asym_field.density_grid_dim, 64)
+        dgrid = asym_field.density_grid()
+        self.assertEqual(dgrid.shape, (64, 64))
+        self.assertEqual(dgrid.dtype, np.float64)
+        self.assertGreater(float(np.sum(dgrid)), 0.0)
 
     def test_adversarial_errors(self) -> None:
         with self.assertRaises(ValueError):
@@ -203,7 +216,7 @@ class TestScreenedPoisson(unittest.TestCase):
         with self.assertRaises(ValueError):
             f64.evaluate(l32)
         with self.assertRaises(ValueError):
-            f64.evaluate_in_bounds(eg.Layout2d.zeros(4), [0.0, 1.0, 2.0])
+            f64.evaluate_in_bounds(eg.Layout2d.zeros(4), 1.0, 0.0, 0.0, 2.0)
 
 
 if __name__ == "__main__":

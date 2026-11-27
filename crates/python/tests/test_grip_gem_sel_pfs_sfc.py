@@ -120,8 +120,8 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
         for dtype_str in ("float64", "float32"):
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            m_run = eg.GemSolver(graph, max_rounds=12, seed=13, dtype=dtype_str)
-            m_step = eg.GemSolver(graph, max_rounds=12, seed=13, dtype=dtype_str)
+            m_run = eg.GemSolver(graph, max_iterations=12, seed=13, dtype=dtype_str)
+            m_step = eg.GemSolver(graph, max_iterations=12, seed=13, dtype=dtype_str)
             self.assertIn("GemSolver", repr(m_run))
             m_run.run(l_run)
             m_step.step(l_step)
@@ -131,7 +131,7 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
             self.assertTrue(l_run.is_all_finite())
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-        m_zero = eg.GemSolver(graph, max_rounds=0)
+        m_zero = eg.GemSolver(graph, max_iterations=0)
         self.assertTrue(m_zero.is_finished)
         self.assert_no_panic_raises((ValueError,), lambda: eg.GemSolver(graph, edge_length=0.0))
         self.assert_no_panic_raises((ValueError,), lambda: eg.GemSolver(graph, gravity=-1.0))
@@ -301,7 +301,7 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
                 | eg.PfsPrimeOverlapRemoval
             ] = [
                 eg.GripSolver(g_deg, rounds_min=2, rounds_max=4),
-                eg.GemSolver(g_deg, max_rounds=4),
+                eg.GemSolver(g_deg, max_iterations=4),
                 eg.SelLayoutSolver(g_deg, iterations=4),
                 eg.SfcLayoutSolver(g_deg),
                 eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64)),
@@ -323,7 +323,7 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
             | eg.PfsPrimeOverlapRemoval
         ] = [
             eg.GripSolver(graph, rounds_min=1, rounds_max=2),
-            eg.GemSolver(graph, max_rounds=2),
+            eg.GemSolver(graph, max_iterations=2),
             eg.SelLayoutSolver(graph, iterations=2),
             eg.SfcLayoutSolver(graph),
             eg.PfsPrimeOverlapRemoval(hw, hh),

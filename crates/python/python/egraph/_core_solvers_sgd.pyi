@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, final
+from typing import Any, Sequence, final
 
-from ._core_core import CsrGraph, Layout2d
+from ._core_core import CsrGraph, Layout2d, LayoutNd
 from ._core_manifold import ManifoldLayout2d
 from ._core_neighborhood import DogVaradhanLandmarks
 from ._core_types import (
@@ -11,6 +11,8 @@ from ._core_types import (
     _MatrixArrayLike,
     _WeightArrayLike,
 )
+
+_AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d
 
 __all__ = [
     "SgdSolver",
@@ -24,14 +26,15 @@ class SgdSolver:
         src: _IndexArrayLike,
         tgt: _IndexArrayLike,
         dij: _WeightArrayLike,
+        *,
         dji: _WeightArrayLike | None = None,
         wij: _WeightArrayLike | None = None,
         wji: _WeightArrayLike | None = None,
-        *,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -51,10 +54,28 @@ class SgdSolver:
         hinge_dji: _WeightArrayLike | None = None,
         hinge_wij: _WeightArrayLike | None = None,
         hinge_wji: _WeightArrayLike | None = None,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
+        max_mu: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def from_packed_symmetric(
+        num_nodes: int,
+        src: _IndexArrayLike,
+        tgt: _IndexArrayLike,
+        dists: _WeightArrayLike,
+        weights: _WeightArrayLike,
+        is_hinge: Sequence[bool],
+        *,
+        iterations: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -62,10 +83,11 @@ class SgdSolver:
     def full(
         graph: CsrGraph,
         *,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -89,10 +111,11 @@ class SgdSolver:
         num_pivots: int = 50,
         core_pivots: bool = True,
         degree_weight_beta: float = 0.0,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -126,36 +149,11 @@ class SgdSolver:
         num_pivots: int = 50,
         core_pivots: bool = True,
         degree_weight_beta: float = 0.0,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def random_pair(
-        graph: CsrGraph,
-        pairs_per_node: int = 30,
-        *,
-        t_max: int = 60,
-        eps: float = 0.01,
-        schedule: str = "exponential",
-        step_scale: float = 1.0,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def omega(
-        graph: CsrGraph,
-        embedding: _MatrixArrayLike,
-        k: int = 30,
-        min_dist: float = 1e-3,
-        *,
-        t_max: int = 60,
-        eps: float = 0.01,
-        schedule: str = "exponential",
-        step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -167,27 +165,51 @@ class SgdSolver:
         target_distance: float = 2.0,
         weight: float = 0.25,
         hinge_only: bool = True,
-        t_max: int = 60,
+        iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
         step_scale: float = 1.0,
+        max_mu: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
     @staticmethod
-    def snap_t_fdp(
+    def random_pair(
+        graph: CsrGraph,
+        pairs_per_node: int = 30,
+        *,
+        iterations: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        max_mu: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def omega(
+        graph: CsrGraph,
+        embedding: _MatrixArrayLike | _AnyLayout,
+        k: int = 30,
+        min_dist: float = 1e-3,
+        *,
+        iterations: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        max_mu: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
+    @staticmethod
+    def sgd2(
         graph: CsrGraph,
         *,
-        iterations: int = 200,
-        negatives_per_edge: int = 3,
-        learning_rate: float = 1.0,
-        alpha: float = 1.0,
-        repulsion_scale: float = 1.0,
-        rho_start: float = 1.0,
-        rho_end: float = 0.1,
-        rho_power: float = 1.0,
-        degree_beta: float = 0.0,
-        bounded_attraction: bool = True,
+        iterations: int = 60,
+        eps: float = 0.01,
+        step_scale: float = 1.0,
+        batch_size: int = 4096,
+        damping: float = 1e-4,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -198,9 +220,7 @@ class SgdSolver:
         n_neighbors: int = 10,
         mn_ratio: float = 0.5,
         fp_ratio: float = 2.0,
-        phase1_iters: int = 100,
-        phase2_iters: int = 100,
-        phase3_iters: int = 250,
+        phase_iterations: tuple[int, int, int] = (100, 100, 250),
         learning_rate: float = 1.0,
         keep_all_1hop: bool = False,
         max_1hop_per_node: int | None = None,
@@ -218,9 +238,7 @@ class SgdSolver:
         n_neighbors: int = 10,
         mn_ratio: float = 0.5,
         fp_ratio: float = 2.0,
-        phase1_iters: int = 100,
-        phase2_iters: int = 100,
-        phase3_iters: int = 250,
+        phase_iterations: tuple[int, int, int] = (100, 100, 250),
         learning_rate: float = 1.0,
         keep_all_1hop: bool = False,
         max_1hop_per_node: int | None = None,
@@ -236,9 +254,7 @@ class SgdSolver:
         n_neighbors: int = 10,
         mn_ratio: float = 0.5,
         fp_ratio: float = 2.0,
-        phase1_iters: int = 100,
-        phase2_iters: int = 100,
-        phase3_iters: int = 250,
+        phase_iterations: tuple[int, int, int] = (100, 100, 250),
         learning_rate: float = 1.0,
         keep_all_1hop: bool = False,
         max_1hop_per_node: int | None = None,
@@ -274,14 +290,19 @@ class SgdSolver:
         dtype: _DtypeLike = "float64",
     ) -> tuple[SgdSolver, Layout2d, dict[str, Any]]: ...
     @staticmethod
-    def sgd2(
+    def snap_t_fdp(
         graph: CsrGraph,
         *,
-        t_max: int = 60,
-        eps: float = 0.01,
-        step_scale: float = 1.0,
-        batch_size: int = 4096,
-        damping: float = 1e-4,
+        iterations: int = 200,
+        negatives_per_edge: int = 3,
+        learning_rate: float = 1.0,
+        alpha: float = 1.0,
+        repulsion_scale: float = 1.0,
+        rho_start: float = 1.0,
+        rho_end: float = 0.1,
+        rho_power: float = 1.0,
+        degree_beta: float = 0.0,
+        bounded_attraction: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
@@ -341,12 +362,25 @@ class SgdSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
-    def step(self, layout: Layout2d) -> str: ...
-    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
-    def run(self, layout: Layout2d) -> str: ...
-    def step_manifold(self, layout: ManifoldLayout2d) -> str: ...
-    def run_steps_manifold(self, layout: ManifoldLayout2d, steps: int) -> str: ...
-    def run_manifold(self, layout: ManifoldLayout2d) -> str: ...
+    def step(self, layout: _AnyLayout) -> str: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
+    def run(self, layout: _AnyLayout) -> str: ...
+    def reset_schedule(
+        self,
+        *,
+        iterations: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        max_mu: float | None = None,
+        seed: int = 42,
+    ) -> None: ...
+    def run_schedule_window(
+        self,
+        layout: Layout2d | ManifoldLayout2d,
+        start_iter: int,
+        count: int,
+    ) -> str: ...
     def stats(self) -> dict[str, Any] | None: ...
     def dog_stats(self) -> dict[str, Any] | None: ...
     @property
@@ -357,6 +391,8 @@ class SgdSolver:
     def total_iterations(self) -> int: ...
     @property
     def is_finished(self) -> bool: ...
+    @property
+    def supports_manifold(self) -> bool: ...
     @property
     def num_nodes(self) -> int: ...
     @property

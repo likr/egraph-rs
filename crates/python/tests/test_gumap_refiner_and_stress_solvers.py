@@ -80,10 +80,10 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
 
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
             s_run = eg.GuMapSolver.from_graph_dog(
-                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, n_epochs=25, seed=42, dtype=dtype_str
+                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, iterations=25, seed=42, dtype=dtype_str
             )
             s_step = eg.GuMapSolver.from_graph_dog(
-                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, n_epochs=25, seed=42, dtype=dtype_str
+                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, iterations=25, seed=42, dtype=dtype_str
             )
             self.assertGreater(s_run.num_edges, 0)
             a, b = s_run.ab
@@ -100,7 +100,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
         # Barbell cluster separation from all-zeros initial layout
-        s_sep = eg.GuMapSolver.from_graph_dog(barbell, n_epochs=120, seed=42)
+        s_sep = eg.GuMapSolver.from_graph_dog(barbell, iterations=120, seed=42)
         l_zero = eg.Layout2d.zeros(n)
         self.assertEqual(s_sep.run(l_zero), "completed")
         coords = l_zero.coords(copy=True)
@@ -111,8 +111,8 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         # from_knn and from_fuzzy_set
         knn, _, _ = eg.build_pure_2hop_knn(barbell)
         fuzzy = eg.compute_fuzzy_simplicial_set(knn)
-        s_knn = eg.GuMapSolver.from_knn(knn, n_epochs=15, seed=42)
-        s_fuz = eg.GuMapSolver.from_fuzzy_set(fuzzy, n_epochs=15, seed=42)
+        s_knn = eg.GuMapSolver.from_knn(knn, iterations=15, seed=42)
+        s_fuz = eg.GuMapSolver.from_fuzzy_set(fuzzy, iterations=15, seed=42)
         for s in (s_knn, s_fuz):
             lay = eg.Layout2d.zeros(n)
             self.assertEqual(s.run(lay), "completed")
@@ -122,13 +122,13 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         lm = eg.compute_regularized_dog_varadhan_landmarks(barbell, degree=20, num_landmarks=8, seed=42)
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
             s_dog = eg.GuMapSolver.from_graph_dog(
-                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, n_epochs=15, seed=42, dtype=dtype_str
+                barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, iterations=15, seed=42, dtype=dtype_str
             )
             s_lm_run = eg.GuMapSolver.from_landmarks(
-                barbell, lm, max_2hop_per_node=32, n_epochs=15, seed=42, dtype=dtype_str
+                barbell, lm, max_2hop_per_node=32, iterations=15, seed=42, dtype=dtype_str
             )
             s_lm_step = eg.GuMapSolver.from_landmarks(
-                barbell, lm, max_2hop_per_node=32, n_epochs=15, seed=42, dtype=dtype_str
+                barbell, lm, max_2hop_per_node=32, iterations=15, seed=42, dtype=dtype_str
             )
             l_dog = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
             l_lm_run = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
@@ -144,7 +144,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         lm_other = eg.compute_regularized_dog_varadhan_landmarks(_make_grid(2, 2), num_landmarks=2, seed=42)
         self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_landmarks(barbell, lm_other))
         self.assert_no_panic_raises((ValueError,), lambda: eg.GuMapSolver.from_knn(knn, min_dist=-0.1))
-        self.assert_no_panic_raises((TypeError,), lambda: eg.GuMapSolver.from_knn(knn, n_epochs=True))
+        self.assert_no_panic_raises((TypeError,), lambda: eg.GuMapSolver.from_knn(knn, iterations=True))
         self.assert_no_panic_raises(
             (TypeError,), lambda: eg.GuMapSolver.from_knn(knn, symmetric_negative=1)  # type: ignore[arg-type]
         )
@@ -154,11 +154,11 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         def _build_gumap(label: str, sym: bool, dt: str) -> eg.GuMapSolver:
             if label == "from_fuzzy_set":
                 return eg.GuMapSolver.from_fuzzy_set(
-                    fuzzy, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+                    fuzzy, iterations=10, symmetric_negative=sym, seed=42, dtype=dt
                 )
             if label == "from_knn":
                 return eg.GuMapSolver.from_knn(
-                    knn, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+                    knn, iterations=10, symmetric_negative=sym, seed=42, dtype=dt
                 )
             if label == "from_graph_dog":
                 return eg.GuMapSolver.from_graph_dog(
@@ -166,13 +166,13 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
                     max_2hop_per_node=32,
                     degree=20,
                     num_landmarks=8,
-                    n_epochs=10,
+                    iterations=10,
                     symmetric_negative=sym,
                     seed=42,
                     dtype=dt,
                 )
             return eg.GuMapSolver.from_landmarks(
-                barbell, lm, max_2hop_per_node=32, n_epochs=10, symmetric_negative=sym, seed=42, dtype=dt
+                barbell, lm, max_2hop_per_node=32, iterations=10, symmetric_negative=sym, seed=42, dtype=dt
             )
 
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
@@ -200,7 +200,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         clean = np.array([[float(c), float(r)] for r in range(3) for c in range(3)], dtype=np.float64)
 
         # Clean layout skips cleanly and converges early
-        ref_clean = eg.SpatialIntruderRefiner(g, rounds=4, k_cap=32, seed=42)
+        ref_clean = eg.SpatialIntruderRefiner(g, iterations=4, k_cap=32, seed=42)
         l_clean = eg.Layout2d.from_coords(clean)
         self.assertEqual(ref_clean.run(l_clean), "converged")
         st_clean = ref_clean.stats()
@@ -214,8 +214,8 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         dist_before = float(np.hypot(folded[0, 0] - folded[8, 0], folded[0, 1] - folded[8, 1]))
 
         for dtype_str in ("float64", "float32"):
-            r_run = eg.SpatialIntruderRefiner(g, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
-            r_step = eg.SpatialIntruderRefiner(g, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
+            r_run = eg.SpatialIntruderRefiner(g, iterations=4, k_cap=32, seed=42, dtype=dtype_str)
+            r_step = eg.SpatialIntruderRefiner(g, iterations=4, k_cap=32, seed=42, dtype=dtype_str)
             folded_typed = _to_float_array(folded, dtype_str)
             lf_run = eg.Layout2d.from_coords(folded_typed)
             lf_step = eg.Layout2d.from_coords(folded_typed)
@@ -242,8 +242,8 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         )
         strip_np2_before = eg.neighborhood_preservation_2hop(g_strip, eg.Layout2d.from_coords(strip_folded))
         for dtype_str in ("float64", "float32"):
-            rs_run = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
-            rs_step = eg.SpatialIntruderRefiner(g_strip, rounds=4, k_cap=32, seed=42, dtype=dtype_str)
+            rs_run = eg.SpatialIntruderRefiner(g_strip, iterations=4, k_cap=32, seed=42, dtype=dtype_str)
+            rs_step = eg.SpatialIntruderRefiner(g_strip, iterations=4, k_cap=32, seed=42, dtype=dtype_str)
             strip_typed = _to_float_array(strip_folded, dtype_str)
             ls_run = eg.Layout2d.from_coords(strip_typed)
             ls_step = eg.Layout2d.from_coords(strip_typed)
@@ -260,7 +260,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         # Dynamic k_cap & w_anchor2
         ref_dyn = eg.SpatialIntruderRefiner(
             g_strip,
-            rounds=4,
+            iterations=4,
             k_cap=8,
             seed=42,
             w_anchor2=0.5,
@@ -357,7 +357,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
             ],
             dtype=np.float64,
         )
-        kk_sing = eg.KamadaKawaiSolver.from_distance_matrix(dmat_collinear, eps=1e-3, max_outer_iters=60)
+        kk_sing = eg.KamadaKawaiSolver.from_distance_matrix(dmat_collinear, eps=1e-3, max_iterations=60)
         l_col = eg.Layout2d.from_coords([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]])
         self.assertIn(kk_sing.run(l_col), ("converged", "completed"))
         self.assertTrue(l_col.is_all_finite())
@@ -393,7 +393,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
     def test_gil_release_concurrent_solver_execution(self) -> None:
         g = _make_grid(5, 5)
         init = _seeded_coords(25, seed=31, scale=1.0)
-        ref_solver = eg.SgdSolver.sparse_barrier_dog(g, degree=15, num_landmarks=6, t_max=12, seed=42)
+        ref_solver = eg.SgdSolver.sparse_barrier_dog(g, degree=15, num_landmarks=6, iterations=12, seed=42)
         ref_layout = eg.Layout2d.from_coords(init)
         ref_solver.run(ref_layout)
         ref_coords = ref_layout.coords(copy=True)
@@ -402,7 +402,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
 
         def worker(_idx: int) -> npt.NDArray[np.float64]:
             barrier.wait(timeout=10.0)
-            s = eg.SgdSolver.sparse_barrier_dog(g, degree=15, num_landmarks=6, t_max=12, seed=42)
+            s = eg.SgdSolver.sparse_barrier_dog(g, degree=15, num_landmarks=6, iterations=12, seed=42)
             lay = eg.Layout2d.from_coords(init)
             s.run(lay)
             _ = eg.louvain_communities(g, seed=42)

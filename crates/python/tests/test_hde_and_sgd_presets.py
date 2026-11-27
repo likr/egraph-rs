@@ -150,7 +150,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
         self.assertEqual(sig_gem.parameters["oscillation_angle"].default, math.pi)
         self.assertEqual(sig_gem.parameters["rotation_angle"].default, math.pi / 3.0)
         self.assertEqual(sig_gem.parameters["oscillation_sensitivity"].default, 1.0 / 3.0)
-        self.assertIsNone(sig_gem.parameters["max_rounds"].default)
+        self.assertIsNone(sig_gem.parameters["max_iterations"].default)
         self.assertIsNone(sig_gem.parameters["rotation_sensitivity"].default)
 
         sig_sel = inspect.signature(eg.SelLayoutSolver)
@@ -220,7 +220,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                     seed=13,
                     dtype=dtype_str,
                 )
-                self.assertEqual(nd1.dim, out_dim)
+                self.assertEqual(nd1.dims, out_dim)
                 self.assertEqual(nd1.coords(copy=False).shape, (n, out_dim))
                 self.assertEqual(nd1.coords(copy=False).dtype, np_dtype)
                 self.assertTrue(nd1.is_all_finite())

@@ -82,28 +82,26 @@ class TestConstraintsAndLayering(unittest.TestCase):
         self.assertAlmostEqual(c.gap, 2.5)
         self.assertIn("SeparationConstraint", repr(c))
 
-        # project_1d on float64, float32 (in-place + returned), read-only, and list
+        # project_1d on float64, float32 (in-place -> None); TypeError on read-only / Python sequence
         arr64 = np.array([1.0, 0.0, 0.5], dtype=np.float64)
-        out64 = eg.project_1d(arr64, [eg.SeparationConstraint(0, 1, 2.0), eg.SeparationConstraint(1, 2, 1.5)])
-        self.assertEqual(out64.dtype, np.float64)
-        np.testing.assert_allclose(arr64, out64)
-        self.assertGreaterEqual(float(out64[1] - out64[0]), 2.0 - 1e-9)
-        self.assertGreaterEqual(float(out64[2] - out64[1]), 1.5 - 1e-9)
+        eg.project_1d(arr64, [eg.SeparationConstraint(0, 1, 2.0), eg.SeparationConstraint(1, 2, 1.5)])
+        self.assertEqual(arr64.dtype, np.float64)
+        self.assertGreaterEqual(float(arr64[1] - arr64[0]), 2.0 - 1e-9)
+        self.assertGreaterEqual(float(arr64[2] - arr64[1]), 1.5 - 1e-9)
 
         arr32 = np.array([1.0, 0.0, 0.5], dtype=np.float32)
-        out32 = eg.project_1d(arr32, [eg.SeparationConstraint(0, 1, 2.0)])
-        self.assertEqual(out32.dtype, np.float32)
-        np.testing.assert_allclose(arr32, out32)
-        self.assertGreaterEqual(float(out32[1] - out32[0]), 2.0 - 1e-6)
+        eg.project_1d(arr32, [eg.SeparationConstraint(0, 1, 2.0)])
+        self.assertEqual(arr32.dtype, np.float32)
+        self.assertGreaterEqual(float(arr32[1] - arr32[0]), 2.0 - 1e-6)
 
         ro = np.array([1.0, 0.0], dtype=np.float64)
         ro.flags.writeable = False
-        out_ro = eg.project_1d(ro, [eg.SeparationConstraint(0, 1, 3.0)])
-        self.assertGreaterEqual(float(out_ro[1] - out_ro[0]), 3.0 - 1e-9)
+        with self.assertRaises(TypeError):
+            eg.project_1d(ro, [eg.SeparationConstraint(0, 1, 3.0)])
         self.assertAlmostEqual(float(ro[0]), 1.0)
 
-        out_list = eg.project_1d([2.0, 0.0], [eg.SeparationConstraint(0, 1, 1.0)])
-        self.assertGreaterEqual(float(out_list[1] - out_list[0]), 1.0 - 1e-9)
+        with self.assertRaises(TypeError):
+            eg.project_1d([2.0, 0.0], [eg.SeparationConstraint(0, 1, 1.0)])  # type: ignore[arg-type]
 
         # project_layout_axis + generate_layered_constraints
         dag = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (0, 3), (3, 2)], directed=True, sanitize=True)

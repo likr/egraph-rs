@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, final
 
+import numpy as np
+import numpy.typing as npt
+
 from ._core_core import CsrGraph, Layout2d
 from ._core_types import _DtypeLike, _IndexArrayLike, _WeightArrayLike
 
@@ -76,7 +79,7 @@ class GTreeOverlapRemoval:
         *,
         max_iterations: int = 20,
         padding: float = 0.0,
-        compact_t_max: float | None = None,  # Must be > 1.0 when provided
+        compact_t_max: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GTreeOverlapRemoval: ...
@@ -86,7 +89,7 @@ class GTreeOverlapRemoval:
         *,
         max_iterations: int = 20,
         padding: float = 0.0,
-        compact_t_max: float | None = None,  # Must be > 1.0 when provided
+        compact_t_max: float | None = None,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GTreeOverlapRemoval: ...
@@ -199,7 +202,7 @@ class ScreenedPoissonField2d:
         cls,
         *,
         kernel: str = "screened_poisson",
-        grid_size: int = 2048,
+        grid_size: int = 512,
         padding_factor: int = 2,
         margin_ratio: float = 0.1,
         sigma_ratio: float = 0.015,
@@ -213,8 +216,16 @@ class ScreenedPoissonField2d:
     ) -> ScreenedPoissonField2d: ...
     def evaluate(self, layout: Layout2d) -> dict[str, Any]: ...
     def evaluate_in_bounds(
-        self, layout: Layout2d, bounds: _WeightArrayLike
+        self,
+        layout: Layout2d,
+        min_x: float,
+        min_y: float,
+        max_x: float,
+        max_y: float,
     ) -> dict[str, Any]: ...
+    def density_grid(self) -> npt.NDArray[np.float64]: ...
+    @property
+    def density_grid_dim(self) -> int: ...
     def workspace_memory_bytes(self) -> int: ...
     @property
     def grid_size(self) -> int: ...
@@ -235,7 +246,7 @@ class ScreenedPoissonRefiner:
         num_nodes: int,
         *,
         kernel: str = "screened_poisson",
-        grid_size: int = 2048,
+        grid_size: int = 512,
         padding_factor: int = 2,
         margin_ratio: float = 0.1,
         sigma_ratio: float = 0.015,
@@ -261,7 +272,7 @@ class ScreenedPoissonRefiner:
         graph: CsrGraph,
         *,
         kernel: str = "screened_poisson",
-        grid_size: int = 2048,
+        grid_size: int = 512,
         padding_factor: int = 2,
         margin_ratio: float = 0.1,
         sigma_ratio: float = 0.015,
@@ -312,7 +323,7 @@ class SpatialIntruderRefiner:
     def __new__(
         cls,
         graph: CsrGraph,
-        rounds: int = 4,
+        iterations: int = 4,
         k_cap: int = 32,
         margin_scale: float = 1.2,
         w_anchor: float = 1.0,
@@ -320,7 +331,7 @@ class SpatialIntruderRefiner:
         w_fp: float = 0.2,
         fn_shrink: float = 0.88,
         round_decay: float = 0.75,
-        t_max: int = 20,
+        sgd_iterations: int = 20,
         eps: float = 0.05,
         hinge_fp: bool = True,
         seed: int = 42,

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, final
 
 import numpy as np
 import numpy.typing as npt
 
 from ._core_core import CsrGraph, Layout2d
-from ._core_neighborhood import DogVaradhanLandmarks
+from ._core_neighborhood import RhghLandmarks
 from ._core_types import _IndexArrayLike, _MatrixArrayLike, _WeightArrayLike
 
 __all__ = [
+    "KMeansResult",
+    "LabelPropagationResult",
+    "LeidenResult",
+    "LouvainResult",
+    "SpectralClusteringResult",
     "align_clustered_centroids",
     "coarsen_graph",
     "compute_pivoted_rhgh_landmarks",
@@ -22,6 +27,72 @@ __all__ = [
     "project_clustered_layout_with_radii",
     "spectral_clustering",
 ]
+
+@final
+class LouvainResult:
+    @property
+    def labels(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def num_communities(self) -> int: ...
+    @property
+    def modularity(self) -> float: ...
+    @property
+    def passes(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class LeidenResult:
+    @property
+    def labels(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def num_communities(self) -> int: ...
+    @property
+    def quality(self) -> float: ...
+    @property
+    def modularity(self) -> float: ...
+    @property
+    def passes(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class KMeansResult:
+    @property
+    def labels(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def centroids(self) -> npt.NDArray[np.float64]: ...
+    @property
+    def k(self) -> int: ...
+    @property
+    def dims(self) -> int: ...
+    @property
+    def inertia(self) -> float: ...
+    @property
+    def iterations(self) -> int: ...
+    @property
+    def converged(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class LabelPropagationResult:
+    @property
+    def labels(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def num_communities(self) -> int: ...
+    @property
+    def iterations(self) -> int: ...
+    @property
+    def converged(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class SpectralClusteringResult:
+    @property
+    def labels(self) -> npt.NDArray[np.uint32]: ...
+    @property
+    def num_clusters(self) -> int: ...
+    @property
+    def eigen_iterations(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 def align_clustered_centroids(
     fine_layout: Layout2d,
@@ -48,22 +119,22 @@ def compute_pivoted_rhgh_landmarks(
     max_iterations: int = 500,
     normalize_1hop: bool = True,
     seed: int = 42,
-) -> tuple[DogVaradhanLandmarks, dict[str, Any]]: ...
+) -> tuple[RhghLandmarks, dict[str, Any]]: ...
 
 def kmeans_plus_plus(
     points: _MatrixArrayLike,
     k: int = 2,
-    max_iters: int = 100,
+    max_iterations: int = 100,
     tol: float = 1e-4,
     n_init: int = 1,
     seed: int = 42,
-) -> dict[str, Any]: ...
+) -> KMeansResult: ...
 
 def label_propagation(
     graph: CsrGraph,
-    max_iters: int = 100,
+    max_iterations: int = 100,
     seed: int = 42,
-) -> npt.NDArray[np.uint32]: ...
+) -> LabelPropagationResult: ...
 
 def leiden_communities(
     graph: CsrGraph,
@@ -74,7 +145,7 @@ def leiden_communities(
     max_passes: int = 100,
     min_quality_gain: float = 1e-7,
     seed: int = 42,
-) -> dict[str, Any]: ...
+) -> LeidenResult: ...
 
 def louvain_coarsen(
     graph: CsrGraph,
@@ -94,7 +165,7 @@ def louvain_communities(
     resolution: float = 1.0,
     min_modularity_gain: float = 1e-7,
     seed: int = 42,
-) -> dict[str, Any]: ...
+) -> LouvainResult: ...
 
 def project_clustered_layout(
     coarse_layout: Layout2d,
@@ -115,9 +186,9 @@ def project_clustered_layout_with_radii(
 def spectral_clustering(
     graph: CsrGraph,
     k: int = 2,
-    max_eigen_iters: int = 300,
+    max_eigen_iterations: int = 300,
     eigen_tol: float = 1e-4,
-    kmeans_max_iters: int = 100,
+    kmeans_max_iterations: int = 100,
     kmeans_tol: float = 1e-4,
     seed: int = 42,
-) -> npt.NDArray[np.uint32]: ...
+) -> SpectralClusteringResult: ...

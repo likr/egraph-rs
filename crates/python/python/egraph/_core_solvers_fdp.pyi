@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import final, overload
+from typing import Any, final
 
 from ._core_core import CsrGraph, Layout2d
-from ._core_neighborhood import (
-    DogVaradhanLandmarks,
-    KnnGraph,
-    SparseProbabilities,
+from ._core_neighborhood import DogVaradhanLandmarks, KnnGraph, SparseProbabilities
+from ._core_types import (
+    _DtypeLike,
+    _IndexArrayLike,
+    _WeightArrayLike,
 )
-from ._core_types import _DtypeLike, _IndexArrayLike, _WeightArrayLike
 
 __all__ = [
     "IbUmapSolver",
@@ -35,7 +35,7 @@ class IbUmapSolver:
         alpha: float | None = None,
         beta_floor: float | None = None,
         backend: str = "ibfft",
-        n_epochs: int = 200,
+        iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
         spread: float = 1.0,
@@ -45,10 +45,57 @@ class IbUmapSolver:
         tau_scale: float = 4.0,
         hub_damping: bool = True,
         theta: float = 0.5,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> IbUmapSolver: ...
+    @staticmethod
+    def from_knn(
+        knn: KnnGraph,
+        *,
+        sigma_iters: int = 64,
+        sigma_tolerance: float = 1e-5,
+        backend: str = "ibfft",
+        iterations: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> IbUmapSolver: ...
+    @staticmethod
+    def from_fuzzy_set(
+        probs: SparseProbabilities,
+        *,
+        degrees: _WeightArrayLike | None = None,
+        backend: str = "ibfft",
+        iterations: int = 200,
+        learning_rate: float = 1.0,
+        min_dist: float = 0.1,
+        spread: float = 1.0,
+        a: float | None = None,
+        b: float | None = None,
+        c_k: float = 4.0,
+        tau_scale: float = 4.0,
+        hub_damping: bool = True,
+        theta: float = 0.5,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> IbUmapSolver: ...
@@ -59,7 +106,7 @@ class IbUmapSolver:
         max_2hop_per_node: int = 32,
         *,
         backend: str = "ibfft",
-        n_epochs: int = 200,
+        iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
         spread: float = 1.0,
@@ -69,57 +116,10 @@ class IbUmapSolver:
         tau_scale: float = 4.0,
         hub_damping: bool = True,
         theta: float = 0.5,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> IbUmapSolver: ...
-    @staticmethod
-    def from_knn(
-        knn: KnnGraph,
-        *,
-        sigma_iters: int = 64,
-        sigma_tol: float = 1e-5,
-        backend: str = "ibfft",
-        n_epochs: int = 200,
-        learning_rate: float = 1.0,
-        min_dist: float = 0.1,
-        spread: float = 1.0,
-        a: float | None = None,
-        b: float | None = None,
-        c_k: float = 4.0,
-        tau_scale: float = 4.0,
-        hub_damping: bool = True,
-        theta: float = 0.5,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> IbUmapSolver: ...
-    @staticmethod
-    def from_fuzzy_set(
-        probs: SparseProbabilities,
-        *,
-        degrees: _IndexArrayLike | None = None,
-        backend: str = "ibfft",
-        n_epochs: int = 200,
-        learning_rate: float = 1.0,
-        min_dist: float = 0.1,
-        spread: float = 1.0,
-        a: float | None = None,
-        b: float | None = None,
-        c_k: float = 4.0,
-        tau_scale: float = 4.0,
-        hub_damping: bool = True,
-        theta: float = 0.5,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> IbUmapSolver: ...
@@ -137,19 +137,20 @@ class IbUmapSolver:
     @property
     def num_nodes(self) -> int: ...
     @property
-    def dtype(self) -> str: ...
+    def num_edges(self) -> int: ...
     @property
     def current_rho(self) -> float: ...
     @property
-    def num_edges(self) -> int: ...
+    def a(self) -> float: ...
+    @property
+    def b(self) -> float: ...
+    @property
+    def ab(self) -> tuple[float, float]: ...
     @property
     def total_fft_2d_calls(self) -> int: ...
+    def last_fft_stats(self) -> dict[str, Any] | None: ...
     @property
-    def a(self) -> float | None: ...
-    @property
-    def b(self) -> float | None: ...
-    @property
-    def ab(self) -> tuple[float, float] | None: ...
+    def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
 
 @final
@@ -159,7 +160,7 @@ class TFdpSolver:
         graph: CsrGraph,
         *,
         backend: str = "ibfft",
-        total_iterations: int = 200,
+        iterations: int = 200,
         learning_rate: float = 1.0,
         momentum: float = 0.8,
         theta: float = 0.5,
@@ -168,46 +169,21 @@ class TFdpSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TFdpSolver: ...
-    @overload
     @staticmethod
     def from_knn(
-        knn_or_indptr: KnnGraph,
-        indices: None = None,
-        weights: None = None,
-        *,
-        backend: str = "ibfft",
-        total_iterations: int = 200,
-        learning_rate: float = 1.0,
-        momentum: float = 0.8,
-        theta: float = 0.5,
-        alpha: float = 1.0,
-        gamma: float = 1.0,
-        rho_start: float = 1.0,
-        rho_end: float = 0.1,
-        rho_power: float = 1.0,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> TFdpSolver: ...
-    @overload
-    @staticmethod
-    def from_knn(
-        knn_or_indptr: _IndexArrayLike,
-        indices: _IndexArrayLike,
+        knn_or_indptr: KnnGraph | _IndexArrayLike,
+        indices: _IndexArrayLike | None = None,
         weights: _WeightArrayLike | None = None,
         *,
         backend: str = "ibfft",
-        total_iterations: int = 200,
+        iterations: int = 200,
         learning_rate: float = 1.0,
         momentum: float = 0.8,
         theta: float = 0.5,
@@ -216,10 +192,10 @@ class TFdpSolver:
         rho_start: float = 1.0,
         rho_end: float = 0.1,
         rho_power: float = 1.0,
-        ibfft_order: int = 1,
-        ibfft_intervals: int = 25,
-        ibfft_min_grid_dim: int = 64,
-        ibfft_max_grid_dim: int = 512,
+        interpolation_order: int = 1,
+        intervals: int = 25,
+        min_grid_dim: int = 64,
+        max_grid_dim: int = 512,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TFdpSolver: ...
@@ -237,11 +213,12 @@ class TFdpSolver:
     @property
     def num_nodes(self) -> int: ...
     @property
-    def dtype(self) -> str: ...
+    def num_edges(self) -> int: ...
     @property
     def current_rho(self) -> float: ...
     @property
-    def num_edges(self) -> int: ...
-    @property
     def total_fft_2d_calls(self) -> int: ...
+    def last_fft_stats(self) -> dict[str, Any] | None: ...
+    @property
+    def dtype(self) -> str: ...
     def __repr__(self) -> str: ...

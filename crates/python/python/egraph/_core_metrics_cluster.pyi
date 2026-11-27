@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from ._core_core import CsrGraph, Layout2d
+from ._core_core import CsrGraph, Layout2d, LayoutNd
+from ._core_manifold import ManifoldLayout2d
 from ._core_types import _IndexArrayLike, _MatrixArrayLike, _WeightArrayLike
+
+_AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d
 
 __all__ = [
     "adjusted_patch_nig",
+    "adjusted_patch_nig_detail",
     "adjusted_patch_nig_multiscale",
     "calinski_harabasz_score",
     "class_density_measure",
@@ -17,6 +21,7 @@ __all__ = [
     "davies_bouldin_score",
     "distance_consistency",
     "distribution_consistency",
+    "histogram_density_measure",
     "landmark_stratified_rta",
     "landmark_stratified_rta_detail",
     "landmark_stratified_rta_from_landmarks",
@@ -30,11 +35,12 @@ __all__ = [
     "sepme_rng",
     "silhouette_score",
     "sprawlter_nn",
+    "sprawlter_nn_radii",
 ]
 
 def adjusted_patch_nig(
     layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    labels: _IndexArrayLike,
     *,
     patch_radius: int = 8,
     canvas_size: int = 2048,
@@ -42,9 +48,19 @@ def adjusted_patch_nig(
     seed: int = 42,
 ) -> float: ...
 
+def adjusted_patch_nig_detail(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    *,
+    patch_radius: int = 8,
+    canvas_size: int = 2048,
+    pad_frac: float = 0.04,
+    seed: int = 42,
+) -> dict[str, Any]: ...
+
 def adjusted_patch_nig_multiscale(
     layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    labels: _IndexArrayLike,
     *,
     radii: Sequence[int] | None = (2, 8, 32),
     canvas_size: int = 2048,
@@ -53,7 +69,7 @@ def adjusted_patch_nig_multiscale(
 ) -> dict[str, float]: ...
 
 def calinski_harabasz_score(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
@@ -65,9 +81,16 @@ def class_density_measure(
     bandwidth: float | None = None,
 ) -> tuple[float, float]: ...
 
+def histogram_density_measure(
+    layout: Layout2d,
+    labels: _IndexArrayLike,
+    *,
+    grid_size: int = 64,
+) -> float: ...
+
 def cluster_area_faithfulness(
     layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    labels: _IndexArrayLike,
     *,
     g_max: int = 128,
     sigma_cells: float = 0.85,
@@ -81,7 +104,7 @@ def cluster_area_faithfulness(
 
 def cluster_area_faithfulness_detail(
     layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    labels: _IndexArrayLike,
     *,
     g_max: int = 128,
     sigma_cells: float = 0.85,
@@ -95,38 +118,38 @@ def cluster_area_faithfulness_detail(
 ) -> dict[str, Any]: ...
 
 def cq_hac(
-    layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    layout: _AnyLayout,
+    labels: _IndexArrayLike,
 ) -> dict[str, float]: ...
 
 def cq_kmeans(
-    layout: Layout2d,
-    community_labels: _IndexArrayLike,
+    layout: _AnyLayout,
+    labels: _IndexArrayLike,
     *,
     n_init: int = 5,
-    max_iters: int = 100,
+    max_iterations: int = 100,
     seed: int = 42,
 ) -> dict[str, float]: ...
 
 def davies_bouldin_score(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
 def distance_consistency(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
 def distribution_consistency(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
     grid_size: int = 20,
 ) -> float: ...
 
 def landmark_stratified_rta(
     graph: CsrGraph,
-    layout: Layout2d,
+    layout: _AnyLayout,
     *,
     num_landmarks: int = 64,
     num_triplets: int = 1000000,
@@ -136,7 +159,7 @@ def landmark_stratified_rta(
 
 def landmark_stratified_rta_detail(
     graph: CsrGraph,
-    layout: Layout2d,
+    layout: _AnyLayout,
     *,
     num_landmarks: int = 64,
     num_triplets: int = 1000000,
@@ -145,7 +168,7 @@ def landmark_stratified_rta_detail(
 ) -> dict[str, Any]: ...
 
 def landmark_stratified_rta_from_landmarks(
-    layout: Layout2d,
+    layout: _AnyLayout,
     landmark_ids: _IndexArrayLike,
     landmark_dists: _IndexArrayLike | _WeightArrayLike | _MatrixArrayLike | Sequence[Sequence[int | float]],
     *,
@@ -154,7 +177,7 @@ def landmark_stratified_rta_from_landmarks(
 ) -> dict[str, Any]: ...
 
 def neighborhood_hit(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
     k: int = 7,
 ) -> float: ...
@@ -169,7 +192,7 @@ def nor_metrics(
 ) -> dict[str, float]: ...
 
 def pairwise_distance_overlap_error(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
     num_bins: int = 100,
 ) -> float: ...
@@ -180,29 +203,29 @@ def partition_agreement(
 ) -> dict[str, float]: ...
 
 def sepme_gab(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
 def sepme_gong(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
     gamma: float = 0.35,
 ) -> float: ...
 
 def sepme_knng(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
     k: int = 2,
 ) -> float: ...
 
 def sepme_rng(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
 def silhouette_score(
-    layout: Layout2d,
+    layout: _AnyLayout,
     labels: _IndexArrayLike,
 ) -> float: ...
 
@@ -210,4 +233,9 @@ def sprawlter_nn(
     layout: Layout2d,
     half_widths: _WeightArrayLike,
     half_heights: _WeightArrayLike | None = None,
+) -> float: ...
+
+def sprawlter_nn_radii(
+    layout: Layout2d,
+    radii: _WeightArrayLike,
 ) -> float: ...

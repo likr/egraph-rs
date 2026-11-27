@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from egraph._core import (
     adjusted_patch_nig as adjusted_patch_nig,
+    adjusted_patch_nig_detail as adjusted_patch_nig_detail,
     adjusted_patch_nig_multiscale as adjusted_patch_nig_multiscale,
     calinski_harabasz_score as calinski_harabasz_score,
     class_density_measure as class_density_measure,
@@ -12,6 +13,7 @@ from egraph._core import (
     davies_bouldin_score as davies_bouldin_score,
     distance_consistency as distance_consistency,
     distribution_consistency as distribution_consistency,
+    histogram_density_measure as histogram_density_measure,
     landmark_stratified_rta as landmark_stratified_rta,
     landmark_stratified_rta_detail as landmark_stratified_rta_detail,
     landmark_stratified_rta_from_landmarks as landmark_stratified_rta_from_landmarks,
@@ -25,10 +27,12 @@ from egraph._core import (
     sepme_rng as sepme_rng,
     silhouette_score as silhouette_score,
     sprawlter_nn as sprawlter_nn,
+    sprawlter_nn_radii as sprawlter_nn_radii,
 )
 
 __all__ = [
     "adjusted_patch_nig",
+    "adjusted_patch_nig_detail",
     "adjusted_patch_nig_multiscale",
     "calinski_harabasz_score",
     "class_density_measure",
@@ -39,6 +43,7 @@ __all__ = [
     "davies_bouldin_score",
     "distance_consistency",
     "distribution_consistency",
+    "histogram_density_measure",
     "landmark_stratified_rta",
     "landmark_stratified_rta_detail",
     "landmark_stratified_rta_from_landmarks",
@@ -52,4 +57,5 @@ __all__ = [
     "sepme_rng",
     "silhouette_score",
     "sprawlter_nn",
+    "sprawlter_nn_radii",
 ]

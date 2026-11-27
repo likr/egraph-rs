@@ -109,23 +109,23 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
         barbell = _make_barbell(6, bridge_len=1)
         res_mod = eg.leiden_communities(barbell, objective="modularity", seed=42)
         res_mod2 = eg.leiden_communities(barbell, objective="mod", seed=42)
-        labels = res_mod["labels"]
+        labels = res_mod.labels
         self.assertEqual(labels.dtype, np.uint32)
         self.assertEqual(labels.shape, (12,))
-        np.testing.assert_array_equal(labels, res_mod2["labels"])
-        self.assertEqual(res_mod["num_communities"], 2)
-        self.assertGreater(float(res_mod["modularity"]), 0.35)
-        self.assertAlmostEqual(float(res_mod["quality"]), float(res_mod["modularity"]), places=12)
-        self.assertGreaterEqual(int(res_mod["passes"]), 1)
+        np.testing.assert_array_equal(labels, res_mod2.labels)
+        self.assertEqual(res_mod.num_communities, 2)
+        self.assertGreater(float(res_mod.modularity), 0.35)
+        self.assertAlmostEqual(float(res_mod.quality), float(res_mod.modularity), places=12)
+        self.assertGreaterEqual(int(res_mod.passes), 1)
 
         res_cpm = eg.leiden_communities(barbell, objective="cpm", resolution=0.3, seed=42)
-        self.assertEqual(res_cpm["labels"].dtype, np.uint32)
-        self.assertGreaterEqual(int(res_cpm["num_communities"]), 2)
+        self.assertEqual(res_cpm.labels.dtype, np.uint32)
+        self.assertGreaterEqual(int(res_cpm.num_communities), 2)
 
         # CPM modularity field must reflect standard gamma=1.0 modularity, never resolution-inflated
         karate = eg.load_dataset("karate")
         res_cpm_k = eg.leiden_communities(karate, objective="cpm", resolution=0.1, seed=42)
-        labels_k = res_cpm_k["labels"]
+        labels_k = res_cpm_k.labels
         adj_ind = karate.indptr()
         adj_idx = karate.indices()
         two_m = float(adj_ind[-1])
@@ -138,13 +138,13 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
                 1 for u in nodes_c for v in adj_idx[adj_ind[u] : adj_ind[u + 1]] if int(v) in c_set
             )
             q1_expected += in_edges / two_m - (deg_sum / two_m) ** 2
-        self.assertAlmostEqual(float(res_cpm_k["modularity"]), q1_expected, places=12)
+        self.assertAlmostEqual(float(res_cpm_k.modularity), q1_expected, places=12)
 
         # Degenerate empty & edgeless graphs
         empty = eg.CsrGraph.from_edges(0, [], directed=False)
         res_empty = eg.leiden_communities(empty)
-        self.assertEqual(res_empty["num_communities"], 0)
-        self.assertEqual(len(res_empty["labels"]), 0)
+        self.assertEqual(res_empty.num_communities, 0)
+        self.assertEqual(len(res_empty.labels), 0)
 
         # Validation guards
         directed = eg.CsrGraph.from_edges(3, [(0, 1), (1, 2)], directed=True)
@@ -232,9 +232,9 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
             for dtype_str in ("float64", "float32"):
                 l_run = eg.Layout2d.from_coords(_to_float_array(pts, dtype_str))
                 l_step = eg.Layout2d.from_coords(_to_float_array(pts, dtype_str))
-                s1 = eg.ClusterRefineSolver(labels, method=method, max_rounds=5, seed=42, dtype=dtype_str)
+                s1 = eg.ClusterRefineSolver(labels, method=method, max_iterations=5, seed=42, dtype=dtype_str)
                 s2 = eg.ClusterRefineSolver.from_graph(
-                    g_small, labels, method=method, max_rounds=5, seed=42, dtype=dtype_str
+                    g_small, labels, method=method, max_iterations=5, seed=42, dtype=dtype_str
                 )
                 self.assertEqual(s1.num_clusters, 2)
                 self.assertEqual(s1.num_nodes, 8)
@@ -251,7 +251,7 @@ class TestCommunityAndClusteredLayouts(unittest.TestCase):
                 self.assertTrue(s2.is_finished)
 
                 l_fn = eg.Layout2d.from_coords(_to_float_array(pts, dtype_str))
-                moved = eg.refine_cluster_layout(l_fn, labels, method=method, max_rounds=5, seed=42)
+                moved = eg.refine_cluster_layout(l_fn, labels, method=method, max_iterations=5, seed=42)
                 self.assertGreater(moved, 0)
                 self.assertGreater(eg.distance_consistency(l_fn, labels), dsc_before)
 

@@ -10,31 +10,35 @@ from ._core_types import (
     _DtypeLike,
     _IndexArrayLike,
     _MatrixArrayLike,
-    _VectorArrayLike,
     _WeightArrayLike,
 )
 
 __all__ = [
     "CsrMatrix",
     "anisotropic_laplacian",
-    "chebyshev_dog_jl_embedding",
-    "chebyshev_dog_jl_embedding_matrix",
-    "chebyshev_heat_spmv",
-    "chebyshev_heat_spmv_matrix",
+    "classical_mds",
     "classical_mds_2d",
+    "classical_mds_from_distances",
+    "combinatorial_laplacian",
     "compute_diffusion_embedding",
     "compute_resistance_embedding",
     "hde",
     "hde_nd",
     "koren_spectral_init",
+    "laplacian",
     "normalize_layout_2d",
+    "pivot_mds",
+    "pivot_mds_from_distances",
     "pivot_mds_init",
+    "random_walk_laplacian",
     "rd_mds",
     "representative_mds",
     "robust_normalize_layout_2d",
     "select_maxmin_sp_pivots",
+    "shifted_normalized_laplacian",
     "smallest_laplacian_eigenpairs",
     "spectral_moment_stats",
+    "symmetric_normalized_laplacian",
 ]
 
 @final
@@ -94,59 +98,40 @@ def anisotropic_laplacian(
     reweighted_degree_norm: bool = True,
 ) -> tuple[CsrMatrix, npt.NDArray[np.float64]]: ...
 
-def chebyshev_dog_jl_embedding(
-    graph: CsrGraph,
-    *,
-    t1: float | None = None,
-    t2: float | None = None,
-    alpha: float | None = None,
-    degree: int = 25,
-    jl_dim: int = 64,
-    seed: int = 42,
-    degree_normalize: bool = True,
-    eps_psd: float = 1e-4,
-) -> npt.NDArray[np.float64]: ...
+def laplacian(
+    graph: CsrGraph, kind: str = "symmetric_normalized"
+) -> CsrMatrix: ...
 
-def chebyshev_dog_jl_embedding_matrix(
-    matrix: CsrMatrix,
-    *,
-    t1: float | None = None,
-    t2: float | None = None,
-    alpha: float | None = None,
-    degree: int | None = None,
-    jl_dim: int = 64,
-    seed: int = 42,
-    eps_psd: float = 1e-4,
-    lambda_max: float | None = None,
-    lanczos_steps: int = 16,
-    safety_factor: float = 1.05,
-    scale_vec: _WeightArrayLike | None = None,
-) -> npt.NDArray[np.float64]: ...
+def combinatorial_laplacian(graph: CsrGraph) -> CsrMatrix: ...
 
-def chebyshev_heat_spmv(
+def symmetric_normalized_laplacian(
     graph: CsrGraph,
-    vectors: _VectorArrayLike,
-    t: float,
-    *,
-    degree: int | None = None,
+) -> tuple[CsrMatrix, npt.NDArray[np.float64]]: ...
+
+def random_walk_laplacian(graph: CsrGraph) -> CsrMatrix: ...
+
+def shifted_normalized_laplacian(
+    l_sym_or_graph: CsrMatrix | CsrGraph,
     lambda_max: float = 2.0,
-) -> npt.NDArray[np.float64]: ...
+) -> CsrMatrix: ...
 
-def chebyshev_heat_spmv_matrix(
-    matrix: CsrMatrix,
-    vectors: _VectorArrayLike,
-    t: float,
+def classical_mds(
+    graph: CsrGraph,
+    dims: int = 2,
     *,
-    degree: int | None = None,
-    lambda_max: float | None = None,
-    lanczos_steps: int = 16,
-    safety_factor: float = 1.05,
-    seed: int = 42,
-) -> npt.NDArray[np.float64]: ...
+    dtype: _DtypeLike = "float64",
+) -> LayoutNd: ...
 
 def classical_mds_2d(
     graph: CsrGraph, *, dtype: _DtypeLike = "float64"
 ) -> Layout2d: ...
+
+def classical_mds_from_distances(
+    distances: _MatrixArrayLike,
+    dims: int = 2,
+    *,
+    dtype: _DtypeLike = "float64",
+) -> LayoutNd: ...
 
 def compute_diffusion_embedding(
     graph: CsrGraph,
@@ -208,6 +193,17 @@ def normalize_layout_2d(
     layout: Layout2d, *, target_std: float = 1.0, seed: int = 42
 ) -> None: ...
 
+def pivot_mds(
+    graph: CsrGraph,
+    *,
+    num_pivots: int = 50,
+    seed: int = 42,
+    min_degree: int = 2,
+    target_std: float | None = 1.0,
+    pivots: _IndexArrayLike | None = None,
+    dtype: _DtypeLike = "float64",
+) -> Layout2d: ...
+
 def pivot_mds_init(
     graph: CsrGraph,
     *,
@@ -215,6 +211,14 @@ def pivot_mds_init(
     seed: int = 42,
     min_degree: int = 2,
     target_std: float | None = 1.0,
+    dtype: _DtypeLike = "float64",
+) -> Layout2d: ...
+
+def pivot_mds_from_distances(
+    distances_nk: _MatrixArrayLike,
+    *,
+    target_std: float | None = 1.0,
+    seed: int = 42,
     dtype: _DtypeLike = "float64",
 ) -> Layout2d: ...
 
@@ -226,6 +230,7 @@ def rd_mds(
     tol: float = 1e-6,
     max_iters: int = 1000,
     seed: int = 42,
+    degree_normalize: bool = True,
     dtype: _DtypeLike = "float64",
 ) -> LayoutNd: ...
 

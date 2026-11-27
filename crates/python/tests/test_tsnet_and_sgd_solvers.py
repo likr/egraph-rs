@@ -255,10 +255,10 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         for sched in ("exponential", "linear", "quadratic", "reciprocal", "constant"):
             for dtype_str in ("float64", "float32"):
                 s_run = eg.SgdSolver.from_pairs(
-                    4, [0, 1, 2], [1, 2, 3], [1.0, 1.0, 1.0], t_max=10, schedule=sched, seed=42, dtype=dtype_str
+                    4, [0, 1, 2], [1, 2, 3], [1.0, 1.0, 1.0], iterations=10, schedule=sched, seed=42, dtype=dtype_str
                 )
                 s_step = eg.SgdSolver.from_pairs(
-                    4, [0, 1, 2], [1, 2, 3], [1.0, 1.0, 1.0], t_max=10, schedule=sched, seed=42, dtype=dtype_str
+                    4, [0, 1, 2], [1, 2, 3], [1.0, 1.0, 1.0], iterations=10, schedule=sched, seed=42, dtype=dtype_str
                 )
                 c4 = _to_float_array(c4_base, dtype_str)
                 l_run = eg.Layout2d.from_coords(c4)
@@ -281,7 +281,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             [0],
             [2],
             [2.0],
-            t_max=8,
+            iterations=8,
             seed=42,
         )
         self.assertEqual(sh.num_springs, 1)
@@ -304,7 +304,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             hinge_dji=[2.0],
             hinge_wij=[0.25],
             hinge_wji=[0.25],
-            t_max=8,
+            iterations=8,
             seed=42,
         )
         self.assertEqual(sh_kw.num_springs, 1)
@@ -314,16 +314,16 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         lm = eg.compute_regularized_dog_varadhan_landmarks(g, degree=20, num_landmarks=8, seed=42)
         emb = eg.chebyshev_dog_jl_embedding(g, degree=20, jl_dim=8, seed=42)
 
-        s_full = eg.SgdSolver.full(g, t_max=15, seed=42)
+        s_full = eg.SgdSolver.full(g, iterations=15, seed=42)
         s_dog = eg.SgdSolver.sparse_barrier_dog(
-            g, degree=20, num_landmarks=8, barrier_sym="sym_max", t_max=15, seed=42
+            g, degree=20, num_landmarks=8, barrier_sym="sym_max", iterations=15, seed=42
         )
         s_lm = eg.SgdSolver.sparse_barrier_from_landmarks(
-            g, lm, pivots=[0, 5, 10, 15], barrier_sym="sym_avg", t_max=15, seed=42
+            g, lm, pivots=[0, 5, 10, 15], barrier_sym="sym_avg", iterations=15, seed=42
         )
-        s_rp = eg.SgdSolver.random_pair(g, pairs_per_node=4, t_max=15, seed=42)
-        s_om = eg.SgdSolver.omega(g, emb, k=4, min_dist=1e-3, t_max=15, seed=42)
-        s_st = eg.SgdSolver.streaming_negatives(g, negatives_per_node=3, t_max=15, seed=42)
+        s_rp = eg.SgdSolver.random_pair(g, pairs_per_node=4, iterations=15, seed=42)
+        s_om = eg.SgdSolver.omega(g, emb, k=4, min_dist=1e-3, iterations=15, seed=42)
+        s_st = eg.SgdSolver.streaming_negatives(g, negatives_per_node=3, iterations=15, seed=42)
 
         self.assertIsNone(s_full.stats())
         dog_stats = s_dog.stats()
@@ -342,15 +342,15 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         # 3. Non-Euclidean manifold stepping across all 3 manifolds & both dtypes
         for kind in ("hyperbolic", "spherical", "torus"):
             for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
-                ms_run = eg.SgdSolver.full(g, t_max=10, seed=42, dtype=dtype_str)
-                ms_step = eg.SgdSolver.full(g, t_max=10, seed=42, dtype=dtype_str)
+                ms_run = eg.SgdSolver.full(g, iterations=10, seed=42, dtype=dtype_str)
+                ms_step = eg.SgdSolver.full(g, iterations=10, seed=42, dtype=dtype_str)
                 ml_run = eg.ManifoldLayout2d.from_coords(kind, (init_coords * 0.25).astype(np_dtype))
                 ml_step = eg.ManifoldLayout2d.from_coords(kind, (init_coords * 0.25).astype(np_dtype))
 
-                self.assertEqual(ms_run.run_manifold(ml_run), "completed")
-                self.assertEqual(ms_step.run_steps_manifold(ml_step, 4), "running")
+                self.assertEqual(ms_run.run(ml_run), "completed")
+                self.assertEqual(ms_step.run_steps(ml_step, 4), "running")
                 while not ms_step.is_finished:
-                    ms_step.step_manifold(ml_step)
+                    ms_step.step(ml_step)
                 self.assertEqual(ms_step.status, "completed")
                 np.testing.assert_array_equal(ml_run.coords(), ml_step.coords())
 
@@ -372,7 +372,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             (ValueError,), lambda: eg.SgdSolver.sparse_barrier_dog(g, barrier_sym="sym_min")
         )
         self.assert_no_panic_raises(
-            (TypeError,), lambda: eg.SgdSolver.full(g, t_max=True)
+            (TypeError,), lambda: eg.SgdSolver.full(g, iterations=True)
         )
         self.assert_no_panic_raises(
             (IndexError,), lambda: eg.SgdSolver.from_pairs(2, [0], [5], [1.0])

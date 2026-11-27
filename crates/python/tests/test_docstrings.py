@@ -1,15 +1,16 @@
 import inspect
 import unittest
+from typing import Any
 import egraph
 
 
 class TestDocstrings(unittest.TestCase):
-    def test_missing_docstrings(self):
+    def test_missing_docstrings(self) -> None:
         """Check if all public exported functions and classes in egraph have docstrings."""
-        missing = []
-        visited = set()
+        missing: list[tuple[str, str]] = []
+        visited: set[int] = set()
 
-        def _traverse(obj, name):
+        def _traverse(obj: Any, name: str) -> None:
             obj_id = id(obj)
             if obj_id in visited:
                 return

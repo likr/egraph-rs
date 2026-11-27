@@ -149,21 +149,21 @@ class TestForceBundlingAndValidation(unittest.TestCase):
         )
         for dtype_str in ("float64", "float32"):
             layout = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            f_run = eg.FdebSolver(graph, layout, cycles=3, i0=6, dtype=None)
-            f_step = eg.FdebSolver(graph, layout, cycles=3, i0=6, dtype=dtype_str)
+            f_run = eg.FdebSolver(graph, cycles=3, steps_per_cycle=6, dtype=dtype_str)
+            f_step = eg.FdebSolver(graph, cycles=3, steps_per_cycle=6, dtype=dtype_str)
 
             self.assertEqual(f_run.dtype, dtype_str)
             self.assertEqual(f_run.num_edges, graph.num_edges)
             self.assertEqual(f_run.status, "initialized")
             self.assertIn("FdebSolver", repr(f_run))
 
-            status = f_run.run()
+            status = f_run.run(layout)
             self.assertEqual(status, "completed")
             self.assertTrue(f_run.is_finished)
 
-            f_step.step()
-            f_step.run_steps(4)
-            f_step.run()
+            f_step.step(layout)
+            f_step.run_steps(layout, 4)
+            f_step.run(layout)
             self.assertTrue(f_step.is_finished)
 
             offsets = f_run.edge_offsets()
@@ -194,7 +194,7 @@ class TestForceBundlingAndValidation(unittest.TestCase):
             (ValueError,), lambda: eg.TFdpSolver(graph, momentum=1.0)
         )
         self.assert_no_panic_raises(
-            (TypeError,), lambda: eg.TFdpSolver(graph, total_iterations=True)
+            (TypeError,), lambda: eg.TFdpSolver(graph, iterations=True)
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.TFdpSolver(graph).step(bad_layout)
@@ -255,7 +255,10 @@ class TestForceBundlingAndValidation(unittest.TestCase):
         )
         self.assert_no_panic_raises(
             (ValueError,),
-            lambda: eg.project_1d([0.0, 1.0], [eg.SeparationConstraint(0, 1, 1.0), eg.SeparationConstraint(1, 0, 1.0)]),
+            lambda: eg.project_1d(
+                np.array([0.0, 1.0], dtype=np.float64),
+                [eg.SeparationConstraint(0, 1, 1.0), eg.SeparationConstraint(1, 0, 1.0)],
+            ),
         )
         self.assert_no_panic_raises((ValueError,), lambda: eg.cycle_edges(undir))
         self.assert_no_panic_raises((ValueError,), lambda: eg.remove_cycles(undir))
@@ -265,10 +268,10 @@ class TestForceBundlingAndValidation(unittest.TestCase):
             (ValueError,), lambda: eg.assign_layers(dag, method="unknown")
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.FdebSolver(graph, bad_layout)
+            (ValueError,), lambda: eg.FdebSolver(graph).step(bad_layout)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.FdebSolver(graph, layout, cycles=30)
+            (ValueError,), lambda: eg.FdebSolver(graph, cycles=30)
         )
 
         # GIL release concurrency smoke test

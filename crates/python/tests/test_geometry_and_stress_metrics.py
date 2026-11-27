@@ -89,7 +89,7 @@ def _make_karate() -> tuple[eg.CsrGraph, eg.Layout2d]:
 
     # Produce a structured stress-optimized embedding with SgdSolver.full.
     layout = eg.Layout2d.init(n, seed=7)
-    eg.SgdSolver.full(csr, t_max=60, seed=7).run(layout)
+    eg.SgdSolver.full(csr, iterations=60, seed=7).run(layout)
     return csr, layout
 
 

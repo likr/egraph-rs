@@ -288,7 +288,7 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             ),
         )
 
-        # Selective evaluate_metrics with new targets + community_labels error guard.
+        # Selective evaluate_metrics with new targets + labels error guard.
         with self.assertRaises(ValueError):
             eg.evaluate_metrics(k4, sq, ["adjusted_patch_nig"])
 
@@ -304,7 +304,7 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
                 "adjusted_patch_nig",
                 "landmark_stratified_rta",
             ],
-            community_labels=[0, 0, 1, 1],
+            labels=[0, 0, 1, 1],
             num_landmarks=4,
             min_degree=1,
         )
@@ -326,7 +326,7 @@ class TestRtaCrosslessnessAndMetricErrors(unittest.TestCase):
             g_comm,
             l_comm,
             ["adjusted_patch_nig"],
-            community_labels=labels_c,
+            labels=labels_c,
             patch_radius=16,
         )
         self.assertAlmostEqual(rep_comm["adjusted_patch_nig"], nig, places=12)

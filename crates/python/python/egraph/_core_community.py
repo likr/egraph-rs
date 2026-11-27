@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from egraph._core import (
+    KMeansResult as KMeansResult,
+    LabelPropagationResult as LabelPropagationResult,
+    LeidenResult as LeidenResult,
+    LouvainResult as LouvainResult,
+    SpectralClusteringResult as SpectralClusteringResult,
     align_clustered_centroids as align_clustered_centroids,
     coarsen_graph as coarsen_graph,
     compute_pivoted_rhgh_landmarks as compute_pivoted_rhgh_landmarks,
@@ -15,6 +20,11 @@ from egraph._core import (
 )
 
 __all__ = [
+    "KMeansResult",
+    "LabelPropagationResult",
+    "LeidenResult",
+    "LouvainResult",
+    "SpectralClusteringResult",
     "align_clustered_centroids",
     "coarsen_graph",
     "compute_pivoted_rhgh_landmarks",

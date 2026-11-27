@@ -35,7 +35,9 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
     def test_selective_evaluate_metrics(self) -> None:
         g, layout = _make_grid(4, 4)
 
-        self.assertEqual(eg.evaluate_metrics(g, layout, []), {})
+        empty_report = eg.evaluate_metrics(g, layout, [])
+        self.assertEqual(len(empty_report), 0)
+        self.assertEqual(empty_report.to_dict(), {})
 
         subset = eg.evaluate_metrics(g, layout, ["sns", "np2", "drng", "dgg", "np2"])
         self.assertEqual(
@@ -180,7 +182,7 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
 
         for dtype in (np.float64, np.float32):
             lay = eg.Layout2d.from_coords(coords.astype(dtype))
-            km = eg.cq_kmeans(lay, labels, n_init=5, max_iters=100, seed=42)
+            km = eg.cq_kmeans(lay, labels, n_init=5, max_iterations=100, seed=42)
             hac = eg.cq_hac(lay, labels)
             self.assertAlmostEqual(km["ari"], 1.0, places=12)
             self.assertAlmostEqual(km["ami"], 1.0, places=12)
@@ -325,7 +327,7 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
             g,
             lay,
             all_cluster_baseline_targets,
-            community_labels=labels,
+            labels=labels,
             sepme_knng_k=2,
             neighborhood_hit_k=3,
             dc_grid_size=20,
@@ -334,12 +336,34 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
             num_bins=50,
             gong_gamma=0.35,
             kmeans_n_init=5,
-            kmeans_max_iters=100,
+            kmeans_max_iterations=100,
             sprawlter_node_radius=0.5,
             seed=42,
         )
-        self.assertEqual(set(res.keys()), set(all_cluster_baseline_targets))
-        self.assertAlmostEqual(res["dsc"], eg.distance_consistency(lay, labels), places=12)
+        expected_canonical_keys = {
+            "distance_consistency",
+            "distribution_consistency",
+            "class_density_measure",
+            "histogram_density_measure",
+            "sepme_knng",
+            "sepme_rng",
+            "sepme_gab",
+            "sepme_gong",
+            "neighborhood_hit",
+            "silhouette_score",
+            "calinski_harabasz_score",
+            "davies_bouldin_score",
+            "cq_kmeans_ari",
+            "cq_kmeans_ami",
+            "cq_hac_hom",
+            "cq_hac_ami",
+            "pairwise_distance_overlap_error",
+            "sprawlter_nn",
+        }
+        self.assertEqual(set(res.keys()), expected_canonical_keys)
+        self.assertAlmostEqual(
+            res["distance_consistency"], eg.distance_consistency(lay, labels), places=12
+        )
         self.assertAlmostEqual(
             res["neighborhood_hit"], eg.neighborhood_hit(lay, labels, k=3), places=12
         )
@@ -349,10 +373,10 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
 
         # Alias checks for sepme_knng2 / sepme-knng2 / sepme-knng
         for alias in ("sepme_knng", "sepme-knng", "sepme_knng2", "sepme-knng2"):
-            r_alias = eg.evaluate_metrics(g, lay, [alias], community_labels=labels, sepme_knng_k=2)
+            r_alias = eg.evaluate_metrics(g, lay, [alias], labels=labels, sepme_knng_k=2)
             self.assertAlmostEqual(r_alias["sepme_knng"], res["sepme_knng"], places=12)
 
-        # Missing community_labels error for community-dependent cluster baseline targets
+        # Missing labels error for community-dependent cluster baseline targets
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.evaluate_metrics(g, lay, ["dsc"])
         )
@@ -362,7 +386,7 @@ class TestClusterBaselinesAndMetricsDispatch(unittest.TestCase):
         self.assert_no_panic_raises(
             (ValueError,),
             lambda: eg.evaluate_metrics(
-                g, lay, ["sepme_knng"], community_labels=labels, sepme_knng_k=0
+                g, lay, ["sepme_knng"], labels=labels, sepme_knng_k=0
             ),
         )
 

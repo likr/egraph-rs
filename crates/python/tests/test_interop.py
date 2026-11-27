@@ -197,17 +197,17 @@ class TestInteropEndToEndWorkflows(unittest.TestCase):
         tsnet.run(layout_tsnet)
         self.assertTrue(layout_tsnet.is_all_finite())
 
-        sgd = eg.SgdSolver.sparse_barrier_dog(csr, t_max=10, seed=42)
+        sgd = eg.SgdSolver.sparse_barrier_dog(csr, iterations=10, seed=42)
         layout_sgd = eg.Layout2d.from_coords(init.coords(copy=True))
         sgd.run(layout_sgd)
         self.assertTrue(layout_sgd.is_all_finite())
 
-        gumap = eg.GuMapSolver.from_graph_dog(csr, n_epochs=10, seed=42)
+        gumap = eg.GuMapSolver.from_graph_dog(csr, iterations=10, seed=42)
         layout_gumap = eg.Layout2d.from_coords(init.coords(copy=True))
         gumap.run(layout_gumap)
         self.assertTrue(layout_gumap.is_all_finite())
 
-        refiner = eg.SpatialIntruderRefiner(csr, rounds=1, t_max=5, seed=42)
+        refiner = eg.SpatialIntruderRefiner(csr, iterations=1, sgd_iterations=5, seed=42)
         refiner.run(layout_gumap)
         self.assertTrue(layout_gumap.is_all_finite())
 

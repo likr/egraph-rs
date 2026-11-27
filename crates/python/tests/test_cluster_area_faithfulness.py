@@ -241,7 +241,7 @@ class TestClusterAreaFaithfulness(unittest.TestCase):
             g_imb,
             l_imb,
             ["cluster_area_faithfulness"],
-            community_labels=labels_imb,
+            labels=labels_imb,
             g_max=64,
             sigma_cells=0.9,
             kappa=8.0,
@@ -261,7 +261,7 @@ class TestClusterAreaFaithfulness(unittest.TestCase):
         )
         self.assertAlmostEqual(rep["cluster_area_faithfulness"], expected_caf, places=12)
 
-        rep_alias = eg.evaluate_metrics(g_imb, l_imb, ["gcaf"], community_labels=labels_imb)
+        rep_alias = eg.evaluate_metrics(g_imb, l_imb, ["gcaf"], labels=labels_imb)
         self.assertAlmostEqual(
             rep_alias["cluster_area_faithfulness"],
             eg.cluster_area_faithfulness(l_imb, labels_imb),
@@ -274,7 +274,7 @@ class TestClusterAreaFaithfulness(unittest.TestCase):
         self.assert_no_panic_raises(
             (ValueError,),
             lambda: eg.evaluate_metrics(
-                g_imb, l_imb, ["cluster_area_faithfulness"], community_labels=labels_imb, g_max=4
+                g_imb, l_imb, ["cluster_area_faithfulness"], labels=labels_imb, g_max=4
             ),
         )
         self.assert_no_panic_raises(

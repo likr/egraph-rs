@@ -341,8 +341,8 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
         ml = eg.ManifoldLayout2d.from_layout_scaled(
             "hyperbolic", eg.pivot_mds_init(lg, num_pivots=6, min_degree=1)
         )
-        sgd = eg.SgdSolver.full(lg, t_max=10, seed=42)
-        sgd.run_manifold(ml)
+        sgd = eg.SgdSolver.full(lg, iterations=10, seed=42)
+        sgd.run(ml)
         self.assertTrue(ml.is_all_finite())
 
         # Torus T_{8x8}

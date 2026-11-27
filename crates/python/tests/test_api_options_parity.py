@@ -89,7 +89,7 @@ class TestCoreLayoutApiParity(unittest.TestCase):
             nd = eg.LayoutNd.zeros(4, 3, dtype=dtype)
             self.assertEqual(len(nd), 4)
             self.assertEqual(nd.num_nodes, 4)
-            self.assertEqual(nd.dim, 3)
+            self.assertEqual(nd.dims, 3)
             self.assertEqual(nd.dtype, dtype)
             self.assertFalse(nd.is_empty())
             self.assertTrue(nd.is_all_finite())
@@ -100,20 +100,20 @@ class TestCoreLayoutApiParity(unittest.TestCase):
 
             np_dtype = np.float64 if dtype == "float64" else np.float32
             nd2 = eg.LayoutNd.from_coords(np.ones((3, 5), dtype=np_dtype))
-            self.assertEqual(nd2.dim, 5)
+            self.assertEqual(nd2.dims, 5)
             self.assertEqual(nd2.dtype, dtype)
 
     def test_manifold_layout_and_distances(self) -> None:
         for dtype in ("float64", "float32"):
             hyp = eg.ManifoldLayout2d.hyperbolic_poincare(3, dtype=dtype)
-            self.assertEqual(hyp.manifold, "hyperbolic")
+            self.assertEqual(hyp.kind, "hyperbolic")
             self.assertEqual(hyp.num_nodes, 3)
             self.assertEqual(hyp.dtype, dtype)
             sph = eg.ManifoldLayout2d.spherical(2, dtype=dtype)
-            self.assertEqual(sph.manifold, "spherical")
+            self.assertEqual(sph.kind, "spherical")
             self.assertEqual(sph.num_nodes, 2)
             tor = eg.ManifoldLayout2d.torus_2d(2, dtype=dtype)
-            self.assertEqual(tor.manifold, "torus")
+            self.assertEqual(tor.kind, "torus")
             self.assertEqual(tor.num_nodes, 2)
 
             m = eg.ManifoldLayout2d.zeros("hyperbolic", 3, dtype=dtype)
@@ -230,7 +230,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
             self.assertTrue(cmds.is_all_finite())
 
             rmds = eg.rd_mds(g, dims=3, seed=42, dtype=dtype)
-            self.assertEqual(rmds.dim, 3)
+            self.assertEqual(rmds.dims, 3)
             self.assertEqual(rmds.dtype, dtype)
 
             eg.normalize_layout_2d(cmds, target_std=1.5, seed=42)
@@ -241,7 +241,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
             rep_dist = eg.all_pairs_bfs(g)[:, :4]
             rep_nd = eg.representative_mds(rep_dist, dims=2, dtype=dtype)
             self.assertEqual(rep_nd.num_nodes, 9)
-            self.assertEqual(rep_nd.dim, 2)
+            self.assertEqual(rep_nd.dims, 2)
 
         res_coords, res_lambdas = eg.compute_resistance_embedding(g, dim=4, seed=42)
         self.assertEqual(res_coords.shape[0], 9)
@@ -313,11 +313,11 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
             tfdp = eg.TFdpSolver(
                 g,
                 backend="ibfft",
-                total_iterations=5,
-                ibfft_order=3,
-                ibfft_intervals=16,
-                ibfft_min_grid_dim=32,
-                ibfft_max_grid_dim=128,
+                iterations=5,
+                interpolation_order=3,
+                intervals=16,
+                min_grid_dim=32,
+                max_grid_dim=128,
                 seed=42,
                 dtype=dtype,
             )
@@ -341,11 +341,11 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
                 alpha=None,
                 beta_floor=None,
                 backend="ibfft",
-                n_epochs=5,
-                ibfft_order=1,
-                ibfft_intervals=16,
-                ibfft_min_grid_dim=32,
-                ibfft_max_grid_dim=128,
+                iterations=5,
+                interpolation_order=1,
+                intervals=16,
+                min_grid_dim=32,
+                max_grid_dim=128,
                 seed=42,
                 dtype=dtype,
             )
@@ -364,13 +364,13 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
 
         lm_default = eg.compute_regularized_dog_varadhan_landmarks(g)
         self.assertEqual(lm_default.num_nodes, 9)
-        sgd_default = eg.SgdSolver.sparse_barrier_dog(g, min_degree=1, jl_dim=8, t_max=3)
+        sgd_default = eg.SgdSolver.sparse_barrier_dog(g, min_degree=1, jl_dim=8, iterations=3)
         d_stats = sgd_default.dog_stats()
         assert d_stats is not None
         self.assertGreaterEqual(d_stats["degree"], 40)
-        gm_default = eg.GuMapSolver.from_graph_dog(g, min_degree=1, jl_dim=8, n_epochs=3)
+        gm_default = eg.GuMapSolver.from_graph_dog(g, min_degree=1, jl_dim=8, iterations=3)
         self.assertEqual(len(gm_default.ab), 2)
-        ib_default = eg.IbUmapSolver(g, min_degree=1, jl_dim=8, backend="exact", n_epochs=3)
+        ib_default = eg.IbUmapSolver(g, min_degree=1, jl_dim=8, backend="exact", iterations=3)
         self.assertIsNotNone(ib_default.ab)
 
         l_m = eg.pivot_mds_init(g, num_pivots=5, seed=42)
@@ -378,7 +378,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
         ev_exp = eg.evaluate_metrics(
             g, l_m, ["sampled_sns", "sampled_crossing_number"], num_pivots=64, num_samples=4096, seed=42
         )
-        self.assertEqual(ev_def, ev_exp)
+        self.assertEqual(ev_def.to_dict(), ev_exp.to_dict())
 
 
 if __name__ == "__main__":

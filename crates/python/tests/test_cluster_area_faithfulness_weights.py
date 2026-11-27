@@ -92,12 +92,12 @@ class TestClusterAreaFaithfulnessWeights(unittest.TestCase):
             ),
         )
 
-        # Lazy non-GCAF evaluation ignores mismatched community_labels & invalid sigma_cells
+        # Lazy non-GCAF evaluation ignores mismatched labels & invalid sigma_cells
         g = eg.CsrGraph.from_edges(
             8, [(i, (i + 1) % 8) for i in range(8)], directed=False, sanitize=True
         )
         sns_only = eg.evaluate_metrics(
-            g, layout, ["sns"], community_labels=[0, 1], sigma_cells=-1.0
+            g, layout, ["sns"], labels=[0, 1], sigma_cells=-1.0
         )
         self.assertIn("scale_normalized_stress", sns_only)
         self.assertNotIn("cluster_area_faithfulness", sns_only)
@@ -174,14 +174,14 @@ class TestClusterAreaFaithfulnessWeights(unittest.TestCase):
                 places=6,
             )
 
-        ev_nw = eg.evaluate_metrics(g, layout, ["gcaf"], community_labels=labels, node_weights=nw)
-        ev_cw = eg.evaluate_metrics(g, layout, ["gcaf"], community_labels=labels, cluster_weights=cw)
+        ev_nw = eg.evaluate_metrics(g, layout, ["gcaf"], labels=labels, node_weights=nw)
+        ev_cw = eg.evaluate_metrics(g, layout, ["gcaf"], labels=labels, cluster_weights=cw)
         self.assertAlmostEqual(ev_nw["cluster_area_faithfulness"], caf_nw, places=12)
         self.assertAlmostEqual(ev_cw["cluster_area_faithfulness"], caf_cw, places=12)
 
         # Lazy validation in evaluate_metrics ignores invalid weight values if gcaf not requested.
         ev_lazy = eg.evaluate_metrics(
-            g, layout, ["aspect_ratio"], community_labels=labels, node_weights=[-1.0]
+            g, layout, ["aspect_ratio"], labels=labels, node_weights=[-1.0]
         )
         self.assertIn("aspect_ratio", ev_lazy)
 
