@@ -114,6 +114,16 @@ fn canonical_f64<S: Scalar>(val: S) -> f64 {
     if f == 0.0 { 0.0 } else { f }
 }
 
+#[inline]
+fn clamp_finite_scalar<S: Scalar>(val: f64) -> S {
+    let max_abs = if std::mem::size_of::<S>() == 4 {
+        f64::from(f32::MAX)
+    } else {
+        f64::MAX
+    };
+    S::from_f64(val.clamp(-max_abs, max_abs))
+}
+
 impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
     fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         if self.status.is_finished() {
@@ -155,12 +165,32 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
             }
         }
 
+        let raw_diag = (max_x - min_x).hypot(max_y - min_y);
+        // Scale down by 4.0 only when finite coordinates span across `[-1e308, +1e308]` so
+        // `max_x - min_x` or `hypot` would overflow `f64::MAX`.
+        let coord_scale = if raw_diag.is_finite() { 1.0 } else { 4.0 };
+        if coord_scale != 1.0 {
+            let inv_scale = 1.0 / coord_scale;
+            for v in &mut fx {
+                *v *= inv_scale;
+            }
+            for v in &mut fy {
+                *v *= inv_scale;
+            }
+            min_x *= inv_scale;
+            max_x *= inv_scale;
+            min_y *= inv_scale;
+            max_y *= inv_scale;
+        }
         let diag = (max_x - min_x).hypot(max_y - min_y);
         if diag <= DEGENERATE_DIAG_EPS {
             // All nodes collapsed at a single point: fan out on a unit-radius Vogel spiral.
+            // Divide before summing so large finite coordinates (e.g. `1e308`) never overflow.
             let inv_n = 1.0 / (n as f64);
-            let cx = fx.iter().sum::<f64>() * inv_n;
-            let cy = fy.iter().sum::<f64>() * inv_n;
+            let cx_sum = fx.iter().map(|&v| v * inv_n).sum::<f64>();
+            let cy_sum = fy.iter().map(|&v| v * inv_n).sum::<f64>();
+            let cx = if cx_sum.is_finite() { cx_sum } else { fx[0] } * coord_scale;
+            let cy = if cy_sum.is_finite() { cy_sum } else { fy[0] } * coord_scale;
             let mut order: Vec<usize> = (0..n).collect();
             order.sort_unstable_by(|&a, &b| {
                 fx[a]
@@ -172,8 +202,8 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
             for (k, &vid) in order.iter().enumerate() {
                 let theta = (k as f64) * GOLDEN_ANGLE;
                 let r = (((k as f64) + 0.5) * inv_n).sqrt();
-                xs_mut[vid] = S::from_f64(cx + r * theta.cos());
-                ys_mut[vid] = S::from_f64(cy + r * theta.sin());
+                xs_mut[vid] = clamp_finite_scalar(cx + r * theta.cos());
+                ys_mut[vid] = clamp_finite_scalar(cy + r * theta.sin());
             }
             self.last_cluster_count = 1;
             self.last_moved_count = n;
@@ -302,17 +332,14 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
         }
 
         // Step 4: Group vertices by cluster and compute cluster centroids for StaticKdTree.
+        // Divide before summing so large finite coordinates (e.g. `1e308`) never overflow.
         let mut cent_x = vec![0.0_f64; n_clusters];
         let mut cent_y = vec![0.0_f64; n_clusters];
         for i in 0..n {
             let c = vert_cluster[i] as usize;
-            cent_x[c] += fx[i];
-            cent_y[c] += fy[i];
-        }
-        for c in 0..n_clusters {
             let inv = 1.0 / (cluster_sizes[c] as f64);
-            cent_x[c] *= inv;
-            cent_y[c] *= inv;
+            cent_x[c] += fx[i] * inv;
+            cent_y[c] += fy[i] * inv;
         }
 
         // Build flat CSR buckets over cluster members without nested Vec allocations.
@@ -326,6 +353,15 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
             let c = c_u32 as usize;
             members[cursor[c]] = i;
             cursor[c] += 1;
+        }
+        for c in 0..n_clusters {
+            let rep = members[offsets[c]];
+            if !cent_x[c].is_finite() {
+                cent_x[c] = fx[rep];
+            }
+            if !cent_y[c].is_finite() {
+                cent_y[c] = fy[rep];
+            }
         }
 
         // Critical: StaticKdTree::nearest_excluding_self excludes only 1 index, so querying on
@@ -376,8 +412,8 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
             for (k, &vid) in members[start..end].iter().enumerate() {
                 let theta = (k as f64) * GOLDEN_ANGLE;
                 let r = r_max * (((k as f64) + 0.5) * inv_m).sqrt();
-                xs_mut[vid] = S::from_f64(cx + r * theta.cos());
-                ys_mut[vid] = S::from_f64(cy + r * theta.sin());
+                xs_mut[vid] = clamp_finite_scalar((cx + r * theta.cos()) * coord_scale);
+                ys_mut[vid] = clamp_finite_scalar((cy + r * theta.sin()) * coord_scale);
             }
             moved += m;
         }

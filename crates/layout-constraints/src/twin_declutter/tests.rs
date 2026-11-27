@@ -157,3 +157,44 @@ fn test_twin_declutter_step_matches_run_and_respects_iterations() {
     assert_eq!(s_run.iteration(), s_step.iteration());
     assert_eq!(l_run, l_step);
 }
+
+#[test]
+fn test_twin_declutter_large_finite_coordinates_preserve_finiteness() {
+    let cfg = TwinDeclutterConfig::default();
+
+    // Coincident nodes at `1e308`: degenerate fallback must divide before summing.
+    let mut coincident = Layout2d::from_xy(vec![1e308_f64; 4], vec![1e308_f64; 4]).unwrap();
+    let mut solver_c = TwinDeclutterer::new(cfg).unwrap();
+    assert_eq!(
+        solver_c.run(&mut coincident).unwrap(),
+        SolverStatus::Converged
+    );
+    assert!(coincident.is_all_finite());
+
+    // Multi-cluster twins spanning `[-1e308, +1e308]`: bbox/diag and centroid averaging stay finite.
+    let mut multi = Layout2d::from_xy(
+        vec![-1e308_f64, -1e308_f64, 1e308_f64, 1e308_f64, 0.0],
+        vec![-1e308_f64, -1e308_f64, 1e308_f64, 1e308_f64, 0.0],
+    )
+    .unwrap();
+    let mut solver_m = TwinDeclutterer::new(cfg).unwrap();
+    let status_m = solver_m.run(&mut multi).unwrap();
+    assert!(matches!(
+        status_m,
+        SolverStatus::Converged | SolverStatus::Completed
+    ));
+    assert!(multi.is_all_finite());
+
+    // f32 extreme coincident and multi-cluster coordinates stay finite as well.
+    let mut coincident32 = Layout2d::from_xy(vec![3e38_f32; 3], vec![-3e38_f32; 3]).unwrap();
+    assert_eq!(declutter_twins_2d(&mut coincident32, &cfg).unwrap(), 1);
+    assert!(coincident32.is_all_finite());
+
+    let mut multi32 = Layout2d::from_xy(
+        vec![-3e38_f32, -3e38_f32, 3e38_f32, 3e38_f32],
+        vec![0.0_f32, 0.0, 0.0, 0.0],
+    )
+    .unwrap();
+    let _ = declutter_twins_2d(&mut multi32, &cfg).unwrap();
+    assert!(multi32.is_all_finite());
+}
