@@ -112,7 +112,7 @@ def run_cross_target_manifold_engines_crossings_parity(
         return lr.coords(copy=True).ravel()
 
     mani_py = {
-        "tsnet_sph": run_mani_py(lambda: eg.TsNetSolver.pure_2hop(g16, backend="exact", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2, seed=42, dtype="float32"), "spherical", sph_c, 2),
+        "tsnet_sph": run_mani_py(lambda: eg.TsNetSolver.pure_2hop(g16, backend="exact", stage_iterations=(2, 2, 2), seed=42, dtype="float32"), "spherical", sph_c, 2),
         "gumap_tor": run_mani_py(lambda: eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=5, learning_rate=0.2, seed=42, dtype="float32"), "torus_2d", tor_c, 2),
         "sm_lor": run_mani_py(lambda: eg.StressMajorizationSolver.from_graph(g16, max_iterations=5, dtype="float32"), "hyperbolic_lorentz", lor_c, 2),
         "kk_poin": run_mani_py(lambda: eg.KamadaKawaiSolver.from_graph(g16, max_iterations=5, eps=1e-3, max_inner_iters=20, dtype="float32"), "hyperbolic_poincare", poin_c, 2),

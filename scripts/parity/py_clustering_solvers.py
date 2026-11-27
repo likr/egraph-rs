@@ -111,10 +111,10 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
         # TsNetSolver.pure_2hop (all 4 backends)
         for backend in ("fft", "linear_fft", "barnes_hut", "exact"):
             ts_r = eg.TsNetSolver.pure_2hop(
-                g16, backend=backend, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+                g16, backend=backend, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
             )
             ts_s = eg.TsNetSolver.pure_2hop(
-                g16, backend=backend, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+                g16, backend=backend, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
             )
             lr = eg.Layout2d.from_coords(init_typed)
             ls = eg.Layout2d.from_coords(init_typed)

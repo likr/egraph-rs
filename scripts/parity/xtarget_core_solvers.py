@@ -65,7 +65,7 @@ def run_cross_target_core_solvers_parity(
         for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
             lay = eg.Layout2d.from_coords(c16)
             sv = eg.TsNetSolver.pure_2hop(
-                g16, backend=bk, iterations_stage1=4, iterations_stage2=4, iterations_stage3=4, seed=42, dtype=dtype_name
+                g16, backend=bk, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
             )
             sv.run(lay)
             out[f"tsnet_{bk}"] = lay.coords(copy=True)
@@ -81,9 +81,7 @@ def run_cross_target_core_solvers_parity(
                 w2=w2_val,
                 max_2hop_per_node=cap_val,
                 backend=bk,
-                iterations_stage1=4,
-                iterations_stage2=4,
-                iterations_stage3=4,
+                stage_iterations=(4, 4, 4),
                 seed=42,
                 dtype=dtype_name,
             )

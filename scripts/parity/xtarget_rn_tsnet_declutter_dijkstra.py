@@ -37,7 +37,7 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     init260_f32 = np.array(make_asymmetric_coords(260, scale=0.6), dtype=np.float32)
 
     ts_auto_small = eg.TsNetSolver.pure_2hop(
-        g16, backend="auto", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2, seed=42, dtype="float32"
+        g16, backend="auto", stage_iterations=(2, 2, 2), seed=42, dtype="float32"
     )
     assert ts_auto_small.resolved_backend == "exact"
     l_auto_sm = eg.Layout2d.from_coords(init16_f32)
@@ -45,7 +45,7 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     assert ts_auto_small.total_fft_2d_calls == 0
 
     ts_auto_big = eg.TsNetSolver.pure_2hop(
-        g260, backend="auto", iterations_stage1=1, iterations_stage2=1, iterations_stage3=1,
+        g260, backend="auto", stage_iterations=(1, 1, 1),
         learning_rate_divisor=3.0, seed=42, dtype="float32",
     )
     assert ts_auto_big.resolved_backend == "linear_fft"
@@ -71,7 +71,7 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     l_rn_rw = eg.Layout2d.from_coords(init16_f32)
     ts_rn_rw = eg.TsNetSolver.from_graph_row_normalized(
         g16, w2=0.4, max_2hop_per_node=8, degree_beta=0.25, mode="two_step_random_walk", max_bridge_degree=3,
-        backend="exact", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2, seed=42, dtype="float32",
+        backend="exact", stage_iterations=(2, 2, 2), seed=42, dtype="float32",
     )
     ts_rn_rw.run(l_rn_rw)
 

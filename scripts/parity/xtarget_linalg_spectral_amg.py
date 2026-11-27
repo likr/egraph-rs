@@ -37,10 +37,10 @@ def run_cross_target_linalg_spectral_parity(
         g, num_pivots=12, seed=42, min_degree=2, target_std=None, dtype="float32"
     ).coords(copy=True)
     koren_f32 = eg.koren_spectral_init(
-        g, target_std=1.0, tol=1e-4, max_iters=300, seed=42, dtype="float32"
+        g, target_std=1.0, tol=1e-4, max_iterations=300, seed=42, dtype="float32"
     ).coords(copy=True)
     lams, evecs, inv_d, used_dense = eg.smallest_laplacian_eigenpairs(
-        g, n_modes=4, tol=1e-4, max_iters=300, seed=42
+        g, n_modes=4, tol=1e-4, max_iterations=300, seed=42
     )
     mstats = eg.spectral_moment_stats(g)
 

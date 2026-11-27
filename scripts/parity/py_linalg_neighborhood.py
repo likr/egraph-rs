@@ -38,7 +38,7 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert abs(float(np.std(cp)) - 1.0) < 1e-4
 
         lk = eg.koren_spectral_init(
-            g, target_std=1.0, tol=1e-4, max_iters=300, seed=42, dtype=dtype_name
+            g, target_std=1.0, tol=1e-4, max_iterations=300, seed=42, dtype=dtype_name
         )
         assert lk.dtype == dtype_name and lk.is_all_finite()
         ck = lk.coords(copy=True)
@@ -60,7 +60,7 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
 
     # 2. Eigenpairs (both Lanczos path on n=70 and dense fallback on barbell_2comm_9) & moment stats
     lams, vecs, inv_d, used_dense = eg.smallest_laplacian_eigenpairs(
-        g, n_modes=4, tol=1e-4, max_iters=300, seed=42
+        g, n_modes=4, tol=1e-4, max_iterations=300, seed=42
     )
     assert used_dense is False
     assert lams.shape == (4,) and vecs.shape == (n, 4) and inv_d.shape == (n,)
@@ -193,7 +193,7 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("pivot_mds_init/zero_pivots", lambda: eg.pivot_mds_init(g, num_pivots=0)),
         ("pivot_mds_init/bad_dtype", lambda: eg.pivot_mds_init(g, dtype="int32")),
         ("koren_spectral_init/zero_tol", lambda: eg.koren_spectral_init(g, tol=0.0)),
-        ("koren_spectral_init/zero_iters", lambda: eg.koren_spectral_init(g, max_iters=0)),
+        ("koren_spectral_init/zero_iters", lambda: eg.koren_spectral_init(g, max_iterations=0)),
         ("smallest_laplacian_eigenpairs/zero_modes", lambda: eg.smallest_laplacian_eigenpairs(g, 0)),
         ("chebyshev_heat_spmv/len_mismatch", lambda: eg.chebyshev_heat_spmv(g, np.ones(n - 1), 1.0)),
         ("chebyshev_heat_spmv/nan_vec", lambda: eg.chebyshev_heat_spmv(g, np.full(n, float("nan")), 1.0)),

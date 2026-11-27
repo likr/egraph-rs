@@ -70,7 +70,7 @@ def run_cross_target_nd_solvers_metrics_parity(
         (
             "tsnet",
             lambda: eg.TsNetSolver.pure_2hop(
-                g16, backend="exact", iterations_stage1=3, iterations_stage2=3, iterations_stage3=3, seed=42, dtype="float32"
+                g16, backend="exact", stage_iterations=(3, 3, 3), seed=42, dtype="float32"
             ),
             3,
         ),
