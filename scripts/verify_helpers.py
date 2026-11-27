@@ -20,33 +20,7 @@ try:
 except ModuleNotFoundError:
     _tomllib = None
 
-V6_CRATE_SUBDIRS: tuple[str, ...] = (
-    "core",
-    "ffi",
-    "petgraph",
-    "dataset",
-    "spatial-trees",
-    "spatial-fft",
-    "spatial-crossings",
-    "spatial",
-    "metrics-geometry",
-    "metrics-cluster",
-    "metrics",
-    "linalg",
-    "linalg-mds",
-    "linalg-amg",
-    "neighborhood",
-    "cluster",
-    "layout-constraints",
-    "layout-stress",
-    "layout-force",
-    "layout-neighbor",
-    "layout-sgd",
-    "layout-multilevel",
-    "layout",
-    "egraph",
-    "cli",
-)
+NON_PUBLISHABLE_CRATES: frozenset[str] = frozenset({"egraph-ffi", "egraph-python", "egraph-wasm", "egraph-cli"})
 
 
 def cmd_now(_args: argparse.Namespace) -> int:
@@ -162,37 +136,75 @@ def _load_toml(path: pathlib.Path) -> dict[str, Any]:
 
     # Minimal regex fallback for Python < 3.11 without tomllib.
     data: dict[str, Any] = {"_raw": txt}
-    ws_ver = re.search(
-        r'^\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"',
-        txt,
-        re.MULTILINE | re.DOTALL,
-    )
-    if ws_ver:
-        data.setdefault("workspace", {}).setdefault("package", {})["version"] = ws_ver.group(1)
+    ws_sec = re.search(r"^\[workspace\][^\[]*", txt, re.MULTILINE | re.DOTALL)
+    if ws_sec:
+        m_mem = re.search(r"^members\s*=\s*\[([^\]]*)\]", ws_sec.group(0), re.MULTILINE | re.DOTALL)
+        if m_mem:
+            data.setdefault("workspace", {})["members"] = re.findall(r'"([^"]+)"', m_mem.group(1))
+    ws_pkg_sec = re.search(r"^\[workspace\.package\][^\[]*", txt, re.MULTILINE | re.DOTALL)
+    if ws_pkg_sec:
+        ws_pkg = data.setdefault("workspace", {}).setdefault("package", {})
+        for key in ("version", "repository", "rust-version"):
+            m_val = re.search(rf'^{re.escape(key)}\s*=\s*"([^"]+)"', ws_pkg_sec.group(0), re.MULTILINE)
+            if m_val:
+                ws_pkg[key] = m_val.group(1)
     pkg_sec = re.search(r"^\[package\][^\[]*", txt, re.MULTILINE | re.DOTALL)
     if pkg_sec:
-        sec = pkg_sec.group(0)
-        if re.search(r"^version\.workspace\s*=\s*true", sec, re.MULTILINE) or re.search(
-            r"^version\s*=\s*\{\s*workspace\s*=\s*true",
-            sec,
-            re.MULTILINE,
-        ):
-            data.setdefault("package", {})["version"] = {"workspace": True}
-        else:
-            match = re.search(r'^version\s*=\s*"([^"]+)"', sec, re.MULTILINE)
-            if match:
-                data.setdefault("package", {})["version"] = match.group(1)
+        sec, pkg = pkg_sec.group(0), data.setdefault("package", {})
+        for key in ("name", "version", "repository", "rust-version", "description"):
+            ek = re.escape(key)
+            if re.search(rf"^{ek}(?:\.workspace|\s*=\s*\{{\s*workspace)\s*=\s*true", sec, re.MULTILINE):
+                pkg[key] = {"workspace": True}
+            elif match := re.search(rf'^{ek}\s*=\s*"([^"]+)"', sec, re.MULTILINE):
+                pkg[key] = match.group(1)
+        if m_pub := re.search(r"^publish\s*=\s*(true|false)\b", sec, re.MULTILINE):
+            pkg["publish"] = m_pub.group(1) == "true"
     return data
+
+
+def _workspace_member_dirs(root: pathlib.Path, root_data: dict[str, Any]) -> list[pathlib.Path]:
+    ws_section = root_data.get("workspace")
+    raw_members = ws_section.get("members", []) if isinstance(ws_section, dict) else []
+    if not isinstance(raw_members, list):
+        return []
+    member_dirs: list[pathlib.Path] = []
+    seen: set[pathlib.Path] = set()
+    for entry in raw_members:
+        rel = str(entry).strip()
+        if not rel:
+            continue
+        if any(ch in rel for ch in "*?["):
+            candidates = sorted(p for p in root.glob(rel) if p.is_dir())
+        else:
+            candidates = [root / rel]
+        for path in candidates:
+            if path not in seen:
+                seen.add(path)
+                member_dirs.append(path)
+    return member_dirs
+
+
+def _resolve_workspace_field(
+    pkg_dict: dict[str, Any],
+    field: str,
+    ws_pkg_dict: dict[str, Any],
+) -> str | None:
+    val = pkg_dict.get(field)
+    if isinstance(val, dict) and val.get("workspace") is True:
+        ws_val = ws_pkg_dict.get(field)
+        return str(ws_val) if isinstance(ws_val, str) else None
+    if isinstance(val, str):
+        return val
+    return None
 
 
 def _resolve_cargo_version(cargo_path: pathlib.Path, ws_version: str | None) -> str | None:
     data = _load_toml(cargo_path)
-    ver = data.get("package", {}).get("version")
-    if isinstance(ver, dict) and ver.get("workspace") is True:
-        return ws_version
-    if isinstance(ver, str):
-        return ver
-    return None
+    pkg_dict = data.get("package")
+    if not isinstance(pkg_dict, dict):
+        return None
+    ws_pkg: dict[str, Any] = {"version": ws_version} if ws_version is not None else {}
+    return _resolve_workspace_field(pkg_dict, "version", ws_pkg)
 
 
 def _check_python_packaging(
@@ -292,29 +304,117 @@ def _check_wasm_packaging(
         )
 
 
+def _ws_str(ws_pkg_dict: dict[str, Any], key: str) -> str | None:
+    val = ws_pkg_dict.get(key)
+    return val if isinstance(val, str) else None
+
+
+def _check_member_metadata(
+    rel_dir: str,
+    pkg_dict: dict[str, Any],
+    ws_pkg_dict: dict[str, Any],
+    ws_deps: dict[str, Any],
+    strict_all: bool,
+    strict_pub: bool,
+    issues: list[str],
+) -> None:
+    pkg_name = pkg_dict.get("name")
+    if not isinstance(pkg_name, str) or not pkg_name:
+        issues.append(f"{rel_dir}/Cargo.toml is missing package.name")
+        return
+
+    ws_version = _ws_str(ws_pkg_dict, "version")
+    ws_repository = _ws_str(ws_pkg_dict, "repository")
+    ws_rust_version = _ws_str(ws_pkg_dict, "rust-version")
+    if ws_version is not None:
+        pkg_ver = _resolve_workspace_field(pkg_dict, "version", ws_pkg_dict)
+        if pkg_ver != ws_version:
+            issues.append(f"{rel_dir}/Cargo.toml version ({pkg_ver}) != workspace ({ws_version})")
+
+    is_non_pub = pkg_name in NON_PUBLISHABLE_CRATES
+    if is_non_pub and "publish" in pkg_dict and pkg_dict["publish"] is not False:
+        issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) publish={pkg_dict['publish']!r} != false")
+
+    if ws_rust_version is not None and "rust-version" in pkg_dict:
+        pkg_msrv = _resolve_workspace_field(pkg_dict, "rust-version", ws_pkg_dict)
+        if pkg_msrv != ws_rust_version:
+            issues.append(
+                f"{rel_dir}/Cargo.toml rust-version ({pkg_msrv}) != workspace ({ws_rust_version})"
+            )
+
+    dep_spec = ws_deps.get(pkg_name)
+    if isinstance(dep_spec, dict) and "path" in dep_spec and ws_version is not None:
+        dep_ver = dep_spec.get("version")
+        if dep_ver is not None and (not isinstance(dep_ver, str) or dep_ver.lstrip("=") != ws_version):
+            issues.append(
+                f"[workspace.dependencies].{pkg_name} version ({dep_ver!r}) != {ws_version}"
+            )
+        elif dep_ver is None and strict_pub and not is_non_pub:
+            issues.append(f"[workspace.dependencies].{pkg_name} must declare version {ws_version}")
+
+    if (strict_all or (strict_pub and not is_non_pub)) and (
+        ws_rust_version is not None and "rust-version" not in pkg_dict
+    ):
+        issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) must set rust-version ({ws_rust_version})")
+    if strict_all and is_non_pub and pkg_dict.get("publish") is not False:
+        issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) must explicitly set publish = false")
+
+    if strict_pub and not is_non_pub:
+        desc = pkg_dict.get("description")
+        if not isinstance(desc, str) or not desc.strip():
+            issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) must set a non-empty description")
+        if ws_repository is not None:
+            repo = _resolve_workspace_field(pkg_dict, "repository", ws_pkg_dict)
+            if repo != ws_repository:
+                issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) repository ({repo}) != {ws_repository}")
+        if pkg_dict.get("publish") is False:
+            issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) must not set publish = false")
+
+
 def cmd_check_packaging(args: argparse.Namespace) -> int:
     root = pathlib.Path(args.repo_root)
     issues: list[str] = []
+    strict_all = bool(args.strict_metadata)
+    strict_pub = bool(args.strict_publishable_metadata) or strict_all
 
     root_cargo_path = root / "Cargo.toml"
-    ws_version: str | None = None
-    ws_deps: dict[str, Any] = {}
-    if root_cargo_path.exists():
-        root_data = _load_toml(root_cargo_path)
-        raw_ver = root_data.get("workspace", {}).get("package", {}).get("version")
-        ws_version = str(raw_ver) if raw_ver is not None else None
-        raw_deps = root_data.get("workspace", {}).get("dependencies", {})
-        if isinstance(raw_deps, dict):
-            ws_deps = raw_deps
+    if not root_cargo_path.exists():
+        print("Cargo.toml is missing at repository root")
+        return 0
 
-    for sub in V6_CRATE_SUBDIRS:
-        sub_toml = root / "crates" / sub / "Cargo.toml"
-        if sub_toml.exists() and ws_version:
-            sub_ver = _resolve_cargo_version(sub_toml, ws_version)
-            if sub_ver != ws_version:
-                issues.append(
-                    f"crates/{sub}/Cargo.toml version ({sub_ver}) != workspace version ({ws_version})"
-                )
+    root_data = _load_toml(root_cargo_path)
+    ws_section = root_data.get("workspace")
+    ws_dict = ws_section if isinstance(ws_section, dict) else {}
+    raw_ws_pkg = ws_dict.get("package")
+    ws_pkg_dict = raw_ws_pkg if isinstance(raw_ws_pkg, dict) else {}
+    raw_deps = ws_dict.get("dependencies")
+    ws_deps = raw_deps if isinstance(raw_deps, dict) else {}
+
+    ws_version = ws_pkg_dict.get("version") if isinstance(ws_pkg_dict.get("version"), str) else None
+    if strict_pub:
+        if not isinstance(ws_pkg_dict.get("rust-version"), str):
+            issues.append("Cargo.toml [workspace.package].rust-version must be set")
+        if not isinstance(ws_pkg_dict.get("repository"), str):
+            issues.append("Cargo.toml [workspace.package].repository must be set")
+
+    member_dirs = _workspace_member_dirs(root, root_data)
+    if not member_dirs:
+        issues.append("Cargo.toml [workspace].members is empty or missing")
+
+    for member_dir in member_dirs:
+        rel_dir = member_dir.relative_to(root).as_posix()
+        member_toml = member_dir / "Cargo.toml"
+        if not member_toml.exists():
+            issues.append(f"{rel_dir}/Cargo.toml is missing for workspace member")
+            continue
+        member_data = _load_toml(member_toml)
+        pkg_dict = member_data.get("package")
+        if not isinstance(pkg_dict, dict):
+            issues.append(f"{rel_dir}/Cargo.toml is missing [package] table")
+            continue
+        _check_member_metadata(
+            rel_dir, pkg_dict, ws_pkg_dict, ws_deps, strict_all, strict_pub, issues
+        )
 
     _check_python_packaging(root, root_cargo_path, ws_version, ws_deps, issues)
     _check_wasm_packaging(root, ws_version, issues)
@@ -365,6 +465,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_pkg = sub.add_parser("check-packaging", help="Check cross-target packaging metadata")
     p_pkg.add_argument("repo_root")
+    p_pkg.add_argument("--strict-metadata", action="store_true", help="Check all workspace crates")
+    p_pkg.add_argument(
+        "--strict-publishable-metadata",
+        action="store_true",
+        help="Check publishable workspace crates only",
+    )
     p_pkg.set_defaults(func=cmd_check_packaging)
 
     return parser
