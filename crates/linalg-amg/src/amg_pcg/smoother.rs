@@ -1,6 +1,5 @@
 use egraph_core::CoreResult;
-use egraph_linalg::csr_matrix::CsrMatrix;
-use egraph_linalg::eigen::symmetric_eigen_jacobi;
+use egraph_linalg::{CsrMatrix, symmetric_eigen_jacobi};
 
 use super::config::AmgPcgConfig;
 use super::{

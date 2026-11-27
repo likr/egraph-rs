@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult, SolverStatus};
 
 /// Configuration hyperparameters for [`AmgPcgSolver`](super::AmgPcgSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AmgPcgConfig {
     /// Relative Euclidean residual stopping tolerance (`default: 1e-8`).
     pub rel_tol: f64,
@@ -55,6 +56,95 @@ impl Default for AmgPcgConfig {
 }
 
 impl AmgPcgConfig {
+    /// Creates a new [`AmgPcgConfig`] initialized with default hyperparameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the relative Euclidean residual stopping tolerance `rel_tol`.
+    pub fn with_rel_tol(mut self, rel_tol: f64) -> Self {
+        self.rel_tol = rel_tol;
+        self
+    }
+
+    /// Sets the absolute Euclidean residual stopping tolerance `abs_tol`.
+    pub fn with_abs_tol(mut self, abs_tol: f64) -> Self {
+        self.abs_tol = abs_tol;
+        self
+    }
+
+    /// Sets the maximum PCG iterations `max_iterations`.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the strength-of-connection threshold `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Sets the maximum number of AMG hierarchy levels `max_levels`.
+    pub fn with_max_levels(mut self, max_levels: usize) -> Self {
+        self.max_levels = max_levels;
+        self
+    }
+
+    /// Sets the maximum dimension for the coarsest-grid solver `max_coarse_size`.
+    pub fn with_max_coarse_size(mut self, max_coarse_size: usize) -> Self {
+        self.max_coarse_size = max_coarse_size;
+        self
+    }
+
+    /// Sets the number of forward Gauss-Seidel pre-smoothing sweeps `pre_sweeps`.
+    pub fn with_pre_sweeps(mut self, pre_sweeps: usize) -> Self {
+        self.pre_sweeps = pre_sweeps;
+        self
+    }
+
+    /// Sets the number of backward Gauss-Seidel post-smoothing sweeps `post_sweeps`.
+    pub fn with_post_sweeps(mut self, post_sweeps: usize) -> Self {
+        self.post_sweeps = post_sweeps;
+        self
+    }
+
+    /// Sets the maximum aggregate size cap per coarsening level `max_agg_size`.
+    pub fn with_max_agg_size(mut self, max_agg_size: usize) -> Self {
+        self.max_agg_size = max_agg_size;
+        self
+    }
+
+    /// Sets the relative diagonal negativity tolerance `diag_eps`.
+    pub fn with_diag_eps(mut self, diag_eps: f64) -> Self {
+        self.diag_eps = diag_eps;
+        self
+    }
+
+    /// Sets the relative eigenvalue threshold for the coarsest pseudoinverse `eig_eps`.
+    pub fn with_eig_eps(mut self, eig_eps: f64) -> Self {
+        self.eig_eps = eig_eps;
+        self
+    }
+
+    /// Sets the input matrix symmetry validation tolerance `sym_tol`.
+    pub fn with_sym_tol(mut self, sym_tol: f64) -> Self {
+        self.sym_tol = sym_tol;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Sets whether equal-degree ties are broken deterministically via the seeded PRNG.
+    pub fn with_randomize_ties(mut self, randomize_ties: bool) -> Self {
+        self.randomize_ties = randomize_ties;
+        self
+    }
+
     /// Validates all AMG-PCG configuration hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.rel_tol.is_finite() {
@@ -122,7 +212,8 @@ impl AmgPcgConfig {
 }
 
 /// Diagnostic result returned by synchronous single-RHS [`AmgPcgSolver::solve`](super::AmgPcgSolver::solve).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AmgPcgSolveResult {
     /// Number of PCG iterations executed.
     pub iterations: usize,
@@ -137,6 +228,7 @@ pub struct AmgPcgSolveResult {
 }
 
 /// Diagnostic summary returned by batched [`AmgPcgSolver::solve_batch`](super::AmgPcgSolver::solve_batch).
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct AmgPcgBatchResult {
     /// Sum of PCG iterations across all columns.

@@ -1,5 +1,5 @@
 use egraph_core::{CsrGraph, SolverStatus};
-use egraph_linalg::csr_matrix::{CsrMatrix, LaplacianKind};
+use egraph_linalg::{CsrMatrix, FnOperator, LanczosEigen, LaplacianKind, LinearOperator};
 
 use super::*;
 
@@ -216,12 +216,10 @@ fn test_power_law_hub_web_stanford_like_no_fill_explosion() {
 fn test_step_run_equivalence_batch_determinism_and_scale_invariance() {
     let g = make_grid_graph(10, 10);
     let n = g.num_nodes();
-    let cfg = AmgPcgConfig {
-        randomize_ties: true,
-        seed: 123,
-        ..AmgPcgConfig::default()
-    };
-    let solver1 = AmgPcgSolver::from_regularized_sym_laplacian(&g, 10.0, cfg).unwrap();
+    let cfg = AmgPcgConfig::default()
+        .with_randomize_ties(true)
+        .with_seed(123);
+    let solver1 = AmgPcgSolver::from_regularized_sym_laplacian(&g, 10.0, cfg.clone()).unwrap();
     let solver2 = AmgPcgSolver::from_regularized_sym_laplacian(&g, 10.0, cfg).unwrap();
 
     let b: Vec<f64> = (0..n).map(|i| ((i * 11 + 1) as f64).sin()).collect();
@@ -340,6 +338,144 @@ fn test_adversarial_validation_rejects_bad_inputs() {
     assert!(solver.solve_vec(&[1.0; 8]).is_err());
     assert!(
         AmgPcgSolver::from_laplacian(&g, LaplacianKind::RandomWalk, 0.0, AmgPcgConfig::default())
+            .is_err()
+    );
+}
+
+#[test]
+fn test_linear_operator_impl_on_amg_pcg_solver() {
+    let grid = make_grid_graph(8, 8);
+    let n = grid.num_nodes();
+    let mut solver = AmgPcgSolver::from_regularized_sym_laplacian(
+        &grid,
+        5.0,
+        AmgPcgConfig::default()
+            .with_pre_sweeps(1)
+            .with_post_sweeps(1),
+    )
+    .unwrap();
+    assert_eq!(solver.dim(), n);
+
+    let x1: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.31).sin()).collect();
+    let x2: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.73).cos()).collect();
+    let alpha = 2.25_f64;
+    let beta = -1.5_f64;
+    let x_comb: Vec<f64> = x1
+        .iter()
+        .zip(x2.iter())
+        .map(|(&a, &b)| alpha * a + beta * b)
+        .collect();
+
+    let mut y1 = vec![0.0_f64; n];
+    let mut y2 = vec![0.0_f64; n];
+    let mut y_comb = vec![0.0_f64; n];
+    solver.apply(&x1, &mut y1).unwrap();
+    solver.apply(&x2, &mut y2).unwrap();
+    solver.apply(&x_comb, &mut y_comb).unwrap();
+
+    // Linearity: M^-1 (alpha x1 + beta x2) == alpha M^-1 x1 + beta M^-1 x2.
+    for i in 0..n {
+        let expected = alpha * y1[i] + beta * y2[i];
+        assert!(
+            (y_comb[i] - expected).abs() <= 1e-12,
+            "linearity mismatch at {i}: got {}, expected {}",
+            y_comb[i],
+            expected
+        );
+    }
+
+    // Equivalence with explicit apply_vcycle(&self, ..., &mut ws).
+    let mut ws = solver.new_workspace();
+    let mut y_vcycle = vec![0.0_f64; n];
+    solver.apply_vcycle(&x1, &mut y_vcycle, &mut ws).unwrap();
+    assert_eq!(y_vcycle, y1);
+
+    // Symmetry: <x1, M^-1 x2> == <M^-1 x1, x2> when pre_sweeps == post_sweeps.
+    let dot_12: f64 = x1.iter().zip(y2.iter()).map(|(a, b)| a * b).sum();
+    let dot_21: f64 = y1.iter().zip(x2.iter()).map(|(a, b)| a * b).sum();
+    assert!(
+        (dot_12 - dot_21).abs() <= 1e-11,
+        "V-cycle symmetry violated: {dot_12} vs {dot_21}"
+    );
+
+    // Usable directly as a LinearOperator<f64> inside LanczosEigen.
+    let lanczos = LanczosEigen::default().with_tol(1e-6).with_max_iters(200);
+    let (lambdas, _) = lanczos.largest_eigenpairs_operator(&mut solver, 2).unwrap();
+    assert_eq!(lambdas.len(), 2);
+    assert!(lambdas[0] >= lambdas[1] && lambdas[1] > 0.0);
+
+    // Input validation on LinearOperator::apply.
+    let mut bad_y = vec![0.0_f64; n - 1];
+    assert!(solver.apply(&x1, &mut bad_y).is_err());
+    assert!(solver.apply(&x1[..n - 1], &mut y1).is_err());
+    let mut bad_x = x1.clone();
+    bad_x[0] = f64::NAN;
+    assert!(solver.apply(&bad_x, &mut y1).is_err());
+}
+
+#[test]
+fn test_matrix_free_operator_solve_step_and_batch_equivalence() {
+    let grid = make_grid_graph(8, 8);
+    let n = grid.num_nodes();
+    let cfg = AmgPcgConfig::default().with_rel_tol(1e-10).with_seed(77);
+    let solver = AmgPcgSolver::from_regularized_sym_laplacian(&grid, 4.0, cfg).unwrap();
+    let csr = solver.finest_matrix().clone();
+
+    let b: Vec<f64> = (0..n).map(|i| ((i * 19 + 3) as f64).sin()).collect();
+    let (x_csr, res_csr) = solver.solve_vec(&b).unwrap();
+    assert!(res_csr.converged);
+
+    // Wrap the exact same operator as a matrix-free FnOperator.
+    let mut fn_op = FnOperator::new(n, |vx: &[f64], vy: &mut [f64]| csr.spmv(vx, vy));
+    let (x_fn, res_fn) = solver.solve_vec_with_operator(&mut fn_op, &b).unwrap();
+    assert_eq!(x_fn, x_csr);
+    assert_eq!(res_fn, res_csr);
+
+    // Cooperative step_with_operator + run_steps_with_operator via &mut dyn LinearOperator.
+    let mut ws_op = AmgPcgWorkspace::new();
+    let mut dyn_op: &mut dyn LinearOperator<f64> = &mut fn_op;
+    solver
+        .init_solve_with_operator(&mut dyn_op, &b, None, &mut ws_op)
+        .unwrap();
+    assert_eq!(ws_op.status(), SolverStatus::Initialized);
+    solver
+        .run_steps_with_operator(&mut dyn_op, &mut ws_op, 0)
+        .unwrap();
+    assert_eq!(ws_op.iteration(), 0);
+    solver
+        .run_steps_with_operator(&mut dyn_op, &mut ws_op, 2)
+        .unwrap();
+    while !ws_op.is_finished() {
+        solver.step_with_operator(&mut dyn_op, &mut ws_op).unwrap();
+    }
+    assert_eq!(ws_op.x(), x_csr.as_slice());
+    assert_eq!(ws_op.result(), res_csr);
+
+    // Batched solve_batch_with_operator equivalence.
+    let ncols = 2;
+    let b_batch: Vec<f64> = (0..n * ncols).map(|i| ((i * 5 + 1) as f64).cos()).collect();
+    let mut x_batch_csr = vec![0.0_f64; n * ncols];
+    let mut x_batch_op = vec![0.0_f64; n * ncols];
+    let mut ws_csr = solver.new_workspace();
+    let mut ws_op_b = solver.new_workspace();
+    let batch_csr = solver
+        .solve_batch(&b_batch, &mut x_batch_csr, ncols, &mut ws_csr)
+        .unwrap();
+    let batch_op = solver
+        .solve_batch_with_operator(&mut dyn_op, &b_batch, &mut x_batch_op, ncols, &mut ws_op_b)
+        .unwrap();
+    assert_eq!(x_batch_op, x_batch_csr);
+    assert_eq!(batch_op, batch_csr);
+
+    // Dimension mismatch validation on operator paths (including steps == 0).
+    let mut wrong_op = FnOperator::new(n + 1, |vx: &[f64], vy: &mut [f64]| {
+        vy.copy_from_slice(vx);
+        Ok(())
+    });
+    assert!(solver.solve_vec_with_operator(&mut wrong_op, &b).is_err());
+    assert!(
+        solver
+            .run_steps_with_operator(&mut wrong_op, &mut ws_op, 0)
             .is_err()
     );
 }

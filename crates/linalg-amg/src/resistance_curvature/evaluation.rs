@@ -1,5 +1,5 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
-use egraph_linalg::eigen::symmetric_eigen_jacobi;
+use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_linalg::symmetric_eigen_jacobi;
 
 use crate::amg_pcg::AmgPcgSolver;
 
@@ -7,6 +7,7 @@ use super::config::{EffectiveResistanceConfig, EffectiveResistanceResult};
 use super::graph_ops::{
     build_combinatorial_laplacian_from_edges, count_components, extract_canonical_edges,
 };
+use super::operator_eval::{apply_jacobi_control_variate, build_jl_rhs};
 use super::{EXACT_JACOBI_MAX_SWEEPS, EXACT_JACOBI_TOL, LINK_RESISTANCE_EPS, MAX_EXACT_NODES};
 
 pub(super) struct ResistanceEval {
@@ -158,41 +159,11 @@ pub(super) fn evaluate_effective_resistances(
             effective_resistances[e] = r_uv.max(0.0);
         }
     } else {
-        let mut diag = vec![0.0_f64; num_nodes];
-        for e in 0..m {
-            let w = conductances[e];
-            diag[edge_u[e] as usize] += w;
-            diag[edge_v[e] as usize] += w;
-        }
-
         let k_jl = config.jl_dim;
-        let inv_sqrt_k = 1.0 / (k_jl as f64).sqrt();
-        let total = num_nodes
-            .checked_mul(k_jl)
-            .ok_or_else(|| CoreError::invalid_input("JL projection matrix size overflow"))?;
-        let mut b_rhs = vec![0.0_f64; total];
-        let mut rng = DeterministicRng::from_seed_u64(seed);
-        let mut bits = 0u64;
-        let mut bit_rem = 0u32;
+        let (diag, b_rhs) = build_jl_rhs(num_nodes, edge_u, edge_v, conductances, k_jl, seed)?;
+        let total = b_rhs.len();
 
-        for e in 0..m {
-            let u_off = (edge_u[e] as usize) * k_jl;
-            let v_off = (edge_v[e] as usize) * k_jl;
-            let s = conductances[e].sqrt() * inv_sqrt_k;
-            for c in 0..k_jl {
-                if bit_rem == 0 {
-                    bits = rng.next_u64();
-                    bit_rem = 64;
-                }
-                let signed = if (bits & 1) == 0 { s } else { -s };
-                bits >>= 1;
-                bit_rem -= 1;
-                b_rhs[u_off + c] += signed;
-                b_rhs[v_off + c] -= signed;
-            }
-        }
-
-        let solver = AmgPcgSolver::with_near_nullspace(&l_mat, None, config.amg_config)?;
+        let solver = AmgPcgSolver::with_near_nullspace(&l_mat, None, config.amg_config.clone())?;
         let mut ws = solver.new_workspace();
         let mut z_sol = vec![0.0_f64; total];
         let batch = solver.solve_batch(&b_rhs, &mut z_sol, k_jl, &mut ws)?;
@@ -200,11 +171,6 @@ pub(super) fn evaluate_effective_resistances(
         amg_max_relative_residual = batch.max_relative_residual;
         amg_all_converged = batch.all_converged;
 
-        // Exact diagonal Jacobi control variate (M^-1 = D^-1):
-        // R_uv = (1/d_u + 1/d_v - 2*w_uv/(d_u*d_v)) + ||(I - D^-1 L) Z (e_u - e_v)||^2.
-        // Only when every PCG column actually converged within 1e-4 relative residual does
-        // L Z == b_rhs hold accurately enough to reuse D^-1 b_rhs with zero extra SpMVs;
-        // loose tolerances or non-converged iteration caps fall back to explicit L Z SpMM.
         let mut l_mat_z = Vec::new();
         let residual_rhs: &[f64] = if batch.all_converged && batch.max_relative_residual <= 1e-4 {
             &b_rhs
@@ -213,34 +179,16 @@ pub(super) fn evaluate_effective_resistances(
             l_mat.spmm(&z_sol, &mut l_mat_z, k_jl)?;
             &l_mat_z
         };
-        for ((&d, z_row), rhs_row) in diag
-            .iter()
-            .zip(z_sol.chunks_exact_mut(k_jl))
-            .zip(residual_rhs.chunks_exact(k_jl))
-        {
-            if d > 0.0 {
-                let inv_d = 1.0 / d;
-                for c in 0..k_jl {
-                    z_row[c] -= rhs_row[c] * inv_d;
-                }
-            }
-        }
-
-        for e in 0..m {
-            let u = edge_u[e] as usize;
-            let v = edge_v[e] as usize;
-            let du = diag[u];
-            let dv = diag[v];
-            let r_det = (1.0 / du + 1.0 / dv - 2.0 * conductances[e] / (du * dv)).max(0.0);
-            let u_row = &z_sol[u * k_jl..(u + 1) * k_jl];
-            let v_row = &z_sol[v * k_jl..(v + 1) * k_jl];
-            let mut r_res = 0.0_f64;
-            for c in 0..k_jl {
-                let diff = u_row[c] - v_row[c];
-                r_res += diff * diff;
-            }
-            effective_resistances[e] = r_det + r_res;
-        }
+        apply_jacobi_control_variate(
+            edge_u,
+            edge_v,
+            conductances,
+            &diag,
+            k_jl,
+            &mut z_sol,
+            residual_rhs,
+            &mut effective_resistances,
+        );
     }
 
     let mut foster_sum = 0.0_f64;

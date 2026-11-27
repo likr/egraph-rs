@@ -6,18 +6,23 @@
 //! Foster's theorem diagnostics, vertex and link resistance curvatures, geometry regime
 //! classification, and multi-step resistance curvature flow.
 
+mod classify;
 mod config;
 mod evaluation;
 mod flow;
 mod graph_ops;
+mod operator_eval;
 
+pub use classify::{
+    classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
+};
 pub use config::{
     EffectiveResistanceConfig, EffectiveResistanceResult, ResistanceCurvatureConfig,
     ResistanceCurvatureFlowResult, ResistanceCurvatureStep, SuggestedGeometry,
-    classify_geometry_from_curvature, classify_geometry_from_curvature_with_sampling,
 };
 pub use evaluation::compute_effective_resistances;
 pub use flow::resistance_curvature_flow;
+pub use operator_eval::compute_effective_resistances_with_operator;
 
 /// Hard upper bound on dense exact Jacobi eigendecomposition to avoid OOM.
 pub(super) const MAX_EXACT_NODES: usize = 512;

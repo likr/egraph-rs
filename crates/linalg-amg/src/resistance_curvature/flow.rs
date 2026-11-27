@@ -1,8 +1,8 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 
+use super::classify::classify_geometry_from_curvature_with_sampling;
 use super::config::{
     ResistanceCurvatureConfig, ResistanceCurvatureFlowResult, ResistanceCurvatureStep,
-    classify_geometry_from_curvature_with_sampling,
 };
 use super::evaluation::{
     compute_curvatures, evaluate_effective_resistances, foster_normalize_per_component,

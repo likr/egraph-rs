@@ -30,6 +30,7 @@
 mod builder;
 mod config;
 mod hierarchy;
+mod operator;
 mod smoother;
 mod solver;
 mod vcycle;

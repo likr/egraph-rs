@@ -123,8 +123,9 @@ fn test_hyperbolic_3_7_tessellation_and_fans_across_seeds() {
     );
 
     for seed in 40..=55u64 {
-        let mut cfg = default_cfg;
-        cfg.resistance.seed = seed;
+        let cfg = default_cfg
+            .clone()
+            .with_resistance(default_cfg.resistance.clone().with_seed(seed));
         let res = resistance_curvature_flow(&tess, &cfg).unwrap();
         assert!(!res.used_exact);
         assert!(res.foster_rel_err < 1e-11);
@@ -147,8 +148,9 @@ fn test_hyperbolic_3_7_tessellation_and_fans_across_seeds() {
         assert_eq!(graph.num_nodes(), exp_n, "{name} node count");
         assert_eq!(graph.num_edges(), exp_m, "{name} edge count");
         for seed in 40..=55u64 {
-            let mut cfg = default_cfg;
-            cfg.resistance.seed = seed;
+            let cfg = default_cfg
+                .clone()
+                .with_resistance(default_cfg.resistance.clone().with_seed(seed));
             let res = resistance_curvature_flow(&graph, &cfg).unwrap();
             assert!(!res.used_exact);
             assert!(res.foster_rel_err < 1e-11);
@@ -171,8 +173,9 @@ fn test_open_elongated_grid_and_loose_rel_tol_jacobi_cv() {
     assert_eq!(open_10x40_tri.num_edges(), 1101);
 
     for seed in 40..=55u64 {
-        let mut cfg = default_cfg;
-        cfg.resistance.seed = seed;
+        let cfg = default_cfg
+            .clone()
+            .with_resistance(default_cfg.resistance.clone().with_seed(seed));
         let res = resistance_curvature_flow(&open_10x40_tri, &cfg).unwrap();
         assert!(!res.used_exact);
         assert!(res.foster_rel_err < 1e-11);
@@ -214,8 +217,9 @@ fn test_open_24x24_quad_uv_sphere_and_per_component_foster_normalization() {
     for (rows, cols, tri) in [(10usize, 40usize, false), (24, 24, false), (24, 24, true)] {
         let grid = make_open_grid(rows, cols, tri);
         for seed in 40..=55u64 {
-            let mut cfg = default_cfg;
-            cfg.resistance.seed = seed;
+            let cfg = default_cfg
+                .clone()
+                .with_resistance(default_cfg.resistance.clone().with_seed(seed));
             let res = resistance_curvature_flow(&grid, &cfg).unwrap();
             assert!(!res.used_exact);
             assert_eq!(
@@ -256,8 +260,9 @@ fn test_open_24x24_quad_uv_sphere_and_per_component_foster_normalization() {
     assert_eq!(uv_sphere.num_nodes(), 326);
     assert_eq!(uv_sphere.num_edges(), 666);
     for seed in 40..=47u64 {
-        let mut cfg = default_cfg;
-        cfg.resistance.seed = seed;
+        let cfg = default_cfg
+            .clone()
+            .with_resistance(default_cfg.resistance.clone().with_seed(seed));
         let res = resistance_curvature_flow(&uv_sphere, &cfg).unwrap();
         assert_ne!(res.suggested_geometry, SuggestedGeometry::Torus2d);
     }

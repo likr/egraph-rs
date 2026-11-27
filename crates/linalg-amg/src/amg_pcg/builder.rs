@@ -1,5 +1,5 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
-use egraph_linalg::csr_matrix::{
+use egraph_linalg::{
     CsrMatrix, LaplacianKind, combinatorial_laplacian, symmetric_normalized_laplacian,
 };
 
@@ -20,6 +20,7 @@ pub struct AmgPcgSolver {
     pub(super) inv_diag0: Vec<f64>,
     pub(super) max_diag0: f64,
     input_nnz: usize,
+    pub(super) operator_ws: Option<Box<AmgPcgWorkspace>>,
 }
 
 impl AmgPcgSolver {
@@ -76,6 +77,7 @@ impl AmgPcgSolver {
                 inv_diag0: Vec::new(),
                 max_diag0: 0.0,
                 input_nnz: 0,
+                operator_ws: None,
             });
         }
 
@@ -182,6 +184,7 @@ impl AmgPcgSolver {
             inv_diag0,
             max_diag0,
             input_nnz,
+            operator_ws: None,
         })
     }
 
@@ -254,6 +257,9 @@ impl AmgPcgSolver {
             LaplacianKind::RandomWalk => Err(CoreError::unsupported(
                 "AmgPcgSolver does not support asymmetric RandomWalk Laplacian; use Combinatorial or SymmetricNormalized",
             )),
+            _ => Err(CoreError::unsupported(
+                "AmgPcgSolver does not support this LaplacianKind; use Combinatorial or SymmetricNormalized",
+            )),
         }
     }
 
@@ -303,8 +309,8 @@ impl AmgPcgSolver {
 
     /// Returns the active [`AmgPcgConfig`].
     #[inline]
-    pub fn config(&self) -> AmgPcgConfig {
-        self.config
+    pub fn config(&self) -> &AmgPcgConfig {
+        &self.config
     }
 
     /// Allocates a workspace pre-sized for this solver.

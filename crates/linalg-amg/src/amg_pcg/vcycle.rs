@@ -1,12 +1,59 @@
 use egraph_core::{CoreError, CoreResult, SolverStatus};
+use egraph_linalg::LinearOperator;
 
 use super::builder::AmgPcgSolver;
 use super::smoother::{backward_gs_sweep, forward_gs_sweep, norm2, scaled_dot, solve_coarsest};
 use super::workspace::AmgPcgWorkspace;
 
 impl AmgPcgSolver {
-    pub(super) fn init_solve_from_ws_buffers(&self, ws: &mut AmgPcgWorkspace) -> CoreResult<()> {
+    /// Applies one AMG V-cycle preconditioner $z = M^{-1} r$ using `ws`.
+    pub fn apply_vcycle(
+        &self,
+        r: &[f64],
+        z: &mut [f64],
+        ws: &mut AmgPcgWorkspace,
+    ) -> CoreResult<()> {
         let n = self.num_nodes;
+        if r.len() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                r.len(),
+                "AmgPcgSolver::apply_vcycle::r",
+            ));
+        }
+        if z.len() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                z.len(),
+                "AmgPcgSolver::apply_vcycle::z",
+            ));
+        }
+        if r.iter().any(|v| !v.is_finite()) {
+            return Err(CoreError::non_finite("AmgPcgSolver::apply_vcycle::r"));
+        }
+        if n == 0 {
+            return Ok(());
+        }
+        ws.prepare_for_solver(self);
+        ws.r.copy_from_slice(r);
+        self.apply_preconditioner(ws);
+        z.copy_from_slice(&ws.z);
+        Ok(())
+    }
+
+    pub(super) fn init_solve_from_ws_buffers_with_operator<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        ws: &mut AmgPcgWorkspace,
+    ) -> CoreResult<()> {
+        let n = self.num_nodes;
+        if op.dim() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                op.dim(),
+                "AmgPcgSolver::init_solve_from_ws_buffers_with_operator::op",
+            ));
+        }
         ws.iter = 0;
         ws.max_iterations = self.config.max_iterations;
         ws.using_jacobi_fallback = false;
@@ -48,7 +95,7 @@ impl AmgPcgSolver {
             return Ok(());
         }
 
-        self.finest_matrix().spmv(&ws.x, &mut ws.q)?;
+        op.apply(&ws.x, &mut ws.q)?;
         for i in 0..n {
             ws.r[i] = ws.b[i] - ws.q[i];
         }
@@ -108,7 +155,11 @@ impl AmgPcgSolver {
         ws.rz_scale_z = sz;
     }
 
-    pub(super) fn finalize_true_residual(&self, ws: &mut AmgPcgWorkspace) -> CoreResult<()> {
+    pub(super) fn finalize_true_residual_with_operator<O: LinearOperator<f64> + ?Sized>(
+        &self,
+        op: &mut O,
+        ws: &mut AmgPcgWorkspace,
+    ) -> CoreResult<()> {
         let n = self.num_nodes;
         if n == 0 {
             ws.residual_norm = 0.0;
@@ -116,7 +167,7 @@ impl AmgPcgSolver {
             ws.converged = true;
             return Ok(());
         }
-        self.finest_matrix().spmv(&ws.x, &mut ws.q)?;
+        op.apply(&ws.x, &mut ws.q)?;
         for i in 0..n {
             ws.r[i] = ws.b[i] - ws.q[i];
         }

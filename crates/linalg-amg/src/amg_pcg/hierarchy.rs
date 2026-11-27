@@ -1,5 +1,5 @@
 use egraph_core::{CoreError, CoreResult, DeterministicRng};
-use egraph_linalg::csr_matrix::CsrMatrix;
+use egraph_linalg::CsrMatrix;
 
 use super::config::AmgPcgConfig;
 

@@ -2,8 +2,10 @@
 name = "egraph-linalg-amg"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Single-threaded algebraic multigrid PCG solvers and effective resistance curvature for egraph-rs"
 
 [dependencies]
 egraph-core.workspace = true

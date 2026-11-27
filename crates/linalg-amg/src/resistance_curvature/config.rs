@@ -2,10 +2,10 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, ManifoldKind};
 
 use crate::amg_pcg::AmgPcgConfig;
 
-use super::TORUS_DEG_CV_THRESHOLD;
 use super::graph_ops::{build_canonical_graph_f32, build_canonical_graph_f64};
 
 /// Target 2D geometry regime suggested by link resistance curvature and degree regularity.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SuggestedGeometry {
     /// Negative-curvature regime matched to the 2D Poincare hyperbolic disk.
@@ -43,7 +43,8 @@ impl SuggestedGeometry {
 }
 
 /// Configuration for [`compute_effective_resistances`](super::compute_effective_resistances).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EffectiveResistanceConfig {
     /// Number of Spielman-Srivastava Johnson-Lindenstrauss projection columns (`default: 128`).
     pub jl_dim: usize,
@@ -78,6 +79,53 @@ impl Default for EffectiveResistanceConfig {
 }
 
 impl EffectiveResistanceConfig {
+    /// Creates a new [`EffectiveResistanceConfig`] initialized with default parameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the number of Johnson-Lindenstrauss projection columns `jl_dim`.
+    pub fn with_jl_dim(mut self, jl_dim: usize) -> Self {
+        self.jl_dim = jl_dim;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Sets whether input graph edge weights are lengths (`true`) or conductances (`false`).
+    pub fn with_weights_are_lengths(mut self, weights_are_lengths: bool) -> Self {
+        self.weights_are_lengths = weights_are_lengths;
+        self
+    }
+
+    /// Sets the optional exact solver override `exact`.
+    pub fn with_exact(mut self, exact: Option<bool>) -> Self {
+        self.exact = exact;
+        self
+    }
+
+    /// Sets the automatic exact-solver node threshold `exact_max_nodes`.
+    pub fn with_exact_max_nodes(mut self, exact_max_nodes: usize) -> Self {
+        self.exact_max_nodes = exact_max_nodes;
+        self
+    }
+
+    /// Sets the relative eigenvalue threshold for $L^\dagger$ `eig_eps`.
+    pub fn with_eig_eps(mut self, eig_eps: f64) -> Self {
+        self.eig_eps = eig_eps;
+        self
+    }
+
+    /// Sets the AMG-PCG solver configuration `amg_config`.
+    pub fn with_amg_config(mut self, amg_config: AmgPcgConfig) -> Self {
+        self.amg_config = amg_config;
+        self
+    }
+
     /// Validates all effective-resistance parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.jl_dim == 0 {
@@ -94,6 +142,7 @@ impl EffectiveResistanceConfig {
 }
 
 /// Effective resistance and Foster's theorem diagnostics for canonical simple undirected edges.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectiveResistanceResult {
     /// Number of vertices in the graph.
@@ -129,7 +178,8 @@ pub struct EffectiveResistanceResult {
 }
 
 /// Configuration for [`resistance_curvature_flow`](super::resistance_curvature_flow).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResistanceCurvatureConfig {
     /// Number of curvature-flow reweighting iterations (`default: 2`).
     pub steps: usize,
@@ -165,6 +215,59 @@ impl Default for ResistanceCurvatureConfig {
 }
 
 impl ResistanceCurvatureConfig {
+    /// Creates a new [`ResistanceCurvatureConfig`] initialized with default parameters.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the number of curvature-flow reweighting iterations `steps`.
+    pub fn with_steps(mut self, steps: usize) -> Self {
+        self.steps = steps;
+        self
+    }
+
+    /// Sets the exponential step size `eta`.
+    pub fn with_eta(mut self, eta: f64) -> Self {
+        self.eta = eta;
+        self
+    }
+
+    /// Sets the symmetric link-curvature clamp `kappa_max`.
+    pub fn with_kappa_max(mut self, kappa_max: f64) -> Self {
+        self.kappa_max = kappa_max;
+        self
+    }
+
+    /// Sets the positive edge-length floor `min_edge_length`.
+    pub fn with_min_edge_length(mut self, min_edge_length: f64) -> Self {
+        self.min_edge_length = min_edge_length;
+        self
+    }
+
+    /// Sets the effective resistance solver configuration `resistance`.
+    pub fn with_resistance(mut self, resistance: EffectiveResistanceConfig) -> Self {
+        self.resistance = resistance;
+        self
+    }
+
+    /// Sets the hyperbolic link-curvature classification threshold `hyperbolic_threshold`.
+    pub fn with_hyperbolic_threshold(mut self, hyperbolic_threshold: f64) -> Self {
+        self.hyperbolic_threshold = hyperbolic_threshold;
+        self
+    }
+
+    /// Sets the spherical link-curvature classification threshold `spherical_threshold`.
+    pub fn with_spherical_threshold(mut self, spherical_threshold: f64) -> Self {
+        self.spherical_threshold = spherical_threshold;
+        self
+    }
+
+    /// Sets the maximum link-curvature standard deviation for torus classification `torus_std_threshold`.
+    pub fn with_torus_std_threshold(mut self, torus_std_threshold: f64) -> Self {
+        self.torus_std_threshold = torus_std_threshold;
+        self
+    }
+
     /// Validates all resistance curvature flow parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.eta.is_finite() || self.eta < 0.0 {
@@ -212,7 +315,8 @@ impl ResistanceCurvatureConfig {
 }
 
 /// Per-iteration summary recorded during [`resistance_curvature_flow`](super::resistance_curvature_flow).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResistanceCurvatureStep {
     /// Flow step index (`0..steps`, plus final evaluation step `steps`).
     pub step: usize,
@@ -245,6 +349,7 @@ pub struct ResistanceCurvatureStep {
 }
 
 /// Final output of Devriendt-Lambiotte [`resistance_curvature_flow`](super::resistance_curvature_flow).
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResistanceCurvatureFlowResult {
     /// Number of vertices in the graph.
@@ -348,86 +453,5 @@ impl ResistanceCurvatureFlowResult {
             &self.edge_v,
             &self.conductances,
         )
-    }
-}
-
-/// Classifies a target 2D geometry from link resistance curvature and vertex degree regularity.
-#[allow(clippy::too_many_arguments)]
-pub fn classify_geometry_from_curvature(
-    num_edges: usize,
-    mean_link_curvature: f64,
-    std_link_curvature: f64,
-    leaf_fraction: f64,
-    deg_cv: f64,
-    hyperbolic_threshold: f64,
-    spherical_threshold: f64,
-    torus_std_threshold: f64,
-) -> SuggestedGeometry {
-    classify_geometry_from_curvature_with_sampling(
-        num_edges,
-        mean_link_curvature,
-        std_link_curvature,
-        leaf_fraction,
-        deg_cv,
-        hyperbolic_threshold,
-        spherical_threshold,
-        torus_std_threshold,
-        true,
-        1,
-        false,
-    )
-}
-
-/// Classifies a target 2D geometry from link resistance curvature, degree regularity, JL
-/// sampling regime (`used_exact`, `jl_dim`), and closed-surface topological predicate.
-///
-/// Both exact and JL modes use the sharp `hyperbolic_threshold` and `spherical_threshold` bounds
-/// directly (without shifting mean thresholds), because the Jacobi $D^{-1}$ control variate and
-/// per-component Foster normalization eliminate global Foster drift and local correlation bias.
-/// When `used_exact` is `false`, only `torus_std_threshold` is scaled by $O(1/\sqrt{k_{\mathrm{JL}}})$
-/// to absorb the residual per-edge JL curvature spread on flat regular tori.
-#[allow(clippy::too_many_arguments)]
-pub fn classify_geometry_from_curvature_with_sampling(
-    num_edges: usize,
-    mean_link_curvature: f64,
-    std_link_curvature: f64,
-    leaf_fraction: f64,
-    deg_cv: f64,
-    hyperbolic_threshold: f64,
-    spherical_threshold: f64,
-    torus_std_threshold: f64,
-    used_exact: bool,
-    jl_dim: usize,
-    is_closed_spherical_surface: bool,
-) -> SuggestedGeometry {
-    if num_edges == 0 {
-        return SuggestedGeometry::Euclidean;
-    }
-    if is_closed_spherical_surface {
-        return SuggestedGeometry::Spherical;
-    }
-    let jl_scale = if used_exact {
-        0.0
-    } else {
-        (64.0 / (jl_dim.max(1) as f64)).sqrt()
-    };
-    let is_regular_closed = leaf_fraction == 0.0 && deg_cv < TORUS_DEG_CV_THRESHOLD;
-    let effective_torus_std_threshold = if used_exact {
-        torus_std_threshold
-    } else {
-        // Residual JL resistance variance after the Jacobi control variate scales as
-        // 1 / sqrt(jl_dim) across curvature-flow steps on regular flat tori.
-        torus_std_threshold * (1.0 + 8.0 * jl_scale)
-    };
-    if mean_link_curvature < hyperbolic_threshold {
-        return SuggestedGeometry::HyperbolicPoincare;
-    }
-    if mean_link_curvature > spherical_threshold {
-        return SuggestedGeometry::Spherical;
-    }
-    if is_regular_closed && std_link_curvature <= effective_torus_std_threshold {
-        SuggestedGeometry::Torus2d
-    } else {
-        SuggestedGeometry::Euclidean
     }
 }

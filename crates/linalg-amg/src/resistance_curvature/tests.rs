@@ -399,11 +399,93 @@ fn test_adversarial_edge_cases_and_validation() {
     assert!(
         compute_effective_resistances(
             &g_513,
-            &EffectiveResistanceConfig {
-                exact: Some(true),
-                ..Default::default()
-            }
+            &EffectiveResistanceConfig::new().with_exact(Some(true)),
         )
         .is_err()
+    );
+}
+
+#[test]
+fn test_effective_resistance_with_operator_equivalence_and_builders() {
+    use egraph_linalg::{FnOperator, combinatorial_laplacian};
+
+    use crate::amg_pcg::AmgPcgConfig;
+
+    // Connected 8x8 grid with weighted edges (conductances).
+    let mut edges = Vec::new();
+    let mut weights = Vec::new();
+    for r in 0..8u32 {
+        for c in 0..8u32 {
+            let u = r * 8 + c;
+            if c + 1 < 8 {
+                edges.push((u, u + 1));
+                weights.push(1.0 + 0.1 * ((u % 5) as f64));
+            }
+            if r + 1 < 8 {
+                edges.push((u, u + 8));
+                weights.push(1.5 + 0.05 * ((r % 3) as f64));
+            }
+        }
+    }
+    let g = CsrGraph::from_edges(64, &edges, Some(&weights), false, false).unwrap();
+    let mut l_mat = combinatorial_laplacian(&g);
+
+    // 1. Converged JL path equivalence (fast path reusing b_rhs).
+    let cfg_conv = EffectiveResistanceConfig::new()
+        .with_jl_dim(32)
+        .with_seed(99)
+        .with_weights_are_lengths(false)
+        .with_exact(Some(false))
+        .with_amg_config(
+            AmgPcgConfig::new()
+                .with_rel_tol(1e-8)
+                .with_max_coarse_size(16),
+        );
+    let er_csr = compute_effective_resistances(&g, &cfg_conv).unwrap();
+    let solver_conv =
+        crate::AmgPcgSolver::with_near_nullspace(&l_mat, None, cfg_conv.amg_config.clone())
+            .unwrap();
+    let mut fn_op = FnOperator::new(64, |x: &[f64], y: &mut [f64]| l_mat.spmv(x, y));
+    let er_op =
+        compute_effective_resistances_with_operator(&g, &solver_conv, &mut fn_op, &cfg_conv)
+            .unwrap();
+    assert_eq!(er_op.effective_resistances, er_csr.effective_resistances);
+    assert_eq!(er_op.amg_total_iterations, er_csr.amg_total_iterations);
+    assert_eq!(er_op.foster_sum, er_csr.foster_sum);
+
+    // 2. Non-converged 1-step path equivalence (triggers explicit op.apply(Z) fallback).
+    let cfg_loose = cfg_conv.clone().with_amg_config(
+        AmgPcgConfig::new()
+            .with_rel_tol(1e-10)
+            .with_max_iterations(1)
+            .with_max_coarse_size(16),
+    );
+    let er_loose_csr = compute_effective_resistances(&g, &cfg_loose).unwrap();
+    assert!(!er_loose_csr.amg_all_converged);
+    let solver_loose =
+        crate::AmgPcgSolver::with_near_nullspace(&l_mat, None, cfg_loose.amg_config.clone())
+            .unwrap();
+    let er_loose_op =
+        compute_effective_resistances_with_operator(&g, &solver_loose, &mut l_mat, &cfg_loose)
+            .unwrap();
+    assert_eq!(
+        er_loose_op.effective_resistances,
+        er_loose_csr.effective_resistances
+    );
+    assert_eq!(er_loose_op.foster_sum, er_loose_csr.foster_sum);
+
+    // 3. Reject exact=Some(true) and dimension mismatches.
+    let cfg_exact = cfg_conv.clone().with_exact(Some(true));
+    assert!(
+        compute_effective_resistances_with_operator(&g, &solver_conv, &mut l_mat, &cfg_exact)
+            .is_err()
+    );
+    let mut bad_op = FnOperator::new(63, |x: &[f64], y: &mut [f64]| {
+        y.copy_from_slice(x);
+        Ok(())
+    });
+    assert!(
+        compute_effective_resistances_with_operator(&g, &solver_conv, &mut bad_op, &cfg_conv)
+            .is_err()
     );
 }

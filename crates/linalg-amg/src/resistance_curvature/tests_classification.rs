@@ -241,8 +241,9 @@ fn test_default_flow_tori_triangulated_and_quad_across_seeds() {
         for triangulated in [false, true] {
             let torus = make_torus_grid(rows, cols, triangulated);
             for seed in 42..=49u64 {
-                let mut cfg = default_cfg;
-                cfg.resistance.seed = seed;
+                let cfg = default_cfg
+                    .clone()
+                    .with_resistance(default_cfg.resistance.clone().with_seed(seed));
                 let res = resistance_curvature_flow(&torus, &cfg).unwrap();
                 assert!(!res.used_exact);
                 assert_eq!(res.step_history.len(), 3);
@@ -421,8 +422,9 @@ fn test_default_flow_open_planar_grids_euclidean_across_seeds() {
             let open_grid =
                 CsrGraph::<f64>::from_edges(rows * cols, &open_edges, None, false, false).unwrap();
             for seed in 40..=55u64 {
-                let mut cfg = default_cfg;
-                cfg.resistance.seed = seed;
+                let cfg = default_cfg
+                    .clone()
+                    .with_resistance(default_cfg.resistance.clone().with_seed(seed));
                 let res = resistance_curvature_flow(&open_grid, &cfg).unwrap();
                 assert!(!res.used_exact);
                 assert_eq!(

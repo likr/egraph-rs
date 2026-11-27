@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, VisitStamp};
-use egraph_linalg::csr_matrix::CsrMatrix;
+use egraph_linalg::CsrMatrix;
 
 pub(super) struct CanonicalEdges {
     pub(super) edge_u: Vec<u32>,
