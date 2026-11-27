@@ -2,7 +2,8 @@ mod util;
 
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
-use egraph_wasm::stress_kamada::{JsKamadaKawaiSolver, JsStressMajorizationSolver};
+use egraph_wasm::stress_kamada::JsStressMajorizationSolver;
+use egraph_wasm::stress_kamada_kawai::JsKamadaKawaiSolver;
 use egraph_wasm::stress_multilevel_baselines::JsMaxentStressSolver;
 use util::fixtures::{
     assert_layouts_bit_exact, make_circle_layout, make_disconnected_graph, make_grid, make_opts,
@@ -28,16 +29,16 @@ fn stress_majorization_and_kamada_kawai_solvers() {
             .expect("SM fromGraph step");
     let mut sm_l_run = make_circle_layout(9, 0.2);
     let mut sm_l_step = sm_l_run.clone();
-    let stress_before = sm_run.compute_stress(&sm_l_run).unwrap();
+    let stress_before = sm_run.compute_stress_2d(&sm_l_run).unwrap();
     assert!(sm_run.last_stress().is_none());
-    sm_run.run(&mut sm_l_run).unwrap();
+    sm_run.run_2d(&mut sm_l_run).unwrap();
     let stress_after = sm_run.last_stress().unwrap();
     assert!(stress_after < stress_before * 0.5);
-    assert!((stress_after - sm_run.compute_stress(&sm_l_run).unwrap()).abs() < 1e-5);
+    assert!((stress_after - sm_run.compute_stress_2d(&sm_l_run).unwrap()).abs() < 1e-5);
 
-    sm_step.run_steps(&mut sm_l_step, 4.0).unwrap();
+    sm_step.run_steps_2d(&mut sm_l_step, 4.0).unwrap();
     while !sm_step.is_finished() {
-        sm_step.step(&mut sm_l_step).unwrap();
+        sm_step.step_2d(&mut sm_l_step).unwrap();
     }
     assert_layouts_bit_exact(&sm_l_run, &sm_l_step);
 
@@ -57,16 +58,16 @@ fn stress_majorization_and_kamada_kawai_solvers() {
     let kk_opts = make_opts(&[
         ("eps", JsValue::from_f64(1e-2)),
         ("maxInnerIters", JsValue::from_f64(50.0)),
-        ("maxOuterIters", JsValue::from_f64(100.0)),
+        ("maxIterations", JsValue::from_f64(100.0)),
     ]);
     let mut kk_run = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts, None, None).unwrap();
     let mut kk_step = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts, None, None).unwrap();
     let mut kk_l_run = make_circle_layout(9, 1.5);
     let mut kk_l_step = kk_l_run.clone();
-    kk_run.run(&mut kk_l_run).unwrap();
-    kk_step.run_steps(&mut kk_l_step, 5.0).unwrap();
+    kk_run.run_2d(&mut kk_l_run).unwrap();
+    kk_step.run_steps_2d(&mut kk_l_step, 5.0).unwrap();
     while !kk_step.is_finished() {
-        kk_step.step(&mut kk_l_step).unwrap();
+        kk_step.step_2d(&mut kk_l_step).unwrap();
     }
     assert_layouts_bit_exact(&kk_l_run, &kk_l_step);
 
@@ -79,7 +80,7 @@ fn stress_majorization_and_kamada_kawai_solvers() {
     )
     .unwrap();
     let mut kk_l2 = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
-    kk_dm.run(&mut kk_l2).unwrap();
+    kk_dm.run_2d(&mut kk_l2).unwrap();
     let sep = (kk_l2.x(0.0).unwrap() - kk_l2.x(1.0).unwrap())
         .hypot(kk_l2.y(0.0).unwrap() - kk_l2.y(1.0).unwrap());
     assert!((sep - 3.0).abs() < 0.05);
@@ -153,9 +154,9 @@ fn maxent_stress_step_eq_run_and_getters() {
         let mut l_step = init.clone();
         let mut l_run = init.clone();
         while !s_step.is_finished() {
-            s_step.step(&mut l_step).unwrap();
+            s_step.step_2d(&mut l_step).unwrap();
         }
-        let status = s_run.run(&mut l_run).unwrap();
+        let status = s_run.run_2d(&mut l_run).unwrap();
         assert!(matches!(status.as_str(), "completed" | "converged"));
         assert_layouts_bit_exact(&l_step, &l_run);
         assert!(s_run.current_alpha() <= alpha_0);
@@ -166,13 +167,13 @@ fn maxent_stress_step_eq_run_and_getters() {
     let disc = make_disconnected_graph();
     let mut s_disc = JsMaxentStressSolver::new(&disc, &auto_opts).unwrap();
     let mut l_disc = make_circle_layout(7, 1.0);
-    s_disc.run(&mut l_disc).unwrap();
+    s_disc.run_2d(&mut l_disc).unwrap();
     assert!(l_disc.is_all_finite());
 
     let g0 = JsCsrGraph::from_edge_list(0.0, &[], None, &JsValue::UNDEFINED, None).unwrap();
     let mut s0 = JsMaxentStressSolver::new(&g0, &JsValue::UNDEFINED).unwrap();
     let mut l0 = JsLayout2d::zeros(0.0).unwrap();
-    s0.run(&mut l0).unwrap();
+    s0.run_2d(&mut l0).unwrap();
 
     let bad_q = make_opts(&[("q", JsValue::from_f64(-2.0))]);
     assert!(JsMaxentStressSolver::new(&graph, &bad_q).is_err());

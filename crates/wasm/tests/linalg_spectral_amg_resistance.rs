@@ -13,7 +13,7 @@ use egraph_wasm::linalg_spectral::{
     js_koren_spectral_init, js_pivot_mds_init, js_select_maxmin_sp_pivots,
     js_smallest_laplacian_eigenpairs,
 };
-use util::fixtures::{layout_global_std, make_grid, make_hub_chain_graph};
+use util::fixtures::{layout_global_std, make_grid, make_hub_chain_graph, make_opts};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -306,7 +306,8 @@ fn amg_pcg_solver_hardened_and_cooperative() {
 #[wasm_bindgen_test]
 fn effective_resistance_and_curvature_flow_wasm() {
     let grid10 = make_grid(10, 10);
-    let er = js_compute_effective_resistances(&grid10, &JsValue::UNDEFINED).expect("er jl");
+    let er_opts = make_opts(&[("exact", JsValue::from_bool(false))]);
+    let er = js_compute_effective_resistances(&grid10, &er_opts).expect("er jl");
     assert!(!er.used_exact());
     assert!(er.amg_all_converged());
     assert_eq!(er.num_nodes(), 100);

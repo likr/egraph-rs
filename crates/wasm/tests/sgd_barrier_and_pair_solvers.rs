@@ -18,7 +18,7 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
 
     // 1. sparseBarrierDog + stats() + step() == run() + in-place coordsPtr stability
     let dog_opts = make_opts(&[
-        ("tMax", JsValue::from_f64(25.0)),
+        ("iterations", JsValue::from_f64(25.0)),
         ("hingeRepulsion", JsValue::from_bool(true)),
         ("barrierSym", JsValue::from_str("sym_avg")),
         ("kind", JsValue::from_str("exponential")),
@@ -48,11 +48,11 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     let mut l_run = init.clone();
     let mut l_step = init.clone();
     let ptr_before = l_step.coords_ptr();
-    assert_eq!(s_run.run(&mut l_run).unwrap(), "completed");
+    assert_eq!(s_run.run_2d(&mut l_run).unwrap(), "completed");
     assert_eq!(s_run.current_eta(), 0.0);
-    assert_eq!(s_step.run_steps(&mut l_step, 7.0).unwrap(), "running");
+    assert_eq!(s_step.run_steps_2d(&mut l_step, 7.0).unwrap(), "running");
     while !s_step.is_finished() {
-        s_step.step(&mut l_step).unwrap();
+        s_step.step_2d(&mut l_step).unwrap();
     }
     assert_eq!(l_step.coords_ptr(), ptr_before);
     assert_layouts_bit_exact(&l_run, &l_step);
@@ -119,7 +119,7 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     )
     .unwrap();
     let mut l_om = init.clone();
-    assert_eq!(s_om.run(&mut l_om).unwrap(), "completed");
+    assert_eq!(s_om.run_2d(&mut l_om).unwrap(), "completed");
 
     let mut s_sn = JsSgdSolver::streaming_negatives(
         &grid,
@@ -135,7 +135,7 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     )
     .unwrap();
     let mut l_sn = init.clone();
-    assert_eq!(s_sn.run(&mut l_sn).unwrap(), "completed");
+    assert_eq!(s_sn.run_2d(&mut l_sn).unwrap(), "completed");
 
     let mut s_pairs = JsSgdSolver::from_pairs(
         2.0,
@@ -153,22 +153,22 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     )
     .unwrap();
     let mut l2 = JsLayout2d::from_coords(&[0.0, 0.0, 3.0, 0.0]).unwrap();
-    assert_eq!(s_pairs.run(&mut l2).unwrap(), "completed");
+    assert_eq!(s_pairs.run_2d(&mut l2).unwrap(), "completed");
 
     let mut s_hinges = JsSgdSolver::from_pairs_with_hinges(
         2.0,
         &[],
         &[],
         &[],
-        &[],
-        &[],
-        &[],
+        None,
+        None,
+        None,
         &[0],
         &[1],
         &[2.0],
-        &[2.0],
-        &[1.0],
-        &[1.0],
+        Some(vec![2.0]),
+        Some(vec![1.0]),
+        Some(vec![1.0]),
         &JsValue::from_f64(5.0),
         None,
         Some("constant".to_owned()),
@@ -177,7 +177,7 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     )
     .unwrap();
     let mut l_hinge = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
-    s_hinges.step(&mut l_hinge).unwrap();
+    s_hinges.step_2d(&mut l_hinge).unwrap();
     assert!((l_hinge.x(1.0).unwrap() - l_hinge.x(0.0).unwrap()) > 0.5);
 
     // Invalid schedule / dimensions / NaN errors
@@ -193,8 +193,8 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
         .is_err()
     );
     let mut bad_layout = JsLayout2d::zeros(3.0).unwrap();
-    assert!(s_om.step(&mut bad_layout).is_err());
-    assert!(s_om.run(&mut bad_layout).is_err());
+    assert!(s_om.step_2d(&mut bad_layout).is_err());
+    assert!(s_om.run_2d(&mut bad_layout).is_err());
 }
 
 #[wasm_bindgen_test]
@@ -219,9 +219,9 @@ fn ortmann_sparse_stress_step_eq_run() {
         let mut l_step = init.clone();
         let mut l_run = init.clone();
         while !s_step.is_finished() {
-            s_step.step(&mut l_step).unwrap();
+            s_step.step_2d(&mut l_step).unwrap();
         }
-        let status = s_run.run(&mut l_run).unwrap();
+        let status = s_run.run_2d(&mut l_run).unwrap();
         assert!(matches!(status.as_str(), "completed" | "converged"));
         assert_layouts_bit_exact(&l_step, &l_run);
         assert!(l_run.is_all_finite());
@@ -236,9 +236,9 @@ fn ortmann_sparse_stress_step_eq_run() {
     ]);
     let mut s_steps = JsSgdSolver::ortmann_sparse_stress(&graph, &opts_eta).unwrap();
     let mut l_steps = init;
-    s_steps.run_steps(&mut l_steps, 3.0).unwrap();
+    s_steps.run_steps_2d(&mut l_steps, 3.0).unwrap();
     assert_eq!(s_steps.iteration(), 3);
-    s_steps.run(&mut l_steps).unwrap();
+    s_steps.run_2d(&mut l_steps).unwrap();
     assert!(s_steps.is_finished());
 
     let bad_pivots = make_opts(&[("numPivots", JsValue::from_f64(0.0))]);
@@ -268,9 +268,9 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
     let mut l_lv_step = init.clone();
     let mut l_lv_run = init.clone();
     while !lv_step.is_finished() {
-        lv_step.step(&mut l_lv_step).unwrap();
+        lv_step.step_2d(&mut l_lv_step).unwrap();
     }
-    lv_run.run(&mut l_lv_run).unwrap();
+    lv_run.run_2d(&mut l_lv_run).unwrap();
     assert_layouts_bit_exact(&l_lv_step, &l_lv_run);
     assert!(l_lv_run.is_all_finite());
 
@@ -292,9 +292,9 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
     let mut l_dr_step = init.clone();
     let mut l_dr_run = init.clone();
     while !dr_step.is_finished() {
-        dr_step.step(&mut l_dr_step).unwrap();
+        dr_step.step_2d(&mut l_dr_step).unwrap();
     }
-    dr_run.run(&mut l_dr_run).unwrap();
+    dr_run.run_2d(&mut l_dr_run).unwrap();
     assert_layouts_bit_exact(&l_dr_step, &l_dr_run);
     assert!(l_dr_run.is_all_finite());
 
@@ -315,9 +315,9 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
         let mut l_cne_step = init.clone();
         let mut l_cne_run = init.clone();
         while !cne_step.is_finished() {
-            cne_step.step(&mut l_cne_step).unwrap();
+            cne_step.step_2d(&mut l_cne_step).unwrap();
         }
-        cne_run.run(&mut l_cne_run).unwrap();
+        cne_run.run_2d(&mut l_cne_run).unwrap();
         assert_layouts_bit_exact(&l_cne_step, &l_cne_run);
         assert!(l_cne_run.is_all_finite());
     }

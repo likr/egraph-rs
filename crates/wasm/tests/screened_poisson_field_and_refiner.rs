@@ -1,7 +1,8 @@
 mod util;
 
 use egraph_wasm::layout_buffers::JsLayout2d;
-use egraph_wasm::screened_poisson::{JsScreenedPoissonField2d, JsScreenedPoissonRefiner};
+use egraph_wasm::screened_poisson::JsScreenedPoissonField2d;
+use egraph_wasm::screened_poisson_refiner::JsScreenedPoissonRefiner;
 use util::fixtures::{make_opts, make_path_graph};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -47,7 +48,12 @@ fn screened_poisson_density_field_and_refiner() {
         .unwrap();
 
         let l_base = JsLayout2d::from_coords(&coords).unwrap();
-        let res = field.evaluate_in_bounds(&l_base, &bounds).unwrap();
+        assert!(field.density_grid().unwrap().is_empty());
+        let res = field
+            .evaluate_in_bounds(&l_base, bounds[0], bounds[2], bounds[1], bounds[3])
+            .unwrap();
+        assert!(!field.density_grid().unwrap().is_empty());
+        assert_eq!(field.density_grid_dim(), 128);
         assert!(!res.early_exit_no_excess());
         assert_eq!(res.fft_2d_calls() as u64, if exact_adjoint { 6 } else { 4 });
 
@@ -63,11 +69,23 @@ fn screened_poisson_density_field_and_refiner() {
                 cp[2 * i + axis] += eps;
                 cm[2 * i + axis] -= eps;
                 let lp = field
-                    .evaluate_in_bounds(&JsLayout2d::from_coords(&cp).unwrap(), &bounds)
+                    .evaluate_in_bounds(
+                        &JsLayout2d::from_coords(&cp).unwrap(),
+                        bounds[0],
+                        bounds[2],
+                        bounds[1],
+                        bounds[3],
+                    )
                     .unwrap()
                     .energy();
                 let lm = field
-                    .evaluate_in_bounds(&JsLayout2d::from_coords(&cm).unwrap(), &bounds)
+                    .evaluate_in_bounds(
+                        &JsLayout2d::from_coords(&cm).unwrap(),
+                        bounds[0],
+                        bounds[2],
+                        bounds[1],
+                        bounds[3],
+                    )
                     .unwrap()
                     .energy();
                 let fd = (lp - lm) / (2.0 * (eps as f64));

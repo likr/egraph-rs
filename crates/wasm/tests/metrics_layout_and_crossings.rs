@@ -2,22 +2,25 @@ mod util;
 
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
-use egraph_wasm::metrics_cluster_rta::{
-    js_landmark_stratified_rta, js_landmark_stratified_rta_detail,
-    js_landmark_stratified_rta_from_landmarks,
-};
 use egraph_wasm::metrics_crossings::{
     js_angular_resolution, js_aspect_ratio, js_crosslessness, js_edge_angle, js_layout_degeneracy,
     js_minimum_angle, js_minimum_angle_summary, js_node_resolution, js_sampled_crossing_number,
     js_sampled_crosslessness, js_sweep_crossing_angle, js_sweep_crossing_number,
-    js_torus_crossing_number,
 };
-use egraph_wasm::metrics_eval::js_evaluate_metrics_with_options;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_with_options;
 use egraph_wasm::metrics_functions::{
-    js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_dgg_preservation,
-    js_drng_preservation, js_gabriel_graph_property, js_ideal_edge_lengths,
-    js_neighborhood_preservation_1hop, js_neighborhood_preservation_2hop, js_prism_distortion,
-    js_sampled_np1, js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
+    js_dgg_preservation, js_drng_preservation, js_gabriel_graph_property,
+    js_neighborhood_preservation_1hop, js_neighborhood_preservation_2hop, js_sampled_np1,
+    js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
+};
+use egraph_wasm::metrics_geometry::{
+    js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_ideal_edge_lengths,
+    js_prism_distortion,
+};
+use egraph_wasm::metrics_non_euclidean_crossings::js_torus_crossing_number_2d as js_torus_crossing_number;
+use egraph_wasm::metrics_rta::{
+    js_rta_2d as js_landmark_stratified_rta, js_rta_detail_2d as js_landmark_stratified_rta_detail,
+    js_rta_from_landmarks_2d as js_landmark_stratified_rta_from_landmarks,
 };
 use util::fixtures::{make_grid_4x4_with_layout, u32_typed_js};
 use wasm_bindgen::JsValue;
@@ -154,7 +157,7 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
 
     let nig = js_adjusted_patch_nig(
         &sq,
-        &[0, 0, 1, 1],
+        &u32_typed_js(&[0, 0, 1, 1]),
         Some(16.0),
         Some(2048.0),
         None,
@@ -163,7 +166,7 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
     .unwrap();
     let nig_ms = js_adjusted_patch_nig_multiscale(
         &sq,
-        &[0, 0, 1, 1],
+        &u32_typed_js(&[0, 0, 1, 1]),
         Some(vec![16, 32]),
         Some(2048.0),
         None,
@@ -202,8 +205,8 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
     );
     let rta_tbl = js_landmark_stratified_rta_from_landmarks(
         &sq,
-        &[0, 2],
-        &[0, 1, 2, 1, 2, 1, 0, 1],
+        &u32_typed_js(&[0, 2]),
+        &u32_typed_js(&[0, 1, 2, 1, 2, 1, 0, 1]),
         Some(1000.0),
         Some(42.0),
     )

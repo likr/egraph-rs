@@ -111,7 +111,7 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
 
     // SpatialIntruderRefiner dynamic kCap + wAnchor2 + setKCap
     let dyn_opts = make_opts(&[
-        ("rounds", JsValue::from_f64(4.0)),
+        ("iterations", JsValue::from_f64(4.0)),
         ("kCap", JsValue::from_f64(8.0)),
         ("wAnchor2", JsValue::from_f64(0.5)),
         ("kCapDecay", JsValue::from_f64(0.5)),

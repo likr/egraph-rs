@@ -3,17 +3,20 @@ mod util;
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::metrics_crossings::{
-    js_aspect_ratio, js_crossing_edges, js_crossing_edges_torus, js_crossing_summary,
-    js_node_resolution, js_sampled_crossing_number, js_sweep_crossing_number,
+    js_aspect_ratio, js_crossing_edges, js_crossing_summary, js_node_resolution,
+    js_sampled_crossing_number, js_sweep_crossing_number,
 };
-use egraph_wasm::metrics_eval::js_evaluate_metrics;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
 use egraph_wasm::metrics_functions::{
-    js_all_pairs_bfs, js_bfs_single_source, js_gabriel_graph_edges,
-    js_ideal_edge_lengths_with_unit, js_neighborhood_preservation_1hop, js_prism_distortion,
-    js_prism_distortion_with_edges, js_relative_neighborhood_edges, js_sampled_np1, js_sampled_np2,
-    js_sampled_scale_normalized_stress, js_scale_normalized_stress,
+    js_all_pairs_bfs, js_bfs_single_source, js_neighborhood_preservation_1hop, js_sampled_np1,
+    js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
     js_scale_normalized_stress_from_distances,
 };
+use egraph_wasm::metrics_geometry::{
+    js_gabriel_graph_edges, js_ideal_edge_lengths_with_unit, js_prism_distortion,
+    js_prism_distortion_with_edges, js_relative_neighborhood_edges,
+};
+use egraph_wasm::metrics_non_euclidean_crossings::js_crossing_edges_torus_2d;
 #[cfg(feature = "delaunay")]
 use egraph_wasm::spatial_dataset::{js_delaunay_to_csr, js_delaunay_triangulation};
 use egraph_wasm::spatial_dataset::{js_parse_csr_csv, js_rectangle_overlaps};
@@ -31,14 +34,15 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
         &"sampled_np2".into(),
         &"aspectRatio".into(),
     );
-    let report = js_evaluate_metrics(
+    let report = js_evaluate_metrics_2d(
         &grid,
         &layout,
         &targets,
-        Some(8.0),
+        &JsValue::from_f64(8.0),
         Some(64.0),
         Some(42.0),
         None,
+        &JsValue::UNDEFINED,
         None,
         None,
         None,
@@ -46,6 +50,14 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .expect("selective report");
 
@@ -114,10 +126,15 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
 
     // Bad targets
     assert!(
-        js_evaluate_metrics(
+        js_evaluate_metrics_2d(
             &grid,
             &layout,
             &JsValue::from_str("sns"),
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -129,15 +146,24 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             None,
             None,
             None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
     let bad_target = js_sys::Array::of1(&"nonExistentMetric".into());
     assert!(
-        js_evaluate_metrics(
+        js_evaluate_metrics_2d(
             &grid,
             &layout,
             &bad_target,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -149,15 +175,24 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             None,
             None,
             None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
     let non_str_target = js_sys::Array::of1(&JsValue::from_f64(123.0));
     assert!(
-        js_evaluate_metrics(
+        js_evaluate_metrics_2d(
             &grid,
             &layout,
             &non_str_target,
+            &JsValue::UNDEFINED,
+            None,
+            None,
+            None,
+            &JsValue::UNDEFINED,
             None,
             None,
             None,
@@ -169,6 +204,10 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             None,
             None,
             None,
+            None,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED,
         )
         .is_err()
     );
@@ -207,7 +246,7 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
     assert!(summary.min_angle_rad().unwrap_or(0.0) > 0.0);
     assert!(summary.angle_cos_sq_sum() >= 0.0);
 
-    let torus_pairs = js_crossing_edges_torus(&cross_graph, &cross_layout).unwrap();
+    let torus_pairs = js_crossing_edges_torus_2d(&cross_graph, &cross_layout).unwrap();
     assert!(!torus_pairs.is_empty());
 
     let grid = make_grid(3, 3);
@@ -223,14 +262,15 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
     assert!(iel_unit.is_finite());
 
     let targets = js_sys::Array::of2(&"sns".into(), &"idealEdgeLengths".into());
-    let report = js_evaluate_metrics(
+    let report = js_evaluate_metrics_2d(
         &grid,
         &grid_layout,
         &targets,
-        None,
+        &JsValue::UNDEFINED,
         None,
         None,
         Some(1.0),
+        &JsValue::UNDEFINED,
         None,
         None,
         None,
@@ -238,6 +278,14 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
+        &JsValue::UNDEFINED,
     )
     .unwrap();
     assert!(report.scale_normalized_stress().is_some());

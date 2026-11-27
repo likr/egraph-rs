@@ -17,7 +17,7 @@ fn t_fdp_solver_all_backends_from_knn_and_step_eq_run() {
     for backend in ["ibfft", "barnes_hut", "exact"] {
         let opts = make_opts(&[
             ("backend", JsValue::from_str(backend)),
-            ("totalIterations", JsValue::from_f64(12.0)),
+            ("iterations", JsValue::from_f64(12.0)),
             ("learningRate", JsValue::from_f64(0.5)),
             ("momentum", JsValue::from_f64(0.75)),
             ("rhoStart", JsValue::from_f64(1.2)),
@@ -63,7 +63,7 @@ fn t_fdp_solver_all_backends_from_knn_and_step_eq_run() {
     let indices = [1u32, 0, 2, 1];
     let knn_opts = make_opts(&[
         ("backend", JsValue::from_str("exact")),
-        ("totalIterations", JsValue::from_f64(8.0)),
+        ("iterations", JsValue::from_f64(8.0)),
     ]);
     let indptr_js: JsValue = js_sys::Uint32Array::from(&indptr[..]).into();
     let indices_js: JsValue = js_sys::Uint32Array::from(&indices[..]).into();
@@ -116,7 +116,7 @@ fn ib_umap_solver_all_constructors_and_step_eq_run() {
         let opts = make_opts(&[
             ("backend", JsValue::from_str(backend)),
             ("max2hopPerNode", JsValue::from_f64(16.0)),
-            ("nEpochs", JsValue::from_f64(10.0)),
+            ("iterations", JsValue::from_f64(10.0)),
             ("cK", JsValue::from_f64(4.0)),
             ("tauScale", JsValue::from_f64(4.0)),
             ("hubDamping", JsValue::from_bool(true)),
@@ -152,7 +152,7 @@ fn ib_umap_solver_all_constructors_and_step_eq_run() {
     let fuzzy = js_compute_fuzzy_simplicial_set(&knn, None, None).unwrap();
     let opts = make_opts(&[
         ("backend", JsValue::from_str("barnes_hut")),
-        ("nEpochs", JsValue::from_f64(6.0)),
+        ("iterations", JsValue::from_f64(6.0)),
     ]);
     let mut s_knn = JsIbUmapSolver::from_knn(&knn, &opts).unwrap();
     let mut s_fuz_a = JsIbUmapSolver::from_fuzzy_set(&fuzzy, &opts, &JsValue::UNDEFINED).unwrap();
@@ -187,7 +187,7 @@ fn ib_umap_solver_all_constructors_and_step_eq_run() {
     let ib_lm_opts = make_opts(&[
         ("max2hopPerNode", JsValue::from_f64(32.0)),
         ("backend", JsValue::from_str("exact")),
-        ("nEpochs", JsValue::from_f64(6.0)),
+        ("iterations", JsValue::from_f64(6.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut s_lm_a =
@@ -198,7 +198,7 @@ fn ib_umap_solver_all_constructors_and_step_eq_run() {
         &JsValue::from_f64(32.0),
         &make_opts(&[
             ("backend", JsValue::from_str("exact")),
-            ("nEpochs", JsValue::from_f64(6.0)),
+            ("iterations", JsValue::from_f64(6.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
     )

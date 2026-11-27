@@ -62,7 +62,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert(dtsText.includes("static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null"));
   assert(dtsText.includes("static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null"));
   assert(dtsText.includes("static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null"));
-  assert(dtsText.includes("constructor(graph: CsrGraph, roundsOrOptions?: number | SpatialRefinerOptions | null"));
+  assert(dtsText.includes("constructor(graph: CsrGraph, iterationsOrOptions?: number | SpatialRefinerOptions | null"));
   assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null"));
   assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null"));
   assert(dtsText.includes("export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number"));
@@ -102,25 +102,40 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert.equal(kmLabels[0], kmLabels[1]);
   assert.equal(kmLabels[3], kmLabels[4]);
   assert.notEqual(kmLabels[0], kmLabels[3]);
+  assert(km.labelsView() instanceof Uint32Array);
+  assert(km.centroidsView() instanceof Float64Array);
   assert.equal(km.centroids().length, 4);
   km.free();
 
   const barbell = makeBarbellGraph(eg, 6);
-  const specLabels = spectralClustering(barbell, 2, 300, 1e-4, 100, 1e-4, 42);
+  const specRes = spectralClustering(barbell, 2, 300, 1e-4, 100, 1e-4, 42);
+  assert(specRes instanceof eg.SpectralClusteringResult);
+  const specLabels = specRes.labelsView();
+  assert(specLabels instanceof Uint32Array);
   assert.equal(specLabels.length, 12);
   assert.notEqual(specLabels[0], specLabels[11]);
+  specRes.free();
 
   const louv = louvainCommunities(barbell, 50, 1.0, 1e-7, 42);
   assert(louv instanceof LouvainResult);
   assert(louv.numCommunities >= 2);
   assert(louv.modularity > 0.2);
   assert(louv.passes >= 1);
+  assert(louv.labelsView() instanceof Uint32Array);
   const louvLabels = louv.labels();
   assert.equal(louvLabels.length, 12);
   louv.free();
 
-  const lpaLabels = labelPropagation(barbell, 50, 42);
-  assert.equal(lpaLabels.length, 12);
+  const lpaRes = labelPropagation(barbell, 50, 42);
+  assert(lpaRes instanceof eg.LabelPropagationResult);
+  assert(lpaRes.labelsView() instanceof Uint32Array);
+  assert.equal(lpaRes.labels().length, 12);
+  lpaRes.free();
+
+  const leidenRes = eg.leidenCommunities(barbell, { seed: 42 });
+  assert(leidenRes instanceof eg.LeidenResult);
+  assert(leidenRes.labelsView() instanceof Uint32Array);
+  leidenRes.free();
 
   const coarse = coarsenGraph(barbell, louvLabels);
   assert(coarse instanceof CoarsenedGraphResult);
@@ -228,7 +243,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   // SgdSolver.sparseBarrierDog + Typed SparseBarrierStats + in-place coordsView mutation
   const sgdSolver = SgdSolver.sparseBarrierDog(grid, {
     max2hopPerNode: 16,
-    tMax: 8,
+    iterations: 8,
     degree: 6,
     numLandmarks: 8,
     seed: 19,
@@ -248,16 +263,17 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   sgdSolver.free();
   sgdLayout.free();
 
-  // ManifoldLayout2d across all 3 manifolds + SgdSolver.runManifold
+  // ManifoldLayout2d across all 3 manifolds + SgdSolver.run(ml) & coordsView()
   for (const kind of ["hyperbolic", "spherical", "torus"]) {
     const ml = ManifoldLayout2d.fromCoords(kind, makeCircleCoords(16, 0.35));
     assert.equal(ml.kind, kind);
     assert.equal(ml.len(), 16);
     assert(ml.isAllFinite());
-    const manifoldSgd = SgdSolver.full(grid, { tMax: 4, seed: 23 });
+    const manifoldSgd = SgdSolver.full(grid, { iterations: 4, seed: 23 });
     assert.equal(manifoldSgd.stats(), undefined);
-    assert.equal(manifoldSgd.runManifold(ml), "completed");
+    assert.equal(manifoldSgd.run(ml), "completed");
     assert(ml.isAllFinite());
+    assert(ml.coordsView() instanceof Float32Array);
     assert(ml.geodesicDistance(0, 15) >= 0);
     manifoldSgd.free();
     ml.free();
@@ -266,7 +282,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   // GuMapSolver.fromGraphDog
   const gumap = GuMapSolver.fromGraphDog(grid, {
     max2hopPerNode: 16,
-    nEpochs: 8,
+    iterations: 8,
     degree: 6,
     numLandmarks: 8,
     seed: 31,
@@ -280,12 +296,12 @@ export async function runClusteringAndSolversSmoke({ eg }) {
 
   // SpatialIntruderRefiner + Typed SpatialRefinerStats
   const refiner = new SpatialIntruderRefiner(grid, {
-    rounds: 2,
+    iterations: 2,
     kCap: 8,
     wAnchor2: 0.5,
     kCapDecay: 0.5,
     kCapMin: 2,
-    tMax: 4,
+    sgdIterations: 4,
     seed: 37,
   });
   assert.equal(refiner.currentKCap, 8);

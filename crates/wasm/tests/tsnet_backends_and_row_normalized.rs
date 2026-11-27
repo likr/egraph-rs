@@ -90,14 +90,14 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
 
         assert_eq!(s_run.status(), "initialized");
         assert_eq!(s_run.total_iterations(), 12);
-        assert_eq!(s_run.run(&mut l_run).unwrap(), "completed");
+        assert_eq!(s_run.run_2d(&mut l_run).unwrap(), "completed");
         assert!(s_run.is_finished());
 
-        assert_eq!(s_step.run_steps(&mut l_step, 5.0).unwrap(), "running");
+        assert_eq!(s_step.run_steps_2d(&mut l_step, 5.0).unwrap(), "running");
         assert_eq!(s_step.iteration(), 5);
         assert_eq!(s_step.stage_index(), 1);
         while !s_step.is_finished() {
-            s_step.step(&mut l_step).unwrap();
+            s_step.step_2d(&mut l_step).unwrap();
         }
         assert_eq!(l_step.coords_ptr(), ptr_before);
         assert_eq!(s_step.status(), "completed");
@@ -232,9 +232,9 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     .expect("fromGraphRowNormalized pos");
     let mut lrn_run = init.clone();
     let mut lrn_step = init.clone();
-    assert_eq!(rn_run.run(&mut lrn_run).unwrap(), "completed");
+    assert_eq!(rn_run.run_2d(&mut lrn_run).unwrap(), "completed");
     while !rn_step.is_finished() {
-        rn_step.step(&mut lrn_step).unwrap();
+        rn_step.step_2d(&mut lrn_step).unwrap();
     }
     assert_layouts_bit_exact(&lrn_run, &lrn_step);
     assert!(rn_run.current_stage_lr() <= 32.0);
@@ -290,8 +290,8 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     .unwrap();
     let mut lp0 = init.clone();
     let mut lr0 = init;
-    s_rn0.run(&mut lr0).unwrap();
-    s_p0.run(&mut lp0).unwrap();
+    s_rn0.run_2d(&mut lr0).unwrap();
+    s_p0.run_2d(&mut lp0).unwrap();
     assert_layouts_bit_exact(&lr0, &lp0);
     assert!(
         JsTsNetSolver::from_graph_row_normalized(

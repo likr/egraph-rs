@@ -353,7 +353,7 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   sepLayout.free();
 
   // Adversarial G-CAF input checks
-  assertJsError(() => evaluateMetrics(imbGraph, imbLayout, ["gcaf"]), "gcaf missing communityLabels");
+  assertJsError(() => evaluateMetrics(imbGraph, imbLayout, ["gcaf"]), "gcaf missing labels");
   assertJsError(
     () =>
       evaluateMetrics(

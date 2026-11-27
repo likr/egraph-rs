@@ -15,6 +15,7 @@ import { runForceAndConstraintsSmoke } from "./esm_smoke/force_and_constraints.m
 import { runLinalgAndNeighborhoodSmoke } from "./esm_smoke/linalg_and_neighborhood.mjs";
 import { runMetricsClusterAreaSmoke } from "./esm_smoke/metrics_cluster_area.mjs";
 import { runMetricsLayoutAndSpatialSmoke } from "./esm_smoke/metrics_layout_and_spatial.mjs";
+import { runSpatialTreesDatasetsAndNdSmoke } from "./esm_smoke/spatial_trees_datasets_and_nd.mjs";
 
 // Cross-platform init() should resolve cleanly even when Node loader pre-initialized WASM.
 await init();
@@ -33,6 +34,7 @@ await runDatasetAndProgressiveSmoke(ctx);
 runCoarsenAndFieldSmoke(ctx);
 await runCommunityOverlapAndClusterMetricsSmoke(ctx);
 await runGraphBaselinesSmoke(ctx);
+await runSpatialTreesDatasetsAndNdSmoke(ctx);
 
 // Run TypeScript declaration typechecking (requires local `tsc` binary)
 {

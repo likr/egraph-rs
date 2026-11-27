@@ -15,7 +15,7 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
 
     // 1. GuMapSolver (fromGraphDog, fromKnn, fromFuzzySet, step == run)
     let gm_opts = make_opts(&[
-        ("nEpochs", JsValue::from_f64(20.0)),
+        ("iterations", JsValue::from_f64(20.0)),
         ("negativeSampleRate", JsValue::from_f64(4.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
@@ -79,10 +79,10 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
     let mut gl_run = init.clone();
     let mut gl_step = init.clone();
     let ptr_before = gl_step.coords_ptr();
-    assert_eq!(g_run.run(&mut gl_run).unwrap(), "completed");
-    assert_eq!(g_step.run_steps(&mut gl_step, 5.0).unwrap(), "running");
+    assert_eq!(g_run.run_2d(&mut gl_run).unwrap(), "completed");
+    assert_eq!(g_step.run_steps_2d(&mut gl_step, 5.0).unwrap(), "running");
     while !g_step.is_finished() {
-        g_step.step(&mut gl_step).unwrap();
+        g_step.step_2d(&mut gl_step).unwrap();
     }
     assert_eq!(gl_step.coords_ptr(), ptr_before);
     assert_layouts_bit_exact(&gl_run, &gl_step);
@@ -137,7 +137,7 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
     .unwrap();
     let g_lm_opts = make_opts(&[
         ("max2hopPerNode", JsValue::from_f64(32.0)),
-        ("nEpochs", JsValue::from_f64(10.0)),
+        ("iterations", JsValue::from_f64(10.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut g_lm_run =
@@ -148,22 +148,22 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         &lm_barbell,
         &JsValue::from_f64(32.0),
         &make_opts(&[
-            ("nEpochs", JsValue::from_f64(10.0)),
+            ("iterations", JsValue::from_f64(10.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
     )
     .expect("GuMap.fromLandmarks pos");
     let mut glm_l1 = init.clone();
     let mut glm_l2 = init.clone();
-    assert_eq!(g_lm_run.run(&mut glm_l1).unwrap(), "completed");
+    assert_eq!(g_lm_run.run_2d(&mut glm_l1).unwrap(), "completed");
     while !g_lm_step.is_finished() {
-        g_lm_step.step(&mut glm_l2).unwrap();
+        g_lm_step.step_2d(&mut glm_l2).unwrap();
     }
     assert_layouts_bit_exact(&glm_l1, &glm_l2);
 
     // symmetricNegative=false diverges from true while keeping step == run across fromGraphDog & fromLandmarks
     let gm_asym_opts = make_opts(&[
-        ("nEpochs", JsValue::from_f64(20.0)),
+        ("iterations", JsValue::from_f64(20.0)),
         ("negativeSampleRate", JsValue::from_f64(4.0)),
         ("symmetricNegative", JsValue::from_bool(false)),
         ("seed", JsValue::from_f64(42.0)),
@@ -224,9 +224,9 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
     .unwrap();
     let mut gl_asym_r = init.clone();
     let mut gl_asym_s = init.clone();
-    assert_eq!(g_asym_r.run(&mut gl_asym_r).unwrap(), "completed");
+    assert_eq!(g_asym_r.run_2d(&mut gl_asym_r).unwrap(), "completed");
     while !g_asym_s.is_finished() {
-        g_asym_s.step(&mut gl_asym_s).unwrap();
+        g_asym_s.step_2d(&mut gl_asym_s).unwrap();
     }
     assert_layouts_bit_exact(&gl_asym_r, &gl_asym_s);
     let max_dog_diff = gl_run
@@ -242,7 +242,7 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
 
     let g_lm_asym_opts = make_opts(&[
         ("max2hopPerNode", JsValue::from_f64(32.0)),
-        ("nEpochs", JsValue::from_f64(10.0)),
+        ("iterations", JsValue::from_f64(10.0)),
         ("symmetricNegative", JsValue::from_bool(false)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
@@ -250,7 +250,7 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_asym_opts, &JsValue::UNDEFINED)
             .unwrap();
     let mut glm_asym_l = init;
-    assert_eq!(g_lm_asym.run(&mut glm_asym_l).unwrap(), "completed");
+    assert_eq!(g_lm_asym.run_2d(&mut glm_asym_l).unwrap(), "completed");
     let max_lm_diff = glm_l1
         .copy_coords()
         .iter()

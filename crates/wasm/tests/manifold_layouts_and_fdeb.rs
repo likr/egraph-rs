@@ -3,9 +3,10 @@ mod util;
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::fdeb::JsFdebSolver;
 use egraph_wasm::layout_buffers::JsLayout2d;
-use egraph_wasm::manifold::{
-    JsManifoldLayout2d, js_poincare_distance, js_poincare_mobius_add, js_spherical_distance,
-    js_torus_distance, js_wrap_torus_point,
+use egraph_wasm::manifold::JsManifoldLayout2d;
+use egraph_wasm::manifold_geodesic::{
+    js_poincare_distance, js_poincare_mobius_add, js_spherical_distance, js_torus_distance,
+    js_wrap_torus_point,
 };
 use egraph_wasm::sgd::JsSgdSolver;
 use util::fixtures::make_opts;
@@ -86,7 +87,7 @@ fn manifold_layout_and_sgd_manifold_all_three_geometries() {
     )
     .unwrap();
     let sched_opts = make_opts(&[
-        ("tMax", JsValue::from_f64(20.0)),
+        ("iterations", JsValue::from_f64(20.0)),
         ("eps", JsValue::from_f64(0.02)),
         ("kind", JsValue::from_str("exponential")),
         ("seed", JsValue::from_f64(19.0)),
@@ -133,7 +134,7 @@ fn manifold_layout_and_sgd_manifold_all_three_geometries() {
 #[wasm_bindgen_test]
 fn manifold_layout_and_distances() {
     let mut hyp = JsManifoldLayout2d::hyperbolic_poincare(3.0).unwrap();
-    assert_eq!(hyp.manifold(), "hyperbolic");
+    assert_eq!(hyp.kind(), "hyperbolic");
     assert_eq!(hyp.num_nodes(), 3);
     hyp.set_point(0.0, 0.1, 0.2).unwrap();
     hyp.set_point(1.0, -0.1, 0.05).unwrap();
@@ -151,7 +152,7 @@ fn manifold_layout_and_distances() {
     assert!(mc[0].hypot(mc[1]) < 1e-4);
 
     let sph = JsManifoldLayout2d::spherical(2.0).unwrap();
-    assert_eq!(sph.manifold(), "spherical");
+    assert_eq!(sph.kind(), "spherical");
     assert!(
         (js_spherical_distance(0.0, 0.0, 0.0, std::f64::consts::FRAC_PI_2)
             - std::f64::consts::FRAC_PI_2)
@@ -160,7 +161,7 @@ fn manifold_layout_and_distances() {
     );
 
     let tor = JsManifoldLayout2d::torus_2d(2.0).unwrap();
-    assert_eq!(tor.manifold(), "torus");
+    assert_eq!(tor.kind(), "torus");
     assert!((js_torus_distance(0.05, 0.05, 0.95, 0.05) - 0.1).abs() < 1e-9);
     let wrapped = js_wrap_torus_point(1.25, -0.25);
     assert!((wrapped[0] - 0.25).abs() < 1e-9 && (wrapped[1] - 0.75).abs() < 1e-9);
@@ -172,25 +173,29 @@ fn fdeb_solver_reference_passing_and_step_eq_run() {
         JsCsrGraph::from_edge_list(4.0, &[0, 1, 2, 3], None, &JsValue::from_bool(false), None)
             .unwrap();
     // Two parallel horizontal edges separated by y=1.0 -> high compatibility
-    let layout = JsLayout2d::from_coords(&[0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0]).unwrap();
+    let mut layout_run =
+        JsLayout2d::from_coords(&[0.0, 0.0, 10.0, 0.0, 0.0, 1.0, 10.0, 1.0]).unwrap();
+    let mut layout_step = layout_run.clone();
     let opts = make_opts(&[
         ("cycles", JsValue::from_f64(3.0)),
-        ("i0", JsValue::from_f64(12.0)),
+        ("stepsPerCycle", JsValue::from_f64(12.0)),
         ("s0", JsValue::from_f64(0.1)),
     ]);
 
-    // Construct twice on the same `layout` handle to verify no value-drop bug
-    let mut f_run = JsFdebSolver::new(&graph, &layout, &opts).unwrap();
-    let mut f_step = JsFdebSolver::new(&graph, &layout, &opts).unwrap();
-    assert_eq!(layout.len(), 4);
+    let mut f_run = JsFdebSolver::new(&graph, &opts).unwrap();
+    let mut f_step = JsFdebSolver::new(&graph, &opts).unwrap();
+    assert_eq!(layout_run.len(), 4);
     assert_eq!(f_run.num_edges(), 2);
 
-    assert_eq!(f_run.run().unwrap(), "completed");
+    assert_eq!(f_run.run_2d(&mut layout_run).unwrap(), "completed");
     assert!(f_run.is_finished());
 
-    assert_eq!(f_step.run_steps(5.0).unwrap(), "running");
+    assert_eq!(
+        f_step.run_steps_2d(&mut layout_step, 5.0).unwrap(),
+        "running"
+    );
     while !f_step.is_finished() {
-        f_step.step().unwrap();
+        f_step.step_2d(&mut layout_step).unwrap();
     }
     assert_eq!(f_step.status(), "completed");
     assert_eq!(f_run.edge_offsets(), f_step.edge_offsets());
@@ -212,14 +217,7 @@ fn fdeb_solver_reference_passing_and_step_eq_run() {
     assert!(mid_gap < 1.0);
 
     // Adversarial checks
-    assert!(
-        JsFdebSolver::new(
-            &graph,
-            &layout,
-            &make_opts(&[("cycles", JsValue::from_f64(30.0))])
-        )
-        .is_err()
-    );
+    assert!(JsFdebSolver::new(&graph, &make_opts(&[("cycles", JsValue::from_f64(30.0))])).is_err());
     let short_l = JsLayout2d::zeros(2.0).unwrap();
-    assert!(JsFdebSolver::new(&graph, &short_l, &JsValue::UNDEFINED).is_err());
+    assert!(f_run.step_2d(&mut short_l.clone()).is_err());
 }

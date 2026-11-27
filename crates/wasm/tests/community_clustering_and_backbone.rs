@@ -5,10 +5,10 @@ use egraph_wasm::cluster_layout::{
     JsClusterRefineSolver, JsGroupInABoxSolver, js_refine_cluster_layout, js_squarified_treemap,
 };
 use egraph_wasm::community::{
-    js_coarsen_graph, js_kmeans_plus_plus, js_label_propagation, js_louvain_communities,
-    js_project_clustered_layout, js_spectral_clustering,
+    js_coarsen_graph, js_kmeans_plus_plus, js_louvain_communities, js_project_clustered_layout,
 };
 use egraph_wasm::community_leiden::js_leiden_communities;
+use egraph_wasm::community_spectral::{js_label_propagation, js_spectral_clustering};
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
 use util::fixtures::{
@@ -48,7 +48,7 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
     let barbell = make_barbell(5);
     let sp = js_spectral_clustering(&barbell, Some(2.0), None, None, None, None, Some(42.0))
         .expect("spectral");
-    assert_eq!(sp, vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
+    assert_eq!(sp.labels(), vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
 
     // 3. louvainCommunities
     let lv = js_louvain_communities(&barbell, None, None, None, Some(42.0)).expect("louvain");
@@ -59,7 +59,7 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
 
     // 4. labelPropagation
     let lpa = js_label_propagation(&barbell, Some(100.0), Some(42.0)).expect("lpa");
-    assert_eq!(lpa, vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
+    assert_eq!(lpa.labels(), vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
 
     // 5. coarsenGraph & projectClusteredLayout
     let coarse = js_coarsen_graph(
@@ -227,7 +227,7 @@ fn cluster_refine_treemap_and_group_in_a_box() {
 
     let cr_opts = make_opts(&[
         ("method", JsValue::from_str("kmeans")),
-        ("maxRounds", JsValue::from_f64(5.0)),
+        ("maxIterations", JsValue::from_f64(5.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut cr_step = JsClusterRefineSolver::new(&labels_js, &cr_opts).unwrap();

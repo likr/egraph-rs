@@ -91,14 +91,14 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
       5, 0, 5.5, 0.5, 4.5, 0.5, -5.2, 0.2,
     ]),
   );
-  const crSolver = webPkg.ClusterRefineSolver.fromGraph(g8, labels, { method: "kmeans", maxRounds: 5, seed: 42 });
+  const crSolver = webPkg.ClusterRefineSolver.fromGraph(g8, labels, { method: "kmeans", maxIterations: 5, seed: 42 });
   assert(crSolver instanceof webPkg.ClusterRefineSolver);
   assert.equal(crSolver.numClusters, 2);
   crSolver.run(lSwapped);
   assert(crSolver.lastMovedCount >= 0);
   crSolver.free();
 
-  const movedFn = webPkg.refineClusterLayout(lSwapped, labels, { method: "hac", maxRounds: 3, seed: 42 });
+  const movedFn = webPkg.refineClusterLayout(lSwapped, labels, { method: "hac", maxIterations: 3, seed: 42 });
   assert.equal(typeof movedFn, "number");
 
   const treemapRects = webPkg.squarifiedTreemap([3, 2, 1], 100, 50, 0, 0);
@@ -197,27 +197,27 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
     g8,
     lSep,
     [
-      "dsc",
-      "dc",
-      "cdm",
-      "hdm",
+      "distanceConsistency",
+      "distributionConsistency",
+      "classDensityMeasure",
+      "histogramDensityMeasure",
       "sepme-knng2",
       "sepme_rng",
       "sepme_gab",
       "sepme_gong",
       "neighborhood_hit",
-      "silhouette",
-      "calinski_harabasz",
-      "davies_bouldin",
+      "silhouetteScore",
+      "calinskiHarabaszScore",
+      "daviesBouldinScore",
       "cq_kmeans_ari",
       "cq_kmeans_ami",
       "cq_hac_hom",
       "cq_hac_ami",
       "pairwise_distance_overlap_error",
-      "sprawlter_nn",
+      "sprawlterNn",
     ],
     {
-      communityLabels: labels,
+      labels,
       sepmeKnngK: 2,
       neighborhoodHitK: 3,
       dcGridSize: 16,
@@ -225,13 +225,14 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
       numBins: 32,
       gongGamma: 0.35,
       kmeansNInit: 3,
-      kmeansMaxIters: 50,
+      kmeansMaxIterations: 50,
       sprawlterNodeRadius: 0.5,
       seed: 42,
     },
   );
   const clusterMetricsRecord = clusterMetricsReport.toRecord();
   assert(Math.abs(clusterMetricsRecord.sepmeKnng - 1.0) < 1e-12);
+  assert(Math.abs(clusterMetricsRecord.distanceConsistency - 1.0) < 1e-12);
   assert(typeof clusterMetricsRecord.sprawlterNn === "number");
   clusterMetricsReport.free();
 

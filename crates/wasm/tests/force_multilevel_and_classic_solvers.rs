@@ -31,11 +31,11 @@ fn force_atlas2_and_yifan_hu_solvers() {
         let mut l_step = init_b.clone();
         let ptr_before = l_step.coords_ptr();
 
-        assert_eq!(fa2_run.run(&mut l_run).unwrap(), "completed");
+        assert_eq!(fa2_run.run_2d(&mut l_run).unwrap(), "completed");
         assert!(l_run.is_all_finite());
-        assert_eq!(fa2_step.run_steps(&mut l_step, 5.0).unwrap(), "running");
+        assert_eq!(fa2_step.run_steps_2d(&mut l_step, 5.0).unwrap(), "running");
         while !fa2_step.is_finished() {
-            fa2_step.step(&mut l_step).unwrap();
+            fa2_step.step_2d(&mut l_step).unwrap();
         }
         assert_eq!(l_step.coords_ptr(), ptr_before);
         assert_layouts_bit_exact(&l_run, &l_step);
@@ -63,10 +63,10 @@ fn force_atlas2_and_yifan_hu_solvers() {
     let mut l_fa_def = wide_init.clone();
     let mut l_fa_cap_r = wide_init.clone();
     let mut l_fa_cap_s = wide_init;
-    assert_eq!(fa2_def.run(&mut l_fa_def).unwrap(), "completed");
-    assert_eq!(fa2_cap_r.run(&mut l_fa_cap_r).unwrap(), "completed");
+    assert_eq!(fa2_def.run_2d(&mut l_fa_def).unwrap(), "completed");
+    assert_eq!(fa2_cap_r.run_2d(&mut l_fa_cap_r).unwrap(), "completed");
     while !fa2_cap_s.is_finished() {
-        fa2_cap_s.step(&mut l_fa_cap_s).unwrap();
+        fa2_cap_s.step_2d(&mut l_fa_cap_s).unwrap();
     }
     assert_layouts_bit_exact(&l_fa_cap_r, &l_fa_cap_s);
     let max_fa_diff = l_fa_def
@@ -98,14 +98,14 @@ fn force_atlas2_and_yifan_hu_solvers() {
     let mut l_yh_step = init36;
     let ptr_before = l_yh_step.coords_ptr();
 
-    let st = yh_run.run(&mut l_yh_run).unwrap();
+    let st = yh_run.run_2d(&mut l_yh_run).unwrap();
     assert!(st == "completed" || st == "converged");
     assert_eq!(yh_run.current_level(), 0);
     assert!(l_yh_run.is_all_finite());
 
-    yh_step.run_steps(&mut l_yh_step, 4.0).unwrap();
+    yh_step.run_steps_2d(&mut l_yh_step, 4.0).unwrap();
     while !yh_step.is_finished() {
-        yh_step.step(&mut l_yh_step).unwrap();
+        yh_step.step_2d(&mut l_yh_step).unwrap();
     }
     assert_eq!(l_yh_step.coords_ptr(), ptr_before);
     assert_eq!(yh_step.current_level(), 0);
@@ -165,12 +165,12 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
         let mut l_step = init.clone();
         let mut l_run = init.clone();
         while !s_step.is_finished() {
-            s_step.step(&mut l_step).unwrap();
+            s_step.step_2d(&mut l_step).unwrap();
         }
-        let status = s_run.run(&mut l_run).unwrap();
+        let status = s_run.run_2d(&mut l_run).unwrap();
         assert!(matches!(status.as_str(), "completed" | "converged"));
         assert_layouts_bit_exact(&l_step, &l_run);
-        assert!(s_run.energy(&l_run).unwrap().is_finite());
+        assert!(s_run.energy_2d(&l_run).unwrap().is_finite());
     }
     let bad_ll = make_opts(&[
         ("attractionExponent", JsValue::from_f64(-1.0)),
@@ -193,9 +193,9 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
         let mut l_step = init.clone();
         let mut l_run = init.clone();
         while !s_step.is_finished() {
-            s_step.step(&mut l_step).unwrap();
+            s_step.step_2d(&mut l_step).unwrap();
         }
-        s_run.run(&mut l_run).unwrap();
+        s_run.run_2d(&mut l_run).unwrap();
         assert_layouts_bit_exact(&l_step, &l_run);
         assert_eq!(s_run.current_temperature(), 0.0);
     }
@@ -216,9 +216,9 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
     let mut l_fa_step = init.clone();
     let mut l_fa_run = init;
     while !fa_step.is_finished() {
-        fa_step.step(&mut l_fa_step).unwrap();
+        fa_step.step_2d(&mut l_fa_step).unwrap();
     }
-    fa_run.run(&mut l_fa_run).unwrap();
+    fa_run.run_2d(&mut l_fa_run).unwrap();
     assert_layouts_bit_exact(&l_fa_step, &l_fa_run);
 
     let bad_fa2 = make_opts(&[

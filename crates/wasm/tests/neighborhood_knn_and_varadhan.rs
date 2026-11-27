@@ -246,16 +246,16 @@ fn mds_embeddings_rerank_and_priority_knn() {
     js_normalize_layout_2d(&mut cmds, Some(1.0), Some(42.0)).unwrap();
     js_robust_normalize_layout_2d(&mut cmds, Some(1.0), Some(0.95), Some(42.0)).unwrap();
 
-    let rd = js_rd_mds(&grid, Some(3.0), None, None, Some(200.0), Some(42.0)).unwrap();
+    let rd = js_rd_mds(&grid, Some(3.0), None, None, Some(200.0), Some(42.0), None).unwrap();
     assert_eq!(rd.num_nodes(), 16);
-    assert_eq!(rd.dim(), 3);
+    assert_eq!(rd.dims(), 3);
     assert!(rd.is_all_finite());
 
     // 4 nodes x 2 representatives
     let d_reps = [0.0, 3.0, 1.0, 2.0, 2.0, 1.0, 3.0, 0.0];
     let rep_nd = js_representative_mds(&d_reps, 4.0, 2.0, 2.0).unwrap();
     assert_eq!(rep_nd.num_nodes(), 4);
-    assert_eq!(rep_nd.dim(), 2);
+    assert_eq!(rep_nd.dims(), 2);
     assert!(rep_nd.is_all_finite());
 
     let res_emb =

@@ -83,8 +83,7 @@ fn separation_constraints_and_rectangle_projection() {
     arr.push(&JsValue::from(c1));
 
     let mut coords = [3.0f32, 1.0, 0.0];
-    let projected = js_project_1d(&mut coords, &arr).unwrap();
-    assert_eq!(projected, coords.to_vec());
+    js_project_1d(&mut coords, &arr).unwrap();
     assert!(coords[1] - coords[0] >= 2.0 - 1e-5);
     assert!(coords[2] - coords[1] >= 1.5 - 1e-5);
 

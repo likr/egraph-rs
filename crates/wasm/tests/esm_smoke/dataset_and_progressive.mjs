@@ -101,7 +101,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
 
   const lNd = LayoutNd.fromCoords(3, 4, new Float32Array(12).map((_, idx) => idx + 1));
   assert.equal(lNd.numNodes, 3);
-  assert.equal(lNd.dim, 4);
+  assert.equal(lNd.dims, 4);
   assert.equal(lNd.coordsView().length, 12);
   assert.equal(lNd.coordsView()[5], 6);
   // Force memory.grow to verify LayoutNd.coordsView refreshes automatically across detached buffers
@@ -112,9 +112,11 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   assert.equal(refreshedNd[5], 6);
   lNd.free();
 
-  // ManifoldLayout2d constructors, tangentDelta, applyTangentStep & distance helpers
+  // ManifoldLayout2d constructors, coordsView(), tangentDelta, applyTangentStep & distance helpers
   const mHyp = ManifoldLayout2d.hyperbolicPoincare(2);
-  assert.equal(mHyp.manifold, "hyperbolic");
+  assert.equal(mHyp.kind, "hyperbolic");
+  assert.equal(mHyp.manifold, undefined);
+  assert(mHyp.coordsView() instanceof Float32Array);
   mHyp.setPoint(0, 0.1, 0.1);
   mHyp.setPoint(1, -0.1, 0.0);
   const delta = mHyp.tangentDelta(0, 1);
@@ -168,7 +170,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
 
   const rd = rdMds(karate, 3, 1e-10, 1e-5, 200, 42);
   assert.equal(rd.numNodes, 34);
-  assert.equal(rd.dim, 3);
+  assert.equal(rd.dims, 3);
   rd.free();
 
   const rep = representativeMds(new Float64Array([0, 2, 1, 1, 2, 0]), 3, 2, 2);
@@ -270,20 +272,20 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   lAbort.free();
 
   // TFdpSolver.fromKnn(KnnGraph) + SgdSolver.dogStats() + SgdSolver.fromPairs optional + GuMapSolver
-  const tfdpFromKnn = TFdpSolver.fromKnn(rerank, { backend: "exact", totalIterations: 4, seed: 42 });
+  const tfdpFromKnn = TFdpSolver.fromKnn(rerank, { backend: "exact", iterations: 4, seed: 42 });
   const lTfdp = Layout2d.fromCoords(cmds.copyCoords());
   assert.equal(tfdpFromKnn.run(lTfdp), "completed");
   tfdpFromKnn.free();
   lTfdp.free();
   rerank.free();
 
-  const sgdDog = SgdSolver.sparseBarrierDog(karate, { tMax: 4, seed: 42, minDegree: 1, jlDim: 8 });
+  const sgdDog = SgdSolver.sparseBarrierDog(karate, { iterations: 4, seed: 42, minDegree: 1, jlDim: 8 });
   const dStats = sgdDog.dogStats();
   assert(dStats && dStats.degree > 0);
   dStats.free();
   sgdDog.free();
 
-  const sgdPairs = SgdSolver.fromPairs(2, [0], [1], [1.0], null, null, null, { tMax: 3 });
+  const sgdPairs = SgdSolver.fromPairs(2, [0], [1], [1.0], null, null, null, { iterations: 3 });
   const lPair = Layout2d.fromCoords([0, 0, 2, 0]);
   assert.equal(sgdPairs.run(lPair), "completed");
   sgdPairs.free();

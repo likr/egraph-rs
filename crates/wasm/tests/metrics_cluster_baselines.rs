@@ -8,7 +8,7 @@ use egraph_wasm::metrics_cluster_baselines::{
     js_pairwise_distance_overlap_error, js_partition_agreement, js_sepme_gab, js_sepme_gong,
     js_sepme_knng, js_sepme_rng, js_silhouette_score, js_sprawlter_nn, js_sprawlter_nn_radii,
 };
-use egraph_wasm::metrics_eval::js_evaluate_metrics_entry;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d as js_evaluate_metrics_entry;
 use egraph_wasm::overlap_tree_forbid::JsGTreeOverlapRemoval;
 use util::fixtures::{
     make_opts, make_overlapping_layout, make_separated_cluster_layout, make_two_cluster_graph,
@@ -111,7 +111,7 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         targets.push(&JsValue::from_str(t));
     }
     let eval_opts = make_opts(&[
-        ("communityLabels", labels_js.clone()),
+        ("labels", labels_js.clone()),
         ("sepmeKnngK", JsValue::from_f64(2.0)),
         ("neighborhoodHitK", JsValue::from_f64(3.0)),
         ("dcGridSize", JsValue::from_f64(16.0)),
@@ -119,7 +119,7 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         ("numBins", JsValue::from_f64(32.0)),
         ("gongGamma", JsValue::from_f64(0.35)),
         ("kmeansNInit", JsValue::from_f64(3.0)),
-        ("kmeansMaxIters", JsValue::from_f64(50.0)),
+        ("kmeansMaxIterations", JsValue::from_f64(50.0)),
         ("sprawlterNodeRadius", JsValue::from_f64(0.5)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
@@ -149,18 +149,18 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         &JsValue::UNDEFINED,
     )
     .unwrap();
-    assert!(rep.dsc().is_some());
-    assert!(rep.dc().is_some());
-    assert!(rep.cdm().is_some());
-    assert!(rep.hdm().is_some());
+    assert!(rep.distance_consistency().is_some());
+    assert!(rep.distribution_consistency().is_some());
+    assert!(rep.class_density_measure().is_some());
+    assert!(rep.histogram_density_measure().is_some());
     assert!(rep.sepme_knng().is_some());
     assert!(rep.sepme_rng().is_some());
     assert!(rep.sepme_gab().is_some());
     assert!(rep.sepme_gong().is_some());
     assert!(rep.neighborhood_hit().is_some());
-    assert!(rep.silhouette().is_some());
-    assert!(rep.calinski_harabasz().is_some());
-    assert!(rep.davies_bouldin().is_some());
+    assert!(rep.silhouette_score().is_some());
+    assert!(rep.calinski_harabasz_score().is_some());
+    assert!(rep.davies_bouldin_score().is_some());
     assert!(rep.cq_kmeans_ari().is_some());
     assert!(rep.cq_kmeans_ami().is_some());
     assert!(rep.cq_hac_hom().is_some());

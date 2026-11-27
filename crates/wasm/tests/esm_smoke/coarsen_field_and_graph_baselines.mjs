@@ -57,9 +57,7 @@ export function runCoarsenAndFieldSmoke({ eg, webPkg }) {
 
     const pmBb = SgdSolver.pacmapGraphWithBackbone(g16, {
       nNeighbors: 6,
-      phase1Iters: 5,
-      phase2Iters: 5,
-      phase3Iters: 5,
+      phaseIterations: [5, 5, 5],
       numLandmarks: 8,
       maxCoarseNodes: 4,
       coarseTMax: 10,
@@ -141,7 +139,7 @@ export async function runGraphBaselinesSmoke({ eg, webPkg }) {
 
   const lHdeNd = webPkg.hdeNd(g8, { dimensions: 4, outputDims: 3, pivots: [0, 3, 4, 7] });
   assert.equal(lHdeNd.numNodes, 8);
-  assert.equal(lHdeNd.dim, 3);
+  assert.equal(lHdeNd.dims, 3);
   assert.equal(lHdeNd.isAllFinite(), true);
   lHdeNd.free();
 
@@ -176,7 +174,7 @@ export async function runGraphBaselinesSmoke({ eg, webPkg }) {
   assert.equal(grip.isFinished, true);
   grip.free();
 
-  const gem = new webPkg.GemSolver(g8, { maxRounds: 8, seed: 42 });
+  const gem = new webPkg.GemSolver(g8, { maxIterations: 8, seed: 42 });
   gem.run(lWork);
   assert.equal(gem.isFinished, true);
   gem.free();

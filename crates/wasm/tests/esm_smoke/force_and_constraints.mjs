@@ -112,7 +112,7 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   l3.free();
 
   // IbUmapSolver
-  const ib = new IbUmapSolver(grid, { backend: "barnes_hut", nEpochs: 6, degree: 6, numLandmarks: 8 });
+  const ib = new IbUmapSolver(grid, { backend: "barnes_hut", iterations: 6, degree: 6, numLandmarks: 8 });
   const lIb = Layout2d.fromCoords(initCoords);
   assert.equal(ib.run(lIb), "completed");
   assert(ib.a > 0 && ib.b > 0);
@@ -129,13 +129,13 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   sparsePairs.free();
 
   const lmSmoke = computeRegularizedDogVaradhanLandmarks(grid, 6, 8, 42);
-  const gmLm = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { nEpochs: 4, seed: 42 });
+  const gmLm = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { iterations: 4, seed: 42 });
   const lGmLm = Layout2d.fromCoords(initCoords);
   assert.equal(gmLm.run(lGmLm), "completed");
   gmLm.free();
   lGmLm.free();
 
-  const gmLmAsym = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { nEpochs: 4, symmetricNegative: false, seed: 42 });
+  const gmLmAsym = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { iterations: 4, symmetricNegative: false, seed: 42 });
   const lGmLmAsym = Layout2d.fromCoords(initCoords);
   assert.equal(gmLmAsym.run(lGmLmAsym), "completed");
   gmLmAsym.free();
@@ -145,7 +145,7 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
     Error,
   );
 
-  const ibLm = IbUmapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, backend: "exact", nEpochs: 4, seed: 42 });
+  const ibLm = IbUmapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, backend: "exact", iterations: 4, seed: 42 });
   const lIbLm = Layout2d.fromCoords(initCoords);
   assert.equal(ibLm.run(lIbLm), "completed");
   ibLm.free();
@@ -157,11 +157,11 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   for (const solver of [
     SgdSolver.snapTFdp(grid, { iterations: 6, seed: 42 }),
     SgdSolver.snapTFdp(grid, { iterations: 6, degreeBeta: 0.5, boundedAttraction: false, seed: 42 }),
-    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
-    SgdSolver.pacmapGraphWithLandmarks(grid, lmPm, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
-    SgdSolver.pacmapGraphWithLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phase1Iters: 3, phase2Iters: 3, phase3Iters: 3, seed: 42 }),
-    SgdSolver.sgd2(grid, { tMax: 6, batchSize: 16, seed: 42 }),
-    SgdSolver.full(grid, { tMax: 6, kind: "squared", seed: 42 }),
+    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phaseIterations: [3, 3, 3], keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
+    SgdSolver.pacmapGraphWithLandmarks(grid, lmPm, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
+    SgdSolver.pacmapGraphWithLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
+    SgdSolver.sgd2(grid, { iterations: 6, batchSize: 16, seed: 42 }),
+    SgdSolver.full(grid, { iterations: 6, kind: "squared", seed: 42 }),
   ]) {
     const l = Layout2d.fromCoords(initCoords);
     assert.equal(solver.run(l), "completed");
@@ -216,7 +216,7 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   const c1d = new Float32Array([1.0, 0.0]);
   const p1dOut = project1d(c1d, [c0]);
   assert(c1d[1] - c1d[0] >= 2.0 - 1e-5);
-  assert.deepEqual(Array.from(p1dOut), Array.from(c1d));
+  assert.equal(p1dOut, undefined);
   c0.free();
 
   const rectL = Layout2d.fromCoords(new Float32Array([0, 0, 0.1, 0.1, 0.2, 0.0, 0.3, 0.1]));
@@ -245,13 +245,13 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   dag.free();
   cycGraph.free();
 
-  // FdebSolver (no value-drop on layout)
+  // FdebSolver (decoupled constructor + Layout2d/LayoutNd polymorphic run/step)
   const lFdeb = Layout2d.fromCoords(initCoords);
-  const fdeb1 = new FdebSolver(grid, lFdeb, { cycles: 2, i0: 6 });
-  const fdeb2 = new FdebSolver(grid, lFdeb, { cycles: 2, i0: 6 });
+  const fdeb1 = new FdebSolver(grid, { cycles: 2, stepsPerCycle: 6 });
+  const fdeb2 = new FdebSolver(grid, { cycles: 2, stepsPerCycle: 6 });
   assert.equal(lFdeb.len(), 16);
-  assert.equal(fdeb1.run(), "completed");
-  while (!fdeb2.isFinished) fdeb2.step();
+  assert.equal(fdeb1.run(lFdeb), "completed");
+  while (!fdeb2.isFinished) fdeb2.step(lFdeb);
   assert.deepEqual(Array.from(fdeb1.edgeOffsets()), Array.from(fdeb2.edgeOffsets()));
   assert.deepEqual(Array.from(fdeb1.points()), Array.from(fdeb2.points()));
   fdeb1.free();

@@ -54,7 +54,7 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
         ("tInit", JsValue::from_f64(128.0)),
         ("tMax", JsValue::from_f64(256.0)),
         ("tMin", JsValue::from_f64(3.0)),
-        ("maxRounds", JsValue::from_f64(10.0)),
+        ("maxIterations", JsValue::from_f64(10.0)),
         ("oscillationAngle", JsValue::from_f64(std::f64::consts::PI)),
         (
             "rotationAngle",

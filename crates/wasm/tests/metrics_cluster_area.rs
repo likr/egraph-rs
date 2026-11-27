@@ -4,7 +4,7 @@ use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::metrics_cluster_rta::{
     JsClusterAreaReport, js_cluster_area_faithfulness, js_cluster_area_faithfulness_detail,
 };
-use egraph_wasm::metrics_eval::js_evaluate_metrics_with_options;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_with_options;
 use util::fixtures::{make_imbalanced_cluster_fixture, u32_typed_js};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;

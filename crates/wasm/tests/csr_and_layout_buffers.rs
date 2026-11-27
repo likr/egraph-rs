@@ -177,7 +177,7 @@ fn csr_graph_degrees_subgraph_and_lcc() {
 
 #[wasm_bindgen_test]
 fn layout_2d_and_nd_lifecycle() {
-    let mut l2 = JsLayout2d::init(8.0, Some(123.0)).unwrap();
+    let mut l2 = JsLayout2d::init(8.0, Some(123.0), None).unwrap();
     assert_eq!(l2.num_nodes(), 8);
     assert!(!l2.is_empty());
     assert!(l2.is_all_finite());
@@ -195,7 +195,7 @@ fn layout_2d_and_nd_lifecycle() {
 
     let nd = JsLayoutNd::zeros(4.0, 3.0).unwrap();
     assert_eq!(nd.num_nodes(), 4);
-    assert_eq!(nd.dim(), 3);
+    assert_eq!(nd.dims(), 3);
     assert_eq!(nd.len(), 4);
     assert_eq!(nd.coords_len(), 12);
     assert!(nd.coords_ptr() > 0);

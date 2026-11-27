@@ -129,7 +129,7 @@ fn coarsen_rhgh_and_coarse_backbone() {
             ("degreeWeightBeta", JsValue::from_f64(0.5)),
             ("minDegree", JsValue::from_f64(1.0)),
             ("jlDim", JsValue::from_f64(8.0)),
-            ("tMax", JsValue::from_f64(5.0)),
+            ("iterations", JsValue::from_f64(5.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
         None,
@@ -163,17 +163,20 @@ fn coarsen_rhgh_and_coarse_backbone() {
         None,
     )
     .unwrap();
-    let mut l_beta = JsLayout2d::init(36.0, Some(42.0)).unwrap();
-    sgd_beta.run(&mut l_beta).unwrap();
+    let mut l_beta = JsLayout2d::init(36.0, Some(42.0), None).unwrap();
+    sgd_beta.run_2d(&mut l_beta).unwrap();
     assert!(l_beta.is_all_finite());
 
+    let phase_arr = js_sys::Array::of3(
+        &JsValue::from_f64(10.0),
+        &JsValue::from_f64(10.0),
+        &JsValue::from_f64(10.0),
+    );
     let pm_bb = JsSgdSolver::pacmap_graph_with_backbone(
         &grid,
         &make_opts(&[
             ("nNeighbors", JsValue::from_f64(8.0)),
-            ("phase1Iters", JsValue::from_f64(10.0)),
-            ("phase2Iters", JsValue::from_f64(10.0)),
-            ("phase3Iters", JsValue::from_f64(10.0)),
+            ("phaseIterations", phase_arr.into()),
             ("numLandmarks", JsValue::from_f64(12.0)),
             ("maxCoarseNodes", JsValue::from_f64(9.0)),
             ("coarseTMax", JsValue::from_f64(20.0)),
@@ -183,8 +186,8 @@ fn coarsen_rhgh_and_coarse_backbone() {
     .unwrap();
     let mut pm_solver = pm_bb.solver();
     let mut pm_layout = pm_bb.fine_layout();
-    pm_solver.step(&mut pm_layout).unwrap();
-    pm_solver.run(&mut pm_layout).unwrap();
+    pm_solver.step_2d(&mut pm_layout).unwrap();
+    pm_solver.run_2d(&mut pm_layout).unwrap();
     assert!(pm_layout.is_all_finite());
 
     // 6. 20-node two-10-clique bridge with jitterScale=0.0, targetStd=1.0
@@ -276,7 +279,7 @@ fn hde_and_hde_nd_with_pivots_and_validation() {
     ]);
     let lnd = js_hde_nd(&graph, &opts_nd).unwrap();
     assert_eq!(lnd.num_nodes(), 8);
-    assert_eq!(lnd.dim(), 3);
+    assert_eq!(lnd.dims(), 3);
     assert!(lnd.is_all_finite());
 
     let opts_nd_piv = make_opts(&[
@@ -286,7 +289,7 @@ fn hde_and_hde_nd_with_pivots_and_validation() {
     ]);
     let lnd_piv = js_hde_nd(&graph, &opts_nd_piv).unwrap();
     assert_eq!(lnd_piv.num_nodes(), 8);
-    assert_eq!(lnd_piv.dim(), 3);
+    assert_eq!(lnd_piv.dims(), 3);
     assert!(lnd_piv.is_all_finite());
 
     // N=0 and N=1 non-panic checks

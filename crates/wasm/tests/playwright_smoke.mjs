@@ -101,20 +101,25 @@ try {
     const eg = await import(pkgUrl);
     await eg.default();
 
-    // Test 1: Layout2d & LayoutNd coordsView across memory.grow
+    // Test 1: Layout2d, LayoutNd & ManifoldLayout2d coordsView across memory.grow
     const l2 = eg.Layout2d.fromCoords(new Float32Array([1.5, -2.5, 3.25, 4.75]));
     const lnd = eg.LayoutNd.fromCoords(2, 3, new Float32Array([1, 2, 3, 4, 5, 6]));
+    const lm = eg.ManifoldLayout2d.fromCoords("torus", new Float32Array([0.1, 0.2, 0.3, 0.4]));
     const v2Before = l2.coordsView();
     const vndBefore = lnd.coordsView();
+    const vmBefore = lm.coordsView();
     const bufBefore2 = v2Before.buffer;
     const bufBeforeNd = vndBefore.buffer;
+    const bufBeforeM = vmBefore.buffer;
 
     eg.wasmMemory().grow(2);
 
     const detached2Len = bufBefore2.byteLength;
     const detachedNdLen = bufBeforeNd.byteLength;
+    const detachedMLen = bufBeforeM.byteLength;
     const v2After = l2.coordsView();
     const vndAfter = lnd.coordsView();
+    const vmAfter = lm.coordsView();
     const l2Ok =
       detached2Len === 0 &&
       v2After.buffer.byteLength > 0 &&
@@ -125,7 +130,13 @@ try {
       vndAfter.buffer.byteLength > 0 &&
       vndAfter[0] === 1 &&
       vndAfter[5] === 6;
+    const lmOk =
+      detachedMLen === 0 &&
+      vmAfter.buffer.byteLength > 0 &&
+      Math.abs(vmAfter[0] - 0.1) < 1e-6 &&
+      Math.abs(vmAfter[3] - 0.4) < 1e-6;
 
+    lm.free();
     l2.free();
     lnd.free();
 
@@ -143,7 +154,7 @@ try {
     }
     const graph = eg.CsrGraph.fromEdgeList(n, new Uint32Array(edges), null, false, true);
     const layout = eg.Layout2d.init(n, 42);
-    const solver = eg.SgdSolver.randomPair(graph, { pairsPerNode: 2, tMax: 24, seed: 42 });
+    const solver = eg.SgdSolver.randomPair(graph, { pairsPerNode: 2, iterations: 24, seed: 42 });
 
     const frameWorkMs = [];
     let lastStamp = performance.now();
@@ -181,7 +192,7 @@ try {
     // Better: direct frame-step timing inside custom wrapper so rAF vsync interval (~16.6ms)
     // is separated from actual JS/WASM main-thread blocking duration per frame!
     const layout2 = eg.Layout2d.init(n, 42);
-    const solver2 = eg.SgdSolver.randomPair(graph, { pairsPerNode: 2, tMax: 24, seed: 42 });
+    const solver2 = eg.SgdSolver.randomPair(graph, { pairsPerNode: 2, iterations: 24, seed: 42 });
     const pureFrameTimes = [];
     let frameStart = 0;
     let activeFrame = false;
@@ -234,6 +245,7 @@ try {
     return {
       l2Ok,
       lndOk,
+      lmOk,
       n,
       totalMs,
       frames: pureFrameTimes.length,
@@ -247,6 +259,7 @@ try {
 
   assert(browserBench.l2Ok, "Layout2d.coordsView() failed memory.grow detach recovery in Chromium");
   assert(browserBench.lndOk, "LayoutNd.coordsView() failed memory.grow detach recovery in Chromium");
+  assert(browserBench.lmOk, "ManifoldLayout2d.coordsView() failed memory.grow detach recovery in Chromium");
   assert(browserBench.coordsFinite, "N=5,000 layout produced non-finite coordinates");
   assert.equal(browserBench.finalStatus, "completed");
   assert(

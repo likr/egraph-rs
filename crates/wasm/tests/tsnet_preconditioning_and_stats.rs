@@ -175,8 +175,8 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 None,
             )
             .expect(label);
-            assert_eq!(s_on.run(&mut l_on).unwrap(), "completed");
-            assert_eq!(s_off.run(&mut l_off).unwrap(), "completed");
+            assert_eq!(s_on.run_2d(&mut l_on).unwrap(), "completed");
+            assert_eq!(s_off.run_2d(&mut l_off).unwrap(), "completed");
         } else {
             let opts_on = make_opts(&[
                 ("w2", JsValue::from_f64(0.0)),
@@ -246,8 +246,8 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 None,
             )
             .expect(label);
-            assert_eq!(s_on.run(&mut l_on).unwrap(), "completed");
-            assert_eq!(s_off.run(&mut l_off).unwrap(), "completed");
+            assert_eq!(s_on.run_2d(&mut l_on).unwrap(), "completed");
+            assert_eq!(s_off.run_2d(&mut l_off).unwrap(), "completed");
         }
         assert!(l_on.is_all_finite());
         assert!(l_off.is_all_finite());

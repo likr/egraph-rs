@@ -60,7 +60,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     .unwrap();
     let mut l_ts = init.clone();
     assert!(ts.last_fft_stats().is_none());
-    ts.run(&mut l_ts).unwrap();
+    ts.run_2d(&mut l_ts).unwrap();
     let fft_stats = ts.last_fft_stats().expect("lastFftStats after FFT run");
     assert!(fft_stats.total_fft_2d_calls() > 0.0);
     assert!(fft_stats.particle_forward_ffts() > 0.0);
@@ -69,7 +69,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     let knn = js_build_pure_2hop_knn(&grid).unwrap().knn();
     let tfdp_opts = make_opts(&[
         ("backend", JsValue::from_str("exact")),
-        ("totalIterations", JsValue::from_f64(4.0)),
+        ("iterations", JsValue::from_f64(4.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut tfdp = JsTFdpSolver::from_knn(
@@ -87,7 +87,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     let mut sgd = JsSgdSolver::sparse_barrier_dog(
         &grid,
         &make_opts(&[
-            ("tMax", JsValue::from_f64(5.0)),
+            ("iterations", JsValue::from_f64(5.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
         None,
@@ -125,7 +125,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     assert!(d_stats.degree() > 0);
     assert!(d_stats.t2() > d_stats.t1() && d_stats.t1() > 0.0);
     let mut l_sgd = init;
-    sgd.run(&mut l_sgd).unwrap();
+    sgd.run_2d(&mut l_sgd).unwrap();
 
     let mut pairs_opt = JsSgdSolver::from_pairs(
         2.0,
@@ -143,7 +143,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     )
     .unwrap();
     let mut l2 = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
-    pairs_opt.run(&mut l2).unwrap();
+    pairs_opt.run_2d(&mut l2).unwrap();
     assert!(l2.is_all_finite());
 
     // GuMapSolver.fromGraphDog positional minDegree/jlDim + fromFuzzySet sigmaIters/sigmaTolerance
@@ -185,7 +185,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
         &grid,
         &make_opts(&[
             ("backend", JsValue::from_str("exact")),
-            ("nEpochs", JsValue::from_f64(3.0)),
+            ("iterations", JsValue::from_f64(3.0)),
             ("minDegree", JsValue::from_f64(1.0)),
             ("jlDim", JsValue::from_f64(8.0)),
         ]),
