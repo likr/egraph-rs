@@ -292,6 +292,7 @@ jobs:
             --test metrics_cluster_baselines \
             --test metrics_evaluate_and_spatial \
             --test metrics_layout_and_crossings \
+            --test nd_and_manifold_solvers \
             --test neighborhood_knn_and_varadhan \
             --test overlap_and_layering_constraints \
             --test screened_poisson_field_and_refiner \
@@ -299,6 +300,7 @@ jobs:
             --test sgd_snap_pacmap_and_sgd2 \
             --test solver_stats_and_dog_getters \
             --test spatial_intruder_refiner \
+            --test spatial_trees_datasets_and_linalg \
             --test stress_and_maxent_solvers \
             --test tfdp_and_ibumap_solvers \
             --test tsnet_backends_and_row_normalized \

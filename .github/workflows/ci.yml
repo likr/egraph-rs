@@ -152,6 +152,7 @@ jobs:
             TYPED_PY_TESTS=(
               crates/python/tests/test_amg_and_effective_resistance.py
               crates/python/tests/test_api_options_parity.py
+              crates/python/tests/test_chebyshev_mds_and_declutter.py
               crates/python/tests/test_cluster_area_faithfulness.py
               crates/python/tests/test_cluster_area_faithfulness_weights.py
               crates/python/tests/test_cluster_baselines_and_metrics_dispatch.py
@@ -160,6 +161,7 @@ jobs:
               crates/python/tests/test_community_and_clustered_layouts.py
               crates/python/tests/test_constraints_and_layering.py
               crates/python/tests/test_csr_and_layout2d.py
+              crates/python/tests/test_docstrings.py
               crates/python/tests/test_force_and_overlap_solvers.py
               crates/python/tests/test_force_bundling_and_validation.py
               crates/python/tests/test_geometry_and_stress_metrics.py
@@ -167,11 +169,14 @@ jobs:
               crates/python/tests/test_gumap_refiner_and_stress_solvers.py
               crates/python/tests/test_hde_and_sgd_presets.py
               crates/python/tests/test_interop.py
+              crates/python/tests/test_manifold_crossings_and_metrics_report.py
               crates/python/tests/test_maxent_stress_solver.py
+              crates/python/tests/test_nd_and_manifold_solvers.py
               crates/python/tests/test_neighbor_and_sgd_solvers.py
               crates/python/tests/test_neighborhood_knn_and_landmarks.py
               crates/python/tests/test_rta_crosslessness_and_metric_errors.py
               crates/python/tests/test_screened_poisson.py
+              crates/python/tests/test_spatial_trees_dijkstra_and_datasets.py
               crates/python/tests/test_spectral_and_chebyshev_linalg.py
               crates/python/tests/test_tsnet_and_sgd_solvers.py
             )
@@ -245,6 +250,7 @@ jobs:
             --test metrics_cluster_baselines \
             --test metrics_evaluate_and_spatial \
             --test metrics_layout_and_crossings \
+            --test nd_and_manifold_solvers \
             --test neighborhood_knn_and_varadhan \
             --test overlap_and_layering_constraints \
             --test screened_poisson_field_and_refiner \
@@ -252,6 +258,7 @@ jobs:
             --test sgd_snap_pacmap_and_sgd2 \
             --test solver_stats_and_dog_getters \
             --test spatial_intruder_refiner \
+            --test spatial_trees_datasets_and_linalg \
             --test stress_and_maxent_solvers \
             --test tfdp_and_ibumap_solvers \
             --test tsnet_backends_and_row_normalized \

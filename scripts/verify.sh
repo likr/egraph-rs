@@ -272,15 +272,18 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
 
   if [[ -f "$REPO_ROOT/crates/python/python/egraph/_core.pyi" ]]; then
     TYPED_PY_TEST_NAMES=(
-      test_amg_and_effective_resistance.py test_api_options_parity.py test_cluster_area_faithfulness.py
-      test_cluster_area_faithfulness_weights.py test_cluster_baselines_and_metrics_dispatch.py
-      test_clustering_and_manifold.py test_coarse_backbone.py test_community_and_clustered_layouts.py
-      test_constraints_and_layering.py test_csr_and_layout2d.py test_force_and_overlap_solvers.py
-      test_force_bundling_and_validation.py test_geometry_and_stress_metrics.py test_grip_gem_sel_pfs_sfc.py
+      test_amg_and_effective_resistance.py test_api_options_parity.py test_chebyshev_mds_and_declutter.py
+      test_cluster_area_faithfulness.py test_cluster_area_faithfulness_weights.py
+      test_cluster_baselines_and_metrics_dispatch.py test_clustering_and_manifold.py test_coarse_backbone.py
+      test_community_and_clustered_layouts.py test_constraints_and_layering.py test_csr_and_layout2d.py
+      test_docstrings.py test_force_and_overlap_solvers.py test_force_bundling_and_validation.py
+      test_geometry_and_stress_metrics.py test_grip_gem_sel_pfs_sfc.py
       test_gumap_refiner_and_stress_solvers.py test_hde_and_sgd_presets.py test_interop.py
-      test_maxent_stress_solver.py test_neighbor_and_sgd_solvers.py
+      test_manifold_crossings_and_metrics_report.py test_maxent_stress_solver.py
+      test_nd_and_manifold_solvers.py test_neighbor_and_sgd_solvers.py
       test_neighborhood_knn_and_landmarks.py test_rta_crosslessness_and_metric_errors.py
-      test_screened_poisson.py test_spectral_and_chebyshev_linalg.py test_tsnet_and_sgd_solvers.py
+      test_screened_poisson.py test_spatial_trees_dijkstra_and_datasets.py
+      test_spectral_and_chebyshev_linalg.py test_tsnet_and_sgd_solvers.py
     )
     TYPED_PY_TESTS=()
     for py_test in "${TYPED_PY_TEST_NAMES[@]}"; do TYPED_PY_TESTS+=("$REPO_ROOT/crates/python/tests/$py_test"); done
@@ -301,10 +304,11 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
       linalg_neighborhood_boundaries linalg_spectral_amg_resistance manifold_layouts_and_fdeb
       metrics_cluster_area metrics_cluster_area_errors metrics_cluster_area_weights
       metrics_cluster_baselines metrics_evaluate_and_spatial metrics_layout_and_crossings
-      neighborhood_knn_and_varadhan overlap_and_layering_constraints screened_poisson_field_and_refiner
-      sgd_barrier_and_pair_solvers sgd_snap_pacmap_and_sgd2 solver_stats_and_dog_getters
-      spatial_intruder_refiner stress_and_maxent_solvers tfdp_and_ibumap_solvers
-      tsnet_backends_and_row_normalized tsnet_preconditioning_and_stats
+      nd_and_manifold_solvers neighborhood_knn_and_varadhan overlap_and_layering_constraints
+      screened_poisson_field_and_refiner sgd_barrier_and_pair_solvers sgd_snap_pacmap_and_sgd2
+      solver_stats_and_dog_getters spatial_intruder_refiner spatial_trees_datasets_and_linalg
+      stress_and_maxent_solvers tfdp_and_ibumap_solvers tsnet_backends_and_row_normalized
+      tsnet_preconditioning_and_stats
     )
     WASM_MINIMAL_FLAGS=()
     for t in "${WASM_MINIMAL_TARGETS[@]}"; do WASM_MINIMAL_FLAGS+=(--test "$t"); done
@@ -339,6 +343,7 @@ fi
 # --- Cross-target Parity ---
 if [[ "$RUN_PARITY" -eq 1 ]]; then
   run_step "python_venv_for_parity" ensure_venv
+  run_step "parity_mypy" "$VIRTUAL_ENV/bin/mypy" --strict --ignore-missing-imports "$REPO_ROOT/scripts/verify_helpers.py" "$REPO_ROOT/scripts/parity_harness.py" "$REPO_ROOT/scripts/parity/"
   PARITY_BIN="$(helper_path parity_harness.py)"
   PARITY_ARGS=()
   [[ -d "$REPO_ROOT/crates/wasm/pkg" ]] && PARITY_ARGS+=(--wasm-pkg "$REPO_ROOT/crates/wasm/pkg")
