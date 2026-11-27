@@ -7,8 +7,10 @@ use egraph_core::{
 mod sweep;
 #[cfg(test)]
 mod tests;
+mod treemap;
 
 use sweep::{Rect64, sweep_rects, sweep_rects64};
+pub use treemap::squarified_treemap;
 
 /// Axis-aligned closed-boundary rectangle `[x_min, x_max] x [y_min, y_max]`.
 ///

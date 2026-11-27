@@ -16,7 +16,7 @@ wasm-opt = false
 [features]
 default = ["full"]
 full = ["delaunay"]
-delaunay = ["egraph/delaunay"]
+delaunay = []
 
 [dependencies]
 console_error_panic_hook = "0.1"

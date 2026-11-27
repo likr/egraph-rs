@@ -5,13 +5,16 @@ members = [
     "crates/clustering",
     "crates/core",
     "crates/dataset",
+    "crates/edge-routing",
     "crates/egraph",
     "crates/ffi",
-    "crates/layout",
+    "crates/layout-composite",
     "crates/layout-constraints",
+    "crates/layout-embedding",
     "crates/layout-force",
     "crates/layout-multilevel",
     "crates/layout-neighbor",
+    "crates/layout-refine",
     "crates/layout-sgd",
     "crates/layout-stress",
     "crates/linalg",
@@ -52,14 +55,17 @@ egraph = { path = "crates/egraph" }
 egraph-clustering = { path = "crates/clustering", version = "6.0.0-alpha.9" }
 egraph-core = { path = "crates/core", version = "6.0.0-alpha.9" }
 egraph-dataset = { path = "crates/dataset" }
+egraph-edge-routing = { path = "crates/edge-routing", version = "6.0.0-alpha.9" }
 egraph-ffi = { path = "crates/ffi" }
-egraph-layout = { path = "crates/layout" }
-egraph-layout-constraints = { path = "crates/layout-constraints" }
-egraph-layout-force = { path = "crates/layout-force" }
-egraph-layout-multilevel = { path = "crates/layout-multilevel" }
-egraph-layout-neighbor = { path = "crates/layout-neighbor" }
-egraph-layout-sgd = { path = "crates/layout-sgd" }
-egraph-layout-stress = { path = "crates/layout-stress" }
+egraph-layout-composite = { path = "crates/layout-composite", version = "6.0.0-alpha.9" }
+egraph-layout-constraints = { path = "crates/layout-constraints", version = "6.0.0-alpha.9" }
+egraph-layout-embedding = { path = "crates/layout-embedding", version = "6.0.0-alpha.9" }
+egraph-layout-force = { path = "crates/layout-force", version = "6.0.0-alpha.9" }
+egraph-layout-multilevel = { path = "crates/layout-multilevel", version = "6.0.0-alpha.9" }
+egraph-layout-neighbor = { path = "crates/layout-neighbor", version = "6.0.0-alpha.9" }
+egraph-layout-refine = { path = "crates/layout-refine", version = "6.0.0-alpha.9" }
+egraph-layout-sgd = { path = "crates/layout-sgd", version = "6.0.0-alpha.9" }
+egraph-layout-stress = { path = "crates/layout-stress", version = "6.0.0-alpha.9" }
 egraph-linalg = { path = "crates/linalg", version = "6.0.0-alpha.9" }
 egraph-linalg-amg = { path = "crates/linalg-amg", version = "6.0.0-alpha.9" }
 egraph-linalg-mds = { path = "crates/linalg-mds", version = "6.0.0-alpha.9" }

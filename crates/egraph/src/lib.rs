@@ -1,7 +1,7 @@
 //! Unified single-threaded, pure-Rust facade for `egraph-rs`.
 //!
 //! `egraph` re-exports `egraph-core` unconditionally and exposes feature-gated
-//! sub-crates (`spatial`, `linalg`, `neighborhood`, `layout`, `clustering`,
+//! sub-crates (`spatial`, `edge-routing`, `linalg`, `neighborhood`, `layout`, `clustering`,
 //! `metrics`, `dataset`, and optional `petgraph`) alongside a convenient
 //! [`prelude`] module for Native Rust, Python, and WebAssembly consumers.
 //!
@@ -17,13 +17,10 @@ pub use egraph_core as core;
 #[cfg(feature = "spatial")]
 /// Single-threaded spatial acceleration structures, density-field FFTs, and crossing detectors.
 pub mod spatial {
-    #[cfg(feature = "delaunay")]
-    pub use egraph_spatial_trees::Delaunay2d;
-    #[cfg(feature = "delaunay")]
-    pub use egraph_spatial_trees::delaunay;
     pub use egraph_spatial_trees::{
-        ArenaOctree3d, ArenaQuadtree2d, DynamicKdTree, KdQueryScratch, Rect2d,
-        RectangleOverlapSweep, StaticKdTree, kdtree, octree, overlap, quadtree,
+        ArenaOctree3d, ArenaQuadtree2d, Delaunay2d, DynamicKdTree, KdQueryScratch,
+        NearestNeighborIndex, Rect2d, RectangleOverlapSweep, SpatialIndex, StaticKdTree,
+        squarified_treemap,
     };
 
     pub use egraph_spatial_fft::{
@@ -78,8 +75,100 @@ pub mod linalg {
 #[cfg(feature = "neighborhood")]
 pub use egraph_neighborhood as neighborhood;
 
+#[cfg(feature = "edge-routing")]
+/// Single-threaded edge routing and edge bundling solvers.
+pub use egraph_edge_routing as edge_routing;
+
 #[cfg(feature = "layout")]
-pub use egraph_layout as layout;
+/// Single-threaded, pure-Rust graph layout solvers and spatial refiners.
+pub mod layout {
+    pub use egraph_layout_constraints::{constraints, layering, prism, twin_declutter};
+    #[cfg(feature = "baselines")]
+    pub use egraph_layout_constraints::{forbid, gtree, pfs_prime};
+    pub use egraph_layout_force::{continuous_fdp, fdeb};
+    #[cfg(feature = "baselines")]
+    pub use egraph_layout_force::{fr, gem, linlog};
+    #[cfg(feature = "baselines")]
+    pub use egraph_layout_multilevel::{backbone, cluster_refine, grip, group_in_a_box, sel, sfc};
+    pub use egraph_layout_multilevel::{density_field, refiner};
+    pub use egraph_layout_neighbor::{field_layout, gumap, ts_net};
+    pub use egraph_layout_sgd::{coarse_backbone, sgd};
+    #[cfg(feature = "baselines")]
+    pub use egraph_layout_stress::maxent;
+    pub use egraph_layout_stress::{kamada_kawai, stress_majorization};
+
+    #[cfg(feature = "baselines")]
+    pub use backbone::{
+        BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver,
+        extract_quadrilateral_backbone,
+    };
+    #[cfg(feature = "baselines")]
+    pub use cluster_refine::{
+        ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, refine_cluster_layout,
+    };
+    pub use coarse_backbone::{
+        CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats, CoarseDistanceBackend,
+        CoarseEdgeLengthMode, coarse_backbone_init,
+    };
+    pub use constraints::{
+        ConstraintProjector, SeparationConstraint, generate_layered_constraints,
+        project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d,
+    };
+    pub use continuous_fdp::{
+        ContinuousFdp, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,
+    };
+    pub use density_field::{ScreenedPoissonRefiner, ScreenedPoissonRefinerConfig};
+    pub use fdeb::{FdebConfig, FdebSolver};
+    pub use field_layout::{
+        DEFAULT_MAX_2HOP_PER_NODE, FieldFftStats, FieldLayout, FieldLayoutSolver,
+        FieldRepulsionBackend, IbUmapConfig, RhoSchedule, TFdpConfig,
+    };
+    #[cfg(feature = "baselines")]
+    pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
+    #[cfg(feature = "baselines")]
+    pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
+    #[cfg(feature = "baselines")]
+    pub use gem::{GemConfig, GemSolver};
+    #[cfg(feature = "baselines")]
+    pub use grip::{GripConfig, GripSolver};
+    #[cfg(feature = "baselines")]
+    pub use group_in_a_box::{
+        GibBox, GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
+        squarified_treemap,
+    };
+    #[cfg(feature = "baselines")]
+    pub use gtree::{GTreeConfig, GTreeOverlapRemoval};
+    pub use gumap::{GuMapConfig, GuMapSolver};
+    pub use kamada_kawai::{KamadaKawaiConfig, KamadaKawaiSolver};
+    pub use layering::{
+        LayeringMethod, assign_layers, cycle_edges, remove_cycles, transitive_reduction,
+    };
+    #[cfg(feature = "baselines")]
+    pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
+    #[cfg(feature = "baselines")]
+    pub use maxent::{MaxentStressConfig, MaxentStressSolver};
+    #[cfg(feature = "baselines")]
+    pub use pfs_prime::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
+    pub use prism::{PrismConfig, PrismOverlapRemoval, SparsePcgWorkspace};
+    pub use refiner::{
+        SpatialIntruderRefiner, SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,
+    };
+    #[cfg(feature = "baselines")]
+    pub use sel::{SelConfig, SelLayoutBackend, SelLayoutSolver, SelWeightMapping};
+    #[cfg(feature = "baselines")]
+    pub use sfc::{SfcConfig, SfcCurveKind, SfcLayoutSolver};
+    pub use sgd::{
+        BarrierSymmetry, DrGraphConfig, GraphCneConfig, GraphCneObjective, LargeVisConfig,
+        OrtmannPivotStrategy, OrtmannSparseStressConfig, PacmapGraphConfig, Sgd2Config,
+        SgdScheduleConfig, SgdScheduleKind, SgdScheduleWindowLayout, SgdSolver, SnapTFdpConfig,
+        SparseBarrierConfig, SparseBarrierStats, StreamingNegativeConfig,
+    };
+    pub use stress_majorization::{
+        PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver,
+    };
+    pub use ts_net::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
+    pub use twin_declutter::{TwinDeclutterConfig, TwinDeclutterer, declutter_twins_2d};
+}
 
 #[cfg(feature = "clustering")]
 pub use egraph_clustering as clustering;
@@ -101,12 +190,10 @@ pub mod prelude {
         SolverStatus, VisitStamp, poincare_einstein_midpoint, poincare_mobius_add,
     };
 
-    #[cfg(feature = "delaunay")]
-    pub use egraph_spatial_trees::Delaunay2d;
-
     #[cfg(feature = "spatial")]
     pub use egraph_spatial_trees::{
-        ArenaOctree3d, ArenaQuadtree2d, DynamicKdTree, Rect2d, RectangleOverlapSweep, StaticKdTree,
+        ArenaOctree3d, ArenaQuadtree2d, Delaunay2d, DynamicKdTree, Rect2d, RectangleOverlapSweep,
+        StaticKdTree, squarified_treemap,
     };
 
     #[cfg(feature = "spatial")]
@@ -173,7 +260,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "layout")]
-    pub use egraph_layout::{
+    pub use layout::{
         BarrierSymmetry, CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats,
         CoarseDistanceBackend, CoarseEdgeLengthMode, ConstraintProjector, ContinuousFdp,
         DEFAULT_MAX_2HOP_PER_NODE, DrGraphConfig, FdebConfig, FdebSolver, FieldFftStats,
@@ -193,7 +280,7 @@ pub mod prelude {
     };
 
     #[cfg(all(feature = "layout", feature = "baselines"))]
-    pub use egraph_layout::{
+    pub use layout::{
         BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver, ClusterRefineConfig,
         ClusterRefineMethod, ClusterRefineSolver, ForbidConfig, ForbidOverlapRemoval,
         ForbidVariant, FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver,

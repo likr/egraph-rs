@@ -20,7 +20,6 @@ egraph = { workspace = true, features = [
     "baselines",
     "eval-baselines",
     "dataset",
-    "delaunay",
 ] }
 egraph-ffi.workspace = true
 pyo3.workspace = true

@@ -9,27 +9,50 @@ description = "Unified single-threaded pure-Rust graph drawing and layout facade
 [features]
 default = [
     "spatial",
+    "edge-routing",
     "linalg",
     "neighborhood",
     "layout",
     "clustering",
     "metrics",
     "dataset",
-    "delaunay",
 ]
 spatial = ["dep:egraph-spatial-trees", "dep:egraph-spatial-fft", "dep:egraph-spatial-crossings"]
-delaunay = ["spatial", "egraph-layout?/delaunay"]
+edge-routing = ["dep:egraph-edge-routing"]
 linalg = ["dep:egraph-linalg", "dep:egraph-linalg-mds", "dep:egraph-linalg-amg"]
 neighborhood = ["spatial", "linalg", "dep:egraph-neighborhood"]
-layout = ["spatial", "linalg", "neighborhood", "clustering", "dep:egraph-layout"]
+layout = [
+    "spatial",
+    "linalg",
+    "neighborhood",
+    "clustering",
+    "dep:egraph-layout-constraints",
+    "dep:egraph-layout-stress",
+    "dep:egraph-layout-force",
+    "dep:egraph-layout-neighbor",
+    "dep:egraph-layout-sgd",
+    "dep:egraph-layout-embedding",
+    "dep:egraph-layout-multilevel",
+    "dep:egraph-layout-refine",
+    "dep:egraph-layout-composite",
+]
 clustering = ["linalg", "dep:egraph-clustering"]
 metrics = ["spatial", "linalg", "dep:egraph-metrics"]
-baselines = ["layout", "egraph-layout?/baselines"]
+baselines = [
+    "layout",
+    "egraph-layout-constraints?/baselines",
+    "egraph-layout-stress?/baselines",
+    "egraph-layout-force?/baselines",
+    "egraph-layout-multilevel?/baselines",
+    "egraph-layout-refine?/baselines",
+    "egraph-layout-composite?/baselines",
+]
 eval-baselines = ["metrics", "clustering", "egraph-metrics?/eval-baselines"]
 dataset = ["dep:egraph-dataset"]
 petgraph = ["dep:egraph-petgraph", "egraph-dataset?/petgraph"]
 full = [
     "spatial",
+    "edge-routing",
     "linalg",
     "neighborhood",
     "layout",
@@ -38,7 +61,6 @@ full = [
     "baselines",
     "eval-baselines",
     "dataset",
-    "delaunay",
     "petgraph",
 ]
 
@@ -47,11 +69,20 @@ egraph-core.workspace = true
 egraph-spatial-crossings = { workspace = true, optional = true }
 egraph-spatial-fft = { workspace = true, optional = true }
 egraph-spatial-trees = { workspace = true, optional = true }
+egraph-edge-routing = { workspace = true, optional = true }
 egraph-linalg = { workspace = true, optional = true }
 egraph-linalg-amg = { workspace = true, optional = true }
 egraph-linalg-mds = { workspace = true, optional = true }
 egraph-neighborhood = { workspace = true, optional = true }
-egraph-layout = { workspace = true, optional = true, default-features = false }
+egraph-layout-constraints = { workspace = true, optional = true, default-features = false }
+egraph-layout-stress = { workspace = true, optional = true, default-features = false }
+egraph-layout-force = { workspace = true, optional = true, default-features = false }
+egraph-layout-neighbor = { workspace = true, optional = true }
+egraph-layout-sgd = { workspace = true, optional = true, default-features = false }
+egraph-layout-embedding = { workspace = true, optional = true }
+egraph-layout-multilevel = { workspace = true, optional = true, default-features = false }
+egraph-layout-refine = { workspace = true, optional = true, default-features = false }
+egraph-layout-composite = { workspace = true, optional = true, default-features = false }
 egraph-clustering = { workspace = true, optional = true }
 egraph-metrics = { workspace = true, optional = true, default-features = false }
 egraph-dataset = { workspace = true, optional = true, default-features = false, features = [

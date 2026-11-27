@@ -1,0 +1,15 @@
+[package]
+name = "egraph-layout-embedding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Single-threaded sampling-based neighborhood graph embedding layouts for egraph-rs"
+
+[dependencies]
+egraph-core.workspace = true
+egraph-linalg.workspace = true
+egraph-linalg-mds.workspace = true
+egraph-neighborhood.workspace = true
+egraph-clustering.workspace = true

@@ -249,11 +249,10 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
     fi
   }
 
-  ALL_FEAT_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
-  NO_DEF_LAYOUT_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel)
+  ALL_FEAT_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph)
+  NO_DEF_LAYOUT_CRATES=(egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite)
   NO_DEF_METRICS_CRATES=(egraph-metrics egraph-metrics-cluster)
-  BASELINES_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel)
-  DELAUNAY_CRATES=(egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel)
+  BASELINES_CRATES=(egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel egraph-layout-refine egraph-layout-composite)
 
   run_batched_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
   run_batched_matrix clippy "no_default_layout" "--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
@@ -261,7 +260,6 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix clippy "no_default_egraph" "--no-default-features" egraph
   run_batched_matrix clippy "no_default_dataset" "--no-default-features" egraph-dataset
   run_batched_matrix clippy "no_default_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
-  run_batched_matrix clippy "delaunay" "--features delaunay" "${DELAUNAY_CRATES[@]}"
 
   RUST_REL_FLAG=""
   [[ "$DEBUG_RUST" -eq 0 ]] && RUST_REL_FLAG="--release"
@@ -272,7 +270,6 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix test "no_default_egraph" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph
   run_batched_matrix test "no_default_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph-dataset
   run_batched_matrix test "no_default_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
-  run_batched_matrix test "delaunay" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features delaunay" "${DELAUNAY_CRATES[@]}"
 fi
 
 # --- Python ---

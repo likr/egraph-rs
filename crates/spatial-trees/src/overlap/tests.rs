@@ -156,3 +156,54 @@ fn test_rectangle_overlap_node_extents_and_euclidean_layouts() {
         })
     ));
 }
+
+#[test]
+fn test_squarified_treemap_exact_tiling_order_and_validation() {
+    let weights = [6.0, 6.0, 4.0, 3.0, 2.0, 2.0, 1.0];
+    let rects = squarified_treemap(&weights, 10.0, 20.0, 6.0, 4.0).unwrap();
+    assert_eq!(rects.len(), weights.len());
+
+    let total_w: f64 = weights.iter().sum();
+    let mut area_sum = 0.0_f64;
+    let mut rect2ds = Vec::new();
+    for (i, r) in rects.iter().enumerate() {
+        assert!(r[0] >= 10.0 - 1e-12 && r[1] <= 16.0 + 1e-12);
+        assert!(r[2] >= 20.0 - 1e-12 && r[3] <= 24.0 + 1e-12);
+        let w = r[1] - r[0];
+        let h = r[3] - r[2];
+        assert!(w > 0.0 && h > 0.0);
+        let area = w * h;
+        let expected = 24.0 * (weights[i] / total_w);
+        assert!((area - expected).abs() < 1e-9);
+        area_sum += area;
+        rect2ds.push(Rect2d::new(r[0], r[1], r[2], r[3]).unwrap());
+    }
+    assert!((area_sum - 24.0).abs() < 1e-9);
+    assert!(!RectangleOverlapSweep::has_overlaps(&rect2ds).unwrap());
+
+    // Validation errors
+    assert!(matches!(
+        squarified_treemap(&[], 0.0, 0.0, 10.0, 10.0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        squarified_treemap(&[1.0, 0.0], 0.0, 0.0, 10.0, 10.0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        squarified_treemap(&[1.0, -2.0], 0.0, 0.0, 10.0, 10.0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        squarified_treemap(&[1.0, f64::NAN], 0.0, 0.0, 10.0, 10.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        squarified_treemap(&[1.0], 0.0, 0.0, 0.0, 10.0),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        squarified_treemap(&[1.0], f64::NAN, 0.0, 10.0, 10.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+}

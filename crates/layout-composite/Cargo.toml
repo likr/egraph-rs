@@ -1,0 +1,30 @@
+[package]
+name = "egraph-layout-composite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Single-threaded composite multi-solver graph layout algorithms for egraph-rs"
+
+[features]
+default = []
+baselines = [
+    "dep:egraph-core",
+    "dep:egraph-layout-constraints",
+    "dep:egraph-layout-force",
+    "egraph-layout-force/baselines",
+    "dep:egraph-layout-neighbor",
+    "dep:egraph-layout-sgd",
+    "dep:egraph-layout-stress",
+    "dep:egraph-spatial-trees",
+]
+
+[dependencies]
+egraph-core = { workspace = true, optional = true }
+egraph-layout-constraints = { workspace = true, optional = true }
+egraph-layout-force = { workspace = true, optional = true }
+egraph-layout-neighbor = { workspace = true, optional = true }
+egraph-layout-sgd = { workspace = true, optional = true }
+egraph-layout-stress = { workspace = true, optional = true }
+egraph-spatial-trees = { workspace = true, optional = true }

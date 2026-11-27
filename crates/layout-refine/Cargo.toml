@@ -1,0 +1,20 @@
+[package]
+name = "egraph-layout-refine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Single-threaded post-layout spatial and density-field refinement algorithms for egraph-rs"
+
+[features]
+default = []
+baselines = []
+
+[dependencies]
+egraph-core.workspace = true
+egraph-clustering.workspace = true
+egraph-neighborhood.workspace = true
+egraph-spatial-trees.workspace = true
+egraph-spatial-fft.workspace = true
+egraph-layout-sgd.workspace = true
