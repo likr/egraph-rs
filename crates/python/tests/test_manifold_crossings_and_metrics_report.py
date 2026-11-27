@@ -243,6 +243,25 @@ class TestManifoldCrossingsAndMetricsReport(unittest.TestCase):
         self.assertAlmostEqual(float(np.hypot(coords_max[0, 0], coords_max[0, 1])), 1.0 - 1e-5, places=10)
         self.assertAlmostEqual(float(coords_max[1, 0]), -(1.0 - 1e-5), places=10)
 
+        # Extreme-radius lorentz_einstein_midpoint and rescale_geodesic distance preservation
+        em_x, em_y = eg.lorentz_einstein_midpoint([1e160, 0.0], [0.0, 1e160])
+        self.assertAlmostEqual(em_x, math.sqrt(0.5), places=12)
+        self.assertAlmostEqual(em_y, math.sqrt(0.5), places=12)
+        em_max_x, em_max_y = eg.lorentz_einstein_midpoint([1.5e308, 0.0], [1.5e308, 0.0])
+        self.assertTrue(math.isfinite(em_max_x) and math.isfinite(em_max_y))
+        self.assertAlmostEqual(em_max_x / 1e153, 7.282376575609851, places=10)
+        self.assertAlmostEqual(em_max_y / 1e153, 7.282376575609851, places=10)
+
+        ml_off = eg.ManifoldLayout2d.from_coords(
+            "hyperbolic_lorentz",
+            np.array([[1e160, 0.0], [1e160, 1e155]], dtype=np.float64),
+        )
+        d_before = ml_off.geodesic_distance(0, 1)
+        self.assertAlmostEqual(d_before, 713.8013788281291, places=8)
+        ml_off.rescale_geodesic(100.0)
+        d_after = ml_off.geodesic_distance(0, 1)
+        self.assertAlmostEqual(d_after, d_before, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()
