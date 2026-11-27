@@ -132,10 +132,7 @@ fn test_manifold_metric_scaling_and_rect_torus() {
     .unwrap();
     assert_eq!(
         sph.metric(),
-        ManifoldMetric {
-            scale: 1.0,
-            aspect: 1.0
-        }
+        ManifoldMetric::default().with_scale(1.0).with_aspect(1.0)
     );
     assert!((sph.geodesic_distance(0, 1).unwrap() - PI / 2.0).abs() < 1e-12);
     sph.set_scale(3.0).unwrap();

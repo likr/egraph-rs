@@ -5,6 +5,7 @@ use crate::error::CoreError;
 fn test_layout2d_interleaved_roundtrip_and_mutators() {
     let mut layout = Layout2d::from_interleaved(&[1.0_f64, 2.0, 3.0, 4.0]).unwrap();
     assert_eq!(layout.len(), 2);
+    assert_eq!(layout.num_nodes(), 2);
     assert!(!layout.is_empty());
     assert_eq!(layout.x(), &[1.0, 3.0]);
     assert_eq!(layout.y(), &[2.0, 4.0]);
@@ -14,6 +15,18 @@ fn test_layout2d_interleaved_roundtrip_and_mutators() {
     let mut out = vec![0.0_f64; 4];
     layout.write_interleaved(&mut out).unwrap();
     assert_eq!(out, vec![5.0, 2.0, 3.0, 6.0]);
+
+    assert_eq!(layout.get(1).unwrap(), [3.0, 6.0]);
+    layout.set(0, 7.0, 8.0).unwrap();
+    assert_eq!(layout.get(0).unwrap(), [7.0, 8.0]);
+    assert!(matches!(
+        layout.get(2),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+    assert!(matches!(
+        layout.set(0, f64::NAN, 0.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
 
     assert!(matches!(
         Layout2d::<f64>::from_interleaved(&[1.0, 2.0, 3.0]),
@@ -30,7 +43,7 @@ fn test_layout2d_interleaved_roundtrip_and_mutators() {
 }
 
 #[test]
-fn test_layout2d_init_and_copy() {
+fn test_layout2d_init_and_clone() {
     let l1 = Layout2d::<f64>::init(8, 42, 2.0).unwrap();
     let l2 = Layout2d::<f64>::init(8, 42, 2.0).unwrap();
     assert_eq!(l1, l2);
@@ -38,7 +51,7 @@ fn test_layout2d_init_and_copy() {
         assert!((-1.0..1.0).contains(&x));
         assert!((-1.0..1.0).contains(&y));
     }
-    let mut cloned = l1.copy();
+    let mut cloned = l1.clone();
     assert_eq!(cloned, l1);
     cloned.x_mut()[0] += 1.0;
     assert_ne!(cloned, l1);
@@ -83,7 +96,6 @@ fn test_layout2d_center_and_normalize_std() {
         / (2.0 * n);
     assert!((var.sqrt() - 1.0).abs() < 1e-12);
 
-    // Collapsed / 1-node / empty / non-finite edge cases.
     let mut collapsed = Layout2d::from_xy(vec![3.0, 3.0], vec![7.0, 7.0]).unwrap();
     collapsed.center_and_normalize_std().unwrap();
     assert_eq!(collapsed.x(), &[0.0, 0.0]);
@@ -104,6 +116,65 @@ fn test_layout2d_center_and_normalize_std() {
         bad.center_and_normalize_std(),
         Err(CoreError::NonFiniteValue { .. })
     ));
+}
+
+#[test]
+fn test_layout3d_api_and_normalization() {
+    let mut l3 = Layout3d::from_interleaved(&[1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    assert_eq!(l3.len(), 2);
+    assert_eq!(l3.num_nodes(), 2);
+    assert!(!l3.is_empty());
+    assert_eq!(l3.x(), &[1.0, 4.0]);
+    assert_eq!(l3.y(), &[2.0, 5.0]);
+    assert_eq!(l3.z(), &[3.0, 6.0]);
+    assert_eq!(l3.get(1).unwrap(), [4.0, 5.0, 6.0]);
+
+    l3.set(0, -1.0, 0.0, 1.0).unwrap();
+    assert_eq!(l3.get(0).unwrap(), [-1.0, 0.0, 1.0]);
+    let (xm, ym, zm) = l3.xyz_mut();
+    xm[0] = 2.0;
+    ym[0] = 3.0;
+    zm[0] = 4.0;
+    assert_eq!(l3.to_interleaved(), vec![2.0, 3.0, 4.0, 4.0, 5.0, 6.0]);
+
+    let mut buf = vec![0.0_f64; 6];
+    l3.write_interleaved(&mut buf).unwrap();
+    assert_eq!(buf, vec![2.0, 3.0, 4.0, 4.0, 5.0, 6.0]);
+
+    assert!(matches!(
+        Layout3d::<f64>::from_interleaved(&[1.0, 2.0]),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        l3.set(0, f64::INFINITY, 0.0, 0.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(l3.get(2), Err(CoreError::IndexOutOfBounds { .. })));
+
+    let mut rand3 = Layout3d::<f64>::init(10, 42, 3.0).unwrap();
+    assert_eq!(rand3, Layout3d::<f64>::init(10, 42, 3.0).unwrap());
+    rand3.center_and_normalize_to_std(2.5).unwrap();
+    let n = rand3.len() as f64;
+    let mx = rand3.x().iter().sum::<f64>() / n;
+    let my = rand3.y().iter().sum::<f64>() / n;
+    let mz = rand3.z().iter().sum::<f64>() / n;
+    assert!(mx.abs() < 1e-12 && my.abs() < 1e-12 && mz.abs() < 1e-12);
+    let sq: f64 = rand3
+        .x()
+        .iter()
+        .zip(rand3.y().iter())
+        .zip(rand3.z().iter())
+        .map(|((&x, &y), &z)| x * x + y * y + z * z)
+        .sum();
+    assert!(((sq / (3.0 * n)).sqrt() - 2.5).abs() < 1e-12);
+
+    // Bit-exact 3D parity with LayoutNd(n, 3).
+    let mut nd3 = LayoutNd::<f64>::init(10, 3, 42, 3.0).unwrap();
+    nd3.center_and_normalize_to_std(2.5).unwrap();
+    let l3_from_init = Layout3d::<f64>::init(10, 42, 3.0).unwrap();
+    let mut l3_cmp = l3_from_init;
+    l3_cmp.center_and_normalize_to_std(2.5).unwrap();
+    assert_eq!(l3_cmp.to_interleaved(), nd3.coords());
 }
 
 #[test]
@@ -150,12 +221,11 @@ fn test_layout_nd_parity_methods() {
         Err(CoreError::NonFiniteValue { .. })
     ));
 
-    // init + copy + 2D parity with Layout2d.
     let mut nd2 = LayoutNd::<f64>::init(6, 2, 42, 1.0).unwrap();
     let mut l2 = Layout2d::<f64>::init(6, 42, 1.0).unwrap();
     assert_eq!(nd2.coords(), l2.to_interleaved().as_slice());
 
-    let mut nd2_copy = nd2.copy();
+    let mut nd2_copy = nd2.clone();
     assert_eq!(nd2_copy, nd2);
     nd2_copy.set(0, 0, 99.0).unwrap();
     assert_ne!(nd2_copy, nd2);
@@ -167,20 +237,19 @@ fn test_layout_nd_parity_methods() {
         assert!((nd2.get(i, 1).unwrap() - l2.y()[i]).abs() < 1e-12);
     }
 
-    // Collapsed / singleton / empty / non-finite LayoutNd normalization.
     let mut nd_collapsed =
-        LayoutNd::<f64>::from_flat(2, 3, vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0]).unwrap();
+        LayoutNd::<f64>::from_flat(2, 3, &[1.0, 2.0, 3.0, 1.0, 2.0, 3.0]).unwrap();
     nd_collapsed.center_and_normalize_std().unwrap();
     assert_eq!(nd_collapsed.coords(), &[0.0; 6]);
 
-    let mut nd_single = LayoutNd::<f64>::from_flat(1, 3, vec![5.0, -2.0, 9.0]).unwrap();
+    let mut nd_single = LayoutNd::<f64>::from_flat_vec(1, 3, vec![5.0, -2.0, 9.0]).unwrap();
     nd_single.center_and_normalize_std().unwrap();
     assert_eq!(nd_single.coords(), &[0.0; 3]);
 
     let mut nd_empty = LayoutNd::<f64>::zeros(0, 3).unwrap();
     nd_empty.center_and_normalize_std().unwrap();
 
-    let mut nd_bad = LayoutNd::<f64>::from_flat(1, 2, vec![f64::INFINITY, 1.0]).unwrap();
+    let mut nd_bad = LayoutNd::<f64>::from_flat(1, 2, &[f64::INFINITY, 1.0]).unwrap();
     assert!(matches!(
         nd_bad.validate_finite(),
         Err(CoreError::NonFiniteValue { .. })
@@ -194,13 +263,12 @@ fn test_layout_nd_parity_methods() {
 #[test]
 fn test_layout_nd_2d_bit_exact_parity_f64_and_f32() {
     for &n in &[3usize, 5, 7, 11, 13] {
-        // Non-symmetric f64 coordinates exercising non-power-of-2 division rounding.
         let mut l2_64 = Layout2d::<f64>::init(n, 100 + n as u64, 7.3).unwrap();
         for i in 0..n {
             l2_64.x_mut()[i] += (i as f64) * 1.37 + 0.19;
             l2_64.y_mut()[i] -= (i as f64) * 0.83 - 2.41;
         }
-        let mut nd_64 = LayoutNd::<f64>::from_flat(n, 2, l2_64.to_interleaved()).unwrap();
+        let mut nd_64 = LayoutNd::<f64>::from_flat_vec(n, 2, l2_64.to_interleaved()).unwrap();
 
         l2_64.center_and_normalize_std().unwrap();
         nd_64.center_and_normalize_std().unwrap();
@@ -217,16 +285,15 @@ fn test_layout_nd_2d_bit_exact_parity_f64_and_f32() {
             );
         }
 
-        // Non-symmetric f32 coordinates with non-unit target_std.
         let mut l2_32 = Layout2d::<f32>::init(n, 200 + n as u64, 5.1).unwrap();
         for i in 0..n {
             l2_32.x_mut()[i] += (i as f32) * 1.13 + 0.31;
             l2_32.y_mut()[i] -= (i as f32) * 0.71 - 1.79;
         }
-        let mut nd_32 = LayoutNd::<f32>::from_flat(n, 2, l2_32.to_interleaved()).unwrap();
+        let mut nd_32 = LayoutNd::<f32>::from_flat_vec(n, 2, l2_32.to_interleaved()).unwrap();
 
-        l2_32.center_and_normalize_to_std(2.75_f32).unwrap();
-        nd_32.center_and_normalize_to_std(2.75_f32).unwrap();
+        l2_32.center_and_normalize_to_std(2.75).unwrap();
+        nd_32.center_and_normalize_to_std(2.75).unwrap();
         for i in 0..n {
             assert_eq!(
                 nd_32.get(i, 0).unwrap().to_bits(),

@@ -10,7 +10,7 @@ use super::poincare::{
     clamp_poincare_point, poincare_einstein_midpoint, poincare_exp_map, poincare_log_map,
     poincare_mobius_add,
 };
-use super::torus::{extract_unique_undirected_edges, optimal_torus_cut_1d, wrap_torus_point};
+use super::torus::{optimal_torus_cut_1d, wrap_torus_point};
 use super::{ManifoldKind, ManifoldLayout2d};
 
 /// Physical Riemannian metric scaling parameters carried by [`ManifoldLayout2d`].
@@ -20,10 +20,28 @@ use super::{ManifoldKind, ManifoldLayout2d};
 /// distances and tangent vectors (`d_phys = scale * d_unit`).
 /// For [`ManifoldKind::Torus2d`], coordinates remain stored in canonical `[0, 1)^2` while physical
 /// box extents are `(Lx, Ly) = (scale * aspect, scale)`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ManifoldMetric {
     pub scale: f64,
     pub aspect: f64,
+}
+
+impl ManifoldMetric {
+    /// Sets the physical geodesic scale factor.
+    #[inline]
+    pub fn with_scale(mut self, scale: f64) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    /// Sets the physical aspect ratio (`Lx / Ly` for `Torus2d`).
+    #[inline]
+    pub fn with_aspect(mut self, aspect: f64) -> Self {
+        self.aspect = aspect;
+        self
+    }
 }
 
 impl Default for ManifoldMetric {
@@ -39,7 +57,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
     /// Returns the manifold's physical metric parameters `(scale, aspect)`.
     #[inline]
     pub fn metric(&self) -> ManifoldMetric {
-        self.metric_ref()
+        self.metric_ref().clone()
     }
 
     /// Returns the manifold's physical geodesic scale factor (`> 0`).
@@ -198,7 +216,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
     /// and maximizing empty boundary gap width independently along both axes (Chen et al. 2021).
     ///
     /// Preserves [`ManifoldMetric`] (`scale`, `aspect`) and all pairwise geodesic distances.
-    pub fn torus_auto_pan<W: Scalar>(&self, graph: &CsrGraph<W>) -> CoreResult<Self> {
+    pub fn torus_auto_pan<W>(&self, graph: &CsrGraph<W>) -> CoreResult<Self> {
         if self.kind() != ManifoldKind::Torus2d {
             return Err(CoreError::unsupported(
                 "torus_auto_pan is only supported on Torus2d manifolds",
@@ -216,7 +234,7 @@ impl<S: Scalar> ManifoldLayout2d<S> {
             return Ok(self.clone());
         }
 
-        let edges = extract_unique_undirected_edges(graph);
+        let edges = graph.canonical_undirected_edges();
         let cut_x = optimal_torus_cut_1d(self.x(), &edges);
         let cut_y = optimal_torus_cut_1d(self.y(), &edges);
 

@@ -6,6 +6,7 @@ use std::fmt;
 pub type CoreResult<T> = Result<T, CoreError>;
 
 /// Structured error variants returned by fallible `egraph-core` operations.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreError {
     /// An input argument or configuration violated a domain constraint.

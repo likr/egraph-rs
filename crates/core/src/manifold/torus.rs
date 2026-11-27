@@ -1,4 +1,3 @@
-use crate::csr::CsrGraph;
 use crate::scalar::Scalar;
 
 /// Wraps a scalar coordinate into the half-open unit torus interval `[0, 1)`.
@@ -45,33 +44,6 @@ fn wrap_1d_signed_delta(mut d: f64) -> f64 {
 pub fn torus_distance<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> S {
     let (dx, dy) = torus_delta(x1, y1, x2, y2);
     dx.hypot(dy)
-}
-
-/// Extracts canonical undirected simple edge pairs `(min(u, v), max(u, v))` (`u != v`).
-pub(super) fn extract_unique_undirected_edges<W>(graph: &CsrGraph<W>) -> Vec<(u32, u32)> {
-    let n = graph.num_nodes();
-    let directed = graph.is_directed();
-    let mut edges = Vec::with_capacity(graph.num_edges());
-    for u in 0..n {
-        let u32_u = u as u32;
-        for &v in graph.neighbors(u) {
-            if v as usize >= n || v == u32_u {
-                continue;
-            }
-            if !directed {
-                if u32_u < v {
-                    edges.push((u32_u, v));
-                }
-            } else {
-                edges.push((u32_u.min(v), u32_u.max(v)));
-            }
-        }
-    }
-    if directed {
-        edges.sort_unstable();
-        edges.dedup();
-    }
-    edges
 }
 
 /// Finds the optimal 1D circular cut `c in [0, 1)` (Chen et al. 2021) minimizing the number

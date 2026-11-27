@@ -2,8 +2,16 @@
 name = "egraph-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Core zero-copy CSR graph, layout, and Riemannian geometry primitives for egraph-rs"
+
+[features]
+default = []
+serde = ["dep:serde"]
 
 [dependencies]
 rand_chacha.workspace = true
 rand_core.workspace = true
+serde = { workspace = true, optional = true }

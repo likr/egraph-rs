@@ -1,11 +1,18 @@
-//! Contiguous Structure-of-Arrays (`Layout2d`) and arbitrary-dimensional (`LayoutNd`) buffers.
+//! Contiguous Structure-of-Arrays (`Layout2d`, `Layout3d`), arbitrary-dimensional (`LayoutNd`),
+//! and polyline (`EdgePolylines`) coordinate buffers.
 
+mod dim3;
 mod nd;
+mod polylines;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_polylines;
 
+pub use dim3::Layout3d;
 pub use nd::LayoutNd;
+pub use polylines::EdgePolylines;
 
 use crate::error::{CoreError, CoreResult};
 use crate::rng::DeterministicRng;
@@ -16,6 +23,7 @@ use crate::scalar::Scalar;
 /// Storing `x` and `y` in separate contiguous vectors improves cache locality and SIMD
 /// auto-vectorization inside inner layout loops compared to AoS pairs.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Layout2d<S: Scalar = f64> {
     x: Vec<S>,
     y: Vec<S>,
@@ -46,12 +54,6 @@ impl<S: Scalar> Layout2d<S> {
             y.push(S::from_f64((rng.next_f64() - 0.5) * scale));
         }
         Ok(Self { x, y })
-    }
-
-    /// Returns a cloned copy of the layout.
-    #[inline]
-    pub fn copy(&self) -> Self {
-        self.clone()
     }
 
     /// Creates a 2D layout from owned `x` and `y` vectors, checking equal lengths.
@@ -133,10 +135,47 @@ impl<S: Scalar> Layout2d<S> {
         self.x.len()
     }
 
+    /// Returns the number of vertices in the layout (alias matching `Layout3d`/`LayoutNd`).
+    #[inline]
+    pub fn num_nodes(&self) -> usize {
+        self.x.len()
+    }
+
     /// Returns `true` if the layout has zero vertices.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.x.is_empty()
+    }
+
+    /// Returns the `[x, y]` coordinates for `node`.
+    #[inline]
+    pub fn get(&self, node: usize) -> CoreResult<[S; 2]> {
+        if node >= self.len() {
+            return Err(CoreError::index_out_of_bounds(
+                node,
+                self.len(),
+                "Layout2d::get",
+            ));
+        }
+        Ok([self.x[node], self.y[node]])
+    }
+
+    /// Sets the `[x, y]` coordinates for `node` after validating bounds and finiteness.
+    #[inline]
+    pub fn set(&mut self, node: usize, x: S, y: S) -> CoreResult<()> {
+        if node >= self.len() {
+            return Err(CoreError::index_out_of_bounds(
+                node,
+                self.len(),
+                "Layout2d::set",
+            ));
+        }
+        if !x.is_finite() || !y.is_finite() {
+            return Err(CoreError::non_finite("Layout2d::set"));
+        }
+        self.x[node] = x;
+        self.y[node] = y;
+        Ok(())
     }
 
     /// Returns an immutable slice of `x` coordinates.
@@ -193,13 +232,17 @@ impl<S: Scalar> Layout2d<S> {
     /// collapsed layouts (`std <= 1e-12`), coordinates are centered at `(0, 0)` without
     /// amplifying numerical noise.
     pub fn center_and_normalize_std(&mut self) -> CoreResult<()> {
-        self.center_and_normalize_to_std(S::ONE)
+        self.center_and_normalize_to_std(1.0)
     }
 
     /// Centers coordinates at zero mean and scales isotropically to `target_std` (`> 0`).
-    pub fn center_and_normalize_to_std(&mut self, target_std: S) -> CoreResult<()> {
-        let target = target_std.to_f64();
-        if !target.is_finite() || target <= 0.0 {
+    pub fn center_and_normalize_to_std(&mut self, target_std: f64) -> CoreResult<()> {
+        if !target_std.is_finite() || !S::from_f64(target_std).is_finite() {
+            return Err(CoreError::non_finite(
+                "Layout2d::center_and_normalize_to_std::target_std",
+            ));
+        }
+        if target_std <= 0.0 {
             return Err(CoreError::invalid_input(
                 "target_std must be finite and strictly positive",
             ));
@@ -237,7 +280,7 @@ impl<S: Scalar> Layout2d<S> {
             return Ok(());
         }
 
-        let scale = target / std_dev;
+        let scale = target_std / std_dev;
         for i in 0..n {
             self.x[i] = S::from_f64(self.x[i].to_f64() * scale);
             self.y[i] = S::from_f64(self.y[i].to_f64() * scale);

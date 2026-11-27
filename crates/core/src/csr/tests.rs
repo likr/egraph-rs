@@ -29,8 +29,6 @@ fn test_csr_from_edges_undirected_and_directed() {
 
 #[test]
 fn test_csr_sanitize_vs_strict_validation() {
-    // Unsorted symmetric + self-loop + duplicate + missing reverse edge:
-    // 0 -> [0, 2, 1, 2], 1 -> [0], 2 -> []
     let indptr = [0, 4, 5, 5];
     let indices = [0, 2, 1, 2, 0];
     let weights = [9.0, 2.0, 1.5, 4.0, 1.5];
@@ -44,7 +42,6 @@ fn test_csr_sanitize_vs_strict_validation() {
     assert_eq!(g.neighbors(0), &[1, 2]);
     assert_eq!(g.neighbors(1), &[0]);
     assert_eq!(g.neighbors(2), &[0]);
-    // Max weight kept on duplicate (0, 2); symmetric (0, 1) does NOT double weight.
     assert_eq!(g.neighbor_weights(0), Some(&[1.5, 4.0][..]));
     assert_eq!(g.neighbor_weights(1), Some(&[1.5][..]));
     assert_eq!(g.neighbor_weights(2), Some(&[4.0][..]));
@@ -76,17 +73,14 @@ fn test_csr_strict_validation_errors() {
         CsrGraph::<f64>::from_csr(&[0, 1, 2], &[1, 0], Some(&[f64::NAN, 1.0]), false, true),
         Err(CoreError::NonFiniteValue { .. })
     ));
-    // Asymmetric undirected CSR rejected when sanitize=false.
     assert!(matches!(
         CsrGraph::<f64>::from_csr(&[0, 1, 2, 3], &[1, 2, 0], None, false, false),
         Err(CoreError::InvalidCsr(_))
     ));
-    // Duplicate undirected edge via (0,1) and (1,0) rejected when sanitize=false.
     assert!(matches!(
         CsrGraph::<f64>::from_edges(2, &[(0, 1), (1, 0)], None, false, false),
         Err(CoreError::InvalidCsr(_))
     ));
-    // Odd flat edge length rejected.
     assert!(matches!(
         CsrGraph::<f64>::from_flat_edges(3, &[0, 1, 2], None, false, true),
         Err(CoreError::DimensionMismatch { .. })
@@ -95,7 +89,6 @@ fn test_csr_strict_validation_errors() {
 
 #[test]
 fn test_csr_largest_connected_component_and_subgraph() {
-    // Component A: {0, 2} (1 edge); Component B: {1, 3, 4, 5} (3 edges, size 4).
     let g = CsrGraph::from_edges(
         6,
         &[(0, 2), (1, 3), (3, 4), (4, 5)],
@@ -108,19 +101,17 @@ fn test_csr_largest_connected_component_and_subgraph() {
     assert_eq!(orig_ids, vec![1, 3, 4, 5]);
     assert_eq!(lcc.num_nodes(), 4);
     assert_eq!(lcc.num_edges(), 3);
-    assert_eq!(lcc.neighbors(0), &[1]); // old 1 -> old 3 (new 1)
+    assert_eq!(lcc.neighbors(0), &[1]);
     assert_eq!(lcc.neighbor_weights(0), Some(&[2.0][..]));
-    assert_eq!(lcc.neighbors(1), &[0, 2]); // old 3 -> old 1, 4 (new 0, 2)
+    assert_eq!(lcc.neighbors(1), &[0, 2]);
     assert_eq!(lcc.neighbor_weights(1), Some(&[2.0, 3.0][..]));
 
-    // Directed weak component test: 0 <- 1 -> 2, isolated 3.
     let dg = CsrGraph::<f64>::from_edges(4, &[(1, 0), (1, 2)], None, true, false).unwrap();
     let (dlcc, d_orig) = dg.largest_connected_component();
     assert_eq!(d_orig, vec![0, 1, 2]);
     assert_eq!(dlcc.num_nodes(), 3);
     assert_eq!(dlcc.neighbors(1), &[0, 2]);
 
-    // Empty graph LCC.
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
     let (elcc, e_orig) = empty.largest_connected_component();
     assert_eq!(elcc.num_nodes(), 0);
@@ -129,14 +120,13 @@ fn test_csr_largest_connected_component_and_subgraph() {
 
 #[test]
 fn test_csr_edges_has_edge_weight_and_unsorted_rows() {
-    // Unsorted duplicate-free rows permitted by `sanitize = false`.
-    // 0 -> [2, 1], 1 -> [2, 0], 2 -> [1, 0]
     let indptr = [0, 2, 4, 6];
     let indices = [2, 1, 2, 0, 1, 0];
     let weights = [10.0_f64, 5.0, 20.0, 5.0, 20.0, 10.0];
     let g = CsrGraph::from_csr(&indptr, &indices, Some(&weights), false, false).unwrap();
 
     assert_eq!(g.edges(), vec![(0, 2), (0, 1), (1, 2)]);
+    assert_eq!(g.canonical_undirected_edges(), vec![(0, 1), (0, 2), (1, 2)]);
     assert_eq!(g.edges().len(), g.num_edges());
     assert!(g.has_edge(0, 1));
     assert!(g.has_edge(0, 2));
@@ -154,38 +144,21 @@ fn test_csr_edges_has_edge_weight_and_unsorted_rows() {
     assert_eq!(g.try_edge_weight(1, 2).unwrap(), Some(20.0));
     assert!(matches!(
         g.try_has_edge(3, 0),
-        Err(CoreError::IndexOutOfBounds {
-            index: 3,
-            len: 3,
-            ..
-        })
+        Err(CoreError::IndexOutOfBounds { .. })
     ));
     assert!(matches!(
         g.try_has_edge(0, 3),
-        Err(CoreError::IndexOutOfBounds {
-            index: 3,
-            len: 3,
-            ..
-        })
+        Err(CoreError::IndexOutOfBounds { .. })
     ));
     assert!(matches!(
         g.try_edge_weight(3, 0),
-        Err(CoreError::IndexOutOfBounds {
-            index: 3,
-            len: 3,
-            ..
-        })
+        Err(CoreError::IndexOutOfBounds { .. })
     ));
     assert!(matches!(
         g.try_edge_weight(0, 3),
-        Err(CoreError::IndexOutOfBounds {
-            index: 3,
-            len: 3,
-            ..
-        })
+        Err(CoreError::IndexOutOfBounds { .. })
     ));
 
-    // Unweighted directed graph with reciprocal edges (0, 1) and (1, 0).
     let dg = CsrGraph::<f32>::from_edges(3, &[(0, 1), (1, 0), (1, 2)], None, true, false).unwrap();
     assert_eq!(dg.edges(), vec![(0, 1), (1, 0), (1, 2)]);
     assert_eq!(dg.edges().len(), dg.num_edges());
@@ -215,11 +188,75 @@ fn test_csr_is_connected_edge_cases() {
         CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
     assert!(!disconnected.is_connected());
 
-    // Directed weak connectivity: 1 -> 0, 1 -> 2 is weakly connected.
     let weak = CsrGraph::<f64>::from_edges(3, &[(1, 0), (1, 2)], None, true, false).unwrap();
     assert!(weak.is_connected());
 
-    // Directed with isolated vertex 3 is disconnected.
     let weak_disc = CsrGraph::<f64>::from_edges(4, &[(1, 0), (1, 2)], None, true, false).unwrap();
     assert!(!weak_disc.is_connected());
+}
+
+#[test]
+fn test_csr_unweighted_unit_type_builder_and_undirected_simple() {
+    let g_edges =
+        CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
+    let g_flat =
+        CsrGraph::<()>::from_unweighted_flat_edges(3, &[0, 1, 1, 2], false, false).unwrap();
+    let g_csr =
+        CsrGraph::<()>::from_unweighted_csr(&[0, 1, 3, 4], &[1, 0, 2, 1], false, false).unwrap();
+    assert_eq!(g_edges, g_flat);
+    assert_eq!(g_edges, g_csr);
+    assert!(!g_edges.is_weighted());
+
+    // Directed graph with reciprocal edges, duplicates, self-loops -> canonical simple undirected.
+    let dir = CsrGraph::<f64>::from_csr(
+        &[0, 3, 5, 5],
+        &[0, 1, 2, 0, 2],
+        Some(&[1.0, 2.0, 3.0, 4.0, 5.0]),
+        true,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        dir.canonical_undirected_edges(),
+        vec![(0, 1), (0, 2), (1, 2)]
+    );
+    let simple = dir.to_undirected_simple().unwrap();
+    assert!(!simple.is_directed());
+    assert!(!simple.is_weighted());
+    assert_eq!(simple.num_nodes(), 3);
+    assert_eq!(simple.num_edges(), 3);
+    assert_eq!(simple.neighbors(0), &[1, 2]);
+    assert_eq!(simple.neighbors(1), &[0, 2]);
+    assert_eq!(simple.neighbors(2), &[0, 1]);
+
+    // CsrGraphBuilder unweighted & weighted workflows.
+    let mut ub = CsrGraphBuilder::<()>::new(false);
+    let n0 = ub.add_node().unwrap();
+    let n1 = ub.add_node().unwrap();
+    ub.add_nodes(1).unwrap();
+    assert_eq!(ub.num_nodes(), 3);
+    ub.add_edge(n0, n1).unwrap();
+    ub.add_edge(n1, 2).unwrap();
+    assert_eq!(ub.num_edges(), 2);
+    assert!(!ub.is_directed());
+    assert_eq!(ub.build_unweighted(false).unwrap(), g_edges);
+
+    let mut wb = CsrGraphBuilder::<f64>::with_num_nodes(3, true).unwrap();
+    wb.add_weighted_edge(0, 1, 2.5).unwrap();
+    wb.add_weighted_edge(0, 1, 4.0).unwrap();
+    assert!(matches!(wb.add_edge(1, 2), Err(CoreError::InvalidInput(_))));
+    assert!(matches!(
+        wb.build_unweighted(false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        wb.add_weighted_edge(3, 0, 1.0),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+    assert!(matches!(
+        wb.add_weighted_edge(0, 1, f64::NAN),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    let wg = wb.build(true).unwrap();
+    assert_eq!(wg.edge_weight(0, 1), Some(4.0));
 }

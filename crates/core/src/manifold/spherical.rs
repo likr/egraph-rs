@@ -62,7 +62,7 @@ pub fn cartesian_to_spherical<S: Scalar>(x: S, y: S, z: S) -> (S, S) {
 }
 
 #[inline]
-fn unit_sphere_f64(lon: f64, colat: f64) -> [f64; 3] {
+pub(super) fn unit_sphere_f64(lon: f64, colat: f64) -> [f64; 3] {
     let (slon, clon) = lon.sin_cos();
     let (scolat, ccolat) = colat.sin_cos();
     [clon * scolat, ccolat, slon * scolat]

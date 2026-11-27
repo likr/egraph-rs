@@ -18,7 +18,7 @@ fn splitmix64(state: &mut u64) -> u64 {
 
 /// Deterministic explicit-seed pseudo-random number generator.
 ///
-/// Seeds are expanded from `u64` via SplitMix64 into a 256-bit key for [`ChaCha8Rng`],
+/// Seeds are expanded from `u64` via SplitMix64 into a 256-bit ChaCha8 key,
 /// avoiding low-Hamming-weight seed artifacts while remaining identical across 32-bit
 /// and 64-bit targets.
 #[derive(Debug, Clone)]
@@ -133,34 +133,6 @@ impl DeterministicRng {
             slice.swap(i, j);
         }
     }
-
-    /// Returns a mutable reference to the underlying `ChaCha8Rng` implementing `RngCore`.
-    #[inline]
-    pub fn as_rng_core_mut(&mut self) -> &mut ChaCha8Rng {
-        &mut self.inner
-    }
-}
-
-impl RngCore for DeterministicRng {
-    #[inline]
-    fn next_u32(&mut self) -> u32 {
-        self.inner.next_u32()
-    }
-
-    #[inline]
-    fn next_u64(&mut self) -> u64 {
-        self.inner.next_u64()
-    }
-
-    #[inline]
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.inner.fill_bytes(dest);
-    }
-
-    #[inline]
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.inner.try_fill_bytes(dest)
-    }
 }
 
 #[cfg(test)]
@@ -196,10 +168,10 @@ mod tests {
     }
 
     #[test]
-    fn test_as_rng_core_mut_and_shuffle() {
+    fn test_shuffle_reproducibility() {
         let mut r1 = DeterministicRng::from_seed_u64(99);
         let mut r2 = DeterministicRng::from_seed_u64(99);
-        assert_eq!(r1.as_rng_core_mut().next_u64(), r2.next_u64());
+        assert_eq!(r1.next_u64(), r2.next_u64());
 
         let mut a = [0, 1, 2, 3, 4, 5, 6, 7];
         let mut b = a;

@@ -2,11 +2,7 @@ use crate::error::{CoreError, CoreResult};
 use crate::scalar::Scalar;
 use crate::visit_stamp::VisitStamp;
 
-pub(super) fn validate_csr_structure<W: Scalar>(
-    indptr: &[u32],
-    indices: &[u32],
-    weights: Option<&[W]>,
-) -> CoreResult<usize> {
+pub(super) fn validate_csr_topology(indptr: &[u32], indices: &[u32]) -> CoreResult<usize> {
     if indptr.is_empty() {
         return Err(CoreError::invalid_csr(
             "indptr must contain at least 1 element (num_nodes + 1)",
@@ -46,6 +42,15 @@ pub(super) fn validate_csr_structure<W: Scalar>(
             ));
         }
     }
+    Ok(num_nodes)
+}
+
+pub(super) fn validate_csr_structure<W: Scalar>(
+    indptr: &[u32],
+    indices: &[u32],
+    weights: Option<&[W]>,
+) -> CoreResult<usize> {
+    let num_nodes = validate_csr_topology(indptr, indices)?;
     if let Some(w) = weights {
         if w.len() != indices.len() {
             return Err(CoreError::dimension_mismatch(
@@ -82,6 +87,15 @@ pub(super) fn validate_edge_inputs<W: Scalar>(
         }
     }
     Ok(())
+}
+
+pub(super) fn validate_clean_csr_topology(
+    num_nodes: usize,
+    indptr: &[u32],
+    indices: &[u32],
+    directed: bool,
+) -> CoreResult<()> {
+    validate_clean_csr::<f64>(num_nodes, indptr, indices, None, directed)
 }
 
 pub(super) fn validate_clean_csr<W: Scalar>(

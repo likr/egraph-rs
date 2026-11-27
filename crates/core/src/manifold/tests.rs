@@ -239,7 +239,7 @@ fn test_manifold_layout_init_copy_and_validate_finite() {
     assert_eq!(m1, m_ref);
     m1.validate_finite().unwrap();
 
-    let mut m_copy = m1.copy();
+    let mut m_copy = m1.clone();
     assert_eq!(m_copy, m1);
     m_copy.set_point(0, 0.0, 0.0).unwrap();
     assert_ne!(m_copy, m1);

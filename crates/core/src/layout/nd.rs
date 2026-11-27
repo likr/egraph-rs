@@ -4,6 +4,7 @@ use crate::scalar::Scalar;
 
 /// Flat row-major `d`-dimensional coordinate layout (`num_nodes * dims`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LayoutNd<S: Scalar = f64> {
     coords: Vec<S>,
     num_nodes: usize,
@@ -53,14 +54,13 @@ impl<S: Scalar> LayoutNd<S> {
         })
     }
 
-    /// Returns a cloned copy of the layout.
-    #[inline]
-    pub fn copy(&self) -> Self {
-        self.clone()
+    /// Creates a `LayoutNd` by copying a flat row-major slice of length `num_nodes * dims`.
+    pub fn from_flat(num_nodes: usize, dims: usize, coords: &[S]) -> CoreResult<Self> {
+        Self::from_flat_vec(num_nodes, dims, coords.to_vec())
     }
 
-    /// Creates a `LayoutNd` from a flat row-major coordinate vector of length `num_nodes * dims`.
-    pub fn from_flat(num_nodes: usize, dims: usize, coords: Vec<S>) -> CoreResult<Self> {
+    /// Creates a `LayoutNd` from an owned flat row-major vector of length `num_nodes * dims`.
+    pub fn from_flat_vec(num_nodes: usize, dims: usize, coords: Vec<S>) -> CoreResult<Self> {
         if dims == 0 {
             return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
         }
@@ -205,13 +205,17 @@ impl<S: Scalar> LayoutNd<S> {
     /// coordinate standard deviation $\sqrt{\frac{1}{ND}\sum_{i,a} (x_{i,a} - \bar{x}_a)^2}$
     /// equals `1.0`.
     pub fn center_and_normalize_std(&mut self) -> CoreResult<()> {
-        self.center_and_normalize_to_std(S::ONE)
+        self.center_and_normalize_to_std(1.0)
     }
 
     /// Centers coordinates at zero mean per axis and scales isotropically to `target_std` (`> 0`).
-    pub fn center_and_normalize_to_std(&mut self, target_std: S) -> CoreResult<()> {
-        let target = target_std.to_f64();
-        if !target.is_finite() || target <= 0.0 {
+    pub fn center_and_normalize_to_std(&mut self, target_std: f64) -> CoreResult<()> {
+        if !target_std.is_finite() || !S::from_f64(target_std).is_finite() {
+            return Err(CoreError::non_finite(
+                "LayoutNd::center_and_normalize_to_std::target_std",
+            ));
+        }
+        if target_std <= 0.0 {
             return Err(CoreError::invalid_input(
                 "target_std must be finite and strictly positive",
             ));
@@ -259,7 +263,7 @@ impl<S: Scalar> LayoutNd<S> {
             return Ok(());
         }
 
-        let scale = target / std_dev;
+        let scale = target_std / std_dev;
         for v in &mut self.coords {
             *v = S::from_f64(v.to_f64() * scale);
         }

@@ -2,15 +2,17 @@
 
 mod builders;
 mod components;
+mod constructors;
+mod graph_builder;
 mod validation;
 
 #[cfg(test)]
 mod tests;
 
+pub use graph_builder::CsrGraphBuilder;
+
 use crate::error::{CoreError, CoreResult};
-use crate::scalar::Scalar;
-use builders::{build_directed_from_pairs, build_undirected_from_pairs, sanitize_directed_csr};
-use validation::{validate_clean_csr, validate_csr_structure, validate_edge_inputs};
+use builders::build_undirected_unweighted_from_pairs;
 
 /// Compact `u32`-indexed Compressed Sparse Row (CSR) graph with optional numeric edge weights.
 ///
@@ -18,6 +20,7 @@ use validation::{validate_clean_csr, validate_csr_structure, validate_edge_input
 /// store symmetric adjacency entries (`u -> v` and `v -> u` with equal weights) and
 /// disallow self-loops and parallel edges.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CsrGraph<W = f64> {
     num_nodes: usize,
     directed: bool,
@@ -172,6 +175,39 @@ impl<W> CsrGraph<W> {
         out
     }
 
+    /// Returns canonical sorted, deduplicated, loopless undirected edge pairs `(u, v)` with `u < v`.
+    pub fn canonical_undirected_edges(&self) -> Vec<(u32, u32)> {
+        let n = self.num_nodes;
+        let mut edges = Vec::with_capacity(self.num_edges());
+        for u in 0..n {
+            let u32_u = u as u32;
+            for &v in self.neighbors(u) {
+                if v as usize >= n || v == u32_u {
+                    continue;
+                }
+                if !self.directed {
+                    if u32_u < v {
+                        edges.push((u32_u, v));
+                    }
+                } else {
+                    edges.push((u32_u.min(v), u32_u.max(v)));
+                }
+            }
+        }
+        if self.directed || !edges.windows(2).all(|w| w[0] < w[1]) {
+            edges.sort_unstable();
+            edges.dedup();
+        }
+        edges
+    }
+
+    /// Converts any graph (directed or undirected, weighted or unweighted) into a clean,
+    /// sorted, loopless, duplicate-free undirected unweighted [`CsrGraph<()>`].
+    pub fn to_undirected_simple(&self) -> CoreResult<CsrGraph<()>> {
+        let pairs = self.canonical_undirected_edges();
+        build_undirected_unweighted_from_pairs(self.num_nodes, pairs.into_iter(), true)
+    }
+
     #[inline]
     fn find_neighbor_pos(&self, u: usize, v: usize) -> Option<usize> {
         if u >= self.num_nodes || v >= self.num_nodes {
@@ -246,144 +282,5 @@ impl<W> CsrGraph<W> {
             ));
         }
         Ok(self.edge_weight(u, v))
-    }
-}
-
-impl<W: Scalar> CsrGraph<W> {
-    /// Constructs a `CsrGraph` from raw CSR arrays (`indptr`, `indices`, optional `weights`).
-    ///
-    /// When `sanitize == false`, strictly validates CSR offsets, vertex bounds, finite weights,
-    /// absence of self-loops and duplicate edges, and (when `directed == false`) exact symmetry.
-    ///
-    /// When `sanitize == true`, removes self-loops, sorts each neighbor list, deduplicates parallel
-    /// edges by retaining the maximum weight, and symmetrizes undirected graphs without doubling
-    /// already-symmetric edge weights.
-    pub fn from_csr(
-        indptr: &[u32],
-        indices: &[u32],
-        weights: Option<&[W]>,
-        directed: bool,
-        sanitize: bool,
-    ) -> CoreResult<Self> {
-        let num_nodes = validate_csr_structure(indptr, indices, weights)?;
-
-        if !sanitize {
-            validate_clean_csr(num_nodes, indptr, indices, weights, directed)?;
-            return Ok(Self {
-                num_nodes,
-                directed,
-                indptr: indptr.to_vec(),
-                indices: indices.to_vec(),
-                weights: weights.map(|w| w.to_vec()),
-            });
-        }
-
-        if directed {
-            sanitize_directed_csr(num_nodes, indptr, indices, weights)
-        } else {
-            build_undirected_from_pairs(
-                num_nodes,
-                (0..num_nodes).flat_map(|u| {
-                    let start = indptr[u] as usize;
-                    let end = indptr[u + 1] as usize;
-                    (start..end).map(move |pos| (u as u32, indices[pos], weights.map(|w| w[pos])))
-                }),
-                weights.is_some(),
-                true,
-            )
-        }
-    }
-
-    /// Constructs a `CsrGraph` from an edge list `[(u, v)]` with optional weights.
-    ///
-    /// When `sanitize == false`, rejects self-loops and duplicate edges (including reverse
-    /// duplicates `(u, v)` / `(v, u)` in undirected mode). When `sanitize == true`, drops
-    /// self-loops and deduplicates parallel edges by retaining the maximum weight.
-    pub fn from_edges(
-        num_nodes: usize,
-        edges: &[(u32, u32)],
-        weights: Option<&[W]>,
-        directed: bool,
-        sanitize: bool,
-    ) -> CoreResult<Self> {
-        validate_edge_inputs(num_nodes, edges.len(), weights)?;
-        for &(u, v) in edges {
-            if (u as usize) >= num_nodes {
-                return Err(CoreError::index_out_of_bounds(
-                    u as usize,
-                    num_nodes,
-                    "CsrGraph::from_edges",
-                ));
-            }
-            if (v as usize) >= num_nodes {
-                return Err(CoreError::index_out_of_bounds(
-                    v as usize,
-                    num_nodes,
-                    "CsrGraph::from_edges",
-                ));
-            }
-        }
-
-        if directed {
-            build_directed_from_pairs(
-                num_nodes,
-                edges
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &(u, v))| (u, v, weights.map(|w| w[i]))),
-                weights.is_some(),
-                sanitize,
-            )
-        } else {
-            build_undirected_from_pairs(
-                num_nodes,
-                edges
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &(u, v))| (u, v, weights.map(|w| w[i]))),
-                weights.is_some(),
-                sanitize,
-            )
-        }
-    }
-
-    /// Constructs a `CsrGraph` from flat interleaved edge endpoints `[u0, v0, u1, v1, ...]`.
-    pub fn from_flat_edges(
-        num_nodes: usize,
-        edges: &[u32],
-        weights: Option<&[W]>,
-        directed: bool,
-        sanitize: bool,
-    ) -> CoreResult<Self> {
-        if !edges.len().is_multiple_of(2) {
-            return Err(CoreError::dimension_mismatch(
-                edges.len() + 1,
-                edges.len(),
-                "CsrGraph::from_flat_edges",
-            ));
-        }
-        let num_edges = edges.len() / 2;
-        validate_edge_inputs(num_nodes, num_edges, weights)?;
-        for &endpoint in edges {
-            if (endpoint as usize) >= num_nodes {
-                return Err(CoreError::index_out_of_bounds(
-                    endpoint as usize,
-                    num_nodes,
-                    "CsrGraph::from_flat_edges",
-                ));
-            }
-        }
-
-        let pairs = (0..num_edges).map(|i| {
-            let u = edges[2 * i];
-            let v = edges[2 * i + 1];
-            (u, v, weights.map(|w| w[i]))
-        });
-
-        if directed {
-            build_directed_from_pairs(num_nodes, pairs, weights.is_some(), sanitize)
-        } else {
-            build_undirected_from_pairs(num_nodes, pairs, weights.is_some(), sanitize)
-        }
     }
 }

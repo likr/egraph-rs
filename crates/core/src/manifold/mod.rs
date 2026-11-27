@@ -5,8 +5,10 @@ mod layout;
 mod lorentz;
 mod lorentz_maps;
 mod lorentz_midpoint;
+mod lorentz_transport;
 mod metric;
 mod poincare;
+mod riemannian;
 mod spectral;
 mod spectral_eigen;
 mod spectral_jacobi;
@@ -20,11 +22,14 @@ mod tests_lorentz_and_metric;
 #[cfg(test)]
 mod tests_lorentz_extreme;
 #[cfg(test)]
+mod tests_riemannian;
+#[cfg(test)]
 mod tests_torus;
 
 /// Supported 2D non-Euclidean manifold geometries.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ManifoldKind {
     /// 2D Poincaré unit disk model of hyperbolic space (`x^2 + y^2 < 1`).
     HyperbolicPoincare,
