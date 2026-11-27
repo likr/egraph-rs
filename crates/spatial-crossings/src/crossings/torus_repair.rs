@@ -1,5 +1,6 @@
 use super::double_double::{Dd, dd_cmp};
-use super::geometry::{Seg, segments_geometrically_intersect};
+use super::euclidean_geom::segments_geometrically_intersect;
+use super::geometry::Seg;
 use super::torus_clip::{ClippedTorusSeg, TORUS_MAX, clamp_unit};
 use super::torus_exact::segs_intersect_exact_f64;
 

@@ -47,20 +47,21 @@ impl BandScratch {
     }
 }
 
-fn collect_band_around_seed(
+fn collect_band_around_seed<P: CrossPred>(
     seed: usize,
     x_evt: f64,
     eps_y: f64,
     segs: &[Seg],
     tree: &ActiveSegmentTree,
     out_edges: &mut Vec<usize>,
+    pred: &P,
 ) {
     out_edges.clear();
     let s_seed = &segs[seed];
     let mut left_most = seed;
     let mut cur = seed;
     while let Some(prev) = tree.prev_edge(cur) {
-        if !within_band(s_seed, &segs[prev], x_evt, eps_y) {
+        if !within_band(s_seed, &segs[prev], x_evt, eps_y, pred) {
             break;
         }
         left_most = prev;
@@ -70,7 +71,7 @@ fn collect_band_around_seed(
     out_edges.push(left_most);
     let mut cur_r = left_most;
     while let Some(nx) = tree.next_edge(cur_r) {
-        if !within_band(s_seed, &segs[nx], x_evt, eps_y) {
+        if !within_band(s_seed, &segs[nx], x_evt, eps_y, pred) {
             break;
         }
         out_edges.push(nx);
@@ -103,7 +104,15 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector, P: CrossPred>(
             continue;
         }
 
-        collect_band_around_seed(seed, x_evt, eps_y, segs, tree, &mut scratch.band_edges);
+        collect_band_around_seed(
+            seed,
+            x_evt,
+            eps_y,
+            segs,
+            tree,
+            &mut scratch.band_edges,
+            pred,
+        );
         for &e in &scratch.band_edges {
             if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
                 scratch.visited_stamp[e] = cur_stamp;
@@ -179,7 +188,15 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector, P: CrossPred>(
             continue;
         }
 
-        collect_band_around_seed(seed, x_evt, eps_y, segs, tree, &mut scratch.band_edges);
+        collect_band_around_seed(
+            seed,
+            x_evt,
+            eps_y,
+            segs,
+            tree,
+            &mut scratch.band_edges,
+            pred,
+        );
         for &e in &scratch.band_edges {
             if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
                 scratch.visited_stamp[e] = cur_stamp;

@@ -3,8 +3,11 @@ use std::f64::consts::FRAC_PI_2;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
 
+use super::cross_pred::CrossPred;
 use super::double_double::dd_div;
 use super::torus_exact::ShiftedPt;
+
+pub(super) const STEEP_SLOPE_THRESHOLD: f64 = 1e280;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Seg {
@@ -137,167 +140,108 @@ impl Seg {
     #[inline]
     pub(super) fn y_at(&self, x: f64) -> f64 {
         if x <= self.x1 {
-            self.y1
-        } else if x >= self.x2 {
-            self.y2
-        } else {
-            self.y1 + self.slope * (x - self.x1)
+            return self.y1;
         }
+        if x >= self.x2 {
+            return self.y2;
+        }
+        if self.y1 == self.y2 {
+            return self.y1;
+        }
+        if self.slope.abs() < STEEP_SLOPE_THRESHOLD {
+            let dx_x = x - self.x1;
+            if dx_x.is_finite() {
+                let y = self.y1 + self.slope * dx_x;
+                if y.is_finite() {
+                    return y.clamp(self.y_min, self.y_max);
+                }
+            }
+        }
+        // Steep or extreme-span segments bypass the clamped `slope` and interpolate from the
+        // nearest endpoint via normalized `t in [0, 1]` to preserve O(eps) precision.
+        let mut dx = self.x2 - self.x1;
+        let mut nl = x - self.x1;
+        let mut nr = self.x2 - x;
+        if !dx.is_finite() || !nl.is_finite() || !nr.is_finite() {
+            dx = self.x2 * 0.5 - self.x1 * 0.5;
+            nl = x * 0.5 - self.x1 * 0.5;
+            nr = self.x2 * 0.5 - x * 0.5;
+        }
+        if dx <= 0.0 || !dx.is_finite() {
+            return (0.5 * self.y1 + 0.5 * self.y2).clamp(self.y_min, self.y_max);
+        }
+        let dy = self.y2 - self.y1;
+        let y = if nl <= nr {
+            let t = (nl / dx).clamp(0.0, 1.0);
+            if dy.is_finite() {
+                self.y1 + t * dy
+            } else {
+                self.y1 * (1.0 - t) + self.y2 * t
+            }
+        } else {
+            let u = (nr / dx).clamp(0.0, 1.0);
+            if dy.is_finite() {
+                self.y2 - u * dy
+            } else {
+                self.y1 * u + self.y2 * (1.0 - u)
+            }
+        };
+        y.clamp(self.y_min, self.y_max)
     }
-}
-
-#[inline]
-pub(super) fn same_sign_nonzero(a: f64, b: f64) -> bool {
-    (a > 0.0 && b > 0.0) || (a < 0.0 && b < 0.0)
-}
-
-#[inline]
-pub(super) fn segments_geometrically_intersect(a: &Seg, b: &Seg) -> bool {
-    if a.x_max < b.x_min || b.x_max < a.x_min || a.y_max < b.y_min || b.y_max < a.y_min {
-        return false;
-    }
-    let dx1 = a.x2 - a.x1;
-    let dy1 = a.y2 - a.y1;
-    let dx2 = b.x2 - b.x1;
-    let dy2 = b.y2 - b.y1;
-
-    let s1 = dx1 * (b.y1 - a.y1) - dy1 * (b.x1 - a.x1);
-    let t1 = dx1 * (b.y2 - a.y1) - dy1 * (b.x2 - a.x1);
-    if same_sign_nonzero(s1, t1) {
-        return false;
-    }
-
-    let s2 = dx2 * (a.y1 - b.y1) - dy2 * (a.x1 - b.x1);
-    let t2 = dx2 * (a.y2 - b.y1) - dy2 * (a.x2 - b.x1);
-    !same_sign_nonzero(s2, t2)
-}
-
-#[inline]
-pub(super) fn segments_cross(a: &Seg, b: &Seg) -> bool {
-    if a.shares_endpoint(b) {
-        return false;
-    }
-    segments_geometrically_intersect(a, b)
 }
 
 #[inline]
 pub(super) fn seg_y_err(s: &Seg, x: f64) -> f64 {
     let x_scale = x.abs().max(s.x1.abs()).max(s.x2.abs());
     let y_scale = s.y1.abs().max(s.y2.abs());
-    32.0 * f64::EPSILON * (s.slope.abs() * x_scale + y_scale + 1.0)
-}
-
-#[inline]
-pub(super) fn within_band(seed: &Seg, other: &Seg, x_evt: f64, eps_y: f64) -> bool {
-    let tol = 2.0 * eps_y + seg_y_err(seed, x_evt) + seg_y_err(other, x_evt);
-    (other.y_at(x_evt) - seed.y_at(x_evt)).abs() <= tol
-}
-
-#[inline]
-pub(super) fn intersection_x(a: &Seg, b: &Seg) -> Option<f64> {
-    let dx_a = a.x2 - a.x1;
-    let dx_b = b.x2 - b.x1;
-    let (p, q) = if dx_a < dx_b || (dx_a == dx_b && a.id <= b.id) {
-        (a, b)
-    } else {
-        (b, a)
-    };
-    let dx1 = p.x2 - p.x1;
-    let dy1 = p.y2 - p.y1;
-    let dx2 = q.x2 - q.x1;
-    let dy2 = q.y2 - q.y1;
-    let det = dx1 * dy2 - dy1 * dx2;
-    if det == 0.0 {
-        return None;
-    }
-    let t = ((q.x1 - p.x1) * dy2 - (q.y1 - p.y1) * dx2) / det;
-    let x = p.x1 + t * dx1;
-    let lo = p.x_min.max(q.x_min);
-    let hi = p.x_max.min(q.x_max);
-    Some(x.clamp(lo, hi))
-}
-
-/// Exact post-`x_evt` vertical order of two active non-vertical segments spanning `x_evt`.
-///
-/// Uses bounding-box y-disjointness and exact endpoint orientation signs (`s1, t1, s2, t2`) for
-/// non-intersecting pairs (avoiding `y_at(x_evt)` cancellation and scalar `dt_probe` overshoot),
-/// shared-endpoint slope checks, scale-safe `det == 0.0` fallback, and canonicalized
-/// `intersection_x` to separate completed crossings (`xi <= x_evt`) from future ones (`xi > x_evt`).
-#[inline]
-pub(super) fn cmp_post_x(a: &Seg, b: &Seg, x_evt: f64) -> Ordering {
-    if a.id == b.id {
-        return Ordering::Equal;
-    }
-    if a.y_max < b.y_min {
-        return Ordering::Less;
-    }
-    if b.y_max < a.y_min {
-        return Ordering::Greater;
-    }
-
-    let dx1 = a.x2 - a.x1;
-    let dy1 = a.y2 - a.y1;
-    let dx2 = b.x2 - b.x1;
-    let dy2 = b.y2 - b.y1;
-
-    let s1 = dx1 * (b.y1 - a.y1) - dy1 * (b.x1 - a.x1);
-    let t1 = dx1 * (b.y2 - a.y1) - dy1 * (b.x2 - a.x1);
-    if same_sign_nonzero(s1, t1) {
-        return if s1 > 0.0 {
-            Ordering::Less
+    let base = 32.0 * f64::EPSILON * (y_scale + 1.0);
+    let chord = s.y_max - s.y_min;
+    let slope_x = if s.slope.abs() < STEEP_SLOPE_THRESHOLD {
+        let sx = s.slope.abs() * x_scale;
+        if sx.is_finite() {
+            sx
         } else {
-            Ordering::Greater
-        };
-    }
-
-    let s2 = dx2 * (a.y1 - b.y1) - dy2 * (a.x1 - b.x1);
-    let t2 = dx2 * (a.y2 - b.y1) - dy2 * (a.x2 - b.x1);
-    if same_sign_nonzero(s2, t2) {
-        return if s2 > 0.0 {
-            Ordering::Greater
-        } else {
-            Ordering::Less
-        };
-    }
-
-    if a.x2 == b.x2 && a.y2 == b.y2 && a.x2 > x_evt {
-        return b.slope.total_cmp(&a.slope).then_with(|| a.id.cmp(&b.id));
-    }
-    if a.x1 == b.x1 && a.y1 == b.y1 && a.x1 <= x_evt {
-        return a.slope.total_cmp(&b.slope).then_with(|| a.id.cmp(&b.id));
-    }
-
-    let det = dx1 * dy2 - dy1 * dx2;
-    if det == 0.0 {
-        let ya = a.y_at(x_evt);
-        let yb = b.y_at(x_evt);
-        let x_scale = x_evt
-            .abs()
-            .max(a.x1.abs())
-            .max(a.x2.abs())
-            .max(b.x1.abs())
-            .max(b.x2.abs());
-        let y_scale = a.y1.abs().max(a.y2.abs()).max(b.y1.abs()).max(b.y2.abs());
-        let rel_tol = 32.0 * f64::EPSILON * (a.slope.abs().max(b.slope.abs()) * x_scale + y_scale);
-        if (ya - yb).abs() > rel_tol {
-            return ya.total_cmp(&yb);
+            (s.y2 - s.y1).abs()
         }
-        return a.slope.total_cmp(&b.slope).then_with(|| a.id.cmp(&b.id));
-    }
-
-    let xi = intersection_x(a, b).unwrap_or(x_evt);
-    let post_crossing = xi <= x_evt;
-    if post_crossing {
-        a.slope
-            .total_cmp(&b.slope)
-            .then_with(|| 0.0_f64.total_cmp(&det))
-            .then_with(|| a.id.cmp(&b.id))
     } else {
-        b.slope
-            .total_cmp(&a.slope)
-            .then_with(|| det.total_cmp(&0.0))
-            .then_with(|| a.id.cmp(&b.id))
+        let dx = s.x2 - s.x1;
+        if dx <= 0.0 || !dx.is_finite() {
+            return if chord.is_finite() {
+                chord + base
+            } else {
+                f64::INFINITY
+            };
+        }
+        let dy = (s.y2 - s.y1).abs();
+        if dy.is_finite() {
+            let sx = (x_scale / dx) * dy;
+            if sx.is_finite() { sx } else { dy }
+        } else {
+            dy
+        }
+    };
+    let err = if slope_x.is_finite() {
+        32.0 * f64::EPSILON * slope_x + base
+    } else {
+        f64::INFINITY
+    };
+    if chord.is_finite() {
+        err.min(chord + base)
+    } else {
+        err
     }
+}
+
+#[inline]
+pub(super) fn within_band<P: CrossPred>(
+    seed: &Seg,
+    other: &Seg,
+    x_evt: f64,
+    eps_y: f64,
+    pred: &P,
+) -> bool {
+    let tol = 2.0 * eps_y + seg_y_err(seed, x_evt) + seg_y_err(other, x_evt);
+    (pred.y_at(other, x_evt) - pred.y_at(seed, x_evt)).abs() <= tol
 }
 
 #[inline]

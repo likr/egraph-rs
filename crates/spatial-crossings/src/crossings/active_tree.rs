@@ -362,12 +362,18 @@ impl ActiveSegmentTree {
         (prev, next)
     }
 
-    pub(super) fn lower_bound_y(&self, target_y: f64, sweep_x: f64, segs: &[Seg]) -> Option<usize> {
+    pub(super) fn lower_bound_y<P: CrossPred>(
+        &self,
+        target_y: f64,
+        sweep_x: f64,
+        segs: &[Seg],
+        pred: &P,
+    ) -> Option<usize> {
         let mut cur = self.root;
         let mut candidate = NONE_U32;
         while cur != NONE_U32 {
             let e = self.nodes[cur as usize].edge_idx;
-            let y = segs[e].y_at(sweep_x);
+            let y = pred.y_at(&segs[e], sweep_x);
             if y >= target_y {
                 candidate = cur;
                 cur = self.nodes[cur as usize].left;

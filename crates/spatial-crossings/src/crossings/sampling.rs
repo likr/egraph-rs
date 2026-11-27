@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar};
 
-use super::geometry::{Seg, build_segments, extract_csr_edges, segments_cross};
+use super::euclidean_geom::segments_cross;
+use super::geometry::{Seg, build_segments, extract_csr_edges};
 
 /// Estimates total edge crossings in $O(M)$ time via deterministic edge-pair sampling.
 ///

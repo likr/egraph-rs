@@ -252,6 +252,93 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
             }
         }
 
+        // Bubble any ending segments (`x2 == x_evt`) into exact post-`x_evt` order BEFORE
+        // inserting `started_batch` or querying verticals, so segments whose crossings
+        // collapsed onto their final ULP never leave an internal AVL node inverted.
+        if !end_batch.is_empty() {
+            let mut needs_int_drain = false;
+            for &edge in &end_batch {
+                if !tree.is_active(edge) {
+                    continue;
+                }
+                let orig_prev = tree.prev_edge(edge);
+                let orig_next = tree.next_edge(edge);
+                let mut moved = false;
+                while let Some(next) = tree.next_edge(edge) {
+                    if pred.cmp_post_x(&segs[edge], &segs[next], x_evt) != Ordering::Greater {
+                        break;
+                    }
+                    tree.swap_adjacent_edges(edge, next);
+                    collector.on_swap_pair(
+                        &segs[edge],
+                        &segs[next],
+                        x_evt,
+                        eps_y,
+                        scratch.dt_probe,
+                        pred,
+                    );
+                    moved = true;
+                }
+                while let Some(prev) = tree.prev_edge(edge) {
+                    if pred.cmp_post_x(&segs[prev], &segs[edge], x_evt) != Ordering::Greater {
+                        break;
+                    }
+                    tree.swap_adjacent_edges(prev, edge);
+                    collector.on_swap_pair(
+                        &segs[prev],
+                        &segs[edge],
+                        x_evt,
+                        eps_y,
+                        scratch.dt_probe,
+                        pred,
+                    );
+                    moved = true;
+                }
+                if moved
+                    && let (Some(op), Some(on)) = (orig_prev, orig_next)
+                    && tree.next_edge(op) == Some(on)
+                {
+                    check_adjacent_and_schedule(
+                        op,
+                        on,
+                        x_evt,
+                        eps_y,
+                        segs,
+                        &mut events,
+                        collector,
+                        scratch.dt_probe,
+                        &scratch.processed_int_at_x,
+                        &mut scratch.scheduled_at_x,
+                        pred,
+                    );
+                    needs_int_drain = true;
+                }
+            }
+            if needs_int_drain {
+                while let Some(Reverse(ev)) = events.peek().copied() {
+                    if ev.x != x_evt || !matches!(ev.kind, EventKind::Intersection { .. }) {
+                        break;
+                    }
+                    events.pop();
+                    if let EventKind::Intersection { e1, e2 } = ev.kind {
+                        handle_intersection(
+                            e1,
+                            e2,
+                            x_evt,
+                            eps_y,
+                            segs,
+                            &mut tree,
+                            &mut events,
+                            collector,
+                            &mut touched_edges,
+                            &mut scratch,
+                            pred,
+                        );
+                    }
+                }
+            }
+        }
+
         // Insert all segments starting at x_evt before checking clusters so co-located stars,
         // ending tips, and passing segments at (x_evt, y) are evaluated simultaneously.
         for &edge in &started_batch {
@@ -280,16 +367,16 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
             let v_seg = &segs[v_idx];
             let lo = v_seg.y_min - vert_margin;
             let hi = v_seg.y_max + vert_margin;
-            if let Some(mut cur_edge) = tree.lower_bound_y(lo, x_evt, segs) {
+            if let Some(mut cur_edge) = tree.lower_bound_y(lo, x_evt, segs, pred) {
                 while let Some(prev) = tree.prev_edge(cur_edge) {
-                    if segs[prev].y_at(x_evt) < lo {
+                    if pred.y_at(&segs[prev], x_evt) < lo {
                         break;
                     }
                     cur_edge = prev;
                 }
                 loop {
                     let s_cur = &segs[cur_edge];
-                    if s_cur.y_at(x_evt) > hi {
+                    if pred.y_at(s_cur, x_evt) > hi {
                         break;
                     }
                     if pred.cross(v_seg, s_cur) {
@@ -346,7 +433,7 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
 
         let next_x = events.peek().map_or(f64::INFINITY, |e| e.0.x);
         if next_x != x_evt {
-            collector.flush_at_x(x_evt, next_x, segs, eps_y, scratch.dt_probe);
+            collector.flush_at_x(x_evt, next_x, segs, eps_y, scratch.dt_probe, pred);
         }
     }
 }

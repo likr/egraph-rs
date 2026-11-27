@@ -51,7 +51,15 @@ pub(super) trait CrossingCollector {
         pred: &P,
     );
     fn evict_before(&mut self, x_evt: f64);
-    fn flush_at_x(&mut self, sweep_x: f64, next_x: f64, segs: &[Seg], eps_y: f64, dt_probe: f64);
+    fn flush_at_x<P: CrossPred>(
+        &mut self,
+        sweep_x: f64,
+        next_x: f64,
+        segs: &[Seg],
+        eps_y: f64,
+        dt_probe: f64,
+        pred: &P,
+    );
 }
 
 pub(super) struct PairSetCollector {
@@ -97,13 +105,14 @@ impl CrossingCollector for PairSetCollector {
     fn evict_before(&mut self, _x_evt: f64) {}
 
     #[inline]
-    fn flush_at_x(
+    fn flush_at_x<P: CrossPred>(
         &mut self,
         _sweep_x: f64,
         _next_x: f64,
         _segs: &[Seg],
         _eps_y: f64,
         _dt_probe: f64,
+        _pred: &P,
     ) {
     }
 }
@@ -179,7 +188,7 @@ impl<F: FnMut(usize, usize)> StreamingCollector<F> {
 
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn promote_band_pair(
+fn promote_band_pair<P: CrossPred>(
     pair: u64,
     a_id: u32,
     b_id: u32,
@@ -189,6 +198,7 @@ fn promote_band_pair(
     segs: &[Seg],
     eps_y: f64,
     dt_probe: f64,
+    pred: &P,
     active_band_reported: &mut InlinePairSet,
     evict_heap: &mut BinaryHeap<Reverse<(OrderedF64, u64)>>,
 ) {
@@ -206,7 +216,7 @@ fn promote_band_pair(
         r
     } else {
         let dx_rem = next_x - x_base;
-        let dy = (a.y_at(sweep_x) - b.y_at(sweep_x)).abs();
+        let dy = (pred.y_at(a, sweep_x) - pred.y_at(b, sweep_x)).abs();
         let margin = dy + 2.0 * eps_y + 2.0 * (seg_y_err(a, r) + seg_y_err(b, r));
         if dx_rem > dt_probe {
             let rhs = (dx_rem - dt_probe) * ds;
@@ -290,8 +300,13 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                 {
                     return;
                 }
+                // If an interior crossing falls inside the final ULP before a segment ends
+                // (`x2 <= sweep_x`), `can_schedule` cannot defer a swap so emit immediately.
+                let unscheduled_ending_cross = (s_lo.x2 <= sweep_x || s_hi.x2 <= sweep_x)
+                    && pred.cmp_slope(s_lo, s_hi) == Ordering::Greater;
                 if pred.xi_eq_sweep(s_lo, s_hi, xi, sweep_x)
-                    || within_band(s_lo, s_hi, sweep_x, eps_y)
+                    || unscheduled_ending_cross
+                    || within_band(s_lo, s_hi, sweep_x, eps_y, pred)
                 {
                     let pair = pack_pair(s_lo.id, s_hi.id);
                     if !self.is_reported(pair) {
@@ -313,7 +328,15 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
         }
     }
 
-    fn flush_at_x(&mut self, sweep_x: f64, next_x: f64, segs: &[Seg], eps_y: f64, dt_probe: f64) {
+    fn flush_at_x<P: CrossPred>(
+        &mut self,
+        sweep_x: f64,
+        next_x: f64,
+        segs: &[Seg],
+        eps_y: f64,
+        dt_probe: f64,
+        pred: &P,
+    ) {
         if self.at_x_inline_len == 0 && self.at_x_overflow_list.is_empty() {
             return;
         }
@@ -338,6 +361,7 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                     segs,
                     eps_y,
                     dt_probe,
+                    pred,
                     &mut self.active_band_reported,
                     &mut self.evict_heap,
                 );
@@ -355,6 +379,7 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                     segs,
                     eps_y,
                     dt_probe,
+                    pred,
                     &mut self.active_band_reported,
                     &mut self.evict_heap,
                 );

@@ -112,6 +112,80 @@ pub(super) fn segs_intersect_exact_f64(a: [f64; 4], b: [f64; 4]) -> bool {
     torus_segments_intersect(&sa, &sb)
 }
 
+#[cold]
+#[inline(never)]
+pub(super) fn intersection_x_dd_f64(a: [f64; 4], b: [f64; 4], lo: f64, hi: f64) -> Option<f64> {
+    let pa1 = ShiftedPt::from_f64(a[0], a[1]);
+    let pa2 = ShiftedPt::from_f64(a[2], a[3]);
+    let pb1 = ShiftedPt::from_f64(b[0], b[1]);
+    let pb2 = ShiftedPt::from_f64(b[2], b[3]);
+    let (xi, _) = dd_intersection_xy(pa1, pa2, pb1, pb2)?;
+    let mut x = xi.to_f64().clamp(lo, hi);
+    if exact_xi_cmp(pa1, pa2, pb1, pb2, x) == Some(Ordering::Greater)
+        && exact_xi_cmp(pa1, pa2, pb1, pb2, hi) != Some(Ordering::Greater)
+    {
+        x = super::cross_pred::binary_search_xi_ceil(pa1, pa2, pb1, pb2, x, hi);
+    }
+    Some(x)
+}
+
+#[cold]
+#[inline(never)]
+pub(super) fn cmp_post_x_exact_f64(
+    id_a: usize,
+    a: [f64; 4],
+    id_b: usize,
+    b: [f64; 4],
+    x_evt: f64,
+) -> Ordering {
+    let ma = ShiftedSeg::from_shifted(
+        ShiftedPt::from_f64(a[0], a[1]),
+        ShiftedPt::from_f64(a[2], a[3]),
+    );
+    let mb = ShiftedSeg::from_shifted(
+        ShiftedPt::from_f64(b[0], b[1]),
+        ShiftedPt::from_f64(b[2], b[3]),
+    );
+    let s1 = orient2d_shifted(ma.p1, ma.p2, mb.p1);
+    let t1 = orient2d_shifted(ma.p1, ma.p2, mb.p2);
+    if s1 != Ordering::Equal && s1 == t1 {
+        return if s1 == Ordering::Greater {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+    }
+    let s2 = orient2d_shifted(mb.p1, mb.p2, ma.p1);
+    let t2 = orient2d_shifted(mb.p1, mb.p2, ma.p2);
+    if s2 != Ordering::Equal && s2 == t2 {
+        return if s2 == Ordering::Greater {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        };
+    }
+    if ma.p2 == mb.p2 && a[2] > x_evt {
+        return cmp_slope_shifted(mb.p1, mb.p2, ma.p1, ma.p2).then_with(|| id_a.cmp(&id_b));
+    }
+    if ma.p1 == mb.p1 && a[0] <= x_evt {
+        return cmp_slope_shifted(ma.p1, ma.p2, mb.p1, mb.p2).then_with(|| id_a.cmp(&id_b));
+    }
+    let det_ord = det_sign_shifted(ma.p1, ma.p2, mb.p1, mb.p2);
+    if det_ord == Ordering::Equal {
+        return id_a.cmp(&id_b);
+    }
+    let post_crossing = exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, x_evt) != Some(Ordering::Greater);
+    if post_crossing {
+        cmp_slope_shifted(ma.p1, ma.p2, mb.p1, mb.p2)
+            .then_with(|| Ordering::Equal.cmp(&det_ord))
+            .then_with(|| id_a.cmp(&id_b))
+    } else {
+        cmp_slope_shifted(mb.p1, mb.p2, ma.p1, ma.p2)
+            .then_with(|| det_ord)
+            .then_with(|| id_a.cmp(&id_b))
+    }
+}
+
 #[inline]
 fn exact_coord_cmp_axis(
     a1: ShiftedPt,

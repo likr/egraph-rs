@@ -267,15 +267,15 @@ pub(super) fn handle_intersection<C: CrossingCollector, P: CrossPred>(
         let right = tree.next_edge(e1);
         let s1 = &segs[e1];
         let s2 = &segs[e2];
-        let y1 = s1.y_at(x_evt);
-        let y2 = s2.y_at(x_evt);
+        let y1 = pred.y_at(s1, x_evt);
+        let y2 = pred.y_at(s2, x_evt);
         let err1 = seg_y_err(s1, x_evt);
         let err2 = seg_y_err(s2, x_evt);
         let left_isolated = match left {
             None => true,
             Some(l) => {
                 let sl = &segs[l];
-                let yl = sl.y_at(x_evt);
+                let yl = pred.y_at(sl, x_evt);
                 let err_l = seg_y_err(sl, x_evt);
                 y2 - yl > 2.0 * eps_y + err_l + err2 && y1 - yl > 2.0 * eps_y + err_l + err1
             }
@@ -284,7 +284,7 @@ pub(super) fn handle_intersection<C: CrossingCollector, P: CrossPred>(
             None => true,
             Some(r) => {
                 let sr = &segs[r];
-                let yr = sr.y_at(x_evt);
+                let yr = pred.y_at(sr, x_evt);
                 let err_r = seg_y_err(sr, x_evt);
                 yr - y1 > 2.0 * eps_y + err1 + err_r && yr - y2 > 2.0 * eps_y + err2 + err_r
             }

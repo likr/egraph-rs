@@ -49,6 +49,11 @@ impl ExactFactor {
     }
 
     #[inline]
+    pub(super) fn from_pair(pos: f64, neg: f64) -> Self {
+        Self::from_triple([pos, -neg, 0.0])
+    }
+
+    #[inline]
     pub(super) fn from_triple(vals: [f64; 3]) -> Self {
         let mut terms = [(0_i64, 0_i32); 3];
         let mut len = 0usize;

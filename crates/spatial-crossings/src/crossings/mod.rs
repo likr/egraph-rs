@@ -9,6 +9,7 @@ mod band_reorder;
 mod collector;
 mod cross_pred;
 mod double_double;
+mod euclidean_geom;
 mod exact_limbs;
 mod geometry;
 mod hyperbolic;

@@ -4,9 +4,8 @@ use super::super::SweepLineCrossings;
 use super::super::TorusCrossing;
 use super::super::TorusLayoutView;
 use super::super::double_double::dd_mul_f64;
-use super::super::geometry::{
-    Seg, build_segments, segments_cross, segments_geometrically_intersect,
-};
+use super::super::euclidean_geom::{segments_cross, segments_geometrically_intersect};
+use super::super::geometry::{Seg, build_segments};
 use super::super::torus::torus_crossing_edges_from_edges;
 use super::super::torus_clip::{dd_unwrapped_delta, torus_crossing_angle_metrics};
 use super::super::torus_exact::{

@@ -2,7 +2,8 @@ use std::f64::consts::FRAC_PI_2;
 
 use egraph_core::{CsrGraph, DeterministicRng, ManifoldKind, ManifoldLayout2d};
 
-use super::super::geometry::{Seg, segments_geometrically_intersect};
+use super::super::euclidean_geom::segments_geometrically_intersect;
+use super::super::geometry::Seg;
 use super::super::{
     torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
     torus_layout_edge_segments,
