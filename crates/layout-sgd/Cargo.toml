@@ -7,7 +7,7 @@ repository.workspace = true
 
 [features]
 default = []
-delaunay = ["egraph-spatial-trees/delaunay"]
+delaunay = []
 
 [dependencies]
 egraph-core.workspace = true

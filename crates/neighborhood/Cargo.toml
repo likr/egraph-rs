@@ -6,6 +6,6 @@ license.workspace = true
 
 [dependencies]
 egraph-core.workspace = true
-egraph-spatial.workspace = true
+egraph-spatial-trees.workspace = true
 egraph-linalg.workspace = true
 egraph-linalg-amg.workspace = true

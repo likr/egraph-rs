@@ -113,7 +113,7 @@ check_cargo_tree_crate() {
 # ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-layout-neighbor|egraph-python)
+    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-trees|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-layout-neighbor|egraph-python)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
     egraph-metrics|egraph-metrics-cluster)
@@ -156,11 +156,6 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "egraph-layout-sgd (--no-default-features)" "hard" -p egraph-layout-sgd --no-default-features
       check_cargo_tree_crate "egraph-layout-sgd (--features delaunay)" "hard" -p egraph-layout-sgd --features delaunay
       ;;
-    egraph-spatial|egraph-spatial-trees)
-      check_cargo_tree_crate "$TARGET_CRATE (default)" "hard" -p "$TARGET_CRATE"
-      check_cargo_tree_crate "$TARGET_CRATE (--features delaunay)" "hard" -p "$TARGET_CRATE" --features delaunay
-      check_cargo_tree_crate "$TARGET_CRATE (--all-features)" "hard" -p "$TARGET_CRATE" --all-features
-      ;;
     egraph-wasm)
       check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
       check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
@@ -175,7 +170,7 @@ else
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
   done
-  for crate in egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel; do
+  for crate in egraph-dataset egraph-metrics egraph-metrics-cluster egraph egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--all-features)" "hard" -p "$crate" --all-features
     fi
@@ -193,14 +188,11 @@ else
   if has_workspace_pkg "egraph-layout"; then
     check_cargo_tree_crate "egraph-layout (default/delaunay)" "hard" -p egraph-layout
   fi
-  for crate in egraph-spatial egraph-spatial-trees egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel; do
+  for crate in egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--features delaunay)" "hard" -p "$crate" --features delaunay
     fi
   done
-  if has_workspace_pkg "egraph-spatial"; then
-    check_cargo_tree_crate "egraph-spatial (default)" "hard" -p egraph-spatial
-  fi
   if has_workspace_pkg "egraph-wasm"; then
     check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
     check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
@@ -266,7 +258,7 @@ check_wasm32_target() {
       ;;
   esac
   case "$crate" in
-    egraph-spatial|egraph-spatial-trees|egraph-layout-constraints|egraph-layout-sgd|egraph-layout-multilevel)
+    egraph-layout-constraints|egraph-layout-sgd|egraph-layout-multilevel)
       check_wasm32_variant "$crate" " (--features delaunay)" --features delaunay
       ;;
   esac
@@ -287,7 +279,6 @@ else
     egraph-ffi \
     egraph-petgraph \
     egraph-dataset \
-    egraph-spatial \
     egraph-spatial-trees \
     egraph-spatial-fft \
     egraph-spatial-crossings \

@@ -15,7 +15,32 @@
 pub use egraph_core as core;
 
 #[cfg(feature = "spatial")]
-pub use egraph_spatial as spatial;
+/// Single-threaded spatial acceleration structures, density-field FFTs, and crossing detectors.
+pub mod spatial {
+    #[cfg(feature = "delaunay")]
+    pub use egraph_spatial_trees::Delaunay2d;
+    #[cfg(feature = "delaunay")]
+    pub use egraph_spatial_trees::delaunay;
+    pub use egraph_spatial_trees::{
+        ArenaOctree3d, ArenaQuadtree2d, DynamicKdTree, KdQueryScratch, Rect2d,
+        RectangleOverlapSweep, StaticKdTree, kdtree, octree, overlap, quadtree,
+    };
+
+    pub use egraph_spatial_fft::{
+        Complex32, Complex64, DensityFieldKernel, Fft2dWorkspace, FitField2d, FitFieldConfig,
+        FitFieldOutput, FitFieldStats, IbFft2d, IbFftConfig, IbFftGridSpec, InterpolationOrder,
+        R2cFft2dWorkspaceF32, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
+        ScreenedPoissonStats, fft, fft_r2c, fit_field, ibfft, screened_poisson,
+    };
+
+    pub use egraph_spatial_crossings::{
+        CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, TorusLayoutView,
+        crossing_edges_hyperbolic, crossing_edges_spherical, crossings, hyperbolic_crossing_number,
+        sampled_crossing_number, sampled_crossing_number_edges, spherical_crossing_number,
+        torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
+        torus_edge_segments, torus_layout_edge_segments,
+    };
+}
 
 #[cfg(feature = "linalg")]
 /// Single-threaded linear algebra, spectral diffusion, MDS, and AMG-PCG solvers.
@@ -77,15 +102,23 @@ pub mod prelude {
     };
 
     #[cfg(feature = "delaunay")]
-    pub use egraph_spatial::Delaunay2d;
+    pub use egraph_spatial_trees::Delaunay2d;
 
     #[cfg(feature = "spatial")]
-    pub use egraph_spatial::{
-        ArenaOctree3d, ArenaQuadtree2d, Complex32, CrossingPair, CrossingSummary,
-        DensityFieldKernel, DynamicKdTree, FitField2d, FitFieldConfig, IbFft2d, IbFftConfig,
-        InterpolationOrder, R2cFft2dWorkspaceF32, Rect2d, RectangleOverlapSweep,
-        ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput, ScreenedPoissonStats,
-        StaticKdTree, SweepLineCrossings, TorusCrossing, TorusLayoutView,
+    pub use egraph_spatial_trees::{
+        ArenaOctree3d, ArenaQuadtree2d, DynamicKdTree, Rect2d, RectangleOverlapSweep, StaticKdTree,
+    };
+
+    #[cfg(feature = "spatial")]
+    pub use egraph_spatial_fft::{
+        Complex32, DensityFieldKernel, FitField2d, FitFieldConfig, IbFft2d, IbFftConfig,
+        InterpolationOrder, R2cFft2dWorkspaceF32, ScreenedPoissonConfig, ScreenedPoissonField2d,
+        ScreenedPoissonOutput, ScreenedPoissonStats,
+    };
+
+    #[cfg(feature = "spatial")]
+    pub use egraph_spatial_crossings::{
+        CrossingPair, CrossingSummary, SweepLineCrossings, TorusCrossing, TorusLayoutView,
         crossing_edges_hyperbolic, crossing_edges_spherical, hyperbolic_crossing_number,
         spherical_crossing_number, torus_crossing_edges, torus_crossing_edges_from_edges,
         torus_crossing_number, torus_edge_segments, torus_layout_edge_segments,

@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/cli",
-    "crates/cluster",
+    "crates/clustering",
     "crates/core",
     "crates/dataset",
     "crates/egraph",
@@ -23,7 +23,6 @@ members = [
     "crates/neighborhood",
     "crates/petgraph",
     "crates/python",
-    "crates/spatial",
     "crates/spatial-crossings",
     "crates/spatial-fft",
     "crates/spatial-trees",
@@ -50,7 +49,7 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 egraph = { path = "crates/egraph" }
-egraph-clustering = { path = "crates/cluster" }
+egraph-clustering = { path = "crates/clustering", version = "6.0.0-alpha.9" }
 egraph-core = { path = "crates/core", version = "6.0.0-alpha.9" }
 egraph-dataset = { path = "crates/dataset" }
 egraph-ffi = { path = "crates/ffi" }
@@ -61,18 +60,17 @@ egraph-layout-multilevel = { path = "crates/layout-multilevel" }
 egraph-layout-neighbor = { path = "crates/layout-neighbor" }
 egraph-layout-sgd = { path = "crates/layout-sgd" }
 egraph-layout-stress = { path = "crates/layout-stress" }
-egraph-linalg = { path = "crates/linalg" }
-egraph-linalg-amg = { path = "crates/linalg-amg" }
-egraph-linalg-mds = { path = "crates/linalg-mds" }
+egraph-linalg = { path = "crates/linalg", version = "6.0.0-alpha.9" }
+egraph-linalg-amg = { path = "crates/linalg-amg", version = "6.0.0-alpha.9" }
+egraph-linalg-mds = { path = "crates/linalg-mds", version = "6.0.0-alpha.9" }
 egraph-metrics = { path = "crates/metrics" }
 egraph-metrics-cluster = { path = "crates/metrics-cluster" }
 egraph-metrics-geometry = { path = "crates/metrics-geometry" }
-egraph-neighborhood = { path = "crates/neighborhood" }
+egraph-neighborhood = { path = "crates/neighborhood", version = "6.0.0-alpha.9" }
 egraph-petgraph = { path = "crates/petgraph" }
-egraph-spatial = { path = "crates/spatial" }
-egraph-spatial-crossings = { path = "crates/spatial-crossings" }
-egraph-spatial-fft = { path = "crates/spatial-fft" }
-egraph-spatial-trees = { path = "crates/spatial-trees" }
+egraph-spatial-crossings = { path = "crates/spatial-crossings", version = "6.0.0-alpha.9" }
+egraph-spatial-fft = { path = "crates/spatial-fft", version = "6.0.0-alpha.9" }
+egraph-spatial-trees = { path = "crates/spatial-trees", version = "6.0.0-alpha.9" }
 spade = "2.2"
 
 [profile.release]

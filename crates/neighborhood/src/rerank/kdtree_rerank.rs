@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 
 use egraph_core::{CoreError, CoreResult};
-use egraph_spatial::StaticKdTree;
+use egraph_spatial_trees::StaticKdTree;
 
 use crate::knn::KnnGraph;
 

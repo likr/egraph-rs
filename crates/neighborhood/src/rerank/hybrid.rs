@@ -68,7 +68,7 @@ fn apply_margin_gap(d_raw: &mut [f64], d_2hop_max: f64, margin_gap: f64) {
 ///
 /// Preserves every 1-hop and pure 2-hop neighbor without truncation unless `config.max_row_k` is
 /// set, fills residual slots up to `max(kept_12, min_k_i)` via 2-stage coarse
-/// [`egraph_spatial::StaticKdTree`] + full-$D$ reranking, and enforces
+/// [`egraph_spatial_trees::StaticKdTree`] + full-$D$ reranking, and enforces
 /// $\max(d_{1,2\text{-hop}}) < \min(d_{\text{non-2}})$ when `config.margin_gap > 0.0`.
 pub fn build_hybrid_adaptive_knn<W>(
     graph: &CsrGraph<W>,

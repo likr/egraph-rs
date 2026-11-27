@@ -249,11 +249,11 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
     fi
   }
 
-  ALL_FEAT_CRATES=(egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
+  ALL_FEAT_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
   NO_DEF_LAYOUT_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel)
   NO_DEF_METRICS_CRATES=(egraph-metrics egraph-metrics-cluster)
   BASELINES_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel)
-  DELAUNAY_CRATES=(egraph-spatial egraph-spatial-trees egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel)
+  DELAUNAY_CRATES=(egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel)
 
   run_batched_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
   run_batched_matrix clippy "no_default_layout" "--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
