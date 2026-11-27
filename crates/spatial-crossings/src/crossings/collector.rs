@@ -2,7 +2,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
 use super::cross_pred::CrossPred;
-use super::geometry::{Seg, seg_y_err, within_band};
+use super::geometry::{STEEP_SLOPE_THRESHOLD, Seg, seg_y_err, within_band};
 use super::pair_set::{InlinePairSet, PairSet, pack_pair};
 
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +50,7 @@ pub(super) trait CrossingCollector {
         opt_xi: Option<f64>,
         pred: &P,
     );
-    fn evict_before(&mut self, x_evt: f64);
+    fn evict_before<P: CrossPred>(&mut self, x_evt: f64, segs: &[Seg], eps_y: f64, pred: &P);
     fn flush_at_x<P: CrossPred>(
         &mut self,
         sweep_x: f64,
@@ -102,7 +102,7 @@ impl CrossingCollector for PairSetCollector {
     }
 
     #[inline]
-    fn evict_before(&mut self, _x_evt: f64) {}
+    fn evict_before<P: CrossPred>(&mut self, _x_evt: f64, _segs: &[Seg], _eps_y: f64, _pred: &P) {}
 
     #[inline]
     fn flush_at_x<P: CrossPred>(
@@ -124,7 +124,7 @@ pub(super) struct StreamingCollector<F: FnMut(usize, usize)> {
     at_x_overflow_set: PairSet,
     at_x_overflow_list: Vec<(u64, u32, u32, f64)>,
     active_band_reported: InlinePairSet,
-    evict_heap: BinaryHeap<Reverse<(OrderedF64, u64)>>,
+    evict_heap: BinaryHeap<Reverse<(OrderedF64, u32, u32, u64)>>,
     pub(super) peak_active_band: usize,
 }
 
@@ -200,7 +200,7 @@ fn promote_band_pair<P: CrossPred>(
     dt_probe: f64,
     pred: &P,
     active_band_reported: &mut InlinePairSet,
-    evict_heap: &mut BinaryHeap<Reverse<(OrderedF64, u64)>>,
+    evict_heap: &mut BinaryHeap<Reverse<(OrderedF64, u32, u32, u64)>>,
 ) {
     if x_base.is_nan() {
         return;
@@ -211,23 +211,30 @@ fn promote_band_pair<P: CrossPred>(
     if next_x > r || sweep_x >= r {
         return;
     }
+    let in_band_next = within_band(a, b, next_x, eps_y, pred);
     let ds = (a.slope - b.slope).abs();
-    let x_evict = if ds == 0.0 {
+    let steep = a.slope.abs() >= STEEP_SLOPE_THRESHOLD || b.slope.abs() >= STEEP_SLOPE_THRESHOLD;
+    let x_evict = if steep || ds == 0.0 || !ds.is_finite() {
         r
     } else {
-        let dx_rem = next_x - x_base;
         let dy = (pred.y_at(a, sweep_x) - pred.y_at(b, sweep_x)).abs();
         let margin = dy + 2.0 * eps_y + 2.0 * (seg_y_err(a, r) + seg_y_err(b, r));
-        if dx_rem > dt_probe {
-            let rhs = (dx_rem - dt_probe) * ds;
-            if margin < rhs * (1.0 - 4.0 * f64::EPSILON) {
-                return;
-            }
+        let span = (margin / ds) * (1.0 + 16.0 * f64::EPSILON) + dt_probe;
+        let base = x_base.max(sweep_x);
+        let cand = base + span;
+        if !cand.is_finite() || (cand == base && span > 0.0) {
+            r
+        } else {
+            r.min(cand)
         }
-        r.min(x_base + margin / ds + dt_probe)
     };
-    if x_evict >= next_x && active_band_reported.insert(pair) {
-        evict_heap.push(Reverse((OrderedF64(x_evict), pair)));
+    let final_evict = if in_band_next {
+        x_evict.max(next_x)
+    } else {
+        x_evict
+    };
+    if final_evict >= next_x && active_band_reported.insert(pair) {
+        evict_heap.push(Reverse((OrderedF64(final_evict), a_id, b_id, pair)));
     }
 }
 
@@ -295,11 +302,6 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
                 }
             }
             Some(xi) => {
-                if pred.xi_lt_sweep(s_lo, s_hi, xi, sweep_x)
-                    && pred.cmp_slope(s_lo, s_hi) != Ordering::Greater
-                {
-                    return;
-                }
                 // If an interior crossing falls inside the final ULP before a segment ends
                 // (`x2 <= sweep_x`), `can_schedule` cannot defer a swap so emit immediately.
                 let unscheduled_ending_cross = (s_lo.x2 <= sweep_x || s_hi.x2 <= sweep_x)
@@ -317,9 +319,20 @@ impl<F: FnMut(usize, usize)> CrossingCollector for StreamingCollector<F> {
         }
     }
 
-    fn evict_before(&mut self, x_evt: f64) {
-        while let Some(&Reverse((OrderedF64(ex), pair))) = self.evict_heap.peek() {
+    fn evict_before<P: CrossPred>(&mut self, x_evt: f64, segs: &[Seg], eps_y: f64, pred: &P) {
+        while let Some(&Reverse((OrderedF64(ex), a_id, b_id, pair))) = self.evict_heap.peek() {
             if ex < x_evt {
+                let a = &segs[a_id as usize];
+                let b = &segs[b_id as usize];
+                // Keep pairs in `active_band_reported` while both segments remain active and
+                // inside `within_band`, preventing delayed re-emission after conservative `x_evict`.
+                if a.x2 >= x_evt && b.x2 >= x_evt && within_band(a, b, x_evt, eps_y, pred) {
+                    self.evict_heap.pop();
+                    let r = a.x2.min(b.x2);
+                    self.evict_heap
+                        .push(Reverse((OrderedF64(r), a_id, b_id, pair)));
+                    continue;
+                }
                 self.evict_heap.pop();
                 self.active_band_reported.remove(pair);
             } else {

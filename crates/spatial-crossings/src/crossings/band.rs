@@ -20,6 +20,7 @@ pub(super) struct BandScratch {
     pub(super) surviving_touched: Vec<usize>,
     visited_stamp: Vec<u64>,
     visited_err: Vec<f64>,
+    visited_center_y: Vec<f64>,
     stamp: u64,
     pub(super) processed_int_at_x: InlinePairSet,
     pub(super) scheduled_at_x: InlinePairSet,
@@ -39,6 +40,7 @@ impl BandScratch {
             surviving_touched: Vec::new(),
             visited_stamp: vec![0; num_edges],
             visited_err: vec![0.0; num_edges],
+            visited_center_y: vec![0.0; num_edges],
             stamp: 0,
             processed_int_at_x: InlinePairSet::new(),
             scheduled_at_x: InlinePairSet::new(),
@@ -79,6 +81,43 @@ fn collect_band_around_seed<P: CrossPred>(
     }
 }
 
+#[inline]
+fn is_band_seed_covered(
+    scratch: &BandScratch,
+    cur_stamp: u64,
+    seed: usize,
+    y_seed: f64,
+    seed_err: f64,
+) -> bool {
+    if scratch.visited_stamp[seed] != cur_stamp || !y_seed.is_finite() || !seed_err.is_finite() {
+        return false;
+    }
+    let prev_y = scratch.visited_center_y[seed];
+    let prev_err = scratch.visited_err[seed];
+    if !prev_y.is_finite() || !prev_err.is_finite() {
+        return false;
+    }
+    if y_seed == prev_y {
+        return seed_err <= prev_err;
+    }
+    let diff = (y_seed - prev_y).abs();
+    diff.is_finite() && (diff + seed_err) + 8.0 * f64::EPSILON * prev_err <= prev_err
+}
+
+#[inline]
+fn record_band_coverage(scratch: &mut BandScratch, cur_stamp: u64, y_seed: f64, seed_err: f64) {
+    if !y_seed.is_finite() || !seed_err.is_finite() {
+        return;
+    }
+    for &e in &scratch.band_edges {
+        if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
+            scratch.visited_stamp[e] = cur_stamp;
+            scratch.visited_err[e] = seed_err;
+            scratch.visited_center_y[e] = y_seed;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn check_eps_bands_at_x<C: CrossingCollector, P: CrossPred>(
     touched_edges: &[usize],
@@ -98,9 +137,9 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector, P: CrossPred>(
         if !tree.is_active(seed) {
             continue;
         }
+        let y_seed = pred.y_at(&segs[seed], x_evt);
         let seed_err = seg_y_err(&segs[seed], x_evt);
-        if scratch.visited_stamp[seed] == cur_stamp && seed_err <= scratch.visited_err[seed] + eps_y
-        {
+        if is_band_seed_covered(scratch, cur_stamp, seed, y_seed, seed_err) {
             continue;
         }
 
@@ -113,12 +152,7 @@ pub(super) fn check_eps_bands_at_x<C: CrossingCollector, P: CrossPred>(
             &mut scratch.band_edges,
             pred,
         );
-        for &e in &scratch.band_edges {
-            if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
-                scratch.visited_stamp[e] = cur_stamp;
-                scratch.visited_err[e] = seed_err;
-            }
-        }
+        record_band_coverage(scratch, cur_stamp, y_seed, seed_err);
 
         let first_edge = scratch.band_edges[0];
         let last_edge = scratch.band_edges[scratch.band_edges.len() - 1];
@@ -182,9 +216,9 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector, P: CrossPred>(
         if !tree.is_active(seed) {
             continue;
         }
+        let y_seed = pred.y_at(&segs[seed], x_evt);
         let seed_err = seg_y_err(&segs[seed], x_evt);
-        if scratch.visited_stamp[seed] == cur_stamp && seed_err <= scratch.visited_err[seed] + eps_y
-        {
+        if is_band_seed_covered(scratch, cur_stamp, seed, y_seed, seed_err) {
             continue;
         }
 
@@ -197,12 +231,7 @@ pub(super) fn reorder_surviving_bands_at_x<C: CrossingCollector, P: CrossPred>(
             &mut scratch.band_edges,
             pred,
         );
-        for &e in &scratch.band_edges {
-            if scratch.visited_stamp[e] != cur_stamp || seed_err > scratch.visited_err[e] {
-                scratch.visited_stamp[e] = cur_stamp;
-                scratch.visited_err[e] = seed_err;
-            }
-        }
+        record_band_coverage(scratch, cur_stamp, y_seed, seed_err);
         if scratch.band_edges.len() < 2 {
             continue;
         }

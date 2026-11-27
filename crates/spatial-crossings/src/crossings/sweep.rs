@@ -216,7 +216,7 @@ fn sweep_segments_core<C: CrossingCollector, P: CrossPred>(
             scratch.processed_int_at_x.clear();
             scratch.scheduled_at_x.clear();
             scratch.last_int_x = x_evt;
-            collector.evict_before(x_evt);
+            collector.evict_before(x_evt, segs, eps_y, pred);
         }
         started_batch.clear();
         end_batch.clear();

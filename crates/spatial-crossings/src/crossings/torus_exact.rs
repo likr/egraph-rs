@@ -213,6 +213,11 @@ pub(super) fn cmp_post_x_exact_f64(
 }
 
 #[inline]
+fn dd_in_filter_range(d: Dd) -> bool {
+    d.is_zero() || (d.hi.is_finite() && d.lo.is_finite() && (1e-90..=1e90).contains(&d.hi.abs()))
+}
+
+#[inline]
 fn exact_coord_cmp_axis(
     a1: ShiftedPt,
     a2: ShiftedPt,
@@ -228,31 +233,43 @@ fn exact_coord_cmp_axis(
     };
 
     // Fast 106-bit DD filter for `N_x(X) = (bx1 - X)*dxa*dyb - (ax1 - X)*dya*dxb - (by1 - ay1)*dxa*dxb`.
+    // Guard every operand inside `{0} U [1e-90, 1e90]` so 3-factor products stay in `[1e-270, 1e270]`
+    // with zero intermediate subnormal underflow or overflow.
     let dxa = ax1.delta_dd(ax2);
     let dya = ay1.delta_dd(ay2);
     let dxb = bx1.delta_dd(bx2);
     let dyb = by1.delta_dd(by2);
-    let p_l = dd_mul(dxa, dyb);
-    let p_r = dd_mul(dya, dxb);
-    let det_dd = dd_sub(p_l, p_r);
-    let det_sum = p_l.hi.abs() + p_r.hi.abs();
+    let u = bx1.sub_f64_dd(bound);
+    let v = ax1.sub_f64_dd(bound);
+    let w = ay1.delta_dd(by1);
 
-    if det_sum.is_finite() && det_sum > 1e-260 && det_dd.hi.abs() > 1e-25 * det_sum {
-        let u = bx1.sub_f64_dd(bound);
-        let v = ax1.sub_f64_dd(bound);
-        let w = ay1.delta_dd(by1);
-        let t1 = dd_mul(u, dd_mul(dxa, dyb));
-        let t2 = dd_mul(v, dd_mul(dya, dxb));
-        let t3 = dd_mul(w, dd_mul(dxa, dxb));
-        let num = dd_sub(dd_sub(t1, t2), t3);
-        let num_sum = t1.hi.abs() + t2.hi.abs() + t3.hi.abs();
-        if num_sum.is_finite() && num_sum > 1e-260 && num.hi.abs() > 1e-25 * num_sum {
-            let same_sign = (num.hi > 0.0) == (det_dd.hi > 0.0);
-            return Some(if same_sign {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            });
+    if dd_in_filter_range(dxa)
+        && dd_in_filter_range(dya)
+        && dd_in_filter_range(dxb)
+        && dd_in_filter_range(dyb)
+        && dd_in_filter_range(u)
+        && dd_in_filter_range(v)
+        && dd_in_filter_range(w)
+    {
+        let p_l = dd_mul(dxa, dyb);
+        let p_r = dd_mul(dya, dxb);
+        let det_dd = dd_sub(p_l, p_r);
+        let det_sum = p_l.hi.abs() + p_r.hi.abs();
+
+        if det_sum.is_finite() && det_sum > 1e-260 && det_dd.hi.abs() > 1e-25 * det_sum {
+            let t1 = dd_mul(u, p_l);
+            let t2 = dd_mul(v, p_r);
+            let t3 = dd_mul(w, dd_mul(dxa, dxb));
+            let num = dd_sub(dd_sub(t1, t2), t3);
+            let num_sum = t1.hi.abs() + t2.hi.abs() + t3.hi.abs();
+            if num_sum.is_finite() && num_sum > 1e-260 && num.hi.abs() > 1e-25 * num_sum {
+                let same_sign = (num.hi > 0.0) == (det_dd.hi > 0.0);
+                return Some(if same_sign {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                });
+            }
         }
     }
 

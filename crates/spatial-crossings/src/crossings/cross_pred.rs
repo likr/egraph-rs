@@ -22,7 +22,6 @@ pub(super) trait CrossPred {
     fn cmp_slope(&self, a: &Seg, b: &Seg) -> Ordering;
     fn same_right_endpoint(&self, a: &Seg, b: &Seg) -> bool;
     fn is_collinear_det_zero(&self, a: &Seg, b: &Seg) -> bool;
-    fn xi_lt_sweep(&self, a: &Seg, b: &Seg, xi: f64, sweep_x: f64) -> bool;
     fn xi_eq_sweep(&self, a: &Seg, b: &Seg, xi: f64, sweep_x: f64) -> bool;
 }
 
@@ -62,11 +61,6 @@ impl CrossPred for EuclideanPred {
     #[inline]
     fn is_collinear_det_zero(&self, a: &Seg, b: &Seg) -> bool {
         cmp_slope_euclidean(a, b) == Ordering::Equal
-    }
-
-    #[inline]
-    fn xi_lt_sweep(&self, _a: &Seg, _b: &Seg, xi: f64, sweep_x: f64) -> bool {
-        xi < sweep_x
     }
 
     #[inline]
@@ -367,13 +361,6 @@ impl CrossPred for TorusExactPred<'_> {
         let ma = &self.0[a.id];
         let mb = &self.0[b.id];
         det_sign_shifted(ma.p1, ma.p2, mb.p1, mb.p2) == Ordering::Equal
-    }
-
-    #[inline]
-    fn xi_lt_sweep(&self, a: &Seg, b: &Seg, _xi: f64, sweep_x: f64) -> bool {
-        let ma = &self.0[a.id];
-        let mb = &self.0[b.id];
-        exact_xi_cmp(ma.p1, ma.p2, mb.p1, mb.p2, sweep_x) == Some(Ordering::Less)
     }
 
     #[inline]
