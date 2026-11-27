@@ -257,6 +257,39 @@ class TestSpectralAndChebyshevLinalg(unittest.TestCase):
             (ValueError,), lambda: eg.smallest_laplacian_eigenpairs(g_small, 2, tol=0.0)
         )
 
+    def test_symmetric_eigen_jacobi_accuracy_and_boundaries(self) -> None:
+        g_small = _make_barbell(4, 2)
+        l_sym, _ = eg.symmetric_normalized_laplacian(g_small)
+        dense = l_sym.to_dense()
+        evals, evecs = eg.symmetric_eigen_jacobi(dense)
+        ref_vals, _ = np.linalg.eigh(dense)
+        self.assertEqual(evals.shape, (10,))
+        self.assertEqual(evecs.shape, (10, 10))
+        self.assertEqual(evals.dtype, np.float64)
+        self.assertEqual(evecs.dtype, np.float64)
+        np.testing.assert_allclose(evals, ref_vals, atol=1e-11)
+        np.testing.assert_allclose(evecs.T @ evecs, np.eye(10), atol=1e-11)
+        np.testing.assert_allclose(dense @ evecs, evecs * evals[None, :], atol=1e-11)
+
+        # Empty and singleton
+        ev0, vec0 = eg.symmetric_eigen_jacobi(np.empty((0, 0), dtype=np.float64))
+        self.assertEqual(ev0.shape, (0,))
+        self.assertEqual(vec0.shape, (0, 0))
+        ev1, vec1 = eg.symmetric_eigen_jacobi([[3.5]])
+        np.testing.assert_allclose(ev1, [3.5])
+        np.testing.assert_allclose(vec1, [[1.0]])
+
+        # Error checks without panics
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.symmetric_eigen_jacobi(np.zeros((2, 3), dtype=np.float64))
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.symmetric_eigen_jacobi(np.array([[1.0, float("nan")], [0.0, 1.0]]))
+        )
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.symmetric_eigen_jacobi([[1.0, 0.0], [0.0, 1.0]], tol=0.0)
+        )
+
     def test_chebyshev_heat_spmv_and_dog_jl_embedding(self) -> None:
         g = _make_barbell(5, 2)
         n = g.num_nodes

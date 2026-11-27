@@ -25,6 +25,7 @@ from egraph._core import (
     shifted_normalized_laplacian as shifted_normalized_laplacian,
     smallest_laplacian_eigenpairs as smallest_laplacian_eigenpairs,
     spectral_moment_stats as spectral_moment_stats,
+    symmetric_eigen_jacobi as symmetric_eigen_jacobi,
     symmetric_normalized_laplacian as symmetric_normalized_laplacian,
 )
 
@@ -53,5 +54,6 @@ __all__ = [
     "shifted_normalized_laplacian",
     "smallest_laplacian_eigenpairs",
     "spectral_moment_stats",
+    "symmetric_eigen_jacobi",
     "symmetric_normalized_laplacian",
 ]

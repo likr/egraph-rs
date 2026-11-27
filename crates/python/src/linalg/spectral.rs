@@ -6,6 +6,7 @@ use egraph::linalg::{
     robust_normalize_layout_2d as linalg_robust_normalize_layout_2d,
     select_maxmin_sp_pivots as linalg_select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs as linalg_smallest_eigenpairs,
+    symmetric_eigen_jacobi as linalg_symmetric_eigen_jacobi,
 };
 use egraph::neighborhood::{
     compute_diffusion_embedding as nb_compute_diffusion_embedding,
@@ -16,6 +17,7 @@ use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+use crate::array_extract::extract_f64_2d;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, ffi_error_to_py,
@@ -297,6 +299,38 @@ fn compute_diffusion_embedding<'py>(
     ))
 }
 
+type JacobiEigenPy<'py> = (Bound<'py, PyArray1<f64>>, Bound<'py, PyArray2<f64>>);
+
+/// Compute all eigenpairs `(eigenvalues, eigenvectors)` of a symmetric `(N, N)` matrix
+/// via cyclic Jacobi rotations in `f64`, sorted in ascending eigenvalue order.
+#[pyfunction]
+#[pyo3(
+    signature = (matrix, *, max_sweeps = StrictUsize(120), tol = StrictF64(1e-12)),
+    text_signature = "(matrix, *, max_sweeps=120, tol=1e-12)"
+)]
+fn symmetric_eigen_jacobi<'py>(
+    py: Python<'py>,
+    matrix: &Bound<'_, PyAny>,
+    max_sweeps: StrictUsize,
+    tol: StrictF64,
+) -> PyResult<JacobiEigenPy<'py>> {
+    let (flat, nrows, ncols) = extract_f64_2d(matrix, "matrix")?;
+    if nrows != ncols {
+        return Err(PyValueError::new_err(format!(
+            "matrix must be a square (N, N) matrix, got ({nrows}, {ncols})"
+        )));
+    }
+    let (lambdas, vectors) = py
+        .detach(|| linalg_symmetric_eigen_jacobi(&flat, nrows, max_sweeps.0, tol.0))
+        .map_err(core_error_to_py)?;
+    let vectors_arr = Array2::from_shape_vec((nrows, nrows), vectors)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        PyArray1::from_vec(py, lambdas),
+        PyArray2::from_owned_array(py, vectors_arr),
+    ))
+}
+
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(select_maxmin_sp_pivots, m)?)?;
     m.add_function(wrap_pyfunction!(koren_spectral_init, m)?)?;
@@ -304,6 +338,7 @@ pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(normalize_layout_2d, m)?)?;
     m.add_function(wrap_pyfunction!(robust_normalize_layout_2d, m)?)?;
     m.add_function(wrap_pyfunction!(smallest_laplacian_eigenpairs, m)?)?;
+    m.add_function(wrap_pyfunction!(symmetric_eigen_jacobi, m)?)?;
     m.add_function(wrap_pyfunction!(compute_resistance_embedding, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diffusion_embedding, m)?)?;
     Ok(())

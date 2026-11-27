@@ -75,6 +75,7 @@ Shortest Paths, Laplacians, MDS & Spectral Primitives
 .. autofunction:: egraph.robust_normalize_layout_2d
 .. autofunction:: egraph.representative_mds
 .. autofunction:: egraph.smallest_laplacian_eigenpairs
+.. autofunction:: egraph.symmetric_eigen_jacobi
 .. autofunction:: egraph.spectral_moment_stats
 .. autofunction:: egraph.anisotropic_laplacian
 .. autofunction:: egraph.build_dog_terms

@@ -270,6 +270,7 @@ __all__ = [
     "squarified_treemap",
     "sweep_crossing_angle",
     "sweep_crossing_number",
+    "symmetric_eigen_jacobi",
     "symmetric_normalized_laplacian",
     "symmetrize_row_normalized",
     "to_igraph",

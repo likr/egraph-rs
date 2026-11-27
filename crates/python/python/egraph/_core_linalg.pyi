@@ -38,6 +38,7 @@ __all__ = [
     "shifted_normalized_laplacian",
     "smallest_laplacian_eigenpairs",
     "spectral_moment_stats",
+    "symmetric_eigen_jacobi",
     "symmetric_normalized_laplacian",
 ]
 
@@ -272,3 +273,10 @@ def smallest_laplacian_eigenpairs(
 ]: ...
 
 def spectral_moment_stats(graph: CsrGraph) -> dict[str, float]: ...
+
+def symmetric_eigen_jacobi(
+    matrix: _MatrixArrayLike,
+    *,
+    max_sweeps: int = 120,
+    tol: float = 1e-12,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
