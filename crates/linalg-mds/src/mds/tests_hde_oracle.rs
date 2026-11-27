@@ -1,6 +1,5 @@
-use egraph_core::{CsrGraph, LayoutNd};
-use egraph_linalg::eigen::symmetric_eigen_jacobi;
-use egraph_linalg::shortest_path::select_maxmin_sp_pivots;
+use egraph_core::{CsrGraph, Layout2d, LayoutGenerator, LayoutNd};
+use egraph_linalg::{select_maxmin_sp_pivots, symmetric_eigen_jacobi};
 
 use super::tests_mds::isotropic_std;
 use super::*;
@@ -209,15 +208,17 @@ fn test_hde_dense_naive_oracle() {
     ];
     let g_unw = CsrGraph::<f64>::from_edges(10, &asym_edges, None, false, false).unwrap();
     let pivots = vec![0, 4, 7, 2];
-    let cfg = HdeConfig {
-        dimensions: 4,
-        output_dims: 2,
-        seed: 42,
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-    };
-    let lay = hde_with_pivots::<f64, f64>(&g_unw, &pivots, &cfg).unwrap();
+    let cfg = HdeConfig::default()
+        .with_dimensions(4)
+        .with_output_dims(Some(2))
+        .with_seed(42)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
+    let lay: Layout2d<f64> = Hde::from_config(&g_unw, cfg)
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
     let oracle = hde_naive_oracle(&g_unw, &pivots, 2);
     let ox: Vec<f64> = oracle.iter().map(|r| r[0]).collect();
     let oy: Vec<f64> = oracle.iter().map(|r| r[1]).collect();
@@ -248,15 +249,13 @@ fn test_hde_dense_naive_oracle() {
     let weights = vec![0.5, 1.3, 2.7, 0.9, 3.4, 1.1, 2.2, 4.0, 1.7, 0.8, 2.9];
     let g_w = CsrGraph::<f64>::from_edges(8, &w_edges, Some(&weights), false, false).unwrap();
     let w_pivots = select_maxmin_sp_pivots(&g_w, 5, 11, 1).unwrap();
-    let cfg_w = HdeConfig {
-        dimensions: 5,
-        seed: 11,
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let lay_w = hde::<f64, f64>(&g_w, &cfg_w).unwrap();
+    let cfg_w = HdeConfig::default()
+        .with_dimensions(5)
+        .with_seed(11)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
+    let lay_w: Layout2d<f64> = Hde::from_config(&g_w, cfg_w.clone()).generate().unwrap();
     let oracle_w = hde_naive_oracle(&g_w, &w_pivots, 2);
     let lay_w_coords: Vec<Vec<f64>> = (0..8).map(|i| vec![lay_w.x()[i], lay_w.y()[i]]).collect();
     for (a, b) in pairwise_euclidean_nd(&lay_w_coords)
@@ -267,14 +266,9 @@ fn test_hde_dense_naive_oracle() {
     }
 
     // Normalized variant retains finite std=1.0
-    let lay_w_norm = hde::<f64, f64>(
-        &g_w,
-        &HdeConfig {
-            normalize: true,
-            ..cfg_w
-        },
-    )
-    .unwrap();
+    let lay_w_norm: Layout2d<f64> = Hde::from_config(&g_w, cfg_w.with_normalize(true))
+        .generate()
+        .unwrap();
     assert!((isotropic_std(&lay_w_norm) - 1.0).abs() < 1e-12);
 
     // 3. Symmetric 4x5 grid (pairwise distance invariant under possible basis rotation)
@@ -292,14 +286,12 @@ fn test_hde_dense_naive_oracle() {
     }
     let grid = CsrGraph::<f64>::from_edges(20, &grid_edges, None, false, false).unwrap();
     let gp = select_maxmin_sp_pivots(&grid, 8, 42, 1).unwrap();
-    let grid_cfg = HdeConfig {
-        dimensions: 8,
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let grid_lay = hde::<f64, f64>(&grid, &grid_cfg).unwrap();
+    let grid_cfg = HdeConfig::default()
+        .with_dimensions(8)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
+    let grid_lay: Layout2d<f64> = Hde::from_config(&grid, grid_cfg).generate().unwrap();
     let grid_oracle = hde_naive_oracle(&grid, &gp, 2);
     let grid_coords: Vec<Vec<f64>> = (0..20)
         .map(|i| vec![grid_lay.x()[i], grid_lay.y()[i]])
@@ -318,15 +310,11 @@ fn test_hde_topologies_path_tree_grid_cycle() {
     let p8_edges: Vec<(u32, u32)> = (0..7).map(|i| (i, i + 1)).collect();
     let p8 = CsrGraph::<f64>::from_edges(8, &p8_edges, None, false, false).unwrap();
     for normalize in [false, true] {
-        let lay = hde_with_pivots::<f64, f64>(
-            &p8,
-            &[0, 7],
-            &HdeConfig {
-                normalize,
-                ..HdeConfig::default()
-            },
-        )
-        .unwrap();
+        let lay: Layout2d<f64> = Hde::new(&p8)
+            .with_pivots(&[0, 7])
+            .with_normalize(normalize)
+            .generate()
+            .unwrap();
         assert!(lay.y().iter().all(|&y| y == 0.0));
         // Strictly monotonic along X
         let increasing = lay.x().windows(2).all(|w| w[0] < w[1]);
@@ -336,7 +324,7 @@ fn test_hde_topologies_path_tree_grid_cycle() {
             assert!((isotropic_std(&lay) - 1.0).abs() < 1e-12);
         }
     }
-    let p8_auto = hde::<f64, f64>(&p8, &HdeConfig::default()).unwrap();
+    let p8_auto: Layout2d<f64> = Hde::new(&p8).generate().unwrap();
     assert!(p8_auto.is_all_finite());
     assert!((isotropic_std(&p8_auto) - 1.0).abs() < 1e-12);
     // With interior pivots (dimensions >= 8), |v - p| creates a U-arch along X; verify X ordering.
@@ -354,26 +342,22 @@ fn test_hde_topologies_path_tree_grid_cycle() {
         false,
     )
     .unwrap();
-    let tree_lay = hde_with_pivots::<f64, f64>(&tree, &[0, 4], &HdeConfig::default()).unwrap();
+    let tree_lay: Layout2d<f64> = Hde::new(&tree).with_pivots(&[0, 4]).generate().unwrap();
     assert!((tree_lay.x()[2] - tree_lay.x()[3]).abs() < 1e-12);
     assert!((tree_lay.y()[2] - tree_lay.y()[3]).abs() < 1e-12);
 
     // 3. Cycle C_12
     let c12_edges: Vec<(u32, u32)> = (0..12).map(|i| (i, (i + 1) % 12)).collect();
     let c12 = CsrGraph::<f64>::from_edges(12, &c12_edges, None, false, false).unwrap();
-    let c12_lay = hde::<f64, f64>(&c12, &HdeConfig::default()).unwrap();
+    let c12_lay: Layout2d<f64> = Hde::new(&c12).generate().unwrap();
     assert!(c12_lay.is_all_finite());
     assert!((isotropic_std(&c12_lay) - 1.0).abs() < 1e-12);
-    let c12_unnorm = hde::<f64, f64>(
-        &c12,
-        &HdeConfig {
-            tol: 1e-12,
-            max_sweeps: 200,
-            normalize: false,
-            ..HdeConfig::default()
-        },
-    )
-    .unwrap();
+    let c12_unnorm: Layout2d<f64> = Hde::new(&c12)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false)
+        .generate()
+        .unwrap();
     let c12_pivots = select_maxmin_sp_pivots(&c12, 50, 42, 1).unwrap();
     let c12_oracle = hde_naive_oracle(&c12, &c12_pivots, 2);
     let c12_coords: Vec<Vec<f64>> = (0..12)
@@ -400,7 +384,7 @@ fn test_hde_topologies_path_tree_grid_cycle() {
         }
     }
     let grid8 = CsrGraph::<f64>::from_edges(64, &grid_edges, None, false, false).unwrap();
-    let g8_lay = hde::<f64, f64>(&grid8, &HdeConfig::default()).unwrap();
+    let g8_lay: Layout2d<f64> = Hde::new(&grid8).generate().unwrap();
     assert_eq!(g8_lay.len(), 64);
     assert!(g8_lay.is_all_finite());
     assert!((isotropic_std(&g8_lay) - 1.0).abs() < 1e-12);

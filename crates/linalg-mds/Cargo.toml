@@ -2,8 +2,10 @@
 name = "egraph-linalg-mds"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Classical, Pivot, Landmark, Harel-Koren HDE, and Koren spectral multidimensional scaling for egraph-rs"
 
 [dependencies]
 egraph-core.workspace = true

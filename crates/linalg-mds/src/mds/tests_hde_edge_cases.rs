@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CsrGraph};
+use egraph_core::{CoreError, CsrGraph, Layout2d, LayoutGenerator, LayoutNd};
 
 use super::tests_hde_oracle::{hde_naive_oracle, pairwise_euclidean_nd};
 use super::tests_mds::isotropic_std;
@@ -11,13 +11,14 @@ fn test_hde_disconnected_and_isolated_nodes() {
         CsrGraph::<f64>::from_edges(7, &[(0, 1), (1, 2), (2, 0), (3, 4)], None, false, false)
             .unwrap();
     let pivots = vec![0, 3, 5];
-    let cfg_unnorm = HdeConfig {
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let lay_unnorm = hde_with_pivots::<f64, f64>(&mixed, &pivots, &cfg_unnorm).unwrap();
+    let cfg_unnorm = HdeConfig::default()
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
+    let lay_unnorm: Layout2d<f64> = Hde::from_config(&mixed, cfg_unnorm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
     let oracle = hde_naive_oracle(&mixed, &pivots, 2);
     let coords: Vec<Vec<f64>> = (0..7)
         .map(|i| vec![lay_unnorm.x()[i], lay_unnorm.y()[i]])
@@ -29,13 +30,16 @@ fn test_hde_disconnected_and_isolated_nodes() {
         assert!((a - b).abs() < 1e-10);
     }
 
-    let lay_norm = hde::<f64, f64>(&mixed, &HdeConfig::default()).unwrap();
+    let lay_norm: Layout2d<f64> = Hde::new(&mixed).generate().unwrap();
     assert!(lay_norm.is_all_finite());
     assert!((isotropic_std(&lay_norm) - 1.0).abs() < 1e-12);
 
     // All-isolated edgeless graph (n = 5)
     let edgeless = CsrGraph::<f64>::from_edges(5, &[], None, false, false).unwrap();
-    let edge_unnorm = hde_with_pivots::<f64, f64>(&edgeless, &[0, 2, 4], &cfg_unnorm).unwrap();
+    let edge_unnorm: Layout2d<f64> = Hde::from_config(&edgeless, cfg_unnorm)
+        .with_pivots(&[0, 2, 4])
+        .generate()
+        .unwrap();
     let edge_oracle = hde_naive_oracle(&edgeless, &[0, 2, 4], 2);
     let edge_coords: Vec<Vec<f64>> = (0..5)
         .map(|i| vec![edge_unnorm.x()[i], edge_unnorm.y()[i]])
@@ -46,7 +50,7 @@ fn test_hde_disconnected_and_isolated_nodes() {
     {
         assert!((a - b).abs() < 1e-10);
     }
-    let edge_norm = hde::<f64, f64>(&edgeless, &HdeConfig::default()).unwrap();
+    let edge_norm: Layout2d<f64> = Hde::new(&edgeless).generate().unwrap();
     assert!(edge_norm.is_all_finite());
     assert!((isotropic_std(&edge_norm) - 1.0).abs() < 1e-12);
 }
@@ -67,9 +71,8 @@ fn test_hde_directed_and_reciprocal_edges() {
     // Unweighted reciprocal vs undirected: bit-exact
     let gu = CsrGraph::<f64>::from_edges(5, &undir_edges, None, false, false).unwrap();
     let gr = CsrGraph::<f64>::from_edges(5, &recip_edges, None, true, true).unwrap();
-    let cfg = HdeConfig::default();
-    let lu = hde::<f64, f64>(&gu, &cfg).unwrap();
-    let lr = hde::<f64, f64>(&gr, &cfg).unwrap();
+    let lu: Layout2d<f64> = Hde::new(&gu).generate().unwrap();
+    let lr: Layout2d<f64> = Hde::new(&gr).generate().unwrap();
     assert_eq!(
         lu.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         lr.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
@@ -84,8 +87,8 @@ fn test_hde_directed_and_reciprocal_edges() {
         CsrGraph::<f64>::from_edges(5, &undir_edges, Some(&undir_weights), false, false).unwrap();
     let gwr =
         CsrGraph::<f64>::from_edges(5, &recip_edges, Some(&recip_weights), true, true).unwrap();
-    let lwu = hde_with_pivots::<f64, f64>(&gwu, &[0, 3, 4], &cfg).unwrap();
-    let lwr = hde_with_pivots::<f64, f64>(&gwr, &[0, 3, 4], &cfg).unwrap();
+    let lwu: Layout2d<f64> = Hde::new(&gwu).with_pivots(&[0, 3, 4]).generate().unwrap();
+    let lwr: Layout2d<f64> = Hde::new(&gwr).with_pivots(&[0, 3, 4]).generate().unwrap();
     assert_eq!(
         lwu.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         lwr.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
@@ -97,13 +100,13 @@ fn test_hde_directed_and_reciprocal_edges() {
 
     // One-way DAG 0 -> 1 -> 2 -> 3 with pivots = &[3, 0]
     let dag = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3)], None, true, false).unwrap();
-    let dag_cfg = HdeConfig {
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let dag_lay = hde_with_pivots::<f64, f64>(&dag, &[3, 0], &dag_cfg).unwrap();
+    let dag_lay: Layout2d<f64> = Hde::new(&dag)
+        .with_pivots(&[3, 0])
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false)
+        .generate()
+        .unwrap();
     assert!(dag_lay.is_all_finite());
     let dag_oracle = hde_naive_oracle(&dag, &[3, 0], 2);
     let dag_coords: Vec<Vec<f64>> = (0..4)
@@ -128,13 +131,14 @@ fn test_hde_weighted_positive_and_invalid() {
         false,
     )
     .unwrap();
-    let cfg_unnorm = HdeConfig {
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let lay = hde_with_pivots::<f64, f64>(&wg, &[0, 1, 3], &cfg_unnorm).unwrap();
+    let cfg_unnorm = HdeConfig::default()
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
+    let lay: Layout2d<f64> = Hde::from_config(&wg, cfg_unnorm.clone())
+        .with_pivots(&[0, 1, 3])
+        .generate()
+        .unwrap();
     let oracle = hde_naive_oracle(&wg, &[0, 1, 3], 2);
     let coords: Vec<Vec<f64>> = (0..4).map(|i| vec![lay.x()[i], lay.y()[i]]).collect();
     for (a, b) in pairwise_euclidean_nd(&coords)
@@ -153,7 +157,10 @@ fn test_hde_weighted_positive_and_invalid() {
         false,
     )
     .unwrap();
-    let tiny_lay = hde_with_pivots::<f64, f64>(&tiny, &[0, 1, 2], &cfg_unnorm).unwrap();
+    let tiny_lay: Layout2d<f64> = Hde::from_config(&tiny, cfg_unnorm.clone())
+        .with_pivots(&[0, 1, 2])
+        .generate()
+        .unwrap();
     assert!(tiny_lay.is_all_finite());
     assert!(tiny_lay.x().iter().any(|&v| v.abs() > 1e-12));
     assert!(tiny_lay.y().iter().any(|&v| v.abs() > 1e-12));
@@ -167,10 +174,13 @@ fn test_hde_weighted_positive_and_invalid() {
         false,
     )
     .unwrap();
-    let huge_norm = hde::<f64, f64>(&huge, &HdeConfig::default()).unwrap();
+    let huge_norm: Layout2d<f64> = Hde::new(&huge).generate().unwrap();
     assert!(huge_norm.is_all_finite());
     assert!((isotropic_std(&huge_norm) - 1.0).abs() < 1e-12);
-    let huge_unnorm = hde_with_pivots::<f64, f64>(&huge, &[0, 1, 2], &cfg_unnorm).unwrap();
+    let huge_unnorm: Layout2d<f64> = Hde::from_config(&huge, cfg_unnorm)
+        .with_pivots(&[0, 1, 2])
+        .generate()
+        .unwrap();
     assert!(huge_unnorm.is_all_finite());
     assert!(huge_unnorm.x().iter().any(|&v| v.abs() > 1e140));
 
@@ -178,19 +188,23 @@ fn test_hde_weighted_positive_and_invalid() {
     for bad_w in [0.0_f64, -1.0_f64] {
         let bad = CsrGraph::<f64>::from_edges(3, &[(0, 1)], Some(&[bad_w]), false, false).unwrap();
         assert!(matches!(
-            hde::<f64, f64>(&bad, &HdeConfig::default()),
+            Hde::<Layout2d<f64>, f64>::new(&bad).generate(),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            hde_with_pivots::<f64, f64>(&bad, &[0, 1], &HdeConfig::default()),
+            Hde::<Layout2d<f64>, f64>::new(&bad)
+                .with_pivots(&[0, 1])
+                .generate(),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            hde_nd::<f64, f64>(&bad, &HdeConfig::default()),
+            Hde::<LayoutNd<f64>, f64>::new(&bad).generate(),
             Err(CoreError::InvalidInput(_))
         ));
         assert!(matches!(
-            hde_nd_with_pivots::<f64, f64>(&bad, &[0, 1], &HdeConfig::default()),
+            Hde::<LayoutNd<f64>, f64>::new(&bad)
+                .with_pivots(&[0, 1])
+                .generate(),
             Err(CoreError::InvalidInput(_))
         ));
     }
@@ -208,34 +222,49 @@ fn test_hde_weighted_positive_and_invalid() {
 
 #[test]
 fn test_hde_degenerate_and_validation_errors() {
-    let cfg = HdeConfig::default();
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    assert_eq!(hde::<f64, f64>(&empty, &cfg).unwrap().len(), 0);
     assert_eq!(
-        hde_with_pivots::<f64, f64>(&empty, &[], &cfg)
+        Hde::<Layout2d<f64>, f64>::new(&empty)
+            .generate()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        Hde::<Layout2d<f64>, f64>::new(&empty)
+            .with_pivots(&[])
+            .generate()
             .unwrap()
             .len(),
         0
     );
     assert!(matches!(
-        hde_with_pivots::<f64, f64>(&empty, &[0], &cfg),
+        Hde::<Layout2d<f64>, f64>::new(&empty)
+            .with_pivots(&[0])
+            .generate(),
         Err(CoreError::IndexOutOfBounds { .. })
     ));
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     for normalize in [true, false] {
-        let s_cfg = HdeConfig { normalize, ..cfg };
-        let s1 = hde::<f64, f64>(&single, &s_cfg).unwrap();
+        let s1: Layout2d<f64> = Hde::new(&single)
+            .with_normalize(normalize)
+            .generate()
+            .unwrap();
         assert_eq!(s1.x(), &[0.0]);
         assert_eq!(s1.y(), &[0.0]);
-        let s2 = hde_with_pivots::<f64, f64>(&single, &[0], &s_cfg).unwrap();
+        let s2: Layout2d<f64> = Hde::new(&single)
+            .with_pivots(&[0])
+            .with_normalize(normalize)
+            .generate()
+            .unwrap();
         assert_eq!(s2.x(), &[0.0]);
         assert_eq!(s2.y(), &[0.0]);
     }
 
     // N = 2 edge 0-1
     let two = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
-    let l2 = hde::<f64, f64>(&two, &cfg).unwrap();
+    let l2: Layout2d<f64> = Hde::new(&two).generate().unwrap();
     assert_eq!(l2.y(), &[0.0, 0.0]);
     assert!((l2.x()[0] + l2.x()[1]).abs() < 1e-12);
     assert!(l2.x()[0].abs() > 0.5);
@@ -249,13 +278,16 @@ fn test_hde_degenerate_and_validation_errors() {
         false,
     )
     .unwrap();
-    let l5 = hde::<f64, f64>(&g5, &cfg).unwrap();
+    let l5: Layout2d<f64> = Hde::new(&g5).generate().unwrap();
     assert!(l5.is_all_finite());
     assert!((isotropic_std(&l5) - 1.0).abs() < 1e-12);
 
     // Duplicate pivots produce bit-exact results to deduplicated pivots
-    let l_dup = hde_with_pivots::<f64, f64>(&g5, &[0, 2, 0, 4, 2], &cfg).unwrap();
-    let l_uniq = hde_with_pivots::<f64, f64>(&g5, &[0, 2, 4], &cfg).unwrap();
+    let l_dup: Layout2d<f64> = Hde::new(&g5)
+        .with_pivots(&[0, 2, 0, 4, 2])
+        .generate()
+        .unwrap();
+    let l_uniq: Layout2d<f64> = Hde::new(&g5).with_pivots(&[0, 2, 4]).generate().unwrap();
     assert_eq!(
         l_dup.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         l_uniq.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
@@ -267,9 +299,16 @@ fn test_hde_degenerate_and_validation_errors() {
 
     // Single pivot m_eff = 1 -> y identically 0.0
     for normalize in [false, true] {
-        let s_cfg = HdeConfig { normalize, ..cfg };
-        let l1a = hde_with_pivots::<f64, f64>(&g5, &[1], &s_cfg).unwrap();
-        let l1b = hde_with_pivots::<f64, f64>(&g5, &[1, 1, 1], &s_cfg).unwrap();
+        let l1a: Layout2d<f64> = Hde::new(&g5)
+            .with_pivots(&[1])
+            .with_normalize(normalize)
+            .generate()
+            .unwrap();
+        let l1b: Layout2d<f64> = Hde::new(&g5)
+            .with_pivots(&[1, 1, 1])
+            .with_normalize(normalize)
+            .generate()
+            .unwrap();
         assert!(l1a.y().iter().all(|&y| y == 0.0));
         assert_eq!(l1a.x(), l1b.x());
         assert_eq!(l1a.y(), l1b.y());
@@ -277,85 +316,73 @@ fn test_hde_degenerate_and_validation_errors() {
 
     // Empty pivots on n >= 1 and out-of-range pivot
     assert!(matches!(
-        hde_with_pivots::<f64, f64>(&g5, &[], &cfg),
+        Hde::<Layout2d<f64>, f64>::new(&g5)
+            .with_pivots(&[])
+            .generate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        hde_with_pivots::<f64, f64>(&g5, &[0, 5], &cfg),
+        Hde::<Layout2d<f64>, f64>::new(&g5)
+            .with_pivots(&[0, 5])
+            .generate(),
         Err(CoreError::IndexOutOfBounds { .. })
     ));
 
     // Config validation errors even when n == 0
     for graph in [&empty, &g5] {
         assert!(matches!(
-            hde::<f64, f64>(
-                graph,
-                &HdeConfig {
-                    dimensions: 0,
-                    ..cfg
-                }
-            ),
+            Hde::<Layout2d<f64>, f64>::new(graph)
+                .with_dimensions(0)
+                .generate(),
             Err(CoreError::InvalidInput(_))
         ));
-        for bad_out in [0usize, 1, 3] {
+        assert!(matches!(
+            Hde::<Layout2d<f64>, f64>::new(graph)
+                .with_output_dims(0)
+                .generate(),
+            Err(CoreError::InvalidInput(_))
+        ));
+        for bad_out in [1usize, 3] {
             assert!(matches!(
-                hde::<f64, f64>(
-                    graph,
-                    &HdeConfig {
-                        output_dims: bad_out,
-                        ..cfg
-                    }
-                ),
-                Err(CoreError::InvalidInput(_))
+                Hde::<Layout2d<f64>, f64>::new(graph)
+                    .with_output_dims(bad_out)
+                    .generate(),
+                Err(CoreError::DimensionMismatch { .. })
             ));
             assert!(matches!(
-                hde_with_pivots::<f64, f64>(
-                    graph,
-                    &[0],
-                    &HdeConfig {
-                        output_dims: bad_out,
-                        ..cfg
-                    }
-                ),
-                Err(CoreError::InvalidInput(_))
+                Hde::<Layout2d<f64>, f64>::new(graph)
+                    .with_pivots(&[0])
+                    .with_output_dims(bad_out)
+                    .generate(),
+                Err(CoreError::DimensionMismatch { .. })
             ));
         }
         assert!(matches!(
-            hde_nd::<f64, f64>(
-                graph,
-                &HdeConfig {
-                    output_dims: 0,
-                    ..cfg
-                }
-            ),
+            Hde::<LayoutNd<f64>, f64>::new(graph)
+                .with_output_dims(0)
+                .generate(),
             Err(CoreError::InvalidInput(_))
         ));
         for bad_tol in [0.0, -1.0] {
             assert!(matches!(
-                hde::<f64, f64>(
-                    graph,
-                    &HdeConfig {
-                        tol: bad_tol,
-                        ..cfg
-                    }
-                ),
+                Hde::<Layout2d<f64>, f64>::new(graph)
+                    .with_tol(bad_tol)
+                    .generate(),
                 Err(CoreError::InvalidInput(_))
             ));
         }
         for nf_tol in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert!(matches!(
-                hde::<f64, f64>(graph, &HdeConfig { tol: nf_tol, ..cfg }),
+                Hde::<Layout2d<f64>, f64>::new(graph)
+                    .with_tol(nf_tol)
+                    .generate(),
                 Err(CoreError::NonFiniteValue { .. })
             ));
         }
         assert!(matches!(
-            hde::<f64, f64>(
-                graph,
-                &HdeConfig {
-                    max_sweeps: 0,
-                    ..cfg
-                }
-            ),
+            Hde::<Layout2d<f64>, f64>::new(graph)
+                .with_max_sweeps(0)
+                .generate(),
             Err(CoreError::InvalidInput(_))
         ));
     }
@@ -378,14 +405,10 @@ fn test_hde_f32_f64_and_determinism() {
 
     let g64 = CsrGraph::<f64>::from_edges(6, &edges, Some(&w64), false, false).unwrap();
     let g32 = CsrGraph::<f32>::from_edges(6, &edges, Some(&w32), false, false).unwrap();
-    let cfg = HdeConfig {
-        dimensions: 4,
-        seed: 99,
-        ..HdeConfig::default()
-    };
+    let cfg = HdeConfig::default().with_dimensions(4).with_seed(99);
 
-    let l64_64_a = hde::<f64, f64>(&g64, &cfg).unwrap();
-    let l64_64_b = hde::<f64, f64>(&g64, &cfg).unwrap();
+    let l64_64_a: Layout2d<f64> = Hde::from_config(&g64, cfg.clone()).generate().unwrap();
+    let l64_64_b: Layout2d<f64> = Hde::from_config(&g64, cfg.clone()).generate().unwrap();
     assert_eq!(
         l64_64_a.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         l64_64_b.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
@@ -397,9 +420,9 @@ fn test_hde_f32_f64_and_determinism() {
     assert!(l64_64_a.is_all_finite());
     assert!((isotropic_std(&l64_64_a) - 1.0).abs() < 1e-12);
 
-    let l64_32 = hde::<f64, f32>(&g64, &cfg).unwrap();
-    let l32_64 = hde::<f32, f64>(&g32, &cfg).unwrap();
-    let l32_32 = hde::<f32, f32>(&g32, &cfg).unwrap();
+    let l64_32: Layout2d<f32> = Hde::from_config(&g64, cfg.clone()).generate().unwrap();
+    let l32_64: Layout2d<f64> = Hde::from_config(&g32, cfg.clone()).generate().unwrap();
+    let l32_32: Layout2d<f32> = Hde::from_config(&g32, cfg).generate().unwrap();
     assert!(l64_32.is_all_finite());
     assert!(l32_64.is_all_finite());
     assert!(l32_32.is_all_finite());

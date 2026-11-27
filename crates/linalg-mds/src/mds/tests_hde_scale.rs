@@ -1,7 +1,6 @@
-use egraph_core::{CoreError, CsrGraph, Layout2d, LayoutNd};
-use egraph_linalg::shortest_path::select_maxmin_sp_pivots;
+use egraph_core::{CoreError, CsrGraph, Layout2d, Layout3d, LayoutGenerator, LayoutNd};
+use egraph_linalg::select_maxmin_sp_pivots;
 
-use super::normalize::normalize_layout_nd;
 use super::tests_hde_oracle::{hde_naive_oracle, isotropic_std_nd, pairwise_euclidean_nd};
 use super::tests_mds::isotropic_std;
 use super::*;
@@ -24,18 +23,17 @@ fn test_hde_nd_and_large_u32_branch() {
     ];
     let g = CsrGraph::<f64>::from_edges(9, &edges, None, false, false).unwrap();
 
-    // 1. output_dims == 2 matches hde bit-for-bit
+    // 1. output_dims == 2 matches Layout2d bit-for-bit
     for normalize in [false, true] {
-        let cfg2 = HdeConfig {
-            dimensions: 5,
-            output_dims: 2,
-            seed: 7,
-            tol: 1e-12,
-            max_sweeps: 200,
-            normalize,
-        };
-        let lay2 = hde::<f64, f64>(&g, &cfg2).unwrap();
-        let lay_nd2 = hde_nd::<f64, f64>(&g, &cfg2).unwrap();
+        let cfg2 = HdeConfig::default()
+            .with_dimensions(5)
+            .with_output_dims(Some(2))
+            .with_seed(7)
+            .with_tol(1e-12)
+            .with_max_sweeps(200)
+            .with_normalize(normalize);
+        let lay2: Layout2d<f64> = Hde::from_config(&g, cfg2.clone()).generate().unwrap();
+        let lay_nd2: LayoutNd<f64> = Hde::from_config(&g, cfg2).generate().unwrap();
         assert_eq!(lay_nd2.dims(), 2);
         for i in 0..9 {
             let row = lay_nd2.node(i).unwrap();
@@ -44,17 +42,27 @@ fn test_hde_nd_and_large_u32_branch() {
         }
     }
 
-    // 2. output_dims == 3 matches dense 3D oracle
-    let cfg3_unnorm = HdeConfig {
-        dimensions: 5,
-        output_dims: 3,
-        seed: 7,
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: false,
-    };
+    // 2. output_dims == 3 matches dense 3D oracle and Layout3d bit-for-bit
+    let cfg3_unnorm = HdeConfig::default()
+        .with_dimensions(5)
+        .with_output_dims(Some(3))
+        .with_seed(7)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(false);
     let pivots = select_maxmin_sp_pivots(&g, 5, 7, 1).unwrap();
-    let lay3 = hde_nd::<f64, f64>(&g, &cfg3_unnorm).unwrap();
+    let lay3: LayoutNd<f64> = Hde::from_config(&g, cfg3_unnorm.clone())
+        .generate()
+        .unwrap();
+    let lay3_soa: Layout3d<f64> = Hde::from_config(&g, cfg3_unnorm.clone())
+        .generate()
+        .unwrap();
+    for i in 0..9 {
+        let row = lay3.node(i).unwrap();
+        assert_eq!(row[0].to_bits(), lay3_soa.x()[i].to_bits());
+        assert_eq!(row[1].to_bits(), lay3_soa.y()[i].to_bits());
+        assert_eq!(row[2].to_bits(), lay3_soa.z()[i].to_bits());
+    }
     let oracle3 = hde_naive_oracle(&g, &pivots, 3);
     let lay3_coords: Vec<Vec<f64>> = (0..9).map(|i| lay3.node(i).unwrap().to_vec()).collect();
     for (a, b) in pairwise_euclidean_nd(&lay3_coords)
@@ -63,27 +71,18 @@ fn test_hde_nd_and_large_u32_branch() {
     {
         assert!((a - b).abs() < 1e-10);
     }
-    let lay3_norm = hde_nd::<f64, f64>(
-        &g,
-        &HdeConfig {
-            normalize: true,
-            ..cfg3_unnorm
-        },
-    )
-    .unwrap();
+    let lay3_norm: LayoutNd<f64> = Hde::from_config(&g, cfg3_unnorm.with_normalize(true))
+        .generate()
+        .unwrap();
     assert!((isotropic_std_nd(&lay3_norm) - 1.0).abs() < 1e-12);
 
     // 3. m_eff < output_dims zero-pads remaining dimensions when normalize=false
-    let lay_pad = hde_nd_with_pivots::<f64, f64>(
-        &g,
-        &[0, 4],
-        &HdeConfig {
-            output_dims: 4,
-            normalize: false,
-            ..HdeConfig::default()
-        },
-    )
-    .unwrap();
+    let lay_pad: LayoutNd<f64> = Hde::new(&g)
+        .with_pivots(&[0, 4])
+        .with_output_dims(4)
+        .with_normalize(false)
+        .generate()
+        .unwrap();
     for i in 0..9 {
         let row = lay_pad.node(i).unwrap();
         assert_eq!(row[2], 0.0);
@@ -94,9 +93,10 @@ fn test_hde_nd_and_large_u32_branch() {
     let n_big = (u16::MAX as usize) + 5;
     let big_edges: Vec<(u32, u32)> = (0..(n_big as u32 - 1)).map(|i| (i, i + 1)).collect();
     let g_big = CsrGraph::<f64>::from_edges(n_big, &big_edges, None, false, false).unwrap();
-    let big_lay =
-        hde_with_pivots::<f64, f64>(&g_big, &[0, (n_big - 1) as u32], &HdeConfig::default())
-            .unwrap();
+    let big_lay: Layout2d<f64> = Hde::new(&g_big)
+        .with_pivots(&[0, (n_big - 1) as u32])
+        .generate()
+        .unwrap();
     assert_eq!(big_lay.len(), n_big);
     assert!(big_lay.is_all_finite());
     assert!(big_lay.y().iter().all(|&y| y == 0.0));
@@ -132,32 +132,33 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     let pivots = vec![0u32, 2, 4, 1];
 
     let base_g = CsrGraph::<f64>::from_edges(6, &edges, Some(&base_w), false, false).unwrap();
-    let cfg2_norm = HdeConfig {
-        dimensions: 4,
-        output_dims: 2,
-        seed: 42,
-        tol: 1e-12,
-        max_sweeps: 200,
-        normalize: true,
-    };
-    let cfg2_unnorm = HdeConfig {
-        normalize: false,
-        ..cfg2_norm
-    };
-    let cfg3_norm = HdeConfig {
-        output_dims: 3,
-        ..cfg2_norm
-    };
-    let cfg3_unnorm = HdeConfig {
-        output_dims: 3,
-        normalize: false,
-        ..cfg2_norm
-    };
+    let cfg2_norm = HdeConfig::default()
+        .with_dimensions(4)
+        .with_output_dims(Some(2))
+        .with_seed(42)
+        .with_tol(1e-12)
+        .with_max_sweeps(200)
+        .with_normalize(true);
+    let cfg2_unnorm = cfg2_norm.clone().with_normalize(false);
+    let cfg3_norm = cfg2_norm.clone().with_output_dims(Some(3));
+    let cfg3_unnorm = cfg3_norm.clone().with_normalize(false);
 
-    let ref2_norm = hde_with_pivots::<f64, f64>(&base_g, &pivots, &cfg2_norm).unwrap();
-    let ref2_unnorm = hde_with_pivots::<f64, f64>(&base_g, &pivots, &cfg2_unnorm).unwrap();
-    let ref3_norm = hde_nd_with_pivots::<f64, f64>(&base_g, &pivots, &cfg3_norm).unwrap();
-    let ref3_unnorm = hde_nd_with_pivots::<f64, f64>(&base_g, &pivots, &cfg3_unnorm).unwrap();
+    let ref2_norm: Layout2d<f64> = Hde::from_config(&base_g, cfg2_norm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
+    let ref2_unnorm: Layout2d<f64> = Hde::from_config(&base_g, cfg2_unnorm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
+    let ref3_norm: LayoutNd<f64> = Hde::from_config(&base_g, cfg3_norm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
+    let ref3_unnorm: LayoutNd<f64> = Hde::from_config(&base_g, cfg3_unnorm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
 
     let ref2_norm_pw = pairwise_euclidean_nd(
         &(0..6)
@@ -188,7 +189,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
         let g = CsrGraph::<f64>::from_edges(6, &edges, Some(&scaled_w), false, false).unwrap();
 
         // 2D normalized: scale-invariant vs unit scale
-        let l2n = hde_with_pivots::<f64, f64>(&g, &pivots, &cfg2_norm).unwrap();
+        let l2n: Layout2d<f64> = Hde::from_config(&g, cfg2_norm.clone())
+            .with_pivots(&pivots)
+            .generate()
+            .unwrap();
         assert!(l2n.is_all_finite());
         assert!((isotropic_std(&l2n) - 1.0).abs() < 1e-12);
         let l2n_pw = pairwise_euclidean_nd(
@@ -203,7 +207,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
         );
 
         // 2D unnormalized: scales linearly by `scale`
-        let l2u = hde_with_pivots::<f64, f64>(&g, &pivots, &cfg2_unnorm).unwrap();
+        let l2u: Layout2d<f64> = Hde::from_config(&g, cfg2_unnorm.clone())
+            .with_pivots(&pivots)
+            .generate()
+            .unwrap();
         assert!(l2u.is_all_finite());
         let l2u_pw = pairwise_euclidean_nd(
             &(0..6)
@@ -217,7 +224,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
         );
 
         // 3D normalized: scale-invariant vs unit scale
-        let l3n = hde_nd_with_pivots::<f64, f64>(&g, &pivots, &cfg3_norm).unwrap();
+        let l3n: LayoutNd<f64> = Hde::from_config(&g, cfg3_norm.clone())
+            .with_pivots(&pivots)
+            .generate()
+            .unwrap();
         assert!((isotropic_std_nd(&l3n) - 1.0).abs() < 1e-12);
         let l3n_pw = pairwise_euclidean_nd(
             &(0..6)
@@ -231,7 +241,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
         );
 
         // 3D unnormalized: scales linearly by `scale`
-        let l3u = hde_nd_with_pivots::<f64, f64>(&g, &pivots, &cfg3_unnorm).unwrap();
+        let l3u: LayoutNd<f64> = Hde::from_config(&g, cfg3_unnorm.clone())
+            .with_pivots(&pivots)
+            .generate()
+            .unwrap();
         assert!(l3u.coords().iter().all(|v| v.is_finite()));
         let l3u_pw = pairwise_euclidean_nd(
             &(0..6)
@@ -248,7 +261,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     // Subnormal positive weights (e.g., 1e-315): two-step covariance scaling handles subnormals
     let subnormal_w: Vec<f64> = base_w.iter().map(|&w| w * 1e-315).collect();
     let g_sub = CsrGraph::<f64>::from_edges(6, &edges, Some(&subnormal_w), false, false).unwrap();
-    let l2_sub = hde_with_pivots::<f64, f64>(&g_sub, &pivots, &cfg2_norm).unwrap();
+    let l2_sub: Layout2d<f64> = Hde::from_config(&g_sub, cfg2_norm.clone())
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
     assert!(l2_sub.is_all_finite());
     assert!((isotropic_std(&l2_sub) - 1.0).abs() < 1e-12);
     let l2_sub_pw = pairwise_euclidean_nd(
@@ -270,7 +286,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
         CsrGraph::<f64>::from_edges(4, &disc_edges, Some(&[huge, huge]), false, false).unwrap();
     let disc_pivots = vec![0u32, 1, 2];
 
-    let d2_unnorm = hde_with_pivots::<f64, f64>(&disc_huge, &disc_pivots, &cfg2_unnorm).unwrap();
+    let d2_unnorm: Layout2d<f64> = Hde::from_config(&disc_huge, cfg2_unnorm.clone())
+        .with_pivots(&disc_pivots)
+        .generate()
+        .unwrap();
     assert!(d2_unnorm.is_all_finite());
     let mut d2_ref = Layout2d::from_xy(
         d2_unnorm.x().iter().map(|&v| v / huge).collect(),
@@ -278,7 +297,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     )
     .unwrap();
     normalize_layout_2d(&mut d2_ref, 1.0, cfg2_norm.seed).unwrap();
-    let d2_huge = hde_with_pivots::<f64, f64>(&disc_huge, &disc_pivots, &cfg2_norm).unwrap();
+    let d2_huge: Layout2d<f64> = Hde::from_config(&disc_huge, cfg2_norm.clone())
+        .with_pivots(&disc_pivots)
+        .generate()
+        .unwrap();
     assert!(d2_huge.is_all_finite());
     assert!((isotropic_std(&d2_huge) - 1.0).abs() < 1e-12);
     let d2_ref_pw = pairwise_euclidean_nd(
@@ -293,7 +315,10 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     );
     assert!(max_rel_pairwise_err(&d2_huge_pw, &d2_ref_pw, 1.0) < 1e-10);
 
-    let d3_unnorm = hde_nd_with_pivots::<f64, f64>(&disc_huge, &disc_pivots, &cfg3_unnorm).unwrap();
+    let d3_unnorm: LayoutNd<f64> = Hde::from_config(&disc_huge, cfg3_unnorm.clone())
+        .with_pivots(&disc_pivots)
+        .generate()
+        .unwrap();
     assert!(d3_unnorm.coords().iter().all(|v| v.is_finite()));
     let mut d3_ref = LayoutNd::<f64>::zeros(4, 3).unwrap();
     for (dst, &src) in d3_ref
@@ -303,8 +328,11 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     {
         *dst = src / huge;
     }
-    normalize_layout_nd(&mut d3_ref, 1.0, cfg3_norm.seed).unwrap();
-    let d3_huge = hde_nd_with_pivots::<f64, f64>(&disc_huge, &disc_pivots, &cfg3_norm).unwrap();
+    normalize_euclidean_layout(&mut d3_ref, 1.0, cfg3_norm.seed).unwrap();
+    let d3_huge: LayoutNd<f64> = Hde::from_config(&disc_huge, cfg3_norm)
+        .with_pivots(&disc_pivots)
+        .generate()
+        .unwrap();
     assert!((isotropic_std_nd(&d3_huge) - 1.0).abs() < 1e-12);
     let d3_ref_pw = pairwise_euclidean_nd(
         &(0..4)
@@ -324,10 +352,15 @@ fn test_hde_scale_invariance_and_extreme_weights() {
     let ovf_g = CsrGraph::<f64>::from_edges(5, &ovf_edges, Some(&ovf_w), false, false).unwrap();
     let ovf_pivots = vec![0u32, 1, 2, 3];
     assert!(matches!(
-        hde_with_pivots::<f64, f64>(&ovf_g, &ovf_pivots, &cfg2_unnorm),
+        Hde::<Layout2d<f64>, f64>::from_config(&ovf_g, cfg2_unnorm)
+            .with_pivots(&ovf_pivots)
+            .generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
-    let ovf_norm = hde_with_pivots::<f64, f64>(&ovf_g, &ovf_pivots, &cfg2_norm).unwrap();
+    let ovf_norm: Layout2d<f64> = Hde::from_config(&ovf_g, cfg2_norm)
+        .with_pivots(&ovf_pivots)
+        .generate()
+        .unwrap();
     assert!(ovf_norm.is_all_finite());
     assert!((isotropic_std(&ovf_norm) - 1.0).abs() < 1e-12);
 }
@@ -340,54 +373,63 @@ fn test_hde_f32_output_overflow_returns_numerical_breakdown() {
     // 1. Valid positive finite f32 weights whose unnormalized projection exceeds f32::MAX
     let g_f32 = CsrGraph::<f32>::from_edges(4, &edges, Some(&[3e38_f32; 3]), false, false).unwrap();
 
-    let cfg2_unnorm = HdeConfig {
-        normalize: false,
-        ..HdeConfig::default()
-    };
+    let cfg2_unnorm = HdeConfig::default().with_normalize(false);
     let cfg2_norm = HdeConfig::default();
-    let cfg3_unnorm = HdeConfig {
-        output_dims: 3,
-        normalize: false,
-        ..HdeConfig::default()
-    };
-    let cfg3_norm = HdeConfig {
-        output_dims: 3,
-        normalize: true,
-        ..HdeConfig::default()
-    };
+    let cfg3_unnorm = HdeConfig::default()
+        .with_output_dims(Some(3))
+        .with_normalize(false);
+    let cfg3_norm = HdeConfig::default()
+        .with_output_dims(Some(3))
+        .with_normalize(true);
 
     assert!(matches!(
-        hde::<f32, f32>(&g_f32, &cfg2_unnorm),
+        Hde::<Layout2d<f32>, f32>::from_config(&g_f32, cfg2_unnorm.clone()).generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
     assert!(matches!(
-        hde_with_pivots::<f32, f32>(&g_f32, &pivots, &cfg2_unnorm),
+        Hde::<Layout2d<f32>, f32>::from_config(&g_f32, cfg2_unnorm)
+            .with_pivots(&pivots)
+            .generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
     assert!(matches!(
-        hde_nd::<f32, f32>(&g_f32, &cfg3_unnorm),
+        Hde::<LayoutNd<f32>, f32>::from_config(&g_f32, cfg3_unnorm.clone()).generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
     assert!(matches!(
-        hde_nd_with_pivots::<f32, f32>(&g_f32, &pivots, &cfg3_unnorm),
+        Hde::<LayoutNd<f32>, f32>::from_config(&g_f32, cfg3_unnorm)
+            .with_pivots(&pivots)
+            .generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
 
-    let ok_2d = hde::<f32, f32>(&g_f32, &cfg2_norm).unwrap();
+    let ok_2d: Layout2d<f32> = Hde::from_config(&g_f32, cfg2_norm.clone())
+        .generate()
+        .unwrap();
     assert!(ok_2d.is_all_finite());
-    let ok_2d_piv = hde_with_pivots::<f32, f32>(&g_f32, &pivots, &cfg2_norm).unwrap();
+    let ok_2d_piv: Layout2d<f32> = Hde::from_config(&g_f32, cfg2_norm)
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
     assert!(ok_2d_piv.is_all_finite());
-    let ok_3d = hde_nd::<f32, f32>(&g_f32, &cfg3_norm).unwrap();
+    let ok_3d: LayoutNd<f32> = Hde::from_config(&g_f32, cfg3_norm.clone())
+        .generate()
+        .unwrap();
     assert!(ok_3d.is_all_finite());
-    let ok_3d_piv = hde_nd_with_pivots::<f32, f32>(&g_f32, &pivots, &cfg3_norm).unwrap();
+    let ok_3d_piv: LayoutNd<f32> = Hde::from_config(&g_f32, cfg3_norm)
+        .with_pivots(&pivots)
+        .generate()
+        .unwrap();
     assert!(ok_3d_piv.is_all_finite());
 
     // 2. f64 graph weights overflowing S = f32 on unnormalized cast
     let g_f64 = CsrGraph::<f64>::from_edges(4, &edges, Some(&[1e40_f64; 3]), false, false).unwrap();
     assert!(matches!(
-        hde::<f64, f32>(&g_f64, &cfg2_unnorm),
+        Hde::<Layout2d<f32>, f64>::new(&g_f64)
+            .with_normalize(false)
+            .generate(),
         Err(CoreError::NumericalBreakdown { .. })
     ));
-    let ok_f64_to_f32 = hde::<f64, f32>(&g_f64, &cfg2_norm).unwrap();
+    let ok_f64_to_f32: Layout2d<f32> = Hde::new(&g_f64).generate().unwrap();
     assert!(ok_f64_to_f32.is_all_finite());
 }

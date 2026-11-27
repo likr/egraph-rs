@@ -1,5 +1,5 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
-use egraph_linalg::eigen::symmetric_eigen_jacobi;
+use egraph_linalg::symmetric_eigen_jacobi;
 
 use super::hde::HdeConfig;
 
@@ -128,6 +128,7 @@ pub(super) fn hde_pca_project<T>(
     fills: &[f64],
     means: &[f64],
     max_abs_centered: f64,
+    output_dims: usize,
     config: &HdeConfig,
     out_coords: &mut [f64],
 ) -> CoreResult<()>
@@ -190,7 +191,6 @@ where
     }
 
     let (evals, evecs) = symmetric_eigen_jacobi(&cov, m_eff, config.max_sweeps, config.tol)?;
-    let output_dims = config.output_dims;
     let used_dims = output_dims.min(m_eff);
     let lambda_0 = evals[m_eff - 1];
     if !lambda_0.is_finite() || lambda_0 <= 1e-300 {

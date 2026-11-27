@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutNd};
+use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d, LayoutGenerator, LayoutNd};
 
 use super::normalize::next_gaussian_pair;
 use super::*;
@@ -60,7 +60,7 @@ fn test_pivot_mds_std_and_disconnected_safety() {
         }
     }
     let grid = CsrGraph::<f64>::from_edges(64, &edges, None, false, false).unwrap();
-    let layout: Layout2d<f64> = pivot_mds(&grid, &PivotMdsConfig::default()).unwrap();
+    let layout: Layout2d<f64> = PivotMds::new(&grid).generate().unwrap();
     assert_eq!(layout.len(), 64);
     assert!(layout.is_all_finite());
     let std_val = isotropic_std(&layout);
@@ -87,20 +87,17 @@ fn test_pivot_mds_std_and_disconnected_safety() {
         false,
     )
     .unwrap();
-    let disc_layout: Layout2d<f64> = pivot_mds(&disc, &PivotMdsConfig::default()).unwrap();
+    let disc_layout: Layout2d<f64> = PivotMds::new(&disc).generate().unwrap();
     assert!(disc_layout.is_all_finite());
     assert!((isotropic_std(&disc_layout) - 1.0).abs() < 1e-5);
 
     // Empty and singleton
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    assert_eq!(
-        pivot_mds::<f64, f64>(&empty, &PivotMdsConfig::default())
-            .unwrap()
-            .len(),
-        0
-    );
+    let empty_layout: Layout2d<f64> = PivotMds::new(&empty).generate().unwrap();
+    assert_eq!(empty_layout.len(), 0);
+
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let s_lay: Layout2d<f64> = pivot_mds(&single, &PivotMdsConfig::default()).unwrap();
+    let s_lay: Layout2d<f64> = PivotMds::new(&single).generate().unwrap();
     assert_eq!(s_lay.x(), &[0.0]);
     assert_eq!(s_lay.y(), &[0.0]);
 }
@@ -111,7 +108,13 @@ fn test_koren_spectral_init_and_rd_and_classical_mds() {
     let edges: Vec<(u32, u32)> = (0..20).map(|i| (i, (i + 1) % 20)).collect();
     let cycle = CsrGraph::<f64>::from_edges(20, &edges, None, false, false).unwrap();
 
-    let koren: Layout2d<f64> = koren_spectral_init(&cycle, Some(1.0), 1e-6, 300, 42).unwrap();
+    let koren: Layout2d<f64> = KorenSpectral::new(&cycle)
+        .with_target_std(Some(1.0))
+        .with_tol(1e-6)
+        .with_max_iters(300)
+        .with_seed(42)
+        .generate()
+        .unwrap();
     assert!(koren.is_all_finite());
     assert!((isotropic_std(&koren) - 1.0).abs() < 1e-5);
     // Adjacent cycle vertices should have uniform chord length in 2D spectral init
@@ -136,7 +139,14 @@ fn test_koren_spectral_init_and_rd_and_classical_mds() {
         false,
     )
     .unwrap();
-    let rd: LayoutNd<f64> = rd_mds(&disc, 3, 1e-10, 1e-6, 200, 42).unwrap();
+    let rd: LayoutNd<f64> = RdMds::new(&disc)
+        .with_dims(3)
+        .with_eig_eps(1e-10)
+        .with_tol(1e-6)
+        .with_max_iters(200)
+        .with_seed(42)
+        .generate()
+        .unwrap();
     assert!(rd.is_all_finite());
     // First mode corresponds to lambda_1 == 0 across components -> safely zeroed out
     for i in 0..6 {
@@ -151,7 +161,10 @@ fn test_koren_spectral_init_and_rd_and_classical_mds() {
             d_mat[i * 4 + j] = (pts[i].0 - pts[j].0).hypot(pts[i].1 - pts[j].1);
         }
     }
-    let cmds: LayoutNd<f64> = classical_mds_from_distances(&d_mat, 4, 2).unwrap();
+    let cmds: LayoutNd<f64> = ClassicalMds::from_distances(&d_mat, 4)
+        .with_dims(2)
+        .generate()
+        .unwrap();
     assert!(cmds.is_all_finite());
     for i in 0..4 {
         for j in (i + 1)..4 {
@@ -166,8 +179,8 @@ fn test_koren_spectral_init_and_rd_and_classical_mds() {
         }
     }
 
-    // Graph-based classical_mds on disconnected graph stays finite
-    let cmds_disc: LayoutNd<f64> = classical_mds(&disc, 2).unwrap();
+    // Graph-based ClassicalMds on disconnected graph stays finite
+    let cmds_disc: LayoutNd<f64> = ClassicalMds::new(&disc).with_dims(2).generate().unwrap();
     assert!(cmds_disc.is_all_finite());
 
     // Weighted PivotMds + f32 Layout2d output + RdMds builder ergonomics
@@ -179,23 +192,29 @@ fn test_koren_spectral_init_and_rd_and_classical_mds() {
         false,
     )
     .unwrap();
-    let lay_f32: Layout2d<f32> = pivot_mds(&wg, &PivotMdsConfig::default()).unwrap();
+    let lay_f32: Layout2d<f32> = PivotMds::new(&wg).generate().unwrap();
     assert!(lay_f32.is_all_finite());
-    let rd_2d: Layout2d<f32> = RdMds::new()
-        .dims(2)
-        .eig_eps(1e-10)
-        .tol(1e-6)
-        .max_iters(200)
-        .seed(42)
-        .degree_normalize(true)
-        .target_std(Some(1.0))
-        .embedding_2d(&wg)
+    let rd_2d: Layout2d<f32> = RdMds::new(&wg)
+        .with_dims(2)
+        .with_eig_eps(1e-10)
+        .with_tol(1e-6)
+        .with_max_iters(200)
+        .with_seed(42)
+        .with_degree_normalize(true)
+        .with_target_std(Some(1.0))
+        .generate()
         .unwrap();
     assert!(rd_2d.is_all_finite());
 
-    // Edgeless graph under koren_spectral_init with target_std=Some(1.0) hits finite fallback
+    // Edgeless graph under KorenSpectral with target_std=Some(1.0) hits finite fallback
     let iso = CsrGraph::<f64>::from_edges(8, &[], None, false, false).unwrap();
-    let k_iso: Layout2d<f64> = koren_spectral_init(&iso, Some(1.0), 1e-6, 100, 42).unwrap();
+    let k_iso: Layout2d<f64> = KorenSpectral::new(&iso)
+        .with_target_std(Some(1.0))
+        .with_tol(1e-6)
+        .with_max_iters(100)
+        .with_seed(42)
+        .generate()
+        .unwrap();
     assert!(k_iso.is_all_finite());
     assert!((isotropic_std(&k_iso) - 1.0).abs() < 1e-5);
 }
@@ -288,8 +307,12 @@ fn test_pivot_mds_streaming_matches_all_pivots_classical_mds() {
     let edges = vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 2)];
     let g = CsrGraph::<f64>::from_edges(5, &edges, None, false, false).unwrap();
     let all_pivots: Vec<u32> = (0..5).collect();
-    let pmds: Layout2d<f64> = pivot_mds_with_pivots(&g, &all_pivots, None, 42).unwrap();
-    let cmds: Layout2d<f64> = classical_mds_2d(&g).unwrap();
+    let pmds: Layout2d<f64> = PivotMds::new(&g)
+        .with_pivots(&all_pivots)
+        .with_target_std(None)
+        .generate()
+        .unwrap();
+    let cmds: Layout2d<f64> = ClassicalMds::new(&g).generate().unwrap();
     for i in 0..5 {
         for j in (i + 1)..5 {
             let dp = (pmds.x()[i] - pmds.x()[j]).hypot(pmds.y()[i] - pmds.y()[j]);

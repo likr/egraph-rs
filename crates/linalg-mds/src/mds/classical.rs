@@ -1,6 +1,311 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
-use egraph_linalg::eigen::symmetric_eigen_jacobi;
-use egraph_linalg::shortest_path::{BfsWorkspace, DijkstraWorkspace};
+use std::marker::PhantomData;
+
+use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar};
+use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, symmetric_eigen_jacobi};
+
+use super::storage::{
+    EuclideanLayoutAlloc, impl_euclidean_layout_generator, resolve_target_dims, set_storage_row,
+};
+
+/// Configuration for [`ClassicalMds`].
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassicalMdsConfig {
+    /// Optional explicit target dimensionality (`None` infers `2` for `Layout2d`, `3` for `Layout3d`, and `2` for `LayoutNd`).
+    pub dims: Option<usize>,
+    /// Minimum eigenvalue threshold; modes with $\lambda \le \mathrm{eig\_eps}$ map to zero (`default: 1e-10`).
+    pub eig_eps: f64,
+    /// Convergence tolerance passed to [`symmetric_eigen_jacobi`](egraph_linalg::symmetric_eigen_jacobi) (`default: 1e-12`).
+    pub tol: f64,
+    /// Maximum Jacobi sweeps passed to [`symmetric_eigen_jacobi`](egraph_linalg::symmetric_eigen_jacobi) (`default: 120`).
+    pub max_sweeps: usize,
+}
+
+impl Default for ClassicalMdsConfig {
+    fn default() -> Self {
+        Self {
+            dims: None,
+            eig_eps: 1e-10,
+            tol: 1e-12,
+            max_sweeps: 120,
+        }
+    }
+}
+
+impl ClassicalMdsConfig {
+    /// Creates a new [`ClassicalMdsConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the optional target dimensionality `dims`.
+    pub fn with_dims(mut self, dims: Option<usize>) -> Self {
+        self.dims = dims;
+        self
+    }
+
+    /// Sets the zero-eigenvalue guard threshold `eig_eps`.
+    pub fn with_eig_eps(mut self, eig_eps: f64) -> Self {
+        self.eig_eps = eig_eps;
+        self
+    }
+
+    /// Sets the Jacobi eigensolver convergence tolerance `tol`.
+    pub fn with_tol(mut self, tol: f64) -> Self {
+        self.tol = tol;
+        self
+    }
+
+    /// Sets the maximum Jacobi sweeps `max_sweeps`.
+    pub fn with_max_sweeps(mut self, max_sweeps: usize) -> Self {
+        self.max_sweeps = max_sweeps;
+        self
+    }
+}
+
+#[derive(Debug)]
+enum ClassicalMdsSource<'a, W> {
+    Graph(&'a CsrGraph<W>),
+    Distances {
+        distances_nn: &'a [f64],
+        num_nodes: usize,
+    },
+}
+
+impl<W> Clone for ClassicalMdsSource<'_, W> {
+    fn clone(&self) -> Self {
+        match *self {
+            Self::Graph(g) => Self::Graph(g),
+            Self::Distances {
+                distances_nn,
+                num_nodes,
+            } => Self::Distances {
+                distances_nn,
+                num_nodes,
+            },
+        }
+    }
+}
+
+/// Zero-guarded Classical Multidimensional Scaling (MDS) layout generator implementing
+/// [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct ClassicalMds<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
+    source: ClassicalMdsSource<'a, W>,
+    config: ClassicalMdsConfig,
+    _layout: PhantomData<fn() -> L>,
+}
+
+impl<L: EuclideanLayout, W> Clone for ClassicalMds<'_, L, W> {
+    fn clone(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            config: self.config.clone(),
+            _layout: PhantomData,
+        }
+    }
+}
+
+impl<'a, L: EuclideanLayout, W: Scalar> ClassicalMds<'a, L, W> {
+    /// Creates a [`ClassicalMds`] generator computing all-pairs shortest paths on `graph`.
+    pub fn new(graph: &'a CsrGraph<W>) -> Self {
+        Self {
+            source: ClassicalMdsSource::Graph(graph),
+            config: ClassicalMdsConfig::default(),
+            _layout: PhantomData,
+        }
+    }
+
+    /// Creates a [`ClassicalMds`] generator on `graph` with an explicit [`ClassicalMdsConfig`].
+    pub fn from_config(graph: &'a CsrGraph<W>, config: ClassicalMdsConfig) -> Self {
+        Self {
+            source: ClassicalMdsSource::Graph(graph),
+            config,
+            _layout: PhantomData,
+        }
+    }
+}
+
+impl<'a, L: EuclideanLayout> ClassicalMds<'a, L, f64> {
+    /// Creates a [`ClassicalMds`] generator from a flat row-major `(num_nodes, num_nodes)`
+    /// distance matrix.
+    pub fn from_distances(distances_nn: &'a [f64], num_nodes: usize) -> Self {
+        Self {
+            source: ClassicalMdsSource::Distances {
+                distances_nn,
+                num_nodes,
+            },
+            config: ClassicalMdsConfig::default(),
+            _layout: PhantomData,
+        }
+    }
+}
+
+impl<'a, L: EuclideanLayout, W> ClassicalMds<'a, L, W> {
+    /// Replaces the configuration on this generator.
+    pub fn with_config(mut self, config: ClassicalMdsConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Sets the explicit target dimensionality `dims`.
+    pub fn with_dims(mut self, dims: usize) -> Self {
+        self.config.dims = Some(dims);
+        self
+    }
+
+    /// Sets the zero-eigenvalue guard threshold `eig_eps`.
+    pub fn with_eig_eps(mut self, eig_eps: f64) -> Self {
+        self.config.eig_eps = eig_eps;
+        self
+    }
+
+    /// Sets the Jacobi eigensolver convergence tolerance `tol`.
+    pub fn with_tol(mut self, tol: f64) -> Self {
+        self.config.tol = tol;
+        self
+    }
+
+    /// Sets the maximum Jacobi sweeps `max_sweeps`.
+    pub fn with_max_sweeps(mut self, max_sweeps: usize) -> Self {
+        self.config.max_sweeps = max_sweeps;
+        self
+    }
+
+    /// Returns a reference to the current [`ClassicalMdsConfig`].
+    pub fn config(&self) -> &ClassicalMdsConfig {
+        &self.config
+    }
+
+    fn num_nodes(&self) -> usize {
+        match self.source {
+            ClassicalMdsSource::Graph(g) => g.num_nodes(),
+            ClassicalMdsSource::Distances { num_nodes, .. } => num_nodes,
+        }
+    }
+
+    fn validate_config(&self) -> CoreResult<()> {
+        if !self.config.eig_eps.is_finite() || self.config.eig_eps < 0.0 {
+            return Err(CoreError::invalid_input(
+                "ClassicalMdsConfig::eig_eps must be finite and >= 0",
+            ));
+        }
+        if !self.config.tol.is_finite() {
+            return Err(CoreError::non_finite("ClassicalMdsConfig::tol"));
+        }
+        if self.config.tol <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "ClassicalMdsConfig::tol must be strictly positive",
+            ));
+        }
+        if self.config.max_sweeps == 0 {
+            return Err(CoreError::invalid_input(
+                "ClassicalMdsConfig::max_sweeps must be >= 1",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl<L: EuclideanLayoutAlloc, W> ClassicalMds<'_, L, W> {
+    fn resolve_dims(&self) -> CoreResult<usize> {
+        resolve_target_dims::<L>(self.config.dims, "ClassicalMds::dims")
+    }
+}
+
+impl<L: EuclideanLayout, W: Scalar> ClassicalMds<'_, L, W> {
+    fn generate_into_layout(&self, layout: &mut L, dims: usize) -> CoreResult<()> {
+        self.validate_config()?;
+        let num_nodes = self.num_nodes();
+        let owned_dists;
+        let distances_nn: &[f64] = match self.source {
+            ClassicalMdsSource::Distances {
+                distances_nn,
+                num_nodes: n,
+            } => {
+                let expected = n.checked_mul(n).ok_or_else(|| {
+                    CoreError::invalid_input("classical_mds matrix size overflow")
+                })?;
+                if distances_nn.len() != expected {
+                    return Err(CoreError::dimension_mismatch(
+                        expected,
+                        distances_nn.len(),
+                        "ClassicalMds::from_distances::distances_nn",
+                    ));
+                }
+                distances_nn
+            }
+            ClassicalMdsSource::Graph(graph) => {
+                if num_nodes <= 1 {
+                    return Ok(());
+                }
+                let total = num_nodes
+                    .checked_mul(num_nodes)
+                    .ok_or_else(|| CoreError::invalid_input("classical_mds APSP size overflow"))?;
+                let mut dists = vec![f64::INFINITY; total];
+                if graph.is_weighted() {
+                    let mut ws = DijkstraWorkspace::new(num_nodes);
+                    for src in 0..num_nodes {
+                        ws.dijkstra_from(
+                            graph,
+                            src,
+                            &mut dists[src * num_nodes..(src + 1) * num_nodes],
+                        )?;
+                    }
+                } else {
+                    let mut ws = BfsWorkspace::new(num_nodes);
+                    for src in 0..num_nodes {
+                        ws.bfs_from(
+                            graph,
+                            src,
+                            &mut dists[src * num_nodes..(src + 1) * num_nodes],
+                        )?;
+                    }
+                }
+                owned_dists = dists;
+                &owned_dists
+            }
+        };
+
+        if num_nodes <= 1 {
+            return Ok(());
+        }
+
+        let b = double_center_distances(distances_nn, num_nodes, num_nodes);
+        let (evals, evecs) =
+            symmetric_eigen_jacobi(&b, num_nodes, self.config.max_sweeps, self.config.tol)?;
+        let used_dims = dims.min(num_nodes);
+
+        let mut weights = vec![0.0_f64; used_dims];
+        for (m, w) in weights.iter_mut().enumerate() {
+            let eig_val = evals[num_nodes - 1 - m];
+            *w = if eig_val > self.config.eig_eps {
+                eig_val.sqrt()
+            } else {
+                0.0
+            };
+        }
+
+        let mut row_buf = vec![0.0_f64; used_dims];
+        let mut storage = layout.as_euclidean_storage_mut();
+        for i in 0..num_nodes {
+            for m in 0..used_dims {
+                let eig_idx = num_nodes - 1 - m;
+                row_buf[m] = evecs[i * num_nodes + eig_idx] * weights[m];
+            }
+            set_storage_row(&mut storage, i, &row_buf);
+        }
+        if layout.validate_finite().is_err() {
+            return Err(CoreError::numerical_breakdown(
+                "ClassicalMds projection overflowed output scalar",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl_euclidean_layout_generator!(ClassicalMds);
 
 /// Replaces infinite/non-finite entries in a squared-distance buffer with a bounded finite
 /// fallback and applies double centering in-place:
@@ -70,97 +375,4 @@ fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec
         }
     }
     delta
-}
-
-/// Computes zero-guarded Classical MDS from a flat row-major `(num_nodes, num_nodes)`
-/// distance matrix via [`symmetric_eigen_jacobi`].
-pub fn classical_mds_from_distances<S: Scalar>(
-    distances_nn: &[f64],
-    num_nodes: usize,
-    dims: usize,
-) -> CoreResult<LayoutNd<S>> {
-    if dims == 0 {
-        return Err(CoreError::invalid_input("dims must be >= 1"));
-    }
-    let expected = num_nodes
-        .checked_mul(num_nodes)
-        .ok_or_else(|| CoreError::invalid_input("classical_mds matrix size overflow"))?;
-    if distances_nn.len() != expected {
-        return Err(CoreError::dimension_mismatch(
-            expected,
-            distances_nn.len(),
-            "classical_mds_from_distances::distances_nn",
-        ));
-    }
-
-    let mut layout = LayoutNd::zeros(num_nodes, dims)?;
-    if num_nodes <= 1 {
-        return Ok(layout);
-    }
-
-    let b = double_center_distances(distances_nn, num_nodes, num_nodes);
-    let (evals, evecs) = symmetric_eigen_jacobi(&b, num_nodes, 120, 1e-12)?;
-    let used_dims = dims.min(num_nodes);
-
-    let mut weights = vec![0.0_f64; used_dims];
-    for m in 0..used_dims {
-        let eig_val = evals[num_nodes - 1 - m];
-        weights[m] = if eig_val > 1e-10 { eig_val.sqrt() } else { 0.0 };
-    }
-
-    let coords = layout.coords_mut();
-    for i in 0..num_nodes {
-        let out_row = &mut coords[i * dims..i * dims + used_dims];
-        for m in 0..used_dims {
-            let eig_idx = num_nodes - 1 - m;
-            out_row[m] = S::from_f64(evecs[i * num_nodes + eig_idx] * weights[m]);
-        }
-    }
-    Ok(layout)
-}
-
-/// Computes zero-guarded Classical MDS on `graph` via all-pairs shortest paths and
-/// [`symmetric_eigen_jacobi`].
-pub fn classical_mds<W: Scalar, S: Scalar>(
-    graph: &CsrGraph<W>,
-    dims: usize,
-) -> CoreResult<LayoutNd<S>> {
-    if dims == 0 {
-        return Err(CoreError::invalid_input("dims must be >= 1"));
-    }
-    let n = graph.num_nodes();
-    if n <= 1 {
-        return LayoutNd::zeros(n, dims);
-    }
-
-    let total = n
-        .checked_mul(n)
-        .ok_or_else(|| CoreError::invalid_input("classical_mds APSP size overflow"))?;
-    let mut dists = vec![f64::INFINITY; total];
-    if graph.is_weighted() {
-        let mut ws = DijkstraWorkspace::new(n);
-        for src in 0..n {
-            ws.dijkstra_from(graph, src, &mut dists[src * n..(src + 1) * n])?;
-        }
-    } else {
-        let mut ws = BfsWorkspace::new(n);
-        for src in 0..n {
-            ws.bfs_from(graph, src, &mut dists[src * n..(src + 1) * n])?;
-        }
-    }
-    classical_mds_from_distances(&dists, n, dims)
-}
-
-/// Computes a 2D [`Layout2d`] using zero-guarded Classical MDS via [`symmetric_eigen_jacobi`].
-pub fn classical_mds_2d<W: Scalar, S: Scalar>(graph: &CsrGraph<W>) -> CoreResult<Layout2d<S>> {
-    let nd = classical_mds::<W, f64>(graph, 2)?;
-    let n = graph.num_nodes();
-    let mut x = Vec::with_capacity(n);
-    let mut y = Vec::with_capacity(n);
-    for i in 0..n {
-        let row = nd.node(i)?;
-        x.push(S::from_f64(row[0]));
-        y.push(S::from_f64(row[1]));
-    }
-    Layout2d::from_xy(x, y)
 }
