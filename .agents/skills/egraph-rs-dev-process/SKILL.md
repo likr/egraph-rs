@@ -47,7 +47,8 @@ This skill details the general development rules, comment conventions, parallel 
 - **Formatting, Invariants, and Tests**:
   - Run `cargo fmt --all`.
   - Run `./scripts/verify.sh` matching scope (`--rust`, `--python`, `--wasm`, `--invariants`, `--parity`, `--docs`, or `--all --build-wasm --docs`).
-  - Ensure all modified crates (outside legacy `petgraph-linalg-kernel` baseline warnings) pass `clippy ... -- -D warnings`.
+  - Ensure all modified crates pass `clippy ... -- -D warnings`.
+  - Follow the **Verification Efficiency & Adversarial Convergence Guardrails** in [`.agents/AGENTS.md`](../../AGENTS.md) (one full `--all` per unique code diff, no cold empty-`CARGO_TARGET_DIR` workspace `--release` rebuilds, `<= 3` adversarial remediation rounds with practical severity triage, and `>= 25 GiB` disk check before parallel worktrees).
   - Before release tagging, follow `egraph-rs-release` to confirm workspace dependency & `crates/wasm/package-lock.json` alignment (`ndarray` `0.17` `default-features = false` matching `numpy` `0.28`), `crates/wasm/package.json` `repository` provenance metadata, `crates/python/pyproject.toml` classifiers matching tag stability (`alpha`/`beta`/`rc`/GA), and `CHANGELOG.md` accuracy.
 - **Prepare Commit**:
   - Split unrelated changes into atomic commits following `egraph-rs-commit` and `egraph-rs-github` rules (`git diff --cached --stat`).

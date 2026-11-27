@@ -39,6 +39,7 @@ Run single-threaded before committing or tagging:
    ```
    Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix js/examples run build` all pass, and `jp_cjk=0` across all modified files.
    - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the 11 version/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` (`6/6`) runs the full matrix remotely before tagging.
+   - **Distribution Build Profile**: `.github/workflows/release.yml` builds published PyPI wheels with `maturin build --profile dist-release` (`lto = "thin"`, `codegen-units = 1`), distinct from the fast parallel `[profile.release]` (`lto = false`) used by `ci.yml` and local `verify.sh --rust`/`--python` checks.
 4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
 
 ## 3. OIDC Prerequisites & Tag Recovery Policy
