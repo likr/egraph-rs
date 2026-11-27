@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use egraph::prelude::ManifoldKind;
 use serde::Serialize;
 
 /// Top-level `egraph` CLI parser.
@@ -19,9 +20,9 @@ pub struct Cli {
 /// Supported CLI subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Compute a 2D graph layout and output coordinates + execution stats as JSON.
+    /// Compute a 2D, N-D, or manifold graph layout and output coordinates + execution stats as JSON.
     Layout(LayoutArgs),
-    /// Evaluate quality metrics on a graph and an existing 2D JSON layout.
+    /// Evaluate quality metrics on a graph and an existing 2D, N-D, or manifold JSON layout.
     Metrics(MetricsArgs),
     /// Cluster a graph using Louvain, Leiden, spectral clustering, label propagation, or K-Means++.
     Cluster(ClusterArgs),
@@ -36,6 +37,9 @@ pub enum LayoutMethod {
     /// Pure 1+2-Hop adaptive Fit-tsNET (`TsNetSolver::from_graph_pure_2hop`).
     #[value(name = "tsnet-pure2hop")]
     TsnetPure2hop,
+    /// Row-normalized 1+2-hop adaptive tsNET (`TsNetSolver::from_graph_row_normalized_with_options` with `Auto` backend and `TwoStepRandomWalk`).
+    #[value(name = "tsnet-rn")]
+    TsnetRn,
     /// Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD (`SgdSolver::sparse_barrier_dog`).
     #[value(name = "sgd-barrier-dog")]
     SgdBarrierDog,
@@ -197,6 +201,44 @@ pub enum OverlapRemovalArg {
     /// PFS' scanline node overlap removal (`PfsPrimeOverlapRemoval`).
     #[value(name = "pfs-prime")]
     PfsPrime,
+    /// Spatial-hash and golden-angle Vogel spiral twin/near-twin decluttering (`TwinDeclutterer`).
+    #[value(name = "twin-declutter")]
+    TwinDeclutter,
+}
+
+/// Non-Euclidean manifold geometry (`--manifold`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManifoldArg {
+    /// Standard Euclidean layout (`Layout2d` / `LayoutNd`).
+    #[default]
+    #[value(name = "none")]
+    None,
+    /// Hyperbolic Poincaré open unit disk (`ManifoldKind::HyperbolicPoincare`).
+    #[value(name = "hyperbolic")]
+    Hyperbolic,
+    /// Hyperbolic 2D Lorentz / Gans hyperboloid coordinates (`ManifoldKind::HyperbolicLorentz`).
+    #[value(name = "hyperbolic-lorentz")]
+    HyperbolicLorentz,
+    /// Unit sphere $S^2$ (`ManifoldKind::Spherical`).
+    #[value(name = "spherical")]
+    Spherical,
+    /// Flat 2D torus $T^2 = [0, 1)^2$ (`ManifoldKind::Torus2d`).
+    #[value(name = "torus")]
+    Torus,
+}
+
+impl ManifoldArg {
+    /// Converts the CLI manifold option into [`ManifoldKind`], returning `None` for Euclidean mode.
+    pub fn to_manifold_kind(self) -> Option<ManifoldKind> {
+        match self {
+            Self::None => None,
+            Self::Hyperbolic => Some(ManifoldKind::HyperbolicPoincare),
+            Self::HyperbolicLorentz => Some(ManifoldKind::HyperbolicLorentz),
+            Self::Spherical => Some(ManifoldKind::Spherical),
+            Self::Torus => Some(ManifoldKind::Torus2d),
+        }
+    }
 }
 
 /// Arguments for `egraph layout`.
@@ -214,9 +256,33 @@ pub struct LayoutArgs {
     /// Initial layout placement strategy.
     #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
     pub init: InitMethod,
-    /// Optional community labels file (JSON or plain-text/CSV integer list) for `gib` and `--cluster-refine` (auto-clustered via Leiden when omitted).
+    /// Embedding dimensionality (`2` for standard 2D `Layout2d`; `!= 2` runs N-D `LayoutNd`).
+    #[arg(long, default_value_t = 2)]
+    pub dims: usize,
+    /// Non-Euclidean manifold geometry (`none`, `hyperbolic`, `hyperbolic-lorentz`, `spherical`, `torus`).
+    #[arg(long, value_enum, default_value_t = ManifoldArg::None)]
+    pub manifold: ManifoldArg,
+    /// Physical geodesic scale factor for manifold layouts (`> 0.0`).
+    #[arg(long, default_value_t = 1.0)]
+    pub manifold_scale: f64,
+    /// Physical rectangular torus aspect ratio `Lx / Ly` (`> 0.0`, used with `--manifold torus`).
+    #[arg(long, default_value_t = 1.0)]
+    pub torus_aspect: f64,
+    /// Apply optimal torus boundary auto-panning after layout (`--manifold torus` only).
+    #[arg(long, default_value_t = false)]
+    pub torus_auto_pan: bool,
+    /// Number of SGD schedule windows for multi-window / size-optimization execution.
+    #[arg(long, value_name = "COUNT")]
+    pub schedule_windows: Option<usize>,
+    /// Iterations per SGD schedule window (used with `--schedule-windows` or standalone).
+    #[arg(long, value_name = "ITERS")]
+    pub schedule_window_iters: Option<usize>,
+    /// Final geodesic scale applied via `ManifoldLayout2d::rescale_geodesic` (`--manifold != none` only).
+    #[arg(long, value_name = "SCALE")]
+    pub manifold_rescale_final: Option<f64>,
+    /// Optional community/cluster labels file (JSON or plain-text/CSV integer list) for `gib` and `--cluster-refine` (auto-clustered via Leiden when omitted).
     #[arg(long, value_name = "FILE")]
-    pub community_labels: Option<PathBuf>,
+    pub labels: Option<PathBuf>,
     /// Apply post-layout 2D spatial intruder refinement (`SpatialIntruderRefiner`).
     #[arg(long, default_value_t = false)]
     pub refine: bool,
@@ -226,7 +292,7 @@ pub struct LayoutArgs {
     /// Apply post-layout PRISM overlap removal (`PrismOverlapRemoval`, alias for `--overlap-removal prism`).
     #[arg(long, default_value_t = false, conflicts_with = "overlap_removal")]
     pub prism: bool,
-    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`, `pfs-prime`; default: `none`).
+    /// Post-layout node overlap removal method (`none`, `prism`, `gtree`, `forbid`, `forbid-prime`, `sparse-forbid`, `pfs-prime`, `twin-declutter`; default: `none`).
     #[arg(long, value_enum)]
     pub overlap_removal: Option<OverlapRemovalArg>,
     /// Uniform node half-extent radius used when overlap removal (`--overlap-removal` or `--prism`) is enabled.
@@ -249,13 +315,25 @@ pub struct MetricsArgs {
     /// Embedded benchmark dataset name.
     #[arg(long, value_name = "NAME", conflicts_with = "input")]
     pub dataset: Option<String>,
-    /// Input 2D coordinates JSON file.
+    /// Input 2D, N-D, or manifold coordinates JSON file.
     #[arg(long, value_name = "FILE")]
     pub layout: PathBuf,
-    /// Optional community labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`), `adjusted-patch-nig`, and label-dependent `eval-baselines` targets (`dsc`, `dc`, `cdm`, `hdm`, `sepme-*`, `neighborhood-hit`, `silhouette`, `calinski-harabasz`, `davies-bouldin`, `cq-*`, `pairwise-distance-overlap-error`; `sprawlter-nn` does not require labels).
+    /// Optional reference 2D coordinates JSON file required for `prism-distortion` and `nor-metrics`.
     #[arg(long, value_name = "FILE")]
-    pub community_labels: Option<PathBuf>,
-    /// Comma-separated metric targets (`sns,sampled-sns,crossings,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,dsc,dc,cdm,hdm,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette,calinski-harabasz,davies-bouldin,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,all`; note `drng`/`dgg` compute Eades et al. 2017 unweighted `S_RNG`/`S_GG`, distinct from deferred Hong et al. 2022 `dRNG`/`dGG` and Fang et al. 2025 `dcRNG`/`dcGG`).
+    pub original_layout: Option<PathBuf>,
+    /// Optional labels file (JSON `{"labels": [...]}` / `{"community_labels": [...]}` / `[...]` or plain-text/CSV integer list), required for `cluster-area-faithfulness` (`gcaf`), `adjusted-patch-nig`, and label-dependent `eval-baselines` targets (`distance-consistency`, `distribution-consistency`, `class-density-measure`, `histogram-density-measure`, `sepme-*`, `neighborhood-hit`, `silhouette-score`, `calinski-harabasz-score`, `davies-bouldin-score`, `cq-*`, `pairwise-distance-overlap-error`; `sprawlter-nn` and `nor-metrics` do not require labels).
+    #[arg(long, value_name = "FILE")]
+    pub labels: Option<PathBuf>,
+    /// Uniform node half-extent radius (`> 0.0`) used by `sprawlter-nn` and `nor-metrics` when per-node half-extents are omitted.
+    #[arg(long, default_value_t = 1.0)]
+    pub overlap_radius: f64,
+    /// Optional per-node rectangle half-widths file (JSON array or plain-text/CSV float list) for `sprawlter-nn` and `nor-metrics`.
+    #[arg(long, value_name = "FILE")]
+    pub sprawlter_half_widths: Option<PathBuf>,
+    /// Optional per-node rectangle half-heights file (JSON array or plain-text/CSV float list) for `sprawlter-nn` and `nor-metrics`.
+    #[arg(long, value_name = "FILE")]
+    pub sprawlter_half_heights: Option<PathBuf>,
+    /// Comma-separated metric targets (`sns,sampled-sns,geodesic-distortion,crossings,crossing-edges,crossing-angle,sampled-crossings,crosslessness,sampled-crosslessness,torus-crossing-number,crossing-edges-torus,np1,np2,sampled-np1,sampled-np2,gabriel,node-resolution,drng,dgg,aspect-ratio,angular-resolution,minimum-angle,minimum-angle-a1,layout-degeneracy,ideal-edge-lengths,prism-distortion,adjusted-patch-nig,cluster-area-faithfulness,gcaf,rta,distance-consistency,distribution-consistency,class-density-measure,histogram-density-measure,sepme-knng,sepme-knng2,sepme-rng,sepme-gab,sepme-gong,neighborhood-hit,silhouette-score,calinski-harabasz-score,davies-bouldin-score,cq-kmeans-ari,cq-kmeans-ami,cq-hac-hom,cq-hac-ami,pairwise-distance-overlap-error,sprawlter-nn,nor-metrics,nor,all`; note `drng`/`dgg` compute Eades et al. 2017 unweighted `S_RNG`/`S_GG`, distinct from deferred Hong et al. 2022 `dRNG`/`dGG` and Fang et al. 2025 `dcRNG`/`dcGG`).
     #[arg(long, default_value = "sns,crossings,np1,np2")]
     pub targets: String,
     /// Number of BFS pivot sources for `sampled-sns`.
@@ -340,6 +418,21 @@ pub struct BenchArgs {
     /// Initial layout placement strategy.
     #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
     pub init: InitMethod,
+    /// Embedding dimensionality (`2` for standard 2D `Layout2d`; `!= 2` runs N-D `LayoutNd`).
+    #[arg(long, default_value_t = 2)]
+    pub dims: usize,
+    /// Non-Euclidean manifold geometry (`none`, `hyperbolic`, `hyperbolic-lorentz`, `spherical`, `torus`).
+    #[arg(long, value_enum, default_value_t = ManifoldArg::None)]
+    pub manifold: ManifoldArg,
+    /// Physical geodesic scale factor for manifold layouts (`> 0.0`).
+    #[arg(long, default_value_t = 1.0)]
+    pub manifold_scale: f64,
+    /// Physical rectangular torus aspect ratio `Lx / Ly` (`> 0.0`, used with `--manifold torus`).
+    #[arg(long, default_value_t = 1.0)]
+    pub torus_aspect: f64,
+    /// Apply optimal torus boundary auto-panning after layout (`--manifold torus` only).
+    #[arg(long, default_value_t = false)]
+    pub torus_auto_pan: bool,
     /// Deterministic RNG seed.
     #[arg(long, default_value_t = 42)]
     pub seed: u64,

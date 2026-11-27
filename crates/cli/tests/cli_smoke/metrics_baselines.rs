@@ -39,7 +39,7 @@ fn cli_metrics_eval_baselines_18_targets() {
         "karate",
         "--layout",
         layout_path.to_str().expect("utf8 path"),
-        "--community-labels",
+        "--labels",
         cluster_path.to_str().expect("utf8 path"),
         "--targets",
         all_18_targets,
@@ -48,18 +48,18 @@ fn cli_metrics_eval_baselines_18_targets() {
     ]);
     let m18: serde_json::Value = serde_json::from_str(&out_18).expect("parse 18 metrics");
     let baseline_keys = [
-        "dsc",
-        "dc",
-        "cdm",
-        "hdm",
+        "distance_consistency",
+        "distribution_consistency",
+        "class_density_measure",
+        "histogram_density_measure",
         "sepme_knng",
         "sepme_rng",
         "sepme_gab",
         "sepme_gong",
         "neighborhood_hit",
-        "silhouette",
-        "calinski_harabasz",
-        "davies_bouldin",
+        "silhouette_score",
+        "calinski_harabasz_score",
+        "davies_bouldin_score",
         "cq_kmeans_ari",
         "cq_kmeans_ami",
         "cq_hac_hom",
@@ -74,10 +74,10 @@ fn cli_metrics_eval_baselines_18_targets() {
         assert!(val.is_finite(), "{key} not finite: {val}");
     }
     for unit_key in [
-        "dsc",
-        "dc",
-        "cdm",
-        "hdm",
+        "distance_consistency",
+        "distribution_consistency",
+        "class_density_measure",
+        "histogram_density_measure",
         "sepme_knng",
         "sepme_rng",
         "sepme_gab",
@@ -89,14 +89,23 @@ fn cli_metrics_eval_baselines_18_targets() {
         let v = m18[unit_key].as_f64().expect("unit metric");
         assert!((0.0..=1.0).contains(&v), "{unit_key} out of [0,1]: {v}");
     }
-    for signed_unit_key in ["silhouette", "cq_kmeans_ari", "cq_kmeans_ami", "cq_hac_ami"] {
+    for signed_unit_key in [
+        "silhouette_score",
+        "cq_kmeans_ari",
+        "cq_kmeans_ami",
+        "cq_hac_ami",
+    ] {
         let v = m18[signed_unit_key].as_f64().expect("signed unit metric");
         assert!(
             (-1.0..=1.0).contains(&v),
             "{signed_unit_key} out of [-1,1]: {v}"
         );
     }
-    for nonneg_key in ["calinski_harabasz", "davies_bouldin", "sprawlter_nn"] {
+    for nonneg_key in [
+        "calinski_harabasz_score",
+        "davies_bouldin_score",
+        "sprawlter_nn",
+    ] {
         let v = m18[nonneg_key].as_f64().expect("nonneg metric");
         assert!(v >= 0.0, "{nonneg_key} < 0: {v}");
     }
@@ -110,7 +119,7 @@ fn cli_metrics_eval_baselines_18_targets() {
             "karate",
             "--layout",
             layout_path.to_str().expect("utf8 path"),
-            "--community-labels",
+            "--labels",
             cluster_path.to_str().expect("utf8 path"),
             "--targets",
             alias,
@@ -126,7 +135,7 @@ fn cli_metrics_eval_baselines_18_targets() {
         );
     }
 
-    // Label-free sprawlter-nn succeeds without --community-labels and omits unrequested baseline keys.
+    // Label-free sprawlter-nn succeeds without --labels and omits unrequested baseline keys.
     let out_sprawlter = run_egraph(&[
         "metrics",
         "--dataset",
@@ -140,9 +149,15 @@ fn cli_metrics_eval_baselines_18_targets() {
         serde_json::from_str::<serde_json::Value>(&out_sprawlter).expect("parse sprawlter json");
     let sp_val = sp_obj["sprawlter_nn"].as_f64().expect("sprawlter_nn");
     assert!(sp_val.is_finite() && sp_val >= 1.0);
-    assert!(sp_obj.as_object().expect("obj").get("dsc").is_none());
+    assert!(
+        sp_obj
+            .as_object()
+            .expect("obj")
+            .get("distance_consistency")
+            .is_none()
+    );
 
-    // Regression: `--targets all` without `--community-labels` omits all 18 eval-baselines keys.
+    // Regression: `--targets all` without `--labels` omits all 18 eval-baselines keys.
     let out_all = run_egraph(&[
         "metrics",
         "--dataset",
@@ -164,7 +179,7 @@ fn cli_metrics_eval_baselines_18_targets() {
         );
     }
 
-    // Missing `--community-labels` error guard for label-dependent cluster baseline targets.
+    // Missing `--labels` error guard for label-dependent cluster baseline targets.
     let bin = env!("CARGO_BIN_EXE_egraph");
     for target in ["dsc", "sepme-knng2", "cq-hac-ami"] {
         let missing_out = Command::new(bin)
@@ -181,7 +196,7 @@ fn cli_metrics_eval_baselines_18_targets() {
             .expect("execute egraph binary");
         assert!(
             !missing_out.status.success(),
-            "expected non-zero exit for --targets {target} without --community-labels"
+            "expected non-zero exit for --targets {target} without --labels"
         );
         let stderr = String::from_utf8_lossy(&missing_out.stderr);
         assert!(

@@ -38,7 +38,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
 
     let bin = env!("CARGO_BIN_EXE_egraph");
 
-    // 1. Missing `--community-labels` when requesting `cluster-area-faithfulness` errors cleanly.
+    // 1. Missing `--labels` when requesting `cluster-area-faithfulness` errors cleanly.
     let missing_out = Command::new(bin)
         .args([
             "metrics",
@@ -54,8 +54,8 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
     assert!(!missing_out.status.success());
     let missing_stderr = String::from_utf8_lossy(&missing_out.stderr);
     assert!(
-        missing_stderr.contains("community_labels"),
-        "expected stderr to mention community_labels, got: {missing_stderr}"
+        missing_stderr.contains("labels"),
+        "expected stderr to mention labels, got: {missing_stderr}"
     );
 
     let missing_patch_out = Command::new(bin)
@@ -81,7 +81,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
             layout_path.to_str().expect("utf8 path"),
             "--targets",
             "gcaf",
-            "--community-labels",
+            "--labels",
             cluster_path.to_str().expect("utf8 path"),
             "--gcaf-g-max",
             "4",
@@ -90,7 +90,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
         .expect("execute egraph binary");
     assert!(!bad_gcaf_flag_out.status.success());
 
-    // 2. Length mismatch in `--community-labels` errors cleanly.
+    // 2. Length mismatch in `--labels` errors cleanly.
     fs::write(&labels_bad_len_path, "0 1 2 3\n").expect("write short labels");
     let mismatch_out = Command::new(bin)
         .args([
@@ -101,7 +101,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
             layout_path.to_str().expect("utf8 path"),
             "--targets",
             "gcaf",
-            "--community-labels",
+            "--labels",
             labels_bad_len_path.to_str().expect("utf8 path"),
         ])
         .output()
@@ -148,7 +148,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
         (
             "bad_other_schema.json",
             r#"{"other": []}"#,
-            "unrecognized community labels JSON schema",
+            "unrecognized labels JSON schema",
             "unrecognized JSON schema",
         ),
         (
@@ -166,7 +166,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
         (
             "bad_plain_overflow.txt",
             "4294967296\n",
-            "invalid community label",
+            "invalid label",
             "u32 overflow in plain text",
         ),
         (
@@ -188,7 +188,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
                 layout_path.to_str().expect("utf8 path"),
                 "--targets",
                 "gcaf",
-                "--community-labels",
+                "--labels",
                 p.to_str().expect("utf8 path"),
             ])
             .output()
@@ -210,7 +210,7 @@ fn cli_metrics_cluster_area_faithfulness_error_guards() {
             layout_path.to_str().expect("utf8 path"),
             "--targets",
             "gcaf",
-            "--community-labels",
+            "--labels",
             cluster_path.to_str().expect("utf8 path"),
             "--num-pivots",
             "0",

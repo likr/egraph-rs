@@ -51,7 +51,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "sns,cluster-area-faithfulness",
-        "--community-labels",
+        "--labels",
         cluster_path.to_str().expect("utf8 path"),
     ]);
     let metrics_from_json: serde_json::Value =
@@ -84,7 +84,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "gcaf",
-        "--community-labels",
+        "--labels",
         labels_txt_path.to_str().expect("utf8 path"),
     ]);
     let metrics_from_txt: serde_json::Value =
@@ -94,7 +94,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         .expect("gcaf float");
     assert!((caf_txt - caf_json).abs() < 1e-12);
 
-    // 3. `--targets all` remains backward-compatible without `--community-labels`.
+    // 3. `--targets all` remains backward-compatible without `--labels`.
     let out_all = run_egraph(&[
         "metrics",
         "--dataset",
@@ -115,7 +115,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         "expected all standard metrics including landmark_stratified_rta"
     );
 
-    // 4. `--targets all` WITH `--community-labels` auto-includes `gcaf` and `adjusted-patch-nig`
+    // 4. `--targets all` WITH `--labels` auto-includes `gcaf` and `adjusted-patch-nig`
     // and populates G-CAF summary fields + effective_boundary_r95 + g_eff (with gcaf_detail=null).
     let out_all_comm = run_egraph(&[
         "metrics",
@@ -125,18 +125,18 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "all",
-        "--community-labels",
+        "--labels",
         cluster_path.to_str().expect("utf8 path"),
     ]);
     let metrics_all_comm: serde_json::Value =
         serde_json::from_str(&out_all_comm).expect("parse all+comm metrics json");
     let caf_all_comm = metrics_all_comm["cluster_area_faithfulness"]
         .as_f64()
-        .expect("non-null cluster_area_faithfulness for --targets all --community-labels");
+        .expect("non-null cluster_area_faithfulness for --targets all --labels");
     assert!((caf_all_comm - caf_json).abs() < 1e-12);
     assert!(
         metrics_all_comm["adjusted_patch_nig"].as_f64().is_some(),
-        "expected non-null adjusted_patch_nig for --targets all --community-labels"
+        "expected non-null adjusted_patch_nig for --targets all --labels"
     );
     assert!(metrics_all_comm["gcaf_purity_adj"].as_f64().is_some());
     assert!(metrics_all_comm["gcaf_prop_vis"].as_f64().is_some());
@@ -157,7 +157,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
     assert_eq!(metrics_all_comm["g_eff"].as_u64(), Some(12));
     assert!(metrics_all_comm["gcaf_detail"].is_null());
 
-    // 5. Explicit `--targets adjusted-patch-nig` with `--community-labels`.
+    // 5. Explicit `--targets adjusted-patch-nig` with `--labels`.
     let out_patch_nig = run_egraph(&[
         "metrics",
         "--dataset",
@@ -166,7 +166,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "adjusted-patch-nig",
-        "--community-labels",
+        "--labels",
         cluster_path.to_str().expect("utf8 path"),
     ]);
     let metrics_patch_nig: serde_json::Value =
@@ -186,7 +186,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "gcaf",
-        "--community-labels",
+        "--labels",
         cluster_path.to_str().expect("utf8 path"),
         "--gcaf-g-max",
         "64",
@@ -236,7 +236,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         );
     }
 
-    // 7. `--targets all,gcaf` and `--targets gcaf,all` with `--community-labels`
+    // 7. `--targets all,gcaf` and `--targets gcaf,all` with `--labels`
     // must emit both non-null `cluster_area_faithfulness` and all standard metrics.
     for combined_targets in ["all,gcaf", "gcaf,all"] {
         let out_combined = run_egraph(&[
@@ -247,7 +247,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
             layout_path.to_str().expect("utf8 path"),
             "--targets",
             combined_targets,
-            "--community-labels",
+            "--labels",
             cluster_path.to_str().expect("utf8 path"),
         ]);
         let metrics_combined: serde_json::Value =
@@ -300,7 +300,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "gcaf",
-        "--community-labels",
+        "--labels",
         comm_obj_path.to_str().expect("utf8 path"),
     ]);
     let metrics_comm_obj: serde_json::Value =
@@ -324,7 +324,7 @@ fn cli_metrics_cluster_area_faithfulness_and_formats() {
         layout_path.to_str().expect("utf8 path"),
         "--targets",
         "gcaf",
-        "--community-labels",
+        "--labels",
         bare_arr_path.to_str().expect("utf8 path"),
     ]);
     let metrics_bare_arr: serde_json::Value =

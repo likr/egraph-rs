@@ -10,7 +10,9 @@ mod args;
 mod cluster_bench;
 mod layout_exec;
 mod layout_methods;
+mod layout_nd_manifold;
 mod metrics_exec;
+mod metrics_targets;
 mod output;
 
 #[cfg(test)]
@@ -22,14 +24,13 @@ use crate::io::{CliResult, write_json_output};
 
 pub use args::{
     BenchArgs, Cli, ClusterArgs, ClusterMethod, ClusterRefineArg, Commands, InitMethod, LayoutArgs,
-    LayoutMethod, MetricsArgs, OverlapRemovalArg,
+    LayoutMethod, ManifoldArg, MetricsArgs, OverlapRemovalArg,
 };
 pub use cluster_bench::{execute_bench, execute_cluster};
 pub use layout_exec::execute_layout;
-pub use layout_methods::{
-    build_initial_layout, run_layout_method, run_layout_method_with_communities,
-};
-pub use metrics_exec::{execute_metrics, load_community_labels_from_path, parse_metric_targets};
+pub use layout_methods::{build_initial_layout, run_layout_method, run_layout_method_with_labels};
+pub use metrics_exec::execute_metrics;
+pub use metrics_targets::{load_labels_from_path, parse_metric_targets};
 pub use output::{BenchOutput, ClusterOutput, GcafDetailOutput, LayoutOutput, MetricsOutput};
 
 /// Parses and executes the CLI from process arguments.

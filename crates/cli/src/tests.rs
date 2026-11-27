@@ -6,7 +6,7 @@ use egraph::prelude::MetricTarget;
 use crate::io::CliError;
 use crate::{
     Cli, ClusterMethod, ClusterRefineArg, Commands, InitMethod, LayoutArgs, LayoutMethod,
-    OverlapRemovalArg, execute_layout, parse_metric_targets,
+    ManifoldArg, OverlapRemovalArg, execute_layout, parse_metric_targets,
 };
 
 #[test]
@@ -39,6 +39,22 @@ fn parse_metric_targets_expands_all_with_dedup_and_validation() {
 
     let patch_nig = parse_metric_targets("adjusted-patch-nig,patch_nig").expect("patch-nig");
     assert_eq!(patch_nig, vec![MetricTarget::AdjustedPatchNig]);
+
+    let extra_targets = parse_metric_targets(
+        "geodesic-distortion,crossing-edges,torus-crossing-number,crossing-edges-torus,prism-distortion,nor-metrics,nor",
+    )
+    .expect("new metric targets");
+    assert_eq!(
+        extra_targets,
+        vec![
+            MetricTarget::GeodesicDistortion,
+            MetricTarget::CrossingEdges,
+            MetricTarget::TorusCrossingNumber,
+            MetricTarget::CrossingEdgesTorus,
+            MetricTarget::PrismDistortion,
+            MetricTarget::NorMetrics,
+        ]
+    );
 }
 
 #[test]
@@ -126,6 +142,7 @@ fn cli_parses_cluster_and_overlap_removal_flags() {
         ("forbid", OverlapRemovalArg::Forbid),
         ("forbid-prime", OverlapRemovalArg::ForbidPrime),
         ("sparse-forbid", OverlapRemovalArg::SparseForbid),
+        ("twin-declutter", OverlapRemovalArg::TwinDeclutter),
     ] {
         let parsed = Cli::try_parse_from([
             "egraph",
@@ -178,7 +195,7 @@ fn cli_parses_cluster_and_overlap_removal_flags() {
             method_str,
             "--cluster-refine",
             "hac",
-            "--community-labels",
+            "--labels",
             "labels.json",
         ])
         .expect("parse layout method and cluster-refine");
@@ -186,7 +203,7 @@ fn cli_parses_cluster_and_overlap_removal_flags() {
             Commands::Layout(args) => {
                 assert_eq!(args.method, expected);
                 assert_eq!(args.cluster_refine, ClusterRefineArg::Hac);
-                assert_eq!(args.community_labels, Some(PathBuf::from("labels.json")));
+                assert_eq!(args.labels, Some(PathBuf::from("labels.json")));
             }
             _ => panic!("expected Layout command"),
         }
@@ -295,6 +312,72 @@ fn cli_parses_extended_layout_methods_and_pfs_prime_flags() {
 }
 
 #[test]
+fn cli_parses_manifold_nd_and_schedule_window_flags() {
+    let parsed_tsnet_rn = Cli::try_parse_from([
+        "egraph",
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "tsnet-rn",
+        "--dims",
+        "3",
+    ])
+    .expect("parse tsnet-rn and dims");
+    match parsed_tsnet_rn.command {
+        Commands::Layout(args) => {
+            assert_eq!(args.method, LayoutMethod::TsnetRn);
+            assert_eq!(args.dims, 3);
+            assert_eq!(args.manifold, ManifoldArg::None);
+        }
+        _ => panic!("expected Layout command"),
+    }
+
+    for (manifold_str, expected) in [
+        ("none", ManifoldArg::None),
+        ("hyperbolic", ManifoldArg::Hyperbolic),
+        ("hyperbolic-lorentz", ManifoldArg::HyperbolicLorentz),
+        ("spherical", ManifoldArg::Spherical),
+        ("torus", ManifoldArg::Torus),
+    ] {
+        let parsed = Cli::try_parse_from([
+            "egraph",
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "sgd-full",
+            "--manifold",
+            manifold_str,
+            "--manifold-scale",
+            "1.5",
+            "--torus-aspect",
+            "2.0",
+            "--torus-auto-pan",
+            "--schedule-windows",
+            "2",
+            "--schedule-window-iters",
+            "10",
+            "--manifold-rescale-final",
+            "2.5",
+        ])
+        .expect("parse manifold and schedule-window flags");
+        match parsed.command {
+            Commands::Layout(args) => {
+                assert_eq!(args.manifold, expected);
+                assert!((args.manifold_scale - 1.5).abs() < 1e-12);
+                assert!((args.torus_aspect - 2.0).abs() < 1e-12);
+                assert!(args.torus_auto_pan);
+                assert_eq!(args.schedule_windows, Some(2));
+                assert_eq!(args.schedule_window_iters, Some(10));
+                assert_eq!(args.manifold_rescale_final, Some(2.5));
+            }
+            _ => panic!("expected Layout command"),
+        }
+    }
+}
+
+#[test]
 fn execute_layout_rejects_conflicting_prism_and_overlap_removal_for_rust_callers() {
     for mode in [OverlapRemovalArg::Gtree, OverlapRemovalArg::PfsPrime] {
         let args = LayoutArgs {
@@ -302,7 +385,15 @@ fn execute_layout_rejects_conflicting_prism_and_overlap_removal_for_rust_callers
             dataset: Some("karate".to_string()),
             method: LayoutMethod::Stress,
             init: InitMethod::PivotMds,
-            community_labels: None,
+            dims: 2,
+            manifold: ManifoldArg::None,
+            manifold_scale: 1.0,
+            torus_aspect: 1.0,
+            torus_auto_pan: false,
+            schedule_windows: None,
+            schedule_window_iters: None,
+            manifold_rescale_final: None,
+            labels: None,
             refine: false,
             cluster_refine: ClusterRefineArg::None,
             prism: true,

@@ -9,13 +9,16 @@ use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 use egraph::prelude::{CoreError, CsrGraph, Layout2d, parse_csr_csv};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 mod formats;
+mod layout_json;
 
 pub use formats::parse_mtx_graph;
+pub use layout_json::LoadedLayout;
 
 use formats::parse_json_graph;
+use layout_json::{parse_2d_layout_value, parse_any_layout_value};
 
 /// Unified error type returned by CLI I/O and execution helpers.
 #[derive(Debug)]
@@ -72,28 +75,6 @@ impl From<CoreError> for CliError {
 
 /// Result alias for CLI operations.
 pub type CliResult<T> = Result<T, CliError>;
-
-#[derive(Debug, Deserialize)]
-struct LayoutCoordsObject {
-    coords: Vec<[f64; 2]>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LayoutSplitObject {
-    x: Vec<f64>,
-    y: Vec<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LayoutNodesObject {
-    nodes: Vec<LayoutNodePoint>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LayoutNodePoint {
-    x: f64,
-    y: f64,
-}
 
 /// Loads one of the built-in benchmark datasets as an undirected [`CsrGraph<f64>`].
 pub fn load_dataset(name: &str) -> CliResult<CsrGraph<f64>> {
@@ -175,51 +156,15 @@ pub fn resolve_graph(
 pub fn load_layout_from_path(path: &Path, expected_nodes: usize) -> CliResult<Layout2d<f64>> {
     let content = fs::read_to_string(path)?;
     let val: serde_json::Value = serde_json::from_str(&content)?;
-
-    let layout = if val.get("coords").is_some() {
-        let obj: LayoutCoordsObject = serde_json::from_value(val)?;
-        coords_pairs_to_layout(&obj.coords)?
-    } else if val.get("x").is_some() && val.get("y").is_some() {
-        let obj: LayoutSplitObject = serde_json::from_value(val)?;
-        Layout2d::from_xy(obj.x, obj.y)?
-    } else if val.get("nodes").is_some() {
-        let obj: LayoutNodesObject = serde_json::from_value(val)?;
-        let mut xs = Vec::with_capacity(obj.nodes.len());
-        let mut ys = Vec::with_capacity(obj.nodes.len());
-        for pt in obj.nodes {
-            xs.push(pt.x);
-            ys.push(pt.y);
-        }
-        Layout2d::from_xy(xs, ys)?
-    } else if val.is_array() {
-        let pairs: Vec<[f64; 2]> = serde_json::from_value(val)?;
-        coords_pairs_to_layout(&pairs)?
-    } else {
-        return Err(CliError::InvalidInput(format!(
-            "unrecognized layout JSON schema in '{}'",
-            path.display()
-        )));
-    };
-
-    if layout.len() != expected_nodes {
-        return Err(CliError::Core(CoreError::dimension_mismatch(
-            expected_nodes,
-            layout.len(),
-            "load_layout_from_path",
-        )));
-    }
-    layout.validate_finite()?;
-    Ok(layout)
+    parse_2d_layout_value(&val, path, expected_nodes)
 }
 
-fn coords_pairs_to_layout(pairs: &[[f64; 2]]) -> CliResult<Layout2d<f64>> {
-    let mut xs = Vec::with_capacity(pairs.len());
-    let mut ys = Vec::with_capacity(pairs.len());
-    for &[x, y] in pairs {
-        xs.push(x);
-        ys.push(y);
-    }
-    Ok(Layout2d::from_xy(xs, ys)?)
+/// Loads a 2D, N-D (`coords_nd` / `dims`), or manifold (`manifold`, `manifold_scale`,
+/// `torus_aspect`) layout from a JSON file.
+pub fn load_any_layout_from_path(path: &Path, expected_nodes: usize) -> CliResult<LoadedLayout> {
+    let content = fs::read_to_string(path)?;
+    let val: serde_json::Value = serde_json::from_str(&content)?;
+    parse_any_layout_value(&val, path, expected_nodes)
 }
 
 /// Writes serializable output as formatted JSON to `output` or to stdout when `output` is `None`.

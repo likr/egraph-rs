@@ -44,14 +44,14 @@ fn cli_layout_community_baselines_cluster_refine_and_bench() {
         assert!(ys.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
     }
 
-    // Explicit --community-labels with gib.
+    // Explicit --labels with gib.
     let gib_explicit = run_egraph(&[
         "layout",
         "--dataset",
         "karate",
         "--method",
         "gib",
-        "--community-labels",
+        "--labels",
         labels_path.to_str().expect("utf8 path"),
         "--seed",
         "42",
@@ -71,7 +71,7 @@ fn cli_layout_community_baselines_cluster_refine_and_bench() {
             "stress",
             "--cluster-refine",
             refine_mode,
-            "--community-labels",
+            "--labels",
             labels_path.to_str().expect("utf8 path"),
             "--seed",
             "42",
@@ -117,7 +117,7 @@ fn cli_layout_community_baselines_cluster_refine_and_bench() {
         assert!(bench_json["total_ms"].as_f64().expect("total_ms") >= 0.0);
     }
 
-    // Error guard: mismatched --community-labels length fails cleanly in layout.
+    // Error guard: mismatched --labels length fails cleanly in layout.
     fs::write(&bad_labels_path, "0 1 2\n").expect("write bad labels");
     let bin = env!("CARGO_BIN_EXE_egraph");
     let bad_out = Command::new(bin)
@@ -127,7 +127,7 @@ fn cli_layout_community_baselines_cluster_refine_and_bench() {
             "karate",
             "--method",
             "stress",
-            "--community-labels",
+            "--labels",
             bad_labels_path.to_str().expect("utf8 path"),
         ])
         .output()

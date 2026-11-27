@@ -1,18 +1,19 @@
 use egraph::prelude::{
-    BackboneConfig, BackboneSolver, CsrGraph, DeterministicRng, DogVaradhanConfig, DrGraphConfig,
-    FieldLayoutSolver, ForceAtlas2Config, ForceAtlas2Solver, FruchtermanReingoldConfig,
-    FruchtermanReingoldSolver, GemConfig, GemSolver, GraphCneConfig, GripConfig, GripSolver,
-    GroupInABoxConfig, GroupInABoxSolver, GuMapConfig, GuMapSolver, HdeConfig, IbUmapConfig,
-    IterativeSolver, KamadaKawaiConfig, KamadaKawaiSolver, LargeVisConfig, Layout2d, LeidenConfig,
-    LinLogConfig, LinLogSolver, MaxentStressConfig, MaxentStressSolver, OrtmannSparseStressConfig,
-    PacmapGraphConfig, PivotMdsConfig, SelConfig, SelLayoutSolver, SfcConfig, SfcLayoutSolver,
-    SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig, StressMajorizationConfig,
-    StressMajorizationSolver, TFdpConfig, TsNetConfig, TsNetSolver, YifanHuConfig, YifanHuSolver,
-    hde, koren_spectral_init, leiden, normalize_layout_2d, pivot_mds,
+    BackboneConfig, BackboneSolver, CsrGraph, DEFAULT_MAX_2HOP_PER_NODE, DeterministicRng,
+    DogVaradhanConfig, DrGraphConfig, FieldLayoutSolver, ForceAtlas2Config, ForceAtlas2Solver,
+    FruchtermanReingoldConfig, FruchtermanReingoldSolver, GemConfig, GemSolver, GraphCneConfig,
+    GripConfig, GripSolver, GroupInABoxConfig, GroupInABoxSolver, GuMapConfig, GuMapSolver,
+    HdeConfig, IbUmapConfig, IterativeSolver, KamadaKawaiConfig, KamadaKawaiSolver, LargeVisConfig,
+    Layout2d, LeidenConfig, LinLogConfig, LinLogSolver, MaxentStressConfig, MaxentStressSolver,
+    OrtmannSparseStressConfig, PacmapGraphConfig, PivotMdsConfig, SelConfig, SelLayoutSolver,
+    SfcConfig, SfcLayoutSolver, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
+    StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetBackend, TsNetConfig,
+    TsNetSolver, TwoHopSamplingMode, YifanHuConfig, YifanHuSolver, hde, koren_spectral_init,
+    leiden, normalize_layout_2d, pivot_mds,
 };
 
 use crate::args::{InitMethod, LayoutMethod};
-use crate::io::CliResult;
+use crate::io::{CliError, CliResult};
 
 /// Builds an initial 2D layout using the requested [`InitMethod`].
 pub fn build_initial_layout(
@@ -45,34 +46,28 @@ pub fn build_initial_layout(
     }
 }
 
-/// Runs the selected layout solver in-place on `layout`.
-pub fn run_layout_method(
-    graph: &CsrGraph<f64>,
-    layout: &mut Layout2d<f64>,
-    method: LayoutMethod,
-    seed: u64,
-) -> CliResult<()> {
-    run_layout_method_with_communities(graph, layout, method, None, seed)
+/// Returns `true` when `method` is backed by [`SgdSolver`].
+pub fn is_sgd_method(method: LayoutMethod) -> bool {
+    matches!(
+        method,
+        LayoutMethod::SgdBarrierDog
+            | LayoutMethod::SgdFull
+            | LayoutMethod::SgdSnap
+            | LayoutMethod::SgdPacmap
+            | LayoutMethod::SgdOrtmann
+            | LayoutMethod::Largevis
+            | LayoutMethod::Drgraph
+            | LayoutMethod::GraphCne
+    )
 }
 
-/// Runs the selected layout solver in-place on `layout`, forwarding optional `community_labels`
-/// (used by [`LayoutMethod::Gib`]; auto-clustered via Leiden if `None`).
-pub fn run_layout_method_with_communities(
+/// Constructs an [`SgdSolver`] for any SGD-backed [`LayoutMethod`].
+pub fn build_sgd_solver(
     graph: &CsrGraph<f64>,
-    layout: &mut Layout2d<f64>,
     method: LayoutMethod,
-    community_labels: Option<&[u32]>,
     seed: u64,
-) -> CliResult<()> {
+) -> CliResult<SgdSolver<f64>> {
     match method {
-        LayoutMethod::TsnetPure2hop => {
-            let cfg = TsNetConfig {
-                seed,
-                ..TsNetConfig::pure_2hop()
-            };
-            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
-            solver.run(layout)?;
-        }
         LayoutMethod::SgdBarrierDog => {
             let dog_cfg = DogVaradhanConfig {
                 seed,
@@ -82,28 +77,108 @@ pub fn run_layout_method_with_communities(
                 seed,
                 ..SparseBarrierConfig::default()
             };
-            let (mut solver, _barrier_stats, _dog_stats) =
+            let (solver, _barrier_stats, _dog_stats) =
                 SgdSolver::sparse_barrier_dog(graph, &dog_cfg, &barrier_cfg)?;
-            solver.run(layout)?;
+            Ok(solver)
         }
-        LayoutMethod::SgdFull => {
-            let mut solver = SgdSolver::full(graph, SgdScheduleConfig::default(), seed)?;
-            solver.run(layout)?;
-        }
+        LayoutMethod::SgdFull => Ok(SgdSolver::full(graph, SgdScheduleConfig::default(), seed)?),
         LayoutMethod::SgdSnap => {
             let cfg = SnapTFdpConfig {
                 seed,
                 ..SnapTFdpConfig::default()
             };
-            let mut solver = SgdSolver::snap_t_fdp(graph, cfg)?;
-            solver.run(layout)?;
+            Ok(SgdSolver::snap_t_fdp(graph, cfg)?)
         }
         LayoutMethod::SgdPacmap => {
             let cfg = PacmapGraphConfig {
                 seed,
                 ..PacmapGraphConfig::default()
             };
-            let mut solver = SgdSolver::pacmap_graph(graph, cfg)?;
+            Ok(SgdSolver::pacmap_graph(graph, cfg)?)
+        }
+        LayoutMethod::SgdOrtmann => {
+            let cfg = OrtmannSparseStressConfig {
+                seed,
+                ..OrtmannSparseStressConfig::default()
+            };
+            Ok(SgdSolver::ortmann_sparse_stress(graph, cfg)?)
+        }
+        LayoutMethod::Largevis => {
+            let cfg = LargeVisConfig {
+                seed,
+                ..LargeVisConfig::default()
+            };
+            Ok(SgdSolver::largevis(graph, cfg)?)
+        }
+        LayoutMethod::Drgraph => {
+            let cfg = DrGraphConfig {
+                seed,
+                ..DrGraphConfig::default()
+            };
+            Ok(SgdSolver::drgraph(graph, cfg)?)
+        }
+        LayoutMethod::GraphCne => {
+            let cfg = GraphCneConfig {
+                seed,
+                ..GraphCneConfig::default()
+            };
+            Ok(SgdSolver::graph_cne(graph, cfg)?)
+        }
+        other => Err(CliError::InvalidInput(format!(
+            "method {:?} is not an SgdSolver preset",
+            other
+        ))),
+    }
+}
+
+/// Runs the selected layout solver in-place on `layout`.
+pub fn run_layout_method(
+    graph: &CsrGraph<f64>,
+    layout: &mut Layout2d<f64>,
+    method: LayoutMethod,
+    seed: u64,
+) -> CliResult<()> {
+    run_layout_method_with_labels(graph, layout, method, None, seed)
+}
+
+/// Runs the selected layout solver in-place on `layout`, forwarding optional `labels`
+/// (used by [`LayoutMethod::Gib`]; auto-clustered via Leiden if `None`).
+pub fn run_layout_method_with_labels(
+    graph: &CsrGraph<f64>,
+    layout: &mut Layout2d<f64>,
+    method: LayoutMethod,
+    labels: Option<&[u32]>,
+    seed: u64,
+) -> CliResult<()> {
+    if is_sgd_method(method) {
+        let mut solver = build_sgd_solver(graph, method, seed)?;
+        solver.run(layout)?;
+        return Ok(());
+    }
+    match method {
+        LayoutMethod::TsnetPure2hop => {
+            let cfg = TsNetConfig {
+                seed,
+                ..TsNetConfig::pure_2hop()
+            };
+            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::TsnetRn => {
+            let cfg = TsNetConfig {
+                backend: TsNetBackend::Auto,
+                seed,
+                ..TsNetConfig::default()
+            };
+            let mut solver = TsNetSolver::from_graph_row_normalized_with_options(
+                graph,
+                0.5,
+                Some(DEFAULT_MAX_2HOP_PER_NODE),
+                0.0,
+                TwoHopSamplingMode::TwoStepRandomWalk,
+                None,
+                cfg,
+            )?;
             solver.run(layout)?;
         }
         LayoutMethod::Gumap => {
@@ -197,7 +272,7 @@ pub fn run_layout_method_with_communities(
             solver.run(layout)?;
         }
         LayoutMethod::Gib => {
-            let labels = match community_labels {
+            let resolved_labels = match labels {
                 Some(lbls) => lbls.to_vec(),
                 None => {
                     let l_cfg = LeidenConfig {
@@ -211,7 +286,7 @@ pub fn run_layout_method_with_communities(
                 seed,
                 ..GroupInABoxConfig::default()
             };
-            let mut solver = GroupInABoxSolver::new(graph, labels, cfg)?;
+            let mut solver = GroupInABoxSolver::new(graph, resolved_labels, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Hde => {
@@ -221,44 +296,12 @@ pub fn run_layout_method_with_communities(
             };
             *layout = hde(graph, &cfg)?;
         }
-        LayoutMethod::SgdOrtmann => {
-            let cfg = OrtmannSparseStressConfig {
-                seed,
-                ..OrtmannSparseStressConfig::default()
-            };
-            let mut solver = SgdSolver::ortmann_sparse_stress(graph, cfg)?;
-            solver.run(layout)?;
-        }
         LayoutMethod::Maxent => {
             let cfg = MaxentStressConfig {
                 seed,
                 ..MaxentStressConfig::default()
             };
             let mut solver = MaxentStressSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Largevis => {
-            let cfg = LargeVisConfig {
-                seed,
-                ..LargeVisConfig::default()
-            };
-            let mut solver = SgdSolver::largevis(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Drgraph => {
-            let cfg = DrGraphConfig {
-                seed,
-                ..DrGraphConfig::default()
-            };
-            let mut solver = SgdSolver::drgraph(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::GraphCne => {
-            let cfg = GraphCneConfig {
-                seed,
-                ..GraphCneConfig::default()
-            };
-            let mut solver = SgdSolver::graph_cne(graph, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Grip => {
@@ -293,6 +336,14 @@ pub fn run_layout_method_with_communities(
             let mut solver = SfcLayoutSolver::new(graph, cfg)?;
             solver.run(layout)?;
         }
+        LayoutMethod::SgdBarrierDog
+        | LayoutMethod::SgdFull
+        | LayoutMethod::SgdSnap
+        | LayoutMethod::SgdPacmap
+        | LayoutMethod::SgdOrtmann
+        | LayoutMethod::Largevis
+        | LayoutMethod::Drgraph
+        | LayoutMethod::GraphCne => unreachable!("handled by is_sgd_method branch"),
     }
     Ok(())
 }
