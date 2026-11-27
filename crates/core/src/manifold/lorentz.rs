@@ -19,6 +19,122 @@ pub(super) fn lorentz_time_and_radius(x: f64, y: f64) -> (f64, f64) {
     (t, r)
 }
 
+/// Decomposes a finite non-zero `f64` into `(m, exp)` with `|m| in [1, 2)` and `v == m * 2^exp`.
+#[inline]
+pub(super) fn frexp_norm(v: f64) -> (f64, i32) {
+    debug_assert!(v.is_finite() && v != 0.0);
+    const TWO_POW_54: f64 = f64::from_bits((1023 + 54) << 52);
+    let (vn, bias) = if v.abs() < f64::MIN_POSITIVE {
+        (v * TWO_POW_54, 54)
+    } else {
+        (v, 0)
+    };
+    let bits = vn.to_bits();
+    let raw_exp = ((bits >> 52) & 0x7ff) as i32;
+    let m = f64::from_bits((bits & 0x800f_ffff_ffff_ffff) | (1023_u64 << 52));
+    (m, raw_exp - 1023 - bias)
+}
+
+/// Scales a finite `f64` by `2^exp` with exact IEEE-754 single-step rounding and
+/// overflow/underflow safety.
+#[inline]
+pub(super) fn scale_pow2(v: f64, exp: i32) -> f64 {
+    if !v.is_finite() || v == 0.0 {
+        return v;
+    }
+    let (m, ev) = frexp_norm(v);
+    let total_exp = (ev as i64) + (exp as i64);
+    if total_exp > 1023 {
+        return f64::INFINITY.copysign(v);
+    }
+    if total_exp >= -1022 {
+        return f64::from_bits(
+            (m.to_bits() & 0x800f_ffff_ffff_ffff) | (((total_exp + 1023) as u64) << 52),
+        );
+    }
+    if total_exp >= -1075 {
+        // Place `m` at minimum normal exponent `2^-1022` (bit-exact, no rounding), then apply a
+        // single IEEE-754 multiply by `2^(total_exp + 1022)` (`exp in [-53, -1]`) to avoid
+        // subnormal double-rounding.
+        let at_min_normal = f64::from_bits((m.to_bits() & 0x800f_ffff_ffff_ffff) | (1_u64 << 52));
+        let sub_scale = f64::from_bits(((total_exp + 1022 + 1023) as u64) << 52);
+        return at_min_normal * sub_scale;
+    }
+    0.0_f64.copysign(v)
+}
+
+/// Computes the exact-exponent-scaled 2x2 cross product `x1 * y2 - y1 * x2 = det_m * 2^det_exp`
+/// with `|det_m| in [1, 2)` (or `(0.0, 0)` when mathematically zero), using Kahan's 2-FMA
+/// determinant so cancellation, high ratios, and subnormal/extreme coordinates stay accurate to
+/// `<= 2 ULP` without overflow or underflow.
+#[inline]
+pub(super) fn lorentz_scaled_cross(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, i32) {
+    let has_p = x1 != 0.0 && y2 != 0.0;
+    let has_q = y1 != 0.0 && x2 != 0.0;
+    if !has_p && !has_q {
+        return (0.0, 0);
+    }
+    if !has_q {
+        let (mx1, ex1) = frexp_norm(x1);
+        let (my2, ey2) = frexp_norm(y2);
+        let (mp, ea) = frexp_norm(mx1 * my2);
+        return (mp, ex1 + ey2 + ea);
+    }
+    if !has_p {
+        let (my1, ey1) = frexp_norm(y1);
+        let (mx2, ex2) = frexp_norm(x2);
+        let (mq, ea) = frexp_norm(-(my1 * mx2));
+        return (mq, ey1 + ex2 + ea);
+    }
+
+    let (mx1, ex1) = frexp_norm(x1);
+    let (my2, ey2) = frexp_norm(y2);
+    let (my1, ey1) = frexp_norm(y1);
+    let (mx2, ex2) = frexp_norm(x2);
+    let ep = ex1 + ey2;
+    let eq = ey1 + ex2;
+    let diff = ep - eq;
+
+    if diff > 60 {
+        let (mp, ea) = frexp_norm(mx1 * my2);
+        return (mp, ep + ea);
+    }
+    if diff < -60 {
+        let (mq, ea) = frexp_norm(-(my1 * mx2));
+        return (mq, eq + ea);
+    }
+
+    let (a, b, c, d, e_base) = if diff >= 0 {
+        let shift = f64::from_bits(((1023 - diff) as u64) << 52);
+        (mx1, my2, my1 * shift, mx2, ep)
+    } else {
+        let shift = f64::from_bits(((1023 + diff) as u64) << 52);
+        (mx1 * shift, my2, my1, mx2, eq)
+    };
+    let w = c * d;
+    let err = c.mul_add(d, -w);
+    let f = a.mul_add(b, -w);
+    let det_m = f - err;
+    if det_m == 0.0 {
+        return (0.0, 0);
+    }
+    let (m_norm, e_adj) = frexp_norm(det_m);
+    (m_norm, e_base + e_adj)
+}
+
+/// Computes overflow- and subnormal-safe `(ux, uy, r_or_inf, mr, er)` for any finite non-zero
+/// `(x, y)` such that `r = mr * 2^er` with `mr in [1, 2)`.
+#[inline]
+pub(super) fn lorentz_polar_scaled(x: f64, y: f64) -> (f64, f64, f64, f64, i32) {
+    let m = x.abs().max(y.abs());
+    let sx = x / m;
+    let sy = y / m;
+    let sr = sx.hypot(sy);
+    let (mm, em) = frexp_norm(m);
+    let (mr, e_adj) = frexp_norm(mm * sr);
+    (sx / sr, sy / sr, m * sr, mr, em + e_adj)
+}
+
 /// Computes overflow-safe `(ux, uy, r_or_inf, log_r)` for any finite non-zero `(x, y)`.
 #[inline]
 pub(super) fn lorentz_unit_and_log_r(x: f64, y: f64) -> (f64, f64, f64, f64) {
@@ -94,19 +210,18 @@ fn lorentz_eta_or_log(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, f64
             0.0
         };
 
-        // Compute r1*r2*(1 - cos(theta)) stably without unit-vector subtraction cancellation.
-        let ux1 = x1 / r1;
-        let uy1 = y1 / r1;
-        let ux2 = x2 / r2;
-        let uy2 = y2 / r2;
+        // Compute r1*r2*(1 - cos(theta)) via exact-exponent Kahan 2x2 cross product, avoiding
+        // unit-vector subtraction cancellation, high-ratio underflow, and rotated `p2 = 2*p1` drift.
+        let (ux1, uy1, _, mr1, er1) = lorentz_polar_scaled(x1, y1);
+        let (ux2, uy2, _, mr2, er2) = lorentz_polar_scaled(x2, y2);
         let cos_theta = (ux1 * ux2 + uy1 * uy2).clamp(-1.0, 1.0);
         let angular_term = if cos_theta >= 0.0 {
-            if r1 <= r2 {
-                let cross_r2 = ux1 * (y2 - y1) - uy1 * (x2 - x1);
-                (cross_r2 * (cross_r2 * (r1 / r2))) / (1.0 + cos_theta)
+            let (det_m, det_exp) = lorentz_scaled_cross(x1, y1, x2, y2);
+            if det_m == 0.0 {
+                0.0
             } else {
-                let cross_r1 = ux2 * (y1 - y2) - uy2 * (x1 - x2);
-                (cross_r1 * (cross_r1 * (r2 / r1))) / (1.0 + cos_theta)
+                let ang_m = (det_m * det_m) / (mr1 * mr2 * (1.0 + cos_theta));
+                scale_pow2(ang_m, 2 * det_exp - er1 - er2)
             }
         } else {
             r1 * r2 * (1.0 - cos_theta)
@@ -116,8 +231,10 @@ fn lorentz_eta_or_log(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, f64
     }
 
     // Extreme-radius path (`m_max >= 1e140`): compute overflow-safe polar components.
-    let (ux1, uy1, r1, log_r1) = lorentz_unit_and_log_r(x1, y1);
-    let (ux2, uy2, r2, log_r2) = lorentz_unit_and_log_r(x2, y2);
+    let (ux1, uy1, r1, mr1, er1) = lorentz_polar_scaled(x1, y1);
+    let (ux2, uy2, r2, mr2, er2) = lorentz_polar_scaled(x2, y2);
+    let log_r1 = mr1.ln() + (er1 as f64) * LN_2;
+    let log_r2 = mr2.ln() + (er2 as f64) * LN_2;
     let t1 = if m1 >= LARGE_RADIUS_THRESHOLD {
         r1
     } else {
@@ -130,20 +247,24 @@ fn lorentz_eta_or_log(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, f64
     };
 
     let cos_theta = (ux1 * ux2 + uy1 * uy2).clamp(-1.0, 1.0);
-    let sin_theta = ux1 * uy2 - uy1 * ux2;
+    let (det_m, det_exp) = lorentz_scaled_cross(x1, y1, x2, y2);
 
     if (log_r1 - log_r2).abs() > RATIO_LOG_THRESHOLD {
         // One radius dominates by > 1e20 (`t_big = r_big` to >280 digits):
         // eta = r_big * (1 / (t_small + r_small) + r_small * (1 - cos(theta))).
-        let (r_big, log_big, r_small, t_small) = if log_r1 > log_r2 {
-            (r1, log_r1, r2, t2)
-        } else {
-            (r2, log_r2, r1, t1)
-        };
+        let (r_big, log_big, r_small, t_small, mr_big, er_big, mr_small, er_small) =
+            if log_r1 > log_r2 {
+                (r1, log_r1, r2, t2, mr1, er1, mr2, er2)
+            } else {
+                (r2, log_r2, r1, t1, mr2, er2, mr1, er1)
+            };
         let ang = if cos_theta < 0.0 {
             r_small * (1.0 - cos_theta)
+        } else if det_m == 0.0 {
+            0.0
         } else {
-            ((r_small * sin_theta) * sin_theta) / (1.0 + cos_theta)
+            let ang_m = (det_m * det_m) / ((mr_big * mr_big) * mr_small * (1.0 + cos_theta));
+            scale_pow2(ang_m, 2 * det_exp - 2 * er_big - er_small)
         };
         let f = 1.0 / (t_small + r_small) + ang;
         let log_eta = log_big + f.ln();
@@ -167,56 +288,16 @@ fn lorentz_eta_or_log(x1: f64, y1: f64, x2: f64, y2: f64) -> (f64, f64, f64, f64
     let radial_term = (tr_diff * tr_diff) / (2.0 * tr1 * tr2);
 
     if cos_theta >= 0.0 {
-        let (ratio_min_over_max, tr_big, c_direct) = if tr1 <= tr2 {
-            let c_dir = if 2.0 * tr1 >= tr2 {
-                let dx = x2 - x1;
-                let dy = y2 - y1;
-                let cp = ux1 * dy - uy1 * dx;
-                if dx.is_finite() && dy.is_finite() && cp.is_finite() {
-                    Some(cp)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            (tr1 / tr2, tr2, c_dir)
-        } else {
-            let c_dir = if 2.0 * tr2 >= tr1 {
-                let dx = x1 - x2;
-                let dy = y1 - y2;
-                let cp = ux2 * dy - uy2 * dx;
-                if dx.is_finite() && dy.is_finite() && cp.is_finite() {
-                    Some(cp)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            (tr2 / tr1, tr1, c_dir)
-        };
-        let ratio_sqrt = ratio_min_over_max.sqrt();
-        if let Some(c_dir) = c_direct {
-            let c_scaled = c_dir * ratio_sqrt;
-            let angular_term = (c_scaled * c_scaled) / (1.0 + cos_theta);
-            if angular_term.is_finite() {
-                return ((radial_term + angular_term).max(0.0), 0.0, t1, r1, t2, r2);
-            }
-            let log_eta = 2.0 * c_scaled.abs().ln() - (1.0 + cos_theta).ln();
-            return (f64::INFINITY, log_eta, t1, r1, t2, r2);
+        if det_m == 0.0 {
+            return (radial_term.max(0.0), 0.0, t1, r1, t2, r2);
         }
-        // Use `sin_theta = ux1 * uy2 - uy1 * ux2` directly when radii differ by > 2x or diffs
-        // overflow, avoiding `ty / m_max` underflow and `x1 - x2` rounding amplification.
-        let m_sin = m_max * sin_theta;
-        let c_scaled = (m_sin * ratio_sqrt) * tr_big;
-        let angular_term = (c_scaled * c_scaled) / (1.0 + cos_theta);
-        if m_sin.is_finite() && c_scaled.is_finite() && angular_term.is_finite() {
+        let ang_m = (det_m * det_m) / (mr1 * mr2 * (1.0 + cos_theta));
+        let ang_exp = 2 * det_exp - er1 - er2;
+        let angular_term = scale_pow2(ang_m, ang_exp);
+        if angular_term.is_finite() {
             ((radial_term + angular_term).max(0.0), 0.0, t1, r1, t2, r2)
         } else {
-            let log_eta =
-                2.0 * m_max.ln() + 2.0 * (tr_big * sin_theta.abs()).ln() + ratio_min_over_max.ln()
-                    - (1.0 + cos_theta).ln();
+            let log_eta = ang_m.ln() + (ang_exp as f64) * LN_2;
             (f64::INFINITY, log_eta, t1, r1, t2, r2)
         }
     } else {
@@ -239,6 +320,11 @@ pub(super) fn lorentz_distance_f64(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     }
     if x2 == 0.0 && y2 == 0.0 {
         return lorentz_asinh_from_xy(x1, y1);
+    }
+    // Tiny/subnormal regime: `t_i = 1` to > 200 digits, so Euclidean distance avoids `eta - 1`
+    // underflow below `1e-162` while remaining exact down to subnormal `f64::from_bits(1)`.
+    if x1.abs().max(y1.abs()).max(x2.abs()).max(y2.abs()) < 1e-100 {
+        return (x1 - x2).hypot(y1 - y2);
     }
     let (eta_m1, log_eta, _, _, _, _) = lorentz_eta_or_log(x1, y1, x2, y2);
     if eta_m1.is_finite() {
