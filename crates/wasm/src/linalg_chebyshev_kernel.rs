@@ -41,21 +41,22 @@ fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsE
             "{ctx}: terms must be an array of [weight, t] pairs or flat interleaved numeric array"
         )));
     }
-    if let Some(arr) = terms.dyn_ref::<js_sys::Array>() {
-        if arr.length() > 0 && js_sys::Array::is_array(&arr.get(0)) {
-            let mut out = Vec::with_capacity(arr.length() as usize);
-            for idx in 0..arr.length() {
-                let pair = parse_f64_sequence(&arr.get(idx), "terms[i]")?;
-                if pair.len() != 2 {
-                    return Err(JsError::new(&format!(
-                        "{ctx}: each term must have length 2 [weight, t], got {}",
-                        pair.len()
-                    )));
-                }
-                out.push((pair[0], pair[1]));
+    if let Some(arr) = terms.dyn_ref::<js_sys::Array>()
+        && arr.length() > 0
+        && js_sys::Array::is_array(&arr.get(0))
+    {
+        let mut out = Vec::with_capacity(arr.length() as usize);
+        for idx in 0..arr.length() {
+            let pair = parse_f64_sequence(&arr.get(idx), "terms[i]")?;
+            if pair.len() != 2 {
+                return Err(JsError::new(&format!(
+                    "{ctx}: each term must have length 2 [weight, t], got {}",
+                    pair.len()
+                )));
             }
-            return Ok(out);
+            out.push((pair[0], pair[1]));
         }
+        return Ok(out);
     }
     let flat = parse_f64_sequence(terms, "terms")?;
     if !flat.len().is_multiple_of(2) {
@@ -64,7 +65,12 @@ fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsE
             flat.len()
         )));
     }
-    Ok(flat.chunks_exact(2).map(|c| (c[0], c[1])).collect())
+    Ok(flat
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| (c[0], c[1]))
+        .collect())
 }
 
 fn terms_to_js_array(terms: &[(f64, f64)]) -> js_sys::Array {

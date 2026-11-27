@@ -167,6 +167,12 @@ impl JsCsrGraph {
         self.inner.num_nodes()
     }
 
+    /// Returns `true` if the graph contains zero vertices.
+    #[wasm_bindgen(js_name = isEmpty)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.num_nodes() == 0
+    }
+
     /// Returns the number of vertices in the graph.
     #[wasm_bindgen(getter)]
     pub fn length(&self) -> usize {
