@@ -229,7 +229,7 @@ console.log(dists.length, mds3d.dims, mds2d.numNodes, lap.nnz, dog.degree);
 See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete v5 and `alpha.8 -> alpha.9` migration guide, including:
 
 1. Replacing `Graph` host object weights with `CsrGraph.fromCsr` / `CsrGraph.fromEdgeList` and host-side arrays
-2. Migrating `OverwrapRemoval` to `PrismOverlapRemoval` / `ForbidOverlapRemoval` / `TwinDeclutterer`
+2. Migrating legacy v5 overlap removal classes to `PrismOverlapRemoval` / `ForbidOverlapRemoval` / `TwinDeclutterer`
 3. Consolidating `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` into `TsNetSolver` (`pure2Hop`, `fromGraphRowNormalized`, `"auto"`)
 4. Replacing `stress` (`NS`) with Scale-Normalized Stress (`scaleNormalizedStress` / `evaluateMetrics` -> `MetricReport`)
 5. Migrating from `egraph/dist/web/egraph_wasm` to pure ESM, `coordsView()`, `labelsView()`, and polymorphic `runProgressive`, plus `iterations`/`maxIterations` option unification

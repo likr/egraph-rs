@@ -398,7 +398,7 @@ Between `alpha.8` and the `alpha.9` remediation baseline, all cross-target API i
 - **Convergent solvers -> `max_iterations` / `maxIterations`**:
   - `StressMajorizationSolver`, `KamadaKawaiSolver`, `GemSolver` (replaces `max_rounds` / `maxRounds`), `ClusterRefineSolver` (replaces `max_rounds` / `maxRounds`), `PrismOverlapRemoval`, `GTreeOverlapRemoval`, `AmgPcgSolver`, `kmeans_plus_plus`, `label_propagation`, and `spectral_clustering` (`max_eigen_iterations`, `kmeans_max_iterations`).
 - **Multi-stage / hierarchical solvers (structured names)**:
-  - `TsNetSolver`: `stage_iterations` / `stageIterations` (alongside `iterations_stage1..3`).
+  - `TsNetSolver`: `stage_iterations` / `stageIterations` (replaces `iterations_stage1..3`).
   - `SgdSolver.pacmap_graph*`: `phase_iterations` / `phaseIterations` (replaces `phase1_iters`..`phase3_iters`).
   - `YifanHuSolver`: `max_iterations_per_level` / `maxIterationsPerLevel`.
   - `MaxentStressSolver`: `stages`, `steps_per_stage` / `stepsPerStage`.

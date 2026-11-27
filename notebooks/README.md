@@ -35,7 +35,7 @@ pip install -q --pre "egraph[interop,viz]==6.0.0a8" matplotlib-fontja
 
 ## v5 から v6 への移行・関連ドキュメント
 
-`egraph` v6 では従来の `Graph` / `DrawingEuclidean2d` / `TsNet` などから、`CsrGraph` / `Layout2d` / 統一ソルバ API（`iterations` / `max_iterations` / `labels` / `MetricReport` / `Result` クラス）への破壊的変更が行われています。v5 からの移行手順と API 対応表は以下のドキュメントを参照してください。
+`egraph` v6 では従来の v5 レガシー API から、`CsrGraph` / `Layout2d` / 統一ソルバ API（`iterations` / `max_iterations` / `labels` / `MetricReport` / `Result` クラス）への破壊的変更が行われています。v5 からの移行手順と API 対応表は以下のドキュメントを参照してください。
 
 - **v5 → v6 移行ガイド**: [`../docs/MIGRATION_V6.md`](../docs/MIGRATION_V6.md)
 - **Python API ドキュメント（Sphinx）**: [https://egraph-py-docs.netlify.app/](https://egraph-py-docs.netlify.app/)

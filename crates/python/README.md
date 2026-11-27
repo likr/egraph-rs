@@ -140,7 +140,7 @@ print("Geodesic distortion:", eg.geodesic_distortion(graph, poincare))
 See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete guide covering v5 and `alpha.8 -> alpha.9` clean-break updates:
 
 1. Host object weights removal -> `CsrGraph` + `egraph.interop` + host-side arrays
-2. `OverwrapRemoval` -> `PrismOverlapRemoval` / `ForbidOverlapRemoval` / `TwinDeclutterer`
+2. Legacy v5 overlap removal classes -> `PrismOverlapRemoval` / `ForbidOverlapRemoval` / `TwinDeclutterer`
 3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver` (`pure_2hop`, `from_graph_row_normalized`, `"auto"`)
 4. Iteration argument unification (`iterations` / `max_iterations`), `labels`, 5 Cluster Result classes, and `MetricReport`
 5. 3D/$N$-D `LayoutNd` + `ArenaOctree3d` and Non-Euclidean `ManifoldLayout2d` (`"hyperbolic_lorentz"`, `ManifoldMetric`, polymorphic `step`/`run`)
