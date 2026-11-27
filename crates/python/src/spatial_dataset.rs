@@ -1,7 +1,6 @@
-//! Spatial geometry (`Delaunay2d`, rectangle overlap sweep) and dataset loader bindings.
+//! Spatial geometry (`Delaunay2d`, rectangle overlap sweep) bindings.
 
-use egraph::core::{CoreError, CoreResult, CsrGraph};
-use egraph::dataset as egraph_dataset;
+use egraph::core::{CoreError, CoreResult};
 use egraph::spatial::{Delaunay2d, RectangleOverlapSweep};
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
@@ -116,60 +115,10 @@ fn rectangle_overlaps<'py>(
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
-/// Load a built-in SuiteSparse / classic benchmark dataset as an undirected `CsrGraph`.
-#[pyfunction]
-#[pyo3(signature = (name), text_signature = "(name)")]
-fn load_dataset(py: Python<'_>, name: &str) -> PyResult<PyCsrGraph> {
-    let key: String = name
-        .trim()
-        .chars()
-        .filter(|c| *c != '_' && *c != '-' && *c != ' ')
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    let csr = py.detach(|| -> CoreResult<CsrGraph<f64>> {
-        match key.as_str() {
-            "1138bus" => Ok(egraph_dataset::dataset_1138_bus_csr()),
-            "3elt" => Ok(egraph_dataset::dataset_3_elt_csr()),
-            "dwt1005" => Ok(egraph_dataset::dataset_dwt_1005_csr()),
-            "dwt2680" => Ok(egraph_dataset::dataset_dwt_2680_csr()),
-            "poli" => Ok(egraph_dataset::dataset_poli_csr()),
-            "qh882" => Ok(egraph_dataset::dataset_qh882_csr()),
-            "uspowergrid" => Ok(egraph_dataset::dataset_uspower_grid_csr()),
-            "karate" => Ok(egraph_dataset::dataset_karate_csr()),
-            "lesmis" => Ok(egraph_dataset::dataset_lesmis_csr()),
-            _ => Err(CoreError::invalid_input(format!(
-                "unknown dataset {name:?}; expected one of '1138_bus', '3_elt', 'dwt_1005', 'dwt_2680', 'poli', 'qh882', 'uspower_grid', 'karate', 'lesmis'"
-            ))),
-        }
-    })
-    .map_err(core_error_to_py)?;
-    Ok(PyCsrGraph::from_csr_graph(csr))
-}
-
-/// Parse an edge-list CSV string (`num_nodes,num_edges` header followed by `u,v` or weighted `u,v,w` lines) into a `CsrGraph`.
-#[pyfunction]
-#[pyo3(
-    signature = (csv, *, directed = false, sanitize = true),
-    text_signature = "(csv, *, directed=False, sanitize=True)"
-)]
-fn parse_csr_csv(
-    py: Python<'_>,
-    csv: &str,
-    directed: bool,
-    sanitize: bool,
-) -> PyResult<PyCsrGraph> {
-    let csr = py
-        .detach(|| egraph_dataset::parse_csr_csv(csv, directed, sanitize))
-        .map_err(core_error_to_py)?;
-    Ok(PyCsrGraph::from_csr_graph(csr))
-}
-
-/// Register spatial geometry and dataset loader functions on the Python extension module.
+/// Register spatial geometry functions on the Python extension module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(delaunay_triangulation, m)?)?;
     m.add_function(wrap_pyfunction!(delaunay_to_csr, m)?)?;
     m.add_function(wrap_pyfunction!(rectangle_overlaps, m)?)?;
-    m.add_function(wrap_pyfunction!(load_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_csr_csv, m)?)?;
     Ok(())
 }

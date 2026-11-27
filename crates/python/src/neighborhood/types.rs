@@ -95,10 +95,9 @@ impl PyKnnGraph {
         self.inner.nnz()
     }
 
-    /// Return a `uintp` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
-    fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<usize>> {
-        let out: Vec<usize> = self.inner.indptr().iter().map(|&v| v as usize).collect();
-        PyArray1::from_vec(py, out)
+    /// Return a `uint32` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
+    fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, self.inner.indptr())
     }
 
     /// Return a `uint32` NumPy copy of the CSR neighbor index array.
@@ -145,6 +144,30 @@ impl PySparseProbabilities {
 
 #[pymethods]
 impl PySparseProbabilities {
+    /// Construct a validated `SparseProbabilities` from CSR arrays `(num_nodes, indptr, indices, probabilities)`.
+    #[staticmethod]
+    #[pyo3(
+        signature = (num_nodes, indptr, indices, probabilities),
+        text_signature = "(num_nodes, indptr, indices, probabilities)"
+    )]
+    fn from_csr(
+        py: Python<'_>,
+        num_nodes: StrictUsize,
+        indptr: &Bound<'_, PyAny>,
+        indices: &Bound<'_, PyAny>,
+        probabilities: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let indptr_vec = extract_u32_1d(indptr, "indptr")?;
+        let indices_vec = extract_u32_1d(indices, "indices")?;
+        let probs_vec = extract_f64_1d(probabilities, "probabilities")?;
+        let inner = py
+            .detach(|| {
+                SparseProbabilities::from_csr(num_nodes.0, indptr_vec, indices_vec, probs_vec)
+            })
+            .map_err(core_error_to_py)?;
+        Ok(Self { inner })
+    }
+
     /// Number of vertices in the probability matrix.
     #[getter]
     fn num_nodes(&self) -> usize {
@@ -157,10 +180,9 @@ impl PySparseProbabilities {
         self.inner.nnz()
     }
 
-    /// Return a `uintp` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
-    fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<usize>> {
-        let out: Vec<usize> = self.inner.indptr.iter().map(|&v| v as usize).collect();
-        PyArray1::from_vec(py, out)
+    /// Return a `uint32` NumPy copy of the CSR row pointer array of length `num_nodes + 1`.
+    fn indptr<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.inner.indptr)
     }
 
     /// Return a `uint32` NumPy copy of the sorted CSR neighbor column index array.

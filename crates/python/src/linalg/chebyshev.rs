@@ -69,7 +69,7 @@ pub(super) fn validate_dog_jl_params(degree: usize, jl_dim: usize, eps_psd: f64)
 #[pyo3(signature = (graph), text_signature = "(graph)")]
 fn spectral_moment_stats(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<Py<PyDict>> {
     let g = graph.inner();
-    let stats = py.detach(|| linalg_spectral_moment_stats(g));
+    let stats = py.detach(|| linalg_spectral_moment_stats(&*g));
     let dict = PyDict::new(py);
     for (k, v) in spectral_moment_fields(&stats) {
         dict.set_item(k, v)?;
@@ -109,7 +109,7 @@ fn chebyshev_heat_spmv<'py>(
         .detach(|| -> CoreResult<Vec<f64>> {
             let deg = deg_opt.unwrap_or_else(|| adaptive_chebyshev_degree_scaled(t_val, lmax_val));
             let coeffs = compute_chebyshev_bandpass_coefficients(&[(1.0, t_val)], lmax_val, deg)?;
-            let (l_sym, _) = symmetric_normalized_laplacian(g);
+            let (l_sym, _) = symmetric_normalized_laplacian(&*g);
             let mut out = vec![0.0_f64; v_flat.len()];
             let mut ws = ChebyshevWorkspace::with_capacity(v_flat.len());
             ws.apply_batch_with_lambda_max(&l_sym, lmax_val, &coeffs, &v_flat, &mut out, ncols)?;
@@ -291,12 +291,12 @@ fn chebyshev_dog_jl_embedding<'py>(
 
     let emb = py
         .detach(|| -> CoreResult<Vec<f64>> {
-            let stats = linalg_spectral_moment_stats(g);
+            let stats = linalg_spectral_moment_stats(&*g);
             let (t1_eff, t2_eff, alpha_eff) =
                 resolve_dog_r1_defaults(&stats, t1_opt, t2_opt, alpha_opt);
             let base_terms = build_dog_terms(t1_eff, t2_eff, alpha_eff, 0.0)?;
             let (terms_psd, _, _) = project_psd_spectral_filter(&base_terms, 2.0, deg, eps)?;
-            let (l_sym, inv_sqrt_deg) = symmetric_normalized_laplacian(g);
+            let (l_sym, inv_sqrt_deg) = symmetric_normalized_laplacian(&*g);
             let mut ws = ChebyshevWorkspace::with_capacity(n.saturating_mul(dim));
             ws.compute_kernel_jl_embedding(
                 &l_sym,

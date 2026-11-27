@@ -1,11 +1,8 @@
-//! Spectral initialization, MDS, normalization, and Laplacian eigenpair bindings.
+//! Spectral initialization, normalization, and Laplacian eigenpair bindings.
 
 use egraph::core::{CoreError, CoreResult};
 use egraph::linalg::{
-    PivotMdsConfig, classical_mds_2d as linalg_classical_mds_2d,
-    koren_spectral_init as linalg_koren, normalize_layout_2d as linalg_normalize_layout_2d,
-    pivot_mds as linalg_pivot_mds, rd_mds as linalg_rd_mds,
-    representative_mds as linalg_representative_mds,
+    RdMds, koren_spectral_init as linalg_koren, normalize_layout_2d as linalg_normalize_layout_2d,
     robust_normalize_layout_2d as linalg_robust_normalize_layout_2d,
     select_maxmin_sp_pivots as linalg_select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs as linalg_smallest_eigenpairs,
@@ -19,7 +16,6 @@ use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::array_extract::extract_f64_2d_raw;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, ffi_error_to_py,
@@ -55,8 +51,6 @@ pub(super) fn validate_koren_params(
 }
 
 /// Select well-spaced shortest-path pivots via Core-First MaxMin BFS.
-///
-/// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, num_pivots = StrictUsize(50), *, seed = StrictU64(42), min_degree = StrictUsize(2)),
@@ -71,50 +65,12 @@ fn select_maxmin_sp_pivots<'py>(
 ) -> PyResult<Bound<'py, PyArray1<u32>>> {
     let g = graph.inner();
     let pivots = py
-        .detach(|| linalg_select_maxmin_sp_pivots(g, num_pivots.0, seed.0, min_degree.0))
+        .detach(|| linalg_select_maxmin_sp_pivots(&*g, num_pivots.0, seed.0, min_degree.0))
         .map_err(core_error_to_py)?;
     Ok(PyArray1::from_vec(py, pivots))
 }
 
-/// Compute a 2D `Layout2d` via Core-First MaxMin PivotMDS with optional isotropic std normalization.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (graph, *, num_pivots = StrictUsize(50), seed = StrictU64(42), min_degree = StrictUsize(2), target_std = Some(StrictF64(1.0)), dtype = ScalarDtype::F64),
-    text_signature = "(graph, *, num_pivots=50, seed=42, min_degree=2, target_std=1.0, dtype='float64')"
-)]
-fn pivot_mds_init(
-    py: Python<'_>,
-    graph: &PyCsrGraph,
-    num_pivots: StrictUsize,
-    seed: StrictU64,
-    min_degree: StrictUsize,
-    target_std: Option<StrictF64>,
-    dtype: ScalarDtype,
-) -> PyResult<PyLayout2d> {
-    let cfg = PivotMdsConfig {
-        num_pivots: num_pivots.0,
-        min_degree: min_degree.0,
-        seed: seed.0,
-        target_std: target_std.map(|v| v.0),
-    };
-    let g = graph.inner();
-    py.detach(|| match dtype {
-        ScalarDtype::F64 => {
-            linalg_pivot_mds::<f64, f64>(g, &cfg).map(|l| PyLayout2d::from_f64_layout(&l))
-        }
-        ScalarDtype::F32 => {
-            linalg_pivot_mds::<f64, f32>(g, &cfg).map(|l| PyLayout2d::from_f32_layout(&l))
-        }
-    })
-    .map_err(core_error_to_py)
-}
-
-/// Compute Koren's degree-normalized 2D spectral initialization from the smallest nontrivial
-/// eigenvectors of `L_sym`, with optional isotropic std normalization.
-///
-/// Releases the Python GIL during computation.
+/// Compute Koren's degree-normalized 2D spectral initialization from `L_sym`.
 #[pyfunction]
 #[pyo3(
     signature = (graph, *, target_std = Some(StrictF64(1.0)), tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42), dtype = ScalarDtype::F64),
@@ -133,9 +89,9 @@ fn koren_spectral_init(
     validate_koren_params(tol.0, max_iters.0, t_std).map_err(core_error_to_py)?;
     let g = graph.inner();
     py.detach(|| match dtype {
-        ScalarDtype::F64 => linalg_koren::<f64, f64>(g, t_std, tol.0, max_iters.0, seed.0)
+        ScalarDtype::F64 => linalg_koren::<f64, f64>(&*g, t_std, tol.0, max_iters.0, seed.0)
             .map(|l| PyLayout2d::from_f64_layout(&l)),
-        ScalarDtype::F32 => linalg_koren::<f64, f32>(g, t_std, tol.0, max_iters.0, seed.0)
+        ScalarDtype::F32 => linalg_koren::<f64, f32>(&*g, t_std, tol.0, max_iters.0, seed.0)
             .map(|l| PyLayout2d::from_f32_layout(&l)),
     })
     .map_err(core_error_to_py)
@@ -149,9 +105,6 @@ type EigenpairsReturn<'py> = (
 );
 
 /// Compute the smallest `n_modes` nontrivial eigenpairs of `L_sym`.
-///
-/// Returns `(lambdas, vectors, inv_sqrt_deg, used_dense_fallback)`.
-/// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, n_modes = StrictUsize(16), *, tol = StrictF64(1e-4), max_iters = StrictUsize(300), seed = StrictU64(42)),
@@ -167,7 +120,7 @@ fn smallest_laplacian_eigenpairs<'py>(
 ) -> PyResult<EigenpairsReturn<'py>> {
     let g = graph.inner();
     let res = py
-        .detach(|| linalg_smallest_eigenpairs(g, n_modes.0, tol.0, max_iters.0, seed.0))
+        .detach(|| linalg_smallest_eigenpairs(&*g, n_modes.0, tol.0, max_iters.0, seed.0))
         .map_err(core_error_to_py)?;
     let vectors_arr = Array2::from_shape_vec((res.num_nodes, res.num_modes), res.vectors)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -179,35 +132,12 @@ fn smallest_laplacian_eigenpairs<'py>(
     ))
 }
 
-/// Compute a 2D `Layout2d` via zero-guarded Classical MDS from all-pairs shortest paths.
-#[pyfunction]
-#[pyo3(
-    signature = (graph, *, dtype = ScalarDtype::F64),
-    text_signature = "(graph, *, dtype='float64')"
-)]
-fn classical_mds_2d(
-    py: Python<'_>,
-    graph: &PyCsrGraph,
-    dtype: ScalarDtype,
-) -> PyResult<PyLayout2d> {
-    let g = graph.inner();
-    py.detach(|| match dtype {
-        ScalarDtype::F64 => {
-            linalg_classical_mds_2d::<f64, f64>(g).map(|l| PyLayout2d::from_f64_layout(&l))
-        }
-        ScalarDtype::F32 => {
-            linalg_classical_mds_2d::<f64, f32>(g).map(|l| PyLayout2d::from_f32_layout(&l))
-        }
-    })
-    .map_err(core_error_to_py)
-}
-
 /// Compute a `dims`-dimensional `LayoutNd` via zero-guarded Resistance-distance MDS (`RdMds`).
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, dims = StrictUsize(2), *, eig_eps = StrictF64(1e-10), tol = StrictF64(1e-6), max_iters = StrictUsize(1000), seed = StrictU64(42), dtype = ScalarDtype::F64),
-    text_signature = "(graph, dims=2, *, eig_eps=1e-10, tol=1e-6, max_iters=1000, seed=42, dtype='float64')"
+    signature = (graph, dims = StrictUsize(2), *, eig_eps = StrictF64(1e-10), tol = StrictF64(1e-6), max_iters = StrictUsize(1000), seed = StrictU64(42), degree_normalize = true, dtype = ScalarDtype::F64),
+    text_signature = "(graph, dims=2, *, eig_eps=1e-10, tol=1e-6, max_iters=1000, seed=42, degree_normalize=True, dtype='float64')"
 )]
 fn rd_mds(
     py: Python<'_>,
@@ -217,18 +147,19 @@ fn rd_mds(
     tol: StrictF64,
     max_iters: StrictUsize,
     seed: StrictU64,
+    degree_normalize: bool,
     dtype: ScalarDtype,
 ) -> PyResult<PyLayoutNd> {
     let g = graph.inner();
+    let cfg = RdMds::with_dims(dims.0)
+        .eig_eps(eig_eps.0)
+        .tol(tol.0)
+        .max_iters(max_iters.0)
+        .seed(seed.0)
+        .degree_normalize(degree_normalize);
     py.detach(|| match dtype {
-        ScalarDtype::F64 => {
-            linalg_rd_mds::<f64, f64>(g, dims.0, eig_eps.0, tol.0, max_iters.0, seed.0)
-                .map(PyLayoutNd::from_f64_nd)
-        }
-        ScalarDtype::F32 => {
-            linalg_rd_mds::<f64, f32>(g, dims.0, eig_eps.0, tol.0, max_iters.0, seed.0)
-                .map(PyLayoutNd::from_f32_nd)
-        }
+        ScalarDtype::F64 => cfg.embedding::<f64, f64>(&*g).map(PyLayoutNd::from_f64_nd),
+        ScalarDtype::F32 => cfg.embedding::<f64, f32>(&*g).map(PyLayoutNd::from_f32_nd),
     })
     .map_err(core_error_to_py)
 }
@@ -264,7 +195,7 @@ fn normalize_layout_2d(
     }
 }
 
-/// Median-center and Gaussian-calibrated radial quantile-scale a `Layout2d` in place so core spread matches `target_std`.
+/// Median-center and Gaussian-calibrated radial quantile-scale a `Layout2d` in place.
 #[pyfunction]
 #[pyo3(
     signature = (layout, *, target_std = StrictF64(1.0), quantile = StrictF64(0.95), seed = StrictU64(42)),
@@ -297,28 +228,6 @@ fn robust_normalize_layout_2d(
     }
 }
 
-/// Compute a `dims`-dimensional `LayoutNd` via Representative/Landmark MDS from an `(N, R)` distance matrix.
-#[pyfunction]
-#[pyo3(
-    signature = (distances_to_reps, dims = StrictUsize(2), *, dtype = ScalarDtype::F64),
-    text_signature = "(distances_to_reps, dims=2, *, dtype='float64')"
-)]
-fn representative_mds(
-    py: Python<'_>,
-    distances_to_reps: &Bound<'_, PyAny>,
-    dims: StrictUsize,
-    dtype: ScalarDtype,
-) -> PyResult<PyLayoutNd> {
-    let (flat, n_nodes, n_reps) = extract_f64_2d_raw(distances_to_reps, "distances_to_reps")?;
-    py.detach(|| match dtype {
-        ScalarDtype::F64 => linalg_representative_mds::<f64>(&flat, n_nodes, n_reps, dims.0)
-            .map(PyLayoutNd::from_f64_nd),
-        ScalarDtype::F32 => linalg_representative_mds::<f32>(&flat, n_nodes, n_reps, dims.0)
-            .map(PyLayoutNd::from_f32_nd),
-    })
-    .map_err(core_error_to_py)
-}
-
 type ResistanceEmbeddingPy<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>);
 type DiffusionEmbeddingPy<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>, f64);
 
@@ -340,7 +249,9 @@ fn compute_resistance_embedding<'py>(
     let g = graph.inner();
     let n = g.num_nodes();
     let (coords, lambdas) = py
-        .detach(|| nb_compute_resistance_embedding(g, dim.0, tol.0, max_iters.0, seed.0, eig_eps.0))
+        .detach(|| {
+            nb_compute_resistance_embedding(&*g, dim.0, tol.0, max_iters.0, seed.0, eig_eps.0)
+        })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();
     let arr =
@@ -372,7 +283,9 @@ fn compute_diffusion_embedding<'py>(
     let n = g.num_nodes();
     let t_opt = t.map(|v| v.0);
     let (coords, lambdas, t_used) = py
-        .detach(|| nb_compute_diffusion_embedding(g, dim.0, p.0, t_opt, tol.0, max_iters.0, seed.0))
+        .detach(|| {
+            nb_compute_diffusion_embedding(&*g, dim.0, p.0, t_opt, tol.0, max_iters.0, seed.0)
+        })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();
     let arr =
@@ -386,13 +299,10 @@ fn compute_diffusion_embedding<'py>(
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(select_maxmin_sp_pivots, m)?)?;
-    m.add_function(wrap_pyfunction!(pivot_mds_init, m)?)?;
     m.add_function(wrap_pyfunction!(koren_spectral_init, m)?)?;
-    m.add_function(wrap_pyfunction!(classical_mds_2d, m)?)?;
     m.add_function(wrap_pyfunction!(rd_mds, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_layout_2d, m)?)?;
     m.add_function(wrap_pyfunction!(robust_normalize_layout_2d, m)?)?;
-    m.add_function(wrap_pyfunction!(representative_mds, m)?)?;
     m.add_function(wrap_pyfunction!(smallest_laplacian_eigenpairs, m)?)?;
     m.add_function(wrap_pyfunction!(compute_resistance_embedding, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diffusion_embedding, m)?)?;

@@ -320,7 +320,7 @@ fn resistance_curvature_flow(
     };
     let g = graph.inner();
     let res = py
-        .detach(|| linalg_resistance_curvature_flow(g, &cfg))
+        .detach(|| linalg_resistance_curvature_flow(&*g, &cfg))
         .map_err(core_error_to_py)?;
     Ok(PyResistanceCurvatureFlowResult { inner: res })
 }

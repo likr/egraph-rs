@@ -7,20 +7,37 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_2d;
-use crate::ffi_convert::{ScalarDtype, StrictUsize, core_error_to_py};
+use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py};
 
+#[derive(Clone)]
 pub(crate) enum LayoutNdInner {
     F64(LayoutNd<f64>),
     F32(LayoutNd<f32>),
 }
 
 /// Arbitrary-dimensional node coordinate buffer backed by `LayoutNd` with zero-copy NumPy views.
-#[pyclass(name = "LayoutNd", module = "egraph._core")]
+#[pyclass(name = "LayoutNd", module = "egraph._core", from_py_object)]
+#[derive(Clone)]
 pub struct PyLayoutNd {
     inner: LayoutNdInner,
 }
 
 impl PyLayoutNd {
+    pub(crate) fn inner(&self) -> &LayoutNdInner {
+        &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut LayoutNdInner {
+        &mut self.inner
+    }
+
+    pub(crate) fn dtype_enum(&self) -> ScalarDtype {
+        match &self.inner {
+            LayoutNdInner::F64(_) => ScalarDtype::F64,
+            LayoutNdInner::F32(_) => ScalarDtype::F32,
+        }
+    }
+
     pub(crate) fn from_f64_nd(nd: LayoutNd<f64>) -> Self {
         Self {
             inner: LayoutNdInner::F64(nd),
@@ -44,12 +61,12 @@ fn extract_layout_nd_inner(coords: &Bound<'_, PyAny>) -> PyResult<LayoutNdInner>
         }
         let shape = untyped.shape();
         let n = shape[0];
-        let dim = shape[1];
-        if dim == 0 {
+        let dims = shape[1];
+        if dims == 0 {
             return Err(PyValueError::new_err("LayoutNd dims must be >= 1"));
         }
         if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f64>>() {
-            let mut flat = Vec::with_capacity(n.saturating_mul(dim));
+            let mut flat = Vec::with_capacity(n.saturating_mul(dims));
             for (r_idx, row) in arr.as_array().rows().into_iter().enumerate() {
                 for &v in row.iter() {
                     if !v.is_finite() {
@@ -60,12 +77,12 @@ fn extract_layout_nd_inner(coords: &Bound<'_, PyAny>) -> PyResult<LayoutNdInner>
                     flat.push(v);
                 }
             }
-            return LayoutNd::from_flat(n, dim, flat)
+            return LayoutNd::from_flat(n, dims, flat)
                 .map(LayoutNdInner::F64)
                 .map_err(core_error_to_py);
         }
         if let Ok(arr) = coords.extract::<PyReadonlyArray2<'_, f32>>() {
-            let mut flat = Vec::with_capacity(n.saturating_mul(dim));
+            let mut flat = Vec::with_capacity(n.saturating_mul(dims));
             for (r_idx, row) in arr.as_array().rows().into_iter().enumerate() {
                 for &v in row.iter() {
                     if !v.is_finite() {
@@ -76,7 +93,7 @@ fn extract_layout_nd_inner(coords: &Bound<'_, PyAny>) -> PyResult<LayoutNdInner>
                     flat.push(v);
                 }
             }
-            return LayoutNd::from_flat(n, dim, flat)
+            return LayoutNd::from_flat(n, dims, flat)
                 .map(LayoutNdInner::F32)
                 .map_err(core_error_to_py);
         }
@@ -93,18 +110,42 @@ fn extract_layout_nd_inner(coords: &Bound<'_, PyAny>) -> PyResult<LayoutNdInner>
 
 #[pymethods]
 impl PyLayoutNd {
-    /// Create a zero-initialized `LayoutNd` for `n` vertices in `dim` dimensions.
+    /// Create a zero-initialized `LayoutNd` for `n` vertices in `dims` dimensions.
     #[staticmethod]
     #[pyo3(
-        signature = (n, dim, dtype = ScalarDtype::F64),
-        text_signature = "(n, dim, dtype='float64')"
+        signature = (n, dims, dtype = ScalarDtype::F64),
+        text_signature = "(n, dims, dtype='float64')"
     )]
-    fn zeros(n: StrictUsize, dim: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
+    fn zeros(n: StrictUsize, dims: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
         let inner = match dtype {
-            ScalarDtype::F64 => LayoutNd::<f64>::zeros(n.0, dim.0)
+            ScalarDtype::F64 => LayoutNd::<f64>::zeros(n.0, dims.0)
                 .map(LayoutNdInner::F64)
                 .map_err(core_error_to_py)?,
-            ScalarDtype::F32 => LayoutNd::<f32>::zeros(n.0, dim.0)
+            ScalarDtype::F32 => LayoutNd::<f32>::zeros(n.0, dims.0)
+                .map(LayoutNdInner::F32)
+                .map_err(core_error_to_py)?,
+        };
+        Ok(Self { inner })
+    }
+
+    /// Create a deterministically initialized `LayoutNd` for `n` vertices in `dims` dimensions.
+    #[staticmethod]
+    #[pyo3(
+        signature = (n, dims, seed = StrictU64(42), scale = StrictF64(1.0), dtype = ScalarDtype::F64),
+        text_signature = "(n, dims, seed=42, scale=1.0, dtype='float64')"
+    )]
+    fn init(
+        n: StrictUsize,
+        dims: StrictUsize,
+        seed: StrictU64,
+        scale: StrictF64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        let inner = match dtype {
+            ScalarDtype::F64 => LayoutNd::<f64>::init(n.0, dims.0, seed.0, scale.0)
+                .map(LayoutNdInner::F64)
+                .map_err(core_error_to_py)?,
+            ScalarDtype::F32 => LayoutNd::<f32>::init(n.0, dims.0, seed.0, scale.0)
                 .map(LayoutNdInner::F32)
                 .map_err(core_error_to_py)?,
         };
@@ -118,6 +159,11 @@ impl PyLayoutNd {
         extract_layout_nd_inner(coords).map(|inner| Self { inner })
     }
 
+    /// Return a deep copy of this `LayoutNd` preserving `dtype`.
+    fn copy(&self) -> Self {
+        self.clone()
+    }
+
     /// Number of vertices in the layout.
     #[getter]
     fn num_nodes(&self) -> usize {
@@ -129,7 +175,7 @@ impl PyLayoutNd {
 
     /// Embedding dimensionality `D`.
     #[getter]
-    fn dim(&self) -> usize {
+    fn dims(&self) -> usize {
         match &self.inner {
             LayoutNdInner::F64(nd) => nd.dims(),
             LayoutNdInner::F32(nd) => nd.dims(),
@@ -139,10 +185,7 @@ impl PyLayoutNd {
     /// Scalar coordinate precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
-        match &self.inner {
-            LayoutNdInner::F64(_) => ScalarDtype::F64.as_str(),
-            LayoutNdInner::F32(_) => ScalarDtype::F32.as_str(),
-        }
+        self.dtype_enum().as_str()
     }
 
     /// Return the number of vertices in the layout.
@@ -153,6 +196,62 @@ impl PyLayoutNd {
     /// Return `True` if the layout contains zero vertices.
     fn is_empty(&self) -> bool {
         self.num_nodes() == 0
+    }
+
+    /// Return coordinate `(i, d)` as `float`.
+    #[pyo3(signature = (i, d), text_signature = "($self, i, d)")]
+    fn get(&self, i: StrictUsize, d: StrictUsize) -> PyResult<f64> {
+        match &self.inner {
+            LayoutNdInner::F64(nd) => nd.get(i.0, d.0).map_err(core_error_to_py),
+            LayoutNdInner::F32(nd) => nd.get(i.0, d.0).map(f64::from).map_err(core_error_to_py),
+        }
+    }
+
+    /// Set coordinate `(i, d)` in place after validating bounds and finiteness.
+    #[pyo3(signature = (i, d, value), text_signature = "($self, i, d, value)")]
+    fn set(&mut self, i: StrictUsize, d: StrictUsize, value: StrictF64) -> PyResult<()> {
+        if !value.0.is_finite() {
+            return Err(PyValueError::new_err("LayoutNd.set value must be finite"));
+        }
+        match &mut self.inner {
+            LayoutNdInner::F64(nd) => nd.set(i.0, d.0, value.0).map_err(core_error_to_py),
+            LayoutNdInner::F32(nd) => {
+                let vf = value.0 as f32;
+                if !vf.is_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "LayoutNd.set value {} overflows float32",
+                        value.0
+                    )));
+                }
+                nd.set(i.0, d.0, vf).map_err(core_error_to_py)
+            }
+        }
+    }
+
+    /// Center coordinates at zero mean per axis and scale isotropically in place to `target_std`.
+    #[pyo3(signature = (target_std = StrictF64(1.0)), text_signature = "($self, target_std=1.0)")]
+    fn normalize_std(&mut self, target_std: StrictF64) -> PyResult<()> {
+        match &mut self.inner {
+            LayoutNdInner::F64(nd) => nd
+                .center_and_normalize_to_std(target_std.0)
+                .map_err(core_error_to_py),
+            LayoutNdInner::F32(nd) => {
+                if !target_std.0.is_finite() || target_std.0 <= 0.0 {
+                    return Err(PyValueError::new_err(
+                        "target_std must be finite and strictly positive",
+                    ));
+                }
+                let t32 = target_std.0 as f32;
+                if !t32.is_finite() || t32 <= 0.0 {
+                    return Err(PyValueError::new_err(format!(
+                        "target_std {} is out of range for float32",
+                        target_std.0
+                    )));
+                }
+                nd.center_and_normalize_to_std(t32)
+                    .map_err(core_error_to_py)
+            }
+        }
     }
 
     /// Return `True` if every coordinate in the layout is finite.
@@ -214,9 +313,9 @@ impl PyLayoutNd {
     /// Return a concise string representation of the `LayoutNd`.
     fn __repr__(&self) -> String {
         format!(
-            "LayoutNd(num_nodes={}, dim={}, dtype='{}')",
+            "LayoutNd(num_nodes={}, dims={}, dtype='{}')",
             self.num_nodes(),
-            self.dim(),
+            self.dims(),
             self.dtype()
         )
     }

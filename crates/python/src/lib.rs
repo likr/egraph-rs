@@ -25,8 +25,12 @@ use pyo3::prelude::*;
 
 mod array_extract;
 mod community;
+mod constraints_declutter;
 mod constraints_layering;
 mod csr_graph;
+mod csr_helpers;
+mod dataset;
+mod dynamic_kdtree;
 mod ffi_convert;
 mod layout_buffers;
 mod layout_nd;
@@ -37,6 +41,7 @@ mod neighborhood;
 mod solver_common;
 mod solvers;
 mod spatial_dataset;
+mod spatial_trees;
 
 /// Standard floating-point precision type used in python bindings.
 pub type FloatType = f64;
@@ -74,12 +79,16 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     layout_nd::register(m)?;
     metrics::register(m)?;
     spatial_dataset::register(m)?;
+    spatial_trees::register(m)?;
+    dynamic_kdtree::register(m)?;
+    dataset::register(m)?;
     linalg::register(m)?;
     neighborhood::register(m)?;
     community::register(m)?;
     manifold::register(m)?;
     solvers::register(m)?;
     constraints_layering::register(m)?;
+    constraints_declutter::register(m)?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 //! Community detection, graph coarsening, and hierarchical projection bindings.
 
 mod coarsen_backbone;
+mod results;
 
 #[cfg(test)]
 mod tests;
@@ -16,12 +17,14 @@ use egraph_clustering::{
     spectral_clustering as clu_spectral_clustering,
 };
 use egraph_core::CoreError;
-use numpy::ndarray::Array2;
-use numpy::{PyArray1, PyArray2};
+use numpy::PyArray1;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
+use self::results::{
+    PyKMeansResult, PyLabelPropagationResult, PyLeidenResult, PyLouvainResult,
+    PySpectralClusteringResult,
+};
 use crate::array_extract::extract_f64_2d;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
@@ -41,27 +44,26 @@ pub(super) fn parse_leiden_objective(raw: &str) -> Result<LeidenObjective, Strin
 
 /// Cluster `points` of shape `(N, D)` using deterministic K-Means++ initialization and Lloyd refinement.
 ///
-/// Returns a dict containing `"labels"` (`uint32` array of shape `(N,)`), `"centroids"` (`float64`
-/// array of shape `(k, D)`), `"inertia"`, `"iterations"`, and `"converged"`.
-/// Releases the Python GIL during computation.
+/// Returns a `KMeansResult` with `.labels`, `.centroids`, `.k`, `.dims`, `.inertia`,
+/// `.iterations`, and `.converged`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (points, k = StrictUsize(2), max_iters = StrictUsize(100), tol = StrictF64(1e-4), n_init = StrictUsize(1), seed = StrictU64(42)),
-    text_signature = "(points, k=2, max_iters=100, tol=1e-4, n_init=1, seed=42)"
+    signature = (points, k = StrictUsize(2), max_iterations = StrictUsize(100), tol = StrictF64(1e-4), n_init = StrictUsize(1), seed = StrictU64(42)),
+    text_signature = "(points, k=2, max_iterations=100, tol=1e-4, n_init=1, seed=42)"
 )]
 fn kmeans_plus_plus(
     py: Python<'_>,
     points: &Bound<'_, PyAny>,
     k: StrictUsize,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     tol: StrictF64,
     n_init: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyKMeansResult> {
     let (flat, n, dims) = extract_f64_2d(points, "points")?;
     let cfg = KMeansConfig {
         k: k.0,
-        max_iterations: max_iters.0,
+        max_iterations: max_iterations.0,
         tol: tol.0,
         n_init: n_init.0,
         seed: seed.0,
@@ -69,56 +71,47 @@ fn kmeans_plus_plus(
     let res = py
         .detach(|| clu_kmeans_plus_plus(&flat, n, dims, &cfg))
         .map_err(core_error_to_py)?;
-    let centroids_arr = Array2::from_shape_vec((cfg.k, dims), res.centroids)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    let dict = PyDict::new(py);
-    dict.set_item("labels", PyArray1::from_vec(py, res.labels))?;
-    dict.set_item("centroids", PyArray2::from_owned_array(py, centroids_arr))?;
-    dict.set_item("inertia", res.inertia)?;
-    dict.set_item("iterations", res.iterations)?;
-    dict.set_item("converged", res.converged)?;
-    Ok(dict.unbind())
+    PyKMeansResult::from_core(py, res)
 }
 
 /// Partition an undirected `CsrGraph` into `k` clusters using Ng-Jordan-Weiss spectral clustering.
 ///
-/// Rejects directed graphs with `ValueError` and returns a `uint32` NumPy label array of length `N`.
+/// Rejects directed graphs with `ValueError` and returns a `SpectralClusteringResult`.
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, k = StrictUsize(2), max_eigen_iters = StrictUsize(300), eigen_tol = StrictF64(1e-4), kmeans_max_iters = StrictUsize(100), kmeans_tol = StrictF64(1e-4), seed = StrictU64(42)),
-    text_signature = "(graph, k=2, max_eigen_iters=300, eigen_tol=1e-4, kmeans_max_iters=100, kmeans_tol=1e-4, seed=42)"
+    signature = (graph, k = StrictUsize(2), max_eigen_iterations = StrictUsize(300), eigen_tol = StrictF64(1e-4), kmeans_max_iterations = StrictUsize(100), kmeans_tol = StrictF64(1e-4), seed = StrictU64(42)),
+    text_signature = "(graph, k=2, max_eigen_iterations=300, eigen_tol=1e-4, kmeans_max_iterations=100, kmeans_tol=1e-4, seed=42)"
 )]
-fn spectral_clustering<'py>(
-    py: Python<'py>,
+fn spectral_clustering(
+    py: Python<'_>,
     graph: &PyCsrGraph,
     k: StrictUsize,
-    max_eigen_iters: StrictUsize,
+    max_eigen_iterations: StrictUsize,
     eigen_tol: StrictF64,
-    kmeans_max_iters: StrictUsize,
+    kmeans_max_iterations: StrictUsize,
     kmeans_tol: StrictF64,
     seed: StrictU64,
-) -> PyResult<Bound<'py, PyArray1<u32>>> {
+) -> PyResult<PySpectralClusteringResult> {
     let cfg = SpectralClusteringConfig {
         k: k.0,
-        max_eigen_iterations: max_eigen_iters.0,
+        max_eigen_iterations: max_eigen_iterations.0,
         eigen_tol: eigen_tol.0,
-        kmeans_max_iterations: kmeans_max_iters.0,
+        kmeans_max_iterations: kmeans_max_iterations.0,
         kmeans_tol: kmeans_tol.0,
         seed: seed.0,
     };
     let g = graph.inner();
     let res = py
-        .detach(|| clu_spectral_clustering(g, &cfg))
+        .detach(|| clu_spectral_clustering(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, res.labels))
+    PySpectralClusteringResult::from_core(py, res)
 }
 
 /// Detect communities on an undirected `CsrGraph` via multi-level Louvain modularity optimization.
 ///
-/// Returns a dict with keys `"labels"`, `"num_communities"`, `"modularity"`, and `"passes"`.
+/// Returns a `LouvainResult` with `.labels`, `.num_communities`, `.modularity`, and `.passes`.
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
@@ -132,7 +125,7 @@ fn louvain_communities(
     resolution: StrictF64,
     min_modularity_gain: StrictF64,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyLouvainResult> {
     let cfg = LouvainConfig {
         max_passes: max_passes.0,
         resolution: resolution.0,
@@ -141,21 +134,16 @@ fn louvain_communities(
     };
     let g = graph.inner();
     let res = py
-        .detach(|| clu_louvain(g, &cfg))
+        .detach(|| clu_louvain(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    let dict = PyDict::new(py);
-    dict.set_item("labels", PyArray1::from_vec(py, res.labels))?;
-    dict.set_item("num_communities", res.num_communities)?;
-    dict.set_item("modularity", res.modularity)?;
-    dict.set_item("passes", res.passes)?;
-    Ok(dict.unbind())
+    PyLouvainResult::from_core(py, res)
 }
 
 /// Detect communities on an undirected `CsrGraph` using the Leiden algorithm (Traag et al., 2019).
 ///
 /// Supports `"modularity"` and `"cpm"` objectives while guaranteeing internally connected
-/// communities. Returns a dict with `"labels"`, `"num_communities"`, `"quality"`,
-/// `"modularity"`, and `"passes"`. Releases the Python GIL during computation.
+/// communities. Returns a `LeidenResult` with `.labels`, `.num_communities`, `.quality`,
+/// `.modularity`, and `.passes`. Releases the Python GIL during computation.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
@@ -180,7 +168,7 @@ fn leiden_communities(
     max_passes: StrictUsize,
     min_quality_gain: StrictF64,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyLeidenResult> {
     let parsed_objective = parse_leiden_objective(objective).map_err(PyValueError::new_err)?;
     let cfg = LeidenConfig {
         objective: parsed_objective,
@@ -192,40 +180,35 @@ fn leiden_communities(
     };
     let g = graph.inner();
     let res = py
-        .detach(|| clu_leiden(g, &cfg))
+        .detach(|| clu_leiden(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    let dict = PyDict::new(py);
-    dict.set_item("labels", PyArray1::from_vec(py, res.labels))?;
-    dict.set_item("num_communities", res.num_communities)?;
-    dict.set_item("quality", res.quality)?;
-    dict.set_item("modularity", res.modularity)?;
-    dict.set_item("passes", res.passes)?;
-    Ok(dict.unbind())
+    PyLeidenResult::from_core(py, res)
 }
 
 /// Detect communities on an undirected `CsrGraph` via asynchronous deterministic Label Propagation.
 ///
-/// Returns a `uint32` NumPy label array of length `N`. Releases the Python GIL during computation.
+/// Returns a `LabelPropagationResult` with `.labels`, `.num_communities`, `.iterations`, and
+/// `.converged`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, max_iters = StrictUsize(100), seed = StrictU64(42)),
-    text_signature = "(graph, max_iters=100, seed=42)"
+    signature = (graph, max_iterations = StrictUsize(100), seed = StrictU64(42)),
+    text_signature = "(graph, max_iterations=100, seed=42)"
 )]
-fn label_propagation<'py>(
-    py: Python<'py>,
+fn label_propagation(
+    py: Python<'_>,
     graph: &PyCsrGraph,
-    max_iters: StrictUsize,
+    max_iterations: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Bound<'py, PyArray1<u32>>> {
+) -> PyResult<PyLabelPropagationResult> {
     let cfg = LabelPropagationConfig {
-        max_iterations: max_iters.0,
+        max_iterations: max_iterations.0,
         seed: seed.0,
     };
     let g = graph.inner();
     let res = py
-        .detach(|| clu_label_propagation(g, &cfg))
+        .detach(|| clu_label_propagation(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, res.labels))
+    PyLabelPropagationResult::from_core(py, res)
 }
 
 type CoarsenReturn<'py> = (
@@ -249,7 +232,7 @@ fn coarsen_graph<'py>(
     let labels_vec = extract_u32_1d(labels, "labels")?;
     let g = graph.inner();
     let res = py
-        .detach(|| clu_coarsen_graph(g, &labels_vec))
+        .detach(|| clu_coarsen_graph(&*g, &labels_vec))
         .map_err(core_error_to_py)?;
     Ok((
         PyCsrGraph::from_csr_graph(res.graph),
@@ -305,6 +288,7 @@ fn project_clustered_layout(
 
 /// Register community detection and coarsening functions on `egraph._core`.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    results::register(m)?;
     m.add_function(wrap_pyfunction!(kmeans_plus_plus, m)?)?;
     m.add_function(wrap_pyfunction!(spectral_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;

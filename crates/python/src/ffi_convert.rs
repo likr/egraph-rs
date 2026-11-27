@@ -402,6 +402,65 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
     }
 }
 
+use crate::array_extract::extract_f64_2d;
+use crate::layout_buffers::{Layout2dInner, PyLayout2d};
+use crate::layout_nd::{LayoutNdInner, PyLayoutNd};
+
+pub(crate) fn extract_coords_any(
+    obj: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<(Vec<f64>, usize, usize)> {
+    if let Ok(l2) = obj.extract::<PyRef<'_, PyLayout2d>>() {
+        return match l2.inner() {
+            Layout2dInner::F64(buf) => {
+                if !buf.is_all_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((buf.as_slice().to_vec(), buf.len(), 2))
+            }
+            Layout2dInner::F32(buf) => {
+                if !buf.is_all_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((
+                    buf.as_slice().iter().map(|&v| f64::from(v)).collect(),
+                    buf.len(),
+                    2,
+                ))
+            }
+        };
+    }
+    if let Ok(lnd) = obj.extract::<PyRef<'_, PyLayoutNd>>() {
+        return match lnd.inner() {
+            LayoutNdInner::F64(nd) => {
+                if !nd.is_all_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((nd.coords().to_vec(), nd.num_nodes(), nd.dims()))
+            }
+            LayoutNdInner::F32(nd) => {
+                if !nd.is_all_finite() {
+                    return Err(PyValueError::new_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((
+                    nd.coords().iter().map(|&v| f64::from(v)).collect(),
+                    nd.num_nodes(),
+                    nd.dims(),
+                ))
+            }
+        };
+    }
+    extract_f64_2d(obj, name)
+}
+
 pub(crate) fn pairs_to_u32_array2<'py>(
     py: Python<'py>,
     pairs: Vec<(u32, u32)>,

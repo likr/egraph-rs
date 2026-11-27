@@ -189,7 +189,7 @@ fn compute_effective_resistances(
     };
     let g = graph.inner();
     let res = py
-        .detach(|| linalg_compute_effective_resistances(g, &cfg))
+        .detach(|| linalg_compute_effective_resistances(&*g, &cfg))
         .map_err(core_error_to_py)?;
     Ok(PyEffectiveResistanceResult { inner: res })
 }

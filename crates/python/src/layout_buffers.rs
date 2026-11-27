@@ -1,6 +1,6 @@
 //! 2D interleaved coordinate buffer (`Layout2d`) Python bindings and GIL-free dispatch macro.
 
-use egraph::core::{DeterministicRng, Layout2d};
+use egraph::core::Layout2d;
 use egraph_ffi::InterleavedLayout2d;
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{PyArray2, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
@@ -31,6 +31,7 @@ macro_rules! dispatch_layout2d {
 
 pub(crate) use dispatch_layout2d;
 
+#[derive(Clone)]
 pub(crate) enum Layout2dInner {
     F64(InterleavedLayout2d<f64>),
     F32(InterleavedLayout2d<f32>),
@@ -117,7 +118,8 @@ fn extract_interleaved_f32_from_view(
 ///
 /// Supports both `"float64"` (`f64`) and `"float32"` (`f32`) precision and exposes
 /// zero-copy writable `(N, 2)` NumPy array views via `coords(copy=False)`.
-#[pyclass(name = "Layout2d", module = "egraph._core")]
+#[pyclass(name = "Layout2d", module = "egraph._core", from_py_object)]
+#[derive(Clone)]
 pub struct PyLayout2d {
     inner: Layout2dInner,
 }
@@ -232,40 +234,37 @@ impl PyLayout2d {
         Ok(Self { inner })
     }
 
-    /// Create a deterministically initialized `Layout2d` for `n` vertices using `seed` (default `42`).
+    /// Create a deterministically initialized `Layout2d` for `n` vertices using `seed` and `scale`.
     #[staticmethod]
     #[pyo3(
-        signature = (n, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(n, seed=42, dtype='float64')"
+        signature = (n, seed = StrictU64(42), scale = StrictF64(1.0), dtype = ScalarDtype::F64),
+        text_signature = "(n, seed=42, scale=1.0, dtype='float64')"
     )]
-    fn init(n: &Bound<'_, PyAny>, seed: StrictU64, dtype: ScalarDtype) -> PyResult<Self> {
+    fn init(
+        n: &Bound<'_, PyAny>,
+        seed: StrictU64,
+        scale: StrictF64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
         let n_usize = extract_non_negative_usize(n, "n")?;
-        let mut rng = DeterministicRng::from_seed_u64(seed.0);
         let inner = match dtype {
             ScalarDtype::F64 => {
-                let mut coords = Vec::with_capacity(n_usize.saturating_mul(2));
-                for _ in 0..n_usize {
-                    coords.push(rng.next_f64() - 0.5);
-                    coords.push(rng.next_f64() - 0.5);
-                }
-                Layout2dInner::F64(
-                    InterleavedLayout2d::<f64>::from_interleaved(&coords)
-                        .map_err(ffi_error_to_py)?,
-                )
+                let soa =
+                    Layout2d::<f64>::init(n_usize, seed.0, scale.0).map_err(core_error_to_py)?;
+                Layout2dInner::F64(InterleavedLayout2d::from_layout2d(&soa))
             }
             ScalarDtype::F32 => {
-                let mut coords = Vec::with_capacity(n_usize.saturating_mul(2));
-                for _ in 0..n_usize {
-                    coords.push((rng.next_f64() - 0.5) as f32);
-                    coords.push((rng.next_f64() - 0.5) as f32);
-                }
-                Layout2dInner::F32(
-                    InterleavedLayout2d::<f32>::from_interleaved(&coords)
-                        .map_err(ffi_error_to_py)?,
-                )
+                let soa =
+                    Layout2d::<f32>::init(n_usize, seed.0, scale.0).map_err(core_error_to_py)?;
+                Layout2dInner::F32(InterleavedLayout2d::from_layout2d(&soa))
             }
         };
         Ok(Self { inner })
+    }
+
+    /// Return a deep copy of this `Layout2d` preserving `dtype`.
+    fn copy(&self) -> Self {
+        self.clone()
     }
 
     /// Create a `Layout2d` from an `(N, 2)` coordinate array or sequence of `(x, y)` pairs.

@@ -3,6 +3,7 @@
 mod dog_varadhan;
 mod knn;
 mod probabilities;
+mod rhgh;
 mod types;
 
 #[cfg(test)]
@@ -19,5 +20,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     knn::register(m)?;
     probabilities::register(m)?;
     dog_varadhan::register(m)?;
+    rhgh::register(m)?;
     Ok(())
 }

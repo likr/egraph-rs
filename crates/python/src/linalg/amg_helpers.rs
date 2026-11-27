@@ -147,7 +147,7 @@ pub(super) fn create_amg_from_regularized_laplacian(
     let g = graph.inner();
     let gamma_val = gamma.0;
     let inner = py
-        .detach(|| AmgPcgSolver::from_regularized_sym_laplacian(g, gamma_val, cfg))
+        .detach(|| AmgPcgSolver::from_regularized_sym_laplacian(&*g, gamma_val, cfg))
         .map_err(core_error_to_py)?;
     let ws = inner.new_workspace();
     Ok((inner, ws))
@@ -164,7 +164,7 @@ pub(super) fn create_amg_from_laplacian(
     let g = graph.inner();
     let shift_val = shift.0;
     let inner = py
-        .detach(|| AmgPcgSolver::from_laplacian(g, lap_kind, shift_val, cfg))
+        .detach(|| AmgPcgSolver::from_laplacian(&*g, lap_kind, shift_val, cfg))
         .map_err(core_error_to_py)?;
     let ws = inner.new_workspace();
     Ok((inner, ws))

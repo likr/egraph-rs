@@ -224,7 +224,7 @@ fn compute_regularized_dog_varadhan_landmarks(
     };
     let g = graph.inner();
     let (inner, stats) = py
-        .detach(|| nb_compute_regularized_dog_varadhan_landmarks(g, &cfg))
+        .detach(|| nb_compute_regularized_dog_varadhan_landmarks(&*g, &cfg))
         .map_err(core_error_to_py)?;
     Ok(PyDogVaradhanLandmarks { inner, stats })
 }
@@ -279,7 +279,7 @@ fn compute_regularized_dog_varadhan_landmarks_from_matrix(
     let lmax_opt = lambda_max.map(|v| v.0);
     let (inner, stats) = py
         .detach(|| {
-            nb_compute_regularized_dog_varadhan_landmarks_from_matrix(g, mat, lmax_opt, &cfg)
+            nb_compute_regularized_dog_varadhan_landmarks_from_matrix(&*g, mat, lmax_opt, &cfg)
         })
         .map_err(core_error_to_py)?;
     Ok(PyDogVaradhanLandmarks { inner, stats })

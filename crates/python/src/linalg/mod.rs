@@ -1,12 +1,15 @@
-//! Linear algebra, spectral initialization, Chebyshev diffusion, and AMG-PCG bindings.
+//! Linear algebra, spectral initialization, Chebyshev diffusion, shortest-path, and AMG-PCG bindings.
 
 mod amg;
 mod amg_helpers;
 mod chebyshev;
+mod chebyshev_kernel;
 mod curvature_flow;
 mod hde;
 mod matrix;
+mod mds;
 mod resistance;
+mod shortest_path;
 mod spectral;
 
 #[cfg(test)]
@@ -16,14 +19,17 @@ pub(crate) use matrix::PyCsrMatrix;
 
 use pyo3::prelude::*;
 
-/// Register linear algebra, spectral, Chebyshev, and AMG-PCG bindings on `egraph._core`.
+/// Register linear algebra, spectral, Chebyshev, shortest-path, and AMG-PCG bindings on `egraph._core`.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     matrix::register(m)?;
     amg::register(m)?;
     resistance::register(m)?;
     curvature_flow::register(m)?;
     spectral::register(m)?;
+    mds::register(m)?;
     chebyshev::register(m)?;
+    chebyshev_kernel::register(m)?;
+    shortest_path::register(m)?;
     hde::register(m)?;
     Ok(())
 }

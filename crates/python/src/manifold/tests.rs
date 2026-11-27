@@ -14,6 +14,14 @@ fn test_manifold_kind_parsers() {
         ManifoldKind::HyperbolicPoincare
     );
     assert_eq!(
+        parse_manifold_kind("hyperbolic_lorentz").unwrap(),
+        ManifoldKind::HyperbolicLorentz
+    );
+    assert_eq!(
+        parse_manifold_kind("lorentz").unwrap(),
+        ManifoldKind::HyperbolicLorentz
+    );
+    assert_eq!(
         parse_manifold_kind("SPHERE").unwrap(),
         ManifoldKind::Spherical
     );
@@ -24,6 +32,10 @@ fn test_manifold_kind_parsers() {
     assert_eq!(
         manifold_kind_str(ManifoldKind::HyperbolicPoincare),
         "hyperbolic"
+    );
+    assert_eq!(
+        manifold_kind_str(ManifoldKind::HyperbolicLorentz),
+        "hyperbolic_lorentz"
     );
     assert_eq!(manifold_kind_str(ManifoldKind::Spherical), "spherical");
     assert_eq!(manifold_kind_str(ManifoldKind::Torus2d), "torus");

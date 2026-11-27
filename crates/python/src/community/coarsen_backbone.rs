@@ -1,17 +1,12 @@
 //! Multi-level Louvain coarsening, centroid prolongation, and pivoted RHGH landmark helpers.
 
-use egraph::{
-    clustering as egraph_clustering, core as egraph_core, neighborhood as egraph_neighborhood,
-};
+use egraph::{clustering as egraph_clustering, core as egraph_core};
 use egraph_clustering::{
     CoarseLouvainConfig, align_clustered_centroids as clu_align_clustered_centroids,
     louvain_coarsen as clu_louvain_coarsen,
     project_clustered_layout_with_radii as clu_project_clustered_layout_with_radii,
 };
 use egraph_core::{CoreError, Layout2d};
-use egraph_neighborhood::{
-    RhghLandmarkConfig, compute_pivoted_rhgh_landmarks as nb_compute_pivoted_rhgh_landmarks,
-};
 use numpy::PyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -22,7 +17,6 @@ use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, ffi_error_to_py,
 };
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
-use crate::neighborhood::PyDogVaradhanLandmarks;
 
 /// Run multi-level Louvain coarsening with resolution decay until `num_clusters <= max_coarse_nodes`
 /// or the connected-component floor is reached.
@@ -66,7 +60,7 @@ fn louvain_coarsen(
     };
     let g = graph.inner();
     let hierarchy = py
-        .detach(|| clu_louvain_coarsen(g, &cfg))
+        .detach(|| clu_louvain_coarsen(&*g, &cfg))
         .map_err(core_error_to_py)?;
 
     let level_num_clusters: Vec<usize> = hierarchy
@@ -215,82 +209,9 @@ fn align_clustered_centroids(
     }
 }
 
-/// Compute pure-Rust pivoted Resolvent Heat-Geodesic Hybrid (`RHGH`) landmark tables
-/// using `AmgPcgSolver` + Spielman-Srivastava JL probes.
-///
-/// Returns `(DogVaradhanLandmarks, stats_dict)`. Releases the Python GIL during computation.
-#[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[pyo3(
-    signature = (
-        graph,
-        *,
-        gamma = None,
-        p_exp = None,
-        num_landmarks = StrictUsize(64),
-        min_degree = StrictUsize(2),
-        num_probes = StrictUsize(64),
-        rel_tol = StrictF64(1e-12),
-        max_iterations = StrictUsize(500),
-        normalize_1hop = true,
-        seed = StrictU64(42)
-    ),
-    text_signature = "(graph, *, gamma=None, p_exp=None, num_landmarks=64, min_degree=2, num_probes=64, rel_tol=1e-12, max_iterations=500, normalize_1hop=True, seed=42)"
-)]
-fn compute_pivoted_rhgh_landmarks(
-    py: Python<'_>,
-    graph: &PyCsrGraph,
-    gamma: Option<StrictF64>,
-    p_exp: Option<StrictF64>,
-    num_landmarks: StrictUsize,
-    min_degree: StrictUsize,
-    num_probes: StrictUsize,
-    rel_tol: StrictF64,
-    max_iterations: StrictUsize,
-    normalize_1hop: bool,
-    seed: StrictU64,
-) -> PyResult<(PyDogVaradhanLandmarks, Py<PyDict>)> {
-    let cfg = RhghLandmarkConfig {
-        gamma: gamma.map(|v| v.0),
-        p_exp: p_exp.map(|v| v.0),
-        n_landmarks: num_landmarks.0,
-        min_degree: min_degree.0,
-        num_probes: num_probes.0,
-        rel_tol: rel_tol.0,
-        max_iterations: max_iterations.0,
-        normalize_1hop,
-        seed: seed.0,
-    };
-    let g = graph.inner();
-    let (inner, st) = py
-        .detach(|| nb_compute_pivoted_rhgh_landmarks(g, &cfg))
-        .map_err(core_error_to_py)?;
-
-    let dict = PyDict::new(py);
-    dict.set_item("gamma", st.gamma)?;
-    dict.set_item("p_exp", st.p_exp)?;
-    dict.set_item("deg_cv", st.deg_cv)?;
-    dict.set_item("leaf_fraction", st.leaf_fraction)?;
-    dict.set_item("mean_degree", st.mean_degree)?;
-    dict.set_item("exp2", st.exp2)?;
-    dict.set_item("s_sw", st.s_sw)?;
-    dict.set_item("n_landmarks", st.n_landmarks)?;
-    dict.set_item("num_probes", st.num_probes)?;
-    dict.set_item("max_pcg_iters", st.max_pcg_iters)?;
-    dict.set_item("total_pcg_iters", st.total_pcg_iters)?;
-    dict.set_item("all_converged", st.all_converged)?;
-    dict.set_item("edge_med_scale", st.edge_med_scale)?;
-
-    Ok((
-        PyDogVaradhanLandmarks::from_rhgh_parts(inner, &st),
-        dict.unbind(),
-    ))
-}
-
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(louvain_coarsen, m)?)?;
     m.add_function(wrap_pyfunction!(project_clustered_layout_with_radii, m)?)?;
     m.add_function(wrap_pyfunction!(align_clustered_centroids, m)?)?;
-    m.add_function(wrap_pyfunction!(compute_pivoted_rhgh_landmarks, m)?)?;
     Ok(())
 }

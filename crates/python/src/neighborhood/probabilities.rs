@@ -3,6 +3,7 @@
 use egraph::neighborhood::{self as nb, PerplexityConfig, SymmetrizationMode};
 use pyo3::prelude::*;
 
+use super::knn::parse_two_hop_mode;
 use super::types::{PyKnnGraph, PySparseProbabilities};
 use crate::array_extract::{extract_f64_1d, extract_perplexities};
 use crate::csr_graph::PyCsrGraph;
@@ -52,16 +53,17 @@ fn graph_row_normalized_probabilities(
 ) -> PyResult<PySparseProbabilities> {
     let g = graph.inner();
     let probs = py
-        .detach(|| nb::graph_row_normalized_probabilities(g))
+        .detach(|| nb::graph_row_normalized_probabilities(&*g))
         .map_err(core_error_to_py)?;
     Ok(PySparseProbabilities::from_inner(probs))
 }
 
 /// Compute row-normalized symmetrized 1+2-hop joint probabilities with optional capping and `(d_i d_j)^(-degree_beta)` decay.
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, w2 = StrictF64(0.5), max_2hop_per_node = None, *, degree_beta = StrictF64(0.0), seed = StrictU64(42)),
-    text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, degree_beta=0.0, seed=42)"
+    signature = (graph, w2 = StrictF64(0.5), max_2hop_per_node = None, *, degree_beta = StrictF64(0.0), mode = "degree_ordered_hub_suppressed", max_bridge_degree = None, seed = StrictU64(42)),
+    text_signature = "(graph, w2=0.5, max_2hop_per_node=None, *, degree_beta=0.0, mode='degree_ordered_hub_suppressed', max_bridge_degree=None, seed=42)"
 )]
 fn graph_12hop_row_normalized_probabilities(
     py: Python<'_>,
@@ -69,17 +71,27 @@ fn graph_12hop_row_normalized_probabilities(
     w2: StrictF64,
     max_2hop_per_node: Option<StrictUsize>,
     degree_beta: StrictF64,
+    mode: &str,
+    max_bridge_degree: Option<StrictUsize>,
     seed: StrictU64,
 ) -> PyResult<PySparseProbabilities> {
+    let sampling_mode = parse_two_hop_mode(mode)?;
     let g = graph.inner();
     let w2_val = w2.0;
     let cap_opt = max_2hop_per_node.map(|v| v.0);
     let beta_val = degree_beta.0;
+    let bridge_cap = max_bridge_degree.map(|v| v.0);
     let seed_val = seed.0;
     let probs = py
         .detach(|| {
-            nb::graph_12hop_row_normalized_probabilities_with_degree_decay(
-                g, w2_val, cap_opt, beta_val, seed_val,
+            nb::graph_12hop_row_normalized_probabilities_with_options(
+                &*g,
+                w2_val,
+                cap_opt,
+                beta_val,
+                sampling_mode,
+                bridge_cap,
+                seed_val,
             )
         })
         .map_err(core_error_to_py)?;

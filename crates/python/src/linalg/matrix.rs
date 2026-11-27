@@ -4,7 +4,11 @@ use egraph::core::CoreResult;
 use egraph::linalg::{
     AnisotropicLaplacianConfig, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
     DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS, DEFAULT_SPECTRUM_SAFETY_FACTOR,
-    anisotropic_laplacian as linalg_anisotropic_laplacian,
+    LaplacianKind, anisotropic_laplacian as linalg_anisotropic_laplacian,
+    combinatorial_laplacian as linalg_combinatorial_laplacian, laplacian as linalg_laplacian,
+    random_walk_laplacian as linalg_random_walk_laplacian,
+    shifted_normalized_laplacian as linalg_shifted_normalized_laplacian,
+    symmetric_normalized_laplacian as linalg_symmetric_normalized_laplacian,
 };
 use numpy::PyArray1;
 use numpy::PyArray2;
@@ -14,7 +18,9 @@ use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d};
+use crate::ffi_convert::{
+    StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, normalize_enum_key,
+};
 
 /// Double-precision square Compressed Sparse Row matrix (`CsrMatrix`) with spectral bounds
 /// and matrix-vector operations.
@@ -245,7 +251,7 @@ fn anisotropic_laplacian<'py>(
     };
     let g = graph.inner();
     let res = py
-        .detach(|| linalg_anisotropic_laplacian(g, cfg))
+        .detach(|| linalg_anisotropic_laplacian(&*g, cfg))
         .map_err(core_error_to_py)?;
     Ok((
         PyCsrMatrix { inner: res.matrix },
@@ -253,8 +259,105 @@ fn anisotropic_laplacian<'py>(
     ))
 }
 
+fn parse_laplacian_kind(raw: &str) -> PyResult<LaplacianKind> {
+    match normalize_enum_key(raw).as_str() {
+        "combinatorial" | "unnormalized" | "standard" => Ok(LaplacianKind::Combinatorial),
+        "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
+            Ok(LaplacianKind::SymmetricNormalized)
+        }
+        "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
+        _ => Err(PyValueError::new_err(format!(
+            "unknown Laplacian kind {raw:?}; expected 'combinatorial', 'symmetric_normalized', or 'random_walk'"
+        ))),
+    }
+}
+
+/// Construct a CSR graph Laplacian (`"combinatorial"`, `"symmetric_normalized"`, or `"random_walk"`).
+#[pyfunction]
+#[pyo3(
+    signature = (graph, kind = "symmetric_normalized"),
+    text_signature = "(graph, kind='symmetric_normalized')"
+)]
+fn laplacian(py: Python<'_>, graph: &PyCsrGraph, kind: &str) -> PyResult<PyCsrMatrix> {
+    let k = parse_laplacian_kind(kind)?;
+    let g = graph.inner();
+    let inner = py.detach(|| linalg_laplacian(&*g, k));
+    Ok(PyCsrMatrix { inner })
+}
+
+/// Construct the unnormalized combinatorial graph Laplacian `L = D - A`.
+#[pyfunction]
+#[pyo3(signature = (graph), text_signature = "(graph)")]
+fn combinatorial_laplacian(py: Python<'_>, graph: &PyCsrGraph) -> PyCsrMatrix {
+    let g = graph.inner();
+    let inner = py.detach(|| linalg_combinatorial_laplacian(&*g));
+    PyCsrMatrix { inner }
+}
+
+/// Construct the symmetric normalized Laplacian `L_sym` and `inv_sqrt_deg` vector.
+#[pyfunction]
+#[pyo3(signature = (graph), text_signature = "(graph)")]
+fn symmetric_normalized_laplacian<'py>(
+    py: Python<'py>,
+    graph: &PyCsrGraph,
+) -> (PyCsrMatrix, Bound<'py, PyArray1<f64>>) {
+    let g = graph.inner();
+    let (inner, inv_sqrt_deg) = py.detach(|| linalg_symmetric_normalized_laplacian(&*g));
+    (PyCsrMatrix { inner }, PyArray1::from_vec(py, inv_sqrt_deg))
+}
+
+/// Construct the random-walk normalized graph Laplacian `L_rw = D^{-1}(D - A)`.
+#[pyfunction]
+#[pyo3(signature = (graph), text_signature = "(graph)")]
+fn random_walk_laplacian(py: Python<'_>, graph: &PyCsrGraph) -> PyCsrMatrix {
+    let g = graph.inner();
+    let inner = py.detach(|| linalg_random_walk_laplacian(&*g));
+    PyCsrMatrix { inner }
+}
+
+#[derive(FromPyObject)]
+enum ShiftedLaplacianInput<'py> {
+    Matrix(Bound<'py, PyCsrMatrix>),
+    Graph(Bound<'py, PyCsrGraph>),
+}
+
+/// Construct the Chebyshev-scaled shifted Laplacian `(2 / lambda_max) * L_sym - I`.
+#[pyfunction]
+#[pyo3(
+    signature = (l_sym_or_graph, lambda_max = StrictF64(2.0)),
+    text_signature = "(l_sym_or_graph, lambda_max=2.0)"
+)]
+fn shifted_normalized_laplacian(
+    py: Python<'_>,
+    l_sym_or_graph: ShiftedLaplacianInput<'_>,
+    lambda_max: StrictF64,
+) -> PyResult<PyCsrMatrix> {
+    let lmax = lambda_max.0;
+    let inner = match l_sym_or_graph {
+        ShiftedLaplacianInput::Matrix(m) => {
+            let mat = m.try_borrow()?.inner().clone();
+            py.detach(|| linalg_shifted_normalized_laplacian(&mat, lmax))
+        }
+        ShiftedLaplacianInput::Graph(g) => {
+            let borrowed = g.try_borrow()?;
+            let csr = borrowed.inner();
+            py.detach(|| {
+                let (l_sym, _) = linalg_symmetric_normalized_laplacian(&*csr);
+                linalg_shifted_normalized_laplacian(&l_sym, lmax)
+            })
+        }
+    }
+    .map_err(core_error_to_py)?;
+    Ok(PyCsrMatrix { inner })
+}
+
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCsrMatrix>()?;
     m.add_function(wrap_pyfunction!(anisotropic_laplacian, m)?)?;
+    m.add_function(wrap_pyfunction!(laplacian, m)?)?;
+    m.add_function(wrap_pyfunction!(combinatorial_laplacian, m)?)?;
+    m.add_function(wrap_pyfunction!(symmetric_normalized_laplacian, m)?)?;
+    m.add_function(wrap_pyfunction!(random_walk_laplacian, m)?)?;
+    m.add_function(wrap_pyfunction!(shifted_normalized_laplacian, m)?)?;
     Ok(())
 }

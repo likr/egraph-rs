@@ -61,17 +61,15 @@ fn hde(
     let g = graph.inner();
     py.detach(|| match (dtype, pivots_vec.as_deref()) {
         (ScalarDtype::F64, None) => {
-            linalg_hde::<f64, f64>(g, &cfg).map(|l| PyLayout2d::from_f64_layout(&l))
+            linalg_hde::<f64, f64>(&*g, &cfg).map(|l| PyLayout2d::from_f64_layout(&l))
         }
         (ScalarDtype::F32, None) => {
-            linalg_hde::<f64, f32>(g, &cfg).map(|l| PyLayout2d::from_f32_layout(&l))
+            linalg_hde::<f64, f32>(&*g, &cfg).map(|l| PyLayout2d::from_f32_layout(&l))
         }
-        (ScalarDtype::F64, Some(p)) => {
-            linalg_hde_with_pivots::<f64, f64>(g, p, &cfg).map(|l| PyLayout2d::from_f64_layout(&l))
-        }
-        (ScalarDtype::F32, Some(p)) => {
-            linalg_hde_with_pivots::<f64, f32>(g, p, &cfg).map(|l| PyLayout2d::from_f32_layout(&l))
-        }
+        (ScalarDtype::F64, Some(p)) => linalg_hde_with_pivots::<f64, f64>(&*g, p, &cfg)
+            .map(|l| PyLayout2d::from_f64_layout(&l)),
+        (ScalarDtype::F32, Some(p)) => linalg_hde_with_pivots::<f64, f32>(&*g, p, &cfg)
+            .map(|l| PyLayout2d::from_f32_layout(&l)),
     })
     .map_err(core_error_to_py)
 }
@@ -124,13 +122,17 @@ fn hde_nd(
     };
     let g = graph.inner();
     py.detach(|| match (dtype, pivots_vec.as_deref()) {
-        (ScalarDtype::F64, None) => linalg_hde_nd::<f64, f64>(g, &cfg).map(PyLayoutNd::from_f64_nd),
-        (ScalarDtype::F32, None) => linalg_hde_nd::<f64, f32>(g, &cfg).map(PyLayoutNd::from_f32_nd),
+        (ScalarDtype::F64, None) => {
+            linalg_hde_nd::<f64, f64>(&*g, &cfg).map(PyLayoutNd::from_f64_nd)
+        }
+        (ScalarDtype::F32, None) => {
+            linalg_hde_nd::<f64, f32>(&*g, &cfg).map(PyLayoutNd::from_f32_nd)
+        }
         (ScalarDtype::F64, Some(p)) => {
-            linalg_hde_nd_with_pivots::<f64, f64>(g, p, &cfg).map(PyLayoutNd::from_f64_nd)
+            linalg_hde_nd_with_pivots::<f64, f64>(&*g, p, &cfg).map(PyLayoutNd::from_f64_nd)
         }
         (ScalarDtype::F32, Some(p)) => {
-            linalg_hde_nd_with_pivots::<f64, f32>(g, p, &cfg).map(PyLayoutNd::from_f32_nd)
+            linalg_hde_nd_with_pivots::<f64, f32>(&*g, p, &cfg).map(PyLayoutNd::from_f32_nd)
         }
     })
     .map_err(core_error_to_py)

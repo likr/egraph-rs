@@ -140,69 +140,85 @@ fn constraints_to_f32(
     Ok(out)
 }
 
-/// Project 1D coordinates `coords` onto `constraints` while minimizing quadratic displacement.
+/// Project 1D coordinates `coords` onto `constraints` in place, minimizing quadratic displacement.
 ///
-/// If `coords` is a writable `float64` or `float32` NumPy 1D array, updates it in place and
-/// returns the projected NumPy array with matching dtype. Otherwise returns a new `float64`
-/// NumPy array. Releases the Python GIL during projection.
+/// Requires a writable, C-contiguous 1D `float64` or `float32` NumPy array; raises `TypeError`
+/// for Python sequences, non-contiguous views, unsupported dtypes, or read-only arrays.
+/// Releases the Python GIL during projection.
 #[pyfunction]
 #[pyo3(signature = (coords, constraints), text_signature = "(coords, constraints)")]
-fn project_1d<'py>(
-    py: Python<'py>,
-    coords: &Bound<'py, PyAny>,
-    constraints: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyAny>> {
+fn project_1d(
+    py: Python<'_>,
+    coords: &Bound<'_, PyAny>,
+    constraints: &Bound<'_, PyAny>,
+) -> PyResult<()> {
     let c64 = extract_separation_constraints(constraints)?;
-
-    if let Ok(untyped) = coords.cast::<PyUntypedArray>() {
-        if untyped.ndim() != 1 {
-            return Err(PyValueError::new_err(format!(
-                "coords must be a 1D array, got {}D",
-                untyped.ndim()
-            )));
-        }
-        if let Ok(arr) = coords.cast::<PyArray1<f64>>() {
-            let mut vec: Vec<f64> = {
-                let ro = arr
-                    .try_readonly()
-                    .map_err(|e| PyValueError::new_err(format!("coords borrow error: {e}")))?;
-                ro.as_array().iter().copied().collect()
-            };
-            let n = vec.len();
-            py.detach(|| ConstraintProjector::<f64>::new(n).project_1d(&mut vec, &c64))
-                .map_err(core_error_to_py)?;
-            if let Ok(mut rw) = arr.try_readwrite() {
-                for (dst, &src) in rw.as_array_mut().iter_mut().zip(vec.iter()) {
-                    *dst = src;
-                }
-            }
-            return Ok(PyArray1::from_vec(py, vec).into_any());
-        }
-        if let Ok(arr) = coords.cast::<PyArray1<f32>>() {
-            let c32 = constraints_to_f32(&c64)?;
-            let mut vec: Vec<f32> = {
-                let ro = arr
-                    .try_readonly()
-                    .map_err(|e| PyValueError::new_err(format!("coords borrow error: {e}")))?;
-                ro.as_array().iter().copied().collect()
-            };
-            let n = vec.len();
-            py.detach(|| ConstraintProjector::<f32>::new(n).project_1d(&mut vec, &c32))
-                .map_err(core_error_to_py)?;
-            if let Ok(mut rw) = arr.try_readwrite() {
-                for (dst, &src) in rw.as_array_mut().iter_mut().zip(vec.iter()) {
-                    *dst = src;
-                }
-            }
-            return Ok(PyArray1::from_vec(py, vec).into_any());
-        }
+    let untyped = coords.cast::<PyUntypedArray>().map_err(|_| {
+        PyTypeError::new_err(
+            "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+        )
+    })?;
+    if untyped.ndim() != 1 {
+        return Err(PyValueError::new_err(format!(
+            "coords must be a 1D array, got {}D",
+            untyped.ndim()
+        )));
+    }
+    if !untyped.is_c_contiguous() {
+        return Err(PyTypeError::new_err(
+            "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+        ));
     }
 
-    let mut vec = extract_f64_1d(coords, "coords")?;
-    let n = vec.len();
-    py.detach(|| ConstraintProjector::<f64>::new(n).project_1d(&mut vec, &c64))
-        .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, vec).into_any())
+    if let Ok(arr) = coords.cast::<PyArray1<f64>>() {
+        let mut vec: Vec<f64> = {
+            let rw = arr.try_readwrite().map_err(|_| {
+                PyTypeError::new_err(
+                    "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+                )
+            })?;
+            rw.as_array().iter().copied().collect()
+        };
+        let n = vec.len();
+        py.detach(|| ConstraintProjector::<f64>::new(n).project_1d(&mut vec, &c64))
+            .map_err(core_error_to_py)?;
+        let mut rw = arr.try_readwrite().map_err(|_| {
+            PyTypeError::new_err(
+                "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+            )
+        })?;
+        for (dst, &src) in rw.as_array_mut().iter_mut().zip(vec.iter()) {
+            *dst = src;
+        }
+        return Ok(());
+    }
+    if let Ok(arr) = coords.cast::<PyArray1<f32>>() {
+        let c32 = constraints_to_f32(&c64)?;
+        let mut vec: Vec<f32> = {
+            let rw = arr.try_readwrite().map_err(|_| {
+                PyTypeError::new_err(
+                    "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+                )
+            })?;
+            rw.as_array().iter().copied().collect()
+        };
+        let n = vec.len();
+        py.detach(|| ConstraintProjector::<f32>::new(n).project_1d(&mut vec, &c32))
+            .map_err(core_error_to_py)?;
+        let mut rw = arr.try_readwrite().map_err(|_| {
+            PyTypeError::new_err(
+                "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+            )
+        })?;
+        for (dst, &src) in rw.as_array_mut().iter_mut().zip(vec.iter()) {
+            *dst = src;
+        }
+        return Ok(());
+    }
+
+    Err(PyTypeError::new_err(
+        "coords must be a writable contiguous float64 or float32 NumPy 1D array",
+    ))
 }
 
 /// Project one axis (`0` for X, `1` for Y) of a `Layout2d` onto `constraints` in place.
@@ -267,7 +283,7 @@ fn generate_layered_constraints(
     let g = graph.inner();
     let dist = min_layer_distance.0;
     let raw = py
-        .detach(|| layout_generate_layered_constraints(g, &layers_vec, dist))
+        .detach(|| layout_generate_layered_constraints(&*g, &layers_vec, dist))
         .map_err(core_error_to_py)?;
     Ok(raw
         .into_iter()
@@ -318,17 +334,17 @@ fn project_rectangle_no_overlap_2d(
 /// computation.
 #[pyfunction]
 #[pyo3(
-    signature = (layout, cluster_ids, half_widths, half_heights),
-    text_signature = "(layout, cluster_ids, half_widths, half_heights)"
+    signature = (layout, labels, half_widths, half_heights),
+    text_signature = "(layout, labels, half_widths, half_heights)"
 )]
 fn project_clustered_rectangle_no_overlap_2d(
     py: Python<'_>,
     layout: &Bound<'_, PyLayout2d>,
-    cluster_ids: &Bound<'_, PyAny>,
+    labels: &Bound<'_, PyAny>,
     half_widths: &Bound<'_, PyAny>,
     half_heights: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
-    let cids = extract_u32_1d(cluster_ids, "cluster_ids")?;
+    let cids = extract_u32_1d(labels, "labels")?;
     let hw_f64 = extract_f64_1d(half_widths, "half_widths")?;
     let hh_f64 = extract_f64_1d(half_heights, "half_heights")?;
     let target_dtype = match layout.try_borrow()?.inner() {
@@ -362,7 +378,7 @@ fn project_clustered_rectangle_no_overlap_2d(
 fn cycle_edges<'py>(py: Python<'py>, graph: &PyCsrGraph) -> PyResult<Bound<'py, PyArray2<u32>>> {
     let g = graph.inner();
     let pairs = py
-        .detach(|| layout_cycle_edges(g))
+        .detach(|| layout_cycle_edges(&*g))
         .map_err(core_error_to_py)?;
     let m = pairs.len();
     let mut flat = Vec::with_capacity(m * 2);
@@ -383,7 +399,7 @@ fn cycle_edges<'py>(py: Python<'py>, graph: &PyCsrGraph) -> PyResult<Bound<'py, 
 fn remove_cycles(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<PyCsrGraph> {
     let g = graph.inner();
     let dag = py
-        .detach(|| layout_remove_cycles(g))
+        .detach(|| layout_remove_cycles(&*g))
         .map_err(core_error_to_py)?;
     Ok(PyCsrGraph::from_csr_graph(dag))
 }
@@ -405,7 +421,7 @@ fn assign_layers<'py>(
     let parsed_method = parse_layering_method(method).map_err(PyValueError::new_err)?;
     let g = graph.inner();
     let layers = py
-        .detach(|| layout_assign_layers(g, parsed_method))
+        .detach(|| layout_assign_layers(&*g, parsed_method))
         .map_err(core_error_to_py)?;
     let layers_u32: Vec<u32> = layers
         .into_iter()
