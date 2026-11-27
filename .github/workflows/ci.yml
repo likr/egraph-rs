@@ -351,6 +351,11 @@ jobs:
               "../.github/workflows/maturin.yml",
               "../crates/python/.github/workflows/CI.yml",
               "../crates/python/docs/netlify.toml",
+              "../crates/algorithm/shortest-path/src/bfs.rs",
+              "../crates/quality-metrics/src/stress.rs",
+              "../crates/wasm/src/quality_metrics.rs",
+              "../crates/python/src/graph/mod.rs",
+              "../crates/wasm/src/edge_bundling.rs",
           }
           for md in sorted(docs_dir.glob("*.md")):
               text = md.read_text(encoding="utf-8")
