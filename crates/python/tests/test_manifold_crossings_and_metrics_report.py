@@ -262,6 +262,25 @@ class TestManifoldCrossingsAndMetricsReport(unittest.TestCase):
         d_after = ml_off.geodesic_distance(0, 1)
         self.assertAlmostEqual(d_after, d_before, places=6)
 
+        # Extreme-radius lorentz_log_map & rescale_geodesic invariance regression checks
+        vx_r, vy_r = eg.lorentz_log_map(1e20, 0.0, 1e41, 0.0)
+        self.assertAlmostEqual(math.hypot(vx_r, vy_r), 48.35428695287496, places=10)
+        self.assertGreater(vx_r, 48.0)
+        for coords, new_scale, expected_d in (
+            ([[1.5e308, 1.5e308], [0.0, 0.0]], 10.0, 710.6413945211141),
+            ([[1e200, 0.0], [1e200, 1.0]], 3.0, 0.9624236501192069),
+            ([[1e200, 5e49], [1e200, -5e49]], 3.0, 230.25850929940458),
+            ([[1e200, 5e35], [1e200, -5e35]], 3.0, 165.78612669557128),
+        ):
+            ml_ext = eg.ManifoldLayout2d.from_coords(
+                "hyperbolic_lorentz", np.array(coords, dtype=np.float64)
+            )
+            d0 = ml_ext.geodesic_distance(0, 1)
+            self.assertAlmostEqual(d0, expected_d, places=7)
+            ml_ext.rescale_geodesic(new_scale)
+            d1 = ml_ext.geodesic_distance(0, 1)
+            self.assertAlmostEqual(d1, d0, places=7)
+
 
 if __name__ == "__main__":
     unittest.main()
