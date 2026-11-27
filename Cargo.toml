@@ -76,6 +76,10 @@ spade = "2.2"
 
 [profile.release]
 opt-level = 3
+lto = false
+
+[profile.dist-release]
+inherits = "release"
 lto = "thin"
 codegen-units = 1
 
@@ -83,5 +87,6 @@ codegen-units = 1
 inherits = "release"
 opt-level = "z"
 lto = "fat"
+codegen-units = 1
 panic = "abort"
 strip = "symbols"

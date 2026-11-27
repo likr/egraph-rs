@@ -172,6 +172,19 @@ build_wasm_release_bundle() {
   fi
 }
 
+check_disk_space_warn() {
+  local avail_kib avail_gib
+  avail_kib="$(df -Pk "$REPO_ROOT" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+  if [[ "$avail_kib" =~ ^[0-9]+$ ]] && (( avail_kib < 26214400 )); then
+    avail_gib="$(awk -v k="$avail_kib" 'BEGIN {printf "%.1f", k/1048576}')"
+    echo "[verify][WARN] Low free disk space on $REPO_ROOT (${avail_gib} GiB < 25 GiB recommended for parallel/release/WASM builds)." >&2
+  fi
+}
+
+if [[ $((RUN_RUST + RUN_PYTHON + RUN_WASM + BUILD_WASM)) -gt 0 ]]; then
+  check_disk_space_warn
+fi
+
 # --- Tier 0: --fast ---
 if [[ "$RUN_FAST" -eq 1 ]]; then
   run_step "rust_fmt_check" cargo fmt --all -- --check
@@ -220,38 +233,46 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   fi
   RUST_META_PKGS="$(python3 "$VERIFY_HELPERS" list-packages || true)"
   has_rust_pkg() { printf '%s\n' "$RUST_META_PKGS" | grep -qx "$1"; }
-  run_pkg_matrix() {
-    local runner="$1" suffix="$2" flag_str="$3" pkg flags=()
+  run_batched_matrix() {
+    local runner="$1" label="$2" flag_str="$3" pkg
     shift 3
-    [[ -n "$flag_str" ]] && read -ra flags <<< "$flag_str"
+    local flags=() pkg_args=()
+    if [[ -n "$flag_str" ]]; then read -ra flags <<< "$flag_str"; fi
     for pkg in "$@"; do
-      has_rust_pkg "$pkg" || continue
-      if [[ "$runner" == "clippy" ]]; then
-        run_step "clippy_${pkg}_${suffix}" cargo clippy --no-deps --all-targets ${flags[@]+"${flags[@]}"} -p "$pkg" -- -D warnings
-      else
-        run_step "rust_${pkg}_${suffix}" run_cargo_test_args ${flags[@]+"${flags[@]}"} -p "$pkg"
-      fi
+      if has_rust_pkg "$pkg"; then pkg_args+=(-p "$pkg"); fi
     done
+    if [[ "${#pkg_args[@]}" -eq 0 ]]; then return 0; fi
+    if [[ "$runner" == "clippy" ]]; then
+      run_step "clippy_${label}" cargo clippy --no-deps --all-targets ${flags[@]+"${flags[@]}"} "${pkg_args[@]}" -- -D warnings
+    else
+      run_step "rust_${label}" run_cargo_test_args ${flags[@]+"${flags[@]}"} "${pkg_args[@]}"
+    fi
   }
 
   ALL_FEAT_CRATES=(egraph-dataset egraph-spatial egraph-spatial-trees egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
-  NO_DEF_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel egraph)
+  NO_DEF_LAYOUT_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-multilevel)
+  NO_DEF_METRICS_CRATES=(egraph-metrics egraph-metrics-cluster)
   BASELINES_CRATES=(egraph-layout egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel)
   DELAUNAY_CRATES=(egraph-spatial egraph-spatial-trees egraph-layout-constraints egraph-layout-sgd egraph-layout-multilevel)
 
-  run_pkg_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
-  run_pkg_matrix clippy "no_default_features" "--no-default-features" "${NO_DEF_CRATES[@]}"
-  run_pkg_matrix clippy "no_default_features_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
-  run_pkg_matrix clippy "delaunay" "--features delaunay" "${DELAUNAY_CRATES[@]}"
+  run_batched_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
+  run_batched_matrix clippy "no_default_layout" "--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
+  run_batched_matrix clippy "no_default_metrics" "--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
+  run_batched_matrix clippy "no_default_egraph" "--no-default-features" egraph
+  run_batched_matrix clippy "no_default_dataset" "--no-default-features" egraph-dataset
+  run_batched_matrix clippy "no_default_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
+  run_batched_matrix clippy "delaunay" "--features delaunay" "${DELAUNAY_CRATES[@]}"
 
   RUST_REL_FLAG=""
   [[ "$DEBUG_RUST" -eq 0 ]] && RUST_REL_FLAG="--release"
   run_step "rust_workspace_tests" run_cargo_test_args ${RUST_REL_FLAG:+$RUST_REL_FLAG} --workspace
-  run_pkg_matrix test "all_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--all-features" "${ALL_FEAT_CRATES[@]}"
-  run_pkg_matrix test "no_default_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_CRATES[@]}"
-  run_pkg_matrix test "no_default_features_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
-  run_pkg_matrix test "delaunay" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features delaunay" "${DELAUNAY_CRATES[@]}"
-  has_rust_pkg "egraph-cli" && run_step "rust_cli_tests" run_cargo_test_args ${RUST_REL_FLAG:+$RUST_REL_FLAG} -p egraph-cli
+  run_batched_matrix test "all_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--all-features" "${ALL_FEAT_CRATES[@]}"
+  run_batched_matrix test "no_default_layout" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
+  run_batched_matrix test "no_default_metrics" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
+  run_batched_matrix test "no_default_egraph" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph
+  run_batched_matrix test "no_default_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph-dataset
+  run_batched_matrix test "no_default_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
+  run_batched_matrix test "delaunay" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features delaunay" "${DELAUNAY_CRATES[@]}"
 fi
 
 # --- Python ---
