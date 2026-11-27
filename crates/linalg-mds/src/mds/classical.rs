@@ -5,6 +5,7 @@ use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, symmetric_eigen_jacobi};
 
 use super::storage::{
     EuclideanLayoutAlloc, impl_euclidean_layout_generator, resolve_target_dims, set_storage_row,
+    validate_distance_slice,
 };
 
 /// Configuration for [`ClassicalMds`].
@@ -186,9 +187,12 @@ impl<'a, L: EuclideanLayout, W> ClassicalMds<'a, L, W> {
     }
 
     fn validate_config(&self) -> CoreResult<()> {
-        if !self.config.eig_eps.is_finite() || self.config.eig_eps < 0.0 {
+        if !self.config.eig_eps.is_finite() {
+            return Err(CoreError::non_finite("ClassicalMdsConfig::eig_eps"));
+        }
+        if self.config.eig_eps < 0.0 {
             return Err(CoreError::invalid_input(
-                "ClassicalMdsConfig::eig_eps must be finite and >= 0",
+                "ClassicalMdsConfig::eig_eps must be >= 0",
             ));
         }
         if !self.config.tol.is_finite() {
@@ -234,6 +238,10 @@ impl<L: EuclideanLayout, W: Scalar> ClassicalMds<'_, L, W> {
                         "ClassicalMds::from_distances::distances_nn",
                     ));
                 }
+                validate_distance_slice(
+                    distances_nn,
+                    "ClassicalMds::from_distances::distances_nn",
+                )?;
                 distances_nn
             }
             ClassicalMdsSource::Graph(graph) => {
@@ -272,7 +280,7 @@ impl<L: EuclideanLayout, W: Scalar> ClassicalMds<'_, L, W> {
             return Ok(());
         }
 
-        let b = double_center_distances(distances_nn, num_nodes, num_nodes);
+        let b = double_center_distances(distances_nn, num_nodes, num_nodes)?;
         let (evals, evecs) =
             symmetric_eigen_jacobi(&b, num_nodes, self.config.max_sweeps, self.config.tol)?;
         let used_dims = dims.min(num_nodes);
@@ -307,12 +315,12 @@ impl<L: EuclideanLayout, W: Scalar> ClassicalMds<'_, L, W> {
 
 impl_euclidean_layout_generator!(ClassicalMds);
 
-/// Replaces infinite/non-finite entries in a squared-distance buffer with a bounded finite
-/// fallback and applies double centering in-place:
+/// Replaces `+f64::INFINITY` disconnected-pair entries (and overflowing `d * d` squares)
+/// in a squared-distance buffer with a bounded finite fallback and applies double centering:
 /// $C = -\frac{1}{2}(I - \frac{1}{n}\mathbf{1}\mathbf{1}^T)\Delta(I - \frac{1}{k}\mathbf{1}\mathbf{1}^T)$.
-fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec<f64> {
+fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> CoreResult<Vec<f64>> {
     if nrows == 0 || ncols == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let total = nrows * ncols;
     let mut delta = Vec::with_capacity(total);
@@ -320,6 +328,14 @@ fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec
     let mut has_nonfinite = false;
 
     for &d in distances {
+        if d.is_nan() || d == f64::NEG_INFINITY {
+            return Err(CoreError::non_finite("double_center_distances::distances"));
+        }
+        if d < 0.0 {
+            return Err(CoreError::invalid_input(
+                "double_center_distances::distances must be >= 0",
+            ));
+        }
         if d.is_finite() {
             let sq = d * d;
             if sq.is_finite() {
@@ -374,5 +390,5 @@ fn double_center_distances(distances: &[f64], nrows: usize, ncols: usize) -> Vec
             delta[row_off + j] = 0.5 * (rm + col_means[j] - delta[row_off + j] - grand_mean);
         }
     }
-    delta
+    Ok(delta)
 }

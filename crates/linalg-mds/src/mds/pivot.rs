@@ -7,6 +7,7 @@ use super::normalize::normalize_euclidean_layout;
 use super::pivot_kernel::mds_from_row_major_distances;
 use super::storage::{
     EuclideanLayoutAlloc, impl_euclidean_layout_generator, resolve_target_dims, set_storage_row,
+    validate_distance_slice,
 };
 
 /// Configuration for [`PivotMds`].
@@ -252,6 +253,9 @@ impl<L: EuclideanLayout, W: Scalar> PivotMds<'_, L, W> {
                         "PivotMds::with_pivots cannot be combined with from_distances",
                     ));
                 }
+                if num_pivots == 0 {
+                    return Err(CoreError::invalid_input("num_pivots must be >= 1"));
+                }
                 let expected = num_nodes.checked_mul(num_pivots).ok_or_else(|| {
                     CoreError::invalid_input("pivot_mds distance matrix size overflow")
                 })?;
@@ -262,7 +266,8 @@ impl<L: EuclideanLayout, W: Scalar> PivotMds<'_, L, W> {
                         "PivotMds::from_distances::distances_nk",
                     ));
                 }
-                if num_nodes > 1 && num_pivots > 0 {
+                validate_distance_slice(distances_nk, "PivotMds::from_distances::distances_nk")?;
+                if num_nodes > 1 {
                     let mut storage = layout.as_euclidean_storage_mut();
                     mds_from_row_major_distances(
                         num_nodes,
@@ -290,6 +295,9 @@ impl<L: EuclideanLayout, W: Scalar> PivotMds<'_, L, W> {
                                     "PivotMds::pivots",
                                 ));
                             }
+                        }
+                        if n > 0 && piv.is_empty() {
+                            return Err(CoreError::invalid_input("pivots must not be empty"));
                         }
                         piv
                     }

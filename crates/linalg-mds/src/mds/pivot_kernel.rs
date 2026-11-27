@@ -1,4 +1,4 @@
-use egraph_core::CoreResult;
+use egraph_core::{CoreError, CoreResult};
 use egraph_linalg::symmetric_eigen_jacobi;
 
 /// Streams a `(num_nodes, num_reps)` row-major distance table in 3 passes with zero `(N, k)`
@@ -31,6 +31,16 @@ where
         let mut r_sum = 0.0_f64;
         let mut r_inf = 0u32;
         for (j, &d) in row_buf.iter().enumerate() {
+            if d.is_nan() || d == f64::NEG_INFINITY {
+                return Err(CoreError::non_finite(
+                    "mds_from_row_major_distances::distances",
+                ));
+            }
+            if d < 0.0 {
+                return Err(CoreError::invalid_input(
+                    "mds_from_row_major_distances::distances must be >= 0",
+                ));
+            }
             if d.is_finite() {
                 let sq = d * d;
                 if sq.is_finite() {

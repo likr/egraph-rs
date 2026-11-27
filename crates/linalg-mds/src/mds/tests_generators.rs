@@ -333,3 +333,141 @@ fn test_config_builders_and_euclidean_normalization_3d_nd() {
         "expected 4D core_std ~ 1.0, got {core_std_4d}"
     );
 }
+
+#[test]
+fn test_from_distances_validation_and_disconnected_infinity() {
+    // ClassicalMds::from_distances rejects NaN, -inf, and negative distances (including n == 1)
+    for bad in [
+        [0.0, f64::NAN, 1.0, 0.0],
+        [0.0, f64::NEG_INFINITY, 1.0, 0.0],
+    ] {
+        assert!(matches!(
+            ClassicalMds::<Layout2d<f64>>::from_distances(&bad, 2).generate(),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::from_distances(&[f64::NAN], 1).generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::from_distances(&[f64::NEG_INFINITY], 1).generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::from_distances(&[0.0, -1.0, -1.0, 0.0], 2).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::from_distances(&[-1.0], 1).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+
+    // ClassicalMds::from_distances preserves +f64::INFINITY as disconnected-pair sentinel
+    let cmds_inf: Layout2d<f64> = ClassicalMds::from_distances(
+        &[
+            0.0,
+            1.0,
+            f64::INFINITY,
+            1.0,
+            0.0,
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::INFINITY,
+            0.0,
+        ],
+        3,
+    )
+    .generate()
+    .unwrap();
+    assert_eq!(cmds_inf.len(), 3);
+    assert!(cmds_inf.is_all_finite());
+
+    // PivotMds::from_distances rejects NaN, -inf, negative distances, and num_pivots == 0
+    for bad in [
+        [0.0, f64::NAN, 1.0, 0.0],
+        [0.0, f64::NEG_INFINITY, 1.0, 0.0],
+    ] {
+        assert!(matches!(
+            PivotMds::<Layout2d<f64>>::from_distances(&bad, 2, 2).generate(),
+            Err(CoreError::NonFiniteValue { .. })
+        ));
+    }
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_distances(&[f64::NAN], 1, 1).generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_distances(&[f64::NEG_INFINITY], 1, 1).generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_distances(&[0.0, -1.0, -1.0, 0.0], 2, 2).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_distances(&[-1.0], 1, 1).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    for n in [0, 1, 4] {
+        assert!(matches!(
+            PivotMds::<Layout2d<f64>>::from_distances(&[], n, 0).generate(),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
+    // PivotMds::from_distances preserves +f64::INFINITY as disconnected-pair sentinel
+    let pmds_inf: Layout2d<f64> = PivotMds::from_distances(
+        &[0.0, f64::INFINITY, 1.0, f64::INFINITY, f64::INFINITY, 0.0],
+        3,
+        2,
+    )
+    .generate()
+    .unwrap();
+    assert_eq!(pmds_inf.len(), 3);
+    assert!(pmds_inf.is_all_finite());
+
+    // PivotMds::with_pivots(&[]) rejected on non-empty graph; allowed on empty graph
+    let g = grid_3x3_graph();
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::new(&g)
+            .with_pivots(&[])
+            .generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    assert_eq!(
+        PivotMds::<Layout2d<f64>>::new(&empty)
+            .with_pivots(&[])
+            .generate()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // eig_eps validation on ClassicalMds and RdMds distinguishes NonFiniteValue vs InvalidInput
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::new(&g)
+            .with_eig_eps(f64::NAN)
+            .generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        ClassicalMds::<Layout2d<f64>>::new(&g)
+            .with_eig_eps(-1.0)
+            .generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::new(&g)
+            .with_eig_eps(f64::INFINITY)
+            .generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::new(&g)
+            .with_eig_eps(-1.0)
+            .generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+}

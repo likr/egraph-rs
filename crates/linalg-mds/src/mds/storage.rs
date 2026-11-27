@@ -54,6 +54,21 @@ impl<S: Scalar> EuclideanLayoutAlloc for LayoutNd<S> {
 }
 
 #[inline]
+pub(super) fn validate_distance_slice(distances: &[f64], ctx: &'static str) -> CoreResult<()> {
+    for &d in distances {
+        if d.is_nan() || d == f64::NEG_INFINITY {
+            return Err(CoreError::non_finite(ctx));
+        }
+        if d < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "{ctx}: distances must be >= 0"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[inline]
 pub(super) fn resolve_target_dims<L: EuclideanLayoutAlloc>(
     configured: Option<usize>,
     ctx: &'static str,

@@ -195,9 +195,12 @@ impl<'a, L: EuclideanLayout, W> RdMds<'a, L, W> {
     }
 
     fn validate_config(&self) -> CoreResult<()> {
-        if !self.config.eig_eps.is_finite() || self.config.eig_eps < 0.0 {
+        if !self.config.eig_eps.is_finite() {
+            return Err(CoreError::non_finite("RdMdsConfig::eig_eps"));
+        }
+        if self.config.eig_eps < 0.0 {
             return Err(CoreError::invalid_input(
-                "RdMdsConfig::eig_eps must be finite and >= 0",
+                "RdMdsConfig::eig_eps must be >= 0",
             ));
         }
         if !self.config.tol.is_finite() {
