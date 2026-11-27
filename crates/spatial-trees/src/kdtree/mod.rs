@@ -6,18 +6,26 @@
 
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, Layout2d, LayoutNd, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Layout3d, LayoutNd,
+    Scalar,
+};
 
 mod dynamic;
 mod dynamic_query;
+mod index;
+mod index_impls;
 mod query;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_dynamic;
+#[cfg(test)]
+mod tests_index;
 mod types;
 
 pub use dynamic::DynamicKdTree;
+pub use index::{NearestNeighborIndex, SpatialIndex};
 pub use types::KdQueryScratch;
 use types::{KdEntry, KdNode, LEAF_SIZE};
 
@@ -231,6 +239,92 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         self.nodes[node_idx as usize].right = right;
         node_idx
     }
+
+    /// Builds a $D$-dimensional KD-tree from any [`EuclideanLayout`] whose `dims() == D`.
+    pub fn from_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(layout: &L) -> CoreResult<Self> {
+        if D == 0 {
+            return Err(CoreError::invalid_input(
+                "StaticKdTree dimension D must be >= 1",
+            ));
+        }
+        if layout.dims() != D {
+            return Err(CoreError::dimension_mismatch(
+                D,
+                layout.dims(),
+                "StaticKdTree::from_euclidean",
+            ));
+        }
+        let n = layout.len();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_input(
+                "StaticKdTree point count exceeds u32::MAX",
+            ));
+        }
+        layout.validate_finite()?;
+
+        let mut coords_by_id = Vec::with_capacity(n);
+        let mut entries = Vec::with_capacity(n);
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } if D == 2 => {
+                for i in 0..n {
+                    let mut c = [0.0_f64; D];
+                    c[0] = x[i].to_f64();
+                    c[1] = y[i].to_f64();
+                    coords_by_id.push(c);
+                    entries.push(KdEntry {
+                        coords: c,
+                        index: i as u32,
+                    });
+                }
+            }
+            EuclideanStorageRef::Soa3d { x, y, z } if D == 3 => {
+                for i in 0..n {
+                    let mut c = [0.0_f64; D];
+                    c[0] = x[i].to_f64();
+                    c[1] = y[i].to_f64();
+                    c[2] = z[i].to_f64();
+                    coords_by_id.push(c);
+                    entries.push(KdEntry {
+                        coords: c,
+                        index: i as u32,
+                    });
+                }
+            }
+            EuclideanStorageRef::FlatNd { coords, dims, .. } if dims == D => {
+                for i in 0..n {
+                    let mut c = [0.0_f64; D];
+                    let base = i * D;
+                    for d in 0..D {
+                        c[d] = coords[base + d].to_f64();
+                    }
+                    coords_by_id.push(c);
+                    entries.push(KdEntry {
+                        coords: c,
+                        index: i as u32,
+                    });
+                }
+            }
+            _ => {
+                return Err(CoreError::dimension_mismatch(
+                    D,
+                    layout.dims(),
+                    "StaticKdTree::from_euclidean",
+                ));
+            }
+        }
+
+        let mut tree = Self {
+            nodes: Vec::new(),
+            entries,
+            coords_by_id,
+            _marker: PhantomData,
+        };
+        if n > 0 {
+            tree.nodes.reserve((2 * n / LEAF_SIZE).max(8));
+            tree.build_node(0, n);
+        }
+        Ok(tree)
+    }
 }
 
 impl<S: Scalar> StaticKdTree<2, S> {
@@ -268,5 +362,12 @@ impl<S: Scalar> StaticKdTree<2, S> {
             tree.build_node(0, n);
         }
         Ok(tree)
+    }
+}
+
+impl<S: Scalar> StaticKdTree<3, S> {
+    /// Builds a 3D KD-tree directly from an SoA [`Layout3d<S>`].
+    pub fn from_layout_3d(layout: &Layout3d<S>) -> CoreResult<Self> {
+        Self::from_euclidean(layout)
     }
 }

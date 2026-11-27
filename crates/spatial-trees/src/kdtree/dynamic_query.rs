@@ -97,6 +97,30 @@ impl<S: Scalar> DynamicKdTree<S> {
         res
     }
 
+    pub(super) fn k_nearest_f64_with_scratch(
+        &self,
+        q: &[f64],
+        k: usize,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
+        if q.len() != self.dims {
+            return Err(CoreError::dimension_mismatch(
+                self.dims,
+                q.len(),
+                "DynamicKdTree::query_knn",
+            ));
+        }
+        if !q.iter().all(|v| v.is_finite()) {
+            return Err(CoreError::non_finite("DynamicKdTree::query_knn"));
+        }
+        out.clear();
+        if k > 0 && !self.nodes.is_empty() {
+            self.knn_search_with_scratch(q, k, None, scratch, out);
+        }
+        Ok(())
+    }
+
     /// Returns the `k` nearest points `(index, dist_sq)` to point `point_idx`, excluding `point_idx` itself.
     pub fn k_nearest_excluding_self(
         &self,
@@ -270,34 +294,68 @@ impl<S: Scalar> DynamicKdTree<S> {
         let mut q_buf = std::mem::take(&mut scratch.query_buf);
         let res = self.convert_query_into(query, &mut q_buf, "DynamicKdTree::within_radius_sq");
         if res.is_ok() {
-            out.clear();
-            if !self.nodes.is_empty() {
-                let dims = self.dims;
-                scratch.stack.clear();
-                scratch.stack.push((0, 0.0));
-                while let Some((node_idx, _)) = scratch.stack.pop() {
-                    let node = &self.nodes[node_idx as usize];
-                    if dyn_box_dist_sq(&q_buf, node, &self.node_bounds) > radius_sq {
-                        continue;
-                    }
-                    if node.left == u32::MAX {
-                        for pos in node.start..node.end {
-                            let c = &self.entry_coords[pos * dims..(pos + 1) * dims];
-                            let d2 = dyn_dist_sq(&q_buf, c);
-                            if d2 <= radius_sq {
-                                out.push((self.entry_indices[pos] as usize, d2));
-                            }
-                        }
-                    } else {
-                        scratch.stack.push((node.right, 0.0));
-                        scratch.stack.push((node.left, 0.0));
-                    }
-                }
-                out.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-            }
+            self.within_radius_sq_f64_inner(&q_buf, radius_sq, scratch, out);
         }
         scratch.query_buf = q_buf;
         res
+    }
+
+    pub(super) fn within_radius_sq_f64_with_scratch(
+        &self,
+        q: &[f64],
+        radius_sq: f64,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
+        if q.len() != self.dims {
+            return Err(CoreError::dimension_mismatch(
+                self.dims,
+                q.len(),
+                "DynamicKdTree::query_radius_sq",
+            ));
+        }
+        if !q.iter().all(|v| v.is_finite()) || !radius_sq.is_finite() {
+            return Err(CoreError::non_finite("DynamicKdTree::query_radius_sq"));
+        }
+        if radius_sq < 0.0 {
+            return Err(CoreError::invalid_input("radius_sq must be >= 0.0"));
+        }
+        self.within_radius_sq_f64_inner(q, radius_sq, scratch, out);
+        Ok(())
+    }
+
+    fn within_radius_sq_f64_inner(
+        &self,
+        q: &[f64],
+        radius_sq: f64,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) {
+        out.clear();
+        if !self.nodes.is_empty() {
+            let dims = self.dims;
+            scratch.stack.clear();
+            scratch.stack.push((0, 0.0));
+            while let Some((node_idx, _)) = scratch.stack.pop() {
+                let node = &self.nodes[node_idx as usize];
+                if dyn_box_dist_sq(q, node, &self.node_bounds) > radius_sq {
+                    continue;
+                }
+                if node.left == u32::MAX {
+                    for pos in node.start..node.end {
+                        let c = &self.entry_coords[pos * dims..(pos + 1) * dims];
+                        let d2 = dyn_dist_sq(q, c);
+                        if d2 <= radius_sq {
+                            out.push((self.entry_indices[pos] as usize, d2));
+                        }
+                    }
+                } else {
+                    scratch.stack.push((node.right, 0.0));
+                    scratch.stack.push((node.left, 0.0));
+                }
+            }
+            out.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        }
     }
 
     fn knn_search_with_scratch(

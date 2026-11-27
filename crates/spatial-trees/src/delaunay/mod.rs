@@ -1,4 +1,4 @@
-//! Optional 2D Delaunay triangulation wrapper built on `spade` (`feature = "delaunay"`).
+//! Deterministic 2D Delaunay triangulation wrapper built on `spade`.
 
 use std::cmp::Ordering;
 
@@ -208,6 +208,11 @@ impl Delaunay2d {
     /// Converts the triangulation edges into an unweighted undirected [`CsrGraph<f64>`].
     pub fn to_csr(&self) -> CoreResult<CsrGraph<f64>> {
         CsrGraph::from_edges(self.num_nodes, &self.edges, None, false, false)
+    }
+
+    /// Converts the triangulation edges into an unweighted undirected [`CsrGraph<()>`].
+    pub fn to_unweighted_csr(&self) -> CoreResult<CsrGraph<()>> {
+        CsrGraph::from_unweighted_edges(self.num_nodes, &self.edges, false, false)
     }
 }
 

@@ -31,12 +31,22 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         out: &mut Vec<(usize, f64)>,
     ) -> CoreResult<()> {
         let q = convert_query(query)?;
+        self.k_nearest_f64_with_scratch(&q, k, scratch, out);
+        Ok(())
+    }
+
+    pub(super) fn k_nearest_f64_with_scratch(
+        &self,
+        q: &[f64; D],
+        k: usize,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) {
         out.clear();
         if k == 0 || self.nodes.is_empty() {
-            return Ok(());
+            return;
         }
-        self.knn_search_with_scratch(&q, k, None, scratch, out);
-        Ok(())
+        self.knn_search_with_scratch(q, k, None, scratch, out);
     }
 
     /// Returns the `k` nearest points `(index, dist_sq)` to point `point_idx`, excluding `point_idx` itself.
@@ -80,6 +90,17 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
 
     /// Returns the single nearest point `(index, dist_sq)` to `point_idx`, excluding `point_idx` itself.
     pub fn nearest_excluding_self(&self, point_idx: usize) -> CoreResult<Option<(usize, f64)>> {
+        let mut scratch = KdQueryScratch::with_capacity(0);
+        self.nearest_excluding_self_with_scratch(point_idx, &mut scratch)
+    }
+
+    /// Reuses `scratch` to return the single nearest point `(index, dist_sq)` to `point_idx`,
+    /// excluding `point_idx` itself.
+    pub fn nearest_excluding_self_with_scratch(
+        &self,
+        point_idx: usize,
+        scratch: &mut KdQueryScratch,
+    ) -> CoreResult<Option<(usize, f64)>> {
         let q = self.point(point_idx)?;
         if self.len() <= 1 {
             return Ok(None);
@@ -88,10 +109,10 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         let mut best_dist_sq = f64::INFINITY;
         let mut best_idx = u32::MAX;
 
-        let mut stack: Vec<(u32, f64)> = Vec::with_capacity(64);
-        stack.push((0, 0.0));
+        scratch.stack.clear();
+        scratch.stack.push((0, 0.0));
 
-        while let Some((node_idx, b_dist)) = stack.pop() {
+        while let Some((node_idx, b_dist)) = scratch.stack.pop() {
             if b_dist > best_dist_sq {
                 continue;
             }
@@ -117,17 +138,17 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
 
             if q[node.split_dim] <= node.split_val {
                 if dr <= best_dist_sq {
-                    stack.push((right as u32, dr));
+                    scratch.stack.push((right as u32, dr));
                 }
                 if dl <= best_dist_sq {
-                    stack.push((left as u32, dl));
+                    scratch.stack.push((left as u32, dl));
                 }
             } else {
                 if dl <= best_dist_sq {
-                    stack.push((left as u32, dl));
+                    scratch.stack.push((left as u32, dl));
                 }
                 if dr <= best_dist_sq {
-                    stack.push((right as u32, dr));
+                    scratch.stack.push((right as u32, dr));
                 }
             }
         }
@@ -181,7 +202,29 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
         radius_sq: f64,
         out: &mut Vec<(usize, f64)>,
     ) -> CoreResult<()> {
+        let mut scratch = KdQueryScratch::with_capacity(0);
+        self.within_radius_sq_with_scratch(query, radius_sq, &mut scratch, out)
+    }
+
+    /// Reuses `scratch` and `out` to return all points with `dist_sq <= radius_sq`.
+    pub fn within_radius_sq_with_scratch(
+        &self,
+        query: &[S; D],
+        radius_sq: f64,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
         let q = convert_query(query)?;
+        self.within_radius_sq_f64_with_scratch(&q, radius_sq, scratch, out)
+    }
+
+    pub(super) fn within_radius_sq_f64_with_scratch(
+        &self,
+        q: &[f64; D],
+        radius_sq: f64,
+        scratch: &mut KdQueryScratch,
+        out: &mut Vec<(usize, f64)>,
+    ) -> CoreResult<()> {
         if !radius_sq.is_finite() {
             return Err(CoreError::non_finite("StaticKdTree::within_radius_sq"));
         }
@@ -193,24 +236,24 @@ impl<const D: usize, S: Scalar> StaticKdTree<D, S> {
             return Ok(());
         }
 
-        let mut stack: Vec<u32> = Vec::with_capacity(64);
-        stack.push(0);
+        scratch.stack.clear();
+        scratch.stack.push((0, 0.0));
 
-        while let Some(node_idx) = stack.pop() {
+        while let Some((node_idx, _)) = scratch.stack.pop() {
             let node = &self.nodes[node_idx as usize];
-            if box_dist_sq(&q, node) > radius_sq {
+            if box_dist_sq(q, node) > radius_sq {
                 continue;
             }
             if node.left == u32::MAX {
                 for entry in &self.entries[node.start..node.end] {
-                    let d2 = dist_sq(&q, &entry.coords);
+                    let d2 = dist_sq(q, &entry.coords);
                     if d2 <= radius_sq {
                         out.push((entry.index as usize, d2));
                     }
                 }
             } else {
-                stack.push(node.right);
-                stack.push(node.left);
+                scratch.stack.push((node.right, 0.0));
+                scratch.stack.push((node.left, 0.0));
             }
         }
 

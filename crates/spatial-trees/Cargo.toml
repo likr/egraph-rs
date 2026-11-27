@@ -2,13 +2,11 @@
 name = "egraph-spatial-trees"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-
-[features]
-default = []
-delaunay = ["dep:spade"]
+description = "Single-threaded spatial indexing trees, rectangle overlap sweep, and 2D Delaunay triangulation for egraph-rs"
 
 [dependencies]
 egraph-core.workspace = true
-spade = { workspace = true, optional = true }
+spade.workspace = true

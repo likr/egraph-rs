@@ -14,6 +14,8 @@ mod coulomb_maxent;
 mod kl_entropy;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_layout;
 
 const MAX_DEPTH: usize = 32;
 const COINCIDENT_DIST_SQ: f64 = 1e-12;

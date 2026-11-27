@@ -12,23 +12,36 @@ fn test_delaunay_square_triangle_collinear_and_coincident() {
     assert_eq!(dt_sq.triangles().len(), 2);
     let csr = dt_sq.to_csr().unwrap();
     assert_eq!(csr.num_edges(), 5);
+    let u_csr = dt_sq.to_unweighted_csr().unwrap();
+    assert_eq!(u_csr.num_nodes(), csr.num_nodes());
+    assert_eq!(u_csr.num_edges(), csr.num_edges());
+    assert_eq!(u_csr.indptr(), csr.indptr());
+    assert_eq!(u_csr.indices(), csr.indices());
 
     let collinear =
         Layout2d::from_xy(vec![0.0_f32, 1.0, 2.0, 3.0], vec![1.0, 1.0, 1.0, 1.0]).unwrap();
     let dt_col = Delaunay2d::triangulate(&collinear).unwrap();
     assert_eq!(dt_col.edges(), &[(0, 1), (1, 2), (2, 3)]);
     assert!(dt_col.triangles().is_empty());
+    let u_col = dt_col.to_unweighted_csr().unwrap();
+    assert_eq!(u_col.num_edges(), 3);
 
     // Coincident points keep smallest vertex IDs deterministically and do not panic.
     let dup = Layout2d::from_xy(vec![0.0_f64, 0.0, 1.0, 0.0], vec![0.0, 0.0, 0.0, 1.0]).unwrap();
     let dt_dup = Delaunay2d::triangulate(&dup).unwrap();
     assert_eq!(dt_dup.edges(), &[(0, 2), (0, 3), (2, 3)]);
     assert_eq!(dt_dup.triangles(), &[[0, 2, 3]]);
+    let u_dup = dt_dup.to_unweighted_csr().unwrap();
+    assert_eq!(u_dup.num_nodes(), 4);
+    assert_eq!(u_dup.num_edges(), 3);
 
     let single = Layout2d::from_xy(vec![0.0_f64], vec![0.0]).unwrap();
     let dt_single = Delaunay2d::triangulate(&single).unwrap();
     assert!(dt_single.edges().is_empty());
     assert!(dt_single.triangles().is_empty());
+    let u_single = dt_single.to_unweighted_csr().unwrap();
+    assert_eq!(u_single.num_nodes(), 1);
+    assert_eq!(u_single.num_edges(), 0);
 }
 
 #[test]

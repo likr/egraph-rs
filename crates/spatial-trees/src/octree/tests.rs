@@ -45,7 +45,7 @@ fn test_octree_kl_entropy_exact_theta_zero_and_approx_f64() {
         flat.push(ys[i]);
         flat.push(zs[i]);
     }
-    let layout = LayoutNd::from_flat(n, 3, flat.clone()).unwrap();
+    let layout = LayoutNd::from_flat(n, 3, &flat).unwrap();
 
     let mut tree = ArenaOctree3d::new();
     tree.build(&layout).unwrap();
@@ -247,7 +247,7 @@ fn test_octree_coulomb_maxent_power_f64_and_f32() {
     let xs32_64: Vec<f64> = (0..n).map(|i| f64::from(flat32[i * 3])).collect();
     let ys32_64: Vec<f64> = (0..n).map(|i| f64::from(flat32[i * 3 + 1])).collect();
     let zs32_64: Vec<f64> = (0..n).map(|i| f64::from(flat32[i * 3 + 2])).collect();
-    let layout32 = LayoutNd::from_flat(n, 3, flat32).unwrap();
+    let layout32 = LayoutNd::from_flat(n, 3, &flat32).unwrap();
     let mut tree32 = ArenaOctree3d::<f32>::new();
     tree32.build_weighted(&layout32, &masses).unwrap();
 

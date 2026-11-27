@@ -1,4 +1,6 @@
-use egraph_core::{CoreError, CoreResult, LayoutNd, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout3d, LayoutNd, Scalar,
+};
 
 use super::{ArenaNode3d, ArenaOctree3d, COINCIDENT_DIST_SQ};
 
@@ -15,6 +17,74 @@ enum CoordSource<'a, S: Scalar> {
 }
 
 impl<S: Scalar> ArenaOctree3d<S> {
+    /// Rebuilds the 3D octree from a 3D [`Layout3d<S>`] with unit masses (`1.0`).
+    pub fn build_3d(&mut self, layout: &Layout3d<S>) -> CoreResult<()> {
+        self.build_xyz(layout.x(), layout.y(), layout.z())
+    }
+
+    /// Rebuilds the weighted 3D octree from a 3D [`Layout3d<S>`] and per-point `masses`.
+    pub fn build_weighted_3d(&mut self, layout: &Layout3d<S>, masses: &[f64]) -> CoreResult<()> {
+        self.build_weighted_xyz(layout.x(), layout.y(), layout.z(), masses)
+    }
+
+    /// Rebuilds the 3D octree from any 3D [`EuclideanLayout`] (`Layout3d` or 3D `LayoutNd`) with
+    /// unit masses (`1.0`).
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] when `layout.dims() != 3`.
+    pub fn build_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+    ) -> CoreResult<()> {
+        self.build_euclidean_inner(layout, None, "ArenaOctree3d::build_euclidean")
+    }
+
+    /// Rebuilds the weighted 3D octree from any 3D [`EuclideanLayout`] (`Layout3d` or 3D
+    /// `LayoutNd`) and per-point `masses`.
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] when `layout.dims() != 3` or
+    /// `masses.len() != layout.len()`.
+    pub fn build_weighted_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        masses: &[f64],
+    ) -> CoreResult<()> {
+        self.build_euclidean_inner(
+            layout,
+            Some(masses),
+            "ArenaOctree3d::build_weighted_euclidean",
+        )
+    }
+
+    fn build_euclidean_inner<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        masses: Option<&[f64]>,
+        context: &'static str,
+    ) -> CoreResult<()> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa3d { x, y, z } => self.build_inner(
+                CoordSource::Xyz {
+                    xs: x,
+                    ys: y,
+                    zs: z,
+                },
+                masses,
+                context,
+            ),
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims,
+            } => {
+                if dims != 3 {
+                    return Err(CoreError::dimension_mismatch(3, dims, context));
+                }
+                self.build_inner(CoordSource::Flat { coords, num_nodes }, masses, context)
+            }
+            EuclideanStorageRef::Soa2d { .. } => Err(CoreError::dimension_mismatch(3, 2, context)),
+        }
+    }
+
     /// Rebuilds the 3D octree from a 3D [`LayoutNd<S>`] with unit masses (`1.0`).
     ///
     /// Returns [`CoreError::DimensionMismatch`] when `layout.dims() != 3`.

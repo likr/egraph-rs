@@ -49,7 +49,7 @@ fn test_dynamic_kdtree_brute_force_oracle_across_dims_f64_and_f32() {
         let n = 60;
         let mut rng = DeterministicRng::from_seed_u64(500 + dims as u64);
         let flat64: Vec<f64> = (0..n * dims).map(|_| rng.next_f64() * 8.0 - 4.0).collect();
-        let layout64 = LayoutNd::from_flat(n, dims, flat64.clone()).unwrap();
+        let layout64 = LayoutNd::from_flat(n, dims, &flat64).unwrap();
         let tree64 = DynamicKdTree::from_layout_nd(&layout64).unwrap();
         assert_eq!(tree64.dims(), dims);
         assert_eq!(tree64.len(), n);

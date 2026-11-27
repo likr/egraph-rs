@@ -84,7 +84,7 @@ fn test_kdtree_3d_layout_and_error_cases() {
     let layout3 = LayoutNd::from_flat(
         4,
         3,
-        vec![
+        &[
             0.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 2.0, 0.0, 1.0, 1.0, 1.0,
         ],
     )

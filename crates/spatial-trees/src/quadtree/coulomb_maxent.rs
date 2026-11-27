@@ -147,6 +147,47 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
         Ok(())
     }
 
+    /// Evaluates weighted Barnes-Hut Coulomb repulsion across all points into flat row-major `[N * 2]`.
+    pub fn compute_coulomb_repulsion_flat(
+        &self,
+        theta: S,
+        eps_sq: S,
+        out_flat: &mut [S],
+    ) -> CoreResult<()> {
+        let n = self.point_count();
+        let expected = n
+            .checked_mul(2)
+            .ok_or_else(|| CoreError::invalid_input("point_count * 2 overflows usize"))?;
+        if out_flat.len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                out_flat.len(),
+                "ArenaQuadtree2d::compute_coulomb_repulsion_flat",
+            ));
+        }
+        let theta_f = theta.to_f64();
+        let eps_sq_f = eps_sq.to_f64();
+        if !theta_f.is_finite() || theta_f < 0.0 {
+            return Err(CoreError::invalid_input("theta must be finite and >= 0.0"));
+        }
+        if !eps_sq_f.is_finite() || eps_sq_f <= 0.0 {
+            return Err(CoreError::invalid_input("eps_sq must be finite and > 0.0"));
+        }
+        if n < 2 {
+            out_flat.fill(S::ZERO);
+            return Ok(());
+        }
+
+        let theta_sq = theta_f * theta_f;
+        for i in 0..n {
+            let (fx, fy) = self.eval_point_coulomb_raw(i, theta_sq, eps_sq_f)?;
+            let base = i * 2;
+            out_flat[base] = S::from_f64(fx);
+            out_flat[base + 1] = S::from_f64(fy);
+        }
+        Ok(())
+    }
+
     /// Evaluates unnormalized Barnes-Hut generalized Maxent $q$-power repulsion `(fx, fy)` for
     /// vertex `point_idx` ($q > -2.0$):
     /// $\sum_{j \neq i} m_j \frac{x_i - x_j}{(d_{ij}^2 + \varepsilon^2)^{(q + 2)/2}}$.
@@ -307,6 +348,55 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
             let (fx, fy) = self.eval_point_maxent_raw(i, theta_sq, q, eps_sq_f)?;
             out_x[i] = S::from_f64(fx);
             out_y[i] = S::from_f64(fy);
+        }
+        Ok(())
+    }
+
+    /// Evaluates weighted Barnes-Hut generalized Maxent $q$-power repulsion ($q > -2.0$) into
+    /// flat row-major `[N * 2]`.
+    pub fn compute_maxent_repulsion_flat(
+        &self,
+        theta: S,
+        q: f64,
+        eps_sq: S,
+        out_flat: &mut [S],
+    ) -> CoreResult<()> {
+        let n = self.point_count();
+        let expected = n
+            .checked_mul(2)
+            .ok_or_else(|| CoreError::invalid_input("point_count * 2 overflows usize"))?;
+        if out_flat.len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                out_flat.len(),
+                "ArenaQuadtree2d::compute_maxent_repulsion_flat",
+            ));
+        }
+        let theta_f = theta.to_f64();
+        let eps_sq_f = eps_sq.to_f64();
+        if !theta_f.is_finite() || theta_f < 0.0 {
+            return Err(CoreError::invalid_input("theta must be finite and >= 0.0"));
+        }
+        if !q.is_finite() || q <= -2.0 {
+            return Err(CoreError::invalid_input("q must be finite and > -2.0"));
+        }
+        if !eps_sq_f.is_finite() || eps_sq_f <= 0.0 {
+            return Err(CoreError::invalid_input("eps_sq must be finite and > 0.0"));
+        }
+        if q == 0.0 {
+            return self.compute_coulomb_repulsion_flat(theta, eps_sq, out_flat);
+        }
+        if n < 2 {
+            out_flat.fill(S::ZERO);
+            return Ok(());
+        }
+
+        let theta_sq = theta_f * theta_f;
+        for i in 0..n {
+            let (fx, fy) = self.eval_point_maxent_raw(i, theta_sq, q, eps_sq_f)?;
+            let base = i * 2;
+            out_flat[base] = S::from_f64(fx);
+            out_flat[base + 1] = S::from_f64(fy);
         }
         Ok(())
     }

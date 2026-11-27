@@ -1,19 +1,22 @@
 //! $O(N \log N + K)$ axis-aligned 2D rectangle overlap detection via x-sweep + interval tree.
 
-use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, NodeExtents2d, Scalar,
+};
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
-
+mod sweep;
 #[cfg(test)]
 mod tests;
+
+use sweep::{Rect64, sweep_rects, sweep_rects64};
 
 /// Axis-aligned closed-boundary rectangle `[x_min, x_max] x [y_min, y_max]`.
 ///
 /// Two rectangles overlap iff their interiors intersect strictly (`a.x_min < b.x_max &&
 /// b.x_min < a.x_max && a.y_min < b.y_max && b.y_min < a.y_max`), so shared boundaries do not
 /// count as overlaps.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rect2d<S: Scalar = f64> {
     pub x_min: S,
     pub x_max: S,
@@ -53,12 +56,46 @@ impl<S: Scalar> Rect2d<S> {
         }
         let hw = width / S::TWO;
         let hh = height / S::TWO;
-        Ok(Self {
-            x_min: cx - hw,
-            x_max: cx + hw,
-            y_min: cy - hh,
-            y_max: cy + hh,
-        })
+        Self::new(cx - hw, cx + hw, cy - hh, cy + hh)
+    }
+
+    /// Constructs a [`Rect2d`] from center `(cx, cy)` and non-negative `(half_width, half_height)`.
+    pub fn from_center_extents(cx: S, cy: S, half_width: S, half_height: S) -> CoreResult<Self> {
+        if !cx.is_finite() || !cy.is_finite() || !half_width.is_finite() || !half_height.is_finite()
+        {
+            return Err(CoreError::non_finite("Rect2d::from_center_extents"));
+        }
+        if half_width < S::ZERO || half_height < S::ZERO {
+            return Err(CoreError::invalid_input(
+                "Rect2d half_width and half_height must be >= 0",
+            ));
+        }
+        Self::new(
+            cx - half_width,
+            cx + half_width,
+            cy - half_height,
+            cy + half_height,
+        )
+    }
+
+    /// Returns a validated copy with `x_min` replaced.
+    pub fn with_x_min(self, x_min: S) -> CoreResult<Self> {
+        Self::new(x_min, self.x_max, self.y_min, self.y_max)
+    }
+
+    /// Returns a validated copy with `x_max` replaced.
+    pub fn with_x_max(self, x_max: S) -> CoreResult<Self> {
+        Self::new(self.x_min, x_max, self.y_min, self.y_max)
+    }
+
+    /// Returns a validated copy with `y_min` replaced.
+    pub fn with_y_min(self, y_min: S) -> CoreResult<Self> {
+        Self::new(self.x_min, self.x_max, y_min, self.y_max)
+    }
+
+    /// Returns a validated copy with `y_max` replaced.
+    pub fn with_y_max(self, y_max: S) -> CoreResult<Self> {
+        Self::new(self.x_min, self.x_max, self.y_min, y_max)
     }
 
     /// Returns `true` if `self` and `other` have strictly overlapping interiors.
@@ -69,220 +106,6 @@ impl<S: Scalar> Rect2d<S> {
             && self.y_min < other.y_max
             && other.y_min < self.y_max
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Rect64 {
-    x_min: f64,
-    x_max: f64,
-    y_min: f64,
-    y_max: f64,
-}
-
-impl Rect64 {
-    #[inline]
-    fn overlaps(&self, other: &Self) -> bool {
-        self.x_min < other.x_max
-            && other.x_min < self.x_max
-            && self.y_min < other.y_max
-            && other.y_min < self.y_max
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct OrdF64(f64);
-
-impl PartialEq for OrdF64 {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.total_cmp(&other.0) == Ordering::Equal
-    }
-}
-
-impl Eq for OrdF64 {}
-
-impl PartialOrd for OrdF64 {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for OrdF64 {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.total_cmp(&other.0)
-    }
-}
-
-/// Edelsbrunner centered interval tree storing active y-intervals during x-sweep.
-///
-/// Every interval `[y_min, y_max]` is stored at the highest static node whose midpoint `y_mid`
-/// satisfies `y_min <= y_mid <= y_max`, giving $O(\log N)$ insert/remove and $O(\log N + K_q)$
-/// overlap reporting with zero false-positive node scans.
-struct IntervalTree {
-    nodes: Vec<IntervalNode>,
-}
-
-#[derive(Default)]
-struct IntervalNode {
-    y_mid: f64,
-    left: usize,
-    right: usize,
-    by_ymin: BTreeSet<(OrdF64, usize)>,
-    by_ymax: BTreeSet<(OrdF64, usize)>,
-}
-
-impl IntervalTree {
-    fn build(rects: &[Rect64]) -> Self {
-        let mut ys = Vec::with_capacity(rects.len() * 2);
-        for r in rects {
-            ys.push(r.y_min);
-            ys.push(r.y_max);
-        }
-        ys.sort_unstable_by(f64::total_cmp);
-        ys.dedup();
-
-        let mut tree = Self {
-            nodes: Vec::with_capacity(ys.len().saturating_mul(2) + 1),
-        };
-        if !ys.is_empty() {
-            tree.build_range(&ys);
-        }
-        tree
-    }
-
-    fn build_range(&mut self, ys: &[f64]) -> usize {
-        if ys.is_empty() {
-            return usize::MAX;
-        }
-        let mid = ys.len() / 2;
-        let idx = self.nodes.len();
-        self.nodes.push(IntervalNode {
-            y_mid: ys[mid],
-            left: usize::MAX,
-            right: usize::MAX,
-            by_ymin: BTreeSet::new(),
-            by_ymax: BTreeSet::new(),
-        });
-        let left = self.build_range(&ys[..mid]);
-        let right = self.build_range(&ys[mid + 1..]);
-        self.nodes[idx].left = left;
-        self.nodes[idx].right = right;
-        idx
-    }
-
-    fn insert(&mut self, rect_idx: usize, r: &Rect64) {
-        let mut cur = 0usize;
-        while cur != usize::MAX {
-            let y_mid = self.nodes[cur].y_mid;
-            if r.y_max < y_mid {
-                cur = self.nodes[cur].left;
-            } else if r.y_min > y_mid {
-                cur = self.nodes[cur].right;
-            } else {
-                self.nodes[cur].by_ymin.insert((OrdF64(r.y_min), rect_idx));
-                self.nodes[cur].by_ymax.insert((OrdF64(r.y_max), rect_idx));
-                return;
-            }
-        }
-    }
-
-    fn remove(&mut self, rect_idx: usize, r: &Rect64) {
-        let mut cur = 0usize;
-        while cur != usize::MAX {
-            let y_mid = self.nodes[cur].y_mid;
-            if r.y_max < y_mid {
-                cur = self.nodes[cur].left;
-            } else if r.y_min > y_mid {
-                cur = self.nodes[cur].right;
-            } else {
-                self.nodes[cur].by_ymin.remove(&(OrdF64(r.y_min), rect_idx));
-                self.nodes[cur].by_ymax.remove(&(OrdF64(r.y_max), rect_idx));
-                return;
-            }
-        }
-    }
-
-    fn query_overlaps(
-        &self,
-        node_idx: usize,
-        query_idx: usize,
-        q: &Rect64,
-        rects: &[Rect64],
-        stop_on_first: bool,
-        out: &mut Vec<(usize, usize)>,
-    ) -> bool {
-        if node_idx == usize::MAX || self.nodes.is_empty() {
-            return false;
-        }
-        let node = &self.nodes[node_idx];
-        let y_mid = node.y_mid;
-
-        if q.y_max <= y_mid {
-            for &(OrdF64(ymin), other) in &node.by_ymin {
-                if ymin >= q.y_max {
-                    break;
-                }
-                if q.overlaps(&rects[other]) {
-                    let pair = if query_idx < other {
-                        (query_idx, other)
-                    } else {
-                        (other, query_idx)
-                    };
-                    out.push(pair);
-                    if stop_on_first {
-                        return true;
-                    }
-                }
-            }
-            q.y_min < y_mid
-                && self.query_overlaps(node.left, query_idx, q, rects, stop_on_first, out)
-        } else if q.y_min >= y_mid {
-            for &(OrdF64(ymax), other) in node.by_ymax.iter().rev() {
-                if ymax <= q.y_min {
-                    break;
-                }
-                if q.overlaps(&rects[other]) {
-                    let pair = if query_idx < other {
-                        (query_idx, other)
-                    } else {
-                        (other, query_idx)
-                    };
-                    out.push(pair);
-                    if stop_on_first {
-                        return true;
-                    }
-                }
-            }
-            q.y_max > y_mid
-                && self.query_overlaps(node.right, query_idx, q, rects, stop_on_first, out)
-        } else {
-            // y_mid is strictly inside (q.y_min, q.y_max), so every interval at this node
-            // overlaps q in y.
-            for &(_, other) in &node.by_ymin {
-                if q.overlaps(&rects[other]) {
-                    let pair = if query_idx < other {
-                        (query_idx, other)
-                    } else {
-                        (other, query_idx)
-                    };
-                    out.push(pair);
-                    if stop_on_first {
-                        return true;
-                    }
-                }
-            }
-            if self.query_overlaps(node.left, query_idx, q, rects, stop_on_first, out) {
-                return true;
-            }
-            self.query_overlaps(node.right, query_idx, q, rects, stop_on_first, out)
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SweepEvent {
-    x: f64,
-    is_open: bool,
-    rect_idx: usize,
 }
 
 /// $O(N \log N + K)$ axis-aligned 2D rectangle overlap sweep detector.
@@ -317,6 +140,40 @@ impl RectangleOverlapSweep {
     ) -> CoreResult<bool> {
         let rects = layout_rects(layout, half_widths, half_heights)?;
         Self::has_overlaps(&rects)
+    }
+
+    /// Finds all overlapping node bounding-box pairs `(i, j)` (`i < j`) for any 2D
+    /// [`EuclideanLayout`] (`Layout2d` or 2D `LayoutNd`) and [`NodeExtents2d`] view.
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] if `layout.dims() != 2` or
+    /// `extents.len() != layout.len()`.
+    pub fn find_layout_extents_overlaps<L: EuclideanLayout + ?Sized>(
+        layout: &L,
+        extents: &NodeExtents2d<'_, L::Scalar>,
+    ) -> CoreResult<Vec<(usize, usize)>> {
+        let rects64 = layout_extents_rects64(
+            layout,
+            extents,
+            "RectangleOverlapSweep::find_layout_extents_overlaps",
+        )?;
+        Ok(sweep_rects64(&rects64, false))
+    }
+
+    /// Returns `true` if any two node bounding boxes in `layout` with `extents` overlap,
+    /// stopping on the first overlap.
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] if `layout.dims() != 2` or
+    /// `extents.len() != layout.len()`.
+    pub fn has_layout_extents_overlaps<L: EuclideanLayout + ?Sized>(
+        layout: &L,
+        extents: &NodeExtents2d<'_, L::Scalar>,
+    ) -> CoreResult<bool> {
+        let rects64 = layout_extents_rects64(
+            layout,
+            extents,
+            "RectangleOverlapSweep::has_layout_extents_overlaps",
+        )?;
+        Ok(!sweep_rects64(&rects64, true).is_empty())
     }
 }
 
@@ -360,80 +217,96 @@ fn layout_rects<S: Scalar>(
     Ok(rects)
 }
 
-fn sweep_rects<S: Scalar>(
-    rects: &[Rect2d<S>],
-    stop_on_first: bool,
-) -> CoreResult<Vec<(usize, usize)>> {
-    let n = rects.len();
+fn layout_extents_rects64<L: EuclideanLayout + ?Sized>(
+    layout: &L,
+    extents: &NodeExtents2d<'_, L::Scalar>,
+    context: &'static str,
+) -> CoreResult<Vec<Rect64>> {
+    if layout.dims() != 2 {
+        return Err(CoreError::dimension_mismatch(2, layout.dims(), context));
+    }
+    let n = layout.len();
+    if extents.len() != n {
+        return Err(CoreError::dimension_mismatch(n, extents.len(), context));
+    }
+    layout.validate_finite()?;
+    extents.validate()?;
+
     let mut rects64 = Vec::with_capacity(n);
-    for r in rects {
-        if !r.x_min.is_finite()
-            || !r.x_max.is_finite()
-            || !r.y_min.is_finite()
-            || !r.y_max.is_finite()
-        {
-            return Err(CoreError::non_finite("RectangleOverlapSweep"));
+    let push_box = |cx: f64, cy: f64, hw: f64, hh: f64, out: &mut Vec<Rect64>| -> CoreResult<()> {
+        let x_min = cx - hw;
+        let x_max = cx + hw;
+        let y_min = cy - hh;
+        let y_max = cy + hh;
+        if !x_min.is_finite() || !x_max.is_finite() || !y_min.is_finite() || !y_max.is_finite() {
+            return Err(CoreError::non_finite(context));
         }
-        if r.x_min > r.x_max || r.y_min > r.y_max {
-            return Err(CoreError::invalid_input(
-                "Rect2d must satisfy x_min <= x_max and y_min <= y_max",
-            ));
-        }
-        rects64.push(Rect64 {
-            x_min: r.x_min.to_f64(),
-            x_max: r.x_max.to_f64(),
-            y_min: r.y_min.to_f64(),
-            y_max: r.y_max.to_f64(),
+        out.push(Rect64 {
+            x_min,
+            x_max,
+            y_min,
+            y_max,
         });
-    }
+        Ok(())
+    };
 
-    if n < 2 {
-        return Ok(Vec::new());
-    }
-
-    let mut events = Vec::with_capacity(n * 2);
-    for (i, r) in rects64.iter().enumerate() {
-        events.push(SweepEvent {
-            x: r.x_min,
-            is_open: true,
-            rect_idx: i,
-        });
-        events.push(SweepEvent {
-            x: r.x_max,
-            is_open: false,
-            rect_idx: i,
-        });
-    }
-
-    // Close events precede open events at identical x because strict boundary touching
-    // (a.x_max == b.x_min) is non-overlapping.
-    events.sort_unstable_by(|a, b| {
-        a.x.total_cmp(&b.x)
-            .then_with(|| a.is_open.cmp(&b.is_open))
-            .then_with(|| a.rect_idx.cmp(&b.rect_idx))
-    });
-
-    let mut tree = IntervalTree::build(&rects64);
-    let mut active = vec![false; n];
-    let mut out = Vec::new();
-
-    for ev in events {
-        let r = &rects64[ev.rect_idx];
-        if ev.is_open {
-            let found = tree.query_overlaps(0, ev.rect_idx, r, &rects64, stop_on_first, &mut out);
-            if stop_on_first && found {
-                return Ok(out);
+    match layout.as_euclidean_storage() {
+        EuclideanStorageRef::Soa2d { x, y } => {
+            if let Some((hw_slice, hh_slice)) = extents.as_slices() {
+                for i in 0..n {
+                    push_box(
+                        x[i].to_f64(),
+                        y[i].to_f64(),
+                        hw_slice[i].to_f64(),
+                        hh_slice[i].to_f64(),
+                        &mut rects64,
+                    )?;
+                }
+            } else {
+                for i in 0..n {
+                    let (hw, hh) = extents.extents(i)?;
+                    push_box(
+                        x[i].to_f64(),
+                        y[i].to_f64(),
+                        hw.to_f64(),
+                        hh.to_f64(),
+                        &mut rects64,
+                    )?;
+                }
             }
-            if r.x_min < r.x_max {
-                tree.insert(ev.rect_idx, r);
-                active[ev.rect_idx] = true;
+        }
+        EuclideanStorageRef::FlatNd {
+            coords, dims: 2, ..
+        } => {
+            if let Some((hw_slice, hh_slice)) = extents.as_slices() {
+                for i in 0..n {
+                    let base = i * 2;
+                    push_box(
+                        coords[base].to_f64(),
+                        coords[base + 1].to_f64(),
+                        hw_slice[i].to_f64(),
+                        hh_slice[i].to_f64(),
+                        &mut rects64,
+                    )?;
+                }
+            } else {
+                for i in 0..n {
+                    let base = i * 2;
+                    let (hw, hh) = extents.extents(i)?;
+                    push_box(
+                        coords[base].to_f64(),
+                        coords[base + 1].to_f64(),
+                        hw.to_f64(),
+                        hh.to_f64(),
+                        &mut rects64,
+                    )?;
+                }
             }
-        } else if active[ev.rect_idx] {
-            tree.remove(ev.rect_idx, r);
-            active[ev.rect_idx] = false;
+        }
+        _ => {
+            return Err(CoreError::dimension_mismatch(2, layout.dims(), context));
         }
     }
 
-    out.sort_unstable();
-    Ok(out)
+    Ok(rects64)
 }

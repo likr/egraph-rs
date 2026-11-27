@@ -154,6 +154,45 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
         Ok(S::from_f64(denom))
     }
 
+    /// Evaluates normalized Barnes-Hut KL repulsive forces into flat row-major `[N * 2]` and returns `total_z`.
+    pub fn compute_kl_repulsion_flat(&self, theta: S, out_flat: &mut [S]) -> CoreResult<S> {
+        let n = self.point_count();
+        let expected = n
+            .checked_mul(2)
+            .ok_or_else(|| CoreError::invalid_input("point_count * 2 overflows usize"))?;
+        if out_flat.len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                out_flat.len(),
+                "ArenaQuadtree2d::compute_kl_repulsion_flat",
+            ));
+        }
+        let theta_f = theta.to_f64();
+        if !theta_f.is_finite() || theta_f < 0.0 {
+            return Err(CoreError::invalid_input("theta must be finite and >= 0.0"));
+        }
+        if n < 2 {
+            out_flat.fill(S::ZERO);
+            return Ok(S::ONE);
+        }
+
+        let theta_sq = theta_f * theta_f;
+        let mut total_z = 0.0_f64;
+        for i in 0..n {
+            let (zi, fx, fy) = self.eval_point_kl_raw(i, theta_sq)?;
+            total_z += zi;
+            let base = i * 2;
+            out_flat[base] = S::from_f64(fx);
+            out_flat[base + 1] = S::from_f64(fy);
+        }
+
+        let denom = total_z.max(1e-12);
+        for v in out_flat.iter_mut() {
+            *v = S::from_f64(v.to_f64() / denom);
+        }
+        Ok(S::from_f64(denom))
+    }
+
     /// Evaluates unnormalized Barnes-Hut entropy repulsion `(fx, fy)` for vertex `point_idx`:
     /// $\sum_{j \neq i} \frac{y_i - y_j}{\|y_i - y_j\|(\|y_i - y_j\| + \varepsilon_r)}$.
     pub fn eval_point_entropy_raw(
@@ -303,6 +342,49 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
             let (fx, fy) = self.eval_point_entropy_raw(i, theta_sq, eps_f)?;
             out_x[i] = S::from_f64(fx);
             out_y[i] = S::from_f64(fy);
+        }
+        Ok(())
+    }
+
+    /// Evaluates Barnes-Hut entropy repulsion forces across all points into flat row-major `[N * 2]`.
+    pub fn compute_entropy_repulsion_flat(
+        &self,
+        theta: S,
+        epsilon_r: S,
+        out_flat: &mut [S],
+    ) -> CoreResult<()> {
+        let n = self.point_count();
+        let expected = n
+            .checked_mul(2)
+            .ok_or_else(|| CoreError::invalid_input("point_count * 2 overflows usize"))?;
+        if out_flat.len() != expected {
+            return Err(CoreError::dimension_mismatch(
+                expected,
+                out_flat.len(),
+                "ArenaQuadtree2d::compute_entropy_repulsion_flat",
+            ));
+        }
+        let theta_f = theta.to_f64();
+        let eps_f = epsilon_r.to_f64();
+        if !theta_f.is_finite() || theta_f < 0.0 {
+            return Err(CoreError::invalid_input("theta must be finite and >= 0.0"));
+        }
+        if !eps_f.is_finite() || eps_f <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "epsilon_r must be finite and > 0.0",
+            ));
+        }
+        if n < 2 {
+            out_flat.fill(S::ZERO);
+            return Ok(());
+        }
+
+        let theta_sq = theta_f * theta_f;
+        for i in 0..n {
+            let (fx, fy) = self.eval_point_entropy_raw(i, theta_sq, eps_f)?;
+            let base = i * 2;
+            out_flat[base] = S::from_f64(fx);
+            out_flat[base + 1] = S::from_f64(fy);
         }
         Ok(())
     }

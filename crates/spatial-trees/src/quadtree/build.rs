@@ -1,6 +1,11 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Scalar};
 
 use super::{ArenaNode, ArenaQuadtree2d, COINCIDENT_DIST_SQ};
+
+enum CoordSource2d<'a, S: Scalar> {
+    Xy { xs: &'a [S], ys: &'a [S] },
+    Flat { coords: &'a [S], num_nodes: usize },
+}
 
 impl<S: Scalar> ArenaQuadtree2d<S> {
     /// Rebuilds the quadtree from `layout`, validating that every coordinate is finite.
@@ -10,7 +15,11 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
 
     /// Rebuilds the quadtree from separate `x` and `y` slices with unit masses (`1.0`).
     pub fn build_xy(&mut self, xs: &[S], ys: &[S]) -> CoreResult<()> {
-        self.build_inner(xs, ys, None, "ArenaQuadtree2d::build_xy")
+        self.build_inner(
+            CoordSource2d::Xy { xs, ys },
+            None,
+            "ArenaQuadtree2d::build_xy",
+        )
     }
 
     /// Rebuilds the weighted quadtree from `layout` and per-point `masses`.
@@ -20,20 +29,97 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
 
     /// Rebuilds the weighted quadtree from separate `x`, `y`, and `masses` slices.
     pub fn build_weighted_xy(&mut self, xs: &[S], ys: &[S], masses: &[f64]) -> CoreResult<()> {
-        self.build_inner(xs, ys, Some(masses), "ArenaQuadtree2d::build_weighted_xy")
+        self.build_inner(
+            CoordSource2d::Xy { xs, ys },
+            Some(masses),
+            "ArenaQuadtree2d::build_weighted_xy",
+        )
+    }
+
+    /// Rebuilds the 2D quadtree from any 2D [`EuclideanLayout`] (`Layout2d` or 2D `LayoutNd`) with
+    /// unit masses (`1.0`).
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] when `layout.dims() != 2`.
+    pub fn build_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+    ) -> CoreResult<()> {
+        self.build_euclidean_inner(layout, None, "ArenaQuadtree2d::build_euclidean")
+    }
+
+    /// Rebuilds the weighted 2D quadtree from any 2D [`EuclideanLayout`] (`Layout2d` or 2D
+    /// `LayoutNd`) and per-point `masses`.
+    ///
+    /// Returns [`CoreError::DimensionMismatch`] when `layout.dims() != 2` or
+    /// `masses.len() != layout.len()`.
+    pub fn build_weighted_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        masses: &[f64],
+    ) -> CoreResult<()> {
+        self.build_euclidean_inner(
+            layout,
+            Some(masses),
+            "ArenaQuadtree2d::build_weighted_euclidean",
+        )
+    }
+
+    fn build_euclidean_inner<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        masses: Option<&[f64]>,
+        context: &'static str,
+    ) -> CoreResult<()> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => {
+                self.build_inner(CoordSource2d::Xy { xs: x, ys: y }, masses, context)
+            }
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims,
+            } => {
+                if dims != 2 {
+                    return Err(CoreError::dimension_mismatch(2, dims, context));
+                }
+                self.build_inner(CoordSource2d::Flat { coords, num_nodes }, masses, context)
+            }
+            EuclideanStorageRef::Soa3d { .. } => Err(CoreError::dimension_mismatch(2, 3, context)),
+        }
     }
 
     fn build_inner(
         &mut self,
-        xs: &[S],
-        ys: &[S],
+        source: CoordSource2d<'_, S>,
         masses: Option<&[f64]>,
         context: &'static str,
     ) -> CoreResult<()> {
-        if xs.len() != ys.len() {
-            return Err(CoreError::dimension_mismatch(xs.len(), ys.len(), context));
+        let n = match source {
+            CoordSource2d::Xy { xs, ys } => {
+                if xs.len() != ys.len() {
+                    return Err(CoreError::dimension_mismatch(xs.len(), ys.len(), context));
+                }
+                xs.len()
+            }
+            CoordSource2d::Flat { coords, num_nodes } => {
+                let expected = num_nodes
+                    .checked_mul(2)
+                    .ok_or_else(|| CoreError::invalid_input("num_nodes * 2 overflows usize"))?;
+                if coords.len() != expected {
+                    return Err(CoreError::dimension_mismatch(
+                        expected,
+                        coords.len(),
+                        context,
+                    ));
+                }
+                num_nodes
+            }
+        };
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_input(
+                "ArenaQuadtree2d point count exceeds u32::MAX",
+            ));
         }
-        let n = xs.len();
         if let Some(m) = masses {
             if m.len() != n {
                 return Err(CoreError::dimension_mismatch(
@@ -53,9 +139,20 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
                 }
             }
         }
-        for i in 0..n {
-            if !xs[i].is_finite() || !ys[i].is_finite() {
-                return Err(CoreError::non_finite(context));
+        match source {
+            CoordSource2d::Xy { xs, ys } => {
+                for i in 0..n {
+                    if !xs[i].is_finite() || !ys[i].is_finite() {
+                        return Err(CoreError::non_finite(context));
+                    }
+                }
+            }
+            CoordSource2d::Flat { coords, .. } => {
+                for &v in coords {
+                    if !v.is_finite() {
+                        return Err(CoreError::non_finite(context));
+                    }
+                }
             }
         }
 
@@ -67,22 +164,41 @@ impl<S: Scalar> ArenaQuadtree2d<S> {
         self.coords_x.reserve(n);
         self.coords_y.reserve(n);
         self.masses.reserve(n);
-        let mut min_x = xs[0].to_f64();
-        let mut max_x = min_x;
-        let mut min_y = ys[0].to_f64();
-        let mut max_y = min_y;
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
 
-        for i in 0..n {
-            let x = xs[i].to_f64();
-            let y = ys[i].to_f64();
-            let m = masses.map_or(1.0, |ms| ms[i]);
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-            self.coords_x.push(x);
-            self.coords_y.push(y);
-            self.masses.push(m);
+        match source {
+            CoordSource2d::Xy { xs, ys } => {
+                for i in 0..n {
+                    let x = xs[i].to_f64();
+                    let y = ys[i].to_f64();
+                    let m = masses.map_or(1.0, |ms| ms[i]);
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                    min_y = min_y.min(y);
+                    max_y = max_y.max(y);
+                    self.coords_x.push(x);
+                    self.coords_y.push(y);
+                    self.masses.push(m);
+                }
+            }
+            CoordSource2d::Flat { coords, .. } => {
+                for i in 0..n {
+                    let base = i * 2;
+                    let x = coords[base].to_f64();
+                    let y = coords[base + 1].to_f64();
+                    let m = masses.map_or(1.0, |ms| ms[i]);
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                    min_y = min_y.min(y);
+                    max_y = max_y.max(y);
+                    self.coords_x.push(x);
+                    self.coords_y.push(y);
+                    self.masses.push(m);
+                }
+            }
         }
 
         self.leaf_of_point.resize(n, u32::MAX);

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, LayoutNd, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, LayoutNd, Scalar};
 
 use super::types::LEAF_SIZE;
 
@@ -40,6 +40,56 @@ impl<S: Scalar> DynamicKdTree<S> {
         Self::from_flat(layout.coords(), layout.num_nodes(), layout.dims())
     }
 
+    /// Builds a runtime-dimension KD-tree from any [`EuclideanLayout`].
+    pub fn from_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(layout: &L) -> CoreResult<Self> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => {
+                Self::from_soa_axes(&[x, y], "DynamicKdTree::from_euclidean")
+            }
+            EuclideanStorageRef::Soa3d { x, y, z } => {
+                Self::from_soa_axes(&[x, y, z], "DynamicKdTree::from_euclidean")
+            }
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims,
+            } => Self::from_flat(coords, num_nodes, dims),
+        }
+    }
+
+    fn from_soa_axes(axes: &[&[S]], context: &'static str) -> CoreResult<Self> {
+        let dims = axes.len();
+        let num_nodes = axes[0].len();
+        for axis in axes.iter().skip(1) {
+            if axis.len() != num_nodes {
+                return Err(CoreError::dimension_mismatch(
+                    num_nodes,
+                    axis.len(),
+                    context,
+                ));
+            }
+        }
+        if u32::try_from(num_nodes).is_err() {
+            return Err(CoreError::invalid_input(
+                "DynamicKdTree point count exceeds u32::MAX",
+            ));
+        }
+        let expected = num_nodes
+            .checked_mul(dims)
+            .ok_or_else(|| CoreError::invalid_input("num_nodes * dims overflows usize"))?;
+        let mut coords_by_id = Vec::with_capacity(expected);
+        for i in 0..num_nodes {
+            for axis in axes {
+                let v = axis[i];
+                if !v.is_finite() {
+                    return Err(CoreError::non_finite(context));
+                }
+                coords_by_id.push(v.to_f64());
+            }
+        }
+        Self::build_from_coords_by_id(coords_by_id, num_nodes, dims)
+    }
+
     /// Builds a runtime-dimension KD-tree from row-major flat coordinates `[num_nodes * dims]`.
     pub fn from_flat(coords: &[S], num_nodes: usize, dims: usize) -> CoreResult<Self> {
         if dims == 0 {
@@ -70,7 +120,15 @@ impl<S: Scalar> DynamicKdTree<S> {
             }
             coords_by_id.push(v.to_f64());
         }
+        Self::build_from_coords_by_id(coords_by_id, num_nodes, dims)
+    }
 
+    fn build_from_coords_by_id(
+        coords_by_id: Vec<f64>,
+        num_nodes: usize,
+        dims: usize,
+    ) -> CoreResult<Self> {
+        let expected = num_nodes * dims;
         let entry_indices: Vec<u32> = (0..num_nodes).map(|i| i as u32).collect();
         let entry_coords = vec![0.0_f64; expected];
 
